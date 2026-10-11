@@ -961,6 +961,19 @@ signal map_clicked(gx: float, gy: float)
 signal map_dragged(gx: float, gy: float)
 signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a drag gesture.
 
+## ET-D2: one pointer sample of a left-button drag, carrying what `map_dragged`
+## cannot -- the device's pressure and tilt. Emitted immediately BEFORE
+## `map_dragged` for the same motion event, with the same `gx`/`gy`, so a listener
+## may cache it and read it from the `map_dragged` that follows; `map_dragged`'s
+## own signature and listeners are unchanged (EDITING_TOOLS_SCOPE.md ET-D2).
+##
+## `pressure`, `tilt_x` and `tilt_y` are **`null` unless `is_pen`**: Godot reports
+## `pressure = 1.0` for every held mouse button and `0.0` for a touch-emulated
+## drag that carried none, and either, passed on, would be a plausible reading
+## that is not one (MISTAKES.md: never encode "no value" as a plausible value).
+## `is_pen` is `_stroke_pen_seen`'s rule below. It never fires for a hover.
+signal map_stroke_sample(gx: float, gy: float, pressure: Variant, tilt_x: Variant, tilt_y: Variant, is_pen: bool)
+
 ## The reference's `contextmenu` handler on `view` (line 25888) ->
 ## `_civCtxShow` (25857). `PARITY_AUDIT.md` §5 item 2: no `MOUSE_BUTTON_RIGHT`
 ## handler existed anywhere under `godot-project/`, which left the reference's
@@ -1178,6 +1191,18 @@ var _sample_pin: Dictionary = {}
 ## with `_touch_armed`/`_touch_ring_active`: a press is claimed by exactly one
 ## of the three, in that order.
 var _pin_drag_active := false
+## ET-D2: true once the current left-button stroke has shown a pen's signature --
+## `pressure` strictly between 0 and 1 on any sample, a non-zero `tilt`, or
+## `pen_inverted`. A latch for the stroke, cleared on every LMB press and release,
+## so one light sample keeps the rest of the stroke's pressure. Measured in
+## Godot 4.7.1 on this machine (`EDITING_TOOLS_SCOPE.md` ET-D2): a real OS mouse
+## reports pressure exactly 1.0 with tilt (0, 0) while held; Windows-injected pen
+## input reports a ramp such as 0.2803..0.8789 and tilt = degrees / 90; a
+## touch-emulated drag reports the ScreenDrag's own pressure (0.0 when it
+## carried none). A pen pressed to exactly 1.0 with no tilt and never lighter is
+## therefore indistinguishable from a mouse and is treated as one: a labelled
+## judgement, not verified against real pen hardware (none was available).
+var _stroke_pen_seen := false
 ## Drawn radius, physical px (this control carries no content scale, the same
 ## reason `_TOUCH_SLOP` above is a bare literal).
 const _SAMPLE_PIN_RADIUS := 9.0
@@ -7188,6 +7213,7 @@ func _gui_input(event: InputEvent) -> void:
 		## the armed tool must not ALSO see this as a drag -- `_ring_pointer_cb`
 		## above already forwarded the same motion to the ring's own slide.
 		if p["valid"] and not _touch_ring_active and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			_emit_stroke_sample(mm, p["gx"], p["gy"])
 			map_dragged.emit(p["gx"], p["gy"])
 
 	elif event is InputEventMouseButton:
@@ -7267,6 +7293,7 @@ func _gui_input(event: InputEvent) -> void:
 		if rect.size.x <= 0.0:
 			return
 		var interior := _interior_rect(rect)
+		_stroke_pen_seen = false   ## ET-D2: every press and release starts a stroke afresh.
 		if mb.pressed:
 			## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1.4): a touch that lands on the
 			## sample pin drags it instead of arming the ordinary hold sequence --
@@ -7349,6 +7376,18 @@ func _gui_input(event: InputEvent) -> void:
 			var p := _grid_point(mb.position, rect, interior)
 			map_released.emit(p["gx"], p["gy"], p["valid"])
 
+
+## ET-D2: emits `map_stroke_sample` for one left-held motion event, updating the
+## `_stroke_pen_seen` latch first. Pressure and tilt are read from the event only
+## once `is_pen` holds, and are `null` (not 1.0, not 0.0) before then. Must never
+## be called for a hover, and never changes what `map_dragged` receives.
+func _emit_stroke_sample(mm: InputEventMouseMotion, gx: float, gy: float) -> void:
+	if (mm.pressure > 0.0 and mm.pressure < 1.0) or mm.tilt != Vector2.ZERO or mm.pen_inverted:
+		_stroke_pen_seen = true
+	if _stroke_pen_seen:
+		map_stroke_sample.emit(gx, gy, mm.pressure, mm.tilt.x, mm.tilt.y, true)
+	else:
+		map_stroke_sample.emit(gx, gy, null, null, null, false)
 
 ## Let a withheld touch press through, unchanged and in its original order --
 ## the selection first, then the click, exactly as the mouse branch emits them

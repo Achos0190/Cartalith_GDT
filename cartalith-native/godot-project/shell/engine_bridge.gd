@@ -4033,6 +4033,49 @@ func paint_stroke_at(gx: float, gy: float) -> void:
 	mark_world_dirty()
 	world_gen.paint_stroke_at(gx, gy)
 
+## True when the loaded extension carries the whole ET-D2 stroke surface
+## (`paint_stroke_begin`/`_sample`/`_end`). Callers fall back to the one-dab
+## `paint_stroke_at` path when it is `false`; checked without `_has()` so an older
+## extension is not warned about on every press.
+func has_paint_stroke_api() -> bool:
+	return world_gen != null and world_gen.has_method("paint_stroke_begin") 		and world_gen.has_method("paint_stroke_sample") and world_gen.has_method("paint_stroke_end")
+
+## Opens a paint stroke on the engine's stroke engine (`WorldGen.paint_stroke_begin`).
+## `options` takes the engine's own keys (spacing, smoothing, symmetry, scatter,
+## pressure_size ...; every one optional, a wrong type or range refuses the whole
+## call). The active brush and layer are snapshotted at this call. `false` on
+## refusal or without the API; never marks the world dirty (no cell changed yet).
+func paint_stroke_begin(options: Dictionary = {}) -> bool:
+	if not _has("paint_stroke_begin"):
+		return false
+	return world_gen.paint_stroke_begin(options)
+
+## Feeds one pointer sample into the open stroke (`WorldGen.paint_stroke_sample`).
+## `pressure` is a float in 0..1 or **`null`** (the device reported none: pass
+## null, never 1.0 or 0.0); `tilt` is a `Vector2` or `null`. Returns the engine's
+## reply: `{dabs: n}` plus the preview-patch keys (`texture`, `x`, `y`, `w`, `h`)
+## when `n > 0`; **`{}` means refusal** (no open stroke, a bad argument). Test
+## `has("texture")` before blitting. Marks the world dirty when dabs landed.
+func paint_stroke_sample(gx: float, gy: float, pressure: Variant, tilt: Variant, t_ms: int) -> Dictionary:
+	if not _has("paint_stroke_sample"):
+		return {}
+	var reply: Dictionary = world_gen.paint_stroke_sample(gx, gy, pressure, tilt, t_ms)
+	if int(reply.get("dabs", 0)) > 0:
+		mark_world_dirty()
+	return reply
+
+## Closes the open stroke and flushes the smoothing tail
+## (`WorldGen.paint_stroke_end`); same reply shape as `paint_stroke_sample`. `{}`
+## without the API or with no stroke open. Must be called for every stroke
+## `paint_stroke_begin` accepted, or the engine keeps it open.
+func paint_stroke_end() -> Dictionary:
+	if not _has("paint_stroke_end"):
+		return {}
+	var reply: Dictionary = world_gen.paint_stroke_end()
+	if int(reply.get("dabs", 0)) > 0:
+		mark_world_dirty()
+	return reply
+
 ## Overlay of the active layer's committed paint plus this session's draft
 ## (`WorldGen.build_paint_preview_texture`). `null` without a world or the API.
 func build_paint_preview_texture() -> Texture2D:

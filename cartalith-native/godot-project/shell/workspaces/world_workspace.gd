@@ -578,6 +578,10 @@ func _build() -> void:
 	app.tool_armed.connect(_on_tool_armed)
 
 	bridge.generation_started.connect(_reset_stage_progress)
+	## ET-D2: a new or loaded world REPLACES the engine's `PaintEditor`, taking any
+	## open stroke with it, so only the shell's own flag needs clearing.
+	bridge.generation_started.connect(_paint_stroke_forget)
+	bridge.world_loaded.connect(_paint_stroke_forget)
 	bridge.generation_stage.connect(_on_generation_stage)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
@@ -3344,6 +3348,10 @@ func _sculpt_escape() -> void:
 ## leaving both Sculpt and Paint hides the brush cursor, which only either of
 ## those two tools ever shows.
 func _on_tool_armed(id: String) -> void:
+	## ET-D2: arming any tool (even Paint again) ends an open paint stroke first,
+	## so a tool change mid-drag can never leave the engine's stroke open.
+	_paint_stroke_finish()
+	_paint_connect_stroke_sample()
 	## **No `_sculpt_body.visible` write here any more, 2026-09-21.** It carried
 	## the 2026-09-07 armed-tool gate (*"a single equality covers both edges"*),
 	## and Ruling L replaces that mechanism with SCULPT mode itself -- see
@@ -4027,7 +4035,14 @@ func rebuild_paint_panel() -> void:
 
 # -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
 #
-# Paint has no begin/end pair (`paint_stroke_at`'s own doc: every call is
+# **Since ET-D2 (2026-10-11) a gesture is an engine STROKE** when the extension
+# has `paint_stroke_begin/_sample/_end`: click opens it, each drag samples it, and
+# release closes it, so one gesture is one undo step with dabs spaced along the
+# path (the 18 % default) rather than one dab per pointer sample. The paragraph
+# that follows describes the one-dab path, which is still the fallback when the
+# stroke API is absent or refuses.
+#
+# Paint has no begin/end pair on the one-dab path (`paint_stroke_at`'s own doc: every call is
 ## already one complete, independently undo-able draft entry), so click and
 # drag both just apply one dab; release only refreshes the panel (painted
 # counts, Commit's disabled state) once per gesture rather than once per
@@ -4051,6 +4066,15 @@ func rebuild_paint_panel() -> void:
 # per motion sample right.
 
 func _paint_apply_dab(gx: float, gy: float) -> void:
+	_paint_sync_brush_with_shift()
+	bridge.paint_stroke_at(gx, gy)
+	_paint_show_preview()
+
+## Pushes the brush to the engine with Shift OR-ed in as a momentary Erase
+## (§4.5.2). Shared by the one-dab path and `_paint_click`'s stroke begin, since
+## the engine snapshots the brush when a stroke opens: Shift is read once per
+## stroke there, at the press (ET-D2; it was read per dab before).
+func _paint_sync_brush_with_shift() -> void:
 	## §4.5.2: "Drag paints cells, ⇧ erases" -- Shift is a momentary modifier
 	## on top of whatever the Erase toggle already says, not a replacement
 	## for it, so this ORs the two rather than overwriting `_paint_brush`.
@@ -4059,8 +4083,6 @@ func _paint_apply_dab(gx: float, gy: float) -> void:
 		int(_paint_brush["value"]), float(_paint_brush["radius"]),
 		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
 		bool(_paint_brush["erase"]) or shift, bool(_paint_brush["land_only"]))
-	bridge.paint_stroke_at(gx, gy)
-	_paint_show_preview()
 
 ## The bounded upload, with the full raster as its fallback rather than as its
 ## default. `set_preview_patch()` returns `false` for exactly one reason that
@@ -4083,19 +4105,117 @@ func _paint_show_preview() -> void:
 		return
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 
-## Map press with the paint tool: applies the first dab via `_paint_apply_dab`.
+## ET-D2 stroke state. `true` between an accepted `paint_stroke_begin` and the
+## `paint_stroke_end` (or `_paint_stroke_forget`) that closes it. Never left `true`
+## past a release, a tool change, a world change or a focus loss.
+var _paint_stroke_open := false
+## `map_stroke_sample`'s latest payload (`gx`, `gy`, `pressure`, `tilt`), cached for
+## the `map_dragged` that follows it in the same motion event. `pressure` and
+## `tilt` hold `null` when the device reported none. Empty = nothing pending.
+var _paint_pending_sample: Dictionary = {}
+## Set by a forced end (focus loss): the rest of that gesture's drag samples are
+## ignored rather than starting a second, unintended stroke. Cleared by the next
+## `_paint_click` and by a release.
+var _paint_stroke_aborted := false
+
+## Subscribes once to the viewport's `map_stroke_sample`. Done on arm rather than
+## in `_build()` because the viewport need not exist when the workspace is built.
+## Idempotent; a no-op when the viewport lacks the signal.
+func _paint_connect_stroke_sample() -> void:
+	var vp = app.viewport if app != null else null
+	if vp == null or not vp.has_signal("map_stroke_sample"):
+		return
+	if not vp.is_connected("map_stroke_sample", _on_map_stroke_sample):
+		vp.connect("map_stroke_sample", _on_map_stroke_sample)
+
+## `map_stroke_sample` sink: caches the sample for the `map_dragged` that
+## immediately follows it. `pressure`/`tilt` are `null` unless `is_pen`; this keeps
+## them as `null` (never defaulting them), and builds `tilt` as a `Vector2` only
+## when a pen reported one.
+func _on_map_stroke_sample(gx: float, gy: float, pressure: Variant, tilt_x: Variant, tilt_y: Variant, _is_pen: bool) -> void:
+	_paint_pending_sample = {
+		"gx": gx, "gy": gy, "pressure": pressure,
+		"tilt": Vector2(float(tilt_x), float(tilt_y)) if tilt_x != null and tilt_y != null else null}
+
+## Blits one stroke reply's preview patch. `{}` (refusal) and `{dabs: 0}` carry no
+## `texture` and are left alone: `set_preview_patch` of a texture-less dictionary
+## would CLEAR the preview. Falls back to the full raster exactly like
+## `_paint_show_preview`.
+func _paint_show_reply(reply: Dictionary) -> void:
+	if not reply.has("texture"):
+		return
+	if app.viewport.set_preview_patch(reply):
+		return
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
+
+## Map press with the paint tool. With the engine's stroke API present it opens a
+## stroke (brush and layer snapshotted, default options: spacing 18 %) and feeds
+## the press point as the first sample, pressure and tilt `null` (a press event
+## carries neither). Without the API, or if the engine refuses the begin, it is
+## today's one-dab `_paint_apply_dab`.
 func _paint_click(gx: float, gy: float) -> void:
+	_paint_stroke_finish()
+	_paint_stroke_aborted = false
+	_paint_pending_sample = {}
+	if bridge.has_paint_stroke_api():
+		_paint_sync_brush_with_shift()
+		if bridge.paint_stroke_begin({}):
+			_paint_stroke_open = true
+			_paint_show_reply(bridge.paint_stroke_sample(gx, gy, null, null, Time.get_ticks_msec()))
+			return
 	_paint_apply_dab(gx, gy)
 
-## Map motion with the paint tool: applies one dab per sample via
-## `_paint_apply_dab`.
+## Map motion with the paint tool: one engine sample per motion event while a
+## stroke is open, using the pressure/tilt `map_stroke_sample` cached for this
+## very event (matched on `gx`/`gy`; a mismatch means none arrived, so `null`).
+## With no stroke open it is the one-dab path, unless the stroke was force-ended
+## mid-gesture, in which case the rest of the drag paints nothing.
 func _paint_drag(gx: float, gy: float) -> void:
+	if _paint_stroke_open:
+		var pressure: Variant = null
+		var tilt: Variant = null
+		var ps := _paint_pending_sample
+		if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
+			pressure = ps["pressure"]
+			tilt = ps["tilt"]
+		_paint_pending_sample = {}
+		_paint_show_reply(bridge.paint_stroke_sample(gx, gy, pressure, tilt, Time.get_ticks_msec()))
+		return
+	if _paint_stroke_aborted:
+		return
 	_paint_apply_dab(gx, gy)
 
-## End of a paint stroke (arguments unused): rebuilds the body once and
-## refreshes the tool bar, right dock and phone Paint column. UI only; the
-## draft stays uncommitted.
+## Closes an open stroke (flushing the engine's smoothing tail) and blits the tail
+## patch. A no-op when none is open. Called from every path that must not leave a
+## stroke open: release, tool change, a new click, focus loss.
+func _paint_stroke_finish() -> void:
+	if not _paint_stroke_open:
+		return
+	_paint_stroke_open = false
+	_paint_pending_sample = {}
+	_paint_show_reply(bridge.paint_stroke_end())
+
+## Drops the shell's record of an open stroke WITHOUT calling the engine. For a
+## world change only: the engine's `PaintEditor` was replaced wholesale, and
+## `world_gen` may be owned by the generation worker at that moment.
+func _paint_stroke_forget() -> void:
+	_paint_stroke_open = false
+	_paint_pending_sample = {}
+
+## Focus loss ends an open stroke: the button-up may be delivered to another
+## window and never reach the map, which would leave the stroke open forever. The
+## remainder of that gesture then paints nothing (`_paint_stroke_aborted`).
+func _notification(what: int) -> void:
+	if (what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT) and _paint_stroke_open:
+		_paint_stroke_finish()
+		_paint_stroke_aborted = true
+
+## End of a paint stroke: closes the engine stroke (flushing its smoothing tail),
+## then rebuilds the body once and refreshes the tool bar, right dock and phone
+## Paint column. UI only; the draft stays uncommitted. Arguments unused.
 func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
+	_paint_stroke_finish()
+	_paint_stroke_aborted = false
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
 	_refresh_tool_bar()

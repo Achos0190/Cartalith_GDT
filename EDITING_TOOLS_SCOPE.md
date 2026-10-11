@@ -462,6 +462,8 @@ patch path (`build_paint_preview_patch` is reused as is).
 - (2) GDScript: `map_overlay.gd`, `viewport_host.gd`, `engine_bridge.gd` and
   `world_workspace.gd`, against a stub `#[func]` list agreed in the brief.
 
+**Measured while building ET-D2 (2026-10-11; Godot 4.7.1, Windows 11, windowed, winink driver; the pen and touch rows are SYNTHETIC injection, no real pen or digitizer was available).** A real OS mouse reports pressure 1.0 while the button is held and 0.0 on hover, tilt (0, 0), `pen_inverted` false. An OS-injected pen (PT_PEN) reports pressure as value/1024 (0.2803 to 0.8789 for 200 to 900) and tilt as degrees/90 ((20, -10) degrees gives (0.2222, -0.1111)); a flat 1024 at zero tilt reports 1.0 with (0, 0), identical to a mouse. Godot touch emulation (`ScreenTouch`/`ScreenDrag` through `parse_input_event`) yields mouse motion with device -1 and the drag's own pressure (0.0 when none is set). The `is_pen` rule in `map_overlay.gd::_emit_stroke_sample` is therefore: pressure strictly between 0 and 1 seen at least once in the stroke, or non-zero tilt, or `pen_inverted`, latched for the stroke. It is UNVERIFIED against real hardware: a pen pressed to exactly 1.0 with no tilt reads as a mouse, and an Android finger reporting a mid-range pressure would read as a pen.
+
 ### ET-D3 — sculpt on the engine (height, including River)
 
 **Design.** Sculpt strokes are continuous polylines, so **spacing does not

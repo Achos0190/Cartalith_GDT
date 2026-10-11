@@ -39,6 +39,10 @@ signal layers_button_pressed()
 signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
 signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
 signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end primitive.
+## ET-D2: `map_overlay.gd`'s `map_stroke_sample`, relayed under the same
+## `_generating()` gate as `map_dragged`. Fires just before `map_dragged` for the
+## same motion; `pressure`/`tilt_x`/`tilt_y` are `null` unless `is_pen`.
+signal map_stroke_sample(gx: float, gy: float, pressure: Variant, tilt_x: Variant, tilt_y: Variant, is_pen: bool)
 ## `_civCtxShow`'s right-click (`map_overlay.gd`'s own signal, re-emitted). A
 ## shim since CM-1: nothing in the shell connects to it; `context_requested`
 ## below is the live path.
@@ -700,6 +704,8 @@ func _ready() -> void:
 		if not _generating(): map_dragged.emit(gx, gy))
 	overlay.map_released.connect(func(gx, gy, valid):
 		if not _generating(): map_released.emit(gx, gy, valid))
+	overlay.map_stroke_sample.connect(func(gx, gy, pressure, tilt_x, tilt_y, is_pen):
+		if not _generating(): map_stroke_sample.emit(gx, gy, pressure, tilt_x, tilt_y, is_pen))
 	overlay.map_right_clicked.connect(func(gx, gy, hit, pos):
 		if not _generating(): map_right_clicked.emit(gx, gy, hit, pos))
 	overlay.context_requested.connect(func(req):
