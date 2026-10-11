@@ -2967,6 +2967,18 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		_footer_stat(footer, _rate_suffix("day"), "%.1f" % DccUnits.to_unit(float(r.get("daily_km", 0.0))))
 		_footer_stat(footer, "load", "%.0f%%" % (load_ratio * 100.0), "warn" if load_ratio > 0.9 else "text_bright")
 		_footer_stat(footer, "ascent", "%s m" % _fmt_thousands(float(s.get("gain", 0.0)), 0))
+		## Ruling CD item 2: the stage's mean grade, the input of the trace's
+		## `slope (Tobler)` row (`_TRACE_TERMS["slope"]` names this stat as its
+		## source). `jp_stage_dict` OMITS `slope_grade`/`slope_on_way` when the
+		## stage has no slope data -- a river or sea stage, or a world with no
+		## elevation raster -- and `MISTAKES.md`'s absent-value rule applies: the
+		## stat is simply not drawn then, never a bare `0.0 %` (which would read
+		## as "measured flat"). A fraction x 100, not a distance, so Preferences
+		## > Units has nothing to convert. The strip is an `HFlowContainer`, so
+		## one more pair wraps rather than widening the dock.
+		if s.has("slope_grade"):
+			_footer_stat(footer, "slope", "%.1f %%%s" % [float(s["slope_grade"]) * 100.0,
+				" · on a way" if bool(s.get("slope_on_way", false)) else ""])
 		_footer_stat(footer, "arrive", "~day %.0f (travel only)" % travel_days_so_far)
 
 ## One label/value pair in the inspector footer.
@@ -4371,6 +4383,23 @@ const _TRACE_TERMS := {
 		"party": "Stage matrix · terrain · biome", "stage": ""},
 	"route": {"label": "road quality", "field": "route_cond",
 		"party": "Route conditions · Road quality", "stage": "Road quality"},
+	## Ruling CD item 2 (batch 3, 2026-10-11): the engine emits a `slope` term
+	## (`cartalith-civ`'s `jp_calc_land`, `term("slope", "<n> % grade[ · on a
+	## way]", factor)`) on a LAND leg whose stage carries slope data, and on no
+	## other leg -- so this row is only ever looked up for those. The factor is
+	## Tobler's (1993) uphill branch normalised to flat ground, `exp(-3.5 x share
+	## x grade)`, share 0.5 on a way and 1 off one; hence the label.
+	##
+	## **No plan field drives it** (`field` is `""`): slope is measured off the
+	## terrain, not chosen on any form, so no stage override can re-point it at
+	## the inspector the way `route_cond` can. The one control that SHOWS the
+	## input is the stage inspector's footer strip, whose `slope` stat
+	## (`_rebuild_inspector`) prints the same `slope_grade` the term's detail
+	## quotes -- hence `party` names that surface and `stage` stays `""`.
+	## Before this row existed the source cell read `no source mapped for
+	## slope` (the gap `_trace_source`'s own fallback exists to expose).
+	"slope": {"label": "slope (Tobler)", "field": "",
+		"party": "Stage inspector · slope", "stage": ""},
 	"group": {"label": "column class", "field": "group_size",
 		"party": "Party · Traveler · Group size", "stage": "Group size"},
 	"pace": {"label": "party pace", "field": "pace",
