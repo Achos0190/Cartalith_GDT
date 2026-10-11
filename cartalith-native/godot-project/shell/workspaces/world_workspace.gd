@@ -663,6 +663,26 @@ var _crs_build_deferred := false
 var _finalize_refresh_deferred := false
 var _pg_rebuild_deferred := false
 
+## **The gate for a handler a CLICK or a DRAG reaches directly** (found-bug sweep 2026-10-11,
+## G2). The flag-and-replay gates above serve signal listeners that rebuild a panel; a button
+## or slider handler instead WRITES the engine (`sculpt_commit`, `sculpt_apply_preset`,
+## `sculpt_set_globals`, `paint_set_brush` ...), and while a worker holds the `WorldGen` every
+## such call is the `Gd<T>::bind() failed` panic (logged once per click). The panel's buttons
+## are still clickable then -- a draft stays enabled across a Generate -- so the handler must
+## refuse itself.
+##
+## Returns `true` when the caller must STOP (a generation or landmark run is in flight) and says
+## so in the status bar, naming what was not done, so a refused click is never silent. A write
+## is SKIPPED, not queued: replaying a stale click after the run would apply it to a different
+## world. Returns `false` (go ahead) otherwise, and for a null bridge. Never call an engine
+## `#[func]` before it; never use it for a read (reads use the deferred-flag gates above).
+func _engine_busy(what: String) -> bool:
+	if bridge == null or not bridge.generating:
+		return false
+	if app != null:
+		app.set_status("hint", "Not done: %s -- the world is generating. Try again when it finishes." % what, "warn")
+	return true
+
 ## Replays every gated call that was skipped while the worker owned the engine.
 ## Connected in `setup()` to `generation_finished`, `landmark_finished` and
 ## `landmark_refine_finished`. Does nothing while still generating (a replay must
@@ -2883,6 +2903,8 @@ func _build_feature_picker(parent: Control) -> void:
 ## `bridge.sculpt_set_feature`, arms the "sculpt" tool and rebuilds the Sculpt
 ## body. Never draws a stroke.
 func _on_feature_button_armed(key: String) -> void:
+	if _engine_busy("selecting the %s feature" % key):
+		return
 	bridge.sculpt_set_feature(key)
 	app.arm_tool("sculpt")
 	_build_sculpt(_sculpt_body)
@@ -2978,6 +3000,8 @@ func _ring_freehand_group(armed: String, current_feature: String, finalized: boo
 ## + `sculpt_set_freehand_mode`), arm the sculpt tool, rebuild the Sculpt body
 ## if it still exists.
 func _arm_ring_freehand(mode_key: String) -> void:
+	if _engine_busy("arming Freehand · %s" % mode_key):
+		return
 	bridge.sculpt_set_feature("freehand")
 	bridge.sculpt_set_freehand_mode(mode_key)
 	app.arm_tool("sculpt")
@@ -3032,6 +3056,8 @@ func _build_presets(parent: Control) -> void:
 ## tool, rebuilds the Sculpt body. Applies parameters only -- no stroke, no
 ## commit.
 func _on_preset_pressed(index: int) -> void:
+	if _engine_busy("applying the sculpt preset"):
+		return
 	bridge.sculpt_apply_preset(index)
 	app.arm_tool("sculpt")
 	_build_sculpt(_sculpt_body)
@@ -3070,6 +3096,8 @@ func _build_feature_params(parent: Control) -> void:
 ## `bridge.sculpt_set_feature_params({key: v})`. Affects points captured after
 ## the change, not stamps already on the draft.
 func _on_feature_param_changed(v: float, key: String) -> void:
+	if _engine_busy("changing %s" % key):
+		return
 	bridge.sculpt_set_feature_params({key: v})
 
 ## §5.2's `#sculptModeSeg`, shown only for Freehand -- "Raise/Lower/Smooth
@@ -3093,6 +3121,8 @@ func _build_freehand_modes(parent: Control) -> void:
 ## Sub-mode dropdown handler: `bridge.sculpt_set_freehand_mode(modes[i])`; `i`
 ## indexes the same `modes` array the choice was built from.
 func _on_freehand_mode_changed(i: int, modes: PackedStringArray) -> void:
+	if _engine_busy("changing the Freehand sub-mode"):
+		return
 	bridge.sculpt_set_freehand_mode(String(modes[i]))
 
 ## §5.2's "Brush & noise · global" table -- applies to every feature. The
@@ -3141,7 +3171,13 @@ func _build_brush_globals(parent: Control) -> void:
 	var seed_label := DccTheme.mono_label("Seed", "text_dim", DccTheme.FS_SMALL)
 	seed_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
 	seed_row.add_child(seed_label)
-	var seed_readout := DccTheme.mono_label(str(bridge.sculpt_get_seed()), "text", DccTheme.FS_SMALL)
+	## A negative seed means "no seed": the engine reports -1 before any `generate()` and the
+	## bridge -1 for a missing binding (`sculpt_get_seed`'s doc), while 0 is a REAL u32 seed. So
+	## dash below 0 and never print the sentinel as if it were a seed (found-bug sweep 2026-10-11, R7).
+	var seed_now := bridge.sculpt_get_seed()
+	var seed_readout := DccTheme.mono_label(str(seed_now) if seed_now >= 0 else "—", "text", DccTheme.FS_SMALL)
+	if seed_now < 0:
+		seed_readout.tooltip_text = "No sculpt seed yet: generate a world first (the sculpt editor is created with the world)."
 	seed_readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seed_row.add_child(seed_readout)
 	var dice := Button.new()
@@ -3157,12 +3193,16 @@ func _build_brush_globals(parent: Control) -> void:
 ## Slider handler for a Brush & noise global: `bridge.sculpt_set_globals({key:
 ## v})`, rounded when `is_int`. Does not rebuild the panel or touch the draft.
 func _on_global_changed(v: float, key: String, is_int: bool) -> void:
+	if _engine_busy("changing %s" % key):
+		return
 	bridge.sculpt_set_globals({key: (round(v) if is_int else v)})
 
 ## An enum global's dropdown index **is** the value the engine stores, so
 ## this passes it straight through rather than mapping through a name: the
 ## `options` array came from the same ordinal the engine reads back.
 func _on_global_enum_changed(i: int, key: String) -> void:
+	if _engine_busy("changing %s" % key):
+		return
 	bridge.sculpt_set_globals({key: float(i)})
 
 ## The one thing a user could reasonably expect the Falloff control to do
@@ -3209,12 +3249,16 @@ func _build_grid_snap(sec: Control) -> void:
 func _on_grid_snap_changed(i: int, steps: PackedFloat64Array) -> void:
 	## Index 0 is Off, so `i - 1` indexes the ladder. A 0.0 step is what the
 	## engine reads as "off"; it is never stored as a snap value.
+	if _engine_busy("changing the grid snap"):
+		return
 	bridge.sculpt_set_grid_snap(0.0 if i <= 0 else float(steps[i - 1]))
 
 ## Dice button: gives the sculpt noise a random seed via
 ## `bridge.sculpt_set_seed(randi())` and rebuilds the Sculpt body to show it.
 ## Non-deterministic by design; this is not the world seed.
 func _on_sculpt_seed_dice() -> void:
+	if _engine_busy("rolling a new sculpt seed"):
+		return
 	bridge.sculpt_set_seed(randi())
 	_build_sculpt(_sculpt_body)
 
@@ -3381,6 +3425,10 @@ func _on_force_lake() -> void:
 ## texture, invalidates LOD tiles, clears the preview and rebuilds the panel.
 ## Must never reset the camera (hence no `ViewportHost.refresh()`).
 func _on_sculpt_commit() -> void:
+	## G2: the Commit button stays enabled over a live draft while a Generate runs, and the
+	## commit bakes into the heightfield the worker is building -- refuse, don't panic.
+	if _engine_busy("Commit to map"):
+		return
 	bridge.sculpt_commit("sculpt")
 	## `build_color_texture()` reads the live (now-baked) field fresh on every
 	## call, so setting it directly is enough -- `ViewportHost.refresh()`
@@ -3405,6 +3453,8 @@ func _on_sculpt_commit() -> void:
 ## rebuilds the Sculpt body and refreshes the right dock's stack. The map is
 ## untouched.
 func _on_sculpt_discard() -> void:
+	if _engine_busy("Discard draft"):
+		return
 	bridge.sculpt_discard()
 	app.viewport.set_preview_texture(null)
 	_build_sculpt(_sculpt_body)
@@ -4137,6 +4187,8 @@ func _build_paint(parent: Control) -> void:
 ## not "none"), then rebuilds the body, right-dock paint and the on-map
 ## "original" sync.
 func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
+	if _engine_busy("changing the paint target field"):
+		return
 	_paint_layer = String(layers[i])
 	bridge.paint_set_layer(_paint_layer)
 	_paint_brush["value"] = 1
@@ -4211,6 +4263,12 @@ func _on_paint_land_only_changed(v: bool) -> void:
 ## softness, erase, land_only) to `bridge.paint_set_brush`. Every brush edit
 ## goes through here so the engine never holds a partial brush.
 func _sync_paint_brush() -> void:
+	## G2: silent skip (no hint) while a worker holds the engine -- every brush edit calls this,
+	## and a slider drag would repeat the message per sample. Nothing is lost: `_paint_brush`
+	## already holds the new value and `_paint_sync_brush_with_shift` pushes the whole brush
+	## before the next dab, so the engine catches up on the first stroke after the run.
+	if bridge.generating:
+		return
 	bridge.paint_set_brush(
 		int(_paint_brush["value"]), float(_paint_brush["radius"]),
 		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
@@ -4221,6 +4279,8 @@ func _sync_paint_brush() -> void:
 ## tiles, clears the draft preview and refreshes the tool bar and right dock.
 ## Must not move the camera.
 func _on_paint_commit() -> void:
+	if _engine_busy("Commit paint"):
+		return
 	var summary: Dictionary = bridge.paint_commit()
 	## The same pair `_on_sculpt_commit` uses, for the same reason: since
 	## 2026-08-24 `build_color_texture()` composites the committed paint
@@ -4245,6 +4305,8 @@ func _on_paint_commit() -> void:
 ## surviving committed layer (marked as the dab base) and refreshes the body,
 ## tool bar and right dock. Committed paint is kept.
 func _on_paint_discard() -> void:
+	if _engine_busy("Discard paint draft"):
+		return
 	bridge.paint_discard()
 	## `true`: the committed layer that survives a discard is exactly the base
 	## the next dab's window composites onto, so marking it here is what keeps
@@ -5622,6 +5684,8 @@ func _pg_sculpt(parent: Control) -> void:
 			hint = String(d.get("hint", ""))
 		chips.add_child(_pg_chip_button(String(d.get("label", key)), key == current, 42,
 			func():
+				if _engine_busy("selecting the %s feature" % key):
+					return
 				bridge.sculpt_set_feature(key)
 				app.arm_tool("sculpt")
 				_pg_rebuild()))
@@ -5641,6 +5705,8 @@ func _pg_sculpt(parent: Control) -> void:
 		var idx := i
 		presets.add_child(_pg_chip_button(String(pd.get("name", "Preset %d" % i)), false, 38,
 			func():
+				if _engine_busy("applying the sculpt preset"):
+					return
 				bridge.sculpt_apply_preset(idx)
 				app.arm_tool("sculpt")
 				_pg_rebuild()))
@@ -5669,6 +5735,10 @@ func _pg_sculpt(parent: Control) -> void:
 	for state in ["normal", "hover", "pressed", "focus"]:
 		arm.add_theme_stylebox_override(state, dashed)
 	arm.pressed.connect(func():
+		## G2: arming runs `tool_armed` listeners that read the engine (`icon_disarm`,
+		## `sculpt_get_globals` in the tool bar), so it is refused while a worker holds it.
+		if _engine_busy("arming Sculpt"):
+			return
 		app.arm_tool("sculpt")
 		if app.has_method("_set_phone_detent"):
 			app._set_phone_detent("peek"))
@@ -5744,6 +5814,8 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	## (`grep -n "^func sculpt_set_global" engine_bridge.gd`, 2026-09-07), and
 	## `_on_sculpt_global()` writes it the same way for the desktop.
 	s.drag_ended.connect(func(_c: bool):
+		if _engine_busy("changing %s" % key):
+			return
 		bridge.sculpt_set_globals({key: (round(s.value) if is_int else s.value)}))
 
 ## **The PAINT column** -- the phone's way to arm a paint tool and reach its

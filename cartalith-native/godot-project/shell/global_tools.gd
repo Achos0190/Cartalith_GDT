@@ -256,7 +256,12 @@ static func measure_from(app, mode: String, gx: float, gy: float) -> void:
 # -- Measure ----------------------------------------------------------------
 
 ## The chain's own points, tracked here in parallel with the engine: `
-## measure_result()`'s `segments` are `{cells, km, bearing_deg}` per leg, with
+## measure_result()`'s `segments` are `{cells, km, bearing_deg}` per leg -- but
+## `bearing_deg` is OMITTED for a zero-length leg (and the result's
+## `overall_bearing_deg` for fewer than two points or a chain ending on its
+## start; `measure_section`'s `bearing_deg` for a zero-length section), so read
+## it with `has()` and dash it with its reason, never default it to 0
+## (found-bug sweep 2026-10-11, R6/G4; `right_dock.gd::_bearing_text`) -- with
 ## no positions of their own, so the drawn polyline needs a copy kept where
 ## the clicks actually land. The five non-Distance modes never touch the
 ## engine's chain at all -- they are stateless queries over these same points

@@ -1090,6 +1090,14 @@ func _build_undo_redo(p: PopupMenu) -> void:
 	## "N steps saved · M MB". Rebuilt on every popup because both change
 	## with every commit -- there is no signal to subscribe to.
 	var refresh_rows := func():
+		## **Skipped while a worker holds the engine** (found-bug sweep 2026-10-11, G6, found by
+		## the ET-C4 agent): every read below (`undo_stats`, `can_undo_any`, the labels) is a
+		## `WorldGen` call, and a look-history commit mid-generation reaches this through the
+		## `lh_sig.changed` connection, which was the `bind() failed` panic. The rows keep the
+		## state they had and are re-evaluated by the signals wired below, which now include the
+		## two landmark runs (they set `generating` without `generation_finished`).
+		if _bridge.generating:
+			return
 		var stats: Dictionary = _bridge.undo_stats()
 		## Ruling BY item 2: the shared look history (ramp / biome colours /
 		## style) answers this row whenever the most recent edit was a look edit
@@ -1135,7 +1143,8 @@ func _build_undo_redo(p: PopupMenu) -> void:
 		var lh_sig = _host.get("look_history")
 		if lh_sig != null:
 			lh_sig.changed.connect(refresh_undo_rows)
-		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed",
+				"landmark_finished", "landmark_refine_finished"]:
 			_bridge.connect(sig, func(_a = null): refresh_undo_rows())
 	refresh_undo_rows()
 

@@ -3781,14 +3781,48 @@ func _measure_primary() -> Dictionary:
 			if _measure_result.has("length_km"):
 				return {"value": float(_measure_result["length_km"]), "unit": "km"}
 		"bearing":
-			if not segs.is_empty():
-				return {"value": float((segs[0] as Dictionary).get("bearing_deg", 0.0)), "unit": "deg"}
+			## `has()`, not `get(.., 0.0)`: the engine OMITS `bearing_deg` for a zero-length leg
+			## (found-bug sweep 2026-10-11, R6), and a defaulted 0.0 would read as "due north" and
+			## be saved, copied and exported as a real measurement (MISTAKES.md, "Return, marshal or
+			## default a value that can be absent").
+			if not segs.is_empty() and (segs[0] as Dictionary).has("bearing_deg"):
+				return {"value": float((segs[0] as Dictionary)["bearing_deg"]), "unit": "deg"}
 		_:
 			## Distance. `segments` empty means a one-point chain, which
 			## `_build_measure_distance` already treats as no reading.
 			if not segs.is_empty() and _measure_result.has("total_km"):
 				return {"value": float(_measure_result["total_km"]), "unit": "km"}
 	return {}
+
+## The one reason a leg has no bearing, said wherever a bearing is dashed. The engine omits
+## `bearing_deg` only for a zero-length leg or section (`infra_tools_bridge::compass_bearing`
+## answers `None` when both endpoints are the same cell, and `measure_section` follows it), so
+## this is the whole truth and not a guess. Found-bug sweep 2026-10-11, R6/G4.
+const NO_BEARING_REASON := "zero length"
+
+## A bearing key of a measure dictionary as the dock prints it: `"%03d°"`, or `"—"` when the
+## engine omitted the key. **Never** a default number -- 0 reads as due north and 180 as due
+## south, and a zero-length leg has neither (MISTAKES.md, "Return, marshal or default a value
+## that can be absent"). Pure; reads only `d`.
+static func _bearing_text(d: Dictionary, key: String) -> String:
+	if not d.has(key):
+		return "—"
+	return "%03d°" % int(round(float(d[key])))
+
+## The reciprocal of the same bearing key (`"%03d°"` of bearing + 180), or `"—"` when the key is
+## absent for the same reason as `_bearing_text`. Pure; reads only `d`.
+static func _reciprocal_text(d: Dictionary, key: String) -> String:
+	if not d.has(key):
+		return "—"
+	return "%03d°" % int(round(fmod(float(d[key]) + 180.0, 360.0)))
+
+## Why `overall_bearing_deg` is absent, as visible words. The engine omits it for fewer than two
+## points and for a chain whose last point is its first (no direction either way); `point_count`
+## tells the two apart. Pure; reads only `r`.
+static func _overall_bearing_reason(r: Dictionary) -> String:
+	if int(r.get("point_count", 0)) < 2:
+		return "needs two points"
+	return "chain ends on its start"
 
 ## The collapsed dock's one number, per mode. Values from `_measure_primary()`;
 ## the affixes ("r ", " section") and the per-mode precision are presentation
@@ -3855,10 +3889,16 @@ func _build_measure_distance(body: Control) -> void:
 	var segs := DccWidgets.group(sec, "Segments")
 	for i in segments.size():
 		var seg: Dictionary = segments[i]
-		var b := float(seg.get("bearing_deg", 0.0))
-		_field(segs, "%d" % (i + 1), "%s · %03d° · ↺ %03d°" % [
-			DccUnits.format(float(seg.get("km", 0.0))), int(round(b)), int(round(fmod(b + 180.0, 360.0)))],
-			"Bearing is this port's own convention: 0° = north, clockwise. ↺ is its reciprocal.")
+		## A zero-length leg has no bearing key at all (the engine omits it): dash it with its
+		## reason instead of printing 000° · ↺ 180°, which would claim a direction it lacks.
+		if seg.has("bearing_deg"):
+			_field(segs, "%d" % (i + 1), "%s · %s · ↺ %s" % [
+				DccUnits.format(float(seg.get("km", 0.0))), _bearing_text(seg, "bearing_deg"), _reciprocal_text(seg, "bearing_deg")],
+				"Bearing is this port's own convention: 0° = north, clockwise. ↺ is its reciprocal.")
+		else:
+			_field(segs, "%d" % (i + 1), "%s · — (%s)" % [
+				DccUnits.format(float(seg.get("km", 0.0))), NO_BEARING_REASON],
+				"This leg starts and ends on the same cell, so it has no direction: no bearing and no reciprocal.")
 
 	_build_measure_derived(body)
 	_build_measure_actions(body)
@@ -3872,12 +3912,15 @@ func _build_measure_bearing(body: Control) -> void:
 			"Click two points. The first is the observer, the second the target.")
 		return
 	var seg: Dictionary = segments[0]
-	var b := float(seg.get("bearing_deg", 0.0))
 	var sec := DccWidgets.section(body, "Measure · bearing")
-	_accent_readout(sec, "Bearing", "%03d°" % int(round(b)),
+	## Both rows dash together when the engine omitted `bearing_deg` (a zero-length leg), and the
+	## reason is printed under them -- a bare dash would not say why.
+	_accent_readout(sec, "Bearing", _bearing_text(seg, "bearing_deg"),
 		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.",
 		true)
-	_field(sec, "Reciprocal", "%03d°" % int(round(fmod(b + 180.0, 360.0))))
+	_field(sec, "Reciprocal", _reciprocal_text(seg, "bearing_deg"))
+	if not seg.has("bearing_deg"):
+		DccWidgets.note(sec, "No bearing: %s. Both points are the same cell, so there is no direction to read." % NO_BEARING_REASON)
 	_field(sec, "Distance", DccUnits.format(float(seg.get("km", 0.0)), 1))
 	_build_measure_derived(body)
 	_build_measure_actions(body)
@@ -3892,8 +3935,14 @@ func _build_measure_derived(body: Control) -> void:
 	var diff := total - straight
 	_field(sec, "Straight line", DccUnits.format(straight, 1),
 		("Along-path exceeds straight-line by %s." % DccUnits.format(diff, 1)) if diff > 0.01 else "")
-	var ob := float(_measure_result.get("overall_bearing_deg", 0.0))
-	_field(sec, "Overall bearing", "%03d° · ↺ %03d°" % [int(round(ob)), int(round(fmod(ob + 180.0, 360.0)))])
+	## `overall_bearing_deg` is omitted for fewer than two points and for a chain that ends on its
+	## start (no direction): dash it with that reason, never 000° · ↺ 180°.
+	if _measure_result.has("overall_bearing_deg"):
+		_field(sec, "Overall bearing", "%s · ↺ %s" % [
+			_bearing_text(_measure_result, "overall_bearing_deg"), _reciprocal_text(_measure_result, "overall_bearing_deg")])
+	else:
+		_field(sec, "Overall bearing", "— (%s)" % _overall_bearing_reason(_measure_result),
+			"The first-to-last direction is undefined here: the engine reports none for fewer than two points or a chain that ends where it started.")
 	var relief := bool(_measure_result.get("has_relief", false))
 	_field(sec, "Sinuosity", ("%.2f" % float(_measure_result.get("sinuosity", 1.0))) if relief else "—",
 		"Along-path over straight-line. 1.00 is a straight run.", relief)
@@ -4111,7 +4160,16 @@ func _on_measure_copy() -> void:
 		lines.append("%s\t%s" % [key, str(v)])
 	for i in (_measure_result.get("segments", []) as Array).size():
 		var seg: Dictionary = (_measure_result["segments"] as Array)[i]
-		lines.append("segment %d\t%.4f km\t%.2f deg" % [i + 1, float(seg.get("km", 0.0)), float(seg.get("bearing_deg", 0.0))])
+		## An omitted bearing is copied as a dash with its reason, never as 0.00 deg.
+		if seg.has("bearing_deg"):
+			lines.append("segment %d\t%.4f km\t%.2f deg" % [i + 1, float(seg.get("km", 0.0)), float(seg["bearing_deg"])])
+		else:
+			lines.append("segment %d\t%.4f km\t— (%s)" % [i + 1, float(seg.get("km", 0.0)), NO_BEARING_REASON])
+	## A key the engine omitted is named, so the clipboard text says "absent" rather than staying silent.
+	if _measure_mode in ["distance", "bearing"] and not _measure_result.is_empty() and not _measure_result.has("overall_bearing_deg"):
+		lines.append("overall_bearing_deg\t— (%s)" % _overall_bearing_reason(_measure_result))
+	if _measure_mode == "section" and not _measure_result.is_empty() and not _measure_result.has("bearing_deg"):
+		lines.append("bearing_deg\t— (%s)" % NO_BEARING_REASON)
 	DisplayServer.clipboard_set("\n".join(lines))
 	app.set_status("hint", "measurement copied to the clipboard", "text_ghost")
 
@@ -4284,7 +4342,11 @@ func _build_measure_section(body: Control) -> void:
 
 	var sec := DccWidgets.section(body, "Section line")
 	_accent_readout(sec, "Length", DccUnits.format(float(r.get("length_km", 0.0))), "", true)
-	_field(sec, "Bearing", "%03d°" % int(round(float(r.get("bearing_deg", 0.0)))))
+	## `bearing_deg` is omitted for a zero-length section (A and B the same cell): dash it, say why.
+	_field(sec, "Bearing", _bearing_text(r, "bearing_deg"),
+		"" if r.has("bearing_deg") else "A and B are the same cell, so the line has no direction.")
+	if not r.has("bearing_deg"):
+		DccWidgets.note(sec, "No bearing: %s. A and B are the same cell." % NO_BEARING_REASON)
 	_field(sec, "3D length", DccUnits.format(float(r.get("length_3d_km", 0.0))),
 		"Following the sampled ground rather than the map plane.")
 	_field(sec, "Samples · spacing", "%d · %s" % [samples.size(),

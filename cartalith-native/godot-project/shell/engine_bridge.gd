@@ -623,8 +623,16 @@ func param_set(key: String, value) -> bool:
 
 ## Restores the whole table (`WorldGen.reset_params`) or just `keys` from the
 ## defaults captured at `_ready` (unknown keys are skipped), then `mark_dirty()`.
-## Unlike `param_set` it has no `generating` guard: never call it mid-generate.
+##
+## **Refused outright while `generating`**, like `param_set` (found-bug sweep 2026-10-11, R7):
+## the worker holds the `WorldGen` for the whole run, so reaching `reset_params` /
+## `set_params` then is the `Gd<T>::bind() failed` panic the multi-GPU block documents,
+## and a write could not have affected the world being built anyway. The two menu callers
+## already test `generating`; this stops a third one that forgets. Nothing is marked dirty
+## for a refused call, since nothing changed.
 func reset_params(keys: Array = []) -> void:
+	if generating:
+		return
 	if keys.is_empty():
 		world_gen.reset_params()
 	else:
@@ -1773,17 +1781,30 @@ func _preset_slug(name: String) -> String:
 	return out.strip_edges() if out != "" else "preset"
 
 ## Writes the appearance in force as a JSON preset under `user://appearance_presets`
-## (`WorldGen.save_appearance_preset(path, name)`). `false` on failure or no preset API.
+## (`WorldGen.save_appearance_preset(path, name)`). `false` on failure, no preset API, or while
+## `generating` (the worker holds the engine then; reaching it is the `bind() failed` panic).
+##
+## Marks the world dirty first, unconditionally, like `load_ramp_preset` (found-bug sweep
+## 2026-10-11, R7, as the coordinator specified). **Conservative, not load-bearing:** the engine
+## writes a sidecar file under `user://appearance_presets` and does not touch the world, so this
+## costs one redundant autosave and the unsaved-changes star after a save; it exists so the two
+## preset wrappers and `load_ramp_preset` behave alike (`mark_world_dirty`'s own doc on why a
+## spurious mark is the recoverable error).
 func save_appearance_preset(name: String) -> bool:
-	if not preset_api:
+	if not preset_api or generating:
 		return false
+	mark_world_dirty()
 	return world_gen.save_appearance_preset(_preset_path(name), name)
 
 ## Reads the preset file for `name` and makes it the look (`WorldGen.load_appearance_preset`).
-## `false`, nothing changed, on any read/parse error or no preset API.
+## `false`, nothing changed, on any read/parse error, no preset API, or while `generating`.
+## Marks the world dirty first, unconditionally, for the reason `save_appearance_preset` gives
+## (R7): the look in force changed, and a failed read costs one redundant autosave, a missed
+## change costs the user's work.
 func load_appearance_preset(name: String) -> bool:
-	if not preset_api:
+	if not preset_api or generating:
 		return false
+	mark_world_dirty()
 	return world_gen.load_appearance_preset(_preset_path(name))
 
 ## `[[display name, slug], ...]` for every preset file in `PRESET_DIR`, read
@@ -2481,8 +2502,12 @@ func sculpt_set_freehand_mode(mode_key: String) -> bool:
 	mark_world_dirty()
 	return world_gen.sculpt_set_freehand_mode(mode_key)
 
-## The seed the next stroke will capture (`WorldGen.sculpt_get_seed`). `-1` means
-## the binding is missing; the engine itself reports `0` before any world.
+## The seed the next stroke will capture (`WorldGen.sculpt_get_seed`). **A negative value
+## means "no seed"**: `-1` is what this wrapper returns for a missing binding AND what the
+## engine itself reports before any `generate()` (`sculpt_seed_readout` in `lib.rs`). `0` is
+## a REAL seed (a u32 seed of 0 is valid), so a caller must test `< 0`, never `== 0`, and dash
+## a negative one (`world_workspace.gd::_build_brush_globals`). Corrected 2026-10-11 (R7): this
+## doc used to say the engine reports `0` before any world.
 func sculpt_get_seed() -> int:
 	if not _has("sculpt_get_seed"):
 		return -1
@@ -2825,15 +2850,22 @@ func sculpt_discard() -> int:
 # an older cdylib without these five `#[func]`s reports "nothing to undo"
 # rather than erroring.
 
+## True when the height stack has a step to revert. **Guarded on `generating`** (found-bug
+## sweep 2026-10-11, G6): `menus.gd::refresh_undo_rows` and `look_history.gd::wants_undo` both
+## reach this on every look-history commit, and the worker holds the `WorldGen` for the whole
+## run, so an unguarded call was the `Gd<WorldGen>::bind() failed` panic. Nothing can be undone
+## mid-generation (a generate clears the stack anyway), so `false` is the true answer, the same
+## reasoning `redo_available` records; the rows re-evaluate on `generation_finished`.
 func can_undo() -> bool:
-	if not _has("can_undo"):
+	if generating or not _has("can_undo"):
 		return false
 	return world_gen.can_undo()
 
 ## The operation `undo_last()` would revert ("Sculpt commit", "Carve fjords"),
-## or "" when there is nothing to revert.
+## or "" when there is nothing to revert -- and "" while `generating` (same guard and reason
+## as `can_undo`, G6).
 func undo_label() -> String:
-	if not _has("undo_label"):
+	if generating or not _has("undo_label"):
 		return ""
 	return String(world_gen.undo_label())
 
@@ -2939,10 +2971,25 @@ func discard_redo_tail() -> int:
 ## `depth`, `max_steps`, `bytes`, `budget_bytes`, `step_bytes`, `label` --
 ## the reference's `#undoMem` readout as data. Empty dictionary on an older
 ## cdylib.
+##
+## **While `generating` this answers the last value read** (`_undo_stats_cache`, the
+## `grid_size()` precedent), because the worker holds the `WorldGen` and a real call is the
+## `bind() failed` panic -- found-bug sweep 2026-10-11, G6: every look-history commit reaches
+## this through `menus.gd::refresh_undo_rows`. The cached copy is the world as it stood before
+## the run (a generate then clears the stack), so it is a STALE answer, shown only until the next
+## real read after `generation_finished`; before any real read it is `{}`, exactly the "no
+## binding" answer, which callers already treat as "unknown". Never write through it.
 func undo_stats() -> Dictionary:
+	if generating:
+		return _undo_stats_cache.duplicate()
 	if not _has("undo_stats"):
 		return {}
-	return world_gen.undo_stats()
+	_undo_stats_cache = world_gen.undo_stats()
+	return _undo_stats_cache.duplicate()
+
+## The last `undo_stats()` read from the engine, served while `generating`. Not state of its
+## own: it is refreshed by every real read and is never consulted otherwise.
+var _undo_stats_cache: Dictionary = {}
 
 ## Re-budgets the engine's undo stack in MB (`WorldGen.set_undo_budget_mb`; the engine
 ## floors it at 4 MiB). A no-op on a binary without it.
@@ -4420,8 +4467,12 @@ func mask_rgba_image(mask: PackedByteArray, w: int, h: int, color: Color) -> Ima
 		return null
 	return world_gen.mask_rgba_image(mask, w, h, color)
 
-## What `undo_last()` would revert next: "height", "civ" (a way delete) or "".
+## What `undo_last()` would revert next: "height", "civ" (a way delete) or "". "" while
+## `generating` (nothing can be reverted then, and the worker holds the engine: G6's guard,
+## the same as `can_undo`).
 func undo_next_subsystem() -> String:
+	if generating:
+		return ""
 	if not _has("undo_next_subsystem"):
 		return "height" if can_undo() else ""
 	return String(world_gen.undo_next_subsystem())
@@ -6273,11 +6324,14 @@ func get_villages_enabled() -> bool:
 		return true
 	return world_gen.get_villages_enabled()
 
-## Whether imperial-seat promotion is on (`WorldGen.get_metropolis_enabled`). The `true`
-## fallback for a stale binary is a guess, not the request default (`false` in `_apply_civ_options`).
+## Whether imperial-seat promotion is on (`WorldGen.get_metropolis_enabled`). The stale-binary
+## fallback is `false`: it is the engine's own default (`cartalith_engine::WorldParams::
+## defaults()`'s `civ.metropolis: false`, checked 2026-10-11), so a binary without this getter shows the
+## state a generate would really use. It was `true` -- a guess that made the New World dialog
+## offer promotion the engine would not apply (found-bug sweep 2026-10-11, R7).
 func get_metropolis_enabled() -> bool:
 	if not _has("get_metropolis_enabled"):
-		return true
+		return false
 	return world_gen.get_metropolis_enabled()
 
 ## The recovery phase the next generate applies: 0 Stable .. 4 Mature

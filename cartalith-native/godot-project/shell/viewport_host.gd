@@ -2488,15 +2488,34 @@ func refresh_journey_markers() -> void:
 ## so the loop lives here rather than in `map_overlay.gd`, which is handed
 ## finished data and never calls the bridge itself. Cheap: a session's routes
 ## number in the handful, and this runs only on a commit or a regenerate.
+##
+## **Guarded on `_engine_readable()`** (found-bug sweep 2026-10-11, G3): this is public and its
+## callers (`refresh`, `refresh_annotations`, `infrastructure_workspace.gd::_refresh_map_routes`,
+## `right_dock.gd::_on_plan_journey`) are not all behind a `generating` test, while `route_count`
+## and `route_get` are `WorldGen` calls the worker thread owns for the whole run -- reaching them
+## then is the `Gd<T>::bind() failed` panic. While a worker holds the engine it answers the
+## LAST list it really read (`_manual_routes_cache`): the routes still drawn on the map are
+## exactly those, and `refresh()` re-reads for real when the run lands. With no world it answers
+## `[]` and forgets the cache -- never a route that belonged to a world that is gone.
 func manual_routes() -> Array:
 	var out: Array = []
 	if _bridge == null:
 		return out
+	if not _bridge.has_world:
+		_manual_routes_cache = []
+		return out
+	if _bridge.generating:
+		return _manual_routes_cache.duplicate()
 	for i in _bridge.route_count():
 		var r := _bridge.route_get(i)
 		if not r.is_empty():
 			out.append(r)
+	_manual_routes_cache = out.duplicate()
 	return out
+
+## The last list `manual_routes()` really read from the engine; served only while a worker holds
+## it. Not state of its own and never written to by anything else.
+var _manual_routes_cache: Array = []
 
 ## The current pan/zoom camera scale (`_zoom`, `_zoom_at`'s own factor) --
 ## read-only exposure for `label_handles(index, zoom)` and

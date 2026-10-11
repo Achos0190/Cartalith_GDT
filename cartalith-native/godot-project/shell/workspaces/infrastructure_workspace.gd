@@ -253,6 +253,11 @@ func _build() -> void:
 	## engine side is closed afterwards).
 	bridge.generation_started.connect(_way_drag_forget)
 	bridge.world_loaded.connect(_way_drag_forget)
+	## G1 (found-bug sweep 2026-10-11): a world change drops the engine's click draft but
+	## `way_begin`/`route_begin` otherwise run only when the tool is ARMED, so a tool left armed
+	## across the change clicked into nothing. Re-begun here, after the engine is readable again.
+	bridge.generation_finished.connect(_redraft_after_world_change)
+	bridge.world_loaded.connect(_redraft_after_world_change)
 
 ## Clear-and-refill for the bodies a generate or a loaded save invalidates.
 ## Public because `civilization_workspace.gd` composes this class
@@ -335,6 +340,45 @@ func _build_tools() -> void:
 	app.register_tool_escape_handler("way", _way_escape)
 	app.register_tool_escape_handler("route", _commit_route)
 	app.tool_armed.connect(_on_infra_tool_armed)
+
+## **G1 (found-bug sweep 2026-10-11): the Way/Route click draft does not survive a world change
+## on its own.** A regenerate or an opened project gives the engine a fresh `InfraTools`, which
+## has NO draft, while `_on_infra_tool_armed` is the only place `way_begin`/`route_begin` ran --
+## so a tool that stayed armed across the change appended every click into "no draft" (the engine
+## answers `false`), the shell's local `_way_points` kept the previous world's points, and nothing
+## was ever committable until the user re-armed by hand. This re-begins the armed tool's draft on
+## the new world and empties the stale local list, the preview and the dock section.
+##
+## Connected to `generation_finished` (a FAILED run leaves the old world, and with it its draft,
+## standing, so `ok == false` does nothing) and `world_loaded` (open, close, asset pack, centring:
+## every one hands the engine a different world). Runs only after the worker is done
+## (`generating` is false before both emits), so the `way_begin` call is legal. Does nothing for
+## a tool that is not armed (arming begins its own draft), and never commits: the old points
+## belonged to a world that no longer exists.
+##
+## **Known cost, deliberate:** `world_loaded` also fires for changes that do NOT replace the
+## engine's `InfraTools` (an applied asset pack, a fjord carve), and the engine exposes no
+## "is a draft open" query to tell them apart, so those restart an open draft too. That loses
+## a few unfinished clicks; the alternative (leaving the draft alone) is exactly the stale
+## draft this fixes whenever the signal did mean a new world.
+func _redraft_after_world_change(ok: Variant = true) -> void:
+	if ok is bool and not ok:
+		return
+	if bridge.generating:
+		return
+	match _active_infra_tool:
+		"way":
+			_way_points = PackedVector2Array()
+			bridge.way_begin(_way_type)
+			app.viewport.tool_overlay.set_path_preview(_way_points)
+			_tool_options_way()
+			_push_way_draft()
+		"route":
+			_route_points = PackedVector2Array()
+			bridge.route_begin("mixed")
+			app.viewport.tool_overlay.set_path_preview(_route_points)
+			_tool_options_route()
+			_push_way_draft()
 
 ## Reacts to ANY tool arming anywhere in the app (`app.tool_armed` is one
 ## shared signal across every domain), not just ours -- see `_active_infra_
