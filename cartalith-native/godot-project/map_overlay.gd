@@ -2963,7 +2963,7 @@ func style_treatment() -> Dictionary:
 # here, and is not touched (as the presets leave it); the
 # province-border ink is `viewport_host.gd`'s. Order is always preset first, stack second,
 # then the contrast guards below. With no live stack every one of those is the code it was
-# before, by control flow (`_OA.is_live()` / `_OA.color()` returning its argument).
+# before, by control flow (`_OA.is_active()` / `_OA.color()` returning its argument).
 const _OA := preload("res://shell/overlay_adjust.gd")
 
 ## `[fill, halo]` as the preset gave it (`raw`) through the overlay stack and the legibility
@@ -2973,7 +2973,7 @@ const _OA := preload("res://shell/overlay_adjust.gd")
 ## (`_sync_overlay_adjust`) and bounded at 1024 pairs (a labelled judgement: five label
 ## classes x the preset's pair, plus authors' own picks, is a few dozen).
 func _stacked_pair(raw: Array) -> Array:
-	if not _OA.is_live():
+	if not _OA.is_active():
 		return raw
 	_sync_overlay_adjust()
 	var key := [raw[0], raw[1]]
@@ -3013,9 +3013,21 @@ func get_overlay_adjust() -> String:
 	return _OA.get_stack_json()
 
 
-## True when the overlay stack would change at least one ink.
+## True when the overlay stack OR the Display P3 encode (ET-E4) would change at least one ink.
 func overlay_adjust_live() -> bool:
-	return _OA.is_live()
+	return _OA.is_active()
+
+
+## ET-E4: declares the monitor's colour space (`"sRGB"` / `"Display P3"`) to the overlay ink
+## seam and repaints this instance. Returns false for an unknown name (nothing changed).
+## Chrome is not an overlay ink and never follows. Call `ViewportHost.set_display_space()`
+## instead when the province-border shader ink must follow too.
+func set_display_space(space_name: String) -> bool:
+	var ok: bool = _OA.set_display_space(space_name)
+	if ok:
+		_sync_overlay_adjust()
+		queue_redraw()
+	return ok
 
 
 ## `c` through the overlay stack (alpha kept); `c` itself, untouched, when no stack is live.
@@ -3051,7 +3063,7 @@ func way_style_for(way_type: String) -> Dictionary:
 	## to the final under/over ink below, once per way type per stack change).
 	if not (_style_treatment.has("road_under") or _style_treatment.has("road_over")
 			or _style_treatment.has("road_w") or _style_treatment.has("road_alpha")
-			or _OA.is_live()):
+			or _OA.is_active()):
 		return base
 	if _style_way_cache.has(way_type):
 		return _style_way_cache[way_type]
@@ -3478,7 +3490,7 @@ func _refresh_styled_factions() -> void:
 		var r := restyle_factions(_faction_colors, _faction_custom, _style_treatment)
 		pre = r["colors"]
 		_styled_factions_mode = String(r["mode"])
-	if _OA.is_live():
+	if _OA.is_active():
 		var adj: Array = []
 		for c in pre:
 			adj.append(_OA.color(c))
@@ -3589,7 +3601,7 @@ static func _factions_meet(cols: Array, ground: Color, req_de: float, req_c: flo
 func pin_glyph_ink(fill: Color) -> Color:
 	## ET-C3: a live overlay stack recolours the pin fill, so the glyph picks its ink by
 	## contrast with the fill exactly as it does under a pin restyle.
-	if not has_pin_style(_style_treatment) and not _OA.is_live():
+	if not has_pin_style(_style_treatment) and not _OA.is_active():
 		return Color.WHITE
 	return Color.WHITE if contrast_ratio(Color.WHITE, fill) >= contrast_ratio(PIN_GLYPH_DARK, fill) else PIN_GLYPH_DARK
 

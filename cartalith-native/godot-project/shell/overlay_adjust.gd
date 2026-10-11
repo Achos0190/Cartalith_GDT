@@ -99,6 +99,25 @@ const LMS_TO_LINEAR_SRGB := [
 	[-0.004196086541837109, -0.7034186144594496, 1.7076147009309448],
 ]
 
+## ET-E4 (wide gamut): linear sRGB -> linear Display P3, the same matrix as
+## `crates/cartalith-godot/src/render.rs::SRGB_TO_P3` (derived there from the sRGB and P3
+## chromaticities on D65; the rows sum to 1, so a neutral is preserved and nothing clips).
+## Applied LAST in `color()`, after the stack, as `render.rs::finish_px` does for the raster.
+const SRGB_TO_P3 := [
+	[0.8224619687143623, 0.1775380312856377, 0.0],
+	[0.03319419885096162, 0.9668058011490384, 0.0],
+	[0.01708263072112003, 0.07239744066396347, 0.9105199286149165],
+]
+## The display-space name that turns the P3 stage on: `render.rs::COLOR_SPACES[1]`. Any other
+## name (including "sRGB", `COLOR_SPACES[0]`) is the default, a pass-through by control flow.
+const SPACE_P3 := "Display P3"
+const SPACE_SRGB := "sRGB"
+
+## True while the monitor is declared Display P3 (ET-E4). Pushed in by the shell through
+## `set_display_space()`; this file never reads the engine (probe F). Default false, so
+## nothing moves value for value until a P3 display is chosen.
+static var _p3: bool = false
+
 ## Bumped on every successful `set_stack_json()` / `clear()`. A `MapOverlay` remembers the
 ## value it last built its caches against and rebuilds when this has moved.
 static var revision: int = 0
@@ -123,6 +142,43 @@ static var _cache: Dictionary = {}
 ## "do nothing at all", which is what makes the empty stack byte-identical by control flow.
 static func is_live() -> bool:
 	return _live
+
+
+## True when `color()` would change at least one ink for ANY reason: a live stack OR the
+## Display P3 stage (ET-E4). `is_live()` stays the stack alone (the panel's notices and the
+## persistence read it); the overlay's hooks test THIS, so a P3 display with an empty stack
+## still encodes. False = `color()` returns its argument untouched.
+static func is_active() -> bool:
+	return _live or _p3
+
+
+## Declares the monitor's colour space (ET-E4): `"Display P3"` turns the final P3 encode on,
+## `"sRGB"` turns it off, anything else is refused (returns false, nothing changes). Bumps
+## `revision` and drops the memo only when the state actually changes, so every `MapOverlay`
+## rebuilds its caches. Chrome never calls `color()`, so it stays sRGB.
+static func set_display_space(space_name: String) -> bool:
+	if space_name != SPACE_P3 and space_name != SPACE_SRGB:
+		return false
+	var want := space_name == SPACE_P3
+	if want != _p3:
+		_p3 = want
+		_cache = {}
+		revision += 1
+	return true
+
+
+## True while the P3 stage is on.
+static func display_is_p3() -> bool:
+	return _p3
+
+
+## One 0..255 sRGB colour through the Display P3 encode, unrounded: decode with the sRGB EOTF,
+## multiply by `SRGB_TO_P3`, re-encode with the OETF (`render.rs::finish_px`'s last stage).
+## The input is clamped to 0..255 first, as the raster's stack output is.
+static func srgb255_to_p3(c: PackedFloat64Array) -> PackedFloat64Array:
+	var lin := PackedFloat64Array([_eotf(clampf(c[0], 0.0, 255.0) / 255.0), _eotf(clampf(c[1], 0.0, 255.0) / 255.0), _eotf(clampf(c[2], 0.0, 255.0) / 255.0)])
+	var m := _mat_vec(SRGB_TO_P3, lin)
+	return PackedFloat64Array([255.0 * _oetf(m[0]), 255.0 * _oetf(m[1]), 255.0 * _oetf(m[2])])
 
 
 ## Number of entries held, live or not (a stack of disabled entries is user data).
@@ -166,18 +222,23 @@ static func clear() -> void:
 	set_stack_json("{\"entries\":[]}")
 
 
-## The adjusted colour for ink `c`, alpha untouched. **Returns `c` itself, with no
-## arithmetic, when the stack is not live** -- identity by control flow. Memoised per source
+## The adjusted colour for ink `c`, alpha untouched: the stack (if live), then the Display P3
+## encode (ET-E4, if the display is P3, always LAST). **Returns `c` itself, with no
+## arithmetic, when the stack is not live and the display is sRGB** -- identity by control flow. Memoised per source
 ## RGB: overlay inks are resolved per draw call, so the maths runs once per distinct source
 ## colour per stack change, not once per call.
 static func color(c: Color) -> Color:
-	if not _live:
+	if not (_live or _p3):
 		return c
 	var key := Color(c.r, c.g, c.b, 1.0)
 	var hit = _cache.get(key)
 	if hit != null:
 		return Color(hit.r, hit.g, hit.b, c.a)
-	var v := apply255(PackedFloat64Array([c.r * 255.0, c.g * 255.0, c.b * 255.0]))
+	var v := PackedFloat64Array([c.r * 255.0, c.g * 255.0, c.b * 255.0])
+	if _live:
+		v = apply255(v)
+	if _p3:
+		v = srgb255_to_p3(v)
 	var out := Color(clampf(v[0] / 255.0, 0.0, 1.0), clampf(v[1] / 255.0, 0.0, 1.0), clampf(v[2] / 255.0, 0.0, 1.0), 1.0)
 	if _cache.size() >= MAX_CACHE:
 		_cache = {}

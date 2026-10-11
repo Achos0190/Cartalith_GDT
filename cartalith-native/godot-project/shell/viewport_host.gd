@@ -1428,6 +1428,17 @@ func set_overlay_adjust(json: String) -> Dictionary:
 		_apply_border_style()
 	return r
 
+## ET-E4: declares the monitor's colour space to the overlay inks (`MapOverlay.set_display_space`)
+## and re-applies the province-border ink, a shader parameter this node owns. False for an
+## unknown name or no overlay; nothing changes then.
+func set_display_space(space_name: String) -> bool:
+	if overlay == null or not overlay.has_method("set_display_space"):
+		return false
+	var ok: bool = overlay.set_display_space(space_name)
+	if ok:
+		_apply_border_style()
+	return ok
+
 ## The province-border half of the treatment: the preset's `border_ink` / `border_alpha`
 ## and, ET-C3, the overlay stack. No material at all when there is neither a border key nor
 ## a live stack, so Default's lines are drawn by the same path as before the stack existed.

@@ -2964,11 +2964,10 @@ func _build_color_management() -> void:
 		+ "high-precision pipeline, and it would arrive as a View Transform "
 		+ "beside the grade above, not as a third entry in this picker.")
 	DccWidgets.note(body,
-		"Display P3 re-encodes the map raster only, rivers included. The overlays "
-		+ "drawn over it -- labels, settlement markers, territory, the scale bar -- and "
-		+ "the interface around it stay sRGB, because Godot's compatibility "
-		+ "renderer does no colour management and there is no hook to convert a "
-		+ "colour on its way to the screen.")
+		"Display P3 re-encodes the map raster, rivers included, and the inks the overlay "
+		+ "resolves (labels, roads, icons, pins, province borders). The interface "
+		+ "around the map, the engine-baked territory wash and the scale bar stay sRGB, "
+		+ "because Godot's compatibility renderer does no colour management.")
 	DccWidgets.note(body,
 		"Display P3 is a real change to the numbers, not a tag: measured on a "
 		+ "2048-wide map it moves 87% of the bytes, by up to 31 levels. Greys, "
@@ -2985,7 +2984,18 @@ func _build_color_management() -> void:
 func _on_color_space(name: String) -> void:
 	if not bridge.set_color_space(name):
 		return
+	_push_display_space()
 	_refresh_map()
+
+## ET-E4: tell the overlay inks which display the engine is encoding for, so a P3 map is not
+## drawn under sRGB-numbered labels. Reads the engine's own answer (`bridge.color_space()`),
+## never the picker; a no-op without the colour-space binding or a viewport.
+func _push_display_space() -> void:
+	if not bridge.color_space_api or app == null or app.get("viewport") == null:
+		return
+	var vp = app.viewport
+	if vp != null and vp.has_method("set_display_space"):
+		vp.set_display_space(bridge.color_space())
 
 # -- What is still owed -------------------------------------------------------
 
@@ -3086,6 +3096,7 @@ func on_world_changed() -> void:
 ## just read from is the asymmetry `_sync_appearance`'s own note describes, and
 ## here it would also be a no-op write on every world change.
 func _sync_color_space() -> void:
+	_push_display_space()
 	if _color_space_pick == null or not bridge.color_space_api:
 		return
 	var i: int = _color_space_names.find(bridge.color_space())
