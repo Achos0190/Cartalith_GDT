@@ -2375,6 +2375,7 @@ func set_faction_colors(colors: Array) -> void:
 ## only before a world exists, since `get_factions()` enumerates every
 ## faction the roster has.
 func _faction_color(faction: int) -> Color:
+	_sync_overlay_adjust()   ## ET-C3: another instance may have moved the shared stack
 	if faction <= 0:
 		return Color(0.5, 0.5, 0.5)
 	if faction <= _styled_factions.size():
@@ -2950,16 +2951,107 @@ func style_treatment() -> Dictionary:
 	return _style_treatment
 
 
+# -- ET-C3: the labels/overlays adjustment stack (EDITING_TOOLS_SCOPE.md section 5) --
+#
+# `shell/overlay_adjust.gd` holds the stack (Levels, Curves, HSL in OkLCh, Gradient map --
+# a port of `adjust.rs`) in script-level static state, so every `MapOverlay` instance, the
+# shell's and any export SubViewport's, resolves the same ink. This node only HOOKS it in,
+# at the places that already resolve an ink: `way_style_for`, `sea_style`, `label_inks`,
+# `settlement_name_inks`, `_treated_mix`/`_treated_rgb` (icons, landmarks, journey marker),
+# `_refresh_styled_factions` (the settlement pins' faction fill, `_faction_color`'s one reader)
+# and `pin_glyph_ink`; the engine-baked territory wash is a texture, not an ink resolved
+# here, and is not touched (as the presets leave it); the
+# province-border ink is `viewport_host.gd`'s. Order is always preset first, stack second,
+# then the contrast guards below. With no live stack every one of those is the code it was
+# before, by control flow (`_OA.is_live()` / `_OA.color()` returning its argument).
+const _OA := preload("res://shell/overlay_adjust.gd")
+
+## `[fill, halo]` as the preset gave it (`raw`) through the overlay stack and the legibility
+## guard (`guard_ink_pair`). `raw` itself, untouched, with no live stack. Memoised on the
+## RAW pair, because the guard's value-stepping loop costs up to 100 contrast evaluations
+## and a map draws hundreds of labels a frame; the memo is dropped with the revision
+## (`_sync_overlay_adjust`) and bounded at 1024 pairs (a labelled judgement: five label
+## classes x the preset's pair, plus authors' own picks, is a few dozen).
+func _stacked_pair(raw: Array) -> Array:
+	if not _OA.is_live():
+		return raw
+	_sync_overlay_adjust()
+	var key := [raw[0], raw[1]]
+	var hit = _pair_cache.get(key)
+	if hit != null:
+		return (hit as Array).duplicate()
+	var out: Array = guard_ink_pair(raw[0], raw[1], _OA.color(raw[0]), _OA.color(raw[1]))
+	if _pair_cache.size() >= 1024:
+		_pair_cache.clear()
+	_pair_cache[key] = out
+	return out.duplicate()
+
+
+## See `_stacked_pair`.
+var _pair_cache: Dictionary = {}
+
+## The `_OA.revision` this instance's derived caches (`_style_way_cache`, `_styled_factions`,
+## `_pair_cache`) were built against. Another instance, or `ViewportHost`, may have moved the shared
+## stack since; `_sync_overlay_adjust()` notices.
+var _oa_rev := 0
+
+## Replaces the overlay stack from `AdjustStack`'s saved form (`{"entries":[...]}`), repaints
+## this instance. Returns `{ok, entries, identity}` or `{ok: false, error}` with NOTHING
+## changed. Call `ViewportHost.set_overlay_adjust()` instead when the province-border ink
+## must follow too: that ink is a shader parameter the host owns.
+func set_overlay_adjust(json: String) -> Dictionary:
+	var r: Dictionary = _OA.set_stack_json(json)
+	if bool(r.get("ok", false)):
+		_sync_overlay_adjust()
+		queue_redraw()
+	return r
+
+
+## The overlay stack in saved form (`{"entries":[]}` when empty) -- the read-back ET-C4
+## persists.
+func get_overlay_adjust() -> String:
+	return _OA.get_stack_json()
+
+
+## True when the overlay stack would change at least one ink.
+func overlay_adjust_live() -> bool:
+	return _OA.is_live()
+
+
+## `c` through the overlay stack (alpha kept); `c` itself, untouched, when no stack is live.
+## Never a contrast guard: see `guard_ink_pair` and `guard_adjusted_factions`.
+func adjust_overlay_color(c: Color) -> Color:
+	return _OA.color(c)
+
+
+## Drops this instance's derived caches when the shared stack has moved since they were
+## built. Cheap (one int compare), called at the head of every cached resolver so a stack
+## set through ANOTHER instance is seen too.
+func _sync_overlay_adjust() -> void:
+	if _oa_rev == _OA.revision:
+		return
+	_oa_rev = _OA.revision
+	_style_way_cache.clear()
+	_pair_cache.clear()
+	_refresh_styled_factions()
+
+
 ## One `WAY_STYLE` row with the active treatment applied. With no road keys in
-## the treatment this returns the constant row itself -- not a copy -- so the
-## identity case allocates nothing and cannot differ from the old lookup.
+## the treatment and no live overlay stack (ET-C3) this returns the constant row itself --
+## not a copy -- so the identity case allocates nothing and cannot differ from the old
+## lookup. A live stack recolours the row's under and over inks (alpha kept), cached per way
+## type and dropped when the stack's revision moves (`_sync_overlay_adjust`).
 ## This is the single place a way's colours are resolved: `_draw_roads_chunk`
 ## draws from it and `_overlaystyle_probe.gd` reads it, so a probe assertion is
 ## about what is drawn, not about a table beside it.
 func way_style_for(way_type: String) -> Dictionary:
+	_sync_overlay_adjust()
 	var base: Dictionary = WAY_STYLE.get(way_type, WAY_STYLE[WAY_STYLE_DEFAULT])
+	## ET-C3: a live overlay stack also takes the cached-row path (the stack is applied
+	## to the final under/over ink below, once per way type per stack change).
 	if not (_style_treatment.has("road_under") or _style_treatment.has("road_over")
-			or _style_treatment.has("road_w") or _style_treatment.has("road_alpha")):
+			or _style_treatment.has("road_w") or _style_treatment.has("road_alpha")
+			or _OA.is_live()):
 		return base
 	if _style_way_cache.has(way_type):
 		return _style_way_cache[way_type]
@@ -2975,8 +3067,8 @@ func way_style_for(way_type: String) -> Dictionary:
 		var o: Color = _style_treatment["road_over"]
 		var m: float = clampf(float(_style_treatment.get("road_over_mix", 1.0)), 0.0, 1.0)
 		over = Color(lerpf(over.r, o.r, m), lerpf(over.g, o.g, m), lerpf(over.b, o.b, m), over.a)
-	row["under"] = Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0))
-	row["over"] = Color(over.r, over.g, over.b, clampf(over.a * ak, 0.0, 1.0))
+	row["under"] = adjust_overlay_color(Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0)))
+	row["over"] = adjust_overlay_color(Color(over.r, over.g, over.b, clampf(over.a * ak, 0.0, 1.0)))
 	row["under_w"] = float(base["under_w"]) * wk
 	row["over_w"] = float(base["over_w"]) * wk
 	_style_way_cache[way_type] = row
@@ -2999,9 +3091,9 @@ func sea_style() -> Dictionary:
 		dash = Color(d.r, d.g, d.b, dash.a)
 	var wk: float = float(_style_treatment.get("sea_w", 1.0))
 	return {
-		"under": Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0)),
+		"under": adjust_overlay_color(Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0))),
 		"under_w": SEA_ROUTE_UNDERLAY_WIDTH * wk,
-		"dash": Color(dash.r, dash.g, dash.b, clampf(dash.a * ak, 0.0, 1.0)),
+		"dash": adjust_overlay_color(Color(dash.r, dash.g, dash.b, clampf(dash.a * ak, 0.0, 1.0))),
 		"dash_w": SEA_ROUTE_DASH_WIDTH * wk,
 	}
 
@@ -3024,7 +3116,8 @@ const LABEL_DEFAULT_COLOR_HEX := "#f0e4c8"
 ##   swallow an arbitrary colour of the author's).
 ## The halo is one value per preset, chosen as the ink's opposite so a glyph
 ## keeps its outline on any ground the style paints.
-func label_inks(lb: Dictionary) -> Array:
+## This is the PRESET half; `label_inks()` runs the overlay stack and its guard over it.
+func _label_inks_preset(lb: Dictionary) -> Array:
 	var base := Color(String(lb["color"]))
 	var ink = _style_treatment.get("label_ink")
 	if not (ink is Color):
@@ -3036,6 +3129,42 @@ func label_inks(lb: Dictionary) -> Array:
 	if String(lb["color"]).to_lower() == LABEL_DEFAULT_COLOR_HEX:
 		return [ink, halo]
 	return [base, LABEL_STROKE_COLOR]
+
+
+## Fill and halo for one label as `[fill, halo]`: the preset's pair
+## (`_label_inks_preset`) through the overlay stack (ET-C3), then the legibility guard
+## (`guard_ink_pair`). With no live stack this IS the preset's pair, the same array, so the
+## shipped inks are unchanged value for value. The stack applies to an author's own pick
+## too: it is a layer-wide adjustment the user applied, not the style's; the guard is what
+## keeps it readable.
+func label_inks(lb: Dictionary) -> Array:
+	return _stacked_pair(_label_inks_preset(lb))
+
+
+## Minimum WCAG contrast of a label fill against its halo that the overlay-stack guard
+## keeps: `_overlaystyle_probe.gd`'s body-text bar (Ruling BX item 2, raised from the
+## large-text 3.0 after the 2026-10-05 screenshots).
+const LABEL_MIN_CONTRAST := 4.5
+
+## **The contrast guard, after the stack.** `fill0`/`halo0` are the pair as the preset gave
+## it, `fill1`/`halo1` the same pair through the overlay stack. The bar is
+## `min(LABEL_MIN_CONTRAST, the preset pair's own contrast)`, so a stack is never held to
+## more than the unadjusted pair met (the shipped cream-on-dark pair is far above 4.5; a
+## pair that began below it is not blamed on the stack, as `restyle_factions` does with
+## `required_de`). If the adjusted pair meets the bar it is used as it is. Otherwise the
+## adjusted FILL is moved along value (the pin guard's own step, `_pin_contrast_fix`) until
+## it does; if even that cannot reach the bar the preset's pair is returned, so a stack can
+## never leave a label less readable than the preset left it. Alpha is kept. Never
+## modifies its arguments.
+static func guard_ink_pair(fill0: Color, halo0: Color, fill1: Color, halo1: Color) -> Array:
+	var req := minf(LABEL_MIN_CONTRAST, contrast_ratio(fill0, Color(halo0.r, halo0.g, halo0.b)))
+	var ground := Color(halo1.r, halo1.g, halo1.b)
+	if contrast_ratio(fill1, ground) >= req - 0.0001:
+		return [fill1, halo1]
+	var fixed := _pin_contrast_fix(fill1, ground, req)
+	if contrast_ratio(fixed, ground) >= req - 0.0001:
+		return [fixed, halo1]
+	return [fill0, halo0]
 
 
 ## The preset's halo-width multiplier on a label's own `halo_em` (`label_halo_k`,
@@ -3053,8 +3182,14 @@ func _label_halo_k() -> float:
 
 ## The settlement-name pair (`_draw_settlement_pin`): the shipped cream and
 ## outline with no treatment, the preset's ink and halo with one. A pin's name is
-## the same kind of text as a default-ink label, so it follows the same rule.
+## the same kind of text as a default-ink label, so it follows the same rule -- and, with a
+## live overlay stack (ET-C3), the same stack and guard (`label_inks`).
 func settlement_name_inks() -> Array:
+	return _stacked_pair(_settlement_name_inks_preset())
+
+
+## The preset half of `settlement_name_inks()`.
+func _settlement_name_inks_preset() -> Array:
 	var ink = _style_treatment.get("label_ink")
 	if not (ink is Color):
 		return [SETTLEMENT_LABEL_FILL, LABEL_STROKE_COLOR]
@@ -3184,14 +3319,16 @@ static func has_pin_style(t: Dictionary) -> bool:
 ## reaches `PIN_MIN_CONTRAST` against `ground`: darker on a light ground, lighter
 ## on a dark one. On a dark ground a colour already at full value then loses
 ## saturation instead (only then does anything but value move). Alpha kept.
-static func _pin_contrast_fix(c: Color, ground: Color) -> Color:
+## `bar` is the contrast to reach, `PIN_MIN_CONTRAST` for a pin; ET-C3's overlay-stack guard
+## passes its own (`guard_ink_pair`, `guard_adjusted_factions`), so one step rule serves all.
+static func _pin_contrast_fix(c: Color, ground: Color, bar: float = PIN_MIN_CONTRAST) -> Color:
 	var darken := rel_luminance(ground) > _GROUND_CROSSOVER_LUM
 	var h := c.h
 	var s := c.s
 	var v := c.v
 	var out := c
 	for _i in 100:
-		if contrast_ratio(out, ground) >= PIN_MIN_CONTRAST:
+		if contrast_ratio(out, ground) >= bar:
 			break
 		if darken:
 			v = maxf(0.0, v - 0.02)
@@ -3324,17 +3461,125 @@ static func restyle_factions(raw: Array, custom: Array, t: Dictionary) -> Dictio
 
 ## Recomputes `_styled_factions` from the engine's swatches and the live
 ## treatment. Called from every setter that feeds it, never from `_draw`.
+##
+## ET-C3: the order is the engine's swatches, then the preset's guarded restyle (when it has
+## pin keys), then the overlay stack and ITS guard (`guard_adjusted_factions`, when a stack
+## is live). With neither, `_styled_factions` stays empty and `_faction_color` reads the
+## engine's own swatches, exactly as before.
 func _refresh_styled_factions() -> void:
 	_styled_factions = []
 	_styled_factions_mode = "none"
-	if _faction_colors.is_empty() or not has_pin_style(_style_treatment):
+	_adjust_factions_mode = "none"
+	if _faction_colors.is_empty():
 		return
-	var r := restyle_factions(_faction_colors, _faction_custom, _style_treatment)
+	var styled := has_pin_style(_style_treatment)
+	var pre: Array = _faction_colors
+	if styled:
+		var r := restyle_factions(_faction_colors, _faction_custom, _style_treatment)
+		pre = r["colors"]
+		_styled_factions_mode = String(r["mode"])
+	if _OA.is_live():
+		var adj: Array = []
+		for c in pre:
+			adj.append(_OA.color(c))
+		var ground := pin_ground(_style_treatment)
+		## The ground-contrast bar is the PRESET's (its pins were guarded against its own
+		## ground); with no pin restyle there is no such ground, only the swatches.
+		var g := guard_adjusted_factions(pre, adj, ground, _OA.color(ground), styled)
+		pre = g["colors"]
+		_adjust_factions_mode = String(g["mode"])
+		styled = true
+	if not styled:
+		return
 	var out: Array[Color] = []
-	for c in r["colors"]:
+	for c in pre:
 		out.append(c)
 	_styled_factions = out
-	_styled_factions_mode = String(r["mode"])
+
+
+## `"none"` (no live overlay stack), `"stack"` (the adjusted set met the guard as it was),
+## `"guarded"` (colours moved along value / pushed apart until it did), `"clamped"` (the
+## stack's strength was bisected back) or `"original"` (nothing met it, so the pre-stack set
+## is drawn) -- which outcome the overlay-stack guard settled on. Read by the probe.
+func adjusted_factions_mode() -> String:
+	return _adjust_factions_mode
+
+
+## See `adjusted_factions_mode()`.
+var _adjust_factions_mode := "none"
+
+
+## **The contrast guard, after the stack, for faction colours** (Ruling BX item 2's two
+## bars, held through the overlay stack). `pre` is the set before the stack (the engine's
+## swatches or the preset's restyle), `adj` the same set through it, `ground0` the ground the
+## preset judged pins against and `ground1` that ground through the stack. The bars are
+## `min(PIN_MIN_DELTA_E, pre's own smallest pairwise CIE76 delta-E)` and
+## `min(PIN_MIN_CONTRAST, pre's own smallest contrast against ground0)`: the stack is never
+## held to more than the unadjusted set met, so a set the user made near-identical is not
+## blamed on it. The contrast bar is only judged when `judge_contrast` (the preset has pin
+## keys, so it HAS a ground the pins were guarded against, Ruling BX item 2); with no pin
+## restyle the nominal near-white ground is not the real ground under a pin (the biome is),
+## so only distinctness is held, which is all the scope asks of a stack ("faction colours
+## stay pairwise distinguishable"). If `adj` meets what is judged it is used (`"stack"`).
+## Otherwise each colour is moved along value until it reaches the contrast bar and
+## colliding pairs are pushed apart, the
+## same two steps `restyle_factions` takes (`"guarded"`), if THAT meets both. Failing that
+## the stack is CLAMPED BACK: the largest strength `t` in 0..1 (bisected `CLAMP_STEPS`
+## times; `"clamped"`) at which the colours `lerp(pre, adj, t)` still meet both bars, so the
+## user's adjustment is honoured as far as the guard allows. Failing even that (no `t > 0`
+## works), `pre` itself (`"original"`): ownership identity outranks the look, as in Ruling
+## BX item 2. Returns `{colors, mode, min_de, min_contrast, required_de, required_contrast}`.
+static func guard_adjusted_factions(pre: Array, adj: Array, ground0: Color, ground1: Color, judge_contrast: bool = true) -> Dictionary:
+	var req_de := minf(PIN_MIN_DELTA_E, min_pair_delta_e(pre))
+	var req_c := minf(PIN_MIN_CONTRAST, min_contrast_against(pre, ground0)) if judge_contrast else 0.0
+	var chosen: Array = adj
+	var mode := "stack"
+	if not _factions_meet(adj, ground1, req_de, req_c):
+		var fixed: Array[Color] = []
+		for c in adj:
+			fixed.append(_pin_contrast_fix(c, ground1, req_c) if judge_contrast else c)
+		fixed = _push_apart(fixed, ground1, req_de)
+		if _factions_meet(fixed, ground1, req_de, req_c):
+			chosen = fixed
+			mode = "guarded"
+		else:
+			var lo := 0.0
+			var hi := 1.0
+			for _i in CLAMP_STEPS:
+				var mid := (lo + hi) / 2.0
+				if _factions_meet(_lerp_colors(pre, adj, mid), ground1, req_de, req_c):
+					lo = mid
+				else:
+					hi = mid
+			if lo > 0.0:
+				chosen = _lerp_colors(pre, adj, lo)
+				mode = "clamped"
+			else:
+				chosen = pre
+				mode = "original"
+	return {"colors": chosen, "mode": mode, "min_de": min_pair_delta_e(chosen),
+		"min_contrast": min_contrast_against(chosen, ground1 if mode != "original" else ground0),
+		"required_de": req_de, "required_contrast": req_c}
+
+
+## Bisection steps of the strength clamp in `guard_adjusted_factions`: 8 resolves the
+## strength to 1/256, finer than 8-bit colour can show. A labelled judgement.
+const CLAMP_STEPS := 8
+
+## `a[i]` moved `t` of the way to `b[i]` (plain RGB lerp, alpha kept from `a`).
+static func _lerp_colors(a: Array, b: Array, t: float) -> Array[Color]:
+	var out: Array[Color] = []
+	for i in a.size():
+		var x: Color = a[i]
+		var y: Color = b[i]
+		out.append(Color(lerpf(x.r, y.r, t), lerpf(x.g, y.g, t), lerpf(x.b, y.b, t), x.a))
+	return out
+
+
+## True when `cols` is pairwise at least `req_de` apart and every colour reaches `req_c`
+## against `ground` (both with the 1e-4 tolerance `restyle_factions` uses).
+static func _factions_meet(cols: Array, ground: Color, req_de: float, req_c: float) -> bool:
+	return min_pair_delta_e(cols) >= req_de - 0.0001 and min_contrast_against(cols, ground) >= req_c - 0.0001
 
 
 ## The ink of a pin's tier glyph: the shipped white with no pin treatment; with
@@ -3342,23 +3587,33 @@ func _refresh_styled_factions() -> void:
 ## fill, so a pin that was darkened or lightened keeps a legible glyph. The glyph
 ## **shape** (the tier) is never changed.
 func pin_glyph_ink(fill: Color) -> Color:
-	if not has_pin_style(_style_treatment):
+	## ET-C3: a live overlay stack recolours the pin fill, so the glyph picks its ink by
+	## contrast with the fill exactly as it does under a pin restyle.
+	if not has_pin_style(_style_treatment) and not _OA.is_live():
 		return Color.WHITE
 	return Color.WHITE if contrast_ratio(Color.WHITE, fill) >= contrast_ratio(PIN_GLYPH_DARK, fill) else PIN_GLYPH_DARK
 
 
 ## A treatment colour key mixed into `base` (`mix` 0..1), keeping `base`'s alpha;
 ## `base` unchanged when the key is absent or not a `Color`.
+## ET-C3: the result goes through the overlay stack (`adjust_overlay_color`, the argument
+## itself with no live stack), so every icon, landmark and journey-marker ink follows it.
 func _treated_mix(base: Color, key: String, mix_key: String, default_mix: float) -> Color:
 	var ink = _style_treatment.get(key)
 	if not (ink is Color):
-		return base
+		return adjust_overlay_color(base)
 	var m := clampf(float(_style_treatment.get(mix_key, default_mix)), 0.0, 1.0)
-	return Color(lerpf(base.r, ink.r, m), lerpf(base.g, ink.g, m), lerpf(base.b, ink.b, m), base.a)
+	return adjust_overlay_color(Color(lerpf(base.r, ink.r, m), lerpf(base.g, ink.g, m), lerpf(base.b, ink.b, m), base.a))
 
 
-## A treatment colour key's RGB with `base`'s alpha; `base` when absent.
+## A treatment colour key's RGB with `base`'s alpha; `base` when absent -- then through the
+## overlay stack (ET-C3), as `_treated_mix` is.
 func _treated_rgb(base: Color, key: String) -> Color:
+	return adjust_overlay_color(_treated_rgb_preset(base, key))
+
+
+## The preset half of `_treated_rgb`: no stack applied.
+func _treated_rgb_preset(base: Color, key: String) -> Color:
 	var c = _style_treatment.get(key)
 	return Color(c.r, c.g, c.b, base.a) if c is Color else base
 
@@ -3397,11 +3652,16 @@ func landmark_inks(cls: String) -> Dictionary:
 ## A journey carries no colour of its own (`journey_positions()` has none), so the
 ## whole marker is the style's.
 func journey_inks() -> Dictionary:
+	## The label pair is the preset's, then (ET-C3) the stack and the same legibility guard
+	## a label gets (`guard_ink_pair`); the dot and ring are plain stacked inks.
+	var ink0 := _treated_rgb_preset(SETTLEMENT_LABEL_FILL, "journey_ink")
+	var halo0: Color = _style_treatment["journey_halo"] if _style_treatment.get("journey_halo") is Color else LABEL_STROKE_COLOR
+	var pair: Array = _stacked_pair([ink0, halo0])
 	return {
 		"fill": _treated_rgb(JOURNEY_MARKER_FILL, "journey_fill"),
 		"ring": _treated_rgb(JOURNEY_MARKER_RING, "journey_ring"),
-		"ink": _treated_rgb(SETTLEMENT_LABEL_FILL, "journey_ink"),
-		"halo": _style_treatment["journey_halo"] if _style_treatment.get("journey_halo") is Color else LABEL_STROKE_COLOR,
+		"ink": pair[0],
+		"halo": pair[1],
 	}
 
 

@@ -1414,9 +1414,30 @@ func set_overlay_treatment(t: Dictionary) -> void:
 	_overlay_treatment = t.duplicate(true)
 	if overlay != null and overlay.has_method("set_style_treatment"):
 		overlay.set_style_treatment(_overlay_treatment)
+	_apply_border_style()
+
+## Replaces the labels/overlays adjustment stack (ET-C3; `AdjustStack`'s saved form,
+## `{"entries":[...]}`) and re-applies the province-border ink, which is a shader parameter
+## this node owns and so cannot follow the overlay's own setter. Returns the overlay's
+## `{ok, ...}`; `{ok: false, error}` leaves everything as it was.
+func set_overlay_adjust(json: String) -> Dictionary:
+	if overlay == null or not overlay.has_method("set_overlay_adjust"):
+		return {"ok": false, "error": "no map overlay to hold the stack"}
+	var r: Dictionary = overlay.set_overlay_adjust(json)
+	if bool(r.get("ok", false)):
+		_apply_border_style()
+	return r
+
+## The province-border half of the treatment: the preset's `border_ink` / `border_alpha`
+## and, ET-C3, the overlay stack. No material at all when there is neither a border key nor
+## a live stack, so Default's lines are drawn by the same path as before the stack existed.
+## The stack acts on the ink only (RGB, via `overlay.adjust_overlay_color`); the baked
+## texture's own alpha and the preset's `border_alpha` are untouched.
+func _apply_border_style() -> void:
 	if province_view == null:
 		return
-	if not (_overlay_treatment.get("border_ink") is Color or _overlay_treatment.has("border_alpha")):
+	var live: bool = overlay != null and overlay.has_method("overlay_adjust_live") and bool(overlay.overlay_adjust_live())
+	if not (_overlay_treatment.get("border_ink") is Color or _overlay_treatment.has("border_alpha") or live):
 		province_view.material = null
 		return
 	var mat := province_view.material as ShaderMaterial
@@ -1427,6 +1448,8 @@ func set_overlay_treatment(t: Dictionary) -> void:
 		mat.shader = shader
 		province_view.material = mat
 	var ink: Color = _overlay_treatment["border_ink"] if _overlay_treatment.get("border_ink") is Color else Color(0.137, 0.094, 0.035)
+	if live:
+		ink = overlay.adjust_overlay_color(ink)
 	mat.set_shader_parameter("border_ink", Color(ink.r, ink.g, ink.b, 1.0))
 	mat.set_shader_parameter("border_alpha", float(_overlay_treatment.get("border_alpha", 1.0)))
 
