@@ -108,10 +108,12 @@ use cartalith_spatial::{DirtyTracker, PaintLayer, PaintStamp, PassBuffer};
 /// Tile granularity for the territory-paint draft's `PassBuffer`/
 /// `DirtyTracker` pair. Same reasoning as `sculpt_bridge::SCULPT_TILE_SIZE`
 /// (no reference tiling concept to match — the reference paints straight
-/// into `civTerritory` with no draft at all): small enough that one dab at
-/// the reference's own `_civTerRadius` maximum (20 cells, `tools.rs`'
-/// `TERRITORY_BRUSH_RADIUS` doc) touches a handful of tiles, not one giant
-/// tile or hundreds of tiny ones.
+/// into `civTerritory` with no draft at all): a **labelled judgement**, the
+/// same 64 as `SCULPT_TILE_SIZE`, small enough that one dab at the reference's
+/// default `_civTerRadius` (5 cells, `cartalith_civ::tools::TERRITORY_BRUSH_RADIUS`)
+/// or a few times it touches a handful of tiles, not one giant tile or
+/// hundreds of tiny ones. (This comment used to cite a 20-cell "maximum" in
+/// that constant's doc; the doc gives only the 5-cell initial value.)
 pub const TERRITORY_TILE_SIZE: usize = 64;
 
 /// `§4.5.3`'s Settlement class dropdown, resolved against the six tiers
@@ -305,6 +307,9 @@ pub fn contested_cell_count(territory: &[i32], faction: i32, gw: usize, gh: usiz
     n
 }
 
+/// Whether `cell` is claimed (non-zero) by a faction other than `faction`.
+/// Unclaimed `0` is never "other", which is what keeps open ground from
+/// counting as a border in [`contested_cell_count`].
 fn is_other_faction(cell: i32, faction: i32) -> bool {
     cell != 0 && cell != faction
 }
@@ -397,6 +402,10 @@ impl CivTools {
         // rather than every world's first hand-placed settlement sharing
         // one fixed name.
         let mut name_rng = cartalith_civ::civ_name_rng();
+        // `% 17`: a labelled judgement, not a reference value -- a small prime
+        // modulus that skips 0..=16 draws, enough to diverge worlds' first
+        // names while keeping the burn-in loop trivially cheap. Two seeds that
+        // agree mod 17 share a stream; accepted, since names are cosmetic.
         for _ in 0..(seed % 17) {
             name_rng.next_f64();
         }
@@ -512,12 +521,17 @@ impl CivTools {
     }
 }
 
+/// Unit tests for the CIVIL bridge: kind parsing, snap-to-land, manual
+/// naming/population, drop refusals and `tid` assignment, the contested-cell
+/// heuristic, the territory draft/commit/subtract life cycle, the lasso
+/// rasteriser and the faction-id refusal. Pure Rust; no Godot runtime.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     // ---------- kind_from_str ----------
 
+    /// Protects: the six real tier names parse to their `SettlementKind` regardless of case.
     #[test]
     fn kind_from_str_accepts_the_six_real_tiers_case_insensitively() {
         assert_eq!(
@@ -531,6 +545,7 @@ mod tests {
         assert_eq!(kind_from_str("hamlet"), Some(SettlementKind::Hamlet));
     }
 
+    /// Protects: the special kinds the engine does not model, and the empty string, are refused rather than mapped to a nearest tier.
     #[test]
     fn kind_from_str_rejects_the_unported_special_kinds_and_garbage() {
         assert_eq!(kind_from_str("monastery"), None);
@@ -540,6 +555,7 @@ mod tests {
         assert_eq!(kind_from_str(""), None);
     }
 
+    /// Protects: `kind_from_str` stays the exact inverse of `journey_bridge::settlement_kind_key` for every tier.
     /// `kind_from_str` and `journey_bridge::settlement_kind_key` must stay
     /// exact inverses -- `map_overlay.gd` keys its per-tier dicts on the
     /// latter's output and the Settlement tool feeds the former.
@@ -560,6 +576,9 @@ mod tests {
 
     // ---------- nearest_land_cell ----------
 
+    /// Test fixture: a `w x h` world of water (height `0.2`, water body `1`) with a
+    /// vertical land strip (height `0.6`, body `0`) over the columns `land_cols`.
+    /// Paired with sea level `0.42` by the callers.
     fn strip_world(w: usize, h: usize, land_cols: std::ops::Range<usize>) -> (Vec<f32>, Vec<u8>) {
         let mut field = vec![0.2f32; w * h];
         let mut wb = vec![1u8; w * h];
@@ -572,12 +591,14 @@ mod tests {
         (field, wb)
     }
 
+    /// Protects: a click already on dry land snaps to itself, not to a neighbour.
     #[test]
     fn nearest_land_cell_returns_the_same_cell_when_already_land() {
         let (field, wb) = strip_world(16, 16, 6..10);
         assert_eq!(nearest_land_cell(8, 8, 16, 16, &field, &wb, 0.42, 5.0), Some((8, 8)));
     }
 
+    /// Protects: a water click within range snaps to the nearest land cell on the strip's near edge.
     #[test]
     fn nearest_land_cell_finds_the_closest_shore_cell() {
         let (field, wb) = strip_world(16, 16, 6..10);
@@ -585,6 +606,7 @@ mod tests {
         assert_eq!(nearest_land_cell(2, 8, 16, 16, &field, &wb, 0.42, 10.0), Some((6, 8)));
     }
 
+    /// Protects: a click farther from land than `max_r` returns `None`, so the caller falls through to the ordinary water refusal.
     #[test]
     fn nearest_land_cell_returns_none_when_nothing_is_in_range() {
         let (field, wb) = strip_world(16, 16, 6..10);
@@ -593,12 +615,14 @@ mod tests {
 
     // ---------- manual naming / population ----------
 
+    /// Protects: a non-blank shell-supplied name is used exactly as given.
     #[test]
     fn manual_settlement_name_uses_the_given_name_verbatim_when_not_blank() {
         let mut rng = cartalith_civ::civ_name_rng();
         assert_eq!(manual_settlement_name("Port Callis", cartalith_civ::civ_default_culture(1), &mut rng), "Port Callis");
     }
 
+    /// Protects: blank and whitespace-only names both get a generated one, and the shared RNG advances so two blank drops differ.
     #[test]
     fn manual_settlement_name_generates_one_when_blank_or_whitespace() {
         let mut rng = cartalith_civ::civ_name_rng();
@@ -609,6 +633,7 @@ mod tests {
         assert_ne!(a, b, "the stream must have advanced between the two calls, not repeated");
     }
 
+    /// Protects: a manual drop's population is the auto-populate formula with `suit = 0`, i.e. `base * 0.7 * (0.8 + rng * 0.4)`, rounded -- recomputed independently from a second identical stream.
     #[test]
     fn manual_settlement_pop_matches_the_auto_populate_formula() {
         let mut rng_a = cartalith_civ::civ_name_rng();
@@ -620,6 +645,9 @@ mod tests {
 
     // ---------- drop_settlement ----------
 
+    /// Test fixture: an 8x8 world, empty settlement list, columns 0..3 water and
+    /// the rest land, sea level `0.42`. Returns `(places, field, water_bodies, gw,
+    /// gh, sea)`.
     fn drop_fixture() -> (Vec<NamedSettlement>, Vec<f32>, Vec<u8>, usize, usize, f64) {
         let (gw, gh) = (8usize, 8usize);
         let mut field = vec![0.6f32; gw * gh];
@@ -633,6 +661,7 @@ mod tests {
         (Vec::new(), field, wb, gw, gh, 0.42)
     }
 
+    /// Protects: a land click appends one settlement, index 0, with a generated name and the requested faction.
     #[test]
     fn drop_settlement_appends_and_names_a_blank_placement() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
@@ -645,6 +674,7 @@ mod tests {
         assert_eq!(places[0].placement.faction, 2);
     }
 
+    /// Protects: water and out-of-grid clicks return `None` and add nothing to the settlement list.
     #[test]
     fn drop_settlement_refuses_water_and_out_of_bounds() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
@@ -655,6 +685,7 @@ mod tests {
         assert!(places.is_empty());
     }
 
+    /// Protects: clicking where a settlement already is selects it and does not stack a second one.
     #[test]
     fn drop_settlement_selects_an_existing_place_instead_of_stacking() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
@@ -666,6 +697,7 @@ mod tests {
         assert_eq!(places.len(), 1, "clicking an existing place must not stack a second settlement");
     }
 
+    /// Protects: a hand-placed settlement gets the next nonzero `tid`, and reselecting never advances the counter.
     /// `TIMELINE_SCOPE.md` milestone 1: a hand-placed settlement gets a
     /// real, nonzero, monotonically-increasing `tid` from the shared
     /// counter -- not the crate's `0` "unassigned" sentinel -- and re-
@@ -690,6 +722,7 @@ mod tests {
 
     // ---------- contested_cell_count ----------
 
+    /// Protects: a claimed cell counts only when 4-adjacent to a different faction's claimed cell.
     #[test]
     fn contested_counts_only_cells_bordering_a_different_faction() {
         // 3x1: faction 1, faction 2, unclaimed.
@@ -698,6 +731,7 @@ mod tests {
         assert_eq!(contested_cell_count(&territory, 2, 3, 1), 1);
     }
 
+    /// Protects: open ground between two cells of one faction is not a border.
     #[test]
     fn contested_ignores_unclaimed_neighbours() {
         // 3x1: faction 1, unclaimed, faction 1 -- neither claimed cell
@@ -706,6 +740,7 @@ mod tests {
         assert_eq!(contested_cell_count(&territory, 1, 3, 1), 0);
     }
 
+    /// Protects: faction `0` (unclaimed) always answers `0`, never a count of the cells that border claims.
     #[test]
     fn contested_cell_count_of_an_unclaimed_faction_id_is_zero() {
         let territory = vec![1i32, 2, 3, 0];
@@ -714,6 +749,7 @@ mod tests {
 
     // ---------- CivTools: territory draft/commit/discard ----------
 
+    /// Protects: a fresh `CivTools` has an empty draft, an unallocated paint layer and exactly the base it was given.
     #[test]
     fn new_civ_tools_has_no_pending_draft_and_the_given_base() {
         let base = vec![0i32; 16];
@@ -723,6 +759,7 @@ mod tests {
         assert_eq!(tools.territory_base, base);
     }
 
+    /// Protects: discarding a staged dab leaves nothing to commit and the territory unchanged.
     #[test]
     fn discard_leaves_the_committed_territory_untouched() {
         let base = vec![0i32; 16];
@@ -735,6 +772,7 @@ mod tests {
         assert_eq!(territory, base);
     }
 
+    /// Protects: a committed dab claims exactly its cell and every other cell keeps the base.
     #[test]
     fn commit_paints_over_the_base_and_leaves_unpainted_cells_alone() {
         let base = vec![0i32; 16]; // 4x4, all unclaimed
@@ -746,6 +784,7 @@ mod tests {
         assert_eq!(territory[0], 0, "cells outside the dab fall through to the base");
     }
 
+    /// Protects: subtract in a later commit falls through to the computed base (faction 9), not to unclaimed -- the reason `territory_base` exists.
     #[test]
     fn a_later_subtract_restores_the_base_even_across_two_commits() {
         let base = vec![9i32; 16]; // every cell pre-claimed by faction 9
@@ -766,16 +805,19 @@ mod tests {
 
     // ---------- Territory lasso: polygon_cell_mask / paint_polygon ----------
 
+    /// Test helper: the `(x, y)` of every non-zero mask cell, in row-major order.
     fn cells_of(mask: &[u8], gw: usize) -> Vec<(usize, usize)> {
         mask.iter().enumerate().filter(|&(_, &v)| v != 0).map(|(i, _)| (i % gw, i / gw)).collect()
     }
 
+    /// Protects: `polygon_cell_mask` fills the cells whose centres lie inside, and no others.
     #[test]
     fn lasso_square_fills_exactly_the_cells_whose_centres_it_encloses() {
         let m = polygon_cell_mask(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 5, 5);
         assert_eq!(cells_of(&m, 5), vec![(1, 1), (2, 1), (1, 2), (2, 2)]);
     }
 
+    /// Protects: cells off the grid are clipped (full cover = 25 cells; an edge ring fills only the in-grid cells).
     #[test]
     fn lasso_running_off_the_grid_is_clipped_not_wrapped() {
         let all = polygon_cell_mask(&[(-2.0, -2.0), (7.0, -2.0), (7.0, 7.0), (-2.0, 7.0)], 5, 5);
@@ -784,6 +826,7 @@ mod tests {
         assert_eq!(cells_of(&edge, 5), vec![(3, 0), (4, 0), (3, 1), (4, 1)]);
     }
 
+    /// Protects: a sub-cell ring takes a cell only if it encloses that cell's centre.
     #[test]
     fn lasso_smaller_than_a_cell_takes_the_one_centre_it_holds_or_none() {
         let one = polygon_cell_mask(&[(1.3, 1.3), (1.7, 1.3), (1.5, 1.7)], 4, 4);
@@ -792,6 +835,7 @@ mod tests {
         assert!(cells_of(&none, 4).is_empty());
     }
 
+    /// Protects: fewer than three points, a collinear (zero-area) ring, a NaN coordinate and an empty ring all give an empty mask.
     #[test]
     fn lasso_degenerate_rings_fill_nothing() {
         assert!(cells_of(&polygon_cell_mask(&[(0.0, 0.0), (4.0, 4.0)], 4, 4), 4).is_empty());
@@ -800,6 +844,7 @@ mod tests {
         assert!(cells_of(&polygon_cell_mask(&[], 4, 4), 4).is_empty());
     }
 
+    /// Protects: half-open edge crossings: a vertex exactly on a row's centre line counts once, so the row's span does not collapse.
     #[test]
     fn lasso_vertex_exactly_on_a_centre_row_is_crossed_once() {
         // The left vertex sits on row 1's centre line (y = 1.5): its two
@@ -808,6 +853,7 @@ mod tests {
         assert_eq!(&m[4..8], &[1, 1, 1, 1]);
     }
 
+    /// Protects: the even-odd rule: a self-intersecting ring fills its lobes and leaves the wedges empty.
     #[test]
     fn lasso_self_intersecting_bowtie_fills_its_lobes_not_the_wedges() {
         // Edges (0,0)-(4,4), (4,4)-(4,0), (4,0)-(0,4), (0,4)-(0,0): left and
@@ -819,6 +865,7 @@ mod tests {
         assert_eq!(m[2 * 4 + 3], 1, "right lobe (3,2)");
     }
 
+    /// Protects: a lasso commit paints only inside the ring (9 cells), and a subtract over the same ring restores the base exactly.
     #[test]
     fn lasso_commits_inside_only_and_a_subtract_ring_restores_the_base() {
         let base = vec![9i32; 36]; // 6x6, all faction 9
@@ -838,6 +885,7 @@ mod tests {
         assert_eq!(territory, base, "a subtract lasso over the same ring falls through to the base");
     }
 
+    /// Protects: the single covering stamp's radius reaches both ends of a long thin ring (the bbox-corner `+ 1.0` margin).
     #[test]
     fn lasso_one_stamp_reaches_the_ends_of_a_long_thin_ring() {
         // A 6x1 strip: the covering disc must reach both bbox corners.
@@ -850,6 +898,7 @@ mod tests {
         assert!(territory[6..].iter().all(|&t| t == 0));
     }
 
+    /// Protects: an empty-interior ring stages nothing (`Some(0)`), and discard drops a staged ring.
     #[test]
     fn lasso_enclosing_no_centre_pushes_nothing_and_discard_drops_a_staged_ring() {
         let base = vec![0i32; 16];
@@ -863,6 +912,7 @@ mod tests {
         assert_eq!(territory, base);
     }
 
+    /// Protects: `OUTSTANDING_WORK.md` §2.11: faction ids outside `u8` (256, -1) are refused by `paint_at` and `paint_polygon` with nothing staged, 255 is accepted, and a subtract never reads the id.
     /// `OUTSTANDING_WORK.md` §2.11: a faction id the layer cannot hold is
     /// refused, the way `geojson_apply::apply_territory` refuses it -- not
     /// clamped to 255 (another faction) or 0 (an erase). The base is faction
@@ -889,6 +939,7 @@ mod tests {
         assert_eq!(territory[1 * 4 + 1], 9);
     }
 
+    /// Protects: `rebase` makes the recomputed grid the new base, keeps committed dabs on top, and a later subtract falls through to the NEW base.
     #[test]
     fn rebase_keeps_painted_cells_and_adopts_the_new_computed_answer() {
         let base = vec![9i32; 16];

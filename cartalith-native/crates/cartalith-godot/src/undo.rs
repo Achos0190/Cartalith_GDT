@@ -123,6 +123,9 @@ pub struct UndoStep {
 }
 
 impl UndoStep {
+    /// Heap bytes this step's snapshot occupies (`f32` count x 4). Feeds the live
+    /// total in [`HeightUndo`] and the budget check in `evict`; it must stay in step
+    /// with how `push` adds and `restore`/`evict` subtract, or the total drifts.
     fn bytes(&self) -> usize {
         self.field.len() * std::mem::size_of::<f32>()
     }
@@ -139,12 +142,17 @@ pub struct HeightUndo {
 }
 
 impl Default for HeightUndo {
+    /// `Default` is [`HeightUndo::new`]: an empty stack with the default budget.
+    /// Never a zero budget, which would make every push a bare one-step stack.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl HeightUndo {
+    /// An empty stack with [`DEFAULT_BUDGET_BYTES`] and the reference's
+    /// [`MAX_STEPS`] count bound. It holds nothing until a destructive operation
+    /// pushes; it must not pre-allocate a field.
     pub fn new() -> Self {
         Self { stack: VecDeque::new(), bytes: 0, budget_bytes: DEFAULT_BUDGET_BYTES }
     }
@@ -198,10 +206,14 @@ impl HeightUndo {
         self.bytes = 0;
     }
 
+    /// How many steps are held right now (after eviction). The history ledger
+    /// compares this against its height rows at read time, so it must count exactly
+    /// what [`Self::restore`] can still pop.
     pub fn depth(&self) -> usize {
         self.stack.len()
     }
 
+    /// Whether there is nothing to undo. Drives the Edit menu's disabled state.
     pub fn is_empty(&self) -> bool {
         self.stack.is_empty()
     }
@@ -212,6 +224,8 @@ impl HeightUndo {
         self.bytes
     }
 
+    /// The current byte budget [`Self::evict`] enforces. Never below the 4 MiB
+    /// floor [`Self::set_budget_bytes`] applies.
     pub fn budget_bytes(&self) -> usize {
         self.budget_bytes
     }
@@ -246,14 +260,19 @@ impl HeightUndo {
     }
 }
 
+/// Unit tests for [`HeightUndo`]: ordering, both eviction bounds, the one-step
+/// floor, the length-mismatch guard and byte accounting. Pure `Vec<f32>` fixtures;
+/// no Godot, no world.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Test fixture: an `n`-cell height field filled with `v`.
     fn field(n: usize, v: f32) -> Vec<f32> {
         vec![v; n]
     }
 
+    /// Protects: restore on an empty stack returns `None`, leaves the field untouched and reports zero depth, bytes and label.
     #[test]
     fn empty_stack_restores_nothing() {
         let mut u = HeightUndo::new();
@@ -265,6 +284,7 @@ mod tests {
         assert_eq!(u.next_label(), None);
     }
 
+    /// Protects: the basic round trip: a pushed snapshot is written back over a mutated field and its label returned.
     #[test]
     fn push_then_restore_reverts_the_field() {
         let mut u = HeightUndo::new();
@@ -276,6 +296,7 @@ mod tests {
         assert!(u.is_empty());
     }
 
+    /// Protects: LIFO order -- restore hands back the newest step first, each restoring the field state before its operation.
     #[test]
     fn restores_in_reverse_order() {
         let mut u = HeightUndo::new();
@@ -295,6 +316,7 @@ mod tests {
         assert_eq!(u.restore(&mut f), None);
     }
 
+    /// Protects: the reference's `MAX_UNDO=5` / `shift()` rule: the oldest steps drop and the five survivors restore with the right pre-op values.
     /// The reference's `MAX_UNDO=5` with `undoStack.shift()`: the sixth push
     /// evicts the first, and the oldest reachable state is the fifth-from-last.
     #[test]
@@ -315,6 +337,7 @@ mod tests {
         assert!(u.is_empty());
     }
 
+    /// Protects: `labels()` agrees with `next_label()` and `depth()`, is newest-first, and shortens as steps are popped or cleared.
     /// `labels()` is `next_label()` extended to the whole stack, in the same
     /// direction: newest first, first element identical to `next_label()`,
     /// and it shortens as steps are popped.
@@ -337,6 +360,7 @@ mod tests {
         assert_eq!(u.labels().len(), 0);
     }
 
+    /// Protects: `labels()` is a view of what the stack still holds: names dropped by the count bound or by a shrunk byte budget do not appear.
     /// The list is a view of what the stack **actually holds**, not of what
     /// was pushed: an evicted step is not named, exactly as it is not
     /// counted by `depth()` and not restorable. Eight pushes, five survivors.
@@ -362,6 +386,7 @@ mod tests {
         assert_eq!(b.labels().len(), b.depth(), "the list and the depth cannot disagree");
     }
 
+    /// Protects: the maintained byte total (4 bytes per `f32`) follows push, restore and clear exactly.
     #[test]
     fn bytes_tracks_pushes_and_pops() {
         let mut u = HeightUndo::new();
@@ -377,6 +402,7 @@ mod tests {
         assert_eq!(u.depth(), 0);
     }
 
+    /// Protects: on a large world the byte budget, not the 5-step count, decides how many steps survive.
     /// The budget, not the count, is what binds on a big world. 10 MiB of
     /// budget against 4 MiB steps holds two, not five.
     #[test]
@@ -392,6 +418,7 @@ mod tests {
         assert_eq!(u.next_label(), Some("op4"));
     }
 
+    /// Protects: the one-step floor: a snapshot bigger than the whole budget is kept (and still restores) rather than becoming a silent no-op.
     /// A single step larger than the whole budget is still kept: one big undo
     /// beats a silently absent one. This is the 8192² case.
     #[test]
@@ -408,6 +435,7 @@ mod tests {
         assert_eq!(f[0], 0.5);
     }
 
+    /// Protects: `set_budget_bytes` evicts at once to the new budget instead of waiting for the next push.
     #[test]
     fn shrinking_the_budget_evicts_immediately() {
         let mut u = HeightUndo::new();
@@ -421,6 +449,7 @@ mod tests {
         assert_eq!(u.bytes(), 8 * 1024 * 1024);
     }
 
+    /// Protects: the 4 MiB floor on `set_budget_bytes`, so a zero budget cannot gut undo at every resolution.
     /// The floor stops a caller from setting a budget that would make undo
     /// useless at every resolution.
     #[test]
@@ -430,6 +459,7 @@ mod tests {
         assert_eq!(u.budget_bytes(), 4 * 1024 * 1024);
     }
 
+    /// Protects: a snapshot whose length differs from the live field is never half-written, and is popped so it cannot wedge the stack.
     /// A resized grid: the snapshot is refused *and* dropped, so the next
     /// undo reaches a step that might still fit rather than jamming on this
     /// one forever.
@@ -443,6 +473,7 @@ mod tests {
         assert!(u.is_empty(), "a permanently-unusable step is dropped, not left to wedge the stack");
     }
 
+    /// Protects: a zero-length field takes no slot and no bytes.
     #[test]
     fn empty_field_is_not_pushed() {
         let mut u = HeightUndo::new();
@@ -451,6 +482,7 @@ mod tests {
         assert_eq!(u.bytes(), 0);
     }
 
+    /// Protects: `clear` empties the stack, byte total and label, so a following restore finds nothing.
     #[test]
     fn clear_resets_everything() {
         let mut u = HeightUndo::new();
@@ -609,6 +641,8 @@ pub struct HistoryLedger {
 }
 
 impl HistoryLedger {
+    /// An empty ledger: no rows, `seq` counter at zero, no saved mark. Equivalent
+    /// to `Default`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -623,6 +657,9 @@ impl HistoryLedger {
             .map(|d| d.as_millis() as u64)
     }
 
+    /// [`Self::now_ms_opt`] with a refused clock collapsed to `0` -- for stamping
+    /// a row, where a number is required. Never used to claim *when a file was
+    /// written*; that keeps the `None`.
     fn now_ms() -> u64 {
         Self::now_ms_opt().unwrap_or(0)
     }
@@ -837,6 +874,10 @@ impl HistoryLedger {
         self.saved_reverted_past
     }
 
+    /// Forget every row and the saved mark, **without** setting
+    /// `saved_reverted_past`: clearing is not a revert. Called alongside
+    /// `HeightUndo::clear`, because with the snapshots gone no row could be reverted
+    /// to. The `seq` counter is deliberately left alone so `seq`s stay unique.
     pub fn clear(&mut self) {
         self.entries.clear();
         // `clear_undo()` throws the snapshots away, so no row here could be
@@ -872,10 +913,15 @@ pub fn file_written_at_ms(path: &str) -> Option<u64> {
         .map(|d| d.as_millis() as u64)
 }
 
+/// Unit tests for [`HistoryLedger`]: floors, reversibility read from the live
+/// stack depth, the linear revert rule, `MAX_LEDGER` eviction, the `COMMITTED`
+/// mark's life cycle, Ruling BA's way rows and [`file_written_at_ms`].
 #[cfg(test)]
 mod ledger_tests {
     use super::*;
 
+    /// Test fixture: five rows, seq 1..=5 -- Floor, Recorded (civ), height,
+    /// Recorded (paint), height. Tests below quote seq numbers against this shape.
     fn ledger() -> HistoryLedger {
         let mut l = HistoryLedger::new();
         l.record("world", "Generate world", "seed 1", EntryKind::Floor);
@@ -886,6 +932,7 @@ mod ledger_tests {
         l
     }
 
+    /// Protects: a Floor row (generate/load) wipes earlier rows -- it is a start of history, not a divider.
     #[test]
     fn a_floor_clears_everything_before_it() {
         let mut l = ledger();
@@ -895,6 +942,7 @@ mod ledger_tests {
         assert_eq!(l.rows(0)[0].0.label, "Generate world");
     }
 
+    /// Protects: the only meeting point of ledger and stack: exactly the newest `depth` height rows are offered as reversible, evicted ones are not.
     /// The one place the two structures meet: with two snapshots on the
     /// stack both height rows are live; with one, only the newer is.
     #[test]
@@ -908,6 +956,7 @@ mod ledger_tests {
         assert!(live0.iter().all(|b| !b), "an empty stack offers nothing");
     }
 
+    /// Protects: a `Recorded` or `Floor` row is never flagged reversible at any stack depth.
     #[test]
     fn a_recorded_row_is_never_reversible_however_deep_the_stack() {
         let l = ledger();
@@ -920,6 +969,7 @@ mod ledger_tests {
         }
     }
 
+    /// Protects: `steps_to_revert_to` counts the row plus the live height rows above it, refuses evicted and Recorded rows, and does not panic on an unknown seq.
     #[test]
     fn reverting_counts_this_row_and_every_snapshot_above_it() {
         let l = ledger();
@@ -936,6 +986,7 @@ mod ledger_tests {
         assert_eq!(l.steps_to_revert_to(9999, 2), None, "an unknown seq is not a panic");
     }
 
+    /// Protects: linear history: `truncate_to` removes the target row and everything after it, Recorded rows included.
     #[test]
     fn a_revert_takes_everything_above_it_with_it() {
         let mut l = ledger();
@@ -945,6 +996,7 @@ mod ledger_tests {
         assert_eq!(left, vec!["Generate world", "Settlement dropped"]);
     }
 
+    /// Protects: `pop_newest_height` removes the newest height row even when a Recorded row is newer, and is a no-op when no height row remains.
     #[test]
     fn a_plain_undo_removes_the_newest_snapshot_and_not_a_recorded_row() {
         let mut l = ledger();
@@ -962,6 +1014,7 @@ mod ledger_tests {
         assert_eq!(l.len(), 3);
     }
 
+    /// Protects: `MAX_LEDGER` caps the row count and evicts oldest-first.
     #[test]
     fn the_ledger_is_bounded_and_drops_the_oldest() {
         let mut l = HistoryLedger::new();
@@ -972,16 +1025,16 @@ mod ledger_tests {
         assert_eq!(l.rows(0)[0].0.label, "op20", "the oldest twenty were dropped");
     }
 
-    /// `seq` is what the shell round-trips, so it must never repeat within a
-    /// session -- including across a floor, which clears the rows but not the
-    /// counter.
     // -- the `COMMITTED` boundary ------------------------------------------
     //
     // A wall-clock instant used as a literal, so the assertions below pin the
     // value that was handed in rather than whatever `now_ms_opt()` returns:
     // 2023-11-14T22:13:20Z.
+    /// A fixed, plausible Unix-epoch-millisecond write time (2023-11-14T22:13:20Z,
+    /// a labelled judgement: any literal would do) handed to `mark_saved`.
     const WRITTEN_AT: u64 = 1_700_000_000_000;
 
+    /// Protects: never saved is `None`/`None`/`false`, a different claim from a mark at seq 0 or a reverted-past mark.
     /// The never-saved case, which the panel must draw as *no rule* rather
     /// than a rule at seq 0. All three answers are absent, and absent is a
     /// different value from zero.
@@ -993,6 +1046,7 @@ mod ledger_tests {
         assert!(!l.saved_reverted_past(), "never saved is not the same fact as reverted past");
     }
 
+    /// Protects: `mark_saved` places the `COMMITTED` mark at the newest row's seq and records the given write time.
     /// The mark sits at the newest row, stated two ways: against the row's own
     /// `seq` (the relationship the panel needs -- everything at or below it is
     /// in the file) and against the literal `5`, since `ledger()` records five
@@ -1009,6 +1063,7 @@ mod ledger_tests {
         assert!(!l.saved_reverted_past());
     }
 
+    /// Protects: an unknown file time stays `None` while the mark is still placeable; it never becomes "now".
     /// A file whose write time the filesystem would not give up: the rule is
     /// still placeable and its age is still unknown. Two facts, and the second
     /// is not allowed to become "just now".
@@ -1020,6 +1075,7 @@ mod ledger_tests {
         assert_eq!(l.saved_at_ms(), None);
     }
 
+    /// Protects: a generate's Floor clears the saved mark with the rows -- a fresh world is on no disk.
     /// The generate case. A floor clears the rows, and the mark goes with them
     /// -- a freshly generated world is on no disk anywhere.
     #[test]
@@ -1033,6 +1089,7 @@ mod ledger_tests {
         assert!(!l.saved_reverted_past());
     }
 
+    /// Protects: the `load_save` order (Floor, then `mark_saved`): the floor is the saved row, and later edits sit above it without moving it.
     /// The cross-session case at this type's own level, in the order
     /// `WorldGen::load_save` runs it: the load's floor clears everything, and
     /// the mark is set on the floor immediately after. The boundary is then
@@ -1051,12 +1108,15 @@ mod ledger_tests {
         assert_eq!(l.saved_seq(), Some(floor), "and does not move it");
     }
 
+    /// Protects: reverting at or below the mark clears it and sets `saved_reverted_past`; reverting above it leaves the mark untouched.
     /// Reverting *to* the saved row, or below it, unwinds work that is in the
     /// file -- so the boundary stops being placeable and says which of the two
     /// reasons it is. Reverting above it leaves the mark alone.
     #[test]
     fn reverting_at_or_below_the_boundary_replaces_it_with_a_reason() {
         // Five rows, saved (mark at 5), then two edits since the save.
+        /// Test fixture: [`ledger`], saved (mark at seq 5), then a Recorded row (6) and
+        /// a height row (7) above the mark.
         fn saved_then_edited() -> HistoryLedger {
             let mut l = ledger();
             l.mark_saved(Some(WRITTEN_AT));
@@ -1088,6 +1148,7 @@ mod ledger_tests {
         assert!(below.saved_reverted_past());
     }
 
+    /// Protects: a plain undo invalidates the mark by the popped height row's own seq, not by position in the list.
     /// `Edit > Undo` pops the newest *height* row, which is not always the
     /// newest row -- so the invalidation asks that row's own `seq`. Here the
     /// mark is above the height row being popped, and the boundary survives;
@@ -1110,6 +1171,7 @@ mod ledger_tests {
         assert!(lost.saved_reverted_past());
     }
 
+    /// Protects: Ruling BA's `WayDelete` row is live exactly when `way_live(seq)` says so, counted by revert-to like a height row, and never offered by plain `rows()`.
     /// Ruling BA's way row: live only while `way_live` says so, and counted
     /// by a revert-to exactly like a height row. `ledger()` is seqs 1..=5;
     /// the way delete below is seq 6, above the Sculpt commit (5).
@@ -1134,6 +1196,7 @@ mod ledger_tests {
         assert_eq!(l.newest_height_seq(), Some(5), "a way row is not a height row");
     }
 
+    /// Protects: `remove_seq` drops only the named row, reports a missing one as `false`, and invalidates the mark only for rows inside the file.
     #[test]
     fn remove_seq_drops_one_row_and_respects_the_boundary() {
         let mut l = ledger();
@@ -1150,6 +1213,7 @@ mod ledger_tests {
         assert_eq!(left, vec!["Generate world", "Carve fjords", "Paint commit", "Sculpt commit"]);
     }
 
+    /// Protects: `clear` drops the mark but does not set `saved_reverted_past`; clearing is not a revert.
     #[test]
     fn clearing_the_ledger_drops_the_boundary_without_blaming_a_revert() {
         let mut l = ledger();
@@ -1160,6 +1224,7 @@ mod ledger_tests {
         assert!(!l.saved_reverted_past());
     }
 
+    /// Protects: `MAX_LEDGER` eviction forgets old names without moving or invalidating the saved mark.
     /// `MAX_LEDGER` eviction forgets old rows' *names*; it does not unwind
     /// them, and they are still in the file. The boundary must not move.
     #[test]
@@ -1176,6 +1241,7 @@ mod ledger_tests {
         assert!(!l.saved_reverted_past());
     }
 
+    /// Protects: `file_written_at_ms` returns epoch **milliseconds** close to now for a real file and `None` for a missing or empty path.
     /// [`file_written_at_ms`] over a file this test just wrote, and over one
     /// that is not there. The window is deliberately wide -- the assertion is
     /// that a real epoch-milliseconds figure comes back, not a timing.
@@ -1199,6 +1265,7 @@ mod ledger_tests {
         assert_eq!(file_written_at_ms(""), None);
     }
 
+    /// Protects: `seq` is what the shell round-trips, so it never repeats within a session -- including across a floor, which clears the rows but not the counter.
     #[test]
     fn seq_never_repeats_across_a_floor() {
         let mut l = HistoryLedger::new();

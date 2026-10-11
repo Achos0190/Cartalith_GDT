@@ -152,12 +152,17 @@ pub const PAINT_RADIUS_RANGE: (f64, f64) = (1.0, 40.0);
 /// to."* This is that caller-side selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaintTarget {
+    /// The biome override array (`paintBiome` in the reference).
     Biome,
+    /// The terrain override array (`paintTerrain` in the reference).
     Terrain,
+    /// The ground-texture splat override array (`paintSplat` in the reference).
     Splat,
 }
 
 impl PaintTarget {
+    /// Every layer, in declaration order; [`PaintTarget::from_key`] searches this list,
+    /// so a new variant must be added here or it is unreachable by key.
     pub const ALL: [PaintTarget; 3] = [PaintTarget::Biome, PaintTarget::Terrain, PaintTarget::Splat];
 
     /// The key a caller passes to `paint_set_layer` / receives from
@@ -170,6 +175,10 @@ impl PaintTarget {
         }
     }
 
+    /// The inverse of [`PaintTarget::key`]: `None` for any string that is not one of
+    /// the three keys, so a stale or mistyped key from the shell is rejected rather
+    /// than defaulted (defaulting to Biome would silently paint the wrong layer).
+    /// Must never panic: the key arrives from GDScript.
     pub fn from_key(key: &str) -> Option<Self> {
         PaintTarget::ALL.into_iter().find(|t| t.key() == key)
     }
@@ -218,8 +227,9 @@ impl PaintTarget {
 }
 
 /// The brush parameters `DCC_SHELL_SPEC.md` §4.5.2's `PAINT · BIOME` tool
-/// options row exposes, after clamping. See this module's own doc for why
-/// `hardness`/`softness` exist here but do nothing to a dab.
+/// options row exposes, after clamping. `hardness`/`softness` feather the disc's
+/// own edge since `DECISIONS.md` §7k (this module's own doc); they never blend
+/// the categorical *value* a touched cell receives.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Brush {
     /// 1-based index into the *active* layer's own `PaintTarget::palette`.
@@ -227,10 +237,15 @@ pub struct Brush {
     /// kept rather than cleared, so turning `erase` back off restores the
     /// class the user had selected.
     pub value: u8,
+    /// Dab radius in grid cells, clamped to [`PAINT_RADIUS_RANGE`].
     pub radius: f64,
+    /// Edge hardness in `[0, 1]`; `1.0` is the hard disc (`DECISIONS.md` §7k).
     pub hardness: f64,
+    /// Edge softness in `[0, 1]`; `0.0` is a zero-width feather band (`DECISIONS.md` §7k).
     pub softness: f64,
+    /// When set, every dab writes `0` (unpainted) instead of [`Brush::value`].
     pub erase: bool,
+    /// When set, a dab skips cells the water mask marks as water (this port's toggle; see the module doc).
     pub land_only: bool,
 }
 
@@ -267,7 +282,9 @@ impl Default for Brush {
 /// Biome/Terrain/Splat, sharing one [`DirtyTracker`] (see this module's own
 /// doc on why three drafts rather than one).
 pub struct PaintEditor {
+    /// The layer the next [`PaintEditor::stroke_at`] writes to; change it only through [`PaintEditor::set_layer`].
     pub layer: PaintTarget,
+    /// The live brush; change it only through [`PaintEditor::set_brush`], which clamps.
     pub brush: Brush,
     /// This world's water-body classification (`cartalith_civ::
     /// build_water_bodies`'s own `wb.classification`, `0` = land) —
@@ -337,6 +354,9 @@ impl PaintEditor {
         self.epoch
     }
 
+    /// The *committed* [`PaintLayer`] of the currently selected layer. Committed
+    /// state only: the layer's pending dabs are in [`PaintEditor::active_draft`],
+    /// and neither accessor ever shows the other's content.
     pub fn active_layer(&self) -> &PaintLayer {
         match self.layer {
             PaintTarget::Biome => &self.biome,
@@ -361,6 +381,9 @@ impl PaintEditor {
         }
     }
 
+    /// The pending (uncommitted) draft of the currently selected layer, read-only.
+    /// Pairs with [`PaintEditor::active_layer`]; the live picture is the composite
+    /// of the two (`PassBuffer::preview_into`), never either alone.
     pub fn active_draft(&self) -> &PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &self.draft_biome,
@@ -390,6 +413,10 @@ impl PaintEditor {
         self.draft_biome.len() + self.draft_terrain.len() + self.draft_splat.len()
     }
 
+    /// Mutable twin of [`PaintEditor::active_draft`] and the one place
+    /// [`PaintEditor::stroke_at`] chooses which draft a dab lands in. Its `match`
+    /// must stay in step with `active_draft`'s, or previews would read a different
+    /// layer's draft than the one the brush is writing.
     fn active_draft_mut(&mut self) -> &mut PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &mut self.draft_biome,
@@ -594,6 +621,11 @@ impl PaintEditor {
     /// `paint_commit` for how the DCC shell's stage-09/10 staleness note
     /// is surfaced from this summary.
     pub fn commit_all(&mut self, n: usize) -> [CommitSummary; 3] {
+        /// Bakes one layer's draft into its committed layer and returns the summary.
+        /// An empty draft returns a zeroed summary *without* calling
+        /// `PaintLayer::cells_mut`, which would allocate the layer's backing array for
+        /// nothing; see [`PaintEditor::commit_all`] for why an untouched layer must stay
+        /// unallocated.
         fn commit_one(draft: &mut PassBuffer<PaintStamp>, layer: &mut PaintLayer, tracker: &mut DirtyTracker, n: usize, reason: &str) -> CommitSummary {
             if draft.is_empty() {
                 return CommitSummary { stamps_applied: 0, stamps_skipped: 0, tiles_marked: Vec::new() };
@@ -639,6 +671,11 @@ impl PaintEditor {
     /// `PaintLayer::cells_mut` mismatch path, which would silently wipe it.
     /// [`Self::epoch`] moves only when a cell actually changed.
     pub fn clear_cells_under(&mut self, n: usize, footprint: &[bool]) -> [usize; 3] {
+        /// Zeroes one committed layer's painted cells wherever `footprint` is set and
+        /// returns how many it cleared. Skips a layer that is unallocated or whose length
+        /// is not `n` (`cells_mut` would reallocate and silently wipe a mismatched
+        /// layer), and counts only cells that were actually non-zero so the caller's
+        /// epoch moves only on a real change. See [`PaintEditor::clear_cells_under`].
         fn clear_one(layer: &mut PaintLayer, n: usize, footprint: &[bool]) -> usize {
             if layer.cells().is_none_or(|c| c.len() != n) {
                 return 0;
@@ -795,7 +832,9 @@ impl PaintEditor {
 /// for what a full-grid `region` means as against a sub-rectangle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewPatch {
+    /// The grid rectangle `rgba` covers; always non-empty.
     pub region: Region,
+    /// RGBA8 texels for `region`, row-major; length is exactly `region.w * region.h * 4`.
     pub rgba: Vec<u8>,
 }
 
@@ -880,10 +919,18 @@ pub fn swatch_color_with(target: PaintTarget, index: u8, palette_len: usize, bio
     match target {
         PaintTarget::Biome => biome_cols[i],
         PaintTarget::Terrain => crate::render::CART_TERRAIN_COLS[i],
+        // Equal hue steps around the wheel so neighbouring classes differ. Saturation 0.65 and
+        // value 0.95 are a labelled judgement (legible over the map), not a measurement: Splat
+        // has no reference colour (see this function's doc), so there is nothing to match.
         PaintTarget::Splat => hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95),
     }
 }
 
+/// Standard HSV to RGB conversion: `h` in degrees, `s` and `v` in `[0, 1]`, the
+/// result rounded to bytes. Used only for Splat's generated swatch hue (see
+/// [`swatch_color_with`]); the sextant `match` falls through to the last arm for
+/// sextant 5, and callers pass `h < 360`. Not a parity function: no reference
+/// value exists for it.
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
     let c = v * s;
     let hp = h / 60.0;
@@ -900,6 +947,8 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
     (((r1 + m) * 255.0).round() as u8, ((g1 + m) * 255.0).round() as u8, ((b1 + m) * 255.0).round() as u8)
 }
 
+/// The unit tests of the paint bridge. They run without a Godot runtime (this module
+/// is `godot`-free), so they exercise the state machine, not the `#[func]` surface.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -908,12 +957,16 @@ mod tests {
     // reaches it indirectly through `PassBuffer`.
     use cartalith_spatial::Stamp;
 
+    /// An all-land water mask of `n` cells (`0` = land everywhere), so the land-only
+    /// gate excludes nothing unless a test marks a cell itself.
     fn land_mask(n: usize) -> Arc<[u8]> {
         vec![0u8; n].into()
     }
 
     // ---- registry ----
 
+    /// Protects: `PaintTarget::key` and `from_key` are inverses for all three layers,
+    /// and an unknown key resolves to `None` rather than a default layer.
     #[test]
     fn every_target_round_trips_through_its_own_key() {
         for t in PaintTarget::ALL {
@@ -922,6 +975,8 @@ mod tests {
         assert_eq!(PaintTarget::from_key("nope"), None);
     }
 
+    /// Protects: the Biome palette stays the 13 land biomes: `Lake` and `Ocean / Deep Water`
+    /// are never paintable, and the 13 are the first 13 `CART_BIOMES` entries.
     #[test]
     fn biome_palette_is_13_not_all_15_cart_biomes() {
         let p = PaintTarget::Biome.palette();
@@ -932,6 +987,8 @@ mod tests {
         assert_eq!(p[12], CART_BIOMES[12]);
     }
 
+    /// Protects: Terrain and Splat expose their complete source arrays, with no carve-out
+    /// like Biome's.
     #[test]
     fn terrain_and_splat_palettes_match_their_full_arrays() {
         assert_eq!(PaintTarget::Terrain.palette(), CART_TERRAINS.to_vec());
@@ -940,6 +997,9 @@ mod tests {
 
     // ---- editor construction ----
 
+    /// Protects: a fresh editor's starting state: Biome active, default radius 6, the land-only
+    /// gate on (the reference's always-on behaviour), erase off, and an unallocated
+    /// layer with an empty draft.
     #[test]
     fn new_editor_starts_on_biome_with_empty_layers_and_the_reference_default_brush() {
         let e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -953,6 +1013,7 @@ mod tests {
 
     // ---- set_layer ----
 
+    /// Protects: `set_layer` changes the editor's active layer (only `layer` is asserted).
     #[test]
     fn set_layer_switches_the_active_draft_and_layer() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -960,6 +1021,8 @@ mod tests {
         assert_eq!(e.layer, PaintTarget::Splat);
     }
 
+    /// Protects: a brush value legal for Biome (13) is reset to 1 on switching to Splat
+    /// (6 slots), never left as an index Splat's palette cannot explain.
     #[test]
     fn set_layer_clamps_a_value_that_would_be_illegal_in_the_new_layer() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -968,6 +1031,8 @@ mod tests {
         assert_eq!(e.brush.value, 1, "an out-of-range value must reset, not persist silently");
     }
 
+    /// Protects: a value still legal in the new layer (4, switching Biome to Terrain) survives
+    /// the switch unchanged: the clamp resets only out-of-range values.
     #[test]
     fn set_layer_leaves_an_in_range_value_untouched() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -978,6 +1043,9 @@ mod tests {
 
     // ---- set_brush ----
 
+    /// Protects: `set_brush` clamps value to the layer's palette size, radius to
+    /// `PAINT_RADIUS_RANGE`'s maximum and hardness/softness to `[0, 1]`, and the
+    /// returned `Brush` equals what the editor stored.
     #[test]
     fn set_brush_clamps_every_field_and_reports_what_was_stored() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -991,6 +1059,8 @@ mod tests {
         assert_eq!(e.brush, b);
     }
 
+    /// Protects: a NaN radius, hardness or softness leaves the previous value in place rather
+    /// than clamping, so a NaN never reaches a stamp's arithmetic.
     #[test]
     fn set_brush_rejects_non_finite_values_and_keeps_the_previous_ones() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -1004,6 +1074,7 @@ mod tests {
 
     // ---- stroke_at / drafting ----
 
+    /// Protects: a dab lands in the active layer's draft only; the other two drafts stay empty.
     #[test]
     fn stroke_at_pushes_into_the_active_layers_own_draft_only() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -1014,6 +1085,8 @@ mod tests {
         assert_eq!(e.draft_splat.len(), 0);
     }
 
+    /// Protects: fractional pointer coordinates round to the nearest grid cell ((8.3, 6.6) to
+    /// cell (8, 7)) via the JS-semantics rounding.
     #[test]
     fn stroke_at_rounds_to_the_nearest_cell() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -1026,6 +1099,8 @@ mod tests {
         assert_eq!(scratch[7 * 16 + 8], 5, "(8.3, 6.6) rounds to grid cell (8, 7)");
     }
 
+    /// Protects: an erase dab writes 0 whatever `brush.value` holds, clearing a previously
+    /// painted cell in the composited preview.
     #[test]
     fn erase_writes_zero_regardless_of_the_stored_value() {
         let mut e = PaintEditor::new(16, 12, land_mask(16 * 12));
@@ -1039,6 +1114,8 @@ mod tests {
         assert_eq!(scratch[8 * 16 + 8], 0);
     }
 
+    /// Protects: with `land_only` on, a cell the captured water mask marks as water stays
+    /// unpainted even when the dab's centre is on it.
     #[test]
     fn land_only_gates_against_the_captured_water_mask() {
         let n = 16 * 12;
@@ -1053,6 +1130,8 @@ mod tests {
         assert_eq!(scratch[8 * 16 + 8], 0, "gated cell must stay unpainted");
     }
 
+    /// Protects: with `land_only` off, the same masked cell is painted: the toggle really
+    /// bypasses the mask.
     #[test]
     fn land_only_off_paints_straight_through_the_water_mask() {
         let n = 16 * 12;
@@ -1074,6 +1153,8 @@ mod tests {
     // claims through the real public surface `stroke_at` actually is, using
     // `Brush`'s own `hardness`/`softness` names end to end.
 
+    /// Protects: `DECISIONS.md` §7k's bit-identity promise: the default brush (hardness 1.0,
+    /// softness 0.0) paints exactly `PaintStamp`'s own hard disc.
     #[test]
     fn stroke_at_with_the_default_brush_paints_the_historical_hard_disc() {
         // hardness=1.0, softness=0.0 is `Brush::default()`'s own pair --
@@ -1093,6 +1174,9 @@ mod tests {
         assert_eq!(got, want, "an untouched brush must reproduce PaintStamp's own hard disc exactly");
     }
 
+    /// Protects: hardness 0.4 paints a strictly different, strictly smaller set of cells than
+    /// the hard disc (a feather only drops cells, never adds them), while the interior
+    /// still paints.
     #[test]
     fn stroke_at_with_hardness_below_one_measurably_feathers_the_edge() {
         let n = 40 * 40;
@@ -1113,6 +1197,9 @@ mod tests {
         assert!(soft_count > 0, "the disc's interior must still paint something");
     }
 
+    /// Protects: the hardness/softness `set_brush` stores are what the following `stroke_at`
+    /// hands to `PaintStamp::with_falloff`: the editor path equals building that stamp
+    /// directly.
     #[test]
     fn set_brush_round_trips_hardness_and_softness_into_the_next_stamp() {
         // `set_brush` and `stroke_at` are two calls, not one -- this pins
@@ -1134,6 +1221,8 @@ mod tests {
 
     // ---- painted_counts ----
 
+    /// Protects: `painted_counts` counts pending dabs too: two non-overlapping radius-1 pluses
+    /// give a total of 10, 5 each in their own class, with one entry per Biome class (13).
     #[test]
     fn painted_counts_reflects_the_live_draft_not_only_the_committed_layer() {
         // Radius 1.0 (`PAINT_RADIUS_RANGE`'s own minimum) paints a 5-cell
@@ -1156,6 +1245,8 @@ mod tests {
 
     // ---- commit_all / discard_all ----
 
+    /// Protects: `commit_all` bakes the Biome and Terrain drafts into their own layers (not just
+    /// the active one), reports Splat as untouched, and clears the drafts.
     #[test]
     fn commit_all_bakes_every_layer_that_has_pending_work_and_clears_all_drafts() {
         let n = 16 * 12;
@@ -1176,6 +1267,10 @@ mod tests {
         assert_eq!(e.terrain.cells().unwrap()[3 * 16 + 3], 4);
     }
 
+    /// Protects: `pending_stamps` counts all three drafts, and reaches 0 on commit while
+    /// `painted_counts` keeps its total, which is why that total cannot gate the
+    /// Commit / Discard pair.
+    ///
     /// `GUI_GAP_REGISTER.md` WW-13 — the exact divergence the Commit /
     /// Discard pair was gated on the wrong side of: after a commit,
     /// `painted_counts` still reports the painted cells (correctly — they
@@ -1210,6 +1305,8 @@ mod tests {
         assert!(total_after > 0);
     }
 
+    /// Protects: `discard_all` empties every draft and really removes the painted cells from
+    /// the composite.
     #[test]
     fn pending_stamps_goes_to_zero_on_discard_too() {
         let n = 16 * 12;
@@ -1224,6 +1321,8 @@ mod tests {
         assert_eq!(total, 0, "a discard really did remove the cells too");
     }
 
+    /// Protects: a layer with no pending dabs stays unallocated (not merely empty) across a
+    /// commit of another layer.
     #[test]
     fn commit_all_never_touches_a_layer_with_nothing_pending() {
         let n = 16 * 12;
@@ -1235,6 +1334,8 @@ mod tests {
         assert!(e.splat.is_unallocated());
     }
 
+    /// Protects: `discard_all` returns the total dabs dropped across layers, clears those
+    /// drafts, and allocates no committed layer.
     #[test]
     fn discard_all_drops_every_pending_dab_and_touches_no_committed_layer() {
         let n = 16 * 12;
@@ -1255,6 +1356,8 @@ mod tests {
 
     // ---- swatch_color ----
 
+    /// Protects: within each palette, `swatch_color` is deterministic and gives every class a
+    /// distinct colour.
     #[test]
     fn swatch_color_is_stable_and_distinct_across_a_palette() {
         for t in PaintTarget::ALL {
@@ -1268,6 +1371,9 @@ mod tests {
         }
     }
 
+    /// Protects: Biome and Terrain swatches equal the reference colour tables, with two literal
+    /// spot values so a table edit cannot pass by moving both sides together.
+    ///
     /// The correction this function needed: the overlay preview and the
     /// committed map must name a class with the *same* colour, and that
     /// colour is the reference's own table, not a generated hue.
@@ -1283,6 +1389,9 @@ mod tests {
         assert_eq!(swatch_color(PaintTarget::Terrain, 2, 13), (154, 122, 74), "CART_TERRAIN_COLS[1]");
     }
 
+    /// Protects: `swatch_color_with` changes only the overridden Biome index, and the 3-argument
+    /// `swatch_color` stays equal to the frozen table whatever override exists.
+    ///
     /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the golden
     /// re-baseline this ruling actually needs. `swatch_color` (the existing,
     /// pinned 3-arg entry point) must stay exactly the frozen table for
@@ -1322,8 +1431,10 @@ mod tests {
         }
     }
 
-    /// Splat has no reference colour at all — it names pack textures. Kept
-    /// on the generated hue, and pinned so the distinction stays deliberate.
+    /// Protects: both preview rasters colour a painted Biome cell from the table passed in, while
+    /// the frozen entry point keeps `CART_BIOME_COLS`. The dab's centre cell is the
+    /// probe point, chosen by where the stroke was placed, not by its colour.
+    ///
     /// CA-19 (Ruling P): both preview rasters colour a painted Biome cell from
     /// the table they are handed, so the overlay names a class in the colour
     /// the committed map will blend toward. The dab's centre cell is the
@@ -1347,12 +1458,15 @@ mod tests {
         assert_eq!(&patch.rgba[pat..pat + 4], &[1, 2, 3, 255], "patch preview takes the override");
     }
 
+    /// Protects: Splat has no reference colour (it names pack textures), so it keeps the generated
+    /// hue, deterministic and different from the Biome table's first colour.
     #[test]
     fn splat_swatches_stay_generated_because_the_reference_has_no_colour_for_them() {
         assert_ne!(swatch_color(PaintTarget::Splat, 1, 6), crate::render::CART_BIOME_COLS[0]);
         assert_eq!(swatch_color(PaintTarget::Splat, 1, 6), swatch_color(PaintTarget::Splat, 1, 6));
     }
 
+    /// Protects: index 0, an out-of-range index and an empty palette all give black for every layer.
     #[test]
     fn swatch_color_is_black_for_unpainted_or_out_of_range() {
         for t in PaintTarget::ALL {
@@ -1362,6 +1476,8 @@ mod tests {
         }
     }
 
+    /// Protects: `layer_cells` is `None` while a layer is unallocated or has only a pending
+    /// draft, and shows painted cells only after a commit; other layers stay `None`.
     #[test]
     fn layer_cells_reports_only_committed_state() {
         let n = 16 * 12;

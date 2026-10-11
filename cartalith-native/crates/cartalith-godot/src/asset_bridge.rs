@@ -47,17 +47,22 @@ use cartalith_assets::{
 /// real detection pass on every spinbox change without re-sending a 3072×2048
 /// PNG across the boundary each time.
 pub struct LoadedSheet {
+    /// The sheet's file name; [`sheet_base_name`] turns it into the item-name prefix.
     pub name: String,
+    /// The decoded sheet pixels, kept so every preview re-runs detection without re-sending the PNG.
     pub image: DecodedImage,
 }
 
 /// The slicer modal's four numbers plus its three toggles, in engine terms.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SliceParams {
+    /// Column count as typed; [`SliceGrid::new`] applies the reference's input guards.
     pub cols: i64,
+    /// Row count as typed; guarded like `cols`.
     pub rows: i64,
     /// §8's *Margin px* — a uniform inset of the reference's `gridRect`.
     pub margin: f64,
+    /// Gutter between cells in sheet pixels; guarded by [`SliceGrid::new`].
     pub spacing: f64,
     /// `background → transparent` (`#alChEnable`/`#alChTol`), off when `None`.
     pub chroma: Option<ChromaKey>,
@@ -83,9 +88,13 @@ pub struct SliceParams {
 /// [`AssetLibrarySession::apply_slice`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum SliceTarget {
+    /// An existing slot, addressed by uid (the reference's `alSlTarget` slot value).
     Slot { uid: String },
+    /// One new custom slot, every cell a variant of it (the reference's `__new__`).
     NewCustom { name: String, set: String },
+    /// One new custom slot per cell (the reference's `__percell__`).
     PerCell { set: String },
+    /// This port's *Assign to family* (`DCC_SHELL_SPEC.md` §8): one cell per slot of the family.
     Family { family: Family, overwrite: bool },
 }
 
@@ -109,7 +118,9 @@ pub struct SlicePreview {
 /// `'Added N cells (M blank skipped) → slot'` toast.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SliceOutcome {
+    /// Cells that landed in a slot.
     pub added: usize,
+    /// Cells dropped because they were blank, when skip-blank is on.
     pub skipped_blank: usize,
     /// Cells that had nowhere to go: a single-image family taking only the
     /// first, or more cells than the target family has slots.
@@ -140,12 +151,17 @@ pub struct AssetLibrarySession {
 }
 
 impl Default for AssetLibrarySession {
+    /// Same as [`AssetLibrarySession::new`], so `default()` and `new()` can never
+    /// disagree about what an empty session is.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl AssetLibrarySession {
+    /// A freshly bootstrapped session: `AssetDB::new()`'s frozen slots all empty, no
+    /// decoded pixels and no loaded sheet. `images` must start empty: every item in
+    /// `db` has to have its pixels beside it (see the module doc).
     pub fn new() -> Self {
         AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None }
     }
@@ -662,10 +678,14 @@ impl AssetLibrarySession {
     }
 }
 
+/// The unit tests of the asset session. They run without a Godot runtime (this module
+/// is `godot`-free) over real PNG bytes encoded by `png_bytes`.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A `w` by `h` PNG filled with one `rgba` colour, so a test can import real,
+    /// decodable bytes with a recognisable pixel value.
     fn png_bytes(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
         let mut data = Vec::with_capacity((w * h * 4) as usize);
         for _ in 0..(w * h) {
@@ -675,6 +695,8 @@ mod tests {
         encode_png(&img).unwrap()
     }
 
+    /// Protects: importing into a bottom-anchored frozen slot stores both the item and its
+    /// pixels and runs `fit_to_bottom` (a non-square image gets a non-zero `pan_y`).
     #[test]
     fn import_item_into_a_frozen_slot_fits_to_bottom_and_stores_pixels() {
         let mut s = AssetLibrarySession::new();
@@ -688,6 +710,7 @@ mod tests {
         assert_ne!(s.db.items("icons:mountain")[0].transform.pan_y, 0.0);
     }
 
+    /// Protects: a settlement-family import is not fitted to the bottom: its `pan_y` stays 0.
     #[test]
     fn import_item_into_settlement_family_does_not_fit_to_bottom() {
         let mut s = AssetLibrarySession::new();
@@ -695,6 +718,7 @@ mod tests {
         assert_eq!(s.db.items("settlement:hamlet")[0].transform.pan_y, 0.0);
     }
 
+    /// Protects: an unknown uid and bytes that are not a PNG both return `Err`, never a panic.
     #[test]
     fn import_item_rejects_unknown_uid_and_bad_bytes_without_panicking() {
         let mut s = AssetLibrarySession::new();
@@ -702,6 +726,8 @@ mod tests {
         assert!(s.import_item("icons:mountain", "x.png".to_string(), b"not a png").is_err());
     }
 
+    /// Protects: removing an item removes its pixels too (the survivor keeps its own colour and
+    /// name), and an out-of-range index returns `false`.
     #[test]
     fn remove_item_keeps_both_stores_in_lockstep() {
         let mut s = AssetLibrarySession::new();
@@ -714,6 +740,8 @@ mod tests {
         assert!(!s.remove_item("icons:mountain", 5));
     }
 
+    /// Protects: batch delete removes a custom slot entirely but only empties a frozen slot,
+    /// items and pixels both, and counts both as affected.
     #[test]
     fn batch_delete_empties_a_frozen_slot_but_removes_a_custom_one() {
         let mut s = AssetLibrarySession::new();
@@ -729,6 +757,9 @@ mod tests {
         assert!(s.image("icons:mountain", 0).is_none());
     }
 
+    /// Protects: batch rename numbers a frozen slot's item variants in place (`Base_01`,
+    /// `Base_02`), renames a custom slot (`Base_03`) and reports its uid change, and
+    /// the pixel store follows the new uid.
     #[test]
     fn batch_rename_renames_custom_slots_and_frozen_item_variants_differently() {
         let mut s = AssetLibrarySession::new();
@@ -747,6 +778,8 @@ mod tests {
         assert!(s.image(new_uid, 0).is_some(), "pixel store followed the uid change");
     }
 
+    /// Protects: batch duplicate makes a `... copy` custom slot holding a clone of the item and
+    /// of its pixels.
     #[test]
     fn batch_duplicate_clones_items_and_pixels_into_a_new_custom_slot() {
         let mut s = AssetLibrarySession::new();
@@ -765,6 +798,7 @@ mod tests {
         assert_eq!(s.image(&dup_uid, 0).unwrap().rgba[0], 9);
     }
 
+    /// Protects: batch tag adds each tag once per slot even when it is passed twice, in order.
     #[test]
     fn batch_tag_deduplicates_per_slot() {
         let mut s = AssetLibrarySession::new();
@@ -776,12 +810,15 @@ mod tests {
         assert_eq!(s.db.get("icons:mountain").unwrap().meta.tags, vec!["tall", "rocky"]);
     }
 
+    /// Protects: exporting an empty library is an `Err` (the reference's empty-library guard).
     #[test]
     fn export_pack_bytes_fails_honestly_on_an_empty_library() {
         let mut s = AssetLibrarySession::new();
         assert!(s.export_pack_bytes().is_err());
     }
 
+    /// Protects: an exported pack reads back with its name, icon and texture entries at the
+    /// exporter's own paths and no warnings.
     #[test]
     fn export_pack_bytes_round_trips_through_read_pack() {
         let mut s = AssetLibrarySession::new();
@@ -798,6 +835,7 @@ mod tests {
         assert!(manifest.warnings.is_empty());
     }
 
+    /// Protects: a thumbnail is a real PNG of exactly the requested size, whatever the source size.
     #[test]
     fn thumbnail_png_bakes_a_real_size_by_size_image() {
         let mut s = AssetLibrarySession::new();
@@ -822,10 +860,15 @@ mod tests {
         encode_png(&DecodedImage::new(4, 2, rgba).unwrap()).unwrap()
     }
 
+    /// The default slicer settings for a `cols` by `rows` grid: no margin, spacing,
+    /// chroma key, trim, custom lines or scoped cell, and skip-blank on (the
+    /// reference's own default for `#alSlSkip`).
     fn params(cols: i64, rows: i64) -> SliceParams {
         SliceParams { cols, rows, margin: 0.0, spacing: 0.0, chroma: None, trim: false, skip_blank: true, col_lines: None, row_lines: None, only_cell: None }
     }
 
+    /// Protects: the preview's counts come from the real detection pass (2 cells, 1 non-empty)
+    /// and its column/row spans are the engine's own.
     #[test]
     fn slice_preview_reports_the_real_non_empty_count_not_a_sample() {
         let mut s = AssetLibrarySession::new();
@@ -837,18 +880,22 @@ mod tests {
         assert_eq!(p.row_spans, vec![(0.0, 2.0)]);
     }
 
+    /// Protects: previewing with no sheet loaded is an `Err`, not a panic.
     #[test]
     fn slice_preview_without_a_sheet_is_an_error_not_a_panic() {
         let s = AssetLibrarySession::new();
         assert!(s.slice_preview(&params(2, 1)).is_err());
     }
 
+    /// Protects: bytes that are not a PNG make `load_sheet` return `Err`.
     #[test]
     fn load_sheet_rejects_non_png_bytes_without_panicking() {
         let mut s = AssetLibrarySession::new();
         assert!(s.load_sheet("x.gif".to_string(), b"not a png").is_err());
     }
 
+    /// Protects: slicing into a multi-variant slot adds each non-blank cell, counts the blank one
+    /// as skipped, and names the item `<sheet>_r1c1`.
     #[test]
     fn slicing_into_a_multi_family_slot_adds_every_non_blank_cell() {
         let mut s = AssetLibrarySession::new();
@@ -863,6 +910,8 @@ mod tests {
         assert_eq!(s.image("icons:mountain", 0).unwrap().rgba[0], 7);
     }
 
+    /// Protects: a single-image family takes only the first cell and replaces its old item
+    /// (`store[uid]=[item]`), reporting the other cell as unplaced.
     #[test]
     fn slicing_into_a_single_image_family_takes_the_first_cell_and_replaces() {
         // `textures` is not multi: the reference does `store[uid]=[item]` and
@@ -881,6 +930,7 @@ mod tests {
         assert_eq!(s.db.items("textures:grass")[0].name, "t_r1c1");
     }
 
+    /// Protects: per-cell slicing makes one custom slot per cell, named `cell 1`, `cell 2`.
     #[test]
     fn slicing_per_cell_makes_one_custom_slot_per_cell() {
         let mut s = AssetLibrarySession::new();
@@ -894,6 +944,7 @@ mod tests {
         assert_eq!(names, vec!["cell 1", "cell 2"]);
     }
 
+    /// Protects: slicing to a new custom slot stacks every cell as a variant of that one slot.
     #[test]
     fn slicing_to_a_new_custom_slot_stacks_every_cell_as_a_variant() {
         let mut s = AssetLibrarySession::new();
@@ -908,6 +959,8 @@ mod tests {
         assert_eq!(s.db.items(&out.uids[0]).len(), 2);
     }
 
+    /// Protects: a first-empty family fill leaves a slot that already has art alone and fills
+    /// the following empty slots.
     #[test]
     fn family_fill_from_first_empty_skips_slots_that_already_have_art() {
         let mut s = AssetLibrarySession::new();
@@ -927,6 +980,7 @@ mod tests {
         assert_eq!(s.db.items("settlement:town").len(), 1);
     }
 
+    /// Protects: an overwrite family fill starts at the first slot and replaces what is there.
     #[test]
     fn family_fill_with_overwrite_starts_at_the_first_slot_and_replaces() {
         let mut s = AssetLibrarySession::new();
@@ -941,6 +995,8 @@ mod tests {
         assert_eq!(s.db.items("settlement:hamlet")[0].name, "pins_r1c1");
     }
 
+    /// Protects: slicing is non-destructive (`DCC_SHELL_SPEC.md` §8): the same sheet can be
+    /// sliced again with different settings and previewed afterwards.
     #[test]
     fn a_slice_never_consumes_the_sheet() {
         // Non-destructive per DCC_SHELL_SPEC.md §8: the same sheet slices
@@ -955,6 +1011,8 @@ mod tests {
         assert!(s.slice_preview(&params(2, 1)).is_ok());
     }
 
+    /// Protects: an all-blank sheet and a too-dense grid each give a distinct `Err` (naming
+    /// emptiness and density) instead of silently adding nothing.
     #[test]
     fn a_slice_that_would_add_nothing_is_an_error_rather_than_a_silent_no_op() {
         let mut s = AssetLibrarySession::new();
@@ -971,6 +1029,7 @@ mod tests {
         assert!(s.apply_slice(&dense, &SliceTarget::PerCell { set: String::new() }).unwrap_err().contains("dense"));
     }
 
+    /// Protects: a margin larger than the sheet is an `Err` from both preview and slice.
     #[test]
     fn an_impossible_margin_is_an_error_not_a_negative_grid() {
         let mut s = AssetLibrarySession::new();
@@ -980,6 +1039,7 @@ mod tests {
         assert!(s.apply_slice(&p, &SliceTarget::PerCell { set: String::new() }).is_err());
     }
 
+    /// Protects: slicing into an unknown slot uid is an `Err`, not a panic.
     #[test]
     fn slicing_into_an_unknown_slot_is_an_error_not_a_panic() {
         let mut s = AssetLibrarySession::new();
@@ -989,6 +1049,7 @@ mod tests {
 
     // -- AS-17: cell-scoped slicing / draggable interior lines -------------
 
+    /// Protects: a scoped slice (AS-17, `only_cell`) lands only that one cell, not the whole grid.
     #[test]
     fn only_cell_narrows_the_slice_to_one_cell_out_of_the_grid() {
         let mut s = AssetLibrarySession::new();
@@ -1009,6 +1070,7 @@ mod tests {
         );
     }
 
+    /// Protects: scoping to a blank cell with skip-blank on is an `Err` that names the selected cell.
     #[test]
     fn only_cell_pointing_at_a_blank_cell_is_an_honest_error() {
         let mut s = AssetLibrarySession::new();
@@ -1026,6 +1088,7 @@ mod tests {
         assert!(err.contains("selected cell"), "{err}");
     }
 
+    /// Protects: a scoped cell index beyond the grid is an `Err`, not a panic.
     #[test]
     fn only_cell_out_of_range_for_the_current_grid_is_an_error_not_a_panic() {
         let mut s = AssetLibrarySession::new();
@@ -1042,6 +1105,8 @@ mod tests {
         );
     }
 
+    /// Protects: custom column lines (AS-17) reach the engine grid: moving the interior line to
+    /// 0.75 moves the cut to 3 px.
     #[test]
     fn col_lines_reach_the_engine_grid_and_change_where_cells_are_cut() {
         let mut s = AssetLibrarySession::new();
@@ -1059,6 +1124,8 @@ mod tests {
         assert_eq!(preview.col_spans[1], (3.0, 4.0));
     }
 
+    /// Protects: a stale column-line array of the wrong length falls back to a uniform split
+    /// instead of erroring.
     #[test]
     fn col_lines_of_the_wrong_length_fall_back_to_uniform_rather_than_erroring() {
         let mut s = AssetLibrarySession::new();
@@ -1076,6 +1143,7 @@ mod tests {
         assert_eq!(preview.col_spans[0], (0.0, 4.0 / 3.0));
     }
 
+    /// Protects: `clear` empties the library: items, custom slots and decoded pixels.
     #[test]
     fn clear_drops_every_item_and_every_decoded_pixel() {
         let mut s = AssetLibrarySession::new();
