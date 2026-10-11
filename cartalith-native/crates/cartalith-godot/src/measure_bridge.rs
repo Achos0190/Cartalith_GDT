@@ -248,7 +248,11 @@ fn wrap_x(f: &FieldRefs, fx: f64) -> usize {
     if f.world && gw > 0 {
         xi.rem_euclid(gw) as usize
     } else {
-        xi.clamp(0, gw - 1).max(0) as usize
+        // `xi.min(gw - 1).max(0)`, not `clamp(0, gw - 1)`: `clamp` panics when
+        // its minimum exceeds its maximum, which is what an empty grid
+        // (`gw == 0`) gives. The empty grid yields column 0, which the caller's
+        // own unchecked `idx` would reject; the point is not to panic here.
+        xi.min(gw - 1).max(0) as usize
     }
 }
 
@@ -1137,6 +1141,18 @@ mod tests {
         assert_eq!(elev_at(&f, (4.0, -5.0)), 0.0);
         assert_eq!(elev_at(&f, (4.0, 99.0)), 0.0);
         assert_ne!(elev_at(&f, (4.0, 4.0)), 0.0);
+    }
+
+    /// Protects: `wrap_x` on an empty grid (`gw == 0`) returns a column instead of panicking in `clamp`, in both flat and world mode.
+    #[test]
+    fn wrap_x_on_an_empty_grid_does_not_panic() {
+        let w = world();
+        let mut f = refs(&w);
+        f.gw = 0;
+        assert_eq!(wrap_x(&f, 5.0), 0);
+        assert_eq!(wrap_x(&f, -5.0), 0);
+        f.world = true;
+        assert_eq!(wrap_x(&f, 5.0), 0);
     }
 
     /// Protects: in world mode a section crosses the seam the short way (20 km, not 280) and stays in range.

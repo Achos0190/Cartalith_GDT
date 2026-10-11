@@ -112,6 +112,7 @@ const UNLISTED: Array = [
 	["Map view", "Esc", "Cancel the active tool or close the top sheet", "the main window"],
 	["Map view", "Delete / Backspace", "Remove the selected item", "the main window"],
 	["Civilization", "Shift+J", "Open the Journey planner", "the main window"],
+	["Edit", "Ctrl+Y", "Redo (second accelerator beside Ctrl+Shift+Z)", "the main window"],
 ]
 
 func setup(app: Node) -> void:
