@@ -2147,3 +2147,12 @@ Owner, answering the coordinating session's questions:
 4. **The v2.71 DCC line file is not available.** The re-freeze (`OUTSTANDING_WORK.md` section 2.8) stays blocked; the port keeps following the DCC line from `RC_ENGINE_CHANGES.md` and the specs as they stand.
 
 5. **(2026-10-10, answered earlier the same day, recorded late) Three small calls.** (a) EF-9.1: **keep the 5-term importance fit** (pooled 2.74x gain, accepted by the pre-declared rule at a +0.003 margin) rather than ship slope alone (2.42x). (b) **Colour relief (`ramp_strength`) keeps its shipped default of 0**, with the hint under the ramp rows saying why ramp edits are invisible at 0; no look change. (c) **The 4 px screen floor on map handle radii stays** (visibility over exact hit-circle accuracy when zoomed far out).
+
+## 2026-10-11 — Ruling CA: GF-11 cost bar, lake fix to be shown first, label culling, river comb factor
+
+Owner, answering the coordinating session's questions:
+
+1. **GF-11 cost: accept about 1.2x.** The G5 construction-cost bar is relaxed from 1.20x to 1.25x (measured 1.211 and 1.187). This unblocks the rest of the geology-first line (GF-2/3, GF-4 to 6, GF-8/9, GF-13) and the landslip landforms that take their inputs from it.
+2. **Lake fix: show the difference between candidate 1 (basin-area floor) and candidate 2 (per-basin water balance) before choosing.** Nothing is built until the owner has seen the comparison. (`LAKE_FILL_RESEARCH.md` shortlist; the basin id and outlet data exist, `WaterBodies::basin` and `basin_outlet`.)
+3. **Generated labels: keep exact culling** (no overlaps; fewer names at the shipped size; zooming in reveals more). Not relaxed, and no regenerate-on-resize.
+4. **River combs: thin more strongly than the current factor** (S = 0.5 x length, cap 24 cells). The new strength is not fixed by the owner: the coordinating session proposes S = 1.0 x length with a cap of 32 cells, to be shown on a few seeds before it ships. Ruling BV still applies: no river density or threshold change.
