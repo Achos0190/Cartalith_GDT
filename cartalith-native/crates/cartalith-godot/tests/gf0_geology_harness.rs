@@ -3869,8 +3869,10 @@ fn gf10_b9_cost() {
 /// existing-depression exemption on the lake share and the 1-3-cell lake count,
 /// applied to arms A and C alike, with v2's unexempted readings printed beside
 /// them). G1, G2 and G5 and every threshold are v1's, word for word. The
-/// `GF11_*` constants below mirror numbers in the string; nothing asserts that
-/// the two agree, so a change to either must be made to both.
+/// `GF11_*` constants below (and the shared `PIN_DEPTH`/`FILL_TOL`) mirror
+/// numbers in the string; [`gf11_constants_agree_with_the_rule_text`] reads
+/// each number back out of this text and fails if any constant disagrees
+/// (found-bug sweep 2026-10-11, R5). The text stays the authority.
 const GF11_RULE: &str = "\
 GF-11 PRE-REGISTERED RULE v3 (construction alone; Ruling BY items 1, 3 and 4). v1 was written 2026-10-10 before any GF-11 run; v2 was written 2026-10-10 AFTER the first run's numbers were seen, and before the second run; v3 was written 2026-10-10 AFTER the first two runs' numbers were seen, and before the third run.
 Disclosure: GF-10 (GEOLOGY_FIRST_SCOPE.md 5.10) already measured this arm once, so this rule is written knowing those numbers. No threshold below is lower than the scope's; every bar dropped is dropped for a reason in the scope's own text, not for its GF-10 result.
@@ -3906,6 +3908,56 @@ const GF11_TWIN_REL: f64 = 1.2;
 const GF11_B9_RATIO: f64 = 1.20;
 /// G3: §5.2's BM extension of B8, "at every τ in {0.5, 1, 2, 4}".
 const GF11_TAUS: [f64; 4] = [0.5, 1.0, 2.0, 4.0];
+/// G3: "ocean cells on river paths = 0" (rule v3, unchanged since v1).
+const GF11_G3_OCEAN: usize = 0;
+/// G3: "river cells that are lake <= A + 2 percentage points" (rule v3).
+const GF11_G3_LAKE_PP: f64 = 2.0;
+/// G3: "1-3-cell lakes <= 1.25 x A" (rule v3).
+const GF11_G3_SMALL_RATIO: f64 = 1.25;
+
+/// The first number written in [`GF11_RULE`] right after `anchor`, for
+/// [`gf11_constants_agree_with_the_rule_text`]. Panics if the anchor is absent
+/// or occurs more than once (the test would then not know which number it
+/// read), or if no number follows it.
+fn gf11_rule_number_after(anchor: &str) -> f64 {
+    let hits: Vec<usize> = GF11_RULE.match_indices(anchor).map(|(i, _)| i).collect();
+    assert_eq!(hits.len(), 1, "anchor {anchor:?} must occur exactly once in GF11_RULE");
+    let rest = &GF11_RULE[hits[0] + anchor.len()..];
+    let tok: String = rest.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | '-')).collect();
+    let tok = tok.trim_end_matches('.');
+    tok.parse().unwrap_or_else(|_| panic!("no number after {anchor:?} (read {tok:?})"))
+}
+
+/// Protects: found-bug sweep R5. The `GF11_*` (and the shared `PIN_DEPTH` /
+/// `FILL_TOL`) constants the GF-11 measurement judges by must equal the numbers
+/// written in the pre-registered rule text [`GF11_RULE`], read out of that text
+/// at anchored phrases; the rule text is the authority and neither side may be
+/// edited alone. Each anchor is a verbatim fragment of the rule, so a change to
+/// either side turns this red. Not ignored: it is pure string parsing.
+#[test]
+fn gf11_constants_agree_with_the_rule_text() {
+    let n = gf11_rule_number_after;
+    assert_eq!(n("median slope of substrate cells within 5 >= "), GF11_B4_RATIO, "G1 B4 ratio");
+    assert_eq!(n("top-decile share >= "), GF11_B4_SHARE, "G1 top-decile share");
+    assert_eq!(n("over input-qualified breach lines, on >= "), GF11_LANDFORM_SEEDS as f64, "G1 seed count");
+    assert_eq!(n("over the SAME cells >= "), GF11_TWIN_REL, "G2 twin relative bar");
+    assert_eq!(n("population >= 100, on >= "), GF11_LANDFORM_SEEDS as f64, "G2 seed count");
+    assert_eq!(n("for arm C against A, ocean cells on river paths = "), GF11_G3_OCEAN as f64, "G3 ocean");
+    assert_eq!(n("river cells that are lake <= A + "), GF11_G3_LAKE_PP, "G3 lake share");
+    assert_eq!(n("1-3-cell lakes <= "), GF11_G3_SMALL_RATIO, "G3 small lakes");
+    assert_eq!(n("0 new closed depressions deeper than "), PIN_DEPTH, "G4 pit depth");
+    assert_eq!(n("by exactly its fill raise (within "), FILL_TOL, "G4 fill tolerance");
+    assert_eq!(n("projected construction-alone generation <= "), GF11_B9_RATIO, "G5 cost ratio");
+    // The tau list, read whole.
+    let taus = {
+        let anchor = "at EVERY tau in {";
+        assert_eq!(GF11_RULE.matches(anchor).count(), 1);
+        let start = GF11_RULE.find(anchor).unwrap() + anchor.len();
+        let end = start + GF11_RULE[start..].find('}').expect("closing brace");
+        GF11_RULE[start..end].split(',').map(|t| t.trim().parse::<f64>().expect("a tau")).collect::<Vec<f64>>()
+    };
+    assert_eq!(taus, GF11_TAUS.to_vec(), "G3 tau list");
+}
 
 /// The 4-neighbours of `i` (east-west wrap on a world map), as `build_water_bodies`
 /// and [`b4_rev`] join cells.
@@ -4060,7 +4112,9 @@ fn gf11_b8(ws: &WorldState, class: &[u8], in_dep: &[bool], gw: usize, gh: usize,
 /// the same mask. `None` when either lake share is not measurable (no river
 /// path), which the rule counts as a fail, never a pass.
 fn gf11_g3(c: &Gf11B8, a: &Gf11B8) -> Option<bool> {
-    c.lake_pct.zip(a.lake_pct).map(|(t, la)| c.ocean == 0 && t <= la + 2.0 && (c.small as f64) <= 1.25 * a.small as f64)
+    c.lake_pct.zip(a.lake_pct).map(|(t, la)| {
+        c.ocean == GF11_G3_OCEAN && t <= la + GF11_G3_LAKE_PP && (c.small as f64) <= GF11_G3_SMALL_RATIO * a.small as f64
+    })
 }
 
 /// One G3 line's text: judged readings, then the exempt counts and v2's raw

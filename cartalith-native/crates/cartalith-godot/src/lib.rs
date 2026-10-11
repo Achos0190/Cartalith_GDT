@@ -22,6 +22,9 @@ use godot::prelude::*;
 // too; see that declaration's doc.
 mod asset_bridge;
 mod bake_bridge;
+// Found-bug sweep 2026-10-11, R8: an ignored measurement over the real pipeline.
+#[cfg(test)]
+mod bugsweep_seed707;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
@@ -8018,6 +8021,14 @@ impl WorldGen {
     /// (SG-03): `Hydrology` for the climate half, `Climate` for
     /// `river_density`. Cheaper than asking [`params::invalidates`] key by key
     /// and exactly as accurate — a reset moves every dial at once.
+    ///
+    /// **Not callable during a generate, and this binding cannot refuse it
+    /// itself**: the worker holds the `WorldGen` borrow for the whole run, so a
+    /// call then fails at gdext's `bind_mut()` before this body runs (the same
+    /// reason every other parameter writer is gated). The refusal belongs in the
+    /// shell, as `engine_bridge.gd::param_set` does with its `generating` test;
+    /// `engine_bridge.gd::reset_params` lacked it (found-bug sweep 2026-10-11,
+    /// R7, routed to the shell batch).
     #[func]
     fn reset_params(&mut self) {
         self.params = params::defaults();
@@ -13488,13 +13499,13 @@ impl WorldGen {
         true
     }
 
-    /// The seed the *next* stroke will capture into its `SculptStamp`
-    /// (`0` before any `generate()` call, otherwise the last generation's
-    /// own seed -- the reference's "project seed" default,
-    /// `DCC_SHELL_SPEC.md` §5.2).
+    /// The seed the *next* stroke will capture into its `SculptStamp`: the
+    /// last generation's own seed unless the shell set another -- the
+    /// reference's "project seed" default, `DCC_SHELL_SPEC.md` §5.2. **`-1`
+    /// before any `generate()` call** ([`sculpt_seed_readout`]).
     #[func]
     fn sculpt_get_seed(&self) -> i64 {
-        self.sculpt.as_ref().map_or(0, |s| i64::from(s.seed))
+        sculpt_seed_readout(self.sculpt.as_ref().map(|s| s.seed))
     }
 
     /// Sets the seed the *next* stroke will capture (a shell's dice button
@@ -16391,7 +16402,11 @@ impl WorldGen {
     /// exists to match), `total_cells`/`total_km` (the running total,
     /// summed along the path), `straight_line_cells`/`straight_line_km`
     /// (first point to last, direct -- §4.5.1's own right-dock "straight-
-    /// line vs along-path difference"), and `point_count`. Empty
+    /// line vs along-path difference"), `overall_bearing_deg` (first point to
+    /// last) and `point_count`. A segment's `bearing_deg` and the
+    /// `overall_bearing_deg` are **omitted** when there is no direction (a
+    /// zero-length leg; fewer than two points or a chain ending on its start),
+    /// never zeroed: callers use `has()` (found-bug sweep R6). Empty
     /// `Dictionary` before any `generate()` call.
     #[func]
     fn measure_result(&self) -> VarDictionary {
@@ -16405,18 +16420,23 @@ impl WorldGen {
         for leg in &legs {
             total_cells += leg.m.cells;
             total_km += leg.m.km;
-            segments.push(&dict! {
+            let mut seg = dict! {
                 "cells" => leg.m.cells,
                 "km" => leg.m.km,
-                "bearing_deg" => leg.bearing_deg,
-            });
+            };
+            // Omitted, not zeroed, for a zero-length leg (found-bug sweep R6):
+            // it has no direction. The shell reads it with `has()`.
+            if let Some(b) = leg.bearing_deg {
+                seg.set("bearing_deg", b);
+            }
+            segments.push(&seg);
         }
         let (straight_cells, straight_km, overall_bearing) = match (pts.first(), pts.last()) {
             (Some(&a), Some(&b)) if pts.len() >= 2 => {
                 let leg = infra_tools_bridge::measure_leg(a, b, gw, self.map_width_km, self.world);
                 (leg.m.cells, leg.m.km, leg.bearing_deg)
             }
-            _ => (0.0, 0.0, 0.0),
+            _ => (0.0, 0.0, None),
         };
         // `design/Cartalith Measurement Toolbar.dc.html` state 1's DERIVED
         // block. The three relief rows need the height field, which the
@@ -16424,19 +16444,25 @@ impl WorldGen {
         // and read `—` (as zeros with `has_relief` false) whenever
         // `sample_refs()` does -- a loaded save, or before any `generate()`.
         let relief = self.sample_refs().map(|f| measure_bridge::chain_relief(&f, pts));
-        dict! {
+        let mut d = dict! {
             "segments" => &segments,
             "total_cells" => total_cells,
             "total_km" => total_km,
             "straight_line_cells" => straight_cells,
             "straight_line_km" => straight_km,
-            "overall_bearing_deg" => overall_bearing,
             "point_count" => pts.len() as i64,
             "has_relief" => relief.is_some(),
             "elevation_delta_m" => relief.map(|r| r.elevation_delta_m).unwrap_or(0.0),
             "total_km_3d" => relief.map(|r| r.total_km_3d).unwrap_or(0.0),
             "sinuosity" => relief.map(|r| r.sinuosity).unwrap_or(1.0),
+        };
+        // Omitted (found-bug sweep R6) under two points or when the chain
+        // closes on its own start: there is no first-to-last direction. It
+        // used to read 0.0 (no chain) or 180.0 (closed chain).
+        if let Some(b) = overall_bearing {
+            d.set("overall_bearing_deg", b);
         }
+        d
     }
 
     // ===================== Measurement toolbar (design canvas, 2026-08-23) =====================
@@ -16458,6 +16484,8 @@ impl WorldGen {
     /// civilisation layer exists), `stats` (the canvas's own PROFILE
     /// STATISTICS block), `crossings` (`km`/`kind`/`label`/`elev_m`), plus
     /// `length_km`, `length_3d_km`, `bearing_deg` and `spacing_m`.
+    /// `bearing_deg` is **omitted** for a zero-length section, which has no
+    /// direction (found-bug sweep R6; it used to read 180).
     ///
     /// `samples` is clamped to `2 ..= 1024`. Empty `Dictionary` when there is
     /// no generated world to read.
@@ -16514,15 +16542,20 @@ impl WorldGen {
             "ridge_crossings" => st.ridge_crossings as i64,
             "shore_crossings" => st.shore_crossings as i64,
         };
-        dict! {
+        let mut d = dict! {
             "samples" => &out,
             "crossings" => &crossings,
             "length_km" => p.length_km,
             "length_3d_km" => p.length_3d_km,
-            "bearing_deg" => p.bearing_deg,
             "spacing_m" => p.spacing_m,
             "stats" => &stats,
+        };
+        // Omitted for a zero-length section (found-bug sweep R6), which has
+        // no direction; it used to read 180.0.
+        if let Some(b) = p.bearing_deg {
+            d.set("bearing_deg", b);
         }
+        d
     }
 
     /// The Area tool's reading over a closed ring given in grid cells (canvas
@@ -21664,6 +21697,46 @@ impl WorldGen {
                 }
             }
         }
+    }
+}
+
+/// What `sculpt_get_seed` returns: the stroke seed widened to `i64`, or **`-1`
+/// when there is no sculpt state** (before any `generate()`).
+///
+/// Found-bug sweep 2026-10-11, R7. This used to return `0` for "no world", but `0`
+/// is a real seed (the field is a `u32`, so every value `0..=u32::MAX` can be
+/// one), which made "no world" read as a plausible seed. `-1` lies outside the
+/// `u32` domain, so it cannot be mistaken for one, and it is the value
+/// `engine_bridge.gd::sculpt_get_seed()` already returns for a binary without the
+/// binding -- so the shell now sees one "unavailable" value from both paths.
+/// Must never return a value in `0..=u32::MAX` for the absent case.
+fn sculpt_seed_readout(seed: Option<u32>) -> i64 {
+    seed.map_or(-1, i64::from)
+}
+
+/// Tests for [`sculpt_seed_readout`] (found-bug sweep R7).
+#[cfg(test)]
+mod sculpt_seed_readout_tests {
+    use super::sculpt_seed_readout;
+
+    /// Protects: R7's seed readout. No sculpt state reads `-1` (outside the `u32`
+    /// seed domain, the shell's own "unavailable"), not the plausible seed `0`;
+    /// a real seed, `0` and `u32::MAX` included, reads as itself.
+    #[test]
+    fn no_world_reads_minus_one_and_every_real_seed_reads_as_itself() {
+        assert_eq!(sculpt_seed_readout(None), -1);
+        assert_eq!(sculpt_seed_readout(Some(0)), 0);
+        assert_eq!(sculpt_seed_readout(Some(31_337)), 31_337);
+        assert_eq!(sculpt_seed_readout(Some(u32::MAX)), 4_294_967_295);
+    }
+
+    /// Protects: R7's shell fallback anchor. The engine's own default for the
+    /// imperial-seat flag is `false` in the app's parameters, as a literal: the
+    /// shell's stale-binary fallback in `engine_bridge.gd::get_metropolis_enabled()`
+    /// (which returns `true`) disagrees with it, and the shell batch fixes that side.
+    #[test]
+    fn the_app_default_for_metropolis_is_off() {
+        assert!(!crate::params::defaults().civ.metropolis);
     }
 }
 

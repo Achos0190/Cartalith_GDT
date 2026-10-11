@@ -65,30 +65,44 @@ use cartalith_civ::garrison::{Garrison, GarrisonInput, GarrisonPlace, civ_garris
 use cartalith_civ::timeline::{
     YearFactionInstitutions, YearPlaceOverride, YearRecord, civ_territory_at,
 };
+use cartalith_civ::way_class::WayClass;
 use cartalith_civ::{
-    FactionAggregates, FactionAggregatesInput, FactionPlace, NamedSettlement, Way, WayType,
+    FactionAggregates, FactionAggregatesInput, FactionPlace, NamedSettlement, Way,
 };
 
 use crate::{CivData, WorldGen, WorldSource};
 
 /// How much of a way's own kilometres count toward
 /// [`cartalith_civ::manpower::ManpowerInput::road_density`], by
-/// [`WayType`]. A track carries a messenger; a highway carries a baggage
+/// [`WayClass`]. A track carries a messenger; a highway carries a baggage
 /// train, which is the thing an army actually needs.
 ///
 /// The tiers are the reference's own classification
 /// (`civ_consolidate_and_smooth_ways`' `maxU` thresholds), not a second
-/// vocabulary invented here. Sea lanes are counted separately, through
-/// `sea_share`, because a lane is not a road and its length says nothing
-/// about how much of the interior it reaches.
-fn way_logistics_weight(t: WayType) -> f64 {
-    match t {
-        WayType::Highway => 1.00,
-        WayType::Regional => 0.80,
-        WayType::Road => 0.55,
+/// vocabulary invented here. The weights themselves are this port's
+/// judgement (`MILITARY_MANPOWER_SCOPE.md`, no reference model), calibrated
+/// together with [`ROAD_DENSITY_REF_KM_PER_1000_KM2`].
+///
+/// **Not the planner/router table, on purpose** (found-bug sweep 2026-10-11,
+/// R4). `way_class::planner_speed`/`router_discount` answer "how fast is a party
+/// on this way"; this answers "how much of this way's length is army-grade
+/// road". They are different quantities (a track is 0.85x the road's speed to
+/// the planner but 0.30/0.55 of its logistics weight here), so this is not
+/// derived from them; it shares the class set instead: an exhaustive `match`
+/// over [`WayClass`], so a new class is a compile error here, and a test walks
+/// `WayClass::ALL`. `None` for a sea lane: lanes are counted separately,
+/// through `sea_share`, because a lane is not a road and its length says
+/// nothing about how much of the interior it reaches -- never a zero weight
+/// standing in for "not a road".
+fn way_logistics_weight(c: WayClass) -> Option<f64> {
+    match c {
+        WayClass::Highway => Some(1.00),
+        WayClass::Regional => Some(0.80),
+        WayClass::Road => Some(0.55),
         // A village's connector (`_civConnectVillageAddons`) is a dirt track
         // too, and weighs as one.
-        WayType::Track | WayType::Ancient => 0.30,
+        WayClass::Track | WayClass::Ancient => Some(0.30),
+        WayClass::SeaLane => None,
     }
 }
 
@@ -417,8 +431,12 @@ impl WorldGen {
                 continue;
             };
             let f = a.placement.faction;
-            if f > 0 && (f as usize) < n_f && f == b.placement.faction {
-                road_km[f as usize] += w.km * way_logistics_weight(w.way_type);
+            // A generated way is never a sea lane, so `None` cannot occur
+            // here; if it ever did, the way would simply not count as road.
+            if f > 0 && (f as usize) < n_f && f == b.placement.faction
+                && let Some(weight) = way_logistics_weight(WayClass::from(w.way_type))
+            {
+                road_km[f as usize] += w.km * weight;
             }
         }
 
@@ -622,6 +640,33 @@ type GarrisonRow = (u64, i32, Option<Garrison>);
 /// it on a settlement the dock itself marks `Capital: no`.
 fn garrison_is_capital(faction: i32, seat: bool) -> bool {
     faction > 0 && seat
+}
+
+/// Tests for the logistics weight table (found-bug sweep R4).
+#[cfg(test)]
+mod way_logistics_weight_tests {
+    use super::way_logistics_weight;
+    use cartalith_civ::way_class::{planner_row, WayClass};
+    use cartalith_civ::WayType;
+
+    /// Protects: R4's one-class-set rule. Walking `WayClass::ALL`, every land class
+    /// (one with a planner row) has a logistics weight and the sea lane, which has
+    /// none, has no weight rather than a stand-in zero; every generated `WayType`
+    /// therefore gets a weight. And the values themselves, as literals (the
+    /// `MILITARY_MANPOWER_SCOPE.md` calibration this table was shipped with), so a
+    /// re-keying cannot move military output.
+    #[test]
+    fn every_land_class_has_a_weight_and_the_sea_lane_has_none() {
+        for c in WayClass::ALL {
+            assert_eq!(way_logistics_weight(c).is_some(), planner_row(c).is_some(), "{c:?}");
+        }
+        let w = |t: WayType| way_logistics_weight(WayClass::from(t));
+        assert_eq!(
+            [w(WayType::Highway), w(WayType::Regional), w(WayType::Road), w(WayType::Track), w(WayType::Ancient)],
+            [Some(1.00), Some(0.80), Some(0.55), Some(0.30), Some(0.30)]
+        );
+        assert_eq!(way_logistics_weight(WayClass::SeaLane), None);
+    }
 }
 
 /// Tests for the Ruling AZ garrison capital predicate, plain Rust because the `#[func]` wrappers need a live gdext runtime.

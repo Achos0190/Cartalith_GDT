@@ -184,9 +184,11 @@ pub struct SectionProfile {
     /// Straight-line 3D length, following the sampled surface — Σ over
     /// consecutive samples of `hypot(horizontal, Δelevation)`.
     pub length_3d_km: f64,
-    /// Compass bearing A to B, degrees in `[0, 360)`, `0` = north. A zero-length
-    /// line also yields a bearing (a placeholder, not a flagged absence).
-    pub bearing_deg: f64,
+    /// Compass bearing A to B, degrees in `[0, 360)`, `0` = north. `None` for a
+    /// zero-length line, which has no direction (found-bug sweep 2026-10-11, R6:
+    /// it used to read 180, a placeholder posing as a reading); see
+    /// `infra_tools_bridge::compass_bearing`.
+    pub bearing_deg: Option<f64>,
     /// Metres between consecutive samples along the ground.
     pub spacing_m: f64,
 }
@@ -206,7 +208,7 @@ pub struct SectionProfile {
 pub fn section_profile(f: &FieldRefs, a: (f64, f64), b: (f64, f64), samples: usize) -> SectionProfile {
     let n = samples.clamp(2, MAX_SECTION_SAMPLES);
     let m = measure(a, b, f.gw, f.map_width_km, f.world);
-    let bearing_deg = m.dx.atan2(-m.dy).to_degrees().rem_euclid(360.0);
+    let bearing_deg = crate::infra_tools_bridge::compass_bearing(&m);
     let length_km = m.km;
 
     let mut out: Vec<SectionSample> = Vec::with_capacity(n);
@@ -863,7 +865,20 @@ mod tests {
         let p = section_profile(&f, (0.0, 0.0), (30.0, 0.0), 64);
         // 30 cells at 10 km per cell.
         assert!((p.length_km - 300.0).abs() < 1e-9, "{}", p.length_km);
-        assert!((p.bearing_deg - 90.0).abs() < 1e-9, "due east");
+        assert!((p.bearing_deg.unwrap() - 90.0).abs() < 1e-9, "due east");
+    }
+
+    /// Protects: found-bug sweep R6 for the section. A section whose two ends are
+    /// the same point has no bearing (`None`, so the `#[func]` omits the key), while
+    /// it still produces its two-sample profile of zero length.
+    #[test]
+    fn a_zero_length_section_has_no_bearing() {
+        let w = world();
+        let f = refs(&w);
+        let p = section_profile(&f, (5.0, 3.0), (5.0, 3.0), 16);
+        assert_eq!(p.bearing_deg, None);
+        assert_eq!(p.length_km, 0.0);
+        assert!(p.samples.len() >= 2);
     }
 
     /// Protects: ascent + descent == net, and min < mean < max on a relief profile.

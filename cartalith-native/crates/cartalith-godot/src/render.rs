@@ -10616,9 +10616,11 @@ const MESO_STEP_DIV: f64 = 64.0;
 
 /// The bilinear lake-membership fraction below which the v1.05 shoreline stops
 /// cutting water, and the pooled depth below which a lake counts as flat or
-/// brush-painted and keeps its whole cell (reference 11734 and 11737).
+/// brush-painted and keeps its whole cell (`renderBiomeTileRGBA`'s
+/// `isLake=h<s&&fq>0.35` and `_lakeFill[ni]-field[ni]<=0.004`: v2.11 lines
+/// 11752 and 11754, v2.10 lines 11713 and 11715).
 const LAKE_MEMBERSHIP_MIN: f64 = 0.35;
-// Reference 11737's flat-lake pooled-depth epsilon (see the doc above).
+// The flat-lake pooled-depth epsilon, v2.11 line 11754 (v2.10 11715); see the doc above.
 const LAKE_FLAT_EPS: f64 = 0.004;
 
 /// One land pixel of a tile, as `LOD_DETAIL_SCOPE.md`'s **Aletsch comparison

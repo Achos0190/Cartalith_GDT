@@ -280,7 +280,9 @@ pub struct LandmarkKindSpec {
     /// was added; 34 after the M8 residual pass built Resource extraction
     /// site; 29 once the way graph closed the five that named it; 24 once
     /// M7's viewshed closed five more; 23 once border marker threaded
-    /// territory in behind it, 2026-09-21). Purely additive.
+    /// territory in behind it, 2026-09-21; 22 once Battlefield read the
+    /// battles the user draws). A dated count, not maintained here: the kind
+    /// table's own test pins the buildable count (27 of 49). Purely additive.
     pub not_built: &'static str,
 }
 
@@ -2073,14 +2075,23 @@ fn sep_min_max(field: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> (V
 /// already draws these four lines at peak corridor usage 8 / 5 / 3, and that
 /// usage count is §13's "transportation demand" as the network pass itself
 /// measured it. This function only orders what that one decided.
-fn way_rank(t: crate::WayType) -> u8 {
-    match t {
+///
+/// Keyed on [`crate::way_class::WayClass`], the one class set the planner and
+/// router read (found-bug sweep 2026-10-11, R4): an exhaustive `match`, so a new
+/// class is a compile error here, and a test walks `WayClass::ALL`. It is a load
+/// rank, not a speed, so it is deliberately not derived from the planner row.
+/// `None` for a sea lane, which is never a generated way and has no load rank --
+/// not a rank-0 stand-in.
+fn way_rank(c: crate::way_class::WayClass) -> Option<u8> {
+    use crate::way_class::WayClass as C;
+    match c {
         // A village's dirt track (`_civConnectVillageAddons`) carries no
         // corridor-usage count at all, so it ranks with the least-used class.
-        crate::WayType::Track | crate::WayType::Ancient => 0,
-        crate::WayType::Road => 1,
-        crate::WayType::Regional => 2,
-        crate::WayType::Highway => 3,
+        C::Track | C::Ancient => Some(0),
+        C::Road => Some(1),
+        C::Regional => Some(2),
+        C::Highway => Some(3),
+        C::SeaLane => None,
     }
 }
 
@@ -2134,7 +2145,9 @@ impl WayGrid {
             if w.hidden || w.pts.len() < 2 {
                 continue;
             }
-            let rank = way_rank(w.way_type);
+            // A generated way is never a sea lane, so `None` cannot occur; if
+            // it ever did, that way would have no load rank and is skipped.
+            let Some(rank) = way_rank(crate::way_class::WayClass::from(w.way_type)) else { continue };
             let mut mark = |x: f64, y: f64| {
                 if !x.is_finite() || !y.is_finite() {
                     return;
@@ -5272,6 +5285,24 @@ fn assign_importance(out: &mut [Landmark], ctx: &Ctx<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects: found-bug sweep R4 for the load rank. Walking `WayClass::ALL`,
+    /// every land class (one with a planner row) has a rank and the sea lane has
+    /// none rather than a rank-0 stand-in; the generated types keep their ranks
+    /// as literals (track and ancient 0, road 1, regional 2, highway 3), so the
+    /// re-keying cannot move a landmark.
+    #[test]
+    fn way_rank_covers_every_land_class_and_no_sea_lane() {
+        use crate::way_class::{planner_row, WayClass};
+        for c in WayClass::ALL {
+            assert_eq!(way_rank(c).is_some(), planner_row(c).is_some(), "{c:?}");
+        }
+        let r = |t: crate::WayType| way_rank(WayClass::from(t));
+        assert_eq!(
+            [r(crate::WayType::Track), r(crate::WayType::Ancient), r(crate::WayType::Road), r(crate::WayType::Regional), r(crate::WayType::Highway)],
+            [Some(0), Some(0), Some(1), Some(2), Some(3)]
+        );
+    }
 
     /// Sea level used by every fixture: 0.42, equal to `WorldParams::defaults().sea_level`.
     const SEA: f64 = 0.42;

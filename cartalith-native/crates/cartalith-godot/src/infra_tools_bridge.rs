@@ -1274,13 +1274,27 @@ pub struct MeasuredLeg {
     /// The unmodified `cartalith_spatial::measure` result for this leg.
     pub m: Measurement,
     /// Compass bearing in degrees within `[0, 360)`; `0` = north, clockwise.
-    pub bearing_deg: f64,
+    /// `None` for a zero-length leg, which has no direction (see [`compass_bearing`]).
+    pub bearing_deg: Option<f64>,
 }
 
-/// One leg `a` -> `b`: `cartalith_spatial::measure` plus a compass bearing (north = 0, clockwise, grid `y` down), normalised to `[0, 360)`. A zero-length leg has no meaningful bearing; do not rely on the value.
+/// The compass bearing of a measured delta: north = 0, clockwise, grid `y` down,
+/// normalised to `[0, 360)`. `None` when the (wrapped) delta is exactly zero.
+///
+/// Found-bug sweep 2026-10-11, R6: a zero-length leg used to report
+/// `atan2(0, -0) = 180` degrees -- a due-south reading for a leg that goes
+/// nowhere, "no value" encoded as a plausible value. Any non-zero delta, however
+/// small, has a real direction and keeps it. Shared by [`measure_leg`] and
+/// `measure_bridge::section_profile` so the ruler and the section agree.
+pub fn compass_bearing(m: &Measurement) -> Option<f64> {
+    (m.dx != 0.0 || m.dy != 0.0).then(|| m.dx.atan2(-m.dy).to_degrees().rem_euclid(360.0))
+}
+
+/// One leg `a` -> `b`: `cartalith_spatial::measure` plus its [`compass_bearing`]
+/// (`None` for a zero-length leg).
 pub fn measure_leg(a: (f64, f64), b: (f64, f64), grid_w: usize, map_width_km: f64, world: bool) -> MeasuredLeg {
     let m = measure(a, b, grid_w, map_width_km, world);
-    let bearing_deg = m.dx.atan2(-m.dy).to_degrees().rem_euclid(360.0);
+    let bearing_deg = compass_bearing(&m);
     MeasuredLeg { m, bearing_deg }
 }
 
@@ -1738,17 +1752,29 @@ mod tests {
     #[test]
     fn bearing_convention_matches_the_grids_own_y_down_axis() {
         // East: +x, no y change.
-        let east = measure_leg((0.0, 0.0), (10.0, 0.0), 512, 512.0, false);
-        assert!((east.bearing_deg - 90.0).abs() < 1e-9);
+        let east = measure_leg((0.0, 0.0), (10.0, 0.0), 512, 512.0, false).bearing_deg.unwrap();
+        assert!((east - 90.0).abs() < 1e-9);
         // South: +y (grid y increases downward/south).
-        let south = measure_leg((0.0, 0.0), (0.0, 10.0), 512, 512.0, false);
-        assert!((south.bearing_deg - 180.0).abs() < 1e-9);
+        let south = measure_leg((0.0, 0.0), (0.0, 10.0), 512, 512.0, false).bearing_deg.unwrap();
+        assert!((south - 180.0).abs() < 1e-9);
         // North: -y.
-        let north = measure_leg((0.0, 10.0), (0.0, 0.0), 512, 512.0, false);
-        assert!(north.bearing_deg.abs() < 1e-9 || (north.bearing_deg - 360.0).abs() < 1e-9);
+        let north = measure_leg((0.0, 10.0), (0.0, 0.0), 512, 512.0, false).bearing_deg.unwrap();
+        assert!(north.abs() < 1e-9 || (north - 360.0).abs() < 1e-9);
         // West: -x.
-        let west = measure_leg((10.0, 0.0), (0.0, 0.0), 512, 512.0, false);
-        assert!((west.bearing_deg - 270.0).abs() < 1e-9);
+        let west = measure_leg((10.0, 0.0), (0.0, 0.0), 512, 512.0, false).bearing_deg.unwrap();
+        assert!((west - 270.0).abs() < 1e-9);
+    }
+
+    /// Protects: found-bug sweep R6. A zero-length leg has no bearing (`None`), not
+    /// the 180 degrees `atan2(0, -0)` gave; on a wrapping world a leg from x = 0 to
+    /// x = 512 (the same meridian) is zero-length too. A tiny but non-zero leg keeps
+    /// its real direction (east).
+    #[test]
+    fn a_zero_length_leg_has_no_bearing() {
+        assert_eq!(measure_leg((3.0, 4.0), (3.0, 4.0), 512, 512.0, false).bearing_deg, None);
+        assert_eq!(measure_leg((0.0, 4.0), (512.0, 4.0), 512, 512.0, true).bearing_deg, None, "wrapped onto itself");
+        let tiny = measure_leg((3.0, 4.0), (3.0 + 1e-9, 4.0), 512, 512.0, false).bearing_deg.unwrap();
+        assert!((tiny - 90.0).abs() < 1e-9, "{tiny}");
     }
 
     // ---------- region ----------

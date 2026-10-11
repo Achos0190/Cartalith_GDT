@@ -565,6 +565,52 @@ pub fn record_drag(
     Some(seq)
 }
 
+/// Records one **completed** way delete: the way has already been taken out of
+/// `store` at `index` (by `take_way`), `fp_before`/`fp_after` are that store's
+/// fingerprints either side of the removal, and `fps` gives every store's
+/// fingerprint **now** (after the removal). Records the `WayDelete` ledger row,
+/// drops the drag redo stack (a new operation), prunes stale held entries and
+/// holds this one. Returns the new row's `seq`. `WorldGen::way_delete` is the thin
+/// wrapper that hands it the real stores.
+///
+/// **Why the prune reads `fp_before` for the deleted store** (found-bug sweep
+/// 2026-10-11, R1). An older held entry of the same store is stale only if
+/// something *other than a ledgered row* changed the list under it. This delete
+/// is itself about to be held, so the chain must be checked against the world as
+/// it stood just before it -- exactly [`record_drag`]'s rule. Pruning against the
+/// post-delete fingerprint dropped every earlier entry of that store (the delete
+/// had just moved the store past what each of them left behind), so a second
+/// delete in a row made the first one un-undoable.
+///
+/// Must never prune against `fp_after` for `store`, and must never record a row
+/// for a delete that did not happen (the caller only calls it after `take_way`
+/// returned a way).
+#[allow(clippy::too_many_arguments)]
+pub fn record_delete(
+    ledger: &mut undo::HistoryLedger,
+    wu: &mut WayUndo,
+    store: WayStore,
+    index: usize,
+    way: HeldWay,
+    fp_before: u64,
+    fp_after: u64,
+    fps: &dyn Fn(WayStore) -> u64,
+) -> u64 {
+    // A delete is a new operation: an undone drag can no longer be redone.
+    wu.clear_redo();
+    let title = held_way_title(&way);
+    let detail = match store {
+        WayStore::Generated => "generated network -- Generate roads rebuilds it",
+        WayStore::SeaLane => "generated sea lane -- Generate roads rebuilds it",
+        WayStore::Manual => "hand-drawn",
+    };
+    let seq = ledger.record("civ", format!("Delete {title}"), detail, undo::EntryKind::WayDelete);
+    let pre_delete = |s: WayStore| if s == store { fp_before } else { fps(s) };
+    wu.prune_stale(&pre_delete);
+    wu.push(WayUndoEntry { seq, index, way, fp_before, fp_after });
+    seq
+}
+
 /// The history label for a held entry: `Delete <title>` for a deleted way, the
 /// drag's own `Draw ...` label for a drag.
 pub fn way_entry_label(e: &WayUndoEntry) -> String {
@@ -1146,18 +1192,11 @@ impl WorldGen {
         let Some(way) = held else { return false };
         let fp_after = self.way_fp(store);
         self.redo.clear();
-        // A delete is a new operation: an undone drag can no longer be redone.
-        self.way_undo.clear_redo();
-        let title = held_way_title(&way);
-        let detail = match store {
-            WayStore::Generated => "generated network -- Generate roads rebuilds it",
-            WayStore::SeaLane => "generated sea lane -- Generate roads rebuilds it",
-            WayStore::Manual => "hand-drawn",
-        };
-        let seq = self.ledger.record("civ", format!("Delete {title}"), detail, undo::EntryKind::WayDelete);
         let fps: Vec<(WayStore, u64)> = WayStore::ALL.iter().map(|&s| (s, self.way_fp(s))).collect();
-        self.way_undo.prune_stale(&|s| fps.iter().find(|(k, _)| *k == s).map_or(0, |(_, v)| *v));
-        self.way_undo.push(WayUndoEntry { seq, index: i, way, fp_before, fp_after });
+        let fp = |s: WayStore| fps.iter().find(|(k, _)| *k == s).map_or(0, |(_, v)| *v);
+        // The ledger row, the redo drop and the prune (against this store's
+        // PRE-delete fingerprint, R1) live in the pure `record_delete`.
+        record_delete(&mut self.ledger, &mut self.way_undo, store, i, way, fp_before, fp_after, &fp);
         true
     }
 
@@ -1706,6 +1745,17 @@ mod drag_ledger_tests {
             seq
         }
 
+        /// What `way_delete` does for a manual way, through the real
+        /// [`record_delete`] (the older `delete_manual` above records the row
+        /// by hand and never prunes, which is why it could not see R1).
+        fn delete_real(&mut self, i: usize) -> u64 {
+            let fp_before = fp_manual(Some(&self.manual));
+            let way = HeldWay::Manual(self.manual.remove(i));
+            let fp_after = fp_manual(Some(&self.manual));
+            let fps = self.fp();
+            record_delete(&mut self.ledger, &mut self.wu, WayStore::Manual, i, way, fp_before, fp_after, &fps)
+        }
+
         /// `WorldGen::undo_way_step` over the harness.
         fn undo(&mut self) -> Option<WayStep> {
             let fps = self.fp();
@@ -1831,6 +1881,39 @@ mod drag_ledger_tests {
         let seqs: Vec<u64> = h.ledger.rows(0).iter().map(|(e, _)| e.seq).collect();
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "monotone: {seqs:?}");
         assert!(h.ledger.last_seq() > s2);
+    }
+
+    /// Protects: found-bug sweep R1 -- two way deletes in a row (through the real
+    /// `record_delete`, which `way_delete` calls) are BOTH undoable, newest first,
+    /// restoring the list exactly; an older drag below them stays undoable too, and
+    /// its redo still works afterwards. Before the fix the prune read the
+    /// post-delete fingerprint, so each delete dropped every earlier held entry of
+    /// its store: after the second delete only that one could be undone.
+    #[test]
+    fn two_deletes_in_a_row_both_undo_in_order_and_redo_still_works() {
+        let mut h = H::new();
+        h.click_commit(mw(ManualWayType::Track, 50.0));
+        h.click_commit(mw(ManualWayType::Ancient, 60.0));
+        let drag = h.commit_drag(vec![mw(ManualWayType::Road, 10.0)]).expect("a real drag records");
+        let before = h.manual.clone();
+        assert_eq!(before.len(), 3);
+
+        let d1 = h.delete_real(0);
+        let d2 = h.delete_real(0);
+        assert_eq!(h.manual, vec![before[2].clone()], "both deletes took their way");
+        assert!(h.reversible(d2), "the newest delete is undoable");
+        assert!(h.reversible(d1), "the first delete must survive the second one's prune");
+        assert!(h.reversible(drag), "and the drag below both of them");
+        assert_eq!(h.wu.len(), 3, "nothing held was pruned");
+
+        assert_eq!(h.undo().map(|s| s.label), Some("Delete unnamed ancient".to_string()), "newest first");
+        assert_eq!(h.undo().map(|s| s.label), Some("Delete unnamed track".to_string()));
+        assert_eq!(h.manual, before, "both ways back, at their own indices");
+
+        assert_eq!(h.undo().map(|s| s.label), Some("Draw road".to_string()), "then the drag");
+        assert_eq!(h.manual, before[..2].to_vec());
+        assert_eq!(h.redo().as_deref(), Some("Draw road"), "redo still works after the delete undos");
+        assert_eq!(h.manual, before);
     }
 
     /// Protects: the manual list changing under a drag makes its row refuse cleanly (a click-committed way, an edited name): undo returns None, nothing is removed, the row is drawn not reversible and no redo is parked; and a LEDGERED delete above the drag does not break it: the delete undoes first and the drag stays live behind it.

@@ -339,22 +339,27 @@ pub fn civ_credited_road_edges<'e>(ways: &[Way], road_edges: &'e [RoadEdge]) -> 
 }
 
 /// Each credited edge's cell path as a full-resolution polyline the router's
-/// way walker can read: cell `i` becomes `(i % gw, i / gw)`.
+/// way walker can read, through [`crate::road_edge_map_path`] -- the same
+/// conversion `jp_road_cells` uses, so the router discounts exactly the cells the
+/// planner credits.
 ///
-/// That is the same reading `jp_road_cells` makes of `RoadEdge::path`, kept
-/// identical on purpose so the router discounts exactly the cells the planner
-/// credits. The path really holds routing-grid indices; the two readings agree
-/// while the routing grid is 1:1 (`RW_CAP` = 1024 cells wide) and are both off
-/// above it -- a pre-existing limitation of the planner's reading, not fixed
-/// here (it would move planner output on large maps without a ruling).
-/// Consecutive cells of a Dijkstra path are 8-adjacent, so walking the polyline
-/// marks exactly each cell's 3x3 neighbourhood, the reference's
+/// The path holds **routing-grid** indices. Until the found-bug sweep of
+/// 2026-10-11 (R2) cell `i` was read as `(i % gw, i / gw)`, right only while the
+/// routing grid is 1:1 (maps up to `RW_CAP` = 1024 cells wide) and misplaced
+/// above it; on a 1:1 grid the conversion returns exactly those points, so
+/// routing there is unchanged. On a downsampled grid the points are
+/// `1 / sc` cells apart and the walker rasterises between them, so the edge
+/// stays continuous. The walker's own seam test still splits a wrap jump; the
+/// conversion's breaks (a non-8-connected routing step, which a real Dijkstra
+/// path never has) are not passed on, as before.
+/// Consecutive cells of a Dijkstra path are 8-adjacent, so on a 1:1 grid walking
+/// the polyline marks exactly each cell's 3x3 neighbourhood, the reference's
 /// `for(const[px,py] of e.path) _civMarkWayNeighborhood(...)` (v2.11 line 26501).
 pub fn civ_road_edge_polylines(edges: &[&RoadEdge], gw: usize) -> Vec<Vec<(f64, f64)>> {
     if gw == 0 {
         return Vec::new();
     }
-    edges.iter().map(|e| e.path.iter().map(|&i| ((i % gw) as f64, (i / gw) as f64)).collect()).collect()
+    edges.iter().map(|e| crate::road_edge_map_path(&e.path, gw).0).collect()
 }
 
 /// The Route/Way tools' whole way list, in the order `jp_road_cells` reads its

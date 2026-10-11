@@ -613,9 +613,12 @@ impl WorldGen {
         // IN-13 caravans (Ruling AF: one aggregate shipment per way; Ruling AP:
         // a derived view -- one row per way with active trade load, rebuilt
         // from THIS match on every read, nothing persisted). Land and river
-        // ways only: a sea route is not a way, and whether it gets a caravan
-        // is still an open owner question. `index` is `civ.ways` order, as in
-        // `ways` above. Capped like `flows`; `caravan_count` is the true total.
+        // ways only, for now: sea routes are not in `net.way_load`. The owner
+        // has since ruled that sea trade gets caravans too, one per sea lane
+        // (Ruling AQ, 2026-09-24, `LARGE_ITEM_RULINGS.md`); that half is not
+        // built yet (`OUTSTANDING_WORK.md`, IN-13 piece 4). `index` is
+        // `civ.ways` order, as in `ways` above. Capped like `flows`;
+        // `caravan_count` is the true total of land caravans.
         let mut caravan_order: Vec<usize> = (0..net.way_load.len()).filter(|&i| net.way_load[i] > 0.0).collect();
         caravan_order.sort_by(|&a, &b| {
             net.way_load[b].partial_cmp(&net.way_load[a]).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(&b))

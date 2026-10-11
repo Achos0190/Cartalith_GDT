@@ -39,6 +39,20 @@
 //! `golden_parity_village_connect.rs`) keeps the reference's flat `0.25`: it is
 //! the network builder, not the Route tool, and changing it would move
 //! generated output, which Ruling CD does not authorise.
+//!
+//! Two other per-type tables read this enum but are **different quantities**,
+//! so they are not derived from the planner row (found-bug sweep 2026-10-11,
+//! R4, read at their symbols): `cartalith-godot`'s
+//! `civ_military_bridge::way_logistics_weight` is the share of a way's
+//! kilometres that counts toward an army's `road_density` (highway 1.00 ...
+//! track/ancient 0.30: how much baggage a way carries, calibrated against
+//! generated networks), and `landmark::way_rank` is an ordinal load class
+//! (0..=3) mirroring `civ_classify_way`'s usage thresholds. Neither is a speed
+//! or a cost, and deriving either from `planner_speed` would change military
+//! and landmark output for no reason in their own terms. What they share with
+//! this table is the class set: each is an exhaustive `match` over
+//! [`WayClass`] returning `None` for a sea lane (counted elsewhere, or never a
+//! generated way), and each has a test walking [`WayClass::ALL`].
 
 use crate::tools::ManualWayType;
 use crate::WayType;
@@ -60,6 +74,18 @@ pub enum WayClass {
     Track,
     Ancient,
     SeaLane,
+}
+
+impl WayClass {
+    /// Every class, in declaration order. Each per-class table outside this
+    /// module (the military logistics weight in `cartalith-godot`'s
+    /// `civ_military_bridge`, the landmark load rank in [`crate::landmark`])
+    /// is a `match` over `WayClass` and carries a test walking this list, so a
+    /// class added here cannot be forgotten by one consumer and silently
+    /// defaulted (found-bug sweep 2026-10-11, R4). Must list every variant; the
+    /// test `all_lists_every_variant_once` guards that.
+    pub const ALL: [WayClass; 6] =
+        [WayClass::Highway, WayClass::Regional, WayClass::Road, WayClass::Track, WayClass::Ancient, WayClass::SeaLane];
 }
 
 impl From<WayType> for WayClass {
@@ -220,6 +246,26 @@ mod tests {
         assert_eq!(r(WayClass::Track), Some(("Dirt Track", "None / Wild", 1)));
         assert_eq!(r(WayClass::Ancient), Some(("Dirt Track", "Deteriorated", 1)));
         assert_eq!(r(WayClass::SeaLane), None);
+    }
+
+    /// Protects: `WayClass::ALL` (which the consumers' coverage tests walk) lists
+    /// every variant exactly once. The `match` makes a new variant a compile error
+    /// here until it is added to the list as well.
+    #[test]
+    fn all_lists_every_variant_once() {
+        let index = |c: WayClass| match c {
+            WayClass::Highway => 0,
+            WayClass::Regional => 1,
+            WayClass::Road => 2,
+            WayClass::Track => 3,
+            WayClass::Ancient => 4,
+            WayClass::SeaLane => 5,
+        };
+        let mut seen = [0u8; 6];
+        for c in WayClass::ALL {
+            seen[index(c)] += 1;
+        }
+        assert_eq!(seen, [1; 6]);
     }
 
     /// Protects: both way-type vocabularies map onto the shared classes the way

@@ -7077,6 +7077,79 @@ fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: 
 /// way the plain-384-literal version silently could have.
 pub const RW_CAP: usize = 1024;
 
+/// The road network's routing-grid width and scale for a map `gw` cells wide:
+/// `(rw, sc)` with `rw = min(gw, RW_CAP)` and `sc = rw / gw` (full-resolution
+/// cells to routing cells). The one place that pair is computed: [`civ_routing_grid`]
+/// builds the grid with it and [`road_edge_map_path`] reads a [`RoadEdge::path`]
+/// back with it, so the two cannot disagree. `sc` is exactly `1.0` whenever
+/// `gw <= RW_CAP` (`rw == gw`, and an integer divided by itself is exact).
+pub fn routing_grid_scale(gw: usize) -> (usize, f64) {
+    let rw = gw.min(RW_CAP);
+    (rw, rw as f64 / gw as f64)
+}
+
+/// A [`RoadEdge::path`] (routing-grid cell indices) as full-resolution map
+/// points, for the two consumers that credit an edge's cells: the planner's
+/// [`jp_road_cells`] and the router's `tools::civ_road_edge_polylines`. Returns
+/// the points and the indices where the routing path itself is not
+/// 8-connected (a "break": the walker emits that point alone instead of
+/// rasterising a line to it).
+///
+/// Routing cell `(cx, cy)` (`cx = i % rw`, `cy = i / rw`, `(rw, sc)` from
+/// [`routing_grid_scale`]) becomes the full-resolution cell
+/// `(round(cx / sc), round(cy / sc))`, clamped to the map. That is the exact
+/// inverse of the router's own forward map, `_civMarkWayNeighborhood`'s
+/// `round(px * sc)` (`tools::civ_mark_way_neighborhood`): for `sc < 1`,
+/// `|round(cx / sc) * sc - cx| <= sc / 2 < 0.5`, so the point maps back to `cx`.
+/// The points are integral because [`jp_road_cells`] records only integral
+/// emissions.
+///
+/// **Why this exists** (found-bug sweep 2026-10-11, R2). Both consumers read
+/// the path as `(i % gw, i / gw)`, which is only right while the routing grid
+/// is 1:1 with the map; above `RW_CAP` (1024) cells wide it credited cells in
+/// the wrong place entirely (a routing index divided by the map width). The
+/// reference reads its own `state.roads.edges` through the routing width too
+/// (`buildRoadsOp`, v2.11 line 4849: `cx = idx % RW`, then `(cx + 0.5) / sc`,
+/// and `_jpRoadCells` rounds that, line 18829-18830); the cell-centre `+0.5`
+/// is deliberately not adopted here, because at `sc = 1` it would move every
+/// credited cell by one and with it the planner output on every world the
+/// goldens cover (no ruling for that; reported, not changed).
+///
+/// **Identity at `sc == 1`** (every world up to `RW_CAP` wide, so every golden):
+/// `rw == gw` and `round(cx / 1.0) == cx`, so the points are exactly the old
+/// `(i % gw, i / gw)`; and because consecutive cells of a real path are
+/// 8-adjacent (and a non-adjacent step is a break), walking them emits exactly
+/// the points themselves, in the same order -- the same writes as before.
+///
+/// Must never be used on anything but a `RoadEdge::path` built on this grid
+/// (`civ_hierarchical_network_topology`, or one restored from a save of it).
+pub fn road_edge_map_path(path: &[usize], gw: usize) -> (Vec<(f64, f64)>, Vec<usize>) {
+    if gw == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let (rw, sc) = routing_grid_scale(gw);
+    let full = |c: usize| ((c as f64 / sc).round()).min(gw as f64 - 1.0);
+    let mut pts = Vec::with_capacity(path.len());
+    let mut brks = Vec::new();
+    for (k, &i) in path.iter().enumerate() {
+        let (cx, cy) = (i % rw, i / rw);
+        if k > 0 {
+            let (px, py) = (path[k - 1] % rw, path[k - 1] / rw);
+            if px.abs_diff(cx) > 1 || py.abs_diff(cy) > 1 {
+                brks.push(k);
+            }
+        }
+        // y is not clamped here (this function is not given `gh`): a routing
+        // row `cy < rh = round(gh * sc)` maps to at most row `gh` itself, one
+        // past the map, only on the last routing row of a downsampled grid.
+        // Both consumers already tolerate that: `jp_road_cells` keys are a
+        // lookup table (an off-map key is never asked for) and the router's
+        // `civ_mark_way_neighborhood` clamps to `rh - 1`.
+        pts.push((full(cx), (cy as f64 / sc).round()));
+    }
+    (pts, brks)
+}
+
 /// The downsampled grid the road router works on: the sampled heights `dfld`, its
 /// size `rw` x `rh`, and the scale `sc` from full-resolution cells to routing
 /// cells. Built only by `civ_routing_grid`.
@@ -7093,8 +7166,7 @@ struct CivRoutingGrid {
 /// `RW_CAP` is therefore sampled 1:1. Caps the Dijkstra grid so road routing
 /// cost does not grow with the full map size.
 fn civ_routing_grid(field: &[f32], gw: usize, gh: usize) -> CivRoutingGrid {
-    let rw = gw.min(RW_CAP);
-    let sc = rw as f64 / gw as f64;
+    let (rw, sc) = routing_grid_scale(gw);
     let rh = ((gh as f64 * sc).round() as usize).max(2);
     let mut dfld = vec![0.0f32; rw * rh];
     for y in 0..rh {
@@ -14169,11 +14241,14 @@ pub struct JpRoadCell {
 /// pri 1).
 ///
 /// An edge's `path` holds **routing-grid** cell indices
-/// (`civ_hierarchical_network_topology`), read here as full-resolution cells
-/// (`i % gw`). The two agree while the routing grid is 1:1 (maps up to
-/// `RW_CAP` = 1024 cells wide); above that this reading misplaces the edge,
-/// a pre-existing limitation the router's edge reading shares on purpose (see
-/// `tools::civ_road_edge_polylines`).
+/// (`civ_hierarchical_network_topology`). They are converted to full-resolution
+/// points by [`road_edge_map_path`] and walked with [`civ_walk_way_cells`], as a
+/// way is, so a downsampled edge (a map wider than `RW_CAP` = 1024 cells) stays
+/// continuous on the map. Until the found-bug sweep of 2026-10-11 (R2) this read
+/// the index as `(i % gw, i / gw)`, correct only while the routing grid is 1:1;
+/// for those maps the new reading emits exactly the same cells in the same order
+/// (see `road_edge_map_path`'s identity note), so no golden moved. The router
+/// reads the edges through the same conversion (`tools::civ_road_edge_polylines`).
 pub fn jp_road_cells(
     ways: &[Way],
     manual_ways: &[tools::ManualWay],
@@ -14224,9 +14299,9 @@ pub fn jp_road_cells(
     }
     let edge_row = way_class::planner_row(way_class::WayClass::Road).expect("the plain road has a planner row");
     for e in tools::civ_credited_road_edges(ways, road_edges) {
-        for &i in &e.path {
-            put(&mut map, (i % gw) as f64, (i / gw) as f64, edge_row.terrain, edge_row.cond, edge_row.pri);
-        }
+        let (pts, brks) = road_edge_map_path(&e.path, gw);
+        let mut emit = |x: f64, y: f64| put(&mut map, x, y, edge_row.terrain, edge_row.cond, edge_row.pri);
+        civ_walk_way_cells(&pts, &brks, gw, &mut emit);
     }
     map
 }

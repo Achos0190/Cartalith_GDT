@@ -75,13 +75,19 @@ impl SimValue {
         }
     }
 
-    /// The value as `i64`: `Int` as is, `Num` truncated toward zero by `as` (saturating, NaN
-    /// -> 0 -- Rust cast semantics, a judgement that a year field is never fractional);
+    /// The value as `i64`: `Int` as is; `Num` only when it is a **whole, finite number inside
+    /// `i64`'s range** (a Godot `float` spin box handing back `1200.0` is a legal year);
     /// `Str`/`Bool` give `None`.
+    ///
+    /// A fractional, NaN, infinite or out-of-range `Num` gives `None`, which
+    /// [`collapse_sim_request_from_pairs`] reports as a rejected key. Found-bug sweep
+    /// 2026-10-11, R3: this used to truncate with `as i64` (`1200.7` -> `1200`, NaN -> `0`,
+    /// `1e30` -> `i64::MAX`), so a malformed year silently became a plausible one -- year 0
+    /// for a NaN. Must never coerce a non-integer into a year.
     fn int(&self) -> Option<i64> {
         match self {
             SimValue::Int(n) => Some(*n),
-            SimValue::Num(n) => Some(*n as i64),
+            SimValue::Num(n) => whole_i64(*n),
             _ => None,
         }
     }
@@ -102,6 +108,17 @@ impl SimValue {
             _ => None,
         }
     }
+}
+
+/// `n` as an `i64` when it is finite, has no fractional part and lies inside `i64`'s range;
+/// `None` otherwise. The upper bound is exclusive at `2^63` (`9.223372036854775808e18`,
+/// exactly representable), because `i64::MAX` itself is not an `f64` and the nearest `f64`
+/// above it would saturate; the lower bound `-2^63` is `i64::MIN` exactly. Arithmetic, not a
+/// judgement.
+fn whole_i64(n: f64) -> Option<i64> {
+    /// `2^63` as an `f64` (exact): one past `i64::MAX`.
+    const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+    (n.is_finite() && n.fract() == 0.0 && (-TWO_POW_63..TWO_POW_63).contains(&n)).then(|| n as i64)
 }
 
 // ===================== the request =====================
@@ -591,6 +608,36 @@ mod tests {
         let (req, rejected) = collapse_sim_request_from_pairs(&form);
         assert_eq!(rejected, vec!["mode", "character", "severity", "letter_spacing"]);
         assert_eq!(req, CollapseSimRequest::default(), "a rejected key must leave the default untouched");
+    }
+
+    /// Protects: found-bug sweep R3. A year sent as a float is accepted only when it is a
+    /// whole, finite number in `i64` range: `1200.0` and `-500.0` land as 1200 and -500,
+    /// while `1200.7`, NaN, +/-infinity and `1e30` are each rejected by key and leave the
+    /// default (0 / 100 / 10) untouched. Before the fix `as i64` truncated them to 1200, 0,
+    /// `i64::MAX`/`MIN` and `i64::MAX`.
+    #[test]
+    fn a_fractional_nan_or_out_of_range_year_is_rejected_not_truncated() {
+        let whole = vec![
+            ("start_year".to_string(), SimValue::Num(1200.0)),
+            ("duration".to_string(), SimValue::Num(-500.0)),
+        ];
+        let (req, rejected) = collapse_sim_request_from_pairs(&whole);
+        assert!(rejected.is_empty(), "{rejected:?}");
+        assert_eq!((req.start_year, req.duration), (1200, -500));
+
+        for bad in [1200.7, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e30, -1e30, 9_223_372_036_854_775_808.0] {
+            let form = vec![
+                ("start_year".to_string(), SimValue::Num(bad)),
+                ("duration".to_string(), SimValue::Num(bad)),
+                ("step_years".to_string(), SimValue::Num(bad)),
+            ];
+            let (req, rejected) = collapse_sim_request_from_pairs(&form);
+            assert_eq!(rejected, vec!["start_year", "duration", "step_years"], "{bad} must be rejected");
+            assert_eq!((req.start_year, req.duration, req.step_years), (0, 100, 10), "{bad} must not be truncated into a year");
+        }
+        // -2^63 is `i64::MIN` exactly, so the lower bound is inclusive.
+        let edge = vec![("start_year".to_string(), SimValue::Num(-9_223_372_036_854_775_808.0))];
+        assert_eq!(collapse_sim_request_from_pairs(&edge).0.start_year, i64::MIN);
     }
 
     // ---------- run_collapse_simulation ----------
