@@ -484,7 +484,12 @@ impl WorldGen {
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let (world, map_width_km, sea, river_density) = (self.world, self.map_width_km, self.sea_level, self.params.river_density);
-        let way_refs: Vec<WayRef> = civ.ways.iter().map(WayRef::from).collect();
+        // The same network `route_commit`/`jp_reroute` route over (Ruling CD
+        // item 4): generated ways plus the credited raw edges; no hand-drawn
+        // ways exist yet on a fresh generate.
+        let credited = cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = cartalith_civ::tools::civ_road_edge_polylines(&credited, gw);
+        let way_refs: Vec<WayRef> = cartalith_civ::tools::civ_network_way_refs(&civ.ways, &[], &edge_polys);
         let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         // The same context `route_commit`/`jp_reroute` build, over the new
         // world (a fresh generate has no hand-drawn ways yet).

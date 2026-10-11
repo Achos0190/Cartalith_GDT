@@ -111,6 +111,10 @@ pub mod travel_library;
 /// See its own module doc for the exact function-by-function boundary and for
 /// why it is not golden-verified.
 pub mod urban_adapter;
+/// Ruling CD item 3: the one way-class table the Route/Way tools' router and
+/// the Journey Planner both read (planner row and router cost discount per way
+/// type), so the two cannot drift. See the module doc.
+pub mod way_class;
 /// The reference's per-ecoregion wildlife layer (HTML lines 6489-6620 plus
 /// the roster popup's own formatter at 8257). Here rather than in
 /// `cartalith-climate` because every input it needs -- `build_npp`,
@@ -14008,6 +14012,29 @@ pub struct JpRoadCell {
 /// that no integer lookup can ever hit. That is reproduced here by simply not
 /// recording a non-integral emission -- same observable behaviour, without
 /// carrying float keys around.
+///
+/// **Rows come from [`way_class::planner_row`]** (Ruling CD item 3), the one
+/// table the Route tool's router also reads its per-type discount from; this
+/// function no longer keeps its own `match` on way type. The values are the
+/// reference's `_jpRoadCells` tuples, unchanged.
+///
+/// **`road_edges` is filtered through [`tools::civ_credited_road_edges`]**
+/// (Ruling CD item 4, `PLANNER_AUDIT_2026-10-11.md` Q1 finding 3): an edge
+/// whose generated [`Way`] is hidden is no longer credited. Before, a hidden
+/// way was skipped here but the raw edge it was built from was not, so the
+/// planner kept crediting a road the user hid (the audit's
+/// `hidden_generated_way_is_still_credited_through_its_edge`: 90 cells, now
+/// 0). The router reads the same filtered edge set, so a journey follows the
+/// network the planner credits. Each edge is credited as the plain-road row,
+/// the reference's own `state.roads.edges` tuple (`["Dirt Track","Standard"]`,
+/// pri 1).
+///
+/// An edge's `path` holds **routing-grid** cell indices
+/// (`civ_hierarchical_network_topology`), read here as full-resolution cells
+/// (`i % gw`). The two agree while the routing grid is 1:1 (maps up to
+/// `RW_CAP` = 1024 cells wide); above that this reading misplaces the edge,
+/// a pre-existing limitation the router's edge reading shares on purpose (see
+/// `tools::civ_road_edge_polylines`).
 pub fn jp_road_cells(
     ways: &[Way],
     manual_ways: &[tools::ManualWay],
@@ -14040,38 +14067,26 @@ pub fn jp_road_cells(
         if w.hidden {
             continue;
         }
-        let (terrain, cond, pri) = match w.way_type {
-            WayType::Highway => ("Paved Road", "Maintained", 3),
-            WayType::Regional => ("Paved Road", "Standard", 2),
-            WayType::Road | WayType::Track => ("Dirt Track", "Standard", 1),
-            // `_jpRoadCells` (v2.11 18822): `w.type==='ancient'?["Dirt Track","Deteriorated"]`.
-            WayType::Ancient => ("Dirt Track", "Deteriorated", 1),
-        };
-        let mut emit = |x: f64, y: f64| put(&mut map, x, y, terrain, cond, pri);
+        // A generated way is never a sea lane, so every class here has a row.
+        let Some(r) = way_class::planner_row(way_class::WayClass::from(w.way_type)) else { continue };
+        let mut emit = |x: f64, y: f64| put(&mut map, x, y, r.terrain, r.cond, r.pri);
         civ_walk_way_cells(&w.pts, &w.brks, gw, &mut emit);
     }
     for w in manual_ways {
-        if w.hidden || w.sea || w.way_type == tools::ManualWayType::SeaLane {
+        // `w.sea` is tested as well as the class: the reference's own
+        // `w.sea||w.type==='sea-lane'` guard reads both flags.
+        if w.hidden || w.sea {
             continue;
         }
-        let (terrain, cond, pri) = match w.way_type {
-            tools::ManualWayType::Ancient => ("Dirt Track", "Deteriorated", 1),
-            tools::ManualWayType::Road | tools::ManualWayType::Track => ("Dirt Track", "Standard", 1),
-            tools::ManualWayType::SeaLane => unreachable!("filtered above"),
-        };
-        let mut emit = |x: f64, y: f64| put(&mut map, x, y, terrain, cond, pri);
+        // `None` is a sea lane: the planner credits no row for it.
+        let Some(r) = way_class::planner_row(way_class::WayClass::from(w.way_type)) else { continue };
+        let mut emit = |x: f64, y: f64| put(&mut map, x, y, r.terrain, r.cond, r.pri);
         civ_walk_way_cells(&w.pts, &w.brks, gw, &mut emit);
     }
-    for e in road_edges {
+    let edge_row = way_class::planner_row(way_class::WayClass::Road).expect("the plain road has a planner row");
+    for e in tools::civ_credited_road_edges(ways, road_edges) {
         for &i in &e.path {
-            put(
-                &mut map,
-                (i % gw) as f64,
-                (i / gw) as f64,
-                "Dirt Track",
-                "Standard",
-                1,
-            );
+            put(&mut map, (i % gw) as f64, (i / gw) as f64, edge_row.terrain, edge_row.cond, edge_row.pri);
         }
     }
     map
@@ -15118,6 +15133,9 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
         world.sea_level,
         world.map_width_km,
     );
+    // The shared vessel, as the reference scores every sea stage. A stage
+    // sailed by a different vessel is re-scored by `jp_plan_full`, which is
+    // the first place that knows the per-stage vessel (Ruling CD item 4).
     let vessel = plan.vessel.as_str();
 
     let mut out: Vec<JpDerivedStage> = Vec::with_capacity(chunks.len());
@@ -15589,6 +15607,12 @@ pub fn jp_plan_ex(
 /// animal-stat/terrain resolver for [`jp_calc_land`] ([`JpAnimalResolver`])
 /// and a vessel resolver for [`jp_calc_water`] ([`JpVesselResolver`]).
 /// Identical to [`jp_plan`] when both are `None`.
+///
+/// One deliberate departure from `_jpPlan` (Ruling CD item 4, DECISIONS.md
+/// 7p): a sea stage sailed by a vessel other than `plan.vessel` (a per-stage
+/// override, or the auto-substituted hull) has its auto condition re-scored
+/// for that vessel's rig, and the returned stage reports that condition. See
+/// the `sea_auto` comment in the body.
 #[allow(clippy::too_many_arguments)]
 pub fn jp_plan_full(
     world: &JpWorld,
@@ -15618,6 +15642,46 @@ pub fn jp_plan_full(
         }
         if let Some(inf) = &ov.infra {
             s.infra = inf.clone();
+        }
+    }
+
+    // Ruling CD item 4 (`PLANNER_AUDIT_2026-10-11.md` Q4 finding 1): a sea
+    // stage's condition is scored for the vessel that stage actually sails,
+    // not the plan's shared vessel. `jp_derive_stages` (the reference's
+    // `_jpDeriveStages(jn, plan)`) scores every sea stage with `plan.vessel`,
+    // so a Keelboat plan whose Open Sea stage is sailed by a per-stage
+    // override or by the auto-substituted Dhow below was scored as an oared
+    // hull and ignored the wind. A deliberate departure from the reference
+    // (DECISIONS.md 7p). Only an AUTO condition is re-derived: a plan-wide or
+    // per-stage manual condition the user chose is never second-guessed.
+    // `sea_auto[i]` is that test, mirroring `jp_derive_stages`' own choice
+    // (manual wins only where `jp_route_cond_valid` accepts it) plus the
+    // per-stage `route_cond` override applied just above.
+    let plan_manual_cond = plan.route_cond.as_deref().filter(|v| !v.is_empty() && *v != "auto");
+    let sea_auto: Vec<bool> = stages
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            s.cat == "sea"
+                && plan_manual_cond.is_none_or(|m| !jp_route_cond_valid("sea", m))
+                && plan.stage_overrides.get(&i).is_none_or(|o| o.route_cond.is_none())
+        })
+        .collect();
+    let sea_cond_for = |s: &JpDerivedStage, vessel: &str| -> String {
+        jp_sea_condition(pts, s.i0, s.i1, world.ocean_field, world.wind_field, vessel, world.gw, world.gh, world.world)
+            .to_string()
+    };
+    // A per-stage vessel override is known before any calculation, so it is
+    // applied here, where the season-drift pre-pass below sees it too.
+    for (i, s) in stages.iter_mut().enumerate() {
+        if !sea_auto[i] {
+            continue;
+        }
+        let v = jp_effective_stage_plan(plan, plan.stage_overrides.get(&i)).vessel;
+        if v != plan.vessel {
+            let c = sea_cond_for(s, &v);
+            s.route_cond = c.clone();
+            s.derived_cond = Some(c);
         }
     }
     let jp_stages: Vec<JpStage> = stages
@@ -15696,9 +15760,23 @@ pub fn jp_plan_full(
                     vessel: sub.to_string(),
                     ..eff.clone()
                 };
-                if let Ok(w) = jp_calc_water_ex(st, &eff2, vessels) {
+                // Ruling CD item 4: the substitute is scored for its own rig
+                // (see `sea_auto` above). Feasibility does not read the
+                // condition, so the substitute chosen is the same as before;
+                // only its speed band changes.
+                let cond2 = (sea_auto[i] && sub != eff.vessel).then(|| sea_cond_for(&stages[i], sub));
+                let st2 = match &cond2 {
+                    Some(c) => JpStage { route_cond: c.clone(), ..st.clone() },
+                    None => st.clone(),
+                };
+                if let Ok(w) = jp_calc_water_ex(&st2, &eff2, vessels) {
                     r = Ok(JpLegCalc::Water(w));
                     eff = eff2;
+                    // The reported stage carries the condition it was costed on.
+                    if let Some(c) = cond2 {
+                        stages[i].route_cond = c.clone();
+                        stages[i].derived_cond = Some(c);
+                    }
                 }
             }
         }

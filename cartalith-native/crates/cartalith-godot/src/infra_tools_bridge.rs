@@ -2297,7 +2297,7 @@ mod tests {
     fn the_pull_weight_keeps_the_road_on_the_drag() {
         let (field, wb) = route_fixture();
         let road_pts: Vec<(f64, f64)> = (11..=22).map(|x| (x as f64, 11.0)).collect();
-        let road = [WayRef { pts: &road_pts, brks: &[], sea: false, hidden: false }];
+        let road = [WayRef { pts: &road_pts, brks: &[], sea: false, hidden: false, class: cartalith_civ::way_class::WayClass::Road }];
         let ctx = route_ctx(&field, &wb, &road);
         let ctrl = [(11.0, 8.0), (22.0, 8.0)];
         let spline = cartalith_civ::civ_catmull_rom_sample(&ctrl, 1.0);

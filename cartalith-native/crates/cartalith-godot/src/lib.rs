@@ -15638,8 +15638,14 @@ impl WorldGen {
         // borrow ends right here, before `way_commit` below needs
         // `&mut self.infra` to push the new way onto that same field.
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
-        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
-        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        // The Route/Way tools route over the same network the Journey Planner
+        // credits: generated ways, hand-drawn ways, and the generated network's
+        // raw edges minus any whose way is hidden (Ruling CD item 4,
+        // `cartalith_civ::tools::civ_network_way_refs`).
+        let credited = cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = cartalith_civ::tools::civ_road_edge_polylines(&credited, self.gw.max(0) as usize);
+        let way_refs: Vec<cartalith_civ::tools::WayRef> =
+            cartalith_civ::tools::civ_network_way_refs(&civ.ways, &manual_ways, &edge_polys);
         let ctx = cartalith_civ::tools::RouteContext {
             field: &ws.field,
             water_bodies: &inputs.water_bodies,
@@ -15788,8 +15794,14 @@ impl WorldGen {
             self.forced_lakes.as_deref(),
         );
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
-        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
-        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        // The Route/Way tools route over the same network the Journey Planner
+        // credits: generated ways, hand-drawn ways, and the generated network's
+        // raw edges minus any whose way is hidden (Ruling CD item 4,
+        // `cartalith_civ::tools::civ_network_way_refs`).
+        let credited = cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = cartalith_civ::tools::civ_road_edge_polylines(&credited, self.gw.max(0) as usize);
+        let way_refs: Vec<cartalith_civ::tools::WayRef> =
+            cartalith_civ::tools::civ_network_way_refs(&civ.ways, &manual_ways, &edge_polys);
         let ctx = cartalith_civ::tools::RouteContext {
             field: &ws.field,
             water_bodies: &inputs.water_bodies,
@@ -15908,8 +15920,14 @@ impl WorldGen {
             self.forced_lakes.as_deref(),
         );
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
-        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
-        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        // The Route/Way tools route over the same network the Journey Planner
+        // credits: generated ways, hand-drawn ways, and the generated network's
+        // raw edges minus any whose way is hidden (Ruling CD item 4,
+        // `cartalith_civ::tools::civ_network_way_refs`).
+        let credited = cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = cartalith_civ::tools::civ_road_edge_polylines(&credited, self.gw.max(0) as usize);
+        let way_refs: Vec<cartalith_civ::tools::WayRef> =
+            cartalith_civ::tools::civ_network_way_refs(&civ.ways, &manual_ways, &edge_polys);
         let ctx = cartalith_civ::tools::RouteContext {
             field: &ws.field,
             water_bodies: &inputs.water_bodies,
@@ -19689,9 +19707,14 @@ impl WorldGen {
             self.forced_lakes.as_deref(),
         );
         let manual_ways = self.infra.as_ref().map(|t| t.ways.clone()).unwrap_or_default();
-        let mut way_refs: Vec<cartalith_civ::tools::WayRef> =
-            civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
-        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        // The Route/Way tools route over the same network the Journey Planner
+        // credits: generated ways, hand-drawn ways, and the generated network's
+        // raw edges minus any whose way is hidden (Ruling CD item 4,
+        // `cartalith_civ::tools::civ_network_way_refs`).
+        let credited = cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = cartalith_civ::tools::civ_road_edge_polylines(&credited, self.gw.max(0) as usize);
+        let way_refs: Vec<cartalith_civ::tools::WayRef> =
+            cartalith_civ::tools::civ_network_way_refs(&civ.ways, &manual_ways, &edge_polys);
         let ctx = cartalith_civ::tools::RouteContext {
             field: &ws.field,
             water_bodies: &inputs.water_bodies,

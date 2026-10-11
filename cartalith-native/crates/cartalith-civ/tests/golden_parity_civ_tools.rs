@@ -365,7 +365,7 @@ fn case0_snapping_matches_civ_find_snap_target() {
     let w = case0();
     let places = vec![town(C0_LAND_A.0, C0_LAND_A.1, SettlementKind::Town, 1, 1000), town(C0_LAND_B.0, C0_LAND_B.1, SettlementKind::Capital, 1, 1000)];
     let pts = vec![(C0_LAND_A.0 as f64, C0_LAND_A.1 as f64), (C0_LAND_B.0 as f64, C0_LAND_B.1 as f64)];
-    let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
+    let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false, class: cartalith_civ::way_class::WayClass::Road }];
     let r = civ_snap_radius(w.gw);
     assert_eq!(r, 5.0);
 
@@ -504,7 +504,7 @@ fn case0_existing_way_discount_pulls_the_route_onto_it() {
     // cell walk changed.
     let w = case0();
     let pts = detour_way(C0_LAND_A, C0_LAND_B);
-    let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
+    let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false, class: cartalith_civ::way_class::WayClass::Road }];
     let ctx = w.ctx(&[], &ways);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_LAND_B.0 as f64, C0_LAND_B.1 as f64, RouteMode::Land);
     check(

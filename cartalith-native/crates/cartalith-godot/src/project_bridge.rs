@@ -8982,6 +8982,28 @@ mod substrate_tests {
         );
     }
 
+    /// Protects: Ruling CD item 4's hidden-way edge filter (`civ_credited_road_edges`)
+    /// changes nothing on a real generated world where the user has hidden no way.
+    /// Consolidation does emit hidden *placeholder* ways (an edge whose every cell a
+    /// busier edge already claimed), and the filter drops their edges; this measures
+    /// that every such cell is still credited, as the same row, through the busier
+    /// edge. "Before" is reconstructed by handing `jp_road_cells` only the visible
+    /// ways, so its edge filter has no hidden way to match and passes every edge,
+    /// exactly as the unfiltered code did.
+    #[test]
+    fn a_hidden_way_is_not_credited_through_its_edge_on_a_real_world() {
+        let (_, _, civ) = world();
+        assert!(!civ.road_edges.is_empty(), "premise: the fixture routes edges");
+        let visible: Vec<cartalith_civ::Way> = civ.ways.iter().filter(|w| !w.hidden).cloned().collect();
+        let placeholders = civ.ways.len() - visible.len();
+        let before = cartalith_civ::jp_road_cells(&visible, &[], &civ.road_edges, GW);
+        let after = cartalith_civ::jp_road_cells(&civ.ways, &[], &civ.road_edges, GW);
+        let dropped = civ.road_edges.len() - cartalith_civ::tools::civ_credited_road_edges(&civ.ways, &civ.road_edges).len();
+        eprintln!("ways {} (hidden placeholders {placeholders}), edges {} (dropped {dropped}), road cells {}", civ.ways.len(), civ.road_edges.len(), after.len());
+        assert!(!before.is_empty(), "premise: the planner credits road cells");
+        assert_eq!(after, before, "no road cell is lost or re-classed when only placeholders are hidden");
+    }
+
     /// The archive `reopen` reads, read again, for a second restore.
     fn data_of(ws: &cartalith_engine::WorldState, civ: &CivData) -> cartalith_io::ProjectData {
         project::read_project(Cursor::new(&archive(ws, civ, true))).expect("read")

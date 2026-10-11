@@ -51,8 +51,10 @@
 
 use std::collections::HashSet;
 
+use crate::way_class::{self, WayClass};
+
 use super::{
-    NamedSettlement, SettlementKind, SettlementPlacement, TerrainValid, Way, WayType, build_travel_cost, civ_apply_settlement_gravity, civ_biome_friction, civ_is_coastal,
+    NamedSettlement, RoadEdge, SettlementKind, SettlementPlacement, TerrainValid, Way, WayType, build_travel_cost, civ_apply_settlement_gravity, civ_biome_friction, civ_is_coastal,
     civ_navigable_river_discount, civ_river_crossing_cost, civ_routing_grid, civ_smooth_path, civ_swamp_penalty, js_hypot, js_round, road_dijkstra, road_dijkstra_multi,
 };
 
@@ -282,24 +284,94 @@ pub struct WayRef<'a> {
     /// every site, and sets them together at every write.
     pub sea: bool,
     pub hidden: bool,
+    /// The way's class in the shared [`crate::way_class`] table (Ruling CD
+    /// item 3): it picks this way's router discount
+    /// ([`way_class::router_discount`]) and its overlap priority, exactly as it
+    /// picks the planner row `jp_road_cells` credits. The reference router is
+    /// type-blind (one flat `x0.25`); a fixture that wants that behaviour passes
+    /// [`WayClass::Road`], whose discount is `0.25` to the bit.
+    pub class: WayClass,
 }
 
 impl<'a> From<&'a Way> for WayRef<'a> {
     /// A generated `Way` is always land: `_civHierarchicalNetwork`'s own
     /// v1.99 comment, *"this network is always land-only (`sea:false` on
-    /// every emitted way)"*.
+    /// every emitted way)"*. Its class is its generated type.
     fn from(w: &'a Way) -> Self {
-        WayRef { pts: &w.pts, brks: &w.brks, sea: false, hidden: w.hidden }
+        WayRef { pts: &w.pts, brks: &w.brks, sea: false, hidden: w.hidden, class: WayClass::from(w.way_type) }
     }
 }
 
 impl<'a> From<&'a ManualWay> for WayRef<'a> {
     /// A hand-drawn way keeps its own `sea` flag (set when the user declares a
-    /// sea lane) and `hidden` flag, so routing discounts or ferries over it exactly
-    /// as it does over a generated way. Borrows, never copies, the polyline.
+    /// sea lane), `hidden` flag and declared type, so routing discounts or ferries
+    /// over it exactly as it does over a generated way. Borrows, never copies, the
+    /// polyline.
     fn from(w: &'a ManualWay) -> Self {
-        WayRef { pts: &w.pts, brks: &w.brks, sea: w.sea, hidden: w.hidden }
+        WayRef { pts: &w.pts, brks: &w.brks, sea: w.sea, hidden: w.hidden, class: WayClass::from(w.way_type) }
     }
+}
+
+/// The generated network's raw edges the planner and the router both credit
+/// (Ruling CD item 4; `PLANNER_AUDIT_2026-10-11.md` Q1 findings 2 and 3).
+///
+/// An edge is dropped when a **hidden** generated [`Way`] joins the same two
+/// settlements (`{a_idx, b_idx} == {a, b}`, either order): consolidation builds
+/// every way of an edge with that edge's own `a`/`b`
+/// (`civ_consolidate_and_smooth_ways`), so the pair is the link. Without this a
+/// hidden way stayed credited through its edge (the audit's fixture: 90 road
+/// cells, now 0).
+///
+/// Also dropped, on purpose and with no visible effect: an edge whose every
+/// cell a busier edge had already claimed gets a hidden *placeholder* way from
+/// consolidation (`!emitted`), and those cells stay credited through the busier
+/// edge's own path. `a_hidden_way_is_not_credited_through_its_edge_on_a_real_world`
+/// (`cartalith-godot`'s `project_bridge` tests) measures the cell set unchanged
+/// on a real world with no user-hidden way.
+///
+/// Must never be bypassed: `jp_road_cells` and the Route/Way tools'
+/// [`civ_network_way_refs`] both read edges only through this, which is what
+/// keeps the two on one network.
+pub fn civ_credited_road_edges<'e>(ways: &[Way], road_edges: &'e [RoadEdge]) -> Vec<&'e RoadEdge> {
+    let hidden: HashSet<(usize, usize)> =
+        ways.iter().filter(|w| w.hidden).map(|w| (w.a_idx.min(w.b_idx), w.a_idx.max(w.b_idx))).collect();
+    road_edges.iter().filter(|e| !hidden.contains(&(e.a.min(e.b), e.a.max(e.b)))).collect()
+}
+
+/// Each credited edge's cell path as a full-resolution polyline the router's
+/// way walker can read: cell `i` becomes `(i % gw, i / gw)`.
+///
+/// That is the same reading `jp_road_cells` makes of `RoadEdge::path`, kept
+/// identical on purpose so the router discounts exactly the cells the planner
+/// credits. The path really holds routing-grid indices; the two readings agree
+/// while the routing grid is 1:1 (`RW_CAP` = 1024 cells wide) and are both off
+/// above it -- a pre-existing limitation of the planner's reading, not fixed
+/// here (it would move planner output on large maps without a ruling).
+/// Consecutive cells of a Dijkstra path are 8-adjacent, so walking the polyline
+/// marks exactly each cell's 3x3 neighbourhood, the reference's
+/// `for(const[px,py] of e.path) _civMarkWayNeighborhood(...)` (v2.11 line 26501).
+pub fn civ_road_edge_polylines(edges: &[&RoadEdge], gw: usize) -> Vec<Vec<(f64, f64)>> {
+    if gw == 0 {
+        return Vec::new();
+    }
+    edges.iter().map(|e| e.path.iter().map(|&i| ((i % gw) as f64, (i / gw) as f64)).collect()).collect()
+}
+
+/// The Route/Way tools' whole way list, in the order `jp_road_cells` reads its
+/// sources: generated ways, hand-drawn ways, then the credited edges (from
+/// [`civ_road_edge_polylines`]) as plain roads -- the reference's own
+/// `state.roads.edges` row and its own marking of them into the router's land
+/// set (`_civDijkstraPath`, v2.11 line 26501). The order matters because equal
+/// priorities keep the first writer, in both consumers.
+///
+/// Before this, `route_commit` passed generated and hand-drawn ways but not
+/// the edges, so a road the planner credited could be invisible to the router
+/// (`PLANNER_AUDIT_2026-10-11.md` Q1 finding 2).
+pub fn civ_network_way_refs<'a>(ways: &'a [Way], manual: &'a [ManualWay], edge_polys: &'a [Vec<(f64, f64)>]) -> Vec<WayRef<'a>> {
+    let mut out: Vec<WayRef<'a>> = ways.iter().map(WayRef::from).collect();
+    out.extend(manual.iter().map(WayRef::from));
+    out.extend(edge_polys.iter().map(|p| WayRef { pts: p, brks: &[], sea: false, hidden: false, class: WayClass::Road }));
+    out
 }
 
 /// The four entries of the reference's own `#civWayType` select (line
@@ -424,7 +496,14 @@ const PASS_SLOPE_RELIEF: f64 = 0.60;
 /// infrastructure" -- a cell on an existing way costs x0.25, so a route
 /// between two way-connected points follows the way instead of plotting
 /// its own line.
-const EXISTING_WAY_DISCOUNT: f32 = 0.25;
+///
+/// **Now read only by [`civ_connect_village_addons`]**, the generation
+/// pipeline's village-connector pass (golden-verified, and Ruling CD does not
+/// authorise moving generated output). The Route/Way tools' router
+/// ([`civ_dijkstra_path_guided`]) reads a per-class discount from
+/// [`way_class::router_discount`] instead (Ruling CD item 3), whose plain-road
+/// value is this same `0.25`.
+const EXISTING_WAY_DISCOUNT: f32 = way_class::REFERENCE_WAY_DISCOUNT;
 
 /// `_CIV_SEA_COST` (reference line 21111): open ocean/lake in the mixed
 /// grid, deliberately **below** the flat-land baseline of ~1.0 -- v0.94's
@@ -491,6 +570,40 @@ fn civ_mark_ways_on_grid(ways: &[WayRef], rw: usize, rh: usize, sc: f64, gw: usi
         }
         civ_walk_way_cells(w.pts, w.brks, gw, |px, py| civ_mark_way_neighborhood(px, py, rw, rh, sc, set));
     }
+}
+
+/// The router's per-cell way discount over the land ways in `ways`: for every
+/// routing-grid cell a non-hidden way's neighbourhood touches
+/// ([`civ_mark_way_neighborhood`], as `_civMarkWaysOnGrid` marks it), the
+/// discount of the way class that owns the cell (Ruling CD item 3).
+///
+/// Ownership follows `jp_road_cells`' own rule, so the router and the planner
+/// agree on which class a shared cell is: a higher planner priority
+/// (highway 3, regional 2, everything else 1) takes the cell; an equal one keeps
+/// the first writer, in `ways` order (the caller's [`civ_network_way_refs`]
+/// order, the planner's own source order). A class with no planner row (a sea
+/// lane passed in a land slice) ranks 0.
+///
+/// When every way is the same class this is exactly the reference's set of
+/// cells, each discounted once -- which is why a plain-road-only network routes
+/// bit for bit as before.
+fn civ_way_discounts_on_grid(ways: &[WayRef], rw: usize, rh: usize, sc: f64, gw: usize) -> std::collections::HashMap<usize, (u8, f32)> {
+    let mut owner: std::collections::HashMap<usize, (u8, f32)> = std::collections::HashMap::new();
+    for w in ways {
+        if w.pts.is_empty() || w.hidden {
+            continue;
+        }
+        let pri = way_class::planner_row(w.class).map_or(0, |r| r.pri);
+        let d = way_class::router_discount(w.class);
+        let mut cells = HashSet::new();
+        civ_walk_way_cells(w.pts, w.brks, gw, |px, py| civ_mark_way_neighborhood(px, py, rw, rh, sc, &mut cells));
+        for i in cells {
+            if owner.get(&i).is_none_or(|&(old, _)| old < pri) {
+                owner.insert(i, (pri, d));
+            }
+        }
+    }
+    owner
 }
 
 /// The full-res cells covered by every sea-lane way, for
@@ -832,27 +945,32 @@ pub fn civ_dijkstra_path_guided(
     // charted lane a real multiplicative discount, which the old
     // `min(cost, 1.0)` cap silently failed to do once open water dropped
     // to 0.6.
+    //
+    // Ruling CD item 3: the multiplier is now the way's class's own
+    // (`way_class::router_discount`, derived from the planner's speed for that
+    // class), not one flat x0.25; a plain road is still 0.25 to the bit.
     {
-        let (mut land_set, mut sea_set) = (HashSet::new(), HashSet::new());
+        let mut sea_set = HashSet::new();
         let sea_ways: Vec<WayRef> = ctx.ways.iter().copied().filter(|w| w.sea).collect();
         let land_ways: Vec<WayRef> = ctx.ways.iter().copied().filter(|w| !w.sea).collect();
         civ_mark_ways_on_grid(&sea_ways, rw, rh, sc, ctx.gw, &mut sea_set);
-        civ_mark_ways_on_grid(&land_ways, rw, rh, sc, ctx.gw, &mut land_set);
-        // The reference also marks `state.roads.edges` into `land_set`.
-        // That is `buildRoadsOp`'s legacy Edit-tab output, which this port
-        // does not have; a caller's generated `Way`s go through `ctx.ways`
-        // instead, which is the same set of cells by a different route.
+        let land = civ_way_discounts_on_grid(&land_ways, rw, rh, sc, ctx.gw);
+        // The reference also marks `state.roads.edges` into its land set. In
+        // this port the generated network's raw edges arrive in `ctx.ways`
+        // as plain roads (`civ_network_way_refs`, Ruling CD item 4), so they
+        // are marked here with every other land way.
         // Iteration order within each set does not matter (each cell is
         // touched exactly once), but the order BETWEEN them does: a cell
         // carrying both a land way and a sea lane takes the sea branch
         // last, exactly as the reference writes it.
-        for i in land_set {
+        for (i, (_, d)) in land {
             if cost[i].is_finite() {
-                cost[i] *= EXISTING_WAY_DISCOUNT;
+                cost[i] *= d;
             }
         }
+        let sea_d = way_class::router_discount(WayClass::SeaLane);
         for i in sea_set {
-            cost[i] = if cost[i].is_finite() { cost[i] * EXISTING_WAY_DISCOUNT } else { 1.0 };
+            cost[i] = if cost[i].is_finite() { cost[i] * sea_d } else { 1.0 };
         }
     }
 
@@ -1550,7 +1668,7 @@ mod tests {
         // `<`), while a way wins when it is genuinely nearer.
         let places = vec![settlement(5, 5, SettlementKind::Town)];
         let pts = vec![(5.0, 5.0), (9.0, 9.0)];
-        let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
+        let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false, class: WayClass::Road }];
         // The way starts *at* the place, so both answer d2 = 0 here.
         let t = civ_find_snap_target(&places, &ways, 5.0, 5.0, 4.0).unwrap();
         assert_eq!(t.kind, SnapKind::Place(0), "places are scanned first and a tie is a strict `<` loss for the way");
@@ -1566,7 +1684,7 @@ mod tests {
         // perpendicular.
         let places = vec![settlement(0, 0, SettlementKind::Town)];
         let pts = vec![(10.0, 0.0), (10.0, 20.0)];
-        let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
+        let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false, class: WayClass::Road }];
         let t = civ_find_snap_target(&places, &ways, 11.0, 10.0, 4.0).unwrap();
         assert_eq!(t.kind, SnapKind::Way(0));
         assert_eq!((t.x, t.y), (10.0, 10.0));
@@ -1853,7 +1971,7 @@ mod tests {
 
         // A dog-leg way running well off the direct line.
         let detour: Vec<(f64, f64)> = (2..=13).map(|y| (12.0, y as f64)).chain((12..=22).map(|x| (x as f64, 13.0))).collect();
-        let ways = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: false }];
+        let ways = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: false, class: WayClass::Road }];
         let with_way = route_ctx(&field, &wb, &[], &ways);
         let pulled = civ_dijkstra_path(&with_way, 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
 
@@ -1879,8 +1997,8 @@ mod tests {
         // exactly, and differs from the visible-way result.
         let (field, wb) = route_fixture();
         let detour: Vec<(f64, f64)> = (2..=13).map(|y| (12.0, y as f64)).chain((12..=22).map(|x| (x as f64, 13.0))).collect();
-        let shown = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: false }];
-        let hidden = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: true }];
+        let shown = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: false, class: WayClass::Road }];
+        let hidden = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: true, class: WayClass::Road }];
         let a = civ_dijkstra_path(&route_ctx(&field, &wb, &[], &shown), 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
         let b = civ_dijkstra_path(&route_ctx(&field, &wb, &[], &hidden), 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
         let c = civ_dijkstra_path(&route_ctx(&field, &wb, &[], &[]), 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
@@ -1901,7 +2019,7 @@ mod tests {
         assert!(!bare.reachable);
 
         let lane: Vec<(f64, f64)> = (2..=12).map(|x| (x as f64, 8.0)).collect();
-        let ways = vec![WayRef { pts: &lane, brks: &[], sea: true, hidden: false }];
+        let ways = vec![WayRef { pts: &lane, brks: &[], sea: true, hidden: false, class: WayClass::SeaLane }];
         let ferried = civ_dijkstra_path(&route_ctx(&field, &wb, &[], &ways), 12.0, 8.0, 2.0, 8.0, RouteMode::Land);
         assert!(ferried.reachable, "an existing sea lane is a traversable ferry crossing in land mode");
         assert!(

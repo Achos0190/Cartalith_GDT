@@ -155,7 +155,7 @@ fn run_world(w: &Value) {
             (pts, v["sea"].as_bool().unwrap(), v["hidden"].as_bool().unwrap())
         })
         .collect();
-    let ways: Vec<WayRef> = way_pts.iter().map(|(pts, sea, hidden)| WayRef { pts, brks: &[], sea: *sea, hidden: *hidden }).collect();
+    let ways: Vec<WayRef> = way_pts.iter().map(|(pts, sea, hidden)| WayRef { pts, brks: &[], sea: *sea, hidden: *hidden, class: if *sea { cartalith_civ::way_class::WayClass::SeaLane } else { cartalith_civ::way_class::WayClass::Road } }).collect();
     let ctx = RouteContext {
         field: &field,
         water_bodies: &wb,
