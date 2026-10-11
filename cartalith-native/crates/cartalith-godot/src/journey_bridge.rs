@@ -121,7 +121,7 @@ use cartalith_civ::{
 /// either is accepted wherever the other is (a party count sent as `8.0` is
 /// as legal as `8`, and `hours` sent as `8` is as legal as `8.0`) -- a
 /// GDScript `SpinBox` decides that, not the caller. *Writing* one back,
-/// [`plan_to_pairs`] emits `Int` for the eight fields that really are
+/// [`plan_to_pairs`] emits `Int` for the ten fields that really are
 /// integers, so `jp_default_plan()["supply_days"]` is `7` rather than `7.0`
 /// on the Godot side.
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +147,10 @@ impl JpValue {
     /// JS's own `|0` on every count the reference reads: truncation toward
     /// zero, not rounding. `plan.supplyDays|0` and `(a.donkey|0)` are the
     /// two shapes this covers.
+    ///
+    /// Rust's `as i64` saturates and maps NaN to 0, where JS `|0` wraps modulo
+    /// 2^32; the difference only shows past +-2^31, far outside any count a
+    /// spin box offers, so it is left as-is.
     pub(crate) fn int(&self) -> Option<i64> {
         match self {
             JpValue::Int(n) => Some(*n),
@@ -155,6 +159,8 @@ impl JpValue {
         }
     }
 
+    /// The string payload, or `None` for any other kind -- so a wrong-typed form value
+    /// is reported `rejected` by the parsers rather than coerced.
     pub(crate) fn text(&self) -> Option<&str> {
         match self {
             JpValue::Str(s) => Some(s.as_str()),
@@ -162,6 +168,8 @@ impl JpValue {
         }
     }
 
+    /// The bool payload, or `None` for any other kind; never coerces `0`/`1` or a
+    /// string to a flag, so a mistyped toggle is rejected, not guessed.
     pub(crate) fn flag(&self) -> Option<bool> {
         match self {
             JpValue::Bool(b) => Some(*b),
@@ -182,6 +190,9 @@ fn opt_key(s: &str) -> Option<String> {
     }
 }
 
+/// [`opt_key`]'s inverse for output: an absent ("derive it") value is written as
+/// the empty string, which [`opt_key`] reads back as `None`, so the round trip
+/// through [`plan_to_pairs`] / [`plan_from_pairs`] is lossless.
 fn opt_out(v: &Option<String>) -> JpValue {
     JpValue::Str(v.clone().unwrap_or_default())
 }
@@ -397,6 +408,12 @@ pub struct JourneyWorld {
 }
 
 impl JourneyWorld {
+    /// Derives the three tables a `JpWorld` needs from already-computed rasters
+    /// (`cart_biome`, `cart_terrain`, `road_cells`) and maps `settlements` to the
+    /// planner's `JpPlace` list. Pure and uncached; must never generate or mutate
+    /// anything. `road_cells` is built from `ways` only (the empty `manual_ways` /
+    /// `road_edges` slices are deliberate -- see the module doc's third bullet):
+    /// callers overwrite it with the full set.
     #[allow(clippy::too_many_arguments)]
     pub fn build(
         field: &[f32],
@@ -545,6 +562,9 @@ pub fn party_count_pairs(p: &JpParty) -> [(&'static str, f64); 10] {
     ]
 }
 
+/// Tests for the Journey bridge: the form parser and its inverse, the option
+/// tables pinned against the engine's own lookups, and the assembled world driving
+/// `jp_plan`. Pure Rust, no Godot runtime.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,16 +573,22 @@ mod tests {
         jp_route_cond_valid, jp_season_at, jp_ship_stats, jp_weather_mod,
     };
 
+    /// Test helper: turns a borrowed literal form into the owned pairs the parsers take.
     fn owned(v: &[(&str, JpValue)]) -> Vec<(String, JpValue)> {
         v.iter().map(|(k, x)| ((*k).to_string(), x.clone())).collect()
     }
 
+    /// Test helper: `plan_to_pairs` with owned keys, the shape `plan_from_pairs` reads
+    /// back for the round-trip tests.
     fn flattened(plan: &JpPlan) -> Vec<(String, JpValue)> {
         plan_to_pairs(plan).into_iter().map(|(k, v)| (k.to_string(), v)).collect()
     }
 
     // ---------- plan / party parsing ----------
 
+    /// Protects: an empty form yields `JpPlan::default()` with nothing rejected, and
+    /// the default block matches `_jpEnsurePlan` (4 people, Walking, 7 days, drift,
+    /// closures and carry-food on, auto-promote off).
     #[test]
     fn an_empty_form_is_the_reference_default_plan() {
         let (plan, rejected) = plan_from_pairs(&[]);
@@ -576,6 +602,9 @@ mod tests {
         assert!(!plan.auto_promote);
     }
 
+    /// Protects: each of the 28 form keys lands in its own `JpPlan` / `JpParty` field
+    /// (none swapped or dropped, floats truncated to ints where the field is a
+    /// count), and the form and `plan_to_pairs` name the same number of keys.
     #[test]
     fn every_form_field_reaches_its_plan_field() {
         let form = owned(&[
@@ -636,6 +665,8 @@ mod tests {
         assert_eq!(form.len(), plan_to_pairs(&plan).len());
     }
 
+    /// Protects: both `"auto"` and `""` read as `None` ("derive it") for the six
+    /// optional string fields, so neither sentinel is stored as a real key.
     #[test]
     fn auto_and_empty_both_mean_derive_it() {
         for sentinel in ["auto", ""] {
@@ -657,6 +688,8 @@ mod tests {
         }
     }
 
+    /// Protects: a wrong-typed value or an unknown/camelCase key is listed in
+    /// `rejected` and leaves the default plan untouched (a typo is a visible bug).
     #[test]
     fn a_wrong_typed_or_unknown_key_is_rejected_and_changes_nothing() {
         let (plan, rejected) = plan_from_pairs(&owned(&[
@@ -670,6 +703,9 @@ mod tests {
         assert_eq!(plan, JpPlan::default(), "a rejected key must leave the default untouched");
     }
 
+    /// Protects: integer fields accept `Int` or `Num` identically, `hours` accepts a
+    /// bare int, and `plan_to_pairs` writes exactly ten integer fields as `Int` and
+    /// `hours` / `cargo_kg` as `Num`.
     #[test]
     fn an_integer_field_reads_an_int_or_a_float_and_writes_back_an_int() {
         // A GDScript SpinBox may hand over either; the eight genuinely
@@ -691,6 +727,8 @@ mod tests {
         assert!(out.iter().any(|(k, v)| *k == "cargo_kg" && matches!(v, JpValue::Num(_))));
     }
 
+    /// Protects: counts truncate toward zero (7.9 -> 7, -3.7 -> -3), matching the
+    /// reference's `|0`, not rounding.
     #[test]
     fn counts_truncate_toward_zero_like_js_bitwise_or() {
         let (plan, _) = plan_from_pairs(&owned(&[
@@ -705,6 +743,8 @@ mod tests {
 
     // ---------- the round trip ----------
 
+    /// Protects: a fully non-default plan round-trips through `plan_to_pairs` and
+    /// `plan_from_pairs` unchanged (accepted resupply stops excluded by design).
     #[test]
     fn plan_survives_a_flatten_and_reparse() {
         let original = JpPlan {
@@ -738,6 +778,8 @@ mod tests {
         assert_eq!(round, original);
     }
 
+    /// Protects: the default plan round-trips with nothing rejected -- in particular
+    /// the empty-string encoding of absent options reads back as `None`.
     #[test]
     fn the_default_plan_survives_the_round_trip_too() {
         let (round, rejected) = plan_from_pairs(&flattened(&JpPlan::default()));
@@ -747,6 +789,7 @@ mod tests {
 
     // ---------- stage overrides ----------
 
+    /// Protects: an empty pair list gives the default (all-`None`) stage override.
     #[test]
     fn an_empty_stage_override_overrides_nothing() {
         let (ov, rejected) = stage_override_from_pairs(&[]);
@@ -796,6 +839,8 @@ mod tests {
         assert!(stage_override_to_pairs(&JpStageOverride::default()).is_empty(), "an override that sets nothing writes nothing");
     }
 
+    /// Protects: an override sets only the keys it names; everything else stays
+    /// `None` so it cascades from the shared plan.
     #[test]
     fn a_stage_override_sets_only_the_keys_it_names() {
         let (ov, rejected) = stage_override_from_pairs(&owned(&[
@@ -811,6 +856,8 @@ mod tests {
         assert_eq!(ov.season, None);
     }
 
+    /// Protects: `season_drift` and `auto_promote` are rejected in a stage override,
+    /// since `JpStageOverride` has no such per-stage field.
     #[test]
     fn a_stage_override_rejects_the_two_journey_wide_keys() {
         let (_, rejected) =
@@ -820,6 +867,8 @@ mod tests {
 
     // ---------- option tables: every advertised key must be one the engine knows ----------
 
+    /// Protects: every advertised land transport and vessel key is known to the
+    /// engine (an unknown transport would be read as portage).
     #[test]
     fn transport_and_vessel_keys_all_resolve() {
         for t in JP_LAND_TRANSPORT_KEYS {
@@ -830,6 +879,8 @@ mod tests {
         }
     }
 
+    /// Protects: each pace key maps to its own multiplier (1.35 / 1.25 / 1.00 / 0.75 /
+    /// 0.60, the engine's table), so a typo cannot silently become Standard Pace.
     #[test]
     fn pace_keys_all_resolve_to_their_own_multiplier() {
         // `jp_pace_mod` answers 1.0 for BOTH "Standard Pace" and an unknown
@@ -838,12 +889,16 @@ mod tests {
         assert_eq!(PACE_KEYS.map(jp_pace_mod), [1.35, 1.25, 1.00, 0.75, 0.60], "a typo here silently becomes Standard Pace");
     }
 
+    /// Protects: the five infrastructure tier names resolve, in order, to the
+    /// engine's multipliers (1.15 / 1.00 / 0.85 / 0.70 / 0.50).
     #[test]
     fn infra_tier_keys_all_resolve_to_their_own_multiplier() {
         let mods: Vec<f64> = infra_tier_keys().into_iter().map(jp_infra_mod).collect();
         assert_eq!(mods, vec![1.15, 1.00, 0.85, 0.70, 0.50]);
     }
 
+    /// Protects: each category's five route conditions validate for that category
+    /// only, cross-category pairs are rejected, and an unknown category has none.
     #[test]
     fn route_cond_keys_are_valid_for_their_own_category_and_no_other() {
         for cat in ["land", "river", "sea"] {
@@ -859,6 +914,8 @@ mod tests {
         assert!(route_cond_keys("portage").is_empty());
     }
 
+    /// Protects: every season key is a real `JP_SEASON_ORDER` entry (`jp_season_at`
+    /// returns it unchanged at offset 0).
     #[test]
     fn season_keys_all_resolve() {
         for s in JP_SEASON_ORDER {
@@ -866,6 +923,8 @@ mod tests {
         }
     }
 
+    /// Protects: every weather key is known to the engine, not a fall-through to the
+    /// seasonal average.
     #[test]
     fn weather_keys_all_resolve() {
         for w in JP_WEATHER_KEYS {
@@ -873,6 +932,8 @@ mod tests {
         }
     }
 
+    /// Protects: every advertised desert-water key is reachable from some waterless
+    /// gap, in the engine's own key order.
     #[test]
     fn desert_water_keys_all_resolve() {
         // `jp_desert_tier_for_gap` walks JP_DESERT_WATER's own key order and
@@ -882,6 +943,8 @@ mod tests {
         assert_eq!(reachable, JP_DESERT_WATER_KEYS.to_vec());
     }
 
+    /// Protects: the three foraging modes resolve to their own move modifiers
+    /// (1.00 / 0.97 / 0.88), so none is silently the default.
     #[test]
     fn foraging_keys_all_resolve_to_their_own_speed_cost() {
         let mods: Vec<f64> = FORAGING_KEYS
@@ -891,6 +954,9 @@ mod tests {
         assert_eq!(mods, vec![1.00, 0.97, 0.88]);
     }
 
+    /// Protects: the three grazing keys give strictly decreasing fodder, full grazing
+    /// carries none, and an unknown key collapses onto the first key's load (which
+    /// is why distinctness is the test).
     #[test]
     fn grazing_keys_all_resolve_to_distinct_fodder_loads() {
         // `jp_grazing` is private; its fodder fraction is observable through
@@ -908,6 +974,9 @@ mod tests {
         assert_eq!(unknown, fodder[0], "the fallthrough really is the first key -- which is why distinctness is the test");
     }
 
+    /// Protects: each rest cadence key gives its own interval (0 / 7 / 5 / 3) and
+    /// rest-day count (0 / 4 / 6 / 10) over 30 days, and `"auto"` is the automatic
+    /// rule rather than a cadence key.
     #[test]
     fn rest_cadence_keys_all_resolve_to_their_own_interval() {
         let every: Vec<i64> = REST_CADENCE_KEYS.iter().map(|k| jp_rest_days(30.0, Some(k), false).every).collect();
@@ -919,6 +988,8 @@ mod tests {
         assert_eq!(jp_rest_days(30.0, Some("auto"), false).every, 5, "auto is the automatic rule, not a cadence key");
     }
 
+    /// Protects: `biome_keys` is twelve real `JP_BIOMES` keys, excluding the
+    /// climate-classified `Hills` and the water classes.
     #[test]
     fn biome_keys_are_exactly_the_jp_biomes_table() {
         assert_eq!(biome_keys().len(), 12);
@@ -929,6 +1000,8 @@ mod tests {
         assert!(jp_biome("Lake").is_none());
     }
 
+    /// Protects: every option table is keyed by a real form key, non-empty and free
+    /// of duplicate options, and every reference table is non-empty.
     #[test]
     fn option_tables_cover_only_real_form_keys_and_are_non_empty() {
         let known: Vec<&str> = plan_to_pairs(&JpPlan::default()).into_iter().map(|(k, _)| k).collect();
@@ -945,6 +1018,7 @@ mod tests {
         }
     }
 
+    /// Protects: every key `party_count_pairs` emits is one `plan_from_pairs` accepts.
     #[test]
     fn party_count_pairs_names_only_form_keys() {
         let known: Vec<&str> = plan_to_pairs(&JpPlan::default()).into_iter().map(|(k, _)| k).collect();
@@ -955,6 +1029,10 @@ mod tests {
 
     // ---------- the world buffers ----------
 
+    /// Protects: `JourneyWorld::build` sizes both paint grids to the raster, paints
+    /// water as Ocean and leaves it unpainted terrain, classifies land, dilates a
+    /// highway's cells by exactly one with its own condition and priority, and maps
+    /// settlements to named places with the right kind keys.
     #[test]
     fn journey_world_builds_every_table_from_already_computed_state() {
         let (gw, gh) = (8usize, 6usize);
@@ -1030,6 +1108,8 @@ mod tests {
         assert_eq!(jw.places[1].kind, "hamlet");
     }
 
+    /// Protects: `settlement_kind_key` returns the lowercase tier names
+    /// `get_settlements()` reports (Metropolis is not asserted here).
     #[test]
     fn settlement_kind_keys_match_the_settlement_list_vocabulary() {
         assert_eq!(settlement_kind_key(SettlementKind::Capital), "capital");
@@ -1047,6 +1127,11 @@ mod tests {
     /// `field`/`temp`/`rain`/`flow_discharge`/`water_bodies`/`territory` --
     /// so a shape or semantics mismatch between what `WorldGen` stores and
     /// what `JpWorld` expects fails here rather than at runtime inside Godot.
+    ///
+    /// Protects: a `JpWorld` built from `JourneyWorld::build` plus synthetic rasters
+    /// drives `jp_plan` to a real journey -- stages, distance, profile, land flag,
+    /// biome/terrain fed, nothing claimed on an all-unowned grid, both settlements
+    /// threaded -- and the verdict and confidence post-processors run.
     #[test]
     fn the_assembled_world_actually_drives_jp_plan() {
         let (gw, gh) = (24usize, 16usize);
@@ -1151,6 +1236,9 @@ mod tests {
     /// A layover keyed by a stop's own `key` really lands on that stop --
     /// the one part of the request shape a UI cannot guess, since the key
     /// format is `jp_stop_key`'s and only the returned `stops` carry it.
+    ///
+    /// Protects: a layover stored under `jp_stop_key` reads back under that key, and
+    /// the key carries the settlement name the UI reads off `stops`.
     #[test]
     fn a_layover_keyed_by_a_returned_stop_key_lands_on_that_stop() {
         let key = cartalith_civ::jp_stop_key("Harrowgate", "capital", 4.0, 8.0);

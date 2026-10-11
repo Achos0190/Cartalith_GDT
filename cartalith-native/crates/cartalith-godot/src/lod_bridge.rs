@@ -401,8 +401,8 @@ pub fn tile_size_px(gw: usize, gh: usize, z: i32) -> (usize, usize) {
 /// `render_biome_tile_rgba` reports as an empty `Vec`, checked here so a
 /// caller error surfaces as "no tile" rather than as a mis-sized `Image`) —
 /// `cartalith-rust-conventions`: no panic crosses the gdext boundary.
-// The interactive path draws rivers (`synthesize_tile_rgba_rivers`); this
-// river-less form is what the tests and the stored-pyramid helpers call.
+/// The interactive path draws rivers (`synthesize_tile_rgba_rivers`); this
+/// river-less form is what the tests and the stored-pyramid helpers call.
 #[allow(dead_code)]
 pub fn synthesize_tile_rgba(
     ctx: &RenderCtx,
@@ -483,6 +483,8 @@ fn synthesize_tile_rgba_with_z_base(
         }
     });
     let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
+    // A `tf` built for another grid makes the colouriser return an empty Vec;
+    // surface that as "no tile" (see `synthesize_tile_rgba`'s contract).
     if rgba.len() != t.w * t.h * 4 {
         return None;
     }
@@ -626,8 +628,9 @@ pub const SAVE_PYRAMID_MAX_LEVEL: i32 = 4;
 /// no longer exists. The old figures (levels 0..=6 over three real 2048x1311
 /// worlds: masks 21.9 / 23.6 / 27.8 MiB against RGB PNGs at 65.2 / 69.9 /
 /// 81.1 MiB) are kept here as the **prior** they are, not carried forward as a
-/// claim about what RGB tiles will deflate to. Whoever wires ruling 28's save
-/// path re-measures it; `measure_a_stored_pyramid` in this file's tests is the
+/// claim about what RGB tiles will deflate to. (Since wired and re-measured:
+/// see `pyramid_mask_bytes`.) Whoever wired ruling 28's save
+/// path re-measured it; `measure_a_stored_pyramid` in this file's tests is the
 /// harness that produced them and is still the way to.
 ///
 /// Alpha is dropped rather than stored because
@@ -729,6 +732,8 @@ pub(crate) fn appearance_fingerprint(a: &render::TerrainAppearance) -> u64 {
         Ok(j) => j,
         Err(_) => return 0,
     };
+    // FNV-1a 64-bit offset basis and prime (Fowler-Noll-Vo, the standard
+    // published constants); non-cryptographic, a change detector only.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in json.as_bytes() {
         h ^= *b as u64;
@@ -777,8 +782,8 @@ pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
 
 /// Synthesizes every tile of levels `0..=z_max` as storable masks — the
 /// **producer** ruling 28 found this port did not have, because
-/// [`synthesize_tile_rgba`] makes tiles on demand and the atlas cache is
-/// deferred at `LOD_TILING_INTEGRATION_SCOPE.md` M3, so nothing held a tile
+/// [`synthesize_tile_rgba`] makes tiles on demand and the atlas cache was
+/// not yet built (`LOD_TILING_INTEGRATION_SCOPE.md` M3), so nothing held a tile
 /// set to write.
 ///
 /// **Not what `project_bridge.rs`'s save path calls, since 2026-09-22, and
@@ -870,6 +875,10 @@ pub fn synthesize_pyramid_masks(
     Some((tile_w, tile_h, tiles))
 }
 
+/// Tests for the pure-Rust LOD tile surface: addressing, the morph curve, tile
+/// synthesis, the stored-pyramid form and the producer id. They build a
+/// synthetic `TestWorld` and need no Godot runtime; the two `#[ignore]`d
+/// measurements are run by hand, alone, in release.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,12 +903,17 @@ mod tests {
 
     // -- addressing -------------------------------------------------------
 
+    /// Protects: `tile_bounds` returns `None` for a world that has not generated
+    /// (grids under 2x2), the guard that stops a zero or negative sample step.
     #[test]
     fn tile_bounds_none_before_any_world() {
         assert_eq!(tile_bounds(0, 0, 0, 0, 0), None);
         assert_eq!(tile_bounds(1, 1, 0, 0, 0), None);
     }
 
+    /// Protects: `tile_bounds` rejects an index past the level's own `2^z` grid and
+    /// a level outside `0..=MAX_LEVEL`, rather than clipping the way the retired
+    /// fixed-cell grid did.
     #[test]
     fn tile_bounds_none_outside_the_level_grid() {
         // Level 2 is a 4x4 grid, so index 4 does not exist at all -- unlike
@@ -910,6 +924,8 @@ mod tests {
         assert_eq!(tile_bounds(256, 256, MAX_LEVEL + 1, 0, 0), None);
     }
 
+    /// Protects: the pyramid addressing convention -- `[0, gw-1]` split `2^z` ways,
+    /// adjacent tiles sharing their edge sample, the last tile ending at `gw-1`.
     #[test]
     fn tile_bounds_tile_the_whole_sample_range_and_share_their_edges() {
         // The pyramid convention `pyramid_tile_bounds` states: `[0, gw-1]`
@@ -925,6 +941,8 @@ mod tests {
         assert_eq!(last.x + last.w, 256.0, "the last tile must end at gw-1");
     }
 
+    /// Protects: `tiles_per_axis` is `2^z` and clamps a level outside
+    /// `0..=MAX_LEVEL` instead of overflowing the shift.
     #[test]
     fn tiles_per_axis_doubles_per_level_and_clamps() {
         assert_eq!(tiles_per_axis(0), 1);
@@ -934,6 +952,8 @@ mod tests {
         assert_eq!(tiles_per_axis(-3), 1);
     }
 
+    /// Protects: one more pyramid level per doubling of screen px per cell, the
+    /// `MAX_LEVEL` cap, and a zero or negative zoom flooring at level 0.
     #[test]
     fn level_for_zoom_tracks_the_screen_and_stops_at_max() {
         // The property the depth fix rests on: one more level per doubling of
@@ -968,6 +988,10 @@ mod tests {
     /// only other term in the expression and a formula that held at one width
     /// and not the other would be a seam nobody would find until a world of
     /// that size was opened.
+    ///
+    /// Protects: at the exact zoom where `level_for_zoom` flips `z` to `z + 1` the
+    /// morph is 1.0 for `z` and 0.0 for `z + 1` (and the level does not flip early),
+    /// at every level on two grid widths -- the no-pop handover.
     #[test]
     fn the_morph_hands_over_exactly_at_the_level_boundary() {
         for gw in [512usize, 2048] {
@@ -997,6 +1021,9 @@ mod tests {
     /// the midpoint, so the quarter point is the only place a linear
     /// substitution shows — asserted as a literal (`0.25² · (3 − 0.5)`), not
     /// against a second call to the function under test.
+    ///
+    /// Protects: the morph is smoothstep (0.15625 at a quarter of the band, 0.5 at
+    /// the midpoint), not a linear ramp.
     #[test]
     fn the_morph_curve_is_smoothstep_and_not_a_ramp() {
         let gw = 2048usize;
@@ -1014,6 +1041,9 @@ mod tests {
     /// Monotone in zoom, clamped at both ends, and safe on the inputs a shell
     /// can actually hand it: a world that has not generated yet, and a zoom of
     /// zero while a viewport is still sizing itself.
+    ///
+    /// Protects: the morph never decreases with zoom, stays in `[0, 1]`, hits 0.0 and
+    /// 1.0 far outside the band, and returns 1.0 for a world with `gw < 2`.
     #[test]
     fn the_morph_is_monotone_clamped_and_degenerate_safe() {
         let gw = 1024usize;
@@ -1035,6 +1065,9 @@ mod tests {
         assert_eq!(morph_for_zoom(4.0, 1, 3), 1.0);
     }
 
+    /// Protects: the depth fix -- level `MAX_LEVEL` resolves more than 128 screen px
+    /// per coarse cell (16 px/cell, the retired fixed-tile model's ceiling, times
+    /// the old `ZOOM_MAX = 8`).
     #[test]
     fn the_deepest_level_out_resolves_the_old_fixed_tier_ceiling() {
         // The measured cap this change exists to lift: the old model's best
@@ -1048,6 +1081,9 @@ mod tests {
         assert!(px_per_cell > 16.0 * 8.0, "only {px_per_cell} px per cell at the deepest level");
     }
 
+    /// Protects: `z_base()` shifts the reference's `zBase = 2` by exactly
+    /// `log2(REFERENCE_TILE_PX / TILE_PX)`, so a `TILE_PX` tile gets the same octave
+    /// count as the reference's 1024 px tile over the same ground.
     #[test]
     fn z_base_matches_the_reference_schedule_at_equal_ground_resolution() {
         // A `TILE_PX` tile at level z resolves the same ground as a 1024 px
@@ -1086,9 +1122,17 @@ mod tests {
         pre: render::GridPrecompute,
     }
 
+    // Judgement: the fixture sea level. `synthetic_field` ramps 0.25 -> 0.75
+    // west to east, so 0.42 floods roughly the western third (the tests below
+    // rely on that: western tiles are flat water, eastern ones are land).
     const TEST_SEA: f64 = 0.42;
 
     impl TestWorld {
+        /// Builds the fixture climate for `field` and the `GridPrecompute` every
+        /// context borrows: a north-south temperature ramp (24 down to -14 degrees C) and
+        /// an east-west moisture wave (0.28..0.88). Both are judgement values chosen so
+        /// a tile spans several biomes; the `800.0` km map width is likewise a fixture
+        /// judgement.
         fn new(field: Vec<f32>, gw: usize, gh: usize) -> Self {
             let mut temp = vec![0f32; gw * gh];
             let mut rain = vec![0f32; gw * gh];
@@ -1110,6 +1154,9 @@ mod tests {
             render::TerrainAppearance::default().with_look(render::LOOK_VIBRANT)
         }
 
+        /// A `RenderCtx` over this world's own arrays and precompute. `55.0` / `5.0` are
+        /// the north and south latitude bounds in degrees and `false` means not a
+        /// global map (fixture judgement, not reference-derived).
         fn ctx(&self) -> RenderCtx<'_> {
             render::RenderCtx::from_precomputed(
                 &self.field, &self.temp, &self.rain, Some(&self.field), self.gw, self.gh, TEST_SEA, false, 55.0, 5.0, Self::appearance(), &self.pre,
@@ -1132,6 +1179,8 @@ mod tests {
         0.2126 * px[0] as f64 + 0.7152 * px[1] as f64 + 0.0722 * px[2] as f64
     }
 
+    /// Protects: a context whose field is shorter than `gw * gh` yields `None`, not
+    /// a panic from `refine_tile`'s precondition crossing the gdext boundary.
     #[test]
     fn synthesize_tile_rgba_none_for_a_too_short_field() {
         // Guards `refine_tile`'s own panic precondition rather than letting it
@@ -1146,6 +1195,7 @@ mod tests {
         assert_eq!(synthesize_tile_rgba(&ctx, &tf, 0, 0, 0, 1234), None);
     }
 
+    /// Protects: a `(z, col, row)` outside the level's grid yields `None`.
     #[test]
     fn synthesize_tile_rgba_none_for_an_out_of_range_tile() {
         let w = TestWorld::new(synthetic_field(128, 128), 128, 128);
@@ -1153,6 +1203,9 @@ mod tests {
         assert_eq!(synthesize_tile_rgba(&ctx, &tf, 2, 10, 10, 1234), None);
     }
 
+    /// Protects: a `TileFields` built for a different grid is turned into `None`
+    /// (the colouriser's empty `Vec`), so a mis-sized buffer never reaches
+    /// `Image::create_from_data`.
     #[test]
     fn a_tile_fields_built_for_another_grid_is_refused_rather_than_indexed() {
         // `render_biome_tile_rgba` returns an empty `Vec` for a mismatched
@@ -1165,6 +1218,9 @@ mod tests {
         assert_eq!(synthesize_tile_rgba(&w.ctx(), &other.fields(&other_ctx), 1, 0, 0, 1234), None);
     }
 
+    /// Protects: a tile's size equals `tile_size_px`, square for a square map, its
+    /// buffer is `w * h * 4` bytes, and every alpha is `255` (the premise of the
+    /// 3-byte stored form).
     #[test]
     fn synthesize_tile_rgba_produces_the_right_number_of_opaque_pixels() {
         let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
@@ -1180,6 +1236,10 @@ mod tests {
     /// coverage in its alpha (`lod_tile.gdshader` draws river pixels from the
     /// tile alone): alpha below 255 exactly where a stroke reached, 255 on
     /// every other pixel, and the same tile without rivers is all 255.
+    ///
+    /// Protects: a river stroke lands in the tile's alpha (below 255 only where it
+    /// reached, a band and not the whole tile), its centreline is the river's colour,
+    /// and every unreached pixel equals the river-less tile byte for byte.
     #[test]
     fn a_river_tile_carries_its_coverage_in_the_alpha() {
         let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
@@ -1341,6 +1401,8 @@ mod tests {
         assert!(with[k + 3] < 128 && net[k + 3] == 255, "the branch at {mid:?}: alpha {} with the fans, {} without", with[k + 3], net[k + 3]);
     }
 
+    /// Protects: a 2:1 map gives 2:1 tiles (`tile_dims` keeps the aspect), the reason
+    /// `lod_tile.gdshader` reads the texel size off the real texture.
     #[test]
     fn a_non_square_map_gives_an_aspect_matched_tile() {
         // `tile_dims` keeps the tile's aspect, so a 2:1 map gives 2:1 tiles --
@@ -1353,6 +1415,9 @@ mod tests {
         assert_eq!(rgba.len(), w * h * 4);
     }
 
+    /// Protects: against a silently constant tile -- more than 16 distinct colours,
+    /// some pixel with `r != b` (a tile is colour, not the retired grey shade-ratio
+    /// mask), and every alpha `255`.
     #[test]
     fn synthesize_tile_rgba_is_not_a_flat_picture() {
         // A silently-constant tile passes every structural check above, so say
@@ -1387,6 +1452,10 @@ mod tests {
     /// Measured against the unpadded render of the very same heights, so the
     /// test also shows the defect it guards against is real on this fixture
     /// (a halo that silently did nothing would pass an absolute bar alone).
+    ///
+    /// Protects: the halo -- the shared edge sample of two neighbouring tiles is
+    /// coloured within a quarter of the clamped-edge seam, and that seam is itself
+    /// shown to exceed 1 level on this fixture so the comparison is not vacuous.
     #[test]
     fn neighbouring_tiles_colour_their_shared_edge_sample_alike() {
         let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
@@ -1421,6 +1490,8 @@ mod tests {
         assert!(halo < 0.25 * clamped, "halo seam {halo:.3} vs clamped {clamped:.3} levels");
     }
 
+    /// Protects: on wholly underwater ground (`amplify_region`'s taper is zero) a tile
+    /// with the zoom octaves and one with `z_base == z` are byte-identical.
     #[test]
     fn where_the_amplifier_adds_nothing_the_octaves_change_nothing() {
         // The property the compositor rested on when a tile was a ratio was
@@ -1443,6 +1514,9 @@ mod tests {
         assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
+    /// Protects: the positive control for the test above -- on relief land more than
+    /// a tenth of the pixels change when the octaves are on, so that test cannot
+    /// pass on a build with the octaves removed.
     #[test]
     fn a_detailed_land_tile_actually_moves_under_the_octaves() {
         // The other half, and the positive control for the test above.
@@ -1504,6 +1578,11 @@ mod tests {
         sum / ((w - 1) * h) as f64
     }
 
+    /// Protects: the depth fix (owner: "LOD zooming doesn't seem to go that deep") --
+    /// per-unit-ground detail rises strictly across four levels from `z_base()`,
+    /// the octaves are a byte-for-byte no-op at `z_base`, and the octave-on/off
+    /// ratio rises with depth and exceeds 1.05 at the deepest; all three go red if
+    /// `add_zoom_detail` is removed.
     #[test]
     fn deeper_levels_carry_strictly_finer_detail() {
         // THE regression test for the owner report this subsystem answers:
@@ -1621,6 +1700,9 @@ mod tests {
         );
     }
 
+    /// Protects: at this caller's `z_base()` the pyramid tile equals plain
+    /// `refine_tile` output, so a `TILE_PX` change that forgets to move `z_base()`
+    /// fails here instead of over- or under-detailing every tile.
     #[test]
     fn at_z_base_the_zoom_octaves_are_a_no_op() {
         // `add_zoom_detail`'s own documented property, restated at this
@@ -1639,6 +1721,7 @@ mod tests {
         assert_eq!(plain, via_pyramid, "at z == z_base the extra octaves must change nothing");
     }
 
+    /// Protects: distinct `(col, row)` addresses are not aliased to one tile.
     #[test]
     fn different_tiles_of_the_same_world_synthesize_different_content() {
         let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
@@ -1649,6 +1732,7 @@ mod tests {
         assert_ne!(a, b);
     }
 
+    /// Protects: no hidden randomness -- the same inputs give byte-identical tiles.
     #[test]
     fn deterministic_for_the_same_inputs() {
         // Same standard `PARITY_TESTING.md`-adjacent expectation every
@@ -1663,6 +1747,9 @@ mod tests {
 
     // -- storing a pyramid: the round trip, the id, and the real cost -----
 
+    /// Protects: `tile_mask` / `mask_to_rgba` is lossless over real tiles (three
+    /// bytes per pixel, alpha restored as `255`), with more than 16 distinct colours
+    /// so a constant tile cannot pass vacuously.
     #[test]
     fn a_stored_tile_is_the_synthesized_tile_exactly() {
         // The claim that makes a 3-byte-per-pixel slot legitimate: the fourth
@@ -1706,6 +1793,10 @@ mod tests {
     /// `the_producer_id_moves_with_every_appearance_field` below: a
     /// serialization fingerprint is derived from the struct, so a test can
     /// vary it.
+    ///
+    /// Protects: every constant a stored tile depends on is named in the id, `seed`
+    /// and `sea` are absent, and the hand-bumped `cartalith-lod/v2` prefix is
+    /// present with no `v1`.
     #[test]
     fn the_producer_id_names_every_constant_a_stored_tile_depends_on() {
         let a = TestWorld::appearance();
@@ -1742,6 +1833,10 @@ mod tests {
     /// `TerrainAppearance` exposes is nudged in turn and each must move the
     /// id. A hand-list would only ever test the fields whose omission
     /// somebody already thought of.
+    ///
+    /// Protects: the producer id moves for every tunable, the light count, the named
+    /// look and the NPR flags -- a field added to `TerrainAppearance` is covered or
+    /// this goes red.
     #[test]
     fn the_producer_id_moves_with_every_appearance_field() {
         let base = TestWorld::appearance();
@@ -1771,6 +1866,9 @@ mod tests {
         a.npr.waves = !a.npr.waves;
         assert_ne!(tile_producer_id(&a), id, "the NPR flags are not in the producer id");
     }
+    /// Protects: `synthesize_pyramid_masks` holds every address of levels `0..=z_max`
+    /// (1 + 4 + 16 at `z_max` 2), each the exact on-demand tile, at a literal
+    /// 256 x 191 size.
     #[test]
     fn a_synthesized_pyramid_holds_every_tile_of_every_level() {
         let world = TestWorld::new(relief_field(128, 96), 128, 96);
@@ -1795,6 +1893,9 @@ mod tests {
         }
     }
 
+    /// Protects: `synthesize_pyramid_masks` and `pyramid_mask_bytes` return `None`
+    /// for a level outside `0..=MAX_LEVEL`, a grid too small to tile and a short
+    /// field.
     #[test]
     fn a_pyramid_is_refused_wherever_a_single_tile_would_be() {
         let world = TestWorld::new(relief_field(64, 64), 64, 64);
@@ -1816,6 +1917,9 @@ mod tests {
         assert!(pyramid_mask_bytes(64, 64, -1).is_none());
     }
 
+    /// Protects: `pyramid_mask_bytes` equals the real byte count of a synthesized
+    /// pyramid, and a hand-computed literal (`5 * 256 * 191 * 3`) so the formula is
+    /// not asserted against itself.
     #[test]
     fn the_size_estimate_is_what_the_producer_actually_makes() {
         // A "size shown at save time" that disagrees with the save is worse
@@ -1861,6 +1965,11 @@ mod tests {
     /// measured value as if it were one would turn an overrun into a green
     /// test — the same reasoning `golden_parity_tile_biome.rs`'s own timing
     /// test states for the per-tile figure.
+    ///
+    /// Protects: the design decision to cache the tile context -- a regression
+    /// ceiling (context build over 3x a tile, and under 900 / 1400 ms for the two
+    /// builds), not a budget. `#[ignore]`d: it needs a real 2048x1311 context, so run
+    /// it alone, in release.
     #[test]
     #[ignore = "a real 2048x1311 context; run alone, in release"]
     fn the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves() {
@@ -1941,6 +2050,9 @@ mod tests {
 
     // -- what a stored pyramid actually costs ------------------------------
 
+    /// Reads an environment variable as `usize`, falling back to `default` when it
+    /// is unset or unparsable -- how `measure_a_stored_pyramid` takes its grid size,
+    /// depth and seed.
     fn env_usize(key: &str, default: usize) -> usize {
         std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
     }
@@ -1969,6 +2081,13 @@ mod tests {
     /// |---|---|---|
     /// | 0..=5 | 4.40 .. 5.12 MiB | ~19% |
     /// | 0..=6 | 21.87 .. 27.75 MiB | **88% .. 111%** |
+    ///
+    /// Protects: nothing by itself -- it is the runnable measurement behind ruling
+    /// 28's size figure. It asserts only that the generated world is not flat and
+    /// that `pyramid_mask_bytes` equals the real raw byte count. `#[ignore]`d.
+    ///
+    /// Stale-table note: the table above is the pre-LOD-D2 (one-channel mask) run of
+    /// 2026-09-06; the current RGB figures are in `pyramid_mask_bytes`'s doc.
     #[test]
     #[ignore = "generates a real world and synthesizes a whole pyramid; run explicitly"]
     fn measure_a_stored_pyramid() {
@@ -2121,9 +2240,15 @@ mod tests {
     /// the other three stages on. Both halves of "it falls" are asserted too,
     /// so a change that fixed the bar turns this red and forces the comment to
     /// be rewritten instead of quietly outliving the finding.
+    ///
+    /// Protects: the LOD-D5 finding (not the bar, which is unmet) -- detail per screen
+    /// pixel still falls with the milestone on and off, and with the crest out of
+    /// both arms the other three stages cost under 0.5% at every rung.
     #[test]
     fn lod_d5_detail_per_screen_pixel_and_the_bar_it_does_not_meet() {
         let (gw, gh) = (512usize, 512usize);
+        // The rungs of `_mapsharp_probe.gd`'s R3 ladder; 4 and 40 are the ends of
+        // the scope's "zoom 4 to 40" bar (LOD_DETAIL_SCOPE.md LOD-D5, bar 2).
         const ZOOMS: [f64; 5] = [4.0, 8.0, 16.0, 24.0, 40.0];
         let measure = |k: f64, crest: f64| -> Vec<(f64, i32, f64)> {
             let a = render::TerrainAppearance { detail_scale_strength: k, crest_strength: crest, ..TestWorld::appearance() };

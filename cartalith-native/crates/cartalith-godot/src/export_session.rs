@@ -263,6 +263,8 @@ impl ExportSnapshot {
         Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), self.parts.paint.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
     }
 
+    /// The terrain look this snapshot was built with (the export's composed style).
+    /// Read-only: the snapshot owns it so the export keeps the look it began with.
     pub fn appearance(&self) -> &TerrainAppearance {
         &self.parts.appearance
     }
@@ -277,12 +279,21 @@ impl ExportSnapshot {
 #[derive(Default)]
 pub enum SessionState {
     #[default]
+    /// No session has begun (the default).
     Idle,
+    /// A session is accepting tiles. Boxed to keep the enum small.
     Open(Box<OpenSession>),
+    /// The file was closed and verified complete; terminal.
     Finished,
+    /// Abandoned or refused; the partial file is removed; terminal.
     Aborted,
 }
 
+/// The live half of a session while it is [`SessionState::Open`]: the snapshot
+/// being rendered, the band plan, the open [`BandSink`], and the assembly
+/// state of the band currently receiving tiles. Its fields are module-private:
+/// only [`ExportSessionCore`] moves it between states, and dropping it drops
+/// the sink, which removes the partial file.
 pub struct OpenSession {
     snapshot: Arc<ExportSnapshot>,
     plan: ExportBandPlan,
@@ -311,12 +322,20 @@ pub struct TileAccepted {
 /// What a finished session wrote.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionDone {
+    /// The file the export wrote.
     pub path: std::path::PathBuf,
+    /// Its size in bytes, as the sink reported at close.
     pub bytes: u64,
+    /// Image width in pixels.
     pub width: usize,
+    /// Image height in pixels.
     pub height: usize,
+    /// The container written (PNG or BigTIFF).
     pub format: StreamFormat,
+    /// How many bands the plan cut the image into.
     pub bands: usize,
+    /// Wall-clock milliseconds from `begin` to a successful finish (one sample,
+    /// not a benchmark).
     pub ms: f64,
 }
 
@@ -334,10 +353,15 @@ pub struct ExportSessionCore {
 }
 
 impl ExportSessionCore {
+    /// `true` only while a session is [`SessionState::Open`]; `Finished`, `Aborted`
+    /// and `Idle` are all not open, so a new `begin` is allowed from them.
     pub fn is_open(&self) -> bool {
         matches!(self.state, SessionState::Open(_))
     }
 
+    /// The state as the lowercase word callers and error messages quote (`idle`,
+    /// `open`, `finished`, `aborted`). Renaming a word breaks any caller that
+    /// compares against it.
     pub fn state_name(&self) -> &'static str {
         match self.state {
             SessionState::Idle => "idle",
@@ -498,6 +522,9 @@ fn accept_tile(s: &mut OpenSession, band: i64, x: i64, y: i64, w: i64, h: i64, r
     Ok(TileAccepted { band_complete: true, next_band: s.next_band })
 }
 
+/// Tests for the compositing rule, the snapshot's byte equality with the live
+/// render, and the session state machine's refusals and cleanup. Fixtures are
+/// closed-form so every expected value is literal or independently derived.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,10 +537,19 @@ mod tests {
     /// substrate (so a lithology exists), a river flag and a paint grid — every
     /// attachment `export_render_with` can make except a pack.
     const GW: usize = 61;
+    // Second half of the 61 x 43 fixture size (see `GW`); same source.
     const GH: usize = 43;
+    // Sea level copied from `tests/export_stream.rs` (`const SEA`), so the
+    // fixture's water/land split matches the one that file pins.
     const SEA: f64 = 0.42;
+    // Map width in km: a labelled judgement, chosen so the SDF river thresholds
+    // it selects (1.05 at 800 km, 0.26 at 3200 km -- see `world()`'s flow grid)
+    // both fall inside the fixture's flow range and the scale reaches pixels.
     const KM: f64 = 800.0;
 
+    /// The fixture world's owned grids (height, temperature, rainfall, flow, the
+    /// four tectonic substrate fields, the river flag `ink` and a biome paint
+    /// grid), shared by `Arc` the way a live snapshot shares them.
     struct World {
         field: Arc<Vec<f32>>,
         temp: Arc<Vec<f32>>,
@@ -527,6 +563,10 @@ mod tests {
         paint: Vec<u8>,
     }
 
+    /// Builds the closed-form 61 x 43 fixture. Each field is a smooth analytic
+    /// function of (x, y) so a render of it is deterministic and a mutation of any
+    /// input moves bytes; nothing is random. The coefficients are fixture shape
+    /// (a labelled judgement), not measurements.
     fn world() -> World {
         let n = GW * GH;
         let mut v = vec![vec![0f32; n]; 8];
@@ -657,6 +697,8 @@ mod tests {
         })
     }
 
+    /// A per-process temp path for one test's output file. The pid keeps parallel
+    /// test binaries from colliding; each test removes its own file.
     fn scratch(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("cartalith_export_session_{}_{name}", std::process::id()))
     }
@@ -721,7 +763,7 @@ mod tests {
         }
     }
 
-    /// Protects RV-5's snapshot half: the overlay session's snapshot draws
+    /// Protects: RV-5's snapshot half: the overlay session's snapshot draws
     /// the same vector rivers and smooth shores `export_render_with` does,
     /// byte for byte, and both of them actually move pixels -- a snapshot
     /// that dropped either would still equal a direct render that dropped
@@ -746,7 +788,7 @@ mod tests {
         assert!(d_shore > 0, "the smooth shore must reach the pixels");
     }
 
-    /// Protects RIM-7 in the overlay session's snapshot: the delta fans handed
+    /// Protects: RIM-7 in the overlay session's snapshot: the delta fans handed
     /// to `ExportSnapshot::build` (what `WorldGen::export_snapshot` passes from
     /// `export_river_fans`) reach every band -- stroked before the network,
     /// byte for byte as the direct render with the same fans strokes them --
@@ -850,6 +892,7 @@ mod tests {
         assert!(d_paint > 0 && d_bank > 0, "painting ({d_paint}) and the post stage ({d_bank}) must reach the pixels");
     }
 
+    /// The standard snapshot of `w`: lithology built, no vector rivers or fans.
     fn snapshot(w: &World) -> Arc<ExportSnapshot> {
         Arc::new(ExportSnapshot::build_plain(inputs(w, KM, true)).expect("snapshot"))
     }
@@ -883,6 +926,9 @@ mod tests {
         ((o as u32 * a as u32 + t as u32 * (255 - a as u32) + 127) / 255) as u8
     }
 
+    /// Protects: `premul_over` against the measured `SubViewport` readback fixture
+    /// (`a = 0` keeps terrain, `a = 255` is the overlay, `[128,128,128,128]` lands at
+    /// `128 + t*127/255`) and three literal spot values, not re-derived ones.
     #[test]
     fn premultiplied_over_meets_the_measured_fixture() {
         fixture_holds(premul_over).expect("premul_over");
@@ -890,7 +936,7 @@ mod tests {
         assert_eq!([premul_over(128, 128, 0), premul_over(128, 128, 100), premul_over(128, 128, 255)], [128, 178, 255]);
     }
 
-    /// The mutation: the straight-alpha formula must FAIL the same fixture, or
+    /// Protects: the fixture's power to discriminate. The mutation: the straight-alpha formula must FAIL the same fixture, or
     /// the fixture could not tell the two apart and proves nothing.
     #[test]
     fn straight_alpha_fails_the_fixture() {
@@ -899,6 +945,8 @@ mod tests {
         assert_eq!(straight_over(128, 128, 0), 64, "straight alpha darkens the 50% white rect to 64");
     }
 
+    /// Protects: `composite_premul_over` applying the rule per pixel across a row,
+    /// with a fully transparent pixel leaving the terrain bytes untouched.
     #[test]
     fn composite_row_applies_per_pixel_and_skips_transparent() {
         let mut rgb = vec![10, 20, 30, 40, 50, 60, 70, 80, 90];
@@ -908,6 +956,10 @@ mod tests {
 
     // -- property 4: the snapshot renders what the live path renders ------
 
+    /// Protects: property 4 -- an `ExportSnapshot`'s bands equal
+    /// `export_render_with`'s direct render byte for byte across one-band, short-final
+    /// and odd-height plans; asserts the bands are non-empty so it cannot pass
+    /// vacuously.
     #[test]
     fn snapshot_bands_equal_the_direct_render_byte_for_byte() {
         let w = world();
@@ -920,7 +972,7 @@ mod tests {
         }
     }
 
-    /// The mutations: each input the equality depends on, corrupted, must move
+    /// Protects: the snapshot equality's sensitivity. The mutations: each input the equality depends on, corrupted, must move
     /// bytes — or the test above would pass on a snapshot that ignored it.
     #[test]
     fn corrupting_the_snapshot_breaks_the_equality() {
@@ -947,7 +999,7 @@ mod tests {
         }
     }
 
-    /// An above-sea lake reaches the export (2026-09-24). Both export paths
+    /// Protects: an above-sea lake reaching the export (2026-09-24). Both export paths
     /// built their `RenderCtx` without `with_lakes`, so an exported PNG showed
     /// dry ground where the screen showed a lake. The default fixture has no
     /// above-sea lake -- which is why the equality above never noticed -- so
@@ -989,7 +1041,7 @@ mod tests {
         assert!(moved > 0, "dropping the lakes must change the exported pixels");
     }
 
-    /// The reason the snapshot exists: an edit to the live world after
+    /// Protects: the reason the snapshot exists: an edit to the live world after
     /// `begin` does not reach the export.
     #[test]
     fn the_snapshot_is_immune_to_later_edits() {
@@ -1006,6 +1058,9 @@ mod tests {
 
     // -- property 1: a terrain-only session is export_banded --------------
 
+    /// Protects: property 1 -- a session fed fully transparent tiles writes the same
+    /// file as `export_banded`, in PNG and BigTIFF, across band plans with an exact
+    /// division, short final bands and single-row bands, for any tile cut.
     #[test]
     fn a_transparent_session_writes_export_banded_byte_for_byte() {
         let w = world();
@@ -1032,7 +1087,7 @@ mod tests {
         }
     }
 
-    /// With a real overlay the file is the direct bands with the overlay
+    /// Protects: the session's own compositing. With a real overlay the file is the direct bands with the overlay
     /// composited — the session's own compositing, checked end to end.
     #[test]
     fn an_overlay_session_writes_the_composited_bands() {
@@ -1086,12 +1141,17 @@ mod tests {
         (core, p, path)
     }
 
+    /// Asserts the three-part refusal contract: `r` is an `Err`, the partial file at
+    /// `path` is gone, and the session is `aborted`. `what` names the case in the
+    /// failure message.
     fn assert_refused_and_gone(r: Result<impl std::fmt::Debug, String>, core: &ExportSessionCore, path: &Path, what: &str) {
         let e = r.expect_err(what);
         assert!(!path.exists(), "{what}: the partial file is still on disk ({e})");
         assert_eq!(core.state_name(), "aborted", "{what}");
     }
 
+    /// Protects: `abort` removing the partial file, ending in `aborted`, and a
+    /// second abort being an error.
     #[test]
     fn abort_removes_the_partial_file() {
         let (mut core, _, path) = opened("abort");
@@ -1101,6 +1161,8 @@ mod tests {
         assert!(core.abort().is_err(), "a second abort has nothing to abort");
     }
 
+    /// Protects: a session dropped without `finish` leaving no file behind (the
+    /// `BandSink` `Drop`).
     #[test]
     fn dropping_an_open_session_removes_the_partial_file() {
         let (core, _, path) = opened("drop");
@@ -1108,6 +1170,8 @@ mod tests {
         assert!(!path.exists(), "a session dropped without finish left its file");
     }
 
+    /// Protects: `finish` after only one of several bands being refused, aborting
+    /// and removing the file.
     #[test]
     fn a_gap_is_refused_at_finish() {
         let (mut core, p, path) = opened("gap");
@@ -1115,6 +1179,8 @@ mod tests {
         assert_refused_and_gone(core.finish(), &core, &path, "finish after one band");
     }
 
+    /// Protects: `finish` with a band only partly covered being refused with the
+    /// "partly covered" message and the file removed.
     #[test]
     fn a_partly_covered_band_is_refused_at_finish() {
         let (mut core, p, path) = opened("partial");
@@ -1125,6 +1191,8 @@ mod tests {
         assert!(!path.exists());
     }
 
+    /// Protects: a tile overlapping an accepted one in the same band aborting the
+    /// session and removing the file.
     #[test]
     fn an_overlap_is_refused() {
         let (mut core, p, path) = opened("overlap");
@@ -1133,6 +1201,9 @@ mod tests {
         assert_refused_and_gone(core.submit_tile(1, 19, b.y0 as i64 + 1, 5, 1, &[0u8; 5 * 4]), &core, &path, "an overlapping tile");
     }
 
+    /// Protects: bands arriving in order -- skipping ahead, repeating a finished band,
+    /// and a tile with in-band pixels but the wrong band index each abort the session
+    /// (the last case isolates the index check from the position check).
     #[test]
     fn an_out_of_order_band_is_refused() {
         let (mut core, p, path) = opened("order");
@@ -1148,6 +1219,8 @@ mod tests {
         assert_refused_and_gone(core.submit_tile(2, 0, y1, 1, 1, &[0u8; 4]), &core, &path, "band 1's pixels labelled band 2");
     }
 
+    /// Protects: refusal of a tile outside its band's rows, a short RGBA buffer, a
+    /// tile past the right edge and a negative origin, each aborting and cleaning up.
     #[test]
     fn a_malformed_tile_is_refused() {
         let (mut core, p, path) = opened("outside");
@@ -1161,6 +1234,9 @@ mod tests {
         assert_refused_and_gone(core.submit_tile(1, -1, y, 1, 1, &[0u8; 4]), &core, &path, "a negative x");
     }
 
+    /// Protects: tile/finish/abort before `begin` and after `finish` being refused
+    /// with no side effect, a second `begin` while open opening no file, and a
+    /// finished file surviving later refusals.
     #[test]
     fn calls_outside_an_open_session_are_refused_without_side_effects() {
         let mut core = ExportSessionCore::default();
@@ -1185,6 +1261,9 @@ mod tests {
 
     // -- BandSink on its own ----------------------------------------------
 
+    /// Protects: `BandSink` writing the same bytes as `write_bands`, removing its
+    /// file when the stream ends short of the image height, and removing it when a
+    /// band is not whole rows.
     #[test]
     fn band_sink_matches_write_bands_and_cleans_up_on_a_short_stream() {
         let (w, h) = (5usize, 4usize);

@@ -426,8 +426,16 @@ fn set_feature_field(p: &mut FeatureParams, key: &str, v: f64) {
 /// across multiple commits (`WaterState`'s own doc comment: a second lake
 /// painted on a later commit must still see the first's mask).
 pub struct SculptEditor {
+    /// The non-destructive stack of captured stamps awaiting [`Self::commit`]
+    /// (milestone A's `PassBuffer`); emptied by a commit, never baked into the
+    /// field until then.
     pub draft: PassBuffer<SculptStamp>,
+    /// Which [`SCULPT_TILE_SIZE`] tiles a commit made stale; only
+    /// `commit_sculpt_pass` writes it, through [`Self::commit`].
     pub tracker: DirtyTracker,
+    /// The river/lake lock state the commit hooks read and write across
+    /// commits. Sized to this editor's own `gw * gh` by [`Self::new`]; never
+    /// carried over to a different world.
     pub water: WaterState,
     /// The feature the next stroke will paint. Defaults to `Mountains` —
     /// an arbitrary first selection (the reference's own panel opens on
@@ -440,6 +448,9 @@ pub struct SculptEditor {
     /// in lockstep; nothing else in this module ever changes `feature`
     /// without also resetting `params`).
     pub params: FeatureParams,
+    /// The shared brush/noise block (the reference's `_sculptGlobals`), frozen
+    /// into each stamp at `sculpt_end_stroke`; written only through
+    /// [`set_global`], which clamps.
     pub globals: SculptGlobals,
     /// The seed the *next* stroke captures into its `SculptStamp` — the
     /// reference's own project seed default, settable so a shell's dice
@@ -569,9 +580,9 @@ impl SculptEditor {
     /// (No stroke was ever timed: the "~7s/stroke at 2048²" this said until
     /// 2026-09-24 is `CPU_MULTITHREADING_SCOPE.md`'s full terrain + civ
     /// generation at 2048², 7.07 s.) Clears the
-    /// draft on return (`PassBuffer::commit`'s own contract), so
-    /// `self.selected` is left pointing nowhere valid — callers should
-    /// treat a commit as also deselecting.
+    /// draft on return (`PassBuffer::commit`'s own contract) and, in the same
+    /// call, clears [`Self::selection`]: every index it held named a stamp that
+    /// no longer exists, so a commit is also a deselect.
     pub fn commit(&mut self, field: &mut [f32], sea_level: f64, reason: &str) -> SculptCommitSummary {
         let summary = commit_sculpt_pass(&mut self.draft, field, &mut self.water, &mut self.tracker, reason, sea_level);
         self.selection.clear();
@@ -610,6 +621,11 @@ impl SculptEditor {
     }
 }
 
+/// Unit tests for the Godot-free sculpt bridge state: globals and feature
+/// parameter clamping, editor construction, the selection bookkeeping around
+/// `delete_stamp`, the commit footprint (Ruling AS), falloff and grid snap.
+/// Nothing here needs a Godot runtime -- that is why the logic lives in this
+/// file and not on `WorldGen`.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,6 +633,10 @@ mod tests {
 
     // ---- globals ----
 
+    /// Protects: the module doc's "defaults come from the engine" claim -- every
+    /// `global_controls()` default equals `SculptGlobals::default()` read live and
+    /// lies inside its own range, so the table can never drift from the value the
+    /// golden-parity fixtures spread in.
     #[test]
     fn global_controls_defaults_match_sculpt_globals_default() {
         let d = SculptGlobals::default();
@@ -627,6 +647,9 @@ mod tests {
         }
     }
 
+    /// Protects: `set_global`/`get_global` agreement -- writing each key's own
+    /// default back is `Applied` (not `Clamped`) and reads back unchanged, for all
+    /// nine keys including the ordinal `falloff`.
     #[test]
     fn set_global_round_trips_every_key_at_its_own_default() {
         let d = SculptGlobals::default();
@@ -638,6 +661,8 @@ mod tests {
         }
     }
 
+    /// Protects: clamping to the `GLOBAL_RANGES` bounds (brush_size 200 max,
+    /// hardness 0 min) and the `Clamped` report, so a shell is told its value moved.
     #[test]
     fn set_global_clamps_out_of_range_and_reports_it() {
         let mut g = SculptGlobals::default();
@@ -647,6 +672,8 @@ mod tests {
         assert_eq!(g.hardness, 0.0);
     }
 
+    /// Protects: the whole-number rule for `ROUNDED_KEYS` -- 3.9 rounds to 4 before
+    /// clamping, and is reported `Clamped` because the stored value differs.
     #[test]
     fn set_global_rounds_octaves() {
         let mut g = SculptGlobals::default();
@@ -654,6 +681,8 @@ mod tests {
         assert_eq!(g.octaves, 4);
     }
 
+    /// Protects: the `Rejected` policy for an unknown key or a NaN, and that a
+    /// rejected NaN is never written (it would propagate through every stamp's noise).
     #[test]
     fn set_global_rejects_unknown_key_and_non_finite() {
         let mut g = SculptGlobals::default();
@@ -664,6 +693,9 @@ mod tests {
 
     // ---- feature params ----
 
+    /// Protects: `feature_param_pairs` and `set_feature_field` staying total over
+    /// every feature -- one pair per `Feature::meta().controls` entry, and each
+    /// default written back is `Applied` and reads back identically.
     #[test]
     fn every_feature_param_round_trips_through_its_own_default() {
         for f in FEATURE_KEYS {
@@ -683,6 +715,8 @@ mod tests {
         }
     }
 
+    /// Protects: `set_feature_param` clamping to the control's own `max` (here
+    /// Mountains' first control) and reporting `Clamped`.
     #[test]
     fn set_feature_param_clamps_to_the_controls_own_range() {
         let mut p = Feature::Mountains.default_params();
@@ -691,6 +725,8 @@ mod tests {
         assert_eq!(feature_param_pairs(&p)[0].1, c.max);
     }
 
+    /// Protects: a real control key belonging to another feature (`riverWidth` on
+    /// Mountains) being `Rejected` rather than silently ignored.
     #[test]
     fn set_feature_param_rejects_a_key_from_a_different_feature() {
         let mut p = Feature::Mountains.default_params();
@@ -700,6 +736,8 @@ mod tests {
 
     // ---- SculptEditor ----
 
+    /// Protects: `SculptEditor::new`'s fresh state -- empty draft, no selection, no
+    /// stroke points, the given seed, and no river lock without generated water.
     #[test]
     fn new_editor_starts_with_an_empty_draft_and_no_selection() {
         let e = SculptEditor::new(16, 12, None, None, 42);
@@ -710,6 +748,8 @@ mod tests {
         assert!(!e.water.river_any, "no generated river state -> nothing locked yet");
     }
 
+    /// Protects: a correctly sized generated river mask/floor being adopted as the
+    /// water lock (`river_any`), so later commits re-clamp the carved channels.
     #[test]
     fn new_editor_adopts_a_generated_river_lock() {
         let n = 16 * 12;
@@ -719,6 +759,8 @@ mod tests {
         assert!(e.water.river_any);
     }
 
+    /// Protects: the defensive fallback -- mismatched-length river arrays give an
+    /// empty `gw * gh` water state, with no panic and no out-of-bounds index.
     #[test]
     fn new_editor_falls_back_to_empty_water_state_on_a_size_mismatch() {
         // Defensive: a caller passing mismatched-length arrays (should
@@ -728,7 +770,7 @@ mod tests {
         assert_eq!(e.water.river_mask.len(), 16 * 12);
     }
 
-    /// Ruling AS (2026-09-24): paint under a committed stamp is cleared, paint
+    /// Protects: Ruling AS (2026-09-24): paint under a committed stamp is cleared, paint
     /// outside it is kept -- and "under" is the stamp's weighted cells, not its
     /// padded bounding box. Literals throughout: value 3 on Biome, 7 on
     /// Terrain, and a radius-1 dab is the 5-cell plus `hypot <= 1` draws.
@@ -783,7 +825,7 @@ mod tests {
         assert_eq!(p.epoch(), epoch_before + 1);
     }
 
-    /// A hidden stamp is skipped by the commit, so it covers nothing.
+    /// Protects: a hidden stamp being skipped by the commit, so it covers nothing.
     #[test]
     fn a_hidden_stamp_contributes_no_footprint() {
         let mut e = SculptEditor::new(64, 64, None, None, 7);
@@ -793,6 +835,8 @@ mod tests {
         assert_eq!(e.footprint().iter().filter(|&&f| f).count(), 0);
     }
 
+    /// Protects: `commit` emptying the draft and deselecting, so no selection index
+    /// outlives the stamps it named.
     #[test]
     fn commit_clears_the_draft_and_the_selection() {
         let mut e = SculptEditor::new(8, 8, None, None, 7);
@@ -806,6 +850,9 @@ mod tests {
 
     // ---- the selection set (step one of the selection-sets ruling) ----
 
+    /// Test fixture: an 8 x 8 editor holding `n` Mountains stamps at x = 0..n, y = 2,
+    /// with nothing selected. The stamps only need distinct draft indices; their
+    /// geometry is never rendered.
     fn editor_with_stamps(n: usize) -> SculptEditor {
         let mut e = SculptEditor::new(8, 8, None, None, 7);
         for k in 0..n {
@@ -815,6 +862,8 @@ mod tests {
         e
     }
 
+    /// Protects: deleting the selected stamp leaves no selection (the rule
+    /// `sculpt_delete_stamp` always had).
     #[test]
     fn delete_stamp_clears_a_selection_on_the_removed_stamp() {
         // The rule `sculpt_delete_stamp` always had, unchanged.
@@ -825,6 +874,8 @@ mod tests {
         assert_eq!(e.draft.len(), 2);
     }
 
+    /// Protects: a selection above the deleted index following its stamp down one
+    /// slot, instead of silently naming the stamp that was renumbered into its place.
     #[test]
     fn delete_stamp_shifts_a_later_selection_down_instead_of_renaming_it() {
         // The hole the equal-case-only guard left: `PassBuffer::remove`
@@ -837,6 +888,7 @@ mod tests {
         assert_eq!(e.draft.len(), 3);
     }
 
+    /// Protects: a selection below the deleted index staying put.
     #[test]
     fn delete_stamp_leaves_an_earlier_selection_alone() {
         let mut e = editor_with_stamps(4);
@@ -845,6 +897,8 @@ mod tests {
         assert_eq!(e.selected(), Some(1));
     }
 
+    /// Protects: an out-of-range delete returning `false` and leaving both the
+    /// draft length and the selection untouched.
     #[test]
     fn delete_stamp_rejects_an_out_of_range_index_without_touching_anything() {
         let mut e = editor_with_stamps(2);
@@ -854,6 +908,8 @@ mod tests {
         assert_eq!(e.selected(), Some(1));
     }
 
+    /// Protects: every member of a multi-selection shifting down together on a
+    /// delete below them, with the primary still the last-added member.
     #[test]
     fn a_multi_selection_of_stamps_survives_a_delete_below_it() {
         let mut e = editor_with_stamps(5);
@@ -863,6 +919,8 @@ mod tests {
         assert_eq!(e.selected(), Some(3), "the primary is still the last-added member");
     }
 
+    /// Protects: select-all followed by a delete keeping every survivor selected at
+    /// its renumbered index, and dropping only the deleted one.
     #[test]
     fn select_all_then_delete_leaves_every_survivor_selected() {
         let mut e = editor_with_stamps(3);
@@ -874,6 +932,8 @@ mod tests {
 
     // ---- falloff (a port addition; see `sculpt::Falloff`) ----
 
+    /// Protects: every `Falloff` shape surviving the ordinal encoding through
+    /// `set_global`/`get_global` as `Applied`.
     #[test]
     fn falloff_round_trips_through_set_global_at_every_shape() {
         for f in Falloff::ALL {
@@ -889,7 +949,7 @@ mod tests {
         }
     }
 
-    /// The two halves of the ordinal encoding: a fractional index rounds
+    /// Protects: the two halves of the ordinal encoding: a fractional index rounds
     /// (a shell that sends `2.0000001` back off its own control must not
     /// land on `Sharp`'s neighbour), and an out-of-range one clamps to a
     /// real shape rather than being silently dropped.
@@ -906,7 +966,7 @@ mod tests {
         assert_eq!(g.falloff, Falloff::Smooth);
     }
 
-    /// `enum_options` must name every shape the ordinal range admits, or a
+    /// Protects: `enum_options` naming every shape the ordinal range admits, or a
     /// shell's dropdown has an index a user can reach and cannot pick.
     #[test]
     fn the_falloff_option_labels_cover_the_whole_ordinal_range() {
@@ -926,6 +986,9 @@ mod tests {
 
     // ---- grid snap ----
 
+    /// Protects: `snap_point`'s plain `f64::round` onto the lattice (negatives
+    /// included) and its pass-through for a non-positive or non-finite step -- never
+    /// a NaN or a collapse onto the origin.
     #[test]
     fn snap_point_rounds_onto_the_lattice_and_leaves_a_zero_step_alone() {
         assert_eq!(snap_point(Point::new(10.4, 31.6), 1.0), Point::new(10.0, 32.0));
@@ -938,6 +1001,9 @@ mod tests {
         }
     }
 
+    /// Protects: `set_grid_snap` accepting only the `GRID_SNAP_STEPS` ladder, turning
+    /// snapping off for anything else (0, 3.7, negative, NaN), and returning what is
+    /// actually in effect.
     #[test]
     fn set_grid_snap_accepts_only_the_ladder_and_reports_what_took_effect() {
         let mut e = SculptEditor::new(8, 8, None, None, 7);
