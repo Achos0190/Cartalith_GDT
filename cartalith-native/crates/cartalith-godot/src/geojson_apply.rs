@@ -119,6 +119,8 @@ pub enum FeatureOutcome {
 /// What one `apply_geojson` call did, feature by feature and summarised.
 #[derive(Debug, Clone, Default)]
 pub struct ApplyReport {
+    /// One entry per feature in the document, in document order (never
+    /// filtered; an empty document yields an empty list).
     pub outcomes: Vec<FeatureOutcome>,
     /// The imported name of every faction this call created, in the order
     /// features were walked — **not** deduplicated against an earlier call,
@@ -133,22 +135,31 @@ pub struct ApplyReport {
 }
 
 impl ApplyReport {
+    /// How many features became new settlements (`SettlementPlaced`). Counts
+    /// outcomes, not the settlement list, so it is this call's work only.
     pub fn settlements_placed(&self) -> usize {
         self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::SettlementPlaced { .. })).count()
     }
 
+    /// How many `settlement` features were refused by a gate (not a Point,
+    /// off-grid, water, or an occupied location). Never counts unsupported layers.
     pub fn settlements_skipped(&self) -> usize {
         self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::SettlementSkipped { .. })).count()
     }
 
+    /// How many `territory` features painted at least one cell.
     pub fn territory_features_applied(&self) -> usize {
         self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::TerritoryPainted { .. })).count()
     }
 
+    /// How many `territory` features were refused (wrong geometry, no faction,
+    /// faction id out of `u8` range, or a polygon covering no grid cell).
     pub fn territory_features_skipped(&self) -> usize {
         self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::TerritorySkipped { .. })).count()
     }
 
+    /// Total grid cells written into the override layer across all painted
+    /// territory features. A cell covered by two features counts twice.
     pub fn territory_cells_painted(&self) -> usize {
         self.outcomes
             .iter()
@@ -182,14 +193,20 @@ impl ApplyReport {
 /// borrow — see its own settlement/territory/water fields for the parts it
 /// does write).
 pub struct ApplyCtx<'a> {
+    /// Grid width in cells; also the row stride of `field` and `water_bodies`.
     pub gw: usize,
+    /// Grid height in cells; the north-up flip in `cartalith_io::grid_xy` uses it.
     pub gh: usize,
+    /// Map width in kilometres; with `gw` it fixes the cell size in km.
     pub map_width_km: f64,
+    /// Sea level in `field` units; a cell below it is water for placement.
     pub sea: f64,
     /// The map wraps east-west (a whole world): the coastal test a placed
     /// settlement gets wraps only then (Ruling AR).
     pub world: bool,
+    /// The world's elevation field, row-major `gw * gh`. Read-only here.
     pub field: &'a [f32],
+    /// Per-cell water-body class (0 = land), row-major `gw * gh`. Read-only here.
     pub water_bodies: &'a [u8],
 }
 
@@ -266,6 +283,11 @@ fn resolve_faction(feat: &GeoFeature, roster: &mut FactionRoster) -> (i32, Optio
     (fid as i32, created)
 }
 
+/// Places one `settlement` feature through the manual Settlement tool's own
+/// gate (`civ_drop_place`), then overlays the document's name and population.
+/// Returns a `SettlementSkipped` outcome with the gate's reason when refused;
+/// it must never push to `settlements` on a refusal and never invent a zero
+/// population for a missing one (Ruling V).
 #[allow(clippy::too_many_arguments)]
 fn apply_settlement(
     feat: &GeoFeature,
@@ -324,6 +346,11 @@ fn apply_settlement(
 /// own convention: `[outer, hole…]`).
 type RingSet<'a> = &'a [Vec<[f64; 2]>];
 
+/// Rasterises one `territory` feature into the Territory tool's override
+/// layer (even-odd, holes subtracted, cell-centre sampling). Refuses a feature
+/// with no faction or a faction id above `u8::MAX`, because the layer's `0`
+/// means "no override" (see the module doc). It must never write `0`, and it
+/// allocates the layer only on the first painted cell.
 fn apply_territory(
     feat: &GeoFeature,
     faction: i32,
@@ -433,30 +460,43 @@ fn ring_to_grid(ring: &[[f64; 2]], gh: usize, cell_km: f64) -> Option<Vec<(i32, 
         .collect()
 }
 
+/// Tests for `apply_geojson`: faction create/match rules (Ruling V), the
+/// settlement and territory gates, unsupported-layer reporting, and the
+/// territory override layer's recompute behaviour.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::civ_roster_bridge::FactionRoster;
 
+    /// Test grid width in cells (judgement: small enough to hand-check).
     const GW: usize = 20;
+    /// Test grid height in cells (judgement: small enough to hand-check).
     const GH: usize = 20;
     const MAP_WIDTH_KM: f64 = 20.0; // cell_km == 1.0, so grid cells and km line up 1:1
+    /// Kilometres per cell; must equal `MAP_WIDTH_KM / GW` so the `en` helper and
+    /// `cartalith_spatial::cell_km` agree.
     const CELL_KM: f64 = 1.0;
 
     /// A tiny synthetic world: all land, sea level 0, unless a test opts a
     /// cell into water with `World::set_water`.
+    /// A synthetic all-land world (`field` 1.0 against sea level 0.0) that
+    /// owns the arrays an `ApplyCtx` borrows.
     struct World {
         field: Vec<f32>,
         water_bodies: Vec<u8>,
     }
 
     impl World {
+        /// An all-land world with no water bodies.
         fn new() -> Self {
             World { field: vec![1.0; GW * GH], water_bodies: vec![0u8; GW * GH] }
         }
+        /// Turns cell `(x, y)` into water by dropping its elevation below sea level.
         fn set_water(&mut self, x: usize, y: usize) {
             self.field[y * GW + x] = -1.0;
         }
+        /// Borrows this world as the `ApplyCtx` the code under test takes
+        /// (non-wrapping, so the coastal test does not wrap).
         fn ctx(&self) -> ApplyCtx<'_> {
             ApplyCtx {
                 gw: GW,
@@ -478,11 +518,15 @@ mod tests {
         (gx * CELL_KM, (GH as f64 - gy) * CELL_KM)
     }
 
+    /// Parses a `FeatureCollection` wrapping the given feature JSON; panics on
+    /// an invalid synthetic document, which would be a test bug.
     fn doc(features: &str) -> GeoJsonDoc {
         let text = format!(r#"{{"type":"FeatureCollection","features":[{features}]}}"#);
         cartalith_io::parse_geojson(&text).expect("a valid synthetic test document")
     }
 
+    /// A `settlement` Point feature at grid cell `(gx, gy)` with name, kind,
+    /// population and `factionName` properties.
     fn settlement_feature(gx: f64, gy: f64, name: &str, faction_name: &str, pop: i64, kind: &str) -> String {
         let (e, n) = en(gx, gy);
         format!(
@@ -490,6 +534,7 @@ mod tests {
         )
     }
 
+    /// A `hamlet` settlement Point with no faction property and no population.
     fn settlement_feature_no_faction(gx: f64, gy: f64, name: &str) -> String {
         let (e, n) = en(gx, gy);
         format!(
@@ -497,6 +542,8 @@ mod tests {
         )
     }
 
+    /// A square `territory` Polygon between grid corners `(x0, y0)` and
+    /// `(x1, y1)`, owned by `factionName`.
     fn territory_feature(x0: f64, y0: f64, x1: f64, y1: f64, faction_name: &str) -> String {
         let ring = [en(x0, y0), en(x1, y0), en(x1, y1), en(x0, y1), en(x0, y0)];
         let coords: Vec<String> = ring.iter().map(|&(e, n)| format!("[{e},{n}]")).collect();
@@ -506,6 +553,7 @@ mod tests {
         )
     }
 
+    /// A `poi` Point feature, a layer this module reports but never applies.
     fn poi_feature(gx: f64, gy: f64) -> String {
         let (e, n) = en(gx, gy);
         format!(
@@ -513,6 +561,8 @@ mod tests {
         )
     }
 
+    /// The mutable state `apply_geojson` writes through: roster, settlements,
+    /// tid counter, override layer and name RNG.
     struct Fixture {
         roster: FactionRoster,
         settlements: Vec<NamedSettlement>,
@@ -522,6 +572,8 @@ mod tests {
     }
 
     impl Fixture {
+        /// A fixture whose roster holds `faction_count` seeded factions and whose
+        /// RNG is the civ name RNG, so tests are deterministic.
         fn seeded(faction_count: usize) -> Self {
             Fixture {
                 roster: FactionRoster::seeded(faction_count),
@@ -538,6 +590,7 @@ mod tests {
             self.territory_paint.cells().map_or(0, |c| c[y * GW + x])
         }
 
+        /// Parses `features` and applies them to this fixture against world `w`.
         fn apply(&mut self, w: &World, features: &str) -> ApplyReport {
             let d = doc(features);
             apply_geojson(
@@ -552,7 +605,9 @@ mod tests {
         }
     }
 
-    /// The core case Ruling V exists for.
+    /// Protects: Ruling V's core case. An unknown faction name is created
+    /// verbatim, and the settlement is placed with the imported name, population
+    /// and the new faction's id.
     #[test]
     fn a_settlement_naming_an_unknown_faction_creates_it_and_places_the_settlement() {
         let w = World::new();
@@ -577,7 +632,7 @@ mod tests {
         assert_ne!(s.tid, 0, "a real tid was assigned, not left at the sentinel");
     }
 
-    /// The control case the task's own verification list asks for: a
+    /// Protects: matching by name. The control case: a
     /// document naming a faction that already exists matches it rather than
     /// creating a duplicate.
     #[test]
@@ -594,7 +649,7 @@ mod tests {
         assert_eq!(fx.settlements[0].placement.faction, 1, "matched Aurelia's real id");
     }
 
-    /// Two features naming the same NEW faction share it — the second does
+    /// Protects: one creation per name. Two features naming the same NEW faction share it; the second does
     /// not create a duplicate either.
     #[test]
     fn two_features_naming_the_same_new_faction_share_it() {
@@ -612,6 +667,7 @@ mod tests {
         assert_eq!(fx.settlements[0].placement.faction, fx.settlements[1].placement.faction);
     }
 
+    /// Protects: a settlement with no faction property is unclaimed (faction 0), and no faction is created.
     #[test]
     fn a_settlement_with_no_faction_property_is_unclaimed_and_creates_nothing() {
         let w = World::new();
@@ -624,6 +680,7 @@ mod tests {
         assert_eq!(fx.roster.count(), 3, "unchanged");
     }
 
+    /// Protects: the water gate refuses the placement, while the faction the feature named is still created (roster and placement are separate decisions).
     #[test]
     fn a_settlement_on_water_is_skipped_and_the_faction_it_named_is_still_created() {
         let mut w = World::new();
@@ -645,6 +702,7 @@ mod tests {
         assert_eq!(report.factions_created, vec!["Marenholt".to_string()]);
     }
 
+    /// Protects: an off-grid position is refused with the out-of-grid reason and nothing is placed.
     #[test]
     fn a_settlement_far_outside_the_grid_is_skipped_out_of_bounds() {
         let w = World::new();
@@ -659,6 +717,7 @@ mod tests {
         ));
     }
 
+    /// Protects: a territory feature creates its unknown faction and paints interior cells with the new id, leaving outside cells at 0.
     #[test]
     fn a_territory_polygon_naming_an_unknown_faction_creates_it_and_paints_cells() {
         let w = World::new();
@@ -678,6 +737,7 @@ mod tests {
         assert_eq!(fx.painted(1, 1), 0);
     }
 
+    /// Protects: a territory feature naming an existing faction paints with that faction's real id and creates nothing.
     #[test]
     fn a_territory_polygon_naming_an_existing_faction_paints_with_its_real_id() {
         let w = World::new();
@@ -690,6 +750,7 @@ mod tests {
         assert_eq!(fx.painted(5, 5), 2);
     }
 
+    /// Protects: unsupported layers (`poi`) are counted per layer and applied nowhere.
     #[test]
     fn unsupported_layers_are_counted_and_left_unapplied() {
         let w = World::new();
@@ -702,6 +763,7 @@ mod tests {
         assert!(fx.settlements.is_empty(), "nothing invented for a layer with no place to go");
     }
 
+    /// Protects: a feature with no `properties.layer` is counted under the empty-string key.
     #[test]
     fn a_feature_with_no_layer_at_all_is_counted_under_the_empty_string_key() {
         let w = World::new();
@@ -714,6 +776,7 @@ mod tests {
         assert_eq!(report.unsupported_layer_counts(), vec![(String::new(), 1)]);
     }
 
+    /// Protects: `crs_unstated` is true for a document with no CRS note and false once the planar-km note is present.
     #[test]
     fn crs_unstated_is_reported_and_planar_km_is_not() {
         let w = World::new();
@@ -740,6 +803,7 @@ mod tests {
         assert!(!report2.crs_unstated);
     }
 
+    /// Protects: an empty document yields an empty report and leaves the override layer unallocated.
     #[test]
     fn an_empty_document_applies_cleanly_and_reports_nothing() {
         let w = World::new();
@@ -756,7 +820,7 @@ mod tests {
         assert!(fx.territory_paint.is_unallocated(), "nothing painted, nothing allocated");
     }
 
-    /// A territory feature with no faction cannot be carried by the override
+    /// Protects: the override layer's `0` sentinel. A territory feature with no faction cannot be carried by the override
     /// layer, whose `0` means "show the computed owner" -- refused, and the
     /// layer left unallocated rather than written with a value that means
     /// something else.
@@ -783,7 +847,7 @@ mod tests {
         assert_eq!(fx.roster.count(), 3, "nothing created");
     }
 
-    /// `OUTSTANDING_WORK.md` §2.11 "A recompute erases territory imported
+    /// Protects: `OUTSTANDING_WORK.md` §2.11 "A recompute erases territory imported
     /// from GeoJSON", through the real `CivTools` the bridge hands the
     /// import. Computed owner 4 everywhere; the import claims the square
     /// (5,5)-(10,10) for Veldmark (id 2); a recompute then computes 6

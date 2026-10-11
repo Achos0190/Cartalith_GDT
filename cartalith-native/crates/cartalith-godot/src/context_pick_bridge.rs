@@ -75,9 +75,13 @@ pub enum WayStore {
     Manual,
 }
 
+/// Wire-key conversion for [`WayStore`]; the two directions must stay inverse.
 impl WayStore {
+    /// Every store, in the fixed order `WayUndo::live_seqs` walks them.
     pub const ALL: [WayStore; 3] = [WayStore::Generated, WayStore::SeaLane, WayStore::Manual];
 
+    /// The store's wire key as `way_pick`/`way_get` return it and `way_delete`
+    /// accepts it. Must stay the exact inverse of [`WayStore::parse`].
     pub fn key(self) -> &'static str {
         match self {
             WayStore::Generated => "generated",
@@ -86,6 +90,8 @@ impl WayStore {
         }
     }
 
+    /// The inverse of [`WayStore::key`]; `None` for any other string, so a
+    /// caller's typo cannot select a store.
     pub fn parse(s: &str) -> Option<WayStore> {
         match s {
             "generated" => Some(WayStore::Generated),
@@ -104,7 +110,9 @@ pub enum HeldWay {
     Manual(ManualWay),
 }
 
+/// Accessors for a held way.
 impl HeldWay {
+    /// Which store this held way must be put back into.
     pub fn store(&self) -> WayStore {
         match self {
             HeldWay::Generated(_) => WayStore::Generated,
@@ -117,8 +125,11 @@ impl HeldWay {
 /// Mutable views of the three stores, `None` where the store does not exist
 /// (no civ layer yet, no infra tools yet).
 pub struct WayStores<'a> {
+    /// The generated road network (`CivData::ways`); `None` before a civ layer exists.
     pub generated: Option<&'a mut Vec<Way>>,
+    /// The generated sea lanes (`CivData::sea_routes`); `None` before a civ layer exists.
     pub sea: Option<&'a mut Vec<SeaRoute>>,
+    /// The hand-drawn ways (`InfraTools::ways`); `None` before infra tools exist.
     pub manual: Option<&'a mut Vec<ManualWay>>,
 }
 
@@ -169,6 +180,9 @@ pub fn put_way(st: &mut WayStores<'_>, index: usize, way: HeldWay) -> bool {
     }
 }
 
+/// Feeds the fields every way kind shares into `h`: point count, first and
+/// last point (as bit patterns, so no float comparison), breaks, length and
+/// name. Deliberately not every vertex; see [`fp_generated`].
 fn hash_pts(h: &mut DefaultHasher, pts: &[(f64, f64)], brks: &[usize], km: f64, name: &str) {
     pts.len().hash(h);
     if let (Some(a), Some(b)) = (pts.first(), pts.last()) {
@@ -204,6 +218,9 @@ pub fn fp_generated(ways: Option<&[Way]>) -> u64 {
     h.finish()
 }
 
+/// Fingerprint of the sea-lane store (domain tag 1), same contract as
+/// [`fp_generated`]. Sea lanes carry no type or flags, so only the shared
+/// fields are hashed.
 pub fn fp_sea(lanes: Option<&[SeaRoute]>) -> u64 {
     let mut h = DefaultHasher::new();
     1u8.hash(&mut h);
@@ -219,6 +236,8 @@ pub fn fp_sea(lanes: Option<&[SeaRoute]>) -> u64 {
     h.finish()
 }
 
+/// Fingerprint of the hand-drawn store (domain tag 2), same contract as
+/// [`fp_generated`], plus the way type, the sea flag and the hidden flag.
 pub fn fp_manual(ways: Option<&[ManualWay]>) -> u64 {
     let mut h = DefaultHasher::new();
     2u8.hash(&mut h);
@@ -241,14 +260,20 @@ pub fn fp_manual(ways: Option<&[ManualWay]>) -> u64 {
 /// itself, and its store's fingerprint either side of the delete.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WayUndoEntry {
+    /// The ledger row's sequence number this held way belongs to.
     pub seq: u64,
+    /// The way's index in its store at deletion; where undo re-inserts it.
     pub index: usize,
+    /// The whole deleted entry, so every field comes back on undo.
     pub way: HeldWay,
+    /// The store's fingerprint just before this delete.
     pub fp_before: u64,
+    /// The store's fingerprint just after this delete; the entry is live only
+    /// while the store still matches it (or the chain above it).
     pub fp_after: u64,
 }
 
-/// How many deletes are held. A held way is a few hundred points at most, so
+/// How many deletes are held (a judgement, not a measurement). A held way is a few hundred points at most, so
 /// this is a sanity bound, not a memory budget; the ledger's own
 /// [`undo::MAX_LEDGER`] is larger.
 pub const MAX_WAY_UNDO: usize = 64;
@@ -259,11 +284,14 @@ pub struct WayUndo {
     entries: Vec<WayUndoEntry>,
 }
 
+/// The held-way list and its liveness rule ([`WayUndo::live_seqs`]).
 impl WayUndo {
+    /// An empty held-way list.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Holds one more deleted way, dropping the oldest past [`MAX_WAY_UNDO`].
     pub fn push(&mut self, e: WayUndoEntry) {
         self.entries.push(e);
         if self.entries.len() > MAX_WAY_UNDO {
@@ -271,10 +299,12 @@ impl WayUndo {
         }
     }
 
+    /// Drops every held way. Their ledger rows are the caller's to handle.
     pub fn clear(&mut self) {
         self.entries.clear();
     }
 
+    /// How many entries are held (test-only; production asks `live_seqs`).
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -304,6 +334,7 @@ impl WayUndo {
         out
     }
 
+    /// The newest entry that can still be put back, per [`WayUndo::live_seqs`].
     pub fn newest_live(&self, fp: &dyn Fn(WayStore) -> u64) -> Option<&WayUndoEntry> {
         let seq = *self.live_seqs(fp).first()?;
         self.entries.iter().find(|e| e.seq == seq)
@@ -316,6 +347,7 @@ impl WayUndo {
         self.entries.retain(|e| live.contains(&e.seq));
     }
 
+    /// Takes the entry for ledger row `seq` out of the list; `None` if absent.
     pub fn remove(&mut self, seq: u64) -> Option<WayUndoEntry> {
         let pos = self.entries.iter().position(|e| e.seq == seq)?;
         Some(self.entries.remove(pos))
@@ -329,7 +361,9 @@ pub const STALE_REASON: &str =
 /// Which kind a plain `Edit ▸ Undo` reverts next.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UndoPick {
+    /// A height-field snapshot is newer; carries its label.
     Height(String),
+    /// A live way delete is newer; carries its ledger `seq` and label.
     Way { seq: u64, label: String },
 }
 
@@ -421,7 +455,10 @@ pub enum Terminus {
     MapEdge,
 }
 
+/// Wire-key conversion for [`Terminus`].
 impl Terminus {
+    /// The key `river_pick` returns as `terminus`; the shell matches on these
+    /// exact strings.
     pub fn key(self) -> &'static str {
         match self {
             Terminus::Sea => "sea",
@@ -580,6 +617,8 @@ pub fn catchment_mask(recv: &[i32], target: usize) -> Vec<u8> {
 
 // ================================================================ WorldGen ==
 
+/// The crate-internal half: undo fingerprints and the way-undo step, which
+/// `lib.rs`'s global undo block calls. None of it is exposed to GDScript.
 impl WorldGen {
     /// The current fingerprint of one way store -- [`WayUndo`]'s liveness key.
     pub(crate) fn way_fp(&self, store: WayStore) -> u64 {
@@ -597,6 +636,8 @@ impl WorldGen {
         choose_undo(height, way)
     }
 
+    /// The history label for a held way: `Delete <title>`, matching the ledger
+    /// row `way_delete` records.
     fn way_undo_label(&self, e: &WayUndoEntry) -> String {
         format!("Delete {}", held_way_title(&e.way))
     }
@@ -637,10 +678,14 @@ fn held_way_title(w: &HeldWay) -> String {
     if name.is_empty() { format!("unnamed {kind}") } else { format!("{kind} “{name}”") }
 }
 
+/// A grid-space point as the `Vector2` Godot receives (narrowed to `f32`;
+/// the display layer does not need `f64`).
 fn to_v2(p: (f64, f64)) -> Vector2 {
     Vector2::new(p.0 as f32, p.1 as f32)
 }
 
+/// The Godot-facing picks and the one write (`way_delete`); the second
+/// `#[godot_api(secondary)]` block, like `campaign_bridge.rs`.
 #[godot_api(secondary)]
 impl WorldGen {
     /// The way under `(gx, gy)` (grid coordinates), within `radius_cells` of
@@ -892,23 +937,30 @@ impl WorldGen {
     }
 }
 
+/// Tests for the pure halves of CM-7's rows: the way pick, the held-way undo
+/// and its fingerprint liveness, and the river branch and catchment walks.
+/// The `#[func]` wrappers need a live `WorldGen` and are covered by probe scenes.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_civ::tools::ManualWayType;
     use cartalith_civ::WayType;
 
+    /// A generated way with `km` 12.5 (judgement: any value, the tests only need
+    /// it stable) and the name `W<tid>`.
     fn way(tid: u64, pts: Vec<(f64, f64)>, t: WayType) -> Way {
         Way { tid, pts, brks: vec![], km: 12.5, name: format!("W{tid}"), way_type: t, a_idx: 0, b_idx: 1, hidden: false }
     }
 
+    /// A hand-drawn land track with `km` 3.0 (judgement) and no name.
     fn manual(pts: Vec<(f64, f64)>) -> ManualWay {
         ManualWay { pts, brks: vec![], km: 3.0, sea: false, way_type: ManualWayType::Track, name: String::new(), hidden: false }
     }
 
     // -- pick ------------------------------------------------------------
 
-    /// A horizontal and a vertical way crossing near (10, 10); the pointer at
+    /// Protects: `nearest_polyline` choosing the closer way, reporting the foot
+    /// point, and returning nothing out of tolerance. A horizontal and a vertical way crossing near (10, 10); the pointer at
     /// (10.4, 13) is 0.4 cells from the vertical one and 3 from the other.
     #[test]
     fn nearest_polyline_picks_the_closer_way_and_reports_the_foot() {
@@ -923,7 +975,7 @@ mod tests {
         assert_eq!(nearest_polyline(&cands, (13.0, 14.0), 1.0), None);
     }
 
-    /// A break at index 2 means the stroke `pts[1]`-`pts[2]` is not drawn, so
+    /// Protects: breaks as gaps. A break at index 2 means the stroke `pts[1]`-`pts[2]` is not drawn, so
     /// a pointer on the gap misses; the same pointer hits without the break.
     #[test]
     fn a_break_is_a_gap_the_pick_does_not_hit() {
@@ -939,6 +991,7 @@ mod tests {
         assert_eq!(nearest_polyline(&with, (12.0, 0.25), 1.0).map(|h| h.0), Some(0));
     }
 
+    /// Protects: a single-point polyline is hit at that point, with the distance to it.
     #[test]
     fn a_one_point_run_is_hit_at_its_point() {
         let p = [(5.0, 5.0)];
@@ -950,6 +1003,8 @@ mod tests {
 
     // -- delete / undo -----------------------------------------------------
 
+    /// A fingerprint lookup over the three given stores, standing in for
+    /// `WorldGen::way_fp`.
     fn fps(g: &[Way], s: &[SeaRoute], m: &[ManualWay]) -> impl Fn(WayStore) -> u64 {
         let (a, b, c) = (fp_generated(Some(g)), fp_sea(Some(s)), fp_manual(Some(m)));
         move |st| match st {
@@ -959,7 +1014,7 @@ mod tests {
         }
     }
 
-    /// Delete the middle generated way, then put it back: the list is
+    /// Protects: undo fidelity. Delete the middle generated way, then put it back: the list is
     /// byte-identical to before -- endpoints, points, type, tid, index.
     #[test]
     fn take_then_put_restores_the_way_exactly_at_its_index() {
@@ -989,6 +1044,8 @@ mod tests {
         assert_eq!(g, before);
     }
 
+    /// Protects: `take_way` and `put_way` refuse a missing store or an out-of-range
+    /// index and write nothing.
     #[test]
     fn take_refuses_a_missing_store_or_index() {
         let mut g = vec![way(1, vec![(0.0, 0.0), (1.0, 0.0)], WayType::Road)];
@@ -1000,7 +1057,7 @@ mod tests {
         assert_eq!(g.len(), 1);
     }
 
-    /// Two deletes from one store are both live and undo newest first; after
+    /// Protects: the fingerprint chain deciding liveness. Two deletes from one store are both live and undo newest first; after
     /// the store is rebuilt under them, neither is.
     #[test]
     fn the_fingerprint_chain_decides_liveness() {
@@ -1048,7 +1105,7 @@ mod tests {
         assert_eq!(v.live_seqs(&fps(&g2, &s, &m)), vec![21]);
     }
 
-    /// Chains are per store: a manual delete stays live when the generated
+    /// Protects: per-store chains. A manual delete stays live when the generated
     /// network is rebuilt.
     #[test]
     fn a_rebuild_of_one_store_leaves_the_others_live() {
@@ -1064,7 +1121,7 @@ mod tests {
         assert_eq!(u.live_seqs(&fps(&g_rebuilt, &s, &m)), vec![5]);
     }
 
-    /// Same ends, same length, same name -- a re-routed interior is still a
+    /// Protects: the fingerprint noticing an interior change. Same ends, same length, same name -- a re-routed interior is still a
     /// different list, and a held way must not be re-inserted into it.
     #[test]
     fn the_fingerprint_sees_a_rerouted_interior() {
@@ -1075,6 +1132,8 @@ mod tests {
         assert_eq!(fp_generated(Some(&a)), fp_generated(Some(&a.clone())));
     }
 
+    /// Protects: `choose_undo` picks the higher `seq` of the height and way rows,
+    /// and a lone candidate wins.
     #[test]
     fn the_newer_of_height_and_way_is_undone_first() {
         let h = || Some((5u64, "Sculpt commit".to_string()));
@@ -1086,6 +1145,8 @@ mod tests {
         assert_eq!(choose_undo(None, None), None);
     }
 
+    /// Protects: `held_way_title` describes an unnamed way as `unnamed <type>` and
+    /// quotes a real name, never inventing one.
     #[test]
     fn a_held_way_is_described_not_named() {
         assert_eq!(held_way_title(&HeldWay::Manual(manual(vec![]))), "unnamed track");
@@ -1096,6 +1157,8 @@ mod tests {
 
     /// 6x4, no wrap. A channel runs along row 1 from x=1 to x=4; x=5 row 1
     /// is sea.
+    /// The shared river grid (see the comment below). Returns
+    /// `(gw, gh, order, recv, water)`.
     fn river_fixture() -> (usize, usize, Vec<i16>, Vec<i32>, Vec<u8>) {
         let (gw, gh) = (6usize, 4usize);
         let n = gw * gh;
@@ -1110,6 +1173,8 @@ mod tests {
         (gw, gh, order, recv, water)
     }
 
+    /// Protects: `nearest_channel_cell` picks the closest channel centre inside the
+    /// radius and returns nothing beyond it.
     #[test]
     fn nearest_channel_cell_is_the_closest_centre_in_range() {
         let (gw, gh, order, _, _) = river_fixture();
@@ -1122,7 +1187,7 @@ mod tests {
         assert_eq!(nearest_channel_cell(&order, gw, gh, false, 2.5, 3.5, 2.0).map(|h| h.0), Some(8));
     }
 
-    /// From x=2 the chain runs 8 -> 9 -> 10 -> 11 (sea), 3 steps: the branch
+    /// Protects: the channel walk to the sea. From x=2 the chain runs 8 -> 9 -> 10 -> 11 (sea), 3 steps: the branch
     /// stops on the first sea cell and never asks the fallback tree.
     #[test]
     fn the_branch_runs_to_the_sea_along_the_channel() {
@@ -1139,7 +1204,7 @@ mod tests {
         assert_eq!(branch_cells_length(&cells, gw, false), 3.0);
     }
 
-    /// Cut the channel at x=3 (cell 9 has no channel receiver): the walk
+    /// Protects: the fallback to the flow tree. Cut the channel at x=3 (cell 9 has no channel receiver): the walk
     /// continues on the fallback tree, 9 -> 16 (x=4,y=2) -> 17 (x=5,y=2),
     /// which is a lake.
     #[test]
@@ -1161,6 +1226,8 @@ mod tests {
         assert!((len - (3.0 + 2f64.sqrt())).abs() < 1e-12, "{len}");
     }
 
+    /// Protects: a walk that stops on land is `Inland` or `MapEdge` (edge only on a
+    /// non-wrapping border), never `Sea`.
     #[test]
     fn a_dead_end_is_inland_or_the_map_edge_never_the_sea() {
         let (gw, gh, _, mut recv, water) = river_fixture();
@@ -1176,6 +1243,8 @@ mod tests {
         assert_eq!(t3, Terminus::Inland);
     }
 
+    /// Protects: `branch_cells_length` counts a seam crossing as one cell only when
+    /// the world wraps.
     #[test]
     fn a_seam_step_is_one_cell_on_a_wrapping_world() {
         // 6 wide: cell 5 (x=5) to cell 0 (x=0) on row 0.
@@ -1183,7 +1252,7 @@ mod tests {
         assert_eq!(branch_cells_length(&[5, 0], 6, false), 5.0);
     }
 
-    /// The channel receiver wins where there is one; the D8 one fills the rest.
+    /// Protects: `combined_receivers` and its catchment. The channel receiver wins where there is one; the D8 one fills the rest.
     #[test]
     fn combined_receivers_prefers_the_channel_tree() {
         assert_eq!(combined_receivers(&[-1, 5, -1, 7], &[3, 2, -1, 1]), vec![3, 5, -1, 7]);
@@ -1196,7 +1265,7 @@ mod tests {
         assert_eq!(catchment_mask(&d8, 7), vec![0, 0, 0, 0, 0, 0, 0, 1]);
     }
 
-    /// A 3x3 tree: every cell drains to the centre (4) except 0, which drains
+    /// Protects: `catchment_mask` membership. A 3x3 tree: every cell drains to the centre (4) except 0, which drains
     /// to 1; 2 drains nowhere. The centre's catchment is everything but 2.
     #[test]
     fn the_catchment_is_every_cell_whose_chain_reaches_the_target() {

@@ -61,7 +61,12 @@ pub enum SimValue {
     Bool(bool),
 }
 
+/// Kind-narrowing accessors over [`SimValue`]. Each returns `None` for a kind it does not accept;
+/// [`collapse_sim_request_from_pairs`] turns that `None` into a rejected key, so these must
+/// never coerce a wrong kind into a value (a string is never a number, a number never a flag).
 impl SimValue {
+    /// The value as `f64`: `Num` as is, `Int` widened (a Godot `int` slider tick is a legal
+    /// number for `severity`/`rate`); `Str`/`Bool` give `None`.
     fn num(&self) -> Option<f64> {
         match self {
             SimValue::Num(n) => Some(*n),
@@ -70,6 +75,9 @@ impl SimValue {
         }
     }
 
+    /// The value as `i64`: `Int` as is, `Num` truncated toward zero by `as` (saturating, NaN
+    /// -> 0 -- Rust cast semantics, a judgement that a year field is never fractional);
+    /// `Str`/`Bool` give `None`.
     fn int(&self) -> Option<i64> {
         match self {
             SimValue::Int(n) => Some(*n),
@@ -78,6 +86,7 @@ impl SimValue {
         }
     }
 
+    /// The value as `&str` for the `mode`/`character` names; any non-`Str` kind gives `None`.
     fn text(&self) -> Option<&str> {
         match self {
             SimValue::Str(s) => Some(s.as_str()),
@@ -85,6 +94,8 @@ impl SimValue {
         }
     }
 
+    /// The value as `bool` for `confirm_overwrite`; deliberately strict, so `Int(1)` is
+    /// rejected rather than read as `true`.
     fn flag(&self) -> Option<bool> {
         match self {
             SimValue::Bool(b) => Some(*b),
@@ -139,6 +150,9 @@ impl Default for CollapseSimRequest {
     }
 }
 
+/// Maps the form's lowercase `mode` string to [`SimulateMode`]; `None` for anything else
+/// (including a wrong-case spelling), which the caller reports as a rejected key. Must
+/// never default silently to `Collapse`.
 fn mode_from_str(s: &str) -> Option<SimulateMode> {
     match s {
         "collapse" => Some(SimulateMode::Collapse),
@@ -147,6 +161,8 @@ fn mode_from_str(s: &str) -> Option<SimulateMode> {
     }
 }
 
+/// Maps the form's lowercase `character` string to [`CollapseCharacter`]; `None` for an
+/// unknown name, reported as a rejected key by the caller. Must never fall back to `Mixed`.
 fn character_from_str(s: &str) -> Option<CollapseCharacter> {
     match s {
         "mixed" => Some(CollapseCharacter::Mixed),
@@ -478,17 +494,29 @@ fn removed_against_previous(
     Some((prev, removed))
 }
 
+/// Unit tests for this module. They run under plain `cargo test -p cartalith-godot` with no
+/// Godot runtime, covering the form parser, the run wiring (years, clamps, confirmation,
+/// carry-forward, flags) and the two ghost reads.
 #[cfg(test)]
 mod tests {
     use cartalith_civ::timeline::TerritoryFrame;
     use super::*;
     use cartalith_civ::SettlementKind;
 
+    // Fixture grid: 10 x 10 cells, 100 km wide. A small judgement-sized world, large enough
+    // for settlements at (2,2)/(8,8) to sit apart and small enough to read; no measurement
+    // or reference value is implied.
     const GW: usize = 10;
+    // Fixture grid height: 10 cells, same judgement as `GW`.
     const GH: usize = 10;
+    // Fixture map width in km: a judgement round number, not a reference value.
     const MAP_WIDTH_KM: f64 = 100.0;
+    // Fixture sea level: a judgement value below the fixtures' 0.6 field, so those cells read
+    // as land; the 0.42 is arbitrary, not a reference default.
     const SEA: f64 = 0.42;
 
+    /// Test fixture: a [`NamedSettlement`] at `(x, y)` with fixed suitability 0.5, faction 1,
+    /// non-capital, non-coastal; only the arguments vary.
     fn settlement(tid: u64, x: usize, y: usize, kind: SettlementKind, pop: u32, name: &str) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -498,12 +526,17 @@ mod tests {
         }
     }
 
+    /// Test fixture: [`SimulateWorldParams`] over the module's 10 x 10 grid with the given
+    /// density and field slices, unwrapped, at the fixture sea level and width.
     fn world_params<'a>(dens: &'a [f32], field: &'a [f32]) -> SimulateWorldParams<'a> {
         SimulateWorldParams { dens, field, gw: GW, gh: GH, sea: SEA, world_wrap: false, map_width_km: MAP_WIDTH_KM }
     }
 
     // ---------- request parsing ----------
 
+    /// Protects: an empty form yields exactly the reference's `||`-fallback defaults
+    /// (collapse, mixed, severity 0.5, rate 0.01, 100 years in 10-year steps, no overwrite
+    /// confirmation) and rejects nothing -- a changed default moves every un-set sim panel.
     #[test]
     fn an_empty_form_is_the_reference_default_request() {
         let (req, rejected) = collapse_sim_request_from_pairs(&[]);
@@ -518,6 +551,8 @@ mod tests {
         assert!(!req.confirm_overwrite);
     }
 
+    /// Protects: each of the eight form keys is wired to its own request field with its own
+    /// type (including a negative start year); a swapped or dropped arm in the parser goes red.
     #[test]
     fn every_form_field_reaches_its_request_field() {
         let form = vec![
@@ -542,6 +577,9 @@ mod tests {
         assert!(req.confirm_overwrite);
     }
 
+    /// Protects: unknown keys, an unknown `mode` string and wrong-typed values are all reported
+    /// in `rejected` in input order, and a rejected key leaves the default request untouched
+    /// (the "a typo'd key is a bug worth seeing" policy).
     #[test]
     fn an_unknown_key_or_bad_mode_string_is_rejected_and_changes_nothing() {
         let form = vec![
@@ -557,6 +595,8 @@ mod tests {
 
     // ---------- run_collapse_simulation ----------
 
+    /// Protects: an empty live settlement list returns `NoSettlements` (the reference's alert
+    /// guard) without panicking and without writing anything to the timeline.
     #[test]
     fn no_settlements_is_reported_rather_than_panicking() {
         let mut timeline = Vec::new();
@@ -569,6 +609,9 @@ mod tests {
         assert!(timeline.is_empty(), "a rejected run must not write anything");
     }
 
+    /// Protects: the wiring's own bookkeeping -- 30 years in 10-year steps writes snapshots at
+    /// years 10/20/30 plus the year-0 anchor, reports 3 steps and end year 30, and carries pop
+    /// and name through the `CollapsePlace` round trip. Severity 0 keeps the stress model out.
     #[test]
     fn a_zero_stress_run_writes_one_snapshot_per_step_at_the_right_years() {
         let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
@@ -600,6 +643,9 @@ mod tests {
         }
     }
 
+    /// Protects: a run that would overwrite a recorded year returns `NeedsConfirmation` listing
+    /// it and touches nothing; re-sending with `confirm_overwrite` then overwrites that year in
+    /// place rather than duplicating it.
     #[test]
     fn clobbering_existing_years_needs_confirmation_and_writes_nothing_until_confirmed() {
         let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
@@ -621,6 +667,9 @@ mod tests {
         assert_eq!(years, vec![0, 10, 20, 30], "year 20 is overwritten in place, not duplicated");
     }
 
+    /// Protects: territory carried through a run comes from the pre-existing recorded entry at
+    /// the start year, not the (different) live grid, and that entry is not overwritten. Read
+    /// through `civ_territory_at` because ruling 27 stores the carried raster as an empty delta.
     #[test]
     fn territory_and_ways_carry_forward_unchanged_from_the_nearest_prior_entry() {
         let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
@@ -659,6 +708,9 @@ mod tests {
         assert_eq!(civ_territory_at(&timeline, 0).unwrap(), anchor_territory);
     }
 
+    /// Protects: the active year's recorded snapshot is refreshed from live settlements before
+    /// the run, so a stale recorded value is not left behind (`TIMELINE_SCOPE.md` §7 criterion
+    /// 2, the same rule `civ_add_year` follows).
     #[test]
     fn the_currently_active_years_live_state_is_snapshotted_before_the_run() {
         let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
@@ -678,6 +730,8 @@ mod tests {
         assert_eq!(y0.settlements[0].pop, 500);
     }
 
+    /// Protects: zero, negative and oversized duration/step values clamp to exactly one step
+    /// (the reference's `Math.max(1, ...)`) instead of panicking or running zero steps.
     #[test]
     fn malformed_duration_and_step_years_clamp_to_one_step_and_never_panic() {
         let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
@@ -693,6 +747,8 @@ mod tests {
         }
     }
 
+    /// Protects: recovery mode routes its stats to `grew` and leaves the four collapse counters
+    /// at 0 (the mode routing, not the regrowth maths, which milestone 3's goldens cover).
     #[test]
     fn recovery_mode_reports_grew_not_died_migrated_unplaced_failed() {
         // A settlement well under its catchment ceiling (dens is generous) so
@@ -722,6 +778,9 @@ mod tests {
 
     // ---------- SP-3: collapse flags reach the stored snapshot ----------
 
+    /// Protects: SP-3 -- each stored step carries exactly one `collapse_flags` entry per stored
+    /// settlement (no flag for an absent tid), the anchor year carries none, and the stressed
+    /// fixture really sets ruins+fortified somewhere (else the test would be vacuous).
     #[test]
     fn a_collapse_run_stores_each_steps_fortified_and_ruins_per_surviving_tid() {
         // Same stressed fixture as the round-trip test below: a city under severe conflict
@@ -760,6 +819,9 @@ mod tests {
 
     // ---------- round trip: simulate then scrub, TIMELINE_SCOPE.md §7 criterion 4 ----------
 
+    /// Protects: `TIMELINE_SCOPE.md` §7 criterion 4 -- after a full run, `civ_year_diff` over
+    /// every recorded year reports that year's own tids as present, and loading a year that was
+    /// never recorded clears territory to 0 instead of leaving a stale value.
     #[test]
     fn a_full_simulate_then_scrub_sequence_round_trips_with_no_panic() {
         let settlements = vec![
@@ -814,6 +876,7 @@ mod tests {
         }
     }
 
+    /// Test fixture: a minimal visible two-point road way with the given `tid`.
     fn way(tid: u64) -> Way {
         Way {
             tid,
@@ -828,6 +891,7 @@ mod tests {
         }
     }
 
+    /// Test helper: [`civ_year_diff_removed_settlements`] flattened to `(tid, x, y)` rows.
     fn ghost_rows(timeline: &[TimelineSnapshot], year: i64) -> Vec<(u64, usize, usize)> {
         civ_year_diff_removed_settlements(timeline, year)
             .iter()
@@ -897,6 +961,7 @@ mod tests {
         assert!(ghost_rows(&timeline, 10).is_empty());
     }
 
+    /// Test helper: [`civ_year_diff_removed_ways`] flattened to its `tid`s.
     fn ghost_way_tids(timeline: &[TimelineSnapshot], year: i64) -> Vec<u64> {
         civ_year_diff_removed_ways(timeline, year).iter().map(|w| w.tid).collect()
     }

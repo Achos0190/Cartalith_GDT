@@ -11,7 +11,7 @@
 //!
 //! Because `cartalith-civ` is stateless (`ARCHITECTURE.md`), exactly as
 //! `next_tid` and `CivTools::territory_base` already are. The reference
-//! keeps five parallel arrays — `CIV_FACTIONS`, `civFactionNames`,
+//! keeps six parallel arrays — `CIV_FACTIONS`, `civFactionNames`,
 //! `civFactionCulture`, `civFactionReligion`, `civFactionGovernment`,
 //! `civFactionAgTech` — all mutated in place by `_civAddFaction` /
 //! `_civRemoveFaction` (reference lines 14644-14672). One [`FactionEntry`]
@@ -141,8 +141,11 @@ pub struct FactionEntry {
 ///   someone had typed it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FactionCurrency {
+    /// The user-typed currency name, or `None` for the derived stand-in.
     pub name: Option<String>,
+    /// The user-typed symbol (at most [`CURRENCY_SYMBOL_MAX`] characters), or `None` for `¤`.
     pub symbol: Option<String>,
+    /// The user-typed rate (valid per `cartalith_civ::currency::valid_rate`), or `None` for par.
     pub rate: Option<f64>,
 }
 
@@ -152,6 +155,8 @@ pub const DEFAULT_CURRENCY_SYMBOL: &str = "¤";
 /// The rate an unset currency is shown at: par with the world price index.
 pub const DEFAULT_CURRENCY_RATE: f64 = 1.0;
 
+/// Read-side defaults for an unset currency; each accessor pairs the value with a
+/// "this is the default" flag so a UI can label it rather than present it as typed.
 impl FactionCurrency {
     /// The name to show, and whether it is the derived default.
     pub fn effective_name(&self, faction_name: &str) -> (String, bool) {
@@ -178,6 +183,7 @@ impl FactionCurrency {
     }
 }
 
+/// Construction of a roster row; the one place roster defaults are decided.
 impl FactionEntry {
     /// Index `i`'s defaults, whether it is one of the seven base rows or an
     /// appended one.
@@ -227,6 +233,8 @@ impl FactionEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FactionRoster(pub Vec<FactionEntry>);
 
+/// The roster's mutation and read surface. Every validating mutator returns `false` and
+/// changes nothing on a refusal, so a bad call from GDScript can never half-apply.
 impl FactionRoster {
     /// A roster of `count` real factions plus Unclaimed at index 0.
     pub fn seeded(count: usize) -> Self {
@@ -560,12 +568,14 @@ impl FactionRoster {
 
 /// The longest currency symbol [`FactionRoster::set_currency`] accepts, in
 /// characters. Long enough for `"lb."`, `"SPQR"` or `"dn"`; a symbol is drawn
-/// beside every amount, so anything longer is a name.
+/// beside every amount, so anything longer is a name. The 6 is a labelled judgement, not a
+/// reference value.
 pub const CURRENCY_SYMBOL_MAX: usize = 6;
 
-/// The five place-editor fields `NamedSettlement` has no room for. See this
-/// module's own doc comment for why they live beside it rather than on it,
-/// and what that costs.
+/// The place-editor fields `NamedSettlement` has no room for: the reference's five
+/// (specialisation, traits, history, age, walls) plus Ruling J's three town-plan fields
+/// (culture, rules preset, variant). See this module's own doc comment for why they live
+/// beside the settlement rather than on it, and what that costs.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlaceExtras {
     /// `p.specialisation`, a `CIV_SPECIALISATIONS` key. Empty means the
@@ -597,7 +607,11 @@ pub struct PlaceExtras {
 #[derive(Debug, Clone, Default)]
 pub struct PlaceExtrasTable(pub HashMap<u64, PlaceExtras>);
 
+/// Edits and reads of the per-`tid` place extras. A `tid` with no row reads as
+/// [`PlaceExtras::default`]; only a setter ever creates a row, and [`Self::forget`] removes it.
 impl PlaceExtrasTable {
+    /// The extras for `tid`, cloned; an unedited (or deleted) `tid` reads as defaults and
+    /// this read never inserts a row, so merely viewing a place cannot grow the table.
     pub fn get(&self, tid: u64) -> PlaceExtras {
         self.0.get(&tid).cloned().unwrap_or_default()
     }
@@ -678,6 +692,8 @@ impl PlaceExtrasTable {
         true
     }
 
+    /// Stores `text` as the settlement's free-text history, unvalidated (the reference's
+    /// field is free text), creating the row if needed.
     pub fn set_history(&mut self, tid: u64, text: &str) {
         self.0.entry(tid).or_default().history = text.to_string();
     }
@@ -741,8 +757,8 @@ impl PlaceExtrasTable {
 
 /// `_civPopulatePlaceEditor`'s Delete button (reference 16776-16784), minus
 /// its `confirm()` — the shell owns the confirmation dialog, the same split
-/// `timeline_bridge::run_collapse_simulation`'s `needs_confirm` already
-/// uses. Returns the deleted settlement's `tid`, or `None` for an
+/// `timeline_bridge::run_collapse_simulation`'s
+/// `CollapseSimOutcome::NeedsConfirmation` already uses. Returns the deleted settlement's `tid`, or `None` for an
 /// out-of-range index.
 pub fn delete_settlement(settlements: &mut Vec<NamedSettlement>, index: usize) -> Option<u64> {
     if index >= settlements.len() {
@@ -751,11 +767,14 @@ pub fn delete_settlement(settlements: &mut Vec<NamedSettlement>, index: usize) -
     Some(settlements.remove(index).tid)
 }
 
+/// Unit tests for the roster and place-extras state; they run under plain
+/// `cargo test -p cartalith-godot`, with no Godot runtime.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_civ::{SettlementKind, SettlementPlacement};
 
+    /// Test fixture: a Town of pop 100 named "T" at (1, 1) owned by `faction`, keyed by `tid`.
     fn settlement(tid: u64, faction: i32) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -773,6 +792,9 @@ mod tests {
         }
     }
 
+    /// Protects: the seeded roster's rows -- Unclaimed stays "none"/"none", the base names and
+    /// the culture cycle follow the reference tables, and the 2026-09-23 wired religion and
+    /// government defaults land on the pinned literals (a changed default moves generated output).
     #[test]
     fn seeded_roster_matches_the_reference_base_table() {
         let r = FactionRoster::seeded(6);
@@ -796,10 +818,12 @@ mod tests {
         assert_eq!(r.0[1].culture, "imperial");
     }
 
+    /// Protects: every new faction (`seeded`, `add`, GeoJSON import) gets a real, non-uniform
+    /// religion and government, and index 0 is never touched.
     /// The wiring boundary itself, built and authorised 2026-09-23: every
     /// entry point onto [`FactionEntry::default_for`] -- `seeded`, `add`,
-    /// and (via [`FactionRoster::find_or_create_by_name`], its own test
-    /// above) GeoJSON import -- must hand a genuinely new faction a real
+    /// and (via [`FactionRoster::find_or_create_by_name`], its own tests
+    /// below) GeoJSON import -- must hand a genuinely new faction a real
     /// religion and government, never the reference's uniform
     /// `"none"`/`"monarchy"`, and never touch index `0`.
     #[test]
@@ -834,6 +858,8 @@ mod tests {
         assert_eq!(r.0[0].government, "none");
     }
 
+    /// Protects: a fresh roster carries no colour override, a set colour is reversible with `None`
+    /// without touching the reference table, and Unclaimed or an unknown id refuse one.
     /// `GUI_GAP_REGISTER.md` **CV-21**. The two things worth pinning are
     /// that a fresh roster is *empty* of overrides (so the render palette is
     /// bit-identical to what it was before this field existed) and that
@@ -859,6 +885,9 @@ mod tests {
         assert!(!r.set_color(99, Some((1, 2, 3))), "unknown faction");
     }
 
+    /// Protects: `add` appends at the next index with the generated "Faction N" name, the
+    /// `civ_faction_color` colour and the wrapped default culture, and `is_assignable` excludes
+    /// Unclaimed and out-of-range ids.
     #[test]
     fn add_faction_appends_with_a_generated_name_and_colour() {
         let mut r = FactionRoster::seeded(6);
@@ -874,6 +903,8 @@ mod tests {
         assert!(!r.is_assignable(0), "Unclaimed is never assignable");
     }
 
+    /// Protects: removing the last faction reverts its settlements and territory cells to 0 and
+    /// leaves other factions' cells alone.
     #[test]
     fn remove_faction_reverts_its_settlements_and_territory_to_unclaimed() {
         let mut r = FactionRoster::seeded(6);
@@ -886,6 +917,9 @@ mod tests {
         assert_eq!(terr, vec![0, 3, 0, 0]);
     }
 
+    /// Protects: tariff validation (Unclaimed importer, self-tax, unknown ids, out-of-range or NaN
+    /// rates all refused without change) and that rate 0 removes the row so "no tariff" has one
+    /// encoding.
     #[test]
     fn set_tariff_validates_and_zero_removes_the_row() {
         let mut r = FactionRoster::seeded(3);
@@ -909,6 +943,8 @@ mod tests {
         assert_eq!(r, FactionRoster::seeded(3));
     }
 
+    /// Protects: tariffs naming a removed faction (as importer or exporter) are dropped, so a later
+    /// `add` cannot inherit them.
     #[test]
     fn removing_a_faction_drops_every_tariff_on_its_goods() {
         let mut r = FactionRoster::seeded(3);
@@ -922,6 +958,8 @@ mod tests {
         assert_eq!(rows, vec![cartalith_civ::trade::Tariff { importer: 1, exporter: 2, rate: 0.1 }]);
     }
 
+    /// Protects: removal refuses at the reference's floor of Unclaimed plus one faction and
+    /// succeeds above it.
     #[test]
     fn remove_faction_refuses_at_the_reference_floor() {
         let mut r = FactionRoster::seeded(1);
@@ -934,6 +972,8 @@ mod tests {
         assert!(!r2.remove_last(&mut s, &mut t));
     }
 
+    /// Protects: `set_field` accepts only keys in each field's reference vocabulary (and a
+    /// non-blank name), rejects unknown field keys and factions, and a rejection changes nothing.
     #[test]
     fn set_field_rejects_values_outside_the_reference_vocabulary() {
         let mut r = FactionRoster::seeded(2);
@@ -954,6 +994,8 @@ mod tests {
         assert!(!r.set_field(99, "name", "X"), "unknown faction");
     }
 
+    /// Protects: Ruling V -- an unknown imported faction name appends a new faction (name
+    /// verbatim, ordinary defaults) and a repeat of the same name matches instead of duplicating.
     /// Ruling V (2026-09-21): the core case this method exists for. Seeded
     /// past the 7-row `CIV_FACTION_BASE` table so the appended index
     /// exercises `civ_faction_color`'s hue-rotation branch, not the base
@@ -986,6 +1028,8 @@ mod tests {
         assert_eq!(r.count(), 8, "no duplicate appended");
     }
 
+    /// Protects: an existing name matches exactly (after trimming) with nothing created, and
+    /// a near-miss makes its own faction rather than being fuzzy-remapped (Ruling V).
     #[test]
     fn find_or_create_by_name_matches_an_existing_faction_exactly_not_fuzzily() {
         let mut r = FactionRoster::seeded(6);
@@ -1005,6 +1049,7 @@ mod tests {
         assert_eq!(r.count(), 7);
     }
 
+    /// Protects: blank and any-case "Unclaimed" names resolve to faction 0 and create nothing.
     #[test]
     fn find_or_create_by_name_resolves_blank_and_unclaimed_without_creating() {
         let mut r = FactionRoster::seeded(3);
@@ -1016,6 +1061,9 @@ mod tests {
         assert_eq!(r.count(), 3, "none of the above appended a faction");
     }
 
+    /// Protects: the religion flags track the field's current value (not whether it was ever
+    /// touched): Unclaimed false, seeded factions true, a hand edit to "none" clears and a later
+    /// edit sets again.
     #[test]
     fn has_religion_flags_track_the_one_field_aggregates_read() {
         let mut r = FactionRoster::seeded(2);
@@ -1062,6 +1110,8 @@ mod tests {
         assert!(r.engine_religions(&lib).iter().all(|k| !k.starts_with("custom:")));
     }
 
+    /// Protects: `toggle_trait` adds and removes in insertion order (never sorted) and rejects an
+    /// unknown key without changing the list.
     #[test]
     fn traits_toggle_on_and_off_and_reject_unknown_keys() {
         let mut t = PlaceExtrasTable::default();
@@ -1074,6 +1124,9 @@ mod tests {
         assert_eq!(t.get(7).traits, vec!["mining"], "a rejected key changes nothing");
     }
 
+    /// Protects: an unknown `tid` reads as defaults, specialisation validates its key, age
+    /// clamps to the reference's 30..=1000 with negative meaning auto, walls is a tri-state, and
+    /// history round-trips.
     #[test]
     fn extras_defaults_and_clamps_match_the_reference() {
         let mut t = PlaceExtrasTable::default();
@@ -1097,6 +1150,9 @@ mod tests {
         assert_eq!(t.get(1).history, "Founded in fire.");
     }
 
+    /// Protects: `set_town_plan` validates culture and rules-preset ids before writing anything
+    /// (a bad id applies not even the valid fields), accepts "" and "default", and never creates a
+    /// row for an unedited settlement.
     #[test]
     fn set_town_plan_validates_before_writing() {
         let mut t = PlaceExtrasTable::default();
@@ -1116,6 +1172,8 @@ mod tests {
         assert!(!t.0.contains_key(&5));
     }
 
+    /// Protects: `delete_settlement` removes exactly the indexed settlement, returns its `tid`,
+    /// and an out-of-range index deletes nothing and returns `None`.
     #[test]
     fn delete_settlement_removes_exactly_one_and_reports_its_tid() {
         let mut s = vec![settlement(11, 1), settlement(22, 2), settlement(33, 3)];
@@ -1127,6 +1185,7 @@ mod tests {
         assert_eq!(s.len(), 2);
     }
 
+    /// Protects: `forget` drops a settlement's extras so a deleted `tid` reads as defaults.
     #[test]
     fn extras_are_forgotten_with_their_settlement() {
         let mut t = PlaceExtrasTable::default();
@@ -1135,6 +1194,9 @@ mod tests {
         assert_eq!(t.get(42).history, "");
     }
 
+    /// Protects: Ruling AU -- a fresh faction's currency is entirely unset, reading as the derived
+    /// name, `¤` and par rate with the default flag true, while Unclaimed and unknown factions
+    /// have no currency at all (`None`, not par).
     /// Ruling AU: a fresh faction has no currency anyone chose, and says so.
     #[test]
     fn a_fresh_faction_currency_is_unset_and_reads_as_default() {
@@ -1151,6 +1213,9 @@ mod tests {
         assert_eq!(r.currency_rate(9), None);
     }
 
+    /// Protects: `set_currency` trims, refuses zero/negative/NaN/infinite/unparseable rates, over-long
+    /// symbols, Unclaimed, unknown factions and keys without change, and a blank value clears a
+    /// member back to exactly the unset state.
     #[test]
     fn set_currency_validates_refuses_bad_rates_and_blank_clears() {
         let mut r = FactionRoster::seeded(3);
