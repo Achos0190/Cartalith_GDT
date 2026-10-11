@@ -25,14 +25,21 @@
 //! selected by the value under test; the footprint is fixed before rendering
 //! and the world is all land by construction, which is asserted.
 
+/// The renderer under test, compiled straight from `src/render.rs` (no library build needed).
 #[path = "../src/render.rs"]
 mod render;
 
 use render::{RenderCtx, TerrainAppearance, TileBounds, TileFields};
 
+// World edge in cells: 256 is a real LOD tile size and large enough for a 16-cell footprint
+// well inside the grid (judgement).
 const N: usize = 256;
+// Sea level: the engine's default (`WorldParams::defaults`); every fixture cell is above it.
 const SEA: f64 = 0.42;
+// Northern latitude bound in degrees: a temperate-band judgement value, narrow so the climate-
+// dependent colour barely varies across the footprint.
 const LAT_N: f64 = 45.0;
+// Southern latitude bound in degrees (see `LAT_N`).
 const LAT_S: f64 = 35.0;
 
 /// All land, with relief at two scales so the macro and meso normals both
@@ -67,16 +74,20 @@ fn bilinear(f: &[f32], x: f64, y: f64) -> f32 {
     (a * (1.0 - ty) + b * ty) as f32
 }
 
+/// Rec. 709 luma (weights 0.2126, 0.7152, 0.0722) of an RGB triple, in the caller's scale.
 fn luma(r: f64, g: f64, b: f64) -> f64 {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
+/// Population standard deviation; panics on 16 or fewer samples so a spread over an empty or
+/// tiny selection cannot pass.
 fn std_dev(v: &[f64]) -> f64 {
     assert!(v.len() > 16, "too few samples ({}) for a spread", v.len());
     let m = v.iter().sum::<f64>() / v.len() as f64;
     (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / v.len() as f64).sqrt()
 }
 
+/// Builds a `RenderCtx` over the fixture world (no flow field, non-wrapping) under appearance `a`.
 fn ctx<'a>(f: &'a [f32], t: &'a [f32], r: &'a [f32], a: TerrainAppearance) -> RenderCtx<'a> {
     RenderCtx::with_appearance(f, t, r, None, N, N, SEA, false, LAT_N, LAT_S, a)
 }
@@ -111,12 +122,17 @@ fn map_luma(field: &[f32], t: &[f32], r: &[f32], a: TerrainAppearance, x0: usize
     out
 }
 
+/// The relief signal: the standard deviation of `shaded - flat` luma, where `flat` is the same
+/// pixels rendered at `exag = 0`, so the material colour cancels and only shading remains.
 fn relief(shaded: &[f64], flat: &[f64]) -> f64 {
     assert_eq!(shaded.len(), flat.len());
     let d: Vec<f64> = shaded.iter().zip(flat).map(|(s, f)| s - f).collect();
     std_dev(&d)
 }
 
+/// Protects: `render::tile_shade_exag` equals the reference v2.25 expression (`exag` times tile
+/// pixels per coarse cell), clamps the factor at 1, and returns `exag` unchanged for bounds that
+/// cannot be divided by (zero, NaN, negative).
 #[test]
 fn tile_shade_exag_is_the_v2_25_expression() {
     // 128 px over 16 cells: 8 px per cell, so 3.4 * 8.
@@ -131,12 +147,17 @@ fn tile_shade_exag_is_the_v2_25_expression() {
     assert_eq!(render::tile_shade_exag(3.4, -4.0, 129), 3.4);
 }
 
+/// Protects: `js_reference()` keeps the v2.11 bare `exag` (flag off) while `default()` ships
+/// the v2.25 scaling (flag on).
 #[test]
 fn the_parity_path_keeps_v2_11_and_the_app_ships_v2_25() {
     assert!(!TerrainAppearance::js_reference().tile_shade_exag_scaled);
     assert!(TerrainAppearance::default().tile_shade_exag_scaled);
 }
 
+/// Protects: at one tile pixel per coarse cell the v2.25 flag leaves the tile byte-identical, so
+/// LOD entry and the screen-identity check are untouched.
+///
 /// At one tile pixel per coarse cell the factor is exactly `1`, so the flag
 /// must not move a single byte — the property that keeps LOD entry, the
 /// screen-identity check and the main map untouched.
@@ -151,6 +172,10 @@ fn at_one_pixel_per_cell_the_flag_changes_nothing() {
     assert_eq!(a, b, "the flag moved a tile drawn at one pixel per cell");
 }
 
+/// Protects: the zoom dependence the v2.25 scaling fixes. Without it relief falls roughly as
+/// 1/(px per cell) at 2, 4 and 8 px/cell; with it relief stays within 0.85-1.35 of its LOD-entry
+/// value, and the flag is inert at LOD entry.
+///
 /// The row's acceptance: a deep tile's relief contrast against the base
 /// render over the same ground, before (v2.11 bare `exag`) and after (v2.25
 /// `tileShadeExag`), at 1, 2, 4 and 8 tile pixels per coarse cell.

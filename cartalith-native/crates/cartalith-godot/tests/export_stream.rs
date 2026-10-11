@@ -32,6 +32,7 @@
 #[path = "../src/render.rs"]
 mod render;
 
+/// The streaming writer under test, compiled straight from `src/export_stream.rs` (via `#[path]`) because `cartalith-godot` is `cdylib`-only.
 #[path = "../src/export_stream.rs"]
 mod export_stream;
 
@@ -43,9 +44,12 @@ use render::{BakeFields, ExportBandPlan, ExportRivers, RenderCtx, TerrainAppeara
 
 /// `tests/export_bands.rs`'s fixture: a 61 × 43 closed-form world.
 const GW: usize = 61;
+// Fixture grid height (cells); with `GW`, a 61x43 world shared with `tests/export_bands.rs`. Odd and non-square on purpose so band heights never divide it evenly by accident.
 const GH: usize = 43;
+/// Sea level for the fixture world. Judgement: the project's usual 0.42, so the sea and land paths both run.
 const SEA: f64 = 0.42;
 
+/// The closed-form synthetic world (height, temperature, rainfall, discharge) at `gw`x`gh`; same formulae as `tests/export_bands.rs` and `bake_raster.rs`, independent of the generator, shaped so both land and sea branches run.
 fn fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let n = gw * gh;
     let (mut field, mut temp, mut rain, mut flow) = (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
@@ -82,10 +86,12 @@ fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: ExportRivers<'_>, w: 
     render::bake_and_finish(ctx, &bf, ink, w, h, &inf, render::ColorSpace::Srgb)
 }
 
+/// A river `Flag` mask over the `GW`x`GH` grid with real structure (every third column plus the diagonal), so tinted and untinted cells are adjacent in both axes and the river tint is in the path.
 fn river_mask() -> Vec<u8> {
     (0..GW * GH).map(|i| u8::from((i % GW).is_multiple_of(3) || i % GW == i / GW)).collect()
 }
 
+/// A per-process, per-name file path in the OS temp directory. The pid keeps concurrent test processes from sharing a file; tests remove their file after reading it.
 fn scratch(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cartalith_export_stream_{}_{name}", std::process::id()))
 }
@@ -94,12 +100,14 @@ fn scratch(name: &str) -> PathBuf {
 // The independent PNG decoder
 // ---------------------------------------------------------------------------
 
+/// Big-endian u32 at `at`, or a `truncated` error instead of a panic.
 fn be32(b: &[u8], at: usize) -> Result<u32, String> {
     b.get(at..at + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]])).ok_or_else(|| format!("truncated at {at}"))
 }
 
 /// CRC-32 (ISO 3309, as PNG specifies it), bit by bit.
 fn crc32(data: &[u8]) -> u32 {
+    // CRC-32 initial value (all ones) and, below, the reflected polynomial 0xEDB88320, per ISO 3309 / the PNG specification.
     let mut c = 0xFFFF_FFFFu32;
     for &byte in data {
         c ^= byte as u32;
@@ -110,6 +118,7 @@ fn crc32(data: &[u8]) -> u32 {
     !c
 }
 
+/// Inflate a zlib stream with `flate2`: the one piece the independent decoders share with the encoders (see the header).
 fn inflate_zlib(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     flate2::read::ZlibDecoder::new(data).read_to_end(&mut out).map_err(|e| format!("inflate: {e}"))?;
@@ -194,6 +203,7 @@ fn decode_png(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
 // The independent BigTIFF decoder
 // ---------------------------------------------------------------------------
 
+/// Little-endian unsigned integer of `n` bytes at `at`, or a `truncated` error.
 fn le(b: &[u8], at: usize, n: usize) -> Result<u64, String> {
     let s = b.get(at..at + n).ok_or_else(|| format!("truncated at {at}"))?;
     Ok(s.iter().rev().fold(0u64, |acc, &x| (acc << 8) | x as u64))
@@ -269,6 +279,7 @@ fn decode_bigtiff(b: &[u8]) -> Result<(usize, usize, Vec<u8>, TiffInfo), String>
     Ok((w, h, out, TiffInfo { compression, predictor, rows_per_strip: rps, strips: offs.len() }))
 }
 
+/// Dispatch to the independent PNG or BigTIFF decoder and return `(width, height, packed RGB8)`.
 fn decode(format: StreamFormat, bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
     match format {
         StreamFormat::Png => decode_png(bytes),
@@ -276,6 +287,7 @@ fn decode(format: StreamFormat, bytes: &[u8]) -> Result<(usize, usize, Vec<u8>),
     }
 }
 
+/// Number of byte positions at which two equal-length buffers differ; asserts equal length so a truncated decode cannot look like "fewer differences".
 fn differing(a: &[u8], b: &[u8]) -> usize {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b).filter(|(x, y)| x != y).count()
@@ -331,6 +343,7 @@ fn round_trip(format: StreamFormat, width: usize, rows_per_band: &[usize]) {
     assert!(short_finals >= 2, "only {short_finals} plans ended on a short band");
 }
 
+/// Protects: the streamed PNG, decoded by this file's own independent decoder, equals the monolithic render byte for byte at 512 and 300 pixels wide across six and four band plans (including short final bands), and the file bytes do not depend on the band plan.
 #[test]
 fn png_round_trips_through_an_independent_decoder_at_every_band_geometry() {
     // 512 x 361: 361 = 19 * 19, so 19 rows/band divides exactly (the control);
@@ -340,12 +353,15 @@ fn png_round_trips_through_an_independent_decoder_at_every_band_geometry() {
     round_trip(StreamFormat::Png, 300, &[usize::MAX, 50, 16, 7]);
 }
 
+/// Protects: the same round trip for BigTIFF (Deflate with horizontal predictor), decoded by the independent BigTIFF decoder, at the same widths and band plans.
 #[test]
 fn bigtiff_round_trips_through_an_independent_decoder_at_every_band_geometry() {
     round_trip(StreamFormat::BigTiff, 512, &[usize::MAX, 100, 64, 37, 19, 5]);
     round_trip(StreamFormat::BigTiff, 300, &[usize::MAX, 50, 16, 7]);
 }
 
+/// Protects: the BigTIFF writer really sets Deflate (8) and the horizontal predictor (2), cuts 170-row strips (256 KiB over 1536-byte rows) giving three strips at 361 rows, and compresses to under half the raw size, so strip re-cutting across 37-row bands is exercised.
+///
 /// The BigTIFF is really compressed, really predicted, and really cut into
 /// several strips whose last is short, so the strip re-cutting across band
 /// boundaries is in the path rather than one strip per file.
@@ -370,6 +386,8 @@ fn the_bigtiff_is_deflated_predicted_and_multi_strip() {
     assert!(file.len() * 2 < px.len(), "{} bytes on disk for {} raw -- the strips are not compressed", file.len(), px.len());
 }
 
+/// Protects: at 2048 wide the streamed export (one band and banded, PNG and BigTIFF) decodes to the same pixels as the shipped `encode_png_rgb8` path and the monolithic render; it deliberately does not claim the PNG files are byte-identical.
+///
 /// **The streamed file is the shipped export's picture.** At 2048 wide the
 /// shipped path (`export_raster_png`'s render, then
 /// `cartalith_assets::raster::encode_png_rgb8`, i.e. `image`'s PNG encoder)
@@ -420,6 +438,8 @@ fn the_streamed_2k_export_is_the_shipped_export_pixel_for_pixel() {
     }
 }
 
+/// Protects: the decoders are themselves sound: the BigTIFF decoder reads a file from the `tiff` crate's own writer, and both decoders reject a file with one flipped byte (the BigTIFF check accepts either an error or wrong pixels).
+///
 /// The decoders earn their verdicts: each reads a file from an encoder that is
 /// neither this module nor itself, and each refuses a corrupted file.
 #[test]
@@ -457,6 +477,8 @@ fn the_independent_decoders_are_not_vacuous() {
     assert!(decode_bigtiff(&bad).map_or(true, |d| d.2 != px), "a flipped byte in the BigTIFF went unnoticed");
 }
 
+/// Protects: `write_bands` returns an error (no panic, no short or padded file) for bands that are too few rows, too many rows, ragged within a row, or empty, accepts an exact tiling, and `export_banded` errors on an unwritable destination.
+///
 /// Bands that do not tile the image are refused with a message, never
 /// written as a short or padded file, and never a panic.
 #[test]
@@ -486,6 +508,8 @@ fn bands_that_do_not_tile_the_image_are_refused() {
     assert!(err.is_err());
 }
 
+/// Protects: nothing by assertion -- an `#[ignore]`d manual harness that streams one large export and prints the plan so a host-measured peak memory can be read against it.
+///
 /// **The peak-memory harness, not a test.** Streams one large export of a
 /// closed-form world at the app's own `2048 × 1311` grid, so the plan's apron
 /// and band arithmetic are the real ones. Peak resident set is measured by the

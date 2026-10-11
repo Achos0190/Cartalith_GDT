@@ -66,6 +66,7 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 
+/// `render.rs` compiled into this test binary (the crate is `cdylib`-only; see the module doc).
 #[path = "../src/render.rs"]
 mod render;
 
@@ -76,12 +77,18 @@ use cartalith_hydrology::{compute_flow, enforce_channel_descent, enforce_river_c
 use cartalith_spatial::{DirtyTracker, PassBuffer, Stamp};
 use cartalith_terrain::sculpt::{Feature, Point, SculptStamp};
 
+// World seed for every fixture: an arbitrary fixed value (judgement) so runs are comparable.
 const SEED: i32 = 12345;
+// Grid edges measured: 512, 1024 and 2048 cells, the range `SCULPT_LIVE_SCOPE.md` L0 asks about
+// (judgement: small, typical and the largest interactive size).
 const SIZES: [usize; 3] = [512, 1024, 2048];
+// Timed runs per operation after one warm-up. Five is a judgement trade between seconds-long
+// operations and noise; min/mean/max are all printed because a single sample is not a measurement.
 const RUNS: usize = 5;
 
 // ---- timing plumbing ----
 
+/// Min, mean and max wall-clock milliseconds over `RUNS` timed runs of one operation.
 #[derive(Clone, Copy)]
 struct Stats {
     min_ms: f64,
@@ -89,7 +96,9 @@ struct Stats {
     max_ms: f64,
 }
 
+/// Fixed-width one-line rendering so the printed table columns line up.
 impl std::fmt::Display for Stats {
+    /// Writes `min (mean, max, n)` with two decimals, in milliseconds.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:8.2} ms  (mean {:8.2}, max {:8.2}, n={RUNS})", self.min_ms, self.mean_ms, self.max_ms)
     }
@@ -137,15 +146,21 @@ fn stroke(cx: f64, cy: f64, length: f64, n: usize) -> Vec<Point> {
         .collect()
 }
 
+/// A 300-cell, 20-segment horizontal stroke through the grid centre: the "typical" sculpt
+/// stroke of the L0 measurement (300 cells and a 64 px brush are judgement values, not measured
+/// user behaviour).
 fn typical_stroke(gw: usize, gh: usize) -> Vec<Point> {
     stroke(gw as f64 / 2.0, gh as f64 / 2.0, 300.0, 20)
 }
 
+/// A 60-segment stroke spanning 90% of the shorter grid edge: the "large" stroke, the heaviest
+/// commit the scope considers (90% and 60 segments are judgement values).
 fn large_stroke(gw: usize, gh: usize) -> Vec<Point> {
     let length = 0.9 * gw.min(gh) as f64;
     stroke(gw as f64 / 2.0, gh as f64 / 2.0, length, 60)
 }
 
+/// A seeded (42, arbitrary) `Feature::Mountains` stamp over `points` with the given brush size.
 fn mountains_stamp(points: Vec<Point>, brush_size: f64, sea_level: f64) -> SculptStamp {
     let mut s = SculptStamp::new(Feature::Mountains, 42, points, sea_level);
     s.globals.brush_size = brush_size;
@@ -154,6 +169,8 @@ fn mountains_stamp(points: Vec<Point>, brush_size: f64, sea_level: f64) -> Sculp
 
 // ---- B: SculptStamp::apply() ----
 
+/// Times `SculptStamp::apply` for a typical (64 px brush) and a large (200 px brush) stroke, each
+/// against a fresh copy of the field.
 fn bench_stamp_apply(field: &[f32], gw: usize, gh: usize, sea_level: f64) {
     let typical = mountains_stamp(typical_stroke(gw, gh), 64.0, sea_level);
     let s = time_runs(|| field.to_vec(), |mut f| typical.apply(&mut f, gw, gh));
@@ -166,6 +183,10 @@ fn bench_stamp_apply(field: &[f32], gw: usize, gh: usize, sea_level: f64) {
 
 // ---- C: build_sculpt_preview_texture, broken down ----
 
+/// Times the pieces of `build_sculpt_preview_texture`: the three whole-grid precomputes of
+/// `RenderCtx::with_appearance`, the per-pixel colour loop, and the full constructor, so the
+/// scope can see which one dominates. Latitudes 55 and 5 are the fixed bounds the other golden
+/// tests use here.
 fn bench_preview(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool) {
     let appearance = render::TerrainAppearance::default();
     let flow = ws.flow_discharge.as_slice();
@@ -217,6 +238,9 @@ fn bench_preview(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
 
 // ---- D: commit_sculpt_pass, broken down ----
 
+/// Builds one commit's inputs: a pass buffer holding a mountain, a river (40 px brush) and a lake
+/// (30 px brush) stamp, a copy of the field, and a `WaterState` with an earlier river channel
+/// already locked across 40% of the width, so `enforce_river_channels` has size-proportional work.
 fn commit_fixture(gw: usize, gh: usize, ws: &cartalith_engine::WorldState) -> (PassBuffer<SculptStamp>, Vec<f32>, WaterState) {
     let mut buf = PassBuffer::new(gw, gh, 64);
     buf.push(mountains_stamp(typical_stroke(gw, gh), 64.0, ws.sea_level));
@@ -248,6 +272,8 @@ fn commit_fixture(gw: usize, gh: usize, ws: &cartalith_engine::WorldState) -> (P
     (buf, field, water)
 }
 
+/// Times `commit_sculpt_pass`'s four internal steps in isolation, in the order the real function
+/// runs them, then the whole function end to end as a cross-check against their sum.
 fn bench_commit(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) {
     // (1) stack bake alone.
     let s = time_runs(
@@ -336,6 +362,8 @@ fn bench_commit(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) {
 
 // ---- E/F: downstream stages L2/L3 would have to pay ----
 
+/// Derives the `ClimateParams` and `WeatherParams` that `generate_terrain` would build from `p`,
+/// field by field, so the climate refresh can be timed outside the engine.
 fn climate_ctx(p: &WorldParams, world: bool) -> (ClimateParams, WeatherParams, f64) {
     let sea_level = p.sea_level;
     let climate_params = ClimateParams {
@@ -379,6 +407,9 @@ fn climate_ctx(p: &WorldParams, world: bool) -> (ClimateParams, WeatherParams, f
     (climate_params, weather_params, sea_level)
 }
 
+/// Times the downstream stages a commit does not run today (flow accumulation on CPU and GPU,
+/// and the climate refresh on CPU and GPU), which are the cost L2 and L3 would add. GPU rows are
+/// skipped, and say so, when no adapter exists.
 fn bench_flow_and_climate(p: &WorldParams, ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool, gpu: Option<&cartalith_gpu::GpuDevice>) {
     let field = &ws.field;
 
@@ -437,6 +468,9 @@ fn bench_flow_and_climate(p: &WorldParams, ws: &cartalith_engine::WorldState, gw
     }
 }
 
+/// Protects: no behaviour: it asserts nothing. It is the L0 measurement harness, run on demand
+/// (`--ignored --nocapture`) to print the timing tables `SCULPT_LIVE_SCOPE.md` decides from.
+///
 #[test]
 #[ignore = "real generate_terrain calls up to 2048^2, several seconds; run explicitly with --ignored --nocapture"]
 fn l0_measure() {

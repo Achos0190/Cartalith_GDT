@@ -29,8 +29,11 @@ use render::{BakeFields, ExportBandPlan, ExportRivers, RasterRect, RenderCtx, Ri
 
 /// `EXPORT_SCOPE.md` §4.3's fixture: a 61 × 43 world rendered at 512 px wide.
 const GW: usize = 61;
+// Fixture grid height (cells); with `GW`, the 61x43 world of `EXPORT_SCOPE.md` §4.3.
 const GH: usize = 43;
+/// Export width in pixels, from `EXPORT_SCOPE.md` §4.3: large enough that the local-contrast apron (5 rows) is several rows tall, small enough that the monolithic render can still be held for comparison.
 const OUT_W: usize = 512;
+/// Sea level for the fixture. Judgement: the project's usual 0.42, so both land and sea paths run.
 const SEA: f64 = 0.42;
 
 /// `tests/bake_raster.rs`'s closed-form world, at this file's grid size: two
@@ -106,6 +109,7 @@ fn banded(ctx: &RenderCtx, ink: ExportRivers<'_>, plan: &ExportBandPlan) -> Vec<
     out
 }
 
+/// Number of byte positions at which two equal-length buffers differ; asserts equal length so a truncated band stitch cannot read as "fewer differences".
 fn differing(a: &[u8], b: &[u8]) -> usize {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b).filter(|(x, y)| x != y).count()
@@ -117,6 +121,7 @@ fn row_delta(px: &[u8], w: usize, y: usize) -> f64 {
     a.iter().zip(b).map(|(p, q)| p.abs_diff(*q) as f64).sum::<f64>() / (w * 3) as f64
 }
 
+/// Protects: the banded export (single band and 271, 128, 64, 37 and 5 rows per band, at the default and a five-times-wider local-contrast radius) is byte-identical to the monolithic render, so the apron arithmetic loses nothing at band seams.
 #[test]
 fn a_banded_render_is_byte_identical_to_a_monolithic_one() {
     let (field, temp, rain, flow) = fixture();
@@ -143,6 +148,7 @@ fn a_banded_render_is_byte_identical_to_a_monolithic_one() {
     }
 }
 
+/// Protects: with a loaded-save river mask, a world-wrapping grid and hachure all on (each shown to change the picture), banded renders at 97, 48 and 16 rows are byte-identical to the monolithic one.
 #[test]
 fn river_tint_world_wrap_and_hachure_band_identically() {
     let (field, temp, rain, flow) = fixture();
@@ -169,7 +175,7 @@ fn river_tint_world_wrap_and_hachure_band_identically() {
     }
 }
 
-/// Protects RV-5's banded half: vector rivers, rasterized per band at the
+/// Protects: RV-5's banded half: vector rivers, rasterized per band at the
 /// export's resolution (`bake_export_band` paints only the band's own rows),
 /// band **byte-identically** to the monolithic render -- a stroke that crosses
 /// a band seam is placed by its grid position in both, so no seam shows in
@@ -193,6 +199,7 @@ fn vector_rivers_band_identically() {
     }
 }
 
+/// Protects: at 37-row bands the row-to-row delta across every band boundary equals the monolithic render's (to 1e-12), so no visible step appears at a seam; also requires at least four boundaries so the check measures something.
 #[test]
 fn there_is_no_step_at_a_band_boundary() {
     let (field, temp, rain, flow) = fixture();
@@ -214,6 +221,7 @@ fn there_is_no_step_at_a_band_boundary() {
     println!("{} boundaries, worst |banded - monolithic| row delta {worst:e}, mean seam delta {mean_seam:.4} levels", boundaries.len());
 }
 
+/// Protects: the negative controls behind the identity: local contrast, the plate frame and the grade influence are all really in the path, the apron is 5 rows at this size, turning local contrast off changes the picture, and dropping the apron makes the banded render differ.
 #[test]
 fn the_identity_is_not_vacuous() {
     let (field, temp, rain, flow) = fixture();
@@ -246,6 +254,7 @@ fn the_identity_is_not_vacuous() {
     assert!(d_bare > 0, "dropping the apron changed nothing -- the band identity is not testing it");
 }
 
+/// Protects: `ExportBandPlan::for_budget` gives exactly one apron-free band when the budget covers the raster, otherwise covers every row exactly once with each band (rows plus apron) inside the budget, and the 32K apron is 328 rows (`EXPORT_SCOPE.md` §4.1).
 #[test]
 fn the_plan_covers_every_row_once_and_the_shipped_sizes_stay_one_band() {
     let a = TerrainAppearance::default();

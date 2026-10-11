@@ -15,10 +15,13 @@
 //! at `128`), so a bilinear sample of it is a position-dependent mix and there
 //! is no constant to assert. A flat source makes every sample identical and
 //! the destination value pure arithmetic.
+//!
+//! Conventions shared by every test below: the raster is a white 64x64 RGB8 grid (judgement: big enough to hold a badge box with a clear margin on every side, small enough to inspect), the variant seed handed to the compositor is an arbitrary `7` (every pack here has one variant per slot, so the seed cannot matter), and the pin geometry is the `PIN` constant's.
 #![allow(dead_code)]
 
 #[path = "../src/render.rs"]
 mod render;
+/// The pack loader and trait-badge compositor under test, compiled straight from `src/pack.rs` (via `#[path]`) because `cartalith-godot` is `cdylib`-only.
 #[path = "../src/pack.rs"]
 mod pack;
 
@@ -26,6 +29,7 @@ use cartalith_assets::{DecodedImage, encode_png, trait_badge_layout, trait_badge
 use pack::{TraitArtMiss, composite_trait_badges, load_pack_from_bytes, resolve_trait_badges};
 use std::fs;
 
+/// Bytes of the real reference-exported pack (`cartalith-assets/tests/fixtures/reference_pack.zip`), read relative to the crate directory `cargo test` runs in. Panics with a message if the fixture is missing.
 fn fixture_bytes() -> Vec<u8> {
     fs::read("../cartalith-assets/tests/fixtures/reference_pack.zip").expect("reference_pack.zip fixture (milestone 2) must exist")
 }
@@ -53,11 +57,13 @@ fn pack_with_undecodable_trait_art() -> Vec<u8> {
         .expect("zip_store_bytes must write a readable archive")
 }
 
+/// The RGB triple at `(x, y)` of a packed RGB8 raster `gw` pixels wide.
 fn px(bytes: &[u8], gw: usize, x: usize, y: usize) -> [u8; 3] {
     let i = (y * gw + x) * 3;
     [bytes[i], bytes[i + 1], bytes[i + 2]]
 }
 
+/// The background every test paints onto, so "untouched" means exactly this value.
 const WHITE: [u8; 3] = [255, 255, 255];
 
 /// A pin at (32, 20), `sz = 10`, `sc = 2`. `trait_badge_radius(10) =
@@ -70,10 +76,12 @@ const INSIDE: [(usize, usize); 4] = [(29, 34), (35, 34), (29, 39), (35, 39)];
 /// Four points comfortably outside it, one past each edge.
 const OUTSIDE: [(usize, usize); 4] = [(26, 36), (38, 36), (32, 30), (32, 43)];
 
+/// Owned trait keys from string literals, the shape the compositor takes.
 fn keys(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
+/// Protects: the real reference pack's `structures.trait` family loads as exactly one `port` variant of 256x256, with undeclared slots (`mining`, `fortified`) absent from the map rather than present and empty.
 #[test]
 fn the_real_fixture_pack_decodes_its_trait_family() {
     let loaded = load_pack_from_bytes(fixture_bytes()).expect("real reference-exported pack must load");
@@ -88,6 +96,8 @@ fn the_real_fixture_pack_decodes_its_trait_family() {
     assert!(!loaded.traits.contains_key("fortified"));
 }
 
+/// Protects: with the real pack, the badge box is painted (blue-dominant pixels, from the pack) at four inside points, four outside points stay white, and no miss is reported.
+///
 /// The real pack, the real load path, real pixels — non-uniform art, so the
 /// claim is confined to what is true of it: the badge box is painted from the
 /// pack and everything outside the box is untouched.
@@ -112,6 +122,8 @@ fn the_real_fixture_packs_trait_art_paints_inside_the_badge_box_and_nowhere_else
     assert!(c[2] > c[0], "painted pixel {c:?} must carry the pack sprite's blue, not the white ground");
 }
 
+/// Protects: an opaque flat sprite lands its exact bytes at the box `trait_badge_layout` describes (radius from `trait_badge_radius`, centre at (32, 36.6)) and nowhere outside it.
+///
 /// The exact-pixel drawing test. A fully opaque flat sprite must land its own
 /// bytes, unchanged, at exactly the box `trait_badge_layout` +
 /// `trait_sprite_rect` describe — and nowhere else.
@@ -139,6 +151,8 @@ fn an_opaque_pack_sprite_lands_its_exact_bytes_at_the_ported_geometry() {
     }
 }
 
+/// Protects: a half-transparent sprite is composited by straight-alpha source-over onto the white ground, to the hand-worked values (157, 172, 202), with the outside untouched.
+///
 /// The same, half-transparent: `Canvas::blend_px`' straight-alpha source-over,
 /// `round(src*a + 255*(1-a))` with `a = 128/255 = 0.501961` —
 ///   r: 60*0.501961 + 255*0.498039 = 30.118 + 127.0 = 157.118 -> 157
@@ -159,6 +173,8 @@ fn a_half_transparent_pack_sprite_blends_against_what_is_under_it() {
     }
 }
 
+/// Protects: of four badges, the one with pack art is painted, the three without are reported as `NoArtInPack` with a non-empty glyph and nothing is painted at their centres.
+///
 /// Four badges, one of which the pack has art for: the pack-art one is
 /// painted, the three misses are reported, and **nothing is painted where a
 /// miss is**. A dark disc drawn there would be a plausible-looking badge that
@@ -192,6 +208,8 @@ fn a_slot_with_no_art_paints_nothing_and_is_reported_with_its_glyph() {
     assert_eq!(px(&bytes, gw, port.cx.round() as usize, port.cy.round() as usize), [200, 40, 90]);
 }
 
+/// Protects: a declared-but-undecodable trait sprite is reported as `ArtFailedToDecode` (slot present with zero variants), paints nothing, and is distinguishable from `NoArtInPack` for the same key against another pack.
+///
 /// Declared-but-undecodable is a **different** reason from never-declared,
 /// and both paint nothing. Collapsing them would tell a pack author with a
 /// broken PNG that they simply have no art.
@@ -219,6 +237,8 @@ fn declared_trait_art_that_fails_to_decode_is_a_distinct_reason() {
     assert_eq!(other[0].miss, TraitArtMiss::NoArtInPack);
 }
 
+/// Protects: a trait key not in `CIV_TRAITS` yields one miss with no glyph and paints nothing, matching the reference which draws nothing for it.
+///
 /// A trait key that is not in `CIV_TRAITS` carries no glyph, because the
 /// reference draws **nothing at all** for it — its fallback sits inside
 /// `const t=CIV_TRAITS.find(...); if(t){...}` (v2.11 line 15592). A caller
@@ -234,6 +254,8 @@ fn an_unknown_trait_key_reports_no_glyph_because_the_reference_draws_none() {
     assert!(bytes.iter().all(|&b| b == 255));
 }
 
+/// Protects: given all seven traits the compositor shows only the layout's first four, so exactly the misses among `fortified`, `mining`, `port`, `administrative` (all but port) are reported.
+///
 /// The reference's `slice(0,4)` cap is the layout's, and the compositor must
 /// not re-derive it: a settlement carrying all seven traits produces at most
 /// four badges, art or miss.
@@ -250,6 +272,8 @@ fn the_compositor_honours_the_layouts_four_badge_cap() {
     assert_eq!(misses.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["fortified", "mining", "administrative"]);
 }
 
+/// Protects: a zero-sized grid is a no-op returning no misses rather than a panic.
+///
 /// An empty grid is a no-op rather than a panic — the same guard
 /// `composite_map_icons` carries.
 #[test]
@@ -263,6 +287,8 @@ fn an_empty_grid_paints_nothing_and_reports_nothing() {
 // `resolve_trait_badges` — the decisions, without the raster
 // ---------------------------------------------------------------------------
 
+/// Protects: the miss reasons' string keys are the literals `no_art_in_pack` and `art_failed_to_decode`, which cross the gdext boundary and are matched by GDScript.
+///
 /// The two miss reasons cross the gdext boundary as strings, so the strings
 /// are the contract. Asserted as **literals**, not against the constants that
 /// produce them: `assert_eq!(x, THE_CONSTANT)` holds for every value of the
@@ -275,6 +301,8 @@ fn the_two_miss_reasons_have_stable_names() {
     assert_ne!(TraitArtMiss::NoArtInPack.key(), TraitArtMiss::ArtFailedToDecode.key());
 }
 
+/// Protects: `resolve_trait_badges` returns the pack's sprite variant with a destination box of side `2r` centred on the badge, a `NoArtInPack` miss for an unlisted slot, and the fallback glyph on that miss.
+///
 /// The resolver answers with the pack's own variant and the reference's own
 /// destination box, and `composite_trait_badges` paints exactly that — which
 /// is the whole reason the two share one function. Pins the box against
@@ -302,6 +330,8 @@ fn resolve_reports_the_packs_variant_at_the_references_centre_anchored_box() {
     assert_eq!(badges[1].glyph, Some("⚒"), "a miss still carries the glyph its fallback draws");
 }
 
+/// Protects: the resolved row uses the reference's geometry (radius `max(2.2, 0.42*sz)`, pitch `2.35r`, centred on the pin, below it by `sz + r + 1.2*sc`) and an empty trait list gives an empty row.
+///
 /// The resolver's own layout is `trait_badge_layout`'s and is not re-derived,
 /// checked against the reference's three expressions written out
 /// independently (`_civDrawTraitBadges`, v2.11 lines 15586-15588).
@@ -319,6 +349,8 @@ fn resolve_lays_the_row_out_at_the_references_own_geometry() {
     assert!(resolve_trait_badges(PIN.0, PIN.1, &[], PIN.2, PIN.3, 7, &loaded).is_empty());
 }
 
+/// Protects: the resolver reports `ArtFailedToDecode` for a declared-undecodable slot and `NoArtInPack` for a never-declared one.
+///
 /// Declared-but-undecodable reaches the resolver as its own reason, so the
 /// `#[func]` that hands GDScript a badge row can report it per badge without
 /// re-deriving anything.

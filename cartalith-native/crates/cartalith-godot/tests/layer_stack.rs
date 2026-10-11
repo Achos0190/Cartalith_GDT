@@ -5,7 +5,9 @@
 //! image to a literal that was measured by the binary *before* the layer stack
 //! was written. `quality_tier_is_exactly_the_default_look` next door compares
 //! two renders of the same build and therefore cannot see a change that moves
-//! both; a digest literal transcribed from the previous build can.
+//! both; a digest literal transcribed from the previous build can. (The literals
+//! have since been re-baselined for later look rulings; each re-baseline is
+//! recorded beside the digest in `the_default_stack_renders_the_pre_change_image`.)
 
 #[path = "../src/render.rs"]
 mod render;
@@ -16,8 +18,10 @@ use render::{BlendMode, LayerEntry, LayerStack, RasterLayer, RenderCtx, TerrainA
 // rather than shared because integration-test targets are separate crates and
 // this one must be able to `#[path]`-include `render.rs` on its own.
 const GW: usize = 128;
+// GH is the grid height of the same fixture as `GW`; 79 is deliberately not a round number so a stride or transposition bug shows up.
 const GH: usize = 79;
 
+/// The synthetic world's rasters: height, temperature, rainfall, discharge and a lithology index per cell. Owned here so each [`RenderCtx`] can borrow from it.
 struct Synth {
     field: Vec<f32>,
     temperature: Vec<f32>,
@@ -26,6 +30,7 @@ struct Synth {
     lith: Vec<u8>,
 }
 
+/// Builds the [`Synth`] world: closed-form ridge, fine ripple and a central bowl for height, a north-south temperature ramp, banded rainfall, sparse high-discharge cells (every 37th along a diagonal) and a 7-class lithology tiling. Deterministic, no generator involved, so the pinned digests depend only on the renderer.
 fn synth() -> Synth {
     let n = GW * GH;
     let mut field = vec![0f32; n];
@@ -50,6 +55,7 @@ fn synth() -> Synth {
     Synth { field, temperature, rainfall, flow, lith }
 }
 
+/// A [`RenderCtx`] over `s` at sea level `0.42` with lithology attached, non-wrapping, under appearance `a`.
 fn ctx<'a>(s: &'a Synth, a: TerrainAppearance) -> RenderCtx<'a> {
     RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a).with_lithology(&s.lith)
 }
@@ -118,15 +124,19 @@ fn stack(top_first: [(RasterLayer, bool, f64, BlendMode); 3]) -> LayerStack {
     s
 }
 
+/// The default appearance with only its layer stack replaced by `s`.
 fn with_stack(s: LayerStack) -> TerrainAppearance {
     TerrainAppearance { layers: s, ..TerrainAppearance::default() }
 }
 
+/// Fraction of byte positions where `a` and `b` differ by more than `tol` levels. Used to show a control visibly changes the picture.
 fn moved(a: &[u8], b: &[u8], tol: i32) -> f64 {
     let d = a.iter().zip(b).filter(|(p, q)| (**p as i32 - **q as i32).abs() > tol).count();
     d as f64 / a.len() as f64
 }
 
+/// Protects: nothing by assertion -- an `#[ignore]`d helper that prints the pinned digests so they can be re-derived deliberately after a look change.
+///
 /// Prints the digest of every appearance this file pins, so the literals below
 /// can be re-derived by hand after a deliberate look change rather than
 /// guessed. `cargo test -p cartalith-godot --test layer_stack -- --ignored --nocapture print_digests`
@@ -145,6 +155,8 @@ fn print_digests() {
     }
 }
 
+/// Protects: nothing by assertion -- an `#[ignore]`d micro-benchmark of the per-pixel `is_default()` test, kept so the "below the noise floor" claim above can be re-checked.
+///
 /// What the one unconditional per-pixel test added by CA-03/CA-04 costs,
 /// against what a pixel of this renderer already costs.
 ///
@@ -220,8 +232,13 @@ fn cost_of_the_per_pixel_stack_test() {
 // 1. The identity — the whole reason this file exists
 // ---------------------------------------------------------------------------
 
-/// **The digests below were produced by the build immediately before the layer
-/// stack was written**, by `print_digests` above, and transcribed by hand.
+/// Protects: under the default stack, for four appearances (default, Vibrant, Antique, `js_reference()`), both the on-screen raster and the export raster hash to pinned FNV-1a literals, so a drift in the shipped image fails even when every relative comparison still agrees.
+///
+/// **The digests below were first produced by the build immediately before the
+/// layer stack was written** (by `print_digests` above, transcribed by hand);
+/// the per-entry comments inside the test record each later deliberate
+/// re-baseline (Rulings AN, AP, AS, BZ item 2), after which they are the
+/// digests of the build before *that* change.
 /// That is what makes them a real pin rather than a restatement: nothing in
 /// this build computed them, so a "default" path that drifted by one ulp fails
 /// here even though every relative comparison in the suite still agrees with
@@ -279,6 +296,8 @@ fn the_default_stack_renders_the_pre_change_image() {
     }
 }
 
+/// Protects: a stack built by hand to equal `DEFAULT` is recognised as default and renders the same screen and export bytes as an untouched appearance, so `set()` cannot normalise into the composite path.
+///
 /// A stack a caller *constructed* to be the default has to hit the same branch
 /// as the one nobody touched. Without this, `set()` could normalise a value and
 /// produce a stack that renders through the composite while claiming to be the
@@ -300,6 +319,8 @@ fn an_explicitly_built_default_stack_is_the_identity() {
     assert_eq!(bake_all(&s, &with_stack(explicit)), bake_all(&s, &TerrainAppearance::default()), "the explicit default moved the export image");
 }
 
+/// Protects: `LayerStack::DEFAULT` is, by literal ids and mode names, terrain / colour relief / hillshade with Normal / Normal / Multiply, all visible at opacity 1.0.
+///
 /// The `DEFAULT` constant, asserted against literals rather than against
 /// itself. `assert_eq!(DEFAULT.entries()[2].blend, BlendMode::Multiply)` would
 /// hold for whatever the constant said; naming the arrangement out loud does
@@ -323,6 +344,8 @@ fn the_default_stack_is_the_arrangement_this_renderer_hardcoded() {
 // 2. Every control is load-bearing — and reaches both consumer paths
 // ---------------------------------------------------------------------------
 
+/// Protects: hiding, dimming, re-blending (Overlay, Screen) and reordering layers each change over 5% of samples on both `render_all` and `bake_all`, so no control is wired into only one of the two hand-written pipelines.
+///
 /// Visibility, opacity, blend mode and order each have to move the picture, on
 /// the screen path **and** on the export path.
 ///
@@ -422,6 +445,8 @@ fn every_stack_control_moves_both_consumer_paths() {
     assert!(moved(&lit_bake, &bake_all(&s, &a), 2) > 0.05, "colour relief opacity moved nothing in the export");
 }
 
+/// Protects: with Terrain hidden and every tinting stage off, land pixels are exactly neutral grey and over 90% are above level 40, i.e. the composite starts from a white ground rather than black.
+///
 /// Hiding Terrain must leave the grey relief plate a reader means by
 /// "hillshade alone", not a black one — the white ground `LayerStack::
 /// composite` starts from is the only thing that makes that true, and a black
@@ -480,6 +505,8 @@ fn terrain_hidden_leaves_a_bright_neutral_relief_plate() {
     );
 }
 
+/// Protects: forcing the composite branch with an inert Multiply on the empty colour-relief row gives the same picture as the hardcoded default branch to within one level and on under 0.1% of samples, on screen and in the export.
+///
 /// The composite has to *be* the pipeline it replaced, not merely a plausible
 /// one — otherwise the identity above is a bypass rather than a proof, and the
 /// first user to touch a layer gets a different map for no stated reason.
@@ -518,6 +545,8 @@ fn the_composite_reproduces_the_pipeline_it_replaced() {
 // 3. The blend formulas, against literals
 // ---------------------------------------------------------------------------
 
+/// Protects: each `BlendMode::apply` against hand-worked values (Normal, Multiply, Screen, Overlay on both sides of its 127.5 pivot, Add unclamped), alpha 0 and 0.5, and the `light > 1` Multiply identity the composite relies on.
+///
 /// Each mode's arithmetic, asserted against numbers worked out by hand rather
 /// than against the implementation. `assert_eq!(Multiply.apply(..), d * s / 255)`
 /// would hold whatever `apply` did.
@@ -559,6 +588,8 @@ fn each_blend_mode_is_its_own_formula() {
     assert!((BlendMode::Multiply.apply((80.0, 80.0, 80.0), (light * 255.0, light * 255.0, light * 255.0), 1.0).0 - 100.0).abs() < 1e-9);
 }
 
+/// Protects: every name in `BLEND_MODES` parses back (case-insensitively) to a mode of that name, the identity mode is listed first, and an unknown name is refused.
+///
 /// Every mode name has to survive the round trip a panel makes, and the list
 /// has to start with the identity.
 #[test]
@@ -572,6 +603,8 @@ fn blend_mode_names_round_trip() {
     assert_eq!(BlendMode::from_name("Rhubarb"), None, "an unknown mode must be refused, not defaulted");
 }
 
+/// Protects: `RasterLayer` ids round-trip exactly (not case-folded, no trailing-space tolerance) and every layer has a non-empty label.
+///
 /// Layer ids round-trip, and are distinct from the labels — the id is what a
 /// save file and a panel address a row by, so it must not be the display
 /// string.
@@ -589,6 +622,8 @@ fn layer_ids_round_trip() {
 // 4. The setter refuses what it cannot represent
 // ---------------------------------------------------------------------------
 
+/// Protects: `LayerStack::set` refuses a stack naming one layer twice and leaves the stack untouched on refusal.
+///
 /// A stack that names a category twice, or omits one, is refused with nothing
 /// changed. `MISTAKES.md`: never encode "no value" as a plausible value — a
 /// missing `hillshade` row is not a hidden hillshade.
@@ -604,6 +639,8 @@ fn an_incomplete_stack_is_refused_and_changes_nothing() {
     assert!(s.is_default(), "a refused set() still mutated the stack");
 }
 
+/// Protects: `LayerStack::set` clamps opacity into 0..=1 (-3.0 to 0.0, 4.0 to 1.0) and keeps an in-range 0.25.
+///
 /// Opacity is clamped by the setter, so nothing downstream has to defend
 /// against a negative or a 4.0 — asserted against literals, not against a range
 /// constant.
@@ -620,6 +657,8 @@ fn the_setter_clamps_opacity() {
     assert_eq!(s.entries()[2].opacity, 0.25);
 }
 
+/// Protects: a non-default stack survives the appearance JSON round trip, and a preset with no `layers` key still loads on the default stack.
+///
 /// A stack survives the CA-08 saved-look round trip, and a preset written
 /// before the field existed still loads — `#[serde(default)]` on
 /// `TerrainAppearance` is what makes the second half true, and it is the half

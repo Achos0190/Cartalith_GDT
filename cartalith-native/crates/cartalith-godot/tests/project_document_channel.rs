@@ -34,12 +34,15 @@
 //! the refusal, and everything below the boundary is exercised here.
 #![allow(dead_code)]
 
+/// `params.rs` compiled into this test binary (the crate is `cdylib`; see the module doc). Used for
+/// `params::save_state` when writing a flat legacy export.
 #[path = "../src/params.rs"]
 mod params;
 
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_io::project::ProjectWrite;
 
+/// The shell-owned journeys slot (`SAVEFILE_COMPAT.md` §9.6), the payload F10 was raised about.
 const JOURNEYS: &str = "entities/journeys.json";
 /// The sixth caller-owned slot (`SAVEFILE_COMPAT.md` §11.4, registered
 /// 2026-09-03) and the second one GDScript writes for itself.
@@ -50,6 +53,7 @@ const MEASUREMENTS: &str = "annotations/measurements.json";
 /// very next increment, so the pair brackets the rule rather than sampling
 /// inside it.
 const ABOVE_2_31: i64 = 4_294_967_297;
+// 2^53 - 1 = 9 007 199 254 740 991, the largest integer a double holds exactly (§14.1's ceiling).
 const MAX_SAFE: i64 = 9_007_199_254_740_991;
 
 /// Pretty-printed, members out of alphabetical order, and free text carrying
@@ -69,6 +73,8 @@ fn journeys_document() -> String {
     )
 }
 
+/// Generates a 16x11, 400 km world (seed 24601, the seed used across this crate's fixtures; the
+/// other numbers are judgement values) just big enough to give the writer real fields to save.
 fn a_small_world() -> (WorldParams, WorldState) {
     let mut p = WorldParams::defaults(16, 11, 24601);
     p.map_width_km = 400.0;
@@ -76,10 +82,14 @@ fn a_small_world() -> (WorldParams, WorldState) {
     (p, ws)
 }
 
+/// Writes a project archive carrying `text` in the journeys slot and no foreign entries.
 fn write_with_journeys(text: &str) -> Vec<u8> {
     write_with_documents(&[(JOURNEYS, text)], Default::default())
 }
 
+/// Writes a project archive of the small world carrying each `(slot, text)` document verbatim and
+/// re-emitting the `foreign` (unmodelled) entries, then returns its bytes. Panics if the writer
+/// refuses, because every caller passes only registered slots holding valid JSON.
 fn write_with_documents(
     docs: &[(&str, &str)],
     foreign: std::collections::BTreeMap<String, Vec<u8>>,
@@ -118,6 +128,9 @@ fn write_with_documents(
     buf
 }
 
+/// Protects: a caller-owned JSON document (pretty-printed, members out of order, an id above
+/// 2^31 and one at 2^53 - 1, escaped quotes and non-ASCII text) comes back from a real archive
+/// as the identical text, and that re-serialising the parsed value would not (the mutation guard).
 #[test]
 fn a_caller_owned_document_survives_the_archive_byte_for_byte() {
     let sent = journeys_document();
@@ -164,6 +177,10 @@ fn a_caller_owned_document_survives_the_archive_byte_for_byte() {
     assert!(!reserialized.contains('\n'));
 }
 
+/// Protects: the measurements slot is registered, returns verbatim beside the journeys slot,
+/// and an unmodelled foreign entry survives a read-carry-write cycle without being lost or
+/// duplicated.
+///
 /// The measurement store rides the channel above rather than being a second
 /// persistence mechanism (owner ruling, 2026-09-03), and this is what "rides"
 /// has to mean in practice:
@@ -226,6 +243,8 @@ fn the_measurements_slot_rides_the_channel_and_leaves_a_foreign_entry_alone() {
     assert_eq!(parsed["measurements"][0]["unit"].as_str(), Some("km"));
 }
 
+/// Protects: `project::read_document` returns the same text as the full reader, and answers
+/// `None` (not an error) for a slot the archive lacks and for a name that is not a slot.
 #[test]
 fn the_targeted_reader_gives_the_same_text_without_decoding_the_world() {
     let sent = journeys_document();
@@ -252,6 +271,8 @@ fn the_targeted_reader_gives_the_same_text_without_decoding_the_world() {
     );
 }
 
+/// Protects: a flat legacy export (no project layer, §15) reads back with no documents and the
+/// targeted reader answers `None` instead of rejecting the archive.
 #[test]
 fn a_flat_legacy_export_carries_no_documents_and_that_is_not_an_error() {
     // §15: the flat layout has no project layer at all. The targeted reader
@@ -319,6 +340,10 @@ fn with_entry_replaced(buf: &[u8], name: &str, bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Protects: a document with a leading BOM and float-typed integers (the HTML app's shape,
+/// §14.2) is handed back with the producer's bytes minus the BOM by both readers, while the
+/// parsed view coerces `1.0` and `2e0` to integers and keeps a genuine fraction.
+///
 /// A document written by an implementation that emits integers as floats and
 /// leads with a byte-order mark — the shape §14.2 exists for, and the shape
 /// the HTML app's own JSON layer produces. The verbatim text keeps the
@@ -357,6 +382,9 @@ fn a_foreign_writers_bytes_are_kept_and_its_numbers_are_still_coerced() {
     );
 }
 
+/// Protects: `write_project` refuses a document that starts with a BOM, is truncated or is not
+/// JSON, instead of silently editing it and breaking the verbatim promise.
+///
 /// This port will not *write* a byte-order mark, and refuses the save rather
 /// than stripping one silently: §14 states the format is UTF-8 without a BOM,
 /// and a writer that quietly edited a caller's document would break the

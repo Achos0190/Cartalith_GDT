@@ -36,9 +36,13 @@ mod render;
 
 use render::{RenderCtx, TerrainAppearance, TileBounds, TileFields};
 
+/// Fixture grid width in cells. Judgement, but one the doc on [`synth`] depends on: at 256x256 over [`MAP_WIDTH_KM`], `river_flow_thresh` is `26.2144`, which is what the three discharge tiers are placed against.
 const GW: usize = 256;
+/// Fixture grid height in cells; see [`GW`].
 const GH: usize = 256;
+/// Sea level handed to the renderer. Judgement: the project's usual `0.42` used by the other render fixtures; the fixture's field is `0.62 + 0.14*ridge + fine` with `|ridge| <= 1` and `|fine| <= 0.06`, so it never falls below `0.42` and every cell is land.
 const SEA: f64 = 0.42;
+/// Map width in kilometres for `with_map_scale`. Judgement: the width at which [`synth`]'s documented river thresholds (`26.2144` against a floor of `4`) were worked out.
 const MAP_WIDTH_KM: f64 = 800.0;
 
 /// A world with real relief and a **dendritic** flow field whose branches sit
@@ -71,6 +75,7 @@ struct Synth {
     flow: Vec<f32>,
 }
 
+/// Builds the [`Synth`] fixture: ridged land well above sea level plus the trunk / branch / tributary flow tiers described on [`Synth`]. Deterministic closed-form trigonometry; never reads the generator, so it cannot drift with it.
 fn synth() -> Synth {
     let mut field = vec![0f32; GW * GH];
     let mut temperature = vec![0f32; GW * GH];
@@ -113,6 +118,7 @@ fn synth() -> Synth {
     Synth { field, temperature, rainfall, flow }
 }
 
+/// A [`RenderCtx`] over `s` at [`SEA`] and [`MAP_WIDTH_KM`] with appearance `a`. The scale (`with_map_scale`) is required: without it the per-tile river threshold has no map width to work from.
 fn ctx_for(s: &Synth, a: TerrainAppearance) -> RenderCtx<'_> {
     RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, SEA, false, 55.0, 5.0, a).with_map_scale(MAP_WIDTH_KM)
 }
@@ -172,6 +178,7 @@ fn tile_height(s: &Synth, w: usize, h: usize, b: TileBounds) -> Vec<f32> {
     t
 }
 
+/// Bilinear sample of a coarse-grid field at fractional cell coordinates, clamped to the grid. Used only to build the tile's base height; see [`tile_height`].
 fn bilinear(f: &[f32], wx: f64, wy: f64) -> f64 {
     let fx = wx.clamp(0.0, GW as f64 - 1.001);
     let fy = wy.clamp(0.0, GH as f64 - 1.001);
@@ -183,6 +190,7 @@ fn bilinear(f: &[f32], wx: f64, wy: f64) -> f64 {
     a * (1.0 - ty) + c * ty
 }
 
+/// Number of byte positions at which two equal-length buffers differ. Asserts equal length so a truncated render cannot read as "fewer differences".
 fn differing(a: &[u8], b: &[u8]) -> usize {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b.iter()).filter(|(x, y)| x != y).count()
@@ -192,6 +200,8 @@ fn differing(a: &[u8], b: &[u8]) -> usize {
 // The identity — three ways, each on rendered bytes
 // ===========================================================================
 
+/// Protects: at `detail_scale_strength == 0.0` the scale curves (band weights, crest step, river threshold) are the identity at four depths from coarser-than-grid to sixteen pixels per cell. The byte comparison itself only shows the render is deterministic; the identity content is the curve asserts.
+///
 /// `detail_scale_strength == 0.0` must be the pre-milestone tile **exactly**,
 /// at any depth.
 ///
@@ -235,6 +245,8 @@ fn the_control_at_zero_is_the_pre_milestone_tile_at_every_depth() {
     }
 }
 
+/// Protects: at one tile pixel per coarse cell the control changes no rendered byte even at strength 1.0, and each curve (u, weights, crest step, river threshold) is individually the identity there.
+///
 /// At **one tile pixel per coarse cell** every stage is the identity whatever
 /// the control says — the scope's own requirement, *"a test holds the zoom-1
 /// weights byte-identical to today"*, asserted on the rendered bytes and not
@@ -267,6 +279,8 @@ fn at_grid_resolution_the_control_changes_nothing() {
     assert_eq!(render::tile_river_thresh(37.5, 1.0, 1.0), 37.5, "the river threshold is not the map's at grid resolution");
 }
 
+/// Protects: the grid-path `cell_color` render is byte-identical at `detail_scale_strength` 0 and 1, so the scale control cannot silently re-baseline default-appearance renders.
+///
 /// The grid path must not see this milestone at all.
 ///
 /// `cell_color` passes `land_color`'s `scale` argument a literal `None`, so a
@@ -303,6 +317,8 @@ fn the_screen_render_cannot_see_the_control() {
 // Load-bearing — the negative control for every identity above
 // ===========================================================================
 
+/// Protects: the negative control for every identity here: a sixteen-pixels-per-cell tile changes in over a quarter of its pixels when the control goes from 0 to 1, and the weights stage and crest stencil each react on their own.
+///
 /// A deep tile must be a **different picture** with the control up.
 ///
 /// Every test above asserts that something did not move. If the control were
@@ -342,6 +358,8 @@ fn a_deep_tile_moves_when_the_control_moves() {
 // The curves, each against an independently computed literal
 // ===========================================================================
 
+/// Protects: `detail_scale_u` is `-log2(cells_per_px)/6` clamped to [-1, 1], checked against hand-computed literals, with NaN, zero and negative inputs mapped to 0.0.
+///
 /// [`render::detail_scale_u`] is `−log2(cells_per_px) / 6`, clamped.
 ///
 /// Asserted against hand-computed literals, not against
@@ -366,6 +384,8 @@ fn the_scale_argument_counts_octaves_past_the_grid() {
     assert_eq!(render::detail_scale_u(f64::NAN), 0.0);
 }
 
+/// Protects: `scaled_detail_weights` moves weight from macro to meso/micro at the documented 2:1 ratio, conserves the sum at 1, scales with strength, never yields a negative weight, and the shipped weights and strength (`0.40/0.40/0.20`, `1.0`) are pinned as literals.
+///
 /// The band weights at saturation, against numbers computed by hand from the
 /// shipped `0.40 / 0.40 / 0.20`.
 ///
@@ -409,6 +429,8 @@ fn the_bands_move_from_macro_to_the_fine_two_and_conserve_their_sum() {
     assert!(m4 >= 0.0 && s4 >= 0.0 && i4 >= 0.0, "a negative band weight: {m4}, {s4}, {i4}");
 }
 
+/// Protects: `zoom_detail_peak_amplitude` equals the hand-derived geometric series for `AmplifyOpts::default()`, and `micro_n_from_residual` maps a residual linearly onto 0..1 about 0.5 with clamping, with zero scale and NaN giving the neutral 0.5.
+///
 /// The micro band's normaliser, and the residual mapping.
 #[test]
 fn the_micro_band_reads_the_residual_and_saturates_at_a_derived_scale() {
@@ -433,6 +455,8 @@ fn the_micro_band_reads_the_residual_and_saturates_at_a_derived_scale() {
     assert_eq!(render::micro_n_from_residual(f64::NAN, full), 0.5);
 }
 
+/// Protects: `crest_step_for_scale` grows with pixels-per-cell, is at least one, follows the strength as an exponent, is capped at a thirty-second of the tile's shorter side, and falls back to one for degenerate inputs.
+///
 /// The crest stencil, in tile pixels.
 #[test]
 fn the_crest_stencil_keeps_a_ground_width_inside_a_tile_relative_cap() {
@@ -464,6 +488,8 @@ fn the_crest_stencil_keeps_a_ground_width_inside_a_tile_relative_cap() {
     }
 }
 
+/// Protects: `micro_full_scale` (the function the render loop calls) is the peak amplitude over a literal 4.0 headroom, and is low enough for this fixture's sub-cell residual to saturate it.
+///
 /// The micro band's saturation point, as the renderer actually computes it.
 ///
 /// Asserted through `render::micro_full_scale` -- the function the render loop
@@ -480,6 +506,8 @@ fn the_renderer_saturates_the_micro_band_a_quarter_of_the_way_to_the_peak() {
     assert!(render::micro_full_scale() < 0.030, "the saturation point {} is above the residuals this fixture produces", render::micro_full_scale());
 }
 
+/// Protects: `tile_river_thresh` falls with the square of cells-per-pixel, floors at 4.0, never rises above the map's own threshold, never raises an already-low or zero threshold, and halves its exponent at half strength.
+///
 /// The per-tile river threshold, against hand-computed literals.
 #[test]
 fn the_river_threshold_falls_with_the_square_of_the_pixel() {
@@ -498,6 +526,8 @@ fn the_river_threshold_falls_with_the_square_of_the_pixel() {
     assert_eq!(render::tile_river_thresh(0.0, 0.25, 1.0), 0.0, "a threshold that was never attached was invented");
 }
 
+/// Protects: where the crest step is 1 and the band weights are pinned, the control moves no byte of a tile, so `build_crest`'s new `step` parameter is the identity at 1 on the tile path.
+///
 /// `build_crest`'s new `step` parameter is the identity at `1` **on the field
 /// itself**, not only on the finished screen.
 ///
@@ -546,6 +576,8 @@ fn a_unit_step_is_the_stencil_the_crest_always_had() {
 // Acceptance bar 1 — research Test E, on the river seeds
 // ===========================================================================
 
+/// Protects: acceptance bar 1: on one fixed ground footprint rendered at 33, 65, 129 and 257 pixels, the 4-connected channel-component count of the renderer's own river seeds never falls and rises overall, every seed carries more than the threshold and every non-seed no more.
+///
 /// **The scope's first acceptance bar**: *"In a named river valley, the count
 /// of distinct channel components in view rises with zoom, and every drawn
 /// channel pixel has sampled discharge ≥ the threshold."*
@@ -615,6 +647,8 @@ fn the_channel_count_rises_with_zoom_and_every_seed_carries_its_discharge() {
     assert!(counts.last().unwrap().1 > counts[0].1, "the component count did not rise at all: {counts:?}");
 }
 
+/// Protects: the negative control for the channel-count bar: with the control at zero the threshold is the map's own at every resolution and the component count is constant, so the rise above comes from the threshold and not the sampler.
+///
 /// The negative control for the bar above — **the test that caught the
 /// confound**, kept because it is the only thing that distinguishes "the
 /// threshold revealed more channels" from "the sampler found more of them".
@@ -638,10 +672,12 @@ fn without_the_control_the_channel_count_does_not_rise() {
     assert!(seen.iter().all(|&n| n == seen[0]), "the count moved with the control at zero: {seen:?}");
 }
 
+/// The flow a seed pixel should carry: the fixture's flow field sampled bilinearly (through `f32`, like the renderer) at a world coordinate. Independent re-derivation of the sampling `tile_river_seeds` does.
 fn sampled_flow(s: &Synth, wx: f64, wy: f64) -> f64 {
     bilinear_of(&s.flow, wx, wy)
 }
 
+/// Same bilinear sample as [`bilinear`] but rounded through `f32` at the end, matching the width the renderer stores sampled flow in. Kept separate so the threshold comparison and the height path cannot disagree by one rounding.
 fn bilinear_of(f: &[f32], wx: f64, wy: f64) -> f64 {
     let fx = wx.clamp(0.0, GW as f64 - 1.001);
     let fy = wy.clamp(0.0, GH as f64 - 1.001);
@@ -698,6 +734,8 @@ fn components(mask: &[u8], w: usize, h: usize) -> usize {
 // The seam, and which of the four stages moves it
 // ===========================================================================
 
+/// Protects: with the river band out of both arms the control does not widen the shared-column seam ratio of two adjacent deep tiles beyond 5% plus 0.01. It records a finding rather than a bar; the all-stages and crest-off ratios are printed, not asserted.
+///
 /// **A regression measured on the live shell, one hypothesis refuted, and the
 /// cause still unknown — which is what this test records.**
 ///
@@ -745,6 +783,7 @@ fn which_stage_moves_the_shared_column_between_two_tiles() {
     let s = synth();
     // Two tiles sharing a column, four octaves past grid resolution, over the
     // fixture's channel junction so the river stage has seeds to place.
+    // Tile edge in pixels. Judgement: matches the 64x64 tiles every other test here draws.
     const TW: usize = 64;
     let span = 3.9375;
     let left = TileBounds { x: 100.0, y: 110.0, w: span, h: span };

@@ -17,17 +17,23 @@
 
 use rayon::prelude::*;
 
+/// The renderer under test, compiled straight from `src/render.rs` (no library build needed).
 #[path = "../src/render.rs"]
 mod render;
 
 use render::{ElevationRamp, RenderCtx, TerrainAppearance};
 
+// Synthetic grid width in cells (judgement: small enough to render dozens of times, wide enough
+// for a bowl and ridge).
 const GW: usize = 96;
+// Synthetic grid height in cells (judgement; non-square so an axis swap would show).
 const GH: usize = 64;
 
 /// A synthetic field that dips below the 0.42 sea level used below, so the
 /// synthetic map has real water for the sea-ramp tests to act on, plus real
 /// relief for the land-ramp tests.
+/// (Fixture note: the 0.20 base, 0.45 bowl and 0.20 ridge weights are judgement values chosen so the
+/// field straddles the 0.42 sea level used by `ctx`.)
 fn synth() -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let mut field = vec![0f32; GW * GH];
     let mut temperature = vec![0f32; GW * GH];
@@ -46,10 +52,15 @@ fn synth() -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     (field, temperature, rainfall)
 }
 
+/// Builds a non-wrapping `RenderCtx` over the synthetic grid at the engine's default sea level 0.42,
+/// with latitude bounds 55/5 and an 800 km map width attached.
 fn ctx<'a>(field: &'a [f32], temperature: &'a [f32], rainfall: &'a [f32], a: TerrainAppearance) -> RenderCtx<'a> {
     RenderCtx::with_appearance(field, temperature, rainfall, None, GW, GH, 0.42, false, 55.0, 5.0, a).with_map_scale(800.0)
 }
 
+/// Renders the whole grid to a 3-byte-per-pixel sRGB raster: colours every cell (rows in parallel,
+/// despite the name, which dates from an earlier serial loop), then runs `finish_raster`. The same
+/// pipeline as the app's screen path, so the tests below see what a user sees.
 fn render_serial(field: &[f32], temperature: &[f32], rainfall: &[f32], a: &TerrainAppearance) -> Vec<u8> {
     let c = ctx(field, temperature, rainfall, a.clone());
     let mut out = vec![0u8; GW * GH * 3];
@@ -66,17 +77,23 @@ fn render_serial(field: &[f32], temperature: &[f32], rainfall: &[f32], a: &Terra
     out
 }
 
+/// Fraction of bytes that differ by more than `tol` levels between two equal-length rasters.
 fn moved(a: &[u8], b: &[u8], tol: i32) -> f64 {
     let d = a.iter().zip(b).filter(|(p, q)| (**p as i32 - **q as i32).abs() > tol).count();
     d as f64 / a.len() as f64
 }
 
+/// Protects: `sea_ramp_strength` is 0.0 in both `default()` and `js_reference()`, so the Nautical
+/// mechanism cannot move the shipped look or any JS golden.
 #[test]
 fn sea_ramp_strength_is_zero_in_default_and_js_reference() {
     assert_eq!(TerrainAppearance::default().sea_ramp_strength, 0.0, "Ruling BI's Nautical addition must not move the shipped default");
     assert_eq!(TerrainAppearance::js_reference().sea_ramp_strength, 0.0, "Ruling BI's Nautical addition must not move a single JS golden");
 }
 
+/// Protects: an explicit `sea_ramp_strength: 0.0` renders byte-identically to the default (the
+/// off-by-default rule, by pixel equality rather than closeness).
+///
 /// §2's own rule, asserted directly: at `sea_ramp_strength: 0.0` the render
 /// must be byte-identical to a `TerrainAppearance` with the field entirely
 /// absent from the struct-update (i.e. the shipped default), not merely
@@ -89,6 +106,9 @@ fn sea_ramp_strength_at_zero_moves_nothing() {
     assert_eq!(base, explicit_zero, "sea_ramp_strength: 0.0 must be pixel-identical to the default — this is the whole point of the off-by-default rule");
 }
 
+/// Protects: the bathymetric sea ramp reaches the picture: at 0.85 more than 1% of bytes move
+/// by over 2 levels against the default.
+///
 /// The mutation test: raising `sea_ramp_strength` must visibly move the
 /// rendered water, on a fixture with real sea pixels (the 0.42 sea level
 /// against this field's bowl always leaves some cells below it).
@@ -100,6 +120,9 @@ fn sea_ramp_strength_above_zero_moves_the_sea() {
     assert!(moved(&off, &on, 2) > 0.01, "Nautical's bathymetric ramp at 0.85 must move a real fraction of the image; moved {}", moved(&off, &on, 2));
 }
 
+/// Protects: `SEA_RAMP_NAUTICAL` is non-empty, runs from depth 0.0 to 1.0 and has strictly
+/// increasing stops, which `sea_color_core`'s interpolation relies on.
+///
 /// [`render::SEA_RAMP_NAUTICAL`]'s own shape: sorted, non-empty, and the
 /// first/last stops are the shoreline and abyss ends `sea_color_core`'s
 /// `depth` sweeps.
@@ -114,6 +137,9 @@ fn sea_ramp_nautical_table_is_well_formed() {
     }
 }
 
+/// Protects: the four Ruling BI land ramps (Blueprint, Ink wash, Night, Vintage atlas) resolve
+/// through `ElevationRamp::preset` and are real gradients, not a single colour repeated.
+///
 /// The four new land ramps Ruling BI added (Blueprint, Ink wash, Night,
 /// Vintage atlas) must actually be registered under `ElevationRamp::preset`
 /// — the same lookup `load_ramp_preset` uses — with a non-empty stop list.
@@ -132,6 +158,9 @@ fn ruling_bi_ramp_presets_are_registered() {
     }
 }
 
+/// Protects: each new land ramp at strength 0.9 moves more than 5% of the image against the
+/// default, and each pair of ramps renders distinguishably (over 5% of bytes differ).
+///
 /// Mutation coverage for the land side: each new ramp at a real strength
 /// must move the rendered land relative to the unramped default — otherwise
 /// a preset naming it would draw the material model unchanged.

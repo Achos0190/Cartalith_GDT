@@ -23,6 +23,7 @@
 
 use rayon::prelude::*;
 
+/// The renderer under test, compiled straight from `src/render.rs` (via `#[path]`) because `cartalith-godot` is `cdylib`-only and has no `rlib` for an integration test to link.
 #[path = "../src/render.rs"]
 mod render;
 
@@ -32,8 +33,10 @@ use render::{ColorSpace, RenderCtx, TerrainAppearance};
 /// real (`GENERATION_PARAMETERS.md`) and every radius in `render.rs` resolves
 /// to more than its own floor at this size.
 const GW: usize = 128;
+/// Fixture grid height; 79 is the odd, non-square companion of `GW` (see its note), matching `appearance_tiers.rs`.
 const GH: usize = 79;
 
+/// The synthetic world's rasters (height, temperature, rainfall, discharge, lithology). Copy of `appearance_tiers.rs`'s fixture so the pinned hashes describe the same picture.
 struct Synth {
     field: Vec<f32>,
     temperature: Vec<f32>,
@@ -69,6 +72,7 @@ fn synth() -> Synth {
     Synth { field, temperature, rainfall, flow, lith }
 }
 
+/// A [`RenderCtx`] over `s` at sea level `0.42` with lithology attached, non-wrapping, under appearance `a`.
 fn ctx<'a>(s: &'a Synth, a: TerrainAppearance) -> RenderCtx<'a> {
     RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a).with_lithology(&s.lith)
 }
@@ -102,6 +106,7 @@ fn finished_render_in(a: &TerrainAppearance, space: ColorSpace) -> Vec<u8> {
     out
 }
 
+/// [`finished_render_in`] at the default `Srgb` space: the picture the shipped default texture shows, which is what the pinned digest hashes.
 fn finished_render(a: &TerrainAppearance) -> Vec<u8> {
     finished_render_in(a, ColorSpace::Srgb)
 }
@@ -122,6 +127,7 @@ fn chained_render_in(a: &TerrainAppearance, space: ColorSpace) -> Vec<u8> {
 /// dependency, the algorithm is four lines, and a pinned constant is only
 /// meaningful if the function that produced it is reproducible by inspection.
 fn fnv1a(bytes: &[u8]) -> u64 {
+    // FNV-1a 64-bit offset basis and prime (0x100000001b3) as published by Fowler, Noll and Vo.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         h ^= *b as u64;
@@ -144,6 +150,8 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// `js_reference()` pins it off.
 const FINISHED_RENDER_FNV1A: u64 = 0x48f3_344c_024f_3af8;
 
+/// Protects: Ruling AS's `sea_grain_warp` is literally 1.0 in the shipped look and 0.0 in `js_reference()`, so the golden-parity path cannot pick up the ocean lattice fix.
+///
 /// Ruling AS: the ocean lattice fix is on in the shipped look and off on the
 /// golden-parity path. Literals, not `default().sea_grain_warp`.
 #[test]
@@ -152,11 +160,14 @@ fn the_ocean_lattice_fix_is_on_in_the_shipped_look_only() {
     assert_eq!(TerrainAppearance::js_reference().sea_grain_warp, 0.0);
 }
 
+/// Protects: the finished default render hashes to the pinned `FINISHED_RENDER_FNV1A`, i.e. introducing the colour space (and later fusing the finishing passes) left the shipped sRGB image byte-identical, except where a ruling re-baselined it.
 #[test]
 fn default_render_is_byte_identical_to_the_pre_color_space_tree() {
     assert_eq!(fnv1a(&finished_render(&TerrainAppearance::default())), FINISHED_RENDER_FNV1A);
 }
 
+/// Protects: running `apply_color_space(Srgb)` over the finished default render still hashes to `FINISHED_RENDER_FNV1A`, so the extra last stage is a no-op at the default.
+///
 /// The same hash, taken through the stage `lib.rs::build_color_texture` now
 /// runs last. The default is `Srgb`, `apply_color_space` early-returns on it,
 /// and the assertion is against the constant measured before the stage existed
@@ -168,8 +179,8 @@ fn srgb_leaves_the_finished_render_untouched() {
     assert_eq!(fnv1a(&got), FINISHED_RENDER_FNV1A);
 }
 
-/// `(differing pixels, worst channel delta, signed mean channel delta)` of
-/// `fused` against `chained`.
+/// `(differing pixels, most negative channel delta, most positive channel
+/// delta, signed mean channel delta)` of `fused` against `chained`.
 fn diff(fused: &[u8], chained: &[u8]) -> (usize, i32, i32, f64) {
     let px = fused.chunks_exact(3).zip(chained.chunks_exact(3)).filter(|(f, c)| f != c).count();
     let d = || fused.iter().zip(chained).map(|(f, c)| *f as i32 - *c as i32);
@@ -177,6 +188,7 @@ fn diff(fused: &[u8], chained: &[u8]) -> (usize, i32, i32, f64) {
     (px, d().min().unwrap_or(0), d().max().unwrap_or(0), mean)
 }
 
+/// A deliberately heavy colour grade (every grade parameter off rest, values are this test's own judgement) so the fused-versus-chained comparison exercises all three finishing stages.
 fn strong_grade() -> TerrainAppearance {
     TerrainAppearance {
         grade_exposure: 0.2,
@@ -190,6 +202,8 @@ fn strong_grade() -> TerrainAppearance {
     }
 }
 
+/// Protects: Ruling AN's fused finishing pass differs from the old three-pass chain by exactly the recorded pixel counts and worst upward move per case (none at the shipped default), never darker, and with clearly lower error against the continuous value than the chain.
+///
 /// **Ruling AN's re-baseline, measured.** Fusing local contrast, the grade and
 /// the colour space into one pass with one quantisation removes the byte
 /// truncation *between* stages. Where only one stage runs — the shipped
@@ -254,6 +268,7 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
 /// (b), `TerrainAppearance::relief_lowpass` (was `0x0318_b14c_5f5a_ccd7`).
 const ANTIQUE_P3_FNV1A: u64 = 0x85e9_4e45_411f_b03f;
 
+/// Protects: the Antique + Display P3 render (all three stages running) hashes to `ANTIQUE_P3_FNV1A`, and the old chained path still produces its own pinned hash, so the two paths stay distinguishable and each is pinned.
 #[test]
 fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
     let antique = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
@@ -297,6 +312,8 @@ fn full_cube() -> Vec<u8> {
     cube
 }
 
+/// Protects: `Srgb` leaves every one of the 2^24 RGB8 values unchanged, a size-independent proof stronger than the single-picture hash.
+///
 /// Not the whole-image hash but the stronger, size-independent statement: over
 /// the **entire 24-bit cube**, `Srgb` changes nothing. A hash proves the one
 /// picture that happens to be pinned; this proves there is no input it could
@@ -312,6 +329,8 @@ fn srgb_is_the_identity_over_every_representable_pixel() {
     }
 }
 
+/// Protects: `ColorSpace::default()` is `Srgb` (named "sRGB" and listed first in `COLOR_SPACES`), the assumption every golden-parity fixture rests on.
+///
 /// `ColorSpace::default()` is what `WorldGen` opens on and what every
 /// golden-parity fixture assumes. The byte-identity guarantee is only worth
 /// anything while this holds.
@@ -322,6 +341,8 @@ fn the_default_space_is_srgb() {
     assert_eq!(render::COLOR_SPACES[0], "sRGB");
 }
 
+/// Protects: every name in `COLOR_SPACES` parses back to a space of that name, unknown and differently-cased names are refused, keeping list order and enum order one fact.
+///
 /// `name()` indexes `COLOR_SPACES` by discriminant, so the list order and the
 /// enum order are one fact stored twice. This is the assertion that keeps them
 /// the same fact.
@@ -337,6 +358,8 @@ fn every_published_name_round_trips() {
 
 // ---- Display P3: the three properties the transform's soundness rests on ----
 
+/// Protects: every `SRGB_TO_P3` entry is non-negative and each row sums to 1 (within 1e-12), so no sRGB colour can leave range on the way into P3 and white stays white.
+///
 /// `SRGB_TO_P3` is non-negative with rows summing to 1, so **no sRGB colour can
 /// clip on the way into P3** — every output channel is a convex combination of
 /// three values already in range. Asserted over the whole 24-bit cube by
@@ -353,6 +376,8 @@ fn the_matrix_cannot_clip() {
     }
 }
 
+/// Protects: all 256 neutral greys are unchanged byte for byte by Display P3.
+///
 /// The consequence of the rows summing to 1: a neutral in is the same neutral
 /// out, exactly, at every one of the 256 levels. The paper ground, the
 /// neatlines and the grey hillshade view therefore do not move at all under
@@ -365,6 +390,8 @@ fn neutrals_survive_display_p3_exactly() {
     assert_eq!(px, before);
 }
 
+/// Protects: Display P3 is not the identity on chroma: the sRGB primaries map to the literal triples (234,51,35), (117,251,76) and (0,0,245).
+///
 /// Display P3 is **not** the identity on chroma — the whole point of the row.
 /// A saturated primary is the strongest case: sRGB red is well outside what P3
 /// needs to encode it, so its green and blue coordinates must move.
@@ -383,6 +410,8 @@ fn display_p3_actually_re_encodes_chroma() {
     assert_eq!(&px[6..9], &[0, 0, 245], "sRGB blue");
 }
 
+/// Protects: over the whole 24-bit cube Display P3 yields exactly 8 764 261 distinct outputs and a worst single-channel move of `MAX_CHANNEL_SHIFT` levels, so any change to the matrix, transfer functions or rounding that makes the transform lossier fails.
+///
 /// **The measured cost of doing this at 8 bits**, rather than a claim about it.
 ///
 /// Encoding an sRGB-gamut colour into a wider container spends precision: the

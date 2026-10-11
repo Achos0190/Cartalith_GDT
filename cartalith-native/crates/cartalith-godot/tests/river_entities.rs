@@ -21,10 +21,14 @@
 use cartalith_engine::{WorldParams, generate_terrain};
 use cartalith_hydrology::{River, pick_river, river_entities, river_flow_thresh, river_width_scale_k};
 
+/// Grid width in cells. Judgement: 4:3 with `GH`, large enough to trace dozens of rivers, small enough for a full `generate_terrain` per test.
 const GW: usize = 192;
+/// Grid height in cells; see [`GW`].
 const GH: usize = 144;
+/// Map width in kilometres, which sets the river flow threshold and width scale. Judgement: 800 km, the width the LOD-D5 tests also use.
 const MAP_WIDTH_KM: f64 = 800.0;
 
+/// The river entities of a generated world at `min_order`, built from the world's own stream order, retained receiver tree, discharge and height, with the flow threshold and width scale for this grid and [`MAP_WIDTH_KM`]. Panics if extraction did not run.
 fn rivers_of(ws: &cartalith_engine::WorldState, min_order: i32) -> Vec<River> {
     let order = ws.stream_order.as_ref().expect("carve_rivers is on by default, so extraction ran");
     let ch = ws.channels.as_ref().expect("a generated world retains its receiver tree");
@@ -42,6 +46,7 @@ fn rivers_of(ws: &cartalith_engine::WorldState, min_order: i32) -> Vec<River> {
     )
 }
 
+/// A generated `GW`x`GH` world at `seed` on the CPU path (the GPU path is principled-equivalent, not bit-reproducible, `DECISIONS.md` §7c). The tests mostly use seed 20260902, an arbitrary date-valued seed; some assertions (the 587/588 tie count, the non-zero discharge dips) are properties of that seed.
 fn world(seed: i32) -> cartalith_engine::WorldState {
     let mut p = WorldParams::defaults(GW, GH, seed);
     // CPU only: the GPU path is principled-equivalent, not bit-reproducible
@@ -51,6 +56,8 @@ fn world(seed: i32) -> cartalith_engine::WorldState {
     generate_terrain(&p)
 }
 
+/// Protects: a generated world traces more than 20 river entities at `min_order` 1, each with at least two points, a real order, positive length and discharge, in-grid head and mouth, discharge bounding both ends, a half-width at least 0.5 where resolved, and the world has confluences and a resolved width.
+///
 /// A generated world must actually have rivers, and every one of them must be
 /// a well-formed entity — the assertion that would have caught this shipping
 /// as an empty array.
@@ -102,6 +109,8 @@ fn a_generated_world_yields_well_formed_river_entities() {
     );
 }
 
+/// Protects: raising `min_order` never adds rivers, order 4 is strictly thinner than order 1, and every run at `min_order` 3 has order at least 3.
+///
 /// `min_order` is the density control both bindings expose, and it has to
 /// actually thin the network — the reference's own "the network has thousands
 /// of order-1 trickles" (`drawRiverWays`, v0.96).
@@ -122,6 +131,8 @@ fn min_order_thins_the_network_monotonically() {
     }
 }
 
+/// Protects: `pick_river` always picks a river for a vertex and for a mid-segment point, picks the vertex's own run for at least 99% of interior vertices with every exception a proven exact tie, and returns nothing far outside the grid.
+///
 /// The hit test, against real geometry.
 ///
 /// Three claims, and the middle one is the whole reason to test on a real
@@ -189,6 +200,8 @@ fn a_point_on_a_river_picks_that_river_back() {
     assert_eq!(pick_river(&rivers, -50.0, -50.0, 2.0), None);
 }
 
+/// Protects: `River::discharge`'s documented caveat is real on a generated world, i.e. at least one run's mouth carries less flow than its peak; going red means the two receiver trees converged and that note is stale.
+///
 /// The finding `River::discharge`'s doc comment rests on, asserted rather than
 /// asserted-about: on a real world there **are** runs whose mouth carries less
 /// flow than a cell upstream of it, because the traced receiver tree and the
@@ -216,6 +229,8 @@ fn non_monotone_discharge_is_real_not_theoretical() {
     );
 }
 
+/// Protects: `river_draw_plan` on real terrain hides some parallel runs and bridges some pits but hides under half the network, never hides a run behind a hidden one, and an independent re-check finds no inland pit next to another drawn run left unbridged.
+///
 /// `river_draw_plan` on real terrain: it must actually fire (the trace really
 /// does break at land pits and really does run parallel columns -- see its doc
 /// comment), hide only a minority, and bridge every pit that has a drawn,
@@ -297,6 +312,8 @@ fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
     assert_eq!(unbridged, 0, "a land pit next to another drawn run was left unbridged");
 }
 
+/// Protects: with river carving off the extraction stays unrun, and the empty-input case (as for a loaded save) yields no rivers and nothing to pick; the empty-input half calls `river_entities` directly rather than going through the generated world.
+///
 /// A world generated with river carving off has no channel topology, and both
 /// bindings must come back empty rather than inventing one — the same state a
 /// loaded save is in (`SAVEFILE_COMPAT.md` stores no channel topology).

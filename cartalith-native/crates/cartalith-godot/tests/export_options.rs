@@ -11,9 +11,11 @@
 #[path = "../src/render.rs"]
 mod render;
 
+/// The streaming writer (only its `StreamFormat` is used here), compiled straight from `src/export_stream.rs` via `#[path]` because `cartalith-godot` is `cdylib`-only.
 #[path = "../src/export_stream.rs"]
 mod export_stream;
 
+/// The Godot-free export options under test, compiled straight from `src/export_options.rs` via `#[path]`.
 #[path = "../src/export_options.rs"]
 mod export_options;
 
@@ -28,10 +30,13 @@ const LADDER: [(usize, usize); 5] = [(2048, 1311), (4096, 2622), (8192, 5244), (
 /// `8192 × 5244`: the whole raster at `UNGATED_MAX_WIDTH` on that grid.
 const UNGATED_PX: u64 = 42_958_848;
 
+/// The band plan the export would use at `w`x`h`: the ungated-8K budget (`UNGATED_PX`) at 23 bytes per pixel, which is `export_raster.rs`'s `PEAK_BYTES_PER_PIXEL` (3 + 4 + 16), with no device-memory limit.
 fn plan(a: &TerrainAppearance, w: usize, h: usize) -> ExportBandPlan {
     ExportBandPlan::for_budget(a, w, h, band_budget_px(UNGATED_PX, None, 23))
 }
 
+/// Protects: `ExportBandPlan::for_budget` at each export width from 2K to 32K gives the hand-worked band count, rows per band and apron (one band to 8K; 5 bands of 2294 rows at 16K; 33 of 655 at 32K), so a change to the budget, apron or plan arithmetic turns this red.
+///
 /// The numbers `export_raster_estimate` reports as `bands` / `band_rows` /
 /// `apron_rows` / `band_peak_bytes`, at the default appearance (local
 /// contrast on, radius 0.010 of the width).
@@ -50,6 +55,8 @@ fn the_band_plan_at_every_rung_is_the_hand_worked_one() {
     }
 }
 
+/// Protects: widths up to 8K are one band holding the whole raster, and 16K/32K peak at exactly the ungated 8K figure of 988 053 504 bytes, tallest band and apron included.
+///
 /// 2K/4K/8K are one band with no apron — E1's monolithic path, not a banded
 /// approximation of it — and 16K/32K cost **exactly** what an 8K export
 /// always has: 42 958 848 px × 23 B = 988 053 504 bytes.
@@ -66,6 +73,8 @@ fn a_banded_export_peaks_at_the_ungated_8k_figure() {
     }
 }
 
+/// Protects: the apron is derived from the style-edited appearance, so a style with local contrast off has no apron and plans exactly 4 bands at 16K and 16 at 32K.
+///
 /// The apron comes from the appearance, so a style override that turns
 /// local contrast off moves the band count: 16K 2 622 rows a band, exactly 4
 /// bands; 32K 1 311, exactly 16.
@@ -80,6 +89,8 @@ fn a_style_without_local_contrast_plans_fewer_bands() {
     assert_eq!((p32.band_count(), p32.rows_per_band, p32.apron), (16, 1311, 0));
 }
 
+/// Protects: `band_budget_px` divides the available bytes by the per-pixel peak, never exceeds the ungated ceiling, ignores a missing limit, and a 500 MB device gets 7-row bands at 32K rather than a refusal.
+///
 /// A device reporting less than the 8K figure gets thinner bands, not a
 /// refusal: 500 000 000 B / 23 = 21 739 130 px, so 32K fits 663 rows and
 /// 663 − 656 = 7 rows a band, ⌈20 976 / 7⌉ = 2 997 bands.
@@ -93,6 +104,8 @@ fn a_small_memory_budget_thins_the_bands() {
     assert_eq!((p.band_count(), p.rows_per_band), (2997, 7));
 }
 
+/// Protects: `ExportStyle::apply_edits` keeps the ramp mode through a ramp preset, clamps tunables to their published range (`exag` 99 to 12), rounds `relief_lights`, leaves the caller's appearance untouched, and is repeatable from the same base.
+///
 /// The style's edits: a ramp preset keeps the mode in force (as
 /// `load_ramp_preset` does), tunables clamp to the published range, and
 /// `relief_lights` rounds. The input is taken by value — the caller's copy
@@ -121,6 +134,7 @@ fn the_style_edits_layer_on_a_copy() {
     assert!(ExportStyle::default().is_empty());
 }
 
+/// Protects: unknown look, ramp, tunable and format names (and a NaN tunable value) are refused rather than defaulted, while known names parse case-insensitively and `format_name` round-trips.
 #[test]
 fn names_are_validated_not_defaulted() {
     assert_eq!(export_options::look_from_name("antique parchment"), Some(render::LOOK_ANTIQUE));
@@ -134,6 +148,8 @@ fn names_are_validated_not_defaulted() {
     assert_eq!(export_options::format_name(StreamFormat::BigTiff), "bigtiff");
 }
 
+/// Protects: `parse_appearance_preset` round-trips the document `save_appearance_preset` writes, and each malformed shape (bad JSON, wrong format tag, missing appearance block, unopenable file) is an error with its own message.
+///
 /// The preset parser `load_appearance_preset` and the export now share:
 /// `save_appearance_preset`'s own document shape round-trips, and each
 /// malformed shape is an error naming its fault.
@@ -151,6 +167,8 @@ fn a_saved_preset_parses_and_a_bad_one_is_refused() {
     assert!(export_options::read_appearance_preset(std::path::Path::new("Z:/no/such/preset.json")).err().expect("must be refused").starts_with("open failed"));
 }
 
+/// Protects: a settlement tier draws itself and every larger tier but nothing smaller, only `all` reaches the additive villages, and even `all` does not reach an unknown kind.
+///
 /// §5's explicit tier, largest first: a tier draws itself and everything
 /// above it; only `all` reaches the additive villages.
 #[test]
@@ -166,6 +184,8 @@ fn a_settlement_tier_includes_everything_above_it() {
     assert_eq!(SettlementTier::from_name("all").map(SettlementTier::name), Some("all"));
 }
 
+/// Protects: the default content is terrain plus rivers with no overlays, and every requested overlay (settlements, routes, ways, labels, territory, icons) is reported by name, with `rivers` rejected as a non-overlay.
+///
 /// The default content is what `export_raster_png` draws — terrain and
 /// rivers, nothing pending — and every overlay asked for is reported by name.
 #[test]

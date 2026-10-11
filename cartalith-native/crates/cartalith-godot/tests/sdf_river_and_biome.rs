@@ -124,7 +124,10 @@ fn brute_dist(mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
     out
 }
 
+// Fixture grid width in cells (judgement: odd and small enough to enumerate by hand; the seam at
+// x = 6 and the island at (1, 7) are placed against it).
 const TW: usize = 11;
+// Fixture grid height in cells (judgement; see `TW`).
 const TH: usize = 9;
 
 /// A discharge field with two real channels in it (one L-shaped, one
@@ -147,6 +150,10 @@ fn flow_fixture(thresh: f64) -> Vec<f32> {
 // 1. The composition
 // ---------------------------------------------------------------------------
 
+/// Protects: `build_river_sdf` equals the reference's `buildRiverSDF` composition bit for bit
+/// (river mask at `>`, signed output, jump-flood distance), and that a channel cell reads as
+/// inside, a far corner as outside and an exactly-at-threshold cell as not a channel.
+///
 /// `buildRiverSDF` (reference HTML 7509-7516), assembled here from the
 /// reference's own transform and compared bit-for-bit against the shipped one.
 #[test]
@@ -180,6 +187,10 @@ fn build_river_sdf_is_the_reference_composition() {
     assert!(got[1 * TW + 9] > 0.0, "flow exactly AT the threshold is not a channel -- the reference cuts at `>`");
 }
 
+/// Protects: the oracle `ref_jfa_dist` really is the reference's approximate jump flood (exact
+/// from one seed, over-estimating from many, 5 against sqrt(17) at one cell), so the
+/// composition tests compare against the right thing.
+///
 /// The oracle above is a jump flood, and a jump flood from a **single seed** is
 /// exact — which is what makes it a jump flood rather than a mistake. Checked
 /// against the exhaustive definition, and checked to *disagree* with it on the
@@ -201,6 +212,10 @@ fn the_reference_jump_flood_is_exact_from_one_seed_and_approximate_beyond_it() {
     assert_eq!(jfa[2 * TW], 5.0, "and the flood's answer, which a port has to reproduce, is 5");
 }
 
+/// Protects: the river channel test is `flow > thresh`, not `>=`; with no channel anywhere the
+/// field reads the reference's `1e9` sentinel, and a lone channel cell reads -1 (minus the
+/// distance to its bank) and takes no band.
+///
 /// The cut is `>` and not `>=`, stated as its own row because it is the one
 /// place the `build_coast_sdf` composition could have silently diverged:
 /// `buildCoastSDF` splits its own field at `<`, so a mask built at the wrong
@@ -260,6 +275,10 @@ fn biome_edge_mask() -> Vec<u8> {
     edge
 }
 
+/// Protects: `build_biome_boundary_dist` equals the jump-flood distance to the reference's
+/// 4-neighbour biome edge set (including a one-cell island), is exactly 0 on a boundary cell,
+/// and reads the `1e9` no-seed sentinel for a single-biome map.
+///
 /// `buildBiomeBoundaryDist` (reference HTML 7519-7525) — unsigned, `0` on a
 /// boundary, and built from the reference's 4-neighbour edge test.
 #[test]
@@ -291,8 +310,14 @@ fn build_biome_boundary_dist_is_the_reference_edge_distance() {
 // 2. The constants
 // ---------------------------------------------------------------------------
 
+// Tolerance for the closed-form expected values below, which are exact arithmetic on f64
+// (judgement: far below one 8-bit level, loose enough for reassociation).
 const EPS: f64 = 1e-9;
 
+/// Protects: `apply_river_sdf`'s ring radii, blend weights, colours and gating (no band on or
+/// inside a channel, at zero strength or beyond the outer ring), and that the grid-width
+/// normaliser `S` reaches the band mix.
+///
 /// `applyCoastRiverSDFv`'s river leg (8178-8182): three rings at 2, 7 and 16
 /// normalised cells, blended at 0.30 / 0.22 / 0.14 toward three literal
 /// colours, with `(1 - inner)` factors that stop them stacking.
@@ -335,11 +360,10 @@ fn the_river_bands_are_the_reference_constants() {
 
     // `S` is real: at 1024 cells across the same signed distance is a quarter
     // as far out in normalised cells, so the same pixel takes a *different*
-    // band mix. Measured four cells out, where the three rings differ most —
-    // at 256 that is the wetland/floodplain boundary (bank 0) and at 1024 it is
-    // one normalised cell, still deep in the bank. At half a cell both are
-    // nearly all bank and the two differ by less than a level, which is the
-    // number this row originally tried to assert against.
+    // band mix. At half a cell both are nearly all bank and the two differ by
+    // less than a level, which is the number this row originally tried to
+    // assert against; the sample point is therefore chosen below, where the
+    // two widths land in different rings.
     // Eight cells out: at 256 that is deep in the floodplain (the outermost,
     // weakest ring) and at 1024 it is two normalised cells, which is the
     // wetland ring at full weight. Red separates them by five whole levels;
@@ -351,6 +375,10 @@ fn the_river_bands_are_the_reference_constants() {
     assert!((wide.0 - narrow.0).abs() > 2.0, "the resolution normaliser is not applied: {narrow:?} vs {wide:?}");
 }
 
+/// Protects: `sdf_eco_k` is exactly 1 at rest, 2.5 on a boundary at full strength, back to 1 at
+/// the 6-cell falloff and 1.75 halfway (the reference's smoothstep), and that the falloff scales
+/// with grid width.
+///
 /// `sdfEcoKv` (8172) — `1` at rest and `1 + 1.5·k` on a boundary, over a
 /// `6·S` falloff.
 #[test]
@@ -371,9 +399,13 @@ fn the_ecotone_widener_is_one_at_rest_and_the_reference_curve_on_a_boundary() {
 // 3. Byte-identity, and both consumer paths
 // ---------------------------------------------------------------------------
 
+// Synthetic render-grid width in cells (judgement; the same world `appearance_tiers.rs` uses).
 const GW: usize = 128;
+// Synthetic render-grid height in cells (judgement; non-square so an axis swap shows).
 const GH: usize = 79;
 
+/// The five input rasters of the synthetic world (elevation, temperature, rainfall, flow,
+/// lithology) that the rendering tests share.
 struct Synth {
     field: Vec<f32>,
     temperature: Vec<f32>,
@@ -409,6 +441,8 @@ fn synth() -> Synth {
     Synth { field, temperature, rainfall, flow, lith }
 }
 
+/// Builds a `RenderCtx` over `s` with lithology attached and, when `scale` is `Some`, a map
+/// width in km attached via `with_map_scale` (the call under test in the identity checks).
 fn ctx<'a>(s: &'a Synth, a: TerrainAppearance, scale: Option<f64>) -> RenderCtx<'a> {
     let c = RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a).with_lithology(&s.lith);
     match scale {
@@ -464,6 +498,10 @@ fn moved(a: &[u8], b: &[u8], tol: u8) -> f64 {
     hit as f64 / n as f64
 }
 
+/// Protects: with both SDF strengths at rest, attaching a map scale (or changing the map width)
+/// leaves both the on-screen and the export raster byte-identical, at `default()` and
+/// `js_reference()`.
+///
 /// **The identity that makes the whole feature free at rest.** `with_map_scale`
 /// is now on the app's real render path, the export path and the sculpt
 /// preview; at `default()` and at `js_reference()` it must be exactly
@@ -485,6 +523,9 @@ fn attaching_a_map_scale_changes_nothing_at_the_default() {
     }
 }
 
+/// Protects: the river and biome legs each change more than 0.1% of pixels on both the
+/// on-screen path and the export (bake) path, so neither consumer silently ignores a leg.
+///
 /// Both legs, on both consumer paths, with the *same* appearance — the check
 /// that would have caught `with_ground_tiles`. A leg that moves the screen and
 /// not the PNG is the failure; so is the reverse.
@@ -503,6 +544,9 @@ fn both_sdf_legs_move_both_consumer_paths() {
     }
 }
 
+/// Protects: the river slider paints nothing on a world with no flow field (a loaded save),
+/// instead of banding a field of zeroes.
+///
 /// A **loaded save carries no flow field** (`SAVEFILE_COMPAT.md`), and the
 /// river leg has to read as off there rather than banding a grid of zeroes —
 /// which is what an `unwrap_or(0.0)` on the discharge would have produced,
@@ -530,6 +574,9 @@ fn the_river_leg_is_off_for_a_world_with_no_flow_field() {
     assert_eq!(no_flow(a), no_flow(TerrainAppearance::default()), "the river slider painted bands on a world with no rivers in it");
 }
 
+/// Protects: the coast, river and biome legs each render a different image (over 1% of pixels
+/// differ pairwise), so none is wired to another's builder.
+///
 /// The two legs are different pictures, and neither is the coast leg. Three
 /// sliders that render the same thing would be three rows in a panel doing one
 /// job — and the coast row is the one whose builder the other two are written

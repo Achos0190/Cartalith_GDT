@@ -40,12 +40,15 @@
 //! that showed up live as ~15 bytes of 8 060 928 off by one level. Widening
 //! the prologue would remove a divergence the reference itself has.
 
+/// The renderer under test, compiled straight from `src/render.rs` (via `#[path]`) so this integration target can reach its `pub(crate)` items without going through the Godot-facing `#[func]` layer, which a plain `cargo test` cannot call.
 #[path = "../src/render.rs"]
 mod render;
 
 use render::{BakeFields, RenderCtx, TerrainAppearance};
 
+/// Fixture grid width in cells. Judgement: small enough that every test here runs in milliseconds, and deliberately not a power of two or square (24x17) so a width/height mix-up or a stride bug shows up as a wrong byte.
 const GW: usize = 24;
+/// Fixture grid height in cells; see [`GW`] for why 17.
 const GH: usize = 17;
 
 /// A deterministic synthetic world, shaped to reach the code rather than to
@@ -149,6 +152,7 @@ fn assert_integer_identity(ctx: &RenderCtx, what: &str) {
     println!("{what}: worst channel divergence {worst:e} ({:.4} byte levels)", worst * 255.0);
 }
 
+/// Protects: the export's fractional pixel path (`BakeFields::pixel`) equals the screen's `cell_color` at every integer cell, under the reference-faithful `TerrainAppearance::js_reference()` look on a flat (non-wrapping) world, to `f32` rounding and with the same exported byte.
 #[test]
 fn bake_pixel_at_integer_cells_is_cell_color_js_reference() {
     let (field, temp, rain, flow) = fixture();
@@ -158,6 +162,7 @@ fn bake_pixel_at_integer_cells_is_cell_color_js_reference() {
     assert_integer_identity(&ctx, "js_reference / flat");
 }
 
+/// Protects: the integer-cell identity also holds on a world-wrapping grid with hachure on, i.e. that `grad_at_f` wraps X exactly as `grad_at` does while `sample_arr` clamps, so the two vertical edges do not disagree.
 #[test]
 fn bake_pixel_at_integer_cells_is_cell_color_world_wrap() {
     // `world = true` is the case `grad_at_f` exists for: `grad_at` wraps X
@@ -171,6 +176,7 @@ fn bake_pixel_at_integer_cells_is_cell_color_world_wrap() {
     assert_integer_identity(&ctx, "default + hachure / world wrap");
 }
 
+/// Protects: the lithology and paint layers are read nearest-cell (not blended) by the bake, so the integer-cell identity survives a fixture whose neighbouring cells carry unrelated palette indices.
 #[test]
 fn bake_pixel_at_integer_cells_is_cell_color_with_lithology_and_paint() {
     // The two categorical layers, which are nearest-sampled rather than
@@ -191,6 +197,7 @@ fn bake_pixel_at_integer_cells_is_cell_color_with_lithology_and_paint() {
     assert_integer_identity(&ctx, "default + lithology + paint");
 }
 
+/// Protects: a bake of a world with no discharge field (`flow` is `None`, as for a loaded save) still reproduces `cell_color`, so the TWI fallback is the same on both paths.
 #[test]
 fn bake_pixel_survives_a_world_with_no_flow_field() {
     // A loaded save carries no discharge (`SAVEFILE_COMPAT.md`), so
@@ -202,6 +209,7 @@ fn bake_pixel_survives_a_world_with_no_flow_field() {
     assert_integer_identity(&ctx, "default / no flow");
 }
 
+/// Protects: `bake_dims` keeps the world's aspect ratio (`round(W*GH/GW)`) at the offered export widths, keeps square worlds square, never returns a zero height for a non-zero width, and returns `(0, 0)` rather than panicking on a zero request or a zero-sized world.
 #[test]
 fn bake_dims_keeps_the_worlds_aspect_ratio() {
     // `Math.round(W*GH/GW)`, the reference's own one-liner.
@@ -222,6 +230,7 @@ fn bake_dims_keeps_the_worlds_aspect_ratio() {
     assert!(h >= 1, "a one-cell-tall world must still bake at least one row");
 }
 
+/// Protects: through the real `bake_rect` sample mapping, an export whose size equals the grid is the screen raster byte for byte (and the fixture is not a flat colour, so the equality is not vacuous).
 #[test]
 fn an_export_at_grid_resolution_reproduces_the_screen_raster() {
     // The end-to-end statement, through the real `bake_rect` sample mapping
@@ -249,6 +258,7 @@ fn an_export_at_grid_resolution_reproduces_the_screen_raster() {
     assert!(want.iter().any(|&b| b != want[0]), "the fixture rendered a flat colour");
 }
 
+/// Protects: walking the raster in 16-cell tiles and stitching them gives exactly the bytes of one whole-image `bake_rect`, on a size that is not a multiple of the tile, so the `bakeTiles` option cannot change the export.
 #[test]
 fn a_tiled_bake_is_the_same_image_as_a_single_one() {
     // `bakeTiled` and `bakeSingle` differ only in which rectangles they ask
@@ -261,6 +271,7 @@ fn a_tiled_bake_is_the_same_image_as_a_single_one() {
     let (ow, oh) = (61usize, 43usize); // deliberately not a multiple of the tile size
     let whole = render::bake_rect(&ctx, &bf, None, ow, oh, 0, 0, ow, oh);
 
+    // Tile edge in cells for the stitched walk. Judgement: small so a 61x43 raster needs 4x3 tiles including ragged edge tiles.
     const TS: usize = 16;
     let mut stitched = vec![0u8; ow * oh * 3];
     let mut tiles = 0usize;
@@ -280,6 +291,7 @@ fn a_tiled_bake_is_the_same_image_as_a_single_one() {
     assert_eq!(stitched, whole, "tiled and single bakes disagree");
 }
 
+/// Protects: a 2x export is a re-render at fractional positions, not a nearest-neighbour upscale: more than half of its pixels must be colours the cell grid never produced.
 #[test]
 fn a_finer_export_is_a_finer_render_not_an_upscale() {
     // The reason this milestone existed at all. If the export were a
@@ -306,6 +318,8 @@ fn a_finer_export_is_a_finer_render_not_an_upscale() {
     assert!(frac > 0.5, "only {:.1}% of a 2x export's pixels are new colours -- this looks like an upscale, not a render", frac * 100.0);
 }
 
+/// Protects: the river tint (loaded-save `Flag` mask) is composited inside `bake_rect`, matching a verbatim transcription of `build_color_texture`'s loop byte for byte, and the mask changes the output only at masked cells (non-vacuous).
+///
 /// The river-channel tint has to be *in* the export, and it has to be the
 /// screen's own bytes — the regression that made this test exist was an
 /// export that rendered the terrain perfectly and dropped every river.
@@ -401,6 +415,8 @@ fn a_grid_resolution_export_carries_the_river_tint() {
 // no partial ink left for it to protect. The flag half lives on in the test
 // above as a loaded save's river.
 
+/// Protects: the export runs `apply_local_contrast` then `apply_color_grade` (as one `finish_raster` pass) exactly as the viewport does, under the one shipped look whose grade is not the identity, and that the order matters.
+///
 /// **The export runs the two whole-raster stages, in the viewport's own
 /// order** — `apply_local_contrast` then `apply_color_grade`.
 ///
@@ -469,6 +485,8 @@ fn a_grid_resolution_export_carries_the_colour_grade() {
     assert_ne!(swapped, got, "the two whole-raster stages commute on this fixture -- assertion 2 cannot see a reorder");
 }
 
+/// Protects: at the shipped default looks the grade is the identity, builds no influence field and moves no byte, so wiring the grade into the export left existing baselines untouched.
+///
 /// And at the **shipped default**, the grade costs the export nothing and
 /// changes nothing — the other half of the claim, so that adding the call to
 /// the export path cannot have moved the image every existing test and probe
@@ -491,6 +509,8 @@ fn the_export_is_unchanged_by_the_grade_at_the_shipped_look() {
     }
 }
 
+/// Protects: the tinted fraction of the image stays within 0.05 across 1x, 2x and 4x exports (a river keeps its world width) and does not collapse to near zero. The 0.05 bounds are this test's own judgement; the in-body comment records the ~0.09 level seen on this fixture.
+///
 /// A finer export tints the same *world*, not more of it. Nearest-cell is
 /// the deliberate choice (`channel_tint`'s doc comment); the property that
 /// makes it the right one is that a river covers the same fraction of the
@@ -527,6 +547,8 @@ fn the_river_tint_keeps_its_world_width_at_every_resolution() {
     assert!(lo > 0.05, "the tint barely covers anything at some resolution: {fracs:?}");
 }
 
+/// Protects: at a larger 401x277 grid the bake/screen difference stays within `f32` rounding (f64 delta below 1e-7, no quantised byte more than one level off, under 1 in 10 000 bytes crossing a boundary), so the documented `f32` prologue is the only divergence.
+///
 /// **Where the integer identity stops being bit-exact, and why that is the
 /// reference's own answer rather than a defect.**
 ///
@@ -555,7 +577,9 @@ fn the_river_tint_keeps_its_world_width_at_every_resolution() {
 /// quantized byte off by more than one.
 #[test]
 fn the_integer_identity_is_f32_tight_not_bit_exact_at_scale() {
+    // Large-fixture width. Judgement: odd and big enough that the f32-versus-f64 prologue difference (which the 24x17 fixture hides) shows up, per the test's own doc.
     const BW: usize = 401;
+    // Large-fixture height; see `BW`.
     const BH: usize = 277;
     let n = BW * BH;
     let (mut field, mut temp, mut rain, mut flow) = (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);

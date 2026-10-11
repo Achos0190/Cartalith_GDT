@@ -23,6 +23,8 @@
 //! implementation's own expression re-typed, which is `MISTAKES.md`'s rule
 //! against a test that compares a constant against itself.
 
+/// The renderer under test, compiled straight from `src/render.rs` (no library build needed);
+/// `render.rs` cites this file by name for its dune fixture and sun-altitude claim.
 #[path = "../src/render.rs"]
 mod render;
 
@@ -37,6 +39,9 @@ const EPS: f64 = 1e-5;
 // The two R5 lighting fields
 // ---------------------------------------------------------------------------
 
+/// Protects: `build_svf` and `build_sun_shadow` return exactly 1.0 everywhere over a flat plain,
+/// so an off-by-one in the horizon march cannot darken flat ground.
+///
 /// Both fields are pure *multipliers*, and a world with no relief in it has
 /// nothing to occlude or to cast — so both must be exactly `1`, at any
 /// strength. Not a warm-up: an off-by-one in the horizon march would show
@@ -49,6 +54,9 @@ fn both_horizon_fields_are_exactly_one_over_flat_ground() {
     assert!(render::build_sun_shadow(&flat, gw, gh, 315.0, 20.0, 1.0).iter().all(|&v| v == 1.0), "cast shadows darkened a flat plain");
 }
 
+/// Protects: the sky-view multiplier's floor is 0.45 (1 - 0.55) at full strength, 0.725 at half
+/// strength and exactly 1 at zero, pinning the reference's `SVF_MAX` as a literal.
+///
 /// The **floor** of each field, which is what pins its maximum strength.
 ///
 /// A cell at the bottom of a well whose walls are effectively infinite sees no
@@ -70,6 +78,9 @@ fn the_sky_view_floor_is_the_reference_maximum() {
     assert_eq!(render::build_svf(&well, gw, gh, 0.0)[c], 1.0, "zero strength must be the identity");
 }
 
+/// Protects: the cast-shadow multiplier's floor is 0.55 (1 - 0.45) behind a tall wall, is exactly 1
+/// at zero strength, and is 1 when the blocker is downsun.
+///
 /// The same for cast shadows: a wall high enough to bury the sun altitude
 /// pushes `smoothstep(0, 0.25, block)` to `1`, so the multiplier reaches
 /// `1 - SHADOW_MAX`. `0.55` as a literal — `0.4` would give `0.6`.
@@ -91,6 +102,10 @@ fn the_cast_shadow_floor_is_the_reference_maximum() {
     assert_eq!(render::build_sun_shadow(&wall, gw, gh, 270.0, 20.0, 1.0)[c], 1.0, "a blocker downsun must cast no shadow");
 }
 
+/// Protects: `fold_lighting_fields` marches at the reference's literal 20 degree altitude, not the
+/// map's `sun_alt_deg` (a 0.06 blocker leaves the cell lit, a 0.08 one shades it to 0.9293), while
+/// still using the map's azimuth.
+///
 /// **The sun altitude is the reference's literal 20°, not the map's sun.**
 ///
 /// The bracket is arithmetic, not a comparison against the constant: at
@@ -141,6 +156,9 @@ fn the_shadow_march_uses_the_reference_sun_altitude() {
     assert_ne!(ao, ao_b, "fold_lighting_fields ignored the map's sun azimuth");
 }
 
+/// Protects: the lighting-field fold multiplies into an existing `ao` cavity map (0.5 x 0.45 =
+/// 0.225) instead of overwriting it, and writes nothing when both strengths are 0.
+///
 /// The fold is a **product into `ao`**, in the reference's own `aoC` shape —
 /// so a caller that starts from a cavity map keeps it, and both fields
 /// compose rather than the second overwriting the first.
@@ -168,6 +186,9 @@ fn the_fold_multiplies_into_the_cavity_map_rather_than_replacing_it() {
 // Geology microtexture and the dune ripples
 // ---------------------------------------------------------------------------
 
+/// Protects: all seven rock types have distinct, non-empty microtextures within +/-0.5, and only
+/// types 4 and 5 (sandstone and shale, elevation-banded strata) change when only `r` changes.
+///
 /// The seven rock types must be seven different textures, and every one of
 /// them must stay inside the amplitude the caller's `min(0.85)` assumes —
 /// `land_color` multiplies the colour by `1 + strength · this`, so a value
@@ -197,11 +218,19 @@ fn every_rock_type_has_its_own_bounded_microtexture() {
 // A hot, arid, dead-flat, barely-above-sea world: the one shape that reaches
 // `land_color`'s dune branch (`w.sand > 0.4 && slope < 0.03`) while leaving
 // its microtexture sibling shut (`geo_exposure <= 0.02`).
+// Dune fixture width in cells (judgement: wide enough for several ~11-cell ripple periods).
 const DW: usize = 96;
+// Dune fixture height in cells (judgement).
 const DH: usize = 64;
+// Sea level: the engine's default, which the fixture's land height sits just above.
 const SEA: f64 = 0.42;
+// Uniform land height of the dune world: 0.04 above `SEA`, flat and low by design (see the
+// comment above `DW`).
 const LAND_H: f32 = 0.46;
 
+/// Protects: the dune fixture's rock exposure is exactly 0, below the reference's 0.02 floor, so
+/// the dune test below exercises only the dune branch and not the microtexture sibling.
+///
 /// `r = (0.46 - 0.42) / (1 - 0.42) = 0.0690`, which is below
 /// `smoothstep(0.5, 0.8, r)`'s lower knee, and the slope of a constant field
 /// is 0 — so the reference's own rock-exposure gate is exactly `0` and the
@@ -215,6 +244,8 @@ fn the_dune_fixture_shuts_the_microtexture_branch() {
     assert!(render::geo_exposure(0.0, r, 0.0) <= 0.02, "and it must be under the reference's own 0.02 floor");
 }
 
+/// Builds the dune fixture's inputs: flat land at `LAND_H`, 34 degrees C (hot enough for the sand
+/// term's `smoothstep(17, 26, t)` to saturate after climate jitter), zero rainfall and lithology 0.
 fn dune_world() -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<u8>) {
     let n = DW * DH;
     // Hot enough for `smoothstep(17, 26, t)` to saturate even after
@@ -223,6 +254,7 @@ fn dune_world() -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<u8>) {
     (vec![LAND_H; n], vec![34.0f32; n], vec![0.0f32; n], vec![0u8; n])
 }
 
+/// Renders the dune fixture to 3-byte-per-pixel RGB with `geo_micro` set to the given strength.
 fn dune_render(geo_micro: f64) -> Vec<u8> {
     let (field, temperature, rainfall, lith) = dune_world();
     let a = TerrainAppearance { geo_micro, ..TerrainAppearance::default() };
@@ -240,6 +272,9 @@ fn dune_render(geo_micro: f64) -> Vec<u8> {
     out
 }
 
+/// Protects: the dune ripple branch (`geo_micro` with a sandy, flat, hot cell) reaches the raster,
+/// only ever darkens, forms bands (the depth falls again along a row), and scales with the slider.
+///
 /// The dune branch reaches the image, is a **darkening**, and is **banded** —
 /// three separate claims, because "the slider moved some pixels" is what
 /// `every_tunable_is_load_bearing` already says and it says it through the
