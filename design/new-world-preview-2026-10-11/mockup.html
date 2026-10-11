@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New World Preview</title>
+<!--
+  Mockup for NEW_WORLD_PREVIEW_PROPOSAL.md (repository root), 2026-10-11.
+  Self-contained: no external scripts, fonts or images. The fonts named below are the
+  app's own (Fira Sans, IBM Plex Mono, bundled in godot-project/fonts/); a browser without
+  them installed falls back to the system stacks, so letterforms here are approximate.
+  Colour tokens are DccTheme.DARK (godot-project/shell/dcc_theme.gd), copied by value.
+  The live preview canvas is an ILLUSTRATIVE JavaScript approximation, not the engine.
+-->
+<style>
+:root{
+  --bg:#0d0e0f; --panel:#121314; --sunken:#191c1e;
+  --line:rgba(255,255,255,.10); --line-soft:rgba(255,255,255,.07); --border:rgba(255,255,255,.16);
+  --text:#c8cbcd; --bright:#e8ebec; --sec:#a9adb0; --faint:#6f7478;
+  --acc:#e0a34a; --acc-ink:#141005; --acc-h:#f0bd72; --acc-wash:rgba(224,163,74,.09); --acc-wash2:rgba(224,163,74,.16);
+  --stale:#b9a878; --water:#6a9bc4;
+  --land:#8f9295; --ocean:#2b4d6b;
+  --sans:"Fira Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden;margin:0;background:var(--bg);color:var(--text);font:12px/1.45 var(--sans)}
+body{padding:16px}
+h1{font:500 13px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--acc);margin:0 0 4px}
+.lede{color:var(--sec);max-width:900px;margin:0 0 10px;overflow-wrap:anywhere}
+.warn{display:inline-block;max-width:100%;border:1px solid var(--stale);color:var(--stale);font:500 10px var(--mono);letter-spacing:.12em;padding:3px 8px;text-transform:uppercase}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 14px}
+.seg{display:inline-flex;border:1px solid var(--border)}
+.seg button{background:transparent;color:var(--sec);border:0;border-right:1px solid var(--border);font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:7px 12px;cursor:pointer;min-height:32px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--acc-wash2);color:var(--acc)}
+.stage{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.frame{flex:0 0 auto;max-width:100%;overflow-x:auto}
+.frame>.cap{font:500 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 6px}
+.hide{display:none!important}
+
+/* ---------- the dialog chrome (desktop) ---------- */
+.dlg{background:var(--panel);border:1px solid var(--border);box-shadow:0 14px 34px rgba(0,0,0,.55);display:flex;flex-direction:column}
+.dlg .tb{height:34px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--bright);font-size:13px;border-bottom:1px solid var(--line)}
+.dlg .tb .x{position:absolute;right:10px;top:7px;color:var(--sec);font-size:15px}
+.note{color:var(--faint);font-size:10px;line-height:1.5;margin:0 0 4px}
+.sec{font:500 9px var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin:14px 0 8px}
+.row{display:flex;align-items:center;gap:10px;min-height:26px;margin:0 0 4px}
+.row>label{flex:0 0 140px;color:var(--text)}
+.well{flex:1;background:var(--sunken);color:var(--text);border:0;height:24px;padding:0 8px;font:11px var(--sans);display:flex;align-items:center;justify-content:space-between;min-width:0}
+input.well{outline:none}
+input.well:focus{box-shadow:inset 0 0 0 1px var(--acc)}
+.chev::after{content:"\2304";color:var(--sec);font-size:12px;margin-left:6px}
+.spin{color:var(--sec);font-size:9px;line-height:9px;width:12px;text-align:center}
+.derived{background:var(--sunken);padding:10px;display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:6px 0}
+.derived span:nth-child(odd){color:var(--faint);font-size:10px}
+.derived span:nth-child(even){color:var(--acc);font-size:11px}
+.tog{width:12px;height:12px;border-radius:50%;background:var(--bright);margin-left:auto}
+.btn{background:transparent;border:1px solid var(--border);color:var(--text);font:12px var(--sans);padding:6px 14px;min-height:30px;cursor:pointer}
+.btn.primary{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.btn.primary:hover{background:var(--acc-h)}
+.btn.outline-acc{border:2px solid var(--acc);color:var(--bright);border-radius:2px}
+.iconbtn{width:28px;height:24px;display:inline-flex;align-items:center;justify-content:center;background:var(--sunken);border:1px solid var(--border);color:var(--bright);cursor:pointer;padding:0}
+.iconbtn.on{border-color:var(--acc);color:var(--acc);background:var(--acc-wash2)}
+.scrollbox{overflow-y:auto;border:1px solid var(--line);padding:0 14px 10px 24px}
+.scrollbox::-webkit-scrollbar{width:4px}.scrollbox::-webkit-scrollbar-thumb{background:var(--faint)}
+
+/* ---------- phone chrome ---------- */
+.phone{width:412px;max-width:100%;height:892px;background:var(--bg);border:1px solid var(--line);display:flex;flex-direction:column;position:relative;overflow:hidden}
+.phone .ph-head{padding:22px 20px 12px;border-bottom:1px solid var(--line)}
+.phone .ph-head b{display:block;font:500 13px var(--mono);letter-spacing:.24em;color:var(--bright)}
+.phone .ph-head i{font:normal 10.5px var(--mono);color:var(--faint);letter-spacing:.04em}
+.phone .card{margin:12px 26px 0;background:var(--sunken);border:1px solid var(--border);border-radius:22px;padding:18px 16px 16px;display:flex;flex-direction:column;flex:1;min-height:0;margin-bottom:64px}
+.phone .card .form{overflow-y:auto;flex:1;min-height:0;padding-right:4px}
+.phone .row>label{flex:0 0 108px;font-size:13px}
+.phone .well{height:40px;border-radius:8px;font-size:13px;background:#202326}
+.phone .sec{font-size:9.5px;margin:14px 0 8px}
+.chips{display:flex;gap:10px}
+.chip{flex:1;min-height:42px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--sec);font:500 10.5px var(--mono);letter-spacing:.14em;cursor:pointer}
+.chip.on{border-color:var(--acc);color:var(--acc);background:var(--acc-wash2)}
+.acts{display:flex;gap:10px;padding-top:16px}
+.acts button{min-height:46px;border-radius:23px;border:0;font:500 10.5px var(--mono);letter-spacing:.14em;cursor:pointer}
+.acts .c{flex:1;background:rgba(232,235,236,.05);color:var(--sec)}
+.acts .g{flex:1.4;background:var(--acc);color:var(--acc-ink)}
+.navpill{position:absolute;bottom:8px;left:50%;width:120px;height:4px;margin-left:-60px;border-radius:2px;background:var(--faint)}
+
+/* ---------- the preview ---------- */
+.pv-wrap{background:var(--bg);border:1px solid var(--line);padding:10px}
+.pv-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
+.pv-head .t{font:500 9px var(--mono);letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
+.badge{font:500 8.5px var(--mono);letter-spacing:.1em;color:var(--stale);border:1px solid rgba(185,168,120,.5);padding:1px 5px;text-transform:uppercase;white-space:nowrap}
+canvas.pv{display:block;image-rendering:pixelated;image-rendering:crisp-edges;background:var(--ocean)}
+.stats{font:11px var(--mono);color:var(--sec);margin-top:6px;display:flex;gap:14px;flex-wrap:wrap}
+.stats b{color:var(--acc);font-weight:500}
+.hist{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.hist button{background:var(--sunken);border:1px solid var(--line);padding:4px;cursor:pointer;color:var(--sec);font:10px var(--mono);text-align:left}
+.hist button.cur{border-color:var(--acc)}
+.hist button.empty{cursor:default;color:var(--faint)}
+.hist canvas{display:block;width:100%;image-rendering:pixelated;background:var(--ocean)}
+.hist .lk{color:var(--acc)}
+.plates{display:flex;align-items:center;gap:6px;flex:1}
+.plates .n{min-width:28px;text-align:center;font:12px var(--mono);color:var(--acc)}
+.plates .src{font:10px var(--mono);color:var(--faint)}
+.more{color:var(--sec);cursor:pointer;font:500 9px var(--mono);letter-spacing:.2em;text-transform:uppercase;margin:14px 0 6px;user-select:none}
+.legend{display:flex;gap:10px;align-items:center;font:10px var(--mono);color:var(--faint)}
+.sw{display:inline-block;width:10px;height:10px;vertical-align:-1px;margin-right:4px}
+table.scale{border-collapse:collapse;margin:8px 0 0;font:11px var(--mono)}
+table.scale td,table.scale th{border-bottom:1px solid var(--line);padding:4px 10px;text-align:right}
+table.scale th{color:var(--faint);font-weight:500}
+table.scale td:first-child,table.scale th:first-child{text-align:left}
+.foot{color:var(--faint);font-size:10px;margin-top:18px;max-width:900px;overflow-wrap:anywhere}
+@media (max-width:520px){ body{padding:16px} .row>label{flex-basis:110px} }
+</style>
+</head>
+<body>
+<h1>New World · seed preview</h1>
+<p class="lede">Mockup for <code>NEW_WORLD_PREVIEW_PROPOSAL.md</code>. <b>Current</b> reproduces the shipped
+<i>File ▸ New world…</i> dialog from windowed screenshots taken 2026-10-11 (1600×900 desktop; 1080×2340
+<code>--force-touch</code> phone). <b>Proposed</b> adds a 320-pixel grey-on-blue land/ocean preview that
+redraws as the seed, size or plate count changes.</p>
+<span class="warn">Preview = illustrative approximation, not the engine</span>
+
+<div class="bar">
+  <div class="seg" id="viewSeg">
+    <button data-v="current">Current</button><button data-v="proposed" class="on">Proposed</button><button data-v="both">Both</button>
+  </div>
+  <div class="seg" id="widthSeg">
+    <button data-w="desktop" class="on">Desktop</button><button data-w="phone">Phone</button>
+  </div>
+</div>
+
+<div class="stage">
+  <!-- ================= CURRENT · DESKTOP ================= -->
+  <div class="frame" data-view="current" data-width="desktop">
+    <div class="cap">Current · desktop · 620 × 780 dialog</div>
+    <div class="dlg" style="width:620px;height:780px">
+      <div class="tb">New world<span class="x">✕</span></div>
+      <div style="padding:10px 10px 0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <p class="note">Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason.</p>
+        <p class="note">Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it.</p>
+        <div class="scrollbox" style="flex:1;min-height:0">
+          <div class="sec">§ Seed</div>
+          <div class="row"><label>Seed</label><div class="well">555457<span class="spin">⌃<br>⌄</span></div></div>
+          <div class="sec">§ Extent</div>
+          <div class="row"><label>Extent</label><div class="well chev">Region</div></div>
+          <p class="note">Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here.</p>
+          <div class="sec">§ Map width &amp; resolution</div>
+          <div class="row"><label>Map width</label><div class="well chev">Province · 800 km</div></div>
+          <div class="row"><label>Width (km)</label><div class="well">800<span class="spin">⌃<br>⌄</span></div></div>
+          <div class="row"><label>Resolution</label><div class="well chev">2K</div></div>
+          <div class="row"><label>Grid columns</label><div class="well">2048<span class="spin">⌃<br>⌄</span></div></div>
+          <div class="row"><label>Aspect</label><div class="well chev">1.5625:1 · reference region frame</div></div>
+          <div class="row"><label>Grid rows</label><div class="well">1311<span class="spin">⌃<br>⌄</span></div></div>
+          <div class="derived"><span>Grid</span><span>2048 × 1311 cells (2.68 M cells)</span><span>Extent</span><span>800 km × 512 km</span><span>Cell size</span><span>0.391 km per cell, square</span><span>Aspect</span><span>1.562 : 1 · landscape</span></div>
+          <div class="sec">§ World structure</div>
+          <div class="row"><label>Archetype</label><div class="well chev">Classic</div></div>
+          <p class="note">The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.</p>
+          <div class="sec">§ Generation</div>
+          <div class="row"><label style="flex:1">Village seeding (additive hamlets)</label><span class="tog"></span></div>
+          <div class="row"><label style="flex:1">Imperial-seat tier (metropolis ★)</label><span class="tog"></span></div>
+          <div class="row"><label style="flex:1">Biome carrying-capacity residual</label><span class="tog"></span></div>
+          <div class="row"><label>Recovery phase</label><div class="well chev">Stable</div></div>
+          <div class="row"><label>Factions</label><div class="well">6<span class="spin">⌃<br>⌄</span></div></div>
+          <div class="row"><label>Suitability floor</label><span style="flex:1"></span><span style="font:11px var(--mono)">0.42</span></div>
+          <div class="row"><label>Packing</label><span style="flex:1"></span><span style="font:11px var(--mono)">22</span></div>
+          <div class="row"><label style="flex:1">Fixed settlement counts</label><span class="tog"></span></div>
+          <div class="row"><label>Capitals</label><div class="well" style="color:var(--faint)">0</div></div>
+          <div class="row"><label>Cities</label><div class="well" style="color:var(--faint)">0</div></div>
+          <div class="row"><label>Towns</label><div class="well" style="color:var(--faint)">0</div></div>
+          <div class="row"><label>Villages</label><div class="well" style="color:var(--faint)">0</div></div>
+          <div class="row"><label>Hamlets</label><div class="well" style="color:var(--faint)">0</div></div>
+          <p class="note">Counts off: placement is automatic, from the two dials above.<br>Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent &amp; scale), Geology (04 Tectonics, 05 Volcanism &amp; impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.</p>
+        </div>
+        <div style="display:flex;justify-content:center;padding:14px 0 10px"><button class="btn outline-acc">Create</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CURRENT · PHONE ================= -->
+  <div class="frame hide" data-view="current" data-width="phone">
+    <div class="cap">Current · phone · 412 dp (1080 × 2340 at 2.62)</div>
+    <div class="phone">
+      <div class="ph-head"><b>NEW WORLD</b><i>creation-time settings</i></div>
+      <div class="card">
+        <div class="form">
+          <div class="sec">§ Seed</div>
+          <div class="row"><label>Seed</label><div class="well" style="flex:0 0 82px">902913</div><span class="spin" style="font-size:12px">⌃<br>⌄</span><button class="iconbtn" style="width:56px;height:56px;border-radius:12px" title="New seed"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.7" cy="4.7" r="1.1" fill="currentColor"/><circle cx="9.3" cy="9.3" r="1.1" fill="currentColor"/><circle cx="7" cy="7" r="1.1" fill="currentColor"/></svg></button></div>
+          <div class="sec">§ Extent</div>
+          <div class="chips"><button class="chip on">REGION</button><button class="chip">WORLD</button></div>
+          <div class="sec">§ Size &amp; resolution</div>
+          <div class="row"><label>Map width</label><div class="well chev">Province · 800 km</div></div>
+          <div class="row"><label>Width (km)</label><div class="well">800</div><span class="spin" style="font-size:12px">⌃<br>⌄</span></div>
+          <div class="row"><label>Resolution</label><div class="well chev">2K</div></div>
+          <div class="derived"><span>Grid</span><span>2048 × 1311 cells (2.68 M cells)</span><span>Extent</span><span>800 km × 512 km</span><span>Cell size</span><span>0.391 km per cell, square</span><span>Aspect</span><span>1.562 : 1 · landscape</span></div>
+          <div class="sec">§ World structure</div>
+          <div class="row"><label>Archetype</label><div class="well chev">Classic</div></div>
+          <p class="note" style="font-size:11px">The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.</p>
+          <p class="note" style="font-size:11px;color:var(--sec)">Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason.<br>Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it.</p>
+        </div>
+        <div class="acts"><button class="c">CANCEL</button><button class="g">CREATE WORLD</button></div>
+      </div>
+      <div class="navpill"></div>
+    </div>
+  </div>
+
+  <!-- ================= PROPOSED · DESKTOP ================= -->
+  <div class="frame" data-view="proposed" data-width="desktop">
+    <div class="cap">Proposed · desktop · 980 × 780 dialog (tablet: same two columns, floored to the touch targets)</div>
+    <div class="dlg" style="width:980px;height:780px">
+      <div class="tb">New world<span class="x">✕</span></div>
+      <div style="display:flex;gap:16px;padding:12px 14px 0;flex:1;min-height:0">
+        <!-- left: preview -->
+        <div style="flex:0 0 662px;display:flex;flex-direction:column">
+          <div class="pv-wrap">
+            <div class="pv-head"><span class="t" id="dPvTitle">§ Preview · land vs ocean · 320 × 205</span><span class="badge">illustrative approximation, not the engine</span></div>
+            <canvas class="pv" id="dCanvas" width="320" height="205" style="width:640px;height:410px"></canvas>
+            <div class="stats" id="dStats"></div>
+          </div>
+          <div class="sec">§ Seed</div>
+          <div class="row">
+            <label style="flex-basis:60px">Seed</label>
+            <input class="well" id="dSeed" inputmode="numeric" style="flex:0 0 160px;font-family:var(--mono)">
+            <button class="iconbtn" id="dDice" title="New seed — reroll and redraw the preview"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.7" cy="4.7" r="1.1" fill="currentColor"/><circle cx="9.3" cy="9.3" r="1.1" fill="currentColor"/><circle cx="7" cy="7" r="1.1" fill="currentColor"/></svg></button>
+            <button class="iconbtn" id="dLock" title="Lock this seed: the dice and New seed leave it alone"></button>
+            <span class="note" id="dLockNote" style="margin:0"></span>
+          </div>
+          <div class="hist" id="dHist"></div>
+        </div>
+        <!-- right: settings -->
+        <div style="flex:1;min-width:0;overflow-y:auto;padding-right:4px">
+          <div class="sec" style="margin-top:0">§ Extent</div>
+          <div class="seg" style="display:flex" id="dExtent"><button data-e="0" class="on" style="flex:1">Region</button><button data-e="1" style="flex:1">Whole world</button></div>
+          <div class="sec">§ Size</div>
+          <div class="row"><label style="flex-basis:84px">Map width</label><select class="well" id="dSize"></select></div>
+          <div class="row"><label style="flex-basis:84px">Plates</label>
+            <div class="plates"><button class="iconbtn" id="dPm">−</button><span class="n" id="dPn">14</span><button class="iconbtn" id="dPp">+</button><span class="src" id="dPsrc">auto</span></div></div>
+          <div class="row"><label style="flex-basis:84px">Resolution</label><select class="well" id="dRes"><option>512</option><option>1K</option><option selected>2K</option><option>4K</option><option>8K</option></select></div>
+          <div class="derived" id="dDerived"></div>
+          <div class="sec">§ World structure</div>
+          <div class="row"><label style="flex-basis:84px">Archetype</label><div class="well chev">Classic</div></div>
+          <div class="more" id="dMore">▸ More options (aspect, grid, settlements)</div>
+          <div id="dMoreBody" class="hide">
+            <div class="row"><label style="flex-basis:84px">Aspect</label><div class="well chev">1.5625:1 · reference</div></div>
+            <div class="row"><label style="flex-basis:84px">Grid rows</label><div class="well">1311</div></div>
+            <p class="note">…the whole § Generation block of today's dialog moves here unchanged.</p>
+          </div>
+          <p class="note" style="margin-top:12px">Creation-time only · your look is kept. <span style="color:var(--sec)">(the two advisories, one line; full text on hover)</span></p>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 14px">
+        <button class="btn">Cancel</button><button class="btn primary">Generate world</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PROPOSED · PHONE ================= -->
+  <div class="frame hide" data-view="proposed" data-width="phone">
+    <div class="cap">Proposed · phone · 412 dp</div>
+    <div class="phone">
+      <div class="ph-head"><b>NEW WORLD</b><i>creation-time settings</i></div>
+      <div class="card" style="padding:14px 12px 16px">
+        <div class="form">
+          <div class="pv-head"><span class="t" id="pPvTitle" style="font:500 9px var(--mono);letter-spacing:.2em;color:var(--faint)">§ PREVIEW · 320 × 205</span><span class="badge">illustrative</span></div>
+          <canvas class="pv" id="pCanvas" width="320" height="205" style="width:100%;height:auto"></canvas>
+          <div class="stats" id="pStats" style="font-size:10.5px"></div>
+          <div class="row" style="margin-top:10px"><label style="flex-basis:44px">Seed</label>
+            <input class="well" id="pSeed" inputmode="numeric" style="flex:1;font-family:var(--mono)">
+            <button class="iconbtn" id="pDice" style="width:44px;height:44px;border-radius:12px" title="New seed"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.7" cy="4.7" r="1.1" fill="currentColor"/><circle cx="9.3" cy="9.3" r="1.1" fill="currentColor"/><circle cx="7" cy="7" r="1.1" fill="currentColor"/></svg></button>
+            <button class="iconbtn" id="pLock" style="width:44px;height:44px;border-radius:12px" title="Lock seed"></button></div>
+          <div class="hist" id="pHist" style="gap:6px"></div>
+          <div class="sec">§ Extent</div>
+          <div class="chips" id="pExtent"><button class="chip on" data-e="0">REGION</button><button class="chip" data-e="1">WORLD</button></div>
+          <div class="sec">§ Size</div>
+          <div class="row"><label>Map width</label><select class="well" id="pSize"></select></div>
+          <div class="row"><label>Plates</label><div class="plates"><button class="iconbtn" id="pPm" style="width:44px;height:44px">−</button><span class="n" id="pPn">14</span><button class="iconbtn" id="pPp" style="width:44px;height:44px">+</button><span class="src" id="pPsrc">auto</span></div></div>
+          <div class="row"><label>Resolution</label><select class="well"><option>512</option><option>1K</option><option selected>2K</option><option>4K</option><option>8K</option></select></div>
+          <div class="derived" id="pDerived"></div>
+          <div class="sec">§ World structure</div>
+          <div class="row"><label>Archetype</label><div class="well chev">Classic</div></div>
+          <p class="note" style="font-size:11px">Creation-time only · your look is kept.</p>
+        </div>
+        <div class="acts"><button class="c">CANCEL</button><button class="g">CREATE WORLD</button></div>
+      </div>
+      <div class="navpill"></div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  <div class="sec">§ Plate count from map width (proposal §5, judgement)</div>
+  <div>plates = clamp(round(6 + 30 · ln(km / 200) / ln(40 075 / 200)), 4, 40) — log-linear between the owner's two anchors; it passes 800 km at 13.9, i.e. today's default of 14.</div>
+  <div style="max-width:100%;overflow-x:auto"><table class="scale" id="scaleTable"></table></div>
+  <p>Colours: DccTheme.DARK tokens by value. Preview land <span class="sw" style="background:var(--land)"></span>#8f9295 on ocean <span class="sw" style="background:var(--ocean)"></span>#2b4d6b (owner: “just gray on blue”). The JS generator below is a stand-in that mimics the engine's <i>shape</i> of work (seeded plates, 45 % oceanic, two Lloyd passes, domain warp, Voronoi, a short blur, a little noise) so the controls can be felt. The recommended build uses the engine's own early stages instead — see the proposal's faithfulness section for the measured agreement.</p>
+</div>
+
+<script id="core">
+/* ---- illustrative preview generator: pure functions, no DOM (node-testable) ---- */
+var NWP = (function () {
+  "use strict";
+  /** Mulberry32, the engine's own PRNG family (cartalith-rng), here only for flavour. */
+  function mulberry32(a) {
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  /** Hash a lattice point to [0,1). `px` > 0 makes the lattice periodic in x (a wrapping world). */
+  function hash(ix, iy, s, px) {
+    if (px > 0) ix = ((ix % px) + px) % px;
+    var h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ Math.imul(s, 2246822519);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function vnoise(x, y, s, px) {
+    var x0 = Math.floor(x), y0 = Math.floor(y), tx = x - x0, ty = y - y0;
+    tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
+    var a = hash(x0, y0, s, px), b = hash(x0 + 1, y0, s, px), c = hash(x0, y0 + 1, s, px), d = hash(x0 + 1, y0 + 1, s, px);
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  }
+  function fbm(x, y, s, px) {
+    var v = 0, amp = 0.5, f = 1, n = 0;
+    for (var o = 0; o < 4; o++) { v += amp * vnoise(x * f, y * f, s + o * 131, px ? px * f : 0); n += amp; amp *= 0.5; f *= 2; }
+    return v / n;
+  }
+  /** Separable box blur, radius r, x-wrap when `wrap`. */
+  function blur(src, w, h, r, wrap) {
+    var tmp = new Float32Array(w * h), out = new Float32Array(w * h), x, y, k, acc, n = 2 * r + 1;
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+      acc = 0;
+      for (k = -r; k <= r; k++) { var xx = x + k; xx = wrap ? (xx + w) % w : Math.min(w - 1, Math.max(0, xx)); acc += src[y * w + xx]; }
+      tmp[y * w + x] = acc / n;
+    }
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+      acc = 0;
+      for (k = -r; k <= r; k++) { var yy = Math.min(h - 1, Math.max(0, y + k)); acc += tmp[yy * w + x]; }
+      out[y * w + x] = acc / n;
+    }
+    return out;
+  }
+  /** Plates for a size, log-linear between (200 km, 6) and (40 075 km, 36), clamped to the engine's 4..40. */
+  function platesFor(km) {
+    var v = 6 + 30 * Math.log(km / 200) / Math.log(40075 / 200);
+    return Math.max(4, Math.min(40, Math.round(v)));
+  }
+  /**
+   * The crude preview. Returns {w, h, land: Uint8Array, landPct, ms}.
+   * seed: integer; plates: 4..40; world: bool (2:1, x wraps) else region (0.64 tall).
+   */
+  function preview(seed, plates, world, W) {
+    var t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    W = W || 320;
+    var H = world ? Math.round(W * 0.5) : Math.round(W * 0.64);
+    var rng = mulberry32(seed >>> 0), P = [], i, x, y;
+    for (i = 0; i < plates; i++) {
+      var oceanic = rng() < 0.45;                  // the engine's own build_plates rule
+      var px = rng() * W, py = rng() * H; rng(); rng(); // velocity draws, kept for the stream's shape
+      P.push({ x: px, y: py, base: (oceanic ? -1 : 1) * (0.55 + 0.45 * rng()) });
+    }
+    // two Lloyd passes on a quarter-resolution grid
+    var cw = W >> 2, ch = H >> 2, s = 4;
+    for (var it = 0; it < 2; it++) {
+      var sx = new Float64Array(plates), sy = new Float64Array(plates), c = new Float64Array(plates);
+      var ss = new Float64Array(plates), sc = new Float64Array(plates);
+      for (y = 0; y < ch; y++) for (x = 0; x < cw; x++) {
+        var gx = (x + 0.5) * s, gy = (y + 0.5) * s, best = 0, bd = 1e30;
+        for (i = 0; i < plates; i++) {
+          var dx = gx - P[i].x; if (world) dx -= Math.round(dx / W) * W;
+          var dy = gy - P[i].y, d = dx * dx + dy * dy;
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (world) { var th = gx / W * 2 * Math.PI; ss[best] += Math.sin(th); sc[best] += Math.cos(th); } else sx[best] += gx;
+        sy[best] += gy; c[best]++;
+      }
+      for (i = 0; i < plates; i++) if (c[i]) {
+        P[i].x = world ? ((Math.atan2(ss[i], sc[i]) / (2 * Math.PI) + 1) * W) % W : sx[i] / c[i];
+        P[i].y = sy[i] / c[i];
+      }
+    }
+    // domain warp, nearest plate, base field
+    var amp = 0.45 * 0.18 * W, wf = (world ? 3 : 2.5) / W, per = world ? 3 : 0;
+    var base = new Float32Array(W * H);
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      var qx = fbm(x * wf, y * wf, seed + 17, per), qy = fbm(x * wf, y * wf, seed + 101, per);
+      var ax = x + (fbm(x * wf + 4 * qx, y * wf + 4 * qy, seed + 213, per) - 0.5) * 2 * amp;
+      var ay = y + (fbm(x * wf + 4 * qx, y * wf + 4 * qy, seed + 331, per) - 0.5) * 2 * amp;
+      var b = 0, bd2 = 1e30;
+      for (i = 0; i < plates; i++) {
+        var ddx = ax - P[i].x; if (world) ddx -= Math.round(ddx / W) * W;
+        var ddy = ay - P[i].y, d2 = ddx * ddx + ddy * ddy;
+        if (d2 < bd2) { bd2 = d2; b = P[i].base; }
+      }
+      base[y * W + x] = b;
+    }
+    var sm = blur(base, W, H, 3, world);
+    var land = new Uint8Array(W * H), n = 0, nf = 5 / W, perN = world ? 5 : 0;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      var k2 = y * W + x;
+      var hgt = 0.4 * sm[k2] + 0.22 * (fbm(x * nf, y * nf, seed, perN) - 0.5) * 1.6;
+      if (hgt > 0.0) { land[k2] = 1; n++; }
+    }
+    var t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    return { w: W, h: H, land: land, landPct: 100 * n / (W * H), ms: t1 - t0 };
+  }
+  return { preview: preview, platesFor: platesFor, mulberry32: mulberry32 };
+})();
+if (typeof module !== "undefined") module.exports = NWP;
+</script>
+
+<script>
+(function () {
+  "use strict";
+  var SIZES = [
+    { label: "Local · 200 km", km: 200 }, { label: "Province · 800 km", km: 800 },
+    { label: "Region · 2 000 km", km: 2000 }, { label: "Subcontinent · 5 000 km", km: 5000 },
+    { label: "Continent · 12 000 km", km: 12000 }, { label: "Planet · 40 075 km", km: 40075 }
+  ];
+  var LOCK_SHUT = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="currentColor"/><path d="M4.5 6V4.3a2.5 2.5 0 0 1 5 0V6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+  var LOCK_OPEN = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6V4.3a2.5 2.5 0 0 1 4.9-.7" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+  var st = { seed: 555457, world: false, size: 1, plates: NWP.platesFor(800), override: false, locked: false, hist: [], cur: null };
+
+  function fmt(n) { return n.toLocaleString("en-US").replace(/,/g, " "); }
+
+  function draw(cv, r) {
+    cv.width = r.w; cv.height = r.h;
+    var cx = cv.getContext("2d"), img = cx.createImageData(r.w, r.h), d = img.data;
+    for (var i = 0; i < r.land.length; i++) {
+      var L = r.land[i];
+      d[i * 4] = L ? 0x8f : 0x2b; d[i * 4 + 1] = L ? 0x92 : 0x4d; d[i * 4 + 2] = L ? 0x95 : 0x6b; d[i * 4 + 3] = 255;
+    }
+    cx.putImageData(img, 0, 0);
+  }
+
+  function renderHist(el) {
+    el.innerHTML = "";
+    for (var k = 0; k < 4; k++) {
+      var h = st.hist[k], b = document.createElement("button");
+      if (!h) { b.className = "empty"; b.innerHTML = "<div style='aspect-ratio:1.5625;background:var(--bg)'></div>—"; el.appendChild(b); continue; }
+      var c = document.createElement("canvas"); draw(c, h.r);
+      b.appendChild(c);
+      var cap = document.createElement("div");
+      cap.innerHTML = (h.locked ? "<span class='lk'>● </span>" : "") + h.seed + " · " + Math.round(h.r.landPct) + "%";
+      b.appendChild(cap);
+      if (h.seed === st.seed && h.world === st.world && h.plates === st.plates) b.className = "cur";
+      b.title = "Restore seed " + h.seed + (h.world ? " (whole world" : " (region") + ", " + h.plates + " plates)";
+      (function (h) { b.onclick = function () { st.seed = h.seed; st.world = h.world; st.size = h.size; st.plates = h.plates; st.override = h.override; update(false); }; })(h);
+      el.appendChild(b);
+    }
+  }
+
+  function update(pushHistory) {
+    if (!st.override) st.plates = NWP.platesFor(SIZES[st.size].km);
+    var r = NWP.preview(st.seed, st.plates, st.world, 320);
+    st.cur = r;
+    if (pushHistory) {
+      st.hist = st.hist.filter(function (h) { return !(h.seed === st.seed && h.world === st.world && h.plates === st.plates); });
+      st.hist.unshift({ seed: st.seed, world: st.world, size: st.size, plates: st.plates, override: st.override, r: r, locked: st.locked });
+      st.hist = st.hist.slice(0, 4);
+    }
+    var km = SIZES[st.size].km, gw = 2048, gh = Math.round(gw * (st.world ? 0.5 : 0.64));
+    var title = "§ Preview · land vs ocean · " + r.w + " × " + r.h;
+    var statsHtml = "land <b>" + r.landPct.toFixed(0) + "%</b> · <b>" + st.plates + "</b> plates · " +
+      (st.world ? "whole world, x wraps" : "region") + " · drawn in " + r.ms.toFixed(0) + " ms (JS)";
+    var derived = "<span>Grid</span><span>" + gw + " × " + gh + " cells</span><span>Extent</span><span>" + fmt(km) + " km × " +
+      fmt(Math.round(km * gh / gw)) + " km</span><span>Cell size</span><span>" + (km / gw).toFixed(3) + " km per cell</span>";
+    ["d", "p"].forEach(function (p) {
+      draw(document.getElementById(p + "Canvas"), r);
+      document.getElementById(p + "Stats").innerHTML = p === "d" ? statsHtml :
+        "land <b>" + r.landPct.toFixed(0) + "%</b> · <b>" + st.plates + "</b> plates · " + r.ms.toFixed(0) + " ms";
+      document.getElementById(p + "Seed").value = st.seed;
+      document.getElementById(p + "Pn").textContent = st.plates;
+      document.getElementById(p + "Psrc").textContent = st.override ? "set by hand · reset" : "auto from width";
+      document.getElementById(p + "Size").value = String(st.size);
+      document.getElementById(p + "Derived").innerHTML = derived;
+      document.getElementById(p + "Lock").innerHTML = st.locked ? LOCK_SHUT : LOCK_OPEN;
+      document.getElementById(p + "Lock").setAttribute("aria-label", st.locked ? "Seed locked" : "Lock this seed");
+      document.getElementById(p + "Lock").classList.toggle("on", st.locked);
+      document.getElementById(p + "Dice").disabled = st.locked;
+      document.getElementById(p + "Dice").style.opacity = st.locked ? 0.35 : 1;
+      renderHist(document.getElementById(p + "Hist"));
+    });
+    document.getElementById("dPvTitle").textContent = title;
+    document.getElementById("pPvTitle").textContent = "§ PREVIEW · " + r.w + " × " + r.h;
+    document.getElementById("dLockNote").textContent = st.locked ? "locked: the dice leaves it alone" : "";
+    document.querySelectorAll("#dExtent button").forEach(function (b) { b.classList.toggle("on", +b.dataset.e === (st.world ? 1 : 0)); });
+    document.querySelectorAll("#pExtent button").forEach(function (b) { b.classList.toggle("on", +b.dataset.e === (st.world ? 1 : 0)); });
+  }
+
+  ["d", "p"].forEach(function (p) {
+    var sel = document.getElementById(p + "Size");
+    SIZES.forEach(function (s, i) { var o = document.createElement("option"); o.value = String(i); o.textContent = s.label; sel.appendChild(o); });
+    sel.onchange = function () { st.size = +sel.value; update(true); };
+    document.getElementById(p + "Dice").onclick = function () { if (st.locked) return; st.seed = Math.floor(Math.random() * 100000); update(true); };
+    document.getElementById(p + "Lock").onclick = function () { st.locked = !st.locked; if (st.hist[0] && st.hist[0].seed === st.seed) st.hist[0].locked = st.locked; update(false); };
+    var inp = document.getElementById(p + "Seed");
+    inp.onchange = function () { var v = parseInt(inp.value, 10); if (isFinite(v) && v >= 0 && v <= 2000000000) { st.seed = v; update(true); } else inp.value = st.seed; };
+    document.getElementById(p + "Pm").onclick = function () { st.override = true; st.plates = Math.max(4, st.plates - 1); update(true); };
+    document.getElementById(p + "Pp").onclick = function () { st.override = true; st.plates = Math.min(40, st.plates + 1); update(true); };
+    document.getElementById(p + "Psrc").onclick = function () { if (st.override) { st.override = false; update(true); } };
+  });
+  document.querySelectorAll("#dExtent button, #pExtent button").forEach(function (b) {
+    b.onclick = function () {
+      st.world = b.dataset.e === "1";
+      // world suggests the Planet width, region the default Province width (a starting point, not a lock)
+      if (st.world && st.size < 5) st.size = 5; else if (!st.world && st.size === 5) st.size = 1;
+      update(true);
+    };
+  });
+  document.getElementById("dMore").onclick = function () {
+    var body = document.getElementById("dMoreBody"); body.classList.toggle("hide");
+    this.textContent = (body.classList.contains("hide") ? "▸" : "▾") + " More options (aspect, grid, settlements)";
+  };
+
+  // view / width toggles
+  var view = "proposed", width = "desktop";
+  function applyView() {
+    document.querySelectorAll(".frame").forEach(function (f) {
+      var okV = view === "both" || f.dataset.view === view, okW = f.dataset.width === width;
+      f.classList.toggle("hide", !(okV && okW));
+    });
+    document.querySelectorAll("#viewSeg button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === view); });
+    document.querySelectorAll("#widthSeg button").forEach(function (b) { b.classList.toggle("on", b.dataset.w === width); });
+  }
+  document.querySelectorAll("#viewSeg button").forEach(function (b) { b.onclick = function () { view = b.dataset.v; applyView(); }; });
+  document.querySelectorAll("#widthSeg button").forEach(function (b) { b.onclick = function () { width = b.dataset.w; applyView(); }; });
+  if (window.matchMedia && window.matchMedia("(max-width: 700px)").matches) width = "phone";
+  // `#view=both&width=phone` opens a given combination (used to capture the mockup headless).
+  var hv = /view=(current|proposed|both)/.exec(location.hash), hw = /width=(desktop|phone)/.exec(location.hash);
+  if (hv) view = hv[1];
+  if (hw) width = hw[1];
+  applyView();
+
+  // scaling table
+  var tb = document.getElementById("scaleTable");
+  var html = "<tr><th>Map width preset</th><th>km</th><th>log-linear (proposed)</th><th>power law km^0.338</th><th>today</th></tr>";
+  SIZES.forEach(function (s) {
+    var pw = Math.max(4, Math.min(40, Math.round(6 * Math.pow(s.km / 200, Math.log(6) / Math.log(40075 / 200)))));
+    html += "<tr><td>" + s.label.split(" · ")[0] + "</td><td>" + fmt(s.km) + "</td><td>" + NWP.platesFor(s.km) + "</td><td>" + pw + "</td><td>14</td></tr>";
+  });
+  tb.innerHTML = html;
+
+  // seed the history with four rolls so the strip is not empty on first look
+  [555457, 31337, 902913, 51127].reverse().forEach(function (s) { st.seed = s; update(true); });
+})();
+</script>
+</body>
+</html>
