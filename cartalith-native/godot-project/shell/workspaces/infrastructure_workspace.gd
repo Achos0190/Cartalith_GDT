@@ -108,6 +108,8 @@ const WAY_TYPE_ORDER := ["highway", "regional", "road", "track"]
 ## calls that spec list wrong against the tested four-entry enum). These
 ## four are what `ManualWayType` actually has.
 const WAY_DRAW_TYPES := ["road", "track", "sea_lane", "ancient"]
+## Display labels, index-parallel with `WAY_DRAW_TYPES`; the Type picker shows these
+## and sends the key at the same index.
 const WAY_DRAW_TYPE_LABELS := ["Road", "Track", "Sea lane", "Ancient"]
 
 ## The reference's own local supply radius, canonical km. Named rather than
@@ -209,6 +211,11 @@ var _flows_run: Button
 ## Economy's own Trade balance.
 var _dock_hosted := false
 
+## Standalone build: the tool handlers, then (only when not `_dock_hosted`) the
+## four legacy categories, then the regenerate/load hooks that re-run every
+## readout. Under CIVIL the category bodies come from the `build_*_into()` entry
+## points instead, so only `_build_tools()` and the two signal connections matter
+## there. Must not draw a river category -- Rivers now belong to WORLD ▸ Hydrology.
 func _build() -> void:
 	_build_tools()
 	## **This branch is unreachable today, and is kept deliberately.**
@@ -396,6 +403,10 @@ func _push_way_draft() -> void:
 		_:
 			app.right_dock_ctrl.show_way("", PackedVector2Array(), "")
 
+## INFRA ▸ Way tool click at grid cell (`gx`, `gy`): append the point to the
+## engine's way draft and, only if the engine accepted it, mirror it in the local
+## preview list. The engine is the authority; `_way_points` must never gain a
+## point the draft did not.
 func _way_click(gx: float, gy: float) -> void:
 	if not bridge.way_append_point(gx, gy):
 		return
@@ -404,6 +415,10 @@ func _way_click(gx: float, gy: float) -> void:
 	_tool_options_way()
 	_push_way_draft()
 
+## INFRA ▸ Route tool click at grid cell (`gx`, `gy`): append a stop to the
+## engine's route draft, mirror it locally on acceptance only, then refresh the
+## options row and the right dock. Same rule as `_way_click`: the engine's draft
+## is the truth, `_route_points` its preview copy.
 func _route_click(gx: float, gy: float) -> void:
 	if not bridge.route_append_stop(gx, gy):
 		return
@@ -465,6 +480,8 @@ func _refresh_map_ways() -> void:
 	if civ != null:
 		civ._refresh_civ_data()
 
+## Throw away the way draft in the engine and the local preview, and refresh the
+## options row and right dock. Nothing is committed and no map layer changes.
 func _discard_way() -> void:
 	bridge.way_discard()
 	_way_points = PackedVector2Array()
@@ -473,6 +490,11 @@ func _discard_way() -> void:
 		_tool_options_way()
 	_push_way_draft()
 
+## Commit the route draft (Commit button, Escape, or switching tool). The
+## draft is gone either way; only when the engine returns a valid index does it
+## repaint the route layer, refresh the Hand-drawn list and post a status line with
+## the solved length. Never assumes the route was long enough -- `route_commit`
+## decides that.
 func _commit_route() -> void:
 	var idx := bridge.route_commit()
 	_route_points = PackedVector2Array()
@@ -504,6 +526,8 @@ func _commit_route() -> void:
 func _refresh_map_routes() -> void:
 	app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
 
+## Throw away the route draft in the engine and the local preview, and refresh
+## the options row and right dock. Nothing is committed.
 func _discard_route() -> void:
 	bridge.route_discard()
 	_route_points = PackedVector2Array()
@@ -512,6 +536,8 @@ func _discard_route() -> void:
 		_tool_options_route()
 	_push_way_draft()
 
+## Add the accent-coloured mono-spaced tool name (for example `INFRA · WAY`) that
+## leads every INFRA tool-options row, so the three rows read as one family.
 func _tool_options_label(row: HBoxContainer, text: String) -> void:
 	row.add_child(DccTheme.mono_label(text, "accent", DccTheme.FS_SMALL, 2, true))
 
@@ -539,9 +565,9 @@ func _tool_options_way() -> void:
 	)
 
 ## §4.5.4's Route options row, minus the vessel/party reference (Logistics'
-## own stub in this file explains why: the journey planner exports nothing
-## past the Rust crate boundary, so there is no vessel/party list to read
-## here) and minus a mode dropdown (see `_on_infra_tool_armed`'s "route"
+## own section explains why: the planner does cross the boundary now
+## (`jp_*`), but its party form lives in `journey_planner_view.gd`, so there is
+## no vessel/party list to read here) and minus a mode dropdown (see `_on_infra_tool_armed`'s "route"
 ## branch -- the reference never exposed one either).
 func _tool_options_route() -> void:
 	app.set_tool_options(func(row: HBoxContainer):
@@ -692,6 +718,11 @@ func _build_flows(parent: Control) -> void:
 	sec.add_child(_flows_body)
 	_fill_flows()
 
+## Draw the Trade flows readout from `TradeStore.last()`: the headline counts,
+## the land/river/sea shares by volume, goods, partners, unmet needs, ways and
+## caravans. With no stored match it shows only a not-matched-yet note. Reads the
+## store and never matches -- `_match_trade_flows` is the only caller that does.
+## The caller clears `_flows_body` first.
 func _fill_flows() -> void:
 	if _flows_body == null or not is_instance_valid(_flows_body):
 		return
@@ -885,6 +916,10 @@ func _fill_flows_ways(d: Dictionary) -> void:
 ## saved. The engine's `way_goods` tally says what each one carries.
 const CARAVAN_ROWS_SHOWN := 12
 
+## Caravans group of the flows readout: one line per way carrying matched trade
+## (its three largest goods by share of load), capped at `CARAVAN_ROWS_SHOWN` with
+## a count of the rest. A derived view rebuilt on every read from `d` and never
+## saved (Ruling AP); a sea route is not a way and has no caravan.
 func _fill_flows_caravans(d: Dictionary) -> void:
 	var rows: Array = d.get("caravans", [])
 	var total := int(d.get("caravan_count", rows.size()))
@@ -910,6 +945,11 @@ func _fill_flows_caravans(d: Dictionary) -> void:
 		+ "routed over it. Rebuilt from the live match each time and never saved. Sea routes "
 		+ "are not ways and have no caravan yet.")
 
+## Match Trade flows button: run the engine's match through `TradeStore.refresh`
+## (built, read and dropped), redraw the readout and hand the per-way volumes to
+## the map overlay so way thickness shows the same match. An empty result -- no
+## settlements, or a save without its substrate rasters -- shows an explanatory
+## note instead and leaves the overlay alone.
 func _match_trade_flows() -> void:
 	if _flows_body == null or not is_instance_valid(_flows_body):
 		return
@@ -978,6 +1018,10 @@ static func rivers_note() -> String:
 		+ "project archive has no rivers to select at all, because SAVEFILE_COMPAT.md "
 		+ "stores no channel topology, so its rivers exist only in the baked raster.")
 
+## Fill the Routes & ways ▸ Network section: the whole-network actions, a tally
+## of ways by tier (hand-drawn counted separately so the sentence adds up), the six
+## longest ways, then the sea lanes and hand-drawn lists. Reads `bridge.roads()`
+## only; never generates anything.
 func _fill_roads(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Network")
 	## Ruling L L174: "the two same-named sections merged". The whole-network
@@ -1287,6 +1331,9 @@ func _manual_route_row(i: int, r: Dictionary) -> void:
 	_manual_routes_list.add_child(row)
 
 
+## Select hand-drawn route `index` (or -1 to deselect): remember it, highlight it
+## on the map overlay and redraw the list. Selection is an index into the engine's
+## route list, so `_delete_route` must renumber it.
 func _select_route(index: int) -> void:
 	_selected_route = index
 	app.viewport.overlay.set_selected_manual_route(index)
@@ -1398,6 +1445,11 @@ func _clear_ways() -> void:
 		n == 0 and bridge.route_count() == 0,
 		func(): _clear_ways_now())
 
+## Perform the Clear all ways action after confirmation: the engine empties
+## generated ways, sea lanes, hand-drawn ways and journeys in one call. Resets the
+## route selection, reports what was removed in the roads note and the status bar,
+## and repaints both the way and route layers. Irreversible, so only
+## `_clear_ways`'s confirm path (or its no-parent fallback) may call it.
 func _clear_ways_now() -> void:
 	var r: Dictionary = bridge.civ_clear_ways()
 	_selected_route = -1
@@ -1418,6 +1470,9 @@ func _build_ports() -> void:
 	_ports_body = DccWidgets.category(self, "Ports", categories)
 	_fill_ports(_ports_body)
 
+## Fill the coastal settlements list. The engine has no separate port concept;
+## a settlement counts as a port exactly when `get_settlements()` flags it
+## `coastal`, and the note says so rather than implying more.
 func _fill_ports(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Coastal settlements")
 	var settlements := bridge.settlements()

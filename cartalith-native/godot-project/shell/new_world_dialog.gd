@@ -32,6 +32,9 @@ const SIZE_PRESETS: Array = [
 ]
 const SIZE_CUSTOM_INDEX := 6 ## SIZE_PRESETS.size() -- one past the last preset.
 
+## Aspect picker entries: label and width:height ratio. The indices of the first
+## three (world 2:1, reference region frame) are pinned by `ASPECT_WORLD_INDEX` and
+## `ASPECT_REGION_INDEX`, so keep those entries where they are.
 const ASPECT_PRESETS: Array = [
 	{"label": "2:1 · equirectangular", "ratio": 2.0},
 	{"label": "16:9 · widescreen", "ratio": 16.0 / 9.0},
@@ -43,15 +46,23 @@ const ASPECT_PRESETS: Array = [
 ]
 const ASPECT_WORLD_INDEX := 0   ## 2:1 -- the shape world mode is pinned to.
 const ASPECT_REGION_INDEX := 2  ## The reference's own region frame; gh comes from the engine.
+## Picker index of the Custom entry: one past the last preset (7 presets, so 7).
+## Selected whenever a row count is typed by hand.
 const ASPECT_CUSTOM_INDEX := 7
+## What the aspect picker opens on: the reference's own region frame.
 const ASPECT_DEFAULT_INDEX := ASPECT_REGION_INDEX
 
+## Grid widths in cells offered by the Resolution picker (512 to 8K).
 const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
+## Picker text for `RESOLUTION_PRESETS`, index-parallel.
 const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
 const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, the reference's own default.
+## Picker index of Custom: one past the last preset (5 presets, so 5).
 const RESOLUTION_CUSTOM_INDEX := 5
 
 const GRID_MIN := 4 ## generate_sized() clamps each dimension to >= 4; match it rather than let the engine clamp behind the dialog's back.
+## Largest grid dimension the form accepts, equal to the top resolution preset
+## (8K). A labelled judgement matching the preset list, not an engine limit.
 const GRID_MAX := 8192
 
 ## `OUTSTANDING_WORK.md` §2.7 / `GENERATION_PARAMETERS.md`: this field used to
@@ -128,7 +139,10 @@ const PHONE_CREATE_FLEX := 1.4
 const PHONE_ACTION_FS := 11
 const PHONE_ACTION_TRACKING := 1
 
+## Advisory shown under the Extent picker in Region mode.
 const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here."
+## Advisory shown under the Extent picker in World mode; it suggests 2:1 and
+## explains why without locking anything (see `_update_extent_state`).
 const EXTENT_NOTE_WORLD := "Whole world -- a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. 2:1 is the ratio that keeps the graticule true; anything else stretches it against the terrain. Advisory, not enforced -- pick any size you want."
 
 ## `earth`/`supercontinent`/… (`bridge.archetypes()`) with the reference's own
@@ -194,6 +208,10 @@ var _card_scroll: ScrollContainer   ## The card's own scrolling band.
 var _card_form: VBoxContainer       ## What scrolls inside it.
 var _card_actions: VBoxContainer    ## The card's outer column; holds the pinned row.
 
+## Build the whole New-world form once: window size, the phone variant, the
+## Create button wired to `_on_create`, and every section from the engine's
+## parameter table. `b` must be set before anything reads `bridge`. Call once;
+## `request()` and `open_*` assume it has run.
 func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "New world"
@@ -579,6 +597,10 @@ func _build_phone_actions(card: Control) -> void:
 		hide()
 		_on_create())
 
+## One pill button of the phone's pinned action row (CANCEL / CREATE WORLD).
+## `primary` selects the accent fill, otherwise a faint wash; `flex` is the
+## stretch ratio so Create is wider than Cancel. Hover and pressed are a lift on
+## the same wash, not a second colour. Adds the button to `row` and returns it.
 func _phone_action(row: Control, caption: String, primary: bool,
 		flex: float) -> Button:
 	var b := Button.new()
@@ -931,6 +953,10 @@ var _count_dials: Array = []
 var _count_note: Label
 var _count_toggle: CheckBox
 
+## Fixed settlement counts: a toggle plus one spin box per tier in `COUNT_ROWS`.
+## `dials` are the two automatic placement sliders, which `_refresh_fixed_counts`
+## greys while the counts are in force. Draws nothing when the engine build has no
+## `civ.fixed_counts` parameter, so an older cdylib shows no dead controls.
 func _build_fixed_counts(dials: Array, parent: Control) -> void:
 	var flag: Dictionary = bridge.param_info("civ.fixed_counts")
 	if flag.is_empty():
@@ -956,6 +982,11 @@ func _build_fixed_counts(dials: Array, parent: Control) -> void:
 	_count_note = DccWidgets.note(parent, "")
 	_refresh_fixed_counts()
 
+## Re-derive the counts block from the engine: the spin boxes are editable only
+## while the toggle is on, and the two automatic dials grey out only when the
+## counts are actually in force (on, and a total of at least 1 -- an all-zero
+## request falls back to automatic placement). Updates the explanatory note to say
+## which of the three states applies.
 func _refresh_fixed_counts() -> void:
 	var live = bridge.param_get("civ.fixed_counts")
 	var on := bool(live) if live != null else false
@@ -974,10 +1005,16 @@ func _refresh_fixed_counts() -> void:
 	else:
 		_count_note.text = "%d settlements requested. Suitability floor and packing are overridden (threshold 0.35, spacing from the total)." % total
 
+## The engine's live value for parameter `key`, else the default from its
+## `info` record, else 0.0. Never encodes "absent" as a plausible value other than
+## the documented default.
 func _param_or_default(key: String, info: Dictionary) -> float:
 	var live = bridge.param_get(key)
 	return float(live if live != null else info.get("default", 0.0))
 
+## The read-only readout under the dimension inputs: Grid, Extent, Cell size and
+## Aspect. Creates the value labels and registers them in `_derived_labels`, which
+## `_update_derived_readout` fills; every value starts as a dash.
 func _build_derived_panel(parent: Control) -> void:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken")))
@@ -1024,16 +1061,24 @@ func _update_extent_state() -> void:
 	_set_extent_chips()
 	_refresh_dimensions()
 
+## Size preset picker: copy the preset's width in km into the width field
+## without emitting its signal, then recompute the dependent readout. The Custom
+## entry (past the preset list) changes nothing.
 func _on_size_preset_selected(index: int) -> void:
 	if index < SIZE_PRESETS.size():
 		width_input.set_value_no_signal(float(SIZE_PRESETS[index]["km"]))
 	_refresh_dimensions()
 
+## Resolution preset picker: copy the preset's grid width into the width field
+## silently, then refresh the dependent rows. The Custom entry changes nothing.
 func _on_resolution_selected(index: int) -> void:
 	if index < RESOLUTION_PRESETS.size():
 		grid_w_input.set_value_no_signal(RESOLUTION_PRESETS[index])
 	_refresh_dimensions()
 
+## Hand-typed row count: switch the aspect picker to Custom, since a typed value
+## is by definition no preset, then refresh. Ignored while `_dim_syncing` -- our own
+## `set_value_no_signal` writes must not flip the picker back.
 func _on_grid_h_changed(_value: float) -> void:
 	if _dim_syncing:
 		return
@@ -1085,6 +1130,10 @@ func _refresh_dimensions() -> void:
 	_dim_syncing = false
 	_update_derived_readout(gw, gh, km)
 
+## Fill the readout labels for a `gw` x `gh` grid spanning `km_w` kilometres:
+## cells, extent, square cell size (the one quotient the engine derives distances
+## from), and the aspect with a shape word. Also shows the size and degenerate-aspect
+## warnings. Display only: it changes no parameter.
 func _update_derived_readout(gw: int, gh: int, km_w: float) -> void:
 	## The one quotient the whole engine derives distances from.
 	var cell_km := km_w / float(gw)
@@ -1137,11 +1186,15 @@ func heightmap_grid_summary(path: String) -> String:
 		return ""
 	return "%d × %d → working grid %d × %d" % [src.x, src.y, grid.x, grid.y]
 
+## Cell count as "x.xx M cells" from one million up, otherwise "x.x k cells".
+## Display text only.
 func _format_count(n: int) -> String:
 	if n >= 1000000:
 		return "%.2f M cells" % (n / 1000000.0)
 	return "%.1f k cells" % (n / 1000.0)
 
+## Kilometres to a width-appropriate string: whole numbers from 100, one decimal
+## from 1, otherwise three decimals, so a tiny cell size never reads as 0.
 func _format_km(v: float) -> String:
 	if v >= 100.0:
 		return "%.0f" % v
@@ -1229,6 +1282,8 @@ const PHONE_MEASURED_AVAILABLE_GB := 2.38
 ## find it; nothing else reads it.
 var _memory_confirm: ConfirmationDialog
 
+## True when `gw` x `gh` is above `PHONE_CEILING_CELLS`. Cell count, not width,
+## because the generation peak is linear in cells and nothing else.
 func exceeds_phone_ceiling(gw: int, gh: int) -> bool:
 	return gw * gh > PHONE_CEILING_CELLS
 
@@ -1236,6 +1291,11 @@ func exceeds_phone_ceiling(gw: int, gh: int) -> bool:
 static func estimated_peak_gib(gw: int, gh: int) -> float:
 	return float(gw) * float(gh) * PEAK_BYTES_PER_CELL / 1073741824.0
 
+## The body of the Large-world memory question for a `gw` x `gh` grid: the peak
+## estimate from `estimated_peak_gib`, the app's own footprint and the measured
+## handset headroom. The figures are projected for the phone, not measured there
+## (see `PEAK_BYTES_PER_CELL`); the text must keep saying so through its wording
+## "about" and "can".
 func phone_memory_warning_text(gw: int, gh: int) -> String:
 	return ("A %d × %d grid is above 2048 × 1311, the largest recommended on a phone.\n\n"
 		+ "Generating it needs about %.2f GiB of memory at its peak (measured at %.1f bytes per cell), "

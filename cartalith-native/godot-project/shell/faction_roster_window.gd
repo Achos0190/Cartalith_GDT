@@ -294,6 +294,11 @@ signal tariff_changed
 signal belief_run_requested
 
 
+## Build the Factions window once: size and minimum size, the phone variant
+## (`DccWidgets.phone_window`, one scrolling column), the world overview strip, the
+## faction list and the inspector tabs. `a` is the `DccApp`, `b` the engine bridge;
+## both are stored before anything is drawn. Never sets `max_size` (see the note
+## inside). Call once; later changes go through `_rebuild` and its parts.
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -674,6 +679,10 @@ func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> vo
 ## the user had just switched TO.
 var _rebuilding := false
 
+## Remove and free every child of `node` with `_rebuilding` held true, so a
+## focused field's `focus_exited` commit cannot fire against the dying form
+## (FR-02). Restores the previous flag value rather than forcing it false, so a
+## nested clear inside an outer rebuild keeps the outer guard.
 func _clear(node: Control) -> void:
 	var was := _rebuilding
 	_rebuilding = true
@@ -696,6 +705,9 @@ func _commit_focused_field() -> void:
 		fo.release_focus()
 
 
+## Redraw all three parts from the engine: the world overview, the faction
+## list and the selected faction's inspector. The full-refresh entry point; the
+## narrower `_rebuild_*` calls exist for edits that cannot move the others.
 func _rebuild() -> void:
 	_rebuild_overview()
 	_rebuild_list()
@@ -1985,6 +1997,10 @@ func _repaint_banners(c: Color) -> void:
 		(_phone_bar_banner as FactionBanner).configure(_selected, c, 22)
 
 
+## A dropdown over an engine vocabulary (`[{key, label}, ...]`) writing the chosen
+## key through `_set_field(key, ...)`. Draws nothing for an empty vocabulary, so a
+## build that lacks it shows no dead control. `current` selects the entry; an
+## unknown current key falls back to the first rather than inventing a label.
 func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String,
 		key: String, tip: String = "") -> void:
 	if vocab.is_empty():
@@ -2106,6 +2122,11 @@ func _refill_religion_library() -> void:
 		app.phone_fit(self, 1.0)
 
 
+## Fill the Religions library box: heading, the R1 limit note, one row per custom
+## religion (with its inline editor when open) and a New religion button or the
+## open new-religion editor. Needs the custom-religion binding; without it, says the
+## native library needs a rebuild instead of presenting the feature as missing.
+## Clear the box first.
 func _fill_religion_library(box: VBoxContainer) -> void:
 	var head := DccTheme.mono_label("Religions library", "text_dim", DccTheme.FS_SMALL, 0)
 	head.name = "ReligionsLibraryHead"
@@ -2529,6 +2550,10 @@ func _reroll_name(idx: int) -> void:
 		app.phone_fit(self, 1.0)  # idempotent; tags only the new chips
 
 
+## The Ag. technology dropdown, from `civ_ag_tech_vocabulary()`, with the selected
+## entry's hint shown beneath. It writes `ag_tech` through `_set_field`, which drops
+## the Military tab's cached answer because the farmers-per-urbanite ratio is one
+## of that model's five inputs. Draws nothing for an empty vocabulary.
 func _ag_tech_choice(parent: Control, current: String) -> void:
 	var vocab := bridge.civ_ag_tech_vocabulary()
 	if vocab.is_empty():
@@ -2632,6 +2657,10 @@ func _build_currency(parent: Control) -> void:
 	_currency_example = DccWidgets.note(sec, "")
 	_refresh_currency_example()
 
+## One text row of the currency card (`key` is a currency member such as `rate`).
+## Shows the stored value, or blank with the default as placeholder. Commits on
+## Enter and on focus loss -- the latter guarded by `_rebuilding`, so teardown
+## cannot write a stale value (FR-02) -- through `_set_currency`.
 func _currency_field(parent: Control, label_text: String, key: String, cur: Dictionary, tip: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -2697,6 +2726,9 @@ func _set_currency(key: String, value: String, le: LineEdit) -> void:
 	_refresh_currency_example()
 	roster_changed.emit()
 
+## Update the worked-example line ("a good at world price 1 costs ...") from the
+## engine's price conversion for the selected faction, noting when the rate is the
+## default par. Blank when the engine cannot answer; must not guess a currency.
 func _refresh_currency_example() -> void:
 	if _currency_example == null or not is_instance_valid(_currency_example):
 		return
@@ -2749,6 +2781,10 @@ func _build_tariffs(parent: Control) -> void:
 		+ "(Civilization ▸ Economy ▸ Trade flows); the busiest-partners readout below re-matches "
 		+ "itself on an edit when a match is already held, so its numbers move without a manual re-run.")
 
+## One Tariffs row: the percentage this faction, as importer, levies on goods
+## from `exporter_id`. Blank is no tariff and 100 an embargo (tooltip). Commits on
+## Enter and on guarded focus loss through `_set_tariff`, whose engine call precedes
+## the change signal.
 func _tariff_row(parent: Control, exporter_id: int, exporter_name: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -3519,6 +3555,12 @@ func _confirm_remove() -> void:
 				_rebuild())
 
 
+## Write faction field `key` for the selected faction; the engine's refusal is
+## reported on the status bar. Then redraw exactly what the field can move:
+## culture rebuilds the visible pane and marks caches stale, government, ag. tech
+## and religion drop the hidden panes whose answers depend on them, and a name
+## refreshes the list and overview. Anything else changes nothing visible here.
+## Must commit a focused field first wherever it rebuilds the inspector (FR-02).
 func _set_field(key: String, value: String) -> void:
 	if not bridge.civ_set_faction_field(_selected, key, value):
 		app.set_status("hint", "Rejected — %s is not a value the engine recognises." % value, "accent")
@@ -3564,6 +3606,8 @@ func _faction(fid: int) -> Dictionary:
 	return {}
 
 
+## The cached terrain-fit record (`civ_faction_terrain_fits`) for faction `fid` from `_fits`, or `{}` when
+## none was computed.
 func _fit_for(fid: int) -> Dictionary:
 	for f in _fits:
 		if int((f as Dictionary).get("faction", -1)) == fid:
@@ -3571,6 +3615,10 @@ func _fit_for(fid: int) -> Dictionary:
 	return {}
 
 
+## The faction's seat, derived as the reference's `_civFactionCapital` does: the
+## most populous capital or metropolis, else the most populous settlement of any
+## kind. Returns `{}` for a faction with no settlements. There is no override
+## field to read; the result is always computed from kind and population.
 func _capital_of(fid: int) -> Dictionary:
 	## `_civFactionCapital`: the highest-pop capital/metropolis, else the
 	## highest-pop settlement of any kind -- fully derived from kind/pop, no
@@ -3592,6 +3640,9 @@ func _capital_of(fid: int) -> Dictionary:
 	return best
 
 
+## The faction's colour from the `color_r/g/b` bytes of `d`, defaulting to grey
+## (150) per channel when absent -- a visible placeholder, not a real faction
+## colour.
 func _color_of(d: Dictionary) -> Color:
 	return Color8(int(d.get("color_r", 150)), int(d.get("color_g", 150)), int(d.get("color_b", 150)))
 

@@ -159,6 +159,9 @@ var _phone_title: Label
 ## the overlay without this file knowing how (`civilization_workspace.gd`
 ## owns `_refresh_civ_data`).
 signal place_changed
+## Emitted after the open place is deleted through this window's Delete button, so
+## the owner can refresh the map and lists. The window hides itself only when the
+## deleted place is the one it has open.
 signal place_deleted
 ## FH-5 (`FACTION_HUB_DESIGN.md` §5.2): emitted after a Polity change that
 ## moved claim-grid cells, **after** the engine call, so a listener reads the
@@ -168,6 +171,8 @@ signal place_deleted
 ## hub and dock refresh, exactly as it owns `place_changed`'s.
 signal polity_moved
 
+## Settlement kinds from largest to smallest, as the engine spells them. Drives the
+## Class picker's order and index, so it must list every kind the engine accepts.
 const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
 
 ## Tab strip (see this file's own top-of-file doc for the canvas citation and
@@ -177,6 +182,7 @@ const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet
 ## artboard header, after the five Batches A-D already shipped (Overview /
 ## Economy & notables / Timeline / Political history / Vault notes).
 const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault", "layout"]
+## Display text for each key in `TAB_ORDER`; every tab key needs an entry.
 const TAB_LABELS := {
 	"overview": "Overview",
 	"economy": "Economy & notables",
@@ -224,6 +230,11 @@ var _ae_msg := ""
 var _ae_conflict := false
 
 
+## Build the window's fixed frame once: size and minimum size, the phone variant
+## (`DccWidgets.phone_window`, with its in-content header), a scrolling column whose
+## `_body` every `_rebuild()` refills, and the two world-change hooks that rebuild
+## an open editor. Never sets `max_size` (see the note inside). `a` is the `DccApp`,
+## `b` the engine bridge; both must be set before `open_for`. Call once.
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -374,6 +385,10 @@ func _commit_focused_field() -> void:
 	if fo != null and _body.is_ancestor_of(fo):
 		fo.release_focus()
 
+## Empty `_body` ahead of a rebuild. `_rebuilding` is held true so the name
+## field's `focus_exited` write-back cannot commit stale text against the form
+## being torn down (`GUI_GAP_REGISTER.md` PE-01); `_name_edit` is dropped first for
+## the same reason. Must never leave a half-built form on screen.
 func _clear() -> void:
 	_rebuilding = true
 	## Cleared BEFORE the removal as well, so a handler that reads it during
@@ -385,6 +400,9 @@ func _clear() -> void:
 	_rebuilding = false
 
 
+## The settlement dictionary at `_index` in `bridge.settlements()`, or `{}` when
+## no place is open or the index has run off the list (a regenerate renumbers
+## every index). Callers treat an empty result as "that place is gone".
 func _settlement() -> Dictionary:
 	var all := bridge.settlements()
 	if _index < 0 or _index >= all.size():
@@ -392,6 +410,12 @@ func _settlement() -> Dictionary:
 	return all[_index]
 
 
+## Redraw the whole form from the engine for the active tab: clear, re-read the
+## settlement and its details, set the window and phone titles and draw the tab
+## strip plus that tab's sections. A full rebuild on every change, by design --
+## there is no per-field update path to drift. If the settlement no longer exists
+## it shows a note and resets `_index` to -1. Must not commit the focused field
+## first (see `setup`'s RF-02 note).
 func _rebuild() -> void:
 	_clear()
 	var s := _settlement()
@@ -655,6 +679,8 @@ func _run_collapse_sim(confirm: bool) -> void:
 	_rebuild()
 
 
+## One key/value tile of the report grid: a faint micro-caps key over the value,
+## both monospaced. Adds the tile to `parent`; draws only, reads nothing.
 func _report_stat(parent: Control, key: String, value: String) -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 2)
@@ -831,6 +857,8 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 ## settlement's strip shows the conflicts that touched it"); a cross is used
 ## because no other lane draws one (a ruined year's ring is a circle, not a cross).
 const STRIP_LANES: Array[String] = ["ownership", "population", "events", "journeys", "conflicts"]
+## The lane title drawn in the band above each lane, one entry per `STRIP_LANES`
+## key. The glyph is the same one the lane draws for its marks.
 const STRIP_LANE_TITLE := {
 	"ownership": "▬ OWNERSHIP", "population": "● POP · TIER",
 	"events": "◆ EVENTS", "journeys": "▲ JOURNEYS", "conflicts": "✕ CONFLICTS",
@@ -847,21 +875,31 @@ const STRIP_LANE_EMPTY := {
 }
 ## Meta keys a probe (and the click readout) read a mark back by.
 const STRIP_META_LANE := "strip_lane"
+## Meta key holding the mark's year (see `STRIP_META_LANE`).
 const STRIP_META_YEAR := "strip_year"
+## Meta key holding the mark's readout text (see `STRIP_META_LANE`).
 const STRIP_META_TEXT := "strip_text"
 ## Horizontal scale: px per recorded year, clamped so a 10-year run still has
 ## room and a 100 000-year span stays a finite scroll. Labelled judgement, not a
 ## measurement: 8 px keeps 10-year steps ~80 px apart, wider than the widest
 ## drawn tier label.
 const STRIP_PX_PER_YEAR := 8.0
+## Floor on the strip's plot width in px, so a short history is still a usable
+## target (labelled judgement).
 const STRIP_MIN_PLOT_W := 320.0
+## Ceiling on the plot width in px, so a very long history scrolls a finite
+## distance rather than producing a huge control (labelled judgement).
 const STRIP_MAX_PLOT_W := 2400.0
 ## Room either side of the first/last year so an end mark is not clipped.
 const STRIP_PAD_X := 18.0
+## Height in px of the year axis under the lanes; added to the lanes' total height
+## when the strip is sized (labelled judgement).
 const STRIP_AXIS_H := 16.0
 ## A year label needs about this much horizontal room (`FS_MICRO` mono, up to
 ## 7 characters); tick spacing is the smallest "nice" step that clears it.
 const STRIP_TICK_MIN_PX := 56.0
+## Candidate tick spacings in years, 1-2-5 style; the axis uses the smallest that
+## clears `STRIP_TICK_MIN_PX`, falling back to the last.
 const STRIP_NICE_STEPS: Array[int] = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500,
 	1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
 ## Height of the title band at the top of every lane. The titles used to sit in
@@ -1302,6 +1340,9 @@ func _strip_row_h() -> float:
 	return 36.0 if _phone else 24.0
 
 
+## Width of one hit cell on the timeline strip: 44 reference px on a phone
+## (`DccTheme.PHONE_TAP_MIN`, the touch floor) and 16 for a pointer. Pair of
+## `_strip_row_h`; the builder, packer and painter must all use it.
 func _strip_hit_w() -> float:
 	return float(DccTheme.PHONE_TAP_MIN) if _phone else 16.0
 
@@ -1377,6 +1418,11 @@ func _build_journey_passes(parent: Control, s: Dictionary) -> void:
 ## range, name. Read-only; conflicts are drawn and edited in CIVIL.
 const _CONFLICT_INK: Color = preload("res://map_overlay.gd").CONFLICT_COLOR
 
+## Political-tab "Conflicts here" section: every conflict touching this
+## settlement or its province (`conflicts_touching_settlement`, keyed on `tid`), one
+## row each with the map's conflict ink swatch, year range and name. A settlement
+## without a `tid` gets an explanatory note rather than an empty list. Read-only --
+## conflicts are edited in CIVIL.
 func _build_conflicts_here(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Conflicts here")
 	var tid := int(s.get("tid", 0))
@@ -1410,11 +1456,16 @@ func _build_conflicts_here(parent: Control, s: Dictionary) -> void:
 		sec.add_child(row)
 
 
+## Year range text for a conflict row: "start - end", or "start - ongoing" when
+## the conflict has no `end_year` key. Absence of the key, not a sentinel value,
+## means ongoing.
 func _conflict_years(cd: Dictionary) -> String:
 	var yr := str(int(cd.get("start_year", 0)))
 	return yr + (" – %d" % int(cd.get("end_year", 0)) if cd.has("end_year") else " – ongoing")
 
 
+## A conflict's display name, or "Unnamed <kind>" (falling back to "conflict")
+## when the engine record has no name.
 func _conflict_title(cd: Dictionary) -> String:
 	var n := String(cd.get("name", ""))
 	return n if not n.is_empty() else "Unnamed %s" % String(cd.get("kind", "conflict"))
@@ -1545,6 +1596,9 @@ func _build_add_event_form(sec: Control, notes: Array) -> void:
 		% rel + "in the Chronos Timeline plugin's own syntax, so the note still draws in Obsidian.")
 
 
+## One labelled single-line field of the Add-event form. Wires `text_changed` to
+## `on_change`, which stores into the `_ae_*` draft so a half-typed event survives
+## the form's own rebuilds. Returns the `LineEdit`.
 func _ae_field(parent: Control, label_text: String, value: String, placeholder: String,
 		on_change: Callable) -> LineEdit:
 	var row := DccWidgets._row(parent, label_text, "")
@@ -1558,6 +1612,12 @@ func _ae_field(parent: Control, label_text: String, value: String, placeholder: 
 	return le
 
 
+## Add-event button: validate the end year (blank, or a whole number), build the
+## event dictionary from the `_ae_*` draft and write it to the vault note `rel` as
+## one Chronos line. Records the outcome in `_ae_msg`: success clears the draft,
+## a conflict means the note changed on disk since `_ae_hash` was read and nothing
+## was written, any other failure shows the engine's error. Always rebuilds so the
+## list and message reflect the note as it now is.
 func _submit_event(rel: String) -> void:
 	var ev := {"start": _ae_start, "name": _ae_name.strip_edges()}
 	var end_t := _ae_end.strip_edges()
@@ -1823,6 +1883,8 @@ const LAYOUT_ABSENT := [
 ]
 
 
+## A small outlined key/value chip for the Layout tab's facts row. Returns the
+## panel for the caller to add.
 func _fact_chip(key: String, value: String) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", DccTheme.outline("border"))
@@ -2160,6 +2222,11 @@ func _smelting_salt_note(sec: Control) -> void:
 	else:
 		DccWidgets.note(sec, "Salt: none in reach -- no sea route, salt deposit or salt lake.")
 
+## One clickable trade-flow row: "good arrow partner -- volume, mode distance".
+## `name_key` picks the partner side ("from_name" means the partner is the flow's
+## `from`, otherwise its `to`); pressing opens that partner's own place editor.
+## The tooltip carries reach and the share of the partner's scale that survives the
+## carriage (`deliverable`).
 func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String) -> void:
 	var f: Dictionary = flow
 	var partner := int(f.get("from" if name_key == "from_name" else "to", -1))
@@ -2462,6 +2529,9 @@ func confirm_delete(index: int) -> void:
 					_rebuild())
 
 
+## Footer note, drawn under every tab by `_rebuild`, listing what the design draws that this editor does
+## not, each with its reason. A statement of absence: edit it in the same change
+## that builds or drops any item it names.
 func _build_footer(parent: Control) -> void:
 	_footer = DccWidgets.note(parent,
 		"Not built here, each for a stated reason: Category (settlement ↔ POI) -- POI is not a "

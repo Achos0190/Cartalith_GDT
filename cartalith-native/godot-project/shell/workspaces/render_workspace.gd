@@ -54,6 +54,8 @@ var _nested := false
 ## (non-nested) use is untouched: `_host` stays null and `_h()` returns `self`.
 var _host: Control = null
 
+## The control the section builders draw into: `_host` while a `build_*_into()`
+## entry point is running, otherwise `self` (standalone use). Never returns null.
 func _h() -> Control:
 	return _host if _host != null else self
 
@@ -689,6 +691,8 @@ static func _preset_appearance_keys() -> PackedStringArray:
 ## rather than a third constant.
 const TILE_W := 156
 const TILE_W_T := 172
+## Pixel gap between Style preset tiles, both axes (a labelled judgement, small
+## enough that the 156/172 px tile widths above still fit two to a row).
 const TILE_GAP := 4
 
 ## The three managed keys that are not Painter styles, labelled exactly as
@@ -730,7 +734,12 @@ const STYLE_MANAGED := {
 ## destination rather than a slice, because these four are not ordered by
 ## anything a slice index could stand for.
 const APPEARANCE_VIEW := ["exag", "sun_az_deg", "sun_alt_deg"]
+## The one appearance key, `bio_blend`, drawn under Colours ▸ Biome colours rather
+## than with the view keys (Ruling L); `_build_biome_colours` reads this list.
 const APPEARANCE_BIOME := ["bio_blend"]
+## The appearance sliders as `[title, [keys...]]` groups, in the reference's order.
+## The v3 builders draw positional slices of it (`.slice(0, 6)`, `.slice(6)`), so inserting
+## or reordering a group moves a boundary -- re-check those call sites.
 const APPEARANCE_GROUPS := [
 	## `svf_strength` and `shadow_strength` joined this group 2026-09-03
 	## (`OUTSTANDING_WORK.md` §2.5) and sit **beside** the two occlusion rows
@@ -963,6 +972,10 @@ var _look_names: Array = []
 ## trip the "Custom" mark the reference flips on any manual edit.
 var _applying := false
 
+## Standalone (non-nested) build: the TOOLS block, then every section in the
+## reference's own order. A no-op when `_nested`, since `cartography_workspace.gd`
+## then calls the `build_*_into()` entry points itself and this node only holds
+## state. Must not be called twice -- the sections have no teardown.
 func _build() -> void:
 	## Nested under CARTO, this node draws nothing itself: it holds the state
 	## (the ramp, the preset tiles, the appearance rows, the water-anim layer)
@@ -1470,6 +1483,13 @@ func _set_tile_on(tile: Dictionary, on: bool) -> void:
 	(tile["bundle"] as Label).add_theme_color_override("font_color",
 		DccTheme.c("text" if on else "text_dim"))
 
+## Apply Style preset tile `index` as one bundle: the look, the Painter (NPR)
+## block, optional raw appearance overrides (the optional 4th element) and the
+## elevation-ramp preset (the optional 5th), then re-sync every row and repaint once. Absolute -- every
+## managed key is returned to its default before the preset's own values are
+## written, so a preset never inherits the previous tile's settings. One undo
+## entry (Ruling BY item 2). Never marks the look Custom: `_applying` is held
+## true for the duration so the row writes do not trip `_mark_custom`.
 func _apply_preset(index: int) -> void:
 	## One undo entry for the whole bundle (look + Painter + overrides + ramp);
 	## committed at the end of this function. Ruling BY item 2.
@@ -1837,6 +1857,11 @@ var _ramp_preset_stops: Array = []
 ## Shown only while Colour relief is 0, when no ramp colour reaches the map.
 var _ramp_hint: Label
 
+## Colour relief section: strength slider, ramp preset and blend-mode pickers,
+## the interactive ramp bar, one row per stop, Add stop and Reverse. A no-op when
+## the engine build has no ramp API. The engine owns the ramp; `_ramp` is only a
+## copy re-read by `_sync_ramp` after every write, so this must never become the
+## source of truth.
 func _build_ramp() -> void:
 	if not bridge.ramp_api:
 		return
@@ -1964,6 +1989,10 @@ func _sync_ramp_preset_pick() -> void:
 			sel = f if f >= 0 else custom
 	_ramp_preset_pick.select(sel)
 
+## Blend picker callback: write the ramp's blend mode (Linear / Ease / Step) to
+## the engine, redraw the bar, mark the look Custom, repaint, and record one undo
+## entry. Returns silently, leaving `_ramp_mode` unchanged, if the engine refuses
+## the name.
 func _on_ramp_mode(name: String) -> void:
 	look_begin(["ramp"])
 	if not bridge.set_ramp_mode(name):
@@ -2003,6 +2032,11 @@ func _ramp_metres(at: float) -> float:
 	var peak = bridge.param_get("peak_m")
 	return at * (float(peak) if peak != null else 0.0)
 
+## Tear down and redraw one editor row per stop from `_ramp`: swatch, position
+## slider, alpha slider, metre readout and delete button. A full teardown rather
+## than an in-place update because a reorder changes which row is which. Never
+## call it from inside a colour picker's own callback -- freeing the row would
+## close the picker the user is editing (see `_push_ramp`'s `rebuild`).
 func _rebuild_ramp_rows() -> void:
 	if _ramp_host == null:
 		return
@@ -2099,6 +2133,9 @@ func _rebuild_ramp_rows() -> void:
 		## it), so the last delete is disabled rather than silently ignored.
 		del.disabled = _ramp.size() <= 1
 
+## Remove stop `idx` and push the ramp. Ignored when it is the only stop or
+## `idx` is out of range -- the engine refuses a zero-stop ramp, and the delete
+## button is disabled in that case anyway. One undo entry.
 func _delete_stop(idx: int) -> void:
 	if _ramp.size() <= 1 or idx < 0 or idx >= _ramp.size():
 		return
@@ -2139,6 +2176,9 @@ func _on_reverse_ramp() -> void:
 	_push_ramp(true)
 	look_commit("Reverse ramp", ["ramp"])
 
+## Ramp preset picker callback: load the named elevation ramp into the engine,
+## remember it (the engine cannot be asked which preset is loaded), re-sync the
+## rows and repaint. A refused load changes nothing and records no undo entry.
 func _on_ramp_preset(name: String) -> void:
 	look_begin(["ramp"])
 	if bridge.load_ramp_preset(name):
@@ -2197,6 +2237,11 @@ var _layers: Array = []
 var _layer_host: VBoxContainer
 var _blend_names: Array = []
 
+## Terrain raster section: the Terrain / Colour relief / Hillshade layer rows
+## (visibility, opacity, blend, reorder) over `render::LayerStack`. A no-op when
+## the engine has no layer-stack API. Connects `layer_stack_changed` as the single
+## funnel for row rebuild, Custom mark and repaint, so no caller of
+## `_apply_layer_stack` may repeat those three itself.
 func _build_layer_stack() -> void:
 	if not bridge.layer_stack_api:
 		return
@@ -2427,6 +2472,10 @@ func _dark_layer_row(parent: Control, label_text: String) -> void:
 	row.add_child(DccTheme.mono_label("not drawing", "text_ghost", fs))
 	parent.add_child(row)
 
+## One flat, unfocusable up/down arrow button for a layer row, drawn at font size
+## `fs` and, on the tablet density, raised to the `btn_min_h` touch floor. `enabled`
+## false (first or last row) greys it rather than hiding it, so rows keep their
+## width. Returns the button; the caller connects `pressed`.
 func _reorder_button(parent: Control, text: String, enabled: bool, fs: int,
 		tablet: bool, tip: String) -> Button:
 	var b := Button.new()
@@ -2493,6 +2542,10 @@ var _preset_name: LineEdit
 var _preset_pick: OptionButton
 var _preset_slugs: Array = []
 
+## Saved looks section: name field and Save look, the saved-look picker and Load
+## look, and notes on what a look does and does not carry. A no-op when the engine
+## has no preset API. Picking is deliberately not loading -- a look replaces every
+## value in the panel, so it must take an explicit press.
 func _build_look_presets() -> void:
 	if not bridge.preset_api:
 		return
@@ -2541,6 +2594,9 @@ func _build_look_presets() -> void:
 			+ "layers exactly.")
 	_refresh_preset_list()
 
+## Repopulate the saved-look picker from the engine's preset directory, keeping
+## `_preset_slugs` index-parallel with the picker's items. Disables the picker when
+## no look has been saved. Never selects an entry.
 func _refresh_preset_list() -> void:
 	if _preset_pick == null:
 		return
@@ -2551,6 +2607,9 @@ func _refresh_preset_list() -> void:
 		_preset_slugs.append(String(entry[1]))
 	_preset_pick.disabled = _preset_slugs.is_empty()
 
+## Save the current appearance under the typed name (warning, no write, if the
+## name is blank or the engine cannot write the file), refresh the list and select
+## the look just written without applying it.
 func _on_save_look() -> void:
 	var name := _preset_name.text.strip_edges() if _preset_name != null else ""
 	if name == "":
@@ -2564,6 +2623,10 @@ func _on_save_look() -> void:
 		if String(_preset_pick.get_item_text(i)) == name:
 			_preset_pick.selected = i
 
+## Load the selected saved look: replaces the tier's starting point, then
+## re-syncs the appearance rows, the ramp and (when built) the layer rows from the
+## engine, marks Custom and repaints. Does nothing with no selection. The file is
+## found through `_preset_slugs`, never through the picker's displayed text.
 func _on_load_look() -> void:
 	if _preset_pick == null or _preset_pick.selected < 0:
 		return
@@ -2657,6 +2720,10 @@ func _build_npr() -> void:
 		+ "\"Village\" tile under Style ▸ Look does this for you) or the bands follow "
 		+ "the shading gradient instead of reading as flat colour.")}
 
+## One Painter (NPR) slider row. The value is held in `pending` while dragging
+## and sent only on release (`_push({key: value})`), because a full-map
+## re-render is not a per-drag-pixel cost. Registers the slider in `_npr_rows[key]`
+## so `_apply_preset` can move it without a signal.
 func _npr_slider(parent: Control, label_text: String, key: String, maximum: float,
 		step: float, unit: String, tooltip: String, npr: Dictionary,
 		minimum := 0.0) -> void:
@@ -2691,12 +2758,17 @@ func _sync_biome_colours() -> void:
 		if is_instance_valid(pick):
 			pick.color = bridge.biome_color(k + 1)
 
+## Restore biome `index` to its default colour in the engine, then refresh the
+## swatches, map and Biome-paint legend (`_after_biome_edit`). One undo entry, and
+## none if the engine refuses.
 func _reset_biome_colour(index: int) -> void:
 	look_begin(["biomes"])
 	if bridge.reset_biome_color(index):
 		_after_biome_edit()
 		look_commit("Reset biome colour", ["biomes"])
 
+## Restore every biome colour to its default (engine call), then refresh via
+## `_after_biome_edit`. One undo entry, and none if nothing changed.
 func _reset_biome_colours() -> void:
 	look_begin(["biomes"])
 	if bridge.reset_biome_colors() > 0:
@@ -2845,6 +2917,9 @@ func _build_color_management() -> void:
 		+ "level. That is the 8-bit buffer's cost, and the high-precision "
 		+ "pipeline is what buys it back.")
 
+## Colour-space picker callback: set the output colour space in the engine and
+## repaint. A refused name changes nothing. Presentation only; no generation stage
+## is marked stale.
 func _on_color_space(name: String) -> void:
 	if not bridge.set_color_space(name):
 		return
