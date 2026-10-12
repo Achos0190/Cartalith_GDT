@@ -3556,6 +3556,210 @@ they are design, not status:*
   `--check-only` on every touched `.gd` plus `shell/app.gd`.
 - `STATUS.md` is updated.
 
+### GF-13 under Ruling BY: the bars re-read for construction alone, the evidence, and the switch-on for the owner (2026-10-12)
+
+*Written 2026-10-12, after GF-11 landed (`41ad59ac`). This is design and
+evidence, not status; `cartalith-native/docs/STATUS.md` says how far it has
+got. The GF-13 entry above was written when GF-12 was planned. Ruling BY
+(2026-10-10) dropped GF-12, so its first bullet's condition ("if every GF-12
+bar holds") names bars for a stage that does not exist. This section re-reads
+them for a construction-only build. It was written after GF-11's numbers were
+known, and says so: nothing below lowers a threshold.*
+
+**What GF-13 asks, item by item.**
+1. Windowed screenshots, arm A against arm C at τ = 1 and 4, seeds 483920 and
+   314159 at 800 km, opened and looked at, at fit and at deep zoom. *Done
+   below.*
+2. The switch-on decision: `geology_processes` and `relief_model` go on in
+   `cartalith_godot::params::defaults()` only if every bar holds, with §6.3's
+   disclosure; otherwise they stay off and the finding goes to the owner.
+   *Read below: a bar fails, so they stay off and this goes to the owner.*
+3. The weathered mantle under the switch, if §9 Q19 is answered yes. Ruling BN
+   kept Q19's default (yes). *Not wired; see owner question 4 below.*
+4. The stage-06 age row seen rendered in a running shell, with the model-time
+   wording under BM. *Built and probed; see below.*
+
+**The switch-on bars, re-read for construction alone.** The switch-on bar is
+§5.2's, which holds on **all five seeds** unless a bar says otherwise. GF-11's
+own build rule asked for 3 of 5 on G1 and G2 because it licensed building
+behind an off switch. `GF11_LANDFORM_SEEDS`' doc in `gf0_geology_harness.rs`
+already says *"GF-13's switch-on still needs §5.2's five."* Each reading below
+comes from GF-11's measurement. The built stage reproduces that measured arm
+bit for bit (`gf11_built_stage_reproduces_the_measured_arm`, and the ignored
+full-size run on all five seeds; `STATUS.md`, GF-11 entry), so it was not
+re-run.
+
+| GF-12 bar as written | Construction-only reading, and why | Measured (GF-11, 800 km) | Result |
+|---|---|---|---|
+| B13 (steady state of the uplift stage) | dropped: there is no stage (`GF11_RULE`, "Not gated") | — | not applicable |
+| B15 (clamp count, `U₀` balance) | dropped: both are the stage's. G4's headroom check replaces the clamp | — | not applicable |
+| revised B1 and B2 on 5 seeds | reported, not gated: they read the steady state under `U > 0`, and construction leaves `U = 0` (`GF11_RULE`'s reasoning, §4.15) | not gated | not applicable |
+| revised B4 on **5** seeds | G1 (breach-line slope ratio ≥ 2.0 and top-decile share ≥ 0.40), now on 5 of 5 | **3 of 5**: 12345 fails on share (0.310), 314159 fails on ratio (1.503) | **FAIL** |
+| B4's twin on 5 seeds | G2 (C over B slope on the predicted breach lines ≥ 1.2, population ≥ 100) | 5 of 5 | pass |
+| B3 | reported (§5.9) | reported | not gated |
+| B8 at every τ in {0.5, 1, 2, 4} on 5 seeds | G3 under rule v3, with Ruling BY item 4's exemption | every seed, every τ | pass |
+| B8 and B4 at 80 and 8 000 km | reported in GF-12's text, never gated | not measured | open: not gated |
+| B14 | G4 under Ruling BY item 3 | every seed, arm and τ | pass |
+| B9 ≤ 1.20 × at τ = 1 | ≤ **1.25** × by Ruling CA item 1 | 1.211 and 1.187 | pass (relaxed bar) |
+
+**Verdict: a bar fails.** Revised B4 holds on 3 of 5 seeds, not five. Under
+GF-13's own rule and Ruling BO's standing answer (*"If any bar fails, leave
+it off"*), `relief_model` and `geology_processes` **stay off in the app**,
+and the decision goes to the owner (questions below). Nothing was switched
+on.
+
+**The screenshots** (`_gf2relief_shot.tscn`, which gained `--relief`,
+`--seed` and `--zoom-at`; run windowed from a `git archive` copy of
+`41ad59ac` with the DLL built from it). Arms: A = app world; P1 = processes
+on, relief off; C1 = processes and relief on at τ = 1; C4 = the same at
+τ = 4. Fit images are 2048 × 1311. The deep-zoom crops are 65 cells across
+512 px (about 7.9 px per cell), drawn by `export_snapshot_png`, the export's
+`bake_rect`. That is a magnified render of the grid, **not** the app's LOD
+tiles, which add synthesized sub-cell detail. All images were opened and
+looked at. The evidence set is in `cartalith-native/docs/evidence/gf13-2026-10-12/`:
+- `fit_A_C1_<seed>.jpg`: A beside C1, at half size;
+- `zoom3_<seed>_z<x>_<y>.jpg`: A, C1 and C4 at each crop;
+- `state*_row.jpg`: the two age-row screen crops.
+- **Pixels moved at fit** (summed RGB difference > 8). A against P1: 49 431
+  and 48 089 of 2 684 928, which is the light pass. A against C1: 812 405
+  (483920) and 1 079 964 (314159). C1 against C4: 1 101 405 and 1 577 783.
+  Construction is a large visible change, and τ = 4 doubles it.
+- **Do caps stand as plateaus behind scarps? In places.** On 483920's
+  northern upland (crop at cell 384,64), C1 shows a pale block standing
+  beside a darker lowered strip, with a sharp north–south edge that the rivers
+  follow. That is the intended form. At τ = 4 the strip under that edge
+  becomes a long lake with a stepped shoreline. Elsewhere (314159, crop at
+  500,1000), a breach line reads as a narrow dark line one or two cells wide
+  across a plain. At this scale it looks more like a ditch than a scarp face.
+  This crop was chosen as a plain land area, not by where construction
+  changed the map. The 384,64 and 768,224 crops are the blocks of largest
+  A-against-C1 change: **selected by the output, so they show the strongest
+  case.**
+- **Do weak-rock lowlands open? Yes.** Lowered ground reads darker and
+  greener in both seeds: the lowering moves the climate and biome colours.
+  It is clearer at τ = 4.
+- **Do active belts read steeper on strong rock? Not visible, and not
+  expected.** That is the uplift stage's job (§4.16), and Ruling BY did not
+  build it.
+- **The coast moves visibly** (Ruling BN allows it). On 483920 the isthmus
+  between the two northern seas is cut through, and the eastern coastal strip
+  breaks into islands. On 314159 a shelf area changes water class at τ = 4.
+- **A defect to look at before any switch-on.** In deep zoom on 314159 (crop
+  768,224) the edge between the lowered land and the snow/ice field draws as
+  a **one-cell staircase**: a visible pixel step at C1, stronger at C4. A
+  shows a smooth edge there. The same stepping marks the lake shore in
+  483920's C4 crop. It is consistent with construction's step breach rule
+  lowering whole cells by `B·κ`, so neighbouring cells end at different
+  heights. That reading comes from the code, not from a measurement.
+- **Fit-scale look.** C reads flatter. The relief shading's contrast is
+  lower, and 314159's orange highland tint and crater rim are muted. Fine
+  stream lines appear on the lowered plains.
+- **A control.** 483920's crop at the map centre (1024,655) is open sea. It
+  moved 0 pixels between arms.
+
+**The stage-06 age row, seen.** `_gf13agerow_probe.tscn` boots the real
+shell windowed, generates a world and captures the row from the screen in two
+states. With the app's defaults the row is inert and dimmed, and its note
+gives the reason and *"stream power 9 it"*. With `geology_processes` and
+`relief_model` set on the live `WorldGen` and the slider at 2.0, the row is
+editable and reads the construction clause. The probe requires the two
+screen crops to differ (positive control). The windowed run of 2026-10-12,
+with the DLL rebuilt after the `.rs` change, passed 13 checks with 0 failed;
+the positive control moved 3 552 px. In state 2 the row read *"construction
+×2.00 (in place of stream power) · hillslope 16 passes · glacial 13
+passes"*. Under the relief switch the
+readout (`erode_bridge.rs` `geo_clock_readout_parts`) now writes
+*"construction ×τ (in place of stream power)"* as its first clause. Before
+this change it listed a stream-power count for a pass that does not run on a
+constructed world (`generate_terrain`'s `if !constructed`). With
+world-structure on, construction skips and the stream-power clause returns.
+The two world-dependent skips (no land, no two-layer land) cannot be seen
+from parameters, and the function's doc says so.
+
+**What a switch-on moves: measured by flipping the default.** This was run in
+a scratch worktree of `41ad59ac`, never the repository: `geology_processes`
+and `relief_model` were set to `true` in `params::defaults()`, then
+`cargo test -p cartalith-godot --no-fail-fast -j 2` ran. Result: 47 result
+lines, **2 589 passed, 5 failed**, 68 ignored. Only `cartalith-godot` calls
+`params::defaults()`; the other crates' mentions are comments. The five
+failures:
+1. `params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`.
+   An intended pin: it gains the two flags as the eighth and ninth ruled
+   divergences (§6.3).
+2. `params_mapping.rs::a_state_this_port_does_not_recognise_is_survivable`.
+   A reference export reloads `relief_model` **off**, the §6.3 rule that an
+   old world regenerates as it was, and the test expects the app defaults.
+   Its expectation needs the same carve-out `geology_processes` already has.
+   The new behaviour is intended.
+3. `erode_bridge.rs::geo_clock_readout_tests::readout_on_the_app_parameters`.
+   It asserts the row is inert on the app's parameters, and it is re-pinned
+   to the active readout.
+4. `gf0_geology_harness.rs::gf11_built_stage_reproduces_the_measured_arm`
+   (*"arm A is the app's world"*).
+5. `gf0_geology_harness.rs::replica_reproduces_generate_terrain` (*"app-path
+   replay diverged on seed 483920"*). Items 4 and 5 are the harness's own
+   arm A, which is defined as `params::defaults()`. Arm A must be pinned to
+   the pre-switch parameters (processes and relief off) so the measured arms
+   keep their meaning.
+
+**No `golden_parity_*` test moves**: they run `WorldParams::defaults`, where
+both flags stay off. No other test in the workspace pins an app-default
+world's bytes. **What moves outside the tests** is every app world, which
+§6.3 says must be recorded old → new:
+- RV-1's `_riverzoom_probe` figures;
+- the LOD-D4 bars;
+- `PERFORMANCE_BENCHMARKS.md`'s generation times;
+- `GENERATION_PARAMETERS.md`'s divergence costs.
+
+`GENERATION_PARAMETERS.md`'s list says "six deliberate divergences", while
+the boundary test already neutralises seven (`geology_model`, Ruling BH). It
+was stale before this change, and a switch-on fixes it in the same edit.
+
+**The re-baseline plan, if the owner switches on.** One change:
+1. Flip both flags in `params::defaults()`, with the comment citing the
+   ruling.
+2. Apply the five test changes above, each with its old and new value in the
+   commit.
+3. Re-run and record old → new for the four figure sets above; each probe
+   runs windowed, alone.
+4. Add `GENERATION_PARAMETERS.md` rows for both flags, with B9's measured
+   cost (a median with min..max over two separate runs, alone).
+5. Probe a save from before GF-11: it reloads with relief off, and the
+   regenerate confirmation (`_authored_inventory()`) is unchanged.
+6. Run `cargo test --workspace` against the 209-line floor, and
+   `--check-only` on every touched `.gd` plus `shell/app.gd`.
+
+No `golden_parity_*` file is touched. GF-9 later decides between route A and
+route B (§6.2).
+
+**Owner questions, each with a default.**
+1. **Switch construction on although revised B4 holds on 3 of 5 seeds, not
+   five?** Default: **no, keep it off.** The bar is the scope's, and the
+   screenshots add two things the bar does not see: a one-cell staircase at
+   deep zoom, and breach lines that read as narrow lines at fit. The
+   alternative is to switch on with B4's failure disclosed. That is an owner
+   call, because it overrides a bar Ruling BO said to respect.
+2. **Investigate the deep-zoom staircase before any switch-on?** Default:
+   **yes.** Measure where it comes from first: the step breach rule, the
+   fill, or the shading of a one-cell height step. Then decide whether to
+   smooth construction's lowering across a breach line. Any fix moves GF-11's
+   measured arm, so it re-measures G1–G5 under a rule written before the run.
+3. **Ruling BN's moving coast** cuts 483920's northern isthmus and breaks a
+   coastal strip into islands at τ = 1. Default: **keep BN as ruled.** The
+   owner may want to see these frames first, since this is the first time
+   the effect has been shown at app scale.
+4. **The weathered mantle (§9 Q19, yes by Ruling BN).** Default: **leave it
+   unwired until `h₀ = 0.5 m` is verified at its source.** §4.12 and §2.3
+   require that before the value is pinned, and §5.8 found only Heimsath et
+   al.'s abstract. The mantle cannot change the exposed rock on its own (its
+   2.69 m maximum is below `R_EXPOSE`), so nothing visible waits on it.
+5. **World-structure worlds skip construction**
+   (`ConstructionSkip::WorldStructureOn`). Default: **accept, disclosed in
+   the readout**, until the orogeny term is kept past the substrate.
+6. **A GUI control for `relief_model` (§9 Q13's "no GUI control until
+   GF-13").** Default: **none while it is off.** If it is switched on, a
+   stage-04 checkbox row with the age row's dim-and-reason pattern.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry

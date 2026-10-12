@@ -405,16 +405,36 @@ pub(crate) const GEO_CLOCK_INERT_REASON: &str = "Inert in this build: geological
 ///   (`cartalith_engine::geo_clock::mantle_thickness_m`'s doc), and a
 ///   readout must not show a thickness no world has.
 /// - `reason`: empty when active; [`GEO_CLOCK_INERT_REASON`] otherwise.
+/// - **Under the relief switch** (`relief_model` on and world-structure off,
+///   GF-13, `GEOLOGY_FIRST_SCOPE.md` §4.16 "The clock under BM"): the first
+///   clause is `construction ×τ (in place of stream power)` instead of the
+///   stream-power count, because there τ scales construction's lowering
+///   budget linearly (§4.14) and the light pass's stream power and rebound do
+///   not run (`generate_terrain`'s `if !constructed`, Ruling BY). τ is shown
+///   after `GeoClock`'s clamp, the value the engine reads. With
+///   world-structure on, construction skips
+///   (`ConstructionSkip::WorldStructureOn`) and stream power runs, so the
+///   stream-power clause stays. The other two skips (no land, no two-layer
+///   land) depend on the generated world, not on parameters, so this
+///   parameter-only readout cannot see them; on such a world the clause
+///   over-states construction. Recorded rather than guessed.
 ///
 /// Must never report counts for a gate state the engine does not use: it
-/// derives both from `cartalith_engine::geo_clock::effective_counts`.
+/// derives both from `cartalith_engine::geo_clock::effective_counts`, and the
+/// construction clause from the same three conditions `generate_terrain`
+/// tests (`rock_on && p.relief_model`, then `world_structure.enabled`).
 pub(crate) fn geo_clock_readout_parts(p: &cartalith_engine::WorldParams, tau: f64) -> (bool, String, &'static str) {
-    use cartalith_engine::geo_clock::{effective_counts, Count};
+    use cartalith_engine::geo_clock::{effective_counts, Count, GeoClock};
     let active = effective_counts(p, tau).active;
     let forced = WorldParams { geology_model: true, geology_processes: true, ..p.clone() };
     let c = effective_counts(&forced, tau);
     let show = |n: Count, unit: &str| format!("{} {unit}{}", n.n, if n.floored { " (floor)" } else { "" });
-    let mut parts = vec![format!("stream power {}", show(c.stream_power, "it")), format!("hillslope {}", show(c.hillslope, "passes"))];
+    let first = if p.relief_model && !p.world_structure.enabled {
+        format!("construction \u{d7}{:.2} (in place of stream power)", GeoClock::new(true, tau).age())
+    } else {
+        format!("stream power {}", show(c.stream_power, "it"))
+    };
+    let mut parts = vec![first, format!("hillslope {}", show(c.hillslope, "passes"))];
     if p.passes.glacial {
         parts.push(format!("glacial {}", show(c.glacial, "passes")));
     }
@@ -451,6 +471,35 @@ mod geo_clock_readout_tests {
         assert!(active);
         assert_eq!(reason, "");
         assert_eq!(counts, "stream power 4 it (floor) \u{b7} hillslope 2 passes \u{b7} glacial 2 passes");
+        let (_, counts, _) = geo_clock_readout_parts(&p, 1.0);
+        assert_eq!(counts, "stream power 9 it \u{b7} hillslope 8 passes \u{b7} glacial 8 passes");
+    }
+
+    /// Protects GF-13's model-time wording under the relief switch
+    /// (`GEOLOGY_FIRST_SCOPE.md` §4.16, §7 GF-13): with `relief_model` on the
+    /// first clause names construction scaled by τ, since the light pass's
+    /// stream power does not run there; τ is shown clamped (4.5 reads 4.00,
+    /// `GEO_AGE_MAX`); with world-structure on the construction skips, so the
+    /// stream-power count comes back; and the row is inert with the processes
+    /// off even when the relief switch is on, because the engine gates
+    /// construction on them. Literal strings, so dropping either condition,
+    /// the clamp or the clause turns this red.
+    #[test]
+    fn readout_under_the_relief_switch() {
+        let mut p = crate::params::defaults();
+        p.relief_model = true;
+        let (active, counts, reason) = geo_clock_readout_parts(&p, 1.0);
+        assert!(!active, "relief alone does not open the gate: the processes are off");
+        assert_eq!(reason, GEO_CLOCK_INERT_REASON);
+        assert_eq!(counts, "construction \u{d7}1.00 (in place of stream power) \u{b7} hillslope 8 passes \u{b7} glacial 8 passes");
+        p.geology_processes = true;
+        let (active, counts, reason) = geo_clock_readout_parts(&p, 4.5);
+        assert!(active);
+        assert_eq!(reason, "");
+        assert_eq!(counts, "construction \u{d7}4.00 (in place of stream power) \u{b7} hillslope 32 passes \u{b7} glacial 18 passes");
+        let (_, counts, _) = geo_clock_readout_parts(&p, 0.25);
+        assert_eq!(counts, "construction \u{d7}0.25 (in place of stream power) \u{b7} hillslope 2 passes \u{b7} glacial 2 passes");
+        p.world_structure.enabled = true;
         let (_, counts, _) = geo_clock_readout_parts(&p, 1.0);
         assert_eq!(counts, "stream power 9 it \u{b7} hillslope 8 passes \u{b7} glacial 8 passes");
     }

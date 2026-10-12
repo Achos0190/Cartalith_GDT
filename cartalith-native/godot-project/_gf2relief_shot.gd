@@ -20,6 +20,24 @@ extends Node
 ## the default 1.0. It acts only with `--processes on` (the clock is gated
 ## with the processes), which is why §5.8's shots pass both:
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag gf7_age4 --processes on --age 4
+## `--relief on|off` (optional, GF-13, `GEOLOGY_FIRST_SCOPE.md` §7 GF-13 and
+## §4.16) sets `relief_model`, rock-aware construction (GF-11), through
+## `set_params` before each generation and aborts if the key is rejected, so a
+## shot labelled "relief on" cannot silently draw a world without it. Omitted,
+## the parameter is left at the build's default (off in the app until the
+## owner's switch-on decision). It acts only with `--processes on`, so GF-13's
+## arm C passes both:
+##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag gf13_c1 --processes on --relief on
+## `--zoom-at X,Y` (optional, repeatable, GF-13's deep-zoom frames) also writes,
+## per seed, a `--zoom-size`-pixel square (default 512) of the world around
+## grid cell (X, Y), `--zoom-radius` cells each side (default 32, so 65 cells
+## across 512 px, about 7.9 px per cell against the fit image's 1). It is drawn
+## by `WorldGen::export_snapshot_png`, the export's own `bake_rect` over the
+## same fields: a magnified render of the generated grid, NOT the app's
+## deep-zoom LOD tiles (which add synthesized sub-cell detail). The crop
+## centres are given, never picked by the probe, so every arm is cropped at
+## the same cells. A crop centre is a cell of one world, so pass `--seed N` (one
+## of `SEEDS`) with it; `--seed` alone also restricts the fit shots to that seed.
 ## An unknown argument aborts (exit 2) rather than being ignored
 ## (`MISTAKES.md`, "Write a probe's usage header").
 ## Held fixed across tags: seeds, extent, grid, the app's default parameters
@@ -49,11 +67,38 @@ func _ready() -> void:
 	## age; the probe then leaves the parameter alone rather than writing a
 	## value nobody asked for.
 	var age := -1.0
+	## "" = `--relief` not given: the build's default is left alone. Kept apart
+	## from "off" so an omitted flag never writes a value nobody asked for.
+	var relief := ""
+	## Deep-zoom crop centres in grid cells (`--zoom-at X,Y`, repeatable).
+	var zooms: Array[Vector2i] = []
+	var zoom_radius := 32
+	var zoom_size := 512
+	## `--seed N` (one of `SEEDS`): shoot that seed only, so a crop centre,
+	## which is a cell of one world, is not applied to the other. -1 = both.
+	var only_seed := -1
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
 		if args[i] == "--tag" and i + 1 < args.size():
 			tag = args[i + 1]
+			i += 2
+		elif args[i] == "--relief" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
+			relief = args[i + 1]
+			i += 2
+		elif args[i] == "--zoom-at" and i + 1 < args.size() and args[i + 1].split(",").size() == 2 \
+				and args[i + 1].split(",")[0].is_valid_int() and args[i + 1].split(",")[1].is_valid_int():
+			var xy := args[i + 1].split(",")
+			zooms.append(Vector2i(int(xy[0]), int(xy[1])))
+			i += 2
+		elif args[i] == "--seed" and i + 1 < args.size() and args[i + 1].is_valid_int() and int(args[i + 1]) in SEEDS:
+			only_seed = int(args[i + 1])
+			i += 2
+		elif args[i] == "--zoom-radius" and i + 1 < args.size() and args[i + 1].is_valid_int() and int(args[i + 1]) > 0:
+			zoom_radius = int(args[i + 1])
+			i += 2
+		elif args[i] == "--zoom-size" and i + 1 < args.size() and args[i + 1].is_valid_int() and int(args[i + 1]) > 0:
+			zoom_size = int(args[i + 1])
 			i += 2
 		elif args[i] == "--processes" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
 			processes = args[i + 1] == "on"
@@ -62,7 +107,7 @@ func _ready() -> void:
 			age = float(args[i + 1])
 			i += 2
 		else:
-			print("[FATAL] unknown argument %s (read: --tag NAME, --processes on|off, --age TAU)" % args[i])
+			print("[FATAL] unknown argument %s (read: --tag NAME, --processes on|off, --age TAU, --relief on|off, --seed N, --zoom-at X,Y, --zoom-radius N, --zoom-size PX)" % args[i])
 			get_tree().quit(2); return
 	if tag == "":
 		print("[FATAL] --tag NAME is required"); get_tree().quit(2); return
@@ -71,6 +116,8 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	var failed := false
 	for sd in SEEDS:
+		if only_seed >= 0 and sd != only_seed:
+			continue
 		var wg: Object = ClassDB.instantiate("WorldGen")
 		# Set explicitly either way, so the shot's world is the one its flag
 		# names; a rejected key aborts rather than drawing the default world.
@@ -83,6 +130,11 @@ func _ready() -> void:
 			if not (rep_age.get("rejected", PackedStringArray()) as PackedStringArray).is_empty() \
 					or not (rep_age.get("clamped", PackedStringArray()) as PackedStringArray).is_empty():
 				print("[FATAL] set_params did not take geo.age %s as given: %s" % [age, rep_age])
+				get_tree().quit(2); return
+		if relief != "":
+			var rep_rel: Dictionary = wg.set_params({"relief_model": relief == "on"})
+			if not (rep_rel.get("rejected", PackedStringArray()) as PackedStringArray).is_empty():
+				print("[FATAL] set_params rejected relief_model: %s" % [rep_rel])
 				get_tree().quit(2); return
 		wg.generate_sized(sd, WIDTH_KM, GRID_W, GRID_H)
 		var tex: Texture2D = wg.build_color_texture()
@@ -97,6 +149,19 @@ func _ready() -> void:
 			continue
 		var path := "%s/%s_%d.png" % [out_dir, tag, sd]
 		img.save_png(path)
-		print("[SHOT] %s seed %d processes %s age %s -> %s" % [tag, sd, "on" if processes else "off",
-			("%.2f" % age) if age >= 0.0 else "default", ProjectSettings.globalize_path(path)])
+		print("[SHOT] %s seed %d processes %s age %s relief %s -> %s" % [tag, sd, "on" if processes else "off",
+			("%.2f" % age) if age >= 0.0 else "default", relief if relief != "" else "default",
+			ProjectSettings.globalize_path(path)])
+		# Deep-zoom crops at the given cells (header). A crop the binding
+		# refuses fails the run rather than leaving a gap in a before/after set.
+		for z in zooms:
+			var zpath := "%s/%s_%d_z%d_%d.png" % [out_dir, tag, sd, z.x, z.y]
+			var zr: Dictionary = wg.export_snapshot_png(ProjectSettings.globalize_path(zpath), z.x, z.y, zoom_radius, zoom_size)
+			if not bool(zr.get("ok", false)):
+				print("[FAIL] seed %d zoom at %s: %s" % [sd, z, zr])
+				failed = true
+				continue
+			print("[ZOOM] %s seed %d at %d,%d (centre used %s,%s; %s cells across %d px) -> %s" % [tag, sd, z.x, z.y,
+				zr.get("center_x"), zr.get("center_y"), zr.get("cells_across"), zoom_size,
+				ProjectSettings.globalize_path(zpath)])
 	get_tree().quit(1 if failed else 0)
