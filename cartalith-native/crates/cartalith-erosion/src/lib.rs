@@ -13,10 +13,15 @@ use rayon::prelude::*;
 /// hillslope, sediment routing, tidal flats) — see this module's own header
 /// comment for why they live apart from `generate()`'s automatic pipeline.
 pub mod passes;
+/// GF-11's rock-aware height construction (`GEOLOGY_FIRST_SCOPE.md` §4.14,
+/// owner Rulings BM and BY): a generation stage the engine runs only with
+/// `relief_model` on. See the module's own header.
+pub mod construction;
 /// Tile-bounded re-runs of the whole-world kernels (stream power, thermal)
 /// for interactive local re-erosion, seamed against the world's own edges.
 pub mod tile;
 
+pub use construction::{construct_relief, ConstructionInputs, ConstructionReport};
 pub use passes::{
     apply_tidal_sedimentation, centrifugal_shear, coastal_process, glacial_kernel,
     hillslope_diffuse, hillslope_extent_scale, route_sediment, velocity_erode_kernel,

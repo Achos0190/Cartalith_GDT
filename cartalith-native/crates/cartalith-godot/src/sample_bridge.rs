@@ -3219,6 +3219,7 @@ mod tests {
             contact: vec![f32::NAN; n],
             regolith: vec![0.0; n],
             volcanic_setting: vec![0; n],
+            construction: cartalith_terrain::geology::Construction::Off,
         };
         col.rock_top[i2] = 3; // plateau basalt
         col.rock_sub[i2] = 9; // over shale

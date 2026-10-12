@@ -1263,6 +1263,7 @@ fn rock_fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>
         contact: vec![f32::NAN; n],
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
+        construction: cartalith_terrain::geology::Construction::Off,
     };
     let (mut s, mut pre) = (vec![0f32; n], vec![0f32; n]);
     for y in 0..gh {
@@ -2841,6 +2842,7 @@ fn b13_the_prototype_stage_reaches_the_stream_power_steady_state() {
         contact: vec![f32::NAN; n],
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
+        construction: cartalith_terrain::geology::Construction::Off,
     };
     let z0: Vec<f32> = (0..n).map(|i| (0.3 + 0.004 * (i / gw) as f64) as f32).collect();
     let rain = vec![0f32; n];
@@ -2946,7 +2948,7 @@ fn b14_construction_keeps_the_column_and_makes_no_inland_pits() {
             contact[i] = (z0[i] as f64 - m(h)) as f32;
         }
     }
-    let col = GeologyColumn { rock_top: top, rock_sub: sub, contact: contact.clone(), regolith: vec![0.0; n], volcanic_setting: vec![0; n] };
+    let col = GeologyColumn { rock_top: top, rock_sub: sub, contact: contact.clone(), regolith: vec![0.0; n], volcanic_setting: vec![0; n], construction: cartalith_terrain::geology::Construction::Off };
     let pre = fixture_world(z0.clone(), col, sea);
     let ocean0: Vec<bool> = (0..n).map(|i| (z0[i] as f64) < sea).collect();
     let shape = vec![1.0f64; n];
@@ -4543,6 +4545,131 @@ fn gf11_b9_cost() {
     show("tail (processes on)", &tt);
     let s = show("projected construction-alone generation", &tsum);
     println!("  G5: ratio of medians {:.3} (bar <= {GF11_B9_RATIO}) [{}]", s / g, verdict(Some(s / g <= GF11_B9_RATIO)));
+}
+
+// ---------------------------------------------------------------------------
+// GF-11 built (2026-10-12): the production stage against the measured arm
+// ---------------------------------------------------------------------------
+//
+// GF-11 passed its rule (G1-G4 under v3; G5 at Ruling CA item 1's relaxed
+// 1.25 x, measured 1.211 and 1.187), so §4.14's construction is now built
+// into `generate_terrain` behind `WorldParams::relief_model`
+// (`cartalith_erosion::construction`). §7 GF-11's "Done means" asks that the
+// built stage's effect match what was measured. The strongest form of that
+// is identity: the built stage, switched on, must produce the measured arm's
+// world bit for bit. These tests hold it, against this file's own prototype
+// (`construct`, `run_arm`), which is kept as the independent implementation.
+
+/// The app's parameters with the processes and the relief switch on at
+/// contrast `c` and age `tau`: the production arm that [`run_arm`]'s
+/// construction-alone setting emulates.
+fn relief_params(seed: i32, km: f64, gw: usize, gh: usize, c: f64, tau: f64) -> WorldParams {
+    let mut p = app_params(seed, km, gw, gh);
+    p.geology_processes = true;
+    p.relief_model = true;
+    p.tect.resist = c;
+    p.geo_age = tau;
+    p
+}
+
+/// Asserts the production world for (`seed`, `c`, `tau`) is [`run_arm`]'s
+/// construction-alone arm, bit for bit on every array [`same_world`] reads,
+/// and that the production column records the structural surface.
+fn assert_built_is_measured(ctx: &SeedCtx, c: f64, tau: f64) {
+    let (p, seed) = (&ctx.p, ctx.p.tect.seed);
+    let measured = run_arm(ctx, ArmCfg { construct: true, stage: false, c, d_mult: 1.0, t_mult: 1.0, tau, rule: Breach::Step });
+    let built = generate_terrain(&relief_params(seed, p.map_width_km, p.gw, p.gh, c, tau));
+    assert!(same_world(&measured.ws, &built), "seed {seed} c {c} tau {tau}: the built stage diverged from the measured arm");
+    match &built.geology.column().expect("column").construction {
+        cartalith_terrain::geology::Construction::Built { structural_surface } => {
+            assert!(structural_surface.iter().zip(ctx.pre.field.iter()).all(|(a, b)| a.to_bits() == b.to_bits()), "seed {seed}: the record must be the structural surface")
+        }
+        other => panic!("seed {seed}: expected Built, got {other:?}"),
+    }
+}
+
+/// Protects: GF-11's "built stage matches the measured arm" (§7 GF-11) in
+/// its strongest form, on a small grid so it runs in the ordinary suite: for
+/// two seeds, arm C (c = 0.5) at τ = 1 and 4 and arm B (c = 0) at τ = 1, the
+/// production world with `relief_model` on equals the prototype's
+/// construction-alone world bit for bit. A drift in any transcribed
+/// expression (shape, budget, `D₁`, breach rule, fill, the skipped light
+/// pass, the clock's reach) turns it red.
+#[test]
+fn gf11_built_stage_reproduces_the_measured_arm() {
+    for &seed in &[483_920, 314_159] {
+        let ctx = build_ctx_opts(seed, 800.0, 192, 123, false);
+        assert_built_is_measured(&ctx, C_TREAT, 1.0);
+        assert_built_is_measured(&ctx, C_TREAT, 4.0);
+        assert_built_is_measured(&ctx, 0.0, 1.0);
+    }
+}
+
+/// Protects: `cartalith_erosion::construction::structural_ocean`, the
+/// engine's copy of the classifier's ocean rule (the engine cannot call
+/// `cartalith-civ`), equals `build_water_bodies`' class 1 cell for cell: on
+/// three seeds' structural surfaces, bounded and whole-world (Rulings Q and
+/// T take different branches), and on a constructed surface with its new
+/// bays.
+#[test]
+fn gf11_structural_ocean_is_the_classifiers() {
+    for &seed in &[483_920, 24_601, 314_159] {
+        for world in [false, true] {
+            let mut p = app_params(seed, 800.0, 192, 123);
+            p.world = world;
+            let pre = pre_erosion(&p);
+            let mut surfaces = vec![pre.field.to_vec()];
+            let built = generate_terrain(&WorldParams { geology_processes: true, relief_model: true, carve_rivers: false, passes: cartalith_engine::ErosionPassParams::off(), ..p.clone() });
+            surfaces.push(built.field.to_vec());
+            for f in &surfaces {
+                let want: Vec<bool> = cartalith_civ::build_water_bodies(f, p.gw, p.gh, pre.sea_level, world, None).classification.iter().map(|&c| c == 1).collect();
+                let got = cartalith_erosion::construction::structural_ocean(f, p.gw, p.gh, pre.sea_level, world);
+                assert!(want.iter().any(|&o| o), "seed {seed} world {world}: the fixture must have ocean");
+                assert_eq!(got, want, "seed {seed} world {world}: structural_ocean must equal the classifier's ocean");
+            }
+        }
+    }
+}
+
+/// Protects: nothing by assertion beyond [`assert_built_is_measured`]: the
+/// same identity at the measurement's own size (2048 × 1311, 800 km, the five
+/// GF-11 seeds, arm C at τ = 1), run alone in release. Prints one line per
+/// seed with the construction report, so the record of what the built stage
+/// did on each measured world is reproducible:
+///
+///   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_built_stage_full_size
+#[test]
+#[ignore = "GF-11 built: identity with the measured arm at 2048x1311; minutes; run alone in release"]
+fn gf11_built_stage_full_size() {
+    let (gw, gh) = grid();
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let t0 = std::time::Instant::now();
+        let ctx = build_ctx_opts(seed, 800.0, gw, gh, false);
+        assert_built_is_measured(&ctx, C_TREAT, 1.0);
+        let mut f = ctx.pre.field.to_vec();
+        let mut col = ctx.pre.geology.column().unwrap().clone();
+        let p = &ctx.p;
+        let r = cartalith_erosion::construct_relief(
+            &mut f,
+            &mut col,
+            &cartalith_erosion::ConstructionInputs {
+                gw,
+                gh,
+                world: p.world,
+                sea: ctx.pre.sea_level,
+                peak_m: p.peak_m,
+                blur_r: p.tect.blur_r,
+                tau: 1.0,
+                contrast: C_TREAT,
+                stress: &ctx.pre.stress_field,
+                boundary_mask: &ctx.pre.boundary_mask,
+                boundary_type: &ctx.pre.boundary_type,
+                crust: &ctx.pre.crust_field,
+            },
+        )
+        .expect("the app world constructs");
+        println!("GF11BUILT seed={seed} identical=yes {r:?} [{:.1} s]", t0.elapsed().as_secs_f64());
+    }
 }
 
 // ===========================================================================

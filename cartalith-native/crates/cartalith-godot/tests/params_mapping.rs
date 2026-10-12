@@ -679,6 +679,28 @@ fn a_save_without_the_geology_processes_key_reloads_with_them_off() {
     }
 }
 
+/// Protects: a save lacking `relief_model` reloading with it OFF even when the session had it
+/// on, while a saved true/false round-trips (GF-11, `GEOLOGY_FIRST_SCOPE.md` §4.16: "a save
+/// without the key reloads off"). The session is forced on first, because the shipped default is
+/// already off and a test starting there could not fail.
+#[test]
+fn a_save_without_the_relief_model_key_reloads_with_it_off() {
+    let mut p = params::defaults();
+    p.relief_model = true;
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert!(!p.relief_model, "a save without the key must not silently gain construction");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.relief_model = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["relief_model"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.relief_model = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.relief_model, on);
+    }
+}
+
 /// Protects: a save lacking `geo.age` reloading at the identity age 1.0 even when the session
 /// held another, a saved age round-tripping, and the row clamping to 0.25..=4.0.
 ///
@@ -821,6 +843,9 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // GF-2's processes are NOT a divergence yet: off at both boundaries until
     // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
     assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");
+    // GF-11's relief switch is not a divergence either: off at both boundaries
+    // until GF-13 decides (GEOLOGY_FIRST_SCOPE.md §6.3).
+    assert!(!app.relief_model && !parity.relief_model, "GF-11 construction stays off in the app until GF-13 (§6.3)");
     // GF-7's clock is not a divergence either: the identity age at both ends
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");

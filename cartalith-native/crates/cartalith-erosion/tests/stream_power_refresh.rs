@@ -215,6 +215,7 @@ fn column(field: &[f32]) -> GeologyColumn {
         contact: vec![f32::NAN; W * H],
         regolith: vec![0.0; W * H],
         volcanic_setting: vec![0; W * H],
+        construction: cartalith_terrain::geology::Construction::Off,
     };
     for i in 0..W * H {
         if (W / 3..2 * W / 3).contains(&(i % W)) {

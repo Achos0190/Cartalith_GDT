@@ -186,6 +186,12 @@ pub fn defaults() -> WorldParams {
     // above age 1. Written out, though it equals `WorldParams::defaults`, so
     // the decision is visible here. It also gates the clock (`geo.age`).
     p.geology_processes = false;
+    // GF-11's relief switch (rock-aware construction, `GEOLOGY_FIRST_SCOPE.md`
+    // §4.14, §4.16) stays OFF in the app until GF-13 decides (§6.3): passing
+    // GF-11's own rule licensed building it behind the switch, not turning it
+    // on. It also acts only with `geology_processes` on, which is off above.
+    // Written out, though it equals `WorldParams::defaults`.
+    p.relief_model = false;
     p
 }
 
@@ -229,6 +235,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "geology_processes", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Landform processes read the rock column", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.geology_processes), set_fn: |p, v| p.geology_processes = v != 0.0 },
+    // GF-11's relief switch (`GEOLOGY_FIRST_SCOPE.md` §4.16): OFF at both
+    // boundaries until GF-13. A row so a save records whether its world was
+    // constructed; no GUI control, like `geology_processes`.
+    ParamSpec { key: "relief_model", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Rock-aware relief construction", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.relief_model), set_fn: |p, v| p.relief_model = v != 0.0 },
     ParamSpec { key: "use_gpu", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "GPU acceleration", unit: "", reference_control: "gpuToggle",
         get_fn: |p| Value::Bool(p.use_gpu), set_fn: |p, v| p.use_gpu = v != 0.0 },
@@ -736,6 +748,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("geology_model", ""),
     // Port-only (GF-2); the reference has no lithology model.
     ("geology_processes", ""),
+    // Port-only (GF-11); the reference has no lithology model.
+    ("relief_model", ""),
     // Port-only (GF-7); the reference has no geological clock.
     ("geo.age", ""),
     // No reference equivalent: this port's own GPU switch.
@@ -1019,6 +1033,10 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // And GF-2's processes, the same way: a save without the key was generated
     // with no process reading rock.
     p.geology_processes = false;
+    // And GF-11's relief switch, the same way: a save without the key was
+    // generated with no construction (§4.16: "a save without the key reloads
+    // off").
+    p.relief_model = false;
     // And GF-7's geological age: a save without the key was generated before
     // the clock, and τ = 1 reproduces exactly those pass counts by control
     // flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").

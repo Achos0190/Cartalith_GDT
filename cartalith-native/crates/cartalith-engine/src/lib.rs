@@ -815,6 +815,26 @@ pub struct WorldParams {
     /// older world was generated at (§2.6). Must never scale anything while
     /// `geology_processes` is off.
     pub geo_age: f64,
+    /// GF-11's relief switch (`GEOLOGY_FIRST_SCOPE.md` §4.14, §4.16; owner
+    /// Rulings BM and BY): rock-aware construction
+    /// (`cartalith_erosion::construct_relief`) lowers the structural surface
+    /// through the rock column after the geology stage and before the
+    /// priming flow, and the light pass's stream power and rebound do not run
+    /// (§4.16: they are replaced; under Ruling BY nothing replaces them, the
+    /// arm GF-11's bars measured). A construction that skips (no land, no
+    /// two-layer land, or world-structure on: the reason is recorded as
+    /// `GeologyColumn::construction`) leaves the field alone and the light
+    /// pass running, so the world is the processes-on one. Acts only with [`Self::geology_model`] and
+    /// [`Self::geology_processes`] on as well; otherwise every call is
+    /// today's, by control flow. Under it, τ ([`Self::geo_age`]) also scales
+    /// the construction budget, so τ = 1 is not the identity there (§4.16).
+    ///
+    /// **`false` here and `false` in the shipped app** until GF-13 decides
+    /// (§6.3): GF-11 passed its own pre-registered rule (G1-G4 under rule v3,
+    /// G5 at Ruling CA's relaxed 1.25 x), which licenses building it behind
+    /// this switch, not turning it on. A save without the key reloads with it
+    /// off (`params::apply_saved_state`). No GUI control.
+    pub relief_model: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -871,6 +891,9 @@ impl WorldParams {
             geology_processes: false,
             // GF-7 (§4.12): the identity age; see the field's doc comment.
             geo_age: geo_clock::GEO_AGE_DEFAULT,
+            // GF-11 (§4.16): off at both boundaries until GF-13; see the
+            // field's doc comment.
+            relief_model: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -2219,6 +2242,54 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         clock: geo_clock::GeoClock::new(rock_on, p.geo_age),
     };
 
+    // ---- CONSTRUCTION (GF-11, `GEOLOGY_FIRST_SCOPE.md` §4.14, §4.16) ----
+    // With the relief switch on (and the rock gate, which it needs): lower
+    // the structural surface through the column just derived from it, fill
+    // what that opens, and record the structural surface on the column. The
+    // priming flow and climate below then read the constructed surface
+    // (§4.16's order). Off, this block is skipped and nothing below differs.
+    if rock_on && p.relief_model {
+        if let Some(column) = geology.column_mut() {
+            if p.world_structure.enabled {
+                // The budget's orogeny term is not available here, and GF-11
+                // was measured without world-structure; see the variant.
+                column.construction =
+                    cartalith_terrain::geology::Construction::Skipped(cartalith_terrain::geology::ConstructionSkip::WorldStructureOn);
+            } else {
+                // A skip (no land, no two-layer land) is recorded on the
+                // column by the call itself, and leaves `field` untouched.
+                let _ = cartalith_erosion::construct_relief(
+                    &mut field,
+                    column,
+                    &cartalith_erosion::ConstructionInputs {
+                        gw,
+                        gh,
+                        world,
+                        sea: sea_level,
+                        peak_m: p.peak_m,
+                        blur_r: p.tect.blur_r,
+                        // The clock's clamped τ, the same value every count
+                        // under the gate reads.
+                        tau: rock.clock.age(),
+                        contrast: p.tect.resist,
+                        stress: &stress.stress_field,
+                        boundary_mask: &stress.boundary_mask,
+                        boundary_type: &stress.boundary_type,
+                        crust: &base_raw,
+                    },
+                );
+            }
+        }
+    }
+    // Whether construction actually lowered this world. A requested but
+    // skipped construction (its reason is on the column) leaves the light
+    // pass to run as it does without the switch, so a skip yields the
+    // processes-on world rather than one with no denudation at all.
+    let constructed = matches!(
+        geology.column().map(|c| &c.construction),
+        Some(cartalith_terrain::geology::Construction::Built { .. })
+    );
+
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
     // Milestone 9: the GPU path here is a genuinely different ALGORITHM
@@ -2425,8 +2496,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             world,
             sea: sea_level,
         };
-        rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
-        rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
+        // GF-11 (§4.16, Ruling BY): once construction has denuded the
+        // surface (the relief switch on, and not skipped) these two do not run; GF-12's
+        // uplift-driven stage, which §4.16 puts in their place, is not built
+        // (Ruling BY item 1), so nothing replaces them. That is the arm
+        // GF-11's pre-registered bars were measured on.
+        if !constructed {
+            rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
+            rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
+        }
         // GF-3 (§4.3): the threshold hillslope, in §3.1's order -- after
         // stream power and its rebound, before the channels are traced, so the
         // network and the carve describe the relaxed surface. It runs only
@@ -3109,6 +3187,7 @@ mod tests {
             contact: vec![f32::NAN; 2],
             regolith: vec![0.0, 0.0],
             volcanic_setting: vec![0; 2],
+            construction: cartalith_terrain::geology::Construction::Off,
         };
         (Geology::Column(Box::new(col)), vec![0.6, 0.5])
     }
@@ -3177,6 +3256,7 @@ mod tests {
                 contact: vec![f32::NAN; 3],
                 regolith: vec![0.0; 3],
                 volcanic_setting: vec![0; 3],
+                construction: cartalith_terrain::geology::Construction::Off,
             };
             let mut geo = Geology::Column(Box::new(col));
             let mut f = vec![0.5f32, 0.5, 0.6];

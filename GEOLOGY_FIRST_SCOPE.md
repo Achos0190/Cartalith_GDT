@@ -1061,6 +1061,15 @@ decides whether to store the structural surface or the construction depth
 (4 B per cell either way, arithmetic), and discloses the memory. GF-8 is built
 after GF-12, so it inherits whichever chain exists.
 
+*Decided at GF-11 (2026-10-12).* The **structural surface** is stored, as
+`GeologyColumn::construction = Construction::Built { structural_surface }`,
+only on a world construction lowered; every other world carries `Off` (or
+`Skipped` with a reason) and pays nothing. The surface rather than the depth,
+because the depth stops being recoverable once later passes move the field,
+while the surface is what §4.14 reads. Measured by `_memlane_peak` at
+2048 × 1311, seed 483920, processes on, relief off against on: 10.24 MiB
+resident (the arithmetic 4 B per cell), whole-run peak 805.76 → 816.06 MiB.
+
 ### 4.14 Rock-aware construction (GF-11; Ruling BM, part 1)
 
 **How the height is built today, read at its symbols.** In
@@ -3471,6 +3480,22 @@ production code.
   without the key reloads off.
 - The storage decision §4.13's BM note leaves to it (the structural surface or
   the construction depth), with its memory measured by `_memlane_peak`.
+
+*Design choices made while building it (2026-10-12), recorded here because
+they are design, not status:*
+- Under Ruling BY (construction alone, no GF-12) the light pass's stream
+  power and rebound **do not run when construction has lowered the world**:
+  that is the arm GF-11's rule measured, and the built stage reproduces it
+  bit for bit. A construction that **skips** leaves them running, so a skip
+  yields the processes-on world rather than one with no denudation at all.
+- It **skips with a recorded reason** (`ConstructionSkip`) rather than
+  inventing an input: no land; no two-layer land (`D₁` has no sample); or
+  world-structure on (§4.15's orogeny term is not kept past the substrate,
+  and GF-11 was measured without world-structure).
+- The step breach rule only. The structural ocean the fill is seeded from is
+  a copy of `build_water_bodies`' ocean rule inside `cartalith-erosion`
+  (`structural_ocean`), because `cartalith-civ` depends on the engine; a
+  harness test holds the two equal.
 
 **Done means:**
 - B14 passes, including the `c = 0` bit-identity and its mutation (drop the

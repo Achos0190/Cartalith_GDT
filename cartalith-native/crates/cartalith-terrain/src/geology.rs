@@ -497,6 +497,70 @@ pub struct GeologyColumn {
     pub regolith: Vec<f32>,
     /// [`setting_code`] of the edifice that won the cell's `volcanic_field`.
     pub volcanic_setting: Vec<u8>,
+    /// GF-11: whether rock-aware construction (`GEOLOGY_FIRST_SCOPE.md`
+    /// §4.14) ran on this world, and, when it did, the structural surface the
+    /// column was derived from. [`build_geology`] writes
+    /// [`Construction::Off`]; only `cartalith_erosion::construct_relief`
+    /// writes anything else.
+    pub construction: Construction,
+}
+
+/// GF-11's record on the column (`GEOLOGY_FIRST_SCOPE.md` §4.14, §7 GF-11;
+/// owner Rulings BM and BY).
+///
+/// **The storage decision §4.13's BM note leaves to GF-11.** GF-8's painted
+/// window re-runs the chain, and construction's delta needs two things: the
+/// lowering budget, which is recomputable from fields `WorldState` already
+/// stores (`stress_field`, `boundary_mask`, `boundary_type`, `crust_field`),
+/// and the structural surface, which nothing stored. So the structural
+/// surface is kept, as 4 B per cell (`f32`, the field's own type), and only
+/// on a world where construction ran: every other world carries `Off` and
+/// pays nothing. The surface rather than the construction depth, because the
+/// depth is not recoverable once later passes move the field, while the
+/// surface is exactly what §4.14 reads.
+///
+/// Must never hold a surface on a world construction did not lower: `Built`
+/// is written by the one function that lowers.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Construction {
+    /// Not requested (`relief_model`, `geology_processes` or the model off):
+    /// every world before GF-11, and the app today.
+    Off,
+    /// Requested, and not run, for the stated reason. The field is untouched.
+    Skipped(ConstructionSkip),
+    /// Ran. `structural_surface` is the field as the geology stage read it,
+    /// before construction lowered it (normalised heights, one per cell).
+    Built { structural_surface: Vec<f32> },
+}
+
+/// Why a requested construction did not run. Each is a reason, never a
+/// value: the field is left as the structural surface built it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConstructionSkip {
+    /// No cell of the structural surface is above sea: there is nothing to
+    /// lower, and §4.14's budget normalises by a land mean that would not
+    /// exist.
+    NoLand,
+    /// No land cell has a two-layer column, so §4.14's `D₁` (the median land
+    /// cap thickness) has no sample. Inventing one would be a plausible
+    /// number standing in for none.
+    NoTwoLayerLand,
+    /// World-structure is on, so §4.15's orogeny term (`a_o·max(oro, 0)`)
+    /// belongs in the budget, and the pipeline does not keep the orogeny
+    /// field past the substrate. GF-11 was measured with world-structure off
+    /// (as the app ships), so the budget without that term is unmeasured.
+    WorldStructureOn,
+}
+
+impl ConstructionSkip {
+    /// One line for a readout or a log.
+    pub fn reason(self) -> &'static str {
+        match self {
+            ConstructionSkip::NoLand => "no land on the structural surface",
+            ConstructionSkip::NoTwoLayerLand => "no two-layer land: the cap-thickness budget has no sample",
+            ConstructionSkip::WorldStructureOn => "world structure is on: the orogeny term of the budget is not available",
+        }
+    }
 }
 
 impl GeologyColumn {
@@ -718,6 +782,7 @@ pub fn build_geology(inp: &GeologyInputs) -> GeologyColumn {
         contact: vec![f32::NAN; n],
         regolith: vec![0.0; n],
         volcanic_setting: vec![setting_code::NONE; n],
+        construction: Construction::Off,
     };
 
     for i in 0..n {
@@ -954,6 +1019,7 @@ mod tests {
             contact: contact.to_vec(),
             regolith: regolith.to_vec(),
             volcanic_setting: vec![0; top.len()],
+            construction: Construction::Off,
         }
     }
 

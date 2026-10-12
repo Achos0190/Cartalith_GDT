@@ -7,6 +7,8 @@
 //! MEMLANE_HASH=1 ...   # NOT read by this file: `fnv`/`fbytes`/`fdbg` below are unused
 //! MEMLANE_REF=1 ...    # WorldParams::defaults (the goldens' baseline) instead of the app's
 //! MEMLANE_NO_GEOLOGY=1 ...  # the app's params with the GF-1 geology model off
+//! MEMLANE_PROCESSES=1 ...   # also geology_processes on (GF-2/3), relief off
+//! MEMLANE_RELIEF=1 ...      # geology_processes AND relief_model on (GF-11 construction)
 //! ```
 //!
 //! Reproduces `cartalith-godot::compute_civilisation`'s default auto-populate
@@ -151,7 +153,9 @@ fn fdbg<T: std::fmt::Debug>(v: &T) -> u64 {
 /// Args: `<gw> <gh> [seed] [km]` (defaults 2048, 1311, 483920 and 800.0 km;
 /// source not established beyond the header's note that this re-runs `_peakaudit_peak`). Environment:
 /// `MEMLANE_REF` selects `WorldParams::defaults`; `MEMLANE_NO_GEOLOGY` turns
-/// the geology model off for the app parameters.
+/// the geology model off for the app parameters; `MEMLANE_PROCESSES` turns
+/// `geology_processes` on, and `MEMLANE_RELIEF` turns it and `relief_model` on
+/// (GF-11's storage measurement, `GEOLOGY_FIRST_SCOPE.md` §7 GF-11).
 /// Must never: be used to claim a speed: the tracking allocator is in the
 /// path of every allocation, so the `t` column is for orientation only
 /// (overhead not measured here).
@@ -182,7 +186,12 @@ fn main() {
         // The seventh (Ruling BH, GF-1): the geology stage and its column.
         p.geology_model = std::env::var("MEMLANE_NO_GEOLOGY").is_err();
     }
-    println!("geology_model {}", p.geology_model);
+    // GF-11's storage decision is measured as RELIEF against PROCESSES: the
+    // only difference is construction and the structural surface it keeps.
+    let relief = std::env::var("MEMLANE_RELIEF").is_ok();
+    p.geology_processes = relief || std::env::var("MEMLANE_PROCESSES").is_ok();
+    p.relief_model = relief;
+    println!("geology_model {} geology_processes {} relief_model {}", p.geology_model, p.geology_processes, p.relief_model);
     p.map_width_km = km;
     let ws = cartalith_engine::generate_terrain(&p);
     cp("generate_terrain", &t0);
@@ -227,6 +236,10 @@ fn main() {
         row("geology.contact f32", c.contact.len() * 4);
         row("geology.regolith f32", c.regolith.len() * 4);
         row("geology.volcanic_setting u8", c.volcanic_setting.len());
+        // GF-11: the structural surface, kept only when construction ran.
+        if let cartalith_terrain::geology::Construction::Built { structural_surface } = &c.construction {
+            row("geology.structural f32", structural_surface.len() * 4);
+        }
     }
     println!("  WS TOTAL {:9.2} MiB ({:.1} B/cell); allocator live {:.2}", mib(resident), resident as f64 / n as f64, live());
     reset_peak();
