@@ -3668,6 +3668,22 @@ func readout_text() -> String:
 	var dist := DccUnits.format(km)
 	return ("%.0f d · %s" % [days, dist]) if days >= 0.0 else dist
 
+## The supply-block sentence with its three distances in the current unit. The engine's own
+## `supply_block.reason` bakes kilometres into prose (`cartalith-civ` `jp_supply`: "between km 623 and km 1282 ... only 84 km of
+## provisions"), which would stay in km under `Preferences > Units`; `from_km`, `to_km` and `range_km` ride beside it, so the shell
+## rebuilds the sentence from the numbers. The wording is the engine's, word for word, so km mode reads byte-identical (the
+## `_jpunits_probe` round trip proves it). Falls back to the engine's `reason` untouched if the numbers are absent (a block with no
+## keys is an engine change this must not mask). Never parses the engine's string.
+func _supply_block_text(block: Dictionary) -> String:
+	if not (block.has("from_km") and block.has("to_km") and block.has("range_km")):
+		return String(block.get("reason", ""))
+	return "Supplies run out between %s and %s: the party can carry only %s of provisions after foraging, and no settlement lies on or near that stretch to restock at. Add pack animals, reduce cargo, forage harder, or reroute through a settlement." % [
+		_unit_pos(float(block["from_km"])), _unit_pos(float(block["to_km"])), DccUnits.format(float(block["range_km"]))]
+
+## "km 623" in km mode, "mi 387" in miles: a position along the route, unit word first as the engine writes it.
+func _unit_pos(km: float) -> String:
+	return "%s %.0f" % [DccUnits.suffix(), DccUnits.to_unit(km)]
+
 ## Top card of the right dock's Journey section: verdict label (colour by level: severe/blocked, strained, otherwise accent), calendar days, travel vs rest split, the confidence range when present, the engine's verdict text and reasons, and inline fixes for a blocked stage. The level-to-colour mapping must stay in step with the engine's verdict levels.
 func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, confidence: Dictionary) -> void:
 	var level := String(verdict.get("level", ""))
@@ -3704,7 +3720,12 @@ func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, c
 		split.add_child(DccTheme.mono_label("%.0f – %.0f d" % [float(confidence.get("lo_days", 0.0)), float(confidence.get("hi_days", 0.0))], "text", DccTheme.FS_TINY))
 	card.add_child(split)
 
-	var text_l := DccTheme.label(String(verdict.get("text", "")), token, DccTheme.FS_SMALL)
+	## A blocked-by-supply verdict's text IS the block's reason (`jp_verdict`); rebuild it from the numbers so it follows the unit.
+	var vtext := String(verdict.get("text", ""))
+	var sblock: Dictionary = plan.get("supply_block", {})
+	if not sblock.is_empty() and vtext == String(sblock.get("reason", "")):
+		vtext = _supply_block_text(sblock)
+	var text_l := DccTheme.label(vtext, token, DccTheme.FS_SMALL)
 	text_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card.add_child(text_l)
 	var reasons: PackedStringArray = verdict.get("reasons", PackedStringArray())
@@ -4002,7 +4023,7 @@ func _build_resupply_group(body: Control, plan: Dictionary) -> void:
 		return
 	var g := DccWidgets.section(body, "Resupply stops")
 	if not block.is_empty():
-		var bl := DccWidgets.note(g, "%s %s" % [DccIcons.SYMBOLS["blocked"], String(block.get("reason", ""))])
+		var bl := DccWidgets.note(g, "%s %s" % [DccIcons.SYMBOLS["blocked"], _supply_block_text(block)])
 		bl.add_theme_color_override("font_color", DccTheme.c("block"))
 	for s in sugg:
 		var d: Dictionary = s

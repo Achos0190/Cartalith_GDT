@@ -29,7 +29,17 @@ extends Node
 ##      never did.
 ## Both halves are printed below at every run, so the split above is checkable
 ## and not just asserted. Viewport-independent: content minimum, not a frame.
-const BODY_MIN_PLANNER := 336.0
+##
+## **Re-pinned 336 -> 294 (2026-10-12): the shell moved on, the nesting did
+## not come back.** The party form was rebuilt after this probe was written
+## (Auto/Manual transport mode, Ruling BS's carry/forage rows): its widest row
+## is now 268 px (a 132 px label + two 60 px SpinBoxes) plus 26 px of the
+## form's own margins = 294, measured at every run by `_chain` in the failing
+## run's diagnosis. The regression this pin guards is unchanged and is still
+## caught two ways: A1's first check (zero `ScrollContainer`s between the form
+## and the dock body) and this number, because a reintroduced nested scroller
+## adds its 28 px (294 -> 322).
+const BODY_MIN_PLANNER := 294.0
 
 ## `ENV:25` `--ldW:372px`; `ENV:1819` `--ldW:330px` at `w1366`. The dock's own
 ## width with the planner open, as a LITERAL at each frame -- deliberately not
@@ -49,7 +59,13 @@ const BODY_MIN_PLANNER := 336.0
 ## the same arithmetic for each); the planner was the outlier, not the fixed
 ## one. Reported as the residue over 330, not waived.
 const DOCK_1920 := 372.0
-const DOCK_1366 := 351.0
+##
+## **1366 re-pinned 351 -> 330 (2026-10-12).** With the form's content minimum
+## at 294 (above) the planner no longer overflows `--ldW:330`: 294 content + 7
+## furniture + 8 dock scrollbar = 309, under budget, so the dock sits exactly
+## at `--ldW` -- the same 330 `_dockfit_probe.KNOWN_330` records for this node
+## (its pin is a cap, and the dock is now at it without needing the waiver).
+const DOCK_1366 := 330.0
 
 ## The party form is tall; the assertion that it is non-empty needs a number no
 ## plausible collapse can reach, not `> 0`. Measured ~1500 px at 1920x1080.
@@ -196,7 +212,7 @@ func _ready() -> void:
 	print("-- A1. the nested ScrollContainer is gone --")
 	_ok("no ScrollContainer between the party form and left_dock_body",
 		_scrolls_between(party, body), 0)
-	_ok("left_dock_body's content minimum (was 364, the 28 px is the nesting)",
+	_ok("left_dock_body's content minimum (was 364 with the nested scroller; see BODY_MIN_PLANNER)",
 		"%.0f" % body.get_combined_minimum_size().x, "%.0f" % BODY_MIN_PLANNER)
 	_ok("and the dock's own width at this frame",
 		"%.0f" % ld.size.x, "%.0f" % (DOCK_1920 if w >= 1920 else DOCK_1366))

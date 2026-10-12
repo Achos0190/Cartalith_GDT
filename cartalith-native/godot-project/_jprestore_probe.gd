@@ -144,6 +144,30 @@ func _ready() -> void:
 	# measurement of this run and not a property of the world.
 	for d in [before, after]:
 		(d["civ_trade_flows"] as Dictionary).erase("elapsed_ms")
+	## **The rock column is the one Sample-panel group a save does not carry,
+	## by design.** `substrate.rs` rebuilds a reopened world with
+	## `Geology::Absent(GeologyAbsent::Restored)` -- the GF-1 column is not in
+	## the save format yet (`GEOLOGY_FIRST_SCOPE.md` §2.6), so `sample_cell`
+	## drops the seven literal rock keys below and says why in `rock_reason`.
+	## That is the engine answering honestly (no value invented), not a restore
+	## defect, and this probe predates the rock fields (stale harness, 2026-10-12).
+	## The positive half pins the reason text AND that the generated world does
+	## carry the keys, so neither side can go quietly empty; every other
+	## `sample_cell` key still has to match byte for byte.
+	const ROCK_KEYS := ["rock", "rock_strength", "rock_soluble", "rock_permeability",
+		"regolith_m", "rock_beneath", "rock_contact_depth_m"]
+	var sb: Dictionary = before["sample_cell"]
+	var sa: Dictionary = after["sample_cell"]
+	var rock_before := true
+	for rk in ROCK_KEYS:
+		rock_before = rock_before and sb.has(rk)
+		sb.erase(rk)
+		_check("reopened project: sample_cell has no `%s` (rock column not saved yet)" % rk, not sa.has(rk))
+	_check("generated world: sample_cell carried the rock keys this comparison drops", rock_before)
+	_check("reopened project: sample_cell says why the rock column is absent",
+		String(sa.get("rock_reason", "")) == "opened from a save: rock columns are not saved yet",
+		String(sa.get("rock_reason", "<missing>")))
+	sa.erase("rock_reason")
 	for k in before.keys():
 		var a := JSON.stringify(before[k])
 		var b := JSON.stringify(after[k])

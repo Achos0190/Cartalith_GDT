@@ -69,8 +69,16 @@ func _title() -> String:
 func _readout() -> String:
 	return String(app.right_dock_ctrl._dock_readout_text())
 
+## **Navigates to the planner destination, not just the domain.** Since REARM
+## row B (`journey_planner_view.gd::_recompute_visibility()`) the planner is
+## active only while `active_mode("civilization") == "planner"`; this probe's
+## original `select_domain("civilization")` + `arm_tool("journey")` left the
+## mode at its default, so the view never showed and no Journey section was
+## appended (9 failures, stale harness -- the shell was correct). A mode is
+## per-domain state that survives a domain switch, so T6's later
+## `select_domain("civilization")` returns to the planner too.
 func _arm_journey() -> void:
-	app.select_domain("civilization")
+	app.select_domain_mode("civilization", "planner")
 	await _frames(3)
 	app.arm_tool("journey")
 	await _frames(10)
