@@ -44,6 +44,9 @@ func _size(path: String) -> int:
 	f.close()
 	return n
 
+## (`_shore_mask` below stamps the same square margin around every
+## shoreline, for RV-5's smooth shore -- see its doc.)
+##
 ## Rasterizes `get_rivers()`'s traced polylines (`points`, grid-cell space)
 ## into a `w * h` byte mask, `1` within `width_cells / 2` plus a small
 ## antialiasing margin of a river, `0` elsewhere. Only valid where the pixel
@@ -106,6 +109,83 @@ func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
 					if xx < 0 or xx >= w:
 						continue
 					mask[yy * w + xx] = 1
+	return mask
+
+## Marks every cell within `AA_MARGIN_CELLS` (a square, for the same reason
+## `_river_mask` stamps one: the local-contrast blur is a separable box) of a
+## **shoreline**: a cell whose `WorldGen::shore_field_texture()` sign differs
+## from its right or lower neighbour's. Returns an empty array when the look
+## has no shore field (`smooth_shores` off), so the caller can refuse rather
+## than silently compare with no shore excluded.
+##
+## Why the shore is excluded at all (2026-10-13, measured): since RV-5
+## (`a185dca0`, 2026-09-28) the export decides water by `map_shore.gdshader`'s
+## smooth-shore rule (`BakeFields::with_shore_field`, coverage antialiased
+## across the contour), while `build_color_texture()` keeps the CELL coast and
+## leaves the smooth shore to that shader on the GPU. So the raw texture and
+## the export differ along every shoreline by design -- the export matches the
+## displayed screen there, not the texture underneath it, which
+## `export_raster.rs::rv5_parity_tests` pins in Rust. `STATUS.md`'s RV-5 entry
+## records a parse check of this probe, not a run; when section 13 first went
+## red was not bisected -- the attribution to RV-5 rests on the measurement
+## below (every difference above 1 level sits in the shore band, and excluding
+## it returns the pre-RV-5 residue). Seed 20260824 at 2048 x 1312, river mask as below:
+## no shore excluded, 10 717 px differ outside the river mask (worst 56) and
+## the shore band itself reaches 102; shore margin 2 leaves worst 1 but 5 333 px
+## (local contrast smearing the shore edge); margin 24 leaves 5 px, worst 1 --
+## the f32-prologue knife edge `AA_MARGIN_CELLS`' doc already quotes.
+##
+## Reads the field the screen's shader reads, not re-detected blue pixels, for
+## the reason `_river_mask` gives.
+func _shore_mask(wg: Object, w: int, h: int) -> PackedByteArray:
+	var tex: Texture2D = wg.shore_field_texture()
+	if tex == null:
+		return PackedByteArray()
+	var im := tex.get_image()
+	if im == null or im.get_width() != w or im.get_height() != h:
+		return PackedByteArray()
+	im.convert(Image.FORMAT_RF)
+	var f := im.get_data().to_float32_array()
+	var edge := PackedByteArray()
+	edge.resize(w * h)
+	for y in range(h):
+		for x in range(w):
+			var s := f[y * w + x] > 0.0
+			if (x + 1 < w and (f[y * w + x + 1] > 0.0) != s) or (y + 1 < h and (f[(y + 1) * w + x] > 0.0) != s):
+				edge[y * w + x] = 1
+	# Square dilation by R, as two separable passes (row, then column), each
+	# a forward and a backward sweep tracking the nearest edge cell.
+	var r := int(ceil(AA_MARGIN_CELLS))
+	var rows := PackedByteArray()
+	rows.resize(w * h)
+	for y in range(h):
+		var last := -1000000
+		for x in range(w):
+			if edge[y * w + x] == 1:
+				last = x
+			if x - last <= r:
+				rows[y * w + x] = 1
+		last = 1000000
+		for x in range(w - 1, -1, -1):
+			if edge[y * w + x] == 1:
+				last = x
+			if last - x <= r:
+				rows[y * w + x] = 1
+	var mask := PackedByteArray()
+	mask.resize(w * h)
+	for x in range(w):
+		var last := -1000000
+		for y in range(h):
+			if rows[y * w + x] == 1:
+				last = y
+			if y - last <= r:
+				mask[y * w + x] = 1
+		last = 1000000
+		for y in range(h - 1, -1, -1):
+			if rows[y * w + x] == 1:
+				last = y
+			if last - y <= r:
+				mask[y * w + x] = 1
 	return mask
 
 func _ready() -> void:
@@ -415,8 +495,9 @@ func _ready() -> void:
 			## `export_raster_png` drew the OLD baked ink until RV-5
 			## (2026-09-28), and since then rasterizes those same vector
 			## strokes into the export itself. Either way screen and export
-			## now intentionally disagree exactly where a river runs, and only
-			## there. A byte-for-byte comparison that does not know this would
+			## now intentionally disagree where a river runs -- and, since
+			## the same RV-5, along every shoreline (`_shore_mask`), which
+			## the same split handles as a second excluded region. A byte-for-byte comparison that does not know this would
 			## either weaken its bound everywhere (masking a real regression
 			## elsewhere) or fail permanently on the river ink alone (masking
 			## nothing at all) -- both are exactly the "asserted non-emptiness
@@ -440,6 +521,16 @@ func _ready() -> void:
 					mask_px += 1
 			print("  river mask: %d of %d pixels (%.2f%%)"
 				% [mask_px, mask.size(), 100.0 * float(mask_px) / float(maxi(1, mask.size()))])
+			## The second exclusion, since RV-5: the shoreline band, where the
+			## export draws the smooth shore the screen's shader draws and the
+			## raw texture does not (`_shore_mask`'s doc has the measurement).
+			## A pixel in both masks counts as river, so each region below is
+			## disjoint and the river assertions keep their old meaning.
+			var shore := _shore_mask(bridge.world_gen, scr.get_width(), scr.get_height())
+			_ok(shore.size() == mask.size(), "the default look has a shore field to exclude the smooth shore by (smooth_shores on)")
+			if shore.size() != mask.size():
+				shore.resize(mask.size())
+				shore.fill(0)
 
 			var bad3 := 0
 			var worst := 0
@@ -447,6 +538,9 @@ func _ready() -> void:
 			var river_bad := 0
 			var river_worst := 0
 			var river_bytes := 0
+			var shore_bad := 0
+			var shore_worst := 0
+			var shore_bytes := 0
 			for i in range(a.size()):
 				var d: int = absi(a[i] - b[i])
 				var px := int(i / 3)
@@ -455,13 +549,33 @@ func _ready() -> void:
 					if d > 0:
 						river_bad += 1
 						river_worst = maxi(river_worst, d)
+				elif shore[px] == 1:
+					shore_bytes += 1
+					if d > 0:
+						shore_bad += 1
+						shore_worst = maxi(shore_worst, d)
 				else:
 					nonriver_bytes += 1
 					if d > 0:
 						bad3 += 1
 						worst = maxi(worst, d)
-			print("  [outside river mask] %d of %d bytes differ, worst delta %d" % [bad3, nonriver_bytes, worst])
+			print("  [outside both masks] %d of %d bytes differ, worst delta %d" % [bad3, nonriver_bytes, worst])
 			print("  [inside river mask]  %d of %d bytes differ, worst delta %d" % [river_bad, river_bytes, river_worst])
+			print("  [shore band only]    %d of %d bytes differ, worst delta %d" % [shore_bad, shore_bytes, shore_worst])
+			## Non-vacuity of the strict region: two exclusions could between
+			## them swallow the map and leave the bound below asserting nothing.
+			## Measured 2026-10-13 at this seed: 919 385 of 2 686 976 pixels
+			## (34%) remain; a quarter is the floor, a labelled judgement with
+			## headroom under that measurement.
+			_ok(nonriver_bytes * 4 > a.size(), "the strict region is still a quarter of the map or more (%d of %d bytes)" % [nonriver_bytes, a.size()])
+			## The shore band's own reversion detector, as the river mask has
+			## one below: if the export ever went back to the cell coast (or the
+			## texture learned the smooth shore) the band would match to f32
+			## rounding, and that must fail here rather than pass. 102 levels
+			## measured 2026-10-13; 10 is the same far-above-rounding floor the
+			## river assertion uses.
+			_ok(shore_bad > 0 and shore_worst > 10,
+				"the shore band really does differ (export draws the smooth shore, the raw texture the cell coast) -- worst %d levels over %d differing bytes" % [shore_worst, shore_bad])
 			## Not "zero bytes differ", and the reason is worth stating where
 			## someone re-running this will read it. BakeFields stores slope,
 			## macro shade and meso shade as f32 -- because the reference's
@@ -495,9 +609,11 @@ func _ready() -> void:
 			## different picture. Nobody re-ran the probe in between, so it
 			## went unnoticed. Do not relax either assertion below to make it
 			## green. (2026-09-22: this bound now applies outside the river
-			## mask -- inside it, the two are SUPPOSED to differ.)
-			_ok(worst <= 1, "outside the river mask, no byte is off by more than one level (worst %d)" % worst)
-			_ok(bad3 * 10000 < nonriver_bytes, "outside the river mask, the f32 prologue is the only difference (%d of %d bytes)" % [bad3, nonriver_bytes])
+			## mask -- inside it, the two are SUPPOSED to differ. 2026-10-13:
+			## and outside the shore band too, for RV-5's smooth shore; the
+			## bound itself is unchanged, only the region it is asserted on.)
+			_ok(worst <= 1, "outside both masks, no byte is off by more than one level (worst %d)" % worst)
+			_ok(bad3 * 10000 < nonriver_bytes, "outside both masks, the f32 prologue is the only difference (%d of %d bytes)" % [bad3, nonriver_bytes])
 			## Non-vacuity for the mask itself, and for the divergence it is
 			## supposed to expose -- the two things a masked comparison can
 			## get silently wrong. Owner ruling 2026-09-22 didn't remove
