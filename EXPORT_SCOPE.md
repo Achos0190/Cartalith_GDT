@@ -7,27 +7,16 @@
 > (§7). The findings below were written under the hold, so anything phrased
 > as "if this is ever un-shelved" describes a condition that has happened.
 >
-> **Two sub-questions are OPEN.** Ruling AP names both and says of them:
-> *"not answered by this ruling, raise them as their own batch when this is
-> picked up rather than guessing."*
->
-> 1. **E4's five scope questions** (§5), as they were scoped on 2026-09-23:
->    the overlay content in scope for v1; the LOD rule for labels, ways and
->    urban layouts; whether rivers draw the vector stroke or the baked ink
->    when overlays are on; which settlements and filters apply; and whether a
->    1-2 s per-band UI freeze is acceptable for v1.
-> 2. **The codec/size tradeoff at 32K** — in Ruling AP's words, *"where
->    nothing makes a 32K file small and the one compressed option is blocked
->    by licensing."*
->
-> **Flagged for the owner, not resolved here:** the second question reads
-> against **ruling 26**, which already settled the codec as **PNG, RGB** —
-> *"even if size balloons. We should just inform the user of the expected
-> file size."* — and against §6.3's measurement, which puts a 32K PNG at
-> 213.9 MB rather than the 500 MB - 1 GB this document first guessed. Until
-> the owner answers it, ruling 26 is the standing codec choice, and §6's
-> survey is the reason nothing else was eligible.
->
+> **Both of Ruling AP's sub-questions are answered** (Ruling AZ, 2026-09-28,
+> `LARGE_ITEM_RULINGS.md`; *corrected 2026-10-13: this header still called
+> them open*). E4's five: overlays in v1 are settlements, labels, roads and
+> ways, icons and borders; the user picks a minimum settlement tier (default
+> towns); rivers draw the vector line, not the baked ink; town plans draw above
+> a size readable at the export's resolution; and **no UI freeze** -- render off
+> the main thread with progress. The codec: **JPEG alongside PNG**, amending
+> ruling 26 (PNG only); the dialog still shows the expected size. The text
+> below that predates the answers is kept as the record of what was asked.
+
 > **The owner scoped the deliverable on 2026-09-06, and it is narrower than
 > this document assumes throughout:** *"a user generated monolithic image of
 > the map. No layers, no extensive information. Just to be used outside of
@@ -494,8 +483,50 @@ export), `ExportSessionCore` (tiles must cover every band exactly once, in
 order), `export_stream.rs::BandSink`, and the `export_session_*` `#[func]`s;
 B, one-tile registration; C, many tiles and many bands end to end; D, wiring,
 real-size measurement and documentation. Point 4 was the question blocking B.
-**Ruling AP resumed B–D, and the five scope questions it leaves open are
-listed at the top of this document.**
+**Ruling AP resumed B–D; Ruling AZ answered the five scope questions (top of
+this document).**
+
+### E4 batch B as built, 2026-10-13
+
+Where it stands is `STATUS.md`'s; this records the design the batch chose.
+
+- **A second overlay, not the live one.** `map_overlay.gd::copy_state_from`
+  copies every script variable of the live overlay except a named list of
+  render-cache and input bookkeeping (`EXPORT_STATE_SKIP`), deep-copying
+  arrays and dictionaries -- point 5's silent-divergence risk answered by
+  copying the definition rather than enumerating setters. A probe draws the
+  live overlay and a copy under one camera: **0 differing pixels** of 26 056
+  covered.
+- **Laid out at export size, fit view.** The copy's local size is the grid at
+  `(W-1)/(gw-1)` px per cell; a parent `Node2D` applies the per-axis
+  corner-aligned affine of point 3 plus the tile offset. Measured: two edge
+  capitals land 0.47 and 0.24 px from `bake_rect`'s pixel at 8192, where the
+  naive camera would be ~11 px off.
+- **Uniform magnification (point 4).** `prepare_export` sets camera zoom 1 and
+  `_sym_gain` = export rect width / live rect width, which multiplies what the
+  live overlay holds in constant screen pixels (ways via `_way_scale`, "fixed"
+  labels and the label clamps, icons, landmark rings); pins, "zoom" labels and
+  town plans already scale with the rect. Measured: the same region at 8192
+  covers 3.885x what it covers at 4096 (gain^2 = 4.001); withholding the gain,
+  2.972x.
+- **Content.** The export's tier replaces the settlement LOD (no dots; addon
+  villages only at `"all"`); ways/routes/labels/icons off clear their data;
+  hover, selection, journeys, conflicts, the timeline's ghosts and the
+  overlay's own rivers are always cleared (the terrain band paints the vector
+  rivers, RV-5).
+- **One tile end to end.** At 2048 px (one band) the tile goes through the
+  batch-A session: every pixel the overlay leaves clear is byte-identical to
+  the terrain-only `export_image`, every opaque one is the overlay's colour.
+
+**Left to C and D, found while building B:** a tile's culled layers are built
+for its own view, so a label or pin crossing a tile seam must be checked; the
+copy has no route to the engine for town layouts it has not cached (the live
+overlay's request signal is not wired); the territory wash ("borders") is an
+engine texture, not this overlay, so it needs its own export path; the
+landmark glyph textures top out at `LANDMARK_GLYPH_RASTERS`' largest size;
+`TILE_MAX = 4096` is a judgement still to be measured; and the Rust parser's
+default tier for `settlements: true` is `"all"` where Ruling AZ's dialog
+default is towns (E5's to pass).
 
 ---
 
@@ -617,8 +648,8 @@ reviewable. Where each stands is `cartalith-native/docs/STATUS.md`'s.
   `write` / `finish` contract of §5, with `map_overlay.gd` drawing into a
   `SubViewport` at export scale under a synthetic per-band camera. This is the
   one milestone with no reference behaviour to port against. Sequenced as
-  batches A–D (§5, "E4 as scoped"); Ruling AP resumed B–D with five scope
-  questions still open (top of this document).
+  batches A–D (§5, "E4 as scoped"); Ruling AP resumed B–D and Ruling AZ
+  answered their five scope questions (top of this document).
 - **E5 — the export dialog.** Owned by the UI pass, against E3's contract.
 
 ## 8. What must not be broken

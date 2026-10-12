@@ -1285,19 +1285,39 @@ func _fill_flows_ways(d: Dictionary) -> void:
 ## § CARAVANS -- IN-13 piece 4 (2026-09-24). Ruling AF: a caravan is one
 ## aggregate shipment per way; Ruling AP: a DERIVED view -- one row per way
 ## with active trade load, rebuilt from the live match on every read, nothing
-## saved. The engine's `way_goods` tally says what each one carries.
+## saved. The engine's `way_goods` tally says what each one carries. Sea
+## lanes get one each too (Ruling AQ, 2026-09-24), from `trade::sea_caravans`.
 const CARAVAN_ROWS_SHOWN := 12
 
-## Caravans group of the flows readout: one line per way carrying matched trade
-## (its three largest goods by share of load), capped at `CARAVAN_ROWS_SHOWN` with
-## a count of the rest. A derived view rebuilt on every read from `d` and never
-## saved (Ruling AP); a sea route is not a way and has no caravan.
+## Caravans group of the flows readout: one line per way carrying matched trade,
+## then one per sea lane (Ruling AQ, 2026-09-24: the port pair its sea flows run
+## between, `sea_caravans`), each with its three largest goods by share of load,
+## every list capped at `CARAVAN_ROWS_SHOWN` with a count of the rest. A derived
+## view rebuilt on every read from `d` and never saved (Ruling AP).
 func _fill_flows_caravans(d: Dictionary) -> void:
 	var rows: Array = d.get("caravans", [])
 	var total := int(d.get("caravan_count", rows.size()))
+	var sea: Array = d.get("sea_caravans", [])
+	var sea_total := int(d.get("sea_caravan_count", sea.size()))
 	var g := DccWidgets.group(_flows_body, "Caravans")
 	if rows.is_empty():
-		DccWidgets.note(g, "No caravans: no way carries matched trade.")
+		DccWidgets.note(g, "No caravans on the ways: no way carries matched trade.")
+	_caravan_lines(g, rows, total, "more caravans on the ways.")
+	if sea.is_empty():
+		DccWidgets.note(g, "No sea caravans: no two ports trade by sea.")
+	else:
+		DccWidgets.note(g, "By sea:")
+	_caravan_lines(g, sea, sea_total, "more sea lanes.")
+	DccWidgets.note(g,
+		"One caravan per way that carries trade, and one per sea lane -- each pair of ports "
+		+ "that trade by sea: the combined shipment of every matched flow it carries, both "
+		+ "directions together. Rebuilt from the live match each time and never saved.")
+
+## One note per caravan row of `rows` -- "name -- load: good share%, ..." with
+## its three largest goods -- up to `CARAVAN_ROWS_SHOWN`, then "N <rest_label>"
+## when `total` (the engine's true count) is larger. Shared by the way and sea
+## lists, whose rows carry the same `name`/`load`/`goods`/`volumes` keys.
+func _caravan_lines(g: Control, rows: Array, total: int, rest_label: String) -> void:
 	for i in range(mini(CARAVAN_ROWS_SHOWN, rows.size())):
 		var row: Dictionary = rows[i]
 		var load := float(row.get("load", 0.0))
@@ -1311,11 +1331,7 @@ func _fill_flows_caravans(d: Dictionary) -> void:
 		DccWidgets.note(g, "%s -- %s: %s" % [String(row.get("name", "?")),
 			FactionRosterWindow._thousands(int(round(load))), ", ".join(parts)])
 	if total > CARAVAN_ROWS_SHOWN:
-		DccWidgets.note(g, "%d more caravans." % (total - CARAVAN_ROWS_SHOWN))
-	DccWidgets.note(g,
-		"One caravan per way that carries trade: the combined shipment of every matched flow "
-		+ "routed over it. Rebuilt from the live match each time and never saved. Sea routes "
-		+ "are not ways and have no caravan yet.")
+		DccWidgets.note(g, "%d %s" % [total - CARAVAN_ROWS_SHOWN, rest_label])
 
 ## Match Trade flows button: run the engine's match through `TradeStore.refresh`
 ## (built, read and dropped), redraw the readout and hand the per-way volumes to

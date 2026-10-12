@@ -731,6 +731,71 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
     out
 }
 
+// ------------------------------------------------------------ sea caravans
+
+/// One sea lane's caravan (IN-13 piece 4, sea half): the combined shipment
+/// of every [`TradeMode::Sea`] flow between one pair of ports.
+///
+/// **Ruling AQ (2026-09-24, `LARGE_ITEM_RULINGS.md`):** *"Each seaborne trade
+/// route between two ports is a lane with its own caravan row, derived from
+/// the same live trade match and never saved."* The land half's caravan is
+/// one per loaded way (`TradeNetwork::way_goods`); a sea flow lands on no way
+/// (see [`TradeNetwork::way_load`]), so its lane is the **unordered port
+/// pair** the flows run between. That reading is this port's, disclosed
+/// here: the ruling names the pair ("between two ports") and nothing else,
+/// and [`crate::SeaRoute`] cannot stand in for it, because a sea route
+/// carries no endpoint indices and the match never routes over one.
+///
+/// Must never be persisted or given a refresh rule of its own (Ruling AP):
+/// it exists only as [`sea_caravans`]' return value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeaCaravan {
+    /// The lower settlement index of the pair (into the settlement slice).
+    pub a: usize,
+    /// The higher settlement index of the pair. Never equal to `a`.
+    pub b: usize,
+    /// Total volume both ways, the sum of `goods`' volumes.
+    pub load: f64,
+    /// Goods carried, with volume, in first-seen flow order. A good moving
+    /// in both directions is one entry: the caravan is the lane's combined
+    /// shipment, as a land caravan is its way's, not a pair of voyages.
+    pub goods: Vec<(&'static str, f64)>,
+    /// How many matched flows the lane combines.
+    pub flows: usize,
+}
+
+/// Every sea lane carrying matched trade, one [`SeaCaravan`] each, heaviest
+/// first (ties by `(a, b)`, so the order is deterministic). Reads
+/// `net.flows` and nothing else: no field of [`TradeNetwork`] is added or
+/// changed, so the match itself — and every digest pinned on it — cannot
+/// move. Flows of any other mode are ignored; a flow from a settlement to
+/// itself cannot occur ([`trade_flows`] exports and imports are disjoint per
+/// settlement) and is skipped if it ever did, since a lane needs two ends.
+pub fn sea_caravans(net: &TradeNetwork) -> Vec<SeaCaravan> {
+    let mut lanes: Vec<SeaCaravan> = Vec::new();
+    // Pair -> index into `lanes`. A BTreeMap so nothing here depends on a
+    // hasher's iteration order; the output order is set by the sort below.
+    let mut at: std::collections::BTreeMap<(usize, usize), usize> = Default::default();
+    for f in net.flows.iter().filter(|f| f.mode == TradeMode::Sea && f.from != f.to) {
+        let key = (f.from.min(f.to), f.from.max(f.to));
+        let i = *at.entry(key).or_insert_with(|| {
+            lanes.push(SeaCaravan { a: key.0, b: key.1, load: 0.0, goods: Vec::new(), flows: 0 });
+            lanes.len() - 1
+        });
+        let lane = &mut lanes[i];
+        lane.load += f.volume;
+        lane.flows += 1;
+        match lane.goods.iter_mut().find(|(k, _)| *k == f.good) {
+            Some(e) => e.1 += f.volume,
+            None => lane.goods.push((f.good, f.volume)),
+        }
+    }
+    lanes.sort_by(|x, y| {
+        y.load.partial_cmp(&x.load).unwrap_or(std::cmp::Ordering::Equal).then((x.a, x.b).cmp(&(y.a, y.b)))
+    });
+    lanes
+}
+
 // ------------------------------------------------------------ the food shed
 
 /// `_civCatchmentRadiusRaw` (reference line 23477): the continuous catchment

@@ -433,6 +433,11 @@ impl WorldGen {
     /// - `unmet` — one row per settlement with a need nothing can fill.
     /// - `navigability` — per settlement, in settlement order.
     /// - `way_load` — per way, in `get_roads()` order.
+    /// - `caravans` / `caravan_count` — one per way carrying matched trade
+    ///   (Rulings AF, AP), its goods by volume.
+    /// - `sea_caravans` / `sea_caravan_count` — one per sea lane, the
+    ///   unordered port pair (`a`, `b`) its sea flows run between (Ruling
+    ///   AQ), with `name`, `load`, `flows`, and its goods by volume.
     /// - `ways` — the eight busiest, named.
     /// - `elapsed_ms`, `transient_bytes`, `resident_bytes` (always `0`).
     #[func]
@@ -612,13 +617,12 @@ impl WorldGen {
         d.set("ways", &ways);
         // IN-13 caravans (Ruling AF: one aggregate shipment per way; Ruling AP:
         // a derived view -- one row per way with active trade load, rebuilt
-        // from THIS match on every read, nothing persisted). Land and river
-        // ways only, for now: sea routes are not in `net.way_load`. The owner
-        // has since ruled that sea trade gets caravans too, one per sea lane
-        // (Ruling AQ, 2026-09-24, `LARGE_ITEM_RULINGS.md`); that half is not
-        // built yet (`OUTSTANDING_WORK.md`, IN-13 piece 4). `index` is
-        // `civ.ways` order, as in `ways` above. Capped like `flows`;
-        // `caravan_count` is the true total of land caravans.
+        // from THIS match on every read, nothing persisted). `caravans` holds
+        // the land and river ways' caravans (sea flows are not in
+        // `net.way_load`); the sea half (Ruling AQ, 2026-09-24: one caravan
+        // per sea lane) is `sea_caravans` below. `index` is `civ.ways`
+        // order, as in `ways` above. Capped like `flows`; `caravan_count` is
+        // the true total of way caravans.
         let mut caravan_order: Vec<usize> = (0..net.way_load.len()).filter(|&i| net.way_load[i] > 0.0).collect();
         caravan_order.sort_by(|&a, &b| {
             net.way_load[b].partial_cmp(&net.way_load[a]).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(&b))
@@ -642,6 +646,35 @@ impl WorldGen {
             .collect();
         d.set("caravans", &caravans);
         d.set("caravan_count", caravan_order.len() as i64);
+        // IN-13 piece 4, sea half (Ruling AQ, 2026-09-24): one caravan per sea
+        // lane, the lane being the unordered port pair its sea flows run
+        // between (`trade::sea_caravans`' doc comment says why that reading).
+        // Derived from THIS match like the way caravans, never saved. `a`/`b`
+        // index `get_settlements()`; `name` is "A -- B" in index order.
+        // Kept out of `caravans` because that array's `index` means a way.
+        // Capped like `caravans`; `sea_caravan_count` is the true total.
+        let lanes = cartalith_civ::trade::sea_caravans(&net);
+        let sea_caravans: Array<VarDictionary> = lanes
+            .iter()
+            .take(CARAVAN_ROWS_MAX)
+            .map(|l| {
+                let mut goods = l.goods.clone();
+                goods.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(b.0)));
+                let names: PackedStringArray = goods.iter().map(|g| GString::from(g.0)).collect();
+                let volumes: PackedFloat64Array = goods.iter().map(|g| g.1).collect();
+                dict! {
+                    "a" => l.a as i64,
+                    "b" => l.b as i64,
+                    "name" => format!("{} -- {}", name_of(l.a), name_of(l.b)),
+                    "load" => l.load,
+                    "flows" => l.flows as i64,
+                    "goods" => &names,
+                    "volumes" => &volumes,
+                }
+            })
+            .collect();
+        d.set("sea_caravans", &sea_caravans);
+        d.set("sea_caravan_count", lanes.len() as i64);
         // **`get_roads()` order, not `civ.ways` order.** The overlay indexes
         // this array by its own row, and `get_roads()` filters hidden ways out
         // and appends the manual ones -- so a straight copy of `net.way_load`

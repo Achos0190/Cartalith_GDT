@@ -570,10 +570,9 @@ an owner decision (`LARGE_ITEM_RULINGS.md`), not a port:
 | **AE** | 2026-09-23 | A cross-faction tariff reads its own new relationship field, not `civ_faction_relations`, whose module doc scopes it away from diplomacy and treaties |
 | **AU** (with **AR**) | 2026-09-24 | R stands on top of AB's pricing (AR). Each faction's rate is **user-set** in the faction roster and quoted against AB's world price index; the engine only converts (`cartalith_civ::currency`) and derives no rate from the economy. A rate changes how a value is shown, never a flow |
 | **AF**, then **AP** | 2026-09-23 | The unit is one aggregate shipment per way (AF). AP then settled what a caravan *is*: a **derived view** — one row per way with active trade load, rebuilt from the live trade match every time, nothing persisted. AP supersedes AF's comparison to a persisted, `Journey`-shaped entity |
+| **AQ** | 2026-09-24 | Answers the question AP left open: sea trade gets caravans, **one per sea lane**, derived from the same live match and never saved. Read in the build (2026-10-13) as one caravan per **unordered port pair** that trades by sea, both directions combined — `trade::sea_caravans`' doc comment says why: a sea flow lands on no way, and `SeaRoute` carries no endpoint indices |
 
-Still open under AP: whether a sea trade route counts as a "way" for caravans
-or needs its own entity. Raise it before building the sea-lane case. One
-constraint travels with these rulings without being a decision: the
+One constraint travels with these rulings without being a decision: the
 faction-aware match must leave the existing single-faction, untariffed output
 unchanged.
 

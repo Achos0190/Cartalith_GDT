@@ -3898,7 +3898,13 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 ## uses in the reference.
 ## `_camera_zoom` normalised by `_lod_zoom_base()` -- see that function for why
 ## the raw camera scale stopped being the right number to compare.
+##
+## **An export copy draws no dots** (`prepare_export`, E4): a flat image has no
+## zoom, so the export's own settlement tier (`_hidden_settlement_kinds`, set
+## there) decides what is drawn and everything it keeps is a full pin.
 func _settlement_below_lod(kind: String) -> bool:
+	if _export_mode:
+		return false
 	return (_camera_zoom / _lod_zoom_base()) < float(SETTLEMENT_LOD.get(kind, 0.5))
 
 
@@ -3906,9 +3912,14 @@ func _settlement_below_lod(kind: String) -> bool:
 ## nothing at all, and (per the reference's `_civPlacePickVisible`, which
 ## excludes a still-hidden addon from picking) not hit-testable either, so a
 ## click cannot select a place that is not on the map.
+## In an export copy the export's tier decides instead of the zoom: addon
+## villages draw only at tier `"all"` (`export_options.rs`'s
+## `SettlementTier::includes("village_addon")`), never at `"hamlet"`.
 func _settlement_hidden(s: Dictionary) -> bool:
 	if s["kind"] != "hamlet" or int(s.get("population", 1)) != VILLAGE_ADDON_POP:
 		return false
+	if _export_mode:
+		return not _export_show_addons
 	return (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD
 
 
@@ -5753,32 +5764,35 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 	var color: Color = icon_fill_for(String(ic["family"]))
 	var outline: Color = icon_outline_color()   ## the preset's ink (Ruling BX item 2) or `ICON_OUTLINE`
 	var r: float = _icon_radius(ic)
+	## Outline widths carry `_sym_gain` like the radius does (E4); `x * 1.0`
+	## is exact, so the live mark is unchanged.
 	match ic["family"]:
 		"settlement":
 			var half := r * 0.85
 			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
-			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), outline, false, 1.2)
+			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), outline, false, 1.2 * _sym_gain)
 		"feature":
 			var pts := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
 			_cv.draw_colored_polygon(pts, color)
-			_cv.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), outline, 1.2, true)
+			_cv.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), outline, 1.2 * _sym_gain, true)
 		"poi":
 			var pts2 := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
 			_cv.draw_colored_polygon(pts2, color)
-			_cv.draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), outline, 1.2, true)
+			_cv.draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), outline, 1.2 * _sym_gain, true)
 		_: ## "custom", or any future family this build doesn't recognise yet.
 			_cv.draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
-			_cv.draw_arc(pos, r, 0, TAU, 20, outline, 1.2, true)
-			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, outline, 1.0, true)
+			_cv.draw_arc(pos, r, 0, TAU, 20, outline, 1.2 * _sym_gain, true)
+			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, outline, 1.0 * _sym_gain, true)
 
 
 ## The drawn glyph radius in this control's local pixels -- the ONE definition
 ## `_draw_icon_glyph` and `_hit_test_icon` share, as `_landmark_radius` is for
 ## rings, so the click target is exactly the glyph on screen.
+## `_sym_gain` is E4's uniform magnification (`prepare_export`); `1.0` live.
 func _icon_radius(ic: Dictionary) -> float:
-	return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0)))
+	return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0))) * _sym_gain
 
 
 ## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
@@ -5817,8 +5831,9 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
 	## Dark halo first so the ring survives on pale terrain, the same
 	## two-pass trick the settlement labels use for their outline.
-	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4, true)
-	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3, true)
+	## Widths carry `_sym_gain` as `r` does (E4 uniform magnification; `1.0` live).
+	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4 * _sym_gain, true)
+	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3 * _sym_gain, true)
 	if glyph != "":
 		var side := r * LANDMARK_GLYPH_FRAC
 		var on_screen := side * glyph_scale
@@ -5849,7 +5864,8 @@ func _landmark_radius(lm: Dictionary) -> float:
 	## landmark must never out-draw a continental one, or the size stops
 	## meaning class at all.
 	var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
-	return base * (0.75 + 0.5 * imp) * LANDMARK_MARK_SCALE
+	## `_sym_gain`: E4's uniform magnification (`prepare_export`), `1.0` live.
+	return base * (0.75 + 0.5 * imp) * LANDMARK_MARK_SCALE * _sym_gain
 
 
 ## The candidates the landmark pass offered and did not place -- the second
@@ -6139,14 +6155,19 @@ func _label_xform(pos: Vector2, rot: float, italic: bool) -> Transform2D:
 ## clamp is on the NOMINAL size, which is why the zoom term cannot live in here:
 ## clamping `size / zoom` would pin a deep-zoom fixed label at the minimum local
 ## px and it would grow again.
+##
+## `_sym_gain` (E4's uniform magnification, `prepare_export`) multiplies the
+## "fixed" size and both clamp bounds: a "zoom" label already grows with
+## `rect`, which an export copy's is, so only its clamp needs the gain. At the
+## live `1.0` every product is exact, so the on-screen size is unchanged.
 func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	var size: float = float(lb["size"])
 	var px: float
 	if lb["size_mode"] == "fixed":
-		px = size
+		px = size * _sym_gain
 	else:
 		px = size * (rect.size.x / float(_gw)) / LABEL_ZOOM_BASE_PX_PER_CELL
-	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
+	return int(clampf(px, LABEL_FONT_PX_MIN * _sym_gain, LABEL_FONT_PX_MAX * _sym_gain))
 
 
 ## A label's local-space unit: the factor its whole layout (`_label_font_px`
@@ -8110,3 +8131,152 @@ func _draw_urban_layouts(rect: Rect2) -> void:
 		URBAN_DRAW.draw_layout(_cv, layout, to_screen, m_scale,
 			1.0 / maxf(0.001, _camera_zoom), alpha, false,
 			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0, false)
+
+
+# ── Export copy (EXPORT_SCOPE.md §7, milestone E4 batch B) ────────────────────
+#
+# A 16K/32K export draws this overlay into `SubViewport` tiles at the export's
+# resolution (`shell/export_overlay.gd`), from a SECOND instance of this script
+# that copies the live one's state and is then told what the export contains.
+# Nothing here runs on the live overlay: `_sym_gain` stays `1.0`, `_export_mode`
+# stays `false`, and every expression they enter is an exact identity there
+# (`x * 1.0`, a branch not taken), so the screen is unchanged.
+#
+# **Why copy every script variable, not call the setters.** `EXPORT_SCOPE.md`
+# §5 point 5: one missed setter makes the export differ from the screen with
+# nothing failing. The variable list IS the definition of this overlay's state,
+# so copying it all except a named list of render/interaction bookkeeping fails
+# the other way -- a new piece of state is exported by default -- and
+# `_exportoverlay_probe.gd` proves the copy complete by diffing the live overlay
+# and a copy drawn under the same camera.
+#
+# **Uniform magnification (owner answer, 2026-09-23, recorded in
+# `EXPORT_SCOPE.md` §5 point 4):** symbols keep their proportion to the map, as
+# on a poster. The copy is laid out at the export's own pixel size, so the pins
+# (sized from `rect.size.x / PIN_SCALE_REF_PX`), "zoom" labels and town plans
+# already grow with it; what the live overlay sizes in constant screen pixels --
+# ways (`_way_scale`), "fixed" labels and the label clamps, icons and landmark
+# rings -- is multiplied by `_sym_gain`, the export rect's width over the live
+# rect's. The export is the live overlay's FIT view (camera zoom 1) magnified.
+
+## E4's uniform-magnification factor: the export rect's width over the live
+## overlay's displayed rect width (`prepare_export`). Multiplies every size the
+## live overlay holds constant in screen pixels. `1.0` on the live overlay,
+## where each product it enters is exact.
+var _sym_gain := 1.0
+## True only on an export copy (`prepare_export`). Replaces the zoom-based
+## settlement LOD with the export's tier (`_settlement_below_lod`,
+## `_settlement_hidden`); a flat image has no zoom to gate on.
+var _export_mode := false
+## Export copy only: draw the additive villages (tier `"all"`). See
+## `_settlement_hidden`.
+var _export_show_addons := false
+
+## Script variables `copy_state_from` leaves alone: the layer cache and its
+## per-frame bookkeeping (each instance builds its own, and several hold this
+## node's own children or RIDs), the input-gesture state and the callbacks into
+## the shell (a copy takes no input and must not call the shell), and the export
+## settings themselves. Everything else is copied. Must list only bookkeeping:
+## a drawn input left here would make the export silently differ from the
+## screen, which the probe's parity diff exists to catch.
+const EXPORT_STATE_SKIP := [
+	"_context_pick", "_ring_press_cb", "_ring_pointer_cb", "_ring_release_cb",
+	"_ring_click_cb", "_ring_open_check", "_ring_touch_open_cb",
+	"_last_mouse_local", "_touch_armed", "_touch_swallow_up", "_touch_ring_active",
+	"_touch_ms", "_touch_pos", "_touch_press", "_pin_drag_active", "_stroke_pen_seen",
+	"_rmb_press",
+	"_content_gen", "_layers", "_dyn", "_build_budget_us", "_last_pump_us",
+	"_frame_used_us", "_starved_frames", "_live_zoom", "_bounds_cache", "_cv",
+	"_settle_order", "_settle_order_gen", "_road_boxes", "_road_boxes_src",
+	"_sea_boxes", "_sea_boxes_src", "_warm_key", "_warm_queue", "_visible_local",
+	"_river_material", "_urban_pending", "_urban_revealed", "_urban_draw_list",
+	"_jl_memo", "_jl_memo_key",
+	"_sym_gain", "_export_mode", "_export_show_addons",
+]
+
+## The settlement tiers an export can ask for, largest first -- the order of
+## `export_options.rs`'s `SettlementTier::ALL` without its `"all"`, which
+## `prepare_export` treats as `"hamlet"` plus the additive villages.
+const EXPORT_TIERS := ["metropolis", "capital", "city", "town", "village", "hamlet"]
+
+## Copies every script variable of `live` (another instance of this script)
+## onto this one except `EXPORT_STATE_SKIP`. Arrays and dictionaries are deep
+## copies, so a later edit on the live map cannot reach an export in progress
+## (the same guarantee `ExportSnapshot` gives the terrain); objects -- the
+## river source, a texture, a resolver `Callable` -- are shared references.
+## Changes nothing on `live`. Call before `prepare_export`.
+func copy_state_from(live: Control) -> void:
+	for prop in live.get_property_list():
+		if not (int(prop["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE):
+			continue
+		var n: String = prop["name"]
+		if EXPORT_STATE_SKIP.has(n):
+			continue
+		var v: Variant = live.get(n)
+		if v is Array or v is Dictionary:
+			v = v.duplicate(true)
+		set(n, v)
+	queue_redraw()
+
+## Turns a `copy_state_from` copy into an export layer: camera zoom 1 (the fit
+## view), symbols magnified by `gain` (see `_sym_gain`), and only what the
+## export contains. `content` uses `export_options.rs`'s content keys:
+## `settlement_tier` (`"metropolis"` .. `"hamlet"`, `"all"`; absent or `""` =
+## no settlements), and the booleans `ways` (land ways and sea lanes), `routes`
+## (the Route tool's routes), `labels` and `icons` (hand-placed and generated
+## marks, with the landmark rings). A missing key is `false`.
+##
+## Always cleared, whatever `content` says, because none of it is the map: the
+## hover and sample pins, the selection, the river trace and catchment, the
+## debug and deep-zoom switches, the timeline's ghosts and highlights, journey
+## markers, conflicts and campaigns, and the landmark rejects. The rivers'
+## source is dropped too: an export's rivers are the vector line the terrain
+## band paints (`export_session.rs`, RV-5; Ruling AZ), so the overlay must not
+## draw them a second time.
+func prepare_export(gain: float, content: Dictionary) -> void:
+	_export_mode = true
+	_sym_gain = gain
+	_way_scale *= gain
+	_camera_zoom = 1.0
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_index = -1
+	_lm_hover_index = -1
+	_sample_pin = {}
+	_selected_manual_route = -1
+	_selected_conflict_id = -1
+	_river_source = null
+	_river_trace = PackedVector2Array()
+	_river_catchment = null
+	_lod_up = false
+	_debug_active = false
+	_journey_markers = []
+	_conflicts = []
+	_campaigns = []
+	_campaign_runs = []
+	_show_conflict = false
+	_landmark_rejects_visible = false
+	_tl_added_tids = {}
+	_tl_ghosts = []
+	_tl_ghost_tids = {}
+	_tl_ghost_ways = []
+	_tl_ghost_way_tids = {}
+	var tier := String(content.get("settlement_tier", ""))
+	_show_settlements = tier != ""
+	_export_show_addons = tier == "all"
+	var last := EXPORT_TIERS.size() - 1 if tier == "all" else EXPORT_TIERS.find(tier)
+	_hidden_settlement_kinds = {}
+	for i in EXPORT_TIERS.size():
+		if i > last:
+			_hidden_settlement_kinds[EXPORT_TIERS[i]] = true
+	if not bool(content.get("ways", false)):
+		_roads = []
+		_sea_routes = []
+		_trade_load = PackedFloat32Array()
+	if not bool(content.get("routes", false)):
+		_manual_routes = []
+	if not bool(content.get("labels", false)):
+		_labels = []
+	if not bool(content.get("icons", false)):
+		_manual_icons = []
+		_landmarks = []
+	queue_redraw()

@@ -1800,3 +1800,93 @@ fn tariff_rate_clamps_and_ignores_bad_rows() {
     assert_eq!(tariff_rate(&t, 9, 9), 0.0);
     assert_eq!(tariff_rate(&t, 5, 6), 0.0, "no row, no levy");
 }
+
+// ------------------------------------------------------------ sea caravans
+
+/// Test fixture: a hand-built flow of `volume` units of `good` from `from` to
+/// `to` by `mode`. Only the four fields [`sea_caravans`] reads are meaningful;
+/// the rest are placeholders, not a model of a matched flow.
+fn flow(from: usize, to: usize, good: &'static str, mode: TradeMode, volume: f64) -> TradeFlow {
+    TradeFlow {
+        from,
+        to,
+        good,
+        mode,
+        reach: Reach::Long,
+        distance_km: 1.0,
+        deliverable: 1.0,
+        volume,
+        from_faction: 1,
+        to_faction: 1,
+        price: 1.0,
+        tariff: 0.0,
+    }
+}
+
+/// Ruling AQ's sea caravan, read as one row per unordered port pair: both
+/// directions of a pair are one lane, a good moving both ways is one entry,
+/// land and river flows make no sea caravan, and the rows come heaviest first.
+#[test]
+fn sea_caravans_are_one_per_port_pair_combining_both_directions() {
+    // Protects: `sea_caravans` keys lanes by the unordered pair (a flow 3->1 and 1->3
+    // share a lane), merges a good across directions, ignores non-sea flows, sums goods
+    // to the load, and sorts by load descending with the pair as tie-break.
+    let net = TradeNetwork {
+        flows: vec![
+            flow(3, 1, "iron", TradeMode::Sea, 10.0),
+            flow(1, 3, "salt", TradeMode::Sea, 4.0),
+            flow(1, 3, "iron", TradeMode::Sea, 1.0),
+            flow(0, 2, "grain", TradeMode::Land, 99.0),
+            flow(0, 2, "wool", TradeMode::River, 98.0),
+            flow(2, 0, "wine", TradeMode::Sea, 20.0),
+            flow(5, 4, "silk", TradeMode::Sea, 7.0),
+            flow(6, 7, "gold", TradeMode::Sea, 7.0),
+        ],
+        ..Default::default()
+    };
+    let lanes = sea_caravans(&net);
+    let pairs: Vec<(usize, usize)> = lanes.iter().map(|l| (l.a, l.b)).collect();
+    // 20 (0,2) > 15 (1,3) > 7 (4,5) = 7 (6,7), the tie broken by the pair.
+    assert_eq!(pairs, vec![(0, 2), (1, 3), (4, 5), (6, 7)]);
+    assert_eq!(lanes[0].load, 20.0, "the land and river flows on (0,2) are not sea trade");
+    assert_eq!(lanes[0].goods, vec![("wine", 20.0)]);
+    assert_eq!(lanes[1].load, 15.0);
+    assert_eq!(lanes[1].flows, 3);
+    assert_eq!(lanes[1].goods, vec![("iron", 11.0), ("salt", 4.0)], "iron both ways is one entry");
+    for l in &lanes {
+        assert!(l.a < l.b);
+        let sum: f64 = l.goods.iter().map(|g| g.1).sum();
+        assert_eq!(sum, l.load);
+    }
+    assert!(sea_caravans(&TradeNetwork::default()).is_empty(), "no flows, no caravans");
+}
+
+/// End to end on the tiny world: three ports matched by [`trade_flows`] give
+/// exactly one caravan per pair that trades by sea, and together the lanes
+/// carry exactly the sea flows' volume -- no more (nothing invented) and no
+/// less (nothing dropped).
+#[test]
+fn sea_caravans_carry_exactly_the_matched_sea_volume() {
+    // Protects: on a real match, the lanes' total equals the sum of sea-mode flow
+    // volumes, every lane's pair actually trades by sea, and every sea-trading pair
+    // has a lane.
+    let s = vec![place(0, 0, true, 1000), place(15, 0, true, 1000), place(15, 15, true, 500)];
+    let b = vec![balance(&["iron"], &["salt"]), balance(&["salt"], &["iron"]), balance(&[], &["iron"])];
+    let net = run(&s, &b, &[], 320.0);
+    let sea: Vec<&TradeFlow> = net.flows.iter().filter(|f| f.mode == TradeMode::Sea).collect();
+    assert!(sea.len() >= 3, "fixture must match iron both ways and salt back: {:?}", net.flows);
+    let lanes = sea_caravans(&net);
+    let mut want: Vec<(usize, usize)> = sea.iter().map(|f| (f.from.min(f.to), f.from.max(f.to))).collect();
+    want.sort();
+    want.dedup();
+    let mut got: Vec<(usize, usize)> = lanes.iter().map(|l| (l.a, l.b)).collect();
+    got.sort();
+    assert_eq!(got, want);
+    assert_eq!(got, vec![(0, 1), (0, 2)], "the fixture's two lanes");
+    let lane_total: f64 = lanes.iter().map(|l| l.load).sum();
+    let flow_total: f64 = sea.iter().map(|f| f.volume).sum();
+    assert!((lane_total - flow_total).abs() < 1e-9, "{lane_total} vs {flow_total}");
+    let first = lanes.iter().find(|l| (l.a, l.b) == (0, 1)).unwrap();
+    let names: Vec<&str> = first.goods.iter().map(|g| g.0).collect();
+    assert!(names.contains(&"iron") && names.contains(&"salt"), "{names:?}");
+}
