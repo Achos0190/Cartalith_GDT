@@ -970,6 +970,7 @@ static func variant_appearance(index: int, variant: String, cur: Dictionary, ran
 ## full-width column on its own and is left to, which is the flow doing its job
 ## rather than a third constant.
 const TILE_W := 156
+## Style tile width on tablet, chosen at the tile build as `TILE_W_T if DccTheme.is_tablet() else TILE_W`. Source is the probe measurement in the paragraph above.
 const TILE_W_T := 172
 ## Pixel gap between Style preset tiles, both axes (a labelled judgement, small
 ## enough that the 156/172 px tile widths above still fit two to a row).
@@ -1218,12 +1219,15 @@ const APPEARANCE_HELP := {
 	"grade_field_geology": "How far the grade above follows the lightness of the rock underneath, in the current lithology palette -- dark basalt and pale limestone at opposite ends. Inert on a loaded save, which stores no lithology, and while the whole grade is at rest.",
 }
 
+## The animated-water overlay node: adopted from the overlay's `WaterAnimLayer` child if one exists, else created from `WATER_ANIM_SCRIPT` when the toggle turns on. `null` until then.
 var _water_anim: Control
+## The "Animate water" checkbox; unticked silently with `set_pressed_no_signal` when the world has no discharge field to animate.
 var _anim_check: CheckBox
 
 ## key -> the `DccWidgets.slider` handle, so a preset can move the control the
 ## user is looking at rather than only the value behind it.
 var _npr_rows: Dictionary = {}
+## Appearance slider rows by key: `{handle, scale, pending}`, so `_sync_appearance()` can pull the engine's values back after a Reset.
 var _app_rows: Dictionary = {}
 ## One parts dictionary per gallery tile, in `STYLE_PRESETS` order -- see
 ## `_preset_tile()` for its shape. **Not the `Array[Button]` of segment
@@ -1232,6 +1236,7 @@ var _app_rows: Dictionary = {}
 ## no longer say which preset is lit. `_set_tile_on()` is the replacement
 ## and keeps that function's grammar exactly.
 var _preset_tiles: Array = []
+## The "Custom -- controls edited since the last preset." note; hidden at build, shown when a manual edit marks the look custom and hidden again by the paths that reset the mark.
 var _custom_note: Label
 ## The base-look picker, kept so a Map-style tile can move it rather than
 ## leaving it naming a look that is not the one drawing the map.
@@ -1246,7 +1251,9 @@ var _biome_swatches: Array = []
 ## that is deliberately *not* part of the look still has to be re-read when the
 ## world changes.
 var _color_space_pick: OptionButton
+## The engine's colour-space names, index-parallel with `_color_space_pick`; `_sync_color_space()` finds `bridge.color_space()` in it.
 var _color_space_names: Array = []
+## The engine's look names, index-parallel with the base-look picker; searched for `bridge.look()` to re-select.
 var _look_names: Array = []
 ## True only while `_apply_preset` runs, so the preset's own writes do not
 ## trip the "Custom" mark the reference flips on any manual edit.
@@ -2107,6 +2114,7 @@ func _mark_custom() -> void:
 # data read back through the bridge -- nothing is invented that the bridge cannot
 # read.
 
+## Preload of `shell/look_history.gd`; this file uses its `PRESET_PART` and `LOOK_LABEL` constants in the `look_begin`/`look_commit` calls.
 const _LookHistory := preload("res://shell/look_history.gd")
 
 ## Index into `STYLE_PRESETS` of the tile drawn lit, or `-1` after a manual edit
@@ -2212,6 +2220,7 @@ func on_look_restored(snap: Dictionary) -> void:
 
 # -- The per-layer adjustment stacks (ET-C4; `shell/adjust_panel.gd`) -----------
 
+## Preload of `shell/adjust_panel.gd`; instantiated for the stacks panel, and its `TOUCH_PX`, `LAYER_LABELS` and `is_look_entry` are read here.
 const _AdjustPanel := preload("res://shell/adjust_panel.gd")
 
 ## The panel, or null when it was not built (no engine adjustment API and no
@@ -2292,10 +2301,13 @@ const LOOK_AXIS_NAMES := {"hue_deg": "hue", "saturation": "saturation", "lightne
 
 ## Slider handles by entry key (`hue_deg`, `saturation`, `lightness`); empty until built.
 var _quick_rows: Dictionary = {}
+## The Look section's "Apply to" group OptionButton (named `LookGroupPick`); its items are parallel to `_quick_ids`.
 var _quick_pick: OptionButton
+## The Look section's note Label (named `LookNote`); hidden at build, shown when it has something to say.
 var _quick_note: Label
 ## Group ids parallel to `_quick_pick`'s items.
 var _quick_ids: Array = []
+## The group id the Look sliders apply to; `LOOK_ALL` means every group, otherwise it is returned as the single target if `_adjust_panel.layer_ids()` holds it.
 var _quick_group := LOOK_ALL
 ## The entry body the sliders show and write, in the engine's units. Re-read from the stacks
 ## on every sync; a slider move changes only its own key, so untouched axes keep their exact
@@ -2304,11 +2316,17 @@ var _quick_vals := {"hue_deg": 0.0, "saturation": 0.0, "lightness": 0.0}
 ## Gesture state (the panel's pattern): a snapshot has been taken / something was written /
 ## a drag is in progress / a throttled write is owed / the last write's time.
 var _quick_open := false
+## Gesture flag: something was written since the snapshot, so release commits to history.
 var _quick_dirty := false
+## Gesture flag: a slider drag is in progress; set on press, cleared on release.
 var _quick_dragging := false
+## Gesture flag: a throttled write is owed (the throttle is `LOOK_LIVE_MS`).
 var _quick_pending := false
+## `Time.get_ticks_msec()` of the last live write; a write is skipped until `LOOK_LIVE_MS` has passed.
 var _quick_last := 0
+## History label for the open gesture: `LOOK_LABEL: <axis name>` from `LOOK_AXIS_NAMES`, passed to `look_commit`.
 var _quick_label := ""
+## History parts for the open gesture (`adjust_<layer>` per target layer), passed to `look_begin` and `look_commit`.
 var _quick_parts: Array = []
 
 ## Draw the "Look" section: a group picker and three sliders. Values are filled by
@@ -2692,20 +2710,27 @@ func _tunable(key: String) -> Dictionary:
 ## stop's -- `DCC_SHELL_SPEC.md` §7 draws one picker above the stop list, and
 ## "banded" is a statement about the whole plate.
 var _ramp: Array = []
+## The VBox that holds the ramp stop rows; `_rebuild_ramp_rows()` clears and refills it (null-guarded).
 var _ramp_host: VBoxContainer
+## The ramp bar widget (`shell/ramp_bar.gd`) built in the Ramp section; refreshed while it is valid.
 var _ramp_bar: Control
 ## The engine's own mode name, cached so `_update_ramp_bar` (which runs on every
 ## drag frame) is not an engine call per frame.
 var _ramp_mode := ""
+## The engine's ramp mode names from `bridge.ramp_modes()`, read when the section builds and searched to select `_ramp_mode`.
 var _ramp_modes: Array = []
+## The ramp "Blend" OptionButton; selected from `_ramp_mode` only when it disagrees.
 var _ramp_mode_pick: OptionButton
 ## The "Ramp" preset dropdown, its names, and what the engine held right after
 ## the last preset load. The engine has no "which preset is this" read, so the
 ## dropdown names a preset only while the live stops still equal that snapshot;
 ## otherwise the disabled trailing "Custom" item shows (`_sync_ramp_preset_pick`).
 var _ramp_preset_pick: OptionButton
+## The names in the Ramp preset dropdown, with the trailing "Custom" slot index taken from its size.
 var _ramp_preset_names: Array = []
+## The preset last loaded (set in the preset apply paths); the dropdown shows it only while the live stops still equal `_ramp_preset_stops`.
 var _ramp_preset_name := ""
+## Snapshot of `bridge.color_ramp()` taken right after the last preset load, compared stop by stop (tolerance 1e-5) against the live ramp.
 var _ramp_preset_stops: Array = []
 ## Shown only while Colour relief is 0, when no ramp colour reaches the map.
 var _ramp_hint: Label
@@ -3087,7 +3112,9 @@ func _push_ramp(rebuild: bool) -> void:
 ## A cache for `_push_layer`/`_move_layer` to build their id lists from, never a
 ## draft: every write is followed by a re-read.
 var _layers: Array = []
+## The VBox that holds the layer-stack rows; built once, then refilled after each write, and tested for existence by the ramp-strength listener.
 var _layer_host: VBoxContainer
+## The engine's blend mode names from `bridge.blend_modes()`, used for each layer row's Blend choice.
 var _blend_names: Array = []
 
 ## Terrain raster section: the Terrain / Colour relief / Hillshade layer rows
@@ -3391,8 +3418,11 @@ func _apply_layer_stack(rows: Array) -> bool:
 
 # -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) -------------------------------
 
+## The "Name this look" LineEdit of the Saved looks section; read for the name a Save writes.
 var _preset_name: LineEdit
+## The saved-look OptionButton; cleared and refilled from the store, disabled when there are none.
 var _preset_pick: OptionButton
+## Slugs of the saved looks, index-parallel with `_preset_pick`'s items.
 var _preset_slugs: Array = []
 
 ## Saved looks section: name field and Save look, the saved-look picker and Load

@@ -96,6 +96,7 @@ class_name InfrastructureWorkspace
 ## groundwork for. Both reuse the one real open path, `app.open_journey_
 ## planner()` -- never a second one.
 
+## The generated way tiers in the order the Roads section's tally sentence lists them (read in the `bridge.roads()` count loop). Display order only; the vocabulary `way_begin` accepts is `WAY_DRAW_TYPES`, a different list.
 const WAY_TYPE_ORDER := ["highway", "regional", "road", "track"]
 
 ## `way_begin`'s real vocabulary (`infra_tools_bridge::parse_way_type`),
@@ -134,7 +135,9 @@ var _active_infra_tool := ""
 ## copy slightly off of what is drawn here. Good enough for a live sketch of
 ## the chain; not claimed to be more than that.
 var _way_points: PackedVector2Array = PackedVector2Array()
+## The Route tool's in-progress stop chain, the route-side twin of `_way_points`; the engine's draft is the truth, this is the preview copy handed to `tool_overlay.set_path_preview` and `show_way`.
 var _route_points: PackedVector2Array = PackedVector2Array()
+## The way type the Hand-drawn ways tool will `way_begin` with; set by `_set_way_type` from the Type choice. `"road"` is the initial value (its choice is not documented here: intent unverified).
 var _way_type := "road"
 
 ## Set true by `civilization_workspace.gd` before `setup()`, when this
@@ -173,9 +176,13 @@ var _roads_body: Control
 ## that has to find its own button again after the blocking engine call --
 ## the same reason `civilization_workspace.gd`'s `_recompute_btn` is a field.
 var _gen_roads_btn: Button
+## The Roads section's "Clear ways & journeys" button; held with `_gen_roads_btn`, disabled while there is no world.
 var _clear_ways_btn: Button
+## The Roads section's outcome note under the Generate button; `_generate_roads_now` and the clear path write their result sentence into `.text`. Guarded with `is_instance_valid` at each use.
 var _roads_note: Label
+## The Ports category's body, cleared and refilled by `rebuild_readouts()`; assigned where the category is built and when it is re-parented into the nested dock.
 var _ports_body: Control
+## The Logistics category's body, cleared and refilled by `rebuild_readouts()` with `_fill_logistics`; assigned in the same two places as `_ports_body`.
 var _logistics_body: Control
 ## `GUI_GAP_REGISTER.md` **IN-13**'s own body, deliberately NOT in
 ## `rebuild_readouts()` above: a match costs a real computation, so a

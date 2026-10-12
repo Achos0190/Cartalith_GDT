@@ -49,6 +49,7 @@ class_name CivilizationWorkspace
 ## `civ_tools_bridge::kind_from_str` accepts. `metropolis` was added
 ## 2026-08-20 with the port of `_civSelectMetropolises`.
 const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
+## Plural display word per `KIND_ORDER` key, used when a settlement-kind count is not 1 in the tally sentence.
 const KIND_PLURAL := {
 	"metropolis": "metropolises",
 	"capital": "capitals", "city": "cities", "town": "towns",
@@ -65,6 +66,7 @@ var _active_civ_tool := ""
 ## nowhere else: unlike Way/Route there is no engine routing to run on it, so
 ## the click chain is the whole draft and `conflict_add` receives it at commit.
 var _conflict_points := PackedVector2Array()
+## The Conflict tool's kind (`front`, `arrow`, `siege`, `battle`; labels in `CONFLICT_KIND_LABELS`); set by `_set_conflict_kind`, sent as `kind` to `conflict_add` at commit. Siege and battle are single-point markers.
 var _conflict_kind := "front"
 ## The Military ▸ Conflicts list's own section, refilled by `refresh_conflicts`
 ## without rebuilding the rest of Military (whose manpower pass is not free).
@@ -75,19 +77,23 @@ var _conflicts_section: Control = null
 ## shell's last choice, the same reasoning `cartography_workspace.gd`'s own
 ## `_icon_*` state vars follow. --
 var _settlement_kind := "town"
+## The faction id a dropped settlement is assigned, set from the faction choice; passed to `bridge.civ_drop_settlement`. Default 1 (rationale not stated: intent unverified).
 var _settlement_faction := 1
 ## Cleared back to "" after every successful placement (`_settlement_click`)
 ## -- a name left in this field would otherwise get stamped onto every
 ## settlement dropped afterward, verbatim (`manual_settlement_name` only
 ## generates one when the given name is blank).
 var _settlement_name := ""
+## The "Snap to water" toggle's state, passed to `bridge.civ_drop_settlement`; default off.
 var _settlement_snap_water := false
 
 ## -- Territory tool state. `_territory_radius`'s default is the reference's
 ## own `_civTerRadius` initial value (`TERRITORY_BRUSH_RADIUS`, `tools.rs`
 ## line 102), not an arbitrary number. --
 var _territory_faction := 1
+## Territory brush radius in cells (slider 1-20); default 5.0 is the reference's `_civTerRadius` initial value per the block above. Drives the brush cursor.
 var _territory_radius := 5.0
+## True when the Territory brush removes cells rather than adds; set by `_arm_ring_territory` and the options row's Mode choice.
 var _territory_subtract := false
 ## Territory lasso's ring, grid coords. Faction and Add/Subtract are the
 ## brush's own two vars above -- one choice, shared by both input methods.
@@ -110,7 +116,9 @@ var _lasso_points := PackedVector2Array()
 ## to re-draw the result note.
 var _tl_body: VBoxContainer
 var _tl_add_year := 100                 ## Reference default (`#civTlYear` value="100").
+## True while Timeline Animate playback is running; drives the Animate/Stop caption and is cleared when the world changes.
 var _tl_playing := false
+## The Timer that steps Timeline playback; stopped on a world change and paused by the context-surface hooks (`_tl_paused_by_context`).
 var _tl_play_timer: Timer
 ## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): true only while `app.gd`'s
 ## `pause_for_context_surface()`/`resume_from_context_surface()` are the
@@ -123,12 +131,19 @@ var _tl_sim_mode := "collapse"          ## "collapse" | "recovery"
 var _tl_sim_character := "mixed"        ## "mixed" | "trade" | "disease" | "conflict"
 var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/100
 var _tl_sim_rate := 0.01                ## fraction/yr -- reference slider(tenths-%)/1000
+## Simulation "Start year" (number field -9999..9999), sent as `start_year`. Default 0: source not stated (labelled judgement).
 var _tl_sim_start_year := 0
+## Simulation "Duration (yr)" (1..1000000), sent as `duration`. Default 100: source not stated (labelled judgement).
 var _tl_sim_duration := 100
+## Simulation "Step years" (1..1000000), sent as `step_years`. Default 10: source not stated (labelled judgement).
 var _tl_sim_step_years := 10
+## The Timeline "Exist only" filter; `_tl_apply_filters` returns rows unfiltered when off.
 var _tl_filter_exist_only := false
+## The Timeline "Ghost removed" toggle: also pass the entries removed at the cursor year (`civ_year_diff_removed`) to the map as ghost marks.
 var _tl_filter_ghost := false
+## The Timeline "Highlight new" toggle: pass the entries added at the cursor year (`civ_year_diff`) to the map as highlight marks.
 var _tl_filter_highlight := false
+## The note text of the last simulation run, shown under the Simulate group when non-empty; cleared on a world change.
 var _tl_sim_out := ""
 
 ## The former INFRA domain, nested into this dock -- see this file's own
@@ -143,7 +158,9 @@ var _selected_index := -1
 ## The map context row being run (`_run_ctx`). The menu itself moved to
 ## `shell/context_broker.gd` with CM-1.
 var _ctx_gx := 0.0
+## Grid y of the map context row being run, set by `_run_ctx` and read by the legacy menu-id dispatch.
 var _ctx_gy := 0.0
+## Settlement index under the context point, or `-1` for none; menu ids 0, 1, 2 and 5 assume `>= 0`.
 var _ctx_hit := -1
 ## `civPopEstimateOut` ("Land sustains ≈ N") and the Settlements roster
 ## body, both refreshed after any place/roster edit.
@@ -168,12 +185,19 @@ var _settlements_body: Control
 ## faction (L232), a body of its own because the Trade flows section between
 ## it and `_economy_body` is built once and this refill must never clear it.
 var _population_body: Control
+## Ruling L's Populate section body; cleared and refilled by `rebuild_readouts()`, null-guarded.
 var _populate_body: Control
+## The Economy category body; refilled lazily through `DccWidgets.fill_when_visible(..., _refill_economy)` because the aggregate is costly.
 var _economy_body: Control
+## The Economy ▸ By faction body; cleared and refilled by `rebuild_readouts()`.
 var _economy_faction_body: Control
+## The Culture category body; cleared and refilled with `_fill_culture`.
 var _culture_body: Control
+## The Religion category body; cleared and refilled with `_fill_religion`.
 var _religion_body: Control
+## The Factions half of the former Politics body; cleared and refilled by `rebuild_readouts()`.
 var _factions_body: Control
+## The Territories half of the former Politics body; cleared and refilled by `rebuild_readouts()`; hosts `_influence_body`.
 var _territories_body: Control
 ## `RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1's Religion category state.
 ##
@@ -247,6 +271,7 @@ var _military_body: Control
 ## aggregate behind it rebuilds the resource passes, which is a click's cost,
 ## not a frame's.
 var _military_reading_key := ""
+## The Relations category body; refilled lazily through `fill_when_visible(..., _refill_relations)`.
 var _relations_body: Control
 ## CV-23's on-demand influence readout, inside `_territories_body`. Refilled
 ## by `_analyse_influence()` only -- never by `_rebuild_readouts()`, which
@@ -257,19 +282,23 @@ var _influence_body: VBoxContainer
 ## GDScript lambda captures locals by value at creation time -- a
 ## `func(): _recompute_civ(b)` closing over its own button would capture null.
 var _recompute_btn: Button
+## The note Label under the Recompute button; written with the outcome of a recompute.
 var _recompute_note: Label
 ## SG-01's badge: what the engine's own stage graph says about `civ` right
 ## now, above the button that clears it. Polled on the same 1 s clock
 ## `app.gd`'s status-slot indicator uses, because the states it reports are
 ## produced in three other workspaces (a sculpt, a carve, a dropped place).
 var _recompute_badge: Label
+## The Timer named `CivStalenessPoll` that re-reads the engine's stage graph for `_recompute_badge` on the 1 s clock the block above names.
 var _stale_timer: Timer
 ## The civ-authoring ruling's Populate row (`LARGE_ITEM_RULINGS.md`,
 ## 2026-08-31). Held as fields for exactly the reason `_recompute_btn` above
 ## is: `_populate_world` is a coroutine that has to find its own button again
 ## after the blocking engine call.
 var _populate_btn: Button
+## The note Label of the Populate row; `_populate_world` writes its outcome here, null/freed-guarded.
 var _populate_note: Label
+## The "Clear places & routes" button of the Populate row; disabled while there is no world.
 var _clear_places_btn: Button
 ## `PARITY_AUDIT.md` §23 F13's `civ_regional_population` readout -- held so
 ## `_on_compute_regional_population` can find the label it already built
@@ -294,19 +323,25 @@ var _lm_rows := {}
 var _lm_groups := {}
 ## class key ("" for `all`) -> the lit-set chip. §3.1's filter.
 var _lm_chips := {}
+## The Landmarks class filter currently lit (`""` for all); reset in `_fill_landmarks` and set by the chip handler.
 var _lm_filter := ""
 var _lm_head_note: Label       ## §4.4's headroom line.
 var _lm_crowd_note: Label      ## §4.1's "a regional landmark keeps 34 km clear".
 var _lm_crowd_readout: Label   ## The `× 1.00` the slider factory cannot format.
 var _lm_crowd_slider: HSlider  ## §5's fit chip writes the dial through this.
+## The "Run landmark pass" button; relabelled and disabled while a pass runs, restored after.
 var _lm_run_btn: Button
+## The note Label under the run button: the no-`landmark_run()` refusal, the engine's error, or the run result.
 var _lm_run_note: Label
+## The landmark staleness note; `_lm_refresh_stale()` writes "No world yet..." or the stale-stage text from `bridge.stale_stages()`.
 var _lm_stale_note: Label
 var _lm_stale_timer: Timer    ## `_stale_timer`'s own 1 s poll pattern, this panel's subject.
 ## §5's funnel, built lazily on the first click and reused: one popover, refilled
 ## per type, rather than 49 that mostly never open.
 var _lm_funnel: PopupPanel
+## The Crowding dial's value; read from the engine's `crowding` setting (default 1.0 if absent) and clamped to `LM_CROWDING_MIN..MAX` when a fit chip sets it.
 var _lm_crowding := 1.0
+## Copy of the engine's `class_radius_km` array, positional in `LM_CLASSES` order; read for the Crowding readout and extended on write as needed.
 var _lm_radii: Array = []
 
 
@@ -1382,6 +1417,7 @@ func _on_civ_tool_armed(id: String) -> void:
 # the right dock's Conflict context (`right_dock.gd::_build_conflict`), which
 # is also where each side's real manpower is read.
 
+## Display label per conflict kind key, used by the kind choice, the status line and the list rows; unknown keys fall back to a capitalised key or `?`.
 const CONFLICT_KIND_LABELS := {"front": "Front", "arrow": "Arrow", "siege": "Siege", "battle": "Battle"}
 
 ## True for single-point conflicts (siege, battle); false for polylines (front, arrow). Decides the minimum draft size and whether a click replaces the draft.
@@ -2761,6 +2797,7 @@ func _build_settlement_diagnostics(parent: Control) -> void:
 ## `25.0` is `UM_RIVER_CONTEXT_KM`. The engine is unchanged -- these are the
 ## same numbers it uses, converted only where they are drawn.
 const SITE_WATER_REACH_KM := 2.125
+## Distance in km within which the site card reports a river; stated to be the engine's `UM_RIVER_CONTEXT_KM` (25.0) per the block above, not re-checked here.
 const SITE_RIVER_CONTEXT_KM := 25.0
 
 ## One `_build_settlement_diagnostics` card. `has_river`/`has_harbour` are
@@ -4797,8 +4834,11 @@ const RELIGION_KEYS := ["none", "sun_cult", "earth_mother", "sea_lords", "sky_pa
 ## happened to be near would be worse than a literal, since it would move when
 ## that control moved.
 const SWATCH_PX := 12
+## Width in px of the Religion table's TYPE column (header and rows). No theme role carries it; labelled judgement per the block above.
 const COL_TYPE_PX := 56
+## Width in px of the Religion table's SHARE column; labelled judgement (see `COL_TYPE_PX`).
 const COL_SHARE_PX := 44
+## Width in px of the Religion table's TREND column; labelled judgement (see `COL_TYPE_PX`).
 const COL_TREND_PX := 40
 
 ## One column of the faction roster as a `faction - 1` indexed array, matching
@@ -5033,6 +5073,7 @@ const LM_LADDER: Array[int] = [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 200]
 ## `landmark_set_class_radius()` takes the key, so only the READ is positional
 ## and a mis-ordered write is not possible.
 const LM_CLASSES: Array[String] = ["continental", "regional", "local", "cultural"]
+## Display name per landmark class key of `LM_CLASSES`, used in the class chips, counts and row tooltips.
 const LM_CLASS_LABEL := {
 	"continental": "Continental", "regional": "Regional",
 	"local": "Local", "cultural": "Cultural",
@@ -5059,7 +5100,9 @@ const LM_QUOTED_CLASS := 1
 ## refuses rather than writing a number this dial could not show, which is the
 ## same choice `rejects.rs` made one layer down and for the same reason.
 const LM_CROWDING_MIN := 0.25
+## Crowding dial ceiling, 2.00. The engine's own ceiling is 3.0 per the block above (not re-checked here); the dial and fit chip refuse beyond this.
 const LM_CROWDING_MAX := 2.00
+## Crowding dial step, 0.05; the fit chip rounds its target up to a multiple of it.
 const LM_CROWDING_STEP := 0.05
 
 ## §2.2's limiting-reason vocabulary: the engine's token -> the word the row

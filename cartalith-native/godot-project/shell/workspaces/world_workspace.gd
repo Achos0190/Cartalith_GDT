@@ -253,7 +253,9 @@ const CATEGORIES: Array = [
 	 "lead": "Painting biome and terrain classes by hand, over the classified fields. Ruling L decision 2: this is the brush's one home, and Biome paint (B) in the tool palette is the way to arm it."},
 ]
 
+## The Sculpt category's body; `_build_categories()` creates and parents it, and the sculpt build/refresh paths fill it. Gated by `_sculpt_build_deferred` while the engine is busy.
 var _sculpt_body: VBoxContainer
+## The Paint (Biomes) category's body, created beside `_sculpt_body`; filled by the paint build path and gated by `_paint_build_deferred`.
 var _paint_body: VBoxContainer
 ## The TOOLS block's second row -- WORLD's one domain tool, `Biome paint (B)`.
 ## Ruling L shows it in SCULPT mode only; see `_build()` and `apply_mode()`.
@@ -274,7 +276,9 @@ var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
 ## accent/bright the moment a stage is editing, stale or running, and back to
 ## faint/secondary when it resolves.
 var _stage_dot_labels: Array = []
+## Stage index -> the stage-name Label of the stage row; reset and appended to in the row build, and iterated by `_on_portrait_changed`.
 var _stage_name_labels: Array = []
+## Stage index -> the zero-padded number Label of the stage row. Reset and appended to in the row build; no other reader found in this file (grep of the symbol), so the recolouring the block above describes is not verified for it.
 var _stage_number_labels: Array = []
 ## Per-stage wall-clock timing for the readout above, indexed the same way as
 ## `_stage_state_labels` and rebuilt alongside it every `_build_generate_head`
@@ -282,15 +286,18 @@ var _stage_number_labels: Array = []
 ## yet" (`_stage_elapsed_ms`); `Time.get_ticks_msec()` throughout, matching
 ## `last_generate_ms`'s own clock in `engine_bridge.gd`.
 var _stage_start_msec: Array = []
+## Stage index -> elapsed ms (`-1` = not finished yet), filled from `_stage_start_msec` as stages resolve and cleared on a new run; see the block above.
 var _stage_elapsed_ms: Array = []
 ## A short rolling log of "NN Name -- 0.42s" lines, newest last, shown under
 ## the ten rows -- the spec's own "per-stage progress + log".
 var _stage_log: Array = []
+## Cap on `_stage_log`'s length: the oldest lines are dropped past it. The value 12 has no stated source: labelled judgement.
 const STAGE_LOG_MAX := 12
 ## Which stage indices `_assert_stage_names()` has already judged this run,
 ## so one real disagreement is reported once rather than on every tick.
 ## Cleared by `_reset_stage_progress()`, which is what a new run calls.
 var _stage_name_checked := {}
+## The note Label under the stage rows that shows `_stage_log` joined by newlines; created in `_build_generate_head`, blanked on reset.
 var _stage_log_label: Label
 ## The earliest stage index a live-edited parameter touched since the last
 ## finished generate, or `-1` when the world is not stale. Cleared on
@@ -303,6 +310,7 @@ var _stage_log_label: Label
 ## informational -- "here is where the edit that triggered this run landed"
 ## -- not a claim that Generate skips stages before it.
 var _stale_from_stage := -1
+## The stale-range note Label built in `_build_generate_head` and refreshed with `_stale_note_text()` from `_stale_from_stage`.
 var _stale_note_label: Label
 
 ## §5.1's Finalize foot (`GUI_GAP_REGISTER.md` WW-01). `_bake_depth` defaults
@@ -317,9 +325,13 @@ var _stale_note_label: Label
 ## key now, and this reads it back in `_refresh_finalize()` so a change made in
 ## the menu is visible here without a rebuild.
 var _bake_depth := 3
+## The "Bake depth" OptionButton in the Finalize foot; `_refresh_finalize()` sets `.selected` from the stored value, clamped to 0..8.
 var _bake_depth_choice: OptionButton
+## The "Bake ALL levels & finalize" button; its text and `disabled` are rewritten while a bake runs ("Baking N tiles") and restored after.
 var _bake_button: Button
+## The "Un-finalize" button of the Finalize foot; `_refresh_finalize()` shows it only while the world is finalized.
 var _unfinalize_button: Button
+## The Finalize foot's status note: bake failure, the baked/skipped result, the finalized state, or the no-world hint, all written by this file.
 var _bake_status: Label
 
 ## The in-progress Sculpt stroke's captured points (grid-cell coords), tracked
@@ -374,6 +386,7 @@ var _paint_stroke_options: Dictionary = {}
 ## it is what the engine was actually handed, which is the one thing a control probe
 ## cannot otherwise observe. Never read by the shell's own logic.
 var _last_paint_begin: Dictionary = {}
+## ET-D5 diagnostic twin of `_last_paint_begin` for the sculpt stroke options; written when a begin is accepted and returned as a copy by `last_begin_options`. Not read by the shell's own logic.
 var _last_sculpt_begin: Dictionary = {}
 
 ## Biome paint's live brush state, mirrored here because `paint_set_brush`'s
@@ -382,6 +395,7 @@ var _last_sculpt_begin: Dictionary = {}
 ## `Brush::default()` in `paint_bridge.rs` exactly, so an untouched panel and
 ## an untouched engine agree before the first dab.
 var _paint_layer := "biome"
+## The mirrored brush: `value`, `radius` (cells), `hardness`, `softness`, `erase`, `land_only`. Defaults claim to match `Brush::default()` in `paint_bridge.rs` (per the block above; not re-checked here). Read by the Paint bar rows and the brush cursor.
 var _paint_brush := {
 	"value": 1, "radius": 6.0, "hardness": 1.0, "softness": 0.0,
 	"erase": false, "land_only": true,
@@ -656,11 +670,17 @@ func _build() -> void:
 ## replays whatever is still set. Never read the engine from a signal handler
 ## without one of these gates.
 var _draft_refresh_deferred := false
+## Replay flag for the sculpt panel build skipped while `bridge.generating`; cleared by the build itself and replayed by `_flush_generating_deferred`. Same pattern for the flags below.
 var _sculpt_build_deferred := false
+## Replay flag for the Paint panel build (see `_sculpt_build_deferred`).
 var _paint_build_deferred := false
+## Replay flag for the Ecology body fill (see `_sculpt_build_deferred`).
 var _ecology_fill_deferred := false
+## Replay flag for the CRS body build (see `_sculpt_build_deferred`).
 var _crs_build_deferred := false
+## Replay flag for `_refresh_finalize()` (see `_sculpt_build_deferred`).
 var _finalize_refresh_deferred := false
+## Replay flag for the phone Generate sheet rebuild (see `_sculpt_build_deferred`).
 var _pg_rebuild_deferred := false
 
 ## **The gate for a handler a CLICK or a DRAG reaches directly** (found-bug sweep 2026-10-11,
@@ -1726,11 +1746,13 @@ const ERODE_DEFAULTS := {
 ## build, which is the earliest moment `param_default()` can be consulted at
 ## all; today that returns the same five literals.
 var _erode_op: Dictionary = ERODE_DEFAULTS.duplicate()
+## Memo for `_erode_defaults()`: empty until the first call stores the resolved defaults, then returned as is.
 var _erode_defaults_cache: Dictionary = {}
 ## True once `_erode_defaults()` has found at least one of the five keys in
 ## the engine's parameter table. Set by that call, read only by the Reset
 ## button's tooltip, so the tooltip states the source it actually got.
 var _erode_defaults_from_engine := false
+## True after `_build_droplet_erosion` has re-seeded `_erode_op` from `_erode_defaults()` once, so later builds keep the user's edits.
 var _erode_op_seeded := false
 
 ## The five exposed keys' defaults: `param_default(key)` where the engine's
@@ -2325,9 +2347,12 @@ const GEO_AGE_KEY := "geo.age"
 ## term is unwired (`cartalith_engine::geo_clock::mantle_thickness_m`'s doc),
 ## and a tooltip must not promise an effect no world has.
 const GEO_AGE_TOOLTIP := "How long the landscape has been eroding, relative to a default world. Higher is older: deeper valleys, wider bays, deeper glacial troughs. Not in years: the generator has no calibrated time."
+## The geological-age HSlider, assigned where the row is built; the refresh path returns early when it is null or freed.
 var _geo_age_slider: HSlider = null
 var _geo_age_row = null ## `row_ref`'s shape: a Control, or a tablet reflow entry.
+## The note Label under the geological-age row, rewritten with the unavailable message or the per-stage counts text.
 var _geo_age_note: Label = null
+## The base tooltip hint passed when the row was built; appended to `GEO_AGE_TOOLTIP` when the tooltip is recomputed.
 var _geo_age_base_hint := ""
 
 ## Wires the geological-age note under the age slider `s` (`row_ref` is its
@@ -2945,6 +2970,7 @@ func _on_feature_button_armed(key: String) -> void:
 ## Main.dc.html`'s own `DIAG.world` table exactly, which is the newer,
 ## concrete source this grouping was checked against.
 const RING_UPLIFT_KEYS := ["mountains", "hills", "ridge", "plateau", "cliff", "volcano"]
+## The Carve group of the context ring's World ring, passed to `_ring_feature_group("Carve", ...)`; keys, not positions, as the block above requires.
 const RING_CARVE_KEYS := ["canyon", "valley", "river", "lake", "basin", "coastline"]
 
 ## Context-ring provider (MAP_CONTEXT_SCOPE CM-3) for the World domain: returns
@@ -3336,7 +3362,9 @@ func _build_sculpt_unbuilt_note(parent: Control) -> void:
 ## greyed over a non-empty draft. The right dock never had the bug because
 ## `show_sculpt_stack()` rebuilds it wholesale.
 var _sculpt_count_note: Label
+## The left dock foot's Commit button; assigned at build, and `disabled` is re-set from the draft stamp count in the refresh.
 var _sculpt_commit_btn: Button
+## The left dock foot's Discard button; same lifecycle and gating as `_sculpt_commit_btn`.
 var _sculpt_discard_btn: Button
 
 ## Builds the Draft section: stamp count note and the Commit / Discard actions,
@@ -4052,6 +4080,7 @@ func _catchment_river_ctx(cell: int) -> void:
 	var area := (" (%s)" % DccUnits.format_area(n * ck * ck)) if ck > 0.0 else ""
 	app.set_status("hint", "Catchment: %d cells%s drain through this cell, along the flow-accumulation tree." % [n, area], "text_ghost")
 
+## Preload of `shell/context_broker.gd`; used here only for `river_title(r)` in the catchment status line.
 const ContextBrokerScript := preload("res://shell/context_broker.gd")
 
 ## `_stamp_hit`'s own row from `sculpt_list_stamps()` -- re-fetched rather
@@ -4732,21 +4761,28 @@ var _pg_host: VBoxContainer          ## The sheet column this workspace fills.
 ## live. Arming Paint by any route sets it (`_on_tool_armed`), so the sheet opens
 ## on the controls of the tool that is armed.
 var _pg_mode := "pipe"
+## One-shot guard so the sheet's signal connections are made once (set true after the first connect, in the sheet setup).
 var _pg_connected := false
 var _pg_stage_index := -1            ## Live stage while `bridge.generating`.
 
 ## The sheet's own live nodes, so a progress tick repaints instead of rebuilding
 ## the whole column under the user's finger.
 var _pg_prog_title: Label
+## The sheet progress header's percent Label, created in the sheet build and set to `i / STAGES.size()` as a percent per tick; nulled on teardown.
 var _pg_prog_pct: Label
+## The progress bar's fill; its `custom_minimum_size.x` is set per tick. Nulled on teardown.
 var _pg_prog_fill: Control
+## The progress bar's track (a PanelContainer 5 px tall via `_pg_px(5)`) that holds `_pg_prog_fill`. Nulled on teardown.
 var _pg_prog_track: Control
+## The sheet's progress log Label (mono, word-wrapped); guarded with `is_instance_valid` where written. Nulled on teardown.
 var _pg_log_label: Label
 ## Everything a parameter write has to repaint without rebuilding the column
 ## under the user's finger: one entry per group (`{index, num, state}`), the
 ## Generate button whose caption carries the stale range, and the stale note.
 var _pg_stale_marks: Array = []
+## The sheet's Generate button, whose caption carries the stale range; assigned in the sheet build and re-captioned on parameter writes.
 var _pg_gen_button: Button
+## The sheet's stale note; its text is refreshed from `_stale_note_text()` on parameter writes. Nulled on teardown.
 var _pg_stale_label: Label
 
 # -- Metrics ------------------------------------------------------------------

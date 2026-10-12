@@ -212,8 +212,11 @@ const LABEL_SIZE_MAX := 48.0  ## `cartalith_civ::labels::LABEL_SIZE_MAX`.
 ## engine clamps to exactly these, so a slider that could ask for more would
 ## only ever show a number the map did not use.
 const ICON_BRUSH_R_MIN := 2.0
+## Density brush radius slider maximum (cells), 60: the reference's `#carIconBrushR` `max` per the block above; the engine clamps to the same.
 const ICON_BRUSH_R_MAX := 60.0
+## Density brush density slider minimum, 0.05: the reference's `#carIconBrushD` `min="5"` divided by 100, per the block above.
 const ICON_BRUSH_DENSITY_MIN := 0.05
+## Density brush density slider maximum, 2.0: the reference's `max="200"` divided by 100, per the block above.
 const ICON_BRUSH_DENSITY_MAX := 2.0
 
 ## What an in-progress canvas drag on the Label tool is doing -- set on
@@ -238,9 +241,13 @@ enum IconDragMode { NONE, RESIZE }
 # selection via `icon_arm`; this is just what the tool options row shows and
 # re-arms from on every change). --------------------------------------------
 var _icon_family_idx := 0
+## Variant index within the selected icon family, passed to `bridge.icon_arm`; reset to 0 when the family changes.
 var _icon_variant_idx := 0
+## Armed icon scale, passed to `bridge.icon_arm`; the Scale slider spans `ICON_SCALE_MIN`..`ICON_SCALE_MAX`.
 var _icon_scale := 1.0
+## Armed icon rotation in degrees, passed to `bridge.icon_arm`; the slider spans -180 to 180.
 var _icon_rotation := 0.0
+## Armed icon jitter, passed to `bridge.icon_arm`; the slider spans 0 to 1.
 var _icon_jitter := 0.0
 ## CM-3 residual: `{}` for the ordinary `ICON_FAMILIES`-indexed path;
 ## `{"slot":.., "set":..}` once the ring's Icon▸ Custom entry has armed a
@@ -262,10 +269,13 @@ var _icon_custom_armed := {}
 # untouched engine agree before the first `icon_brush_set` -- the same
 # discipline `_paint_brush` and the settlement-class filter already follow. --
 var _icon_brush_on := false
+## Density brush radius in cells; default 12 mirrors the reference per the block above, and it is sent with `bridge.icon_brush_set`.
 var _icon_brush_r := 12.0
+## Density brush density; default 0.6 mirrors the reference's 60/100 per the block above, sent with `bridge.icon_brush_set`.
 var _icon_brush_density := 0.6
 ## Live only between `map_clicked` and `map_released` on a brush stroke.
 var _icon_brush_painting := false
+## The Icon panel's list host; created in the panel build, cleared and refilled by `_rebuild_icon_panel()`, null-guarded.
 var _icon_list_body: VBoxContainer
 ## `DCC_SHELL_SPEC.md` §4.5.5 asks for both list panels "with counts and
 ## Clear-all". The count was never drawn and the button was live at zero, so
@@ -279,22 +289,33 @@ var _icon_clear_btn: Button
 # `_label_drag_*` fields one handle down; see `IconDragMode`'s own doc
 # comment. --------------------------------------------------------------
 var _icon_drag_mode := IconDragMode.NONE
+## Index of the icon whose resize handle is being dragged, `-1` when none; set on grab, cleared by `_on_any_tool_armed` and `_on_world_changed`.
 var _icon_drag_index := -1
+## Grid-space centre x of the dragged icon (`icon.x + 0.5`), captured at drag start and passed to `bridge.icon_resize`.
 var _icon_drag_cx := 0.0
+## Grid-space centre y of the dragged icon (`icon.y + 0.5`), captured at drag start.
 var _icon_drag_cy := 0.0
+## Distance from the grab point to the icon centre at drag start, floored at 1.0 cell (floor's source not stated: labelled judgement) so a resize ratio never divides by ~0.
 var _icon_drag_start_dist := 0.0
 
 # -- Label tool state ---------------------------------------------------------
 var _label_drag_mode := DragMode.NONE
+## Index of the label being dragged, `-1` when none; set in `_on_label_click`, cleared by `_on_any_tool_armed` and `_on_world_changed`.
 var _label_drag_index := -1
 var _label_drag_cx := 0.0   ## Grid-space label centre, `lb.x + 0.5` -- see
 	## `_begin_label_handle_drag()`'s own comment for why the +0.5 matters.
 var _label_drag_cy := 0.0
+## Resize drags: distance from the grab point to the label centre at drag start, floored at 1.0 cell (labelled judgement), used as the resize reference distance.
 var _label_drag_start_dist := 0.0
+## Resize drags: the label's `size` at drag start (default 16.0 if unreadable).
 var _label_drag_start_size := 0.0
+## Arc drags: the label's `angle` at drag start (default 0.0).
 var _label_drag_grab_angle := 0.0
+## Arc drags: which side of the label the grabbed handle is on, from `_label_side_from_handles(index)`.
 var _label_drag_side := 0.0
+## The Label panel's list host; created in the panel build, cleared and refilled by `_rebuild_label_panel()`, null-guarded.
 var _label_list_body: VBoxContainer
+## The Label panel's per-label editor host; created beside `_label_list_body` and its children are cleared on each rebuild.
 var _label_edit_body: VBoxContainer
 ## See `_icon_clear_btn` -- **CA-20**, the same finding one panel down.
 var _label_clear_btn: Button
@@ -2097,7 +2118,9 @@ const LABEL_CLASSES: Array = [
 ## a range is a design value like any other and guessing one later would be
 ## guessing at a design value.
 const LABEL_SIZE_RANGE := Vector2(8.0, 34.0)
+## Halo slider domain in px, 0-4, from the prototype's `p*4` inverse map per the block above; fallback when the engine's `halo_range` is absent.
 const LABEL_HALO_RANGE := Vector2(0.0, 4.0)
+## Tracking slider domain in em, 0-0.40, from the prototype's `p*0.4` per the block above; fallback when the engine's `tracking_range` is absent.
 const LABEL_TRACK_RANGE := Vector2(0.0, 0.40)
 
 ## Which class the panel's three sliders describe. `parts.js:395`'s
@@ -2109,6 +2132,7 @@ var _label_class := "settlement"
 var _label_class_picker: OptionButton
 var _label_class_rows: Dictionary = {}     ## key -> the row's name Label.
 var _label_class_count_cells: Dictionary = {}  ## key -> the row's count Label.
+## The "<CLASS> · TYPE" mono caption above the class dials; its text is set in `_sync_label_class()`.
 var _label_class_title: Label
 var _label_class_fields: Array = []        ## The three `DccWidgets.slider()` dicts.
 
@@ -2180,6 +2204,7 @@ var _label_role_size_mode: Dictionary = {}
 ## LabelSizeMode::Zoom` (the enum's `#[default]`, the reference's
 ## `sizeMode: 'zoom'`).
 const LABEL_NEW_SIZE := 16.0
+## The size mode a new label gets before any role default reaches it, `"zoom"`: `LabelSizeMode::Zoom`, the enum's default, per the block above.
 const LABEL_NEW_SIZE_MODE := "zoom"
 
 ## The per-label font picker's real, bundled choices -- parallel arrays
@@ -2189,6 +2214,7 @@ const LABEL_NEW_SIZE_MODE := "zoom"
 ## it round-trips as `"Georgia, serif"` (`font_or_default()`), which is why a
 ## label loaded from disk still resolves to index 0 below rather than -1.
 const LABEL_FONT_CHOICE_LABELS := ["Default", "IBM Plex Mono", "Fira Code"]
+## The exact font values written by the per-label font picker, parallel to `LABEL_FONT_CHOICE_LABELS`; `""` is `set_font`'s reset-to-default sentinel.
 const LABEL_FONT_CHOICE_VALUES := ["", "IBM Plex Mono", "Fira Code"]
 
 ## The practical default this panel seeds `_label_role_size_mode` with,
@@ -2229,7 +2255,9 @@ func _push_generated_size_mode_override() -> void:
 var _label_role_rows: Dictionary = {}          ## key -> the row `Button`.
 var _label_role_tally: Dictionary = {}         ## key -> `{placed, matching}`.
 var _label_role_line: Label                    ## The selected role's own tally.
+## The "Apply to this role's labels" button; its text and `disabled` are rewritten from the count of labels that would change.
 var _label_role_apply: Button
+## The role's Size mode OptionButton (Fixed / Zoom with map); `.selected` is re-set from the role's stored mode.
 var _label_role_mode: OptionButton
 var _label_role_italic: Label                  ## A readout of a live spec value.
 
@@ -2259,7 +2287,9 @@ var _label_class_specs: Array = []
 ## `key -> {available, drawn, over_cap, suppressed}` from the last run. Empty
 ## before the first one, which is what makes the count column read `--`.
 var _label_class_counts: Dictionary = {}
+## True once the last labelling run answered `ok`; the "generated" signal for the Ruling AZ cue, deliberately not a count (see the block below).
 var _label_gen_ran := false
+## The mono summary Label above the class rows; carries the engine's own refusal sentence before a world exists.
 var _label_class_summary: Label
 
 ## Ruling AZ's cue -- "no generated labels" said where the labels are shown,
@@ -2283,8 +2313,11 @@ var _label_class_summary: Label
 ## run that no longer matches the terrain beneath it. Cleared by the same
 ## `_regenerate_labels()` that would otherwise leave it stuck.
 var _label_terrain_stale := false
+## The HBox holding the "Generate labels" cue; hidden unless there is a world and labels are missing or stale.
 var _label_gen_cue: Control
+## The cue's note Label: "Labels haven't been generated..." or "The terrain has changed since...".
 var _label_gen_cue_note: Label
+## The cue's "Generate labels" button, which runs the labelling pass over the current world.
 var _label_gen_cue_btn: Button
 
 ## The `collision culling` toggle's state.
@@ -2668,6 +2701,7 @@ func _build_label_classes(parent: Control) -> void:
 ## (no theme yet) falls back to the engine's own shipped estimate by sending
 ## nothing.
 const LABEL_ADVANCE_PROBE := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+## Memo for the measured glyph-advance ratio; `0.0` means not measured yet, a positive value is returned as is.
 var _label_advance_ratio_cache := 0.0
 
 ## Average glyph advance per pixel of font size for the theme's default font,
@@ -3106,16 +3140,25 @@ var _icon_placement_rows: Array = []
 ## `parts.js:398`'s `ICOD()` defaults and `:391`-`:392`'s inverse maps:
 ## `scale` is `0.5+p*1.5` so 0.50-2.00, `spacing` is `p*40` so 0-40 px.
 const ICON_SCALE_RANGE := Vector2(0.5, 2.0)
+## Min-spacing slider domain in cells, 0-40, from the prototype's `p*40` map per the block above.
 const ICON_SPACING_RANGE := Vector2(0.0, 40.0)
 
+## The family chip selected for Automatic placement (an id such as `"PLACES"`); sent as `family` with the generate options. Default is the design's, intent beyond that unverified.
 var _icon_placement_family := "PLACES"
 var _icon_family_chips: Dictionary = {}   ## id -> Button
+## The slot-coverage line under the family chips, refreshed in `_sync_icon_placement()`.
 var _icon_slot_line: Label
+## The result summary Label of the placement section; shows `res["reason"]` on a refusal.
 var _icon_gen_summary: Label
+## Automatic placement icon scale, default 1.0, sent as `scale`; slider domain `ICON_SCALE_RANGE`.
 var _icon_gen_scale := 1.0
+## Automatic placement minimum spacing in cells, default 14.0 (source of the default not stated: labelled judgement), sent as `min_spacing`.
 var _icon_gen_spacing := 14.0
+## Automatic placement toggle "avoid label boxes", default on, sent as `avoid_labels`.
 var _icon_gen_avoid_labels := true
+## Automatic placement toggle "enforce min spacing", default on, sent as `enforce_spacing`.
 var _icon_gen_enforce_spacing := true
+## Automatic placement toggle "snap sea marks to coast", default off, sent as `snap_coast`.
 var _icon_gen_snap_coast := false
 
 ## Builds the "Automatic placement" section: the family chips, the slot-coverage
@@ -3300,6 +3343,7 @@ func _sync_icon_placement() -> void:
 ## does instead of at a new, fourth ink level.
 const INERT_DIM := 0.55
 
+## Dims a control row to `INERT_DIM` to mark it as a disclosed-gap control; null- and freed-safe. Static, touches only the node's `modulate`.
 static func _mark_inert(node: Control) -> void:
 	if node != null and is_instance_valid(node):
 		node.modulate = Color(1.0, 1.0, 1.0, INERT_DIM)
