@@ -11,16 +11,14 @@
 //! line 22382) does not clamp, so this is an inherited defect; the port now
 //! clamps every returned sampled point into the grid, `[0, gw - 1] x
 //! [0, gh - 1]`, the same box `JpWorld::clamp_cell` and `TerrainValid::check`
-//! already read a point through. The km sum is left the reference's (it still
-//! counts the unclamped points), because clamping it moves pinned km goldens.
+//! already read a point through.
 //!
-//! Each run's two endpoints are NOT clamped: they are restored at full
-//! precision as the reference does (v0.92), and a run that ends at a world-wrap
-//! seam ends on a raw router point, `gw - 0.5` or `gh - 0.5` at the edge
-//! (measured, world mode: (1023.5, 0.5) and (0.5, 23.5) on the 1024 x 24 map).
-//! Clamping them too moves pinned goldens in `golden_parity_civ_tools.rs`, so
-//! they are held only to the half-cell box `[0, gw - 0.5] x [0, gh - 0.5]`
-//! here, and the strict box is left for an owner ruling.
+//! Since Ruling CF item 4 (owner, 2026-10-12) each run's two restored endpoints
+//! are clamped into the same box too (a run that ends at a world-wrap seam
+//! ended on a raw router point in the last half cell, measured (1023.5, 0.5)
+//! and (0.5, 23.5) on the 1024 x 24 world-mode map), and the km is measured
+//! over the clamped samples; `route_km_on_map.rs` tests the km. So every
+//! returned point, endpoint or not, is held to the strict box here.
 
 use cartalith_civ::tools::{self, RouteContext, RouteMode};
 
@@ -60,9 +58,8 @@ fn ctx(f: &Flat, world: bool) -> RouteContext<'_> {
 /// Routes every endpoint pair of a small grid of rows and columns, in every
 /// mode and both wrap settings, and returns the extreme coordinates of the
 /// returned sampled (non-endpoint) points (min x, max x, min y, max y), how
-/// many routes ran, and a description of every point outside its box (sampled
-/// points: the grid; run endpoints: the half-cell box), for the failure
-/// message.
+/// many routes ran, and a description of every point outside the grid box,
+/// for the failure message.
 fn sweep(gw: usize, gh: usize) -> (f64, f64, f64, f64, usize, Vec<String>) {
     let f = flat(gw, gh);
     let ys = [0.0, 1.0, 2.0, (gh / 2) as f64, (gh - 3) as f64, (gh - 2) as f64, (gh - 1) as f64];
@@ -88,11 +85,7 @@ fn sweep(gw: usize, gh: usize) -> (f64, f64, f64, f64, usize, Vec<String>) {
                                 k == 0 || k + 1 == p.pts.len() || p.brks.contains(&k) || p.brks.contains(&(k + 1))
                             };
                             for (k, &(x, y)) in p.pts.iter().enumerate() {
-                                let (mx, my) = if is_end(k) {
-                                    (gw as f64 - 0.5, gh as f64 - 0.5)
-                                } else {
-                                    ((gw - 1) as f64, (gh - 1) as f64)
-                                };
+                                let (mx, my) = ((gw - 1) as f64, (gh - 1) as f64);
                                 if x < 0.0 || y < 0.0 || x > mx || y > my {
                                     off.push(format!(
                                         "({x}, {y}) at {k} on {mode:?} world={world} ({sx},{sy})->({ex},{ey})"
@@ -114,8 +107,8 @@ fn sweep(gw: usize, gh: usize) -> (f64, f64, f64, f64, usize, Vec<String>) {
     (lo_x, hi_x, lo_y, hi_y, n, off)
 }
 
-/// Asserts every sampled point lies inside `[0, gw - 1] x [0, gh - 1]` (and
-/// every run endpoint inside the half-cell box), and that sampled points
+/// Asserts every returned point lies inside `[0, gw - 1] x [0, gh - 1]`, and
+/// that sampled (non-endpoint) points
 /// actually reached all four edges (so an all-empty result cannot pass).
 fn assert_in_bounds(gw: usize, gh: usize) {
     let (lo_x, hi_x, lo_y, hi_y, n, off) = sweep(gw, gh);

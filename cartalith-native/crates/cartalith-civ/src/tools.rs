@@ -1041,12 +1041,26 @@ pub fn civ_dijkstra_path_guided(
         return DijkstraPath { pts: sm.pts, brks: sm.brks, km: sm.km, reachable };
     }
 
-    let fp = [(js_round(sx), js_round(sy)), (js_round(ex), js_round(ey))];
+    // Rounded as the reference does, then clamped into the grid `[0, gw - 1] x
+    // [0, gh - 1]` (Ruling CF item 4, DECISIONS.md 7p): the same on-map box
+    // `civ_smooth_path` returns, so this two-point fallback never draws or
+    // measures a point off the map either. A caller coordinate inside the map
+    // rounds to an in-box point and is unchanged.
+    let fp_of = |x: f64, y: f64| (js_round(x).clamp(0.0, ctx.gw as f64 - 1.0), js_round(y).clamp(0.0, ctx.gh as f64 - 1.0));
+    let fp = [fp_of(sx, sy), fp_of(ex, ey)];
     let adx = (fp[1].0 - fp[0].0).abs();
     // The wrap-minimum is applied unconditionally, world mode or not --
     // the reference's own `Math.min(adx, GW-adx)`, ported as written.
     let km = js_hypot(adx.min(ctx.gw as f64 - adx), fp[1].1 - fp[0].1) * ctx.map_width_km / ctx.gw as f64;
-    DijkstraPath { pts: vec![fp[0], fp[1]], brks: Vec::new(), km, reachable }
+    // On a wrapped world a fallback whose two ends sit either side of the x
+    // seam (`adx > gw / 2`, the split rule `civ_smooth_path` uses) gets a break
+    // between them, so the pen lifts instead of drawing a line straight across
+    // the whole map while the km above measures the short way round. A port
+    // divergence (Ruling CF item 4, DECISIONS.md 7p; the reference returns
+    // `brks: []`). Found 2026-10-12 by `tests/route_km_on_map.rs`: on a 2048 x
+    // 24 wrapped map, (0, 23) -> (2047, 23) drew 2047 cells for 12 km.
+    let brks = if ctx.world && adx > ctx.gw as f64 / 2.0 { vec![1] } else { Vec::new() };
+    DijkstraPath { pts: vec![fp[0], fp[1]], brks, km, reachable }
 }
 
 /// `_civJoinDijkstraSegs`' result (reference line 26052).

@@ -8919,12 +8919,17 @@ struct SmoothedPath {
 /// exception, and `Unchecked` (the reference's `undefined`, which skips
 /// the repair pass entirely for `'mixed'` routing).
 ///
-/// Every returned sampled point is clamped into the grid, `[0, gw - 1] x
-/// [0, gh - 1]`, after the repair and the km sum, which stay the reference's
-/// (a port divergence, see the comment at the clamp). Each
-/// run's two restored endpoints are returned as the reference returns them,
-/// which can leave one in the last half cell (see the comment there). It must
-/// never return a sampled point off the map.
+/// **Port divergences (DECISIONS.md 7p; Ruling CF item 4, 2026-10-12).**
+/// Every returned point, sampled or a run's restored endpoint, lies in the grid
+/// box `[0, gw - 1] x [0, gh - 1]`, the box `TerrainValid::check` and
+/// `JpWorld::clamp_cell` read a point through. The km is the length of exactly
+/// those on-map samples, and a route split at the world-wrap seam counts the
+/// short step across the seam between its runs (the reference counts nothing
+/// there). The returned line is those samples with each run's ends replaced by
+/// its restored endpoints, so `km` matches the drawn line to within each
+/// endpoint's half-cell rounding (`tests/route_km_on_map.rs` holds that
+/// bound) and never includes an off-map excursion. It must never return a
+/// point off the map, and never sum km over an unclamped sample.
 fn civ_smooth_path(
     raw: &[(f64, f64)],
     gw: usize,
@@ -8957,6 +8962,8 @@ fn civ_smooth_path(
     let mut pts: Vec<(f64, f64)> = Vec::new();
     let mut brks: Vec<usize> = Vec::new();
     let mut km = 0.0f64;
+    // The last on-map sample of the previous emitted run, for the seam step.
+    let mut prev_run_tail: Option<(f64, f64)> = None;
 
     for r in &runs {
         let simplified = civ_rdp_simplify(r, 1.5);
@@ -8968,10 +8975,24 @@ fn civ_smooth_path(
             brks.push(pts.len());
         }
         let run_start = pts.len();
-        // The previous point of this run as the reference computes it
-        // (rounded and repaired, never clamped); the km sum reads these.
-        let mut prev_ref: Option<(f64, f64)> = None;
-        for (k, &s) in smooth.iter().enumerate() {
+        let mut prev: Option<(f64, f64)> = None;
+        for &s in &smooth {
+            // Each sample is rounded and repaired exactly as the reference
+            // does, then CLAMPED into the grid before the km sum reads it: a
+            // deliberate divergence from `_civSmoothPath` (v2.11 line 22397
+            // rounds and stops), DECISIONS.md 7p; the clamp itself was the
+            // found-bug row of 2026-10-11, and Ruling CF item 4 (2026-10-12)
+            // moved it ahead of the km sum. The centripetal Catmull-Rom curve
+            // overshoots its control points where a path turns hard (measured
+            // 2026-10-12, unclamped: y from -23 to 51 on a flat 2048 x 24 map),
+            // and a sample at the last routing row's centre, `gh - 0.5`, rounds
+            // up to `gh`. The clamp comes AFTER the repair so the repair's
+            // search (`civ_nearest_valid_pt`, which starts from the rounded
+            // point) stays the reference's; `TerrainValid::check` already reads
+            // an off-map point through this same box. In world mode x is
+            // clamped rather than wrapped: a run never crosses the seam (it is
+            // split at any `|dx| > gw / 2` above), so its points belong on its
+            // own side.
             let mut p = (js_round(s.0), js_round(s.1));
             if !matches!(valid, TerrainValid::Unchecked)
                 && !valid.check(p.0, p.1, gw, gh, water_bodies)
@@ -8980,52 +9001,46 @@ fn civ_smooth_path(
                     civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, valid);
                 p = (nx as f64, ny as f64);
             }
-            // `if(k > 0)` in the reference, NOT "if anything has been
-            // pushed": the km sum deliberately excludes the jump between
-            // one run and the next, which is exactly the seam a `brks`
-            // entry marks. Summing across it inflated a wrapped world-mode
-            // route by the whole map width -- caught by milestone D's
-            // case 1, the first wrapped route fixture this function has had.
-            if k > 0 {
-                let prev = prev_ref.expect("k > 0 means a point was computed in this run");
-                km += js_hypot(p.0 - prev.0, p.1 - prev.1) * map_width_km / gw as f64;
+            let p = (p.0.clamp(0.0, gw as f64 - 1.0), p.1.clamp(0.0, gh as f64 - 1.0));
+            match prev {
+                // Within a run: the reference's own step, now over on-map
+                // points (Ruling CF item 4: an off-map excursion the returned
+                // line does not draw is no longer counted).
+                // `* map_width_km / gw` in the reference's order: a
+                // precomputed `map_width_km / gw` moves km by one ULP
+                // (measured 2026-10-12 on case 0's land route).
+                Some(q) => km += js_hypot(p.0 - q.0, p.1 - q.1) * map_width_km / gw as f64,
+                // A run's first sample after a seam break: the reference adds
+                // nothing here (its `if(k > 0)`), because its raw step would be
+                // the whole map width. The route does travel from the previous
+                // run's last sample across the seam to this one, so the port
+                // adds that step measured the short way round, `min(|dx|,
+                // gw - |dx|)` -- the planner's own wrap-aware step
+                // (`jp_derive_stages`). Ruling CF item 4, DECISIONS.md 7p.
+                None => {
+                    if let Some(q) = prev_run_tail {
+                        let adx = (p.0 - q.0).abs();
+                        km += js_hypot(adx.min(gw as f64 - adx), p.1 - q.1) * map_width_km / gw as f64;
+                    }
+                }
             }
-            prev_ref = Some(p);
-            // The RETURNED point is clamped into the grid, `[0, gw - 1] x
-            // [0, gh - 1]`: a deliberate divergence from `_civSmoothPath`
-            // (v2.11 line 22397 rounds and stops), DECISIONS.md 7p, found-bug
-            // row of 2026-10-11. The centripetal Catmull-Rom curve overshoots
-            // its control points where a path turns hard (measured 2026-10-12,
-            // unclamped: y from -23 to 51 on a flat 2048 x 24 map), and a
-            // sample at the last routing row's centre, `gh - 0.5`, rounds up to
-            // `gh`. Every reader of a route point already clamps to this same
-            // box (`TerrainValid::check`, `JpWorld::clamp_cell`), so the cell
-            // each point reads is unchanged; only the drawn line moves. In
-            // world mode x is clamped rather than wrapped: a run never crosses
-            // the seam (it is split at any `|dx| > gw / 2` above), so its
-            // points belong on its own side.
-            //
-            // The clamp is applied AFTER the repair and the km sum, both of
-            // which stay the reference's to the bit. Clamping before them was
-            // tried 2026-10-12 and moved pinned km goldens in
-            // `tests/golden_parity_civ_tools.rs` case 1 (mixed 664.3079547644414
-            // to 647.7394122695176; wrapped land 136.5685424949238 to 40; water
-            // unreachable 0 to 80), so `km` still counts an off-grid excursion
-            // the returned points no longer show -- left for an owner ruling.
-            // Tests: `tests/route_points_in_bounds.rs`.
-            pts.push((p.0.clamp(0.0, gw as f64 - 1.0), p.1.clamp(0.0, gh as f64 - 1.0)));
+            prev = Some(p);
+            pts.push(p);
         }
-        // The run's own endpoints are restored exactly as the reference does
-        // (v0.92), NOT clamped. They are the caller's coordinate, or at a
-        // world-wrap seam a raw router point `(c + 0.5) / sc`, so they can sit
-        // in the last half cell (`gw - 0.5`, `gh - 0.5`; measured (0.5, 23.5)
-        // and (1023.5, 0.5) on a 1024 x 24 world-mode map). Clamping them too
-        // was tried 2026-10-12 and moves pinned goldens in
-        // `tests/golden_parity_civ_tools.rs` (case 1: e.g. (19.5, 15.5) became
-        // (19.0, 15.0) on its 20 x 16 grid), so it is left for an owner ruling.
-        pts[run_start] = r[0];
+        prev_run_tail = prev;
+        // The run's own endpoints are restored at full precision as the
+        // reference does (v0.92), but CLAMPED into the same box (Ruling CF item
+        // 4, DECISIONS.md 7p). They are the caller's coordinate, or at a
+        // world-wrap seam a raw router point `(c + 0.5) / sc`, which sits in the
+        // last half cell (`gw - 0.5`, `gh - 0.5`; measured (0.5, 23.5) and
+        // (1023.5, 0.5) on a 1024 x 24 world-mode map) and rounds off the map.
+        // The km is not re-measured through them: it stays over the samples,
+        // the reference's basis, so a route that never leaves the map keeps
+        // its km to the bit.
+        let clamp_pt = |q: (f64, f64)| (q.0.clamp(0.0, gw as f64 - 1.0), q.1.clamp(0.0, gh as f64 - 1.0));
+        pts[run_start] = clamp_pt(r[0]);
         let last = pts.len() - 1;
-        pts[last] = r[r.len() - 1];
+        pts[last] = clamp_pt(r[r.len() - 1]);
     }
 
     if pts.len() >= 2 {
@@ -15145,6 +15160,23 @@ impl JpWorld<'_> {
         }) / self.gw as f64
     }
 
+    /// `pts` with every coordinate clamped into the grid box `[0, gw - 1] x
+    /// [0, gh - 1]`, unrounded. Why: the planner measures km, gain/loss and
+    /// resupply arc length straight off route points, and a route saved before
+    /// Ruling CF item 4 (2026-10-12) can carry points off the map
+    /// (`civ_smooth_path` returned them; measured y to -23 at 2048 x 24). The
+    /// clamp is the same box [`Self::clamp_cell`] reads a point through, so no
+    /// point changes the cell it classifies to; only the off-map excursion stops
+    /// counting as travelled km. A port divergence (DECISIONS.md 7p): the
+    /// reference measures raw points. An on-map route is returned unchanged,
+    /// bit for bit. Must never round or wrap: rounding would move every
+    /// in-map fractional point, and a wrapped world's seam step is already
+    /// measured the short way by each consumer.
+    pub fn on_map_points(&self, pts: &[(f64, f64)]) -> Vec<(f64, f64)> {
+        let (mx, my) = (self.gw as f64 - 1.0, self.gh as f64 - 1.0);
+        pts.iter().map(|&(x, y)| (x.clamp(0.0, mx), y.clamp(0.0, my))).collect()
+    }
+
     /// The grid cell containing `(x, y)`: each coordinate rounded the way JavaScript
     /// rounds (`js_round`), then clamped to the grid, so a route point just off the
     /// edge reads the edge cell rather than indexing out of range.
@@ -15410,6 +15442,11 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     if pts.len() < 2 {
         return Vec::new();
     }
+    // Ruling CF item 4: stage km and gain/loss are measured over the on-map
+    // points (see `JpWorld::on_map_points`); every point classifies to the same
+    // cell either way.
+    let pts_on_map = world.on_map_points(pts);
+    let pts = &pts_on_map[..];
     let (gw, gh) = (world.gw, world.gh);
     let cell_km = world.cell_km();
 
@@ -15551,6 +15588,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
         let cur = chunks.last_mut().expect("just pushed or matched");
         cur.i1 = k;
         if k > 0 {
+            // `pts` is already on the map (`JpWorld::on_map_points` above).
             let adx = (pts[k].0 - pts[k - 1].0).abs();
             let dy = pts[k].1 - pts[k - 1].1;
             let step_km = adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
@@ -16184,6 +16222,10 @@ pub fn jp_plan_full(
     if pts.len() < 2 {
         return None;
     }
+    // Ruling CF item 4: every measurement below (stages, the resupply walk and
+    // reach) reads the on-map points, so km agrees across them.
+    let pts_on_map = world.on_map_points(pts);
+    let pts = &pts_on_map[..];
     let mut stages = jp_derive_stages(world, pts, plan);
     if stages.is_empty() {
         return None;

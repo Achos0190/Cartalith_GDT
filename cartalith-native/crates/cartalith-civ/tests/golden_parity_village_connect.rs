@@ -241,6 +241,14 @@ fn wrapped_world_tracks_cross_the_seam() {
     // Protects: wrap-aware tracks: on the wrapped world at least one track
     // crosses the x seam and carries a `brks` entry, and its `km` matches bit
     // for bit. Red means a seam track is drawn straight across the map.
+    //
+    // RE-BASELINED 2026-10-12 under Ruling CF item 4 (DECISIONS.md 7p): four
+    // seam-crossing tracks in the fixture moved. Their east seam endpoint is
+    // clamped from x 159.5 to 159 (the last column of this 160-wide map), and
+    // km now counts on-map samples plus the step across the seam, which the
+    // reference left out. km old -> new (bits in the fixture): [10]
+    // 27.07107 -> 35; [13] 36.50282 -> 44.72136; [14] 40.38844 -> 49.35241;
+    // [18] 66.82529 -> 72.71602. No other track in any world moved.
     run_world(&world("wrapped"));
 }
 

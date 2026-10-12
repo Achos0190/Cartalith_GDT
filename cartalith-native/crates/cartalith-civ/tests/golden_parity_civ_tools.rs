@@ -629,9 +629,17 @@ fn case1_wrapped_routes_carry_a_seam_break() {
     check(
         "case1 land (wrapped)",
         &land,
-        &[(18.0, 15.0), (19.0, 15.0), (19.5, 15.5), (0.5, 15.5), (1.0, 15.0), (1.0, 15.0)],
+        // RE-BASELINED 2026-10-12 under Ruling CF item 4 (DECISIONS.md 7p):
+        // was pts [.., (19.5, 15.5), (0.5, 15.5), ..], km 136.5685424949238.
+        // The seam endpoints are clamped into the grid (y 15.5 is past the
+        // last row of this 16-row map, x 19.5 past the last column), and the
+        // km now counts on-map samples only plus the step across the seam:
+        // 18 -> 19, then across the seam to 0 and on to 1, is three 40 km
+        // cells, 120 km. The reference's 136.57 counted a step to the
+        // off-map sample (20, 16) and nothing for the seam.
+        &[(18.0, 15.0), (19.0, 15.0), (19.0, 15.0), (0.5, 15.0), (1.0, 15.0), (1.0, 15.0)],
         &[3],
-        136.5685424949238,
+        120.0,
         true,
     );
 
@@ -639,9 +647,15 @@ fn case1_wrapped_routes_carry_a_seam_break() {
     check(
         "case1 water (wrapped)",
         &water,
-        &[(2.0, 2.0), (1.0, 2.0), (0.5, 2.5), (19.5, 2.5), (19.0, 2.0), (18.0, 2.0)],
+        // RE-BASELINED 2026-10-12 under Ruling CF item 4 (DECISIONS.md 7p):
+        // was pts [.., (19.5, 2.5), ..], km 176.5685424949238. The east seam
+        // endpoint is clamped to the last column, and km now adds the step
+        // across the seam the reference left out: the on-map samples are
+        // (2,2) (1,2) (1,3) | (19,3) (19,2) (18,2), six 40 km steps with the
+        // seam step (1 -> 0 -> 19) counted as two cells, 240 km.
+        &[(2.0, 2.0), (1.0, 2.0), (0.5, 2.5), (19.0, 2.5), (19.0, 2.0), (18.0, 2.0)],
         &[3],
-        176.5685424949238,
+        240.0,
         true,
     );
 }
@@ -664,7 +678,10 @@ fn case1_land_and_water_negative_controls() {
         false,
     );
     let water = civ_dijkstra_path(&ctx, C1_OCEAN_A.0 as f64, C1_OCEAN_A.1 as f64, C1_LAND_A.0 as f64, C1_LAND_A.1 as f64, RouteMode::Water);
-    check("case1 water unreachable", &water, &[(18.5, 15.5), (16.0, 13.0), (18.0, 15.0)], &[], 0.0, false);
+    // RE-BASELINED 2026-10-12 under Ruling CF item 4: the first point was
+    // (18.5, 15.5), half a row past this 16-row map; now clamped to row 15.
+    // km unchanged (0.0: the reference's samples here coincide).
+    check("case1 water unreachable", &water, &[(18.5, 15.0), (16.0, 13.0), (18.0, 15.0)], &[], 0.0, false);
 }
 
 #[test]
@@ -678,9 +695,14 @@ fn case1_mixed_route_matches_the_reference() {
     check(
         "case1 mixed",
         &got,
-        &[(18.0, 15.0), (19.0, 13.0), (19.5, 11.5), (0.5, 10.5), (2.0, 9.0), (4.0, 7.0), (6.0, 5.0), (8.0, 4.0), (10.0, 2.0)],
+        // RE-BASELINED 2026-10-12 under Ruling CF item 4 (DECISIONS.md 7p):
+        // was pts [.., (19.5, 11.5), ..], km 664.3079547644414. The east seam
+        // endpoint is clamped to the last column, and km now counts on-map
+        // samples plus the step across the seam (the reference counted
+        // nothing there), 737.1821313695092.
+        &[(18.0, 15.0), (19.0, 13.0), (19.0, 11.5), (0.5, 10.5), (2.0, 9.0), (4.0, 7.0), (6.0, 5.0), (8.0, 4.0), (10.0, 2.0)],
         &[3],
-        664.3079547644414,
+        737.1821313695092,
         true,
     );
 }
@@ -714,7 +736,10 @@ fn case1_join_and_commit_match_the_reference() {
     .unwrap();
     assert!(sea.way.sea);
     assert_eq!(sea.way.brks, vec![3], "the sea lane wraps the seam too");
-    assert_eq!(sea.way.km.to_bits(), 176.5685424949238f64.to_bits());
+    // RE-BASELINED 2026-10-12 under Ruling CF item 4: was 176.5685424949238,
+    // the same wrapped sea route as `case1_wrapped_routes_carry_a_seam_break`
+    // (see its comment for 240).
+    assert_eq!(sea.way.km.to_bits(), 240.0f64.to_bits());
 }
 
 /// A cross-check that the two cases are not accidentally the same fixture
