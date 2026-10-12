@@ -258,24 +258,38 @@ func _ready() -> void:
 	_chk(bridge.get_civ_year() == year_before,
 		"running the diffusion never writes to the Timeline's year cursor")
 
-	# ---------------- 8. §6's floor rule survives ----------------
+	# ---------------- 8. the accordion floor survives ----------------
+	## Stale until 2026-10-12: this named Landmarks and pressed Religion twice
+	## expecting "open, then closed". Ruling L L144 moved the default-open floor to
+	## POPULATE (`CivilizationWorkspace.floor_category()`, enforced by
+	## `_lm_enforce_floor` on every header), and Religion may already be open on
+	## entry here (it is when the earlier sections left it so), which made the old
+	## double press a close-then-reopen. The probe now reads the floor from the
+	## workspace, opens Religion only if it is closed, then closes it.
 	var relig_btn: Button = null
-	var lm_body: Control = ws._landmarks_body
+	var relig_body: Control = null
+	var floor_body: Control = null
 	for e in ws.categories:
-		if String((e as Dictionary).get("title", "")) == "Religion":
+		var title := String((e as Dictionary).get("title", ""))
+		if title == "Religion":
 			relig_btn = (e as Dictionary).get("button")
-	relig_btn.pressed.emit()   ## open Religion
-	await get_tree().process_frame
-	relig_btn.pressed.emit()   ## re-click the OPEN header -> must fall to Landmarks
+			relig_body = (e as Dictionary).get("body")
+		if title == ws.floor_category():
+			floor_body = (e as Dictionary).get("body")
+	if not relig_body.visible:
+		relig_btn.pressed.emit()   ## open Religion
+		await get_tree().process_frame
+	relig_btn.pressed.emit()   ## close the OPEN header -> must fall to the floor
 	await get_tree().process_frame
 	var open_n := 0
 	for e in ws.categories:
 		if ((e as Dictionary).get("body") as Control).visible:
 			open_n += 1
-	print("after re-clicking the open Religion header: open categories=", open_n,
-		"  landmarks visible=", lm_body.visible)
-	_chk(open_n == 1 and lm_body.visible,
-		"Landmarks is still the floor -- CIVIL never collapses to nothing")
+	print("after closing the open Religion header: open categories=", open_n,
+		"  floor (", ws.floor_category(), ") visible=", floor_body.visible)
+	_chk(open_n == 1 and floor_body.visible and not relig_body.visible,
+		"%s is still the floor -- CIVIL never collapses to nothing" % ws.floor_category())
+
 
 	# ---------------- 9. width, over three worlds ----------------
 	## `MISTAKES.md`: a panel width is content-dependent and one world is one

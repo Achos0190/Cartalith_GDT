@@ -29,10 +29,16 @@ func _harvest(node: Node, out: Array) -> void:
 				out.append(t)
 		_harvest(c, out)
 
-func _render(ws: Control) -> Array:
+## Renders one pane of the Religion category. `_fill_religion` draws a single
+## pane at a time since the 2026-09-05 segmented rebuild (ADHERENCE by default),
+## so the divergence sentence, its row list and the "Show on map" toggle exist
+## only when `view` is "divergence". The view is restored to ADHERENCE after.
+func _render(ws: Control, view: String = "adherence") -> Array:
 	var host := VBoxContainer.new()
 	add_child(host)
+	ws._religion_view = view
 	ws._fill_religion(host)
+	ws._religion_view = "adherence"
 	var lines: Array = []
 	_harvest(host, lines)
 	remove_child(host)
@@ -118,9 +124,10 @@ func _ready() -> void:
 	_chk(roll.find("in %d faith" % faith_keys.size()) >= 0,
 		"the roll-up counts %d faith(s), not the unaffiliated slot" % faith_keys.size())
 
-	var div_line := _find(lines, "no longer share their ruler")
+	var dlines := _render(ws, "divergence")
+	var div_line := _find(dlines, "no longer share their ruler")
 	if div_line == "":
-		div_line = _find(lines, "share their ruler")
+		div_line = _find(dlines, "share their ruler")
 	print("rendered divergence: '", div_line, "'")
 	_chk(div_line.find("%d of " % diverged.size()) >= 0,
 		"the divergence sentence carries the count AND its denominator (%d)" % diverged.size())
@@ -140,15 +147,15 @@ func _ready() -> void:
 			break
 	var named := 0
 	for n in diverged:
-		if _find(lines, n) != "":
+		if _find(dlines, n) != "":
 			named += 1
 	print("diverged settlements NAMED in the panel: ", named, " of ", diverged.size())
 	_chk(named == diverged.size(), "every diverged settlement is named, not just counted")
-	_chk(_find(lines, "%d DIVERGED" % diverged.size()) != ""
-		or _find(lines, "%d diverged" % diverged.size()) != "",
+	_chk(_find(dlines, "%d DIVERGED" % diverged.size()) != ""
+		or _find(dlines, "%d diverged" % diverged.size()) != "",
 		"the diverged group is headed with its own count")
 
-	_chk(_find(lines, "Show on map") != "", "the map toggle is drawn while the layer is live")
+	_chk(_find(dlines, "Show on map") != "", "the map toggle is drawn while the layer is live")
 
 	# ---------------- the ring's caption on the hover card ----------------
 	var ov = _app.viewport.overlay
@@ -174,7 +181,7 @@ func _ready() -> void:
 	while bridge.generating:
 		await get_tree().create_timer(0.25).timeout
 	await get_tree().create_timer(1.0).timeout
-	var after := _render(ws)
+	var after := _render(ws, "divergence")
 	print("after regenerate: layer on=", _app.viewport.overlay.faith_divergence_visible(),
 		"  toggle drawn=", _find(after, "Show on map") != "")
 	_chk(not _app.viewport.overlay.faith_divergence_visible()

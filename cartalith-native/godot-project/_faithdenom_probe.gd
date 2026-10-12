@@ -68,8 +68,43 @@ func _ready() -> void:
 		await get_tree().create_timer(0.25).timeout
 	await get_tree().create_timer(1.0).timeout
 
-	bridge.civ_set_faction_field(1, "religion", "sun_cult")
-	bridge.civ_set_faction_field(3, "religion", "old_gods")
+	## FIXTURE, rebuilt 2026-10-12. This used to leave every faction on `none` and
+	## set only factions 1 and 3, so the `none` plurality led nothing but empty
+	## settlements. Since 2026-09-23 a fresh faction defaults to a real religion
+	## (`civ_default_religion`), and on this seed (and on the twelve others
+	## measured 2026-10-12) EVERY faction owns at least one populated settlement,
+	## so no faith leads only empty ones and the premise check below could never
+	## hold. The premise is rebuilt on purpose: the faction with the fewest
+	## populated settlements has them emptied (population 0, via the same
+	## `civ_edit_settlement` the place editor uses), then is given a faith no
+	## other faction holds.
+	var pre: Array = bridge.settlements()
+	var pre_pop := {}
+	var pre_held := {}
+	for p in pre:
+		var f0 := int((p as Dictionary).get("faction", 0))
+		pre_held[f0] = int(pre_held.get(f0, 0)) + 1
+		if int((p as Dictionary).get("population", 0)) > 0:
+			pre_pop[f0] = int(pre_pop.get(f0, 0)) + 1
+	var target := -1
+	for f0 in pre_held.keys():
+		if int(f0) > 0 and (target < 0 or int(pre_pop.get(f0, 0)) < int(pre_pop.get(target, 0))):
+			target = int(f0)
+	for i in pre.size():
+		if int((pre[i] as Dictionary).get("faction", 0)) == target \
+				and int((pre[i] as Dictionary).get("population", 0)) > 0:
+			bridge.civ_edit_settlement(i, {"population": 0})
+	var used: Array = []
+	for f0 in ws._religion_faction_column("religion"):
+		used.append(String(f0))
+	var lone := ""
+	for k in ["flame_creed", "ancestor_rites", "sea_lords", "earth_mother", "sun_cult"]:
+		if not used.has(k) or (used.count(k) == 1 and used[target - 1] == k):
+			lone = k
+			break
+	print("fixture: faction %d emptied (had %d populated); its faith = %s"
+		% [target, int(pre_pop.get(target, 0)), lone])
+	bridge.civ_set_faction_field(target, "religion", lone)
 	ws._religion_years = 50
 	ws._religion_run()
 
@@ -172,8 +207,15 @@ func _ready() -> void:
 
 	## The divergence sentence counts a different set from the roll-up, and the
 	## panel now says so. Required only when the two CAN differ.
+	## The sentence lives on the DIVERGENCE pane. Since the 2026-09-05 segmented
+	## rebuild `_fill_religion` draws one pane at a time (default ADHERENCE), so
+	## this probe renders that pane explicitly rather than expect it in the
+	## adherence text it searched before.
+	ws._religion_view = "divergence"
+	var div_joined := " | ".join(PackedStringArray(_render(ws)))
+	ws._religion_view = "adherence"
 	if populated < n:
-		_chk(joined.contains("over religion keys, not over people"),
+		_chk(div_joined.contains("over religion keys, not over people"),
 			"the divergence count says its denominator is not the head-count one")
 	_chk(joined.to_upper().contains("%d WITH A POPULATION" % populated),
 		"the settlement list is split and the first group carries its own count")

@@ -57,9 +57,12 @@ func _after(lines: Array, head: String) -> String:
 			return String(lines[i + 1]) if i + 1 < lines.size() else ""
 	return "<row not found>"
 
+## The text drawn right after the section head or row whose text is `key`, or ends
+## with " " + `key` (a section head reads "<caret> FAITH" since the 2026-09-05
+## `SettlementExtras.dc.html` rebuild; it used to be a `Faith` row's label).
 func _value_after(lines: Array, key: String) -> String:
 	for i in lines.size():
-		if String(lines[i]) == key:
+		if String(lines[i]) == key or String(lines[i]).ends_with(" " + key):
 			return String(lines[i + 1]) if i + 1 < lines.size() else ""
 	return "<field not found>"
 
@@ -140,7 +143,7 @@ func _ready() -> void:
 	rd.on_settlement_selected(e, empty_idx)
 	await _frames(4)
 	var dock_e := _dock_texts()
-	var dock_e_faith := _value_after(dock_e, "Faith")
+	var dock_e_faith := _value_after(dock_e, "FAITH")
 	var dock_e_note := ""
 	for t in dock_e:
 		if String(t).begins_with("— no adherents to count"):
@@ -154,7 +157,7 @@ func _ready() -> void:
 
 	_chk("X1 the panel row names the faith the engine gave it",
 		panel_e.find(elabel) >= 0, "row=%s expected label=%s" % [panel_e, elabel])
-	_chk("X2 the dock Faith row names the same faith",
+	_chk("X2 the dock FAITH head names the same faith",
 		dock_e_faith == elabel, "dock=%s panel label=%s" % [dock_e_faith, elabel])
 	_chk("X3 the hover card names the same faith",
 		String(card_e[0]).to_lower().find(elabel.to_lower()) >= 0,
@@ -181,7 +184,7 @@ func _ready() -> void:
 	rd.on_settlement_selected(p, pop_idx)
 	await _frames(4)
 	var dock_p := _dock_texts()
-	var dock_p_faith := _value_after(dock_p, "Faith")
+	var dock_p_faith := _value_after(dock_p, "FAITH")
 	## Independent expected share string, computed here from `adherents` and
 	## `population`, not read off either surface.
 	var want_pct: String = ws._religion_pct(int(pad.get(pkey, 0)), ppop)
@@ -195,10 +198,13 @@ func _ready() -> void:
 	_chk("X7 the panel row carries the share this settlement own numbers give",
 		panel_p.find(plabel) >= 0 and panel_p.find(want_pct) >= 0,
 		"row=%s wanted %s %s" % [panel_p, plabel, want_pct])
+	## The dock's share rows are three sibling Labels (chip glyph, faith name,
+	## share) since that rebuild, so the row's share is the text right after the
+	## name label; the head-count is that row's tooltip, not a text node.
 	var dock_row := ""
-	for t in dock_p:
-		if String(t).find(plabel) >= 0 and String(t).find("people") >= 0:
-			dock_row = String(t)
+	for i in dock_p.size() - 1:
+		if String(dock_p[i]) == plabel:
+			dock_row = String(dock_p[i + 1])
 	_chk("X8 and the dock adherence row carries the SAME share string",
 		dock_row.find(want_pct) >= 0,
 		"dockrow=%s wanted %s" % [dock_row, want_pct])

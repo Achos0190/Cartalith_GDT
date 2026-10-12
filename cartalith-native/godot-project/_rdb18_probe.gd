@@ -95,6 +95,16 @@ func _has_text(frag: String) -> bool:
 			return true
 	return false
 
+## The FAITH share rows: HBoxContainers whose tooltip is "<n> people" with three
+## children (swatch, faith label, share). Returns {label, share, tip} each.
+func _faith_rows(n: Node, out: Array) -> void:
+	for c in n.get_children():
+		if c is HBoxContainer and String((c as Control).tooltip_text).ends_with(" people") 				and c.get_child_count() == 3:
+			out.append({"label": String((c.get_child(1) as Label).text),
+				"share": String((c.get_child(2) as Label).text),
+				"tip": String((c as Control).tooltip_text)})
+		_faith_rows(c, out)
+
 func _text_with(frag: String) -> String:
 	for t in _texts():
 		if String(t).find(frag) >= 0:
@@ -211,10 +221,39 @@ func _vocab() -> Dictionary:
 		out[String(d.get("key", ""))] = String(d.get("label", ""))
 	return out
 
+## The FAITH section's head button and its trailing label are two sibling nodes.
+## Since the 2026-09-05 `SettlementExtras.dc.html` rebuild (`right_dock.gd`
+## `_build_settlement_faith` -> `_ext_section`) the section head is a Button reading
+## "<caret> FAITH" (the title is upper-cased) and the plurality is the TRAILING
+## label drawn right after it, not a `Faith` row's value. This probe used to look
+## for an exact "Faith" text node and read the next node as the value.
+func _faith_head_index() -> int:
+	var t := _texts()
+	for i in t.size():
+		if String(t[i]).ends_with(" FAITH"):
+			return i
+	return -1
+
 func _faith_value() -> String:
 	var t := _texts()
-	var i := t.find("Faith")
+	var i := _faith_head_index()
 	return "" if i < 0 or i + 1 >= t.size() else String(t[i + 1])
+
+## Every Control's tooltip under the dock body, depth-first. The denominator
+## sentence and each row's head-count live in tooltips since the same rebuild.
+func _tooltips(n: Node, out: Array) -> void:
+	for c in n.get_children():
+		if c is Control and String((c as Control).tooltip_text) != "":
+			out.append(String((c as Control).tooltip_text))
+		_tooltips(c, out)
+
+func _tooltip_with(frag: String) -> String:
+	var all: Array = []
+	_tooltips(app.right_dock_body, all)
+	for t in all:
+		if String(t).find(frag) >= 0:
+			return String(t)
+	return ""
 
 func _faith_row() -> void:
 	var rd = app.right_dock_ctrl
@@ -227,7 +266,7 @@ func _faith_row() -> void:
 
 	_check("B0 premise: this build has the belief binding at all",
 		bridge.has_belief_api(), "has_belief_api=%s" % bridge.has_belief_api())
-	_check("B1 the Settlement context carries a Faith row", _has_text("Faith"),
+	_check("B1 the Settlement context carries a FAITH section", _faith_head_index() >= 0,
 		"texts=%s" % [_texts().slice(0, 14)])
 	## Before any diffusion the two keys are absent, and absence must render as
 	## a dash rather than as `none` -- which is a real and different answer.
@@ -290,9 +329,12 @@ func _faith_row() -> void:
 		if n > top_n or (n == top_n and String(k) < top_key):
 			top_n = n
 			top_key = String(k)
-	var expect: String = "No religion" if top_key == "none" else top_key.capitalize()
+	## The engine's own vocabulary label, not `String.capitalize()` (which is wrong
+	## for `one_god` and five more since FH-R2 R2-1). `none` reads "No religion" on
+	## every shell surface, never the vocabulary's "None / secular".
+	var expect: String = "No religion" if top_key == "none" else String(vocab.get(top_key, top_key.capitalize()))
 	var shown := _faith_value()
-	_check("B6 the Faith row prints the label of the largest adherent count",
+	_check("B6 the FAITH head prints the label of the largest adherent count",
 		shown == expect,
 		"shown='%s' expected='%s' (top=%s n=%d of %d)"
 		% [shown, expect, top_key, top_n, pop])
@@ -302,26 +344,48 @@ func _faith_row() -> void:
 	## Never show a faith this settlement does not hold: no vocabulary label
 	## may appear as an adherence row unless its key is in THIS settlement's
 	## own `adherents`.
-	_check("B8 the Adherence group is drawn", _has_text("ADHERENCE"),
-		"texts=%s" % [_texts().slice(0, 24)])
+	## The separate "ADHERENCE" group no longer exists: its shares are the stacked
+	## bar and top-three rows INSIDE the FAITH section. The row HBoxes are the
+	## ones whose tooltip is "<n> people" (`right_dock.gd::_faith_row`).
+	var rows: Array = []
+	_faith_rows(app.right_dock_body, rows)
+	_check("B8 the share rows are drawn (at most three, one per held faith)",
+		rows.size() > 0 and rows.size() <= mini(3, adherents.size()),
+		"rows=%d adherents=%d" % [rows.size(), adherents.size()])
 	var strays := PackedStringArray()
-	for key in vocab.keys():
-		var k := String(key)
-		if adherents.has(k):
-			continue
-		var lbl: String = "No religion" if k == "none" else k.capitalize()
-		if _has_text("◆ " + lbl) or _has_text("◇ " + lbl):
-			strays.append(k)
+	for r in rows:
+		var rl: String = String(r["label"])
+		var matched := false
+		for k in adherents.keys():
+			var kl: String = "No religion" if String(k) == "none" else String(vocab.get(String(k), String(k)))
+			if kl == rl:
+				matched = true
+		if not matched:
+			strays.append(rl)
 	_check("B9 no faith is listed that this settlement does not hold",
 		strays.is_empty(), "strays=%s adherents=%s" % [strays, adherents.keys()])
 
 	## The denominator is stated, and it is this town.
-	_check("B10 the share note names its denominator",
-		_has_text("Shares of this settlement's own population"),
-		"note='%s'" % _text_with("Shares of"))
-	var row_line := _text_with(" people (")
-	_check("B11 each adherence row prints a count and a share",
-		row_line.find("%") >= 0 or row_line.find("(—)") >= 0, "row='%s'" % row_line)
+	_check("B10 the bar's note names its denominator",
+		_tooltip_with("Shares of this settlement's own population") != "",
+		"tooltip='%s'" % _tooltip_with("Shares of"))
+	## Each row prints a share and carries its head-count as its tooltip. The
+	## count is checked against `adherents` for the faith the row names, so a row
+	## that printed another faith's number would fail here.
+	var bad_rows := 0
+	for r in rows:
+		var want_n := -1
+		for k in adherents.keys():
+			var kl2: String = "No religion" if String(k) == "none" else String(vocab.get(String(k), String(k)))
+			if kl2 == String(r["label"]):
+				want_n = int(adherents[k])
+		var share := String(r["share"])
+		var tip_digits := String(r["tip"]).replace(",", "").replace(" ", "").replace(" ", "").replace(" ", "")
+		if want_n < 0 or not tip_digits.begins_with(str(want_n)) 				or not (share.find("%") >= 0 or share == "—"):
+			bad_rows += 1
+			print("RDB  bad row: ", r, " want_n=", want_n)
+	_check("B11 each share row prints a share and a head-count that match the engine",
+		rows.size() > 0 and bad_rows == 0, "rows=%s bad=%d" % [rows, bad_rows])
 
 	## `_live_settlement`'s stale-index guard: a snapshot whose `tid` is not the
 	## engine's must not resolve to whatever sits at that index.
@@ -360,7 +424,7 @@ func _fits() -> void:
 	var body: Control = app.right_dock_body
 	var scroll: ScrollContainer = body.get_parent() as ScrollContainer
 	_check("C0 premise: everything that can append is on screen at once",
-		_hdr("SETTLEMENT") == 0 and _hdr("STAMP STACK") > 0 and _has_text("Faith"),
+		_hdr("SETTLEMENT") == 0 and _hdr("STAMP STACK") > 0 and _faith_head_index() >= 0,
 		"headers=%s" % [_headers()])
 	_check("C1 the horizontal axis is the disabled one, so width cannot scroll away",
 		scroll != null and scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_DISABLED,

@@ -3772,6 +3772,16 @@ func _religion_pane_adherence(body: Control, st: Dictionary, state: String,
 			jump.tooltip_text = ("The roster inspector's Religion picker is the only thing in "
 				+ "this application that ever writes a religion. Setting one re-seeds the "
 				+ "belief layer on the next run.")
+		elif state == "not_run" or state == "invalidated":
+			## Added 2026-10-12: these two states' sentence (`_religion_state`) says
+			## "press Run below", but only the DIFFUSION pane drew a Run control, so a
+			## reader on the default ADHERENCE pane was told to press a button that was
+			## not there. `_religion_run` seeds a missing or stale layer itself.
+			var first := DccWidgets.action(body, "Run diffusion → %d year%s"
+				% [_religion_years, "" if _religion_years == 1 else "s"],
+				func(): _religion_run(), true)
+			first.tooltip_text = ("Seeds the layer from the faction roster, then runs the span "
+				+ "set in DIFFUSION. Nothing is written to the save file.")
 		_religion_stranded_layer(body)
 		return
 	_religion_totals(body, places)

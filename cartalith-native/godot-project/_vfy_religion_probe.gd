@@ -35,10 +35,16 @@ func _harvest(node: Node, out: Array) -> void:
 				out.append(t)
 		_harvest(c, out)
 
-func _render(ws: Control) -> Array:
+## Renders one pane. `_fill_religion` draws a single pane at a time since the
+## 2026-09-05 segmented rebuild: the divergence sentence is on "divergence" and
+## the culture-staleness warning on "diffusion"; the default is ADHERENCE, which
+## carries neither. The view is restored to ADHERENCE afterwards.
+func _render(ws: Control, view: String = "adherence") -> Array:
 	var host := VBoxContainer.new()
 	add_child(host)
+	ws._religion_view = view
 	ws._fill_religion(host)
+	ws._religion_view = "adherence"
 	var lines: Array = []
 	_harvest(host, lines)
 	remove_child(host)
@@ -236,7 +242,7 @@ func _ready() -> void:
 			continue
 		if String(d["religion"]) != faiths[f - 1]:
 			div += 1
-	var joined_all := " | ".join(PackedStringArray(lines))
+	var joined_all := " | ".join(PackedStringArray(_render(ws, "divergence")))
 	print("divergent settlements (independently counted): ", div)
 	# Wording re-cut 2026-09-03: the sentence now carries a denominator and reads
 	# "N of M settlements no longer share their ruler's state religion." The old
@@ -247,7 +253,8 @@ func _ready() -> void:
 		"the panel's divergence sentence matches an independent count (%d)" % div)
 
 	# ---- the culture gap ---------------------------------------------------
-	_chk(not joined_all.contains("STALE"), "no staleness claim right after a run")
+	var fresh_diffusion := " | ".join(PackedStringArray(_render(ws, "diffusion")))
+	_chk(not fresh_diffusion.contains("STALE"), "no staleness claim right after a run")
 	var before: PackedStringArray = ws._religion_culture_key.duplicate()
 	var cults: PackedStringArray = bridge.civ_culture_vocabulary()
 	var target := ""
@@ -256,7 +263,7 @@ func _ready() -> void:
 			target = String(c)
 			break
 	var ok: bool = bridge.civ_set_faction_field(1, "culture", target)
-	var after_lines := _render(ws)
+	var after_lines := _render(ws, "diffusion")
 	var ja := " | ".join(PackedStringArray(after_lines))
 	var eng: Dictionary = bridge.civ_belief_run(0)
 	print("culture ", before[0], " -> ", target, " ok=", ok, " ; engine seeded=", eng.get("seeded"))

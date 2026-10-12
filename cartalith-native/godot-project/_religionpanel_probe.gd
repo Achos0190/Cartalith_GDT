@@ -38,10 +38,17 @@ func _harvest(node: Node, out: Array) -> void:
 				out.append("<bar:%d>" % rects)
 		_harvest(c, out)
 
-func _render(ws: Control) -> Array:
+## Renders one pane. `_fill_religion` draws a single pane at a time since the
+## 2026-09-05 segmented rebuild: ADHERENCE (default) carries the roll-up, bar and
+## lists; DIFFUSION the years field, last-run line and culture-staleness warning;
+## DIVERGENCE the divergence sentence and the "Show on map" toggle. The view is
+## restored to ADHERENCE afterwards.
+func _render(ws: Control, view: String = "adherence") -> Array:
 	var host := VBoxContainer.new()
 	add_child(host)
+	ws._religion_view = view
 	ws._fill_religion(host)
+	ws._religion_view = "adherence"
 	var lines: Array = []
 	_harvest(host, lines)
 	remove_child(host)
@@ -112,11 +119,12 @@ func _ready() -> void:
 	_chk(set_none > 0, "the fixture set at least one faction's religion to None (%d)" % set_none)
 	ws._religion_run()
 	var l2 := _render(ws)
+	var l2d := _render(ws, "diffusion")
 	print("  ", _joined(l2))
 	_chk(_joined(l2).contains("no settlement's faction holds a religion"),
 		"the secular state names its cause rather than showing an empty breakdown")
 	_chk(_joined(l2).contains("Faction Roster"), "with the action that fixes it")
-	_chk(_joined(l2).contains("Last run:"), "and the run is still reported as having happened")
+	_chk(_joined(l2d).contains("Last run:"), "and the run is still reported as having happened")
 
 	print("== state 'live' ==")
 	bridge.civ_set_faction_field(1, "religion", "sun_cult")
@@ -136,9 +144,10 @@ func _ready() -> void:
 	_chk(not _joined(l3).contains("None / secular"),
 		"the unaffiliated slot never renders with the vocabulary's own confusing label")
 	_chk(_joined(l3).contains("No religion"), "it renders as words instead")
-	_chk(_joined(l3).contains("follow"), "the divergence count is stated")
-	_chk(_joined(l3).contains("Show on map"), "and the map layer is reachable from here")
-	_chk(not _joined(l3).contains("STALE"),
+	var l3v := _render(ws, "divergence")
+	_chk(_joined(l3v).contains("share their ruler"), "the divergence count is stated")
+	_chk(_joined(l3v).contains("Show on map"), "and the map layer is reachable from here")
+	_chk(not _joined(_render(ws, "diffusion")).contains("STALE"),
 		"no staleness warning fires immediately after a run")
 
 	print("== state 'invalidated': a religion set AFTER a run drops the layer ==")
@@ -154,7 +163,7 @@ func _ready() -> void:
 	print("== the culture half of the guard, which the engine does not cover ==")
 	var before_key: PackedStringArray = ws._religion_culture_key.duplicate()
 	bridge.civ_set_faction_field(1, "name", "Renamed Polity")
-	var l4 := _render(ws)
+	var l4 := _render(ws, "diffusion")
 	_chk(not _joined(l4).contains("culture has changed"),
 		"a rename does NOT raise the culture warning")
 	print("  culture column before: ", before_key)
@@ -166,7 +175,7 @@ func _ready() -> void:
 			break
 	print("  setting faction 1 culture: ", before_key[0], " -> ", target)
 	var ok: bool = bridge.civ_set_faction_field(1, "culture", target)
-	var l5 := _render(ws)
+	var l5 := _render(ws, "diffusion")
 	print("  ", _joined(l5).substr(0, 700))
 	_chk(ok, "the culture edit was accepted by the roster")
 	_chk(_joined(l5).contains("culture has changed"),
@@ -176,7 +185,7 @@ func _ready() -> void:
 		"while the ENGINE still reports the layer current -- which is the whole point")
 
 	ws._religion_run()
-	var l6 := _render(ws)
+	var l6 := _render(ws, "diffusion")
 	_chk(not _joined(l6).contains("culture has changed"),
 		"re-running clears the warning")
 
