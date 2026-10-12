@@ -77,8 +77,16 @@ const SECTION_CHANNELS: Array = [
 	{"id": "geology", "label": "Geology", "key": "lithology", "unit": ""},
 ]
 
+## The active Measure mode: an `id` from `MEASURE_MODES`. Starts on Distance (the
+## pre-2026-08-24 single ruler's behaviour). Changed only by `set_measure_mode`
+## and `recall_measurement`.
 static var _measure_mode := "distance"
+## Which `SECTION_CHANNELS` id the cross-section strip draws under the elevation
+## line. Display-only: changing it re-draws from `_section_result`, never re-queries.
 static var _section_channel := "elevation"
+## Sample count handed to `measure_section()`. 512 is a default whose source is
+## not recorded in this file (intent unverified); the Samples slider clamps it
+## to 32..1024 in `set_section_samples`.
 static var _section_samples := 512
 ## The canvas's own figure is ×4. This starts at ×2 because exaggeration here
 ## grows the strip rather than narrowing its value window (`section_strip.gd`),
@@ -89,18 +97,29 @@ static var _section_exaggeration := 2.0
 ## change re-draws the strip without asking the engine again.
 static var _section_result: Dictionary = {}
 
+## The active Measure mode id (read-only accessor; `tool_bar.gd` builds its mode
+## row and options from it).
 static func measure_mode() -> String:
 	return _measure_mode
 
+## The active cross-section channel id (read-only accessor for `tool_bar.gd`).
 static func section_channel() -> String:
 	return _section_channel
 
+## The requested cross-section sample count, 32..1024 (read-only accessor for
+## `tool_bar.gd`'s Samples slider).
 static func section_samples() -> int:
 	return _section_samples
 
+## The strip's vertical exaggeration factor (read-only accessor for
+## `tool_bar.gd`'s slider).
 static func section_exaggeration() -> float:
 	return _section_exaggeration
 
+## Registers Measure's and Region's click/drag/release/escape/backspace handlers
+## with `app` and hooks `tool_armed`. Call once, from `DccApp`; calling twice would
+## connect `_on_armed` twice (not guarded here). Handlers capture `app`, since this
+## class holds no instance.
 static func install(app) -> void:
 	app.register_tool_click_handler("measure", func(gx, gy): _measure_click(app, gx, gy))
 	app.register_tool_escape_handler("measure", func(): _measure_escape(app))
@@ -233,6 +252,8 @@ static func _measure_ring_children(app) -> Array:
 		out.append({"label": String(d["label"]), "callable": func() -> void: set_measure_mode(app, id)})
 	return out
 
+## Puts `text` on the OS clipboard and says so in the status line. Used by the
+## Copy coordinate submenu rows.
 static func _copy(app, text: String) -> void:
 	DisplayServer.clipboard_set(text)
 	app.set_status("hint", "Copied %s" % text, "text_ghost")
@@ -303,12 +324,19 @@ static func recall_measurement(app, mode: String, points: PackedVector2Array) ->
 	_push(app)
 	_refresh_bar()
 
+## The `MEASURE_MODES` entry for `_measure_mode`; falls back to the first entry
+## (Distance) if the id is somehow unknown, so callers never get an empty dict.
 static func _mode_meta() -> Dictionary:
 	for m in MEASURE_MODES:
 		if String((m as Dictionary)["id"]) == _measure_mode:
 			return m
 	return MEASURE_MODES[0]
 
+## `tool_armed` handler. Arming Measure starts a fresh engine chain and clears the
+## drawn points and cross-section; arming Region clears the engine rect and
+## marquee; arming anything else tears down Measure's draft overlay and strip.
+## (Region's engine rect is cleared on arm, not on disarm, so it survives for
+## Export as the header says.)
 static func _on_armed(app, id: String) -> void:
 	if id == "measure":
 		app.bridge.measure_begin()
@@ -346,12 +374,16 @@ static func set_measure_mode(app, id: String) -> void:
 	_push(app)
 	_refresh_bar()
 
+## Selects the strip's channel and re-draws from the cached `_section_result`
+## (no engine call), then rebuilds the options bar.
 static func set_section_channel(app, id: String) -> void:
 	_section_channel = id
 	if app.section_strip != null and not _section_result.is_empty():
 		app.section_strip.show_profile(_section_result, _section_channel, _section_exaggeration)
 	_refresh_bar()
 
+## Stores the exaggeration and re-draws the strip from the cached result. Does
+## not rebuild the bar: it is called from the slider that is mid-drag.
 static func set_section_exaggeration(app, v: float) -> void:
 	_section_exaggeration = v
 	if app.section_strip != null and not _section_result.is_empty():
@@ -365,6 +397,8 @@ static func set_section_exaggeration(app, v: float) -> void:
 static func set_section_samples(_app, n: int) -> void:
 	_section_samples = clampi(n, 32, 1024)
 
+## Re-queries the engine at the current sample count (via `_push`); called on
+## the Samples slider's release only, never per drag tick.
 static func recompute_section(app) -> void:
 	_push(app)
 
@@ -387,6 +421,9 @@ static func measure_status_text() -> String:
 		return "%d of 3 points minimum" % n
 	return "%d point%s" % [n, "" if n == 1 else "s"]
 
+## Pushes the mode's draw style (closed ring?, radius in cells for Radius, section
+## flag) and the current points to the viewport's tool overlay. Must run after
+## any change to `_measure_mode` or `_measure_points` or the overlay is stale.
 static func _apply_style(app) -> void:
 	var meta := _mode_meta()
 	var radius_cells := 0.0
@@ -396,6 +433,10 @@ static func _apply_style(app) -> void:
 		bool(meta.get("closed", false)), radius_cells, _measure_mode == "section")
 	app.viewport.tool_overlay.set_measure_points(_measure_points)
 
+## A map click in Measure: at a mode's point cap it restarts the chain from this
+## point (see `MEASURE_MODES`), then adds the point to engine and local copy,
+## restyles, pushes the reading to the dock and rebuilds the bar. Also the
+## first-point path of `measure_from`. Never writes to the world.
 static func _measure_click(app, gx: float, gy: float) -> void:
 	var cap := int(_mode_meta().get("max_points", 0))
 	if cap > 0 and _measure_points.size() >= cap:
@@ -412,6 +453,8 @@ static func _measure_click(app, gx: float, gy: float) -> void:
 	## is a dozen nodes and a map click is never mid-drag on one of them.
 	_refresh_bar()
 
+## Backspace: drops the last point and replays the rest into the engine, which
+## has no pop. No-op on an empty chain.
 static func _measure_drop_last(app) -> void:
 	if _measure_points.is_empty():
 		return
@@ -426,6 +469,8 @@ static func _measure_drop_last(app) -> void:
 	_push(app)
 	_refresh_bar()
 
+## Escape / Clear: clears engine chain, points, cross-section and handles, and
+## re-pushes the empty reading. Deliberately does NOT disarm Measure (§4.5.6).
 static func _measure_escape(app) -> void:
 	app.bridge.measure_clear()
 	_measure_points = PackedVector2Array()
@@ -440,6 +485,8 @@ static func _measure_escape(app) -> void:
 	## overwhelmingly the likely next action, so this does not fall through
 	## to the default tool-manager disarm.
 
+## Rebuilds the options bar if its singleton exists (it may not, e.g. in probes
+## that construct no shell), so the 'n of m points' text tracks state.
 static func _refresh_bar() -> void:
 	var bar := DccToolBar.instance()
 	if bar != null:
@@ -484,12 +531,18 @@ static func _push(app) -> void:
 ## its own (`map_clicked` already means something else: a placement click).
 static var _region_origin: Vector2 = Vector2(-1, -1)
 
+## Drag sample: latches the origin on the first sample and shows the normalised
+## marquee rect (draft, `true`). The engine is not touched until release.
 static func _region_drag(app, gx: float, gy: float) -> void:
 	if _region_origin.x < 0:
 		_region_origin = Vector2(gx, gy)
 	var rect := Rect2(_region_origin, Vector2(gx, gy) - _region_origin)
 	app.viewport.tool_overlay.set_region(rect.abs(), true)
 
+## Release: commits the marquee to the engine via `region_set` and shows the dock
+## readout. `valid` false (released off-map) collapses it to the origin, i.e.
+## an empty rect. A rect under 1 cell in either axis is discarded rather than
+## committed, and the latch is always reset.
 static func _region_release(app, gx: float, gy: float, valid: bool) -> void:
 	if _region_origin.x < 0:
 		return   ## A release with no matching drag (e.g. a plain click) -- nothing to commit.

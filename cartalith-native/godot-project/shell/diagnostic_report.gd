@@ -45,6 +45,7 @@ class_name DiagnosticReport
 ## opens that panel; `write()` stays callable on its own (that is what
 ## `_diagreport_probe.gd` exercises) and then uses `default_options()`.
 const OPT_SEED_PARAMS := "seed_params"
+## Option key for the project-path row (default OFF, see `default_options()`).
 const OPT_PROJECT_PATH := "project_path"
 
 ## Seed and parameters **on**: a world is reproducible from its seed, so a
@@ -125,10 +126,15 @@ static func manifest(app: Node, bridge: EngineBridge, opts: Dictionary) -> Array
 	rows.append(_project_path_row(app, path_on))
 	return rows
 
+## An included manifest row. `preview` is derived from `body` here so the panel
+## and file cannot disagree. Has no `why` key, by the manifest() contract.
 static func _row(key: String, label: String, source: String, body: String) -> Dictionary:
 	return {"key": key, "label": label, "source": source, "body": body,
 		"included": true, "preview": _preview(body)}
 
+## A manifest row that is NOT written: `included` false, empty body and preview,
+## and the reason in `why`. Use this rather than an empty section whenever a
+## value is off or unavailable (MISTAKES.md: never encode 'no value' as a value).
 static func _absent(key: String, label: String, source: String, why: String) -> Dictionary:
 	return {"key": key, "label": label, "source": source, "body": "", "included": false,
 		"preview": "", "why": why}
@@ -142,6 +148,9 @@ static func _preview(body: String) -> String:
 		first = first.substr(0, 45) + "…"
 	return first if extra <= 0 else "%s  (+%d line%s)" % [first, extra, "" if extra == 1 else "s"]
 
+## Body of the `session` row: local timestamp, Godot version and OS name, plus a
+## warning line when a generation is running (the GPU readouts then describe
+## the previous run). Reads `bridge.generating`; a null bridge skips that line.
 static func _session_section(bridge: EngineBridge) -> String:
 	var lines: Array[String] = []
 	lines.append("Written %s local time" % Time.get_datetime_string_from_system())
@@ -169,9 +178,18 @@ static func _session_section(bridge: EngineBridge) -> String:
 ## the honest question is "can this build read its own log", and that is also
 ## the right answer on Android, where the `pc` tag does not apply, nothing
 ## writes a log, and the row dashes with that as its reason.
+## Line cap for the log row -- a labelled judgement (no measurement or ruling
+## behind 40): enough context before a failure, small enough to read in the
+## review panel. Also appears in the row's label.
 const LOG_TAIL_LINES := 40
+## Byte cap on how much of the log file is read before splitting into lines
+## (64 KiB; a labelled judgement) so a long session's log is never loaded whole.
+## If the last 40 lines exceed it, fewer than 40 lines are kept.
 const LOG_TAIL_BYTES := 65536
 
+## The `log` row: the tail of Godot's own file log (see the note above
+## LOG_TAIL_LINES), or an absent row with the reason when the file cannot be
+## opened or is empty. Verbatim and unfiltered -- never claims to redact.
 static func _log_row() -> Dictionary:
 	var path := String(ProjectSettings.get_setting("debug/file_logging/log_path",
 		"user://logs/godot.log"))
@@ -199,6 +217,9 @@ static func _log_row() -> Dictionary:
 		return _absent("log", label, source, "the log file at %s is empty" % path)
 	return _row("log", label, source, body)
 
+## The `path` row, gated by the OPT_PROJECT_PATH toggle (`on`). Absent, with the
+## reason, when off, when `app` has no `current_project_path` property, or when
+## it is empty. Never writes a path unless the user turned it on.
 static func _project_path_row(app: Node, on: bool) -> Dictionary:
 	var label := "Project file path"
 	var source := "app.current_project_path"
@@ -393,6 +414,9 @@ static func _gpu_section(bridge: EngineBridge) -> String:
 			lines.append("    - %s: %d MB allocated, %d MB reserved" % [String(uu.get("name", "?")), int(uu.get("allocated_mb", 0)), int(uu.get("reserved_mb", 0))])
 	return "\n".join(lines)
 
+## Human name for a `RenderingServer.get_video_adapter_type()` value, matching
+## RenderingDevice.DEVICE_TYPE_*; any other value is printed as 'other/unknown'
+## with its number rather than guessed.
 static func _adapter_type_name(t: int) -> String:
 	match t:
 		RenderingDevice.DEVICE_TYPE_INTEGRATED_GPU: return "integrated GPU"

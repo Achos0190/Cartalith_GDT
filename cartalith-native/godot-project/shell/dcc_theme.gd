@@ -395,7 +395,10 @@ const LIGHT := {
 # Plex Mono already fills that exact role, shipped and tested; see
 # `dark_theme.tres`'s own header for the full reasoning.
 
+## The Regular-weight mono face every `mono()`/`mono_label()` tracked variation is
+## built on (see the Fira Code note above for why Plex, not Fira, is wired).
 const FONT_MONO := preload("res://fonts/IBMPlexMono-Regular.ttf")
+## The Medium-weight counterpart, chosen by `mono(..., medium = true)`.
 const FONT_MONO_MED := preload("res://fonts/IBMPlexMono-Medium.ttf")
 
 ## The wordmark, and only the wordmark: `font:500 12px 'IBM Plex Mono'` with
@@ -409,8 +412,15 @@ const FS_MENU := 12
 ## menu system was drawn in mono at 12, which is most of why the top of the
 ## shell did not read like the reference.
 const FS_MENU_ITEM := 11
+## Default font size, px: `label()`'s default and the base of the type scale. The
+## source of the 12 itself is not stated at this line (intent unverified); the
+## density-varying sizes go through `role_px()`.
 const FS_BODY := 12
+## Secondary text size, px (notes, hints, chip text). Same caveat as FS_BODY: the
+## source of the figure is not stated here.
 const FS_SMALL := 11
+## Small-control size, px -- the factories' size for compact buttons and chips
+## (`asset_library_window.gd` overrides to FS_SMALL where its chip needs more).
 const FS_TINY := 10
 const FS_MICRO := 9    ## Section labels and the smallest readouts.
 const FS_HEADER := 9   ## §-prefixed section headers, tracked wide.
@@ -525,6 +535,9 @@ const W_RAIL_COLLAPSED := 40
 const W_LEFT_DOCK := 372    ## `--ldW`. Unchanged at the base density; 330 on
 	## the new LAPTOP band and 400 on touch -- see `LAPTOP` and `ROLE`.
 const W_LEFT_DOCK_MIN := 300
+## Widest the left dock may be dragged, px. A labelled bound, not a canvas
+## figure (intent unverified); enforced by `dcc_shell.gd`'s dock drag clamp
+## between W_LEFT_DOCK_MIN and this.
 const W_LEFT_DOCK_MAX := 520
 const W_RIGHT_DOCK := 304   ## `--rdW`, **300 -> 304** (`ENV:25`). Four pixels,
 	## and they are not noise: the right dock's sample grid is a two-column
@@ -532,6 +545,8 @@ const W_RIGHT_DOCK := 304   ## `--rdW`, **300 -> 304** (`ENV:25`). Four pixels,
 	## `SLOPE · ASPECT`'s `'18° · 243°'`, sets the column. 280 on LAPTOP,
 	## 400 on touch.
 const W_RIGHT_DOCK_MIN := 260
+## Widest the right dock may be dragged, px; same role and caveat as
+## W_LEFT_DOCK_MAX, clamped in `dcc_shell.gd` with W_RIGHT_DOCK_MIN.
 const W_RIGHT_DOCK_MAX := 460
 
 # ── Menu geometry (§2) ───────────────────────────────────────────────────────
@@ -594,6 +609,8 @@ const MENU := {
 ## not be allowed to drift apart again without a reason in the prototype.
 const MENU_HIGHLIGHT_ALPHA := 0.09
 
+## The menu-row hover/highlight colour: the live accent at MENU_HIGHLIGHT_ALPHA,
+## resolved through `c()` so it follows the active palette. Not a cached value.
 static func menu_highlight() -> Color:
 	return Color(c("accent"), MENU_HIGHLIGHT_ALPHA)
 
@@ -1292,11 +1309,15 @@ const PHONE_ICON_BOX := 40       ## The app bar's own glyph cell. A *layout* box
 ## `height:32px` row, `height:3px` track, `22x22` round thumb -- the phone's
 ## slider, which unlike the dock's radius-0 2 px rule has a grabber at all.
 const PHONE_SLIDER_ROW := 32
+## Phone slider track height, px (`height:3px` above).
 const PHONE_SLIDER_TRACK := 3
+## Phone slider thumb diameter, px (the `22x22` round thumb above).
 const PHONE_SLIDER_THUMB := 22
 
 # ── Active palette ───────────────────────────────────────────────────────────
 
+## True while the dark palette (`DARK`) is active, false for `LIGHT`. Starts dark.
+## Written only by `apply_theme()`; read by `c()` and `is_dark()`.
 static var _dark := true
 
 ## PR-13/PR-14: flips the active token set. This alone repaints nothing --
@@ -1307,6 +1328,7 @@ static var _dark := true
 static func apply_theme(is_dark: bool) -> void:
 	_dark = is_dark
 
+## Whether the dark palette is active (see `_dark`).
 static func is_dark() -> bool:
 	return _dark
 
@@ -1318,9 +1340,13 @@ static func is_dark() -> bool:
 ## `dropdown()`, which is static.
 static var _touch := false
 
+## Published once by `DccShell._ready`; never call from a widget or a probe
+## without restoring the old value, since it changes every static factory's
+## sizing for the rest of the process.
 static func set_touch(v: bool) -> void:
 	_touch = v
 
+## True for tablet AND phone. Use `is_tablet()` for tablet-only decisions.
 static func is_touch() -> bool:
 	return _touch
 
@@ -1333,9 +1359,11 @@ static func is_touch() -> bool:
 ## the tap"), and no desktop or tablet artboard draws one.
 static var _phone_mode := false
 
+## Published by `DccShell` (with `set_touch`) at boot; see `_phone_mode`.
 static func set_phone(v: bool) -> void:
 	_phone_mode = v
 
+## True only for the phone composition (see `_phone_mode`).
 static func is_phone() -> bool:
 	return _phone_mode
 
@@ -1350,9 +1378,12 @@ static func is_phone() -> bool:
 ## through `_pscale` at all.
 static var _phone_scale := 1.0
 
+## Published by `DccShell`. Floored at 1.0, so a smaller device never shrinks a
+## tap target below its reference size.
 static func set_phone_scale(v: float) -> void:
 	_phone_scale = maxf(1.0, v)
 
+## The phone composition's scale factor, 1.0 on desktop and tablet.
 static func phone_scale() -> float:
 	return _phone_scale
 
@@ -1383,6 +1414,8 @@ static func is_tablet() -> bool:
 ## desktop silently running 330 px docks.
 static var _narrow := false
 
+## Published by `DccShell._compute_layout_mode()` (true when the window is narrower
+## than W_LAPTOP_MAX); see `_narrow` for why the default is false.
 static func set_narrow(v: bool) -> void:
 	_narrow = v
 
@@ -1469,6 +1502,10 @@ static func _apply_elide(l: Label) -> void:
 	l.clip_text = on
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS if on else TextServer.OVERRUN_NO_TRIMMING
 
+## Publishes the portrait flag. A no-op when unchanged; otherwise calls every
+## live `_portrait_watchers` callable (dropping invalid ones) and re-applies the
+## elide state to every registered label, pruning freed ones. Keep it cheap and
+## re-entrant-safe: it iterates backwards so a watcher may unregister itself.
 static func set_portrait(v: bool) -> void:
 	if v == _portrait:
 		return
@@ -1587,6 +1624,9 @@ static func remap(value: Color, old_pal: Dictionary) -> Variant:
 			return Color(nc.r, nc.g, nc.b, value.a)
 	return null
 
+## The active palette's colour for `token`. An unknown token raises
+## `push_error` and returns MAGENTA (loud on purpose -- never a plausible
+## colour), so a typo is visible on screen rather than silently grey.
 static func c(token: String) -> Color:
 	var pal: Dictionary = DARK if _dark else LIGHT
 	if not pal.has(token):
@@ -1600,6 +1640,9 @@ static func c(token: String) -> Color:
 # its neighbour, so two adjacent regions never stack two hairlines into one
 # 2 px line.
 
+## A filled region box in colour `token` with `line` borders only on the sides
+## named in `border` (keys left/right/top/bottom, widths in px). Radius is 0
+## (§11). Colours are baked at call time, so `rebuild_theme()` must rebuild it.
 static func panel(token: String = "panel", border: Dictionary = {}) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = c(token)
@@ -1779,15 +1822,20 @@ static func field_box(state: String, pad_x: int, pad_y: int,
 		sb.set_border_width_all(1)
 	return sb
 
+## A plain filled box in a literal `color` (not a token, so it does NOT follow
+## a theme flip) with all four corners at `radius`.
 static func flat(color: Color, radius: int = 0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = color
 	sb.set_corner_radius_all(radius)
 	return sb
 
+## A fresh empty StyleBox, for stripping a control's default background.
 static func empty() -> StyleBoxEmpty:
 	return StyleBoxEmpty.new()
 
+## An invisible StyleBox whose only effect is content margins (px), for padding
+## a control without drawing anything.
 static func inset(l: int, t: int, r: int, b: int) -> StyleBoxEmpty:
 	var sb := StyleBoxEmpty.new()
 	sb.content_margin_left = l
@@ -1809,6 +1857,9 @@ static func active_row(bottom_rule: bool = true) -> StyleBoxFlat:
 
 # ── Label helpers ────────────────────────────────────────────────────────────
 
+## A prose-face Label with colour from `token` and the given font size override.
+## No wrapping or clipping is set; callers that sit in a width-constrained bar
+## must set `clip_text` themselves (see `tool_bar.gd::_note`).
 static func label(text: String, token: String = "text", size: int = FS_BODY) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -1919,6 +1970,8 @@ static func hero(text: String) -> Label:
 static func hero2(text: String) -> Label:
 	return mono_label(text, "accent", role_px("fs_hero_2"), 0, true)
 
+## A 1 px `line`-coloured divider: horizontal by default (expands to fill width),
+## vertical when `vertical` (expands to fill height).
 static func rule(vertical: bool = false) -> Control:
 	var r := ColorRect.new()
 	r.color = c("line")
@@ -1930,6 +1983,8 @@ static func rule(vertical: bool = false) -> Control:
 		r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return r
 
+## An empty Control that expands in both directions, to push siblings apart in a
+## box container.
 static func spacer() -> Control:
 	var s := Control.new()
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL

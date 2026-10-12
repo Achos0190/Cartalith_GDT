@@ -63,17 +63,31 @@ class_name SettlementTypeStore
 ## this file should depend on to get six strings.
 const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
 
+## The live type list: one Dictionary per type with keys id, name, kind,
+## specialisation, traits (Array of String), walls (-1 auto / 0 none / 1 walled,
+## per settlement_types_window.gd's picker), age_mode ("auto"/"fixed"),
+## age_years, name_pool, usage_count. Process-wide; reset by `clear()`, replaced
+## wholesale by `restore_document()`. Never mutate it from outside this class
+## except through the setters below.
 static var _types: Array = []
 
 ## faction id (int) -> type id (String), `""` meaning no default (today's
 ## unmodified behaviour -- the canvas's own "None" column entry).
 static var _faction_defaults: Dictionary = {}
 
+## Counter behind the `t<N>` ids minted by `new_type`/`duplicate_type`. Reset to 1
+## by `clear()`; `restore_document()` sets it past the highest `t<N>` it reads so
+## a restored project never re-issues an id.
 static var _next_id := 1
 
+## The live type list itself (not a copy) -- callers iterate it for UI and must
+## mutate only through `set_field`/`toggle_trait`/etc. (callers: faction_roster_window.gd,
+## settlement_types_window.gd).
 static func types() -> Array:
 	return _types
 
+## The type Dictionary with this id (the live one, not a copy), or `{}` for an
+## empty or unknown id. Callers test `.is_empty()` rather than expecting an error.
 static func get_type(id: String) -> Dictionary:
 	if id == "":
 		return {}
@@ -128,12 +142,19 @@ static func delete_type(id: String) -> void:
 		if String(_faction_defaults[fid]) == id:
 			_faction_defaults[fid] = ""
 
+## Sets one field of the type with this id to `value` unvalidated -- the caller
+## (settlement_types_window.gd) owns the value's type and range. Silent no-op
+## for an unknown id; never creates a type.
 static func set_field(id: String, key: String, value) -> void:
 	for t in _types:
 		if String((t as Dictionary).get("id", "")) == id:
 			(t as Dictionary)[key] = value
 			return
 
+## Adds `key` to the type's `traits` array if absent, removes it if present.
+## Silent no-op for an unknown id. Keys are not checked against the engine's
+## trait vocabulary here; an invalid one fails later in
+## `civ_settlement_toggle_trait` at drop time (behaviour of that call unverified).
 static func toggle_trait(id: String, key: String) -> void:
 	for t in _types:
 		var d: Dictionary = t
@@ -146,12 +167,18 @@ static func toggle_trait(id: String, key: String) -> void:
 			d["traits"] = arr
 			return
 
+## The type id set as this faction's default, or `""` for none/unknown.
 static func faction_default(faction_id: int) -> String:
 	return String(_faction_defaults.get(faction_id, ""))
 
+## Pins `type_id` as the faction's default; `""` clears it. Does not check that
+## the type exists -- `apply_default_to_settlement` tolerates a dangling id as a no-op.
 static func set_faction_default(faction_id: int, type_id: String) -> void:
 	_faction_defaults[faction_id] = type_id
 
+## Increments the type's `usage_count` (shown in the types window). Called only
+## from `apply_default_to_settlement` after a successful apply; silent no-op for
+## an unknown id.
 static func mark_used(id: String) -> void:
 	for t in _types:
 		var d: Dictionary = t

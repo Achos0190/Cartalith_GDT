@@ -73,7 +73,11 @@ class_name DccToolBar
 ## redraw when the measure mode changes.
 static var _instance: DccToolBar = null
 
+## The shell root this bar arms tools through and reads state from; set once by
+## `install()` and never reassigned.
 var app: DccApp
+## The engine bridge (world presence, generation state). Set by `install()`; the
+## bar reads `has_world` to disable Sculpt and Paint.
 var bridge: EngineBridge
 
 ## Which of the three the bar is drawing. Follows `app.armed_tool` when that
@@ -81,6 +85,10 @@ var bridge: EngineBridge
 ## bar does not blank while Inspect is armed.
 var mode := "measure"
 
+## Builds the bar, records it as the process-wide `_instance`, and wires the
+## redraw triggers: tool armed, generation finished, world loaded and the two
+## landmark-finished signals. Call once, from `app.gd`; a second call replaces
+## `_instance` but leaves the first bar's connections live.
 static func install(a: DccApp, b: EngineBridge) -> DccToolBar:
 	var bar := DccToolBar.new()
 	bar.app = a
@@ -95,9 +103,14 @@ static func install(a: DccApp, b: EngineBridge) -> DccToolBar:
 	b.landmark_refine_finished.connect(func(_r: Dictionary): bar.refresh())
 	return bar
 
+## The one bar, or null before `install()` -- `global_tools.gd::_refresh_bar` and
+## `world_workspace.gd` null-check it, and so must any new caller.
 static func instance() -> DccToolBar:
 	return _instance
 
+## The three modes the bar draws (the canvas's left-hand mode buttons), which are
+## also the tool ids that switch it. Any other armed tool leaves the bar on its
+## last mode.
 const MODES := ["sculpt", "paint", "measure"]
 
 func _on_tool_armed(id: String) -> void:
@@ -290,6 +303,8 @@ func _tool_segment(row: HBoxContainer, text: String, on: bool, tip: String, pres
 ## (`_fit` and `_narrow` below are `static` since ET-D5 so the brush controls, which
 ## the Way row also builds, share them; neither touches instance state.)
 const BAR_LABEL_W := 74
+## Minimum width of a slider's value readout in the bar; see the note above
+## BAR_LABEL_W. The 38 itself has no recorded source (intent unverified).
 const BAR_VALUE_W := 38
 ## `width:96px` / `78px` / `70px` on the three tracks in `Cartalith Paint
 ## Toolbar.dc.html`'s `Sculpt raise 1920`, and `width:70px` in the DCC shell's
@@ -298,6 +313,9 @@ const BAR_VALUE_W := 38
 ## bar can afford with four parameters and a commit pair on a 1600 px window.
 const BAR_CONTROL_W := 70
 
+## Narrows one `DccWidgets.slider()` parts Dictionary to bar width: label column
+## via `_narrow`, readout to BAR_VALUE_W, slider to BAR_CONTROL_W. Touches only
+## the parts it is handed, never instance state.
 static func _fit(parts: Dictionary) -> void:
 	_narrow(parts["row"])
 	if parts.has("readout"):
@@ -685,12 +703,18 @@ const BRUSH_TOOLS := ["paint", "sculpt", "way"]
 ## The engine's symmetry names, in the order the control lists them (`lib.rs`'s
 ## `sculpt_begin_stroke_with` table), and the words the user reads.
 const SYM_MODES := ["none", "vertical", "horizontal", "dual", "radial"]
+## Display words for SYM_MODES, index for index -- the two arrays must keep the
+## same length and order (the choice control maps by index).
 const SYM_LABELS := ["Off", "Vertical", "Horizontal", "Dual", "Radial"]
 ## Radial copy count: the engine's own default (4) and its refusal bound (1..64) are
 ## `lib.rs`'s; 2..16 is a labelled JUDGEMENT for the control -- 1 copy is "off" and above
 ## 16 spokes no longer read as symmetry on a plate this size.
 const RADIAL_DEFAULT := 4
+## Lowest copy count the control offers (labelled judgement, see RADIAL_DEFAULT:
+## 1 copy is 'off').
 const RADIAL_MIN := 2
+## Highest copy count the control offers (labelled judgement, inside the engine's
+## 1..64).
 const RADIAL_MAX := 16
 ## Mirror-axis rotation range, degrees (judgement): a mirror axis repeats every 180 deg,
 ## so -90..90 reaches every distinct axis once.
@@ -699,17 +723,21 @@ const ANGLE_MAX_DEG := 90.0
 ## drawn value and the engine default (`ET-D1`); 1 and 100 are control bounds (the engine
 ## accepts 0.01..10), a labelled judgement.
 const SPACING_PCT_DEFAULT := 18.0
+## Lowest Gap value, percent of brush diameter (control bound, judgement).
 const SPACING_PCT_MIN := 1.0
+## Highest Gap value, percent of brush diameter (control bound, judgement).
 const SPACING_PCT_MAX := 100.0
 ## Scatter bounds. Count 1..16 is the engine's own cap (`ET-D1`, PhotoCraft's), spread in
 ## dab diameters 0..3 is a JUDGEMENT (the engine accepts 0..10; beyond ~3 the copies stop
 ## reading as one dab).
 const SCATTER_COUNT_MAX := 16
+## Highest Spread, in brush diameters (judgement; the engine accepts up to 10).
 const SCATTER_AMOUNT_MAX := 3.0
 ## Way drag: the two modes and their words; defaults are the engine's (`lib.rs`
 ## `way_stroke_begin` table): routed, smooth on, corridor 3.0 cells, pull 2.0. The control
 ## ranges are JUDGEMENTS inside the engine's (corridor > 0 and <= 64, pull 0..100).
 const WAY_MODES := ["routed", "freehand"]
+## Display words for WAY_MODES, index for index.
 const WAY_MODE_LABELS := ["Routed", "Freehand"]
 ## Waypoint spacing of a routed drag, in grid cells: 2.0 is `infrastructure_workspace.gd`'s own
 ## `WAY_DRAG_SPACING_CELLS` (a labelled judgement there) and MUST equal it, because an untouched
@@ -717,12 +745,21 @@ const WAY_MODE_LABELS := ["Routed", "Freehand"]
 ## control: below 1 the leg count explodes, and at 12 a short drag no longer makes the engine's
 ## minimum of waypoints (measured: nothing committed on a 24-cell drag).
 const WAY_SPACING_DEFAULT := 2.0
+## Lowest waypoint spacing in cells (judgement; see WAY_SPACING_DEFAULT's note).
 const WAY_SPACING_MIN := 1.0
+## Highest waypoint spacing in cells (judgement; see WAY_SPACING_DEFAULT's note).
 const WAY_SPACING_MAX := 8.0
+## Routed-drag corridor in cells: the engine's `way_stroke_begin` default (per the
+## note above WAY_MODES). An untouched control erases its key so this applies.
 const WAY_CORRIDOR_DEFAULT := 3.0
+## Lowest corridor offered, cells (judgement inside the engine's > 0).
 const WAY_CORRIDOR_MIN := 1.0
+## Highest corridor offered, cells (judgement inside the engine's <= 64).
 const WAY_CORRIDOR_MAX := 16.0
+## Routed-drag pull strength: the engine's `way_stroke_begin` default (per the
+## note above WAY_MODES).
 const WAY_PULL_DEFAULT := 2.0
+## Highest pull offered (judgement inside the engine's 0..100).
 const WAY_PULL_MAX := 20.0
 
 ## The tool whose NEXT map press sets the symmetry centre instead of drawing, or `""`.
@@ -785,6 +822,8 @@ static func sym_mode(o: Dictionary) -> String:
 	var m := String(o.get("symmetry", "none"))
 	return m if SYM_MODES.has(m) else "none"
 
+## The radial copy count in the seam, RADIAL_DEFAULT when absent. Not clamped on
+## read; `sym_write_count` is the clamp.
 static func sym_count(o: Dictionary) -> int:
 	return int(o.get("radial_count", RADIAL_DEFAULT))
 
@@ -815,6 +854,8 @@ static func sym_write_mode(o: Dictionary, mode: String) -> void:
 	if mode == "radial" and not o.has("radial_count"):
 		o["radial_count"] = RADIAL_DEFAULT
 
+## Writes `radial_count` as an int, rounded and clamped to RADIAL_MIN..RADIAL_MAX.
+## Unlike the other writers it never erases the key.
 static func sym_write_count(o: Dictionary, n: float) -> void:
 	o["radial_count"] = clampi(int(round(n)), RADIAL_MIN, RADIAL_MAX)
 
@@ -840,15 +881,20 @@ static func sym_write_centre(o: Dictionary, c: Variant) -> void:
 static func paint_spacing_on(o: Dictionary) -> bool:
 	return bool(o.get("spacing_enabled", true))
 
+## Spacing in percent (the seam stores a fraction); SPACING_PCT_DEFAULT when absent.
 static func paint_spacing_pct(o: Dictionary) -> float:
 	return float(o.get("spacing", SPACING_PCT_DEFAULT / 100.0)) * 100.0
 
+## On erases `spacing_enabled` (the default); off writes an explicit false.
 static func paint_write_spacing_on(o: Dictionary, on: bool) -> void:
 	if on:
 		o.erase("spacing_enabled")
 	else:
 		o["spacing_enabled"] = false
 
+## Writes spacing from percent, clamped to SPACING_PCT_MIN..MAX and stored as a
+## fraction; the default value erases the key so an untouched control is exactly
+## the untouched seam.
 static func paint_write_spacing_pct(o: Dictionary, pct: float) -> void:
 	var p := clampf(pct, SPACING_PCT_MIN, SPACING_PCT_MAX)
 	if is_equal_approx(p, SPACING_PCT_DEFAULT):
@@ -860,6 +906,7 @@ static func paint_write_spacing_pct(o: Dictionary, pct: float) -> void:
 static func paint_pressure_on(o: Dictionary) -> bool:
 	return bool(o.get("pressure_size", true))
 
+## On erases `pressure_size` (engine default true); off writes false.
 static func paint_write_pressure(o: Dictionary, on: bool) -> void:
 	if on:
 		o.erase("pressure_size")
@@ -870,9 +917,12 @@ static func paint_write_pressure(o: Dictionary, on: bool) -> void:
 static func paint_scatter_count(o: Dictionary) -> int:
 	return int(o.get("scatter_count", 1))
 
+## Scatter spread in brush diameters; 0.0 when absent.
 static func paint_scatter_amount(o: Dictionary) -> float:
 	return float(o.get("scatter_amount", 0.0))
 
+## Writes `scatter_count`, rounded and clamped to 1..SCATTER_COUNT_MAX; 1 (off)
+## erases the key.
 static func paint_write_scatter_count(o: Dictionary, n: float) -> void:
 	var c := clampi(int(round(n)), 1, SCATTER_COUNT_MAX)
 	if c == 1:
@@ -880,6 +930,7 @@ static func paint_write_scatter_count(o: Dictionary, n: float) -> void:
 	else:
 		o["scatter_count"] = c
 
+## Writes `scatter_amount` clamped to 0..SCATTER_AMOUNT_MAX; zero erases the key.
 static func paint_write_scatter_amount(o: Dictionary, a: float) -> void:
 	var v := clampf(a, 0.0, SCATTER_AMOUNT_MAX)
 	if is_zero_approx(v):
@@ -892,6 +943,8 @@ static func way_mode(o: Dictionary) -> String:
 	var m := String(o.get("mode", "routed"))
 	return m if WAY_MODES.has(m) else "routed"
 
+## Writes the Way drag mode; an unknown name is ignored and `routed` (the
+## default) erases the key.
 static func way_write_mode(o: Dictionary, mode: String) -> void:
 	if not WAY_MODES.has(mode):
 		return
@@ -900,18 +953,23 @@ static func way_write_mode(o: Dictionary, mode: String) -> void:
 	else:
 		o["mode"] = mode
 
+## Whether the drawn path is Catmull-Rom smoothed; true when absent (engine default).
 static func way_smooth_on(o: Dictionary) -> bool:
 	return bool(o.get("smooth", true))
 
+## On erases `smooth` (the default); off writes an explicit false.
 static func way_write_smooth(o: Dictionary, on: bool) -> void:
 	if on:
 		o.erase("smooth")
 	else:
 		o["smooth"] = false
 
+## Waypoint spacing in cells; WAY_SPACING_DEFAULT when absent.
 static func way_spacing(o: Dictionary) -> float:
 	return float(o.get("spacing", WAY_SPACING_DEFAULT))
 
+## Writes `spacing` clamped to WAY_SPACING_MIN..MAX; the default erases the key
+## (it MUST keep equalling the shell's own default, see WAY_SPACING_DEFAULT).
 static func way_write_spacing(o: Dictionary, v: float) -> void:
 	var c := clampf(v, WAY_SPACING_MIN, WAY_SPACING_MAX)
 	if is_equal_approx(c, WAY_SPACING_DEFAULT):
@@ -919,12 +977,15 @@ static func way_write_spacing(o: Dictionary, v: float) -> void:
 	else:
 		o["spacing"] = c
 
+## Corridor in cells; WAY_CORRIDOR_DEFAULT when absent.
 static func way_corridor(o: Dictionary) -> float:
 	return float(o.get("corridor", WAY_CORRIDOR_DEFAULT))
 
+## Pull strength; WAY_PULL_DEFAULT when absent.
 static func way_pull(o: Dictionary) -> float:
 	return float(o.get("pull", WAY_PULL_DEFAULT))
 
+## Writes `corridor` clamped to WAY_CORRIDOR_MIN..MAX; the default erases the key.
 static func way_write_corridor(o: Dictionary, v: float) -> void:
 	var c := clampf(v, WAY_CORRIDOR_MIN, WAY_CORRIDOR_MAX)
 	if is_equal_approx(c, WAY_CORRIDOR_DEFAULT):
@@ -932,6 +993,7 @@ static func way_write_corridor(o: Dictionary, v: float) -> void:
 	else:
 		o["corridor"] = c
 
+## Writes `pull` clamped to 0..WAY_PULL_MAX; the default erases the key.
 static func way_write_pull(o: Dictionary, v: float) -> void:
 	var p := clampf(v, 0.0, WAY_PULL_MAX)
 	if is_equal_approx(p, WAY_PULL_DEFAULT):
@@ -1024,6 +1086,9 @@ static func build_brush_controls(parent: Control, app: DccApp, tool: String) -> 
 			_controls_way(parent, app)
 	_controls_symmetry(parent, app, tool)
 
+## Paint's brush controls: Spacing toggle and Gap slider (disabled while spacing
+## is off), Pressure toggle, Scatter count and Spread (disabled at one copy).
+## Every callback re-fetches `options(app, "paint")` at call time.
 static func _controls_paint(parent: Control, app: DccApp) -> void:
 	var o := options(app, "paint")
 	var spacing_on := paint_spacing_on(o)
@@ -1060,6 +1125,9 @@ static func _controls_paint(parent: Control, app: DccApp) -> void:
 	if count <= 1:
 		_disable_slider(spread, "Needs more than one scatter copy.")
 
+## Sculpt's brush controls: only the Pressure toggle, which reads and writes the
+## world workspace's `sculpt_pressure_on`/`set_sculpt_pressure_on` rather than the
+## options seam (it shows on when the owner lacks the method).
 static func _controls_sculpt(parent: Control, app: DccApp) -> void:
 	var owner := seam_owner(app, "sculpt")
 	var on := true
@@ -1073,6 +1141,9 @@ static func _controls_sculpt(parent: Control, app: DccApp) -> void:
 		"A pen's pressure scales each stamp's STRENGTH along the stroke. A mouse reports no pressure, so this changes nothing for one.")))
 	_hint(parent, "→ strength", "Pressure drives the stamp strength.")
 
+## Way's road-drag controls: Mode, Smooth and an Advanced disclosure (routed mode
+## only) holding Waypoints, Corridor and Pull. For Freehand it returns early with
+## the Advanced button disabled.
 static func _controls_way(parent: Control, app: DccApp) -> void:
 	var o := options(app, "way")
 	var mode := way_mode(o)
@@ -1119,6 +1190,9 @@ static func _controls_way(parent: Control, app: DccApp) -> void:
 		_fit(pull)
 		_touch_floor(pull)
 
+## Symmetry controls shared by all three brush tools: the mode choice and, once
+## it is not Off, Copies (radial) or Angle (mirror axes), Pick centre / Reset
+## centre and a centre readout. Nothing beyond the choice is drawn while Off.
 static func _controls_symmetry(parent: Control, app: DccApp, tool: String) -> void:
 	var o := options(app, tool)
 	var mode := sym_mode(o)
@@ -1194,6 +1268,8 @@ static func _disable_slider(parts: Dictionary, why: String) -> void:
 ## `_build_measure_options()` still looks up labels and hints through it. The
 ## canvas's grouping is a presentation fact about this one row.
 const MEASURE_GROUP_POINT := ["distance", "bearing", "area", "radius"]
+## The third button group on the Measure row (the Δ vertical mode); see
+## MEASURE_GROUP_POINT. The Cross-section channel group sits between them.
 const MEASURE_GROUP_VERTICAL := ["vertical"]
 
 func _measure_mode_dict(id: String) -> Dictionary:
