@@ -5055,6 +5055,81 @@ mod tests {
         assert!(unguarded_bad > 0, "positive control: without the guard some order>=3 cell must hand on to a smaller receiver");
     }
 
+    /// Cells of `recv` that sit on a receiver cycle (any length): a walk from
+    /// every cell, three-colour marking, O(cells). `-1` and self-receivers end
+    /// a walk.
+    fn cycle_cells(recv: &[i32]) -> usize {
+        let n = recv.len();
+        let mut state = vec![0u8; n]; // 0 unseen, 1 on the current walk, 2 done
+        let mut on_cycle = 0;
+        for s in 0..n {
+            let mut path = Vec::new();
+            let mut cur = s;
+            let mut ended = false; // the walk left the grid or hit a pit
+            while state[cur] == 0 {
+                state[cur] = 1;
+                path.push(cur);
+                let r = recv[cur];
+                if r < 0 || r as usize == cur || r as usize >= n {
+                    ended = true;
+                    break;
+                }
+                cur = r as usize;
+            }
+            if !ended && state[cur] == 1 {
+                // `cur` is on the current walk: the cycle is path[pos..].
+                let pos = path.iter().position(|&c| c == cur).expect("cur is on the walk");
+                on_cycle += path.len() - pos;
+            }
+            for c in path {
+                state[c] = 2;
+            }
+        }
+        on_cycle
+    }
+
+    /// The tree the drawn network walks (`combined_receivers` in
+    /// `cartalith-godot`'s `context_pick_bridge.rs`, repeated here because a
+    /// cdylib cannot be linked): a cell's channel receiver where it has one,
+    /// its steepest-descent receiver on the routing surface otherwise. On the
+    /// integrated path the receiver guard leaves it with no cycle.
+    ///
+    /// **This test has no positive control on its own fixtures**: with the
+    /// guard disabled these six smooth fields (and 59 quantised ones, tried
+    /// 2026-10-13) show no cycle either, so it cannot see the guard reverted.
+    /// It pins acyclicity against a future change to the steering or the
+    /// guard; the guard-off positive control is the real world, in
+    /// `cartalith-godot/tests/river_gap_harness.rs`'s `river_gap_bars`
+    /// (seed 71077345: 8 cycle cells with the guard off, 0 with it on).
+    #[test]
+    fn the_integrated_combined_receiver_tree_has_no_cycle() {
+        // Protects: acyclicity of the integrated combined receiver tree (the tree `trace_branch`, `catchment_mask` and `river_draw_plan` walk) over six synthetic seeds; see the doc above for why the guard's own regression bar lives in `river_gap_bars`. The steepest-descent tree alone is asserted acyclic as the premise.
+        let (w, h) = (96usize, 72usize);
+        for seed in [1u64, 2, 3, 5, 8, 13] {
+            let f = smooth_field(w, h, seed);
+            let s = super::build_routing_surface(&f, w, h, 0.0, false);
+            let flow = super::compute_flow(w, h, &s, None, false, false);
+            let d8 = super::flow_receivers(&s, w, h, false);
+            let combined = |c: &super::ChannelResult| -> Vec<i32> {
+                (0..w * h).map(|i| if c.recv[i] >= 0 { c.recv[i] } else { d8[i] }).collect()
+            };
+            assert_eq!(cycle_cells(&d8), 0, "seed {seed}: the steepest-descent tree alone must be acyclic");
+            let g = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
+            let c = cycle_cells(&combined(&g));
+            assert_eq!(c, 0, "seed {seed}: {c} cells of the integrated combined receiver tree sit on a cycle");
+        }
+    }
+
+    /// Protects: `cycle_cells`, the counter the test above relies on: a 2-cycle
+    /// and a 3-cycle are counted cell by cell, a tail leading into a cycle is
+    /// not, and a tree counts 0.
+    #[test]
+    fn cycle_cells_counts_only_cells_on_a_cycle() {
+        // 0->1->0 (2-cycle), 2->0 (tail), 3->4->5->3 (3-cycle), 6->-1, 7->7.
+        assert_eq!(cycle_cells(&[1, 0, 0, 4, 5, 3, -1, 7]), 5);
+        assert_eq!(cycle_cells(&[1, 2, -1, 2]), 0);
+    }
+
     /// A land grid `w x h` at height 0.8 whose bottom row is sea (0.1), with
     /// the flow raster the runs are drawn into, an all-`-1` receiver table and
     /// the drawn-water classification (1 where the field is at or below the

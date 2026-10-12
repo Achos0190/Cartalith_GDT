@@ -91,6 +91,13 @@ const BIN_EDGES: [f64; 5] = [1.5, 3.0, 6.0, 12.0, 24.0];
 struct Gaps {
     /// Channel cells (`chan == 1`).
     chan_cells: usize,
+    /// Cells of the combined receiver tree (`down`: the channel receiver, else
+    /// the steepest-descent one) that sit on a receiver cycle, any length. A
+    /// cycle traps `trace_branch` and `catchment_mask`, and `river_draw_plan`'s
+    /// downhill walk. Seed 71077345 measured 8 (four 2-cycles at flat or
+    /// near-flat mouths) with the receiver guard disabled on 2026-10-13, 0 with
+    /// it (see [`river_gap_bars`]).
+    down_cycle_cells: usize,
     /// Channel cells whose receiver is land with `chan == 0`.
     raster_dangling: usize,
     /// Channel cells with no receiver (`recv == -1`) that are land.
@@ -645,6 +652,39 @@ fn explain_loose(
     format!("{head}: NEVER ARRIVES within {PATH_LIMIT} steps (last cell ({}, {}), field {:.4})", cur % gw, cur / gw, field[cur])
 }
 
+/// Cells of `recv` that sit on a receiver cycle (any length): one walk from
+/// every cell with three-state marking, O(cells). A `-1`, out-of-range or
+/// self receiver ends a walk; a tail that runs INTO a cycle is not counted.
+fn cycle_cells(recv: &[i32]) -> usize {
+    let n = recv.len();
+    let mut state = vec![0u8; n]; // 0 unseen, 1 on the current walk, 2 done
+    let mut on_cycle = 0;
+    for s in 0..n {
+        let mut path = Vec::new();
+        let mut cur = s;
+        let mut ended = false; // the walk hit a pit or left the grid
+        while state[cur] == 0 {
+            state[cur] = 1;
+            path.push(cur);
+            let r = recv[cur];
+            if r < 0 || r as usize == cur || r as usize >= n {
+                ended = true;
+                break;
+            }
+            cur = r as usize;
+        }
+        if !ended && state[cur] == 1 {
+            // `cur` is on this walk: the cycle is `path[pos..]`.
+            let pos = path.iter().position(|&c| c == cur).expect("cur is on the walk");
+            on_cycle += path.len() - pos;
+        }
+        for c in path {
+            state[c] = 2;
+        }
+    }
+    on_cycle
+}
+
 /// Counts every gap on one generated world. See the module doc for the
 /// definitions; `km` is the map width the thresholds scale with.
 fn measure(ws: &WorldState, world: bool, km: f64, gw: usize, gh: usize) -> Gaps {
@@ -661,6 +701,7 @@ fn measure(ws: &WorldState, world: bool, km: f64, gw: usize, gh: usize) -> Gaps 
     // linked from here): the channel receiver where a cell has one, else the
     // steepest-descent one -- what `WorldGen::river_draws` hands the plan.
     let down: Vec<i32> = (0..n).map(|i| if ch.recv[i] >= 0 { ch.recv[i] } else { tree[i] }).collect();
+    g.down_cycle_cells = cycle_cells(&down);
 
     // -- 1. raster channel network -------------------------------------------
     let chan_cells: Vec<usize> = (0..n).filter(|&i| ch.chan[i] != 0).collect();
@@ -915,6 +956,16 @@ fn env_list<T: std::str::FromStr + Copy>(key: &str, default: &[T]) -> Vec<T> {
     }
 }
 
+/// Protects: [`cycle_cells`], the counter bar (9) of [`river_gap_bars`] rests
+/// on: a 2-cycle and a 3-cycle count cell by cell, a tail into a cycle and a
+/// pit-ended tree count nothing.
+#[test]
+fn cycle_cells_counts_only_cells_on_a_cycle() {
+    // 0->1->0 (2-cycle), 2->0 (tail), 3->4->5->3 (3-cycle), 6 a pit, 7 self.
+    assert_eq!(cycle_cells(&[1, 0, 0, 4, 5, 3, -1, 7]), 5);
+    assert_eq!(cycle_cells(&[1, 2, -1, 2]), 0);
+}
+
 /// Protects: the harness's own validity -- on a hand-built tree with one
 /// channel cell whose receiver is dry non-channel land the raster counter
 /// must read exactly 1, and a joined run must not be called loose. A harness
@@ -983,6 +1034,7 @@ fn river_gap_measurement() {
             100.0 * g.raster_dangling as f64 / g.chan_cells.max(1) as f64,
             g.raster_pits
         );
+        println!("  combined receiver tree: {} cells on a cycle", g.down_cycle_cells);
         println!(
             "  runs {} (hidden parallel {}, drawn {}, bridged {}); drawn ends: joined {} / at water {} / at edge {} / loose {} (of which > {BRIDGE_REACH} cells from any continuation: {beyond}; nearest continuation is water: {})",
             g.runs,
@@ -1096,7 +1148,9 @@ const MAX_STEP_RISE: f64 = 1e-3;
 /// untouched, so no hidden parallel run is un-hidden, and no extension cell lies
 /// alongside another river (no doubled line); (8) every added step is to an adjacent cell and none rises more than
 /// [`MAX_STEP_RISE`] on the routing surface (so no seam jump, teleport or uphill
-/// bridge). Written, and
+/// bridge); (9) the combined receiver tree the plan walks has no cycle (the
+/// seed-71077345 mouth 2-cycles, `OUTSTANDING_WORK.md`; closed by the receiver
+/// guard, 8 cells with the guard disabled, measured 2026-10-13). Written, and
 /// run red against HEAD, BEFORE `river_draw_plan` grew its continuation, so it
 /// is a positive control: it fails on the code that has the defect.
 #[test]
@@ -1109,6 +1163,7 @@ fn river_gap_bars() {
         let g = measure(&ws, world, APP_KM, gw, gh);
         let beyond = g.loose_gaps.iter().filter(|&&d| d > BRIDGE_REACH).count();
         let allowed = ((1.0 - MIN_LOOSE_REDUCTION) * before as f64).floor() as usize;
+        assert_eq!(g.down_cycle_cells, 0, "seed {seed}: {} cells of the combined receiver tree sit on a cycle", g.down_cycle_cells);
         assert!(beyond <= allowed, "seed {seed}: {beyond} loose ends remain of {before} (bar: at most {allowed})");
         assert_eq!(g.loose_before, before, "seed {seed}: the no-downhill-data plan must reproduce the recorded HEAD count");
         assert_eq!(g.new_loose, 0, "seed {seed}: the extension must not create a loose end");

@@ -630,6 +630,73 @@ func _ready() -> void:
 			_ok(river_bad > 0 and river_worst > 10,
 				"the river-masked region really does differ between screen and export (export still inks rivers, screen does not) -- worst %d levels over %d differing bytes" % [river_worst, river_bad])
 
+	print("\n== 13b. the same comparison with ET-C2 adjustment stacks ==")
+	## `OUTSTANDING_WORK.md`'s ET-C2 row (closed 2026-10-13): section 13 ran only
+	## the default look, with no stack. Here the same world, the same two masks
+	## and the same bounds (`worst <= 1`, fewer than 1 byte in 10 000 off) under a
+	## water-only, a terrain-only and a two-layer stack -- the stacks
+	## `export_raster.rs`'s `adjust_census_tests` use, as JSON. The screen weights
+	## a stack by whole water cells (`render::grid_water_weight`), the export by
+	## the smooth shore's coverage (`render::bake_water_weight`); outside the
+	## shore band those must agree, and this measures that they do on a real
+	## world. The overlay stack (ET-C3, `overlay_adjust.gd`) is not here: it acts
+	## on Godot-drawn ink, which `export_raster_png` does not draw; `_etc3_probe.gd`
+	## pins it. The masks are built as section 13 builds them, once, with no
+	## stack: a stack moves neither the rivers' geometry nor the shore field.
+	var water_json := '{"entries":[{"kind":{"hsl":{"hue_deg":120.0,"saturation":0.3,"lightness":0.0}}},{"kind":{"levels":{"in_black":0.0,"in_white":255.0,"gamma":1.0,"out_black":40.0,"out_white":210.0}}}]}'
+	var terrain_json := '{"entries":[{"kind":{"levels":{"in_black":0.0,"in_white":255.0,"gamma":1.8,"out_black":0.0,"out_white":255.0}}},{"kind":{"hsl":{"hue_deg":-90.0,"saturation":0.0,"lightness":0.0}}}]}'
+	var empty_json := '{"entries":[]}'
+	var gtex0: ImageTexture = bridge.world_gen.build_color_texture()
+	var base_scr: Image = gtex0.get_image() if gtex0 != null else null
+	if base_scr != null:
+		base_scr.convert(Image.FORMAT_RGB8)
+	var m13 := _river_mask(bridge.world_gen, 2048, 1312)
+	var s13 := _shore_mask(bridge.world_gen, 2048, 1312)
+	_ok(base_scr != null and s13.size() == m13.size() and m13.size() == 2048 * 1312, "13b: the no-stack screen and both masks are in hand")
+	for leg in [["water stack", water_json, empty_json], ["terrain stack", empty_json, terrain_json], ["both stacks", water_json, terrain_json]]:
+		var b13_rw: Dictionary = bridge.world_gen.appearance_set_adjust("water", leg[1])
+		var b13_rt: Dictionary = bridge.world_gen.appearance_set_adjust("terrain", leg[2])
+		_ok(bool(b13_rw.get("ok", false)) and bool(b13_rt.get("ok", false)), "13b %s: both stacks accepted (%s / %s)" % [leg[0], b13_rw.get("error", ""), b13_rt.get("error", "")])
+		var b13_pgs := dir.path_join("map_gridres_stack.png")
+		var b13_rs: Dictionary = bridge.world_gen.export_raster_png(b13_pgs, 2048, false)
+		_ok(bool(b13_rs.get("ok", false)), "13b %s: grid-resolution export reports ok" % leg[0])
+		var b13_ex := Image.new()
+		var b13_stex: ImageTexture = bridge.world_gen.build_color_texture()
+		if b13_stex == null or b13_ex.load(b13_pgs) != OK or base_scr == null:
+			_ok(false, "13b %s: screen texture and export both load" % leg[0])
+			continue
+		var b13_sc := b13_stex.get_image()
+		b13_sc.convert(Image.FORMAT_RGB8)
+		b13_ex.convert(Image.FORMAT_RGB8)
+		var b13_sa := b13_sc.get_data()
+		var b13_sb := b13_ex.get_data()
+		var b13_sbase := base_scr.get_data()
+		if b13_sa.size() != b13_sb.size() or b13_sa.size() != m13.size() * 3:
+			_ok(false, "13b %s: same byte count (%d vs %d)" % [leg[0], b13_sa.size(), b13_sb.size()])
+			continue
+		var b13_bad := 0
+		var b13_wst := 0
+		var b13_outside := 0
+		var b13_moved := 0
+		for i in range(b13_sa.size()):
+			var b13_px := int(i / 3)
+			if b13_sa[i] != b13_sbase[i]:
+				b13_moved += 1
+			if m13[b13_px] == 1 or s13[b13_px] == 1:
+				continue
+			b13_outside += 1
+			var b13_d: int = absi(b13_sa[i] - b13_sb[i])
+			if b13_d > 0:
+				b13_bad += 1
+				b13_wst = maxi(b13_wst, b13_d)
+		print("  %s: outside both masks %d of %d bytes differ, worst %d; the stack moved %d screen bytes" % [leg[0], b13_bad, b13_outside, b13_wst, b13_moved])
+		## Non-vacuity: a stack that reached neither path would pass trivially.
+		_ok(b13_moved * 10 > b13_sa.size(), "13b %s: the stack really changes the screen (%d of %d bytes)" % [leg[0], b13_moved, b13_sa.size()])
+		_ok(b13_wst <= 1, "13b %s: outside both masks, no byte is off by more than one level (worst %d)" % [leg[0], b13_wst])
+		_ok(b13_bad * 10000 < b13_outside, "13b %s: outside both masks, fewer than 1 byte in 10 000 differs (%d of %d)" % [leg[0], b13_bad, b13_outside])
+	bridge.world_gen.appearance_set_adjust("water", empty_json)
+	bridge.world_gen.appearance_set_adjust("terrain", empty_json)
+
 	print("\n==== %s so far (%d failures) ====" % ["ALL PASS" if fails == 0 else "FAILURES", fails])
 
 	print("\n== 14. 8K, the size the estimate warns about ==")

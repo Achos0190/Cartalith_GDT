@@ -3513,6 +3513,72 @@ mod adjust_census_tests {
             eprintln!("BENCH finish_rgb 2048x1311 {name}: median {med:.1} ms ({lo:.1}..{hi:.1})");
         }
     }
+
+    /// Protects: ET-C2's **screen equals export with a stack** (`OUTSTANDING_WORK.md`'s
+    /// ET-C2 row, closed 2026-10-13): at the grid's own resolution (export `GW x GH`,
+    /// every pixel on a whole cell), the screen texture (`render::finish_screen_texture`)
+    /// and the whole export (`render::bake_and_finish`) agree on every deep-land and
+    /// deep-water pixel ([`deep`]: selected by the world's inputs, the shore and river
+    /// bands excluded, as `_exportraster_probe.gd` section 13 excludes them) under no
+    /// stack, a water-only, a terrain-only and a two-layer stack. The two paths weight
+    /// the stacks by different water decisions (`grid_water_weight`'s whole cells on the
+    /// screen, `bake_water_weight`'s smooth-shore coverage in the export) and both run
+    /// local contrast, grade, stacks and colour space in one `finish_rgb` pass in that
+    /// order; this pins that, away from the shore, the decisions and the order agree.
+    ///
+    /// Two legs per stack. **Local contrast off: byte-identical** -- the stage order and
+    /// the weights are the only things left to differ. **The shipped look (local contrast
+    /// on): at most one level** -- measured 2026-10-13 on this fixture, 13 / 19 / 23 / 29
+    /// deep pixels off by exactly 1 (none, water, terrain, both), every one with its own
+    /// input bytes equal on both paths: local contrast's blur carries the shore band's
+    /// by-design difference (RV-5's smooth shore, export only) a cell or two into the
+    /// deep pixels, and a stack's gain turns a few more sub-level deltas into a level.
+    /// That is the same residue `AA_MARGIN_CELLS` covers in the probe, not a stack defect.
+    #[test]
+    fn screen_equals_export_at_grid_resolution_under_every_stack() {
+        let w = world();
+        let g = river();
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        assert!(TerrainAppearance::default().local_contrast > 0.0, "fixture: the shipped look runs local contrast");
+        for (contrast, bound) in [(false, 0u8), (true, 1u8)] {
+            let base_look = if contrast { TerrainAppearance::default() } else { TerrainAppearance { local_contrast: 0.0, ..TerrainAppearance::default() } };
+            for (name, look) in [
+                ("no stack", base_look.clone()),
+                ("water stack", TerrainAppearance { water_adjust: water_stack(), ..base_look.clone() }),
+                ("terrain stack", TerrainAppearance { terrain_adjust: terrain_stack(), ..base_look.clone() }),
+                ("both stacks", TerrainAppearance { terrain_adjust: terrain_stack(), water_adjust: water_stack(), ..base_look.clone() }),
+            ] {
+                let ctx = setup(&w, &look, &wb.classification);
+                let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+                // `build_color_texture`'s terrain bytes, finished as the product finishes them.
+                let mut screen = vec![0u8; GW * GH * 3];
+                for i in 0..GW * GH {
+                    let c = render::cell_color(&ctx, i % GW, i / GW);
+                    screen[i * 3..i * 3 + 3].copy_from_slice(&[q(c.0), q(c.1), q(c.2)]);
+                }
+                let inf = render::build_grade_influence(&ctx, GW, GH);
+                render::finish_screen_texture(&ctx, &mut screen, None, GW, GH, false, &inf, ColorSpace::Srgb);
+                let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+                let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+                let export = super::with_export_rivers(Some(&g), None, None, None, |r| render::bake_and_finish(&ctx, &bf, r, GW, GH, &inf, ColorSpace::Srgb));
+                assert_eq!(export.len(), screen.len(), "{name}: the grid-resolution export is GW x GH");
+                let c = classes(&w, &g, &look);
+                let (mut seen, mut differ, mut worst) = ([0usize; 2], [0usize; 2], 0u8);
+                for p in 0..GW * GH {
+                    let Some(wet) = deep(&c, (p % GW) as f64, (p / GW) as f64).0 else { continue };
+                    seen[wet as usize] += 1;
+                    let d = (0..3).map(|k| screen[p * 3 + k].abs_diff(export[p * 3 + k])).max().unwrap();
+                    if d > 0 {
+                        differ[wet as usize] += 1;
+                        worst = worst.max(d);
+                    }
+                }
+                eprintln!("local contrast {contrast}, {name}: deep land {}/{} differ, deep water {}/{} differ, worst {worst}", differ[0], seen[0], differ[1], seen[1]);
+                assert!(seen[0] > 100 && seen[1] > 100, "{name}: the fixture must hold deep land and deep water ({seen:?})");
+                assert!(worst <= bound, "local contrast {contrast}, {name}: screen and export differ by {worst} levels on {differ:?} deep land/water pixels (bound {bound})");
+            }
+        }
+    }
 }
 
 /// ET-E1 (`EDITING_TOOLS_SCOPE.md` section 6, `LARGE_ITEM_RULINGS.md` Ruling CB
