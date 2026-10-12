@@ -3034,8 +3034,18 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		## as "measured flat"). A fraction x 100, not a distance, so Preferences
 		## > Units has nothing to convert. The strip is an `HFlowContainer`, so
 		## one more pair wraps rather than widening the dock.
+		## Ruling CG item 4 (2026-10-12): the term is direction-dependent, so the
+		## stat also shows the grade's climbing and descending halves
+		## (`slope_rise` / `slope_fall`, emitted together with `slope_grade`):
+		## the same stage walked the other way swaps them, which is why its days
+		## differ. On a `Hills` / `Mountain Trails` stage the grade is still
+		## shown but the trace has no `slope` row: those rows already price the
+		## relief and the engine applies no slope term there.
 		if s.has("slope_grade"):
-			_footer_stat(footer, "slope", "%.1f %%%s" % [float(s["slope_grade"]) * 100.0,
+			var updown := ""
+			if s.has("slope_rise") and s.has("slope_fall"):
+				updown = " (%.1f up / %.1f down)" % [float(s["slope_rise"]) * 100.0, float(s["slope_fall"]) * 100.0]
+			_footer_stat(footer, "slope", "%.1f %%%s%s" % [float(s["slope_grade"]) * 100.0, updown,
 				" · on a way" if bool(s.get("slope_on_way", false)) else ""])
 		_footer_stat(footer, "arrive", "~day %.0f (travel only)" % travel_days_so_far)
 
@@ -4495,11 +4505,16 @@ const _TRACE_TERMS := {
 	"route": {"label": "road quality", "field": "route_cond",
 		"party": "Route conditions · Road quality", "stage": "Road quality"},
 	## Ruling CD item 2 (batch 3, 2026-10-11): the engine emits a `slope` term
-	## (`cartalith-civ`'s `jp_calc_land`, `term("slope", "<n> % grade[ · on a
-	## way]", factor)`) on a LAND leg whose stage carries slope data, and on no
-	## other leg -- so this row is only ever looked up for those. The factor is
-	## Tobler's (1993) uphill branch normalised to flat ground, `exp(-3.5 x share
-	## x grade)`, share 0.5 on a way and 1 off one; hence the label.
+	## (`cartalith-civ`'s `jp_calc_land`, `term("slope", "<n> % grade · <u> %
+	## up / <d> % down[ · on a way]", factor)`) on a LAND leg whose stage
+	## carries slope data and is not priced on `Hills` / `Mountain Trails`
+	## (Ruling CG item 4: slope does not stack on those rows), and on no other
+	## leg -- so this row is only ever looked up for those. The factor is
+	## Tobler's (1993) hiking function normalised to flat ground, signed since
+	## Ruling CG (downhill faster than uphill, a steep descent slow again): the
+	## stage's km split into a climb and a descent at its mean grade, each
+	## priced on Tobler's curve, combined as a harmonic mean, the grade halved
+	## on a way (`cartalith_civ::jp_slope_mod`); hence the label.
 	##
 	## **No plan field drives it** (`field` is `""`): slope is measured off the
 	## terrain, not chosen on any form, so no stage override can re-point it at

@@ -12680,7 +12680,15 @@ impl Default for JpStage {
 /// metres-above-sea scale gain and loss use) over the step's wrap-aware length,
 /// `|dh| / (step_km x 1000)`, averaged per stage weighted by step length (see
 /// [`jp_derive_stages`]). Over a stage that is `(land gain + land loss) / land
-/// km`. It is unsigned: uphill and downhill read the same.
+/// km`, kept as its two signed halves: [`Self::rise`] (`land gain / land km`)
+/// and [`Self::fall`] (`land loss / land km`), so [`Self::grade`] is their sum.
+///
+/// **Signed since 2026-10-12 (Ruling CG item 4).** Until then the stage kept
+/// only the unsigned sum and [`jp_slope_mod`] charged a descent as a climb of
+/// the same steepness; the split is what lets the term be Tobler-asymmetric,
+/// so A->B and B->A plan differently. A stage that only climbs has `fall ==
+/// 0.0` and its `rise` is bit-for-bit the unsigned grade it carried before
+/// (the same sum of the same positive `dh`).
 ///
 /// **Changed 2026-10-12 from the router's gradient magnitude** (`OUTSTANDING_WORK.md`
 /// "Slope in planned speed" row; DECISIONS.md 7p). Until then the grade was
@@ -12697,12 +12705,27 @@ impl Default for JpStage {
 /// `JpStage::slope == None`, not a `JpSlope` with a zero grade.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JpSlope {
-    /// Length-weighted mean grade, rise over run (0.1 = 10 %). Never negative.
-    pub grade: f64,
+    /// Climbing part of the grade: metres climbed on the stage's land steps
+    /// over its land length (`land gain / (land km x 1000)`). Never negative.
+    pub rise: f64,
+    /// Descending part of the grade: metres descended over the same length
+    /// (`land loss / (land km x 1000)`). Never negative; a descent is
+    /// recorded here, not as a negative `rise`.
+    pub fall: f64,
     /// `true` when the stage rides a credited way (its points read a
     /// [`jp_road_cells`] row), which softens the slope term
     /// ([`JP_WAY_SLOPE_SHARE`]).
     pub on_way: bool,
+}
+
+impl JpSlope {
+    /// The stage's unsigned length-weighted mean grade, `rise + fall` (0.1 =
+    /// 10 %): the figure the stage inspector and the trace quote. Equal to the
+    /// single `grade` field this struct carried before Ruling CG item 4, up to
+    /// the rounding of summing the two halves separately.
+    pub fn grade(&self) -> f64 {
+        self.rise + self.fall
+    }
 }
 
 /// Tobler's hiking-function exponent: walking speed `W = 6 exp(-3.5 |S +
@@ -12710,30 +12733,96 @@ pub struct JpSlope {
 /// geographical analysis and modeling*, NCGIA Technical Report 93-1). Cited.
 pub const JP_TOBLER_K: f64 = 3.5;
 
-/// The share of the slope exponent a way keeps: a graded, cleared way eases a
-/// climb but cannot remove it, so a stage on a way pays `exp(-3.5 x 0.5 x
-/// grade)`. A **labelled judgement** (Ruling CD item 2 says a road reduces the
-/// slope penalty, not by how much); the same for every way class.
+/// Tobler's offset: the hiking function peaks at grade `S = -0.05` (a 5 %
+/// descent, about 2.86 degrees), where `W = 6` km/h against `6 exp(-0.175)` =
+/// 5.04 km/h on the flat. Same citation as [`JP_TOBLER_K`]. Cited.
+pub const JP_TOBLER_OFFSET: f64 = 0.05;
+
+/// The share of the grade a way keeps: a graded, cleared way eases a slope but
+/// cannot remove it, so a stage on a way is walked as if its grade were
+/// `0.5 x` the measured one, in both directions (uphill that is `exp(-3.5 x
+/// 0.5 x S)`, the factor this constant gave before Ruling CG; downhill it
+/// halves the descent that Tobler's curve sees). A **labelled judgement**
+/// (Ruling CD item 2 says a road reduces the slope penalty, not by how much;
+/// applying it to the grade rather than the exponent is this port's rule so
+/// the uphill factor stays what it was); the same for every way class.
 pub const JP_WAY_SLOPE_SHARE: f64 = 0.5;
 
-/// Ruling CD item 2: the `slope` speed multiplier for a land stage.
+/// Tobler's hiking function normalised to flat ground, `W(S) / W(0)`, at a
+/// **signed** grade `S` (positive uphill, negative downhill):
+/// `exp(-3.5 (|S + 0.05| - 0.05))`.
 ///
-/// `exp(-JP_TOBLER_K x share x grade)`, `share` = [`JP_WAY_SLOPE_SHARE`] on a
-/// way and 1 off one. This is **Tobler's uphill branch normalised to flat
-/// ground**: for `S >= 0`, `W(S) / W(0) = exp(-3.5 S)` exactly, so flat ground
-/// is exactly `1.0` (no flat-terrain plan moves) and a 10 % grade is
-/// `exp(-0.35)` = 0.705. A **labelled simplification** of Tobler: the grade is
-/// the route's unsigned along-track grade ([`JpSlope`]), so a descent is
-/// charged as a climb of the same steepness (Tobler would speed a gentle descent up, by up
-/// to `exp(0.175)` = 1.19 at -5 %, and slow a steep one). Conservative, and
-/// symmetric by construction. The reference's terrain rows (`Hills` 0.70,
-/// `Mountain Trails` 0.45) already price rough ground, so on those rows this
-/// term adds to that; the owner's ruling applies slope on and off roads.
+/// Written per branch so the uphill side is the exact expression the planner
+/// used before Ruling CG item 4: for `S >= -0.05`, `|S + 0.05| - 0.05 = S`, so
+/// the factor is `exp(-3.5 S)` (flat is exactly `1.0`, 10 % up is
+/// `exp(-0.35)` = 0.705); below `-0.05` it is `exp(3.5 (S + 0.1))`, which
+/// rises to its peak `exp(0.175)` = 1.191 at `S = -0.05`, returns to `1.0` at
+/// `S = -0.1` and falls below flat beyond (a steep descent is slow: -30 % is
+/// `exp(-0.7)` = 0.497, against 10 % up's 0.705 and 30 % up's 0.350).
+/// `js_exp` (FDLIBM, V8's own `Math.exp`) per CLAUDE.md's libm rule.
+pub fn jp_tobler_rel(s: f64) -> f64 {
+    if s >= -JP_TOBLER_OFFSET {
+        cartalith_jsmath::js_exp(-JP_TOBLER_K * s)
+    } else {
+        cartalith_jsmath::js_exp(JP_TOBLER_K * (s + 2.0 * JP_TOBLER_OFFSET))
+    }
+}
+
+/// Ruling CD item 2, made asymmetric by Ruling CG item 4 (owner, 2026-10-12):
+/// the `slope` speed multiplier for a land stage.
+///
+/// **The model.** The stage's mean grade `G` = [`JpSlope::grade`] is the same
+/// figure the planner has used since 2026-10-12's along-track fix. The rule
+/// added here: the stage's land km splits into a climbing part and a
+/// descending part **in proportion to `rise` and `fall`**, and both parts are
+/// walked at the same steepness `G` (up at `+G`, down at `-G`). That is the
+/// one split under which the climbing part climbs exactly the stage's gain and
+/// the descending part descends exactly its loss at a common grade. Time is
+/// additive, so the stage factor is the length-weighted **harmonic** mean of
+/// the two parts' Tobler factors ([`jp_tobler_rel`]):
+///
+/// `factor = G / (rise / W(+G') + fall / W(-G'))`, where `G' = share x G`,
+/// `share` = [`JP_WAY_SLOPE_SHARE`] on a way and 1 off one.
+///
+/// **What stays the same.** A stage that only climbs (`fall == 0`) returns
+/// `W(+G') = exp(-3.5 x share x G)`, the exact pre-Ruling-CG expression, so
+/// it moves no bit. A stage with no grade (`G == 0`) is exactly `1.0`.
+/// **What moves.** A stage that descends now gains Tobler's descent speed
+/// (gentle) or loses it (steep, beyond 10 % after the way's share), where the
+/// old symmetric rule charged it as a climb; reversing a route swaps `rise`
+/// and `fall`, so A->B and B->A differ by the designed ratio.
+///
+/// **A labelled simplification**: a stage's real profile mixes many grades;
+/// one mean grade per direction keeps the per-cell height quantisation of the
+/// route's points from inflating time (a per-step harmonic mean over
+/// sub-cell steps would see a zero-grade step then a steep jump). Not
+/// Tobler's own aggregation; Tobler gives the speed at one grade.
+///
+/// **Must never** apply on `Hills` or `Mountain Trails`: those reference
+/// terrain rows already price the ground's relief, and Ruling CG item 4 says
+/// slope does not stack on them; [`jp_calc_land_ex`] skips the term there
+/// (see [`jp_slope_applies_to`]).
 pub fn jp_slope_mod(s: &JpSlope) -> f64 {
     let share = if s.on_way { JP_WAY_SLOPE_SHARE } else { 1.0 };
-    // `js_exp` (FDLIBM, V8's own `Math.exp`) per CLAUDE.md's libm rule;
-    // `js_exp(-0.0)` is exactly 1.0, which is what keeps flat ground bit-exact.
-    cartalith_jsmath::js_exp(-JP_TOBLER_K * share * s.grade.max(0.0))
+    let (rise, fall) = (s.rise.max(0.0), s.fall.max(0.0));
+    let g = share * (rise + fall);
+    if fall == 0.0 {
+        // Pure climb (or flat): the pre-Ruling-CG expression, bit for bit
+        // (`js_exp(-0.0)` is exactly 1.0, so flat stays exact).
+        return jp_tobler_rel(g);
+    }
+    if rise == 0.0 {
+        return jp_tobler_rel(-g);
+    }
+    (rise + fall) / (rise / jp_tobler_rel(g) + fall / jp_tobler_rel(-g))
+}
+
+/// Ruling CG item 4: whether the `slope` term applies on a stage priced on
+/// this terrain row. `false` on `Hills` and `Mountain Trails`, whose reference
+/// factors (0.70 and 0.45, [`jp_terrain_land_mod`]) already stand for the
+/// relief; `true` everywhere else, roads over steep ground included.
+pub fn jp_slope_applies_to(terrain: &str) -> bool {
+    !matches!(terrain, "Hills" | "Mountain Trails")
 }
 
 /// A stage that cannot be travelled as configured. The reference returns
@@ -12952,8 +13041,10 @@ pub fn jp_calc_land_ex(
     // Ruling CD item 2: the slope term. `None` (no slope data) applies no term
     // and no trace entry -- the reference's chain; `x * 1.0` is exact, so the
     // `1.0` below changes no bit of an unsloped stage, and flat ground's
-    // `Some` term is exactly 1.0 too (`jp_slope_mod`).
-    let s_mod = st.slope.as_ref().map(jp_slope_mod);
+    // `Some` term is exactly 1.0 too (`jp_slope_mod`). Ruling CG item 4: no
+    // term on `Hills` / `Mountain Trails` (`jp_slope_applies_to`), whose rows
+    // already price the relief; the stage still carries its measured slope.
+    let s_mod = st.slope.as_ref().filter(|_| jp_slope_applies_to(terrain)).map(jp_slope_mod);
     let p_mod = jp_pace_mod(&plan.pace);
     let i_mod = jp_infra_mod(&st.infra);
     let is_haste = plan.pace == "Haste";
@@ -13346,7 +13437,18 @@ pub fn jp_calc_land_ex(
     // Ruling CD item 2: present exactly when the product above applied it.
     if let (Some(s), Some(f)) = (st.slope, s_mod) {
         let way = if s.on_way { " · on a way" } else { "" };
-        trace.push(term("slope", format!("{} % grade{way}", js_fixed(s.grade * 100.0, 1)), f));
+        // Ruling CG item 4: the detail names the split the factor reads, so
+        // the same grade over a reversed route explains its different factor.
+        trace.push(term(
+            "slope",
+            format!(
+                "{} % grade · {} % up / {} % down{way}",
+                js_fixed(s.grade() * 100.0, 1),
+                js_fixed(s.rise * 100.0, 1),
+                js_fixed(s.fall * 100.0, 1)
+            ),
+            f,
+        ));
     }
     trace.extend([
         term("group", cls_label.to_string(), c_mod),
@@ -15544,11 +15646,13 @@ struct JpChunk {
     loss: f64,
     in_riv: bool,
     /// Ruling CD item 2: the sum of `step km x grade` over this chunk's land
-    /// steps -- which for an along-track grade is the climb plus descent in km,
-    /// `|dh| / 1000` per step -- and the km those steps cover (its own
-    /// denominator: a water gap collapsed into a land chunk adds `km` but no
-    /// measured slope).
-    slope_acc: f64,
+    /// steps, kept signed (Ruling CG item 4): `slope_rise` is the climb in km
+    /// (`dh / 1000` per rising step), `slope_fall` the descent in km (`-dh /
+    /// 1000` per falling step); and `slope_km` the km those steps cover (its
+    /// own denominator: a water gap collapsed into a land chunk adds `km` but
+    /// no measured slope).
+    slope_rise: f64,
+    slope_fall: f64,
     slope_km: f64,
 }
 
@@ -15735,7 +15839,8 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 gain: 0.0,
                 loss: 0.0,
                 in_riv: false,
-                slope_acc: 0.0,
+                slope_rise: 0.0,
+                slope_fall: 0.0,
                 slope_km: 0.0,
             });
         }
@@ -15754,9 +15859,16 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             // classification put its km in this chunk (see `JpSlope` for why
             // the along-track grade and not the router's gradient). Weighted
             // by `step_km`, the step adds `|dh| / 1000` and needs no division,
-            // so a zero-length step adds nothing to either sum.
+            // so a zero-length step adds nothing to either sum. Ruling CG item
+            // 4: the sign decides which sum (`JpSlope::rise` / `fall`), so the
+            // stage knows how much of its grade it climbs; `dh == 0` adds to
+            // neither.
             if f.cat == "land" && measure_slope {
-                cur.slope_acc += dh.abs() / 1000.0;
+                if dh > 0.0 {
+                    cur.slope_rise += dh / 1000.0;
+                } else if dh < 0.0 {
+                    cur.slope_fall += -dh / 1000.0;
+                }
                 cur.slope_km += step_km;
             }
             if dh > 0.0 {
@@ -15909,13 +16021,17 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             mx: pts[mid_k].0,
             my: pts[mid_k].1,
             // Ruling CD item 2: the length-weighted mean grade of the stage's
-            // land steps (a labelled simplification: the mean grade, not the
-            // time-correct harmonic mean of per-step factors). `on_way` is the
-            // chunk's own road condition, set only by a `jp_road_cells` row.
-            // No slope measurement, a water stage, or no measured land length gives
-            // `None` (no data), never a zero grade.
-            slope: (c.cat == "land" && measure_slope && c.slope_km > 0.0)
-                .then(|| JpSlope { grade: c.slope_acc / c.slope_km, on_way: c.cond.is_some() }),
+            // land steps, split into its climbing and descending halves
+            // (Ruling CG item 4; a labelled simplification: mean grades, not
+            // the harmonic mean of per-step factors, see `jp_slope_mod`).
+            // `on_way` is the chunk's own road condition, set only by a
+            // `jp_road_cells` row. No slope measurement, a water stage, or no
+            // measured land length gives `None` (no data), never a zero grade.
+            slope: (c.cat == "land" && measure_slope && c.slope_km > 0.0).then(|| JpSlope {
+                rise: c.slope_rise / c.slope_km,
+                fall: c.slope_fall / c.slope_km,
+                on_way: c.cond.is_some(),
+            }),
         };
         st.infra = match plan.infra.as_deref() {
             Some(v) if !v.is_empty() && v != "auto" => v.to_string(),
@@ -15968,9 +16084,9 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
 /// nb.i0=min; nb.i1=max; chunks.splice(i,1)` -- the merge both the sliver
 /// absorb and the 14-stage cap perform.
 fn jp_merge_chunk(chunks: &mut Vec<JpChunk>, i: usize, nb: usize) {
-    let (km, rx, gain, loss, i0, i1, slope_acc, slope_km) = {
+    let (km, rx, gain, loss, i0, i1, slope_rise, slope_fall, slope_km) = {
         let c = &chunks[i];
-        (c.km, c.rx, c.gain, c.loss, c.i0, c.i1, c.slope_acc, c.slope_km)
+        (c.km, c.rx, c.gain, c.loss, c.i0, c.i1, c.slope_rise, c.slope_fall, c.slope_km)
     };
     let n = &mut chunks[nb];
     n.km += km;
@@ -15978,8 +16094,10 @@ fn jp_merge_chunk(chunks: &mut Vec<JpChunk>, i: usize, nb: usize) {
     n.gain += gain;
     n.loss += loss;
     // Ruling CD item 2: the absorbed chunk's measured land steps join the
-    // survivor's slope mean (a water chunk carries none).
-    n.slope_acc += slope_acc;
+    // survivor's slope mean (a water chunk carries none), climb and descent
+    // each into its own sum (Ruling CG item 4).
+    n.slope_rise += slope_rise;
+    n.slope_fall += slope_fall;
     n.slope_km += slope_km;
     n.i0 = n.i0.min(i0);
     n.i1 = n.i1.max(i1);
@@ -25924,10 +26042,14 @@ mod tests {
     fn m5_slope_moves_only_the_land_legs() {
         // Protects: slope reaches planned time on the real m5 world through the
         //   live path (`JpWorld::measure_slope` -> `JpSlope` -> the `slope` term):
-        //   every land stage carries a grade and its way flag, every land leg is
-        //   slower than the slope-free (reference) plan, and the sea and river
-        //   legs do not move by a bit. Grades and the total are pinned literals
-        //   measured once on this fixture (2026-10-11, after seeing the result).
+        //   every land stage carries a grade and its way flag, every land leg
+        //   priced on a row the term applies to is slower than the slope-free
+        //   (reference) plan, the Hills leg is not charged (Ruling CG item 4:
+        //   slope does not stack on Hills / Mountain Trails), and the sea and
+        //   river legs do not move by a bit. Grades and the total are pinned
+        //   literals measured once on this fixture (2026-10-11, after seeing
+        //   the result). Every land stage here only climbs (`fall` 0), so
+        //   Ruling CG's asymmetry moves none of them.
         let f = m5_fields();
         let pts = m5_pts();
         let with = JpWorld { measure_slope: true, ..m5_world(&f) };
@@ -25952,7 +26074,7 @@ mod tests {
             Some((0.003_057_693_432_348_674_4, false)),
         ];
         for (i, e) in expect.iter().enumerate() {
-            let got = q.stages[i].slope.map(|s| (s.grade, s.on_way));
+            let got = q.stages[i].slope.map(|s| (s.grade(), s.on_way));
             match (got, e) {
                 (None, None) => {
                     assert_eq!(q.results[i].days().to_bits(), base.results[i].days().to_bits(), "water leg {i} must not move");
@@ -25960,14 +26082,23 @@ mod tests {
                 (Some((g, w)), Some((eg, ew))) => {
                     assert!((g - eg).abs() < 1e-12, "stage {i} grade {g}");
                     assert_eq!(w, *ew, "stage {i} on_way");
-                    assert!(q.results[i].days() > base.results[i].days(), "land leg {i} must be slower");
+                    if q.stages[i].terrain == "Hills" {
+                        // RE-BASELINED 2026-10-12 under Ruling CG: this leg (stage
+                        // 3) was slower (2.0703527 d slope-free); now unchanged.
+                        assert_eq!(q.results[i].days().to_bits(), base.results[i].days().to_bits(), "Hills leg {i} must not move");
+                    } else {
+                        assert!(q.results[i].days() > base.results[i].days(), "land leg {i} must be slower");
+                    }
                 }
                 _ => panic!("stage {i}: slope {got:?}, expected {e:?}"),
             }
         }
         // The golden plan is 43.202_734_060_708_24 days without slope.
         // RE-BASELINED 2026-10-12 (along-track grade): was 43.656_742_899_635_39.
-        near5(q.days, 43.621_144_583_987_19, "days with slope");
+        // RE-BASELINED 2026-10-12 under Ruling CG (no slope term on the Hills
+        // leg, stage 3): was 43.621_144_583_987_19.
+        assert_eq!(q.stages[3].terrain, "Hills", "premise: stage 3 is the Hills leg");
+        near5(q.days, 43.504_482_251_725_43, "days with slope");
     }
 
     #[test]

@@ -19653,7 +19653,12 @@ fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
         "my" => s.my,
     };
     if let Some(sl) = s.slope {
-        d.set("slope_grade", sl.grade);
+        d.set("slope_grade", sl.grade());
+        // Ruling CG item 4: the climbing and descending halves of
+        // `slope_grade` (`cartalith_civ::JpSlope`), which make the slope term
+        // direction-dependent. Present exactly when `slope_grade` is.
+        d.set("slope_rise", sl.rise);
+        d.set("slope_fall", sl.fall);
         d.set("slope_on_way", sl.on_way);
     }
     d

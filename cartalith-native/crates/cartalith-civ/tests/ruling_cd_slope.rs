@@ -14,6 +14,12 @@
 //! router's gradient magnitude (`cartalith_civ::JpSlope`'s doc says why); the
 //! two contouring tests at the end are the cases where they differ.
 //!
+//! Since Ruling CG item 4 (owner, 2026-10-12) the term is Tobler-asymmetric:
+//! a stage keeps its climb and descent apart (`JpSlope::rise` / `fall`) and
+//! downhill is faster than uphill, so A->B and B->A plan differently; and the
+//! term is not applied on the `Hills` / `Mountain Trails` rows. The tests named
+//! for that ruling in their `Protects:` line are its.
+//!
 //! Every expectation is a literal or an independent quantity computed here from
 //! Tobler's (1993) exponent 3.5 (`exp(-0.35)` off a way, `exp(-0.175)` on one),
 //! never the constant under test read back; each `Protects:` line names the
@@ -39,6 +45,13 @@ const OFF_WAY_10PCT: f64 = 0.704_688_089_718_713_4;
 /// `exp(-3.5 x 0.1 / 2)`: the same grade on a way, which carries half the
 /// exponent (the batch's labelled judgement).
 const ON_WAY_10PCT: f64 = 0.839_457_020_769_207_4;
+/// `exp(+3.5 x 0.05)`: Tobler's normalised factor at a 5 % DESCENT, the
+/// curve's peak (`W(-0.05) / W(0)`, 6 km/h against 5.04 on the flat).
+const DOWN_5PCT: f64 = 1.191_246_216_612_358;
+/// `exp(-3.5 x 0.05)`: the same 5 % grade climbed.
+const UP_5PCT: f64 = 0.839_457_020_769_207_4;
+/// Height step per cell for a 5 % grade: half of [`STEP`].
+const STEP_5: f32 = 0.0075;
 
 /// The fixture's owned rasters.
 struct Sl {
@@ -137,7 +150,7 @@ fn plan_on(s: &Sl, road: &HashMap<(i64, i64), JpRoadCell>, slope: bool, pts: &[(
     let st = &jp.stages[0];
     let Ok(JpLegCalc::Land(l)) = &jp.results[0].calc else { panic!("premise: the land leg computes: {:?}", jp.results[0].calc) };
     Planned {
-        grade: st.slope.map(|s| s.grade),
+        grade: st.slope.map(|s| s.grade()),
         on_way: st.slope.map(|s| s.on_way),
         factor: l.trace.iter().find(|t| t.key == "slope").map(|t| t.factor),
         days: jp.travel_days,
@@ -163,21 +176,35 @@ fn an_uphill_route_is_slower_than_a_flat_one_by_toblers_factor() {
     assert!(hill.days > flat.days * 1.4, "uphill {} flat {}", hill.days, flat.days);
 }
 
-/// Protects: the slope term is symmetric -- downhill costs what uphill does --
-/// because the along-track grade is unsigned (`|dh|`, the documented
-/// simplification in `jp_slope_mod`; Tobler's own curve is asymmetric).
+/// Protects (Ruling CG item 4): the same hillside walked down is faster than
+/// walked up, by Tobler's normalised ratio. At 5 % the descent sits on the
+/// curve's peak (`exp(+0.175)`) and the climb pays `exp(-0.175)`, so the
+/// down/up speed ratio is `exp(0.35)` = 1.419; the stage's grade is the same
+/// either way, only its climb/descent split swaps. This replaced
+/// `downhill_and_uphill_cost_the_same` (the symmetric rule; RE-BASELINED
+/// 2026-10-12 under Ruling CG: the 10 % downhill factor was 0.704689, now
+/// 1.0).
 #[test]
-fn downhill_and_uphill_cost_the_same() {
+fn downhill_is_faster_than_uphill_by_toblers_ratio() {
     let none = HashMap::new();
-    let s = ground(STEP);
+    let s = ground(STEP_5);
     let up = plan_on(&s, &none, true, &east());
     let down = plan_on(&s, &none, true, &west());
-    // Equal up to rounding: the two directions sum the same height
-    // differences in the opposite order.
+    let (gu, gd) = (up.grade.expect("graded"), down.grade.expect("graded"));
+    assert!((gu - 0.05).abs() < 1e-6 && (gd - 0.05).abs() < 1e-6, "grades {gu} {gd}");
     let (fu, fd) = (up.factor.expect("term present"), down.factor.expect("term present"));
-    assert!((fu - fd).abs() < 1e-6, "up {fu} down {fd}");
-    assert!((up.days - down.days).abs() < 1e-5 * up.days, "up {} down {}", up.days, down.days);
-    assert!(down.factor.expect("term present") < 0.75, "downhill is penalised too");
+    assert!((fu - UP_5PCT).abs() < 1e-5, "up factor {fu}");
+    assert!((fd - DOWN_5PCT).abs() < 1e-5, "down factor {fd}");
+    // Days scale as 1 / factor up to the column term (~1e-4, see above).
+    let ratio = up.days / down.days;
+    assert!((ratio - 1.419_067_548_593_257).abs() < 2e-3, "up/down days {ratio}");
+    // And on the 10 % ramp the descent is exactly flat speed (Tobler's
+    // curve crosses W(0) again at -10 %), while the climb pays exp(-0.35).
+    let s10 = ground(STEP);
+    let d10 = plan_on(&s10, &none, true, &west()).factor.expect("term present");
+    let u10 = plan_on(&s10, &none, true, &east()).factor.expect("term present");
+    assert!((d10 - 1.0).abs() < 1e-5, "10 % down {d10}");
+    assert!((u10 - OFF_WAY_10PCT).abs() < 1e-6, "10 % up {u10}");
 }
 
 /// Protects: a way halves the slope exponent -- it reduces, never removes, the
@@ -243,12 +270,115 @@ fn no_slope_data_is_not_a_zero_slope_and_falls_back_to_the_reference() {
 #[test]
 fn the_slope_modifier_is_one_on_the_flat_and_falls_with_grade() {
     use cartalith_civ::{jp_slope_mod, JpSlope};
-    assert_eq!(jp_slope_mod(&JpSlope { grade: 0.0, on_way: false }).to_bits(), 1.0f64.to_bits());
-    assert_eq!(jp_slope_mod(&JpSlope { grade: 0.0, on_way: true }).to_bits(), 1.0f64.to_bits());
-    let a = jp_slope_mod(&JpSlope { grade: 0.05, on_way: false });
-    let b = jp_slope_mod(&JpSlope { grade: 0.20, on_way: false });
+    let up = |g: f64| JpSlope { rise: g, fall: 0.0, on_way: false };
+    assert_eq!(jp_slope_mod(&up(0.0)).to_bits(), 1.0f64.to_bits());
+    assert_eq!(jp_slope_mod(&JpSlope { rise: 0.0, fall: 0.0, on_way: true }).to_bits(), 1.0f64.to_bits());
+    let a = jp_slope_mod(&up(0.05));
+    let b = jp_slope_mod(&up(0.20));
     assert!((a - 0.839_457_020_769_207_4).abs() < 1e-12, "5 % grade {a}");
     assert!((b - 0.496_585_303_791_409_7).abs() < 1e-12, "20 % grade {b}");
+    // Ruling CG item 4: a pure climb is the pre-asymmetry expression to the
+    // bit, `js_exp(-3.5 x grade)` (and `js_exp(-1.75 x grade)` on a way).
+    for g in [0.013, 0.05, 0.1, 0.37] {
+        assert_eq!(jp_slope_mod(&up(g)).to_bits(), cartalith_jsmath::js_exp(-3.5 * g).to_bits(), "climb {g}");
+        let w = JpSlope { rise: g, fall: 0.0, on_way: true };
+        assert_eq!(jp_slope_mod(&w).to_bits(), cartalith_jsmath::js_exp(-3.5 * 0.5 * g).to_bits(), "way climb {g}");
+    }
+}
+
+/// Protects (Ruling CG item 4): the shape of the signed curve. A gentle
+/// descent is faster than flat (peak `exp(0.175)` at -5 %), -10 % is flat
+/// speed again, and a steep descent is slower than flat but faster than the
+/// same climb (-20 %: `exp(-0.35)`; +20 %: `exp(-0.7)`). A way walks the
+/// grade at half its steepness in both directions. Literals from Tobler's
+/// formula `exp(-3.5 (|S + 0.05| - 0.05))`, computed outside the crate.
+#[test]
+fn the_signed_tobler_curve_peaks_at_a_gentle_descent() {
+    use cartalith_civ::{jp_slope_mod, jp_tobler_rel, JpSlope};
+    let down = |g: f64, on_way: bool| jp_slope_mod(&JpSlope { rise: 0.0, fall: g, on_way });
+    assert!((down(0.05, false) - 1.191_246_216_612_358).abs() < 1e-12);
+    assert!((down(0.10, false) - 1.0).abs() < 1e-12);
+    assert!((down(0.20, false) - 0.704_688_089_718_713_4).abs() < 1e-12);
+    assert!((down(0.30, false) - 0.496_585_303_791_409_5).abs() < 1e-12);
+    // On a way, a 10 % descent is walked as 5 %: the peak.
+    assert!((down(0.10, true) - 1.191_246_216_612_358).abs() < 1e-12);
+    // The curve is continuous at its kink (-5 %) and peaks there.
+    let k = jp_tobler_rel(-0.05);
+    assert!((k - 1.191_246_216_612_358).abs() < 1e-12);
+    assert!(jp_tobler_rel(-0.049) < k && jp_tobler_rel(-0.051) < k);
+}
+
+/// Protects (Ruling CG item 4): the mixed-stage rule. A stage that climbs
+/// `rise` and descends `fall` walks a `rise / G` share of its km up at grade
+/// `G = rise + fall` and the rest down at `-G`; the factor is the harmonic
+/// mean of the two. Literals computed outside the crate.
+#[test]
+fn a_mixed_stage_is_the_harmonic_mean_of_its_climb_and_descent() {
+    use cartalith_civ::{jp_slope_mod, JpSlope};
+    // Half up, half down at G = 0.1: 0.1 / (0.05 / exp(-0.35) + 0.05 / 1.0).
+    let half = jp_slope_mod(&JpSlope { rise: 0.05, fall: 0.05, on_way: false });
+    assert!((half - 0.826_764_842_165_339_9).abs() < 1e-12, "half/half {half}");
+    // 3/4 up at G = 0.04: 0.04 / (0.03 / exp(-0.14) + 0.01 / exp(+0.14)).
+    let mix = jp_slope_mod(&JpSlope { rise: 0.03, fall: 0.01, on_way: false });
+    assert!((mix - 0.925_887_426_161_386_4).abs() < 1e-12, "3:1 {mix}");
+    // Reversing the stage swaps rise and fall; the factor differs.
+    let rev = jp_slope_mod(&JpSlope { rise: 0.01, fall: 0.03, on_way: false });
+    assert!(rev > mix, "the mostly-descending direction is faster: {rev} vs {mix}");
+}
+
+/// Protects (Ruling CG item 4): slope does not stack on the `Hills` and
+/// `Mountain Trails` rows, which already price the relief. On a 10 % ramp of
+/// either, the plan with slope measured equals the slope-free plan to the bit
+/// and its trace has no `slope` term, though the stage still reports its
+/// measured grade. Control: the same ramp as `Rocky Terrain` (another rough
+/// row the ruling did not name) is charged.
+#[test]
+fn slope_does_not_stack_on_hills_or_mountain_trails() {
+    let none = HashMap::new();
+    // CART_TERRAINS (1-based in the raster): 6 = Hills, 9 = Mountain Trails,
+    // 7 = Rocky Terrain.
+    for (t, name) in [(6u8, "Hills"), (9u8, "Mountain Trails")] {
+        let mut s = ground(STEP);
+        s.terrain = vec![t; W * H];
+        let jp = cartalith_civ::jp_plan(&s.world(&none, true), &east(), &JpPlan::default(), &HashMap::new(), &|_, _| 1.0)
+            .expect("plans");
+        assert_eq!(jp.stages[0].terrain, name, "premise: the stage is priced on {name}");
+        let with = plan_on(&s, &none, true, &east());
+        let off = plan_on(&s, &none, false, &east());
+        assert!((with.grade.expect("measured") - 0.1).abs() < 1e-6, "{name}: the grade is still measured");
+        assert_eq!(with.factor, None, "{name}: no slope term in the trace");
+        assert_eq!(with.days.to_bits(), off.days.to_bits(), "{name}: {} vs {}", with.days, off.days);
+    }
+    let mut s = ground(STEP);
+    s.terrain = vec![7; W * H];
+    let rocky = plan_on(&s, &none, true, &east());
+    assert!((rocky.factor.expect("Rocky Terrain is charged") - OFF_WAY_10PCT).abs() < 1e-6);
+}
+
+/// Protects (Ruling CG item 4): a round trip. An out-and-back route over the
+/// ramp, planned as one stage (climb then descend: rise = fall), costs the
+/// same days as the two one-way plans added up, because time is additive and
+/// the stage factor is the harmonic mean of its climb and descent. Under the
+/// old symmetric rule the round trip paid the climb's factor both ways.
+#[test]
+fn a_round_trip_costs_the_climb_plus_the_descent() {
+    let none = HashMap::new();
+    let s = ground(STEP);
+    let mut out_back = east();
+    out_back.extend(west().into_iter().skip(1));
+    let rt = plan_on(&s, &none, true, &out_back);
+    let up = plan_on(&s, &none, true, &east());
+    let down = plan_on(&s, &none, true, &west());
+    let f = rt.factor.expect("term present");
+    assert!((f - 0.826_764_842_165_339_9).abs() < 1e-5, "round-trip factor {f}");
+    let sum = up.days + down.days;
+    assert!((rt.days - sum).abs() < 2e-3 * sum, "round trip {} vs up {} + down {}", rt.days, up.days, down.days);
+    // Starting from the top instead: the same totals, so a closed loop is
+    // direction-free while each one-way leg is not.
+    let mut back_out = west();
+    back_out.extend(east().into_iter().skip(1));
+    let rt2 = plan_on(&s, &none, true, &back_out);
+    assert!((rt2.days - rt.days).abs() < 1e-9 * rt.days, "{} vs {}", rt2.days, rt.days);
 }
 
 /// Protects: Track's own planner row (Ruling CD addendum item 5): a track reads
@@ -301,8 +431,16 @@ fn merged_stages_keep_the_length_weighted_grade() {
     let st = cartalith_civ::jp_derive_stages(&s.world(&none, true), &east(), &JpPlan::default());
     assert_eq!(st.len(), 14, "premise: the 14-stage cap merged the alternating runs");
     for (i, x) in st.iter().enumerate() {
-        let g = x.slope.expect("land stage with slope measured").grade;
+        let g = x.slope.expect("land stage with slope measured").grade();
         assert!((g - 0.1).abs() < 1e-6, "stage {i} grade {g}");
+    }
+    // Ruling CG item 4: the merge keeps climb and descent apart. Walked down
+    // the ramp, every merged stage descends its whole grade and climbs none.
+    let st = cartalith_civ::jp_derive_stages(&s.world(&none, true), &west(), &JpPlan::default());
+    assert_eq!(st.len(), 14, "premise: the cap merged the runs walked west too");
+    for (i, x) in st.iter().enumerate() {
+        let sl = x.slope.expect("land stage with slope measured");
+        assert!(sl.rise == 0.0 && (sl.fall - 0.1).abs() < 1e-6, "stage {i} west: {sl:?}");
     }
 }
 

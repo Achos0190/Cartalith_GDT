@@ -153,13 +153,17 @@ fn stage_lines(jp: &cartalith_civ::JpJourneyPlan) -> String {
             let along = if s.km > 0.0 { (s.gain + s.loss) / (s.km * 1000.0) } else { f64::NAN };
             match s.slope {
                 Some(sl) => format!(
-                    "[{} | {} | {:.1} km | grade {:.4}{} x{:.3} | along-track {:.4}]",
+                    "[{} | {} | {:.1} km | grade {:.4} (up {:.4} / down {:.4}){} x{:.3} | along-track {:.4}]",
                     s.terrain,
                     s.route_cond,
                     s.km,
-                    sl.grade,
+                    sl.grade(),
+                    sl.rise,
+                    sl.fall,
                     if sl.on_way { " way" } else { "" },
-                    cartalith_civ::jp_slope_mod(&sl),
+                    // Ruling CG item 4: the factor the planner applies, 1 on a
+                    // Hills / Mountain Trails stage (no term there).
+                    if cartalith_civ::jp_slope_applies_to(&s.terrain) { cartalith_civ::jp_slope_mod(&sl) } else { 1.0 },
                     along
                 ),
                 None => format!("[{} | {} | {:.1} km | no slope]", s.terrain, s.route_cond, s.km),
@@ -191,8 +195,8 @@ fn slope_distribution_over_land() {
     );
     for q in [0.10, 0.25, 0.50, 0.75, 0.90, 0.99, 1.0] {
         let v = g[((g.len() - 1) as f64 * q) as usize];
-        let off = cartalith_civ::jp_slope_mod(&cartalith_civ::JpSlope { grade: v, on_way: false });
-        let on = cartalith_civ::jp_slope_mod(&cartalith_civ::JpSlope { grade: v, on_way: true });
+        let off = cartalith_civ::jp_slope_mod(&cartalith_civ::JpSlope { rise: v, fall: 0.0, on_way: false });
+        let on = cartalith_civ::jp_slope_mod(&cartalith_civ::JpSlope { rise: v, fall: 0.0, on_way: true });
         println!("land grade p{:>3}: {:.4} -> factor off-way {:.3}, on-way {:.3}", (q * 100.0) as i32, v, off, on);
     }
     // The coastal cells: a land cell beside the sea differences against the
@@ -230,6 +234,15 @@ fn q1_routes_before_and_after_slope() {
     let (d1, j1) = travel_days(&fx.jp(&empty, true), &bare.pts);
     println!("Q1 no-way route ({:.1} km): before {d0:.3} d, after {d1:.3} d ({:+.1}%)", bare.km, (d1 / d0 - 1.0) * 100.0);
     println!("   stages after: {}", stage_lines(&j1));
+    // Ruling CG item 4: the same points walked B -> A. The asymmetric slope
+    // term makes the directions differ. Slope off, they differ too, by less
+    // (measured 2026-10-12: 33.53 vs 33.76 d), from terms other than slope
+    // that read the route in order; that is why both columns are printed.
+    let rev: Vec<(f64, f64)> = bare.pts.iter().rev().copied().collect();
+    let (r0, _) = travel_days(&fx.jp(&empty, false), &rev);
+    let (r1, jr) = travel_days(&fx.jp(&empty, true), &rev);
+    println!("Q1 no-way route B->A: before {r0:.3} d, after {r1:.3} d; A->B after {d1:.3} d (B->A / A->B {:.4})", r1 / d1);
+    println!("   stages B->A after: {}", stage_lines(&jr));
 
     let mut routes = Vec::new();
     for ty in [ManualWayType::Road, ManualWayType::Track, ManualWayType::Ancient] {
