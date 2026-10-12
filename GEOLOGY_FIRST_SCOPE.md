@@ -4306,3 +4306,22 @@ scheme, and GF-10's lane checks both at the source for the equations quoted.
   platforms. *Marine Geology* 166, 163–178.
 - Whipple, K.X. & Tucker, G.E. (1999). Dynamics of the stream-power river
   incision model. *Journal of Geophysical Research* 104(B8), 17661–17674.
+
+### The lithology corner blend (2026-10-12, Ruling CG addendum 2)
+
+*Design and evidence, not status (`STATUS.md` has the numbers).* Built as
+proposed in (a): under magnification only, `RenderCtx::litho_at_f` returns
+the four jittered corner rocks with their bilinear weights, and
+`land_color` blends each rock's colour terms by them.
+- **Where it acts.** Export bake, snapshot and deep-zoom tiles, when a pixel
+  is smaller than a cell on both axes. At one pixel per cell or coarser the
+  read stays nearest, which is the OpenGL magnification/minification switch
+  point. That keeps a grid-resolution export equal to the screen. The
+  fit-view map (`cell_color`) is untouched.
+- **Result.** The τ 4 NE stair and the carve-off scarp's blocks are gone in
+  the frames. On the scarp crop the crisp-step count falls to the
+  lithology-off level (1 024 → 668, against 671 with lithology off).
+  Evidence: `cartalith-native/docs/evidence/litho-blend-2026-10-12/`.
+- **Not addressed.** The flow line (b), the gorge (c) and the shore scallop
+  (d) are unchanged. Questions 5 and 6 took their defaults, so nothing was
+  built for them.

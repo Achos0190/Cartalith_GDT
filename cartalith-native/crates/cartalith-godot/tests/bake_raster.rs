@@ -176,14 +176,17 @@ fn bake_pixel_at_integer_cells_is_cell_color_world_wrap() {
     assert_integer_identity(&ctx, "default + hachure / world wrap");
 }
 
-/// Protects: the lithology and paint layers are read nearest-cell (not blended) by the bake, so the integer-cell identity survives a fixture whose neighbouring cells carry unrelated palette indices.
+/// Protects: at one output pixel per cell the lithology and paint layers are read nearest-cell (not blended) by the bake, so the integer-cell identity survives a fixture whose neighbouring cells carry unrelated palette indices. (Lithology is corner-blended only under magnification, Ruling CG addendum 2; `litho_blend.rs` covers that side.)
 #[test]
 fn bake_pixel_at_integer_cells_is_cell_color_with_lithology_and_paint() {
     // The two categorical layers, which are nearest-sampled rather than
-    // bilinear (`litho_at_f`, `paint_at_f`). A bilinear read of either would
-    // blend two unrelated palette indices into a meaningless third, and
-    // would break this identity at every cell whose neighbours differ --
-    // which is what makes this test the one that catches it.
+    // bilinear at this scale (`litho_at_f` with `magnified == false`,
+    // `paint_at_f`). A bilinear read of either here would blend two
+    // unrelated palette indices into a meaningless third, and would break
+    // this identity at every cell whose neighbours differ -- which is what
+    // makes this test the one that catches a lithology blend leaking into
+    // the one-pixel-per-cell path (Ruling CG addendum 2 blends *colours*,
+    // and only when a pixel is smaller than a cell).
     let (field, temp, rain, flow) = fixture();
     let n = GW * GH;
     let lith: Vec<u8> = (0..n).map(|i| (i % 7) as u8).collect();

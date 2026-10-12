@@ -5024,11 +5024,42 @@ impl<'a> RenderCtx<'a> {
         ((self.h_f(xr, y) - self.h_f(xl, y)) * 0.5, (self.h_f(x, d) - self.h_f(x, u)) * 0.5)
     }
 
-    /// [`Self::litho_at`] at a fractional position. Categorical, so the
-    /// sample is nearest-neighbour after the same coherent jitter — the
-    /// reference's own `lithB` bake read (`_geoLith[round(gy)*GW+
-    /// round(gx)]`) is nearest for exactly this reason.
-    fn litho_at_f(&self, x: f64, y: f64) -> Option<u8> {
+    /// [`Self::litho_at`] at a fractional position: the rock under a bake or
+    /// deep-zoom-tile pixel, after the same coherent jitter.
+    ///
+    /// **Two filters, chosen by `magnified`** (Ruling CG addendum 2, owner,
+    /// 2026-10-12, `LARGE_ITEM_RULINGS.md`; a deliberate divergence under
+    /// `DECISIONS.md` §7p):
+    ///
+    /// * `magnified == false` (a pixel covers one grid cell or more): the
+    ///   **nearest** cell, exactly as before, so a grid-resolution export and
+    ///   a one-pixel-per-cell tile stay the screen's `cell_color` byte for
+    ///   byte (`tests/bake_raster.rs`). This is also the reference's own
+    ///   `lithB` bake read (`_geoLith[round(gy)*GW+round(gx)]`).
+    /// * `magnified == true` (a pixel is smaller than a cell): the four
+    ///   cells around the jittered position, each with its **bilinear
+    ///   weight** ([`LithoSample::Blend`]). Nearest read under magnification
+    ///   drew every contact as a crisp one-cell staircase (8-pixel blocks at
+    ///   a typical deep zoom; `GEOLOGY_FIRST_SCOPE.md` §7 "Follow-up: what
+    ///   the remaining artefacts are" (a)): the jitter is smooth over a few
+    ///   cells, so it can move a straight contact but not break its steps.
+    ///   The category is never interpolated — [`land_color`] evaluates each
+    ///   corner rock's colour terms and blends the *colours*, which is
+    ///   percentage-closer filtering applied to a categorical map, the same
+    ///   idea as a splat-map material blend.
+    ///
+    /// The switch at one cell per pixel is the OpenGL texture rule (core
+    /// spec 4.6 §8.14-8.15: the magnification filter applies when the
+    /// level-of-detail `λ <= c`, `c = 0` here, i.e. at most one texel per
+    /// pixel) — a pixel that covers a whole cell has no sub-cell position to
+    /// blend between. At the switch the blended edge is at most one pixel
+    /// wide, so the hand-over is a sub-pixel difference, not a pop.
+    ///
+    /// Where all four corners hold the same rock the answer is
+    /// [`LithoSample::One`] — the nearest read's own rock, since `round`
+    /// picks one of those four corners — so pixels away from a contact are
+    /// byte-identical to the nearest filter **by control flow**.
+    pub(crate) fn litho_at_f(&self, x: f64, y: f64, magnified: bool) -> Option<LithoSample> {
         let lith = self.lithology?;
         if self.appearance.litho_strength <= 0.0 && self.appearance.litho_exposure <= 0.0 {
             return None;
@@ -5036,11 +5067,26 @@ impl<'a> RenderCtx<'a> {
         let jx = (vnoise(x * 0.09, y * 0.09, 81) - 0.5) * 4.4;
         let jy = (vnoise(x * 0.09, y * 0.09, 83) - 0.5) * 4.4;
         let (gw, gh) = (self.gw as i64, self.gh as i64);
-        let sx = (x + jx).round() as i64;
-        let sy = (y + jy).round() as i64;
-        let sx = if self.world { ((sx % gw) + gw) % gw } else { sx.clamp(0, gw - 1) };
-        let sy = sy.clamp(0, gh - 1);
-        Some(lith[(sy * gw + sx) as usize])
+        // X wraps in world mode, Y never does — `litho_at`'s own rule.
+        let cell = |sx: i64, sy: i64| {
+            let sx = if self.world { ((sx % gw) + gw) % gw } else { sx.clamp(0, gw - 1) };
+            let sy = sy.clamp(0, gh - 1);
+            lith[(sy * gw + sx) as usize]
+        };
+        let (px, py) = (x + jx, y + jy);
+        if !magnified {
+            return Some(LithoSample::One(cell(px.round() as i64, py.round() as i64)));
+        }
+        let (x0, y0) = (px.floor(), py.floor());
+        let (fx, fy) = (px - x0, py - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        let corners = [
+            (cell(x0, y0), (1.0 - fx) * (1.0 - fy)),
+            (cell(x0 + 1, y0), fx * (1.0 - fy)),
+            (cell(x0, y0 + 1), (1.0 - fx) * fy),
+            (cell(x0 + 1, y0 + 1), fx * fy),
+        ];
+        Some(LithoSample::from_corners(corners))
     }
 
     /// `_paintSampleAt` (reference line 4774) — the paint grids read
@@ -5127,16 +5173,109 @@ fn litho_palette(a: &TerrainAppearance, lith: u8) -> &[Rgb; 3] {
     }
 }
 
+/// The rock under one render sample, as [`land_color`] consumes it.
+///
+/// * `One(rock)` — a single `LITHO_PALETTE_ORDER` index: the screen's
+///   `cell_color` (one pixel per cell), a minifying bake or tile, and any
+///   magnified pixel whose four jittered corners agree.
+/// * `Blend` — up to four **distinct** rocks with their bilinear weights
+///   (summing to 1 up to rounding), for a magnified pixel straddling a
+///   contact ([`RenderCtx::litho_at_f`], Ruling CG addendum 2, 2026-10-12).
+///   Unused slots carry weight `0.0` and contribute nothing.
+///
+/// The category itself is never averaged — that would invent a third rock
+/// from two indices. Each rock's *colour terms* are evaluated and those are
+/// blended ([`Self::ramp`], [`Self::microtexture`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum LithoSample {
+    One(u8),
+    Blend([(u8, f64); 4]),
+}
+
+impl LithoSample {
+    /// Collapses four bilinear corners into one rock per distinct index,
+    /// weights summed; `One` when every corner holds the same rock, so the
+    /// common case (no contact under the pixel) takes the single-rock path
+    /// and is byte-identical to a nearest read. Merging also bounds the cost
+    /// at a contact to one colour evaluation per *distinct* rock (two, almost
+    /// always), not four.
+    pub(crate) fn from_corners(corners: [(u8, f64); 4]) -> Self {
+        let first = corners[0].0;
+        if corners.iter().all(|&(r, _)| r == first) {
+            return LithoSample::One(first);
+        }
+        let mut out = [(0u8, 0.0f64); 4];
+        let mut n = 0;
+        for (rock, w) in corners {
+            match out[..n].iter_mut().find(|(r, _)| *r == rock) {
+                Some(slot) => slot.1 += w,
+                None => {
+                    out[n] = (rock, w);
+                    n += 1;
+                }
+            }
+        }
+        LithoSample::Blend(out)
+    }
+
+    /// The rock palette's ramp colour at `tt`: the one rock's
+    /// `ramp3(litho_palette(..))`, or the weighted mix of each rock's. A
+    /// `ramp3` is affine in its palette, so mixing the ramps is the same as
+    /// mixing whatever linear stage consumes them (`rock_material_col`'s
+    /// `mix`, the exposure tint's lerp).
+    pub(crate) fn ramp(&self, a: &TerrainAppearance, tt: f64) -> Rgb {
+        match *self {
+            LithoSample::One(li) => ramp3(litho_palette(a, li), tt),
+            LithoSample::Blend(parts) => {
+                let mut c = (0.0, 0.0, 0.0);
+                for (li, w) in parts {
+                    if w > 0.0 {
+                        let p = ramp3(litho_palette(a, li), tt);
+                        c.0 += p.0 * w;
+                        c.1 += p.1 * w;
+                        c.2 += p.2 * w;
+                    }
+                }
+                c
+            }
+        }
+    }
+
+    /// [`litho_microtexture`] for this sample: the one rock's `mt`, or the
+    /// weighted mean of each rock's. `land_color` applies `1 + k·mt`, which
+    /// is affine in `mt`, so this equals blending the per-rock multipliers.
+    pub(crate) fn microtexture(&self, fx: f64, fy: f64, r: f64) -> f64 {
+        match *self {
+            LithoSample::One(li) => litho_microtexture(li, fx, fy, r),
+            LithoSample::Blend(parts) => parts.iter().filter(|p| p.1 > 0.0).map(|&(li, w)| litho_microtexture(li, fx, fy, r) * w).sum(),
+        }
+    }
+}
+
+/// Whether a raster whose neighbouring pixels are `(cells_x, cells_y)` grid
+/// cells apart **magnifies** the grid on both axes (`< 1` cell per pixel),
+/// which is when [`RenderCtx::litho_at_f`] blends the corner rocks rather
+/// than reading the nearest. Strict `<`: exactly one cell per pixel is the
+/// screen's own sampling, and must stay its nearest read (the OpenGL
+/// `λ <= c` rule, cited at `litho_at_f`). Both axes, so an anisotropic
+/// raster that minifies either way keeps the nearest read. Never used to
+/// decide anything but that filter.
+pub(crate) fn litho_magnified(cells_x: f64, cells_y: f64) -> bool {
+    cells_x < 1.0 && cells_y < 1.0
+}
+
 /// The rock material's colour: the reference's climate/relief heuristic
 /// (`rock_col`), blended toward the palette of the rock actually under the
-/// cell (`TERRAIN_APPEARANCE_RESEARCH.md` §12).
+/// cell (`TERRAIN_APPEARANCE_RESEARCH.md` §12) — or, for a magnified pixel
+/// on a contact, toward the bilinear mix of the corner rocks' palettes
+/// ([`LithoSample::ramp`]).
 ///
 /// Early-returns the untouched heuristic when there is no lithology field
 /// (a loaded save) or when the blend is off — `js_reference()`'s state —
 /// rather than relying on `mix(.., 0.0)` evaluating to a no-op, the same
 /// discipline `relief_lights <= 1` and the three atlas stages already
 /// follow.
-fn rock_material_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64, lith: Option<u8>) -> Rgb {
+fn rock_material_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64, lith: Option<LithoSample>) -> Rgb {
     let base = rock_col(a, t, m, r, tt);
     let Some(li) = lith else {
         return base;
@@ -5144,7 +5283,7 @@ fn rock_material_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64, lit
     if a.litho_strength <= 0.0 {
         return base;
     }
-    mix(base, ramp3(litho_palette(a, li), tt), a.litho_strength)
+    mix(base, li.ramp(a, tt), a.litho_strength)
 }
 
 /// The reference's per-lithology procedural microtexture `mt` (HTML 7812-7819)
@@ -5665,7 +5804,7 @@ pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -5929,7 +6068,10 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // Every gate is a `smoothstep`, so there are no hard material borders
     // (§30) — and the lithology index itself is sampled through a coherent
     // positional jitter in `cell_color`, so a geological contact reads as a
-    // ragged natural boundary rather than a vector line.
+    // ragged natural boundary rather than a vector line. Under magnification
+    // (export bake, deep-zoom tile) `lith` may be a [`LithoSample::Blend`] of
+    // the corner rocks, and the tint, like the two other lithology terms, is
+    // the weighted mix of their colours (Ruling CG addendum 2).
     //
     // **Slope is normalized by grid width here, unlike everywhere else in
     // this file.** `slope_at` is a per-*cell* height difference, so the same
@@ -5953,7 +6095,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         let cover = clamp01(1.0 - w.rock - w.snow);
         let e = appearance.litho_exposure * steep * bare * (0.40 + 0.60 * thin) * cover;
         if e > 0.0 {
-            let lc = ramp3(litho_palette(appearance, li), tt);
+            let lc = li.ramp(appearance, tt);
             c.0 += (lc.0 - c.0) * e;
             c.1 += (lc.1 - c.1) * e;
             c.2 += (lc.2 - c.2) * e;
@@ -5989,7 +6131,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         // `> 0.02`, the reference's own floor rather than `> 0.0`: below it
         // the blend is a fraction of a level and all it can add is dither.
         if expo > 0.02 {
-            let m = 1.0 + (appearance.geo_micro * expo).min(0.85) * litho_microtexture(li, fx, fy, r);
+            let m = 1.0 + (appearance.geo_micro * expo).min(0.85) * li.microtexture(fx, fy, r);
             c.0 *= m;
             c.1 *= m;
             c.2 *= m;
@@ -8314,7 +8456,7 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         // — the literal `1.0` where the field is empty is the reference's own
         // `ecoK != null ? ecoK : 1`, not a stand-in for a missing distance.
         let eco_k = if ctx.biome_bd.is_empty() { 1.0 } else { sdf_eco_k(ctx.biome_bd[i] as f64, ctx.appearance.sdf_biomes, ctx.gw) };
-        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, eco_k, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground,
+        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, eco_k, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y).map(LithoSample::One), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground,
             // LOD-D4 is a TILE stage. The grid path passes a literal `0.0`,
             // which takes `land_color`'s dedicated no-ice branch, so the
             // shipped screen render is byte-identical to what it was before
@@ -8640,7 +8782,7 @@ impl BakeFields {
                     // `with_lakes`, which no golden fixture attaches.
                     lake()
                 } else {
-                    self.land_px(ctx, gx, gy, h, t, vig, river)
+                    self.land_px(ctx, gx, gy, h, t, vig, step, river)
                 }
             }
             // RV-5: `map_shore.gdshader`'s rule. Wholly water or wholly land
@@ -8653,9 +8795,9 @@ impl BakeFields {
                 if cov >= 1.0 {
                     water()
                 } else if cov <= 0.0 {
-                    self.land_px(ctx, gx, gy, h, t, vig, river)
+                    self.land_px(ctx, gx, gy, h, t, vig, step, river)
                 } else {
-                    let (w, l) = (water(), self.land_px(ctx, gx, gy, h, t, vig, river));
+                    let (w, l) = (water(), self.land_px(ctx, gx, gy, h, t, vig, step, river));
                     (l.0 + (w.0 - l.0) * cov, l.1 + (w.1 - l.1) * cov, l.2 + (w.2 - l.2) * cov)
                 }
             }
@@ -8779,8 +8921,13 @@ impl BakeFields {
 
     /// The land colour at a bake pixel (the pre-RV-5 bake's land branch),
     /// with the river symbol `river` composited inside [`land_color`].
+    /// `step` (grid cells between neighbouring output pixels, as
+    /// [`Self::pixel_at`] takes it) selects the lithology filter: blended
+    /// only when both axes magnify (`< 1` cell per pixel), so a
+    /// grid-resolution export keeps the screen's nearest read
+    /// ([`RenderCtx::litho_at_f`]).
     #[allow(clippy::too_many_arguments)]
-    fn land_px(&self, ctx: &RenderCtx, gx: f64, gy: f64, h: f64, t: f64, vig: f64, river: Option<[f32; 4]>) -> (f64, f64, f64) {
+    fn land_px(&self, ctx: &RenderCtx, gx: f64, gy: f64, h: f64, t: f64, vig: f64, step: (f64, f64), river: Option<[f32; 4]>) -> (f64, f64, f64) {
         let (gw, gh) = (ctx.gw, ctx.gh);
         {
             let m = sample_arr(ctx.rainfall, gx, gy, gw, gh);
@@ -8812,7 +8959,7 @@ impl BakeFields {
                 // uses — the two must agree or the PNG is a different picture.
                 if ctx.biome_bd.is_empty() { 1.0 } else { sdf_eco_k(sample_arr(&ctx.biome_bd, gx, gy, gw, gh), ctx.appearance.sdf_biomes, gw) },
                 sample_arr(&ctx.hydro_wet, gx, gy, gw, gh),
-                ctx.litho_at_f(gx, gy),
+                ctx.litho_at_f(gx, gy, litho_magnified(step.0, step.1)),
                 grad,
                 gx,
                 gy,
@@ -9805,9 +9952,14 @@ fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: 
 //   shade, AO, hydrological wetness, the local-contrast detail band and the
 //   grade influence; plus `aspect_factor_f` / `curvature_at_f` /
 //   `vignette_at_f`, which are `sample_arr` underneath.
-// - **Nearest cell:** lithology (through `litho_at_f`, which carries this
-//   port's coherent jitter), the paint overrides, the lake mask and pooled
-//   lake surface, and the river ink.
+// - **Nearest cell:** the paint overrides, the lake mask and pooled lake
+//   surface, and the river ink.
+// - **Corner-blended categorical:** lithology (through `litho_at_f`, which
+//   carries this port's coherent jitter): at a tile finer than one pixel per
+//   cell, each of the four corner rocks' colour terms is evaluated and the
+//   colours are blended by bilinear weight; at one pixel per cell or coarser,
+//   the nearest cell as the screen reads it (Ruling CG addendum 2,
+//   2026-10-12; the reference's tile and bake read nearest).
 //
 // # Three places this deliberately does not follow the reference, and why
 //
@@ -11374,7 +11526,10 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         ao,
                         eco_k,
                         sample_arr(&ctx.hydro_wet, wx, wy, gw, gh),
-                        ctx.litho_at_f(wx, wy),
+                        // Blended under magnification only (`cx`/`cy` are
+                        // grid cells per tile pixel), so a one-pixel-per-cell
+                        // tile keeps the screen's nearest read.
+                        ctx.litho_at_f(wx, wy, litho_magnified(cx, cy)),
                         grad,
                         wx,
                         wy,
