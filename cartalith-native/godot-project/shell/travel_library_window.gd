@@ -578,6 +578,9 @@ func _build_inspector() -> Control:
 # Rail
 # ---------------------------------------------------------------------------
 
+## Rebuilds the left rail from `_bridge.tl_list(_current_kind)`, filtered by the search text and
+## split into CUSTOM and STOCK groups with counts. Frees every old row first; re-fits the phone layout
+## and refreshes the tab labels.
 func _refresh_rail() -> void:
 	_phone_refit()   ## PH-12: every rail row below is a fresh node.
 	_refresh_tab_labels()
@@ -653,6 +656,8 @@ func _build_rail_row(row: Dictionary) -> Control:
 # Selection / CRUD
 # ---------------------------------------------------------------------------
 
+## Selects entry `id`: discards an unsaved draft when switching to a different entry, then
+## refreshes the rail and the inspector and, on phone, moves to the inspector pane.
 func _select_entry(id: String) -> void:
 	if _draft.size() > 0 and id != _current_id:
 		# Unsaved edits are discarded on switching entries -- the mockup's

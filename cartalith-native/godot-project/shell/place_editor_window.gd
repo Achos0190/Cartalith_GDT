@@ -1942,6 +1942,9 @@ func _fact_chip(key: String, value: String) -> PanelContainer:
 
 # -- Name + re-roll ---------------------------------------------------------
 
+## Identity section: the name field (committed on Enter or focus loss, guarded against the
+## teardown commit by `_rebuilding`), the re-roll button, and a note with the settlement's cell and
+## terrain id from `s`.
 func _build_identity(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Identity")
 	var row := HBoxContainer.new()
@@ -1992,6 +1995,9 @@ func _build_identity(parent: Control, s: Dictionary) -> void:
 
 # -- Class + polity ---------------------------------------------------------
 
+## Classification section: the size class (changing it goes through `_apply` and rebuilds, since
+## class and capital flag move together), the owning polity chooser from `bridge.get_factions()` and the
+## garrison note. `s` is the settlement dictionary.
 func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Classification")
 	var kind := String(s.get("kind", "town"))
@@ -2035,6 +2041,10 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 
 # -- Population + economy ---------------------------------------------------
 
+## Population and economy section: population field, the specialisation and economy choosers, the
+## imports and exports groups and the water, food-shed, smelting and salt notes. A missing row from a
+## derived pass is shown as a dash with its reason, never as zero. `s` and `details` are the settlement
+## and its `civ_settlement_details`.
 func _build_economy(parent: Control, s: Dictionary, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Population & economy")
 	## Step 1, not the reference's own `step="500"`: an HTML number input
@@ -2289,6 +2299,8 @@ func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String)
 
 # -- Traits -----------------------------------------------------------------
 
+## Traits section: one toggle chip per entry of `bridge.civ_trait_vocabulary()`, lit for those in
+## `details["traits"]`. Shows a note when the engine build has no vocabulary.
 func _build_traits(parent: Control, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Traits")
 	var vocab := bridge.civ_trait_vocabulary()
@@ -2358,6 +2370,8 @@ func _build_traits(parent: Control, details: Dictionary) -> void:
 
 # -- Age + walls ------------------------------------------------------------
 
+## Settlement fabric section: age (Auto, resolving to `age_inferred`, or a set number of years;
+## `-1` is the stored "no override") and the walls chooser. Edits go through `_apply`.
 func _build_urban(parent: Control, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Settlement fabric")
 	var age := int(details.get("age", -1))
@@ -2412,6 +2426,8 @@ func _build_urban(parent: Control, details: Dictionary) -> void:
 
 # -- History ----------------------------------------------------------------
 
+## History section: a multi-line text field for the settlement's lore, committed on focus loss
+## and guarded by `_rebuilding` so a teardown commit cannot write this text onto the next settlement.
 func _build_history(parent: Control, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "History")
 	var te := TextEdit.new()
@@ -2527,6 +2543,8 @@ func _build_backlinks(sec: Control, kind: String, entity_id: int, name: String) 
 
 # -- Actions ----------------------------------------------------------------
 
+## Footer actions: focus the camera on the settlement, open it in the City Viewer (`has_method`
+## guarded) and delete it after a confirmation. `s` is the settlement dictionary.
 func _build_actions(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Actions")
 	DccWidgets.action(sec, "Focus camera on settlement", func():

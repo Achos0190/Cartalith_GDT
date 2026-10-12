@@ -764,6 +764,11 @@ func refresh_after_edit() -> void:
 
 # -- World overview (`_civRenderFactionsWorldOverview`) ----------------------
 
+## Redraws the world summary paragraph at the top of the window from `bridge.get_factions()`:
+## faction count, total population and settlements, claimed cells, the agrarian land line and the
+## largest faction. `claimed_cells` is omitted by the engine while the claim grid is unknown, so the total
+## then shows a dash plus `NO_CLAIM_GRID` rather than a sum of the rows that carry it. With no world it
+## shows a "Generate a world" prompt.
 func _rebuild_overview() -> void:
 	var factions := bridge.get_factions()
 	if factions.is_empty():
@@ -805,6 +810,10 @@ func _rebuild_overview() -> void:
 
 # -- Faction list (`_civRenderFactionList`) ---------------------------------
 
+## Rebuilds the faction list: a banner plus one button per faction, the selected row
+## outlined. A press commits any pending inspector edit (`_commit_focused_field`), selects that faction,
+## clears the marked pair, rebuilds list and inspector and, on phone, navigates to the inspector. An empty
+## world shows a note pointing at `DccShell.new_world_route()`.
 func _rebuild_list() -> void:
 	_clear(_list_body)
 	var factions := bridge.get_factions()
@@ -2936,6 +2945,10 @@ static func _tariff_display(rate: float) -> String:
 
 # -- Territory fit (`_civTerrainFitHtml`) -----------------------------------
 
+## Territory tab, "Territory fit" section for the selected faction: its terrain mix (river, coast,
+## arid, forest, hills) from the cached record (`_fit_for`) and, when the engine gave one, the verdict line
+## against the world average. Shows a dash with `NO_CLAIM_GRID` when there is no claim grid, and a prompt
+## to reopen the roster when no record was computed.
 func _build_terrain_fit(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Territory fit")
 	_ensure_fits()
@@ -3198,6 +3211,8 @@ func _fill_influence() -> void:
 # reference at all. Neither is a rescaling of the other, and presenting one as
 # the other would be the easiest wrong thing to do here.
 
+## The cached manpower row for `faction_id` from `_military["factions"]` (filled by
+## `_ensure_military()`), or `{}` when that faction has none. Absence means "no row", not zeros.
 func _military_row(faction_id: int) -> Dictionary:
 	for r in (_military.get("factions", []) as Array):
 		if int((r as Dictionary).get("faction", -1)) == faction_id:
@@ -3465,6 +3480,9 @@ func _open_conflict(id: int) -> void:
 
 # -- Settlement sublist (`_civRenderFactionSettlementSublist`) --------------
 
+## The selected faction's settlements as a collapsible group: every settlement whose `faction` is
+## `_selected`, largest population first. Each row opens `place_editor_window` for that settlement and
+## carries a Transfer button (FH-9). An empty world or empty faction shows a note instead of rows.
 func _build_settlement_sublist(parent: Control) -> void:
 	var all := bridge.settlements()
 	var mine: Array = []
@@ -3587,6 +3605,8 @@ func _build_gaps(parent: Control) -> void:
 
 # -- Roster mutation --------------------------------------------------------
 
+## The "+ Add faction" button: asks the engine for a new faction (`civ_add_faction`), selects it,
+## marks derived data stale and rebuilds. Shows a hint and changes nothing when the engine refuses (no world).
 func _add_faction() -> void:
 	var id := bridge.civ_add_faction()
 	if id < 0:
@@ -3667,6 +3687,7 @@ func _set_field(key: String, value: String) -> void:
 
 # -- Helpers ----------------------------------------------------------------
 
+## The `bridge.get_factions()` row for faction id `fid`, or `{}` when no faction has that id.
 func _faction(fid: int) -> Dictionary:
 	for f in bridge.get_factions():
 		if int((f as Dictionary).get("id", -1)) == fid:

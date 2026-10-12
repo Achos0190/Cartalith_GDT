@@ -441,12 +441,16 @@ var _muted_windows: Array = []
 ## dimmed window lands nowhere (the window is also `gui_disable_input`).
 class _WindowMirror extends Control:
 	var _host_overlay: Control
+	## Binds the mirror to its owning overlay `host` and makes it a full-rect, non-focusable
+	## STOP-filter control named `BusyOverlayMirror`. Draws nothing itself; `_draw` asks `host`.
 	func _init(host: Control) -> void:
 		_host_overlay = host
 		name = "BusyOverlayMirror"
 		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		focus_mode = Control.FOCUS_NONE
+	## Asks the host overlay to paint its card into this control at this control's size via the
+	## overlay's `_paint`. Draws nothing when the host is gone, so a mirror outliving its overlay is blank.
 	func _draw() -> void:
 		if _host_overlay != null and is_instance_valid(_host_overlay):
 			_host_overlay.call("_paint", self, size)

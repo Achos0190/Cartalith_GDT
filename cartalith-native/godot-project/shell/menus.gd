@@ -2418,6 +2418,8 @@ func _open_landmark_dock(family: String) -> void:
 # the cascade was built until 2026-09-07, so it described the cascade as
 # degraded to one `_todo` row long after it had stopped being.)
 
+## `_bridge.landmark_kinds()`, or `[]` when the binding is missing (older cdylib). An empty list
+## means "unavailable", not "no kinds".
 func _landmark_kinds() -> Array:
 	if _bridge == null or not _bridge.has_method("landmark_kinds"):
 		return []
@@ -3637,6 +3639,10 @@ func _refresh_gpu_retry_row(p: PopupMenu) -> void:
 
 # -- §2.5 Graphics ▸ relief exaggeration default -----------------------------
 
+## Builds the Graphics relief-exaggeration submenu (`_exag_popup`) for parent `p`: one radio row per
+## `DccSettings.RELIEF_EXAG_CHOICES` rung plus a "use the engine's own" row that erases the stored
+## preference instead of storing the engine default. Wires `id_pressed` to `_on_relief_exag` and refreshes
+## the check marks at build time and on `about_to_popup`.
 func _build_relief_exag_menu(p: PopupMenu) -> void:
 	_exag_popup = PopupMenu.new()
 	_exag_popup.name = "ReliefExag"
@@ -5371,6 +5377,9 @@ func _on_quality(id: int) -> void:
 
 # -- §2.6 Window --------------------------------------------------------------
 
+## Fills the Window menu `p`: one check row per region in `WIN_REGION_IDS` (labels from
+## `WIN_REGION_LABELS`), kept in step with the real region state by `_sync_region_checks`, then the
+## rows below them. Keeps `p` in `_window_popup` for `_capture_layout()` and `_apply_layout()`.
 func _window(p: PopupMenu) -> void:
 	## Held for `_capture_layout()`/`_apply_layout()`: the five region flags a
 	## layout records live as this popup's own check state (kept honest by

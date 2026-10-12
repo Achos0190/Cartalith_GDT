@@ -428,6 +428,8 @@ const _PEEK_CARD_MIN_DRAG_DP := 24.0  ## Declared with a 24 dp value and not ref
 # file boundary because `_pscale`/`_ptap` are private there and this is the only
 # thing this file needs from them.
 
+## A dp value scaled by the shell's phone scale (`_scale`), at least 1 px. For things that are only
+## drawn; use `_pt` for anything a finger must hit.
 func _ps(px: float) -> int:
 	return maxi(1, int(round(px * _scale)))
 
@@ -438,6 +440,9 @@ func _pt(px: float) -> int:
 
 # -- Build --------------------------------------------------------------------
 
+## Binds the MORE overlay to its `DccShell`, captures `phone_scale()` into `_scale`, makes the node
+## full-rect with an IGNORE mouse filter while closed and builds the screen, sheet and peek panel. Called
+## once from `dcc_shell.gd`. Opening is `open()`.
 func setup(shell: DccShell) -> void:
 	_shell = shell
 	_scale = shell.phone_scale()
@@ -1159,6 +1164,7 @@ func apply_insets(top: float, left: float, bottom: float) -> void:
 
 # -- Navigation ---------------------------------------------------------------
 
+## True while the MORE overlay is visible. Read by `dcc_shell.gd`, for example to close it when a phone tab is chosen.
 func is_open() -> bool:
 	return visible
 
@@ -1378,6 +1384,10 @@ func _push_screen(id: String, arg: String = "") -> void:
 
 # -- Render -------------------------------------------------------------------
 
+## Repaints from the navigation stack `_stack`: shows the deepest screen step (if any) in the
+## full-screen pane with its title and head variant (root versus drilled), and shows the top step in the
+## sheet when it is a sheet, veiling the screen behind it. Does nothing on an empty stack. The place the
+## stack becomes nodes.
 func _render() -> void:
 	if _stack.is_empty():
 		return
@@ -1543,6 +1553,9 @@ func _missing_row(label: String, why: String) -> Control:
 
 # -- The screens --------------------------------------------------------------
 
+## Dispatches a bespoke screen id (`more`, `project`, `civ`, `data`, `sim`, `prefs`, `assets`,
+## `travel`, `landmarks`, `help`, ...) to its `_fill_*` builder, passing `arg` to the ones that take one.
+## An unknown id draws a labelled "no content" row rather than an empty screen.
 func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 	match id:
 		"more": _fill_root(body)
@@ -3855,6 +3868,9 @@ func _menu_row(mb: MenuButton) -> Control:
 
 # -- One popup, re-presented --------------------------------------------------
 
+## Re-presents a desktop `PopupMenu` (`step.popup`) as rows: emits its `about_to_popup` first so
+## dynamic menus (recent worlds, GPU devices, open windows) fill, then draws each item via `_popup_row`
+## with hairlines between them and a titled band for any labelled separator. A leading separator is skipped.
 func _fill_popup(body: VBoxContainer, step: _Step) -> void:
 	var p := step.popup
 	## Live exactly as the desktop menu is live: Recent worlds, GPU devices,

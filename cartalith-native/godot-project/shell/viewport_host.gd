@@ -1165,6 +1165,8 @@ const ZOOM_BUTTON_STEP := 1.35   ## Reference 13464. Deliberately coarser than
 	## `ZOOM_WHEEL_STEP` (1.15): a wheel notch is cheap and repeatable, a
 	## 44 px tap is neither.
 
+## Zooms by `factor` about the centre of the viewport. The navpad's zoom buttons call it with
+## `ZOOM_BUTTON_STEP` or its inverse; wheel and pinch go through `_zoom_at` with their own pivot.
 func zoom_step(factor: float) -> void:
 	_zoom_at(size * 0.5, factor)
 
@@ -2298,6 +2300,10 @@ func _chrome(preset: int, align: int, scrim: bool = true) -> Label:
 
 # -- Refresh ------------------------------------------------------------------
 
+## Repaints the whole view from the engine after a world change: base, territory and province
+## textures, debug layer, overlay data (settlements, roads, sea routes, rivers, faction colours, traits,
+## manual routes, journey markers), map width and zoom limit, then resets the camera to fit. Does nothing
+## when the engine has no readable world. Connected to the bridge's world signals in `setup`.
 func refresh() -> void:
 	if not _engine_readable():
 		return

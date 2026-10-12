@@ -2867,6 +2867,10 @@ func _on_generate_pressed() -> void:
 # because a feature switch, a preset, or a stroke ending each change which
 # controls belong on screen, not just a value within them.
 
+## (Re)builds the Sculpt panel inside `parent`: frees its children, then draws the controls from the
+## engine's live sculpt state. Deferred while a generation is running (`_sculpt_build_deferred`, replayed
+## afterwards) and shows a prompt when there is no world. Called whenever something changes which
+## controls belong on screen, not only a value.
 func _build_sculpt(parent: Control) -> void:
 	## Gated: this reads `sculpt_get_globals()` and half a dozen more engine calls.
 	## Skipping leaves the previous panel standing; the replay rebuilds it, so a
@@ -4132,6 +4136,9 @@ func _sculpt_brush_radius_cells() -> float:
 # which fields `PaintStamp` may legally write); nothing here hardcodes §4.5.2's
 # own target table.
 
+## (Re)builds the Biome paint panel inside `parent`: frees its children, then draws the layer,
+## brush and commit controls from the engine's paint layers. Deferred while generating
+## (`_paint_build_deferred`) and shows a prompt with no world.
 func _build_paint(parent: Control) -> void:
 	## Gated like `_build_sculpt` (`get_paint_layers()`, `paint_painted_counts()`...).
 	if bridge.generating:
@@ -4415,6 +4422,8 @@ func brush_options(tool: String) -> Dictionary:
 func sculpt_pressure_on() -> bool:
 	return _sculpt_pressure_on
 
+## Sets whether pen pressure scales sculpt strokes. Called by `tool_bar.gd` (via `has_method`) and
+## the phone column with the toggle's value; read back by `sculpt_pressure_on()`.
 func set_sculpt_pressure_on(on: bool) -> void:
 	_sculpt_pressure_on = on
 
@@ -4474,6 +4483,8 @@ func brush_surfaces_changed() -> void:
 # raster, and nothing about the preview getting cheaper makes rebuilding it
 # per motion sample right.
 
+## One paint dab at grid position (`gx`, `gy`): syncs the brush to the engine with Shift as a
+## momentary erase, applies the dab, and refreshes the preview.
 func _paint_apply_dab(gx: float, gy: float) -> void:
 	_paint_sync_brush_with_shift()
 	bridge.paint_stroke_at(gx, gy)
@@ -4792,6 +4803,8 @@ var _pg_stale_label: Label
 # which is `dcc_shell.gd`'s own split: a tap target is a finger measurement and
 # does not grow when the OS text size does.
 
+## Phone-generate helper: a dp value scaled by the shell's text-aware scale (`app._pscale`), or
+## unscaled when `app` is null.
 func _pg_px(px: float) -> int:
 	return app._pscale(px) if app != null else int(round(px))
 

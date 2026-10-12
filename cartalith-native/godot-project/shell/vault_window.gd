@@ -533,6 +533,9 @@ func _rebuild() -> void:
 
 # -- Connection (§7) --------------------------------------------------------
 
+## Builds the connection block for `info` (the vault status dictionary): a one-line header when
+## bound and in the browser or a kind scope, otherwise the full "Vault" section (connected, known but
+## not on this device, or none) with its Connect action.
 func _build_connection(info: Dictionary) -> void:
 	var bound: bool = bool(info.get("bound", false))
 	## The standalone browser, connected: the owner-approved 2026-09-21
@@ -2455,6 +2458,9 @@ func _diff_row(container: Control, d: Dictionary) -> void:
 
 # -- Reader / working copy (§29) -------------------------------------------
 
+## Working-copy section of a linked note: an editable text field backed by
+## `bridge.vault_link_text` (committed on focus loss) and a save-local-copy action. Does not write to
+## the vault folder itself.
 func _build_reader(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Working copy")
 	_reader_edit = TextEdit.new()
@@ -3030,6 +3036,8 @@ func _save_prefs() -> void:
 
 # -- Overview ---------------------------------------------------------------
 
+## The unscoped body: the index, the entity picker and the "All linked notes" list, one button per
+## link that opens that entity's note via `open_for`. Shows a note when nothing is linked.
 func _build_overview() -> void:
 	_build_index(_body)
 	_build_pick_entity()

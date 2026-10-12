@@ -268,6 +268,10 @@ var _thread: Thread
 
 # -- Lifecycle ----------------------------------------------------------------
 
+## Node entry. Restores the persisted CPU worker count first (before anything can run a Rayon
+## `par_iter()`), probes the native `WorldGen` for each optional binding and records the result in the
+## `*_api` flags the shell gates its controls on (an older cdylib simply leaves a flag false), connects
+## the dirty-flag signal handlers, and restores GPU preferences, the parameter table and landmark kinds.
 func _ready() -> void:
 	## **First, before anything else in this function.** Rayon's global pool
 	## builds exactly once per process and does it implicitly, so the persisted
@@ -593,6 +597,10 @@ func last_error() -> Dictionary:
 
 # -- Parameters ---------------------------------------------------------------
 
+## Reads the engine's parameter metadata (`get_param_info`, `get_param_defaults`) and a fresh
+## `get_params()` snapshot into the caches behind `param_info()`, `param_default()` and `params_available()`.
+## Does nothing on a binary without `get_param_info`. Called from `_ready` and again after a project open
+## or a world load, because loading moves the dials.
 func _read_param_table() -> void:
 	if not _has("get_param_info"):
 		return

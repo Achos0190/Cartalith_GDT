@@ -476,6 +476,9 @@ func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 # Layout
 # ---------------------------------------------------------------------------
 
+## Builds the dialog's whole content once, from the setup call that opens it: header, breadcrumb, path well, optional
+## places strip, the scrolling row list (`_list`) and the foot. Takes the title and the footnote text
+## from the caller. Rows are filled later by the refresh path, never here.
 func _build(dialog_title: String, footnote: String) -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)

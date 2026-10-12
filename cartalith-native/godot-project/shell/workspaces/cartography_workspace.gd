@@ -1155,6 +1155,9 @@ func _arm_ring_custom_icon(slot: String, set_name: String) -> void:
 # Tool arming / click-drag wiring
 # ===========================================================================
 
+## Registers the icon and label tools' click, drag and release handlers with `app` and connects
+## `tool_armed` to `_on_any_tool_armed`, which does both tools' cleanup. No Escape handler is registered
+## on purpose; `app.gd`'s default disarm covers it.
 func _register_tools() -> void:
 	app.register_tool_click_handler("icon", _on_icon_click)
 	app.register_tool_drag_handler("icon", _on_icon_drag)
@@ -1334,6 +1337,10 @@ func _sync_layers() -> void:
 # Icon tool (§4.5.5)
 # ===========================================================================
 
+## Pushes the panel's icon selection to the engine: a Custom icon armed from the ring wins when
+## `_icon_custom_armed` is set, otherwise the chosen family and variant, each with scale, rotation, jitter
+## and the brush settings. Re-sent on every change and after a regenerate, because the engine's editor is
+## rebuilt then. Does nothing without an asset pack.
 func _arm_icon_from_ui() -> void:
 	if not bridge.has_asset_pack():
 		return

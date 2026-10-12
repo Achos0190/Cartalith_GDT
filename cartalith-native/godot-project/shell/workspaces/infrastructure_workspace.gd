@@ -1839,6 +1839,7 @@ func _clear_ways_now() -> void:
 
 # -- Ports ------------------------------------------------------------------
 
+## Builds the Ports category and fills it via `_fill_ports`.
 func _build_ports() -> void:
 	_ports_body = DccWidgets.category(self, "Ports", categories)
 	_fill_ports(_ports_body)

@@ -3244,6 +3244,9 @@ func _refresh_rail_foot() -> void:
 
 # -- Menu callbacks -----------------------------------------------------------
 
+## File > New world... and every other route to it (`menus.gd`'s `ID_NEW_WORLD`, `open_project_dialog.gd`'s new-world tile, `phone_project_picker.gd`'s tile).
+## Shows `new_world_dialog`: phone-presented full-screen via `DccWidgets.phone_present()` when that
+## applies, otherwise `popup_centered()`. Does not generate anything; the dialog's own button does.
 func open_new_world() -> void:
 	## PH-06: on a phone the dialog fills the screen instead, and it has to be
 	## *opened* by that call rather than sized by it -- `DccWidgets

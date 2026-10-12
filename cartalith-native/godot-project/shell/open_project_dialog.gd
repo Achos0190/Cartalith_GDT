@@ -243,6 +243,10 @@ static var _meta_cache: Dictionary = {}
 # Setup
 # ---------------------------------------------------------------------------
 
+## Binds the dialog to the host `DccApp` and builds it: borderless window, 1180x760, the PH-06
+## phone presentation via `DccWidgets.phone_window()`, the content (`_build`), the file-drop handler for
+## the import tile and, on phone, the rotation re-fit. Called once from `DccApp`; showing it is `open()`
+## or `open_welcome()`.
 func setup(host: DccApp) -> void:
 	_host = host
 	title = "Open project"

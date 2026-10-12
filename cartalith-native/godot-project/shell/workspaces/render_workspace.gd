@@ -1484,6 +1484,9 @@ func _build_biome_colours() -> void:
 
 # -- The reference's Map style presets (reference HTML 1719-1729) --------------
 
+## Builds the "Look" section: the gallery of `STYLE_PRESETS` tiles, the lit one read from the
+## engine's current look (falling back to the first entry on a cdylib with no look API). Skipped entirely
+## when `bridge.npr_api` is false. The reference's Map style presets are the ancestor.
 func _build_map_style() -> void:
 	if not bridge.npr_api:
 		return
