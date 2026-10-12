@@ -112,6 +112,12 @@ static func selection_mode_from_input() -> int:
 		return SEL_TOGGLE
 	return SEL_REPLACE
 
+## The reason text a mutator that answers `{"ok": false, "error": ...}` (or `reason`) gives while `generating`: the worker holds
+## `WorldGen`, so the call is refused rather than made. Caller-gate audit 2026-10-12: every mutator and `civ_*` / `tl_*` /
+## `conflict_*` wrapper gates itself, so a caller that forgot to test `generating` is refused with this, not a `bind() failed`
+## panic. Never worded as a missing capability ("this build has no ..."): the build is fine, only the moment is wrong.
+const _BUSY_TEXT := "The world is generating -- try again when it finishes."
+
 var world_gen: WorldGen = WorldGen.new()
 
 var generating := false
@@ -578,7 +584,11 @@ func param_keys() -> Array:
 
 ## Forwards to `WorldGen.get_param_groups`: the dialog section names in display
 ## order. Empty `PackedStringArray` on a binary without it, not "no groups".
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedStringArray().
 func param_groups() -> PackedStringArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedStringArray()
 	if _has("get_param_groups"):
 		return world_gen.get_param_groups()
 	return PackedStringArray()
@@ -661,7 +671,11 @@ func reset_params(keys: Array = []) -> void:
 ## Forwards to `WorldGen.apply_archetype`, which writes the archetype's World
 ## Structure knobs into the persistent parameters. `false` for an unknown name or a
 ## binary without it; only a `true` marks the parameters dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func apply_archetype(name: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("apply_archetype"):
 		return false
 	var ok: bool = world_gen.apply_archetype(name)
@@ -1089,7 +1103,11 @@ func territory_texture() -> Texture2D:
 ## `state.viz.territoryOpacity` -- how heavily the territory wash is laid over
 ## the map (`GUI_GAP_REGISTER.md` CA-17). Takes effect on the next
 ## `territory_texture()`; the caller repaints.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func set_territory_opacity(a: float) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("set_territory_opacity"):
 		return
 	mark_world_dirty()
@@ -1394,7 +1412,11 @@ func get_active_urban_rules() -> Dictionary:
 ## parameter tables' direct-edit path). Returns the resulting full rules
 ## `Dictionary` plus a `"rejected"` `PackedStringArray` of any keys that did
 ## not resolve.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func set_active_urban_rules(values: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("set_active_urban_rules"):
 		return {}
 	return world_gen.set_active_urban_rules(values)
@@ -1403,28 +1425,44 @@ func set_active_urban_rules(values: Dictionary) -> Dictionary:
 ## current active rules (via `cartalith_urban::apply_wildness`, the same
 ## formula the design canvas's own script documents) and returns the
 ## resulting full rules `Dictionary`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func apply_urban_wildness(w: float) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("apply_urban_wildness"):
 		return {}
 	return world_gen.apply_urban_wildness(w)
 
 ## The "Plot chaos" slider -- `cartalith_urban::apply_plot_chaos`'s real
 ## formula, the parcel-metrology counterpart to [apply_urban_wildness].
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func apply_urban_plot_chaos(c: float) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("apply_urban_plot_chaos"):
 		return {}
 	return world_gen.apply_urban_plot_chaos(c)
 
 ## Clears the active rules back to unedited -- `urban_layouts()` then
 ## generates every town at exactly `DEFAULT_RULES` again.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func reset_active_urban_rules() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if _has("reset_active_urban_rules"):
 		world_gen.reset_active_urban_rules()
 
 ## Replaces the active rules with a named Rust rule set
 ## (`cartalith_urban::rules_preset` -- `"market_town"`). Empty for an unknown
 ## id or an older binary, and the active rules are then left untouched.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func apply_urban_rules_preset(id: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("apply_urban_rules_preset"):
 		return {}
 	return world_gen.apply_urban_rules_preset(id)
@@ -1444,7 +1482,11 @@ func urban_town_plan_options() -> Dictionary:
 ## `variant`; see the Rust doc comment. All-or-nothing like
 ## `civ_edit_settlement`, and unlike it does not mark the civ layer stale: a
 ## town plan moves no territory, road or trade figure.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_set_town_plan(index: int, fields: Dictionary) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_set_town_plan"):
 		return false
 	mark_world_dirty()
@@ -1498,7 +1540,11 @@ func quality_tiers() -> PackedStringArray:
 
 ## A suggested tier for this device (`WorldGen.get_recommended_quality_tier`).
 ## Nothing applies it; the default policy is an owner decision.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers "".
 func recommended_quality_tier() -> String:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return ""
 	return world_gen.get_recommended_quality_tier()
 
 # -- The named look (2026-08-24) ----------------------------------------------
@@ -1538,7 +1584,11 @@ func look() -> String:
 
 ## Selects a named look (`WorldGen.set_look`). `false` for an unknown name or no
 ## look API, and nothing changes; marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func set_look(name: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not look_api:
 		return false
 	mark_world_dirty()
@@ -1565,7 +1615,11 @@ func npr_settings() -> Dictionary:
 ## Send one or more changed keys; the rest keep their current value. Returns
 ## how many keys the engine recognised, so a typo reads as 0 rather than as a
 ## silent no-op.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func set_npr(values: Dictionary) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not npr_api:
 		return 0
 	mark_world_dirty()
@@ -1602,7 +1656,11 @@ func appearance_tunables() -> Array:
 
 ## Send one or more changed keys; the rest keep their current value. Returns
 ## how many the engine recognised (0 = a typo, not a silent no-op).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func set_appearance(values: Dictionary) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not appearance_api:
 		return 0
 	mark_world_dirty()
@@ -1610,7 +1668,11 @@ func set_appearance(values: Dictionary) -> int:
 
 ## Stop overriding just these keys, so each returns to the tier/look value.
 ## Returns how many overrides were dropped; 0 on an older cdylib without it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func drop_appearance_overrides(keys: PackedStringArray) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not appearance_api or not world_gen.has_method("drop_appearance_overrides"):
 		return 0
 	mark_world_dirty()
@@ -1711,7 +1773,11 @@ func color_ramp() -> Array:
 ## Replace the whole ramp. Add, delete and reorder are all this one call --
 ## the engine sorts by position, so dragging a stop past its neighbour *is*
 ## the reorder. Returns the number of stops accepted (0 = nothing changed).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func set_color_ramp(stops: Array) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not ramp_api:
 		return 0
 	mark_world_dirty()
@@ -1719,7 +1785,11 @@ func set_color_ramp(stops: Array) -> int:
 
 ## Loads a named colour ramp (`WorldGen.load_ramp_preset`). `false` for an unknown
 ## name or no ramp API; marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func load_ramp_preset(name: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not ramp_api:
 		return false
 	mark_world_dirty()
@@ -1846,7 +1916,11 @@ func color_space() -> String:
 
 ## `false` for a name this build does not have. Presentation only, and
 ## session-only: re-render to see it, and nothing is written to disk.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func set_color_space(name: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not color_space_api:
 		return false
 	return world_gen.set_color_space(name)
@@ -1914,7 +1988,11 @@ func layer_stack() -> Array:
 ## are each optional **within** a row and an absent key means *unchanged*, never
 ## defaulted -- so a caller may send a visibility toggle without restating the
 ## opacities, and must not send a key it is not deliberately setting.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func set_layer_stack(rows: Array) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not layer_stack_api:
 		return 0
 	var n: int = world_gen.set_layer_stack(rows)
@@ -2272,7 +2350,11 @@ func _restore_gpu_prefs() -> void:
 
 ## Logical cores this machine reports -- the ceiling a chooser clamps to.
 ## `0` when the binding is missing, which callers must read as "unknown".
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func cpu_logical_core_count() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("cpu_logical_core_count"):
 		return 0
 	return int(world_gen.cpu_logical_core_count())
@@ -2337,7 +2419,11 @@ func _restore_cpu_pref() -> void:
 ## on an external drive and the atlas cache under `user://` routinely sit on
 ## different filesystems, and the one that matters is whichever the bytes are
 ## about to be written to.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func disk_free_bytes(path: String) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("disk_free_bytes"):
 		return -1
 	return int(world_gen.disk_free_bytes(path))
@@ -2345,7 +2431,11 @@ func disk_free_bytes(path: String) -> int:
 ## `MVP_SCOPE.md` criterion 7: opens a real HTML-app `.zip` and renders that
 ## save's terrain. `load_save` reads the save's own stored fields directly --
 ## no `generate` call is involved, so nothing here goes through the worker.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func load_save(path: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	## `project_open`, not `world_gen.load_save`. They are two different
 	## readers and the shell was calling the wrong one: `project_save` (File ▸
 	## Save) writes the TREE, and `world_gen.load_save` is the FLAT HTML-format
@@ -2442,9 +2532,13 @@ func load_save(path: String) -> bool:
 ## older binary with no `project_save_with_documents` degrades the same way
 ## `extra_documents`/`preview_png` already do, with a warning rather than a
 ## silent drop.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func save_project(path: String, extra_documents: Dictionary = {},
 		preview_png: PackedByteArray = PackedByteArray(),
 		include_lod_tiles: bool = false) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not save_api or not has_world:
 		return false
 	## `project_save` writes the documented tree (`SAVEFILE_COMPAT.md`) and
@@ -2527,14 +2621,22 @@ func _set_dirty(value: bool) -> void:
 
 ## Forwards to `WorldGen.load_asset_pack(path)`; emits `world_loaded` on success.
 ## `false` leaves the world untouched.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func load_asset_pack(path: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	var ok: bool = world_gen.load_asset_pack(path)
 	if ok:
 		world_loaded.emit()
 	return ok
 
 ## `WorldGen.has_asset_pack`: whether a real asset pack is currently loaded.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func has_asset_pack() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	return world_gen.has_asset_pack()
 
 ## `WorldGen::civ_trait_badge_row` -- a whole settlement pin's trait-badge row,
@@ -2545,7 +2647,11 @@ func has_asset_pack() -> bool:
 ## so an older GDExtension without this binding must degrade to the empty
 ## `Array` `map_overlay.gd::_trait_badge_art` already treats as "no resolver
 ## installed" -- not crash the first time a settlement redraws.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_trait_badge_row(px: float, py: float, traits: PackedStringArray, sz: float, sc: float) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_trait_badge_row"):
 		return []
 	return world_gen.civ_trait_badge_row(px, py, traits, sz, sc)
@@ -2563,7 +2669,11 @@ func civ_trait_badge_row(px: float, py: float, traits: PackedStringArray, sz: fl
 ## Rotate the wrapped world so the landmasses sit away from the x-seam
 ## (`GUI_GAP_REGISTER.md` MS-01). Returns the engine's summary dictionary:
 ## `ok`, `offset`, `seam_column`, and `reason` when `ok` is false.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "reason": _BUSY_TEXT}.
 func center_landmasses() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "reason": _BUSY_TEXT}
 	if not _has("center_landmasses"):
 		return {"ok": false, "reason": "This build of the engine has no centring pass."}
 	var r: Dictionary = world_gen.center_landmasses()
@@ -2574,7 +2684,11 @@ func center_landmasses() -> Dictionary:
 ## Overdeepen the glacially-carvable coastal valleys into fjords. Returns
 ## the engine's summary dictionary: `ok`, `cells_masked`, `cells_carved`,
 ## and `reason` when `ok` is false.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "reason": _BUSY_TEXT}.
 func carve_fjords() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "reason": _BUSY_TEXT}
 	if not _has("carve_fjords"):
 		return {"ok": false, "reason": "This build of the engine has no fjord pass."}
 	var r: Dictionary = world_gen.carve_fjords()
@@ -2663,7 +2777,11 @@ func sculpt_get_globals() -> Dictionary:
 
 ## Applies a partial dictionary of globals (`WorldGen.sculpt_set_globals`); the reply
 ## is `{rejected, clamped}`, so a key appears only when something went wrong with it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func sculpt_set_globals(values: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("sculpt_set_globals"):
 		return {}
 	mark_world_dirty()
@@ -2681,7 +2799,11 @@ func sculpt_get_feature() -> String:
 
 ## Selects the next stroke's feature and resets its parameters to that feature's
 ## defaults (`WorldGen.sculpt_set_feature`). `false` for an unknown key.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_set_feature(feature_key: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_set_feature"):
 		return false
 	mark_world_dirty()
@@ -2699,7 +2821,11 @@ func sculpt_get_feature_params() -> Dictionary:
 
 ## Applies a partial dictionary of the current feature's controls
 ## (`WorldGen.sculpt_set_feature_params`); the reply is `{rejected, clamped}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("sculpt_set_feature_params"):
 		return {}
 	mark_world_dirty()
@@ -2707,7 +2833,11 @@ func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
 
 ## Seeds the current feature, its parameters and the noise scale from preset `index`
 ## (`WorldGen.sculpt_apply_preset`). Never paints; `false` for a bad index.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_apply_preset(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_apply_preset"):
 		return false
 	mark_world_dirty()
@@ -2725,7 +2855,11 @@ func sculpt_get_freehand_mode() -> String:
 
 ## Sets Freehand's sub-mode (`WorldGen.sculpt_set_freehand_mode`). `false`, nothing
 ## changed, if the feature is not Freehand or the key is not one of the modes.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_set_freehand_mode(mode_key: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_set_freehand_mode"):
 		return false
 	mark_world_dirty()
@@ -2747,7 +2881,11 @@ func sculpt_get_seed() -> int:
 
 ## Sets the seed the next stroke captures (`WorldGen.sculpt_set_seed`). The dice
 ## button's random pick belongs to the UI, not the engine.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func sculpt_set_seed(seed: int) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("sculpt_set_seed"):
 		return
 	mark_world_dirty()
@@ -2755,7 +2893,11 @@ func sculpt_set_seed(seed: int) -> void:
 
 ## Starts capturing a new stroke, discarding any uncommitted in-progress points
 ## (`WorldGen.sculpt_begin_stroke`). `false` before any world or without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_begin_stroke() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_begin_stroke"):
 		return false
 	return world_gen.sculpt_begin_stroke()
@@ -2778,14 +2920,22 @@ func has_sculpt_stroke_api() -> bool:
 ## polyline per stamp. `false` means the call changed nothing (no world, no API, or a
 ## refused option) and any stroke already open is still open. Never pass a made-up
 ## default for a key the caller did not choose; omit it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_begin_stroke_with(options: Dictionary = {}) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_begin_stroke_with"):
 		return false
 	return world_gen.sculpt_begin_stroke_with(options)
 
 ## Appends one grid-cell point to the in-progress stroke (`WorldGen.sculpt_add_point`)
 ## and returns the new point count; `-1` means the binding is missing.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func sculpt_add_point(x: float, y: float) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("sculpt_add_point"):
 		return -1
 	return world_gen.sculpt_add_point(x, y)
@@ -2795,7 +2945,11 @@ func sculpt_add_point(x: float, y: float) -> int:
 ## absent is never encoded as 1.0 or 0.0, and one `null` anywhere in a stroke makes
 ## the whole stroke pressure-less (the engine refuses to invent the missing value).
 ## Returns the new point count, `-1` with no world or no binding.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func sculpt_add_point_p(x: float, y: float, pressure: Variant) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("sculpt_add_point_p"):
 		return -1
 	return world_gen.sculpt_add_point_p(x, y, pressure)
@@ -2825,7 +2979,11 @@ func sculpt_get_grid_snap() -> Dictionary:
 
 ## Sets the snap step; anything off the ladder (0 included) turns snapping
 ## off. Returns the step now in effect, or 0 for off.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.0.
 func sculpt_set_grid_snap(step: float) -> float:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0.0
 	if not _has("sculpt_set_grid_snap"):
 		return 0.0
 	return world_gen.sculpt_set_grid_snap(step)
@@ -2842,7 +3000,11 @@ func sculpt_set_grid_snap(step: float) -> float:
 ## `_sculpt_stroke_points` -- is a `PackedVector2Array` and f32 already.
 ## Stroke capture still passes the raw pointer coordinates straight to
 ## `sculpt_add_point`, which does its own snapping in f64.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers Vector2(x, y).
 func sculpt_snap(x: float, y: float) -> Vector2:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return Vector2(x, y)
 	if not _has("sculpt_snap"):
 		return Vector2(x, y)
 	var p: PackedFloat64Array = world_gen.sculpt_snap(x, y)
@@ -2866,7 +3028,11 @@ func sculpt_stroke_point_count() -> int:
 
 ## Drops the in-progress stroke's points without making a stamp
 ## (`WorldGen.sculpt_cancel_stroke`). Emits nothing: the draft did not change.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func sculpt_cancel_stroke() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("sculpt_cancel_stroke"):
 		return
 	world_gen.sculpt_cancel_stroke()
@@ -2935,7 +3101,11 @@ func sculpt_get_selected_stamp() -> int:
 
 ## Selects stamp `index` for re-tuning (`WorldGen.sculpt_select_stamp`). `false` for a
 ## bad index or no API. Emits nothing; the draft itself did not change.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_select_stamp(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_select_stamp"):
 		return false
 	return world_gen.sculpt_select_stamp(index)
@@ -2958,20 +3128,32 @@ func sculpt_get_selection() -> PackedInt64Array:
 
 ## Replaces the whole stamp selection (`WorldGen.sculpt_select_set`). Out-of-range
 ## indices are dropped and reported as `false`; an empty array deselects.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_select_set(indices: PackedInt64Array) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_select_set"):
 		return false
 	return world_gen.sculpt_select_set(indices)
 
 ## Selects every stamp on the draft; returns how many.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func sculpt_select_all_stamps() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("sculpt_select_all_stamps"):
 		return 0
 	return world_gen.sculpt_select_all_stamps()
 
 ## Hides or shows stamp `index` (`WorldGen.sculpt_set_stamp_hidden`); a hidden stamp
 ## is skipped by preview and commit but keeps its slot. `false` for a bad index.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_set_stamp_hidden"):
 		return false
 	mark_world_dirty()
@@ -2979,7 +3161,11 @@ func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
 
 ## Moves stamp `index` one place earlier in bake order (`WorldGen.sculpt_move_stamp_up`)
 ## and emits `sculpt_draft_changed` after the call. `false` for a no-op move.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_move_stamp_up(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_move_stamp_up"):
 		return false
 	mark_world_dirty()
@@ -2989,7 +3175,11 @@ func sculpt_move_stamp_up(index: int) -> bool:
 
 ## Moves stamp `index` one place later (`WorldGen.sculpt_move_stamp_down`) and emits
 ## `sculpt_draft_changed` after the call. `false` for a no-op move.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_move_stamp_down(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_move_stamp_down"):
 		return false
 	mark_world_dirty()
@@ -3027,7 +3217,11 @@ func sculpt_can_redo() -> bool:
 
 ## Reverts the last structural draft edit (`WorldGen.sculpt_undo`); never touches the
 ## real heightfield. Emits `sculpt_draft_changed` after the call; `false` if nothing to undo.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_undo() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_undo"):
 		return false
 	mark_world_dirty()
@@ -3037,7 +3231,11 @@ func sculpt_undo() -> bool:
 
 ## Re-applies the undone draft edit (`WorldGen.sculpt_redo`); `false` with nothing to
 ## redo. Emits `sculpt_draft_changed` after the call.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func sculpt_redo() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("sculpt_redo"):
 		return false
 	mark_world_dirty()
@@ -3047,7 +3245,11 @@ func sculpt_redo() -> bool:
 
 ## Live colour-plus-hillshade preview of the current draft
 ## (`WorldGen.build_sculpt_preview_texture`). `null` without a world or the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers null.
 func build_sculpt_preview_texture() -> Texture2D:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return null
 	if not _has("build_sculpt_preview_texture"):
 		return null
 	return world_gen.build_sculpt_preview_texture()
@@ -3303,6 +3505,10 @@ var _atlas_root_set := false
 func atlas_ready() -> bool:
 	if _atlas_root_set:
 		return true
+	# Mid-generation gate (caller-gate audit 2026-10-12): `atlas_set_root` below is a `WorldGen` call and the worker holds it.
+	# `true` above is answered from the flag, so it stays honest mid-run; an unset root is simply not ready yet.
+	if generating:
+		return false
 	if not _has("atlas_set_root"):
 		return false
 	## `DccSettings`' own `atlas_cache` root, not a hardcoded `user://atlas`:
@@ -3353,7 +3559,11 @@ func bake_all(max_z: int) -> Dictionary:
 	return world_gen.bake_all(max_z)
 
 ## Bake just the tiles a view rectangle (in coarse grid cells) touches.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("bake_visible"):
 		return {"ok": false, "error": "this build has no bake_visible()"}
 	if not atlas_ready():
@@ -3381,7 +3591,11 @@ func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Diction
 ##
 ## Does not reflect an open Sculpt draft: that is uncommitted state on
 ## `SculptEditor`, not on `WorldState::field`. The caller says so on screen.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func export_heightmap_png(path: String, width: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("export_heightmap_png"):
 		return {"ok": false, "error": "this build of the engine has no heightmap export"}
 	return world_gen.export_heightmap_png(path, width)
@@ -3454,7 +3668,11 @@ func atlas_is_covered(z: int, col: int, row: int) -> bool:
 
 ## Throws away this world's baked chunks (`WorldGen.atlas_clear`) and returns how many
 ## were removed; `0` also covers a missing binding.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func atlas_clear() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("atlas_clear"):
 		return 0
 	atlas_ready()
@@ -3471,7 +3689,11 @@ func atlas_clear() -> int:
 ## could only ever have been enforced by throwing the whole cache away. The
 ## menu row's disabled reason said exactly that; it is only safe to enable the
 ## row on a binary where `_has("atlas_evict_to")` is true.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func atlas_evict_to(max_bytes: int) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("atlas_evict_to"):
 		return 0
 	if not atlas_ready():
@@ -3500,7 +3722,11 @@ func atlas_export_zip(gzip: bool = true) -> PackedByteArray:
 	return world_gen.atlas_export_zip(gzip)
 
 ## The other half of the pair above, and unreachable for the same reason.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func atlas_import_zip(bytes: PackedByteArray) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("atlas_import_zip"):
 		return {"ok": false, "error": "this build has no atlas_import_zip()"}
 	if not atlas_ready():
@@ -3561,7 +3787,11 @@ func is_finalized() -> bool:
 var _finalized_seen := false
 
 ## Finalizing needs a non-empty atlas; un-finalizing always succeeds.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func set_finalized(on: bool) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("set_finalized"):
 		return false
 	mark_world_dirty()
@@ -3584,7 +3814,11 @@ signal finalize_changed(on: bool)
 
 
 # icon_bridge.rs
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func icon_arm(family: String, variant: int, scale: float, rotation: float, jitter: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("icon_arm"):
 		return false
 	return world_gen.icon_arm(family, variant, scale, rotation, jitter)
@@ -3621,14 +3855,22 @@ func icon_armed() -> Dictionary:
 
 ## Disarms the icon tool (`WorldGen.icon_disarm`): the next `icon_place` does nothing
 ## until re-armed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func icon_disarm() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("icon_disarm"):
 		return
 	world_gen.icon_disarm()
 
 ## Stamps the armed icon at grid `(gx, gy)` and selects it (`WorldGen.icon_place`),
 ## returning its index; `-1` means nothing was placed. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func icon_place(gx: float, gy: float) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("icon_place"):
 		return -1
 	mark_world_dirty()
@@ -3661,7 +3903,11 @@ func icon_brush() -> Dictionary:
 ## entirely in water, or entirely inside the spacing of icons already there),
 ## and the reference uses it the same way: `if(_carIconBrushStamp(gx,gy))
 ## drawCivLayerAuto()` at line 9719, i.e. only to decide whether to redraw.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func icon_brush_stamp(gx: float, gy: float) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("icon_brush_stamp"):
 		return 0
 	mark_world_dirty()
@@ -3738,7 +3984,11 @@ func icon_get_selection() -> PackedInt64Array:
 
 ## Replaces the icon selection (`WorldGen.icon_select_set`). Out-of-range indices are
 ## dropped and reported as `false`; an empty array deselects.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func icon_select_set(indices: PackedInt64Array) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("icon_select_set"):
 		return false
 	return world_gen.icon_select_set(indices)
@@ -3827,7 +4077,11 @@ func icon_placement_families() -> Array:
 ## Run the generated placement pass for one family and append what survives to
 ## the icon list. See `icon_bridge/generate.rs::icon_generate` for the option
 ## keys and the returned counters; `ok: false` carries a `reason`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "reason": _BUSY_TEXT}.
 func icon_generate(options: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "reason": _BUSY_TEXT}
 	if not _has("icon_generate"):
 		return {"ok": false, "reason": "This build has no generated placement pass."}
 	mark_world_dirty()
@@ -3850,7 +4104,11 @@ func icon_generate(options: Dictionary) -> Dictionary:
 ## does this map coordinate belong to", which is the reference's own
 ## place-drop, not "which one did the user aim at". Left wrapped for that op;
 ## it is not a substitute for the hit test and must not be swapped in for one.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func civ_pick_place_at(gx: float, gy: float) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("civ_pick_place_at"):
 		return -1
 	return world_gen.civ_pick_place_at(gx, gy)
@@ -3859,7 +4117,11 @@ func civ_pick_place_at(gx: float, gy: float) -> int:
 ## already-there, settlement's index; `-1` means nothing was placed (bad kind or
 ## coordinates, refused click, no world, or no binding).
 ## `kind` is a real tier, never `"metropolis"`; a blank `name` is engine-generated.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name: String, snap_to_water: bool) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("civ_drop_settlement"):
 		return -1
 	mark_world_dirty()
@@ -3871,7 +4133,11 @@ func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name:
 ## engine refuses rather than clamping to another faction
 ## (`WorldGen::civ_territory_paint_at`). `false` too on a binary without the
 ## call. The project is marked dirty only after a dab was actually staged.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_territory_paint_at"):
 		return false
 	var staged: bool = world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
@@ -3886,7 +4152,11 @@ func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, s
 ## the paint layer cannot hold (negative, or past 255), with nothing staged
 ## (`WorldGen::civ_territory_paint_polygon`). The project is marked dirty only
 ## when cells were staged.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func civ_territory_paint_polygon(points: PackedVector2Array, faction: int, subtract: bool) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("civ_territory_paint_polygon"):
 		return 0
 	var staged: int = world_gen.civ_territory_paint_polygon(points, faction, subtract)
@@ -3898,7 +4168,11 @@ func civ_territory_paint_polygon(points: PackedVector2Array, faction: int, subtr
 ## `false` when nothing was pending (or no world), and the project is marked
 ## dirty only when something was committed -- after the engine call, so a
 ## listener reads the committed grid, never the one before it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_territory_commit() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_territory_commit"):
 		return false
 	var committed: bool = world_gen.civ_territory_commit()
@@ -3908,7 +4182,11 @@ func civ_territory_commit() -> bool:
 
 ## Drops the in-progress territory draft, touching nothing committed
 ## (`WorldGen.civ_territory_discard`). Does not mark the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func civ_territory_discard() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("civ_territory_discard"):
 		return
 	world_gen.civ_territory_discard()
@@ -3936,14 +4214,22 @@ func get_factions() -> Array:
 # civ_roster_bridge.rs -- the place editor, the faction roster and the two
 # readouts `PARITY_AUDIT.md` §5 items 3/4/7/9/10/12 found unported.
 
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_settlement_details(index: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_settlement_details"):
 		return {}
 	return world_gen.civ_settlement_details(index)
 
 ## `fields` carries only the keys that changed -- see the Rust doc comment;
 ## an invalid value rejects the whole batch rather than half-applying it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_edit_settlement"):
 		return false
 	mark_world_dirty()
@@ -3955,7 +4241,11 @@ func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
 ## as "unknown", never as a refusal. Otherwise `ok` is always present; `reason`
 ## and `message` only when `ok` is false. See the Rust doc comment
 ## (`WorldGen::civ_polity_reassign_preview`) for every key.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_polity_reassign_preview(index: int, to: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_polity_reassign_preview"):
 		return {}
 	return world_gen.civ_polity_reassign_preview(index, to)
@@ -3964,7 +4254,11 @@ func civ_polity_reassign_preview(index: int, to: int) -> Dictionary:
 ## committed Territory paint plus the settlement's new `faction`. The project is
 ## marked dirty only when the engine says it applied, and only after the call
 ## (`MISTAKES.md`: emit/mark after the engine call).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_polity_reassign(index: int, to: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_polity_reassign"):
 		return {}
 	var r: Dictionary = world_gen.civ_polity_reassign(index, to)
@@ -3974,7 +4268,11 @@ func civ_polity_reassign(index: int, to: int) -> Dictionary:
 
 ## Toggles trait `key` on settlement `index` (`WorldGen.civ_settlement_toggle_trait`).
 ## `false` for a bad index or key, or no API. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_settlement_toggle_trait(index: int, key: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_settlement_toggle_trait"):
 		return false
 	mark_world_dirty()
@@ -3982,7 +4280,11 @@ func civ_settlement_toggle_trait(index: int, key: String) -> bool:
 
 ## Re-rolls settlement `index`'s name from its own faction's culture
 ## (`WorldGen.civ_reroll_settlement_name`) and returns it; `""` means no new name.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers "".
 func civ_reroll_settlement_name(index: int) -> String:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return ""
 	if not _has("civ_reroll_settlement_name"):
 		return ""
 	mark_world_dirty()
@@ -3990,7 +4292,11 @@ func civ_reroll_settlement_name(index: int) -> String:
 
 ## Deletes settlement `index` (`WorldGen.civ_delete_settlement`); the shell owns the
 ## confirm prompt. `false` for a bad index. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_delete_settlement(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_delete_settlement"):
 		return false
 	mark_world_dirty()
@@ -4098,14 +4404,22 @@ func stale_stages() -> Dictionary:
 
 ## How many real, assignable factions exist (`WorldGen.civ_faction_count`);
 ## `0` is the engine's "before any generate" and also this stale-binary fallback.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func civ_faction_count() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("civ_faction_count"):
 		return 0
 	return world_gen.civ_faction_count()
 
 ## Appends one faction with the reference defaults (`WorldGen.civ_add_faction`) and
 ## returns its id; `-1` means none was added.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func civ_add_faction() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("civ_add_faction"):
 		return -1
 	mark_world_dirty()
@@ -4113,7 +4427,11 @@ func civ_add_faction() -> int:
 
 ## Drops the last faction (`WorldGen.civ_remove_faction`), reverting its settlements
 ## and territory. `false` if nothing was removed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_remove_faction() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_remove_faction"):
 		return false
 	mark_world_dirty()
@@ -4121,7 +4439,11 @@ func civ_remove_faction() -> bool:
 
 ## Writes one editable faction field (`WorldGen.civ_set_faction_field`): `key` is
 ## name, culture, religion, government or ag_tech. `false` for a bad faction or value.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_set_faction_field"):
 		return false
 	mark_world_dirty()
@@ -4135,7 +4457,11 @@ func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
 ## Refused for faction 0 (Unclaimed, which nothing renders). The caller
 ## refreshes the map; nothing here invalidates a texture, the same contract
 ## every other roster edit has.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_set_faction_color(faction: int, c: Color) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_set_faction_color"):
 		return false
 	mark_world_dirty()
@@ -4143,7 +4469,11 @@ func civ_set_faction_color(faction: int, c: Color) -> bool:
 		int(round(c.r * 255.0)), int(round(c.g * 255.0)), int(round(c.b * 255.0)))
 
 ## Back to the palette rule for this faction. See `civ_set_faction_color`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_clear_faction_color(faction: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_clear_faction_color"):
 		return false
 	mark_world_dirty()
@@ -4156,7 +4486,11 @@ func civ_clear_faction_color(faction: int) -> bool:
 ## member back to its default. False, changing nothing, for Unclaimed, an
 ## unknown faction or key, and a rate that is not a number above zero.
 ## Display only: nothing in the simulation reads a rate.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_set_faction_currency(faction: int, key: String, value: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_set_faction_currency"):
 		return false
 	var ok: bool = world_gen.civ_set_faction_currency(faction, key, value)
@@ -4168,7 +4502,11 @@ func civ_set_faction_currency(faction: int, key: String, value: String) -> bool:
 ## user has not set it and the value is the stand-in: "<faction> currency",
 ## "¤", 1.0 at par with the world price index). `{}` for Unclaimed, an
 ## unknown faction, or no world -- no currency, not one at par.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_faction_currency(faction: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_faction_currency"):
 		return {}
 	return world_gen.civ_faction_currency(faction)
@@ -4177,7 +4515,11 @@ func civ_faction_currency(faction: int) -> Dictionary:
 ## `civ_trade_flows()`) in `faction`'s currency: `civ_faction_currency()`'s
 ## dictionary plus `amount`. `{}` when that faction has no currency; show the
 ## index value, labelled as the index, then.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_price_in_currency(index_amount: float, faction: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_price_in_currency"):
 		return {}
 	return world_gen.civ_price_in_currency(index_amount, faction)
@@ -4190,7 +4532,11 @@ func civ_price_in_currency(index_amount: float, faction: int) -> Dictionary:
 ## for a faction taxing itself, and for a rate outside `0..=1`. Saved with
 ## the roster in `entities/factions.json`; nothing is recomputed here -- the
 ## next `civ_trade_flows()` read is what applies it.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_set_trade_tariff(importer: int, exporter: int, rate: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_set_trade_tariff"):
 		return false
 	var ok: bool = world_gen.civ_set_trade_tariff(importer, exporter, rate)
@@ -4200,7 +4546,11 @@ func civ_set_trade_tariff(importer: int, exporter: int, rate: float) -> bool:
 
 ## The rate `importer` levies on goods from `exporter`; `0.0` when no tariff
 ## is set, for an unknown faction, and before any `generate()`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.0.
 func civ_trade_tariff(importer: int, exporter: int) -> float:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0.0
 	if not _has("civ_trade_tariff"):
 		return 0.0
 	return world_gen.civ_trade_tariff(importer, exporter)
@@ -4213,14 +4563,22 @@ func civ_trade_tariff(importer: int, exporter: int) -> float:
 ## (`faction_roster_window.gd`, the `reset.disabled` line). The aggregate has
 ## no reader today; it is what a "reset every faction's colour" row would
 ## gate on, and that row does not exist yet.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func civ_has_faction_colors() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("civ_has_faction_colors"):
 		return false
 	return world_gen.civ_has_faction_colors()
 
 ## Per-faction culture/terrain fit for every faction in one call
 ## (`WorldGen.civ_faction_terrain_fits`). `[]` without a world or the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_faction_terrain_fits() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_faction_terrain_fits"):
 		return []
 	return world_gen.civ_faction_terrain_fits()
@@ -4229,7 +4587,11 @@ func civ_faction_terrain_fits() -> Array:
 ## density-fed half, as a *surfaced* readout". Two full-grid passes on the
 ## engine side (see the `#[func]`'s own doc), so this is a category-open call,
 ## never a per-frame one.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_faction_economy() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_faction_economy"):
 		return []
 	return world_gen.civ_faction_economy()
@@ -4247,7 +4609,11 @@ func civ_faction_economy() -> Array:
 ## than flattened because `military` beside it is a *relative* 0-100
 ## heuristic and these are absolute headcounts -- reading one for the other
 ## is the mistake worth making structurally hard.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_military_summary() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_military_summary"):
 		return {}
 	return world_gen.civ_military_summary()
@@ -4258,7 +4624,11 @@ func civ_military_summary() -> Dictionary:
 ## `year_in_force` or `earliest_year`. Settlement rows carry MM-6's `garrison`
 ## keys when they have one (absent otherwise, never 0). `{}` on an older
 ## binary.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_military_summary_at(year: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_military_summary_at"):
 		return {}
 	return world_gen.civ_military_summary_at(year)
@@ -4266,7 +4636,11 @@ func civ_military_summary_at(year: int) -> Dictionary:
 ## `{"year": int}` -- the recorded year a reading at `year` uses -- or `{}`
 ## when there is none. Cheap; CIVIL ▸ Military reads it per cursor step to
 ## refill only when the year in force changes.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_year_in_force(year: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_year_in_force"):
 		return {}
 	return world_gen.civ_year_in_force(year)
@@ -4276,7 +4650,11 @@ func civ_year_in_force(year: int) -> Dictionary:
 ## `faction_garrison` -- or `absent` (`no_reading` / `not_recorded` /
 ## `unclaimed` / `no_claim_grid` / `no_standing`). Always `reading`. `{}` before a world or on an
 ## older binary.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_settlement_garrison(tid: int, year: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_settlement_garrison"):
 		return {}
 	return world_gen.civ_settlement_garrison(tid, year)
@@ -4286,14 +4664,22 @@ func civ_settlement_garrison(tid: int, year: int) -> Dictionary:
 ## (`MILITARY_MANPOWER_SCOPE.md` §5.6), CIVIL ▸ Military ▸ Garrisons' own
 ## slider. `1.0` -- the rule's old fixed value -- on a binary too old to have
 ## the setter, so a stale build reads the same figure the rule always used.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 1.0.
 func get_garrison_exposure_scale() -> float:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 1.0
 	if not _has("get_garrison_exposure_scale"):
 		return 1.0
 	return world_gen.get_garrison_exposure_scale()
 
 
 ## Re-reads garrisons the next time one is asked for; regenerates nothing.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func set_garrison_exposure_scale(scale: float) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("set_garrison_exposure_scale"):
 		return
 	world_gen.set_garrison_exposure_scale(scale)
@@ -4302,7 +4688,11 @@ func set_garrison_exposure_scale(scale: float) -> void:
 # conflict_bridge.rs -- `STORY_PLANNING_SCOPE.md` SP-4, the conflict overlay.
 # `conflict_add`/`conflict_update` return `{ok, id, error?}`; see the Rust
 # doc comments for the field keys and the store's lifecycle.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedStringArray().
 func conflict_kinds() -> PackedStringArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedStringArray()
 	if not _has("conflict_kinds"):
 		return PackedStringArray()
 	return world_gen.conflict_kinds()
@@ -4310,7 +4700,11 @@ func conflict_kinds() -> PackedStringArray:
 ## Adds a conflict from `fields` (`WorldGen.conflict_add`); the reply is
 ## `{ok, id, error?}`. Only `ok: true` marks the world dirty; the stale-binary reply
 ## is `ok: false`, `id: 0`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "id": 0, "error": _BUSY_TEXT}.
 func conflict_add(fields: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "id": 0, "error": _BUSY_TEXT}
 	if not _has("conflict_add"):
 		return {"ok": false, "id": 0, "error": "This build has no conflict_add binding."}
 	var r: Dictionary = world_gen.conflict_add(fields)
@@ -4320,7 +4714,11 @@ func conflict_add(fields: Dictionary) -> Dictionary:
 
 ## Changes the fields present in `fields` on conflict `id` (`WorldGen.conflict_update`);
 ## reply `{ok, id, error?}`. Only `ok: true` marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "id": id, "error": _BUSY_TEXT}.
 func conflict_update(id: int, fields: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "id": id, "error": _BUSY_TEXT}
 	if not _has("conflict_update"):
 		return {"ok": false, "id": id, "error": "This build has no conflict_update binding."}
 	var r: Dictionary = world_gen.conflict_update(id, fields)
@@ -4368,21 +4766,33 @@ func conflict_get(id: int) -> Dictionary:
 
 ## Ids of conflicts attached to settlement `tid` (`kind` `"settlement"`) or the
 ## province it seeds (`"province"`) (`WorldGen.conflicts_attached_to`). Empty for none.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedInt64Array().
 func conflicts_attached_to(kind: String, tid: int) -> PackedInt64Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedInt64Array()
 	if not _has("conflicts_attached_to"):
 		return PackedInt64Array()
 	return world_gen.conflicts_attached_to(kind, tid)
 
 ## SP-5: conflicts attached to settlement `tid` or to its province, each a
 ## `conflict_list()` row plus `via`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func conflicts_touching_settlement(tid: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("conflicts_touching_settlement"):
 		return []
 	return world_gen.conflicts_touching_settlement(tid)
 
 ## One manpower row per side of conflict `id` (`WorldGen.conflict_sides_manpower`).
 ## Optional keys are omitted when the world has no row, so test with `has()`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func conflict_sides_manpower(id: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("conflict_sides_manpower"):
 		return []
 	return world_gen.conflict_sides_manpower(id)
@@ -4390,35 +4800,55 @@ func conflict_sides_manpower(id: int) -> Array:
 ## CIVIL ▸ Relationships (`GUI_GAP_REGISTER.md` CV-26). One row per
 ## unordered faction pair, with the four terms beside the verdict. Derived
 ## and recomputed on every call; nothing here is stored or saved.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_faction_relations() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_faction_relations"):
 		return []
 	return world_gen.civ_faction_relations()
 
 ## The "Land sustains ~N" population readout (`WorldGen.civ_agrarian_regional_total`).
 ## `{}` without a world or the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_agrarian_regional_total() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_agrarian_regional_total"):
 		return {}
 	return world_gen.civ_agrarian_regional_total()
 
 ## Settlement trait vocabulary `{key, label, glyph}` (`WorldGen.civ_trait_vocabulary`);
 ## order is part of the save format. `[]` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_trait_vocabulary() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_trait_vocabulary"):
 		return []
 	return world_gen.civ_trait_vocabulary()
 
 ## Specialisation `{key, label}` vocabulary (`WorldGen.civ_specialisation_vocabulary`).
 ## `[]` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_specialisation_vocabulary() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_specialisation_vocabulary"):
 		return []
 	return world_gen.civ_specialisation_vocabulary()
 
 ## Built-in religion `{key, label}` vocabulary (`WorldGen.civ_religion_vocabulary`).
 ## `[]` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_religion_vocabulary() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_religion_vocabulary"):
 		return []
 	return world_gen.civ_religion_vocabulary()
@@ -4428,7 +4858,11 @@ func civ_religion_vocabulary() -> Array:
 ## `{id, key, name, base_key, base_label, color_r/g/b, notes, used_by}`. `[]`
 ## before a world exists, and on a build without the binding (test
 ## `has_custom_religion_api()` to tell those apart).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_custom_religions() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_custom_religions"):
 		return []
 	return world_gen.civ_custom_religions()
@@ -4442,7 +4876,11 @@ func has_custom_religion_api() -> bool:
 ## error}` with a plain-English reason, and writes nothing on refusal. Every
 ## one is a saved edit, so the world is marked dirty -- the same rule as
 ## `civ_set_faction_field`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func civ_add_religion(religion_name: String, base_key: String, c: Color, notes: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_add_religion"):
 		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
 	var r: Dictionary = world_gen.civ_add_religion(religion_name, base_key, c.r8, c.g8, c.b8, notes)
@@ -4452,7 +4890,11 @@ func civ_add_religion(religion_name: String, base_key: String, c: Color, notes: 
 
 ## Edits custom religion `id` (`WorldGen.civ_edit_religion`); reply `{ok, error?}`.
 ## Only `ok: true` marks the world dirty; no binding gives `ok: false` with a reason.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_edit_religion"):
 		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
 	var r: Dictionary = world_gen.civ_edit_religion(id, fields)
@@ -4462,7 +4904,11 @@ func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
 
 ## Deletes custom religion `id` unless a faction holds it (`WorldGen.civ_delete_religion`);
 ## reply `{ok, error?, used_by?}`. Only `ok: true` marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func civ_delete_religion(id: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_delete_religion"):
 		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
 	var r: Dictionary = world_gen.civ_delete_religion(id)
@@ -4489,7 +4935,11 @@ func civ_delete_religion(id: int) -> Dictionary:
 ## `is_empty()` before reading `any_faith` -- an older cdylib would otherwise
 ## read as a world in which nothing has a religion, which is a real and
 ## different state with a fix the user can act on.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_belief_run(years: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_belief_run"):
 		return {}
 	return world_gen.civ_belief_run(years)
@@ -4506,21 +4956,33 @@ func has_belief_api() -> bool:
 
 ## Government `{key, label}` vocabulary (`WorldGen.civ_government_vocabulary`).
 ## `[]` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_government_vocabulary() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_government_vocabulary"):
 		return []
 	return world_gen.civ_government_vocabulary()
 
 ## Agricultural-tech `{key, label, hint, farmers_per_urbanite}` vocabulary
 ## (`WorldGen.civ_ag_tech_vocabulary`). `[]` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_ag_tech_vocabulary() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_ag_tech_vocabulary"):
 		return []
 	return world_gen.civ_ag_tech_vocabulary()
 
 ## The naming-culture keys (`WorldGen.civ_culture_vocabulary`); keys only, the
 ## reference has no labels. Empty without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedStringArray().
 func civ_culture_vocabulary() -> PackedStringArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedStringArray()
 	if not _has("civ_culture_vocabulary"):
 		return PackedStringArray()
 	return world_gen.civ_culture_vocabulary()
@@ -4537,7 +4999,11 @@ func civ_culture_vocabulary() -> PackedStringArray:
 ## `id` is the 0-based `CIV_CULTURES` index, which is what the Markdown
 ## Vault addresses a culture by (`EntityKind::Culture`) and the one entity
 ## id in this port that survives both a regenerate and a save/load.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func get_cultures() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("get_cultures"):
 		return []
 	return world_gen.get_cultures()
@@ -4545,7 +5011,11 @@ func get_cultures() -> Array:
 
 ## Turns the biome carrying-capacity residual on/off (`WorldGen.set_biome_k_enabled`);
 ## takes effect on the next generate. No-op without the binding; marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func set_biome_k_enabled(enabled: bool) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("set_biome_k_enabled"):
 		return
 	mark_world_dirty()
@@ -4578,21 +5048,33 @@ func get_paint_palette(layer: String) -> Array:
 
 ## Switches the layer `paint_stroke_at` writes to (`WorldGen.paint_set_layer`). `false`
 ## for an unknown layer name or no API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func paint_set_layer(layer: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("paint_set_layer"):
 		return false
 	return world_gen.paint_set_layer(layer)
 
 ## Sets the paint brush (`WorldGen.paint_set_brush`: value, radius, hardness, softness,
 ## erase, land_only) and returns the engine's accepted values; `{}` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func paint_set_brush(value: int, radius: float, hardness: float, softness: float, erase: bool, land_only: bool) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("paint_set_brush"):
 		return {}
 	return world_gen.paint_set_brush(value, radius, hardness, softness, erase, land_only)
 
 ## One brush dab at grid `(gx, gy)` onto the active layer's draft
 ## (`WorldGen.paint_stroke_at`). Draft only until `paint_commit`; marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func paint_stroke_at(gx: float, gy: float) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("paint_stroke_at"):
 		return
 	mark_world_dirty()
@@ -4610,7 +5092,11 @@ func has_paint_stroke_api() -> bool:
 ## pressure_size ...; every one optional, a wrong type or range refuses the whole
 ## call). The active brush and layer are snapshotted at this call. `false` on
 ## refusal or without the API; never marks the world dirty (no cell changed yet).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func paint_stroke_begin(options: Dictionary = {}) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("paint_stroke_begin"):
 		return false
 	return world_gen.paint_stroke_begin(options)
@@ -4621,7 +5107,11 @@ func paint_stroke_begin(options: Dictionary = {}) -> bool:
 ## reply: `{dabs: n}` plus the preview-patch keys (`texture`, `x`, `y`, `w`, `h`)
 ## when `n > 0`; **`{}` means refusal** (no open stroke, a bad argument). Test
 ## `has("texture")` before blitting. Marks the world dirty when dabs landed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func paint_stroke_sample(gx: float, gy: float, pressure: Variant, tilt: Variant, t_ms: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("paint_stroke_sample"):
 		return {}
 	var reply: Dictionary = world_gen.paint_stroke_sample(gx, gy, pressure, tilt, t_ms)
@@ -4694,7 +5184,11 @@ func paint_draft_count() -> int:
 
 ## Bakes every layer's draft into its override array (`WorldGen.paint_commit`); returns
 ## the engine's summary, `{}` without the API. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func paint_commit() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("paint_commit"):
 		return {}
 	mark_world_dirty()
@@ -4702,7 +5196,11 @@ func paint_commit() -> Dictionary:
 
 ## Drops every layer's pending draft (`WorldGen.paint_discard`) and returns how many
 ## dabs went; `0` means none, `-1` that the binding is missing.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func paint_discard() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("paint_discard"):
 		return -1
 	mark_world_dirty()
@@ -4710,28 +5208,44 @@ func paint_discard() -> int:
 
 
 # way_bridge.rs
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func way_begin(way_type: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("way_begin"):
 		return false
 	return world_gen.way_begin(way_type)
 
 ## Appends a waypoint, snapped to a nearby place or way, to the armed Way draft
 ## (`WorldGen.way_append_point`). `false` if no Way draft is armed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func way_append_point(gx: float, gy: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("way_append_point"):
 		return false
 	return world_gen.way_append_point(gx, gy)
 
 ## Commits the Way draft by least-cost routing (`WorldGen.way_commit`); returns the new
 ## way's index, `-1` for no draft, under two waypoints or no world. Marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func way_commit() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("way_commit"):
 		return -1
 	mark_world_dirty()
 	return world_gen.way_commit()
 
 ## Discards the in-progress way without committing (`WorldGen.way_discard`).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func way_discard() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("way_discard"):
 		return
 	world_gen.way_discard()
@@ -4806,21 +5320,33 @@ func way_stroke_undo() -> int:
 
 
 # route_bridge.rs
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func route_begin(mode: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("route_begin"):
 		return false
 	return world_gen.route_begin(mode)
 
 ## Appends a stop, snapped to a place or way, to the armed Route draft
 ## (`WorldGen.route_append_stop`). `false` if no Route draft is armed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func route_append_stop(gx: float, gy: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("route_append_stop"):
 		return false
 	return world_gen.route_append_stop(gx, gy)
 
 ## Commits the Route draft (`WorldGen.route_commit`); returns the new route's index or
 ## `-1`, same convention as `way_commit`. Marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func route_commit() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("route_commit"):
 		return -1
 	mark_world_dirty()
@@ -4907,7 +5433,11 @@ func river_pick(gx: float, gy: float, radius_cells: float) -> Dictionary:
 	return world_gen.river_pick(gx, gy, radius_cells)
 
 ## Every cell draining into `cell`, as a `gw * gh` byte mask (1 = drains here).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedByteArray().
 func river_catchment(cell: int) -> PackedByteArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedByteArray()
 	if not _has("river_catchment"):
 		return PackedByteArray()
 	return world_gen.river_catchment(cell)
@@ -4931,7 +5461,11 @@ func undo_next_subsystem() -> String:
 
 ## Renames committed route `index` (`WorldGen.route_set_name`). `false` for a bad
 ## index or no world. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func route_set_name(index: int, name: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("route_set_name"):
 		return false
 	mark_world_dirty()
@@ -4960,7 +5494,11 @@ func journey_list() -> Array:
 
 ## Ruling BS: replaces the accepted resupply stops saved with journey `id`
 ## (`jp_compute`'s own `resupply_accepted` shape). `false` for an unknown id.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func journey_set_resupply(id: int, stops: Array) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("journey_set_resupply"):
 		return false
 	mark_world_dirty()
@@ -4991,7 +5529,11 @@ func journey_get(id: int) -> Dictionary:
 
 ## Deletes the journey with stable `id` (`WorldGen.journey_delete`). `false` if no
 ## journey has that id. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func journey_delete(id: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("journey_delete"):
 		return false
 	mark_world_dirty()
@@ -5000,7 +5542,11 @@ func journey_delete(id: int) -> bool:
 ## `STORY_PLANNING_SCOPE.md` SP-2 (`story_bridge.rs`): every saved journey at
 ## the cursor date -- position (`x`/`y`, absent when the plan is blocked),
 ## phase, supply used, the derived `arrival`. See the `#[func]`'s own doc.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func journey_positions() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("journey_positions"):
 		return []
 	return world_gen.journey_positions()
@@ -5009,7 +5555,11 @@ func journey_positions() -> Array:
 ## route passes the settlement `tid` (the planner's own stop test), with the
 ## pass's `date`/`year`/`day_offset` -- absent, with an `error`, when the plan
 ## has no honest date. See the `#[func]`'s own doc.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_settlement_journey_passes(tid: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_settlement_journey_passes"):
 		return []
 	return world_gen.civ_settlement_journey_passes(tid)
@@ -5047,13 +5597,21 @@ func get_civ_date() -> Dictionary:
 
 
 # measure_bridge.rs
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func measure_begin() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("measure_begin"):
 		return
 	world_gen.measure_begin()
 
 ## Appends one raw point to the Measure chain (`WorldGen.measure_add_point`); no snapping.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func measure_add_point(gx: float, gy: float) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("measure_add_point"):
 		return
 	world_gen.measure_add_point(gx, gy)
@@ -5069,7 +5627,11 @@ func measure_result() -> Dictionary:
 	return world_gen.measure_result()
 
 ## Clears the Measure chain without ending the tool (`WorldGen.measure_clear`).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func measure_clear() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("measure_clear"):
 		return
 	world_gen.measure_clear()
@@ -5142,14 +5704,22 @@ func region_get() -> Dictionary:
 	return world_gen.region_get()
 
 ## Clears the marquee (`WorldGen.region_clear`). Does not mark the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func region_clear() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("region_clear"):
 		return
 	world_gen.region_clear()
 
 ## Exports the marquee as a tile zip (`WorldGen.region_export_tiles(opts)`). An empty
 ## `PackedByteArray` means nothing was produced, not an empty archive.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedByteArray().
 func region_export_tiles(opts: Dictionary) -> PackedByteArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedByteArray()
 	if not _has("region_export_tiles"):
 		return PackedByteArray()
 	return world_gen.region_export_tiles(opts)
@@ -5257,7 +5827,11 @@ func _finish_region_new_world(ok: bool) -> void:
 
 # geojson_bridge.rs -- GUI_GAP_REGISTER.md DM-03. Empty before the first
 # generate()/load, and on a build whose GDExtension predates the binding.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers "".
 func export_geojson() -> String:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return ""
 	if not _has("export_geojson"):
 		return ""
 	return world_gen.export_geojson()
@@ -5348,7 +5922,11 @@ func label_class_of(index: int) -> String:
 	return world_gen.label_class_of(index)
 
 ## Reclass one hand-placed label. Writes a saved field, so it dirties.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func label_set_class(index: int, key: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("label_set_class"):
 		return false
 	mark_world_dirty()
@@ -5356,7 +5934,11 @@ func label_set_class(index: int, key: String) -> bool:
 
 
 # label_bridge.rs
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.
 func label_create(gx: float, gy: float, text: String) -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return -1
 	if not _has("label_create"):
 		return -1
 	mark_world_dirty()
@@ -5364,7 +5946,11 @@ func label_create(gx: float, gy: float, text: String) -> int:
 
 ## Sets label `index`'s position directly, unclamped (`WorldGen.label_move`), once per
 ## drag sample. `false` for a bad index. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func label_move(index: int, gx: float, gy: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("label_move"):
 		return false
 	mark_world_dirty()
@@ -5389,7 +5975,11 @@ func label_get_selected() -> int:
 
 ## Ends the label edit session keeping edits (`WorldGen.label_confirm_edit`). Marks the
 ## world dirty first; no-op with nothing selected.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func label_confirm_edit() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("label_confirm_edit"):
 		return
 	mark_world_dirty()
@@ -5424,7 +6014,11 @@ func label_list() -> Array:
 
 ## Applies a partial dictionary of style fields to label `index` (`WorldGen.label_set`);
 ## returns the engine's reply, `{}` without the API. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func label_set(index: int, values: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("label_set"):
 		return {}
 	mark_world_dirty()
@@ -5432,7 +6026,11 @@ func label_set(index: int, values: Dictionary) -> Dictionary:
 
 ## Removes label `index` (`WorldGen.label_delete`). `false` for a bad index. Marks the
 ## world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func label_delete(index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("label_delete"):
 		return false
 	mark_world_dirty()
@@ -5497,7 +6095,11 @@ func label_get_selection() -> PackedInt64Array:
 
 ## Replaces the label selection (`WorldGen.label_select_set`). Out-of-range indices are
 ## dropped and reported as `false`; an empty array deselects.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func label_select_set(indices: PackedInt64Array) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("label_select_set"):
 		return false
 	return world_gen.label_select_set(indices)
@@ -5616,14 +6218,22 @@ func sample_cell(gx: int, gy: int) -> Dictionary:
 ## The Layers popover's grouped menu, in the reference's own `LAYER_GROUPS`
 ## order. Each item carries `available`, which is false for a view this
 ## particular world has no input for.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func debug_layers() -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("debug_layers"):
 		return []
 	return world_gen.debug_layers()
 
 ## One debug view as a grid-sized `Texture2D`. `null` for "off", an unknown
 ## id, or a view this world has no input for.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers null.
 func debug_texture(view: String) -> Texture2D:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return null
 	if not _has("build_debug_texture"):
 		return null
 	return world_gen.build_debug_texture(view)
@@ -5632,7 +6242,11 @@ func debug_texture(view: String) -> Texture2D:
 ## popup (the reference's own `showWildInfo`). `{}` when the click missed
 ## every region marker, when the Wildlife view has no world to read, or on
 ## an engine build without the binding.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func wildlife_region_at(gx: float, gy: float) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("wildlife_region_at"):
 		return {}
 	return world_gen.wildlife_region_at(gx, gy)
@@ -5647,7 +6261,11 @@ func wildlife_region_at(gx: float, gy: float) -> Dictionary:
 ## that cost for this world. `{}` before any generate, on a world opened
 ## without its substrate (SAVEFILE_COMPAT.md §8.3), and on a world with no
 ## capital.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_territory_influence() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_territory_influence"):
 		return {}
 	return world_gen.civ_territory_influence()
@@ -5671,7 +6289,11 @@ func civ_territory_influence() -> Dictionary:
 ##
 ## `{}` before any generate, on a world opened without its substrate
 ## (SAVEFILE_COMPAT.md §8.3), and on a world with no settlements.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_trade_flows() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_trade_flows"):
 		return {}
 	return world_gen.civ_trade_flows()
@@ -5688,7 +6310,11 @@ func civ_trade_flows() -> Dictionary:
 ##
 ## `{}` before any generate, on a world opened without its substrate
 ## (SAVEFILE_COMPAT.md §8.3), and on a world with no settlements.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_food_shed() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_food_shed"):
 		return {}
 	return world_gen.civ_food_shed()
@@ -5714,7 +6340,11 @@ func civ_food_shed() -> Dictionary:
 ## the problem -- see `menus.gd::_engine_has()` for why "the bridge has a
 ## wrapper" and "the cdylib exports the method" are two separate questions,
 ## and this file only ever answered the second.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_place_smelting() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_place_smelting"):
 		return {}
 	return world_gen.civ_place_smelting()
@@ -5727,14 +6357,22 @@ func civ_place_smelting() -> Dictionary:
 ## history as `civ_place_smelting()` immediately above -- `TradeStore.refresh()`
 ## calls the two on consecutive lines, so the abort at the first one is the
 ## only reason this one was never reached to abort as well.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_salt_access() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_salt_access"):
 		return {}
 	return world_gen.civ_salt_access()
 
 ## The coordinate frame this world's fields and its GeoJSON export are in
 ## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func world_crs() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("world_crs"):
 		return {}
 	return world_gen.world_crs()
@@ -5747,7 +6385,11 @@ func world_crs() -> Dictionary:
 ## `regions` is empty (and `region_count` 0) with the NPP figures still real
 ## on a loaded save: productivity needs climate only, ecoregions need the
 ## civilisation layer's water bodies.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func ecology_summary() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("ecology_summary"):
 		return {}
 	return world_gen.ecology_summary()
@@ -5766,7 +6408,11 @@ func ecology_summary() -> Dictionary:
 ## edits), then creates -- or jumps to, if already recorded -- an entry for
 ## `year`, carrying territory/settlements/ways forward from the nearest
 ## earlier recorded year. A no-op before any generate.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func civ_add_year(year: int) -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if not _has("civ_add_year"):
 		return
 	mark_world_dirty()
@@ -5847,7 +6493,11 @@ func get_civ_timeline_years() -> PackedInt64Array:
 ## milestone-1 `civ_resync_next_tid` as the only reachable resync -- the one
 ## that ignores the snapshots and can therefore hand out a tid a recorded year
 ## already holds.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func civ_resync_next_tid_with_timeline() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("civ_resync_next_tid_with_timeline"):
 		return 0
 	mark_world_dirty()
@@ -5858,7 +6508,11 @@ func civ_resync_next_tid_with_timeline() -> int:
 ## the chronologically-previous recorded year -- the ghost/highlight/
 ## exist-only overlay's own data source. Empty sets (not an error) before any
 ## generate or for an unrecorded year.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_year_diff(year: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_year_diff"):
 		return {}
 	return world_gen.civ_year_diff(year)
@@ -5871,7 +6525,11 @@ func civ_year_diff(year: int) -> Dictionary:
 ## (not an error) before any generate, for an unrecorded year, for the first
 ## recorded year, and on a binary older than the `#[func]` -- none of which has
 ## a removed settlement to show.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_year_diff_removed(year: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_year_diff_removed"):
 		return []
 	return world_gen.civ_year_diff_removed(year)
@@ -5882,7 +6540,11 @@ func civ_year_diff_removed(year: int) -> Array:
 ## curve the live way was drawn with. A way that was `hidden` (consolidated
 ## away, never drawn) is never returned. Empty in the same cases as
 ## `civ_year_diff_removed()`, and on a binary older than the `#[func]`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_year_diff_removed_ways(year: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_year_diff_removed_ways"):
 		return []
 	return world_gen.civ_year_diff_removed_ways(year)
@@ -5894,7 +6556,11 @@ func civ_year_diff_removed_ways(year: int) -> Array:
 ## "end_year": int}` -- `end_year` is present only when `current` is
 ## `false`. Empty before any generate/`civ_add_year` call, for `tid <= 0`,
 ## or for a `tid` the timeline never recorded.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_settlement_ownership_periods(tid: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_settlement_ownership_periods"):
 		return []
 	return world_gen.civ_settlement_ownership_periods(tid)
@@ -5911,7 +6577,11 @@ func civ_settlement_ownership_periods(tid: int) -> Array:
 ## ("metropolis"/"capital"/"city"/"town"/"village"/"hamlet"). Empty before
 ## any generate/`civ_add_year` call, for `tid <= 0`, or for a `tid` the
 ## timeline never recorded.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_settlement_population_trajectory(tid: int) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("civ_settlement_population_trajectory"):
 		return []
 	return world_gen.civ_settlement_population_trajectory(tid)
@@ -5927,7 +6597,11 @@ func civ_settlement_population_trajectory(tid: int) -> Array:
 ## `{"ok": false, "needs_confirm": true, "clobber_years": [...]}` instead of
 ## running -- re-send the same request with `confirm_overwrite: true` to
 ## proceed. On success, the timeline cursor is left at the run's `end_year`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_run_collapse_simulation"):
 		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
 	mark_world_dirty()
@@ -5941,7 +6615,11 @@ func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
 # empty library rather than erroring.
 
 ## `{kind: {"total": int, "custom": int, "stock": int}}` for all four definition types.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func tl_counts() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("tl_counts"):
 		return {}
 	return world_gen.tl_counts()
@@ -5949,7 +6627,11 @@ func tl_counts() -> Dictionary:
 ## Every entry of one definition type, stock-then-custom order, each row carrying
 ## `id`/`name`/`origin`/`editable`/`subtitle`/`species_key`/`validation_state`/
 ## `validation_missing`/`validation_conflicts`/`usage_presets`/`usage_journeys`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func tl_list(kind: String) -> Array:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return []
 	if not _has("tl_list"):
 		return []
 	return world_gen.tl_list(kind)
@@ -5957,35 +6639,55 @@ func tl_list(kind: String) -> Array:
 ## One entry's full detail -- `tl_list`'s own per-row keys plus every field
 ## `TRAVEL_LIBRARY_SPEC.md` §3 lists for `kind`. An unset optional field is simply
 ## absent from the returned Dictionary -- test `has()`, don't assume a default.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func tl_get(kind: String, id: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("tl_get"):
 		return {"ok": false}
 	return world_gen.tl_get(kind, id)
 
 ## Clones `id` (stock or custom) into a new editable custom entry.
 ## `{"ok": true, "id": new_id}` or `{"ok": false, "error": ...}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func tl_duplicate(kind: String, id: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_duplicate"):
 		return {"ok": false, "error": "tl_duplicate not available on this binary"}
 	mark_world_dirty()
 	return world_gen.tl_duplicate(kind, id)
 
 ## A brand-new custom entry with every field unset. `{"ok": true, "id": new_id}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func tl_add_blank(kind: String, name: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_add_blank"):
 		return {"ok": false, "error": "tl_add_blank not available on this binary"}
 	mark_world_dirty()
 	return world_gen.tl_add_blank(kind, name)
 
 ## Deletes a custom entry. No-op on an unknown id or a stock one.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func tl_delete(kind: String, id: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("tl_delete"):
 		return {"ok": false}
 	mark_world_dirty()
 	return world_gen.tl_delete(kind, id)
 
 ## Discards every custom entry of one kind, restoring the stock-only bootstrap.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func tl_reset_to_stock(kind: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("tl_reset_to_stock"):
 		return {"ok": false}
 	mark_world_dirty()
@@ -5994,7 +6696,11 @@ func tl_reset_to_stock(kind: String) -> Dictionary:
 ## Applies a partial `fields` Dictionary onto an existing custom entry (stock entries
 ## are read-only -- duplicate first). Returns `{"ok", "error", "rejected",
 ## "validation_state", "validation_missing", "validation_conflicts"}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT, "rejected": []}.
 func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "rejected": []}
 	if not _has("tl_edit"):
 		return {"ok": false, "error": "tl_edit not available on this binary", "rejected": []}
 	mark_world_dirty()
@@ -6002,7 +6708,11 @@ func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
 
 ## "Capture party from planner": a new custom party preset from `plan`, in
 ## `jp_default_plan()`/`jp_compute`'s own `plan` key vocabulary.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_capture_preset_from_plan"):
 		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
 	mark_world_dirty()
@@ -6016,14 +6726,22 @@ func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 
 ## Decode `bytes` as a PNG and add it as a new item on `uid`. `{"ok": true}` or
 ## `{"ok": false, "error": ...}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_import_item"):
 		return {"ok": false, "error": "as_import_item not available on this binary"}
 	mark_world_dirty()
 	return world_gen.as_import_item(uid, item_name, bytes)
 
 ## Add (or return the existing) custom slot. `{"ok": true, "uid": ...}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_add_custom_slot"):
 		return {"ok": false, "error": "as_add_custom_slot not available on this binary"}
 	mark_world_dirty()
@@ -6076,21 +6794,33 @@ func as_pack_info() -> Dictionary:
 	return world_gen.as_pack_info()
 
 ## Sets the pack's name/author/license fields directly.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_set_pack_info(pack_name: String, author: String, license: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("as_set_pack_info"):
 		return false
 	mark_world_dirty()
 	return world_gen.as_set_pack_info(pack_name, author, license)
 
 ## Removes one item from a slot.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_remove_item(uid: String, index: int) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("as_remove_item"):
 		return false
 	mark_world_dirty()
 	return world_gen.as_remove_item(uid, index)
 
 ## Resets the whole session to a fresh, empty library.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_clear_library() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("as_clear_library"):
 		return false
 	mark_world_dirty()
@@ -6117,7 +6847,11 @@ func as_export_pack_bytes() -> Dictionary:
 
 ## Compiles the current session into a pack and loads it straight into the renderer
 ## -- the reference's own `applyToMap()`, same bake `as_export_pack_bytes` does.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func as_apply_to_map() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_apply_to_map"):
 		return {"ok": false, "error": "as_apply_to_map not available on this binary"}
 	mark_world_dirty()
@@ -6127,14 +6861,22 @@ func as_apply_to_map() -> Dictionary:
 	return result
 
 ## Comma-separated `tags_csv` onto every uid in `uids`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func as_batch_tag(uids: PackedStringArray, tags_csv: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("as_batch_tag"):
 		return {"ok": false}
 	mark_world_dirty()
 	return world_gen.as_batch_tag(uids, tags_csv)
 
 ## Adds every uid in `uids` to collection `coll_name`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("as_batch_collect"):
 		return {"ok": false}
 	mark_world_dirty()
@@ -6142,21 +6884,33 @@ func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
 
 ## `{base}_01`, `{base}_02`, ... over `uids` in order. `remap` carries
 ## `old_uid -> new_uid` for every custom slot whose uid changed.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "renamed": 0, "remap": {}}.
 func as_batch_rename(uids: PackedStringArray, base: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "renamed": 0, "remap": {}}
 	if not _has("as_batch_rename"):
 		return {"ok": false, "renamed": 0, "remap": {}}
 	mark_world_dirty()
 	return world_gen.as_batch_rename(uids, base)
 
 ## Clones every slot in `uids` carrying at least one item into a new custom slot.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "made": 0}.
 func as_batch_duplicate(uids: PackedStringArray) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "made": 0}
 	if not _has("as_batch_duplicate"):
 		return {"ok": false, "made": 0}
 	mark_world_dirty()
 	return world_gen.as_batch_duplicate(uids)
 
 ## Custom slots in `uids` are removed entirely; frozen slots have their items cleared.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "deleted": 0}.
 func as_batch_delete(uids: PackedStringArray) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "deleted": 0}
 	if not _has("as_batch_delete"):
 		return {"ok": false, "deleted": 0}
 	mark_world_dirty()
@@ -6164,13 +6918,21 @@ func as_batch_delete(uids: PackedStringArray) -> Dictionary:
 
 ## Decodes a sprite sheet and holds it on the session for slicing (AS-09).
 ## `{"ok": true, "w", "h", "name"}` or `{"ok": false, "error": ...}`. PNG only.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT, "w": 0, "h": 0}.
 func as_load_sheet(sheet_name: String, bytes: PackedByteArray) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "w": 0, "h": 0}
 	if not _has("as_load_sheet"):
 		return {"ok": false, "error": "as_load_sheet not available on this binary", "w": 0, "h": 0}
 	return world_gen.as_load_sheet(sheet_name, bytes)
 
 ## Drops the loaded sheet (the slicer modal closing).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_clear_sheet() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("as_clear_sheet"):
 		return false
 	return world_gen.as_clear_sheet()
@@ -6194,7 +6956,11 @@ func as_slice_preview(opts: Dictionary) -> Dictionary:
 ## Slices the loaded sheet into the library (AS-09/AS-10/AS-11). Non-destructive:
 ## the sheet stays loaded. `{"ok", "added", "skipped_blank", "unplaced", "uids"}`
 ## or `{"ok": false, "error": ...}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers its unavailable default.
 func as_slice_apply(opts: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
 	if not _has("as_slice_apply"):
 		return {"ok": false, "error": "as_slice_apply not available on this binary",
 			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
@@ -6203,7 +6969,11 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 
 ## AS-07: writes one item's scale/pan directly. `false` for an unknown
 ## uid/index or an older binary.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, pan_y: float) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("as_set_item_transform"):
 		return false
 	mark_world_dirty()
@@ -6212,7 +6982,11 @@ func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, 
 ## AS-07: resets one item's transform to identity, re-fitting to the slot's
 ## family when `fit` is true. `{"ok", "scale", "pan_x", "pan_y"}` or
 ## `{"ok": false}` for an unknown uid/index or an older binary.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false}.
 func as_reset_item_transform(uid: String, index: int, fit: bool) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false}
 	if not _has("as_reset_item_transform"):
 		return {"ok": false}
 	mark_world_dirty()
@@ -6269,7 +7043,11 @@ func continents() -> Array:
 
 ## Binds `path` as this device's Markdown Vault (`WorldGen.vault_connect`); reply
 ## `{ok, error, ...}`. Returns `_VAULT_UNAVAILABLE` without the API. Marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_connect(path: String, display_name: String = "") -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_connect"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6277,7 +7055,11 @@ func vault_connect(path: String, display_name: String = "") -> Dictionary:
 
 ## Drops the device-local vault binding (`WorldGen.vault_disconnect`); links survive.
 ## No-op without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func vault_disconnect() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if _has("vault_disconnect"):
 		mark_world_dirty()
 		world_gen.vault_disconnect()
@@ -6290,7 +7072,11 @@ func vault_disconnect() -> void:
 ## `crates/cartalith-godot/src/vault_saf.rs`'s own module doc specifies in
 ## full -- read that before writing `handler`, since it is also where the
 ## real Android work this call cannot do on its own is named plainly.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_connect_saf(tree_uri: String, display_name: String, dispatch: Callable) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_connect_saf"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6350,7 +7136,11 @@ func vault_template_source() -> Dictionary:
 ## Obsidian's Insert template: `{ok, text, caret}` -- `note_text` with the
 ## filled template inserted at `caret` (characters) and its properties merged
 ## into the note's. Writes nothing.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_insert_template(template_rel: String, note_text: String, caret: int, title: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_insert_template"):
 		return {"ok": false, "error": "this engine build has no Insert template"}
 	return world_gen.vault_insert_template(template_rel, note_text, caret, title)
@@ -6370,7 +7160,11 @@ func vault_suggested_path(kind: String, name: String) -> String:
 ## vault's formats) and `name` in the template's `{{…Name}}`/`[Name]` tokens;
 ## Templater's `<% %>` is left as written. Refuses an existing path; never
 ## overwrites. `{ok, path, text}` or `{ok: false, error}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_create_from_template(template_rel: String, rel: String, name: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_create_from_template"):
 		return {"ok": false, "error": "this engine build has no note creator"}
 	return world_gen.vault_create_from_template(template_rel, rel, name)
@@ -6410,7 +7204,11 @@ func vault_read_file_for_edit(rel: String) -> Dictionary:
 ## simpler cousin. Refuses with the file unchanged if it was edited since
 ## `expect_hash` was read. `{ok, hash}` on success, `{ok: false, error}`
 ## otherwise.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_write_file(rel: String, text: String, expect_hash: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_write_file"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6418,7 +7216,11 @@ func vault_write_file(rel: String, text: String, expect_hash: String) -> Diction
 
 ## Attaches an entity to a document or heading (`WorldGen.vault_attach`); reply
 ## `{ok, error, ...}`. `_VAULT_UNAVAILABLE` without the API; marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_attach(kind: String, entity_id: int, label: String, rel: String, heading: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_attach"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6426,7 +7228,11 @@ func vault_attach(kind: String, entity_id: int, label: String, rel: String, head
 
 ## Removes link `link_id` (`WorldGen.vault_detach`). `false` for an unknown id. Marks
 ## the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_detach(link_id: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_detach"):
 		return false
 	mark_world_dirty()
@@ -6474,7 +7280,11 @@ func vault_link_text(link_id: String) -> String:
 
 ## Records an edit to link `link_id`'s working copy (`WorldGen.vault_set_link_text`).
 ## `false` for an unknown link. Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_set_link_text(link_id: String, text: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_set_link_text"):
 		return false
 	mark_world_dirty()
@@ -6482,7 +7292,11 @@ func vault_set_link_text(link_id: String, text: String) -> bool:
 
 ## Re-reads the link's source selection, discarding the local copy
 ## (`WorldGen.vault_reload_link`). `_VAULT_UNAVAILABLE` without the API. Not marked dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_reload_link(link_id: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_reload_link"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_reload_link(link_id)
@@ -6499,7 +7313,11 @@ func vault_preview_section_write(link_id: String) -> Dictionary:
 
 ## Writes one edited section back to the source file (`WorldGen.vault_write_section`);
 ## refused if `expect_hash` no longer matches. Reply `{ok, error, ...}`; marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_write_section"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6576,7 +7394,11 @@ func vault_snapshot_radii(kind: String, entity_id: int) -> Array:
 ## `mark_world_dirty()` for the same reason the two block writers above have
 ## it: the snapshot's path is part of the link store, and the link store is
 ## part of the project archive (`vault.json`).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_snapshot(kind: String, entity_id: int, radius: String, subdir: String, size: int) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_snapshot"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6594,7 +7416,11 @@ func vault_preview_block(rel: String, kind: String, entity_id: int, body: String
 
 ## Writes the machine-owned block into file `rel` (`WorldGen.vault_write_block`);
 ## refused if `expect_hash` is stale. Reply `{ok, error, ...}`; marks the world dirty.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_write_block(rel: String, kind: String, entity_id: int, body: String, expect_hash: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_write_block"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
@@ -6655,13 +7481,21 @@ func undo_revert_to(seq: int) -> int:
 
 ## Refreshes the backlink index, the only operation that scans the vault
 ## (`WorldGen.vault_refresh_backlinks`, capped at `limit`). Reply `{ok, error, ...}`.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_refresh_backlinks(limit: int = 2000) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_refresh_backlinks"):
 		return {"ok": false, "error": "this build predates the backlink index"}
 	return world_gen.vault_refresh_backlinks(limit)
 
 ## Throw the index away so the next refresh re-reads everything.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func vault_rebuild_backlinks() -> void:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return
 	if _has("vault_rebuild_backlinks"):
 		world_gen.vault_rebuild_backlinks()
 
@@ -6746,7 +7580,11 @@ func vault_backlink_index_json() -> String:
 
 ## Restores a saved backlink index from JSON (`WorldGen.vault_restore_backlink_index`).
 ## `false` on malformed JSON, leaving the in-memory index alone.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_restore_backlink_index(json: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_restore_backlink_index"):
 		return false
 	return world_gen.vault_restore_backlink_index(json)
@@ -6764,7 +7602,11 @@ func vault_state_json() -> String:
 
 ## Restores a link store from JSON (`WorldGen.vault_restore_state`), keeping the current
 ## binding. `false` on malformed JSON, changing nothing.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_restore_state(json: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_restore_state"):
 		return false
 	return world_gen.vault_restore_state(json)
@@ -6832,7 +7674,11 @@ func vault_entity_chronos(kind: String, entity_id: int) -> Dictionary:
 ## is `vault_read_file_for_edit(rel).hash`. `{ok, error, hash, conflict}`:
 ## `conflict` is true when the note changed since that read, and nothing was
 ## written.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_add_chronos_event(rel: String, expect_hash: String, event: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_add_chronos_event"):
 		return {"ok": false, "error": "vault_add_chronos_event not available on this binary"}
 	return world_gen.vault_add_chronos_event(rel, expect_hash, event)
@@ -6861,7 +7707,11 @@ func vault_write_prefs() -> Dictionary:
 ## Sets one of them. `path` is "section", "block" or "field_fill"; anything
 ## else returns false and changes nothing, so a typo cannot quietly disarm a
 ## confirmation.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_set_write_pref(path: String, value: bool) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_set_write_pref"):
 		return false
 	mark_world_dirty()
@@ -6880,7 +7730,11 @@ func vault_prefs_json() -> String:
 
 ## Restores vault preferences from JSON (`WorldGen.vault_restore_prefs`). `false` on
 ## malformed JSON, leaving the safe ask-every-time defaults.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func vault_restore_prefs(json: String) -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("vault_restore_prefs"):
 		return false
 	return world_gen.vault_restore_prefs(json)
@@ -6888,7 +7742,11 @@ func vault_restore_prefs(json: String) -> bool:
 ## Removes a Cartalith-written block from a note. `expect_hash` comes from the
 ## matching preview and is what makes a note edited in between refuse instead
 ## of being overwritten.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_remove_block"):
 		return {"ok": false, "error": "vault_remove_block not available on this binary"}
 	mark_world_dirty()
@@ -6911,7 +7769,11 @@ func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: 
 ## carries the world but not the drafts still beats no autosave. It says so,
 ## because silently dropping documents is exactly the failure this pair of
 ## functions was added to end.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func project_save_with_documents(path: String, extra_documents: Dictionary) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("project_save_with_documents"):
 		if not _has("project_save"):
 			return {"ok": false, "error": "project_save_with_documents not available on this binary"}
@@ -6931,7 +7793,11 @@ func project_save_with_documents(path: String, extra_documents: Dictionary) -> D
 ## A slot with nothing to write is **absent**, not empty -- that side's own
 ## contract, and the reason this returns a Dictionary to merge rather than
 ## four strings to test.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func project_engine_built_documents() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("project_engine_built_documents"):
 		return {}
 	return world_gen.project_engine_built_documents()
@@ -6947,7 +7813,11 @@ func project_engine_built_documents() -> Dictionary:
 ## the *import* case: a draft read out of a different file with
 ## `project_read_document` and applied to the world already on screen, which
 ## is why the grid mismatch is still a refusal rather than a resize.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func sculpt_restore_document(text: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("sculpt_restore_document"):
 		return {"ok": false, "error": "sculpt_restore_document not available on this binary"}
 	var restored: Dictionary = world_gen.sculpt_restore_document(text)
@@ -6961,7 +7831,11 @@ func sculpt_restore_document(text: String) -> Dictionary:
 ## The exact mirror of `sculpt_restore_document()` above, down to which caller
 ## it is for: the load path does not call it, because `project_open` applies
 ## the archive's own copy. This is the import route.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func paint_restore_document(text: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("paint_restore_document"):
 		return {"ok": false, "error": "paint_restore_document not available on this binary"}
 	return world_gen.paint_restore_document(text)
@@ -6970,7 +7844,11 @@ func paint_restore_document(text: String) -> Dictionary:
 ## `items` is `0` on this build by design -- the record comes back, the
 ## decoded pixels do not (`project_bridge.rs`'s own note on
 ## `asset_library_document_json`).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func asset_library_restore_document(text: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("asset_library_restore_document"):
 		return {"ok": false, "error": "asset_library_restore_document not available on this binary"}
 	return world_gen.asset_library_restore_document(text)
@@ -6979,13 +7857,21 @@ func asset_library_restore_document(text: String) -> Dictionary:
 ## rejected}`. Replaces the custom half of every set and leaves the stock
 ## entries alone, so opening a project cannot leave the previous one's pack
 ## mule behind.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func travel_library_restore_document(text: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("travel_library_restore_document"):
 		return {"ok": false, "error": "travel_library_restore_document not available on this binary"}
 	return world_gen.travel_library_restore_document(text)
 
 ## Every slot the format defines.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedStringArray().
 func project_document_slots() -> PackedStringArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedStringArray()
 	if not _has("project_document_slots"):
 		return PackedStringArray()
 	return world_gen.project_document_slots()
@@ -6999,14 +7885,22 @@ func project_document_slots() -> PackedStringArray:
 ## what a check would test against if that ever stops being true -- a slot
 ## name typed by hand is discovered "as a failed save" otherwise, which is
 ## the failure `project_document_slots()` was added for.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers PackedStringArray().
 func project_engine_owned_slots() -> PackedStringArray:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return PackedStringArray()
 	if not _has("project_engine_owned_slots"):
 		return PackedStringArray()
 	return world_gen.project_engine_owned_slots()
 
 ## The `format_version` this build writes (`WorldGen.project_format_version`). `0`
 ## means no binding, never a real version.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func project_format_version() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("project_format_version"):
 		return 0
 	return world_gen.project_format_version()
@@ -7017,7 +7911,11 @@ func project_format_version() -> int:
 # each toggle and nothing re-read the engine after a load. Same shape as the
 # bug `route_get`'s `mode` carried until 2026-08-26.
 
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers true.
 func get_villages_enabled() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return true
 	if not _has("get_villages_enabled"):
 		return true
 	return world_gen.get_villages_enabled()
@@ -7027,14 +7925,22 @@ func get_villages_enabled() -> bool:
 ## defaults()`'s `civ.metropolis: false`, checked 2026-10-11), so a binary without this getter shows the
 ## state a generate would really use. It was `true` -- a guess that made the New World dialog
 ## offer promotion the engine would not apply (found-bug sweep 2026-10-11, R7).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func get_metropolis_enabled() -> bool:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return false
 	if not _has("get_metropolis_enabled"):
 		return false
 	return world_gen.get_metropolis_enabled()
 
 ## The recovery phase the next generate applies: 0 Stable .. 4 Mature
 ## (`WorldGen.get_recovery_phase`). `0` is also the stale-binary fallback.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers 0.
 func get_recovery_phase() -> int:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return 0
 	if not _has("get_recovery_phase"):
 		return 0
 	return world_gen.get_recovery_phase()
@@ -7221,14 +8127,22 @@ func info_worker_stats() -> Dictionary:
 ##
 ## Recomputed fresh on every call, and comparable in cost to a real slice of
 ## Recompute civilisation -- call it from a button, never from a panel refresh.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func civ_regional_population() -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
 	if not _has("civ_regional_population"):
 		return {}
 	return world_gen.civ_regional_population()
 
 ## Drops a whole asset collection by name. The grouping only -- the assets in
 ## it are untouched. A no-op, not an error, for a name that does not exist.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func as_drop_collection(name: String) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_drop_collection"):
 		return {"ok": false, "error": "as_drop_collection not available on this binary"}
 	return world_gen.as_drop_collection(name)

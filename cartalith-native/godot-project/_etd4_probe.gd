@@ -323,6 +323,17 @@ func _bresenham(a: Vector2i, b: Vector2i, out: Array) -> void:
 			err += dx
 			y += sy
 
+## True when two polylines have the same vertex count and every vertex pair is within `tol` cells.
+## Exists for check (d)'s f32-vs-full-precision replay; it must stay a tolerance, never a hidden
+## `==` (a different vertex count or a vertex a cell away still fails).
+func _polys_close(a: PackedVector2Array, b: PackedVector2Array, tol: float) -> bool:
+	if a.size() != b.size() or a.is_empty():
+		return false
+	for i in a.size():
+		if a[i].distance_to(b[i]) > tol:
+			return false
+	return true
+
 func _cells_of(pts) -> Array:
 	var cells: Array = []
 	var prev = null
@@ -683,7 +694,15 @@ func _run(api: bool) -> void:
 		bridge.way_stroke_sample(p.x, p.y, 0)
 	bridge.way_stroke_end()
 	bridge.way_commit()
-	_check(not w_drag_shell.is_empty() and w_drag_shell.get("points") == _way(0).get("points"), "(d) the drag's way equals the engine's own begin/sample/end over the same fed points")
+	## Not `==`: the shell feeds the engine the unproject's FULL-precision cell coordinates, while
+	## `_way_drag_points` (the replay source here) stores them rounded to f32. Where the pixel->cell
+	## maths does not land on an f32-exact value (measured: 1920x1080 only; 1600x900 and 1600x1000
+	## are exact) the replayed way differs by one f32 ulp of a coordinate near 100 (~1e-5 cells; the
+	## failing run showed 95.50001 vs 95.5, 102.8,81.40001 vs 102.8,81.4) -- a fixture artefact, not
+	## a shell/engine disagreement. The bar is 1e-3 cells (100x the ulp, far below a cell; a labelled
+	## judgement), with the vertex COUNT and the km still exact-or-near.
+	var w_ref_drag := _way(0)
+	_check(not w_drag_shell.is_empty() and _polys_close(w_drag_shell.get("points", PackedVector2Array()), w_ref_drag.get("points", PackedVector2Array()), 1.0e-3) and absf(float(w_drag_shell.get("km", -1.0)) - float(w_ref_drag.get("km", -2.0))) < 1.0e-3, "(d) the drag's way equals the engine's own begin/sample/end over the same fed points (same vertex count, each within 1e-3 cells, km within 1e-3)")
 	_check(not w_draft_shell.is_empty() and w_draft_shell.get("points") == _way(1).get("points"), "(d) the click draft committed afterwards equals the straight-bridge two-click way (nothing of the drag leaked in)")
 
 	# f. the engine drag is closed -------------------------------------------------------------------------------
