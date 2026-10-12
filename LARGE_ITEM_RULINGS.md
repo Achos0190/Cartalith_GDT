@@ -2213,3 +2213,12 @@ Owner, answering the coordinating session's prompt for rulings, in the owner's s
 8. **Delta look and interior hatching on 512x328: deferred**; Ruling BV stands.
 
 **Addendum (2026-10-12, to Ruling CF item 6).** The measurement (`RIVER_GATE_MEASUREMENTS.md`, "Chain breaks") found a defect: `cartalith_hydrology::build_channels_core` steers each channel cell to an aspect-steered receiver that is not the D8 receiver the discharge flows to, so 3,759 order-3+ chains break across 37 worlds. **Owner ruled: option F1, the full fix** — a receiver guard in `build_channels_core` (when the steered receiver carries less discharge than the cell itself, use the D8 receiver), on the integrated-drainage path so the reference-path goldens stay put; one network for generation, drawing and planning. It moves app-world rivers and everything downstream: look at frames first for a staircase look, then re-baseline and disclose per DECISIONS §7p. The gate thresholds themselves stay as they are (Ruling BV); re-run the gate measurements after the fix before any gate decision (owner questions 9-11 take their defaults: keep the draw-side bridge and re-measure loose ends; count a river leaving the map border as reaching an outlet in the measurement only).
+
+## 2026-10-12 — Ruling CG: GF-13 stays off, FH-R2 R2-0/R2-1 approved, planner slope gains Tobler asymmetry
+
+Owner, answering the coordinating session's prompt after GF-13's assessment (`GEOLOGY_FIRST_SCOPE.md` §7 "GF-13 under Ruling BY", commit `0e2ea5ff`) and the planner slope fix (`c0f41f98`):
+
+1. **GF-13: keep `relief_model` off.** The revised B4 holds on 3 of 5 seeds (12345 fails on share, 314159 on ratio); per GF-13's rule and Ruling BO a failed bar means leave it off. App worlds are unchanged.
+2. **Investigate the deep-zoom staircase** (one-cell staircase on lowered edges in constructed worlds; arm A has none) and fix it behind `relief_model`, then re-measure, before any further switch-on decision.
+3. **FH-R2: approve Q0 and Q2** of `FH_R2_PLAN.md` — import the research doc into the repo, and keep the new religion/government archetypes out of the default pick so S1 moves nothing. Start R2-0 and R2-1.
+4. **Planner slope: add Tobler asymmetry** (downhill faster than uphill, so A→B and B→A plan differently). Slope does NOT additionally stack on the Hills / Mountain Trails terrain rows (the owner chose the asymmetry option only). The port-only planner goldens that move are re-baselined and disclosed per DECISIONS §7p; reference-verified goldens (slope off) must not move.
