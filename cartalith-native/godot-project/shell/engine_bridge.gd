@@ -331,7 +331,15 @@ func _exit_tree() -> void:
 ## tick (worst case ~1 frame of latency, cheap enough not to warrant a Timer)
 ## but the signal itself fires only when `stage` (or the run token) actually
 ## moved since the last tick.
+##
+## Also replays an undo budget chosen while a run held the engine (`set_undo_budget_mb`), on the
+## first frame `generating` is false again -- every finish path (generate, import, resample,
+## landmarks, refine) clears that flag, so one poll here covers them all.
 func _process(_delta: float) -> void:
+	if _pending_undo_budget_mb >= 0 and not generating:
+		var mb := _pending_undo_budget_mb
+		_pending_undo_budget_mb = -1
+		set_undo_budget_mb(mb)
 	if not progress_api or not generating:
 		return
 	var snap: Dictionary = _progress.snapshot()
@@ -3082,9 +3090,21 @@ var _undo_stats_cache: Dictionary = {}
 
 ## Re-budgets the engine's undo stack in MB (`WorldGen.set_undo_budget_mb`; the engine
 ## floors it at 4 MiB). A no-op on a binary without it.
+##
+## **Deferred while `generating`** (mid-generation sweep, 2026-10-12): the worker thread holds the
+## engine, and reaching the `#[func]` is the `bind() failed` panic. The request is kept in
+## `_pending_undo_budget_mb` (last one wins) and `_process` applies it on the first frame the run
+## has finished, so a preference chosen mid-run is not lost. Its caller says so on the status line.
 func set_undo_budget_mb(mb: int) -> void:
+	if generating:
+		_pending_undo_budget_mb = mb
+		return
 	if _has("set_undo_budget_mb"):
 		world_gen.set_undo_budget_mb(mb)
+
+## An undo budget (MB) asked for while `generating`, applied by `_process` once the run ends;
+## `-1` is "none pending" (a real budget is never negative). See `set_undo_budget_mb`.
+var _pending_undo_budget_mb := -1
 
 ## Drops every undo step (`WorldGen.clear_undo`), which is what Preferences > Memory
 ## offers to give memory back. A no-op without the binding.

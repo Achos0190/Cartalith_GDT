@@ -7551,7 +7551,15 @@ func resume_playback_for_context() -> void:
 	_tl_paused_by_context = false
 
 ## Playback tick: advances the cursor to the next recorded year, stopping on the last (or with fewer than two years). Starts from the first year when the cursor is off the list.
+##
+## **Skipped while `generating`** (mid-generation sweep, 2026-10-12): this 1.2 s timer keeps firing
+## under the busy overlay, which blocks input only, and every line below reads or writes the engine
+## (`get_civ_timeline_years`, `get_civ_year`, `civ_goto_year`) while the worker thread holds it, the
+## `bind() failed` panic. Nothing is lost: a run that lands stops playback (`_tl_on_world_changed`,
+## on `generation_finished(true)`), and after a failed one the next tick carries on from here.
 func _tl_on_play_tick() -> void:
+	if bridge != null and bridge.generating:
+		return
 	var years := _tl_years()
 	if years.size() < 2:
 		_tl_stop_play()

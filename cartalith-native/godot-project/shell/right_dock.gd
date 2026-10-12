@@ -5940,6 +5940,11 @@ func _chip_btn_h(tablet: bool) -> int:
 ## the status bar and redraws the Paint section. Same engine call as the left-dock and options-bar
 ## Commit, so the three cannot disagree.
 func _on_paint_commit_from_dock() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12), like the stamp-stack buttons
+	## beside it: `paint_commit` and `color_texture` reach the engine the worker thread holds (the
+	## `bind() failed` panic). The draft stays pending, so Commit works after the run.
+	if _engine_busy("Commit paint"):
+		return
 	var summary: Dictionary = bridge.paint_commit()
 	if app != null and app.viewport != null:
 		app.viewport.map_view.texture = bridge.color_texture()
@@ -5955,6 +5960,10 @@ func _on_paint_commit_from_dock() -> void:
 ## Dock Paint `Discard`: `bridge.paint_discard()` and re-installs the paint preview texture
 ## (with `true`, keeping the committed layer as the base for the next dab), then redraws the section.
 func _on_paint_discard_from_dock() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12), for `_on_paint_commit_from_dock`'s
+	## reason; the draft is kept for after the run.
+	if _engine_busy("Discard paint draft"):
+		return
 	bridge.paint_discard()
 	if app != null and app.viewport != null:
 		## `true` for the same reason `world_workspace.gd`'s own

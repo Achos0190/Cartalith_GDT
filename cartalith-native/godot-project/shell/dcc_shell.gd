@@ -5171,7 +5171,16 @@ func tl_toggle_play() -> void:
 
 ## Playback timer callback: advances the cursor by `tl_speed` years, or on reaching
 ## `TL_YEAR_MAX` snaps to it, stops playback and the timer (no wrap-around).
+##
+## **Holds while `generating`** (mid-generation sweep, 2026-10-12): the timer keeps firing under
+## the busy overlay, which blocks input only, and `tl_year()` / `tl_set_year()` reach
+## `get_civ_year` / `civ_goto_year`, `#[func]`s the worker thread holds (the `bind() failed`
+## panic), and `timeline_changed` fans out to listeners that read the engine too. The tick is
+## skipped, not playback stopped: the next tick after the run advances from where it held.
 func _tl_tick() -> void:
+	var gen_bridge := _find_engine_bridge()
+	if gen_bridge != null and gen_bridge.generating:
+		return
 	var next := tl_year() + tl_speed
 	if next >= TL_YEAR_MAX:
 		tl_set_year(TL_YEAR_MAX)
@@ -9554,6 +9563,17 @@ func _notification(what: int) -> void:
 		_close_requested()
 		return
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
+		return
+	## **Refused while `generating`** (mid-generation sweep, 2026-10-12). Back is a window
+	## notification, not an `InputEvent`, so the busy overlay's `_input` never sees it, and every
+	## step of the chain below can reach the engine the worker thread holds: hiding a dialog runs
+	## its cancel path, `PhoneMenu.go_back()` re-renders a screen that reads counts,
+	## `_back_exhausted()` runs the armed tool's escape handler or builds the exit card (which reads
+	## the seed). The same stance as the overlay for every other input: nothing moves mid-run, and
+	## the status line says why. Nothing to replay: the gesture is repeated after the run.
+	var gen_bridge := _find_engine_bridge()
+	if gen_bridge != null and gen_bridge.generating:
+		set_status("hint", "Not done: Back -- the world is generating. Try again when it finishes.", "warn")
 		return
 	## Innermost first. An embedded dialog draws OVER the phone menu, so the
 	## menu must not eat the gesture while one is open. Hidden rather than

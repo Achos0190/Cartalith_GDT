@@ -1346,6 +1346,12 @@ const RESET_BUSY_TIP := "A generation is running. The engine object belongs to t
 ## Does NOT refresh the Undo/Redo rows: `_on_edit` calls `_host._refresh_undo_ui()`
 ## after it.
 func _redo_last() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12) with the same "Not done" line
+	## as its twin `app.gd::_redo_last_impl()`: `wants_redo`, `redo_label` and the look path all
+	## read the engine the worker thread holds, and `EngineBridge.redo_last()` refusing on its own
+	## would print "Nothing to redo." -- a false reason.
+	if _host._engine_busy_for_history("Redo"):
+		return
 	## Ruling BY item 2: a look redo (the shared look history) goes through the
 	## host, which owns the widget refresh; the height path below is unchanged.
 	if _host.look_history.wants_redo(_bridge):
@@ -1725,6 +1731,10 @@ func _repaint_after_entity_change() -> void:
 ## `_clipboard` (see the clipboard section header). An empty selection leaves the
 ## previous clipboard untouched. Never deletes or modifies anything on the map.
 func _copy_selection() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12): the snapshot reads both
+	## selections from the engine the worker thread holds (the `bind() failed` panic).
+	if _host._engine_busy_for_history("Copy"):
+		return
 	var buf := _carto_snapshot()
 	if buf.is_empty():
 		return
@@ -1736,6 +1746,10 @@ func _copy_selection() -> void:
 ## re-read rather than derived from the snapshot, which holds records, not indices. An
 ## empty selection does nothing and must not clear the clipboard.
 func _cut_selection() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12): it reads and deletes
+	## through the engine the worker thread holds (the `bind() failed` panic).
+	if _host._engine_busy_for_history("Cut"):
+		return
 	var buf := _carto_snapshot()
 	if buf.is_empty():
 		return
@@ -1755,6 +1769,11 @@ func _cut_selection() -> void:
 ## resolved, or that have no pack, are counted as refused and reported rather than
 ## faked. Must set the selection LAST, since `label_create` selects as it goes.
 func _paste_clipboard() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12): creating, arming, placing
+	## and `_restore_armed`'s `icon_disarm` all reach the engine the worker thread holds (the
+	## `bind() failed` panic). The clipboard is kept, so the same paste works after the run.
+	if _host._engine_busy_for_history("Paste"):
+		return
 	if _clipboard.is_empty() or not _bridge.has_world:
 		return
 	var g := _bridge.grid_size()
@@ -1839,6 +1858,10 @@ func _paste_failure_reason(no_pack: int, unaddressable: int) -> String:
 ## one engine call each, and adding a method to three workspace files to reach
 ## them would put this work in three files this pass does not own.
 func _select_all() -> void:
+	## Refused while `generating` (mid-generation sweep, 2026-10-12): both selections live in the
+	## engine the worker thread holds (the `bind() failed` panic).
+	if _host._engine_busy_for_history("Select all"):
+		return
 	match _active_domain():
 		"cartography":
 			var icons: int = _bridge.icon_select_all()
@@ -5165,12 +5188,22 @@ func _refresh_undo_budget_menu() -> void:
 
 ## Serves the undo-budget submenu: Clear drops the height undo stack; a rung sets the
 ## budget (MB) and redraws. Ids outside the ladder are ignored. The look history is not affected.
+##
+## While `generating` (mid-generation sweep, 2026-10-12) neither reaches the engine: Clear is
+## refused with the shared "Not done" line (`EngineBridge.clear_undo` would skip it silently), and
+## a rung is deferred by `EngineBridge.set_undo_budget_mb` and applied when the run finishes, which
+## the status line says rather than leaving the menu's old tick to look like a refusal.
 func _on_undo_budget(id: int) -> void:
 	if id == ID_PREF_UNDO_CLEAR:
+		if _host._engine_busy_for_history("Clear undo history"):
+			return
 		_bridge.clear_undo()
 		return
 	if id >= 0 and id < UNDO_BUDGETS_MB.size():
 		_bridge.set_undo_budget_mb(UNDO_BUDGETS_MB[id])
+		if _bridge.generating:
+			_host.set_status("hint", "Undo budget set to %d MB -- applied when the run finishes." % UNDO_BUDGETS_MB[id], "text_dim")
+			return
 		_refresh_undo_budget_menu()
 
 ## Ticks Preferences ▸ Theme (dark / light / system) from `_theme_mode`, the STORED choice.

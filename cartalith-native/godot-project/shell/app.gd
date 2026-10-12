@@ -4363,7 +4363,14 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 	## The artboard's own two rows were EDITS SINCE SAVE and LAST AUTOSAVE;
 	## only the second of those has anything behind it.
 	var stats := DccWidgets.modal_inset(card["body"])
-	if bridge.world_gen != null and bridge.world_gen.has_method("get_seed"):
+	## **Dashed with its reason while `generating`** (mid-generation sweep, 2026-10-12): the OS
+	## title-bar close is a window notification the busy overlay cannot swallow, so this card can
+	## be built mid-run, and `get_seed()` is a `#[func]` the worker thread holds (the `bind()
+	## failed` panic). The seed being written is also not the one on screen yet.
+	if bridge.generating:
+		DccWidgets.modal_stat_absent(stats, "seed",
+			"the world is generating; its seed is readable when the run finishes")
+	elif bridge.world_gen != null and bridge.world_gen.has_method("get_seed"):
 		DccWidgets.modal_stat(stats, "seed", str(bridge.world_gen.get_seed()))
 	else:
 		## Names the missing `get_seed()` binding.

@@ -94,7 +94,16 @@ func _on_visibility_changed() -> void:
 ## only; says "No world generated yet." rather than showing zeros when there is
 ## no world. The memory figure is Godot's static memory, not the Rust engine's,
 ## so it understates the total.
+##
+## **Never reads the engine while `generating`** (mid-generation sweep, 2026-10-12). This runs from
+## a 0.5 s timer while the overlay is shown (Shift+D), so it keeps firing under the busy overlay,
+## which blocks input and nothing else; `gpu_stages_used()`, `quality_tier()` and the raw
+## `get_params()` below reach a `#[func]` the worker thread holds, the `Gd<T>::bind() failed`
+## panic. It says why instead, and the `generation_finished` handler in `setup` redraws it.
 func _refresh() -> void:
+	if _bridge != null and _bridge.generating:
+		_label.text = "Generating… diagnostics resume when the run finishes."
+		return
 	if _bridge == null or not _bridge.has_world:
 		_label.text = "No world generated yet."
 		return
