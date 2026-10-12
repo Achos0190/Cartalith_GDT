@@ -3857,6 +3857,148 @@ are 2× crops, before on the left. Arm A moved 0 px in every crop.
    cell render) and the beaded flow line? Default: **yes, before any
    switch-on**, as its own row.
 
+### Follow-up: what the remaining artefacts are (2026-10-12)
+
+*Design and evidence, not status. Question 3's default taken; `relief_model`
+stays off.* Method: windowed renders through `export_snapshot_png` (the
+crops above), one appearance group zeroed per render with `set_appearance`,
+and per-cell dumps with `sample_cell`. They were made in `git archive`
+scratch copies of `ee3bcec7` (then HEAD) and `f8ea9f93` (before the edge
+fix), each with its own DLL and project name. Evidence:
+`cartalith-native/docs/evidence/cg2-followup-2026-10-12/`.
+
+**(a) The τ 4 NE stair is the lithology colour sampled at the nearest
+cell, not the heights.**
+- **Found by ablation.** Zeroing `litho_strength`, `litho_exposure` and
+  `geo_micro` removes it (`a_litho_nearest_cell.jpg`, with the difference
+  map). Zeroing any of these leaves it (`a_ablation_sheet.jpg`): hillshade
+  (`exag`/`relief_gain`), AO/sky/shadow, curvature, textures, `wetness`,
+  SDF bands, `hydro_wet_strength`, ice, colour relief or the detail bands.
+- **The sampler.** `RenderCtx::litho_at_f` (export bake and deep-zoom tiles
+  alike) rounds to a cell after a coherent jitter. The jitter is smooth over
+  a few cells, so it shifts a straight contact but cannot break its
+  staircase.
+- **The contact.** The cells (`sample_cell`) put Shale beside Limestone on
+  an exact 45° line. That line is the breach line: the limestone is exposed
+  where the shale cap is breached, and it is also the fill edge
+  (1 120 → 1 364 → 1 456 m). The contact sits on the steep scarp, so
+  `land_color`'s bedrock-exposure weight (`smoothstep(1.5, 9, slope·gw)` ×
+  cover) is high there.
+- **Why the edge factor did not help.** It blends the factor `k`, so the
+  heights are anti-aliased. The label it leaves is per cell and
+  categorical.
+- **App worlds.** Relief off, the same crop is all shale. Two app-world
+  contacts (314159 at (472,256) and (880,160)) were on gentle ground and
+  showed no visible stair. So no visible app-world instance was found.
+  But the sampler is shared, and the reference's own bake read (`lithB`)
+  is nearest too.
+
+**Proposed separately, not applied (it moves app-world output).** Filter
+the category: evaluate the lithology-dependent colour terms
+(`rock_material_col`, the exposure tint `ramp3(litho_palette(li))`, the
+microtexture factor) for each jittered corner's rock, then blend them by
+the bilinear weights. This is percentage-closer filtering applied to a
+categorical map, the same idea as blending splat-map materials.
+- **What it would move:** export, snapshot and deep-zoom-tile pixels near
+  a lithology contact wherever `litho_strength`/`litho_exposure` > 0. The
+  shipped looks set 0.62 / 0.55.
+- **What should stay:** the fit-view base map (`cell_color`, one pixel per
+  cell, `litho_at`). So should every render golden under `js_reference()`,
+  whose lithology weights are 0. That is to be confirmed by the run, not
+  assumed.
+- **Tests to re-check:** those that attach `with_lithology` under a
+  shipped look (`bake_raster`, `appearance_tiers`, `layer_stack`,
+  `cel_toon`, `color_space`, `sdf_river_and_biome`,
+  `geology_micro_and_sky_fields`).
+- **What it needs:** it is a §7p divergence from the reference's nearest
+  read, so it needs an owner call. Frames are needed at both a relief-on
+  scarp and an app-world steep contact.
+
+**(b) The beaded flow line is a routing consequence, drawn by the TWI
+wetland term. The F1 receiver guard is not involved.**
+- **Not the guard.** The guard only re-points channel receivers in
+  `build_channels_core`, and this line is not a channel.
+- **The flat itself did not move.** The 1 120 m flat is identical in both
+  builds (6 644 cells in common). But 429 cells of the 131 × 91 window
+  around it moved, including cells that joined the flat.
+- **The routing did.** Priority-Flood+ε's routing across the exact flat
+  reorganised. `flow_discharge`'s median on the flat went from 11.7 to
+  95.6, and its maximum from 5 989 to 16 690
+  (`b_flow_line_pre_vs_head.jpg`, before left).
+- **Why it now shows.** Flow reaches the land colour only through
+  `twi = ln(a/β)`, with β floored at 0.002 on a flat; `material_weights`
+  then turns twi into a wetland weight. Flow of 16 690 gives twi ≈ 1.13,
+  a weight of ≈ 0.80 under `smoothstep(-1, 2, ·)`. The old maximum gives
+  0.11, a weight of ≈ 0.31.
+- **Why it is straight.** On an exactly flat surface, ε-filling routes
+  along straight D8 lines; that is the method's known parallel-flow
+  behaviour. Only construction's fill makes dry exact flats, so this is
+  relief-on only.
+- **Why it is beaded.** The beads repeat every 11.3 px, against one
+  diagonal cell step of 11.1 px. Sampling a one-cell diagonal path
+  bilinearly gives two of four corners between centres, so the line halves
+  there. That is the renderer, shared with app worlds.
+
+**Candidates, not built.**
+- A flat-resolution gradient over construction's fill. Garbrecht and
+  Martz (1997) is the classic; Barnes, Lehman and Mulla (2014) give an
+  efficient version for flats. Gated to the filled cells, it would stay
+  relief-on only.
+- A smoother flow sample in the renderer. That one is app-wide.
+
+**(c) 483920's τ 1 notched scarp is a carved river gorge, not
+construction.**
+- **The gorge.** With `carve_rivers` off, a 1.2 km-deep gorge disappears
+  (`c_scarp_carve_on_vs_off.jpg`). It is 2-3 cells wide, floored 1-7 m
+  above sea, and runs along the shale/limestone contact. What remains of
+  the scarp is one blended cell: 983 → 1 204 → 1 266 m.
+- **What draws the notches.** The notches are the gorge walls stepping
+  with the D8 channel. `carve_rivers` runs in every world, so a fix there
+  is not confined to `relief_model`. Arm A has no gorge here, because the
+  river is routed elsewhere.
+- **The lithology again.** The carve-off scarp still shows crisp blocks:
+  that is (a)'s lithology colour (crisp-step count 352 → 128 with it off;
+  `c_scarp_carve_off_litho_on_vs_off.jpg`).
+- **A question raised, not investigated:** whether a carve that deep
+  through construction's exposed substrate is intended. `stream.k = 0`
+  left this window bit-identical, which was also not investigated.
+
+**(d) The τ 4 shore scallop is the anti-aliased step read at a level 30 %
+up it.**
+- **The step.** The shore runs along a ~1 km construction step: −330 m
+  water side, one or two blended cells, then +745 m
+  (`c_shore_scallop.jpg`).
+- **Why it wobbles.** The edge factor's box coverage is exact for a
+  cell's area. It is not exact for a contour at another level of the
+  bilinear surface. A model of straight edges at 10-77° (scratch
+  `wobble.py`, not committed) gives the level-0.3 contour 0.066 cells RMS
+  of wobble with box coverage. Linear feathers in signed distance give
+  0.033, 0.014 and 0.002 at 1.5, 2 and 3 cells wide.
+- **What the model does not explain.** The dumped contour advances in
+  jumps of about 0.5 cell, more than the model predicts. The excess (the
+  τ 4 processes, two-cell ramps) was not isolated.
+- **What a fix would cost.** A 3-cell feather would straighten it, but it
+  spreads a 1 km scarp over ~1.2 km. That is a landform change, and it
+  would lower B4 further, since B4 reads one-cell slopes. Building it to
+  hide a rendering artefact is the tuning question 2 declined. **Not
+  built.**
+- **Not re-measured.** B4, G1-G4 and B9 were not re-run, because nothing
+  changed.
+
+**Owner questions, each with a default.**
+4. **The categorical lithology filter in (a)?** It is the only one of
+   these that removes a crisp stair, and it moves app-world exports and
+   tiles near steep contacts. Default: **schedule it as its own renderer
+   row**, with frames and a test re-run before any re-baseline.
+5. **A flat-resolution gradient over construction's fills (b)?**
+   Default: **no for now**. The line is a correct routing consequence,
+   and the beading is the shared renderer.
+6. **A feathered edge (≥ 3 cells) for (d), against a softer scarp and a
+   lower B4?** Default: **no**.
+7. **Is (c)'s 1.2 km carve through exposed limestone intended?**
+   Default: **investigate as part of the GF-4…GF-9 measurements**, not
+   here.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry
