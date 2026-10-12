@@ -8732,15 +8732,28 @@ func _wire_phone_undo_chip() -> void:
 		## height field, it does not touch the undo stack.
 		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
 			bridge.connect(sig, func(_a = null): _refresh_phone_undo_chip())
+		## The shared look history emits `changed` on every commit, undo, redo and clear (the
+		## same hook `_wire_menu_squares()` uses), so a look-only edit shows the chip too
+		## (OUTSTANDING_WORK "phone undo chip answers only bridge.can_undo()", 2026-10-12).
+		var lh = get("look_history")
+		if lh != null and lh.has_signal("changed"):
+			lh.changed.connect(_refresh_phone_undo_chip)
 		_refresh_phone_undo_chip()
 	).call_deferred()
 
-## Shows the phone undo chip only while the engine reports something to undo.
+## Shows the phone undo chip only while there is a step to undo: the look history OR the height
+## stack, the same `DccApp.can_undo_any()` the desktop squares and `Edit > Undo` read. A bare
+## `DccShell` has no such method and falls back to the height stack alone. Must never answer
+## from `bridge.can_undo()` alone: a look-only history would then have no chip (it was reachable
+## only through MORE > Edit > Undo).
 func _refresh_phone_undo_chip() -> void:
 	if _phone_undo_chip == null:
 		return
 	var bridge := _find_engine_bridge()
-	_phone_undo_chip.visible = bridge != null and bridge.can_undo()
+	if bridge == null:
+		_phone_undo_chip.visible = false
+		return
+	_phone_undo_chip.visible = bool(call("can_undo_any")) if has_method("can_undo_any") 		else bridge.can_undo()
 
 ## Chip press start: arms the hold detector with a one-shot timer of `PHONE_UNDO_HOLD_SEC`,
 ## after which `_check_phone_undo_chip_hold()` decides tap versus hold.
@@ -8977,9 +8990,13 @@ func _phone_revert_history(seq: int) -> void:
 ## `_menu_bar_undo()` uses, and for the same reason.
 func _do_phone_undo() -> void:
 	var bridge := _find_engine_bridge()
-	if bridge == null or not bridge.can_undo():
+	if bridge == null:
 		return
-	var label: String = bridge.undo_label()
+	## Routed like the chip's visibility: a look-only history undoes through `undo_last()` too.
+	var routed := has_method("can_undo_any")
+	if not (bool(call("can_undo_any")) if routed else bridge.can_undo()):
+		return
+	var label: String = String(call("undo_target_label")) if routed else bridge.undo_label()
 	if has_method("undo_last"):
 		call("undo_last")
 	_refresh_phone_undo_chip()

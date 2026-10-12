@@ -37,9 +37,10 @@ extends VBoxContainer
 ##    when it was made, and refusing with a visible message is the honest option (decided here,
 ##    ET-C4). The overlay layer is locked too although its stack never reaches the engine,
 ##    because an edit ends in a look-history commit and that commit's listeners
-##    (`menus.gd::refresh_undo_rows`, which calls `EngineBridge.undo_stats()` unguarded) DO call
-##    the engine: measured as a `Gd<T>::bind() failed` panic in the first probe run that edited
-##    the overlay layer mid-generate. `_write_layer` refuses for the same reason, so a caller
+##    (`menus.gd::refresh_undo_rows`, which calls `EngineBridge.undo_stats()`) once DID reach the
+##    engine: measured as a `Gd<T>::bind() failed` panic in the first probe run that edited
+##    the overlay layer mid-generate. Since the 2026-10-12 sweep `undo_stats()` answers its cached
+##    copy while `generating`, so that panic is closed at the bridge; the lock stays as defence in depth. `_write_layer` refuses for the same reason, so a caller
 ##    that bypasses the disabled widgets still never commits.
 ## 4. **One look-history step per gesture** (Ruling BY item 2): a slider drag, a ramp-bar
 ##    drag, a colour dialog and a button press are one entry each. This file owns no history;

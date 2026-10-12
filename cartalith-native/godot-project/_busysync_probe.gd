@@ -153,6 +153,7 @@ func _on_started(label: String) -> void:
 		"eff0": _effect.call() if _effect.is_valid() else null}
 	var dmw = app.get("data_manager_window")
 	_rec["dm_muted"] = dmw != null and dmw.visible and dmw.gui_disable_input
+	_rec["mirrors"] = ov.mirror_count() if ov.has_method("mirror_count") else -1
 	var img := _capture()
 	_rec["card_diff"] = _diff(_before_img, img, ov.layout()["card"]) if _before_img != null else -1.0
 	_rec["img"] = img
@@ -461,6 +462,15 @@ func _leg_export() -> void:
 	var outside := Rect2(Vector2(4, 4), Vector2(_vp.size.x - 8, maxf(8.0, dmr.position.y - 8.0)))
 	_log("  info with the window open: card-rect diff %.1f (0 = no card visible); strip above the window diff %.1f"
 		% [_diff(_before_img, img, card), _diff(_before_img, img, outside)])
+	# The card above the embedded window (2026-10-12, `busy_overlay.gd::_WindowMirror`): the card rect lies
+	# INSIDE the window, so a diff of 0.0 meant the card was hidden under it. Mutation: stop `_mute_subwindows`
+	# creating the mirror and the diff returns to 0.0 and this goes red. The threshold (4.0) is a labelled
+	# judgement: the card-rect diff measured 10.3 with a mirror (1600x900) and exactly 0.0 without, so anything between works.
+	_check(dmr.encloses(card) and int(_rec.get("mirrors", 0)) == 1 and _diff(_before_img, img, card) > 4.0,
+		"X (window open): the busy card is VISIBLE above the Data manager (mirrors %d, card-rect diff %.1f > 4.0)" % [int(_rec.get("mirrors", 0)), _diff(_before_img, img, card)])
+	await _frames(3)
+	_check(ov.mirror_count() == 0 and dm.find_child("BusyOverlayMirror", true, false) == null,
+		"X (window open): afterwards the window carries no mirror")
 	dm.hide()
 	await _frames(4)
 

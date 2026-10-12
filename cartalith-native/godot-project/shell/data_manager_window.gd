@@ -3013,14 +3013,13 @@ func _pick_heightmap_destination() -> void:
 ## The three export picker callbacks' runner (2026-10-12): the export under the busy overlay
 ## (`DccApp.busy_run`), so pressing Export no longer freezes the window on the picker's last frame.
 ## Each `_run_*_export` stays synchronous and is still what a probe calls directly. **The card is
-## NOT visible here**: an embedded window draws above every `CanvasLayer`, and this window is open
-## whenever its exports run. Measured by `_busysync_probe.gd` (2026-10-12, 1600 x 900 desktop): the
-## window occupies (0, 36) 1600 x 864, the card's rect is unchanged inside the blocked call (mean
-## difference 0.0) and only the 36 px strip above the window shows the scrim. What the overlay does
-## buy here is the guard: this window's input is muted (`gui_disable_input`) for the whole call, so
-## clicks made into it during the freeze are dropped rather than replayed. Making the card visible
-## needs the overlay hosted above embedded windows -- a change to `busy_overlay.gd`, not to this
-## call site. Without a host it runs `work` directly, as before.
+## visible here through a mirror**: an embedded window draws above every `CanvasLayer`, so the
+## overlay's own card was hidden under this window (measured by `_busysync_probe.gd` 2026-10-12,
+## 1600 x 900 desktop: the window occupies (0, 36) 1600 x 864 and the card-rect difference was 0.0).
+## `busy_overlay.gd::_WindowMirror` now paints the same card as a child of every muted embedded
+## window (same probe: card-rect difference 10.3 with the window open). This window's input is also
+## muted (`gui_disable_input`) for the whole call, so clicks made into it during the freeze are
+## dropped rather than replayed. Without a host it runs `work` directly, as before.
 func _busy(label: String, work: Callable) -> void:
 	if _host != null and is_instance_valid(_host):
 		_host.busy_run(label, work)

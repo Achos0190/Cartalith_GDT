@@ -61,7 +61,8 @@ const LoadingMessages := preload("res://shell/loading_messages.gd")
 ## The `CanvasLayer.layer` `app.gd` mounts this on. Above every canvas item the shell draws (the
 ## shell itself adds no other `CanvasLayer`; checked 2026-10-11 by grepping `CanvasLayer` in
 ## `shell/`). A labelled judgement: any value above 1 would do; 100 leaves room either side.
-## Embedded windows (dialogs, popups) still draw ABOVE every canvas layer -- see `_mute_subwindows`.
+## Embedded windows (dialogs, popups) still draw ABOVE every canvas layer -- see `_mute_subwindows`, which
+## also gives each one a `_WindowMirror` so the card shows above it.
 const CANVAS_LAYER := 100
 
 ## Frames of `bridge.generating == false` (with a source still held) before the watchdog releases
@@ -424,7 +425,43 @@ func _enter() -> void:
 ## cancel and clean up (or call the engine) on it. They stay visible; they just stop listening.
 var _muted_windows: Array = []
 
-## Disables input on every visible embedded window that still accepts it, remembering which.
+## A card-and-scrim copy of this overlay living INSIDE one muted embedded window (`_mirrors`, keyed by
+## the window's instance id).
+##
+## **Why.** An embedded window draws above every `CanvasLayer` (the hole `_mute_subwindows` is
+## about), so the overlay's own card is invisible under the Data manager during an export or a
+## picker open -- measured by `_busysync_probe.gd` leg "card above an embedded window" (2026-10-12,
+## OUTSTANDING_WORK "Host the busy overlay above embedded windows"). A child of the window draws
+## above the window's other content, and `_paint` is the one drawing routine, so the mirror shows
+## exactly what the overlay shows: same title, relief trace, stage line, message.
+##
+## **Never.** Never reads or writes engine state (it only asks the overlay to paint). Never lives past
+## `_unmute_subwindows`. Never draws a card taller than its window (see `_paint`): a small dialog
+## gets the dimming scrim alone. Never takes focus; `MOUSE_FILTER_STOP` only so a click on the
+## dimmed window lands nowhere (the window is also `gui_disable_input`).
+class _WindowMirror extends Control:
+	var _host_overlay: Control
+	func _init(host: Control) -> void:
+		_host_overlay = host
+		name = "BusyOverlayMirror"
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		focus_mode = Control.FOCUS_NONE
+	func _draw() -> void:
+		if _host_overlay != null and is_instance_valid(_host_overlay):
+			_host_overlay.call("_paint", self, size)
+
+## Per muted window (instance id -> its `_WindowMirror`); probe-visible through `mirror_count()`.
+var _mirrors: Dictionary = {}
+
+## How many embedded windows currently carry a card mirror (probe-visible).
+func mirror_count() -> int:
+	return _mirrors.size()
+
+## Disables input on every visible embedded window that still accepts it, remembering which, and
+## gives each a `_WindowMirror` so the card shows above it. Called every frame while blocking, so a
+## window that opens mid-run is muted and mirrored within a frame; a window already muted keeps its mirror
+## and only has it repainted (the animation is the overlay's own `queue_redraw` cadence).
 func _mute_subwindows() -> void:
 	var vp := get_viewport()
 	if vp == null:
@@ -433,13 +470,27 @@ func _mute_subwindows() -> void:
 		if w is Window and not (w as Window).gui_disable_input:
 			(w as Window).gui_disable_input = true
 			_muted_windows.append(w)
+	for w in _muted_windows:
+		if not is_instance_valid(w):
+			continue
+		var id: int = (w as Window).get_instance_id()
+		if not _mirrors.has(id) or not is_instance_valid(_mirrors[id]):
+			var m := _WindowMirror.new(self)
+			(w as Window).add_child(m)
+			_mirrors[id] = m
+		(_mirrors[id] as Control).queue_redraw()
 
-## Gives input back to exactly the windows `_mute_subwindows` took it from (freed ones are skipped).
+## Gives input back to exactly the windows `_mute_subwindows` took it from (freed ones are skipped)
+## and removes every mirror.
 func _unmute_subwindows() -> void:
 	for w in _muted_windows:
 		if is_instance_valid(w):
 			(w as Window).gui_disable_input = false
 	_muted_windows.clear()
+	for id in _mirrors:
+		if is_instance_valid(_mirrors[id]):
+			(_mirrors[id] as Node).queue_free()
+	_mirrors.clear()
 
 ## Stops blocking at once; hides now, or after the `FINISH_S` fade when `flourish`.
 func _leave(flourish: bool) -> void:
@@ -620,10 +671,11 @@ func _stage_text() -> String:
 ## The foot line: what is paused and why, and that there is no cancel.
 const FOOT := "Input is paused while the engine has the world. A run can't be cancelled once it starts; it ends on its own."
 
-## Computes every rect `_draw` uses (see `layout()`).
-func _layout() -> Dictionary:
+## Computes every rect `_draw` uses (see `layout()`), against this overlay's own size or, for a window mirror,
+## against `for_size` (the embedded window's).
+func _layout(for_size: Vector2 = Vector2.ZERO) -> Dictionary:
 	var s := _scale()
-	var vs := size
+	var vs := for_size if for_size != Vector2.ZERO else size
 	var gutter := GUTTER * s
 	var card_w := minf(CARD_W * s, maxf(1.0, vs.x - 2.0 * gutter))
 	var pad := PAD * s
@@ -663,34 +715,42 @@ func _layout() -> Dictionary:
 ## Draws the scrim, the card, the title, the relief trace, the stage line, the message and the foot.
 ## Colours are read from `DccTheme` on every draw, so a palette flip lands on the next frame.
 func _draw() -> void:
-	var L := _layout()
+	_paint(self, size)
+
+## Paints the whole card onto canvas item `ci` of size `vs`: this overlay itself (`_draw`) or a
+## `_WindowMirror` inside an embedded window. Never draws a card taller than `vs` -- a small dialog
+## gets the scrim alone, because a clipped half card would read as a bug (see `_WindowMirror`).
+func _paint(ci: Control, vs: Vector2) -> void:
+	var L := _layout(vs)
 	var s: float = L["scale"]
-	draw_rect(Rect2(Vector2.ZERO, size), Color(DccTheme.c("bg"), SCRIM_ALPHA))
+	ci.draw_rect(Rect2(Vector2.ZERO, vs), Color(DccTheme.c("bg"), SCRIM_ALPHA))
 	var card: Rect2 = L["card"]
-	draw_rect(card, DccTheme.c("panel"))
-	draw_rect(card, DccTheme.c("border"), false, maxf(1.0, s))
+	if ci != self and card.end.y > vs.y:
+		return
+	ci.draw_rect(card, DccTheme.c("panel"))
+	ci.draw_rect(card, DccTheme.c("border"), false, maxf(1.0, s))
 	var mono := DccTheme.mono(1)
 	var mono_med := DccTheme.mono(1, true)
-	var body := get_theme_default_font()
+	var body := ci.get_theme_default_font()
 	var fonts: Dictionary = L["fonts"]
 	var tr: Rect2 = L["title_rect"]
-	draw_string(DccTheme.mono(2), Vector2(tr.position.x, tr.position.y + mono.get_ascent(fonts["title"])),
+	ci.draw_string(DccTheme.mono(2), Vector2(tr.position.x, tr.position.y + mono.get_ascent(fonts["title"])),
 		_title_text(), HORIZONTAL_ALIGNMENT_LEFT, tr.size.x, fonts["title"], DccTheme.c("text_faint"))
-	_draw_relief(L["bar"], s)
+	_draw_relief(ci, L["bar"], s)
 	var sr: Rect2 = L["stage_rect"]
-	draw_multiline_string(mono_med, Vector2(sr.position.x, sr.position.y + mono_med.get_ascent(fonts["stage"])),
+	ci.draw_multiline_string(mono_med, Vector2(sr.position.x, sr.position.y + mono_med.get_ascent(fonts["stage"])),
 		_stage_text(), HORIZONTAL_ALIGNMENT_LEFT, sr.size.x, fonts["stage"], -1, DccTheme.c("accent"))
 	var mr: Rect2 = L["message_rect"]
-	draw_multiline_string(body, Vector2(mr.position.x, mr.position.y + body.get_ascent(fonts["message"])),
+	ci.draw_multiline_string(body, Vector2(mr.position.x, mr.position.y + body.get_ascent(fonts["message"])),
 		_message, HORIZONTAL_ALIGNMENT_LEFT, mr.size.x, fonts["message"], -1, DccTheme.c("text_bright"))
 	var fr: Rect2 = L["foot_rect"]
-	draw_multiline_string(mono, Vector2(fr.position.x, fr.position.y + mono.get_ascent(fonts["foot"])),
+	ci.draw_multiline_string(mono, Vector2(fr.position.x, fr.position.y + mono.get_ascent(fonts["foot"])),
 		FOOT, HORIZONTAL_ALIGNMENT_LEFT, fr.size.x, fonts["foot"], -1, DccTheme.c("text_ghost"))
 
 ## The relief trace inside `r`: level line, stage ticks, the range ahead (faint), the swept trace
 ## (older part fading behind the pen), its accent-wash fill, and the pen. Indeterminate runs get the
 ## whole range faint with a travelling pulse instead. Records `drawn_extent`.
-func _draw_relief(r: Rect2, s: float) -> void:
+func _draw_relief(ci: Control, r: Rect2, s: float) -> void:
 	var n := _profile.size()
 	if n < 2:
 		return
@@ -702,8 +762,8 @@ func _draw_relief(r: Rect2, s: float) -> void:
 	# Gridlines and the dashed level line -- `section_strip.gd`'s vocabulary.
 	for g in [1.0 / 3.0, 2.0 / 3.0]:
 		var gy: float = base_y - amp * g
-		draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), DccTheme.c("line_soft"), 1.0)
-	draw_dashed_line(Vector2(r.position.x, base_y), Vector2(r.end.x, base_y), DccTheme.c("text_faint"), maxf(1.0, s), 5.0 * s)
+		ci.draw_line(Vector2(r.position.x, gy), Vector2(r.end.x, gy), DccTheme.c("line_soft"), 1.0)
+	ci.draw_dashed_line(Vector2(r.position.x, base_y), Vector2(r.end.x, base_y), DccTheme.c("text_faint"), maxf(1.0, s), 5.0 * s)
 	var pts := PackedVector2Array()
 	pts.resize(n)
 	for i in n:
@@ -713,25 +773,25 @@ func _draw_relief(r: Rect2, s: float) -> void:
 	for k in count + 1:
 		var tx := r.position.x + r.size.x * float(k) / float(count)
 		var tc := DccTheme.c("accent_dim") if k <= done_ticks else DccTheme.c("text_ghost")
-		draw_line(Vector2(tx, base_y), Vector2(tx, base_y + 5.0 * s), tc, maxf(1.0, s))
+		ci.draw_line(Vector2(tx, base_y), Vector2(tx, base_y + 5.0 * s), tc, maxf(1.0, s))
 	var width := 1.6 * s
 	if not _stage_mode:
-		_draw_pulse(pts, base_y, width, s)
+		_draw_pulse(ci, pts, base_y, width, s)
 		return
 	var head := _head
 	drawn_extent = head
 	var hi := clampi(int(round(head * float(n - 1))), 0, n - 1)
 	# The range still ahead: faint, so the user sees what is left to cross.
 	if hi < n - 1:
-		draw_polyline(pts.slice(hi), DccTheme.c("line_soft"), maxf(1.0, s), true)
+		ci.draw_polyline(pts.slice(hi), DccTheme.c("line_soft"), maxf(1.0, s), true)
 	if hi < 1:
-		draw_circle(pts[0], 3.0 * s, DccTheme.c("accent"), true, -1.0, true)
+		ci.draw_circle(pts[0], 3.0 * s, DccTheme.c("accent"), true, -1.0, true)
 		return
 	var trace := pts.slice(0, hi + 1)
 	var fill := trace.duplicate()
 	fill.append(Vector2(trace[trace.size() - 1].x, base_y))
 	fill.append(Vector2(trace[0].x, base_y))
-	draw_colored_polygon(fill, DccTheme.c("accent_wash"))
+	ci.draw_colored_polygon(fill, DccTheme.c("accent_wash"))
 	# Older trace fades behind the pen (full ink over the last 35 % of the range, 30 % before it),
 	# and the heartbeat: a glint that runs from the start of the trace to the pen every `SWEEP_S`.
 	var acc := DccTheme.c("accent")
@@ -745,20 +805,20 @@ func _draw_relief(r: Rect2, s: float) -> void:
 			var d := (x - glint) / 0.04
 			a = maxf(a, exp(-d * d))
 		cols[i] = Color(acc, a)
-	draw_polyline_colors(trace, cols, width, true)
+	ci.draw_polyline_colors(trace, cols, width, true)
 	var pen := trace[trace.size() - 1]
 	var glow := 7.0 * s * (1.0 if reduce_motion else (0.85 + 0.15 * sin(_t * TAU / SWEEP_S)))
-	draw_circle(pen, glow, Color(acc, 0.22), true, -1.0, true)
-	draw_circle(pen, 3.0 * s, acc, true, -1.0, true)
+	ci.draw_circle(pen, glow, Color(acc, 0.22), true, -1.0, true)
+	ci.draw_circle(pen, 3.0 * s, acc, true, -1.0, true)
 
 ## The indeterminate trace: the whole range faint, a bright window travelling along it (static and
 ## evenly inked under `reduce_motion`).
-func _draw_pulse(pts: PackedVector2Array, base_y: float, width: float, s: float) -> void:
+func _draw_pulse(ci: Control, pts: PackedVector2Array, base_y: float, width: float, s: float) -> void:
 	var n := pts.size()
 	var acc := DccTheme.c("accent")
 	drawn_extent = -1.0
 	if reduce_motion:
-		draw_polyline(pts, Color(acc, 0.6), width, true)
+		ci.draw_polyline(pts, Color(acc, 0.6), width, true)
 		return
 	var p := fmod(_t, PULSE_S) / PULSE_S * (1.0 + 2.0 * PULSE_W) - PULSE_W
 	var cols := PackedColorArray()
@@ -767,8 +827,8 @@ func _draw_pulse(pts: PackedVector2Array, base_y: float, width: float, s: float)
 		var x := float(i) / float(n - 1)
 		var d := (x - p) / PULSE_W
 		cols[i] = Color(acc, 0.22 + 0.78 * exp(-d * d))
-	draw_polyline_colors(pts, cols, width, true)
+	ci.draw_polyline_colors(pts, cols, width, true)
 	var pi := clampi(int(round(p * float(n - 1))), 0, n - 1)
 	if p >= 0.0 and p <= 1.0:
-		draw_circle(pts[pi], 6.0 * s, Color(acc, 0.22), true, -1.0, true)
-		draw_circle(pts[pi], 3.0 * s, acc, true, -1.0, true)
+		ci.draw_circle(pts[pi], 6.0 * s, Color(acc, 0.22), true, -1.0, true)
+		ci.draw_circle(pts[pi], 3.0 * s, acc, true, -1.0, true)
