@@ -744,6 +744,7 @@ var _runs: Array = []
 # Setup
 # ---------------------------------------------------------------------------
 
+## One-time initialisation, called once by `app.gd` when it creates the window: stores the host and bridge, strips the dialog chrome (borderless, OK button hidden, `wrap_controls` off so one oversized child can never permanently grow the window), sizes it (1180x760, minimum 1024x640), asks `DccWidgets.phone_window` whether to stack for a phone, seeds the transfer and GIS destination paths from the exports storage root, then builds the UI. It must run before the window is popped or opened, because every other method assumes `_host` and `_bridge`.
 func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_host = host
 	_bridge = bridge
@@ -854,6 +855,7 @@ func open_tile_export() -> void:
 # Layout -- window bar / rail · pane / status line
 # ---------------------------------------------------------------------------
 
+## Builds the window's whole content once, in `setup`: the window bar, on a phone the two-segment switcher, the routes rail beside the route pane (stacked on a phone), and the status line; on a phone it also adds the head and shows the routes screen first. Per-route content is not built here but by `_select_route`.
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -986,6 +988,7 @@ func _build_window_bar() -> Control:
 
 # -- routes rail --------------------------------------------------------------
 
+## Builds the left routes rail: a ROUTES header band, then the `ROUTES` table grouped in `GROUP_ORDER` (one `_rail_row` per route), and a footer holding the exports destination and this session's last run (`_foot_dest`, `_foot_last_run`; no run history is persisted). Fixed at `W_RAIL` wide on a pointer; on a phone it fills the screen instead. Row widgets are recorded in `_rail_rows` for `_select_route` to highlight.
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
 	## PH-12: 252 px is 64% of a phone's 393 dp, and this is a full-width pane
@@ -1123,6 +1126,7 @@ func _rail_row(parent: Control, route: Dictionary) -> void:
 
 # -- route pane ---------------------------------------------------------------
 
+## Builds the right route pane: a title and sub-title band (`_pane_title`, `_pane_sub`), a vertically scrolling body (`_pane_body`, horizontal scrolling disabled on purpose) and a ruled footer (`_pane_footer`, which wraps on a handset only). The three nodes it assigns are emptied and refilled by `_select_route`, never rebuilt here.
 func _build_pane() -> Control:
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
@@ -1420,6 +1424,7 @@ func _kv(parent: Control, key: String, value: String, token: String = "text") ->
 # Route selection
 # ---------------------------------------------------------------------------
 
+## Returns the `ROUTES` entry whose `id` matches, or an empty Dictionary for an unknown id; callers must treat empty as 'no such route' (`_select_route` ignores it).
 func _route_by_id(id: String) -> Dictionary:
 	for r in ROUTES:
 		if String(r["id"]) == id:
@@ -2657,6 +2662,7 @@ func _checks_actions() -> void:
 # raster export, at the grid's own size -- `WorldGen::export_layer_previews`.
 # ---------------------------------------------------------------------------
 
+## Builds the body of the `export_world` route: two equal columns (stacked on a phone), asks the engine which raster widths it offers (`export_raster_widths`, falling back to the local list when the binding is absent) and fills the raster, atlas and output columns and the footer. When the export bindings are missing it must say so rather than offer dead buttons. Called only from `_select_route`.
 func _build_world_data_pane() -> void:
 	## PH-12: the canvas's two equal columns become one stacked column on a
 	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
@@ -3200,6 +3206,7 @@ func _record_wd_run(label: String, r: Dictionary) -> void:
 # reason.
 # ---------------------------------------------------------------------------
 
+## Builds the body of the `export_maps` route: tiles, projection and layers columns on the left, output, estimate, vault and recent-runs blocks on the right, then the footer, with the region read from `region_get`. The two columns stack into one on a phone or any touch density (a tablet is touch without being a phone; the in-body comment records the measurement). Called only from `_select_route`.
 func _build_tile_export_pane() -> void:
 	## PH-12: the canvas's two equal columns become one stacked column on a
 	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
@@ -3815,6 +3822,7 @@ func _rebuild_gis() -> void:
 # app status line and in the world itself, not in a receipt block here.
 # ---------------------------------------------------------------------------
 
+## Opens the file chooser (GeoJSON or JSON, starting in the exports storage root) for the `import_gis` route's footer button, and passes the chosen path to `_run_geojson_import`. Reads and writes nothing itself; the import's own world check is in `_run_geojson_import`.
 func _pick_geojson_import() -> void:
 	DccBrowseDialog.choose_file(self, "Import GeoJSON",
 		PackedStringArray(["geojson", "json"]),

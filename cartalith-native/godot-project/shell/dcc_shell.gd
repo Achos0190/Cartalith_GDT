@@ -778,6 +778,7 @@ static func build_id() -> String:
 
 # -- Build --------------------------------------------------------------------
 
+## Boot sequence for the shell. Prints the build id first (so it is the first Cartalith line in logcat), decides touch (real touchscreen on a mobile build, or the testing-only `--force-touch` user arg) and publishes it, plus the phone flags and scale, to `DccTheme` for the static widget factories; computes the layout mode once; takes over the Android back gesture and the window-close request (so `_notification` and `_close_requested` MUST always resolve, or nothing could quit the app); builds the phone shell or the desktop shell; fits the docks; selects the active domain. It must run before any other method assumes the regions exist.
 func _ready() -> void:
 	## Before anything else, so it is the first Cartalith line in `logcat` and
 	## survives a boot that fails after it. See `build_id()` above for why a
@@ -1312,6 +1313,7 @@ func _process(_delta: float) -> void:
 
 # -- §2 Menu bar: program scope only ------------------------------------------
 
+## Builds the 'program scope only' menu bar region: the amber wordmark, the menu buttons' host row (`menu_bar_row`, where `add_menu` puts the `MenuButton`s), then the undo and redo squares (disabled on a bare `DccShell` with no app). On a phone the bar is built the same way but parked in the hidden `PhoneMenuModel` host as a model, not a view (see `_build_phone_shell`). Returns the bar; the caller adds it.
 func _build_menu_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _scaled(DccTheme.H_MENU_BAR)
@@ -2043,6 +2045,7 @@ func _recolor_stylebox(sb: StyleBoxFlat, old_pal: Dictionary) -> void:
 
 # -- §4 Tool options bar ------------------------------------------------------
 
+## Builds the tool options bar region and stores its row in `tool_options_row` (the node the active workspace or `app.set_tool_options` refills). Its height comes from `DccTheme.role_px("h_tool_options")`, not `_scaled()`, because the tablet scale table is keyed by bare desktop integers and 40 collides with the rail's width. On a tablet the row sits in a horizontal scroller so a long bar scrolls instead of clipping or dropping controls. Returns the bar.
 func _build_tool_options_bar() -> Control:
 	var bar := PanelContainer.new()
 	## `role_px()`, **not** `_scaled()`, and this is the one region in the shell
@@ -4744,6 +4747,7 @@ func _toggle_dock(is_left: bool) -> void:
 
 # -- §9 Viewport --------------------------------------------------------------
 
+## Builds the map region: a panel in `bg` that expands horizontally, holding a clipping `viewport_content` Control, and records both in `viewport_area` and `viewport_content` for the viewport host to fill. Shared by the desktop shell and the phone shell (where it fills the whole screen under the chrome). Returns the panel.
 func _build_viewport() -> Control:
 	var area := PanelContainer.new()
 	area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4914,6 +4918,7 @@ func _refresh_viewport_context() -> void:
 
 # -- §10 Timeline bar ---------------------------------------------------------
 
+## Builds the timeline strip region and stores its row as `timeline_row` (workspaces fill it). It deliberately sets no fixed height: the collapsed and expanded forms differ and a single height was wrong for both, so the content drives it; the caller assigns the result to `timeline_bar`. Returns the bar.
 func _build_timeline() -> Control:
 	var bar := PanelContainer.new()
 	## **No fixed height any more.** `01-frame-and-tokens.md` §3.7 gives the strip
@@ -5758,6 +5763,7 @@ func status_slot_text(slot: String) -> String:
 #     arbitrary screen. The 108 px keep-clear reserve is honoured -- nothing
 #     is ever placed there -- just not decorated.
 
+## Builds the phone composition under `_phone_root`: the map full-bleed first, then the menu bar and status bar parked in a hidden `PhoneMenuModel` host (the model `phone_menu.gd` reads, not a view; built first on purpose, because the app bar's 'top_world' status label must be registered after it and win), then the chrome column (safe-area strip, app bar, content gap, tool sheet, timeline, phone menu bar, gesture inset), the side safe strip and the search overlay, and the remaining sheets. Many members are assigned here and read later by the phone paths, so the ordering inside it is load-bearing.
 func _build_phone_shell() -> void:
 	_phone_root = Control.new()
 	_phone_root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -7787,6 +7793,7 @@ func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Con
 # overlay and one shared teardown rather than a general stack. `PhoneMenu` keeps
 # its own drill stack inside itself; from out here it is one more overlay.
 
+## Closes every transient phone overlay in one go (search, overflow and undo popups, the phone menu, both dock sheets and their open flags) and then hides any visible `Popup` descendant, which is how the Layers popover is reached (a Control walk never reaches a Window). Called before another overlay opens so they stay mutually exclusive. Safe with any of them unbuilt: each is null-checked.
 func _close_all_phone_overlays() -> void:
 	if _phone_search_overlay != null:
 		_phone_search_overlay.visible = false
@@ -8633,6 +8640,7 @@ func _ensure_desktop_search_dialog() -> void:
 # `EngineBridge`/`ViewportHost` are real, always-shipped classes (unlike
 # `PlaceSearch` above), so a static return type is safe here.
 
+## Returns this shell's direct child that is an `EngineBridge`, or null (a bare `DccShell` in a screenshot probe has none), so every caller must null-check. Only searches direct children, not the whole tree.
 func _find_engine_bridge() -> EngineBridge:
 	for child in get_children():
 		if child is EngineBridge:

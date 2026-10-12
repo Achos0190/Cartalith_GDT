@@ -852,6 +852,7 @@ func _river_pick_radius_cells() -> float:
 # other two are called directly by the workspaces that list routes and
 # factions, since no viewport signal exists for either selection yet.
 
+## Dock-side handler for a settlement pick, called by `app.gd` (via `has_method` on each workspace) and by the civilization, infrastructure and faction-list paths. A non-null `data` switches the dock to the Settlement context and, on a phone, opens the right sheet; `null` drops back to Sample and must NOT pull the sheet up (a tap on empty ground). `data` is a snapshot, so a live-edit refresh must re-push it through here (see `_live_settlement`).
 func on_settlement_selected(data: Variant, index: int) -> void:
 	if data == null:
 		_context = CTX_SAMPLE
@@ -1837,6 +1838,7 @@ func _draft_stack_live() -> bool:
 # same signal when it crosses zero, so the fold below flips in both docks at
 # once instead of going stale in whichever one the user is not looking at.
 
+## Appends the 'Layers' section (the terrain raster's three categories, top drawn last) to whatever context the dock is showing, only for the Cartography domain and only when the engine has the layer-stack API and returns rows. It is an appended section, not a context, so it runs after the context dispatch. Colour relief is folded to a note when its ramp contributes nothing (`_relief_is_dark`). Opacity and blend are edited in the Cartography Layers panel, not here.
 func _append_layers(body: Control) -> void:
 	if app == null or bridge == null or not bridge.layer_stack_api:
 		return
@@ -2075,6 +2077,7 @@ func _write_layers(rows: Array) -> bool:
 
 # -- Sample -------------------------------------------------------------
 
+## Builds the Sample context (the default): cursor position and cell readout fields, elevation, the `SAMPLE_FIELDS` rows with their stale-stage reasons, and the nearest-settlement row. The `_sample_*` members it assigns are the live-updated labels that `on_cursor_sampled` fills, so it must run again after every dock rebuild.
 func _build_sample(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Sample")
 	var valid: bool = bridge.has_world
@@ -2267,6 +2270,7 @@ func _elevation_text(cell: Dictionary) -> String:
 
 # -- Settlement -----------------------------------------------------------
 
+## Builds the Settlement context from `_settlement_data`: name, class, population, faction, coastal and capital rows, the garrison share at the Timeline cursor, a Water access row from `explain_settlement` (dashed with a reason when the world was opened rather than generated), Defensibility and Routes rows dashed as not available, the Actions group (Economy, Politics, Logistics) and the appended SettlementExtras sections. Falls back to `_build_sample` when no settlement is held.
 func _build_settlement(body: Control) -> void:
 	if _settlement_data == null:
 		_build_sample(body)
@@ -3412,6 +3416,7 @@ func _build_icon(body: Control) -> void:
 
 # -- Faction ------------------------------------------------------------
 
+## Builds the Faction context for `_faction_id`: the roster entry from `get_factions` (culture, government, ag-tech and so on), territory and province-count rows, the state religion row and an Actions group that opens the Factions window. Reads fresh from the bridge, never from a cached copy.
 func _build_faction(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Faction")
 	var mine: Array[Dictionary] = []
@@ -5573,6 +5578,7 @@ func _build_journey(body: Control) -> void:
 # what the left-dock panel doesn't: the stack itself, newest-first, with the
 # per-stamp actions and the selected stamp's own frozen parameters.
 
+## Builds the Sculpt-stamp-stack context: the newest-first stamp list, the selected stamp's frozen parameters, an Undo/Redo History group and the Commit/Discard group (disabled with the engine's own refusal text when the finalize lock refuses a height edit). Shows a note and stops when there is no world or no sculpt editor (a world opened without its rasters). The brush and noise globals live in the left dock's Sculpt panel, not here.
 func _build_sculpt(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Stamp stack")
 	if not bridge.has_world:
@@ -5822,6 +5828,7 @@ func _on_stamp_delete(index: int) -> void:
 # `world_workspace.gd::_build_paint`'s own precedent for the identical
 # mismatch.
 
+## Builds the Paint context for `_paint_ctx_layer` (first engine layer when that is unknown): painted-cell count, the pending-dab note (pending counts span every layer), the legend of painted counts per class (a swatch picks a class when `_paint_on_pick` is valid) and a Commit/Discard group wired to the `_from_dock` handlers. Notes and stops when there is no world or no paint editor.
 func _build_paint(body: Control) -> void:
 	if not bridge.has_world:
 		DccWidgets.note(DccWidgets.section(body, "Paint"), "Generate a world first.")
@@ -6016,6 +6023,7 @@ func _on_paint_discard_from_dock() -> void:
 #   so ("This belongs to the ramp rather than to a stop"). Drawn once, above
 #   the stop list, not per stop.
 
+## Builds the Ramp-stops context: the ramp's own Blend choice (interpolation belongs to the ramp, not a stop), the draggable ramp bar, the stop rows, add and reverse actions, the selected stop's editor and an Actions group. It resets the `_stops_*` widget handles first because the previous rebuild's widgets were freed. Notes and stops when the engine has no `set_color_ramp` binding. The Compare action is a no-op (`func(): pass`); intent unverified.
 func _build_stops(body: Control) -> void:
 	if not bridge.ramp_api:
 		DccWidgets.note(DccWidgets.section(body, "Ramp · stops"),
@@ -6435,6 +6443,7 @@ func _on_stops_reverse() -> void:
 # form's own Font field, not its Text field's more eager live-apply) keeps
 # the two from visibly disagreeing while one is mid-keystroke.
 
+## Builds the Annotation context (appended while the Label or Icon tool is armed): the selected label's editor when one is selected, then a 'placed this session' section with label and icon counts and a Clear all action. It re-reads the bridge on every rebuild, so it keeps no draft of its own.
 func _build_anno(body: Control) -> void:
 	var sel := bridge.label_get_selected()
 	if sel >= 0:
@@ -6573,6 +6582,7 @@ func _on_anno_clear_all() -> void:
 # drag sample. `show_territory()` is called at exactly those same three
 # events, never per dab.
 
+## Builds the Territory context for `_terr_faction`: the faction's colour swatch and name, then claimed cells, area and contested cells from `civ_faction_territory_stats`. These are COMMITTED territory figures, refreshed when the tool arms and on commit or discard, never per dab. Shows 'No faction armed.' when `_terr_faction` is negative.
 func _build_territory(body: Control) -> void:
 	if _terr_faction < 0:
 		DccWidgets.note(DccWidgets.section(body, "Territory"), "No faction armed.")
@@ -6639,6 +6649,7 @@ func _build_territory(body: Control) -> void:
 # hover preview), so the true half is kept and the false half replaced by the
 # disclosure above rather than copied.
 
+## Builds the Way or Route draft context from `_way_draft` (`_way_owner` picks the title): waypoint count, the straight-chain length, and the maximum grade computed from the live height field (dashed with a reason rather than a 0 when it cannot be read). These are the draft's figures, not the committed path's, which is Dijkstra-joined cell by cell and will differ.
 func _build_way(body: Control) -> void:
 	var is_way := _way_owner == "way"
 	var sec := DccWidgets.section(body, "Way draft" if is_way else "Route draft")

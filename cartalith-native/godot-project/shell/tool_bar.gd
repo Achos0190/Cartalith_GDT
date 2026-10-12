@@ -113,6 +113,7 @@ static func instance() -> DccToolBar:
 ## last mode.
 const MODES := ["sculpt", "paint", "measure"]
 
+## Reacts to `app.tool_armed` (wired where this bar is installed): always drops a pending symmetry-centre pick and refreshes the on-map marker, then either adopts the armed tool as this bar's `mode` and redraws (Sculpt, Paint, Measure), or, for any other tool, hands the bar back to the domain default (only Inspect does so explicitly). Must never be skipped for a non-`MODES` tool: the pick has to be dropped first.
 func _on_tool_armed(id: String) -> void:
 	## ET-D5: a pending "click the map to place the symmetry centre" belongs to the tool
 	## it was asked on; arming ANY tool drops it (the Way tool is not one of `MODES`, so
@@ -195,6 +196,7 @@ func _busy(what: String) -> bool:
 ## `BAR_ROW_H` itself is unchanged and still the Paint Toolbar's own 38.
 const BAR_ROW_H := 38
 
+## The `set_tool_options` builder for this bar: the canvas's first row (mode buttons, rule, then the per-mode tools) over its second row (the per-mode options), plus the ET-D5 brush row below for the modes that have one. Runs only through `rebuild()`, which refuses while the engine is generating; every `bridge.*` read in here is a panic with the worker running, so it must never be called directly.
 func _build(row: HBoxContainer) -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -264,6 +266,7 @@ func _build_mode_buttons(row: HBoxContainer) -> void:
 			b.disabled = true
 			b.tooltip_text = "Sculpt and Paint edit a generated world; generate one first (World ▸ Generate)."
 
+## Handler for a mode button: stores `mode`, arms the same tool id on the app, and redraws unconditionally. The unconditional `rebuild()` is deliberate because `arm_tool` does nothing when the id is already armed, so `_on_tool_armed` would not fire.
 func _select_mode(m: String) -> void:
 	mode = m
 	app.arm_tool(m)
@@ -354,6 +357,7 @@ func _bar_hint(row: HBoxContainer, text: String, detail: String) -> void:
 	l.mouse_filter = Control.MOUSE_FILTER_STOP
 	row.add_child(l)
 
+## Appends a spacer and a ghost-coloured one-line caption to `row` (the honest 'why this is not here' notes). `detail`, or `text` when empty, is the tooltip. The label is clipped, so it must stay the last child of its row; mouse filter is STOP so the tooltip works.
 func _note(row: HBoxContainer, text: String, detail: String = "") -> void:
 	row.add_child(DccTheme.spacer())
 	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
@@ -364,6 +368,7 @@ func _note(row: HBoxContainer, text: String, detail: String = "") -> void:
 
 # -- SCULPT --------------------------------------------------------------------
 
+## Builds the Sculpt tool row: one segment per engine freehand mode (`get_sculpt_freehand_modes`, read live), lit only while the freehand feature is the active one. With no draft session (a world loaded without its rasters) it shows a note instead and nothing else, because every sculpt binding would fail.
 func _build_sculpt_tools(row: HBoxContainer) -> void:
 	if not bridge.has_world or bridge.sculpt_get_globals().is_empty():
 		_note(row, "no sculpt editor for this world", "A world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session.")
@@ -378,6 +383,7 @@ func _build_sculpt_tools(row: HBoxContainer) -> void:
 	_note(row, "hand edits are local — they mark downstream stages stale",
 		"The canvas's Flatten, Noise and Mask have no engine mode at all; these eight are `FreehandMode`'s own list, read live. The 13 geological features live in the WORLD dock's Sculpt panel.")
 
+## Segment handler: selects the freehand feature and mode in the engine, arms the sculpt tool and redraws. Goes through `_busy` first, so a click during a Generate is skipped, not queued.
 func _on_sculpt_mode(key: String) -> void:
 	if _busy("Freehand · %s" % key.capitalize()):
 		return
@@ -436,6 +442,7 @@ func _build_sculpt_options(row: HBoxContainer) -> void:
 	var discard := DccWidgets.chip(row, "Discard", _on_sculpt_discard)
 	discard.disabled = count == 0
 
+## Commit button on the Sculpt row: commits the draft in the engine, then re-fetches the colour texture, invalidates live LOD tiles and clears the draft preview overlay so the committed terrain shows rather than the old raster. Skipped while generating (`_busy`). The remaining refresh steps follow below and mirror `world_workspace.gd`'s own commit handler.
 func _on_sculpt_commit() -> void:
 	if _busy("Commit to map"):
 		return
@@ -451,6 +458,7 @@ func _on_sculpt_commit() -> void:
 	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
 		app.right_dock_ctrl.show_sculpt_stack()
 
+## Discard button on the Sculpt row: drops the pending draft, clears the preview overlay, redraws this bar and, when the right dock offers `show_sculpt_stack`, refreshes it. Skipped while generating (`_busy`).
 func _on_sculpt_discard() -> void:
 	if _busy("Discard draft"):
 		return
@@ -462,6 +470,7 @@ func _on_sculpt_discard() -> void:
 
 # -- PAINT ---------------------------------------------------------------------
 
+## Builds the Paint tool row: one segment per engine paint layer (`get_paint_layers`), an Erase latch whose click toggles `erase` in the shared paint state and pushes it to the engine, and a note. With no layers (no draft session) it shows a note and stops. State lives in the WORLD workspace; this bar only mirrors it (`_paint_state`, `_write_paint_state`).
 func _build_paint_tools(row: HBoxContainer) -> void:
 	var layers := bridge.get_paint_layers() if bridge.has_world else PackedStringArray()
 	if layers.is_empty():
@@ -497,6 +506,7 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 func _world_workspace() -> Node:
 	return app._workspace_panels.get("world")
 
+## Returns a copy of the paint brush state plus the active layer, read from the WORLD workspace (the owner of `_paint_brush` and `_paint_layer`). If the workspace is missing, returns fixed defaults (biome layer, value 1, radius 6, hardness 1, softness 0, erase off, land only on); those literals are fallbacks, not the workspace's own initial values (intent unverified). Never mutate the result expecting it to persist; use `_write_paint_state`.
 func _paint_state() -> Dictionary:
 	var ws = _world_workspace()
 	if ws != null and "_paint_brush" in ws:
@@ -505,6 +515,7 @@ func _paint_state() -> Dictionary:
 		return d
 	return {"layer": "biome", "value": 1, "radius": 6.0, "hardness": 1.0, "softness": 0.0, "erase": false, "land_only": true}
 
+## Writes one key of the paint state back to the WORLD workspace: `layer` goes to `_paint_layer`, anything else into `_paint_brush`. A silent no-op when the workspace is absent. Callers follow it with `_sync_paint` to push the change to the engine.
 func _write_paint_state(key: String, value: Variant) -> void:
 	var ws = _world_workspace()
 	if ws == null:
@@ -514,12 +525,14 @@ func _write_paint_state(key: String, value: Variant) -> void:
 	else:
 		ws._paint_brush[key] = value
 
+## Pushes the current paint state (value, radius, hardness, softness, erase, land only) into the engine with `paint_set_brush`. Must be called after every `_write_paint_state` that changes the brush, or the engine paints with the old one.
 func _sync_paint() -> void:
 	var st := _paint_state()
 	bridge.paint_set_brush(int(st.get("value", 1)), float(st.get("radius", 6.0)),
 		float(st.get("hardness", 1.0)), float(st.get("softness", 0.0)),
 		bool(st.get("erase", false)), bool(st.get("land_only", true)))
 
+## Layer segment handler: records the layer, resets the class value to 1, selects the layer in the engine, syncs the brush, arms Paint and redraws. Skipped while generating (`_busy`).
 func _on_paint_layer(key: String) -> void:
 	if _busy("changing the paint layer"):
 		return
@@ -530,6 +543,7 @@ func _on_paint_layer(key: String) -> void:
 	app.arm_tool("paint")
 	rebuild()
 
+## Builds the Paint options row: the class dropdown for the active layer (from `get_paint_palette`), Size, Land only, the painted-cells count and the Commit/Discard pair (both disabled with an explanatory tooltip while no dab is pending). Hardness and Softness are deliberately not here: they live in the WORLD dock's paint panel (owner ruling 2026-08-31, per the comment inside). Returns early with nothing drawn if there is no world or the palette is empty.
 func _build_paint_options(row: HBoxContainer) -> void:
 	if not bridge.has_world:
 		return
@@ -602,6 +616,7 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		commit.tooltip_text = why
 		discard.tooltip_text = why
 
+## Commit button on the Paint row: commits the paint draft, re-fetches the colour texture (the engine composites committed layers into it), invalidates LOD tiles, clears the draft overlay, reports any stale stages in the status line and redraws all three surfaces over the one draft (this bar, the WORLD dock's paint panel and the right dock's paint context). Skipped while generating (`_busy`).
 func _on_paint_commit() -> void:
 	if _busy("Commit paint"):
 		return
@@ -1272,12 +1287,14 @@ const MEASURE_GROUP_POINT := ["distance", "bearing", "area", "radius"]
 ## MEASURE_GROUP_POINT. The Cross-section channel group sits between them.
 const MEASURE_GROUP_VERTICAL := ["vertical"]
 
+## Looks up one entry of `GlobalTools.MEASURE_MODES` by `id`; returns an empty Dictionary when there is none, which callers must treat as 'draw nothing'.
 func _measure_mode_dict(id: String) -> Dictionary:
 	for m in GlobalTools.MEASURE_MODES:
 		if String((m as Dictionary)["id"]) == id:
 			return m
 	return {}
 
+## Adds one Measure-mode segment for `id` (label and hint from `GlobalTools.MEASURE_MODES`), lit when it is the current mode. Modes that read the height field are disabled, with the reason as tooltip, when there is no world or the engine lacks the measure binding. Draws nothing for an unknown id.
 func _measure_button(row: HBoxContainer, id: String, current: String) -> void:
 	var d := _measure_mode_dict(id)
 	if d.is_empty():
@@ -1289,6 +1306,7 @@ func _measure_button(row: HBoxContainer, id: String, current: String) -> void:
 		b.tooltip_text = "Reads the height field: generate a world first." if not bridge.has_world \
 			else "This build's engine has no measure_section/area/radius/vertical binding."
 
+## Builds the Measure tool row in the canvas's group order: the point-style modes, the CROSS-SECTION channel buttons (picking a channel also arms the section mode, and they are disabled with a reason when there is no world or no `measure_section` binding), the vertical group, and a note stating what Measure is for versus the Sample dock.
 func _build_measure_tools(row: HBoxContainer) -> void:
 	var current := GlobalTools.measure_mode()
 	for id in MEASURE_GROUP_POINT:
@@ -1333,6 +1351,7 @@ func _build_measure_tools(row: HBoxContainer) -> void:
 		"The canvas's own principle: Information is passive and always running; Measure is deliberate and persists until cleared; Cross-section is one line read in the strip below. " +
 		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to choose from yet, and `3D distance` is greyed as \"3D only\" in the canvas itself -- this shell has no 3D view, and Δ vertical already returns the 3D distance in the dock.")
 
+## Builds the Measure options row: a 'MEASURE . MODE' tag, then per-mode controls and a click-instruction hint (section mode adds the Samples and V. exag sliders: input stores, release re-samples, so a drag does not cross the engine boundary per tick; distance and bearing add an 'unbuilt canvas options' note), then the live status text and a Clear chip. Only reads and sets `GlobalTools` state, so it carries no `_busy` gate.
 func _build_measure_options(row: HBoxContainer) -> void:
 	var mode_id := GlobalTools.measure_mode()
 	var label := mode_id

@@ -3311,6 +3311,7 @@ func _knowledge_row(parent: Control, kind: String, entity_id: int, label: String
 
 # -- Culture ----------------------------------------------------------------
 
+## Creates the CIVIL 'Culture' category (slot 10 of the category build order in `_build`) and fills its body with `_fill_culture`. `_culture_body` keeps the body so later refreshes can rebuild it.
 func _build_culture() -> void:
 	_culture_body = DccWidgets.category(self, "Culture", categories)
 	_fill_culture(_culture_body)
@@ -3445,6 +3446,7 @@ func _fill_culture(parent: Control) -> void:
 # nothing. `map_overlay.gd`'s faith-divergence ring draws the difference
 # instead, which is the only part a panel cannot show at a glance.
 
+## Creates the CIVIL 'Religion' category (slot 11 of the build order), adds the header count via `_religion_build_head_count` and fills its body with `_fill_religion`. `_religion_body` keeps the body for refreshes. Find the category by title, not position, because the build order may be reordered.
 func _build_religion() -> void:
 	_religion_body = DccWidgets.category(self, "Religion", categories)
 	_religion_build_head_count()
@@ -6139,6 +6141,7 @@ func _lm_funnel_row(box: Control, label_text: String, minus: String, right: Stri
 
 # -- landmark refreshes and handlers ------------------------------------------
 
+## Rewrites the landmark panel's headroom note. When the bridge cannot report headroom (`_lm_headroom()` empty) it states only the cap total and says why the rest is missing, rather than inventing a figure; otherwise it shows caps total, the estimated room at the current spacing and the last run's placed count. A no-op when the note label is gone (panel not built or freed).
 func _lm_refresh_headroom() -> void:
 	if _lm_head_note == null or not is_instance_valid(_lm_head_note):
 		return
@@ -6473,6 +6476,7 @@ func _lm_refresh_stale() -> void:
 # have them yet, not crash the dock -- the same `_has()` shape
 # `engine_bridge.gd` uses for `sized_api`/`import_api`/`save_api`.
 
+## Landmark kinds from the bridge's `landmark_kinds`, or an empty Array when there is no bridge or an older library lacks the method. Empty means 'unavailable', so callers must not treat it as 'zero kinds exist'.
 func _lm_kinds() -> Array:
 	if bridge == null or not bridge.has_method("landmark_kinds"):
 		return []
@@ -7433,6 +7437,7 @@ func _tl_remove_year_action(year: int) -> void:
 
 # -- Years pill row + Add year (Cluster A: civAddYear/civRemoveYear/civGotoYear) --
 
+## Builds the Timeline 'Years' section: a year SpinBox with Add year, the recorded years as pills (the current one highlighted) in a wrapping flow, the active-year note and a help note. Dispatched from the timeline rebuild alongside the scrub, playback, filters and sim builders.
 func _build_timeline_years(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Years")
 	var add_row := HBoxContainer.new()
@@ -7507,6 +7512,7 @@ func _tl_year_pill(year: int, active: bool) -> Control:
 
 # -- Scrub track (Cluster C: _civWireYearSlider, v0.91 real time-scale) --------
 
+## Builds the Timeline 'Scrub' section: a slider over the real recorded years (not a snapshot index) that snaps to the nearest recorded year on drag and rebuilds on release. Built only when two or more years are recorded, matching the reference's slider-row gate.
 func _build_timeline_scrub(body: Control) -> void:
 	var years := _tl_years()
 	if years.size() < 2:
@@ -7529,6 +7535,7 @@ func _build_timeline_scrub(body: Control) -> void:
 
 # -- Playback transport (Cluster C: _civTlStartPlay/_civTlStopPlay, 1200ms) ----
 
+## Builds the Timeline 'Playback' section: an Animate/Stop toggle (by `_tl_playing`) and a Step button. Built only when two or more years are recorded, the same gate as the scrub row. The 1.2 s tick lives in `_tl_ensure_timer`.
 func _build_timeline_playback(body: Control) -> void:
 	var years := _tl_years()
 	if years.size() < 2:
@@ -7634,6 +7641,7 @@ func _tl_step() -> void:
 
 # -- Filters (Cluster C: explTlExistOnly/Ghost/Highlight, _civYearDiff) --------
 
+## Builds the Timeline 'Filters' section: Exist only (re-filters the civ data), Ghost removed and Highlight new (both re-push the map marks). The state lives in the `_tl_filter_*` flags; hand-drawn ways are never recorded by the timeline, so Exist only never hides them.
 func _build_timeline_filters(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Filters")
 	## Reads the engine's `civ_year_diff().present` set.
@@ -7703,6 +7711,7 @@ func _build_politics_gaps(body: Control) -> void:
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
 
+## Builds the collapsed 'Simulate collapse / recovery' expander: the mode choice, the mode's own parameters (character and severity for collapse, regrowth rate for recovery), start year, duration and step, a Simulate button that calls `_tl_run_simulation(false)` and the last run's output note. Parameters are stored in the `_tl_sim_*` members as the controls change; nothing runs until Simulate is pressed.
 func _build_timeline_sim(body: Control) -> void:
 	var grp := category_expander(body, "Simulate collapse / recovery", false)
 	DccWidgets.choice(grp, "Mode", ["Collapse (decline + migration)", "Recovery (regrowth)"],
