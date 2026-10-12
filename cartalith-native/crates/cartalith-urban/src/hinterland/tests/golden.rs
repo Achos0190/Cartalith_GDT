@@ -25,6 +25,26 @@
 //! produces no farmland at all, some scenario reaches `buildDetails` with a
 //! null plaza, the two-well floor bites somewhere, the 240-tree cap bites
 //! somewhere, and `applyDecay` flags both a parcel and a building.
+//!
+//! ## 2026-10-12 hand re-baseline — six scenarios (Ruling CF item 7)
+//!
+//! **A captured JS fixture changed, deliberately.** The reference's
+//! `buildParcels` tests a lot's footprint for water at its four corners only
+//! (`RC_ENGINE_CHANGES.md` §6s.4), so a deep lot across a narrow channel is
+//! kept with its middle in the river. The owner ruled (Ruling CF item 7,
+//! `LARGE_ITEM_RULINGS.md`) to fix it and re-baseline, under `DECISIONS.md`
+//! §7p; `crate::blocks::lot_is_wet` now samples nine points. The frozen
+//! reference cannot re-produce the new values, so the six scenarios whose
+//! fixture held such a lot were corrected **by hand** from this port's own
+//! output, each field's old -> new value written in a comment on its `Case`:
+//! `river4242`, `riverWide`, `riverTight`, `riverTight2`, `riverHarbour` and
+//! `venus`. They lose 2, 2, 2, 2, 2 and 3 lots respectively — **13 lots, every
+//! one wet by a dense 9 x 9 sample of its footprint (depth 29.9-31.3 m)**;
+//! every surviving lot is bit-identical and in the same order. The other
+//! fields move only because the parcel list did (buildings, orchard rows on
+//! fringe holdings, decay indices, median frontage). The other 45 scenarios,
+//! `graph_hash`, `blocks`, the farmland and every metric but `m_parcels` and
+//! `m_median_frontage` are untouched from the capture.
 
 #![allow(clippy::approx_constant, clippy::unreadable_literal, clippy::excessive_precision)]
 
@@ -125,6 +145,22 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 1817, m_median_frontage: 5.94848470168381,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1960 -> 1958
+        //   parcel_hash: 2408237618 -> 57336178
+        //   building_hash: 938837791 -> 3443741775
+        //   details: 369 -> 381
+        //   kind_counts: [9, 1, 0, 0, 326, 33, 0, 0, 0] -> [9, 1, 0, 0, 338, 33, 0, 0, 0]
+        //   orchards: 60 -> 72
+        //   last_detail: "det368..." -> "det380..." (see the value)
+        //   details_hash: 231105466 -> 201691970
+        //   ruined_parcels: 658 -> 657
+        //   ruined_buildings: 1038 -> 1045
+        //   ruined_parcel_hash: 3302853980 -> 3538326252
+        //   ruined_building_hash: 306740220 -> 3084600362
+        //   m_parcels: 1960 -> 1958
+        //   m_median_frontage: 5.946494501782057 -> 5.944424118476604
         name: "river4242",
         seed: 4242, kind: "river", culture: "medieval",
         max_rf: 480.0, pop: 3000.0,
@@ -133,24 +169,24 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (1355.3877157263555, 898.7309831430731),
         graph_hash: 1178462996, nodes: 178, live_edges: 228, blocks: 49,
-        parcel_hash: 2408237618, parcels: 1960,
-        building_hash: 938837791, buildings: 2977,
+        parcel_hash: 57336178, parcels: 1958,
+        building_hash: 3443741775, buildings: 2977,
         has_plaza: true,
-        details_hash: 231105466, details: 369,
-        kind_counts: [9, 1, 0, 0, 326, 33, 0, 0, 0],
-        orchards: 60,
+        details_hash: 201691970, details: 381,
+        kind_counts: [9, 1, 0, 0, 338, 33, 0, 0, 0],
+        orchards: 72,
         first_detail: "det0;well;0;-;4096101fdc163c72;408d7e3c513e333e;-;-;-;-;-;Public well: one per few hundred residents, at a well-connected junction or the market (M-DEN-7).",
-        last_detail: "det368;tree;1;400999999999999a;409a1e882eac3bdb;4093009e02fcefcc;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
+        last_detail: "det380;tree;1;400999999999999a;4099fc5add94169e;4093144429e44c44;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
         farm_hash: 3401488665, farms: 149,
         farm_counts: [123, 26],
         first_farm: "farm0;field;0;-;-;-;-;-;-;-;4:409a91ffb76114e6,408d3ccdaacb9fe7,409aa863008accd6,408d41f411096ea9,409ac6ffcca7477c,408b2da4fdf1869e,409ab09c837d8f8c,408b287e97b3b7dc;Strip field: the pre-urban furlong fabric along the approach road (M-GRW-5) - later growth fossilizes these lines; already the correct baseline (M-FARM-1). A modest common-pasture share, more prevalent farther from the town, stands in for the open-field system's communally-grazed fallow shift and true common/waste land at the village margins - added during the post-launch simplification pass (docs/07 §3.10) so this register's pasture mechanism, previously exercised by the now-removed Byzantine/Viking entries, stays reachable on the one organic profile that remains (M-FARM-1).",
-        ruined_parcels: 658, ruined_buildings: 1038,
-        ruined_parcel_hash: 3302853980, ruined_building_hash: 306740220,
+        ruined_parcels: 657, ruined_buildings: 1045,
+        ruined_parcel_hash: 3538326252, ruined_building_hash: 3084600362,
         m_nodes: 178, m_edges: 228, m_total_len: 14635.0,
         m_dead_end_share: 0.07865168539325842, m_deg3_share: 0.265625, m_deg4_share: 0.734375,
         m_mean_deg: 2.561797752808989, m_median_seg: 60.0, m_meshedness: 0.1452991452991453,
         m_blocks: 49, m_median_block_area: 7037.520708626602,
-        m_parcels: 1960, m_median_frontage: 5.946494501782057,
+        m_parcels: 1958, m_median_frontage: 5.944424118476604,
     },
     Case {
         name: "riverthrough11",
@@ -377,6 +413,16 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 2094, m_median_frontage: 5.9464945017818325,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1967 -> 1965
+        //   parcel_hash: 3620068910 -> 153120187
+        //   building_hash: 1464502125 -> 235042102
+        //   ruined_buildings: 1171 -> 1176
+        //   ruined_parcel_hash: 4160046303 -> 2844610135
+        //   ruined_building_hash: 2711688689 -> 1950323904
+        //   m_parcels: 1967 -> 1965
+        //   m_median_frontage: 5.917005812984144 -> 5.915997893997883
         name: "riverWide",
         seed: 77, kind: "river", culture: "medieval",
         max_rf: 720.0, pop: 3000.0,
@@ -385,8 +431,8 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (1329.1457733908796, 719.3661255828179),
         graph_hash: 2597452266, nodes: 178, live_edges: 228, blocks: 48,
-        parcel_hash: 3620068910, parcels: 1967,
-        building_hash: 1464502125, buildings: 3045,
+        parcel_hash: 153120187, parcels: 1965,
+        building_hash: 235042102, buildings: 3045,
         has_plaza: true,
         details_hash: 1287027462, details: 275,
         kind_counts: [9, 1, 0, 0, 265, 0, 0, 0, 0],
@@ -396,13 +442,13 @@ pub static GOLDEN: &[Case] = &[
         farm_hash: 787203480, farms: 107,
         farm_counts: [85, 22],
         first_farm: "farm0;field;0;-;-;-;-;-;-;-;4:409d0bfa490b8f4c,4088edb5ab57ec9f,409d1f8988b68d48,4088f2d2f0166fdd,409ce0e54276583b,408cb11b791ecf37,409ccd5602cb5a3f,408cabfe34604bf9;Strip field: the pre-urban furlong fabric along the approach road (M-GRW-5) - later growth fossilizes these lines; already the correct baseline (M-FARM-1). A modest common-pasture share, more prevalent farther from the town, stands in for the open-field system's communally-grazed fallow shift and true common/waste land at the village margins - added during the post-launch simplification pass (docs/07 §3.10) so this register's pasture mechanism, previously exercised by the now-removed Byzantine/Viking entries, stays reachable on the one organic profile that remains (M-FARM-1).",
-        ruined_parcels: 732, ruined_buildings: 1171,
-        ruined_parcel_hash: 4160046303, ruined_building_hash: 2711688689,
+        ruined_parcels: 732, ruined_buildings: 1176,
+        ruined_parcel_hash: 2844610135, ruined_building_hash: 1950323904,
         m_nodes: 178, m_edges: 228, m_total_len: 14618.0,
         m_dead_end_share: 0.08426966292134831, m_deg3_share: 0.25, m_deg4_share: 0.75,
         m_mean_deg: 2.561797752808989, m_median_seg: 60.0, m_meshedness: 0.1452991452991453,
         m_blocks: 48, m_median_block_area: 7183.101383056957,
-        m_parcels: 1967, m_median_frontage: 5.917005812984144,
+        m_parcels: 1965, m_median_frontage: 5.915997893997883,
     },
     Case {
         name: "riverthroughWide",
@@ -517,6 +563,22 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 2092, m_median_frontage: 5.944424118476547,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1967 -> 1965
+        //   parcel_hash: 3758509738 -> 189946069
+        //   buildings: 3048 -> 3045
+        //   building_hash: 4070157401 -> 2594285936
+        //   details: 393 -> 405
+        //   kind_counts: [9, 1, 0, 0, 313, 70, 0, 0, 0] -> [9, 1, 0, 0, 325, 70, 0, 0, 0]
+        //   orchards: 48 -> 60
+        //   last_detail: "det392..." -> "det404..." (see the value)
+        //   details_hash: 3486733345 -> 2757350361
+        //   ruined_buildings: 1193 -> 1189
+        //   ruined_parcel_hash: 2610914631 -> 1536694738
+        //   ruined_building_hash: 710747288 -> 885337807
+        //   m_parcels: 1967 -> 1965
+        //   m_median_frontage: 5.917005812984144 -> 5.915997893997883
         name: "riverTight",
         seed: 77, kind: "river", culture: "medieval",
         max_rf: 300.0, pop: 3000.0,
@@ -525,24 +587,24 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (1329.1457733908796, 719.3661255828179),
         graph_hash: 2597452266, nodes: 178, live_edges: 228, blocks: 48,
-        parcel_hash: 3758509738, parcels: 1967,
-        building_hash: 4070157401, buildings: 3048,
+        parcel_hash: 189946069, parcels: 1965,
+        building_hash: 2594285936, buildings: 3045,
         has_plaza: true,
-        details_hash: 3486733345, details: 393,
-        kind_counts: [9, 1, 0, 0, 313, 70, 0, 0, 0],
-        orchards: 48,
+        details_hash: 2757350361, details: 405,
+        kind_counts: [9, 1, 0, 0, 325, 70, 0, 0, 0],
+        orchards: 60,
         first_detail: "det0;well;0;-;409548994871507f;40887ed94f541825;-;-;-;-;-;Public well: one per few hundred residents, at a well-connected junction or the market (M-DEN-7).",
-        last_detail: "det392;tree;1;400999999999999a;4099b5906ef0f24f;40901a201a360c91;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
+        last_detail: "det404;tree;1;400999999999999a;4099b5906ef0f24f;4090332865c48bd2;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
         farm_hash: 2385143959, farms: 151,
         farm_counts: [122, 29],
         first_farm: "farm0;field;0;-;-;-;-;-;-;-;4:409a20cdd85cfd7e,408830f0fe4a0516,409a37312186b56e,408836176487d3d8,409a19eff8886f59,408a32c98983ef5c,409a038caf5eb769,408a2da32346209a;Strip field: the pre-urban furlong fabric along the approach road (M-GRW-5) - later growth fossilizes these lines; already the correct baseline (M-FARM-1). A modest common-pasture share, more prevalent farther from the town, stands in for the open-field system's communally-grazed fallow shift and true common/waste land at the village margins - added during the post-launch simplification pass (docs/07 §3.10) so this register's pasture mechanism, previously exercised by the now-removed Byzantine/Viking entries, stays reachable on the one organic profile that remains (M-FARM-1).",
-        ruined_parcels: 731, ruined_buildings: 1193,
-        ruined_parcel_hash: 2610914631, ruined_building_hash: 710747288,
+        ruined_parcels: 731, ruined_buildings: 1189,
+        ruined_parcel_hash: 1536694738, ruined_building_hash: 885337807,
         m_nodes: 178, m_edges: 228, m_total_len: 14618.0,
         m_dead_end_share: 0.08426966292134831, m_deg3_share: 0.25, m_deg4_share: 0.75,
         m_mean_deg: 2.561797752808989, m_median_seg: 60.0, m_meshedness: 0.1452991452991453,
         m_blocks: 48, m_median_block_area: 7183.101383056957,
-        m_parcels: 1967, m_median_frontage: 5.917005812984144,
+        m_parcels: 1965, m_median_frontage: 5.915997893997883,
     },
     Case {
         name: "riverthroughTight",
@@ -657,6 +719,23 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 2092, m_median_frontage: 5.944424118476547,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1960 -> 1958
+        //   parcel_hash: 874486049 -> 2255288139
+        //   buildings: 3018 -> 3023
+        //   building_hash: 1384987955 -> 23266086
+        //   details: 402 -> 414
+        //   kind_counts: [9, 1, 0, 0, 326, 66, 0, 0, 0] -> [9, 1, 0, 0, 338, 66, 0, 0, 0]
+        //   orchards: 60 -> 72
+        //   last_detail: "det401..." -> "det413..." (see the value)
+        //   details_hash: 1034362927 -> 65554171
+        //   ruined_parcels: 658 -> 657
+        //   ruined_buildings: 1061 -> 1070
+        //   ruined_parcel_hash: 3302853980 -> 3538326252
+        //   ruined_building_hash: 544627403 -> 1538116776
+        //   m_parcels: 1960 -> 1958
+        //   m_median_frontage: 5.946494501782057 -> 5.944424118476604
         name: "riverTight2",
         seed: 4242, kind: "river", culture: "medieval",
         max_rf: 300.0, pop: 3000.0,
@@ -665,24 +744,24 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (1355.3877157263555, 898.7309831430731),
         graph_hash: 1178462996, nodes: 178, live_edges: 228, blocks: 49,
-        parcel_hash: 874486049, parcels: 1960,
-        building_hash: 1384987955, buildings: 3018,
+        parcel_hash: 2255288139, parcels: 1958,
+        building_hash: 23266086, buildings: 3023,
         has_plaza: true,
-        details_hash: 1034362927, details: 402,
-        kind_counts: [9, 1, 0, 0, 326, 66, 0, 0, 0],
-        orchards: 60,
+        details_hash: 65554171, details: 414,
+        kind_counts: [9, 1, 0, 0, 338, 66, 0, 0, 0],
+        orchards: 72,
         first_detail: "det0;well;0;-;4096101fdc163c72;408d7e3c513e333e;-;-;-;-;-;Public well: one per few hundred residents, at a well-connected junction or the market (M-DEN-7).",
-        last_detail: "det401;tree;1;400999999999999a;409a1e882eac3bdb;4093009e02fcefcc;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
+        last_detail: "det413;tree;1;400999999999999a;4099fc5add94169e;4093144429e44c44;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
         farm_hash: 3401488665, farms: 149,
         farm_counts: [123, 26],
         first_farm: "farm0;field;0;-;-;-;-;-;-;-;4:409a91ffb76114e6,408d3ccdaacb9fe7,409aa863008accd6,408d41f411096ea9,409ac6ffcca7477c,408b2da4fdf1869e,409ab09c837d8f8c,408b287e97b3b7dc;Strip field: the pre-urban furlong fabric along the approach road (M-GRW-5) - later growth fossilizes these lines; already the correct baseline (M-FARM-1). A modest common-pasture share, more prevalent farther from the town, stands in for the open-field system's communally-grazed fallow shift and true common/waste land at the village margins - added during the post-launch simplification pass (docs/07 §3.10) so this register's pasture mechanism, previously exercised by the now-removed Byzantine/Viking entries, stays reachable on the one organic profile that remains (M-FARM-1).",
-        ruined_parcels: 658, ruined_buildings: 1061,
-        ruined_parcel_hash: 3302853980, ruined_building_hash: 544627403,
+        ruined_parcels: 657, ruined_buildings: 1070,
+        ruined_parcel_hash: 3538326252, ruined_building_hash: 1538116776,
         m_nodes: 178, m_edges: 228, m_total_len: 14635.0,
         m_dead_end_share: 0.07865168539325842, m_deg3_share: 0.265625, m_deg4_share: 0.734375,
         m_mean_deg: 2.561797752808989, m_median_seg: 60.0, m_meshedness: 0.1452991452991453,
         m_blocks: 49, m_median_block_area: 7037.520708626602,
-        m_parcels: 1960, m_median_frontage: 5.946494501782057,
+        m_parcels: 1958, m_median_frontage: 5.944424118476604,
     },
     Case {
         name: "riverthroughTight2",
@@ -965,6 +1044,23 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 1234, m_median_frontage: 5.763366760635904,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1960 -> 1958
+        //   parcel_hash: 874486049 -> 2255288139
+        //   buildings: 3018 -> 3023
+        //   building_hash: 1384987955 -> 23266086
+        //   details: 406 -> 418
+        //   kind_counts: [9, 1, 1, 3, 326, 66, 0, 0, 0] -> [9, 1, 1, 3, 338, 66, 0, 0, 0]
+        //   orchards: 60 -> 72
+        //   last_detail: "det405..." -> "det417..." (see the value)
+        //   details_hash: 1561744681 -> 890127157
+        //   ruined_parcels: 658 -> 657
+        //   ruined_buildings: 1061 -> 1070
+        //   ruined_parcel_hash: 3302853980 -> 3538326252
+        //   ruined_building_hash: 544627403 -> 1538116776
+        //   m_parcels: 1960 -> 1958
+        //   m_median_frontage: 5.946494501782057 -> 5.944424118476604
         name: "riverHarbour",
         seed: 4242, kind: "river", culture: "medieval",
         max_rf: 300.0, pop: 3000.0,
@@ -973,24 +1069,24 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (1355.3877157263555, 898.7309831430731),
         graph_hash: 1178462996, nodes: 178, live_edges: 228, blocks: 49,
-        parcel_hash: 874486049, parcels: 1960,
-        building_hash: 1384987955, buildings: 3018,
+        parcel_hash: 2255288139, parcels: 1958,
+        building_hash: 23266086, buildings: 3023,
         has_plaza: true,
-        details_hash: 1561744681, details: 406,
-        kind_counts: [9, 1, 1, 3, 326, 66, 0, 0, 0],
-        orchards: 60,
+        details_hash: 890127157, details: 418,
+        kind_counts: [9, 1, 1, 3, 338, 66, 0, 0, 0],
+        orchards: 72,
         first_detail: "det0;well;0;-;4096101fdc163c72;408d7e3c513e333e;-;-;-;-;-;Public well: one per few hundred residents, at a well-connected junction or the market (M-DEN-7).",
-        last_detail: "det405;tree;1;400999999999999a;409a1e882eac3bdb;4093009e02fcefcc;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
+        last_detail: "det417;tree;1;400999999999999a;4099fc5add94169e;4093144429e44c44;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
         farm_hash: 3401488665, farms: 149,
         farm_counts: [123, 26],
         first_farm: "farm0;field;0;-;-;-;-;-;-;-;4:409a91ffb76114e6,408d3ccdaacb9fe7,409aa863008accd6,408d41f411096ea9,409ac6ffcca7477c,408b2da4fdf1869e,409ab09c837d8f8c,408b287e97b3b7dc;Strip field: the pre-urban furlong fabric along the approach road (M-GRW-5) - later growth fossilizes these lines; already the correct baseline (M-FARM-1). A modest common-pasture share, more prevalent farther from the town, stands in for the open-field system's communally-grazed fallow shift and true common/waste land at the village margins - added during the post-launch simplification pass (docs/07 §3.10) so this register's pasture mechanism, previously exercised by the now-removed Byzantine/Viking entries, stays reachable on the one organic profile that remains (M-FARM-1).",
-        ruined_parcels: 658, ruined_buildings: 1061,
-        ruined_parcel_hash: 3302853980, ruined_building_hash: 544627403,
+        ruined_parcels: 657, ruined_buildings: 1070,
+        ruined_parcel_hash: 3538326252, ruined_building_hash: 1538116776,
         m_nodes: 178, m_edges: 228, m_total_len: 14635.0,
         m_dead_end_share: 0.07865168539325842, m_deg3_share: 0.265625, m_deg4_share: 0.734375,
         m_mean_deg: 2.561797752808989, m_median_seg: 60.0, m_meshedness: 0.1452991452991453,
         m_blocks: 49, m_median_block_area: 7037.520708626602,
-        m_parcels: 1960, m_median_frontage: 5.946494501782057,
+        m_parcels: 1958, m_median_frontage: 5.944424118476604,
     },
     Case {
         name: "walled",
@@ -1049,6 +1145,22 @@ pub static GOLDEN: &[Case] = &[
         m_parcels: 2094, m_median_frontage: 5.9464945017818325,
     },
     Case {
+        // RE-BASELINED 2026-10-12 under Ruling CF item 7 (parcel water footprint
+        // test, `blocks::lot_is_wet`): see this file's header. Old -> new:
+        //   parcels: 1835 -> 1832
+        //   parcel_hash: 983801538 -> 3980656998
+        //   buildings: 1980 -> 2002
+        //   building_hash: 3469675381 -> 2473733205
+        //   details: 403 -> 391
+        //   kind_counts: [9, 1, 0, 0, 356, 37, 0, 0, 0] -> [9, 1, 0, 0, 344, 37, 0, 0, 0]
+        //   orchards: 96 -> 84
+        //   last_detail: "det402..." -> "det390..." (see the value)
+        //   details_hash: 2957155016 -> 1148437091
+        //   ruined_buildings: 718 -> 724
+        //   ruined_parcel_hash: 2756324673 -> 1206009673
+        //   ruined_building_hash: 2834504995 -> 1863008594
+        //   m_parcels: 1835 -> 1832
+        //   m_median_frontage: 5.9612583810765045 -> 5.966445245013006
         name: "venus",
         seed: 7, kind: "river", culture: "venus",
         max_rf: 480.0, pop: 3000.0,
@@ -1057,24 +1169,24 @@ pub static GOLDEN: &[Case] = &[
         terrain_aware: false, primaries: true, spokes: 8,
         market: (386.60244556317747, 813.4205613262131),
         graph_hash: 46403342, nodes: 179, live_edges: 228, blocks: 44,
-        parcel_hash: 983801538, parcels: 1835,
-        building_hash: 3469675381, buildings: 1980,
+        parcel_hash: 3980656998, parcels: 1832,
+        building_hash: 2473733205, buildings: 2002,
         has_plaza: true,
-        details_hash: 2957155016, details: 403,
-        kind_counts: [9, 1, 0, 0, 356, 37, 0, 0, 0],
-        orchards: 96,
+        details_hash: 1148437091, details: 391,
+        kind_counts: [9, 1, 0, 0, 344, 37, 0, 0, 0],
+        orchards: 84,
         first_detail: "det0;well;0;-;4074a5d93fbb572d;408a29e97410fe27;-;-;-;-;-;Public well: one per few hundred residents, at a well-connected junction or the market (M-DEN-7).",
-        last_detail: "det402;tree;1;400999999999999a;40850c726e58082e;40919e523947761e;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
+        last_detail: "det390;tree;1;400999999999999a;40850c726e58082e;40919e523947761e;-;-;-;-;-;Orchard row on an agrarian fringe holding (regular planting; M-DEN-4 family).",
         farm_hash: 3712984165, farms: 13,
         farm_counts: [10, 3],
         first_farm: "farm0;pasture;0;-;-;-;-;-;-;-;4:406585c0bee2d3dc,407754589af2e4a3,4074fa69df0625a0,407467a9f0983e4d,4074a6c44635bbe8,407148416464211a,4062c5b87f13f179,407481c1c1b472da;Ring-farming bands: concentric cultivation belts beyond the built rings, echoing Ebenezer Howard's Garden City concentric-ring diagram (1898) - a deliberate design choice, not a historical claim, since no historical culture applies (N/A by design, M-FARM-18).",
-        ruined_parcels: 655, ruined_buildings: 718,
-        ruined_parcel_hash: 2756324673, ruined_building_hash: 2834504995,
+        ruined_parcels: 655, ruined_buildings: 724,
+        ruined_parcel_hash: 1206009673, ruined_building_hash: 1863008594,
         m_nodes: 179, m_edges: 228, m_total_len: 14622.0,
         m_dead_end_share: 0.0893854748603352, m_deg3_share: 0.27692307692307694, m_deg4_share: 0.7230769230769231,
         m_mean_deg: 2.547486033519553, m_median_seg: 60.00000000000001, m_meshedness: 0.141643059490085,
         m_blocks: 44, m_median_block_area: 6939.667834602849,
-        m_parcels: 1835, m_median_frontage: 5.9612583810765045,
+        m_parcels: 1832, m_median_frontage: 5.966445245013006,
     },
     Case {
         name: "venusCoast",

@@ -152,7 +152,7 @@
 //! order — so what these lots can change downstream is bounded to what reaches
 //! them, and the goldens that moved are listed in `generate/tests/golden.rs`.
 
-use crate::blocks::{Block, Parcel};
+use crate::blocks::{Block, Parcel, lot_is_wet};
 use crate::geom::{Vec2, point_in_poly, poly_area, poly_centroid, poly_self_intersects, seg_int};
 use crate::graph::Graph;
 use crate::growth::WallState;
@@ -433,8 +433,9 @@ impl Ctx<'_> {
         if quad.iter().any(|q| q.x < 0.0 || q.y < 0.0 || q.x > s.wm || q.y > s.hm) {
             return false;
         }
-        let margin = if s.kind == "river" { s.river_w / 2.0 + 1.0 } else { 3.0 };
-        if quad.iter().chain(std::iter::once(&c)).any(|q| s.is_water(*q) || s.river_dist(*q) < margin) {
+        // The shared footprint test (Ruling CF item 7): nine samples, which
+        // replaced this path's own corners-plus-centroid copy of it.
+        if lot_is_wet(s, quad) {
             return false;
         }
         // Every corner, not the centroid: at the end of an open land arc the

@@ -40,8 +40,9 @@
 //! - **No `removeWaterCrossings`.** Streets may still cross the channel, so
 //!   faces can straddle water. This milestone's own guards absorb most of it:
 //!   [`build_blocks`] drops a block whose inset centroid is wet, and
-//!   [`build_parcels`] rejects a lot with *any* corner in the water (the
-//!   reference's own footprint test, not a centroid test).
+//!   [`build_parcels`] rejects a lot with *any* of nine footprint samples in
+//!   the water ([`lot_is_wet`]: corners, edge midpoints and middle — the
+//!   reference tests the corners only, a defect fixed under Ruling CF item 7).
 //! - **No `lanePass`.** Fewer lanes means larger, coarser faces than the
 //!   reference would produce from the same seed.
 //!
@@ -243,6 +244,57 @@ pub fn build_blocks(g: &Graph, plaza: Option<&Plaza>, site: &Site) -> Vec<Block>
         b_id += 1;
     }
     blocks
+}
+
+/// The clearance a lot must keep from the channel centreline, in metres:
+/// `riverW/2 + 1` on a `'river'` site, 3 m elsewhere. The reference's own
+/// margin (`buildParcels`, line 30225), shared by every platting path so the
+/// three cannot drift apart.
+pub(crate) fn wet_margin(site: &Site) -> f64 {
+    if site.kind == "river" { site.river_w / 2.0 + 1.0 } else { 3.0 }
+}
+
+/// Does the lot `poly` (a parcel footprint, normally a quad) touch water?
+///
+/// **What it does.** Samples nine points of the footprint — every vertex,
+/// every edge midpoint, and the vertex mean — and calls the lot wet if any
+/// sample is water ([`Site::is_water`]) or nearer the channel centreline than
+/// [`wet_margin`].
+///
+/// **Why nine and not four.** The reference (and every port of it, which
+/// inherits the defect: `RC_ENGINE_CHANGES.md` §6s.4) samples the four
+/// corners only, so a deep lot spanning a narrow channel, every corner on dry
+/// bank, is accepted with its middle in the river. The source's own fix
+/// (v2.67) adds the centroid and the two depth-side midpoints, seven points;
+/// this samples all four edge midpoints, nine, so it does not depend on which
+/// side of the quad is the frontage (the courtyard and faubourg paths wind
+/// their quads differently). Owner Ruling CF item 7 (2026-10-12) ordered the
+/// fix with a re-baseline. The choice was measured, not assumed, against a
+/// dense 9 × 9 bilinear sample of every final parcel over a 400-town matrix:
+/// see `blocks/tests.rs`'s `measure_parcel_water_footprint_tests` (an
+/// `#[ignore]`d harness) and `STATUS.md`'s Ruling CF item 7 entry for the
+/// numbers.
+///
+/// **What it must never do.** Accept a lot the corner-only test rejects: the
+/// nine samples are a superset of the four corners, so the new test can only
+/// reject more, never fewer. It must not run a polygon intersection: this is
+/// the hottest loop in platting and the samples already cover the case.
+pub(crate) fn lot_is_wet(site: &Site, poly: &[Vec2]) -> bool {
+    let margin = wet_margin(site);
+    let wet = |q: Vec2| site.is_water(q) || site.river_dist(q) < margin;
+    let n = poly.len();
+    if n == 0 {
+        return false;
+    }
+    let mut mean = Vec2::new(0.0, 0.0);
+    for i in 0..n {
+        let a = poly[i];
+        if wet(a) || wet(a.lerp(poly[(i + 1) % n], 0.5)) {
+            return true;
+        }
+        mean = mean + a;
+    }
+    wet(mean * (1.0 / n as f64))
 }
 
 /// `buildParcels` (line 30225) — series platting via bisector edge-cells.
@@ -447,15 +499,10 @@ pub fn build_parcels(
                 let area = poly_area(&quad).abs();
                 // The full footprint, not the centroid: a lot whose centroid is
                 // dry but whose back corners dip into the channel would still
-                // float a building in the water.
-                let margin = if site.kind == "river" {
-                    site.river_w / 2.0 + 1.0
-                } else {
-                    3.0
-                };
-                let wet = quad
-                    .iter()
-                    .any(|q| site.is_water(*q) || site.river_dist(*q) < margin);
+                // float a building in the water. Nor the corners alone, which
+                // is the reference's test: a deep lot across a narrow channel
+                // has every corner dry (Ruling CF item 7, `lot_is_wet`).
+                let wet = lot_is_wet(site, &quad);
                 // A self-intersecting (bowtie) quad is not a buildable lot at
                 // all -- at a reflex vertex the front/back correspondence can
                 // flip, putting the area-weighted centroid outside the shape.

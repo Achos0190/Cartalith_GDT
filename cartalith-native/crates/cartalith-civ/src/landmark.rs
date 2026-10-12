@@ -1167,7 +1167,9 @@ pub struct ManualIconMark {
 }
 
 /// One drawn battle, as much of it as this pass reads — Battlefield's whole
-/// domain (`LANDMARK_GENERATION_SCOPE.md` M9's conflict wiring).
+/// domain (`LANDMARK_GENERATION_SCOPE.md` M9's conflict wiring). Being drawn
+/// by the owner, a battle is exempt from §30 step 8's spacing rings
+/// (`Pool::authored`, Ruling CF item 7).
 ///
 /// Whole-grid cell coordinates **already resolved against the conflict's
 /// anchor** (`Conflict::resolved_points` under the anchor's position now), so
@@ -2423,12 +2425,21 @@ struct Pool {
     /// `(label, weight, raw value per candidate)`. **Every weight is
     /// Category C** — see the constants each detector uses.
     terms: Vec<(&'static str, f64, Vec<f32>)>,
+    /// **Every candidate is authored**: the owner put it there, so §30 step
+    /// 8's spacing rings — the class ring and the hand-placed-icon ring — do
+    /// not apply to it (Ruling CF item 7, 2026-10-12: *"a battle the owner
+    /// draws is exempt"*). Only [`pool_battlefield`] sets it, because a
+    /// Battlefield's whole domain is drawn battles. A placed authored
+    /// landmark still TAKES its place in the spacing field, so every
+    /// generated landmark placed after it still keeps its distance. Must
+    /// never be set by a detector that chooses its own cells.
+    authored: bool,
 }
 
 impl Pool {
-    /// An empty candidate pool.
+    /// An empty candidate pool, generated (not authored).
     fn new() -> Pool {
-        Pool { cands: Vec::new(), rejected_constraint: 0, terms: Vec::new() }
+        Pool { cands: Vec::new(), rejected_constraint: 0, terms: Vec::new(), authored: false }
     }
     /// How many cells entered the funnel.
     fn candidates(&self) -> usize {
@@ -4730,6 +4741,12 @@ fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
     let (gw, gh) = (c.inp.gw as f64, c.inp.gh as f64);
     let has_settle = !c.inp.settlements.is_empty();
     let mut p = Pool::new();
+    // Every candidate is a battle the owner drew: exempt from spacing
+    // (`Pool::authored`, Ruling CF item 7). Before the ruling a drawn battle
+    // near a town often lost on spacing to a landmark an earlier class had
+    // already placed inside the Cultural ring, so the field the owner drew
+    // never appeared.
+    p.authored = true;
     let mut t_s: Vec<f32> = Vec::new();
     for b in c.inp.battles {
         let mut fx = b.x.round();
@@ -5069,11 +5086,15 @@ pub fn generate(
             // `LandmarkInputs::manual_icons` for why the `min` is load-bearing
             // rather than defensive.
             let ir = if icon_r < r { icon_r } else { r };
-            let fits_peers = match &own {
-                Some(b) => b.fits(fx, fy, r),
-                None => shared.fits(fx, fy, r),
-            };
-            let fits_icons = icon_field.as_ref().is_none_or(|b| b.fits(fx, fy, ir));
+            // An authored candidate skips both rings (`Pool::authored`); it
+            // still takes its place in the field below, so generated kinds
+            // keep their distance from it.
+            let fits_peers = pool.authored
+                || match &own {
+                    Some(b) => b.fits(fx, fy, r),
+                    None => shared.fits(fx, fy, r),
+                };
+            let fits_icons = pool.authored || icon_field.as_ref().is_none_or(|b| b.fits(fx, fy, ir));
             if !fits_peers || !fits_icons {
                 rejected_spacing += 1;
                 if listed < REJECT_LIST_MAX_PER_KIND {
@@ -7665,10 +7686,11 @@ mod tests {
         // because it was drawn.
         let w = world(192, 144, 1000.0);
         let (bx, by) = (w.gw / 4, w.gh / 3);
-        // Competition off: with it on, the drawn battle at the fixture's
-        // first town lost on spacing to a landmark an earlier class already
-        // placed inside the Cultural ring (measured: `rejected_spacing: 1`) —
-        // correct §16 behaviour, and not this test's question.
+        // Competition off, so this test is about the wiring alone. With it
+        // on, this battle sits inside the Cultural ring of a landmark an
+        // earlier class placed; that it still places is Ruling CF item 7's
+        // exemption, tested by
+        // `an_authored_battle_is_placed_inside_the_spacing_ring`.
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let before = generate(&inputs(&w, &[]), &s, 5);
         assert_eq!(before.funnel("battlefield").unwrap().limit, LandmarkLimit::NoTerrain);
@@ -7726,8 +7748,9 @@ mod tests {
     }
 
     /// Two battles on one cell are one field with two names, never two
-    /// records on one cell — even with spacing dialled off, where the ring
-    /// would not have caught the second.
+    /// records on one cell. Spacing cannot catch the second (it is dialled
+    /// off here, and an authored battle is exempt from it anyway, Ruling CF
+    /// item 7), so the one-candidate-per-cell merge is the only guard.
     #[test]
     fn two_battles_on_one_cell_are_one_battlefield_naming_both() {
         // Protects: two battles on one cell make one battlefield naming both, even with spacing off.
@@ -7746,6 +7769,70 @@ mod tests {
 
     /// On a wrapping world a battle drawn one map-width east of a land cell
     /// is on that land cell; on a bounded map it is off the grid.
+    /// Ruling CF item 7: a battle the owner draws is exempt from the spacing
+    /// rings; every generated landmark still respects them, including the
+    /// ring around the placed battlefield.
+    #[test]
+    fn an_authored_battle_is_placed_inside_the_spacing_ring() {
+        // Protects: `Pool::authored` -- a drawn battle inside another
+        // landmark's Cultural ring is placed anyway (it used to lose on
+        // spacing, measured `rejected_spacing: 1`), while every generated
+        // landmark still keeps its class ring from everything placed before
+        // it. Removing the exemption turns the first half red; applying it to
+        // every pool turns the second half red.
+        let w = world(192, 144, 1000.0);
+        let (bx, by) = (w.gw / 4, w.gh / 3);
+        let s = LandmarkSettings::default();
+        assert!(s.cross_type_competition, "the default shares one spacing field");
+        let battles = [battle_at(bx, by, "Inside the Ring")];
+        let mut inp = inputs(&w, &[]);
+        inp.battles = &battles;
+        let r = generate(&inp, &s, 5);
+        let cell_km = 1000.0 / w.gw as f64;
+        let ring = |c: LandmarkClass| s.radius_km(c) / cell_km;
+        let d = |a: &Landmark, b: &Landmark| {
+            ((a.x as f64 - b.x as f64).powi(2) + (a.y as f64 - b.y as f64).powi(2)).sqrt()
+        };
+
+        // The premise, measured rather than assumed: some landmark placed
+        // before the battlefield sits inside its Cultural ring.
+        let bi = r.landmarks.iter().position(|l| l.kind == "battlefield").expect("the drawn battle is placed");
+        let bf = &r.landmarks[bi];
+        assert_eq!((bf.x, bf.y), (bx, by));
+        let cultural = ring(LandmarkClass::Cultural);
+        assert!(cultural > 0.0);
+        assert!(
+            r.landmarks[..bi].iter().any(|l| d(l, bf) < cultural),
+            "the fixture must put an earlier landmark inside the battle's ring"
+        );
+        let f = r.funnel("battlefield").unwrap();
+        assert_eq!((f.placed, f.rejected_spacing), (1, 0), "{:?}", f);
+
+        // Every generated landmark still respects its ring against everything
+        // placed before it -- the battlefield included.
+        let mut checked = 0usize;
+        for (j, lj) in r.landmarks.iter().enumerate() {
+            if lj.kind == "battlefield" {
+                continue;
+            }
+            for li in &r.landmarks[..j] {
+                assert!(d(li, lj) >= ring(lj.class), "{} at ({}, {}) inside the ring of {}", lj.kind, lj.x, lj.y, li.kind);
+            }
+            checked += 1;
+        }
+        assert!(checked > 10, "the world must place generated landmarks to check ({checked})");
+
+        // The hand-placed-icon ring is spacing too: an icon a quarter-cell
+        // from the battle, inside its ring (premise checked), does not refuse it.
+        let icon_ring = MANUAL_ICON_EXCLUSION_KM / s.crowding_in_force() / cell_km;
+        assert!(icon_ring > 0.25, "the icon must sit inside its own ring ({icon_ring} cells)");
+        let icons = [ManualIconMark { x: bx as f64 + 0.25, y: by as f64 }];
+        inp.manual_icons = &icons;
+        let r2 = generate(&inp, &s, 5);
+        let f2 = r2.funnel("battlefield").unwrap();
+        assert_eq!((f2.placed, f2.rejected_spacing), (1, 0), "an icon beside the battle: {:?}", f2);
+    }
+
     #[test]
     fn a_battle_across_the_seam_wraps_only_on_a_world_map() {
         // Protects: a battle drawn one map-width east lands on its land cell on a world map and

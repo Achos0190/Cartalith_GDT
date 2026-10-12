@@ -56,7 +56,9 @@
 //! not be a building. A block too small to leave [`COURT_MIN_AREA`] of court
 //! keeps it too.
 //!
-//! A block is converted whole or not at all: every lot corner must be dry, and
+//! A block is converted whole or not at all: every lot must be dry by
+//! [`crate::blocks::lot_is_wet`]'s footprint test (corners, edge midpoints and
+//! middle; Ruling CF item 7), and
 //! every lot a simple, correctly-wound quad. A partial ring would be a strip
 //! plat with a hole in it.
 //!
@@ -76,7 +78,7 @@
 //! every other lot keeps its id, geometry and `'bld'` stream. What moves is
 //! disclosed case by case in `generate/tests/golden.rs`'s header.
 
-use crate::blocks::{Block, Parcel};
+use crate::blocks::{Block, Parcel, lot_is_wet};
 use crate::geom::{Vec2, inset_poly, js_max, poly_area, poly_centroid, poly_self_intersects};
 use crate::graph::Graph;
 use crate::rng::{fnv1a, stream};
@@ -200,8 +202,6 @@ pub fn build_courtyard_rings(
     let ring: Vec<&Block> =
         blocks.iter().filter(built).filter(|b| d_m(b) >= max_d * OUTER_RING_FRAC).collect();
 
-    let margin = if site.kind == "river" { site.river_w / 2.0 + 1.0 } else { 3.0 };
-    let dry = |q: &Vec2| !site.is_water(*q) && site.river_dist(*q) >= margin;
     let mut tone = stream(seed, "courtyard/tone");
     let mut converted = Vec::new();
     let mut new_lots = Vec::new();
@@ -210,7 +210,9 @@ pub fn build_courtyard_rings(
         let Some(depth) = ring_depth(&blk.poly, r.range(COURT_FRAC.0, COURT_FRAC.1)) else { continue };
         let mut frontage = || r.logn(FRONTAGE.0, FRONTAGE.1).clamp(FRONTAGE_CLAMP.0, FRONTAGE_CLAMP.1);
         let Some((_, lots)) = ring_plat(&blk.poly, depth, &mut frontage) else { continue };
-        if lots.is_empty() || !lots.iter().all(|(_, q)| q.iter().all(dry)) {
+        // Every lot dry by `build_parcels`' own footprint test (Ruling CF
+        // item 7: nine samples, not the four corners).
+        if lots.is_empty() || lots.iter().any(|(_, q)| lot_is_wet(site, q)) {
             continue;
         }
         let n = blk.face_ids.len();

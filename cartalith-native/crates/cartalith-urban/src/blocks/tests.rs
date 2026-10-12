@@ -568,3 +568,213 @@ fn the_planned_grid_variance_terminates() {
     // ends, per-lot back lines) re-drew its rows behind the first: +13.
     assert_eq!(t.parcels.len(), 922, "the bounded town's parcel count");
 }
+
+/// Ruling CF item 7's measurement harness: how many final parcels of real
+/// generated towns touch water, by four footprint tests.
+///
+/// **What it does.** Generates a 400-town matrix (both cultures × the five
+/// site kinds × fortified or not × seeds 1-20, everything else at the
+/// reference default) and scores every final parcel by: the reference's four
+/// corners; the source's v2.67 seven points (corners, centroid, two
+/// depth-side midpoints, `RC_ENGINE_CHANGES.md` §6s.4); this port's nine
+/// ([`crate::blocks::lot_is_wet`]); and a dense 9 × 9 bilinear sample of the
+/// quad, used as the oracle for "the footprint overlaps water". Prints totals
+/// per platting path (`par` = `build_parcels`, `cyd` = courtyard ring,
+/// `wallin`/`faub` = the wall-side passes) and, with `CF7_OUT` set, one line
+/// per town to that file so a before/after pair can be diffed.
+///
+/// **Why it exists.** The owner's ruling asked for the choice of test to be
+/// justified by a measured comparison on real generated settlements. It is
+/// `#[ignore]`d because it is a measurement, not a regression test; run it
+/// with `cargo test -p cartalith-urban measure_parcel_water -- --ignored
+/// --nocapture`.
+///
+/// **What it must never do.** Assert: its numbers are evidence for a
+/// decision record, and the decision is pinned by the tests that follow it.
+#[test]
+#[ignore = "measurement harness for Ruling CF item 7, not a regression test"]
+fn measure_parcel_water_footprint_tests() {
+    use crate::blocks::{lot_is_wet, wet_margin};
+    use crate::geom::poly_centroid;
+    use crate::generate::{GenOpts, SITE_HM, SITE_WM, generate};
+    use std::collections::BTreeMap;
+    use std::fmt::Write as _;
+
+    let mut per_path: BTreeMap<&str, [usize; 6]> = BTreeMap::new();
+    let mut lines = String::new();
+    for culture in ["medieval", "venus"] {
+        for kind in ["river", "riverthrough", "coast", "estuary", "inland"] {
+            for fortified in [false, true] {
+                for seed in 1u32..=20 {
+                    let opts = GenOpts {
+                        culture: Some(culture.to_string()),
+                        site: Some(kind.to_string()),
+                        fortified,
+                        ..GenOpts::default()
+                    };
+                    let t = generate(seed, &opts);
+                    let site = build_site(seed, SITE_WM, SITE_HM, kind, SiteOpts::default());
+                    let margin = wet_margin(&site);
+                    let wet = |q: Vec2| site.is_water(q) || site.river_dist(q) < margin;
+                    let (mut dense_n, mut built, mut area) = (0usize, 0usize, 0.0f64);
+                    for tp in &t.parcels {
+                        let p = &tp.par.poly;
+                        let path = ["par", "cyd", "wallin", "faub"]
+                            .into_iter()
+                            .find(|k| tp.par.id.starts_with(k))
+                            .unwrap_or("other");
+                        let e = per_path.entry(path).or_default();
+                        e[0] += 1;
+                        if tp.built {
+                            built += 1;
+                        }
+                        area += tp.par.area;
+                        if p.len() != 4 {
+                            e[5] += 1;
+                            continue;
+                        }
+                        let corners = p.iter().any(|q| wet(*q));
+                        let c = poly_centroid(p);
+                        let seven = corners
+                            || wet(c)
+                            || wet(p[0].lerp(p[3], 0.5))
+                            || wet(p[1].lerp(p[2], 0.5));
+                        let nine = lot_is_wet(&site, p);
+                        let mut dense = false;
+                        for i in 0..=8 {
+                            for j in 0..=8 {
+                                let (u, v) = (i as f64 / 8.0, j as f64 / 8.0);
+                                let q = p[0].lerp(p[1], u).lerp(p[3].lerp(p[2], u), v);
+                                dense |= wet(q);
+                            }
+                        }
+                        e[1] += usize::from(corners);
+                        e[2] += usize::from(seven);
+                        e[3] += usize::from(nine);
+                        e[4] += usize::from(dense);
+                        dense_n += usize::from(dense);
+                    }
+                    let _ = writeln!(
+                        lines,
+                        "{culture} {kind} fort={fortified} seed={seed} parcels={} built={built} area={area:.1} dense_wet={dense_n} hash={}",
+                        t.parcels.len(),
+                        crate::generate::hash_model(&t)
+                    );
+                }
+            }
+        }
+    }
+    println!("path: [parcels, corner-wet, seven-wet, nine-wet, dense-wet, non-quad]");
+    for (k, v) in &per_path {
+        println!("{k}: {v:?}");
+    }
+    if let Ok(path) = std::env::var("CF7_OUT") {
+        std::fs::write(path, lines).expect("CF7_OUT is writable");
+    }
+}
+
+/// A lot laid straight across a synthetic river channel: every corner on dry
+/// bank, its middle in the water. Returns the site and the quad, wound like
+/// `build_parcels`' own (`[front0, front1, back1, back0]`).
+fn lot_across_the_channel() -> (crate::site::Site, Vec<Vec2>) {
+    let site = build_site(4242, 1700.0, 1250.0, "river", SiteOpts::default());
+    // The middle segment of the centreline, so the lot is far from its ends.
+    let i = site.river.len() / 2;
+    let (a, b) = (site.river[i], site.river[i + 1]);
+    let m = a.lerp(b, 0.5);
+    let d = (b - a).norm();
+    let nrm = Vec2::new(-d.y, d.x);
+    // Corners 6 m beyond the wider of the two wet bands (`isWater`'s
+    // `riverW/2 + 2`, the margin's `riverW/2 + 1`); 3 m either side along it.
+    let off = site.river_w / 2.0 + 2.0 + 6.0;
+    let quad = vec![
+        m - nrm * off - d * 3.0,
+        m - nrm * off + d * 3.0,
+        m + nrm * off + d * 3.0,
+        m + nrm * off - d * 3.0,
+    ];
+    (site, quad)
+}
+
+/// Ruling CF item 7: a lot spanning a narrow channel with every corner dry is
+/// wet. This is the case `RC_ENGINE_CHANGES.md` §6s.4 names, and the one the
+/// reference's corner-only test accepted.
+#[test]
+fn a_lot_spanning_the_channel_with_dry_corners_is_wet() {
+    // Protects: `lot_is_wet` samples the footprint's interior, not only its
+    // corners. Reverting it to the four corners turns this red.
+    use crate::blocks::{lot_is_wet, wet_margin};
+    let (site, quad) = lot_across_the_channel();
+    let margin = wet_margin(&site);
+    // The fixture's premise, checked rather than assumed: every corner is dry
+    // by the reference's own test, and the lot's middle is in the river.
+    for q in &quad {
+        assert!(!site.is_water(*q) && site.river_dist(*q) >= margin, "corner {q:?} must be dry");
+    }
+    let mid = quad[0].lerp(quad[2], 0.5);
+    assert!(site.is_water(mid), "the lot's middle must be in the channel");
+    assert!(lot_is_wet(&site, &quad), "a lot across the channel is wet");
+}
+
+/// The nine samples are a superset of the corners: a lot the corner test
+/// rejected is still rejected, and a lot well clear of the water is dry.
+#[test]
+fn lot_is_wet_rejects_a_wet_corner_and_accepts_dry_ground() {
+    // Protects: the fix only ever rejects MORE lots (it must never readmit one
+    // with a wet corner), and it does not reject everything.
+    use crate::blocks::lot_is_wet;
+    let (site, quad) = lot_across_the_channel();
+    // Shift the whole lot so its back edge sits on the centreline: two corners wet.
+    let back = (quad[2] - quad[1]) * 0.5;
+    let wet_corner: Vec<Vec2> = quad.iter().map(|q| *q - back).collect();
+    assert!(site.is_water(wet_corner[2]), "premise: a back corner is in the channel");
+    assert!(lot_is_wet(&site, &wet_corner));
+    // The same lot moved 200 m clear of the channel, along the normal.
+    let away = (quad[2] - quad[1]).norm() * 200.0;
+    let dry: Vec<Vec2> = quad.iter().map(|q| *q + away).collect();
+    assert!(!lot_is_wet(&site, &dry), "a lot 200 m from the channel is dry");
+}
+
+/// Each of the two new kinds of sample decides on its own: a pond under only
+/// the lot's middle, and one under only an edge's midpoint.
+#[test]
+fn lot_is_wet_reads_the_middle_and_every_edge_midpoint() {
+    // Protects: both the vertex-mean sample and the edge-midpoint samples of
+    // `lot_is_wet`; dropping either turns one of the cases red (the channel
+    // test above cannot tell them apart -- a channel across the lot wets both).
+    use crate::blocks::lot_is_wet;
+    // A 3 x 3 real-water mask of 10 m cells with at most one wet cell, every
+    // cell far from any channel centreline (`dt` 100 cells), on a coast so the
+    // margin is the flat 3 m. The lot is the 30 m square over the whole mask.
+    let site_wet_at = |cell: Option<usize>| {
+        let mut mask = vec![0u8; 9];
+        if let Some(c) = cell {
+            mask[c] = 1;
+        }
+        let w = crate::site::WaterCtx {
+            mask,
+            dt: vec![100.0; 9],
+            mw: 3,
+            mh: 3,
+            cell_m: 10.0,
+            river_path: None,
+            river_width_m: Some(10.0),
+            river_order: 0.0,
+            sea_lake_cells: 0.0,
+        };
+        build_site(3, 1700.0, 1250.0, "coast", SiteOpts { water: Some(w), ..Default::default() })
+    };
+    let lot = [Vec2::new(0.0, 0.0), Vec2::new(30.0, 0.0), Vec2::new(30.0, 30.0), Vec2::new(0.0, 30.0)];
+    // Control first: no wet cell, a dry lot.
+    assert!(!lot_is_wet(&site_wet_at(None), &lot), "an all-dry mask leaves the lot dry");
+    // Corners land in cells 0, 2, 8, 6 (the far edge clamps into the mask).
+    for c in [0usize, 2, 6, 8] {
+        assert!(lot_is_wet(&site_wet_at(Some(c)), &lot), "a wet corner (cell {c})");
+    }
+    // Only the middle sample lands in cell 4.
+    assert!(lot_is_wet(&site_wet_at(Some(4)), &lot), "a pond under the middle only");
+    // Only one edge midpoint lands in each of cells 1, 3, 5, 7.
+    for c in [1usize, 3, 5, 7] {
+        assert!(lot_is_wet(&site_wet_at(Some(c)), &lot), "a pond under one edge midpoint (cell {c})");
+    }
+}

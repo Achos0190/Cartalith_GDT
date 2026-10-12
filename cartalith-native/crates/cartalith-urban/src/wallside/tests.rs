@@ -263,6 +263,8 @@ fn accepts_measures_the_water_margin_on_every_corner_and_the_centroid() {
     let s = site("coast", one(3.5, false));
     assert!(ctx(&g, &s, &BIG, &wall).accepts(&lot, true), "3.5 m from a coast");
     // The centroid alone in the water: three 60 m cells, the middle one wet.
+    // (Since Ruling CF item 7 this is `blocks::lot_is_wet`'s middle sample,
+    // the vertex mean, which is the centroid of this rectangle.)
     let mid = crate::site::WaterCtx { mask: vec![0, 1, 0], dt: vec![100.0; 3], mw: 3, cell_m: 60.0, ..one(100.0, false) };
     let s = site("coast", mid);
     let wide = q(40.0, 10.0, 160.0, 20.0);

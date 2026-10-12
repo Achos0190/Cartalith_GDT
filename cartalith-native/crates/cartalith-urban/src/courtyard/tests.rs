@@ -411,6 +411,9 @@ fn a_block_whose_every_lot_is_a_sliver_keeps_its_strip_plat() {
 
 #[test]
 fn every_corner_of_every_lot_must_be_dry_by_both_tests() {
+    // (Since Ruling CF item 7 the test is `blocks::lot_is_wet`'s nine
+    // samples, a superset of the corners; every case below is decided at a
+    // corner and still holds.)
     // Protects: the river-margin dry test (riverW/2 + 1, inclusive), the
     // flat 3 m margin for every other site kind, the water mask overriding
     // distance, and that one wet corner anywhere in the block refuses the
