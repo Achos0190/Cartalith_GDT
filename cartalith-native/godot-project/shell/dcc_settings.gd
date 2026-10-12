@@ -18,8 +18,13 @@ class_name DccSettings
 ## Cartalith` or similar). Read as directive intent ("four separate,
 ## sensible, per-purpose roots"), not as literal paths to reproduce.
 
+## The one `ConfigFile` every setting here lives in. `user://` is per-install
+## machine state, so nothing in it is ever written into a world `.zip`.
 const CONFIG_PATH := "user://cartalith_settings.cfg"
+## Section holding the four storage roots (`ROOT_KEYS`), one key each.
 const _SEC_ROOTS := "storage_roots"
+## Section holding the recent-projects list (`paths`, newest first, capped
+## at `MAX_RECENT`).
 const _SEC_RECENT := "recent"
 ## `DCC_SHELL_SPEC.md` §2.5's Performance group -- the four multi-GPU
 ## settings (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05). Machine state,
@@ -34,7 +39,10 @@ const _SEC_GPU := "gpu"
 const _SEC_CPU := "cpu"
 ## `DCC_SHELL_SPEC.md` §2.1's Autosave toggle (`GUI_GAP_REGISTER.md` FI-01).
 const _SEC_AUTOSAVE := "autosave"
+## Section for the §2.5 Tiles & LOD preferences: `bake_depth` and `auto_on_zoom`.
 const _SEC_LOD := "tiles_lod"
+## Section for the project-level lighting-rig defaults (`LIGHTING_DEFAULTS`
+## keys). A key exists only once the user stored it; see `appearance_defaults()`.
 const _SEC_LIGHT := "lighting"
 ## `DCC_SHELL_SPEC.md` §2.5's Theme radio (`BUILD_ANSWERS.md:98-99`: "Device,
 ## theme and units persist ... and restore on load"). Machine state for the
@@ -55,13 +63,19 @@ const _SEC_GRAPHICS := "graphics"
 const _SEC_LAYOUT := "layout"
 ## §2.5 Tiles & LOD > Atlas cache > Size cap.
 const _SEC_ATLAS := "atlas"
+## Section for tool-window sizes, keyed by `DccWidgets.window_key()`; see
+## `window_size()`.
 const _SEC_WINDOWS := "window_sizes"
 ## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1) -- the tablet's dominant-hand preference.
 const _SEC_HANDEDNESS := "handedness"
+## How many recent projects are kept (`DCC_SHELL_SPEC.md` §2.1: "last 10
+## projects"); `remember_project()` truncates to it.
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
 const ROOT_KEYS: Array[String] = ["projects", "atlas_cache", "asset_packs", "exports"]
+## Display name for each `ROOT_KEYS` entry, as the Storage locations modal and
+## the File menu readout label the rows.
 const ROOT_LABELS := {
 	"projects": "Projects",
 	"atlas_cache": "Tile atlas cache",
@@ -69,9 +83,16 @@ const ROOT_LABELS := {
 	"exports": "Exports",
 }
 
+## The loaded `ConfigFile`. Null until `_ensure_loaded()` runs; every public
+## reader and writer calls that first, so nothing reads it directly.
 static var _cfg: ConfigFile
+## Whether `_ensure_loaded()` has already run, so the file is read once per
+## session and not on every accessor call.
 static var _loaded := false
 
+## Lazy one-time load of `CONFIG_PATH` into `_cfg`. Must be the first line of
+## every accessor that touches `_cfg`; never reloads, so an external edit to the
+## file is not seen until the next launch.
 static func _ensure_loaded() -> void:
 	if _loaded:
 		return
@@ -81,9 +102,15 @@ static func _ensure_loaded() -> void:
 	## worth surfacing -- every read below falls back to `_default_root`.
 	_cfg.load(CONFIG_PATH)
 
+## Writes `_cfg` back to `CONFIG_PATH`. Callers must have run
+## `_ensure_loaded()` first (`_cfg` is null otherwise). The save result is not
+## checked, so an unwritable `user://` fails silently (intent unverified).
 static func _save() -> void:
 	_cfg.save(CONFIG_PATH)
 
+## Where a storage root points until the user changes it: a fixed
+## sub-folder of `OS.get_user_data_dir()` per key, or the bare data dir for an
+## unknown key (never an error).
 static func _default_root(key: String) -> String:
 	var base := OS.get_user_data_dir()
 	match key:
@@ -95,10 +122,14 @@ static func _default_root(key: String) -> String:
 
 # -- Storage roots --------------------------------------------------------------
 
+## The path of one storage root (`ROOT_KEYS` entry): the stored value, else
+## `_default_root(key)`.
 static func storage_root(key: String) -> String:
 	_ensure_loaded()
 	return String(_cfg.get_value(_SEC_ROOTS, key, _default_root(key)))
 
+## Stores a new path for one storage root and saves at once. Does not create
+## the folder or validate `path`.
 static func set_storage_root(key: String, path: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_ROOTS, key, path)
@@ -125,6 +156,8 @@ static func all_roots() -> Dictionary:
 
 # -- Recent projects (§2.1: "last 10 projects", path as secondary text) --------
 
+## The recent-projects list, newest first, as plain Strings (a missing key is
+## an empty list). Entries are not checked for existence here.
 static func recent_projects() -> Array:
 	_ensure_loaded()
 	var raw = _cfg.get_value(_SEC_RECENT, "paths", [])
@@ -159,6 +192,8 @@ static func gpu_devices() -> PackedStringArray:
 		out.append(String(k))
 	return out
 
+## Stores the selected GPU device keys (see `gpu_devices()`; empty means
+## automatic) and saves at once.
 static func set_gpu_devices(keys: PackedStringArray) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "devices", keys)
@@ -170,6 +205,8 @@ static func gpu_mode() -> String:
 	_ensure_loaded()
 	return String(_cfg.get_value(_SEC_GPU, "mode", ""))
 
+## Stores the multi-GPU dispatch mode string (see `gpu_mode()`) and saves.
+## The value is not validated here.
 static func set_gpu_mode(mode: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "mode", mode)
@@ -181,6 +218,8 @@ static func gpu_vram_budget_gb() -> float:
 	_ensure_loaded()
 	return float(_cfg.get_value(_SEC_GPU, "vram_budget_gb", 0.0))
 
+## Stores the GPU VRAM budget in GB (`0` = no cap, see
+## `gpu_vram_budget_gb()`) and saves. Not clamped here.
 static func set_gpu_vram_budget_gb(gb: float) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "vram_budget_gb", gb)
@@ -191,6 +230,8 @@ static func gpu_fallback() -> String:
 	_ensure_loaded()
 	return String(_cfg.get_value(_SEC_GPU, "fallback", ""))
 
+## Stores the GPU-failure fallback name (see `gpu_fallback()`) and saves. The
+## value is not validated here.
 static func set_gpu_fallback(name: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "fallback", name)
@@ -212,6 +253,10 @@ static func cpu_thread_count() -> int:
 	_ensure_loaded()
 	return maxi(0, int(_cfg.get_value(_SEC_CPU, "threads", 0)))
 
+## Stores the Rayon worker count (see `cpu_thread_count()`), floored at `0`
+## (the "engine default" sentinel), and saves. Persistence only: its caller in
+## `engine_bridge.gd` also applies the value to the engine, and does that
+## separately.
 static func set_cpu_thread_count(threads: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_CPU, "threads", maxi(0, threads))
@@ -253,15 +298,24 @@ static func window_size(key: String) -> Vector2i:
 	var v = _cfg.get_value(_SEC_WINDOWS, key, Vector2i.ZERO)
 	return v if v is Vector2i else Vector2i.ZERO
 
+## Stores a tool window's size under `key` and saves. Its caller
+## (`DccWidgets.phone_window()`'s close hook) must not pass `Vector2i.ZERO`,
+## which `window_size()` reads as "none stored".
 static func set_window_size(key: String, size: Vector2i) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_WINDOWS, key, size)
 	_save()
 
+## Whether autosave is on; true when the key was never written. The rationale
+## for that default is the comment block above `window_size()` (it was left
+## there when this block was last edited, so it reads as `window_size()`'s).
 static func autosave_enabled() -> bool:
 	_ensure_loaded()
 	return bool(_cfg.get_value(_SEC_AUTOSAVE, "enabled", true))
 
+## Stores the autosave toggle and saves. One of only two writers of this
+## section (with `set_autosave_minutes()`), so an absent key always means "the
+## user never chose".
 static func set_autosave_enabled(on: bool) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_AUTOSAVE, "enabled", on)
@@ -287,6 +341,8 @@ static func autosave_minutes() -> int:
 	_ensure_loaded()
 	return maxi(1, int(_cfg.get_value(_SEC_AUTOSAVE, "minutes", 5)))
 
+## Stores the autosave interval, floored at 1 minute, and saves. Its only
+## caller is `DccMenus._on_autosave_interval()`.
 static func set_autosave_minutes(minutes: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_AUTOSAVE, "minutes", maxi(1, minutes))
@@ -314,6 +370,7 @@ static func bake_depth() -> int:
 	_ensure_loaded()
 	return clampi(int(_cfg.get_value(_SEC_LOD, "bake_depth", 3)), 0, 8)
 
+## Stores the Bake ALL depth, clamped 0..8 like `bake_depth()`, and saves.
 static func set_bake_depth(depth: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LOD, "bake_depth", clampi(depth, 0, 8))
@@ -328,6 +385,7 @@ static func lod_auto() -> bool:
 	_ensure_loaded()
 	return bool(_cfg.get_value(_SEC_LOD, "auto_on_zoom", true))
 
+## Stores the Tiled-LOD auto/manual choice (see `lod_auto()`) and saves.
 static func set_lod_auto(on: bool) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LOD, "auto_on_zoom", on)
@@ -409,6 +467,10 @@ static func has_lighting_default(key: String) -> bool:
 static func lighting_defaults() -> Dictionary:
 	return appearance_defaults()
 
+## Stores one lighting-rig default and saves. A key outside
+## `LIGHTING_DEFAULTS` is silently ignored, so a typo cannot create a stray
+## stored key that `appearance_defaults()` would never send. The value is not
+## range-clamped here.
 static func set_lighting_default(key: String, value: float) -> void:
 	if not LIGHTING_DEFAULTS.has(key):
 		return
@@ -443,13 +505,18 @@ static func reset_lighting_defaults() -> void:
 ## dock-side choice is the one reader; `menus.gd`'s `Preferences ▸ Handedness`
 ## (`_build_handedness_submenu`) is the writer -- the CM-4 residual
 ## `OUTSTANDING_WORK.md` left, closed alongside the touch ring-radius scaling.
+## The two accepted dominant-hand values; anything else read back or offered
+## to `set_dominant_hand()` is rejected.
 const HANDS: Array[String] = ["left", "right"]
 
+## The tablet's dominant hand, `"left"` or `"right"`; unset or corrupt reads
+## as `"right"` (`MAP_CONTEXT_SCOPE.md` §7.1's default).
 static func dominant_hand() -> String:
 	_ensure_loaded()
 	var h := String(_cfg.get_value(_SEC_HANDEDNESS, "hand", "right"))
 	return h if HANDS.has(h) else "right"
 
+## Stores the dominant hand and saves. An unknown value is ignored, not stored.
 static func set_dominant_hand(hand: String) -> void:
 	if not HANDS.has(hand):
 		return
@@ -467,11 +534,15 @@ static func set_dominant_hand(hand: String) -> void:
 ## choice to whichever palette the OS happened to be in the day it was picked.
 const THEME_MODES: Array[String] = ["dark", "light", "system"]
 
+## The stored Theme choice, one of `THEME_MODES`; unset or corrupt reads as
+## `"dark"`. The mode, not the resolved palette (see `THEME_MODES`).
 static func theme_mode() -> String:
 	_ensure_loaded()
 	var m := String(_cfg.get_value(_SEC_THEME, "mode", "dark"))
 	return m if THEME_MODES.has(m) else "dark"
 
+## Stores the Theme mode and saves. An unknown value is ignored. Does not
+## re-theme the live shell; that is `DccTheme`'s job.
 static func set_theme_mode(mode: String) -> void:
 	if not THEME_MODES.has(mode):
 		return
@@ -491,11 +562,15 @@ static func set_theme_mode(mode: String) -> void:
 ## made silently (`CLAUDE.md`).
 const UNIT_MODES: Array[String] = ["km", "mi", "nmi"]
 
+## The stored distance-unit mode, one of `UNIT_MODES`; unset or corrupt reads
+## as `"km"`.
 static func units_mode() -> String:
 	_ensure_loaded()
 	var m := String(_cfg.get_value(_SEC_UNITS, "mode", "km"))
 	return m if UNIT_MODES.has(m) else "km"
 
+## Stores the unit mode and saves. An unknown value is ignored. Does not
+## re-render any readout; `DccUnits` formats them.
 static func set_units_mode(mode: String) -> void:
 	if not UNIT_MODES.has(mode):
 		return
@@ -518,14 +593,21 @@ const RELIEF_EXAG_CHOICES: Array[float] = [1.0, 2.0, 4.0]
 ## Graphics submenu says so on its own parent row.
 const RELIEF_EXAG_ENGINE_DEFAULT := 3.4
 
+## Whether the user has stored a relief-exaggeration default, so "unset" (the
+## engine's own value) can be told from a chosen rung.
 static func has_relief_exaggeration_default() -> bool:
 	_ensure_loaded()
 	return _cfg.has_section_key(_SEC_GRAPHICS, "exag")
 
+## The stored relief-exaggeration default, or `RELIEF_EXAG_ENGINE_DEFAULT`
+## when none was stored. Check `has_relief_exaggeration_default()` to know
+## which of the two this is.
 static func relief_exaggeration_default() -> float:
 	_ensure_loaded()
 	return float(_cfg.get_value(_SEC_GRAPHICS, "exag", RELIEF_EXAG_ENGINE_DEFAULT))
 
+## Stores the relief-exaggeration default, clamped 0..12 (`render.rs`'s
+## tunable range, per the comment on `RELIEF_EXAG_CHOICES`), and saves.
 static func set_relief_exaggeration_default(v: float) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GRAPHICS, "exag", clampf(v, 0.0, 12.0))
@@ -547,10 +629,12 @@ static func clear_relief_exaggeration_default() -> void:
 ## a precision the decision does not have.
 const ATLAS_CAP_CHOICES: Array[float] = [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
 
+## The tile-atlas cache size cap in GB; `0` (the default) means no cap.
 static func atlas_cap_gb() -> float:
 	_ensure_loaded()
 	return maxf(0.0, float(_cfg.get_value(_SEC_ATLAS, "cap_gb", 0.0)))
 
+## Stores the atlas cache cap in GB (negative floored to `0`) and saves.
 static func set_atlas_cap_gb(gb: float) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_ATLAS, "cap_gb", maxf(0.0, gb))
@@ -578,6 +662,8 @@ static func layout_names() -> Array:
 	names.sort()
 	return names
 
+## One saved layout by name, or an empty Dictionary if absent or not a
+## Dictionary.
 static func layout(name: String) -> Dictionary:
 	var d = layouts().get(name, {})
 	return d if d is Dictionary else {}
@@ -594,6 +680,8 @@ static func save_layout(name: String, data: Dictionary) -> void:
 	_cfg.set_value(_SEC_LAYOUT, "named", all)
 	_save()
 
+## Deletes a saved layout by name and saves. An unknown name does nothing
+## and does not save.
 static func forget_layout(name: String) -> void:
 	_ensure_loaded()
 	var all := layouts()
@@ -621,6 +709,8 @@ static func layouts_seeded() -> bool:
 	_ensure_loaded()
 	return bool(_cfg.get_value(_SEC_LAYOUT, "seeded", false))
 
+## Records that first-run layout seeding ran (see `layouts_seeded()`) and saves.
+## Nothing un-sets it, which is the point.
 static func mark_layouts_seeded() -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LAYOUT, "seeded", true)
@@ -652,8 +742,12 @@ static func mark_layouts_seeded() -> void:
 ## rather than assumed to be the only one that will ever exist, so that pass
 ## adds its own section instead of reshaping this one.
 const _SEC_SHORTCUTS_PREFIX := "shortcuts_"
+## The context id for the Program-menu accelerators (the only populated
+## context; see the block above).
 const SHORTCUT_CONTEXT_MENU := "menu"
 
+## The `ConfigFile` section name for one shortcut context
+## (`_SEC_SHORTCUTS_PREFIX` + context), so contexts never share keys.
 static func _shortcuts_section(context: String) -> String:
 	return _SEC_SHORTCUTS_PREFIX + context
 
@@ -674,6 +768,10 @@ static func has_shortcut_override(context: String, action_id: int) -> bool:
 	_ensure_loaded()
 	return _cfg.has_section_key(_shortcuts_section(context), str(action_id))
 
+## Stores a rebound accelerator for `action_id` in `context` and saves. `accel`
+## is the menu system's accelerator int and must not be `0` (the dialog's own
+## "no shortcut" spelling; see `shortcuts_dialog.gd`'s capture guard). Duplicate
+## bindings are not rejected here; the dialog reports them and never blocks.
 static func set_shortcut_binding(context: String, action_id: int, accel: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_shortcuts_section(context), str(action_id), accel)
