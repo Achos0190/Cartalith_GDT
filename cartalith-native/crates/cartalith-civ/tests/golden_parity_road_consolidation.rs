@@ -135,16 +135,6 @@ fn assert_way_type(actual: cartalith_civ::WayType, expected: &str, label: &str) 
 /// unreachable).
 #[test]
 fn road_consolidation_case_0_short_segment_oversample() {
-    // Protects: the short-segment path of `civ_consolidate_and_smooth_ways`
-    // (reference ~21670-21739 and `catmullRomSample` / `_civSmoothPath`, 8790
-    // / 21892): the 2-cell path `[35,34]` smooths to 3 points whose middle
-    // one rounds back onto the start (`js_round(6.5) = 7`), plus the way's
-    // name, `track` type, endpoint indices, km (57.142857...) and empty
-    // breaks. Red means a rounding rule or the oversampling count changed.
-    // case0_region: gw=14 gh=11 seed=24601 world=false. Same (x,y,faction)
-    // triples + real names/pop as golden_parity_settlement_naming.rs's
-    // case0 and golden_parity_hierarchical_network.rs's case0 (1 edge,
-    // path [35,34], the settlement at index 1 unreachable).
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
@@ -193,22 +183,6 @@ fn road_consolidation_case_0_short_segment_oversample() {
 /// regional) and hidden (fully-consolidated) ways.
 #[test]
 fn road_consolidation_case_1_k5_corridor_sharing() {
-    // Protects: corridor consolidation proper on a wrapped 5-settlement
-    // complete graph (10 edges): shared trunk segments claimed busiest-first,
-    // fully consolidated edges emitted as hidden 2-point ways, and both
-    // `highway` and `regional` classification, with the ways ordered
-    // busiest-first. Ways 2 and 4 were deliberately re-baselined 2026-09-28
-    // by the extend-back pass (see the history comment in the body), so those
-    // two pin this crate's own output, not the reference's; the other eight
-    // are the reference's. A mutation of the claim order or class thresholds
-    // moves a way.
-    // case1_world_wrap: gw=16 gh=12 seed=314159 world=true. Same 5
-    // (x,y,faction) triples + real names/pop as
-    // golden_parity_settlement_naming.rs's case1 and
-    // golden_parity_hierarchical_network.rs's case1 (K5, 10 edges).
-    // Real corridor consolidation: several edges share trunk segments
-    // (busiest-claimed-first), producing a mix of visible (highway/
-    // regional) and hidden (fully-consolidated) ways.
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;

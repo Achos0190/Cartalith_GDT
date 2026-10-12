@@ -90,7 +90,7 @@ const RIVER_LINE := Color(0.325, 0.463, 0.588)
 const MARKET := Color(0.878, 0.639, 0.290)       # #e0a34a
 ## Colour of the dot drawn at each approach-road end by `draw_layout` (also the swatch in
 ## `city_viewer_window.gd`); an annotation in the shell's amber family (see the header), not map
-## ink. No source stated for the exact value: labelled judgement.
+## ink. No source found for the exact value at this line.
 const ROUTE_END := Color(0.729, 0.545, 0.271)
 ## The unbuilt ground. Muted rather than paper-white: this is a document shown
 ## inside a dark tool window, and a bright sheet would glare.
@@ -116,7 +116,7 @@ const PLAZA_LINE := Color(0.588, 0.502, 0.337)
 const FARM_FIELD := Color(0.702, 0.678, 0.510)
 ## Grazing parcel fill, "a touch greener again" than `FARM_FIELD` (see the comment above); derived
 ## from this file's own palette, not ported. `_draw_farmland` picks it from the `pasture` flags.
-## Exact value: labelled judgement.
+## No source found for the exact value at this line.
 const FARM_PASTURE := Color(0.647, 0.667, 0.510)
 ## The furrow line between neighbouring strips. Strip fields read as strips
 ## because of their boundaries; without this a ring of them is one olive blob.
@@ -179,7 +179,7 @@ const GATE_PALISADE := Color(0.275, 0.204, 0.125)
 const WALL_TOWER := Color(0.212, 0.169, 0.114) # a shade under WALL_STONE
 ## Radius in model metres of the round tower at each `curtain` vertex; `_draw_wall` floors it in
 ## pixels. The comment above gives the basis (the owner's target image, Ruling H (b), a roundel
-## wider than the wall line); the exact 3.6 is a labelled judgement.
+## wider than the wall line); no source found for the exact 3.6 at this line.
 const WALL_TOWER_R_M := 3.6
 ## Base stroke widths in model metres, from the reference's own three branches:
 ## `4.5` stone, `2.2` palisade, `1.6` ditch.
@@ -248,7 +248,7 @@ const CITADEL_GATE_GAP_M := 9.0
 const TREE := Color(0.306, 0.455, 0.227)        # rgb(78,116,58), the reference's
 const TREE_ORCHARD := Color(0.376, 0.518, 0.251) # rgb(96,132,64), the reference's
 ## The dark rim drawn under a tree's fill; the owner's target image has it (Ruling H (a), see the
-## comment above), but the exact colour is a labelled judgement.
+## comment above), but no source found for the exact colour at this line.
 const TREE_RIM := Color(0.169, 0.200, 0.110)
 const WELL := Color(0.353, 0.431, 0.549)        # rgb(90,110,140)
 ## NOT the reference's rgb(210,196,160): measured, that pale stone read as the
@@ -276,11 +276,11 @@ const DETAIL_KINDS_DRAWN := ["well", "cross", "crane", "bollard", "spoilheap",
 ## saturation moved together by its own `tone` -- see `_roof_color()`.
 const ROOF_H := 0.058
 ## Base saturation of an outside-the-wall roof, in HSV with `ROOF_H` and `ROOF_V`; `_roof_color`
-## subtracts `tone * ROOF_S_SWING` and clamps to 0.18-0.62. No source stated for 0.46: labelled
-## judgement.
+## subtracts `(2*tone - 1) * ROOF_S_SWING` (tone clamped to 0..1) and clamps to 0.18-0.62. No
+## source found for 0.46 at this line.
 const ROOF_S := 0.46
-## Base value (brightness) of an outside-the-wall roof; `_roof_color` adds `tone * ROOF_V_SWING`
-## and clamps to 0.30-0.86. No source stated for 0.60: labelled judgement.
+## Base value (brightness) of an outside-the-wall roof; `_roof_color` adds `(2*tone - 1) * ROOF_V_SWING`
+## (tone clamped to 0..1) and clamps to 0.30-0.86. No source found for 0.60 at this line.
 const ROOF_V := 0.60
 ## The intramural roof base (Ruling H (c)): the target image draws every roof
 ## inside the curtain in an olive-ochre and every one outside in terracotta.
@@ -303,7 +303,7 @@ const ROOF_V_INTRA := 0.73
 ## engine emits one number rather than three).
 const ROOF_V_SWING := 0.17
 ## How far `tone` moves saturation, in the direction opposite to value (see the comment above);
-## used in `_roof_color`. No source stated for 0.13: labelled judgement.
+## used in `_roof_color`. No source found for 0.13 at this line.
 const ROOF_S_SWING := 0.13
 ## A slight hue drift, so the palette is a family rather than one chip.
 const ROOF_H_SWING := 0.030
@@ -312,8 +312,7 @@ const ROOF_H_SWING := 0.030
 ## for the whole map, from the upper left.
 const SHADOW_OFF := Vector2(1.1, 1.4)
 ## Roof drop-shadow colour: the `CASING` ink at alpha 0.30, scaled by the building's alpha in
-## `_draw_roofs`. The ink colour is `CASING`'s; the 0.30 alpha has no stated source (labelled
-## judgement).
+## `_draw_roofs`. The ink colour is `CASING`'s; no source found for the 0.30 alpha at this line.
 const SHADOW := Color(0.169, 0.129, 0.094, 0.30)
 
 ## `wFill` (reference line 22811) — the base stroke width per street class, in

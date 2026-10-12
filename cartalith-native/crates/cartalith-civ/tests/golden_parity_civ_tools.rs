@@ -287,12 +287,6 @@ fn case0() -> World {
 /// (DECISIONS.md 7d), not a reference value.
 #[test]
 fn case0_territory_brush_matches_civ_paint_territory_at() {
-    // Protects: `_civPaintTerritoryAt` (reference 15964) as the port's
-    // `PaintStamp::ungated`: two overlapping strokes (faction 3 radius 4,
-    // faction 5 radius 2) give 39 + 13 cells, a whole-raster hash match, and
-    // the second stroke overwrites the first. Red means the stamp footprint
-    // or the last-writer-wins rule moved. The `merge_territory_paint` half
-    // pins the port's own override (DECISIONS.md 7d), not a reference value.
     let w = case0();
     // The reference paints faction 3 at radius 4, then faction 5 at radius
     // 2 overlapping it -- so the second stroke must genuinely overwrite,
@@ -322,11 +316,6 @@ fn case0_territory_brush_matches_civ_paint_territory_at() {
 /// stopped appending.
 #[test]
 fn case0_drop_place_matches_civ_drop_place() {
-    // Protects: `_civDropPlace` (reference 16051): a land click places a Town
-    // of population 1000 with an empty name, an ocean click is refused as
-    // `Water`, a re-click on the same cell selects instead of stacking, and a
-    // distant click places a second one. Red on the length asserts means the
-    // tool stopped appending.
     let w = case0();
     // `_civZoomPickR` returned 1.0 in the harness (zoom 1), so the pick
     // radius is its base value.
@@ -370,11 +359,6 @@ fn case0_drop_place_matches_civ_drop_place() {
 /// bit-exact, so a changed projection formula moves them.
 #[test]
 fn case0_snapping_matches_civ_find_snap_target() {
-    // Protects: `_civFindSnapTarget` / `_civSnapPoint` (reference 16025 /
-    // 16043) at the default snap radius 5: a place beats a way on an exact
-    // tie, a way's projection wins beside the line, mid-way is exact, and
-    // only the nearer place is in range at the corner. The projection
-    // coordinates are bit-exact, so a changed projection formula moves them.
     let w = case0();
     let places = vec![town(C0_LAND_A.0, C0_LAND_A.1, SettlementKind::Town, 1, 1000), town(C0_LAND_B.0, C0_LAND_B.1, SettlementKind::Capital, 1, 1000)];
     let pts = vec![(C0_LAND_A.0 as f64, C0_LAND_A.1 as f64), (C0_LAND_B.0 as f64, C0_LAND_B.1 as f64)];
@@ -413,10 +397,6 @@ fn case0_snapping_matches_civ_find_snap_target() {
 /// moves the path or the km.
 #[test]
 fn case0_land_route_matches_civ_dijkstra_path() {
-    // Protects: `_civDijkstraPath` land mode over `_civLandCostGrid`
-    // (reference 25957 / 21035): the smoothed path, its break list and its
-    // km, bit for bit. A mutation of any land-cost constant moves the path or
-    // the km.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_LAND_B.0 as f64, C0_LAND_B.1 as f64, RouteMode::Land);
@@ -455,10 +435,6 @@ fn case0_unreachable_land_route_is_a_stub_at_the_target_not_a_straight_line() {
 /// water-cost constant moves the km.
 #[test]
 fn case0_water_route_matches_civ_dijkstra_path() {
-    // Protects: water mode over `_civWaterCostGrid` (reference 21051): a
-    // reachable ocean route bit for bit, and the unreachable water-to-land
-    // negative control with `reachable` false. A mutation of a water-cost
-    // constant moves the km.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_OCEAN_A.0 as f64, C0_OCEAN_A.1 as f64, C0_OCEAN_B.0 as f64, C0_OCEAN_B.1 as f64, RouteMode::Water);
@@ -480,10 +456,6 @@ fn case0_water_route_matches_civ_dijkstra_path() {
 /// pair, so the test cannot pass with mixed behaving like land.
 #[test]
 fn case0_mixed_route_crosses_the_ocean() {
-    // Protects: `_civMixedCostGrid` (reference 21090): a route from the
-    // western landmass across the ocean to the eastern strip, with exact km.
-    // The closing assert shows land mode refuses the same pair, so the test
-    // cannot pass with mixed behaving like land.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_FAR_LAND.0 as f64, C0_FAR_LAND.1 as f64, RouteMode::Mixed);
@@ -504,9 +476,6 @@ fn case0_mixed_route_crosses_the_ocean() {
 /// bit-exact.
 #[test]
 fn case0_settlement_gravity_bends_the_route() {
-    // Protects: the settlement-gravity term in the router's cost: one City of
-    // population 5000 near the start bends the route towards it. Red means
-    // gravity was dropped or its weight moved; the km is bit-exact.
     let w = case0();
     let places = vec![town(C0_LAND_A.0, (C0_LAND_A.1 + 4).min(w.gh - 1), SettlementKind::City, 1, 5000)];
     let ctx = w.ctx(&places, &[]);
@@ -526,10 +495,6 @@ fn case0_settlement_gravity_bends_the_route() {
 /// or the cell walk changed.
 #[test]
 fn case0_existing_way_discount_pulls_the_route_onto_it() {
-    // Protects: the existing-way discount (`_civWalkWayCells` /
-    // `_civMarkWaysOnGrid`, reference 21766 / 21757): an L-shaped detour way
-    // pulls the route onto its column. Red means the discount factor or the
-    // cell walk changed.
     let w = case0();
     let pts = detour_way(C0_LAND_A, C0_LAND_B);
     let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false, class: cartalith_civ::way_class::WayClass::Road }];
@@ -551,12 +516,6 @@ fn case0_existing_way_discount_pulls_the_route_onto_it() {
 /// == 1` assert is the emptiness check that the warning actually fires.
 #[test]
 fn case0_join_and_commit_match_the_reference() {
-    // Protects: `_civJoinDijkstraSegs` (26052) and `_civCommitWay` (26072): a
-    // three-waypoint land join with its km, a committed road way with an
-    // empty name, a sea lane tagged `sea`, and the v1.99 warning path where
-    // an unreachable leg still yields a way and a count of 1. The
-    // `unreachable_legs == 1` assert is the emptiness check that the warning
-    // actually fires.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let wps = [(C0_LAND_A.0 as f64, C0_LAND_A.1 as f64), C0_MID, (C0_LAND_B.0 as f64, C0_LAND_B.1 as f64)];
@@ -633,10 +592,6 @@ fn case1() -> World {
 /// flag in a way the reference does not.
 #[test]
 fn case1_territory_brush_matches_civ_paint_territory_at() {
-    // Protects: the territory brush on a world-wrap grid (20 x 16): the same
-    // two strokes as case 0 leave 52 painted cells and a matching hash. Red
-    // means the stamp depends on the grid size or wrap flag in a way the
-    // reference does not.
     let w = case1();
     let mut layer = vec![0u8; w.gw * w.gh];
     {
@@ -700,10 +655,6 @@ fn case1_wrapped_routes_carry_a_seam_break() {
 /// started returning a plausible route.
 #[test]
 fn case1_land_and_water_negative_controls() {
-    // Protects: the unreachable cases on the wrap world: land to ocean and
-    // water to land both report `reachable` false, with the reference's stub
-    // or fallback paths. Red means an unreachable target started returning a
-    // plausible route.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let land = civ_dijkstra_path(&ctx, C1_LAND_A.0 as f64, C1_LAND_A.1 as f64, C1_OCEAN_B.0 as f64, C1_OCEAN_B.1 as f64, RouteMode::Land);
@@ -726,9 +677,6 @@ fn case1_land_and_water_negative_controls() {
 /// bit-exact. Red means the mixed cost grid or the wrap smoothing moved.
 #[test]
 fn case1_mixed_route_matches_the_reference() {
-    // Protects: mixed mode on the wrap world: the route crosses the seam
-    // (`brks` [3]) and its km is bit-exact. Red means the mixed cost grid or
-    // the wrap smoothing moved.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C1_LAND_A.0 as f64, C1_LAND_A.1 as f64, C1_FAR_LAND.0 as f64, C1_FAR_LAND.1 as f64, RouteMode::Mixed);
@@ -752,10 +700,6 @@ fn case1_mixed_route_matches_the_reference() {
 /// introduced a spurious break or lost a real one.
 #[test]
 fn case1_join_and_commit_match_the_reference() {
-    // Protects: join and commit on the wrap world: with a midpoint the two
-    // legs meet and no pen is lifted (`brks` empty, 680 km), and the sea lane
-    // carries the seam break. Red means a join introduced a spurious break or
-    // lost a real one.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let wps = [(C1_LAND_A.0 as f64, C1_LAND_A.1 as f64), C1_MID, (C1_LAND_B.0 as f64, C1_LAND_B.1 as f64)];

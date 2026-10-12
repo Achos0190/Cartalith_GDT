@@ -266,7 +266,7 @@ const HISTORY_SLOTS := 4
 ## Phone: four across the 296 dp card. Both are above the 44 dp touch floor
 ## on both axes (the phone one is floored there anyway).
 const THUMB_SIZE_DESKTOP := Vector2(154, 116)
-const THUMB_SIZE_PHONE := Vector2(68, 64)  ## History thumbnail size on a phone, four across the 296 dp card; the 68 x 64 pair is a labelled judgement (the comment above states only the 44 dp touch floor).
+const THUMB_SIZE_PHONE := Vector2(68, 64)  ## History thumbnail size on a phone, four across the 296 dp card; no source found for the 68 x 64 pair (the comment above states only the 44 dp touch floor).
 ## `tect.plates`' own range in `params.rs` `PARAMS` (`Kind::Int`, 4 to 40). Used
 ## only when the running build publishes no `param_info("tect.plates")`.
 const PLATES_MIN_FALLBACK := 4
@@ -442,7 +442,7 @@ var _lock: Button
 ## it by hand until reset. Under an archetype the count is the engine's own
 ## derivation and the row is read-only (Q8).
 var _plates_manual := false
-## Plate count shown, written to `tect.plates` on Create. The initial 14 is a placeholder; its source is not stated in the code (intent unverified).
+## The hand-set plate count, written to `tect.plates` on Create only while `_plates_manual` is set (otherwise `plates_for_km` decides, via `_classic_plates()`). Initial 14 equals the engine default `plates: 14` (`cartalith-engine` `WorldParams::defaults()`); not cited at the declaration.
 var _plates_value := 14
 ## The Plates row's minus button.
 var _plates_minus: Button

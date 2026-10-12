@@ -6023,7 +6023,7 @@ func _on_paint_discard_from_dock() -> void:
 #   so ("This belongs to the ramp rather than to a stop"). Drawn once, above
 #   the stop list, not per stop.
 
-## Builds the Ramp-stops context: the ramp's own Blend choice (interpolation belongs to the ramp, not a stop), the draggable ramp bar, the stop rows, add and reverse actions, the selected stop's editor and an Actions group. It resets the `_stops_*` widget handles first because the previous rebuild's widgets were freed. Notes and stops when the engine has no `set_color_ramp` binding. The Compare action is a no-op (`func(): pass`); intent unverified.
+## Builds the Ramp-stops context: the ramp's own Blend choice (interpolation belongs to the ramp, not a stop), the draggable ramp bar, the stop rows, add and reverse actions, the selected stop's editor and an Actions group. It resets the `_stops_*` widget handles first because the previous rebuild's widgets were freed. Notes and stops when the engine has no `set_color_ramp` binding. The Compare action is drawn disabled with its reason as the tooltip (§1.9's own "(mock)" caption; no previous-ramp store exists).
 func _build_stops(body: Control) -> void:
 	if not bridge.ramp_api:
 		DccWidgets.note(DccWidgets.section(body, "Ramp · stops"),
@@ -6731,7 +6731,7 @@ func _way_max_grade() -> Array:
 # nothing to a file whose whole job is drawing editable rows, so it stays
 # local to the file that actually needs read-only inspection.
 
-const _FIELD_LABEL_W := 116  ## Width in px of a row's label column (for example the Name row); 116 has no stated source (labelled judgement). The plan thumbnail's row narrows it.
+const _FIELD_LABEL_W := 116  ## Width in px of a row's label column (for example the Name row); no source found for the 116. The plan thumbnail's row narrows it.
 
 # -- Artboard primitives (`design/proposed-2026-09-05`) ----------------------
 #

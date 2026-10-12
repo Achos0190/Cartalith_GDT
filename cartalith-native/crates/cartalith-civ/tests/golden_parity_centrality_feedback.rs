@@ -41,8 +41,8 @@ fn star() {
     );
 }
 
-/// Protects the promote threshold from just above: the two interior places at ratio 1.0 and ~0.667 (just
-/// over 0.65) are both promoted, and both zero-betweenness ends are demoted.
+/// Protects the promote threshold from just above: the four interior places (ratios ~0.667, 1.0, 1.0,
+/// ~0.667, the lowest just over 0.65) are all promoted, and both zero-betweenness ends are demoted.
 #[test]
 fn path() {
     check(

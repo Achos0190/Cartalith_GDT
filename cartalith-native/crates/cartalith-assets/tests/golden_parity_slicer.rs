@@ -374,10 +374,6 @@ const GRID_CASES: &[GridCase] = &[
 /// and uneven division; the fixture table itself is asserted non-empty.
 #[test]
 fn compute_cells_matches_the_reference_on_every_fixture() {
-    // Protects: compute_cells' cell geometry (position, size, identity)
-    // and min_w/min_h match the reference exactly across ten fixtures
-    // covering clamping, negative extents, NaN/negative spacing and
-    // uneven division; the fixture table itself is asserted non-empty.
     let mut total_cells = 0usize;
     for c in GRID_CASES {
         let grid = SliceGrid::new(c.rect, c.cols, c.rows, c.spacing);
@@ -456,9 +452,6 @@ const CROP_CASES: &[CropCase] = &[
 /// half-away-from-zero) across positive, negative, sub-pixel and exact-half-boundary cases.
 #[test]
 fn cell_source_rect_matches_the_references_crop_cell_rounding() {
-    // Protects: cell_source_rect's rounding matches the reference's
-    // Math.round (half-up, not half-away-from-zero) across positive,
-    // negative, sub-pixel and exact-half-boundary cases.
     for c in CROP_CASES {
         let cell = cartalith_assets::CellRect { col: 0, row: 0, index: 0, x: c.x, y: c.y, w: c.w, h: c.h };
         assert_eq!(
@@ -499,8 +492,6 @@ const BLANK_CASES: &[BlankCase] = &[
 /// itself (8 still blank, 9 not).
 #[test]
 fn is_blank_matches_the_reference_on_every_fixture() {
-    // Protects: is_blank's >8-alpha threshold matches the reference
-    // exactly, including at the boundary itself (8 still blank, 9 not).
     for c in BLANK_CASES {
         let px = c.data.len() / 4;
         let img = DecodedImage::new(1, px as u32, c.data.to_vec()).expect("fixture is a whole number of pixels");
@@ -539,9 +530,6 @@ const CHROMA_CASES: &[ChromaCase] = &[
 /// reference), skips already-transparent pixels, and leaves non-matching pixels untouched.
 #[test]
 fn apply_chroma_matches_the_reference_on_every_fixture() {
-    // Protects: apply_chroma keys pixels out on <= tolerance distance
-    // (inclusive, matching the reference), skips already-transparent
-    // pixels, and leaves non-matching pixels untouched.
     for c in CHROMA_CASES {
         let px = c.before.len() / 4;
         let mut img = DecodedImage::new(1, px as u32, c.before.to_vec()).expect("fixture is a whole number of pixels");

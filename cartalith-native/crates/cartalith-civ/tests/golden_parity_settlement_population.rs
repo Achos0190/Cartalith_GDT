@@ -67,14 +67,6 @@ fn assert_close(actual: f64, expected: f64, label: &str) {
 /// (this crate's `BIOME_GRASS`), the reference's own `BIOME_KEYS` index.
 #[test]
 fn subsistence_mode_and_agrarian_density_match_the_reference() {
-    // Protects: `subsistenceModeAt` / `agrarianDensityKm2` (reference
-    // 23369-23385): the mode (0 gathering, 1 bush fallow, 2 short fallow, 3
-    // annual) and density for eleven cases, each at or just below a
-    // threshold: the annual-cultivation boundary, the short-fallow rain and
-    // water floors, the bush-fallow k floor, the k > 1 clamp, and a NaN k
-    // falling to gathering. A mutation of any threshold flips a row.
-    // (k, water, biome, rain, want_mode, want_density) -- biome 7 is grass
-    // (this crate's `BIOME_GRASS`), the reference's own `BIOME_KEYS` index.
     let cases: [(f64, f64, u8, f64, u8, f64); 11] = [
         (0.9, 0.9, 0, 0.9, 0, 1.8),                     // ocean -> gathering
         (0.9, 0.9, 1, 0.9, 0, 1.8),                     // ice -> gathering
@@ -107,10 +99,6 @@ fn subsistence_mode_and_agrarian_density_match_the_reference() {
 /// or the sea mask changed.
 #[test]
 fn current_agrarian_density_matches_the_reference_on_a_mixed_land_sea_fixture() {
-    // Protects: `currentAgrarianDensity` (23441-23460) on a three-cell
-    // fixture: land cells scale to the reference's normalised f32 values and
-    // the below-sea cell is 0. Red means the normalisation or the sea mask
-    // changed.
     let k = [0.9f32, 0.2, 0.9];
     let water = [0.9f32, 0.9, 0.9];
     let biome = [7u8, 7, 7];
@@ -128,9 +116,6 @@ fn current_agrarian_density_matches_the_reference_on_a_mixed_land_sea_fixture() 
 /// back to 1 and the output is a single 0.0, not NaN.
 #[test]
 fn current_agrarian_density_falls_back_to_norm_one_when_all_cells_are_sea() {
-    // Protects: the all-sea fallback of `currentAgrarianDensity`: with no
-    // land the normaliser falls back to 1 and the output is a single 0.0, not
-    // NaN.
     let k = [0.9f32];
     let water = [0.9f32];
     let biome = [7u8];
@@ -146,9 +131,6 @@ fn current_agrarian_density_falls_back_to_norm_one_when_all_cells_are_sea() {
 /// from both sum and count (mean 11.75). Red means sea cells were averaged in.
 #[test]
 fn catchment_density_mean_matches_the_reference_with_a_sea_cell_excluded() {
-    // Protects: `_civCatchmentDensityMean` (23461-23469): a below-sea cell
-    // inside the disc is excluded from both sum and count (mean 11.75). Red
-    // means sea cells were averaged in.
     let gw = 5usize;
     let gh = 5usize;
     let mut field = vec![0.6f32; gw * gh];
@@ -162,9 +144,6 @@ fn catchment_density_mean_matches_the_reference_with_a_sea_cell_excluded() {
 /// the right-edge column (mean 4.8) and the unwrapped one does not (4.25).
 #[test]
 fn catchment_density_mean_wrap_vs_no_wrap_matches_the_reference() {
-    // Protects: the x-wrap of `_civCatchmentDensityMean`: at the left edge
-    // the wrapped disc includes the right-edge column (mean 4.8) and the
-    // unwrapped one does not (4.25).
     let gw = 4usize;
     let gh = 3usize;
     let field = vec![0.6f32; gw * gh];
@@ -178,7 +157,6 @@ fn catchment_density_mean_wrap_vs_no_wrap_matches_the_reference() {
 /// Protects: the empty-disc guard: a disc with no land returns 0, not NaN.
 #[test]
 fn catchment_density_mean_is_zero_when_every_cell_in_range_is_sea() {
-    // Protects: the empty-disc guard: a disc with no land returns 0, not NaN.
     let gw = 3usize;
     let gh = 3usize;
     let field = vec![0.1f32; gw * gh];
@@ -265,8 +243,6 @@ fn catchment_pop_and_settlement_population_match_the_reference_across_all_kinds(
 /// propagating NaN.
 #[test]
 fn settlement_population_is_zero_for_a_nan_norm_b_over_an_all_sea_map() {
-    // Protects: the NaN guard: an all-sea map with a NaN `normB` gives
-    // population 0 rather than propagating NaN.
     let gw = 3usize;
     let gh = 3usize;
     let field = vec![0.1f32; gw * gh];

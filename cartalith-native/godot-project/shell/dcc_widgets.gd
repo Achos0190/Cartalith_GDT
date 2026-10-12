@@ -430,8 +430,8 @@ static func advanced(parent: Control, title: String = "advanced") -> VBoxContain
 # -- Rows ---------------------------------------------------------------------
 
 ## Width in px of the label column of a settings row; `_row` applies it and other windows (for
-## example the faction roster's colour and religion rows) reuse it so their labels line up. The 132
-## has no source stated here: labelled judgement.
+## example the faction roster's colour and religion rows) reuse it so their labels line up. No source
+## found for the 132 at this line.
 const ROW_LABEL_W := 132
 ## `width:44px;text-align:right` on the canvas's value column. 56 was 27 % wide
 ## and stole the slack the label needed.

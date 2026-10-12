@@ -56,14 +56,6 @@ mod pre_rv1_world;
 /// threshold, or the water-body feed moved. case 0: region: gw=14 gh=11 seed=24601 world=false.
 #[test]
 fn biome_raster_case_0_region() {
-    // Protects: `classifyBiome` (reference 5736) and `buildBiomeRaster`
-    // (6798) on a bounded 14 x 11 region: the categorical biome raster,
-    // bit-exact, which also sums to the water-body counts of
-    // `golden_parity_waterbodies.rs` (75 ocean, 79 land; module doc).
-    // Untouched by Rulings Q and T, so these are the reference's own values.
-    // Red means a biome rule, a temperature or rainfall threshold, or the
-    // water-body feed moved.
-    // case 0: region: gw=14 gh=11 seed=24601 world=false.
     let expected_biome: Vec<u8> = vec![
         1, 1, 2, 2, 2, 3, 6, 3, 6, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 6, 6, 6, 6, 0, 0, 0, 0, 0, 2, 3, 3, 6, 6, 6, 6, 6, 0, 0, 0, 0, 0, 0, 3, 3,
         6, 6, 6, 6, 0, 0, 0, 6, 0, 6, 6, 0, 6, 6, 6, 6, 6, 6, 0, 0, 0, 0, 0, 6, 6, 0, 6, 6, 6, 6, 6, 6, 0, 0, 12, 0, 0, 0, 0, 0, 6, 5, 5, 5,
@@ -92,14 +84,6 @@ fn biome_raster_case_0_region() {
 /// pre-Ruling-Q values.
 #[test]
 fn biome_raster_case_1_world_wrap() {
-    // Protects: the same raster on a wrapped 16 x 12 world (13 ocean, 52
-    // lake, 127 land). The values are the pre-Ruling-Q content restored by
-    // Ruling T (module doc), so they pin the size-primary water rule for a
-    // `world=true` map, not Ruling Q's topology rule. Red means a biome rule
-    // or the wrapped-map water-body rule changed.
-    // case 1: world_wrap: gw=16 gh=12 seed=314159 world=true. RE-BASELINED
-    // AGAIN 2026-09-21 (Ruling T, see this file's own header) -- reverted
-    // to its pre-Ruling-Q values.
     let expected_biome: Vec<u8> = vec![
         13, 13, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 13, 1, 1, 1, 13, 1, 1, 1, 13, 1, 1, 1, 1, 1, 1, 13, 2, 2, 2, 13, 13, 3, 2, 2,
         3, 13, 2, 3, 2, 2, 13, 13, 6, 13, 13, 13, 6, 13, 6, 6, 6, 6, 6, 6, 6, 13, 13, 6, 6, 13, 13, 12, 12, 13, 6, 6, 0, 12, 6, 12, 6, 6, 6,

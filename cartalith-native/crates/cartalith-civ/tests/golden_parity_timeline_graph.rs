@@ -287,9 +287,6 @@ fn real_settlements_k4_matches_the_reference() {
 /// components.
 #[test]
 fn real_settlements_k2_splits_into_two_components_and_betweenness_never_crosses_them() {
-    // Protects: Brandes over several components: at k = 2 the same positions
-    // split into two components and no betweenness crosses between them
-    // (`[0,1,1,1,0,1,0,0]`). Red means a search leaked across components.
     let gw = 512.0f64;
     let cell_km = 800.0 / gw;
     let positions = [

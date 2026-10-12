@@ -50,8 +50,6 @@ const FIT_CASES: &[FitCase] = &[
 /// never touches pan_x or scale.
 #[test]
 fn fit_to_bottom_matches_the_reference_on_every_fixture() {
-    // Protects: fit_to_bottom's resulting pan_y matches the reference across
-    // every fixture, and it never touches pan_x or scale.
     for c in FIT_CASES {
         let mut t = ItemTransform { scale: c.scale, pan_x: c.pan_x, pan_y: c.pan_y_before };
         fit_to_bottom(&mut t, c.w, c.h, c.size);
@@ -97,9 +95,6 @@ struct TexCase {
 /// case.
 #[test]
 fn finalize_pack_texture_inv_mean_matches_the_reference_on_every_fixture() {
-    // Protects: finalize_pack_texture_inv_mean's per-channel inverse mean
-    // matches the reference exactly, including clamping near-black/
-    // sub-1-mean channels to 1.0 and the zero-dimension edge case.
     let cases: &[TexCase] = &[
         TexCase {
             name: "uniform_mid",

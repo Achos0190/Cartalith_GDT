@@ -204,10 +204,6 @@ fn world(name: &str) -> Value {
 /// moved.
 #[test]
 fn small_world_with_lake_and_unreachable_island() {
-    // Protects: `_civConnectVillageAddons` (reference v2.11 line 25766) and the v1.71
-    // multi-source `roadDijkstra` (v2.11 line 3301) on the small world: a lake block and
-    // an island the land router cannot reach, so unreachable villages produce
-    // no track. Red means a track appeared, vanished or moved.
     run_world(&world("small"));
 }
 
@@ -250,17 +246,6 @@ fn downsampled_routing_grid_batch_of_six() {
 /// No other track in any world moved.
 #[test]
 fn wrapped_world_tracks_cross_the_seam() {
-    // Protects: wrap-aware tracks: on the wrapped world at least one track
-    // crosses the x seam and carries a `brks` entry, and its `km` matches bit
-    // for bit. Red means a seam track is drawn straight across the map.
-    //
-    // RE-BASELINED 2026-10-12 under Ruling CF item 4 (DECISIONS.md 7p): four
-    // seam-crossing tracks in the fixture moved. Their east seam endpoint is
-    // clamped from x 159.5 to 159 (the last column of this 160-wide map), and
-    // km now counts on-map samples plus the step across the seam, which the
-    // reference left out. km old -> new (bits in the fixture): [10]
-    // 27.07107 -> 35; [13] 36.50282 -> 44.72136; [14] 40.38844 -> 49.35241;
-    // [18] 66.82529 -> 72.71602. No other track in any world moved.
     run_world(&world("wrapped"));
 }
 
@@ -269,9 +254,6 @@ fn wrapped_world_tracks_cross_the_seam() {
 /// sources.
 #[test]
 fn dense_villages_attach_to_siblings() {
-    // Protects: sibling attachment: in a dense world a village connects to
-    // another village rather than only to a base settlement. Red means the
-    // multi-source search stopped adding finished villages as sources.
     run_world(&world("dense"));
 }
 
@@ -279,9 +261,6 @@ fn dense_villages_attach_to_siblings() {
 /// This is the negative control for the golden above.
 #[test]
 fn no_real_settlement_means_no_tracks() {
-    // Protects: the empty-input guard: with no base settlement there is no
-    // source and so no track. This is the negative control for the golden
-    // above.
     run_world(&world("no_base"));
 }
 
@@ -289,8 +268,6 @@ fn no_real_settlement_means_no_tracks() {
 /// was invented for a non-village.
 #[test]
 fn no_villages_means_no_tracks() {
-    // Protects: the other empty-input guard: with no villages nothing is
-    // connected. Red means a track was invented for a non-village.
     run_world(&world("no_villages"));
 }
 

@@ -178,12 +178,11 @@ static func _session_section(bridge: EngineBridge) -> String:
 ## the honest question is "can this build read its own log", and that is also
 ## the right answer on Android, where the `pc` tag does not apply, nothing
 ## writes a log, and the row dashes with that as its reason.
-## Line cap for the log row -- a labelled judgement (no measurement or ruling
-## behind 40): enough context before a failure, small enough to read in the
+## Line cap for the log row -- no source found for the 40 at this line: enough context before a failure, small enough to read in the
 ## review panel. Also appears in the row's label.
 const LOG_TAIL_LINES := 40
 ## Byte cap on how much of the log file is read before splitting into lines
-## (64 KiB; a labelled judgement) so a long session's log is never loaded whole.
+## (64 KiB; no source found for it at this line) so a long session's log is never loaded whole.
 ## If the last 40 lines exceed it, fewer than 40 lines are kept.
 const LOG_TAIL_BYTES := 65536
 

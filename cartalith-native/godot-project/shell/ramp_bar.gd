@@ -44,10 +44,10 @@ const EPS := 0.002
 ## judgement (about 30 Hz); the release always writes unthrottled.
 const LIVE_MS := 33
 ## Height in px of the gradient strip itself, drawn in `_draw`; `setup` adds it to the handle or
-## touch row to size the control. Value 16 is a labelled judgement.
+## touch row to size the control. No source found for the 16 at this line.
 const BAR_H := 16.0
 ## Height in px of the stop handle row under the strip, drawn in `_draw`; used by `setup` for the
-## non-touch height. Value 16 is a labelled judgement.
+## non-touch height. No source found for the 16 at this line.
 const HANDLE_H := 16.0
 ## Touch target: the shell's 44 px minimum (DccTheme/DccWidgets floor).
 const TOUCH_PX := 44.0

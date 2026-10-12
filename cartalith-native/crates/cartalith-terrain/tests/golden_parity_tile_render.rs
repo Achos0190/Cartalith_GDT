@@ -99,13 +99,6 @@ fn mk_tile(w: usize, h: usize, k: i64) -> Vec<f32> {
 /// BELOW the palette (which extrapolates to negative channels -- see the port's own doc comment).
 #[test]
 fn hypso_matches_the_reference_across_four_sea_levels() {
-    // Protects: hypso's bit-exact agreement with the reference across every
-    // sub-ramp, palette boundary and degenerate-sea-level guard, plus the
-    // unclamped below-palette extrapolation actually being reached.
-    // (sea, v) -> [r, g, b], straight out of the reference. The list spans:
-    // both sea sub-ramps, every LAND stop boundary, the `sea <= 0` guard, the
-    // `1 - sea <= 0` guard, and a v BELOW the palette (which extrapolates to
-    // negative channels -- see the port's own doc comment).
     #[allow(clippy::type_complexity)]
     let want: &[((f64, f64), [f64; 3])] = &[
         ((0.42, -0.1), [2.3809523809523796, 0.3809523809523796, 1.2380952380952408]),
@@ -179,12 +172,6 @@ fn hypso_matches_the_reference_across_four_sea_levels() {
 /// raster was rendered from, so a drifted fixture fails as a fixture rather than as a port.
 #[test]
 fn render_height_tile_rgba_matches_the_reference_byte_for_byte() {
-    // Protects: render_height_tile_rgba's byte-exact agreement with the
-    // reference across normal tiles and every degenerate edge case (1-wide,
-    // 1-tall, 2x2) the edge extrapolators exist for.
-    // (w, h, k, sea, sunAz, exag, rasterFnv, first 12 bytes, last 12 bytes),
-    // plus the FNV of the f32 tile the raster was rendered from, so a drifted
-    // fixture fails as a fixture rather than as a port.
     #[allow(clippy::type_complexity)]
     let want: &[(usize, usize, i64, f64, f64, f64, &str, &str, [u8; 12], [u8; 12], usize)] = &[
         (7, 5, 3, 0.42, 315.0, 3.4, "1fe86088feaadbb9", "3a52ad29ad651696",
@@ -244,11 +231,6 @@ fn render_height_tile_rgba_matches_the_reference_byte_for_byte() {
 /// multiplier applied to LAND[0] -- `v < sea` is false at equality.
 #[test]
 fn a_pixel_exactly_at_sea_level_takes_the_land_branch() {
-    // Protects: the `v < sea` (not `<=`) branch condition -- a mutation to
-    // `<=` survived every fixture above (see the section comment before this
-    // test) because none of them placed a pixel exactly at sea level.
-    // Flat, entirely AT sea level. A single colour, and the reference's is the
-    // LAND multiplier applied to LAND[0] -- `v < sea` is false at equality.
     let flat = vec![0.5f32; 9];
     let px = render_height_tile_rgba(&flat, 3, 3, 0.5, 315.0, 3.4);
     assert_eq!(px.len(), 36);

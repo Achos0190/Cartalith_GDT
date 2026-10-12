@@ -63,10 +63,6 @@ fn fixtures() -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
 /// the module doc explains. The reference's own bytes for `zipStore([{name:'a.png', data:png}])`.
 #[test]
 fn a_store_only_archive_is_byte_identical_apart_from_two_cosmetic_fields() {
-    // Protects: zip_store_bytes for a single-PNG (STORE-only) archive matches
-    // the reference's own zipStore output byte for byte, apart from the two
-    // cosmetic fields (version tag, external attrs) the module doc explains.
-    // The reference's own bytes for `zipStore([{name:'a.png', data:png}])`.
     const REFERENCE: &[u8] = &[
         80, 75, 3, 4, 20, 0, 0, 0, 0, 0, 0, 0, 33, 0, 166, 10, 18, 97, 64, 0, 0, 0, 64, 0, 0, 0, 5,
         0, 0, 0, 97, 46, 112, 110, 103, 0, 13, 26, 39, 52, 65, 78, 91, 104, 117, 130, 143, 156,
@@ -103,13 +99,6 @@ fn a_store_only_archive_is_byte_identical_apart_from_two_cosmetic_fields() {
 /// last pair is the behaviour milestone 2 did not port.
 #[test]
 fn the_method_rule_matches_the_reference_entry_for_entry() {
-    // Protects: zip_store_bytes's STORE-vs-DEFLATE choice matches the
-    // reference entry for entry, including the two small entries the
-    // reference stores because deflating them would not shrink them --
-    // milestone 2 did not port that rule; E2 does.
-    // Reference: png STORED, the compressible .bin DEFLATED, and BOTH small
-    // entries STORED because deflating them would not shrink them. That last
-    // pair is the behaviour milestone 2 did not port.
     let (png, bin, params, rnd) = fixtures();
     let want: &[(&str, &[u8], zip::CompressionMethod, u32, u64)] = &[
         ("tiles/refined_0_0.png", &png, zip::CompressionMethod::Stored, 1628572326, 64),
@@ -151,12 +140,6 @@ fn the_method_rule_matches_the_reference_entry_for_entry() {
 /// counter-pressure.
 #[test]
 fn a_png_is_stored_even_when_it_would_compress_beautifully() {
-    // Protects: the STORE-vs-DEFLATE rule keys on the file extension, not on
-    // measured compressibility -- a highly compressible ".PNG" payload is
-    // still stored, matching the reference's own name-based rule.
-    // The rule is on the NAME, not on the numbers -- a real PNG is already
-    // deflated internally, so re-compressing it is wasted CPU. A run of one
-    // repeated byte is the strongest possible counter-pressure.
     let png = vec![b'A'; 8192];
     let buf = cartalith_assets::zip_store_bytes(&[("x.PNG", &png)]).expect("write");
     let mut a = zip::ZipArchive::new(Cursor::new(&buf)).expect("zip");
@@ -169,9 +152,6 @@ fn a_png_is_stored_even_when_it_would_compress_beautifully() {
 /// is what makes two independent writes of the same entries produce byte-identical archives.
 #[test]
 fn the_same_entries_write_the_same_bytes_twice() {
-    // Protects: zip_store_bytes is deterministic for identical input -- the
-    // frozen DOS-epoch timestamp is what makes two independent writes of the
-    // same entries produce byte-identical archives.
     let (png, bin, params, _) = fixtures();
     let go = || {
         cartalith_assets::zip_store_bytes(&[
@@ -188,8 +168,6 @@ fn the_same_entries_write_the_same_bytes_twice() {
 /// than an error or malformed bytes.
 #[test]
 fn an_empty_entry_list_still_writes_a_readable_archive() {
-    // Protects: zip_store_bytes with zero entries still produces a valid,
-    // re-openable archive rather than an error or malformed bytes.
     let buf = cartalith_assets::zip_store_bytes(&[]).expect("write");
     assert_eq!(zip::ZipArchive::new(Cursor::new(&buf)).expect("zip").len(), 0);
 }

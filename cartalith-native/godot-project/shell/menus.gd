@@ -4241,13 +4241,13 @@ static func _gb(bytes: int) -> String:
 ## bearings for azimuth, the reference's own band for elevation. The per-world
 ## controls in CARTO stay continuous -- this sets where they START.
 const LIGHT_AZ_STEPS: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
-## Sun-altitude rungs in degrees. The band is described above as the reference's own; the
-## individual rung values are a labelled judgement.
+## Sun-altitude rungs in degrees. The band is described above as the reference's own; no
+## source found for the individual rung values at this line.
 const LIGHT_ALT_STEPS: Array[float] = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0]
-## Ambient-relief rungs (fraction); labelled judgement, no source stated for the
+## Ambient-relief rungs (fraction); no source found at this line for the
 ## individual values.
 const LIGHT_AMB_STEPS: Array[float] = [0.0, 0.15, 0.25, 0.35, 0.5, 0.7]
-## Relief light counts offered; labelled judgement, no source stated for the individual
+## Relief light counts offered; no source found at this line for the individual
 ## values.
 const LIGHT_NUM_STEPS: Array[float] = [1.0, 2.0, 4.0, 6.0, 8.0, 12.0]
 

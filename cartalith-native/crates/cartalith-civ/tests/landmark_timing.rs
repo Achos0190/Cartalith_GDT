@@ -223,10 +223,6 @@ fn run_at(gw: usize, gh: usize, width_km: f64, settlements: usize) {
 #[test]
 #[ignore = "diagnostic timing harness, minutes long at the top size"]
 fn landmark_generate_scaling() {
-    // Protects: nothing; an ignored diagnostic that prints `generate` time at
-    // four sizes (256 to 2048 columns) at a constant 0.390625 km cell, so
-    // analysis radii clamp the same way and only cell count varies. It
-    // asserts nothing, so it can only go red by panicking.
     println!();
     // Constant cell size (0.39 km, the shell's own 2048 @ 800 km default), so
     // the analysis radii clamp identically at every size and the only variable
@@ -241,9 +237,6 @@ fn landmark_generate_scaling() {
 #[test]
 #[ignore = "diagnostic timing harness"]
 fn landmark_generate_settlement_scaling() {
-    // Protects: nothing; an ignored diagnostic that prints `generate` time at
-    // 2, 50, 200 and 800 settlements on a fixed 512 x 328 grid. Asserts
-    // nothing.
     println!();
     for k in [2usize, 50, 200, 800] {
         run_at(512, 328, 200.0, k);
@@ -255,9 +248,6 @@ fn landmark_generate_settlement_scaling() {
 #[test]
 #[ignore = "diagnostic timing harness — the shell's real default world"]
 fn landmark_generate_at_the_shipping_default() {
-    // Protects: nothing; an ignored diagnostic timing of one 2048 x 1311 run
-    // over 800 km, the size the shell's own default world uses (per the
-    // comment in the scaling test). Asserts nothing.
     println!();
     run_at(2048, 1311, 800.0, 2);
 }

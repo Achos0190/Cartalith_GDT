@@ -157,13 +157,6 @@ fn same_net(a: &civ::HierarchicalNetworkResult, b: &civ::HierarchicalNetworkResu
 /// pairs function that skipped the sort would be caught.
 #[test]
 fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
-    // Protects: the place pairs the centrality loop feeds
-    // `civ_network_betweenness`: `civ_network_way_pairs` must equal the pairs
-    // the consolidated ways carry, in the same order, with each edge's run
-    // collapsed. Red means the loop measures a different graph from the one
-    // the user sees drawn. The `assert_ne!` against raw edge order proves
-    // this world reorders edges, so a pairs function that skipped the sort
-    // would be caught.
     let w = world_placements(256, 12345);
     assert!(w.places.len() >= 8, "fixture too small: {} places", w.places.len());
     let net = w.network(&w.places);
@@ -196,10 +189,6 @@ fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
 /// running three. Red means the loop changed output for a one-pass caller.
 #[test]
 fn one_pass_is_the_single_network_build() {
-    // Protects: that one pass is byte-identical to the single network build
-    // the port made before the loop existed, with no re-tiering, and that
-    // `passes == 0` is clamped to one pass rather than running three. Red
-    // means the loop changed output for a one-pass caller.
     let w = world_placements(256, 12345);
     let before = w.places.clone();
     let single = w.network(&w.places);
@@ -220,12 +209,6 @@ fn one_pass_is_the_single_network_build() {
 /// must not.
 #[test]
 fn three_passes_run_two_feedback_rounds() {
-    // Protects: the loop count: `CIV_AUTO_WORLD_PASSES` (3) means network,
-    // re-tier, network, re-tier, network, i.e. two feedback rounds, checked
-    // against the same steps done by hand. The two `assert_ne!` calls show
-    // each round moves something on this fixture, so an off-by-one in the
-    // count cannot pass by coincidence. Only `kind` may move: position,
-    // faction, seat and port flags must not.
     let w = world_placements(256, 12345);
     // By hand: network, re-tier, network, re-tier, network.
     let mut by_hand = w.places.clone();

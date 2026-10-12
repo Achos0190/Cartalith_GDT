@@ -112,9 +112,6 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// archive.
 #[test]
 fn read_pack_entries_matches_the_reference_unzip_any() {
-    // Protects: read_pack_entries reads back exactly the entries (name,
-    // length, and CRC-32 against the reference's own central-directory
-    // checksums) the reference's unzipAny() saw in the same real archive.
     let cap = capture();
     let got = read_pack_entries(Cursor::new(FIXTURE_ZIP)).expect("reference pack should open");
 
@@ -153,11 +150,6 @@ fn read_pack_entries_matches_the_reference_unzip_any() {
 /// compared to the fixture).
 #[test]
 fn parsing_a_real_reference_pack_matches_the_reference_parser() {
-    // Protects: read_pack's manifest fields, pack_summary text, and
-    // warnings all match the reference's own parser output for a real
-    // reference-exported archive, except the one authorised divergence
-    // this file's module doc names (both the old and new literal are
-    // spelled out here, not just compared to the fixture).
     let cap = capture();
     let (manifest, _entries) = read_pack(Cursor::new(FIXTURE_ZIP)).expect("pack should parse");
 

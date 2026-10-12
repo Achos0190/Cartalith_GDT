@@ -137,8 +137,6 @@ const PRESETS: &[(&str, &str)] = &[
 /// defaultScatterRule() field for field.
 #[test]
 fn default_rule_matches_the_reference() {
-    // Protects: ScatterRule::default()'s canonical text matches the
-    // reference's own defaultScatterRule() field for field.
     assert_eq!(canon(&ScatterRule::default()), DEFAULT_RULE);
 }
 
@@ -146,9 +144,6 @@ fn default_rule_matches_the_reference() {
 /// back to the bare default for a slot with no preset (frozen or custom).
 #[test]
 fn slot_presets_match_the_reference() {
-    // Protects: preset_scatter_rule reproduces every SCATTER_RULE_PRESETS
-    // entry exactly, and falls back to the bare default for a slot with no
-    // preset (frozen or custom).
     for (slot, expected) in PRESETS {
         assert_eq!(canon(&preset_scatter_rule(slot)), *expected, "slot {slot}");
     }
@@ -161,12 +156,6 @@ fn slot_presets_match_the_reference() {
 /// separator.
 #[test]
 fn rule_keys_match_the_reference() {
-    // Protects: scatter_rule_key's key shape (bare id, custom::<set>::id,
-    // and the falsy-empty-set-name fallback) matches the reference across
-    // every argument shape the harness exercised.
-    // The harness called scatterRuleKey with, in order: one argument, an
-    // explicit `undefined`, an explicit `null`, a real set name, an empty set
-    // name (falsy -> no prefix), and a set name containing the separator.
     assert_eq!(scatter_rule_key("mountain", None), "mountain");
     assert_eq!(scatter_rule_key("oak", Some("Trees")), "custom::Trees::oak");
     assert_eq!(scatter_rule_key("oak", Some("")), "oak");
@@ -421,10 +410,6 @@ fn normalize_fixtures() -> Vec<(&'static str, Value, &'static str, &'static str)
 /// Number.isFinite non-coercion in biomes, and the density-falls-back-to-literal-1 asymmetry.
 #[test]
 fn normalize_matches_the_reference_on_every_hostile_input() {
-    // Protects: normalize_scatter_rule's every JS-coercion quirk against
-    // untrusted input — numeric-string coercion, falsy-zero, clamping,
-    // the v1.27 min/max-size aliasing fix, Number.isFinite non-coercion
-    // in biomes, and the density-falls-back-to-literal-1 asymmetry.
     for (name, raw, slot, expected) in normalize_fixtures() {
         assert_eq!(
             canon(&normalize_scatter_rule(&raw, slot)),
@@ -465,8 +450,6 @@ fn sweep_positions() -> Vec<(i32, i32)> {
 /// 36-position sweep, including negative x.
 #[test]
 fn plain_variant_pick_matches_the_reference() {
-    // Protects: pick_icon_variant matches the reference's own v1.25 hash
-    // index for index across a 36-position sweep, including negative x.
     const EXPECTED: &[usize] = &[
         2, 3, 3, 0, 0, 1, 3, 1, 1, 1, 0, 3, 3, 1, 3, 1, 2, 1, 1, 3, 1, 3, 3, 3, 1, 0, 2, 1, 1, 0,
         0, 1, 1, 0, 2, 2,
@@ -485,14 +468,6 @@ fn plain_variant_pick_matches_the_reference() {
 /// exactly — that fall-through is what keeps an un-weighted asset's variant selection unchanged.
 #[test]
 fn weighted_variant_pick_matches_the_reference() {
-    // Protects: pick_weighted_variant matches the reference index for
-    // index across every weight shape — no weights, single/zero variants,
-    // length mismatch, all-zero, negative/NaN weights, one-hot, tiny
-    // weights and a real ratio — with the degenerate cases correctly
-    // falling through to the unweighted v1.25 hash.
-    // The v1.25 hash, which the three degenerate cases below must reproduce
-    // exactly — that fall-through is what keeps an un-weighted asset's variant
-    // selection unchanged.
     const UNIFORM: &[usize] = &[
         2, 3, 3, 0, 0, 1, 3, 1, 1, 1, 0, 3, 3, 1, 3, 1, 2, 1, 1, 3, 1, 3, 3, 3, 1, 0, 2, 1, 1, 0,
         0, 1, 1, 0, 2, 2,
@@ -567,9 +542,6 @@ fn weighted_variant_pick_matches_the_reference() {
 /// table returns only the enabled rules in the table's own insertion order, not alphabetical.
 #[test]
 fn current_scatter_rules_matches_the_reference() {
-    // Protects: current_scatter_rules returns None for an empty or
-    // all-disabled table, and for a mixed table returns only the enabled
-    // rules in the table's own insertion order, not alphabetical.
     let empty = ScatterRuleTable::new();
     assert!(current_scatter_rules(&empty).is_none(), "empty table");
 
@@ -631,13 +603,6 @@ fn pack_with(icons: Slots<'_>, custom: &[(&str, Slots<'_>)]) -> PackManifest {
 /// which has an empty slot, which the reference does NOT skip.
 #[test]
 fn autopopulate_matches_the_reference() {
-    // Protects: autopopulate_scatter_rules seeds a table entry (preset or
-    // bare default) for every icon/custom slot that actually carries art,
-    // skipping empty icon slots but NOT skipping empty custom slots — the
-    // reference's own asymmetry.
-    // A pack with: a normal slot, a multi-variant slot, an EMPTY icon slot
-    // (skipped), a slot with no preset (bare default), and two custom sets —
-    // one of which has an empty slot, which the reference does NOT skip.
     let pack = pack_with(
         &[
             ("tree_conifer", &["a.png"]),
@@ -662,9 +627,6 @@ fn autopopulate_matches_the_reference() {
 /// user's own tuning), even when the pack's slot would otherwise seed a different value.
 #[test]
 fn autopopulate_never_clobbers_a_tuned_rule() {
-    // Protects: autopopulate_scatter_rules never overwrites a rule already
-    // present in the table (a user's own tuning), even when the pack's
-    // slot would otherwise seed a different value.
     let mut table = ScatterRuleTable::new();
     table.insert(
         "mountain",
@@ -687,8 +649,6 @@ fn autopopulate_never_clobbers_a_tuned_rule() {
 /// at all.
 #[test]
 fn autopopulate_on_an_artless_pack_adds_nothing() {
-    // Protects: autopopulate_scatter_rules on a default (artless)
-    // PackManifest adds no table entries at all.
     let mut table = ScatterRuleTable::new();
     autopopulate_scatter_rules(&mut table, &PackManifest::default());
     assert!(table.is_empty());

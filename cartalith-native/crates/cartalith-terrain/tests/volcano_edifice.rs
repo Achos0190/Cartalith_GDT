@@ -98,10 +98,6 @@ fn the_default_edifice_model_is_the_reference() {
 /// while the height field itself actually differs and stays within [0,1].
 #[test]
 fn morphological_does_not_move_the_random_stream() {
-    // Protects: turning on EdificeModel::Morphological not consuming any
-    // extra RNG draws relative to Reference (volcanic_field, which depends
-    // only on placement/radius/age, must stay bit-identical) while the
-    // height field itself actually differs and stays within [0,1].
     for (name, run) in [
         ("simple", simple as fn(EdificeModel) -> (Vec<f32>, Vec<f32>)),
         ("provinces", provinces as fn(EdificeModel) -> (Vec<f32>, Vec<f32>)),

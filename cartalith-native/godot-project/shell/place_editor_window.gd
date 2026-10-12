@@ -220,20 +220,20 @@ var _sim_mode := "collapse"
 ## Simulation character: "mixed", "trade", "disease" or "conflict"; bound to the Timeline tab's
 ## choice in `_build_timeline`.
 var _sim_character := "mixed"
-## Simulation severity as a 0..1 fraction (the slider shows 0-100 %); default 0.5 is a labelled
-## judgement, no source stated at the declaration.
+## Simulation severity as a 0..1 fraction (the slider shows 0-100 %); default 0.5 is the
+## reference's `#civSimSeverity` `value` (50, read as `/100`; v2.11 lines 1940 and 25420).
 var _sim_severity := 0.5
-## Simulation rate as a per-year fraction (the slider shows 0-10 %/yr); default 0.01 is a labelled
-## judgement, no source stated at the declaration.
+## Simulation rate as a per-year fraction (the slider shows 0-10 %/yr); default 0.01 is the
+## reference's `#civSimRate` `value` (10, read as `/1000`; v2.11 lines 1942 and 25421).
 var _sim_rate := 0.01
-## Simulation start year, any integer in the number row's -100000..100000 range; default 0 is a
-## labelled judgement.
+## Simulation start year, any integer in the number row's -100000..100000 range; default 0 is the
+## reference's `#civSimStartYear` `value` (v2.11 line 1944).
 var _sim_start_year := 0
-## Simulation duration in years (number row minimum 1); default 100 is a labelled judgement, no
-## source stated.
+## Simulation duration in years (number row minimum 1); default 100 is the reference's
+## `#civSimDuration` `value` (v2.11 line 1946).
 var _sim_duration := 100
-## Simulation step in years (number row minimum 1); default 10 is a labelled judgement, no source
-## stated.
+## Simulation step in years (number row minimum 1); default 10 is the reference's
+## `#civSimStepYears` `value` (v2.11 line 1947).
 var _sim_step_years := 10
 ## The last `civ_run_collapse_simulation` response, `{}` before any run this
 ## session. Holds either a `needs_confirm` gate (the canvas's own "nothing is
@@ -2041,10 +2041,10 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 
 # -- Population + economy ---------------------------------------------------
 
-## Population and economy section: population field, the specialisation and economy choosers, the
-## imports and exports groups and the water, food-shed, smelting and salt notes. A missing row from a
-## derived pass is shown as a dash with its reason, never as zero. `s` and `details` are the settlement
-## and its `civ_settlement_details`.
+## Population and economy section: the population number field and, when the engine supplies a
+## specialisation vocabulary, the Economy choice, which is stored on this settlement and not fed
+## back into faction aggregates (ED-03). Imports, exports, water, food shed, smelting and salt are
+## `_build_trade`'s. `s` and `details` are the settlement and its `civ_settlement_details`.
 func _build_economy(parent: Control, s: Dictionary, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Population & economy")
 	## Step 1, not the reference's own `step="500"`: an HTML number input

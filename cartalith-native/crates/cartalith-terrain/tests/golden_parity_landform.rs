@@ -101,8 +101,6 @@ fn fixture() -> Fx {
 /// 8082), class for class.
 #[test]
 fn the_palette_matches_the_reference() {
-    // Protects: LANDFORM_COLS/LANDFORM_NAMES against the reference's
-    // `LANDFORM_COLS` array (line 8082), class for class.
     let f = fixture();
     let cols: Vec<Vec<f64>> = f.v["cols"]
         .as_array()
@@ -121,9 +119,6 @@ fn the_palette_matches_the_reference() {
 /// real world, raster and histogram both, and that every non-zero class actually occurs.
 #[test]
 fn build_landform_field_matches_the_reference_on_a_real_world() {
-    // Protects: build_landform_field() against the reference's
-    // `buildLandformField` (line 8083) on a real world, raster and
-    // histogram both, and that every non-zero class actually occurs.
     let f = fixture();
     let got = build_landform_field(
         &f.field,
@@ -148,8 +143,6 @@ fn build_landform_field_matches_the_reference_on_a_real_world() {
 /// they can only ever reach cliff and mesa.
 #[test]
 fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
-    // Protects: the reference's `:15`/`:0.4`/`flow&&` no-climate fallbacks
-    // matching exactly, and that they can only ever reach cliff and mesa.
     let f = fixture();
     let got = build_landform_field(&f.field, None, None, None, f.gw, f.gh, f.sea, f.flow_hi);
     assert_eq!(got, u8s(&f.v["no_climate"]["out"]));
@@ -165,9 +158,6 @@ fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
 /// world.
 #[test]
 fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
-    // Protects: the mutation test for the dune/badlands threshold
-    // constants -- a hotter, drier world must match the reference exactly
-    // and must move both the dune and badlands counts from the base world.
     let f = fixture();
     let temp = f32s(&f.v["arid"]["temp"]);
     let rain = f32s(&f.v["arid"]["rain"]);
@@ -184,9 +174,6 @@ fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
 /// matches the reference exactly, moves the cirque count and drops dune to zero.
 #[test]
 fn a_cold_world_matches_the_reference_and_moves_cirque_and_dune() {
-    // Protects: the `T<2` cirque threshold pinned independently of the
-    // arid case -- a cold world matches the reference exactly, moves the
-    // cirque count and drops dune to zero.
     let f = fixture();
     let temp = f32s(&f.v["cold"]["temp"]);
     let got = build_landform_field(&f.field, Some(&temp), Some(&f.rain), Some(&f.flow), f.gw, f.gh, f.sea, f.flow_hi);

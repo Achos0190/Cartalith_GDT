@@ -175,8 +175,6 @@ fn every_knob_reaches_the_formula() {
 /// refreshGeoid output.
 #[test]
 fn refresh_geoid_derives_the_reference_s_own_rot_k_and_options() {
-    // Protects: refresh_geoid's derived rot_k and the field it builds,
-    // against the reference's own refreshGeoid output.
     let v = fixture();
     let (gw, gh) = dims(&v);
     let e = &v["enabled"];

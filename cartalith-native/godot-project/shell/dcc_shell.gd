@@ -1313,7 +1313,7 @@ func _process(_delta: float) -> void:
 
 # -- §2 Menu bar: program scope only ------------------------------------------
 
-## Builds the 'program scope only' menu bar region: the amber wordmark, the menu buttons' host row (`menu_bar_row`, where `add_menu` puts the `MenuButton`s), then the undo and redo squares (disabled on a bare `DccShell` with no app). On a phone the bar is built the same way but parked in the hidden `PhoneMenuModel` host as a model, not a view (see `_build_phone_shell`). Returns the bar; the caller adds it.
+## Builds the 'program scope only' menu bar region: the amber wordmark, the menu buttons' host row (`menu_bar_row`, where `add_menu` puts the `MenuButton`s), then the undo and redo squares (disabled on a bare `DccShell` with no app) and the readout cluster (world, pass state, res/cpu/gpu/mem). On a phone the bar is built the same way but parked in the hidden `PhoneMenuModel` host as a model, not a view (see `_build_phone_shell`). Returns the bar; the caller adds it.
 func _build_menu_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _scaled(DccTheme.H_MENU_BAR)

@@ -224,8 +224,6 @@ fn the_fixture_table_is_non_empty_and_varied() {
 /// across every fixture ring.
 #[test]
 fn polygon_area_matches_the_reference_exactly() {
-    // Protects: polygon_area() against the frozen reference's `polyArea`
-    // (line 28290) bit-for-bit, across every fixture ring.
     for g in &GOLDENS {
         assert_eq!(polygon_area(g.points), g.area, "{}", g.label);
     }
@@ -235,9 +233,6 @@ fn polygon_area_matches_the_reference_exactly() {
 /// bit-for-bit, including its degenerate vertex-mean fallback.
 #[test]
 fn polygon_centroid_matches_the_reference_exactly() {
-    // Protects: polygon_centroid() against the frozen reference's
-    // `polyCentroid` (line 28291) bit-for-bit, including its degenerate
-    // vertex-mean fallback.
     for g in &GOLDENS {
         let (cx, cy) = polygon_centroid(g.points);
         assert_eq!(cx, g.centroid.0, "{} x", g.label);
@@ -249,9 +244,6 @@ fn polygon_centroid_matches_the_reference_exactly() {
 /// ring/probe combinations, not just the easy convex-fixture ones.
 #[test]
 fn point_in_polygon_matches_the_reference_on_every_probe() {
-    // Protects: point_in_polygon() against the frozen reference's
-    // `pointInPoly` (line 28295) on all 84 ring/probe combinations, not
-    // just the easy convex-fixture ones.
     for g in &GOLDENS {
         for (i, &probe) in PROBES.iter().enumerate() {
             assert_eq!(

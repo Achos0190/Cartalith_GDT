@@ -77,7 +77,7 @@ var _conflicts_section: Control = null
 ## shell's last choice, the same reasoning `cartography_workspace.gd`'s own
 ## `_icon_*` state vars follow. --
 var _settlement_kind := "town"
-## The faction id a dropped settlement is assigned, set from the faction choice; passed to `bridge.civ_drop_settlement`. Default 1 (rationale not stated: intent unverified).
+## The faction id a dropped settlement is assigned, set from the faction choice; passed to `bridge.civ_drop_settlement`. Default 1; no source found at this declaration.
 var _settlement_faction := 1
 ## Cleared back to "" after every successful placement (`_settlement_click`)
 ## -- a name left in this field would otherwise get stamped onto every
@@ -131,11 +131,11 @@ var _tl_sim_mode := "collapse"          ## "collapse" | "recovery"
 var _tl_sim_character := "mixed"        ## "mixed" | "trade" | "disease" | "conflict"
 var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/100
 var _tl_sim_rate := 0.01                ## fraction/yr -- reference slider(tenths-%)/1000
-## Simulation "Start year" (number field -9999..9999), sent as `start_year`. Default 0: source not stated (labelled judgement).
+## Simulation "Start year" (number field -9999..9999), sent as `start_year`. Default 0 is the reference's `#civSimStartYear` `value` (v2.11 line 1944).
 var _tl_sim_start_year := 0
-## Simulation "Duration (yr)" (1..1000000), sent as `duration`. Default 100: source not stated (labelled judgement).
+## Simulation "Duration (yr)" (1..1000000), sent as `duration`. Default 100 is the reference's `#civSimDuration` `value` (v2.11 line 1946).
 var _tl_sim_duration := 100
-## Simulation "Step years" (1..1000000), sent as `step_years`. Default 10: source not stated (labelled judgement).
+## Simulation "Step years" (1..1000000), sent as `step_years`. Default 10 is the reference's `#civSimStepYears` `value` (v2.11 line 1947).
 var _tl_sim_step_years := 10
 ## The Timeline "Exist only" filter; `_tl_apply_filters` returns rows unfiltered when off.
 var _tl_filter_exist_only := false
@@ -4836,11 +4836,11 @@ const RELIGION_KEYS := ["none", "sun_cult", "earth_mother", "sea_lords", "sky_pa
 ## happened to be near would be worse than a literal, since it would move when
 ## that control moved.
 const SWATCH_PX := 12
-## Width in px of the Religion table's TYPE column (header and rows). No theme role carries it; labelled judgement per the block above.
+## Width in px of the Religion table's TYPE column (header and rows): the design's inline `width:56px` (`Religion.dc.html`, per the block above). No theme role carries it.
 const COL_TYPE_PX := 56
-## Width in px of the Religion table's SHARE column; labelled judgement (see `COL_TYPE_PX`).
+## Width in px of the Religion table's SHARE column: the design's inline `width:44px` (`Religion.dc.html`, per the block above). No theme role carries it.
 const COL_SHARE_PX := 44
-## Width in px of the Religion table's TREND column; labelled judgement (see `COL_TYPE_PX`).
+## Width in px of the Religion table's TREND column: the design's inline `width:40px` (`Religion.dc.html`, per the block above). No theme role carries it.
 const COL_TREND_PX := 40
 
 ## One column of the faction roster as a `faction - 1` indexed array, matching

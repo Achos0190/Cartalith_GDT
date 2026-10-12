@@ -120,18 +120,10 @@ const TEXT: &str = "Kingdom of Aldar";
 
 /// Protects: the harness's stub text metrics. Every layout golden in this file is only evidence
 /// about `arc_label_layout` if [`measured`] feeds it the same widths the reference run saw; if this
-/// goes red the other golden hashes are meaningless, not necessarily wrong. Every layout golden
-/// below is only evidence about the layout if the widths going in match the harness's. Spot-checked
-/// against the recorded per-char array for the 24px case.
+/// goes red the other golden hashes are meaningless, not necessarily wrong. Spot-checked against
+/// the recorded per-char array for the 24px case.
 #[test]
 fn the_stub_metrics_are_reproduced_exactly() {
-    // Protects: the harness's stub text metrics. Every layout golden in this
-    // file is only evidence about `arc_label_layout` if [`measured`] feeds it
-    // the same widths the reference run saw; if this goes red the other
-    // golden hashes are meaningless, not necessarily wrong.
-    // Every layout golden below is only evidence about the layout if the
-    // widths going in match the harness's. Spot-checked against the recorded
-    // per-char array for the 24px case.
     let (per, total) = measured(TEXT, 24.0);
     assert_eq!(total, 248.400_000_000_000_03);
     let want: [f64; 16] = [
@@ -163,10 +155,6 @@ fn the_stub_metrics_are_reproduced_exactly() {
 /// laid out glyph by glyph.
 #[test]
 fn case0_a_flat_label_takes_the_straight_branch() {
-    // Protects: the `arc == 0` straight branch of `arc_label_layout`
-    // (reference `drawArcLabel`, line 15244): a label with no bow must return
-    // `ArcLayout::Straight`. Red means flat labels would be laid out glyph by
-    // glyph.
     assert_eq!(arc_label_layout(&measured(TEXT, 24.0).0, 248.400_000_000_000_03, 0.0, 24.0),
                ArcLayout::Straight);
 }
@@ -175,9 +163,6 @@ fn case0_a_flat_label_takes_the_straight_branch() {
 /// mutation of the threshold downward (e.g. to 0.005) turns this red.
 #[test]
 fn case1_an_arc_just_below_the_threshold_is_still_straight() {
-    // Protects: the lower side of `ARC_STRAIGHT_THRESHOLD` (0.01). 0.009 is
-    // just under it, so a mutation of the threshold downward (e.g. to 0.005)
-    // turns this red.
     let (per, total) = measured(TEXT, 24.0);
     assert_eq!(arc_label_layout(&per, total, 0.009, 24.0), ArcLayout::Straight);
 }
@@ -187,10 +172,6 @@ fn case1_an_arc_just_below_the_threshold_is_still_straight() {
 /// the glyph positions at the smallest allowed bow.
 #[test]
 fn case2_the_threshold_itself_takes_the_arc_branch() {
-    // Protects: the boundary of `ARC_STRAIGHT_THRESHOLD`: `|arc| == 0.01`
-    // must take the arc branch (strict `<`). A change to `<=`, or raising the
-    // constant, turns this red; the layout hash pins the glyph positions at
-    // the smallest allowed bow.
     let (h, n, _) = layout_hash(TEXT, 0.01, 24.0);
     assert_eq!(n, 16);
     assert_eq!(h, "94cbe6de7105da60");
@@ -200,9 +181,6 @@ fn case2_the_threshold_itself_takes_the_arc_branch() {
 /// glyphs are spelled out so a regression names the field that moved; the hash then covers all 16.
 #[test]
 fn case3_a_half_dome_matches_the_reference_glyph_for_glyph() {
-    // Protects: the arc glyph layout (radius, theta, dx/dy/rot) bit for bit
-    // at arc 0.5. The first two glyphs are spelled out so a regression names
-    // the field that moved; the hash then covers all 16.
     let (per, total) = measured(TEXT, 24.0);
     let ArcLayout::Arc(g) = arc_label_layout(&per, total, 0.5, 24.0) else { panic!("expected arc") };
     assert_eq!(g.len(), 16);
@@ -223,10 +201,6 @@ fn case3_a_half_dome_matches_the_reference_glyph_for_glyph() {
 /// moves the hash.
 #[test]
 fn case4_a_negative_arc_at_a_smaller_size() {
-    // Protects: the sign handling of a negative arc (`dir = -1`, the
-    // arch-down style) at 18 px, and the measured total of 186.3 at that
-    // size. A dropped `dir` factor flips every `dy` and `rot` and moves the
-    // hash.
     let (h, n, total) = layout_hash(TEXT, -0.8, 18.0);
     assert_eq!(n, 16);
     assert_eq!(total, 186.300_000_000_000_04);
@@ -238,10 +212,6 @@ fn case4_a_negative_arc_at_a_smaller_size() {
 /// the radius and moves both hashes.
 #[test]
 fn case5_and_6_arc_is_clamped_to_the_unit_range() {
-    // Protects: the `arc.clamp(-1.0, 1.0)` in `arc_label_layout`: 1.5 must
-    // lay out exactly as 1.0 and -3.0 exactly as -1.0, and the two ends must
-    // differ from each other. Removing the clamp changes the radius and moves
-    // both hashes.
     let (h5, _, _) = layout_hash(TEXT, 1.5, 24.0);
     assert_eq!(h5, "0d17bdea1675a959");
     let (h6, _, _) = layout_hash(TEXT, -3.0, 24.0);
@@ -258,9 +228,6 @@ fn case5_and_6_arc_is_clamped_to_the_unit_range() {
 /// tiny radius; the recorded hash only matches if the floor is the larger of the two radii.
 #[test]
 fn case7_a_single_glyph_hits_the_radius_floor() {
-    // Protects: the `size_px * 1.2` radius floor. A single glyph on a hard
-    // bow would otherwise get a tiny radius; the recorded hash only matches
-    // if the floor is the larger of the two radii.
     let (h, n, _) = layout_hash("X", 0.7, 40.0);
     assert_eq!(n, 1);
     assert_eq!(h, "81d23fd7003c2305");
@@ -270,9 +237,6 @@ fn case7_a_single_glyph_hits_the_radius_floor() {
 /// throwing; the port must return an empty `Arc` vector (not panic on a zero total).
 #[test]
 fn case8_empty_text_on_a_real_arc_produces_no_glyphs_and_does_not_throw() {
-    // Protects: empty-string behaviour. The reference loops over zero chars
-    // and returns without throwing; the port must return an empty `Arc`
-    // vector (not panic on a zero total).
     let (per, total) = measured("", 16.0);
     assert_eq!(total, 0.0);
     let ArcLayout::Arc(g) = arc_label_layout(&per, total, 0.7, 16.0) else { panic!("expected arc") };
@@ -334,48 +298,19 @@ fn ulps_apart(a: f64, b: f64) -> i64 {
     (key(ia) - key(ib)).abs()
 }
 
-/// Protects: the one deliberately non-bit-exact result in this file. Every value must be within 1
-/// ULP of [`CASE9`] and exactly two values (`dx` of glyphs 28 and 34) may differ, from V8's
-/// `Math.sin` versus Rust's. A third inexact value, or a 2-ULP one, means the layout itself
-/// changed, not the libm. Measured, not assumed: this is the one non-bit-exact result in this milestone.
-/// 106 of this case's 108 values are bit-identical to the reference. Two are one ULP away,
-/// both `dx` (glyphs 28 and 34) and both from `r * sin(theta)`: `dy` and `rot` agree exactly at
-/// those same glyphs, so `theta` itself is bit-identical and the divergence is purely V8's
-/// `Math.sin` against Rust's. Every other arc case in this file is exact. This is the project's
-/// second such allowance after `CHANGELOG.md`'s `1e-4` for `Math.pow`/`Math.exp`, and it is very
+/// Protects: the one deliberately non-bit-exact result in this file, measured rather than assumed.
+/// Every value must be within 1 ULP of [`CASE9`] and exactly two values (`dx` of glyphs 28 and 34)
+/// may differ: 106 of this case's 108 values are bit-identical to the reference, and the two that
+/// are one ULP away both come from `r * sin(theta)`, V8's `Math.sin` against Rust's. `dy` and `rot`
+/// agree exactly at those same glyphs, so `theta` itself is bit-identical. A third inexact value,
+/// or a 2-ULP one, means the layout itself changed, not the libm. Every other arc case in this
+/// file is exact. This is the project's second such allowance after `CHANGELOG.md`'s `1e-4` for `Math.pow`/`Math.exp`, and it is very
 /// much tighter: one ULP is ~1.4e-16 relative, i.e. a sub-picometre glyph offset. It is safe here
 /// in a way it would not have been in milestone D, where an ULP could flip a `dist < best` segment
 /// pick and with it the *sign* of a signed distance. Nothing branches on a glyph position; it goes
-/// straight into a canvas transform. The test pins the exact divergence so it cannot quietly grow:
-/// every value within 1 ULP, and *exactly two* values not bit-identical, at exactly those two
-/// indices.
+/// straight into a canvas transform.
 #[test]
 fn case9_a_long_name_at_a_shallow_arc() {
-    // Protects: the one deliberately non-bit-exact result in this file. Every
-    // value must be within 1 ULP of [`CASE9`] and exactly two values (`dx` of
-    // glyphs 28 and 34) may differ, from V8's `Math.sin` versus Rust's. A
-    // third inexact value, or a 2-ULP one, means the layout itself changed,
-    // not the libm.
-    // # The one non-bit-exact result in this milestone, measured rather than
-    // # assumed
-    //
-    // 106 of this case's 108 values are bit-identical to the reference. Two
-    // are one ULP away, both `dx` (glyphs 28 and 34) and both from
-    // `r * sin(theta)`: `dy` and `rot` agree exactly at those same glyphs, so
-    // `theta` itself is bit-identical and the divergence is purely V8's
-    // `Math.sin` against Rust's. Every other arc case in this file is exact.
-    //
-    // This is the project's second such allowance after `CHANGELOG.md`'s
-    // `1e-4` for `Math.pow`/`Math.exp`, and it is very much tighter: one ULP
-    // is ~1.4e-16 relative, i.e. a sub-picometre glyph offset. It is safe here
-    // in a way it would not have been in milestone D, where an ULP could flip
-    // a `dist < best` segment pick and with it the *sign* of a signed
-    // distance. Nothing branches on a glyph position; it goes straight into a
-    // canvas transform.
-    //
-    // The test pins the exact divergence so it cannot quietly grow: every
-    // value within 1 ULP, and *exactly two* values not bit-identical, at
-    // exactly those two indices.
     let (per, total) = measured("Sea of Storms and Long Quiet Winters", 12.0);
     assert_eq!(total, 286.900_000_000_000_03);
     let ArcLayout::Arc(g) = arc_label_layout(&per, total, 0.25, 12.0) else { panic!("expected arc") };
@@ -400,9 +335,6 @@ fn case9_a_long_name_at_a_shallow_arc() {
 /// `arc = 1.0`: two glyphs, a measured total of 10.62, and the recorded hash.
 #[test]
 fn case10_two_glyphs_at_the_minimum_size_and_a_full_bow() {
-    // Protects: the extreme end of the layout, a two-glyph string at 9 px
-    // (the label font floor) with `arc = 1.0`: two glyphs, a measured total
-    // of 10.62, and the recorded hash.
     let (h, n, total) = layout_hash("ab", 1.0, 9.0);
     assert_eq!(n, 2);
     assert_eq!(total, 10.62);
@@ -413,9 +345,6 @@ fn case10_two_glyphs_at_the_minimum_size_and_a_full_bow() {
 /// factor is the reference's literal; a mutation of it moves every row.
 #[test]
 fn the_halo_stroke_width_matches_the_reference_at_every_tested_size() {
-    // Protects: `arc_label_line_width` = `max(1, size * 0.16)` at six sizes
-    // (9 to 40 px). The 0.16 factor is the reference's literal; a mutation of
-    // it moves every row.
     assert_eq!(arc_label_line_width(24.0), 3.84);
     assert_eq!(arc_label_line_width(18.0), 2.88);
     assert_eq!(arc_label_line_width(40.0), 6.4);
@@ -473,11 +402,6 @@ fn boxed(lb: &MapLabel, env: &LabelViewEnv) -> LabelBox {
 /// grid-width/512 scale all show up as moved rows.
 #[test]
 fn label_box_matches_the_reference_across_every_zoom_and_scale() {
-    // Protects: `label_box` / `label_font_size` / `civ_zoom_k` against the
-    // reference's `_civLabelBox` over the 24 recorded runs (grid widths 48
-    // and 2048; zoom 0.2 to 9; icon scale 1 and 1.75): box position, font
-    // size and side, bit for bit. The 9 px floor, the zoom clamp at 0.35 and
-    // 5, and the grid-width/512 scale all show up as moved rows.
     let labels = fixture_labels();
     // (grid_w, zoom_scale, icon_scale, label index, side, fsz)
     // (grid_w, zoom_scale, icon_scale, label index, px, py, side, fsz)
@@ -525,9 +449,6 @@ fn label_box_matches_the_reference_across_every_zoom_and_scale() {
 /// fixed-size label scales with zoom, or a zoom-mode one stopped scaling.
 #[test]
 fn a_fixed_mode_label_is_the_same_size_at_every_zoom_and_a_zoom_mode_one_is_not() {
-    // Protects: the `LabelSizeMode::Fixed` versus `Zoom` distinction in
-    // `label_font_size`. Red means a fixed-size label scales with zoom, or a
-    // zoom-mode one stopped scaling.
     let labels = fixture_labels();
     let e1 = LabelViewEnv { grid_w: 48, zoom_scale: 1.0, icon_scale: 1.0 };
     let e4 = LabelViewEnv { grid_w: 48, zoom_scale: 4.0, icon_scale: 1.0 };
@@ -568,12 +489,6 @@ fn hit_fixture() -> (Vec<MapLabel>, Vec<LabelBox>) {
 /// final asserts keep the table from degenerating into all hits or all misses.
 #[test]
 fn hit_testing_matches_the_reference_including_its_misses_and_overlaps() {
-    // Protects: `label_hit_test`'s box tests: the most recently added label
-    // wins an overlap, the far corner is a genuine miss, and a probe two
-    // cells past a box edge misses (this last pair exists because mutation
-    // testing showed the `side / 2.0` half-side comparison surviving without
-    // it). The final asserts keep the table from degenerating into all hits
-    // or all misses.
     let (_, boxes) = hit_fixture();
     let h = LabelHandles::default();
     // (px, py, expected kind, expected index)
@@ -616,11 +531,6 @@ fn hit_testing_matches_the_reference_including_its_misses_and_overlaps() {
 /// the resize radius falls through to a box.
 #[test]
 fn armed_handles_beat_every_box_in_the_references_own_order() {
-    // Protects: the handle priority and tolerance in `label_hit_test`: armed
-    // handles win over boxes in the reference's order (resize, rotate, arc,
-    // check, cross), the check handle accepts a probe inside its 1.3x slack
-    // (`LABEL_BUTTON_SLACK`) and rejects one just outside, and a probe just
-    // past the resize radius falls through to a box.
     let (_, boxes) = hit_fixture();
     let h = LabelHandles {
         resize: Some(HandleCircle { x: 120.0, y: 140.0, r: 2.0 }),
@@ -661,11 +571,6 @@ fn armed_handles_beat_every_box_in_the_references_own_order() {
 /// line means a second click would overwrite the undo state.
 #[test]
 fn the_edit_session_matches_the_references_snapshot_semantics() {
-    // Protects: `LabelEditSession`'s snapshot semantics (`_civSelectLabel` /
-    // `_civCancelLabel`): select snapshots the style fields once, a re-select
-    // must not retake the snapshot, and cancel reverts name, angle, arc and
-    // size while leaving the position edit alone. Red on the re-select line
-    // means a second click would overwrite the undo state.
     let mut labels = vec![{
         let mut lb = MapLabel::new(5.0, 5.0, "Aldar");
         lb.angle = 3.0;
@@ -707,9 +612,6 @@ fn the_edit_session_matches_the_references_snapshot_semantics() {
 /// selection is cleared; confirm must not revert to the snapshot.
 #[test]
 fn confirming_keeps_the_edits_and_clears_the_selection() {
-    // Protects: `LabelEditSession::confirm` (`_civConfirmLabel`): edits stay
-    // on the label and the selection is cleared; confirm must not revert to
-    // the snapshot.
     let mut labels = vec![MapLabel::new(1.0, 1.0, "Bree")];
     let mut s = LabelEditSession::new();
     s.select(&labels, Some(0));
@@ -731,11 +633,6 @@ fn confirming_keeps_the_edits_and_clears_the_selection() {
 /// module doc).
 #[test]
 fn the_resize_handle_matches_the_reference() {
-    // Protects: `label_resize_size`, transcribed from the reference's
-    // pointer-move handler (lines 9686-9689): `clamp(start_size * dist /
-    // start_dist, 8, 48)` with `dist` floored at 1. The `clamped` rows pin
-    // both ends and the floor. Evidence is a transcription, not a slice (see
-    // the module doc).
     let want: &[(f64, f64, f64, f64, f64, f64, f64)] = &[
         (16.0, 10.0, 10.0, 14.0, 14.0, 5.0, 20.364_675_298_172_57),
         (16.0, 10.0, 10.0, 10.0, 10.0, 5.0, 8.0),   // clamped low
@@ -754,10 +651,6 @@ fn the_resize_handle_matches_the_reference() {
 /// pins the zero-vector result (90) and the (9.5, 14.0) row the wrap to -180.
 #[test]
 fn the_rotate_handle_matches_the_reference() {
-    // Protects: `label_rotate_deg`, transcribed from lines 9698-9702 of the
-    // reference: the absolute pointer angle about the label centre in
-    // degrees, normalised to -180..180. The (9.5, 9.5) row pins the
-    // zero-vector result (90) and the (9.5, 14.0) row the wrap to -180.
     let want: &[(f64, f64, f64, f64, f64)] = &[
         (10.0, 10.0, 10.0, 5.0, 6.340_191_745_909_919_5),
         (10.0, 10.0, 10.0, 15.0, 174.805_571_092_265_15),
@@ -779,11 +672,6 @@ fn the_rotate_handle_matches_the_reference() {
 /// would give the same arc.
 #[test]
 fn the_arc_handle_matches_the_reference() {
-    // Protects: `label_arc_value`, transcribed from lines 9711-9716: the
-    // pointer offset in the label's rotated frame, divided by `max(20, side *
-    // 0.9)` and clamped to -1..1 (the two `clamped` rows). The closing
-    // `assert_ne!` guards the grab-angle inverse rotation: without it two
-    // label angles would give the same arc.
     let want: &[(f64, f64, f64, f64, f64, f64, f64)] = &[
         (10.0, 10.0, 0.0, 20.0, 10.0, 0.0, -0.025),
         (10.0, 10.0, 0.0, 20.0, 10.0, 20.0, -1.0),   // clamped

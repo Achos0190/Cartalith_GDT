@@ -61,17 +61,10 @@ fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
 }
 
 /// Protects: `pack_height16`'s output matches the reference's `packHeight16` byte-for-byte over a
-/// probe covering both endpoints, both clamps, a repeating fraction, and the two values one 16-bit
-/// step from each end. 0, 1, a half, both out-of-range clamps, a repeating fraction, and the two
-/// values one 16-bit step from each end.
+/// probe covering both endpoints (0 and 1), a half, both out-of-range clamps, a repeating
+/// fraction, and the two values one 16-bit step from each end.
 #[test]
 fn pack_height16_matches_the_reference_byte_for_byte() {
-    // Protects: `pack_height16`'s output matches the reference's
-    // `packHeight16` byte-for-byte over a probe covering both endpoints,
-    // both clamps, a repeating fraction, and the two values one 16-bit step
-    // from each end.
-    // 0, 1, a half, both out-of-range clamps, a repeating fraction, and the
-    // two values one 16-bit step from each end.
     let probe: Vec<f32> =
         vec![0.0, 1.0, 0.5, -0.25, 1.75, 1.0 / 3.0, 65534.0 / 65535.0, 1.0 / 65535.0, 0.9999999];
     let packed = pack_height16(&probe, probe.len());
@@ -88,10 +81,6 @@ fn pack_height16_matches_the_reference_byte_for_byte() {
 /// `to_bits` for literal bit-for-bit agreement rather than float tolerance.
 #[test]
 fn unpack_height16_round_trips_exactly_as_the_reference_does() {
-    // Protects: `unpack_height16`'s round trip matches the reference's
-    // exact bit pattern for every probe value, including where the 16-bit
-    // step is visible (0.5 -> 0.5000076...), asserted by `to_bits` for
-    // literal bit-for-bit agreement rather than float tolerance.
     let probe: Vec<f32> =
         vec![0.0, 1.0, 0.5, -0.25, 1.75, 1.0 / 3.0, 65534.0 / 65535.0, 1.0 / 65535.0, 0.9999999];
     let back = unpack_height16(&pack_height16(&probe, probe.len()), probe.len());
@@ -118,10 +107,6 @@ fn unpack_height16_round_trips_exactly_as_the_reference_does() {
 /// first so a mismatch is attributable to the encoder, not to a drifted fixture.
 #[test]
 fn packing_a_whole_field_matches_the_reference() {
-    // Protects: a whole synthetic field packs to the reference's exact
-    // bytes at realistic scale (48x32), not just the isolated probe values
-    // above -- the source field's own hash is checked first so a mismatch
-    // is attributable to the encoder, not to a drifted fixture.
     let f = synthetic_field(48, 32, 5);
     // The world under the encoder, checked before trusting the encoding.
     let mut hf: u64 = 0xcbf2_9ce4_8422_2325;
@@ -143,9 +128,6 @@ fn packing_a_whole_field_matches_the_reference() {
 /// literal string.
 #[test]
 fn manifest_case0_a_full_refine_export_header() {
-    // Protects: a full refine-export manifest (custom file_for, coarse
-    // bounds, non-default encoding/compression) matches the reference's
-    // exact JSON, key order included, literal string for literal string.
     let m = build_tile_manifest(
         &TileManifestOpts {
             cols: 2,
@@ -171,9 +153,6 @@ fn manifest_case0_a_full_refine_export_header() {
 /// `bounds` renders `null` (not `{}`) and no `coarse` key appears on the single tile.
 #[test]
 fn manifest_case1_an_empty_bag_takes_every_fallback() {
-    // Protects: an all-default options bag's manifest matches the
-    // reference exactly, including that `bounds` renders `null` (not `{}`)
-    // and no `coarse` key appears on the single tile.
     let m = build_tile_manifest(&TileManifestOpts { version: "TESTVER".into(), ..Default::default() }, None);
     // Note what is absent as much as what is present: no `coarse` key at all
     // when no bounds were given, and `bounds` itself is null rather than {}.
@@ -184,8 +163,6 @@ fn manifest_case1_an_empty_bag_takes_every_fallback() {
 /// a 2x2 tile grid.
 #[test]
 fn manifest_case2_a_whole_map_bake_with_no_coarse_region() {
-    // Protects: a whole-map bake (no bounds, so no coarse region) matches
-    // the reference exactly across a 2x2 tile grid.
     let m = build_tile_manifest(
         &TileManifestOpts {
             cols: 2,
@@ -209,12 +186,6 @@ fn manifest_case2_a_whole_map_bake_with_no_coarse_region() {
 /// number formatter.
 #[test]
 fn manifest_case3_fractional_coarse_bounds_and_a_negative_seed() {
-    // Protects: `js_num`'s number formatter matches `JSON.stringify` on
-    // genuinely long repeating fractions (not just round numbers) and on a
-    // negative seed, checked both by hash/length and by the fractions
-    // spelled out literally so a formatter regression names itself.
-    // cols=7 does not divide bounds.w=30, so every coarse x/w is a long
-    // fraction -- the case that actually tests the number formatter.
     let m = build_tile_manifest(
         &TileManifestOpts {
             cols: 7,
@@ -246,12 +217,6 @@ fn manifest_case3_fractional_coarse_bounds_and_a_negative_seed() {
 /// `tiles/index.json`: JSON.stringify(man, null, 2) for the 2x2 refine of a 24x16 selection.
 #[test]
 fn the_pretty_index_json_matches_export_region_tiles_byte_for_byte() {
-    // Protects: the pretty (indent=2) form written into `tiles/index.json`
-    // by the real export path matches `JSON.stringify(man, null, 2)`
-    // exactly -- indentation, key order and all -- not just the compact
-    // form the cases above check.
-    // What `exportRegionTiles` actually writes into `tiles/index.json`:
-    // JSON.stringify(man, null, 2) for the 2x2 refine of a 24x16 selection.
     let m = build_tile_manifest(
         &TileManifestOpts {
             cols: 2,

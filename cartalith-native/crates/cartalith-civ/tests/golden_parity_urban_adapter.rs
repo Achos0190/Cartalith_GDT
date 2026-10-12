@@ -70,7 +70,7 @@
 //! # Shape gates
 //!
 //! The capture refuses to write unless the matrix reaches: both arms of
-//! `_umWaterReachKm`'s `max`; both `_umInferAge` clamps; all three
+//! `_umWaterReachKm`'s `max`; `_umInferAge`'s upper clamp (its lower `max(30, ..)` is unreachable); all three
 //! `_umHarbourScale` arms (both clamps and the live power); `coast`,
 //! `river` and `landlocked` site kinds; an ore bearing found, absent, and
 //! underfoot; a profile with a river and one without; a sloped aspect; a site
@@ -490,8 +490,9 @@ fn site_box_ladder_matches_reference() {
 }
 
 /// Protects `_umInferAge`'s log mapping (60 + 240*log10(pop/100)) at the 22 captured populations, including
-/// both ends of its 30..1000 clamp. Age feeds wall and street-style choices, so a wrong step or clamp would
-/// only show up later as a visual change.
+/// the 1000 cap, the 60 floor that `max(1, pop/100)` produces (the `max(30, ...)` arm is unreachable, so 30 is
+/// never returned), and zero, negative and NaN inputs. Age feeds wall and street-style choices, so a wrong step
+/// or clamp would only show up later as a visual change.
 #[test]
 fn infer_age_matches_reference() {
     for &(pop, age) in AGES {

@@ -153,8 +153,10 @@ var _unknown := false
 var _locked := false
 ## A gesture has WRITTEN since `_begin_gesture()`. Not "a gesture is open": see `_begin_gesture`.
 var _gest_dirty := false
-## Label for the current gesture's history entry; set by `_changed_live`, passed to `_end_gesture`
-## by `_end_idle`. Default "Adjustment" is a labelled judgement.
+## Label for the current gesture's history entry; set by `_changed_live`, `_structural`,
+## `_on_ramp_begin` and `_slider`'s drag start; every `_end_gesture` call passes it (idle timeout,
+## layer change, generation start, ramp edit, slider release, structural edit). The default
+## "Adjustment" has no source found at this line.
 var _gest_label := "Adjustment"
 ## A slider drag is in progress (its release closes the gesture).
 var _dragging := false

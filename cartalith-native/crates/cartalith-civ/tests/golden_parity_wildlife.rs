@@ -115,15 +115,10 @@ fn lat_ladder(v: &serde_json::Value) -> Vec<f64> {
 
 /// Protects: `buildTRI` (reference v2.10 line 6504; the module doc's 6489 is the slice start): the
 /// terrain ruggedness raster, bit for bit, in both the x-wrapping and clamped forms. The
-/// `assert_ne!` shows the wrap flag is not dead, and the distinct-value count (more than 500; a
-/// labelled judgement) guards against a flat raster that would measure nothing.
+/// `assert_ne!` shows the wrap flag is not dead, and the distinct-value count (more than 500; no
+/// source found for that threshold) guards against a flat raster that would measure nothing.
 #[test]
 fn build_tri_matches_the_reference_wrapped_and_clamped() {
-    // Protects: `buildTRI` (reference v2.10 line 6504; the module doc's 6489 is the slice start): the terrain ruggedness
-    // raster, bit for bit, in both the x-wrapping and clamped forms. The
-    // `assert_ne!` shows the wrap flag is not dead, and the distinct-value
-    // count (more than 500; a labelled judgement) guards against a flat
-    // raster that would measure nothing.
     let v = fixture();
     let w = world(&v);
     let got = build_tri(&w.field, w.gw, w.gh, true);
@@ -149,10 +144,6 @@ fn build_tri_matches_the_reference_wrapped_and_clamped() {
 /// means a guild was added, renamed or reclassified.
 #[test]
 fn the_guild_tables_match_the_reference() {
-    // Protects: `WILD_GUILDS`, `WILD_GUILD_LABELS` and `guildTrophic` against
-    // the reference's tables: the guild list and order, each guild's trophic
-    // class (pred, scav or herb) and each label. Red means a guild was added,
-    // renamed or reclassified.
     let v = fixture();
     let guilds: Vec<String> = v["guilds"]
         .as_array()
@@ -220,10 +211,6 @@ fn every_roster_matches_the_reference_entry_for_entry_and_in_order() {
 /// and sub-1 inputs. A mutation of the rounding or the unit thresholds changes a string.
 #[test]
 fn wild_sig2_and_wild_fmt_pop_match_the_reference() {
-    // Protects: `wildSig2` (two-significant-figure rounding) and `wildFmtPop`
-    // (reference 8257): the formatted population strings across the 1000,
-    // 1050 and 1 000 000 boundaries and the 0, negative and sub-1 inputs. A
-    // mutation of the rounding or the unit thresholds changes a string.
     let v = fixture();
     let inputs = [0.0, -3.0, 1.0, 7.0, 999.0, 1234.0, 98765.0, 0.004];
     let expected: Vec<f64> = v["sig2_str"]
@@ -255,11 +242,6 @@ fn wild_sig2_and_wild_fmt_pop_match_the_reference() {
 /// used.
 #[test]
 fn build_ecoregions_matches_the_reference_on_a_real_world() {
-    // Protects: `buildEcoregions`: the region-id raster, the marker minimum,
-    // and every region's cells, biome and f64 aggregates (exact, because they
-    // are order-dependent running sums, so a different traversal order
-    // shows). The `min_area` assert pins the `max(12, ...)` floor the
-    // captured world used.
     let v = fixture();
     let w = world(&v);
     let lats = lat_ladder(&v);
@@ -317,15 +299,10 @@ fn build_ecoregions_matches_the_reference_on_a_real_world() {
 
 /// Protects: `assignWildlife` / `currentWildlife`: each region's richness, summary, area, colour
 /// and, per guild, biomass and each species' name, mass and population estimate. The total species
-/// count (more than 40; a labelled judgement) guards against a thin fixture. The last assert checks
-/// `wild_region_color` agrees with what was stored.
+/// count (more than 40; no source found for that threshold) guards against a thin fixture. An
+/// assert in the per-region loop checks `wild_region_color` agrees with what was stored.
 #[test]
 fn current_wildlife_matches_the_reference_roster_for_roster() {
-    // Protects: `assignWildlife` / `currentWildlife`: each region's richness,
-    // summary, area, colour and, per guild, biomass and each species' name,
-    // mass and population estimate. The total species count (more than 40; a
-    // labelled judgement) guards against a thin fixture. The last assert
-    // checks `wild_region_color` agrees with what was stored.
     let v = fixture();
     let w = world(&v);
     let lats = lat_ladder(&v);

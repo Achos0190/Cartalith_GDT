@@ -599,8 +599,8 @@ func last_error() -> Dictionary:
 
 ## Reads the engine's parameter metadata (`get_param_info`, `get_param_defaults`) and a fresh
 ## `get_params()` snapshot into the caches behind `param_info()`, `param_default()` and `params_available()`.
-## Does nothing on a binary without `get_param_info`. Called from `_ready` and again after a project open
-## or a world load, because loading moves the dials.
+## Does nothing on a binary without `get_param_info`. Called from `_ready`, `load_save` and `close_world`,
+## because loading or closing a world moves the dials.
 func _read_param_table() -> void:
 	if not _has("get_param_info"):
 		return

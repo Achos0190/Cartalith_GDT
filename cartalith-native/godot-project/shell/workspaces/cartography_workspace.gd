@@ -295,7 +295,7 @@ var _icon_drag_index := -1
 var _icon_drag_cx := 0.0
 ## Grid-space centre y of the dragged icon (`icon.y + 0.5`), captured at drag start.
 var _icon_drag_cy := 0.0
-## Distance from the grab point to the icon centre at drag start, floored at 1.0 cell (floor's source not stated: labelled judgement) so a resize ratio never divides by ~0.
+## Distance from the grab point to the icon centre at drag start, floored at 1.0 cell (no source found for the floor at this line) so a resize ratio never divides by ~0.
 var _icon_drag_start_dist := 0.0
 
 # -- Label tool state ---------------------------------------------------------
@@ -305,7 +305,7 @@ var _label_drag_index := -1
 var _label_drag_cx := 0.0   ## Grid-space label centre, `lb.x + 0.5` -- see
 	## `_begin_label_handle_drag()`'s own comment for why the +0.5 matters.
 var _label_drag_cy := 0.0
-## Resize drags: distance from the grab point to the label centre at drag start, floored at 1.0 cell (labelled judgement), used as the resize reference distance.
+## Resize drags: distance from the grab point to the label centre at drag start, floored at 1.0 cell (no source found at this line), used as the resize reference distance.
 var _label_drag_start_dist := 0.0
 ## Resize drags: the label's `size` at drag start (default 16.0 if unreadable).
 var _label_drag_start_size := 0.0
@@ -3159,7 +3159,7 @@ var _icon_slot_line: Label
 var _icon_gen_summary: Label
 ## Automatic placement icon scale, default 1.0, sent as `scale`; slider domain `ICON_SCALE_RANGE`.
 var _icon_gen_scale := 1.0
-## Automatic placement minimum spacing in cells, default 14.0 (source of the default not stated: labelled judgement), sent as `min_spacing`.
+## Automatic placement minimum spacing in cells, default 14.0 (no source found for the default at this line), sent as `min_spacing`.
 var _icon_gen_spacing := 14.0
 ## Automatic placement toggle "avoid label boxes", default on, sent as `avoid_labels`.
 var _icon_gen_avoid_labels := true

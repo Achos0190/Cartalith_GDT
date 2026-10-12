@@ -418,7 +418,7 @@ const _PEEK_CARD_PEEK_DP := 66.0
 ## detent borrows it as a ceiling instead of a fixed height, so a short list
 ## does not leave a wall of empty sheet under it.
 const _PEEK_CARD_HALF_CAP_FRAC := 0.6
-const _PEEK_CARD_ANIM := 0.22  ## Seconds for the detent height tween (labelled judgement; no source stated).
+const _PEEK_CARD_ANIM := 0.22  ## Seconds for the detent height tween (no source found at this line).
 const _PEEK_CARD_MIN_DRAG_DP := 24.0  ## Declared with a 24 dp value and not referenced anywhere in this file; intent unverified (presumably a drag threshold).
 
 # -- Geometry ----------------------------------------------------------------

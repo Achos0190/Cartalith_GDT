@@ -300,3 +300,80 @@ The scripts are in the session scratchpad (`rev/`), not committed:
 `promo.py` (promoted-text comparison), and the sampling one-liner seeded with
 `20261012`. `cargo` was not run, because another agent owns builds. Nothing in
 this review depends on a build.
+
+## Resolution (2026-10-12, applied after this review)
+
+Every finding above was re-checked against the code before it was applied.
+Comments only (plus the two generators' comment-emitting strings). No `cargo
+test` was run; `cargo check --tests -j 1` passed for `cartalith-assets`,
+`-civ`, `-climate`, `-io`, `-spatial` and `-terrain`.
+
+**Fixed as written:** 1 (`_build_economy`; the wording also keeps the `s` /
+`details` sentence), 2 (`STROKE`), 3 to 5 (`COL_*_PX`), 7 to 11 and 12 to 14
+(the simulation defaults now cite `#civSimSeverity` / `Rate` / `StartYear` /
+`Duration` / `StepYears`, v2.11 lines 1940-1947), 15 (`_plates_value`), 16
+(`symmetry_count`), 18 and 19 (`ROOF_V` / `ROOF_S`: the swing is now
+stated as `(2*tone - 1)`, plus or minus), 20 (Compare
+action), 21 (`_paint_state`), 22 (`_build_reader`), 23 (`_read_param_table`;
+verified: `_ready`, `load_save`, `close_world`), 24 (wildlife; the in-body copy
+was removed with the others), `dcc_shell.gd` `_build_menu_bar` (the "noted as
+TRUE but incomplete" one now names the readout cluster).
+
+**Fixed in the generator and regenerated:** 6 (`infer_age_matches_reference`,
+in `tools/um_block2_golden_header.js`; the same false "both `_umInferAge`
+clamps" also sat in the generated file's module doc, so that line was fixed
+too) and 25 (`path`, in `tools/civ_tier_feedback_capture.js` `TEST_DOCS`).
+`node` output went to a scratch path and was diffed against the committed
+tests: the only differences were those comment lines. `want_counts` re-ran
+byte-identical.
+
+**Changed from the review's wording:**
+- 17 (`_gest_label`): the review's setter list was itself incomplete.
+  `_slider`'s drag start also sets it, so that is named too.
+- 26 (`tool_bar.gd` `_note`): the ordering rule has no measurement or incident
+  in the code or in `MISTAKES.md`, and none was invented. The comment now cites
+  the `clip_text` row of `MISTAKES.md` as the mechanism and says plainly that no
+  measurement of why the order matters is recorded.
+
+**Judgement / "no source stated" comments:** the eight reference defaults, the
+three design widths, `STROKE`, `_plates_value` and `symmetry_count` got their
+real source (above). Where an annotator, not an author, had applied the label
+and no source was found, the wording is now "no source found at this line":
+`ROOF_S`, `ROOF_V`, `ROOF_S_SWING`, `SHADOW`'s alpha, `ROUTE_END`,
+`FARM_PASTURE`, `WALL_TOWER_R_M`, `TREE_RIM`, `ROW_LABEL_W`, `_FIELD_LABEL_W`,
+`LOG_TAIL_LINES` and `LOG_TAIL_BYTES`, `_selected` (faction roster),
+`LIGHT_ALT/AMB/NUM_STEPS`, `_PEEK_CARD_ANIM`, ramp bar `BAR_H` / `HANDLE_H`,
+`STAGE_LOG_MAX`, the cartography drag floors and `_icon_gen_spacing`,
+`_settlement_faction`, `THUMB_SIZE_PHONE`, and the two wildlife thresholds (more
+than 40, more than 500). The four wrapped-phrase comments the grep missed
+(`ROOF_S`, `SHADOW`, the start-year default, the roof prose) are among these.
+**Left as written, because an author made the call in the tree:**
+`adjust.rs::GAMMA_RANGE` ("a labelled judgement" in its own doc, so the two
+`GAMMA_MAX` mirrors are correct), `tool_bar.gd`'s ladder bounds (the block above
+says "labelled JUDGEMENT"), `busy_overlay.gd`'s card geometry ("Judgements" in
+the line above), `tool_overlay.gd`'s "by eye" values. The remaining
+"intent unverified" comments (`dcc_settings` save, `tool_changed`,
+`atlas_api`, `_matrix_problem_count`, `ID_PREF_QUALITY`, `_PEEK_CARD_MIN_DRAG_DP`,
+the `dcc_theme` sizes, `_way_type`, the family chip default) state a real
+absence of evidence and were kept.
+
+**Redundant copies.** The in-body `// Protects:` block was deleted from the 304
+tests whose text was identical to the `///` above, plus
+`case9_a_long_name_at_a_shallow_arc` (whose doc had rewritten the `#` headings),
+305 in all. The 32 in `golden_parity_library.rs` were kept: their bodies hold
+information the doc lacks. The generated test files had no in-body copy, so no
+generator needed that change. The ten docs that repeated themselves were
+deduplicated: `golden_parity_zoom_detail.rs` (two), `golden_parity_labels.rs`
+(two), `golden_parity_faction_aggregates.rs`, `golden_parity_smelting_salt.rs`,
+`golden_parity_settlement_placement.rs`, `golden_parity_pack_manifest.rs`,
+`golden_parity_tiles.rs` and `golden_parity_sculpt.rs`.
+
+**Proof.** For every touched `.rs` and `.gd` file the content with all comments
+removed (line, trailing and doc forms, line endings ignored) equals `HEAD`. The
+`.js` generators differ only inside the strings that emit comments. Every
+touched `.gd` file and `shell/app.gd` passes `godot --headless --check-only` in
+a scratch copy, and a deliberately broken control script fails.
+
+**Disagreements:** none with the verdicts. One note on method: item 1's review
+text names "ED-03" and it was kept because the code comment next to the
+`Economy` choice cites the same row.

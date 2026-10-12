@@ -2459,8 +2459,10 @@ func _diff_row(container: Control, d: Dictionary) -> void:
 # -- Reader / working copy (§29) -------------------------------------------
 
 ## Working-copy section of a linked note: an editable text field backed by
-## `bridge.vault_link_text` (committed on focus loss) and a save-local-copy action. Does not write to
-## the vault folder itself.
+## `bridge.vault_link_text` (committed on focus loss), a Save local copy action, an "Insert updated
+## section into source..." action that writes the section back to the vault file after a preview
+## and a hash-checked confirmation (`_confirm_section_write`), and the "what this note holds" group.
+## Building it writes nothing.
 func _build_reader(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Working copy")
 	_reader_edit = TextEdit.new()

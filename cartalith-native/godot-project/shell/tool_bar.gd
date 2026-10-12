@@ -357,7 +357,7 @@ func _bar_hint(row: HBoxContainer, text: String, detail: String) -> void:
 	l.mouse_filter = Control.MOUSE_FILTER_STOP
 	row.add_child(l)
 
-## Appends a spacer and a ghost-coloured one-line caption to `row` (the honest 'why this is not here' notes). `detail`, or `text` when empty, is the tooltip. The label is clipped, so it must stay the last child of its row; mouse filter is STOP so the tooltip works.
+## Appends a spacer and a ghost-coloured one-line caption to `row` (the honest 'why this is not here' notes). `detail`, or `text` when empty, is the tooltip. The label is clipped (`clip_text` collapses a label's minimum width to 1, see `MISTAKES.md`), and the code keeps it the last child of its row after the spacer; no measurement of why that order matters is recorded here; mouse filter is STOP so the tooltip works.
 func _note(row: HBoxContainer, text: String, detail: String = "") -> void:
 	row.add_child(DccTheme.spacer())
 	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
@@ -506,7 +506,7 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 func _world_workspace() -> Node:
 	return app._workspace_panels.get("world")
 
-## Returns a copy of the paint brush state plus the active layer, read from the WORLD workspace (the owner of `_paint_brush` and `_paint_layer`). If the workspace is missing, returns fixed defaults (biome layer, value 1, radius 6, hardness 1, softness 0, erase off, land only on); those literals are fallbacks, not the workspace's own initial values (intent unverified). Never mutate the result expecting it to persist; use `_write_paint_state`.
+## Returns a copy of the paint brush state plus the active layer, read from the WORLD workspace (the owner of `_paint_brush` and `_paint_layer`). If the workspace is missing, returns fixed defaults (biome layer, value 1, radius 6, hardness 1, softness 0, erase off, land only on); those literals are identical to `world_workspace.gd`'s initial `_paint_layer` and `_paint_brush`, and nothing keeps the two in step. Never mutate the result expecting it to persist; use `_write_paint_state`.
 func _paint_state() -> Dictionary:
 	var ws = _world_workspace()
 	if ws != null and "_paint_brush" in ws:

@@ -155,8 +155,8 @@ var app                       ## `DccApp`
 var bridge: EngineBridge
 
 ## Id of the selected faction (assigned from `fid`, `select_faction`, and `_faction(_selected)`
-## reads it); reset to 1 in `_on_world_changed`. The default 1 is a labelled judgement: no source
-## stated for it at the declaration.
+## reads it); reset to 1 in `_on_world_changed`. No source found for the default 1 at the
+## declaration.
 var _selected := 1
 ## The roster list's `VBoxContainer`, created in `setup`.
 var _list_body: VBoxContainer

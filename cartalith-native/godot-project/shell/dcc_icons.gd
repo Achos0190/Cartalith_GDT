@@ -37,7 +37,8 @@ class_name DccIcons
 ## icon is not a node and has no transform to ask.
 
 ## SVG stroke attributes shared by the icon paths (white, 1.2 width, round caps and joins);
-## `get_icon` splices it into each icon's SVG. Why it is white: intent unverified.
+## `get_icon` splices it into each icon's SVG. It is white so the host can tint it with `modulate`,
+## which is how this file stands in for the spec's `currentColor` (see the header).
 const STROKE := 'fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"'
 
 ## The thirteen sculpt features, drawn as terrain cross-sections so they read as

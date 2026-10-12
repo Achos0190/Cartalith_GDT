@@ -78,7 +78,8 @@ var path_preview: PackedVector2Array = []
 ## mirror-axis rotation in radians (mirror modes only, as the engine says).
 var symmetry_mode := "none"
 ## Radial copy count of the symmetry guide, default 4; `set_symmetry` stores `maxi(1, count)` and
-## `_draw_symmetry` loops over it. Default 4 is a labelled judgement.
+## `_draw_symmetry` loops over it. Default 4 is the engine's `radial_count` default (mirrors
+## `DccToolBar.RADIAL_DEFAULT`).
 var symmetry_count := 4
 ## Symmetry centre as a `Vector2` in grid cells, or null for the engine's default lattice centre
 ## (see the comment above); `set_symmetry` keeps only a `Vector2`.

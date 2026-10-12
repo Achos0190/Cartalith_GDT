@@ -112,50 +112,6 @@ fn assert_places_match(
 /// `golden_parity_settlement_suitability.rs`.
 #[test]
 fn settlement_placement_case_0_region() {
-    // Protects: the pure core of `_civIterativeAutoWorld` (reference ~25336)
-    // on a 14 x 11 region: seed snapping onto land then coast, faction
-    // assignment by landmass including the multi-seat branch, tier
-    // classification and coastal flag. The table is a Ruling N re-baseline
-    // (second pass, 2026-09-20), so it pins this port's coastal-reach term,
-    // not the reference's own numbers; the history comment below says which
-    // rows moved and why. Red means seed snapping, spacing, the faction
-    // apportionment or the coast reach moved.
-    // case0_region: gw=14 gh=11 seed=24601 world=false
-    //
-    // **Ruling N re-baseline, second pass** (`LARGE_ITEM_RULINGS.md`,
-    // 2026-09-20). The first pass changed the suitability *river* term and
-    // left this table's three rows in place, only trading rows 1 and 2. This
-    // pass changes the *coastal* term -- `build_coast_sdf`'s distance to the
-    // nearest water cell of any kind becomes `build_coast_reach`'s proximity
-    // to a real traced OCEAN coastline -- and the seed list it consumes moves
-    // further:
-    //   reference  (4,6,0.80102116) (9,3,0.79724389) (4,1,0.76332378)
-    //   river pass (4,6,0.80500720) (4,1,0.78814656) (9,3,0.78189725)
-    //   this pass  (2,6,0.80585414) (4,1,0.78814656) (9,3,0.78189725)
-    //                                                (6,7,0.66207710)
-    // Two mechanical consequences, both visible below and neither a change to
-    // the placement algorithm -- corrected 2026-09-20 by an adversarial
-    // verifier, both had the wrong cause on first landing:
-    //
-    // 1. Rows 0 and 1 trade cells (7,2)<->(6,2). NOT a rank swap between this
-    //    pass and the river pass -- ranks 1 and 2 ((4,1), (9,3)) are
-    //    identical across both. Seed 0 itself moved cell, (4,6)->(2,6), once
-    //    the coastal term outranked it at (2,6) (0.80585 vs (4,6)'s
-    //    0.80501). `civ_snap_coast` then picks a different best-suitability
-    //    shore cell for the new seed 0, which is what trades the pair.
-    // 2. A FOURTH settlement appears at (6,7), but its candidate is NOT new:
-    //    (6,7) scores 0.6620771 -- bit-identical -- in both the river and
-    //    this pass, and was already above `find_settlement_seeds`' 0.65
-    //    floor in the river pass too. It was suppressed there only because
-    //    seed 0 sat at (4,6), and 2^2+1^2=5 < supp_r^2=16; seed 0 moving to
-    //    (2,6) puts it at 4^2+1^2=17 >= 16, outside the same unchanged
-    //    radius. This IS a spacing consequence of seed 0's move (point 1),
-    //    not an independent new-candidate event.
-    //
-    // Every row is still `coastal: true`, and `civ_is_coastal` itself was NOT
-    // changed by this pass (see its own doc comment for the measurement that
-    // decided that). The reference's own numbers remain asserted, through the
-    // legacy proxies, in `golden_parity_settlement_suitability.rs`.
     let expected = vec![
         ExpectedPlace { x: 6, y: 2, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
         ExpectedPlace { x: 7, y: 2, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
@@ -177,14 +133,13 @@ fn settlement_placement_case_0_region() {
     assert_places_match(&places, &expected, "case0_region");
 }
 
-/// Protects: the same core on a wrapped 16 x 12 world whose seeds all sit on one landmass, so every
-/// candidate earns its own seat (the K>1 multi-capital branch, here K=3). The expected table is the
+/// Protects: the same core on a wrapped 16 x 12 world (case1_world_wrap: gw=16 gh=12
+/// seed=314159 world=true) whose seeds all land on ONE connected landmass, so with factionCount=6 >
+/// L=1 every candidate earns its own seat and becomes its own capital: the K>1 multi-capital
+/// spacing branch, which this fixture still exercises at K=3. The expected table is the
 /// pre-Ruling-Q content restored by Ruling T (the history comment below), so it pins this port's
 /// own output on a `world=true` map, not the reference's numbers. Red means the wrap handling, the
-/// 0.65 seed floor or the size-primary water-body rule moved. case1_world_wrap: gw=16 gh=12
-/// seed=314159 world=true All seeds land on ONE connected landmass (world-wrap). factionCount=6 >
-/// L=1 landmass, so every candidate earns its own seat and becomes its own capital -- the K>1
-/// multi-capital spacing branch, which this fixture still exercises at K=3. **Ruling N re-baseline,
+/// 0.65 seed floor or the size-primary water-body rule moved. **Ruling N re-baseline,
 /// second pass**: 5 settlements become 3. The two that go, (14,8) at 0.7000 and (1,3) at 0.6868
 /// under the river pass, fall below `find_settlement_seeds`' 0.65 floor once the coastal term stops
 /// paying for a lake. This 16x12 fixture is lake-heavy -- 102 of its 127 scored cells had `coast >
@@ -203,43 +158,6 @@ fn settlement_placement_case_0_region() {
 /// `place_settlements_with_water_edge_snap`'s own current actual output.
 #[test]
 fn settlement_placement_case_1_world_wrap() {
-    // Protects: the same core on a wrapped 16 x 12 world whose seeds all sit
-    // on one landmass, so every candidate earns its own seat (the K>1
-    // multi-capital branch, here K=3). The expected table is the pre-Ruling-Q
-    // content restored by Ruling T (the history comment below), so it pins
-    // this port's own output on a `world=true` map, not the reference's
-    // numbers. Red means the wrap handling, the 0.65 seed floor or the
-    // size-primary water-body rule moved.
-    // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
-    // All seeds land on ONE connected landmass (world-wrap). factionCount=6
-    // > L=1 landmass, so every candidate earns its own seat and becomes its
-    // own capital -- the K>1 multi-capital spacing branch, which this fixture
-    // still exercises at K=3.
-    //
-    // **Ruling N re-baseline, second pass**: 5 settlements become 3. The two
-    // that go, (14,8) at 0.7000 and (1,3) at 0.6868 under the river pass,
-    // fall below `find_settlement_seeds`' 0.65 floor once the coastal term
-    // stops paying for a lake. This 16x12 fixture is lake-heavy -- 102 of its
-    // 127 scored cells had `coast > 0` with a *lake* as their nearest water
-    // under `build_coast_sdf` -- so it feels the change harder than a
-    // production world does. The three survivors keep their cells, factions,
-    // ranks and `coastal: true` exactly.
-    //
-    // **RE-BASELINED then RE-REVERTED, both 2026-09-21.**
-    // `LARGE_ITEM_RULINGS.md`'s Ruling Q briefly superseded the account
-    // above with a topology-primary `build_water_bodies` rule (this
-    // fixture's `wb.classification` moved to 116 land / 14 ocean / 62 lake,
-    // was 127/13/52 -- see `golden_parity_waterbodies.rs`'s header), which
-    // reached `coast_reach`/`landmass`/`SuitabilityCtx::water_bodies` and
-    // moved `find_settlement_seeds` to five different candidate cells
-    // entirely. Ruling T then special-cased this fixture's `world=true`
-    // map back to the original size-primary rule, reverting `expected`
-    // below a second time to this file's own pre-Ruling-Q content (`git
-    // show c6de2a2:crates/cartalith-civ/tests/golden_parity_settlement_placement.rs`)
-    // -- i.e. back to the three-capital, K=3 account just above, which is
-    // accurate again. Re-run and confirmed against
-    // `place_settlements_with_water_edge_snap`'s own current actual
-    // output.
     let expected = vec![
         ExpectedPlace { x: 9, y: 3, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
         ExpectedPlace { x: 5, y: 8, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },

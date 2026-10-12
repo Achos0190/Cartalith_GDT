@@ -291,7 +291,7 @@ var _stage_elapsed_ms: Array = []
 ## A short rolling log of "NN Name -- 0.42s" lines, newest last, shown under
 ## the ten rows -- the spec's own "per-stage progress + log".
 var _stage_log: Array = []
-## Cap on `_stage_log`'s length: the oldest lines are dropped past it. The value 12 has no stated source: labelled judgement.
+## Cap on `_stage_log`'s length: the oldest lines are dropped past it. No source found for the 12 at this line.
 const STAGE_LOG_MAX := 12
 ## Which stage indices `_assert_stage_names()` has already judged this run,
 ## so one real disagreement is reported once rather than on every tick.
