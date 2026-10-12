@@ -81,15 +81,21 @@ const SECTION_TITLES := {
 	"place": "PLACE HERE", "go": "GO / MEASURE", "info": "INFO",
 }
 
+## The shell (`DccApp`) passed to `setup()`; the popup's `about_to_popup` handler calls its
+## `pause_for_context_surface()`. Required, as the `setup` doc says.
 var app
 ## What `open()` was given. `_all_hits` is every hit under the pointer, which
 ## Select ▸ lists even after a pick narrowed the request's own `hits` to one.
 var _req: Dictionary = {}
+## The action list `open()` was given; `_build_main` draws a row per entry.
 var _actions: Array = []
+## Every hit under the pointer (`all_hits`, falling back to `hits`, from the request in `open`);
+## `_build_main` offers Select only when there are two or more and no filter.
 var _all_hits: Array = []
 ## Called with the chosen hit when a Select ▸ entry is run; the broker
 ## re-resolves for that object and calls `open()` again.
 var _on_select: Callable = Callable()
+## Screen point the card opens at, from `open`; `_target_rect` places the card relative to it.
 var _anchor := Vector2.ZERO
 ## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): `""` (default) keeps `_target_rect()`'s
 ## plain pointer-relative placement (right of the anchor, flipped only at a
@@ -106,15 +112,23 @@ var _ring_clear := 0.0
 ## `_anchor`; `_sub_clear` is its `radius + slot * 0.5`. Both 0.0 whenever no
 ## sub-ring is open beside this card.
 var _sub_x := 0.0
+## The open sub-ring's `radius + slot * 0.5` (see the comment above); set by `open` and
+## `set_ring_clear`, 0.0 when no sub-ring is open.
 var _sub_clear := 0.0
 ## `{}` for the sections; else `{"title": String, "rows": Array}` -- the one
 ## submenu level §4.2 allows.
 var _sub: Dictionary = {}
+## The card's search-filter text; reset to "" by `open`, and `_rebuild` branches on whether it is
+## empty.
 var _filter := ""
 ## The rows the keyboard can reach, in drawn order: `{node, kind, action}`.
 var _nav: Array = []
+## Index into `_nav` of the keyboard-focused row, -1 for none; reset by `_rebuild`, read by
+## `focused_row`.
 var _focus := -1
+## The `VBoxContainer` the card's sections are rebuilt into, created in `setup` inside `_scroll`.
 var _body: VBoxContainer
+## The card's `ScrollContainer` (horizontal scrolling disabled), created in `setup`.
 var _scroll: ScrollContainer
 
 

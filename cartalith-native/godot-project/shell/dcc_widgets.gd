@@ -429,6 +429,9 @@ static func advanced(parent: Control, title: String = "advanced") -> VBoxContain
 
 # -- Rows ---------------------------------------------------------------------
 
+## Width in px of the label column of a settings row; `_row` applies it and other windows (for
+## example the faction roster's colour and religion rows) reuse it so their labels line up. The 132
+## has no source stated here: labelled judgement.
 const ROW_LABEL_W := 132
 ## `width:44px;text-align:right` on the canvas's value column. 56 was 27 % wide
 ## and stole the slack the label needed.
@@ -3949,6 +3952,8 @@ const MODAL_STAT_H := 19        ## The stat rows' own `min-height:19px`.
 const MODAL_SHADOW_COLOR := Color(0, 0, 0, 0.55)
 ## Blur radius (34) and offset (0, 14) of `--shadow` above, in pixels.
 const MODAL_SHADOW_SIZE := 34
+## Offset (0, 14) px of the modal card's shadow, the second figure of the canvas `--shadow` quoted
+## above; applied as `shadow_offset` in `modal_card`.
 const MODAL_SHADOW_OFFSET := Vector2(0, 14)
 
 ## Meta on the list container: which dot tokens `modal_list_row()` has actually

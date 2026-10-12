@@ -93,6 +93,8 @@ var _status: Label
 ## row's own label, for a conflict message naming every OTHER row that
 ## already answers to the chord -- so the message is a list, not one name.
 var _capture_popups: Dictionary = {}
+## Row id -> the row's label, filled by `_row` for editable rows and cleared by `_rebuild`;
+## `_collision_text` uses it to name every other row that already answers to a chord.
 var _capture_labels: Dictionary = {}
 ## `id -> Button`: the rebind chip of each editable row, so a capture can be
 ## repainted ([`_begin_capture`], [`_end_capture_visual`]) without a rebuild.

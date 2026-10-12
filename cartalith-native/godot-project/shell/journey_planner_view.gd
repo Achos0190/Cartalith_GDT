@@ -200,16 +200,32 @@ class_name JourneyPlannerView
 ##   candidate per-stage packages; whatever it picks is recomputed under the
 ##   real per-stage modifier before anything is reported.
 
+## The shell (`DccApp`) bound in `setup()`; every dock, viewport and status-bar call in this file
+## goes through it.
 var app: DccApp
+## The `EngineBridge` bound in `setup()`; every `jp_*` planner call and the route and journey
+## stores are reached through it.
 var bridge: EngineBridge
 
 # -- Plan / route state --------------------------------------------------------
 
+## Result of `setup()`'s `has_method` probe for the planner bindings; when false both panels show a
+## one-line "rebuild" note and nothing computes (see `setup()`).
 var _bound := false
+## `bridge.jp_options()`, fetched once in `_build_left_panel`; the route-condition table and the
+## form's choice lists are read from it.
 var _options: Dictionary = {}
+## `bridge.jp_default_plan()`, fetched in `_build_left_panel`; `_rebuild_party_form` uses it as the
+## seed when no route is selected.
 var _default_plan: Dictionary = {}
+## The party form's current values, field key -> value; the form's number rows read and write it,
+## and `_load_journey` replaces it with a copy of a saved journey's plan.
 var _plan_values: Dictionary = {}
+## Index of the selected committed route, or -1 for none; set by `open_with_route`,
+## `_refresh_route_choice` and `_load_journey`.
 var _route_index := -1
+## The last `jp_compute` result Dictionary, assigned in `_compute` (emptied when nothing can
+## compute); readers check its `ok` flag before using `plan`.
 var _last_result: Dictionary = {}
 var _stage_overrides: Dictionary = {}   ## int stage idx -> Dictionary (JpStageOverride field pairs)
 var _layovers: Dictionary = {}          ## stop key (String) -> int days
@@ -222,6 +238,8 @@ var _resupply_accepted: Array = []
 ## hides the Accept prompt: the engine still counts the stop as needed, so the
 ## verdict keeps saying so until it is accepted or the plan changes.
 var _resupply_declined: Dictionary = {}
+## Index of the stage selected on the profile spine; set by `_on_stage_clicked`, reset to 0 when
+## the route or journey changes and clamped to the stage count in `_apply_result`.
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
 var _carriage_auto := true              ## Sent as `jp_compute`'s own `auto_carriage` (JP-01).
@@ -250,6 +268,9 @@ var _trim := Vector2(0.0, 1.0)
 ## entry restored from a pre-AR journey, and `_load_journey` then leaves the
 ## session's current flags alone).
 var _journeys: Array = []
+## Index into `_journeys` of the journey last saved (`_commit_saved_journey`) or loaded
+## (`_load_journey`), -1 for none; `_delete_journey` keeps it pointing at the same entry. Read only
+## to mark the open list with a dot.
 var _active_journey := -1
 
 ## The `EngineBridge.last_documents` dictionary the last restore read -- held
@@ -270,12 +291,20 @@ var _animal_entries: Dictionary = {}
 var _library_animals: Array = []   ## last `tl_list("animal")`, refreshed per form rebuild
 var _library_vessels: Array = []   ## last `tl_list("vessel")`
 
+## Whether the planner is the shown view; assigned from `should_show` in `_recompute_visibility`,
+## which calls `_show()` when it becomes true.
 var _active := false
 
 # -- Region roots ---------------------------------------------------------------
 
+## Root of the left-dock region: built hidden by `_build_left_panel` and appended to
+## `app.left_dock_body` (see the header).
 var _left_panel: VBoxContainer
+## The left panel's "Journeys" section, made by `DccWidgets.section` in `_build_left_panel`;
+## `_refresh_route_choice` clears and refills its children.
 var _left_route_section: VBoxContainer
+## Container for the party form inside the left panel, created in `_build_left_panel`;
+## `_rebuild_party_form` clears and refills it.
 var _left_party_body: VBoxContainer
 ## True while `_show()` is the reason the phone's left dock sheet is up, so
 ## `_hide()` closes that sheet and only that sheet -- never one the user opened
@@ -292,22 +321,46 @@ var _pack_range_label: Label
 ## re-fetching it per compute would be re-reading a constant.
 var _vessel_matrix: Dictionary = {}
 
+## Root of the centre region: built hidden by `_build_center_panel` and appended to
+## `app.viewport_content` (see the header).
 var _center_panel: Control
+## Container for the route map and its line layer, created in `_build_center_panel`.
 var _route_map_wrap: Control
+## The route-map backdrop (`_RouteMapView`, an inner class), created in `_build_center_panel`;
+## `_route_line` draws against it via `backdrop`.
 var _route_map: _RouteMapView
+## The route polyline layer (`_RouteLineLayer`, an inner class), created in `_build_center_panel`,
+## with `backdrop` set to `_route_map`.
 var _route_line: _RouteLineLayer
+## Button that opens the route-map layer picker; built in `_build_route_map_layer_button`.
 var _route_map_layer_btn: Button
+## The layer picker's `PopupMenu`, built in `_build_route_map_layer_button`.
 var _route_map_layer_popup: PopupMenu
 ## Which `EngineBridge.debug_texture()` id the route-map backdrop shows --
 ## `"off"` (the pre-existing plain background) by default, so this feature is
 ## purely additive until picked.
 var _route_map_layer_id := "map"
+## Body of the "Route totals" panel, created in `_build_center_panel`; `_rebuild_route_map` clears
+## it and refills it with `_totals_row` rows.
 var _totals_body: VBoxContainer
+## The distance-spine profile view (`_ProfileView`, an inner class that emits `stage_clicked` and
+## `trim_dragged`), created in `_build_center_panel`.
 var _profile: _ProfileView
+## `HBoxContainer` of stop chips inside the stops strip; created in `_build_center_panel` and
+## cleared and refilled by `_rebuild_stops`.
 var _stops_row: HBoxContainer
+## One-line caption under the stops strip, created in `_build_center_panel` and set by
+## `_rebuild_stops`.
 var _stops_note: Label
+## Body of the stage inspector, a `VBoxContainer` inside a scroll container, created in
+## `_build_center_panel`.
 var _inspector_body: VBoxContainer
+## Body of the stage matrix, a `VBoxContainer` in a scroll container, created in
+## `_build_center_panel`; the matrix builders (`_matrix_header`, `_rebuild_matrix`) add their rows
+## to it.
 var _matrix_body: VBoxContainer
+## Declared but never read or assigned anywhere in this repository's shell scripts (grep finds no
+## other use); intent unverified, apparently a leftover.
 var _matrix_problem_count: Label
 var _timeline_view: _TimelineBandView   ## JP-13: lives in `app.timeline_row`, not under `_center_panel` -- see `_rebuild_timeline_band()`.
 

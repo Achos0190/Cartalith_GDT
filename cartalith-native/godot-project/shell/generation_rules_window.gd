@@ -74,18 +74,28 @@ var app                       ## `DccApp`
 var bridge: EngineBridge
 
 var _rules: Dictionary = {}   ## last `get_active_urban_rules()` read
+## The engine's default urban rules, read by `_rebuild` from `bridge.get_default_urban_rules()`;
+## `_rebuild_tables` compares each key against it.
 var _defaults: Dictionary = {}
 var _active_preset := ""      ## "" once a slider/table diverges from every preset
 
 ## Containers refilled by the `_rebuild_*` functions: preset chips, the three
 ## read-only parameter tables (street / parcels / settlement).
 var _presets_row: HBoxContainer
+## Container for the street-rules table, created in `_build_tables_pane` and refilled by
+## `_rebuild_tables`.
 var _street_body: VBoxContainer
+## Container for the parcels-rules table, created in `_build_tables_pane` and refilled by
+## `_rebuild_tables`.
 var _parcels_body: VBoxContainer
+## Container for the settlement-rules table, created in `_build_tables_pane` and refilled by
+## `_rebuild_tables`.
 var _settlement_body: VBoxContainer
 ## The two slider readout labels, owned by `DccWidgets.slider` but re-synced in
 ## [`_rebuild_tables`] from `meta.wildness` / `meta.plot_chaos`.
 var _wild_readout: Label
+## The plot-chaos slider's readout label, taken from the slider widget in `_build_sliders_pane` and
+## re-synced in `_rebuild_tables` (see the comment above).
 var _chaos_readout: Label
 ## The footer line saying whether active rules differ from the defaults.
 var _status_label: Label

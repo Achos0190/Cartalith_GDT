@@ -96,6 +96,8 @@ class_name VaultStore
 ## still in memory (`bridge.vault_restore_state` refuses malformed JSON and
 ## returns `false`, which is why this reports rather than assumes).
 
+## Where the device-local vault link store is kept (`user://`, so per device); `load_into` reads it
+## and reports a missing or unreadable file as an empty store (see the header above).
 const PATH := "user://markdown_vault.json"
 
 ## Where `PATH`'s link store is kept when a project takes ownership of it —

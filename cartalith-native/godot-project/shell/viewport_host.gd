@@ -22,6 +22,9 @@ class_name ViewportHost
 ## (settlements, roads, sea routes) on top from world data, re-fitting itself
 ## every frame so a window resize needs no notification.
 
+## Re-emits `overlay`'s signal of the same name (wired in `_ready`) so the shell connects to the
+## host, not to the overlay node; suppressed while `_generating()`. Consumed by `app.gd`
+## `_wire_selection`.
 signal settlement_selected(data: Variant, index: int)
 ## `map_overlay.gd`'s settlement hover, re-emitted by `_on_hovered()`; dropped while a generate is
 ## running. Never carries a stale index across a world change.
@@ -29,6 +32,8 @@ signal settlement_hovered(data: Variant, index: int)
 ## Ruling AL: `map_overlay.gd`'s landmark twins of the two above, re-emitted.
 signal landmark_selected(data: Variant, index: int)
 signal icon_selected(data: Variant, index: int)   ## `map_overlay.gd`'s own, forwarded.
+## Re-emits `overlay`'s `landmark_hovered` (wired in `_ready`), suppressed while `_generating()`,
+## like `settlement_selected`.
 signal landmark_hovered(data: Variant, index: int)
 ## The cursor's grid cell under the map (`valid` false = off the map), re-emitted by
 ## `_on_sampled()` after the coordinates label is written; dropped while generating.
@@ -88,10 +93,23 @@ const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
 ## only decides WHEN it is active and which tiles are wanted.
 const INFO_TILES_SCRIPT := preload("res://shell/info_tiles.gd")
 
+## The base map raster: a `TextureRect` created by `_raster()` in `_ready` and a child of
+## `_camera`, so it pans and zooms with it. `_apply_shore_field` and `_apply_river_paint` set
+## shader parameters on its material.
 var map_view: TextureRect
+## Territory-fill raster, a `_raster()` child of `_camera`; created hidden (`visible = false` in
+## `_ready`) and toggled by `set_layer_visible`.
 var territory_view: TextureRect
+## Province-fill raster, a `_raster()` child of `_camera`; created hidden (`visible = false` in
+## `_ready`) and toggled by `set_layer_visible`.
 var province_view: TextureRect
+## The map-overlay Control: `map_overlay.gd` set onto a plain `Control` in `_ready`
+## (`OVERLAY_SCRIPT`), full-rect inside `_camera`. Owns hit-testing and the selection signals that
+## this host forwards.
 var overlay: Control
+## The active tool's draw-and-input layer (`ToolOverlay`), full-rect inside `_camera`, handed
+## `overlay` in `_ready` so it can read its data; the `_ready` comment records that it is
+## `MOUSE_FILTER_IGNORE`.
 var tool_overlay: ToolOverlay
 var _preview_layer: TextureRect   ## Sculpt/Paint's live draft raster. See `set_preview_texture()`.
 var _preview_image: Image = null  ## CPU mirror of `_preview_layer`. See `set_preview_patch()`.
@@ -101,11 +119,16 @@ var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 var _info = null                  ## LOD-D7's `info_tiles.gd` manager (untyped: no class_name).
 var _paint_orig_layer: TextureRect  ## The armed paint layer's as-generated raster. See `set_paint_original()`.
 
+## Scale-bar caption chrome label, bottom-left; made by `_chrome()` in `_ready`, a direct child of
+## `self` so it is not panned or zoomed (see `_camera`). Positioned by `_apply_safe_insets` and
+## `_update_scale_bar`.
 var _scale_label: Label
 ## §5.4's graphical rule -- `ENV:914-916` draws the km label and a ruled bar as
 ## one `flex-direction:column;gap:3px` stack (the column is `ENV:914`, the label
 ## `:915`, the bar `:916`), and only the label existed here.
 var _scale_rule: Control
+## Zoom readout chrome label, top-right; made by `_chrome()` in `_ready`, text set by
+## `_update_zoom_readout`, positioned by `_apply_safe_insets`.
 var _readout_label: Label
 ## `render_workspace.gd`'s active Map style preset name (or "Custom" once a
 ## manual edit or a loaded named look diverges from all five), pushed in via
@@ -116,6 +139,8 @@ var _style_readout := "Default"
 ## The live overlay treatment `set_overlay_treatment()` last received (`{}` =
 ## the shipped colours).
 var _overlay_treatment: Dictionary = {}
+## Cursor-coordinates chrome label, bottom-right; made by `_chrome()` in `_ready`, positioned by
+## `_apply_safe_insets`.
 var _coords_label: Label
 ## §5.2's viewport context chip. Written by `DccShell._refresh_viewport_context()`
 ## -- see `set_viewport_context()`.
@@ -124,6 +149,8 @@ var _vp_context: Label
 ## top-right readout. Held rather than re-read, because it changes only when
 ## `set_debug_layer()` runs and `_update_zoom_readout()` runs on every zoom.
 var _vp_field := "relief"
+## The Layers popover's button, built in `_ready`; its press is re-emitted as
+## `layers_button_pressed`.
 var _layers_btn: Button
 ## The touch navpad (`GUI_GAP_REGISTER.md` SH-14) and its one stateful member.
 ## `null` on desktop -- see `_build_navpad()` for the reachability call.
@@ -132,12 +159,18 @@ var _layers_btn: Button
 ## thumb-reachable bottom cluster. The type is load-bearing enough to state --
 ## `_navpad_probe.gd` types its own local off it.
 var _navpad: HBoxContainer
+## The navpad's pan-mode (hand) button; `set_pan_mode()` syncs its pressed state without emitting
+## and repaints it via `_navpad_paint`.
 var _pan_btn: Button
 ## The zoom rocker's hairline. Held because `_apply_touch_scale()` has to grow
 ## it with everything else, and it is the one navpad child that is not a
 ## `Button` and so is invisible to that pass's meta filter.
 var _zoom_rule: ColorRect
+## The `EngineBridge` given to `setup()`; the source for the shore-field and river textures and for
+## `last_width_km` in `refresh()`. Null until `setup()` runs, and callers null-check it.
 var _bridge: EngineBridge
+## Map width in km, copied from `_bridge.last_width_km` in `refresh()`; drives `_zoom_max` and the
+## scale bar. 0.0 means no world yet and `_update_scale_bar` returns early.
 var _width_km := 0.0
 
 ## Default matches the original hardcoded 10 px inset every corner label and
@@ -210,8 +243,14 @@ const ZOOM_TARGET_SPAN_KM := 5.0   ## `(state.mapWidthKm||800)/5` -- the span
 var _zoom_max := ZOOM_MAX_FLOOR   ## `lodMaxZoom()` for the live world;
 	## recomputed in `refresh()`, floored until one exists.
 const ZOOM_WHEEL_STEP := 1.15   ## Multiplicative per wheel notch.
+## The camera's zoom factor, applied as `_camera.scale`; clamped to `ZOOM_MIN`..`_zoom_max` in
+## `_zoom_at` and set by `_zoom_at` and the fit logic.
 var _zoom := 1.0
+## True while a pan drag is held (set from the mouse button in `_input`); motion then moves
+## `_camera.position`.
 var _panning := false
+## Screen position of the previous pan-drag event; `_input` adds the delta to `_camera.position`
+## each motion event.
 var _pan_last_screen := Vector2.ZERO
 ## The navpad's ✋ (`GUI_GAP_REGISTER.md` SH-14) -- the reference's `panMode`
 ## (9582), which despite the ✋ glyph is a **latching toggle**, not a
@@ -366,6 +405,9 @@ var _lod_pending: Dictionary = {}
 ## entry belongs to the world and appearance that built it, and the engine's
 ## own cache key is what decides that -- this side must never outlive it.
 var _lod_cache: Dictionary = {}
+## LRU order of `_lod_cache` keys, oldest first. `_park_lod_tile` appends, `_restore_lod_tile` and
+## eviction erase, `_drop_lod_cache` empties it; it must always mirror `_lod_cache`'s keys (see the
+## comment above).
 var _lod_cache_order: Array[String] = []
 
 ## **LOD-D6's escape hatch, for probes and for a binary that cannot thread.**
@@ -419,6 +461,8 @@ var _lod_morph: Dictionary = {}
 ## the shader's `base_tex` instead, which is also what every tile does on the
 ## frame the pyramid first comes up.
 var _lod_child_level := -1
+## Pyramid level currently held as the parent layer; set from `pz` in `_update_lod` and compared
+## against `_lod_child_level` in `_refresh_lod_blend`.
 var _lod_parent_level := -1
 
 ## Whether a parent level is wanted at all -- **false until the camera has
@@ -439,6 +483,8 @@ var _lod_parent_level := -1
 ## right when the camera jumps more than one level in a notch, which
 ## comparing adjacent levels is not.
 var _lod_parents_due := false
+## Whether LOD tile mode is on; written only by `_set_lod_active` (the single authority), read by
+## `_update_lod`, `_sync_info_tiles` and `visible_grid_rect`.
 var _lod_active := false
 
 ## Set when something this file would have asked `WorldGen` was skipped because a worker held
@@ -471,6 +517,9 @@ var _rivers_in_map_seen := true
 ## way out, exactly as auto does -- the mode is about *entering*, not about
 ## staying.
 var _lod_auto := true
+## Set true by `request_lod_entry()` (a manual entry into LOD) while `_lod_auto` is off; cleared in
+## `_update_lod` and `set_lod_auto`, and tested by `_update_lod` when deciding whether to stay in
+## LOD.
 var _lod_manual_request := false
 
 ## The export tile-border preview (`#lodShowGrid` / `drawExportTileGrid`).
@@ -478,8 +527,14 @@ var _lod_manual_request := false
 ## `_tx_rows`; that window pushes them here whenever they change, so this is a
 ## cache of one authority rather than a second one.
 var _export_grid_layer: Control
+## Whether the export tile-border preview is shown; set by `set_export_tile_grid`, read by
+## `_set_lod_active` (hidden while LOD is active) and `export_tile_grid_enabled`.
 var _export_grid_on := false
+## Export split's column count, cached from `data_manager_window.gd` by `set_export_tile_grid`;
+## `_draw_export_tile_grid` draws `cols - 1` dividers.
 var _export_grid_cols := 4
+## Export split's row count, cached by `set_export_tile_grid`; `_draw_export_tile_grid` draws `rows
+## - 1` dividers.
 var _export_grid_rows := 4
 
 ## Bind the engine bridge: forward its world-change signals to `refresh()` /
@@ -1831,7 +1886,11 @@ const PILL_FULL := 0
 ## Corner-rounding shape ids for `_navpad_button()` (`PILL_FULL` above): round only the left (`-`)
 ## or right (`+`) half of the zoom rocker so the two halves read as one pill.
 const PILL_LEFT := 1
+## Shape id for `_navpad_button`: round only the right corners (the `+` half of the zoom rocker);
+## consumed by `_pill_corners` and `_navpad_paint`.
 const PILL_RIGHT := 2
+## Meta key under which `_navpad_button` stores the pill shape id on each button, read back by
+## `_apply_touch_scale` and `_navpad_paint`.
 const NAVPAD_SHAPE_META := "dcc_navpad_shape"
 ## `background:rgba(...,.92)` on every floating map control the phone canvas
 ## draws -- a scrim the map shows through, not an opaque disc. See

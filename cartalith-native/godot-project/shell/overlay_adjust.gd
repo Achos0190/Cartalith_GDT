@@ -53,16 +53,25 @@ extends RefCounted
 const MAX_ENTRIES := 32
 ## Fewest and most Curves control points: `adjust.rs::MIN_CURVE_POINTS` / `MAX_CURVE_POINTS`.
 const MIN_CURVE_POINTS := 2
+## Most control points a Curves entry may have, mirroring `adjust.rs::MAX_CURVE_POINTS`;
+## `_validate_entry` refuses a stack outside `MIN_CURVE_POINTS`..this. `adjust_panel.gd` declares
+## its own copy.
 const MAX_CURVE_POINTS := 16
 ## Levels gamma range: `adjust.rs::GAMMA_RANGE`, a labelled judgement there.
 const GAMMA_MIN := 0.1
+## Upper bound of the Levels gamma, mirroring `adjust.rs::GAMMA_RANGE` (a labelled judgement
+## there); `_validate_entry` uses it. `adjust_panel.gd` declares its own copy.
 const GAMMA_MAX := 10.0
 ## Hue rotation range in degrees: `adjust.rs::HUE_RANGE_DEG`.
 const HUE_MAX := 360.0
 ## Rec.709 luma weights, `adjust.rs::LUMA_WEIGHTS` (ITU-R BT.709), applied to the
 ## gamma-encoded 0..255 channels exactly as the Rust gradient map does.
 const LUMA_R := 0.2126
+## Green weight of the Rec.709 luma (0.7152), per the comment above; used in the gradient-map luma
+## in `_kind_apply`.
 const LUMA_G := 0.7152
+## Blue weight of the Rec.709 luma (0.0722), per the comment above; used in the gradient-map luma
+## in `_kind_apply`.
 const LUMA_B := 0.0722
 ## The most distinct source colours `color()` remembers before it empties the memo and
 ## starts over. A labelled judgement: a map carries a few dozen distinct inks (five label
@@ -111,6 +120,8 @@ const SRGB_TO_P3 := [
 ## The display-space name that turns the P3 stage on: `render.rs::COLOR_SPACES[1]`. Any other
 ## name (including "sRGB", `COLOR_SPACES[0]`) is the default, a pass-through by control flow.
 const SPACE_P3 := "Display P3"
+## The default display-space name; `set_display_space` accepts it and `SPACE_P3` and treats any
+## other name as the default, per the comment above.
 const SPACE_SRGB := "sRGB"
 
 ## True while the monitor is declared Display P3 (ET-E4). Pushed in by the shell through

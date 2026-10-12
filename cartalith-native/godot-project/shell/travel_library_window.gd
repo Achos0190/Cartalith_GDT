@@ -34,6 +34,8 @@ class_name TravelLibraryWindow
 ## simply not built; "duplicate" is the only path to an editable copy,
 ## per §3.
 
+## Library kinds in tab order: `key` is the engine definition kind, `label` the tab caption;
+## `_build_tab_strip` and `_refresh_tab_labels` iterate it.
 const KINDS: Array[Dictionary] = [
 	{"key": "animal", "label": "Animals & mounts"},
 	{"key": "vehicle", "label": "Vehicles"},
@@ -54,6 +56,8 @@ const KINDS: Array[Dictionary] = [
 # by the vehicle off_road/ford pair -- the ten terrain rows have their own
 # dedicated builder since they share one slug table and one header).
 
+## Field groups for an animal entry, in the data-driven spec form described in the comment above
+## (key, label, type and options per field); looked up through `GROUPS_BY_KIND`.
 const ANIMAL_GROUPS: Array[Dictionary] = [
 	{"title": "Classification", "fields": [
 		{"key": "name", "label": "Name", "type": "text"},
@@ -192,22 +196,38 @@ const TERRAIN_ROWS: Array[Array] = [
 	["high_pass", "High Pass"], ["snowfield", "Snowfield"], ["river_ford", "River Ford"],
 ]
 
+## The shell (`DccApp`) given to `setup`; used for `phone_fit` and other host calls.
 var _host: DccApp
+## The `EngineBridge` given to `setup`; the `tl_*` definition calls go through it.
 var _bridge: EngineBridge
 
+## Key of the active tab (one of `KINDS`), default "animal"; the entry's engine lookups use it with
+## `_current_id`.
 var _current_kind := "animal"
+## Id of the selected entry within `_current_kind`, "" for none; cleared when the tab is reset.
 var _current_id := ""
+## Text typed in the rail's filter box; `_refresh_rail` lowercases and applies it.
 var _filter_text := ""
 var _draft: Dictionary = {}       ## staged, uncommitted field edits
 var _entry: Dictionary = {}       ## last tl_get(_current_kind, _current_id) result
 
 var _tab_buttons: Dictionary = {} ## kind -> Button
+## The rail's entry-list `VBoxContainer`, created in `_build_rail` and refilled by `_refresh_rail`.
 var _rail_body: VBoxContainer
+## The rail's "ENTRIES" header label, created in `_build_rail`.
 var _rail_header: Label
+## The inspector's `VBoxContainer` (4 px separation), created in `_build_inspector`; the field
+## groups are built into it.
 var _inspector_body: VBoxContainer
+## The window's status line (`text_ghost`, micro size), created in `_build` and set by import and
+## duplicate handlers.
 var _status_label: Label
 var _rail_wrap: Control        ## PH-12: held so the phone pane switch can hide it
+## The inspector pane's root control, held so the phone pane switch can hide it
+## (`_show_phone_entry`).
 var _inspector_wrap: Control
+## The in-content phone header label from `DccWidgets.phone_head` in `_build`; assigned and not
+## read elsewhere.
 var _phone_title: Label
 var _head_row: HBoxContainer    ## PH-12: the bar Reset moves into on a phone
 
@@ -224,7 +244,11 @@ var _head_row: HBoxContainer    ## PH-12: the bar Reset moves into on a phone
 ## tabs; there are four now -- so on a phone it
 ## wraps.
 var _phone := false
+## Phone only: true while the inspector pane (rather than the rail) is shown; set by
+## `_show_phone_entry`, which is its only user.
 var _phone_showing_entry := false
+## Phone only: the Back chip in the inspector header; `_show_phone_entry` shows it when the
+## inspector is up.
 var _phone_back_btn: Button
 
 ## Configure the dialog (title, size, phone fit), keep the host and bridge, and build the UI. Call

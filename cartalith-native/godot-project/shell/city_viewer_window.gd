@@ -96,7 +96,11 @@ var _settlement: Dictionary = {}
 ## Canvas view state — `_zoom` multiplies the fit scale, `_pan` is a screen
 ## offset applied after it.
 var _zoom := 1.0
+## Screen-space pan offset of the canvas, applied after the fit scale (see the comment above);
+## changed by `_zoom_by` and the drag handler, zeroed by `_reset_view`, read by `_draw_canvas`.
 var _pan := Vector2.ZERO
+## True while the mouse button is held on the canvas, set from the button state in
+## `_on_canvas_input`; motion events pan only while it is set.
 var _dragging := false
 
 ## Zoom clamp floor, a multiple of the fit scale. Labelled judgement: low enough

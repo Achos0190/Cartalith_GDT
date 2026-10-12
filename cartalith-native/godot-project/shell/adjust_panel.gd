@@ -70,7 +70,10 @@ extends VBoxContainer
 ## holds. Not emitted by `write_layer()` (the Look sliders' own path), so it cannot loop.
 signal stack_written(layer: String)
 
+## The `overlay_adjust.gd` script, used for its static overlay-stack API (`get_stack_json`,
+## `is_live`).
 const _OA := preload("res://shell/overlay_adjust.gd")
+## The gradient-map ramp editor (`ramp_bar.gd`), instantiated in `_build_gradient`.
 const _RampBar := preload("res://shell/ramp_bar.gd")
 
 ## The id of the labels/overlays layer. The two engine layers' ids come from
@@ -82,7 +85,11 @@ const LAYER_LABELS := {"terrain": "Terrain", "water": "Water", "overlay": "Label
 const KIND_ORDER := ["levels", "curves", "hsl", "gradient_map"]
 ## Button captions for adding a kind (the row's own title is `KIND_SHORT`).
 const KIND_ADD := {"levels": "Levels", "curves": "Curves", "hsl": "Hue / Sat / Light", "gradient_map": "Gradient map"}
+## Adjustment kind -> short title used on an entry's row and in the undo labels `_on_add` and
+## `_on_delete` build; same four texts as `KIND_ADD`.
 const KIND_SHORT := {"levels": "Levels", "curves": "Curves", "hsl": "Hue / Sat / Light", "gradient_map": "Gradient map"}
+## Adjustment kind -> tooltip text, shown on the Add button (`setup`) and on the entry
+## (`_build_entry`, which appends the untick hint).
 const KIND_TIP := {
 	"levels": "Levels: map an input range to an output range with a midtone gamma, per channel. Gamma above 1 brightens the midtones.",
 	"curves": "Curves: a tone curve through control points (input to output, 0 to 255), smoothed so it never overshoots. Applied to each channel.",
@@ -94,9 +101,13 @@ const KIND_TIP := {
 const MAX_ENTRIES := 32
 ## Fewest and most Curves control points: `adjust.rs::MIN_CURVE_POINTS` / `MAX_CURVE_POINTS`.
 const MIN_CURVE_POINTS := 2
+## Most control points a Curves entry may hold; mirrors `adjust.rs::MAX_CURVE_POINTS` (per the
+## comment above), and `_build_curves` and `_on_add_point` stop adding at it.
 const MAX_CURVE_POINTS := 16
 ## Levels gamma range, `adjust.rs::GAMMA_RANGE` (a labelled judgement there).
 const GAMMA_MIN := 0.1
+## Upper end of the Levels gamma slider; mirrors `adjust.rs::GAMMA_RANGE` (a labelled judgement
+## there, per the comment above). `overlay_adjust.gd` declares its own copy.
 const GAMMA_MAX := 10.0
 ## Hue rotation range in degrees, `adjust.rs::HUE_RANGE_DEG`.
 const HUE_MAX := 360.0
@@ -112,11 +123,17 @@ const LIVE_MS := 33
 ## The shell's touch floor (`DccTheme` / `ramp_bar.gd::TOUCH_PX`), both axes.
 const TOUCH_PX := 44.0
 
+## The shell (`DccApp`, typed `Node` here), given by `setup`; used for its `viewport` in
+## `_write_layer`.
 var app: Node
+## The `EngineBridge` (typed `Node` here), given by `setup`; `adjust_layers` and `adjust_api` come
+## from it.
 var bridge: Node
 ## `Callable(parts: Array)` / `Callable(label: String, parts: Array)`: the host's look-history
 ## bracket (`RenderWorkspace.look_begin` / `look_commit`).
 var _look_begin: Callable
+## The look-history commit callable given to `setup` (`look_commit`); `_end_gesture` calls it after
+## a gesture wrote.
 var _look_commit: Callable
 ## `Callable(layer: String)`: the host marks the look Custom and re-renders the map. Called
 ## after every successful ENGINE write (an overlay write redraws itself).
@@ -124,6 +141,8 @@ var _edited: Callable
 
 ## The layer on show: an engine layer id or `OVERLAY`.
 var _layer := "terrain"
+## Layer ids the picker offers: the engine's `adjust_layers()` (when `adjust_api`) with `OVERLAY`
+## appended in `setup`.
 var _layer_ids: Array = []
 ## Parsed saved form of the layer on show, `{"entries": [...]}`. See the header: a copy.
 var _doc: Dictionary = {"entries": []}
@@ -133,18 +152,32 @@ var _unknown := false
 var _locked := false
 ## A gesture has WRITTEN since `_begin_gesture()`. Not "a gesture is open": see `_begin_gesture`.
 var _gest_dirty := false
+## Label for the current gesture's history entry; set by `_changed_live`, passed to `_end_gesture`
+## by `_end_idle`. Default "Adjustment" is a labelled judgement.
 var _gest_label := "Adjustment"
 ## A slider drag is in progress (its release closes the gesture).
 var _dragging := false
+## True when a live write was deferred inside the `LIVE_MS` window; `_changed_live` sets it and
+## enables `_process`, `_apply` clears it.
 var _pending := false
+## `Time.get_ticks_msec()` of the last write, set in `_apply`; `_changed_live` compares it with
+## `LIVE_MS` to throttle.
 var _last_write := 0
+## True while a deferred rebuild is already scheduled; `_queue_rebuild` uses it so many callers
+## cause one `_rebuild_now`.
 var _rebuild_queued := false
 
+## The Layer `OptionButton` (`DccWidgets.choice`, named "AdjLayerPick"), created in `setup`.
 var _layer_pick: OptionButton
+## The `VBoxContainer` of entry cards (named "AdjList"), created in `setup`.
 var _list: VBoxContainer
+## The `HFlowContainer` holding the "+ kind" Add buttons (named "AdjAddRow"), created in `setup`.
 var _add_host: HFlowContainer
+## The "Reset layer" button (named "AdjReset"), created in `setup`.
 var _reset_btn: Button
+## General notice line (named "AdjNotice"), created in `setup` as an empty `DccWidgets.note`.
 var _notice: Label
+## Guard line (named "AdjGuard"), created in `setup`; `_refresh_guard` drives it.
 var _guard: Label
 ## Says, on the Labels & overlays layer only, when this build's project file cannot store that stack.
 var _persist: Label

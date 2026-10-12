@@ -171,14 +171,24 @@ const PICKER_MAX_TILES := 3
 ## `--btnH` is 28 and `DCC_SHELL_SPEC.md` §13's floor is 44. See the header.
 const PICKER_BTN_H := 44
 
+## The shell (`DccApp`) given to `setup`; the dialog uses it for phone fit and listens to its
+## `phone_insets_changed`.
 var _host: DccApp
 
+## The toolbar's search `LineEdit`, built in `_build_toolbar`; typing calls `_refresh`.
 var _search: LineEdit
+## The gallery's tile `GridContainer`; `_fit_columns` sets its column count from the usable width.
 var _grid: GridContainer
+## Footer caption (`text_ghost`, clipped), built in `_build_foot`.
 var _foot_note: Label
+## The "Open selected" footer button, built in `_build_foot` and created disabled.
 var _open_btn: Button
+## Id of the active scope button, default "recent" (the dialog's first scope); set by `_set_scope`,
+## read by `_paint_scope`.
 var _scope := "recent"
 var _scope_buttons: Dictionary = {}   ## scope id -> Button
+## Path of the selected project tile, "" for none; cleared by `open` and `open_welcome`, set when a
+## tile is picked.
 var _selected := ""
 ## The extensions a Cartalith project may carry, newest first.
 ##
@@ -199,6 +209,8 @@ const PROJECT_EXTENSIONS := ["ctl", "zip"]
 
 var _tiles: Dictionary = {}           ## path -> PanelContainer
 
+## The head's subtitle label ("choose a world to continue, ..."), built in `_build_head`;
+## `_fit_phone_content` hides it on phone.
 var _subtitle_label: Label
 
 ## Cold-start framing (see this file's header). Set by `open_welcome()`,
@@ -207,7 +219,9 @@ var _subtitle_label: Label
 var _welcome := false
 var _gallery: VBoxContainer      ## `File ▸ Open project…` -- the 08-23 artboard.
 var _picker: Control             ## Cold start -- the 08-31 canvas's `scr:'picker'`.
+## The cold-start picker's `HFlowContainer` of tiles, created in `_build_picker`.
 var _picker_tiles: HFlowContainer
+## The picker's one-line note (`text_dim`, up to two lines, ellipsis), created in `_build_picker`.
 var _picker_note: Label
 var _picker_import_btn: Button   ## Held so `_refresh()` can re-ask the bridge.
 

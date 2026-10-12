@@ -96,18 +96,25 @@ class_name VaultWindow
 ## - **No POI.** Not a ported concept — the same absence
 ##   `place_editor_window.gd`'s own footer states.
 
+## The shared Markdown editor script (`markdown_editor.gd`): `_build_editor_pane` instantiates it
+## and `_build_browse_preview` uses its `style_rendered`.
 const MdEditor := preload("res://shell/markdown_editor.gd")
 
 var app                       ## `DccApp`
+## The `EngineBridge` given to `setup()`; every `vault_*` call in this window goes through it.
 var bridge: EngineBridge
 
 ## The entity this window is scoped to. Empty `kind` means the overview.
 var _kind := ""
+## Id of the scope entity within `_kind`; set by `open_for`, zeroed by `open_browse`.
 var _entity_id := 0
+## Display label of the scope entity; set by `open_for`, emptied by `open_browse`.
 var _entity_label := ""
 
 ## The link currently open in the reader (§29). Empty means none.
 var _reader_link := ""
+## The reader's `TextEdit` (made in `_build_reader`); nulled by `_clear` so no stale node outlives
+## a rebuild.
 var _reader_edit: TextEdit
 
 ## The New-note-from-a-template picker's current template (VA-02).
@@ -116,6 +123,8 @@ var _pick_template := ""
 ## The picked note (the tree's selection, and the note pane's subject) and
 ## the section an attach copies ("" = the whole document).
 var _pick_file := ""
+## The section heading an attach would copy, "" meaning the whole document (see the comment above);
+## reset by `_reset_note_state` and `_select_file`.
 var _pick_heading := ""
 
 ## The Markdown editor's file state (`_open_editor`, `_save_note`).
@@ -129,8 +138,14 @@ var _pick_heading := ""
 ## `_rebuild()`, because there is no working copy for a whole file to
 ## round-trip through the way `_build_reader` does via `vault_set_link_text`.
 var _browse_path := ""
+## Content hash of the open file, what Save hands back to `vault_write_file`'s guard (see the
+## comment above); cleared by `_reset_note_state` and `_close_editor`.
 var _browse_hash := ""
+## The editor buffer held across rebuilds (see the comment above); `_is_dirty` compares it with
+## `_browse_saved`.
 var _browse_text := ""
+## The Markdown editor's inner `TextEdit` (`ed.text_edit` in `_build_editor_pane`); nulled by
+## `_clear`.
 var _browse_edit: TextEdit
 
 ## Ruling BE's editor state. `_browse_saved` is the text the file held when it
@@ -139,14 +154,22 @@ var _browse_edit: TextEdit
 ## that the buffer is dirty. `_editor_mode` is Write or Preview, kept across a
 ## rebuild for the same reason.
 var _browse_saved := ""
+## The Markdown editor control built in `_build_editor_pane`; nulled by `_clear`.
 var _editor: Control
+## "write" or "preview" (see the comment above); reset to "write" by `_reset_note_state` and
+## `_close_editor`.
 var _editor_mode := "write"
 
 ## The "Attach to…" picker (`_build_attach_picker`): open or not, the kind it
 ## lists, and its name filter.
 var _attach_open := false
+## Entity kind the Attach picker is listing, default "settlement"; set by the picker's segment
+## buttons in `_build_attach_picker`.
 var _attach_kind := "settlement"
+## The Attach picker's name filter; cleared by `_reset_note_state` and written back into the field
+## by `_build_attach_picker`.
 var _attach_query := ""
+## The Attach picker's result list, made in `_build_attach_picker` and nulled by `_clear`.
 var _attach_list: VBoxContainer
 
 ## Whether the collapsed **More** section is open. Held here because every
@@ -159,7 +182,11 @@ var _more_open := false
 ## guarded writes and the snapshot read these, never `_kind` directly, because
 ## a browsed note is not scoped to anything and may be attached to several.
 var _lk := ""
+## Entity id for the More section's writes (see the comment above); `_rebuild` seeds it from
+## `_entity_id` and `_build_more` overrides it from the active link.
 var _lid := 0
+## Entity label for the More section's writes; seeded from `_entity_label` in `_rebuild`,
+## overridden by the active link in `_build_more`.
 var _llabel := ""
 
 ## The tree+preview split (owner request, 2026-09-21, "a Markdown Vault
@@ -185,8 +212,13 @@ var _browse_only := false
 ## verbatim — `indexed`/`scanned`/`truncated` included, because the panel has
 ## to report those and not only `hits`.
 var _search_query := ""
+## Last `vault_search` answer verbatim (see the comment above); set in `_run_search`, `{}` when the
+## query is empty, and read by `_fill_search_results`.
 var _search_result := {}
+## Container the search results are drawn into, made in `_build_search` and nulled by `_clear`.
 var _search_box: VBoxContainer
+## Relative path of the search hit currently expanded; cleared in `_run_search`, and
+## `_fill_search_results` shows the caret on it.
 var _search_open_rel := ""
 
 ## The standalone browser's own tree container (`_build_browse`), refreshed in
@@ -218,6 +250,8 @@ const DEFAULT_SNAPSHOT_DIR := ".cartalith/maps"
 ## plain Markdown viewer.
 const SNAPSHOT_PX := 512
 
+## Destination folder text for the map snapshot; edited in `_build_snapshots` and, per the comment
+## above, deliberately never persisted. An empty value falls back to `DEFAULT_SNAPSHOT_DIR`.
 var _snapshot_dir := ""
 
 ## The last index Refresh/Rebuild result, shown on the Index section until the
@@ -231,9 +265,16 @@ var _index_feedback := ""
 ## actually reach either without an entity already linked. This is that way.)
 var _pick_query := ""
 
+## The `VBoxContainer` the window's contents are rebuilt into on every state change; created in
+## `setup`.
 var _body: VBoxContainer
+## The `ScrollContainer` holding `_body`, taken from `setup`; `_rebuild` switches its vertical
+## scroll mode.
 var _scroll: ScrollContainer
+## Whether the window is the phone presentation, set from `DccWidgets.phone_window` in `setup`.
 var _phone := false
+## The phone header label made by `DccWidgets.phone_head` in `setup`; `_rebuild` updates it, and it
+## is null off-phone.
 var _phone_title: Label
 
 ## Emitted after anything that changes the link store, so the host can
@@ -2084,6 +2125,8 @@ func _build_browse_backlinks(g: Control) -> void:
 
 # -- Linked notes (§28) -----------------------------------------------------
 
+## Link status code from the vault store -> the label shown for it, with a leading mark;
+## `_build_attached_row` and `_build_links` fall back to the raw code for anything not listed.
 const STATUS_TEXT := {
 	"connected": "✓ Connected",
 	"stale": "● Source changed",
@@ -2916,6 +2959,8 @@ func _preview_dialog(dialog_title: String, preview: String, note: String,
 
 # -- "Confirm always", and where it is turned back off ----------------------
 
+## Write-preference key -> the toggle label `_build_write_prefs` shows for it; the three keys are
+## those the comment below says can be switched back on.
 const PREF_LABELS := {
 	"section": "Insert updated section",
 	"block": "Write Cartalith block",

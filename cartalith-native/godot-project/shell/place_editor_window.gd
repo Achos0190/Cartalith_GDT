@@ -143,16 +143,27 @@ class_name PlaceEditorWindow
 ## already flooring its buttons to the 44 dp touch target on rebuild.
 
 var app                       ## `DccApp`
+## The `EngineBridge` given to `setup()`; every engine and vault call in this window goes through
+## it, and `setup` connects `generation_finished` to rebuild while visible.
 var bridge: EngineBridge
 
+## Index of the open place (settlement) in the engine's list, -1 for none; set by `open_for` and
+## reset to -1 when the place is deleted.
 var _index := -1
+## The `VBoxContainer` the editor's tab content is rebuilt into; created in `setup`.
 var _body: VBoxContainer
+## The name `LineEdit` made on the Overview tab (`open_for` grabs its focus); nulled when the
+## editor is torn down so a stale node is never touched.
 var _name_edit: LineEdit
+## The "not built here" note made by `_build_footer` on every rebuild; assigned and never read
+## elsewhere.
 var _footer: Label
 ## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
 ## treatment and why; here it only decides whether the in-content header below
 ## exists and whether each rebuild is re-fitted for touch.
 var _phone := false
+## The in-content phone header label from `DccWidgets.phone_head` in `setup`; `_rebuild` updates
+## it, and it is null off-phone.
 var _phone_title: Label
 
 ## Emitted after any change that moves map data, so the caller can refresh
@@ -191,6 +202,8 @@ const TAB_LABELS := {
 	"vault": "Vault notes",
 	"layout": "Layout",
 }
+## Key of the shown tab (one of `TAB_ORDER`); `open_for` resets it to "overview", the tab strip
+## sets it, and `_rebuild` matches on it.
 var _active_tab := "overview"
 
 ## Timeline tab state (`lazy-riding-piglet.md` Batch B). World-level, not
@@ -201,12 +214,26 @@ var _active_tab := "overview"
 ## must not snap back to a stale default the moment an unrelated field commits
 ## a rebuild -- the same reasoning `_name_edit` already needs a guard for.
 var _tl_target_year := 0
+## Collapse/recovery simulation mode, "collapse" or "recovery"; bound to the Timeline tab's
+## segmented control in `_build_timeline`.
 var _sim_mode := "collapse"
+## Simulation character: "mixed", "trade", "disease" or "conflict"; bound to the Timeline tab's
+## choice in `_build_timeline`.
 var _sim_character := "mixed"
+## Simulation severity as a 0..1 fraction (the slider shows 0-100 %); default 0.5 is a labelled
+## judgement, no source stated at the declaration.
 var _sim_severity := 0.5
+## Simulation rate as a per-year fraction (the slider shows 0-10 %/yr); default 0.01 is a labelled
+## judgement, no source stated at the declaration.
 var _sim_rate := 0.01
+## Simulation start year, any integer in the number row's -100000..100000 range; default 0 is a
+## labelled judgement.
 var _sim_start_year := 0
+## Simulation duration in years (number row minimum 1); default 100 is a labelled judgement, no
+## source stated.
 var _sim_duration := 100
+## Simulation step in years (number row minimum 1); default 10 is a labelled judgement, no source
+## stated.
 var _sim_step_years := 10
 ## The last `civ_run_collapse_simulation` response, `{}` before any run this
 ## session. Holds either a `needs_confirm` gate (the canvas's own "nothing is
@@ -220,13 +247,29 @@ var _sim_last_result := {}
 ## note's hash from the same rebuild that drew the event list, so a write is
 ## refused if the note changed after the author last saw it.
 var _ae_start := 0
+## "Add authored event" form: End year as text, "" meaning a single year; cleared by `open_for` and
+## after a successful add.
 var _ae_end := ""
+## "Add authored event" form: event name (required); cleared by `open_for` and after a successful
+## add.
 var _ae_name := ""
+## "Add authored event" form: optional description; cleared by `open_for` and after a successful
+## add.
 var _ae_desc := ""
+## "Add authored event" form: optional colour text (the field's hint gives red, blue, ff8800 as
+## examples); cleared by `open_for`.
 var _ae_color := ""
+## "Add authored event" form: optional group; cleared by `open_for`.
 var _ae_group := ""
+## Hash of the vault note as read by `_build_add_event_form`; `_submit_event` passes it to
+## `vault_add_chronos_event` so a write is refused if the note changed since (see the comment
+## above).
 var _ae_hash := ""
+## Status line shown under the form; cleared by `open_for`, set by `_submit_event` to an "Added
+## ..." or "Not added: ..." text.
 var _ae_msg := ""
+## True when the last add was refused as a conflict (`conflict` in the engine's reply);
+## `_build_add_event_form` uses it, with the "Not added" prefix, to pick the message styling.
 var _ae_conflict := false
 
 

@@ -71,10 +71,16 @@ const FONT_ITALIC := preload("res://fonts/FiraSans-Italic.ttf")
 ## ladder: H1 at the modal title's 16 + 4, H2 at 16, H3 at 14.
 const HEADING_PX := {1: 20, 2: 16, 3: 14, 4: 13, 5: 12, 6: 12}
 
+## The Write-mode `TextEdit`; `is_dirty` compares its text with `_saved_text`.
 var text_edit: TextEdit
+## The Preview-mode `RichTextLabel`; `set_mode` swaps it with `text_edit` and carries focus across.
 var preview: RichTextLabel
+## The status line beside the buttons (word-smart autowrap, `text_ghost` colour), created in
+## `setup`; its text and colour are set by `set_status`.
 var status_label: Label
+## The header's Save button, made in `_build_header`; it emits `save_requested`.
 var save_button: Button
+## The header's Cancel button, made in `_build_header`; it emits `cancel_requested`.
 var cancel_button: Button
 
 ## Every toolbar control, by key -- `bold`, `italic`, `underline`, `strike`,
@@ -83,16 +89,32 @@ var cancel_button: Button
 ## presses the real button through this map.
 var buttons := {}
 
+## Callable given to `setup` that returns the vault's note paths; `_open_link_picker` calls it to
+## fill `_link_files`.
 var _files_source: Callable
+## "write" or "preview"; any value other than "preview" given to `set_mode` becomes "write", and
+## `mode()` returns it.
 var _mode := "write"
+## Whether the host is the phone presentation, given to `setup`; `_build_header` branches on it.
 var _phone := false
+## The text the file held when last read or written, given to `setup`; the dirty check measures
+## against it.
 var _saved_text := ""
+## The note-link picker `PopupMenu` (named "EditorLinkPicker"), created in `_build_toolbar`.
 var _link_popup: PopupMenu
+## Paths listed by the link picker, refilled by `_open_link_picker`; a picked popup id indexes it.
 var _link_files: PackedStringArray = PackedStringArray()
+## The "Reload from disk" button made in `setup`, hidden until needed.
 var _reload_button: Button
+## Callable given to `setup` that returns the template choices; `template_choices` calls it.
 var _templates_source: Callable
+## Callable given to `setup` that inserts a chosen template; `insert_template` refuses when it is
+## not valid.
 var _template_inserter: Callable
+## The template picker `PopupMenu` (named "EditorTemplatePicker"), created in `_build_toolbar`.
 var _template_popup: PopupMenu
+## Relative paths listed by the template picker, reset by `template_choices`; a picked popup id
+## indexes it.
 var _template_rels: PackedStringArray = PackedStringArray()
 
 
@@ -778,7 +800,9 @@ static func set_heading(text: String, from: int, to: int, level: int) -> Diction
 ## `prefix_lines()` can toggle or swap it. The leading group keeps indentation. `_TASK_RE` below
 ## must be tried before `_BULLET_RE`, since a task also begins with a bullet marker.
 const _BULLET_RE := "^(\\s*)[-*+] "
+## Regex string for an ordered-list prefix (`1.` or `1)`), compiled in `prefix_lines`.
 const _NUMBER_RE := "^(\\s*)\\d+[.)] "
+## Regex string for a block-quote prefix (`>` and an optional space), compiled in `prefix_lines`.
 const _QUOTE_RE := "^> ?"
 ## Obsidian's task: a list marker, then a one-character box -- `[ ]` open, any
 ## other character (`[x]`, `[/]`, …) a status.

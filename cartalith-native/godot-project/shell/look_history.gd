@@ -58,6 +58,9 @@ const BIOME_N := 15
 ## re-serialisation of it. The first two are engine layers (`adjust_get/set`);
 ## `adjust_overlay` is GDScript state (`shell/overlay_adjust.gd`).
 const ADJUST_ENGINE_PARTS := {"adjust_terrain": "terrain", "adjust_water": "water"}
+## The `parts` name (and snapshot key) of the labels/overlays adjustment stack, which is GDScript
+## state in `overlay_adjust.gd`; `snapshot` stores its JSON text and the render workspace's
+## `on_look_restored` checks for it.
 const ADJUST_OVERLAY_PART := "adjust_overlay"
 ## `shell/overlay_adjust.gd`, the labels/overlays stack (static state, no engine).
 const _OA := preload("res://shell/overlay_adjust.gd")

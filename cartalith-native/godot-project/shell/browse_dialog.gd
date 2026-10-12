@@ -85,6 +85,8 @@ var _primary: Button
 var _rows: Dictionary = {}   ## absolute path -> PanelContainer
 ## SAVE mode only: the foot's file-name field and the name it opens with.
 var _name_edit: LineEdit
+## The file name SAVE mode opens with; set on the instance by `_spawn` and written into
+## `_name_edit` by `_build_foot`.
 var _default_name := ""
 ## Owner rulings 28/29's save-time LOD-tile control -- a plain,
 ## non-canvas-backed checkbox the owner authorised for this one row (see
@@ -97,12 +99,16 @@ var _default_name := ""
 ## argument to `on_choose` -- that signature is shared with every other
 ## save flow and changing it would ripple into all of them.
 var _lod_option_text := ""
+## Whether the save-time LOD-tile checkbox is ticked (see the comment above); `_build_foot` updates
+## it on toggle and `app.gd`'s `save_project_as` reads it after the choice is made.
 var lod_tiles_checked := false
 ## Phone (§13, PH-06). `_shell` is the `DccShell` this dialog's treatment is
 ## measured against; it is **not** always `host`, because two call sites hand
 ## `_spawn()` a `Window` (`open_project_dialog.gd`) rather than the shell, and
 ## a `Window` answers neither `is_phone()` nor `phone_scale()`.
 var _phone := false
+## The `DccShell` this dialog's phone treatment is measured against (see the comment above), set by
+## `_spawn` from `_shell_of(host)`; may differ from `host`.
 var _shell: Node = null
 
 # ---------------------------------------------------------------------------

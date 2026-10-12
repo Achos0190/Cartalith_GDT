@@ -31,10 +31,18 @@ class_name DccUnits
 ##   1 852 m by definition, taken directly rather than composed through miles
 ##   (which would stack two roundings into one).
 
+## Kilometres per international mile, exact by definition (1 mi = 1 609.344 m); `to_unit` divides
+## by it and `format_area` squares it.
 const KM_PER_MI := 1.609344
+## Kilometres per international nautical mile, exact by definition (1 NM = 1 852 m), taken directly
+## rather than via miles (see the header); this port's addition, the reference has no nautical
+## toggle.
 const KM_PER_NMI := 1.852
 
+## Units-mode key -> suffix shown after a number (the nautical mile is abbreviated "nm");
+## `suffix()` falls back to "km".
 const _SUFFIX := {"km": "km", "mi": "mi", "nmi": "nm"}
+## Units-mode key -> full name for the units picker; `label()` falls back to the key itself.
 const _LABEL := {"km": "Kilometres", "mi": "Miles", "nmi": "Nautical miles"}
 
 ## `km` in whatever `DccSettings.units_mode()` currently holds -- the one

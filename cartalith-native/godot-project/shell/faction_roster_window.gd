@@ -150,22 +150,35 @@ const TAB_LABELS := {
 const TAB_MIN_H_POINTER := 28
 
 var app                       ## `DccApp`
+## The `EngineBridge` given to `setup()`; every `civ_*` call here goes through it, and `setup`
+## connects `generation_finished` to `_on_world_changed` while visible.
 var bridge: EngineBridge
 
+## Id of the selected faction (assigned from `fid`, `select_faction`, and `_faction(_selected)`
+## reads it); reset to 1 in `_on_world_changed`. The default 1 is a labelled judgement: no source
+## stated for it at the declaration.
 var _selected := 1
+## The roster list's `VBoxContainer`, created in `setup`.
 var _list_body: VBoxContainer
+## The inspector pane's `VBoxContainer`, created in `setup`; the selected faction's tabs are
+## rebuilt into it.
 var _inspector_body: VBoxContainer
+## The one-line roster overview `Label` made in `setup` (word-smart autowrap, `text_dim` colour).
 var _overview: Label
 ## `civ_faction_terrain_fits()`. Fetched by `_ensure_fits()` the first time the
 ## Territory tab is built after an `open()`, a new world or an edit that moves
 ## it -- **not** in `open()`, because the pass is O(cells).
 var _fits: Array = []
+## Whether `_fits` has been fetched; cleared by `_mark_data_stale`, tested and set by
+## `_ensure_fits`.
 var _fits_ready := false
 ## `civ_military_summary()`, fetched by `_ensure_military()` on the Military
 ## tab's first show for the same reason `_fits` is lazy: one call carries
 ## `power.military`, the fortification counts and the whole of
 ## `cartalith_civ::manpower`'s answer for every faction at once, and it is O(cells).
 var _military: Dictionary = {}
+## Whether `_military` has been fetched; cleared by `_mark_data_stale`, tested by
+## `_ensure_military`.
 var _military_ready := false
 ## `civ_territory_influence()` for EVERY faction, fetched by the Territory tab's
 ## "Analyse influence" button and never otherwise (FH-4). One Dijkstra per
@@ -176,6 +189,8 @@ var _military_ready := false
 ## `{}` is also a real answer (a loaded save, or a world with no capital) and
 ## must read as "ran, and the engine had nothing", not as "not run".
 var _influence: Dictionary = {}
+## Whether `_influence` has been fetched; cleared by `_mark_data_stale`, set by
+## `_build_influence_block` (see the comment above on empty versus not-run).
 var _influence_ready := false
 ## The container the influence readout is (re)filled into, freed with its pane.
 var _influence_body: VBoxContainer = null
@@ -188,16 +203,20 @@ var _influence_body: VBoxContainer = null
 ## fetched" flag because `[]` is also a real answer (a loaded save, or no
 ## world) and must not be re-fetched on every tab show.
 var _economy_rows: Array = []
+## Whether `_economy_rows` has been fetched; tested and set by `_ensure_economy`.
 var _economy_ready := false
 ## `civ_faction_relations()` for every pair (FH-6, the Relations tab). O(cells)
 ## on the engine side for the same reason, cached and dropped the same way.
 var _relations: Array = []
+## Whether `_relations` has been fetched; tested and set by `_ensure_relations`.
 var _relations_ready := false
 ## `province id -> cells` (the Territory tab's Provinces list), one grid pass on the
 ## engine side, fetched by `_province_cells()` after a staleness and dropped by
 ## `_mark_data_stale()`. `{}` is the honest "grid not known" answer, told apart
 ## from "not fetched" by `_province_cells_ready`.
 var _province_cells_by_id: Dictionary = {}
+## Whether `_province_cells_by_id` has been fetched; cleared by `_mark_data_stale`, tested by
+## `_province_cells`.
 var _province_cells_ready := false
 ## The History tab's whole-world ownership rows (FH-8): one
 ## `{"tid": int, "spans": Array}` per settlement the timeline ever recorded, each
@@ -208,7 +227,10 @@ var _province_cells_ready := false
 ## `_history_years` is the recorded years, ascending; `[]` is the honest "no
 ## timeline" answer and is told apart from "not fetched" by `_history_ready`.
 var _history_rows: Array = []
+## The year list built by `_ensure_history` (reset to `[]` there and appended per year).
 var _history_years: Array = []
+## Whether the history has been fetched; tested and set by `_ensure_history`, which is what tells
+## "not fetched" from an empty timeline.
 var _history_ready := false
 ## How many settlements the timeline recorded (`_history_total`), how many of them
 ## `_ensure_history()` read (`_history_scanned`, below `_history_total` only when
@@ -216,7 +238,11 @@ var _history_ready := false
 ## (`_history_usec`, `Time.get_ticks_usec()`). Kept as members so the on-screen
 ## truncation line and `_factionhub_probe.gd`'s timing report read the same numbers.
 var _history_total := 0
+## How many timeline ids `_ensure_history` scanned: `mini(_history_total, _history_tid_cap)`, 0
+## when none (see the comment above).
 var _history_scanned := 0
+## Microseconds the last `_ensure_history` fetch took, assigned there and read only by the probe
+## the comment above names; no other reader in the shell scripts.
 var _history_usec := 0
 ## The cap in force; a member only so the probe can lower it to exercise the
 ## truncation line on any world. Nothing in the shell writes it.
@@ -226,6 +252,8 @@ var _history_tid_cap := HISTORY_TID_CAP
 ## cleared with the other caches in `_mark_data_stale()` (RF-03). A world-wide
 ## list, not per faction.
 var _custom_religions: Array = []
+## Whether `_custom_religions` has been fetched; cleared by `_mark_data_stale`, tested by
+## `_ensure_custom_religions`.
 var _custom_religions_ready := false
 ## Which Religions-library editor is open: `-1` none, `0` a new religion,
 ## `> 0` that religion's id. Not data, so `_mark_data_stale()` leaves it; a
@@ -264,10 +292,17 @@ var _tab_buttons: Dictionary = {}
 ## is picked, after which it folds into a 52 dp bar carrying that faction's
 ## banner, its name and its place in the roster, and the bar is what reopens it.
 var _phone := false
+## The roster list pane (`left` in `setup`); on phone `_set_phone_list_open` shows or hides it.
 var _phone_list_pane: Control
+## The 52 dp bar the list folds into on phone, built by `_build_phone_list_bar` and added to
+## `outer` in `setup`.
 var _phone_list_bar: PanelContainer
+## The faction-name label inside that bar, created in `_build_phone_list_bar`.
 var _phone_bar_name: Label
+## The secondary label (the faction's place in the roster) inside that bar, created in
+## `_build_phone_list_bar`.
 var _phone_bar_sub: Label
+## The `FactionBanner` inside that bar, created in `_build_phone_list_bar`.
 var _phone_bar_banner: Control
 ## The inspector head's own banner, held so the colour picker can repaint it
 ## live without rebuilding the inspector under the open picker (CV-21).

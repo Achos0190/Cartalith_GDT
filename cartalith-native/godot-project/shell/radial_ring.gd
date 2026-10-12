@@ -46,6 +46,8 @@ const SUB_DEAD_ZONE := 32.0    ## mockup `SUBDEAD`.
 ## slot ring, the mockup's own absolute padding (not a proportion of slot
 ## size), touch-scaled alongside everything else in `_apply_touch_scale()`.
 const DISC_MARGIN := 12.0
+## The sub-ring disc's extra reach past its slot ring, from the mockup's `SUBR+SSLOT/2+10` (see the
+## comment above); touch-scaled into `_r_sub_disc_margin`.
 const SUB_DISC_MARGIN := 10.0
 ## `SSLOT/SLOT = 56/60`: with `SLOT_SIZE` now the mockup's own 60, this ratio
 ## resolves to the mockup's own literal 56 rather than approximating it.
@@ -78,12 +80,24 @@ const PUSH_PAST := 18.0
 ## header keeps a figure's desktop key beside its touch value rather than
 ## overwriting it.
 var _r_ring := RING_RADIUS
+## Live slot size: `SLOT_SIZE`, multiplied by `DccTheme.TOUCH_SCALE` in `_apply_touch_scale`; read
+## by `_disc_radius` and the drawing and hit-test code.
 var _r_slot := SLOT_SIZE
+## Live dead-zone radius: `DEAD_ZONE` times `DccTheme.TOUCH_SCALE` (set in `_apply_touch_scale`),
+## reported by `debug_state`.
 var _r_dead := DEAD_ZONE
+## Live sub-ring radius: `SUB_RING_RADIUS` times `DccTheme.TOUCH_SCALE`; read by `_sub_disc_radius`
+## and reported by `debug_state`.
 var _r_sub_ring := SUB_RING_RADIUS
+## Live sub-ring dead-zone radius: `SUB_DEAD_ZONE` times `DccTheme.TOUCH_SCALE`; reported by
+## `debug_state`.
 var _r_sub_dead := SUB_DEAD_ZONE
+## Live disc margin: `DISC_MARGIN` times `DccTheme.TOUCH_SCALE`; read by `_disc_radius`.
 var _r_disc_margin := DISC_MARGIN
+## Live sub-ring disc margin: `SUB_DISC_MARGIN` times `DccTheme.TOUCH_SCALE`; read by
+## `_sub_disc_radius`.
 var _r_sub_disc_margin := SUB_DISC_MARGIN
+## Live push-past threshold: `PUSH_PAST` times `DccTheme.TOUCH_SCALE`; reported by `debug_state`.
 var _r_push_past := PUSH_PAST
 
 ## Still-hold threshold in milliseconds (MAP_CONTEXT_SCOPE.md §6, quoted
@@ -124,6 +138,8 @@ var app
 ## `_active`: the ring genuinely exists as a gesture in progress or a sticky
 ## open surface, whether or not it is currently *drawn* (`_visible`).
 var _armed := false
+## True while the ring exists as a gesture in progress or sticky open surface (see the comment
+## above); `is_open` returns it and `_set_active` changes it.
 var _active := false
 ## `_visible`: whether the ring is currently drawn (a flick may be `_active`
 ## but not yet drawn, see [`FLICK_MS`]). Shadows nothing: Control's own flag is
@@ -143,6 +159,7 @@ var _centre := Vector2.ZERO
 ## Where and when (msec ticks) the press was recorded; the origin of slop and
 ## hold measurements.
 var _press_pos := Vector2.ZERO
+## `Time.get_ticks_msec()` at the press, set in `arm`; `_process` measures `HOLD_MS` from it.
 var _press_ms := 0
 ## Tick at which travel first exceeded [`CLICK_SLOP`], or -1 if it has not.
 var _moved_ms := -1

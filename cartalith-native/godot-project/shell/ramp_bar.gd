@@ -43,31 +43,58 @@ const EPS := 0.002
 ## Minimum milliseconds between live engine writes during a drag. A labelled
 ## judgement (about 30 Hz); the release always writes unthrottled.
 const LIVE_MS := 33
+## Height in px of the gradient strip itself, drawn in `_draw`; `setup` adds it to the handle or
+## touch row to size the control. Value 16 is a labelled judgement.
 const BAR_H := 16.0
+## Height in px of the stop handle row under the strip, drawn in `_draw`; used by `setup` for the
+## non-touch height. Value 16 is a labelled judgement.
 const HANDLE_H := 16.0
 ## Touch target: the shell's 44 px minimum (DccTheme/DccWidgets floor).
 const TOUCH_PX := 44.0
 
+## Object providing `set_color_ramp()` (and `color_ramp()`), given by `setup`; `_write` does
+## nothing when it is null.
 var bridge: Object
+## Callable given to `setup`, called by `_write` after a successful engine write with a copy of the
+## stops, the selection and whether this is the gesture's final step.
 var on_edited: Callable
 ## Called once at the start of a gesture (drag press, add-click, colour popup
 ## open), before the first engine write. See the Undo paragraph above.
 var on_begin: Callable
 ## `Callable(offset: float) -> float` giving metres for the drag label.
 var metres_fn: Callable
+## Index of the selected stop, -1 for none; set by `set_stops` and drag/add, and the selected
+## handle is drawn highlighted in `_draw`.
 var selected := -1
 var _stops: Array = []   ## [[offset, Color], ...] sorted; what is drawn
+## Blend mode name: "Linear", "Ease" or "Step"; set by `set_stops` and matched in
+## `_rebuild_gradient`.
 var _mode := "Linear"
+## The `Gradient` rebuilt from `_stops` by `_rebuild_gradient`; the same object `_tex` samples, and
+## `_add_at` samples it for a new stop's colour.
 var _grad := Gradient.new()
+## `GradientTexture1D` (width 256, set in `setup`) over `_grad`, drawn as the strip in `_draw`.
 var _tex := GradientTexture1D.new()
 var _base: Array = []    ## the list as it was at press, for delete/restore
 var _drag := -1          ## index in `_base` being dragged, -1 when idle
+## True while the dragged stop is far enough outside the bar (and more than `MIN_STOPS` remain)
+## that releasing deletes it; set in the drag update, tested in `_draw` and at release.
 var _dragging_off_bar := false
+## True once the current gesture altered the stop list (added, moved or pulled off the bar); reset
+## in `_begin_drag`.
 var _changed := false
+## True when a live write was throttled; set by `_write`, which enables `_process` to flush it.
 var _pending := false
+## `Time.get_ticks_msec()` of the last engine write, used by `_write` to throttle to `LIVE_MS`.
 var _last_write := 0
+## The hidden `ColorPickerButton` (transparent, 1 px, no focus) created lazily in `_open_colour` to
+## host the colour dialog.
 var _pick: ColorPickerButton
+## Index of the stop whose colour the picker is editing, -1 when none; set in `_open_colour` and
+## cleared when the picker closes.
 var _edit_idx := -1
+## Text drawn beside the dragged stop: metres or percent from `_label_for`, or "release to delete"
+## while off the bar.
 var _drag_label := ""
 var _drag_off := 0.0     ## offset of the dragged stop, for the label position
 

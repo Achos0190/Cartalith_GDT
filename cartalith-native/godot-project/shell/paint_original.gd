@@ -46,19 +46,28 @@ const ORIGINAL_VIEW := {"biome": "bclass", "terrain": "cterrain"}
 ## Slider range and step, in percent. 0 = off; 5 % steps are fine enough to
 ## read an overlay's strength by eye and coarse enough for a thumb.
 const PCT_MAX := 100.0
+## Slider step in percent; the reason for 5 % is in the comment above, and the paint workspace's
+## slider reads it as `po.PCT_STEP`.
 const PCT_STEP := 5.0
 
 ## The slider's tooltip: what it shows, and that it is a viewing aid only.
 const TIP := "Show this layer as the generator made it, under your paint, so you can compare. " \
 	+ "A viewing aid: it never changes the world, a save or an export."
 
+## The shell (`DccApp`) given to `setup`; `setup` connects `tool_armed` to `sync`.
 var app: DccApp
+## The `EngineBridge` given to `setup`; `sync` fetches the original raster through `debug_texture`,
+## and `setup` listens for its `color_texture_rebuilt` signal.
 var bridge: EngineBridge
 
 ## Slider value as a 0..1 fraction. 0 means off. Session-only (see header).
 var opacity := 0.0
 
+## The cached as-generated raster for `_tex_layer`, fetched by `sync` from `bridge.debug_texture`
+## using `ORIGINAL_VIEW`; null until first fetched.
 var _tex: Texture2D = null
+## The layer id (key of `ORIGINAL_VIEW`) `_tex` was fetched for; `sync` refetches when the armed
+## layer differs or `_dirty` is set.
 var _tex_layer := ""
 ## True when `_tex` may be stale. Set by every `color_texture_rebuilt` (a new
 ## world, a Sculpt/Paint commit), cleared when the texture is rebuilt.

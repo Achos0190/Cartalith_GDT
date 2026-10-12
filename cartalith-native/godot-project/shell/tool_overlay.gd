@@ -19,6 +19,8 @@ var overlay: Control   ## `map_overlay.gd` instance -- for `displayed_rect()` on
 ## Grid size in cells; every grid-to-screen conversion divides by these. While
 ## either is 0 (before [`set_grid`]) [`_draw`] draws nothing, so no divide by 0.
 var _gw := 0
+## Grid height in cells, set by `set_grid` and returned with `_gw` by `grid_cells`; 0 until then,
+## in which case `_draw` draws nothing.
 var _gh := 0
 
 ## The measure chain in grid-cell coordinates (not pixels). Set by
@@ -50,6 +52,8 @@ var region_dragging := false
 ## tool is asking.
 var brush_visible := false
 var brush_center := Vector2.ZERO   ## Grid coords.
+## Brush ring radius in grid cells, set by `set_brush_cursor`; `_draw` draws the ring only when it
+## is above 0.
 var brush_radius_cells := 0.0
 
 ## Shared by every domain-specific click-chain tool that builds up a path
@@ -73,8 +77,14 @@ var path_preview: PackedVector2Array = []
 ## for "the engine's default, the grid's lattice centre", and `symmetry_angle` the
 ## mirror-axis rotation in radians (mirror modes only, as the engine says).
 var symmetry_mode := "none"
+## Radial copy count of the symmetry guide, default 4; `set_symmetry` stores `maxi(1, count)` and
+## `_draw_symmetry` loops over it. Default 4 is a labelled judgement.
 var symmetry_count := 4
+## Symmetry centre as a `Vector2` in grid cells, or null for the engine's default lattice centre
+## (see the comment above); `set_symmetry` keeps only a `Vector2`.
 var symmetry_centre: Variant = null
+## Mirror-axis rotation in radians, set by `set_symmetry`; `symmetry_axes` rotates the base axis by
+## it.
 var symmetry_angle := 0.0
 
 ## Shared by any tool with on-canvas drag handles beyond Region's own
@@ -120,8 +130,14 @@ const SYMMETRY_COLOR := Color(0.549, 0.816, 1.0, 0.85)
 ## the length of a radial spoke. Stroke chrome, so screen pixels (never scaled by zoom);
 ## all four are judgement, by eye.
 const SYMMETRY_DASH := 8.0
+## Stroke width in screen pixels of a symmetry axis (the centre ring uses it plus 0.4); one of the
+## four values the comment above calls judgement by eye.
 const SYMMETRY_WIDTH := 1.4
+## Radius in screen pixels of the centre ring drawn by `_draw_symmetry`; judgement by eye, per the
+## comment above.
 const SYMMETRY_CENTRE_R := 6.0
+## Length in screen pixels of a radial spoke drawn by `_draw_symmetry`; judgement by eye, per the
+## comment above.
 const SYMMETRY_SPOKE_LEN := 34.0
 
 ## ── Rasterising at screen resolution, not control resolution ────────────────

@@ -13,7 +13,11 @@ class_name EngineBridge
 ## in `_worker` in particular was silently broken once (fixed in a265b2b) and
 ## its shape is deliberate.
 
+## Emitted when a generate (`generate`) or a heightmap import (`import_heightmap`) starts its
+## worker thread; connected by `busy_overlay.gd`, `app.gd` and `adjust_panel.gd`.
 signal generation_started()
+## Emitted with `ok` when a generate or import ends (and with `false` when `generate` refuses
+## before starting); `_ready` also connects to it.
 signal generation_finished(ok: bool)
 ## One emission per observed change of `GenerationProgress.snapshot()`'s
 ## `stage` while `generating` is true -- the Android spec's "per-stage
@@ -95,7 +99,9 @@ signal color_texture_rebuilt()
 ## Ctrl/Cmd-click-toggles, Shift-click-extends-a-range. It is also the
 ## platform-conventional set on all three desktops.
 const SEL_REPLACE := 0
+## Selection mode: Ctrl/Cmd-click toggles; returned by `selection_mode_from_input`.
 const SEL_TOGGLE := 1
+## Selection mode: Shift-click extends a range; returned by `selection_mode_from_input`.
 const SEL_EXTEND := 2
 
 ## The mode a real `InputEventMouseButton`-era click carried, read off the
@@ -118,8 +124,13 @@ static func selection_mode_from_input() -> int:
 ## panic. Never worded as a missing capability ("this build has no ..."): the build is fine, only the moment is wrong.
 const _BUSY_TEXT := "The world is generating -- try again when it finishes."
 
+## The engine object (`WorldGen`, from the GDExtension). The worker thread owns it while
+## `generating`, so callers outside the worker must gate on `generating` (see `_BUSY_TEXT`).
+## Replaced by a fresh instance when `close_world()` swaps it.
 var world_gen: WorldGen = WorldGen.new()
 
+## True from the moment `generate`/import/resample/landmarks/viewshed start a run until its finish
+## handler clears it; the gate every `world_gen` wrapper tests. `busy_kind` says which run.
 var generating := false
 ## WHICH run set `generating` last: `"generate"`, `"import"`, `"resample"`, `"landmarks"` or
 ## `"viewshed"`, written by each of the five entry points immediately before it sets `generating`
@@ -128,9 +139,17 @@ var generating := false
 ## refine emit no start signal and import/resample share `generation_started` with a generate, so
 ## nothing else tells them apart. A plain field: reading it never touches `world_gen`.
 var busy_kind := ""
+## True once a world exists: set by `_finish`, the import finish and `load_save`, cleared by
+## `close_world`. A plain flag, so reading it never touches `world_gen`.
 var has_world := false
+## One-line description of the last generate, import or open ("N x M cells, ... seed S"), or the
+## failure/refusal text; blanked by `close_world`.
 var last_summary := ""
+## Map width in km after the last generate or import, from `world_gen.get_map_width_km()` when the
+## sized API exists (see `_finish`); read for the zoom limit and scale bar.
 var last_width_km := 0.0
+## Map height in km after the last generate; from `world_gen.get_map_height_km()` when the sized
+## API exists, else `width_km` (square), as `_finish` does. Mirrors `last_width_km`.
 var last_height_km := 0.0
 
 ## `generate_sized` and friends landed after the first GDExtension shipped, so
@@ -167,6 +186,8 @@ var last_documents: Dictionary = {}
 ## whatever the reader could not use. Empty before the first open. See
 ## `load_save()` for why discarding these mattered.
 var last_open_layout := ""
+## Whatever the last `load_save()` could not use; reset to empty at the start of `load_save` and in
+## `close_world`.
 var last_open_warnings := PackedStringArray()
 ## Which engine-owned payloads the last `project_open()` actually applied --
 ## `project_open`'s own `restored` key (`"civ"`, `"labels"`, `"icons"`,
@@ -194,12 +215,17 @@ var last_open_restored := PackedStringArray()
 ## call, at runtime, exactly like `_has()` already does for `world_gen`
 ## methods.
 var progress_api := false
+## The `GenerationProgress` instance made through `ClassDB.instantiate` in `_ready` (see the
+## comment above for why not a static reference); null on a binary without it, and `progress_api`
+## records that.
 var _progress: Object = null
 ## The last `(run_token, stage)` this file has already turned into a
 ## `generation_stage` emission, so `_process` emits on change only -- see its
 ## own doc comment for why re-emitting every frame would bury the signal it
 ## exists to produce.
 var _progress_seen_token := -1
+## The last stage `_process` turned into a `generation_stage` emission; `-1` after a reset so the
+## next stage emits. Pairs with `_progress_seen_token`.
 var _progress_seen_stage := -1
 
 ## Whether the world has changed since it was last saved or opened
@@ -225,10 +251,19 @@ var _progress_seen_stage := -1
 ## multi-hundred-megabyte world every few minutes is the worse failure there.
 var world_dirty := false
 
+## True when a parameter dial has moved since the last generate: set by `mark_dirty` (which emits
+## `params_changed`) and cleared when a generate, import, open or close finishes. Distinct from
+## `world_dirty`, which tracks unsaved work.
 var params_dirty := false
 var _param_info: Dictionary = {}     ## key -> the info Dictionary from Rust
+## Default value per parameter key, read once from `world_gen.get_param_defaults()` in
+## `_read_param_table`; served by `param_default`.
 var _param_defaults: Dictionary = {}
+## True when `_read_param_table` got a non-empty table from the engine; `_ready` tests it before
+## using the parameters.
 var _params_available := false
+## The generation worker `Thread`, created in `generate`/import and nulled in the finish handler;
+## `_exit_tree` joins it if still started.
 var _thread: Thread
 
 # -- Lifecycle ----------------------------------------------------------------
@@ -770,6 +805,8 @@ func mark_world_dirty() -> void:
 ## grid dimensions, archetype (empty for Classic) and the five values that live
 ## outside the parameter table.
 var last_generate_ms := 0
+## `Time.get_ticks_msec()` at the start of a generate or import; `_finish` subtracts it to get
+## `last_generate_ms`.
 var _gen_start_msec := 0
 
 ## Starts an asynchronous generate on a worker thread and returns at once; the
@@ -2021,6 +2058,8 @@ func blend_modes() -> Array:
 ## on Android, and one folder so the picker is a directory listing.
 const PRESET_DIR := "user://appearance_presets"
 
+## Whether the engine exposes `save_appearance_preset`, probed with `_has` in `_ready`;
+## `save_appearance_preset` refuses without it.
 var preset_api := false
 
 ## The engine takes native OS paths (`save_project`'s own convention), so every
@@ -3498,7 +3537,11 @@ func clear_undo() -> void:
 # Resolved once here, at first use rather than in `_ready()`, so a session that
 # never bakes never creates the directory.
 
+## Declared but never read or assigned anywhere in the shell scripts (grep finds no other use);
+## intent unverified, `atlas_ready` probes `_has("atlas_set_root")` directly instead.
 var atlas_api := false
+## True once `atlas_set_root` has succeeded in `atlas_ready`; answers later calls from the flag
+## without re-calling the engine.
 var _atlas_root_set := false
 
 ## True once the engine has somewhere to put baked chunks. Idempotent.
@@ -3810,6 +3853,8 @@ func finalize_check(kind: String) -> String:
 		return ""
 	return String(world_gen.finalize_check(kind))
 
+## Emitted with the new state by `set_finalized`; declared next to `finalize_check`, which reads
+## the engine's own answer.
 signal finalize_changed(on: bool)
 
 
@@ -7025,6 +7070,9 @@ func as_uniform_lines(n: int) -> PackedFloat64Array:
 # same failure shape the engine itself returns, so no caller needs two
 # branches.
 
+## Failure Dictionary (`ok: false` plus an error string) that the vault wrappers return when the
+## build has no Markdown Vault support, so callers need no second branch (see the section comment
+## above).
 const _VAULT_UNAVAILABLE := {
 	"ok": false,
 	"error": "This engine build has no Markdown Vault support — rebuild the GDExtension.",
@@ -8199,6 +8247,9 @@ func jp_vessel_matrix() -> Dictionary:
 ## so this never itself crosses the `Gd<T>` boundary and needs no
 ## `generating` guard.
 var _landmark_kinds_cache: Array = []
+## Landmark settings Dictionary read once by `_read_landmark_kinds` (from
+## `world_gen.landmark_settings()`); served by `landmark_settings` without crossing into
+## `WorldGen`.
 var _landmark_settings_cache: Dictionary = {}
 
 ## Refreshes `_landmark_kinds_cache` and `_landmark_settings_cache` from the engine

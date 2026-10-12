@@ -32,6 +32,8 @@ const MAX_LEN := 90
 ## then "12% chance of generic rare message". They are SEQUENTIAL draws, exactly as the HTML wrote
 ## them, so the unconditional rare rate is 0.96 x 0.12 = 11.52 %, not 12 % -- kept, not "fixed".
 const P_XRARE := 0.04
+## Chance of the generic rare tier, 12 %, the HTML's own figure (see the comment above); drawn
+## second, so its effective rate is 11.52 %, and `pick_entry` tests it after `P_XRARE`.
 const P_RARE := 0.12
 
 ## The reference's bank, verbatim. Do not edit these lines; extend `NEW_MSGS` instead.
@@ -565,6 +567,8 @@ const STAGE_CATEGORY := {
 	"Ecology & biomes": "stage_ecology",
 	"Resources & soils": "stage_resources",
 }
+## Stage-category ids in engine stage-index order, the same ten as `STAGE_CATEGORY`'s values;
+## `stage_category` indexes it when the stage name is unknown.
 const STAGE_ORDER := [
 	"stage_planet", "stage_extent", "stage_structure", "stage_tectonics", "stage_volcanism",
 	"stage_erosion", "stage_hydrology", "stage_climate", "stage_ecology", "stage_resources",

@@ -227,6 +227,8 @@ const PREVIEW_REGION_ASPECT := 0.64  ## Stage height / width, the region frame's
 ## Literals, deliberately independent of `DccTheme`'s palette and of the map's
 ## look: the preview is a diagnostic, and the owner asked for exactly these two.
 const PREVIEW_LAND := Color("#8f9295")
+## Ocean colour of the new-world mask preview, #2b4d6b: the owner's colour and Q7's default (Ruling
+## CE, per the comment above); passed as the `ocean_color` shader parameter in `_build_preview`.
 const PREVIEW_OCEAN := Color("#2b4d6b")
 ## **The disclaimer Ruling CE makes part of the screen** (owner, 2026-10-12:
 ## *"put the new screen in with a disclaimer that the preview is an

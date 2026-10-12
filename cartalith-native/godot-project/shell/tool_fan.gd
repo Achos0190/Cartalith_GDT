@@ -82,13 +82,23 @@ const FAN: Array = [
 
 var app  ## DccApp (== DccShell).
 
+## The launcher pill (inner class `_Pill`), created in `setup` and added to its host by `mount`.
 var _pill: Control
+## The fan's drawing and input layer (inner class `_Overlay`), created in `setup` and added as a
+## top-level child of `app`.
 var _overlay: Control
 
+## True between `press` and release; `_process` uses it with `_press_ms` and `FAN_HOLD_MS` to open
+## the fan on a hold.
 var _pressed := false
+## Whether the fan is open; `_process` closes it when the pill is hidden.
 var _open := false
+## True when the fan stays open as a sticky surface (its overlay then takes mouse input,
+## `MOUSE_FILTER_STOP`); cleared by `press` and on close; `is_sticky` returns it and `debug_state`
+## reports it.
 var _sticky := false
 var _press_pos := Vector2.ZERO   ## global
+## `Time.get_ticks_msec()` at `press`; `_process` measures the hold against `FAN_HOLD_MS`.
 var _press_ms := 0
 var _last_pos := Vector2.ZERO    ## global; last known finger position while pressed
 var _fan_center := Vector2.ZERO  ## global; the pill's own centre, captured at open
