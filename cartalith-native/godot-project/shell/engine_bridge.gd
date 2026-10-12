@@ -1105,6 +1105,9 @@ func territory_opacity() -> float:
 ## The default `territory_opacity` the Reset row returns to
 ## (`WorldGen.territory_opacity_default`); same 82/255 fallback on a stale binary.
 func territory_opacity_default() -> float:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return 82.0 / 255.0
 	if not _has("territory_opacity_default"):
 		return 82.0 / 255.0
 	return world_gen.territory_opacity_default()
@@ -1335,6 +1338,9 @@ func rivers_in_map() -> bool:
 ## Empty against a binary built before this landed, the same `has_method` guard
 ## `lod_level_for_zoom()` above uses for its own milestone.
 func urban_layouts(indices: PackedInt32Array) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("urban_layouts"):
 		return []
 	return world_gen.urban_layouts(indices)
@@ -1346,6 +1352,9 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 ## enough to ask for every settlement on the map at once rather than one at
 ## a time. Empty against a binary built before this landed.
 func settlement_diagnostics(indices: PackedInt32Array) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("settlement_diagnostics"):
 		return []
 	return world_gen.settlement_diagnostics(indices)
@@ -1354,6 +1363,9 @@ func settlement_diagnostics(indices: PackedInt32Array) -> Array:
 ## `index` (`score`, signed weighted `terms`, ...). `{}` for an out-of-range index
 ## or no world.
 func explain_settlement(index: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	return world_gen.explain_settlement(index)
 
 ## Design canvas artboard `1h`'s "Generation rules" window, `lazy-riding-piglet.md`
@@ -1371,6 +1383,9 @@ func get_default_urban_rules() -> Dictionary:
 
 ## The rules `urban_layouts()` is actually generating against right now.
 func get_active_urban_rules() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("get_active_urban_rules"):
 		return {}
 	return world_gen.get_active_urban_rules()
@@ -1418,6 +1433,9 @@ func apply_urban_rules_preset(id: String) -> Dictionary:
 ## `cultures`/`rules_presets` as `[{id, name}]`, plus `default_culture`.
 ## Empty on an older binary.
 func urban_town_plan_options() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("urban_town_plan_options"):
 		return {}
 	return world_gen.urban_town_plan_options()
@@ -1473,6 +1491,9 @@ func set_quality_tier(name: String) -> bool:
 ## Tier names, cheapest first (`WorldGen.list_quality_tiers`), so controls never
 ## duplicate the vocabulary.
 func quality_tiers() -> PackedStringArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedStringArray()
 	return world_gen.list_quality_tiers()
 
 ## A suggested tier for this device (`WorldGen.get_recommended_quality_tier`).
@@ -1498,6 +1519,9 @@ var look_api := false
 ## `ramp_presets()` already converts: the panel feeds it straight to
 ## `DccWidgets.choice`, which takes an `Array`.
 func looks() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not look_api:
 		return []
 	return Array(world_gen.list_looks())
@@ -1505,6 +1529,9 @@ func looks() -> Array:
 ## The named look in force (`WorldGen.get_look`). `""` when `look_api` is false --
 ## that is "no look API", not a look name.
 func look() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not look_api:
 		return ""
 	return world_gen.get_look()
@@ -1528,6 +1555,9 @@ var npr_api := false
 ## The whole NPR block as a dictionary (`WorldGen.get_npr`), keyed as `set_npr` reads
 ## it. `{}` when `npr_api` is false.
 func npr_settings() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not npr_api:
 		return {}
 	return world_gen.get_npr()
@@ -1553,6 +1583,9 @@ var appearance_api := false
 ## The values the engine is **actually rendering with** -- the quality tier's
 ## own, with any overrides already merged in. Not the override map.
 func appearance() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not appearance_api:
 		return {}
 	return world_gen.get_appearance()
@@ -1560,6 +1593,9 @@ func appearance() -> Dictionary:
 ## `[[key, min, max, label], ...]` -- the engine's own ranges, so a panel never
 ## builds a slider that can send a value the engine will clamp.
 func appearance_tunables() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not appearance_api:
 		return []
 	return world_gen.list_appearance_tunables()
@@ -1653,6 +1689,9 @@ var ramp_api := false
 
 ## `["Earth", "Elevation", ...]` -- the engine's own named ramps.
 func ramp_presets() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not ramp_api:
 		return []
 	return Array(world_gen.list_ramp_presets())
@@ -1662,6 +1701,9 @@ func ramp_presets() -> Array:
 ## **alpha is the stop's own opacity** (2026-08-24) -- the row shape did not
 ## change when per-stop alpha landed, which is why `ramp_api` still covers both.
 func color_ramp() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not ramp_api:
 		return []
 	return world_gen.get_color_ramp()
@@ -1694,6 +1736,9 @@ var ramp_mode_api := false
 ## Interpolation mode names the engine offers (`WorldGen.list_ramp_modes`, e.g.
 ## Linear/Ease/Step). `[]` when `ramp_mode_api` is false.
 func ramp_modes() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not ramp_mode_api:
 		return []
 	return Array(world_gen.list_ramp_modes())
@@ -1701,6 +1746,9 @@ func ramp_modes() -> Array:
 ## The ramp interpolation mode in force (`WorldGen.get_ramp_mode`). `""` when
 ## `ramp_mode_api` is false -- "unavailable", not a mode.
 func ramp_mode() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not ramp_mode_api:
 		return ""
 	return String(world_gen.get_ramp_mode())
@@ -1779,6 +1827,9 @@ var color_space_api := false
 
 ## `["sRGB", "Display P3"]` -- the display devices this binary can encode for.
 func color_spaces() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not color_space_api:
 		return []
 	return Array(world_gen.list_color_spaces())
@@ -1786,6 +1837,9 @@ func color_spaces() -> Array:
 ## The ramp colour space in force (`WorldGen.get_color_space`). `""` when
 ## `color_space_api` is false -- "unavailable", not a space name.
 func color_space() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not color_space_api:
 		return ""
 	return String(world_gen.get_color_space())
@@ -1807,6 +1861,9 @@ func set_color_space(name: String) -> bool:
 ## still parse against one built before the binding existed. Stateless:
 ## presentation only, nothing marked dirty.
 func color_print_gamut(c: Color) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if world_gen == null or not _has("color_print_gamut"):
 		return {}
 	var d = world_gen.callv("color_print_gamut", [c])
@@ -1840,6 +1897,9 @@ var layer_stack_api := false
 ## them in. Each row is a Dictionary carrying `id`, `label`, `visible`,
 ## `opacity` and `blend`.
 func layer_stack() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not layer_stack_api:
 		return []
 	return world_gen.get_layer_stack()
@@ -1865,6 +1925,9 @@ func set_layer_stack(rows: Array) -> int:
 ## `["Normal", "Multiply", "Screen", "Overlay", "Add"]` -- the engine's own
 ## order. The picker is this list, not a second copy of it in GDScript.
 func blend_modes() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not layer_stack_api:
 		return []
 	return Array(world_gen.list_blend_modes())
@@ -2551,6 +2614,9 @@ func carve_fjords() -> Dictionary:
 
 # sculpt_bridge.rs
 func get_sculpt_features() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("get_sculpt_features"):
 		return []
 	return world_gen.get_sculpt_features()
@@ -2558,6 +2624,9 @@ func get_sculpt_features() -> Array:
 ## The eight one-click sculpt presets (`WorldGen.get_sculpt_presets`); applying one
 ## never paints. `[]` on a binary without the sculpt API.
 func get_sculpt_presets() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("get_sculpt_presets"):
 		return []
 	return world_gen.get_sculpt_presets()
@@ -2565,6 +2634,9 @@ func get_sculpt_presets() -> Array:
 ## Range/default info for the shared brush/noise globals
 ## (`WorldGen.get_sculpt_globals_info`). `[]` without the sculpt API.
 func get_sculpt_globals_info() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("get_sculpt_globals_info"):
 		return []
 	return world_gen.get_sculpt_globals_info()
@@ -2572,6 +2644,9 @@ func get_sculpt_globals_info() -> Array:
 ## Freehand's sub-mode keys in registry order (`WorldGen.get_sculpt_freehand_modes`).
 ## Empty without the sculpt API.
 func get_sculpt_freehand_modes() -> PackedStringArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedStringArray()
 	if not _has("get_sculpt_freehand_modes"):
 		return PackedStringArray()
 	return world_gen.get_sculpt_freehand_modes()
@@ -2579,6 +2654,9 @@ func get_sculpt_freehand_modes() -> PackedStringArray:
 ## Current values of the shared sculpt globals (`WorldGen.sculpt_get_globals`).
 ## `{}` before any world or without the API.
 func sculpt_get_globals() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("sculpt_get_globals"):
 		return {}
 	return world_gen.sculpt_get_globals()
@@ -2594,6 +2672,9 @@ func sculpt_set_globals(values: Dictionary) -> Dictionary:
 ## Key of the feature the next stroke paints (`WorldGen.sculpt_get_feature`). `""`
 ## before any world or without the API.
 func sculpt_get_feature() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("sculpt_get_feature"):
 		return ""
 	return world_gen.sculpt_get_feature()
@@ -2609,6 +2690,9 @@ func sculpt_set_feature(feature_key: String) -> bool:
 ## The current feature's live control values (`WorldGen.sculpt_get_feature_params`).
 ## `{}` before any world or without the API.
 func sculpt_get_feature_params() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("sculpt_get_feature_params"):
 		return {}
 	return world_gen.sculpt_get_feature_params()
@@ -2632,6 +2716,9 @@ func sculpt_apply_preset(index: int) -> bool:
 ## Freehand's current sub-mode key (`WorldGen.sculpt_get_freehand_mode`). `""` when
 ## the feature is not Freehand, there is no world, or no API.
 func sculpt_get_freehand_mode() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("sculpt_get_freehand_mode"):
 		return ""
 	return world_gen.sculpt_get_freehand_mode()
@@ -2651,6 +2738,9 @@ func sculpt_set_freehand_mode(mode_key: String) -> bool:
 ## a negative one (`world_workspace.gd::_build_brush_globals`). Corrected 2026-10-11 (R7): this
 ## doc used to say the engine reports `0` before any world.
 func sculpt_get_seed() -> int:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return -1
 	if not _has("sculpt_get_seed"):
 		return -1
 	return world_gen.sculpt_get_seed()
@@ -2715,6 +2805,9 @@ func sculpt_add_point_p(x: float, y: float, pressure: Variant) -> int:
 ## steps" -- and a picker built from an empty ladder correctly shows only
 ## Off.
 func get_sculpt_grid_snap_steps() -> PackedFloat64Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedFloat64Array()
 	if not _has("get_sculpt_grid_snap_steps"):
 		return PackedFloat64Array()
 	return world_gen.get_sculpt_grid_snap_steps()
@@ -2723,6 +2816,9 @@ func get_sculpt_grid_snap_steps() -> PackedFloat64Array:
 ## while it is off -- ask `has("step")`, never compare against 0. An older
 ## extension with no binding also reads as off, which is what it is.
 func sculpt_get_grid_snap() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("sculpt_get_grid_snap"):
 		return {}
 	return world_gen.sculpt_get_grid_snap()
@@ -2761,6 +2857,9 @@ func sculpt_snap(x: float, y: float) -> Vector2:
 ## `#[func]` behind it is live, and it is the natural cross-check the next
 ## time that local copy and the engine's draft disagree.
 func sculpt_stroke_point_count() -> int:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return -1
 	if not _has("sculpt_stroke_point_count"):
 		return -1
 	return world_gen.sculpt_stroke_point_count()
@@ -2849,6 +2948,9 @@ func sculpt_select_stamp(index: int) -> bool:
 ## list is `right_dock.gd`'s. The engine-side set and `sculpt_select_set()`
 ## below are what a modifier click on those rows would drive.
 func sculpt_get_selection() -> PackedInt64Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedInt64Array()
 	if not _has("sculpt_get_selection"):
 		var one := sculpt_get_selected_stamp()
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
@@ -3217,6 +3319,9 @@ func atlas_ready() -> bool:
 ## `tile_size`, `world_key`, `root`. Never empty on a current cdylib -- an
 ## unconfigured or empty atlas is reported in `text`, not by absence.
 func atlas_status() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("atlas_status"):
 		return {}
 	atlas_ready()
@@ -3225,6 +3330,9 @@ func atlas_status() -> Dictionary:
 ## What a bake to `max_z` would cost: `tiles`, `already_baked`, `remaining`,
 ## `seconds`. Shown *before* the user commits, because depth 5 is 1365 tiles.
 func bake_estimate(max_z: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("bake_estimate"):
 		return {}
 	atlas_ready()
@@ -3332,6 +3440,9 @@ func export_raster_png(path: String, width: int, tiled: bool, color_space: Strin
 ## Is chunk `(z, col, row)`, or any ancestor, baked (`WorldGen.atlas_is_covered`)?
 ## `false` also means "no binding". Calls `atlas_ready()` first.
 func atlas_is_covered(z: int, col: int, row: int) -> bool:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return false
 	if not _has("atlas_is_covered"):
 		return false
 	atlas_ready()
@@ -3376,6 +3487,9 @@ func atlas_evict_to(max_bytes: int) -> int:
 ## should say about staleness), not a binding decision, which is why the
 ## binding waits here rather than being deleted.
 func atlas_export_zip(gzip: bool = true) -> PackedByteArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedByteArray()
 	if not _has("atlas_export_zip"):
 		return PackedByteArray()
 	atlas_ready()
@@ -3393,6 +3507,9 @@ func atlas_import_zip(bytes: PackedByteArray) -> Dictionary:
 ## never baked -- in which case the caller falls through to live synthesis,
 ## exactly as the reference's `atlasLoadImg` does.
 func atlas_tile_png(z: int, col: int, row: int) -> PackedByteArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedByteArray()
 	if not _has("atlas_tile_png"):
 		return PackedByteArray()
 	atlas_ready()
@@ -3429,6 +3546,9 @@ func set_finalized(on: bool) -> bool:
 ## "" when the change may proceed, otherwise the sentence to show. `kind` is
 ## `generation`, `height_edit` or `presentation`.
 func finalize_check(kind: String) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("finalize_check"):
 		return ""
 	return String(world_gen.finalize_check(kind))
@@ -4914,6 +5034,9 @@ func measure_add_point(gx: float, gy: float) -> void:
 ## The current chain's reading (`WorldGen.measure_result`: per-leg cells, km, bearing).
 ## `{}` without the API.
 func measure_result() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("measure_result"):
 		return {}
 	return world_gen.measure_result()
@@ -4937,6 +5060,9 @@ var measure_api := false
 ## Cross-section profile between two grid points with `samples` samples
 ## (`WorldGen.measure_section`). `{}` when `measure_api` is false.
 func measure_section(ax: float, ay: float, bx: float, by: float, samples: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not measure_api:
 		return {}
 	return world_gen.measure_section(ax, ay, bx, by, samples)
@@ -4944,6 +5070,9 @@ func measure_section(ax: float, ay: float, bx: float, by: float, samples: int) -
 ## Area reading over a closed ring of grid points (`WorldGen.measure_area`); under
 ## three vertices gives a zeroed reading. `{}` when `measure_api` is false.
 func measure_area(points: PackedVector2Array) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not measure_api:
 		return {}
 	return world_gen.measure_area(points)
@@ -4951,6 +5080,9 @@ func measure_area(points: PackedVector2Array) -> Dictionary:
 ## Radius reading from centre `(cx, cy)` to rim `(px, py)` (`WorldGen.measure_radius`).
 ## `{}` when `measure_api` is false.
 func measure_radius(cx: float, cy: float, px: float, py: float) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not measure_api:
 		return {}
 	return world_gen.measure_radius(cx, cy, px, py)
@@ -4958,6 +5090,9 @@ func measure_radius(cx: float, cy: float, px: float, py: float) -> Dictionary:
 ## Vertical-delta and 3D-distance reading for two points (`WorldGen.measure_vertical`).
 ## `{}` when `measure_api` is false.
 func measure_vertical(ax: float, ay: float, bx: float, by: float) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not measure_api:
 		return {}
 	return world_gen.measure_vertical(ax, ay, bx, by)
@@ -5393,6 +5528,9 @@ func label_arc_value(cx: float, cy: float, grab_angle_deg: float, side: float, g
 
 # journey_bridge.rs
 func jp_options() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("jp_options"):
 		return {}
 	return world_gen.jp_options()
@@ -5400,6 +5538,9 @@ func jp_options() -> Dictionary:
 ## The reference's default journey plan as flat keys (`WorldGen.jp_default_plan`), to
 ## seed a party form. `{}` without the API.
 func jp_default_plan() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("jp_default_plan"):
 		return {}
 	return world_gen.jp_default_plan()
@@ -5411,6 +5552,9 @@ func jp_default_plan() -> Dictionary:
 ## (`jpAutoPickVessel`). Empty Dictionary when the binary predates it or the
 ## index has no route -- the caller falls back to `jp_default_plan()`.
 func jp_plan_for_route(route_index: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("jp_plan_for_route"):
 		return {}
 	return world_gen.jp_plan_for_route(route_index)
@@ -5861,30 +6005,45 @@ func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
 ## Every slot in `family_key`'s registry with real fill state -- each row carries
 ## `uid`/`id`/`name`/`item_count`/`filled`/`has_dupe`. Empty on an older binary.
 func as_family_slots(family_key: String) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("as_family_slots"):
 		return []
 	return world_gen.as_family_slots(family_key)
 
 ## One slot's inspector detail: id/name/family/set, tags, collections, meta fields.
 func as_slot_summary(uid: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false}
 	if not _has("as_slot_summary"):
 		return {"ok": false}
 	return world_gen.as_slot_summary(uid)
 
 ## One item's inspector detail: name, scale/pan_x/pan_y, decoded w/h, hash.
 func as_item_summary(uid: String, index: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false}
 	if not _has("as_item_summary"):
 		return {"ok": false}
 	return world_gen.as_item_summary(uid, index)
 
 ## A real, baked PNG thumbnail for one stored item. Empty on a miss or an older binary.
 func as_thumbnail_png(uid: String, index: int, size: int) -> PackedByteArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedByteArray()
 	if not _has("as_thumbnail_png"):
 		return PackedByteArray()
 	return world_gen.as_thumbnail_png(uid, index, size)
 
 ## Pack-level metadata and totals: name/author/license/total_items.
 func as_pack_info() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"name": "", "author": "", "license": "", "total_items": 0}
 	if not _has("as_pack_info"):
 		return {"name": "", "author": "", "license": "", "total_items": 0}
 	return world_gen.as_pack_info()
@@ -5912,6 +6071,9 @@ func as_clear_library() -> bool:
 
 ## `AssetValidator.run()`'s real, ordered warning strings.
 func as_validate() -> PackedStringArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedStringArray()
 	if not _has("as_validate"):
 		return PackedStringArray()
 	return world_gen.as_validate()
@@ -5919,6 +6081,9 @@ func as_validate() -> PackedStringArray:
 ## Bakes every stored item and writes the pack `.zip` bytes.
 ## `{"ok": true, "name": ..., "bytes": PackedByteArray}` or `{"ok": false, "error": ...}`.
 func as_export_pack_bytes() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
 	if not _has("as_export_pack_bytes"):
 		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
 	return world_gen.as_export_pack_bytes()
@@ -5988,6 +6153,9 @@ func as_clear_sheet() -> bool:
 ## "row_y1"}` -- the four span arrays are in sheet pixels, engine-computed, so
 ## the overlay draws exactly the cells `as_slice_apply` will cut.
 func as_slice_preview(opts: Dictionary) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "as_slice_preview not available on this binary"}
 	if not _has("as_slice_preview"):
 		return {"ok": false, "error": "as_slice_preview not available on this binary",
 			"total": 0, "non_empty": 0, "usable": false, "blank": PackedInt32Array(),
@@ -6026,6 +6194,9 @@ func as_reset_item_transform(uid: String, index: int, fit: bool) -> Dictionary:
 ## AS-17: moves interior line `index` of `lines` to `frac`, clamped strictly
 ## between its neighbours -- `lines` unchanged on an older binary.
 func as_slicer_move_line(lines: PackedFloat64Array, index: int, frac: float) -> PackedFloat64Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return lines
 	if not _has("as_slicer_move_line"):
 		return lines
 	return world_gen.as_slicer_move_line(lines, index, frac)
@@ -6033,6 +6204,9 @@ func as_slicer_move_line(lines: PackedFloat64Array, index: int, frac: float) -> 
 ## AS-17: the uniform `n+1`-line array a fresh grid (or a cols/rows edit)
 ## falls back to. Empty on an older binary.
 func as_uniform_lines(n: int) -> PackedFloat64Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedFloat64Array()
 	if not _has("as_uniform_lines"):
 		return PackedFloat64Array()
 	return world_gen.as_uniform_lines(n)
@@ -6059,6 +6233,9 @@ const _VAULT_UNAVAILABLE := {
 ## `id` is a **rank by area**, not a persistent identity — see the engine's
 ## own doc comment on that binding before storing one anywhere.
 func continents() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("get_continents"):
 		return []
 	return world_gen.get_continents()
@@ -6102,6 +6279,9 @@ func vault_info() -> Dictionary:
 ## Markdown files in the bound vault, sorted, capped at `limit` (`WorldGen.vault_list_files`).
 ## Empty for an unbound vault or no API.
 func vault_list_files(limit: int = 2000) -> PackedStringArray:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return PackedStringArray()
 	if not _has("vault_list_files"):
 		return PackedStringArray()
 	return world_gen.vault_list_files(limit)
@@ -6112,6 +6292,9 @@ func vault_list_files(limit: int = 2000) -> PackedStringArray:
 ## neither is set, every `.md` with "template" in its path. Cartalith ships
 ## none of its own.
 func vault_templates() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_templates"):
 		return []
 	return world_gen.vault_templates()
@@ -6120,6 +6303,9 @@ func vault_templates() -> Array:
 ## a setting named one (absent for the fallback). `source` is `obsidian`,
 ## `templater` or `fallback`.
 func vault_template_source() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "this engine build predates Ruling BF"}
 	if not _has("vault_template_source"):
 		return {"ok": false, "error": "this engine build predates Ruling BF"}
 	return world_gen.vault_template_source()
@@ -6135,6 +6321,9 @@ func vault_insert_template(template_rel: String, note_text: String, caret: int, 
 ## Where a new note for this entity goes -- v3's `Settlements/{name}.md`
 ## convention, generalised to every kind. A suggestion, not a rule.
 func vault_suggested_path(kind: String, name: String) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_suggested_path"):
 		return ""
 	return world_gen.vault_suggested_path(kind, name)
@@ -6152,6 +6341,9 @@ func vault_create_from_template(template_rel: String, rel: String, name: String)
 ## Headings of file `rel` as `{level, title}` (`WorldGen.vault_file_headings`). `[]`
 ## for an unreadable file, which callers read as "whole document only".
 func vault_file_headings(rel: String) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_file_headings"):
 		return []
 	return world_gen.vault_file_headings(rel)
@@ -6159,6 +6351,9 @@ func vault_file_headings(rel: String) -> Array:
 ## Raw text of vault file `rel` (`WorldGen.vault_read_file`). `""` means unreadable
 ## or no API, not necessarily an empty file.
 func vault_read_file(rel: String) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_read_file"):
 		return ""
 	return world_gen.vault_read_file(rel)
@@ -6167,6 +6362,9 @@ func vault_read_file(rel: String) -> String:
 ## read at (`{ok, text, hash}`), for a note picked but not attached to any
 ## entity. `hash` must be handed back to `vault_write_file` unchanged.
 func vault_read_file_for_edit(rel: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return _VAULT_UNAVAILABLE
 	if not _has("vault_read_file_for_edit"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_read_file_for_edit(rel)
@@ -6200,6 +6398,9 @@ func vault_detach(link_id: String) -> bool:
 ## Every link on one entity, each with live status (`WorldGen.vault_links_for`).
 ## `[]` for none or no API.
 func vault_links_for(kind: String, entity_id: int) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_links_for"):
 		return []
 	return world_gen.vault_links_for(kind, entity_id)
@@ -6207,6 +6408,9 @@ func vault_links_for(kind: String, entity_id: int) -> Array:
 ## Every link in the store for the vault window overview (`WorldGen.vault_all_links`).
 ## `[]` for none or no API.
 func vault_all_links() -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_all_links"):
 		return []
 	return world_gen.vault_all_links()
@@ -6214,6 +6418,9 @@ func vault_all_links() -> Array:
 ## `{link_count, status}` for one entity (`WorldGen.vault_entity_summary`); `status`
 ## is the worst link status, `""` when none. No-API fallback is `link_count: 0`.
 func vault_entity_summary(kind: String, entity_id: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"link_count": 0, "status": ""}
 	if not _has("vault_entity_summary"):
 		return {"link_count": 0, "status": ""}
 	return world_gen.vault_entity_summary(kind, entity_id)
@@ -6221,6 +6428,9 @@ func vault_entity_summary(kind: String, entity_id: int) -> Dictionary:
 ## The Cartalith-side working text of link `link_id` (`WorldGen.vault_link_text`).
 ## `""` for an unknown link or no API.
 func vault_link_text(link_id: String) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_link_text"):
 		return ""
 	return world_gen.vault_link_text(link_id)
@@ -6243,6 +6453,9 @@ func vault_reload_link(link_id: String) -> Dictionary:
 ## Preview and source `hash` for writing link `link_id` back (`WorldGen.vault_preview_section_write`);
 ## hand the hash to `vault_write_section`. Writes nothing.
 func vault_preview_section_write(link_id: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return _VAULT_UNAVAILABLE
 	if not _has("vault_preview_section_write"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_section_write(link_id)
@@ -6266,6 +6479,9 @@ func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
 ## five, so a transcribed copy of it was wrong in two places at once -- which
 ## is the whole reason `vault_bridge.rs` exports the list at all.
 func vault_entity_kinds() -> PackedStringArray:
+	# Mid-generation gate: answered from the constant list (needs no `WorldGen`).
+	if generating:
+		return PackedStringArray(["settlement", "province", "continent", "faction", "culture"])
 	if not _has("vault_entity_kinds"):
 		## Matches `vault_bridge.rs::vault_entity_kinds` exactly. A binary old
 		## enough to be missing the binding may also reject `faction` and
@@ -6278,6 +6494,9 @@ func vault_entity_kinds() -> PackedStringArray:
 ## Fields offerable for one entity as `{key, group, label}` (`WorldGen.vault_export_fields`),
 ## filtered to those with a value. `[]` for none or no API.
 func vault_export_fields(kind: String, entity_id: int) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_export_fields"):
 		return []
 	return world_gen.vault_export_fields(kind, entity_id)
@@ -6285,6 +6504,9 @@ func vault_export_fields(kind: String, entity_id: int) -> Array:
 ## Every value held for one entity keyed by export-field key (`WorldGen.vault_entity_values`).
 ## `{}` for none or no API.
 func vault_entity_values(kind: String, entity_id: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("vault_entity_values"):
 		return {}
 	return world_gen.vault_entity_values(kind, entity_id)
@@ -6292,6 +6514,9 @@ func vault_entity_values(kind: String, entity_id: int) -> Dictionary:
 ## Markdown body of the Cartalith block for one entity and checkbox selection
 ## (`WorldGen.vault_block_body`); pure. `""` also means no API.
 func vault_block_body(kind: String, entity_id: int, selected: PackedStringArray) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_block_body"):
 		return ""
 	return world_gen.vault_block_body(kind, entity_id, selected)
@@ -6301,6 +6526,9 @@ func vault_block_body(kind: String, entity_id: int, selected: PackedStringArray)
 ## Map section at all — an empty list is "this build cannot make snapshots",
 ## not "this world has none".
 func vault_snapshot_radii(kind: String, entity_id: int) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_snapshot_radii"):
 		return []
 	return world_gen.vault_snapshot_radii(kind, entity_id)
@@ -6320,6 +6548,9 @@ func vault_snapshot(kind: String, entity_id: int, radius: String, subdir: String
 ## Previews inserting or replacing the machine-owned block in file `rel`
 ## (`WorldGen.vault_preview_block`): `{ok, error, preview, hash, action, ...}`. Writes nothing.
 func vault_preview_block(rel: String, kind: String, entity_id: int, body: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return _VAULT_UNAVAILABLE
 	if not _has("vault_preview_block"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_block(rel, kind, entity_id, body)
@@ -6335,6 +6566,9 @@ func vault_write_block(rel: String, kind: String, entity_id: int, body: String, 
 ## Previews filling the author's own template fields (`WorldGen.vault_preview_field_fill`);
 ## reply carries per-field outcomes. Writes nothing.
 func vault_preview_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return _VAULT_UNAVAILABLE
 	if not _has("vault_preview_field_fill"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_field_fill(rel, kind, entity_id, overwrite)
@@ -6407,6 +6641,9 @@ func vault_backlink_stats() -> Dictionary:
 ## entity's own Cartalith block, which finds the entity even when it has no
 ## note of its own.
 func vault_entity_backlinks(kind: String, entity_id: int) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_entity_backlinks"):
 		return []
 	return world_gen.vault_entity_backlinks(kind, entity_id)
@@ -6414,6 +6651,9 @@ func vault_entity_backlinks(kind: String, entity_id: int) -> Array:
 ## Notes that name this entity in prose and do not link to it --
 ## `{rel, excerpt}`. A guess, and the panel draws it as one.
 func vault_entity_mentions(kind: String, entity_id: int, name: String, max_rows: int = 12) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_entity_mentions"):
 		return []
 	return world_gen.vault_entity_mentions(kind, entity_id, name, max_rows)
@@ -6422,6 +6662,9 @@ func vault_entity_mentions(kind: String, entity_id: int, name: String, max_rows:
 ## file being browsed rather than attached to an entity, where
 ## `vault_entity_backlinks` above has no `(kind, entity_id)` to look up.
 func vault_file_backlinks(rel: String) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_file_backlinks"):
 		return []
 	return world_gen.vault_file_backlinks(rel)
@@ -6429,6 +6672,9 @@ func vault_file_backlinks(rel: String) -> Array:
 ## Notes that name this file's own title in prose and do not link to it --
 ## `{rel, excerpt}` -- the path-keyed analogue of `vault_entity_mentions`.
 func vault_file_mentions(rel: String, max_rows: int = 12) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_file_mentions"):
 		return []
 	return world_gen.vault_file_mentions(rel, max_rows)
@@ -6444,6 +6690,9 @@ func vault_backlink_report(limit: int = 200) -> Dictionary:
 ## separately from it, because the store is portable project data and this is
 ## a cache of somebody's folder.
 func vault_backlink_index_json() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_backlink_index_json"):
 		return ""
 	return world_gen.vault_backlink_index_json()
@@ -6459,6 +6708,9 @@ func vault_restore_backlink_index(json: String) -> bool:
 ## The whole vault link store as JSON for the shell to persist (`WorldGen.vault_state_json`).
 ## `""` means unavailable, not an empty store.
 func vault_state_json() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_state_json"):
 		return ""
 	return world_gen.vault_state_json()
@@ -6485,6 +6737,9 @@ func vault_restore_state(json: String) -> bool:
 ## in_name, excerpt}]}`. `limit`/`max_reads` of 0 take the engine's own
 ## defaults (50 / 40).
 func vault_search(query: String, limit: int = 0, max_reads: int = 0) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "vault_search not available on this binary", "hits": []}
 	if not _has("vault_search"):
 		return {"ok": false, "error": "vault_search not available on this binary", "hits": []}
 	return world_gen.vault_search(query, limit, max_reads)
@@ -6493,12 +6748,18 @@ func vault_search(query: String, limit: int = 0, max_reads: int = 0) -> Dictiona
 ## stored nowhere -- what a search result or an attach dialog shows *before*
 ## the user commits to anything.
 func vault_file_data(rel: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "vault_file_data not available on this binary"}
 	if not _has("vault_file_data"):
 		return {"ok": false, "error": "vault_file_data not available on this binary"}
 	return world_gen.vault_file_data(rel)
 
 ## Every linked note's imported data for one entity, one Dictionary per link.
 func vault_entity_data(kind: String, entity_id: int) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return []
 	if not _has("vault_entity_data"):
 		return []
 	return world_gen.vault_entity_data(kind, entity_id)
@@ -6510,6 +6771,9 @@ func vault_entity_data(kind: String, entity_id: int) -> Array:
 ## never zero. `live` is false when the note was read from the saved copy
 ## because the vault is not connected.
 func vault_entity_chronos(kind: String, entity_id: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
 	if not _has("vault_entity_chronos"):
 		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
 	return world_gen.vault_entity_chronos(kind, entity_id)
@@ -6528,6 +6792,9 @@ func vault_add_chronos_event(rel: String, expect_hash: String, event: Dictionary
 
 ## One link's imported data.
 func vault_link_data(link_id: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": "vault_link_data not available on this binary"}
 	if not _has("vault_link_data"):
 		return {"ok": false, "error": "vault_link_data not available on this binary"}
 	return world_gen.vault_link_data(link_id)
@@ -6537,6 +6804,9 @@ func vault_link_data(link_id: String) -> Dictionary:
 ## caller with a preference set must still call the matching `vault_preview_*`
 ## (that is where `expect_hash` comes from) and simply not show it.
 func vault_write_prefs() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("vault_write_prefs"):
 		return {}
 	return world_gen.vault_write_prefs()
@@ -6554,6 +6824,9 @@ func vault_set_write_pref(path: String, value: bool) -> bool:
 ## Godot's JSON floats every integer on the way through (GUI_GAP_REGISTER.md
 ## KV-04), so engine JSON travels as a string in both directions.
 func vault_prefs_json() -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("vault_prefs_json"):
 		return ""
 	return world_gen.vault_prefs_json()
@@ -6809,6 +7082,9 @@ func lod_take_ready_tiles(max: int) -> Array:
 ## waiting, pending, built, dropped, retained_bytes}`. `{}` against a binary
 ## without it, so a caller tests the key it wants rather than a version.
 func lod_worker_stats() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("lod_worker_stats"):
 		return {}
 	return world_gen.lod_worker_stats()
@@ -6820,6 +7096,9 @@ func lod_worker_stats() -> Dictionary:
 ## back to its own pre-LOD-D6 constants rather than to zero -- a budget of
 ## zero tiles is an empty pyramid, and a silent one.
 func lod_budget() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("lod_budget"):
 		return {}
 	return world_gen.lod_budget()
@@ -6845,6 +7124,9 @@ func info_tiles_available() -> bool:
 ## version}` -- which info views get a deep-zoom tile and how each relates to
 ## the map raster. `{}` against a binary without it.
 func info_tile_views() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("info_tile_views"):
 		return {}
 	return world_gen.info_tile_views()
@@ -6853,6 +7135,9 @@ func info_tile_views() -> Dictionary:
 ## the view is not tileable, no snapshot is built yet or its inputs are missing.
 ## `""` is the ONLY "no value" answer; a real tag is never empty.
 func info_tile_tag(view: String) -> String:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return ""
 	if not _has("info_tile_tag"):
 		return ""
 	var t: Variant = world_gen.info_tile_tag(view)
@@ -6872,6 +7157,9 @@ func info_take_ready_tiles(max: int) -> Array:
 
 ## `{in_flight, waiting, pending, built, dropped}`; `{}` against an older binary.
 func info_worker_stats() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("info_worker_stats"):
 		return {}
 	return world_gen.info_worker_stats()
@@ -6908,6 +7196,9 @@ func as_drop_collection(name: String) -> Dictionary:
 ## fires at -- the two read the same inputs, so the advisory can never disagree
 ## with the refusal. Pure: callable before `generate()`.
 func jp_pack_range(plan: Dictionary, has_desert: bool) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {}
 	if not _has("jp_pack_range"):
 		return {}
 	return world_gen.jp_pack_range(plan, has_desert)
