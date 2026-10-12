@@ -1336,47 +1336,6 @@ func _edit(p: PopupMenu, full: bool = true) -> void:
 const RESET_ALL_TIP := "Puts every generation parameter back to the app's own default. It does not regenerate: the settings are read once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
 const RESET_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and a reset landing mid-run could not have affected the world being built anyway."
 
-## §2.2's Redo, written in the file that owns `Edit ▸ Redo`.
-##
-## `app.gd` now has the twin (`redo_last()` -> `_redo_last_impl()`, which also
-## refreshes every undo control), so this is a SECOND copy of the same operation
-## and the two must be kept in step; it should delegate to `_host.redo_last()`.
-## The engine reverts the height field and deliberately does **not** re-run
-## flow, rivers or climate (`undo.rs`), so repainting is the caller's job.
-## Does NOT refresh the Undo/Redo rows: `_on_edit` calls `_host._refresh_undo_ui()`
-## after it.
-func _redo_last() -> void:
-	## Refused while `generating` (mid-generation sweep, 2026-10-12) with the same "Not done" line
-	## as its twin `app.gd::_redo_last_impl()`: `wants_redo`, `redo_label` and the look path all
-	## read the engine the worker thread holds, and `EngineBridge.redo_last()` refusing on its own
-	## would print "Nothing to redo." -- a false reason.
-	if _host._engine_busy_for_history("Redo"):
-		return
-	## Ruling BY item 2: a look redo (the shared look history) goes through the
-	## host, which owns the widget refresh; the height path below is unchanged.
-	if _host.look_history.wants_redo(_bridge):
-		_host.look_redo()
-		return
-	if not (_bridge.has_method("redo_last") and _engine_has("redo_last")):
-		return
-	var label := String(_bridge.redo_label())
-	if not _bridge.redo_last():
-		_host.set_status("hint", "Nothing to redo.", "text_ghost")
-		return
-	if _host.viewport != null:
-		_host.viewport.map_view.texture = _bridge.color_texture()
-		## `app.gd::redo_last()`'s third line, same reason: a live LOD tile
-		## keeps its own captured `base_tex` from the OLD texture
-		## (`OUTSTANDING_WORK.md`, "the in-session tile cache is not
-		## invalidated by a sculpt").
-		_host.viewport.invalidate_lod_tiles()
-		_host.viewport.set_preview_texture(null)
-	_host.set_status("pass", "redid %s" % label.to_lower(), "text_dim")
-	## ED-02: the ledger moved, so the panel showing it is stale. A no-op
-	## unless History is the live right-dock context.
-	if _host.right_dock_ctrl != null:
-		_host.right_dock_ctrl.refresh_history()
-
 ## `Edit ▸ Reset one stage` -- the `keys` half of `reset_params(keys)`.
 ##
 ## The stage list is `WorldWorkspace.STAGES`, **read and never copied**: that
@@ -1496,9 +1455,8 @@ func _mb(bytes: int) -> String:
 
 ## Dispatcher for Edit's `id_pressed` (also connected on the tablet ☰ overflow and World
 ## menu for the Undo/Redo/Undo-history rows). Undo goes through `_host.undo_last()`, which
-## routes to the look history or the height stack and refreshes the rows itself. Redo calls
-## this file's `_redo_last()` and then `_host._refresh_undo_ui()` by hand, because
-## `_redo_last` does not refresh the rows. Clipboard rows are local; Find on map is
+## routes to the look history or the height stack and refreshes the rows itself. Redo goes through
+## `_host.redo_last()` the same way, which refreshes the rows itself. Clipboard rows are local; Find on map is
 ## `has_method`-guarded. Reset parameters re-checks `generating` / `params_available()`
 ## because the row can be stale.
 func _on_edit(id: int) -> void:
@@ -1521,9 +1479,11 @@ func _on_edit(id: int) -> void:
 		ID_FIND_ON_MAP:
 			if _host.has_method("open_find_on_map"):
 				_host.open_find_on_map()
-		ID_REDO:
-			_redo_last()
-			_host._refresh_undo_ui()
+		## One redo path: `app.gd::redo_last()` (gate, look-vs-height routing, repaint, then
+		## `_refresh_undo_ui()`), the same one the toolbar square and Ctrl+Shift+Z run. The
+		## second copy that used to live in this file was deleted (OUTSTANDING_WORK.md,
+		## `menus._redo_last` duplicate) so the two cannot drift again.
+		ID_REDO: _host.redo_last()
 		ID_EDIT_RESET_PARAMS:
 			if not _bridge.generating and _bridge.params_available():
 				_bridge.reset_params()
@@ -1873,7 +1833,7 @@ func _select_all() -> void:
 		"world":
 			var stamps: int = _bridge.sculpt_select_all_stamps()
 			## The stack list is the right dock's, and it reads the engine's
-			## selection when it paints -- the same re-announce `_redo_last()`
+			## selection when it paints -- the same re-announce `app.gd::_redo_last_impl()`
 			## does for the history ledger, guarded the same way.
 			if _host.right_dock_ctrl != null and _host.right_dock_ctrl.has_method("show_sculpt_stack"):
 				_host.right_dock_ctrl.show_sculpt_stack()

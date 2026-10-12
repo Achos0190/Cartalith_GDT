@@ -11407,7 +11407,8 @@ impl WorldGen {
     /// format error.
     ///
     /// **Clears the override map, the ramp override and the two ET-C2
-    /// adjustment stacks.** Those are edits
+    /// adjustment stacks, and replaces the session's Painter (`npr`) block with
+    /// the file's** (keeping only `animate_water`, which the shell owns). Those are edits
     /// layered over a base, and the file *is* a base: keeping them would mean
     /// loading a saved look reproduced something other than the saved look,
     /// which is the one thing this call has to guarantee. `appearance()` after
@@ -11428,6 +11429,16 @@ impl WorldGen {
                 // used one), so a session stack must not survive the load.
                 self.appearance_terrain_adjust = None;
                 self.appearance_water_adjust = None;
+                // The Painter block (`npr`) is part of the look, but `appearance_rebased`
+                // always takes the SESSION's `self.npr` over the base's, so a loaded look's
+                // own block was silently ignored and a look saved on Ink reloaded over
+                // Default rendered with Default's Painter styles (about 71 % of map bytes
+                // differed; found by ET-F3, fixed by `_lookstate_probe`). Adopt the file's
+                // block as the session's. `animate_water` is the one member the shell owns
+                // (its shader overlay is switched by the shell, `_on_animate_water`), so it
+                // stays the session's; `peak_m` is re-derived from `params` on every render.
+                let animate_water = self.npr.animate_water;
+                self.npr = render::Npr { animate_water, ..a.npr.clone() };
                 self.appearance_preset = Some(a);
                 true
             }

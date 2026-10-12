@@ -1039,9 +1039,18 @@ func reference_grid_height(grid_w: int, world: bool) -> int:
 ## Must never skip the emit: without it the overlay keeps drawing with the
 ## texture this call just replaced (white rivers, see the signal's comment).
 func color_texture() -> Texture2D:
+	## Mid-generation (row: unguarded bridge read wrappers): the worker holds `WorldGen`, so
+	## serve the last texture this call built -- `null` before any -- and do NOT emit
+	## `color_texture_rebuilt`: nothing was rebuilt, and the river overlay must not re-read.
+	if generating:
+		return _color_texture_cache
 	var t: Texture2D = world_gen.build_color_texture()
+	_color_texture_cache = t
 	color_texture_rebuilt.emit()
 	return t
+
+## The last texture `color_texture()` built, served while `generating` (see there).
+var _color_texture_cache: Texture2D = null
 
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone
@@ -1107,32 +1116,62 @@ func province_boundary_texture() -> Texture2D:
 
 ## `WorldGen.get_settlements`: one dictionary per settlement (x, y, name,
 ## population, kind, ...). Indices into this array are the `index` other wrappers take.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func settlements() -> Array:
+	if generating:
+		return []
 	return world_gen.get_settlements()
 
 ## `WorldGen.get_roads`: the generated (and committed manual) ways, one dictionary
 ## each with smoothed `points`; sea lanes are in `sea_routes()`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func roads() -> Array:
+	if generating:
+		return []
 	return world_gen.get_roads()
 
 ## `WorldGen.get_sea_routes`: sea-lane routes, same shape as `roads()` minus the way
 ## type.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sea_routes() -> Array:
+	if generating:
+		return []
 	return world_gen.get_sea_routes()
 
 ## `WorldGen.get_provinces`: one metadata dictionary per province. Cell counts live
 ## in `province_cell_counts()`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func provinces() -> Array:
+	if generating:
+		return []
 	return world_gen.get_provinces()
 
 ## `{id, cells}` per province from one pass over the province grid; `[]` when
 ## the grid is not known. Fetch once and cache, do not call per province.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func province_cell_counts() -> Array:
+	if generating:
+		return []
 	return world_gen.get_province_cell_counts()
 
 ## `WorldGen.get_trade_balances`: per-settlement resource trade balance, same order
 ## and index as `settlements()`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func trade_balances() -> Array:
+	if generating:
+		return []
 	return world_gen.get_trade_balances()
 
 ## Every traced river run of Strahler order `min_order` and above, as the
@@ -1400,19 +1439,34 @@ func border_inset_frac() -> float:
 
 ## Which GPU-eligible stages ran on the GPU in the last generate
 ## (`WorldGen.get_gpu_stages_used`). Empty on a binary without it.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func gpu_stages_used() -> PackedStringArray:
-	if _has("get_gpu_stages_used"):
+	if not generating and _has("get_gpu_stages_used"):
 		return world_gen.get_gpu_stages_used()
 	return PackedStringArray()
 
 ## Active appearance quality tier name (`WorldGen.get_quality_tier`; `"quality"` on
 ## a fresh session). Unguarded: needs a binary with the tier API.
 func quality_tier() -> String:
-	return world_gen.get_quality_tier()
+	## While `generating` the last name read (`""` before any): `set_quality_tier` is refused
+	## for the same window, so the cache cannot be stale.
+	if generating:
+		return _quality_tier_cache
+	_quality_tier_cache = world_gen.get_quality_tier()
+	return _quality_tier_cache
+
+## The last name `quality_tier()` read, served while `generating`.
+var _quality_tier_cache := ""
 
 ## Forwards to `WorldGen.set_quality_tier`; `false` and no change for an unknown
 ## tier name. Marks the world dirty before the call whatever the result.
 func set_quality_tier(name: String) -> bool:
+	## Refused while `generating` (the worker holds `WorldGen`), which is also why
+	## `quality_tier()`'s mid-run cache cannot go stale.
+	if generating:
+		return false
 	mark_world_dirty()
 	return world_gen.set_quality_tier(name)
 
@@ -2741,8 +2795,11 @@ func sculpt_end_stroke() -> int:
 
 ## Number of stamps on the draft (`WorldGen.sculpt_stamp_count`). `-1` means the
 ## binding is missing -- never read it as an empty draft.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sculpt_stamp_count() -> int:
-	if not _has("sculpt_stamp_count"):
+	if generating or not _has("sculpt_stamp_count"):
 		return -1
 	return world_gen.sculpt_stamp_count()
 
@@ -2750,8 +2807,11 @@ func sculpt_stamp_count() -> int:
 ## (`WorldGen.sculpt_list_stamps`). `[]` for an empty draft or no API. ET-D3: an entry
 ## carries a `pressure` PackedFloat32Array (one per point) **only when the device
 ## reported pressure for every point**; ask `has("pressure")`, never default it.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sculpt_list_stamps() -> Array:
-	if not _has("sculpt_list_stamps"):
+	if generating or not _has("sculpt_list_stamps"):
 		return []
 	return world_gen.sculpt_list_stamps()
 
@@ -2766,8 +2826,11 @@ func sculpt_stamp_points(index: int) -> PackedVector2Array:
 
 ## The primary selected stamp index (`WorldGen.sculpt_get_selected_stamp`); `-1`
 ## means none selected (or no binding).
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sculpt_get_selected_stamp() -> int:
-	if not _has("sculpt_get_selected_stamp"):
+	if generating or not _has("sculpt_get_selected_stamp"):
 		return -1
 	return world_gen.sculpt_get_selected_stamp()
 
@@ -2843,14 +2906,20 @@ func sculpt_delete_stamp(index: int) -> bool:
 	return ok
 
 ## Whether `sculpt_undo` would do anything (`WorldGen.sculpt_can_undo`). Draft-scoped.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sculpt_can_undo() -> bool:
-	if not _has("sculpt_can_undo"):
+	if generating or not _has("sculpt_can_undo"):
 		return false
 	return world_gen.sculpt_can_undo()
 
 ## Whether `sculpt_redo` would do anything (`WorldGen.sculpt_can_redo`). Draft-scoped.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sculpt_can_redo() -> bool:
-	if not _has("sculpt_can_redo"):
+	if generating or not _has("sculpt_can_redo"):
 		return false
 	return world_gen.sculpt_can_redo()
 
@@ -3385,15 +3454,21 @@ func icon_arm_custom(slot: String, set_name: String, scale: float, rotation: flo
 ## pack actually carries at least one image for. `[]` before any pack is
 ## loaded, once one is loaded with no custom art, or against a GDExtension
 ## with no binding yet.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_custom_slots() -> Array:
-	if not _has("icon_custom_slots"):
+	if generating or not _has("icon_custom_slots"):
 		return []
 	return world_gen.icon_custom_slots()
 
 ## The armed icon chip contents (`WorldGen.icon_armed`). `{}` when nothing is armed
 ## (or no API).
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_armed() -> Dictionary:
-	if not _has("icon_armed"):
+	if generating or not _has("icon_armed"):
 		return {}
 	return world_gen.icon_armed()
 
@@ -3427,8 +3502,11 @@ func icon_brush_set(on: bool, radius: float, density: float) -> bool:
 ## world, and empty against a cdylib without the binding: `icon_armed()`'s own
 ## "there is nothing to report" convention, which callers already read with
 ## `is_empty()` rather than by comparing against invented defaults.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_brush() -> Dictionary:
-	if not _has("icon_brush"):
+	if generating or not _has("icon_brush"):
 		return {}
 	return world_gen.icon_brush()
 
@@ -3453,15 +3531,21 @@ func icon_deselect() -> void:
 	world_gen.icon_deselect()
 
 ## `GUI_GAP_REGISTER.md` CA-05: `label_get_selected`'s own icon counterpart.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_get_selected() -> int:
-	if not _has("icon_get_selected"):
+	if generating or not _has("icon_get_selected"):
 		return -1
 	return world_gen.icon_get_selected()
 
 ## Box hit test at grid `(gx, gy)` over every placed icon (`WorldGen.icon_hit_test`);
 ## selects and returns the hit index, `-1` for a miss. Handles are the caller's job.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_hit_test(gx: float, gy: float) -> int:
-	if not _has("icon_hit_test"):
+	if generating or not _has("icon_hit_test"):
 		return -1
 	return world_gen.icon_hit_test(gx, gy)
 
@@ -3474,24 +3558,33 @@ func icon_hit_test(gx: float, gy: float) -> int:
 ## binding, which is the right degradation: an older engine has no set to
 ## extend, so a modified click there behaves as a plain one rather than doing
 ## nothing.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_hit_test_mode(gx: float, gy: float, mode: int) -> int:
-	if not _has("icon_hit_test_mode"):
+	if generating or not _has("icon_hit_test_mode"):
 		return icon_hit_test(gx, gy)
 	return world_gen.icon_hit_test_mode(gx, gy, mode)
 
 ## `label_pick_all`'s icon twin (`icon_bridge/pick.rs`): every placed icon
 ## under `(gx, gy)`, topmost first, selecting nothing. Empty against a cdylib
 ## without the binding, for the same reason.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_pick_all(gx: float, gy: float) -> PackedInt64Array:
-	if not _has("icon_pick_all"):
+	if generating or not _has("icon_pick_all"):
 		return PackedInt64Array()
 	return world_gen.icon_pick_all(gx, gy)
 
 ## Every selected icon's index, ascending. Empty against an older cdylib is a
 ## lie only in the "one icon is selected" case, so it falls back to whatever
 ## `icon_get_selected()` reports rather than to nothing.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_get_selection() -> PackedInt64Array:
-	if not _has("icon_get_selection"):
+	if generating or not _has("icon_get_selection"):
 		var one := icon_get_selected()
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
 	return world_gen.icon_get_selection()
@@ -3512,8 +3605,11 @@ func icon_select_all() -> int:
 
 ## `GUI_GAP_REGISTER.md` CA-05: the selected icon's on-canvas resize-handle
 ## circle -- `label_handles()`'s own one-handle mirror.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_handles(index: int, zoom: float) -> Dictionary:
-	if not _has("icon_handles"):
+	if generating or not _has("icon_handles"):
 		return {}
 	return world_gen.icon_handles(index, zoom)
 
@@ -3527,8 +3623,11 @@ func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_d
 
 ## One placed icon's properties (`WorldGen.icon_get`: x, y, family, slot, scale,
 ## origin...). `{}` for a bad index or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_get(index: int) -> Dictionary:
-	if not _has("icon_get"):
+	if generating or not _has("icon_get"):
 		return {}
 	return world_gen.icon_get(index)
 
@@ -3542,8 +3641,11 @@ func icon_delete(index: int) -> bool:
 
 ## Every placed icon in placement order, each `icon_get`'s shape plus `index`,
 ## `selected` and `primary` (`WorldGen.icon_list`). `[]` for none or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_list() -> Array:
-	if not _has("icon_list"):
+	if generating or not _has("icon_list"):
 		return []
 	return world_gen.icon_list()
 
@@ -3567,8 +3669,11 @@ func icon_clear_all() -> void:
 ## placement pass" and says so -- rather than falling back to the transcribed
 ## design figures it used to carry, which would be a second source of truth for
 ## a number the engine now owns.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func icon_placement_families() -> Array:
-	if not _has("icon_placement_families"):
+	if generating or not _has("icon_placement_families"):
 		return []
 	return world_gen.icon_placement_families()
 
@@ -4088,8 +4193,11 @@ func conflict_delete(id: int) -> bool:
 
 ## Every conflict in creation order (`WorldGen.conflict_list`), points already
 ## resolved. `[]` for none or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func conflict_list() -> Array:
-	if not _has("conflict_list"):
+	if generating or not _has("conflict_list"):
 		return []
 	return world_gen.conflict_list()
 
@@ -4103,8 +4211,11 @@ func conflict_campaigns(year: int) -> Array:
 
 ## One conflict as `conflict_list` describes it (`WorldGen.conflict_get`). `{}` for an
 ## unknown id.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func conflict_get(id: int) -> Dictionary:
-	if not _has("conflict_get"):
+	if generating or not _has("conflict_get"):
 		return {}
 	return world_gen.conflict_get(id)
 
@@ -4302,15 +4413,19 @@ func get_biome_k_enabled() -> bool:
 
 
 # paint_bridge.rs
+## While `generating` the worker thread holds `WorldGen`, so this answers its empty default without reaching the engine (any `#[func]` call then is the `bind() failed` panic; see `param_get`).
 func get_paint_layers() -> PackedStringArray:
-	if not _has("get_paint_layers"):
+	if generating or not _has("get_paint_layers"):
 		return PackedStringArray()
 	return world_gen.get_paint_layers()
 
 ## Legal value range of paint `layer` as 1-based `{index, label}` rows
 ## (`WorldGen.get_paint_palette`). `[]` for an unknown layer or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_paint_palette(layer: String) -> Array:
-	if not _has("get_paint_palette"):
+	if generating or not _has("get_paint_palette"):
 		return []
 	return world_gen.get_paint_palette(layer)
 
@@ -4381,8 +4496,11 @@ func paint_stroke_end() -> Dictionary:
 
 ## Overlay of the active layer's committed paint plus this session's draft
 ## (`WorldGen.build_paint_preview_texture`). `null` without a world or the API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func build_paint_preview_texture() -> Texture2D:
-	if not _has("build_paint_preview_texture"):
+	if generating or not _has("build_paint_preview_texture"):
 		return null
 	return world_gen.build_paint_preview_texture()
 
@@ -4408,16 +4526,22 @@ func build_paint_preview_patch() -> Dictionary:
 
 ## Per-class painted-cell counts for the active layer (`WorldGen.paint_painted_counts`).
 ## `{}` without the API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func paint_painted_counts() -> Dictionary:
-	if not _has("paint_painted_counts"):
+	if generating or not _has("paint_painted_counts"):
 		return {}
 	return world_gen.paint_painted_counts()
 
 ## `GUI_GAP_REGISTER.md` WW-13: the pending-draft dab count, which is what
 ## Commit / Discard act on. `paint_painted_counts()["total"]` above is the
 ## committed-plus-pending composite and is a legend's number, not a button's.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func paint_draft_count() -> int:
-	if not _has("paint_draft_count"):
+	if generating or not _has("paint_draft_count"):
 		return 0
 	return world_gen.paint_draft_count()
 
@@ -4563,15 +4687,21 @@ func route_discard() -> void:
 
 ## How many routes were committed this session (`WorldGen.route_count`); `0` also
 ## means no world or no binding.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func route_count() -> int:
-	if not _has("route_count"):
+	if generating or not _has("route_count"):
 		return 0
 	return world_gen.route_count()
 
 ## One committed route (`WorldGen.route_get`: points, brks, km, mode, name...). `{}`
 ## for an out-of-range index or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func route_get(index: int) -> Dictionary:
-	if not _has("route_get"):
+	if generating or not _has("route_get"):
 		return {}
 	return world_gen.route_get(index)
 
@@ -4591,14 +4721,20 @@ func route_delete(index: int) -> bool:
 ## manual, x, y, dist}` plus `name` when it has one, or `{}`. Read-only.
 ## `store` is "generated", "sea_lane" or "manual"; `way_get`/`way_delete` take
 ## the same pair. `context_pick_bridge.rs` carries the rest.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func way_pick(gx: float, gy: float, radius_cells: float) -> Dictionary:
-	if not _has("way_pick"):
+	if generating or not _has("way_pick"):
 		return {}
 	return world_gen.way_pick(gx, gy, radius_cells)
 
 ## One way, whole, with its stored control points -- `{}` for an unknown pair.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func way_get(store: String, index: int) -> Dictionary:
-	if not _has("way_get"):
+	if generating or not _has("way_get"):
 		return {}
 	return world_gen.way_get(store, index)
 
@@ -4615,8 +4751,11 @@ func way_delete(store: String, index: int) -> bool:
 ## CM-7 / Ruling BA: the river under a grid point as "the branch to its
 ## mouth" -- `{cell, x, y, order, dist, branch, cells, km, terminus}`, or `{}`.
 ## No `name`: rivers are unnamed in this engine.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func river_pick(gx: float, gy: float, radius_cells: float) -> Dictionary:
-	if not _has("river_pick"):
+	if generating or not _has("river_pick"):
 		return {}
 	return world_gen.river_pick(gx, gy, radius_cells)
 
@@ -4664,8 +4803,11 @@ func journey_save(name: String, party_preset: String, route_index: int, start_ye
 
 ## Every saved journey in save order (`WorldGen.journey_list`: id, name, party preset,
 ## start year, km, mode). `[]` for none or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func journey_list() -> Array:
-	if not _has("journey_list"):
+	if generating or not _has("journey_list"):
 		return []
 	return world_gen.journey_list()
 
@@ -4692,8 +4834,11 @@ func journey_set_plan(id: int, request: Dictionary) -> Dictionary:
 
 ## One journey's full detail by stable `id` (`WorldGen.journey_get`), including route
 ## points. `{}` for an unknown id.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func journey_get(id: int) -> Dictionary:
-	if not _has("journey_get"):
+	if generating or not _has("journey_get"):
 		return {}
 	return world_gen.journey_get(id)
 
@@ -4729,8 +4874,11 @@ func journey_resnap_report() -> Array:
 	return world_gen.journey_resnap_report()
 
 ## The year cursor's day (Ruling AO): 0-based in the 365-day calendar.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_civ_day_of_year() -> int:
-	if not _has("get_civ_day_of_year"):
+	if generating or not _has("get_civ_day_of_year"):
 		return 0
 	return world_gen.get_civ_day_of_year()
 
@@ -4742,8 +4890,11 @@ func civ_set_day_of_year(day_of_year: int) -> int:
 	return world_gen.civ_set_day_of_year(day_of_year)
 
 ## `{year, month, day, day_of_year, text}`, `text` as `YYYY-MM-DD`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_civ_date() -> Dictionary:
-	if not _has("get_civ_date"):
+	if generating or not _has("get_civ_date"):
 		return {}
 	return world_gen.get_civ_date()
 
@@ -4820,8 +4971,11 @@ func region_set(gx: float, gy: float, gw: float, gh: float) -> void:
 
 ## The current marquee in cells and km (`WorldGen.region_get`). `{}` means no marquee,
 ## no world or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func region_get() -> Dictionary:
-	if not _has("region_get"):
+	if generating or not _has("region_get"):
 		return {}
 	return world_gen.region_get()
 
@@ -4983,8 +5137,11 @@ func apply_geojson_document(text: String) -> Dictionary:
 ## table, not world data. `{}` on a cdylib that predates the binding, which
 ## every caller must read as "draw the panel's own fallback", not as "no
 ## classes exist".
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_class_table() -> Dictionary:
-	if not _has("label_class_table"):
+	if generating or not _has("label_class_table"):
 		return {}
 	return world_gen.label_class_table()
 
@@ -4997,8 +5154,11 @@ func labels_generate(options: Dictionary) -> Dictionary:
 
 ## The last run's per-class counts without re-running it. `[]` before the first
 ## run -- which the panel draws as `--`, not as `0`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func labels_generated_counts() -> Array:
-	if not _has("labels_generated_counts"):
+	if generating or not _has("labels_generated_counts"):
 		return []
 	return world_gen.labels_generated_counts()
 
@@ -5007,15 +5167,21 @@ func labels_generated_counts() -> Array:
 ##
 ## Falls back to `label_list()` rather than to `[]` on an older cdylib: losing
 ## the generated pass is a degrade, losing the user's own labels is a defect.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func labels_render_list() -> Array:
-	if not _has("labels_render_list"):
+	if generating or not _has("labels_render_list"):
 		return label_list()
 	return world_gen.labels_render_list()
 
 ## One hand-placed label's class key, or `""` out of range / on an older
 ## cdylib -- which the panel resolves to the design's own default class.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_class_of(index: int) -> String:
-	if not _has("label_class_of"):
+	if generating or not _has("label_class_of"):
 		return ""
 	return world_gen.label_class_of(index)
 
@@ -5051,8 +5217,11 @@ func label_select(index: int) -> bool:
 
 ## The primary selected label (`WorldGen.label_get_selected`); `-1` means none selected
 ## (or no binding).
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_get_selected() -> int:
-	if not _has("label_get_selected"):
+	if generating or not _has("label_get_selected"):
 		return -1
 	return world_gen.label_get_selected()
 
@@ -5073,15 +5242,21 @@ func label_cancel_edit() -> bool:
 
 ## One label's full state (`WorldGen.label_get`: x, y, text, angle, arc, size, ...).
 ## `{}` for a bad index or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_get(index: int) -> Dictionary:
-	if not _has("label_get"):
+	if generating or not _has("label_get"):
 		return {}
 	return world_gen.label_get(index)
 
 ## Every hand-placed label in storage order, each `label_get`'s shape plus `index`,
 ## `selected`, `primary` (`WorldGen.label_list`). `[]` for none or no API.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_list() -> Array:
-	if not _has("label_list"):
+	if generating or not _has("label_list"):
 		return []
 	return world_gen.label_list()
 
@@ -5115,15 +5290,21 @@ func label_clear_all() -> void:
 ## (`ViewportHost.zoom()`): a "fixed" label holds a constant on-screen size
 ## (Ruling AP, 2026-09-23), so its box shrinks by `1 / max(zoom, 0.35)` -- the
 ## default of `1.0` is only for a caller with no camera.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_hit_test(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> int:
-	if not _has("label_hit_test"):
+	if generating or not _has("label_hit_test"):
 		return -1
 	return world_gen.label_hit_test(gx, gy, px_per_cell, zoom)
 
 ## `label_hit_test` with the modifier the click carried -- see
 ## `icon_hit_test_mode` for the mode codes and the older-cdylib fallback.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int, zoom: float = 1.0) -> int:
-	if not _has("label_hit_test_mode"):
+	if generating or not _has("label_hit_test_mode"):
 		return label_hit_test(gx, gy, px_per_cell, zoom)
 	return world_gen.label_hit_test_mode(gx, gy, px_per_cell, zoom, mode)
 
@@ -5133,15 +5314,21 @@ func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int, zo
 ## answers one. Empty against a cdylib without the binding: that engine has no
 ## read-only pick, and falling back to the selecting one would move the
 ## selection on every right-click. `zoom` as on `label_hit_test`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_pick_all(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> PackedInt64Array:
-	if not _has("label_pick_all"):
+	if generating or not _has("label_pick_all"):
 		return PackedInt64Array()
 	return world_gen.label_pick_all(gx, gy, px_per_cell, zoom)
 
 ## Every selected label's index, ascending. Falls back to whatever
 ## `label_get_selected()` reports against a cdylib without the set.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_get_selection() -> PackedInt64Array:
-	if not _has("label_get_selection"):
+	if generating or not _has("label_get_selection"):
 		var one := label_get_selected()
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
 	return world_gen.label_get_selection()
@@ -5164,15 +5351,21 @@ func label_select_all() -> int:
 ## shrinks by; `px_per_cell` sizes the box they sit on, off `map_overlay.gd`'s
 ## own font model (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23) -- pass
 ## `ViewportHost.label_px_per_cell()`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_handles(index: int, zoom: float, px_per_cell: float) -> Dictionary:
-	if not _has("label_handles"):
+	if generating or not _has("label_handles"):
 		return {}
 	return world_gen.label_handles(index, zoom, px_per_cell)
 
 ## Per-glyph arc placement for label `index` at `zoom` given measured `char_widths`
 ## (`WorldGen.label_glyph_layout`). `[]` means no layout, not zero glyphs positioned.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func label_glyph_layout(index: int, zoom: float, char_widths: PackedFloat64Array, total_w: float) -> Array:
-	if not _has("label_glyph_layout"):
+	if generating or not _has("label_glyph_layout"):
 		return []
 	return world_gen.label_glyph_layout(index, zoom, char_widths, total_w)
 
@@ -5241,8 +5434,11 @@ func jp_compute(request: Dictionary) -> Dictionary:
 ## generate, for an out-of-grid cell, or on an older binary. Keys whose
 ## backing data genuinely is not there are **omitted**, never zero-filled --
 ## callers must use `has()`/`get(key, null)`, not `get(key, 0.0)`.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func sample_cell(gx: int, gy: int) -> Dictionary:
-	if not _has("sample_cell"):
+	if generating or not _has("sample_cell"):
 		return {}
 	return world_gen.sample_cell(gx, gy)
 
@@ -5421,8 +5617,11 @@ func civ_goto_year(year: int) -> void:
 ## holding). An unrecorded year keeps the claims it was reached with, so
 ## this is the year the timeline strip's "territory holds at ..." names. `{}`
 ## on a binary without it, and before any generate.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_civ_territory_year() -> Dictionary:
-	if not _has("get_civ_territory_year"):
+	if generating or not _has("get_civ_territory_year"):
 		return {}
 	return world_gen.get_civ_territory_year()
 
@@ -5437,14 +5636,20 @@ func civ_remove_year(year: int) -> void:
 
 ## The active timeline cursor (reference `civYear`). `0` before any
 ## generate/`civ_add_year` call.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_civ_year() -> int:
-	if not _has("get_civ_year"):
+	if generating or not _has("get_civ_year"):
 		return 0
 	return world_gen.get_civ_year()
 
 ## Every recorded timeline year, ascending -- the pill list's own data source.
+##
+## Answers its empty default while `generating`: the worker holds `WorldGen`, and any
+## `#[func]` call then is the `bind() failed` panic (see `param_get`).
 func get_civ_timeline_years() -> PackedInt64Array:
-	if not _has("get_civ_timeline_years"):
+	if generating or not _has("get_civ_timeline_years"):
 		return PackedInt64Array()
 	return world_gen.get_civ_timeline_years()
 

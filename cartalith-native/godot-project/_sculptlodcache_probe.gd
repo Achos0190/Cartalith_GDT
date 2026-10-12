@@ -332,7 +332,7 @@ func _ready() -> void:
 		## desynced from "after" in the first place.
 		vh.invalidate_lod_tiles()
 		await _frames(5)
-		await _measure_path("menus._redo_last", func(): app.menus._redo_last(),
+		await _measure_path("menus Edit > Redo", func(): app.menus._on_edit(DccMenus.ID_REDO),
 			vh, screen_centre, half_w, half_h)
 	else:
 		print("  [SKIP] nothing left on the undo stack to set up a redo with")

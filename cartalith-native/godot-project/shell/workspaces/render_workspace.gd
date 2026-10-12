@@ -1974,17 +1974,65 @@ func _show_preset_state(index: int, variant: String) -> void:
 		app.viewport.set_style_readout(preset_display_name(index, _active_variant))
 		app.viewport.set_overlay_treatment(variant_treatment_for(String(STYLE_PRESETS[index][0]), _active_variant))
 
+## Whether the ENGINE's current look and Painter block are exactly preset `index`'s base
+## bundle: the look name `_apply_preset` selects, and every `STYLE_MANAGED` key at the value
+## the preset (or, for a key it leaves alone, `STYLE_MANAGED`) writes. The appearance
+## overrides and the ramp are deliberately not compared: a tile is identified by the same
+## two halves `_build_look_presets` lights it by on a fresh session (look) plus the Painter
+## block, which is what separates the presets that share a look (Natural Vibrant / Ink).
+## A read of the engine; never a write. `false` for an out-of-range index or no look API.
+func _engine_matches_preset(index: int) -> bool:
+	if index < 0 or index >= STYLE_PRESETS.size() or not bridge.look_api:
+		return false
+	if bridge.look() != String(STYLE_PRESETS[index][1]):
+		return false
+	var want: Dictionary = STYLE_MANAGED.duplicate()
+	for key in Dictionary(STYLE_PRESETS[index][2]):
+		want[key] = STYLE_PRESETS[index][2][key]
+	var have: Dictionary = bridge.npr_settings()
+	for key in want:
+		if not have.has(key):
+			continue
+		if want[key] is bool:
+			if bool(have[key]) != bool(want[key]):
+				return false
+		elif absf(float(have[key]) - float(want[key])) > 0.0005:
+			return false
+	return true
+
+## Re-derive the gallery's lit tile from the engine after a project open that carried no
+## style record (OUTSTANDING_WORK.md, "gallery tile and inks keep the session's state on
+## project open"). A project stores no base preset, only the look and Painter block they
+## wrote into the engine, so the truthful tile is the one those match: the tile already lit
+## if it still does (the common case, nothing moves), else the first preset that does,
+## else Custom. A lit VARIANT chip is dropped to its base tile first, as before, so a
+## variant cannot be saved into a file that never had one. Never writes the engine or the
+## history.
+func _retile_from_engine() -> void:
+	var lit := -1
+	if _engine_matches_preset(_active_preset):
+		lit = _active_preset
+	else:
+		for i in STYLE_PRESETS.size():
+			if _engine_matches_preset(i):
+				lit = i
+				break
+	if lit >= 0:
+		if lit != _active_preset or _active_variant != "":
+			_show_preset_state(lit, "")
+	elif _active_preset >= 0 or _active_variant != "":
+		_mark_custom()
+
 ## Apply a style record read from a file (`{preset, variant}`, as `style_record()`
 ## writes) to the gallery. Returns `""`, or a sentence for the open's notes when the
 ## record names a preset this build does not have (the record is then dropped, as
 ## when it is absent). An unknown VARIANT is not an error: the base preset is shown.
-## `rec` empty means the file had none: a variant lit in this session is dropped to
-## its base preset so it cannot be saved into a file that never had it; with no
-## variant lit, nothing changes (an old project opens exactly as before ET-F3).
+## `rec` empty means the file had none: the lit tile is re-derived from the engine's
+## own look and Painter block (`_retile_from_engine`), which also drops a variant lit in
+## this session so it cannot be saved into a file that never had it.
 func apply_style_record(rec: Dictionary) -> String:
 	if rec.is_empty():
-		if _active_variant != "" and _active_preset >= 0 and _active_preset < STYLE_PRESETS.size():
-			_show_preset_state(_active_preset, "")
+		_retile_from_engine()
 		return ""
 	var idx := preset_index(String(rec.get("preset", "")))
 	if idx < 0:

@@ -11,7 +11,8 @@ extends Node
 ##   B  WM_GO_BACK_REQUEST notification                            -> refused with a hint; works after the run
 ##   X  confirm_unsaved_world (the OS-close card)                  -> seed dashed with its reason; real seed after
 ##   U  menus._on_undo_budget rung + Clear                         -> rung deferred and replayed; Clear refused
-##   D  menus._redo_last                                           -> refused with a hint
+##   D  Edit > Redo (menus._on_edit(ID_REDO) -> app.redo_last)     -> refused with a hint
+##   W  the bridge read wrappers (settlements, roads, label_*, paint_*, icon_*, civ year ...) -> empty default, 0 panics
 ##   P  menus._paste_clipboard / _cut / _copy / _select_all        -> refused, clipboard kept, paste replays after
 ##   K  right_dock paint commit / discard                          -> refused; commit works after
 ## Panics are counted by an in-process Logger here AND by grepping stderr afterwards (the caller's job).
@@ -129,6 +130,58 @@ func _windows_with(needle: String) -> Array:
 	return out
 
 
+## Leg W (backlog row "unguarded bridge read wrappers"): while `bridge.generating` the worker holds `WorldGen`,
+## so each read wrapper must answer its empty default WITHOUT reaching the engine. Each call is fired inside
+## `_fire` (0 new panics) and its value compared with the documented default. Protects the gates added to
+## `engine_bridge.gd`; mutating any one `generating or` back to the bare `not _has(` makes its row fail.
+func _leg_reads(primed_tex: Texture2D, primed_tier: String) -> void:
+	var rows: Array = [
+		["settlements", func(): return bridge.settlements(), []],
+		["roads", func(): return bridge.roads(), []],
+		["sea_routes", func(): return bridge.sea_routes(), []],
+		["provinces", func(): return bridge.provinces(), []],
+		["province_cell_counts", func(): return bridge.province_cell_counts(), []],
+		["trade_balances", func(): return bridge.trade_balances(), []],
+		["label_list", func(): return bridge.label_list(), []],
+		["labels_render_list", func(): return bridge.labels_render_list(), []],
+		["label_get", func(): return bridge.label_get(0), {}],
+		["label_get_selected", func(): return bridge.label_get_selected(), -1],
+		["label_hit_test", func(): return bridge.label_hit_test(10.0, 10.0, 4.0), -1],
+		["label_get_selection", func(): return bridge.label_get_selection(), PackedInt64Array()],
+		["icon_list", func(): return bridge.icon_list(), []],
+		["icon_armed", func(): return bridge.icon_armed(), {}],
+		["icon_hit_test", func(): return bridge.icon_hit_test(10.0, 10.0), -1],
+		["icon_get_selection", func(): return bridge.icon_get_selection(), PackedInt64Array()],
+		["get_paint_layers", func(): return bridge.get_paint_layers(), PackedStringArray()],
+		["paint_painted_counts", func(): return bridge.paint_painted_counts(), {}],
+		["paint_draft_count", func(): return bridge.paint_draft_count(), 0],
+		["build_paint_preview_texture", func(): return bridge.build_paint_preview_texture(), null],
+		["get_civ_year", func(): return bridge.get_civ_year(), 0],
+		["get_civ_date", func(): return bridge.get_civ_date(), {}],
+		["get_civ_timeline_years", func(): return bridge.get_civ_timeline_years(), PackedInt64Array()],
+		["sample_cell", func(): return bridge.sample_cell(5, 5), {}],
+		["route_count", func(): return bridge.route_count(), 0],
+		["sculpt_stamp_count", func(): return bridge.sculpt_stamp_count(), -1],
+		["sculpt_list_stamps", func(): return bridge.sculpt_list_stamps(), []],
+		["sculpt_can_undo", func(): return bridge.sculpt_can_undo(), false],
+		["conflict_list", func(): return bridge.conflict_list(), []],
+		["journey_list", func(): return bridge.journey_list(), []],
+		["gpu_stages_used", func(): return bridge.gpu_stages_used(), PackedStringArray()],
+	]
+	for r in rows:
+		var holder: Array = [null]
+		var d := _fire("W " + String(r[0]), func(): holder[0] = (r[1] as Callable).call())
+		_check(d == 0 and typeof(holder[0]) == typeof(r[2]) and holder[0] == r[2],
+			"W: %s answers its default with no panic (got %s)" % [r[0], str(holder[0]).substr(0, 30)])
+	var tex_holder: Array = [null]
+	_fire("W color_texture", func(): tex_holder[0] = bridge.color_texture())
+	_check(primed_tex != null and tex_holder[0] == primed_tex, "W: color_texture serves the last built texture, no panic")
+	var tier_holder: Array = [null]
+	_fire("W quality_tier", func(): tier_holder[0] = bridge.quality_tier())
+	_check(tier_holder[0] == primed_tier and primed_tier != "", "W: quality_tier serves the last read name ('%s')" % str(tier_holder[0]))
+	_check(not bridge.set_quality_tier("quality"), "W: set_quality_tier is refused mid-run")
+
+
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var ti := args.find("--tag")
@@ -172,6 +225,10 @@ func _ready() -> void:
 		app.tl_toggle_play()
 	_log("timeline available=%s playing=%s" % [tl_ok, app.tl_playing])
 	menus._clipboard = {"labels": [{"x": 20.0, "y": 20.0, "text": "GSW"}]}
+	## Primed BEFORE the run: `color_texture()` / `quality_tier()` answer the last value they read while
+	## `generating`, so there must be one to answer.
+	var primed_tex: Texture2D = bridge.color_texture()
+	var primed_tier: String = bridge.quality_tier()
 	var hits_idle := _pl.hits
 	_check(hits_idle == 0, "setup: 0 panics before the run (got %d)" % hits_idle)
 
@@ -206,8 +263,9 @@ func _ready() -> void:
 	_check(_pending() == 128, "U: 128 MB pending (got %d)" % _pending())
 	_fire("U undo Clear", func(): menus._on_undo_budget(DccMenus.ID_PREF_UNDO_CLEAR))
 	_check("Not done: Clear undo history" in _hint(), "U: Clear refused with the hint")
-	_fire("D menus._redo_last", func(): menus._redo_last())
+	_fire("D Edit > Redo", func(): menus._on_edit(DccMenus.ID_REDO))
 	_check("Not done: Redo" in _hint(), "D: refused with the hint")
+	_leg_reads(primed_tex, primed_tier)
 	_fire("P menus._paste_clipboard", func(): menus._paste_clipboard())
 	_check("Not done: Paste" in _hint(), "P: paste refused with the hint")
 	_check(not menus._clipboard.is_empty(), "P: clipboard kept for after the run")
@@ -261,7 +319,7 @@ func _ready() -> void:
 	menus._paste_clipboard()
 	var pass_text := String((app._status_labels["pass"] as Label).text)
 	_check(pass_text.begins_with("pasted 1"), "P after: the kept paste lands ('%s')" % pass_text.substr(0, 40))
-	menus._redo_last()
+	menus._on_edit(DccMenus.ID_REDO)
 	_check(not ("Not done" in _hint()), "D after: redo reaches the engine ('%s')" % _hint().substr(0, 40))
 	app.right_dock_ctrl._on_paint_commit_from_dock()
 	_check(_hint().begins_with("painted"), "K after: commit runs ('%s')" % _hint().substr(0, 30))

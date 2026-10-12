@@ -5048,9 +5048,8 @@ func notify_ways_changed() -> void:
 ## predates the global redo cursor, and the square in front of this is already
 ## drawn disabled with that reason when it does.
 ##
-## `menus.gd::_redo_last()` is the same operation written a second time, in the
-## file that owns `Edit ▸ Redo`. It should delegate here so there is one redo
-## path the way there is one undo path; that file is not this pass's to edit.
+## `menus.gd`'s `Edit ▸ Redo` row delegates here (`_on_edit`'s `ID_REDO`), so there is one
+## redo path the way there is one undo path; the second copy it once held is gone.
 func _redo_last_impl() -> void:
 	if _engine_busy_for_history("Redo"):
 		return
