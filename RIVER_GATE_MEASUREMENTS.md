@@ -573,3 +573,21 @@ look, owner item 8 deferred). Probe `_riverzoom_probe` reported one free end
 short of adjacent water on seed 483920 (0 at HEAD) and two on the owner world
 (1 at HEAD), each about half a cell from a diagonal water cell: a small
 draw-side regression in `extend_shore_ends`' reach, not fixed here.
+
+**Follow-up, same day: the short ends were not a reach case, and they are
+fixed.** Read at the three ends (seed 483920 at 512x328 `(208.5, 290.5)`;
+owner world `(1221.5, 418.5)` and `(2032.5, 1007.5)`), each was a tributary
+ending on a trunk `river_draw_plan` had hidden as a parallel run, with drawn
+water only behind or beside the end (the one at 483920 diagonally behind, the
+owner's two orthogonally beside, hence 0.71 and 0.5 cells). `coast_end` does
+not turn back for such water, and the plan had skipped its downhill walk
+because any water in the 3x3 meant "`coast_end` will carry it", so the stroke
+stopped. The receiver guard did not cause the case; it re-drew the network so
+three ends landed in it. Fix: `cartalith_hydrology::mouth_water_cell`, one
+rule for both (the plan skips the walk, and the walk stops, only where
+`coast_end` will reach water). `_riverzoom_probe --stats-only` with this
+build: 512x328 x 40 075 km short ends 1 / 0 / 0 -> 0 / 0 / 0, owner world
+2 -> 0, the default 1024x656 x 1 200 km set unchanged; `river_gap_harness`
+loose ends 0 / 0 / 0 with the extension firing on 7 / 6 / 4 runs as above, so
+owner question 9's default holds: the extension is kept and is not dead.
+Details and the `_riverstroke_probe` findings are in `STATUS.md` (2026-10-12).

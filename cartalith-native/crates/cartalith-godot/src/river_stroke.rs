@@ -155,7 +155,9 @@ pub fn crossing(a: (f64, f64), b: (f64, f64), wet: &impl Fn((f64, f64)) -> bool)
 ///
 /// - the water cell is `recv` of the mouth when that is a water neighbour,
 ///   otherwise the water neighbour most nearly straight on from the run's last
-///   step (none behind it: a river does not turn back to reach the sea);
+///   step, strictly ahead (none behind or beside it: a river does not turn
+///   back to reach the sea) -- `cartalith_hydrology::mouth_water_cell`, shared
+///   with `river_draw_plan` so the plan walks on exactly the ends this refuses;
 /// - on the **sea**, where the field crosses `sea_level` between the two cell
 ///   centres, linearly -- the coast the interpolated deep-zoom terrain draws;
 /// - on a **lake**, the lake cell's edge, since a lake is drawn as whole cells
@@ -181,29 +183,12 @@ pub fn coast_end(
     let last = *pts.last()?;
     let (mx, my) = ((last.0.floor().max(0.0) as usize).min(w - 1), (last.1.floor().max(0.0) as usize).min(h - 1));
     let m = my * w + mx;
-    if water[m] != 0 {
-        return None;
-    }
     let centre = |c: usize| ((c % w) as f64 + 0.5, (c / w) as f64 + 0.5);
-    let wet_nbs: Vec<usize> = (-1i64..=1)
-        .flat_map(|dy| (-1i64..=1).map(move |dx| (dx, dy)))
-        .filter(|&d| d != (0, 0))
-        .map(|(dx, dy)| (mx as i64 + dx, my as i64 + dy))
-        .filter(|&(x, y)| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h)
-        .map(|(x, y)| y as usize * w + x as usize)
-        .filter(|&c| water[c] != 0)
-        .collect();
-    let by_recv = recv.and_then(|r| r.get(m)).and_then(|&r| usize::try_from(r).ok()).filter(|r| wet_nbs.contains(r));
-    let nb = by_recv.or_else(|| {
-        let prev = *pts.get(pts.len().checked_sub(2)?)?;
-        let (dx, dy) = (last.0 - prev.0, last.1 - prev.1);
-        let cos = |c: usize| {
-            let q = centre(c);
-            let (ex, ey) = (q.0 - last.0, q.1 - last.1);
-            (dx * ex + dy * ey) / ((dx * dx + dy * dy).sqrt() * (ex * ex + ey * ey).sqrt())
-        };
-        wet_nbs.iter().copied().filter(|&c| cos(c) > 0.0).max_by(|&a, &b| cos(a).total_cmp(&cos(b)))
-    })?;
+    // Which water cell: `cartalith_hydrology::mouth_water_cell`, the rule
+    // `river_draw_plan` also reads to decide which ends it leaves to this
+    // function (2026-10-12), so an end the plan does not walk on is always
+    // one this carries to water. `None` there covers `m` itself being water.
+    let nb = cartalith_hydrology::mouth_water_cell(pts, |c| water[c] != 0, recv, w, h)?;
     let (a, b) = (centre(m), centre(nb));
     let (fm, fb) = (fld[m] as f64, fld[nb] as f64);
     let t = if water[nb] == 1 && fb < sea_level && sea_level < fm {

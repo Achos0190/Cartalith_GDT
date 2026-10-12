@@ -1870,8 +1870,9 @@ fn draw_plan(
 
     // -- The downstream continuation (`RiverDrawPlan::extension`) ------------
     let centre = |c: usize| ((c % w) as f64 + 0.5, (c / w) as f64 + 0.5);
+    // A cell on water: drawn water, or at/below sea level. Whether an end
+    // BESIDE water has reached it is `mouth_water_cell`'s question, not this.
     let wet = |c: usize| water[c] != 0 || fld[c] as f64 <= sea_level;
-    let wet_near = |c: usize| wet(c) || neighbours(c).any(wet);
     // Cell -> the run whose extension walked over it (`down`, above, says where
     // each run drains).
     let mut claimed = vec![usize::MAX; n];
@@ -1896,9 +1897,14 @@ fn draw_plan(
             continue;
         }
         let m = rivers[i].mouth as usize;
-        // Only a run's own end (not one that joined a trunk), and never a mouth
-        // beside the sea or a lake: `coast_end` carries those to the shore.
-        if drawn[m] != i || wet_near(m) {
+        // Only a run's own end (not one that joined a trunk), never a mouth on
+        // water, and never one whose water `coast_end` carries the stroke into
+        // -- the SAME rule, `mouth_water_cell`, over the same receivers
+        // (`next`; the renderer passes it the same tree). Not "any water in
+        // the 3x3" (the test until 2026-10-12): water only beside or behind
+        // the end is not where it drains, `coast_end` refuses it, and the end
+        // was left half a cell short (see `mouth_water_cell`'s doc).
+        if drawn[m] != i || wet(m) || mouth_water_cell(&rivers[i].pts, |c| water[c] != 0, Some(next), w, h).is_some() {
             continue;
         }
         let r_max = wid(i) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS;
@@ -1964,7 +1970,14 @@ fn draw_plan(
                 break;
             }
             path.push(nx);
-            if wet_near(nx) {
+            // Arrived at the water when the walked end is on it, or when
+            // `coast_end` will carry the stroke from here into it: the same
+            // `mouth_water_cell` question as the mouth's skip above, asked of
+            // the last step (`coast_end` reads the extended run's last two
+            // points). Not "any water in the 3x3" (the test until
+            // 2026-10-12): a walk that stopped beside a lake it was not
+            // draining into left the stroke short of it, as the mouth did.
+            if wet(nx) || mouth_water_cell(&[centre(cur), centre(nx)], |c| water[c] != 0, Some(next), w, h).is_some() {
                 arrived = true;
                 break;
             }
@@ -1986,6 +1999,77 @@ fn draw_plan(
         }
     }
     plan
+}
+
+/// The water cell a river ending on dry land runs into, or `None`: **the one
+/// rule** both [`RiverDrawPlan::extension`] (which leaves an end with such a
+/// cell to the renderer) and the renderer's `coast_end` (`cartalith-godot`
+/// `river_stroke.rs`, which carries the stroke on to that cell's shore) read,
+/// so the two cannot disagree about which ends meet water.
+///
+/// - `pts`: the run's drawn points, cell centres, mouth last.
+/// - `is_water(c)`: whether cell `c` is drawn water.
+/// - `recv`: each cell's downhill receiver (`-1` for none), or `None`.
+///
+/// The answer, for the last point's cell `m`:
+/// - `None` when `m` is itself water (the caller's shoreline cut ends that
+///   stroke) or out of the arrays;
+/// - `recv[m]`, when that is a water neighbour: the water goes there, whichever
+///   way the run was heading;
+/// - otherwise the water neighbour most nearly straight on from the run's last
+///   step, **strictly ahead** (`cos > 0`): a river does not turn back, or
+///   sideways, to reach water it is not flowing into;
+/// - `None` when nothing qualifies, even with water beside or behind `m`.
+///
+/// **Why the plan reads it** (2026-10-12, after the Ruling CF addendum's
+/// receiver guard; `RIVER_GATE_MEASUREMENTS.md` "After the fix"): the plan
+/// used to skip the downhill walk for any end with water anywhere in its 3x3,
+/// trusting `coast_end` to reach it. Three ends `_riverzoom_probe` found (seed
+/// 483920 at 512x328, two on the owner's world) were tributaries ending on a
+/// trunk the plan had hidden as a parallel run, beside a lake cell behind or
+/// beside them; `coast_end` rightly refused that water, the walk never ran,
+/// and the stroke stopped half a cell from the lake while the water carried on
+/// downhill along the hidden trunk. Asking this function instead sends exactly
+/// those ends down the walk and leaves every end `coast_end` carries as it was.
+///
+/// Neighbours do not wrap in x (the runs are cut at the seam). Must never
+/// return a cell that is not one of `m`'s eight neighbours.
+pub fn mouth_water_cell(
+    pts: &[(f64, f64)],
+    is_water: impl Fn(usize) -> bool,
+    recv: Option<&[i32]>,
+    w: usize,
+    h: usize,
+) -> Option<usize> {
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let last = *pts.last()?;
+    let (mx, my) = ((last.0.floor().max(0.0) as usize).min(w - 1), (last.1.floor().max(0.0) as usize).min(h - 1));
+    let m = my * w + mx;
+    if is_water(m) {
+        return None;
+    }
+    let centre = |c: usize| ((c % w) as f64 + 0.5, (c / w) as f64 + 0.5);
+    let wet_nbs: Vec<usize> = (-1i64..=1)
+        .flat_map(|dy| (-1i64..=1).map(move |dx| (dx, dy)))
+        .filter(|&d| d != (0, 0))
+        .map(|(dx, dy)| (mx as i64 + dx, my as i64 + dy))
+        .filter(|&(x, y)| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h)
+        .map(|(x, y)| y as usize * w + x as usize)
+        .filter(|&c| is_water(c))
+        .collect();
+    let by_recv = recv.and_then(|r| r.get(m)).and_then(|&r| usize::try_from(r).ok()).filter(|r| wet_nbs.contains(r));
+    by_recv.or_else(|| {
+        let prev = *pts.get(pts.len().checked_sub(2)?)?;
+        let (dx, dy) = (last.0 - prev.0, last.1 - prev.1);
+        let cos = |c: usize| {
+            let q = centre(c);
+            let (ex, ey) = (q.0 - last.0, q.1 - last.1);
+            (dx * ex + dy * ey) / ((dx * dx + dy * dy).sqrt() * (ex * ex + ey * ey).sqrt())
+        };
+        wet_nbs.iter().copied().filter(|&c| cos(c) > 0.0).max_by(|&a, &b| cos(a).total_cmp(&cos(b)))
+    })
 }
 
 /// Nearest river to a grid-space point, within `radius_cells` of one of its
@@ -5021,7 +5105,8 @@ mod tests {
 
     /// Protects: a continuation that reaches water ends beside it with NO
     /// bridge (the renderer's `coast_end` carries it on to the shore), and a
-    /// mouth already beside water is skipped (it is a river mouth, not a gap).
+    /// mouth whose receiver is that water is skipped (it is a river mouth, not
+    /// a gap; water only behind or beside a mouth is the next test's case).
     #[test]
     fn extension_that_reaches_water_stops_beside_it_without_a_bridge() {
         let (w, h) = (40usize, 20usize);
@@ -5241,6 +5326,82 @@ mod tests {
         assert_eq!(plan.parallel_of, vec![None, Some(0), None], "the fixture's `t` is the hidden twin of `i`");
         assert_eq!(plan.extension[0], vec![(15.5, 11.5), (16.5, 12.5)], "stepped over `t`'s tail to the trunk");
         assert_eq!(plan.bridge[0], Some((19.5, 12.5)));
+    }
+
+    /// Protects: `mouth_water_cell`'s rule, which the renderer's `coast_end`
+    /// and the plan's walk both read -- the receiver's water wins whatever the
+    /// heading; otherwise only water strictly ahead counts (`cos > 0`, so a
+    /// cell exactly beside the end does not), the most nearly straight-on of
+    /// it; an end on water, or with water only beside or behind it, has none.
+    #[test]
+    fn mouth_water_cell_takes_the_receiver_or_water_strictly_ahead() {
+        let (w, h) = (5usize, 5usize);
+        // A run heading south (+y) down column 2, ending at (2, 2).
+        let pts = [(2.5, 0.5), (2.5, 1.5), (2.5, 2.5)];
+        let at = |x: usize, y: usize| y * w + x;
+        let with = |cells: &[(usize, usize)]| {
+            let mut wv = vec![0u8; w * h];
+            for &(x, y) in cells {
+                wv[at(x, y)] = 1;
+            }
+            wv
+        };
+        let ask = |wv: &[u8], recv: Option<&[i32]>| super::mouth_water_cell(&pts, |c| wv[c] != 0, recv, w, h);
+        let behind = with(&[(1, 1)]);
+        assert_eq!(ask(&behind, None), None, "water diagonally behind is not where the run goes");
+        let mut recv = vec![-1i32; w * h];
+        recv[at(2, 2)] = at(1, 1) as i32;
+        assert_eq!(ask(&behind, Some(&recv)), Some(at(1, 1)), "unless the receiver drains there");
+        assert_eq!(ask(&with(&[(1, 2)]), None), None, "exactly beside (cos 0) is not ahead");
+        assert_eq!(ask(&with(&[(1, 3)]), None), Some(at(1, 3)), "diagonally ahead is");
+        assert_eq!(ask(&with(&[(1, 3), (2, 3)]), None), Some(at(2, 3)), "the most nearly straight on wins");
+        assert_eq!(ask(&with(&[(2, 2), (2, 3)]), None), None, "an end ON water has no shore to be carried to");
+        // A receiver that is land falls back to the heading rule, not to `None`.
+        recv[at(2, 2)] = at(3, 3) as i32;
+        assert_eq!(ask(&with(&[(1, 3)]), Some(&recv)), Some(at(1, 3)));
+    }
+
+    /// Protects: the 2026-10-12 fix for ends left half a cell short of water
+    /// (`_riverzoom_probe`, seed 483920 at 512x328 and the owner's world). A
+    /// run whose mouth has water only BEHIND or BESIDE it (a lake it passed),
+    /// while its receiver leads on over land, is walked downhill like any loose
+    /// end -- before, any water in the 3x3 skipped the walk and `coast_end`
+    /// refused that water, so the stroke stopped short. Controls: a mouth whose
+    /// receiver IS water, and a mouth on water, are still left alone.
+    #[test]
+    fn extension_walks_an_end_whose_only_water_is_behind_or_beside_it() {
+        let (w, h) = (40usize, 20usize);
+        for (lake, case) in [((19usize, 7usize), "diagonally behind"), ((19, 8), "beside")] {
+            let (fld, mut flow, mut next, mut water) = ext_grid(w, h);
+            water[lake.1 * w + lake.0] = 2;
+            let r: Vec<(usize, usize)> = (2..9).map(|y| (20, y)).collect();
+            let rivers = vec![run(&r, w, &mut flow, 10.0)];
+            let chain: Vec<(usize, usize)> = (8..20).map(|y| (20, y)).collect();
+            ext_chain(&mut next, w, &chain);
+            let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+            let want: Vec<(f64, f64)> = (9..19).map(|y| (20.5, y as f64 + 0.5)).collect();
+            assert_eq!(plan.extension[0], want, "water {case}: carried down its receivers to the sea row");
+            assert_eq!(plan.bridge[0], None);
+            // And the renderer's rule now finds water at the new end.
+            let mut drawn = rivers[0].pts.clone();
+            drawn.extend(plan.extension[0].iter().copied());
+            assert_eq!(super::mouth_water_cell(&drawn, |c| water[c] != 0, Some(&next), w, h), Some(19 * w + 20));
+        }
+        // Control: the receiver drains straight into the lake behind the end.
+        let (fld, mut flow, mut next, mut water) = ext_grid(w, h);
+        water[7 * w + 19] = 2;
+        let r: Vec<(usize, usize)> = (2..9).map(|y| (20, y)).collect();
+        let rivers = vec![run(&r, w, &mut flow, 10.0)];
+        next[8 * w + 20] = (7 * w + 19) as i32;
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[0].is_empty(), "its water is that lake: `coast_end` carries it there");
+        // Control: a mouth that is itself a water cell is never walked.
+        let mut water2 = water.clone();
+        water2[8 * w + 20] = 2;
+        let chain: Vec<(usize, usize)> = (8..20).map(|y| (20, y)).collect();
+        ext_chain(&mut next, w, &chain);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water2);
+        assert!(plan.extension[0].is_empty(), "a mouth on water is the shoreline cut's, not a loose end");
     }
 
     /// Protects: later walks join an earlier run's extension instead of drawing

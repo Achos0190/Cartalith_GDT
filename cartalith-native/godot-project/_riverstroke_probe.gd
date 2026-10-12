@@ -233,16 +233,32 @@ func _ready() -> void:
 			var rect: Rect2 = ov._displayed_rect()
 			var p: Vector2 = xf * ov._point_to_screen(mid, rect)
 			## Width = the SHORTEST chord through a centreline point across the
-			## diff mask, over 36 directions -- independent of any tangent
+			## stroke, over 36 directions -- independent of any tangent
 			## estimate, which a cell-scale zigzag makes unreliable. Median of
 			## 15 centreline points around the middle.
+			##
+			## The stroke is the pixels the river moves by at least HALF of what
+			## it moves the centreline point by (full width at half maximum),
+			## not every pixel the layer moves at all (`_diff`'s 0.04, kept for
+			## the connectivity check below). Since RIM-3 the painted river
+			## carries a floodplain tint beside its banks, in cells, faint
+			## (about 12 summed levels against 145-169 inside the water on the
+			## pre-Ruling-CF-addendum world's 1.49-cell trunk, 2026-10-12), and
+			## the any-change mask counted it as width: 11 px against 7 at z10
+			## and 22 against 14 at z20, so the chord grew with the tint, not
+			## the water, and the leg failed on a world whose river was wide
+			## enough to get one (`river_field::FLOODPLAIN_EDGE_LO`). An
+			## antialiased edge crosses half its contrast where the coverage is
+			## one half -- the geometric edge -- and a tint under half the ink's
+			## contrast never does, so this measures the water alone.
 			var chords: Array[float] = []
 			for kk in range(maxi(mid_i - 56, 0), mini(mid_i + 57, rp.size()), 8):
 				var q: Vector2 = xf * ov._point_to_screen(rp[kk], rect)
+				var half := 0.5 * _diff_sum(on, off, Vector2i(q.round()))
 				var best_c := 1e9
 				for ai in 36:
 					var d := Vector2.from_angle(PI * float(ai) / 36.0)
-					best_c = minf(best_c, _run_len(on, off, q, d) + _run_len(on, off, q, -d) - 1.0)
+					best_c = minf(best_c, _run_len(on, off, q, d, half) + _run_len(on, off, q, -d, half) - 1.0)
 				chords.append(best_c)
 			chords.sort()
 			var w_meas: float = chords[chords.size() / 2]
@@ -460,8 +476,6 @@ func _ready() -> void:
 var B_SHIFT := 0.0
 
 
-## Pixels from `p` along `dir` while the on/off framebuffers differ -- the
-## stroke's half-width, counting `p` itself.
 ## Bilinear sample of a one-texel-per-cell map image at grid point `g`
 ## (river space: a cell's centre is `x + 0.5`, which is texel `x`).
 func _bilinear(img: Image, g: Vector2) -> Color:
@@ -478,21 +492,33 @@ func _bilinear(img: Image, g: Vector2) -> Color:
 	return a.lerp(b, ty)
 
 
-func _run_len(on: Image, off: Image, p: Vector2, dir: Vector2) -> float:
+## Pixels from `p` along `dir` while the on/off framebuffers differ by more
+## than `at_least` (summed channels, 0..3) -- the stroke's half-width,
+## counting `p` itself. The width chords pass half the centreline point's own
+## difference (full width at half maximum, see the call site).
+func _run_len(on: Image, off: Image, p: Vector2, dir: Vector2, at_least: float) -> float:
 	var n := 0.0
 	var sz := on.get_size()
 	for s in 400:
 		var q := Vector2i((p + dir * float(s)).round())
-		if q.x < 0 or q.y < 0 or q.x >= sz.x or q.y >= sz.y or not _diff(on, off, q):
+		if q.x < 0 or q.y < 0 or q.x >= sz.x or q.y >= sz.y or _diff_sum(on, off, q) <= at_least:
 			break
 		n += 1.0
 	return n
 
 
-func _diff(on: Image, off: Image, q: Vector2i) -> bool:
+## The on/off difference at `q`, summed over the three channels (0..3).
+func _diff_sum(on: Image, off: Image, q: Vector2i) -> float:
 	var a := on.get_pixelv(q)
 	var b := off.get_pixelv(q)
-	return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b) > 0.04
+	return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
+
+
+## Whether the river layer moved pixel `q` at all (more than 0.04 summed):
+## the connectivity flood's mask, where a faint tint beside the water still
+## belongs to the one drawn river.
+func _diff(on: Image, off: Image, q: Vector2i) -> bool:
+	return _diff_sum(on, off, q) > 0.04
 
 
 ## 4-connected flood fill of the on/off diff mask from `seed`.

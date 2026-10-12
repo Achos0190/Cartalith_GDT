@@ -6963,7 +6963,9 @@ struct LodCtxCache {
     /// The finished grid raster the local-contrast band is measured from,
     /// snapshotted by `build_color_texture` at exactly the point
     /// `apply_local_contrast` reads it — after the river ink tint, before the
-    /// correction itself — together with the key it was taken under.
+    /// correction itself — together with the key it was taken under:
+    /// `WorldGen::lod_grid_key`, the tile key without its two view switches
+    /// (Rivers, deltas), which those bytes do not read (2026-10-12).
     ///
     /// **Not re-rendered when it is missing.** A whole-grid `cell_color` pass
     /// is the most expensive thing in this renderer — of the order of a
@@ -11967,7 +11969,9 @@ impl WorldGen {
             // The key is computed *before* the borrow: `lod_cache_key` calls
             // `appearance()`, and taking a `RefCell` borrow across a call that
             // reads the rest of `self` is how a re-entrant panic gets written.
-            let key = self.lod_cache_key();
+            // The grid key (`lod_grid_key`), not the tile key: these bytes
+            // read neither view switch it holds fixed.
+            let key = self.lod_grid_key();
             self.lod.borrow_mut().grid_rgb = Some((key, bytes.clone()));
         }
 
@@ -12776,7 +12780,6 @@ impl WorldGen {
         // `river_draw_plan` continuation): their head meets that river, so it
         // is never carried back into water beside it.
         let continued_into: std::collections::HashSet<usize> = joins.iter().flatten().filter(|&&(_, k)| k == 0).map(|&(j, _)| j).collect();
-        let recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
         // Per run, the Strahler order of each drawn point's traced cell. The
         // last point takes its predecessor's order -- it is the trunk's
         // junction cell (or a bridge target), which is why `River::order`,
@@ -12835,11 +12838,16 @@ impl WorldGen {
                 // to the shoreline (RV-2).
                 let mut coasted = false;
                 if joins[i].is_none() && plan.bridge[i].is_none() {
-                    // A run carried downhill ends on a cell the channel tree
-                    // does not route (`recv` is -1 there): the combined tree
-                    // names the water cell it drains to.
-                    let ends_by = if plan.extension[i].is_empty() { recv } else { Some(down.as_slice()) };
-                    if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, ends_by, f.gw, f.gh) {
+                    // Always the combined tree `down`, the receivers the plan
+                    // was given: the plan leaves an end unwalked exactly when
+                    // `mouth_water_cell` over `down` finds its water, and this
+                    // must ask the same question to carry every such end to
+                    // it (2026-10-12; until then a run with no extension was
+                    // asked over the channel tree alone, which `down` equals
+                    // wherever a channel cell has a receiver). A run carried
+                    // downhill ends on a cell the channel tree does not route
+                    // (`recv` is -1 there): `down` names where it drains.
+                    if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, Some(down.as_slice()), f.gw, f.gh) {
                         rp.push(p);
                         u.push((pts.len() - 1) as f64);
                         coasted = true;
@@ -18847,6 +18855,34 @@ impl WorldGen {
     /// per call — a seed change without a regenerate is not reachable anyway
     /// (`absorb` sets both), and keying on it would only cost a rebuild.
     fn lod_cache_key(&self) -> String {
+        self.lod_key_with(self.rivers_in_map, self.river_delta_off.get())
+    }
+
+    /// **The key the finished grid raster (`grid_rgb`) is stored and matched
+    /// under** -- [`Self::lod_cache_key`] with the Rivers switch and the delta
+    /// switch held at fixed values, because `build_color_texture`'s `bytes`
+    /// read neither: the map texture holds no river either way (the river
+    /// colour texture and the painted field are separate textures, built
+    /// from `river_geometry_any`, which ignores the switch). Must never
+    /// leave out a term those bytes DO read.
+    ///
+    /// Why (2026-10-12, found by `_riverstroke_probe`'s colour leg): the
+    /// bytes were stored under the full tile key, which carries `rv`. A
+    /// re-render of the map with Rivers off (any style change, or a
+    /// `color_texture()` call) stored them under the rivers-off key; turning
+    /// Rivers on moved the tile key, the match failed, and every deep-zoom
+    /// tile lost its local-contrast band (`TileFields::new` with `None`)
+    /// until the next re-render. Measured on seed 20260824 at zoom 15: tile
+    /// river pixels off the base view's river colour by up to 7.2 levels
+    /// (0.6-2.4 without the toggle), the ground beside them by 1-2.
+    fn lod_grid_key(&self) -> String {
+        self.lod_key_with(true, false)
+    }
+
+    /// [`Self::lod_cache_key`]'s body with its two view switches given:
+    /// `rivers` for `rv` (`rivers_in_map`) and `deltas_off` for `dl`
+    /// (`river_delta_off`). Everything else is read from `self`.
+    fn lod_key_with(&self, rivers: bool, deltas_off: bool) -> String {
         let a = self.appearance();
         format!(
             // LOD-D4 added four inputs to what a cached `TileFields` is a
@@ -18904,9 +18940,9 @@ impl WorldGen {
             self.params.peak_m.to_bits(),
             self.params.climate.lapse_rate.to_bits(),
             self.params.planet.g.to_bits(),
-            self.rivers_in_map,
+            rivers,
             self.forced_lakes_epoch,
-            u8::from(self.river_delta_off.get()),
+            u8::from(deltas_off),
         )
     }
 
@@ -18997,9 +19033,13 @@ impl WorldGen {
             None => (None, Vec::new(), Vec::new()),
         };
         let paint = self.paint.as_ref();
+        // Matched on the grid key, not the tile `key`: the bytes do not read
+        // the Rivers or delta switch (`lod_grid_key`). Computed before the
+        // borrow, as `build_color_texture` does when it stores them.
+        let grid_key = self.lod_grid_key();
         let grid_rgb = {
             let slot = self.lod.borrow();
-            slot.grid_rgb.as_ref().filter(|(k, _)| k == key).map(|(_, b)| b.clone())
+            slot.grid_rgb.as_ref().filter(|(k, _)| *k == grid_key).map(|(_, b)| b.clone())
         };
         Some(lod_worker::SnapshotInputs {
             key: key.to_string(),
