@@ -759,38 +759,69 @@ class SheetPreview extends Control:
 # State
 # ---------------------------------------------------------------------------
 
+## The `DccApp` that opened this window; supplies phone fitting (`phone_fit`) and app-
+## level actions. Set by `setup()`; never used before it.
 var _host: DccApp
+## The engine bridge every `as_*` asset-library call goes through; also the source of the
+## `world_loaded` refresh signal. Set by `setup()`.
 var _bridge: EngineBridge
 
+## Key of the family whose slots the grid shows; `""` means none chosen (the grid shows
+## the empty state or a collection/Unassigned view instead).
 var _current_family := ""
+## The header search box's text, applied by `_refresh_grid()` as a filter over the
+## current slot list.
 var _search_text := ""
 var _sort_mode := 0          ## 0 = slot order, 1 = name
+## Thumbnail edge in pixels, driven by the zoom control; starts at the desktop tile size
+## `H_TILE_ART` and is set to 120 on a phone in `setup()`.
 var _cell_px := float(H_TILE_ART)
 ## Desktop header parts `_fit_to_width()` adapts (null on a phone).
 var _hdr_row: HBoxContainer
+## The desktop header search `LineEdit`; kept so `_fit_to_width()` can tell it apart from
+## the chips it hides when narrow. Null on a phone.
 var _hdr_search: LineEdit
+## The desktop header subtitle label; `_fit_to_width()` hides it when the header is too
+## narrow and shows it again otherwise. Null on a phone.
 var _hdr_sub: Label
+## True while batch selection (Tag/Collect/Rename/Duplicate/Delete) is on; toggled by
+## `_toggle_select_mode()`.
 var _select_mode := false
 var _selected: Dictionary = {}     ## uid -> true
+## Grid index of the last plain-clicked cell, the anchor for shift-click range selection
+## (`mini`/`maxi` span); `-1` when there is none. Reset when the grid is rebuilt.
 var _last_index := -1
+## Uid of the slot shown in the inspector; `""` means no slot focused.
 var _focused_uid := ""
 var _preview_index := 0            ## which variant the inspector preview shows (AS-14)
 var _slot_order: Array = []        ## current family's filtered/sorted entries
 var _cells: Dictionary = {}        ## uid -> {"tile": PanelContainer, "cell": SlotCell}
+## Inspector preview background mode (`"checker"` or one of the swatch modes in
+## `PREVIEW_SWATCHES`).
 var _preview_bg := "checker"
+## Colour used when `_preview_bg` is a swatch with a solid colour; set together with
+## `_preview_bg` from the clicked `PREVIEW_SWATCHES` entry.
 var _preview_color := Color(1, 1, 1)
 ## Set by every mutating call, cleared by Apply to map -- the status line's own
 ## `● library edited — apply to map to use it`.
 var _dirty := false
 
+## Header sort `OptionButton`: "Sort: slot order" (0) / "Sort: name" (1), mirrored in
+## `_sort_mode`.
 var _sort_button: OptionButton
+## Header chip that toggles `_select_mode`; its glyph is rewritten by the select-mode
+## refresh.
 var _select_mode_btn: Button
 var _rail_buttons: Dictionary = {}   ## family key -> {button, code, name, count}
+## The families rail header's count readout (`FAMILIES.size()`); its tooltip is
+## `FAMILIES_NOTE`.
 var _rail_count_label: Label
 ## AS-12's Collections rail: non-empty means the grid is showing a
 ## collection's members instead of a family's slots (`_refresh_grid_collection`).
 var _current_collection := ""
 var _collection_buttons: Dictionary = {}   ## collection name -> {button, name, count}
+## Container the dynamic collection rows are rebuilt into, below the pinned Unassigned
+## row.
 var _collections_rail_body: VBoxContainer
 var _delete_collection_btn: Button   ## `PARITY_AUDIT.md` §23 F13 -- as_drop_collection.
 ## AS-12's "Unassigned imports" holding bucket: a pinned row above the
@@ -800,83 +831,157 @@ var _delete_collection_btn: Button   ## `PARITY_AUDIT.md` §23 F13 -- as_drop_co
 ## real engine call it would sit on top of.
 var _current_unassigned := false
 var _unassigned_row: Dictionary = {}   ## {button, name, count}
+## The slot grid; columns come from `GRID_COLS` or `PHONE_GRID_COLS`. Children are
+## rebuilt by every `_refresh_grid*()`.
 var _grid: GridContainer
+## The label above the grid naming what it currently shows (a family, a collection, or
+## `UNASSIGNED IMPORTS`).
 var _grid_header: Label
+## The `N SELECTED` readout beside the grid header; meaningful only in select mode.
 var _select_count_label: Label
 
 ## Real per-slot state from the last `as_family_slots(family_key)` call --
 ## uid -> {"item_count","filled","has_dupe"} -- rebuilt on every `_refresh_grid()`.
 var _slot_state: Dictionary = {}
+## Header chip: Apply to map (clears `_dirty`).
 var _apply_btn: Button
+## Header chip: export the pack as a .zip.
 var _export_btn: Button
+## Rail-footer chip: Import image….
 var _import_btn: Button
+## Footer chip: Validate the pack.
 var _validate_btn: Button
+## Footer chip: Clear library… (destructive; confirmation is in `_on_clear_library()`).
 var _clear_btn: Button
 var _batch_buttons: Dictionary = {}   ## "tag"/"collect"/"rename"/"duplicate"/"delete" -> Button
+## Pack-metadata `name` field. Rewritten by `_refresh_pack_status()` only when it does
+## not have focus, so typing is never clobbered.
 var _pack_name_field: LineEdit
+## Pack-metadata `author` field (same focus rule as `_pack_name_field`).
 var _pack_author_field: LineEdit
+## Pack-metadata `license` field (same focus rule as `_pack_name_field`).
 var _pack_license_field: LineEdit
 
 ## The inspector is built once and refreshed in place -- rebuilding it on every
 ## selection is what used to clobber the pack-metadata fields mid-typing.
 var _insp_head: Label
+## Inspector placeholder ("Select a slot to inspect it."), shown when `_focused_uid` is
+## empty.
 var _insp_empty: Label
+## Inspector body, hidden while `_insp_empty` shows.
 var _insp_detail: VBoxContainer
+## Large preview cell of the focused slot's current variant.
 var _insp_preview: SlotCell
+## Mono label with the focused item's file name (clipped).
 var _insp_file: Label
+## Slot-transform scale slider, in percent (the readout divides by 100 to the engine's
+## scale).
 var _insp_scale: HSlider
+## Text readout of `_insp_scale` as a percentage; `—` when nothing is focused.
 var _insp_scale_readout: Label
+## Slot-transform pan X spin box.
 var _insp_pan_x: SpinBox
+## Slot-transform pan Y spin box.
 var _insp_pan_y: SpinBox
+## Inspector `Fit` chip: reset the transform, then re-fit to the slot's anchor.
 var _insp_fit_btn: Button
+## Inspector `Reset` chip: scale 1.00x, pan (0, 0).
 var _insp_reset_btn: Button
 var _insp_syncing := false   ## true while _refresh_inspector writes the controls above
+## Inspector `Replace…` chip; disabled when the slot has no item to replace.
 var _insp_replace_btn: Button
+## Inspector `Variant` chip: import another image into the slot (AS-14).
 var _insp_variant_btn: Button
 var _insp_swatches: Array = []        ## SlotCell, parallel to PREVIEW_SWATCHES
+## Anchor-choice chips keyed by anchor key; `_refresh_inspector` sets the one matching
+## the slot's anchor.
 var _insp_anchor_chips: Dictionary = {}
+## Flow container holding the focused slot's tag chips.
 var _insp_tags: HFlowContainer
+## The `VARIANTS` header; its tooltip explains that the strip chooses the preview, not
+## render-time weights (AS-14).
 var _insp_variants_head: Label
+## Strip of variant thumbnails; clicking one sets `_preview_index`.
 var _insp_variants: HBoxContainer
+## Wrapped explanatory note at the foot of the inspector.
 var _insp_note: Label
 
+## Status-line readout: `library edited — apply to map to use it` while `_dirty`, else
+## `in sync with the map`.
 var _status_state: Label
+## Status-line readout of the active pack: name, filled/total slots, item count.
 var _status_pack: Label
 
+## The Sprite sheet slicer dialog (a child `Window` of this one); built by
+## `_build_slicer_modal()` from `setup()`.
 var _slicer: AcceptDialog
+## The sheet image the slicer is working on; null until a sheet is chosen and again after
+## it is cleared.
 var _sheet_image: Image
 var _sheet_loaded := false          ## the engine holds a decoded sheet (`as_load_sheet`)
+## The `SheetPreview` control that draws the sheet and the draggable grid lines.
 var _sheet_preview: SheetPreview
+## Mono label with the chosen sheet's name and size ("no sheet chosen" initially).
 var _sheet_readout: Label
+## Button resetting the preview's pan/zoom.
 var _slicer_reset_view_btn: Button
+## Slicer Columns spin box (1..128 per its builder); changing it clears the custom column
+## lines.
 var _slicer_cols: SpinBox
+## Slicer Rows spin box; changing it clears the custom row lines.
 var _slicer_rows: SpinBox
+## Slicer Margin spin box (pixels, 0..512 per its builder).
 var _slicer_margin: SpinBox
+## Slicer Spacing spin box (pixels, 0..256 per its builder).
 var _slicer_spacing: SpinBox
+## Wrapped readout of how many cells will be added, recomputed by
+## `_refresh_slicer_summary()`.
 var _slicer_summary: Label
+## The Slice action button.
 var _slice_btn: Button
+## Check button for `Trim transparent edges`; state mirrored in `_slice_trim`.
 var _slicer_trim: Button
+## Check button for `Skip empty cells`; state mirrored in `_slice_skip_empty`.
 var _slicer_skip: Button
+## Check button for `Background → transparent`; state mirrored in `_slice_chroma`.
 var _slicer_chroma: Button
+## Colour picker for the key colour of the chroma step (alpha editing off).
 var _slicer_chroma_color: ColorPickerButton
+## Chroma tolerance spin box (0..150 per its builder; the unit is the engine's colour
+## distance, source not restated here).
 var _slicer_chroma_tol: SpinBox
+## Where the slices go (an entry of `SLICE_TARGETS`); index mirrored in
+## `_slice_target_index`.
 var _slicer_target: OptionButton
+## Family choice for slices that need one; index mirrored in `_slice_family_index`.
 var _slicer_family: OptionButton
+## The two fill-mode segments, keyed `first` (first empty slot) and `over` (overwrite);
+## see `_set_fill()`.
 var _slicer_fill_chips: Dictionary = {}
+## Slicer name field for the items created.
 var _slicer_name: LineEdit
+## Slicer set-name field (default text `Default`).
 var _slicer_set: LineEdit
 ## AS-17: `cartalith_assets::SliceGrid::col_lines`/`row_lines` overrides, in
 ## the engine's own fraction units -- empty means "uniform, no override" (the
 ## reference's own always-uniform grid), matching `as_slicer_move_line`'s and
 ## `_slice_opts()`'s own empty-means-None convention.
 var _slicer_col_lines: PackedFloat64Array = PackedFloat64Array()
+## Custom row-line positions, same convention as `_slicer_col_lines`.
 var _slicer_row_lines: PackedFloat64Array = PackedFloat64Array()
 
+## Option state behind `_slicer_trim`, sent as `trim` in the slice options.
 var _slice_trim := false
+## Option state behind `_slicer_skip` (default true), sent as `skip_empty`.
 var _slice_skip_empty := true
+## Option state behind `_slicer_chroma`, sent as `chroma`.
 var _slice_chroma := false
+## Index into `SLICE_TARGETS` of the chosen target.
 var _slice_target_index := 0
+## Index into `FAMILIES` of the chosen slicer family.
 var _slice_family_index := 0
+## Fill mode behind `_slicer_fill_chips`: true = overwrite, false = fill first empty;
+## sent as `overwrite`.
 var _slice_overwrite := false
 
 # ---------------------------------------------------------------------------
@@ -912,11 +1017,18 @@ var _slice_overwrite := false
 # search row over an `HFlowContainer` of chips, which wraps instead.
 var _phone := false
 var _phone_pane := ""                  ## "families" | "slots" | "slot"
+## Segmented-switcher buttons keyed by pane (`families` / `slots` / `slot`); phone only.
 var _phone_pane_buttons: Dictionary = {}
+## Phone pane holding the families rail.
 var _phone_rail: Control
+## Phone pane holding the slot grid.
 var _phone_grid: Control
+## Phone pane holding the inspector.
 var _phone_inspector: Control
+## The phone window's title label; its trail text names the current pane.
 var _phone_title: Label
+## True when the slicer dialog got the phone treatment (`DccWidgets.phone_window`),
+## switching its body to a vertical layout.
 var _slicer_phone := false
 
 # ---------------------------------------------------------------------------

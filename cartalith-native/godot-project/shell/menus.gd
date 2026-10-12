@@ -13,18 +13,18 @@ class_name DccMenus
 ## It is never added enabled and silently inert, and never omitted -- the menu
 ## is also the map of what the port still owes.
 
-const ID_NEW_WORLD := 10
-const ID_OPEN_PROJECT := 11
-const ID_SAVE := 12
-const ID_SAVE_AS := 13
+const ID_NEW_WORLD := 10  ## File ▸ New world… (Ctrl+N).
+const ID_OPEN_PROJECT := 11  ## File ▸ Open project… (Ctrl+O).
+const ID_SAVE := 12  ## File ▸ Save project (Ctrl+S).
+const ID_SAVE_AS := 13  ## File ▸ Save as… (Ctrl+Shift+S).
 ## `14` was the one free id in §2.1's block; Autosave is a checkbox item, not
 ## an action, so it toggles `DccSettings.autosave_enabled()` and re-arms the
 ## shell's clock rather than doing anything itself.
 const ID_AUTOSAVE := 14
-const ID_REVERT := 15
-const ID_CLOSE := 16
-const ID_STORAGE := 17
-const ID_SHOW_ON_DISK := 19
+const ID_REVERT := 15  ## File ▸ Revert to last save.
+const ID_CLOSE := 16  ## File ▸ Close project (Ctrl+W).
+const ID_STORAGE := 17  ## File ▸ Change locations… (storage-locations dialog); Preferences' entry is `ID_PREF_STORAGE`.
+const ID_SHOW_ON_DISK := 19  ## File ▸ Show project on disk.
 ## `File ▸ New world from selection…` -- `ops_bridge.rs::region_new_world`, the
 ## reference's `#regionNewWorldBtn`. **`18` by the same whole-file grep of
 ## `^const ID_[A-Z_0-9]* := [0-9]+` its neighbours record making**: §2.1's block
@@ -59,15 +59,18 @@ const ID_NEW_WORLD_FROM_SELECTION := 18
 ## from both File and Preferences. The three minute values are §2.1's own.
 const ID_AUTOSAVE_OFF := 130
 const ID_AUTOSAVE_FIRST := 131      ## interval i is ID_AUTOSAVE_FIRST + i
+## Autosave interval choices in minutes; rung i of `File ▸ Autosave interval` is
+## `ID_AUTOSAVE_FIRST + i`. The values 1/5/15 are `DCC_SHELL_SPEC.md` §2.1's own (its
+## "off, 1, 5, 15 min").
 const AUTOSAVE_MINUTES: Array[int] = [1, 5, 15]
 
-const ID_UNDO := 20
-const ID_REDO := 21
+const ID_UNDO := 20  ## Edit ▸ Undo (Ctrl+Z).
+const ID_REDO := 21  ## Edit ▸ Redo (Ctrl+Shift+Z).
 ## `GUI_GAP_REGISTER.md` **ED-02**. Its own id and not `ID_UNDO`'s: the panel
 ## and the action are different things, and routing both through one id is the
 ## shape this shell keeps having to undo.
 const ID_DELETE := 77
-const ID_DESELECT := 82
+const ID_DESELECT := 82  ## Edit ▸ Deselect (Ctrl+D).
 ## The four `Edit` clipboard commands (§2.2), step three of the owner's
 ## `LARGE_ITEM_RULINGS.md` ruling. `84`-`87` by the same whole-file grep of
 ## `^const ID_[A-Z_]+ := [0-9]+` its neighbours record making: `78`-`83` were
@@ -77,11 +80,11 @@ const ID_DESELECT := 82
 ## and its 2026-09-21 restoration (Ruling U, see its own note below) -- it was
 ## left unallocated rather than recycled for exactly that reason.
 const ID_CUT := 84
-const ID_COPY := 85
-const ID_PASTE := 86
-const ID_SELECT_ALL := 87
-const ID_UNDO_HISTORY := 121
-const ID_PREF_UNDO_CLEAR := 22
+const ID_COPY := 85  ## Edit ▸ Copy (Ctrl+C); handler `_copy_selection()`.
+const ID_PASTE := 86  ## Edit ▸ Paste (Ctrl+V); handler `_paste_clipboard()`.
+const ID_SELECT_ALL := 87  ## Edit ▸ Select all (Ctrl+A); handler `_select_all()`, scoped to the active domain.
+const ID_UNDO_HISTORY := 121  ## Edit ▸ Undo history… (`open_undo_history()` on the host).
+const ID_PREF_UNDO_CLEAR := 22  ## Preferences ▸ Memory ▸ Undo history ▸ Clear undo history now.
 ## `Edit ▸ Find on map…`. Was a `_todo` row (no id, since `_todo` never
 ## assigns one) claiming "the entity index and its pan-to-hit are both still
 ## owed" -- `PlaceSearch` (shell/place_search.gd) is that index, built now.
@@ -92,17 +95,17 @@ const ID_FIND_ON_MAP := 23
 ## `undo::DEFAULT_BUDGET_BYTES`; the engine floors any budget at 4 MB.
 const UNDO_BUDGETS_MB: Array[int] = [64, 128, 256, 512, 1024]
 
-const ID_ASSET_LIBRARY := 30
-const ID_SLICER := 31
-const ID_IMPORT_IMAGE := 32
-const ID_IMPORT_PACK := 33
-const ID_APPLY_LIBRARY := 36
-const ID_CLEAR_LIBRARY := 37
-const ID_AP_VALIDATE := 38
-const ID_AP_EXPORT := 39
-const ID_AP_PACK_META := 49
+const ID_ASSET_LIBRARY := 30  ## Assets ▸ Asset library (Shift+A).
+const ID_SLICER := 31  ## Assets ▸ Sprite sheet slicer; opens the library window in slicer mode.
+const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….
+const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip….
+const ID_APPLY_LIBRARY := 36  ## Assets ▸ Apply library to map.
+const ID_CLEAR_LIBRARY := 37  ## Assets ▸ Clear library… (destructive; its confirmation is not this row's).
+const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
+const ID_AP_EXPORT := 39  ## Assets ▸ Asset pack ▸ Export pack .zip… (Ctrl+Shift+P).
+const ID_AP_PACK_META := 49  ## Assets ▸ Asset pack ▸ Pack metadata….
 
-const ID_DATA_MANAGER := 40
+const ID_DATA_MANAGER := 40  ## Data ▸ Data manager.
 ## 41 held `Journey planner… ⇧J` until 2026-09-05, when the owner's structural-
 ## move ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4) sent the planner to
 ## the CIVIL rail node `planner` -- `03-menu-bar.md` §6.4 draws the Data menu as
@@ -117,8 +120,8 @@ const ID_DATA_MANAGER := 40
 ## than left dangling: an unused id in a menu file is how a row ends up wired
 ## to the wrong thing later. 41 is left out for the same reason.
 const ID_TRAVEL_LIBRARY := 48
-const ID_VAULT := 45
-const ID_WORLD_DATA := 47
+const ID_VAULT := 45  ## Data ▸ Markdown vault… (overview, no entity scope).
+const ID_WORLD_DATA := 47  ## Data ▸ World data tables….
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -130,17 +133,19 @@ const ID_VAULT_BROWSE := 716
 ## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
 ## and each one is its own destination rather than a group's first.
 const ID_DATA_ROUTE_FIRST := 400
+## Data-manager route ids in dropdown order, index-parallel to the `ID_DATA_ROUTE_FIRST +
+## i` rows; refilled by `_data()`.
 var _data_route_ids: Array[String] = []
 
-const ID_PREF_GPU := 50
-const ID_PREF_THEME_DARK := 51
-const ID_PREF_THEME_LIGHT := 52
-const ID_PREF_QUALITY := 53
-const ID_PREF_UNITS_KM := 54
-const ID_PREF_UNITS_MI := 55
-const ID_PREF_STORAGE := 56
-const ID_PREF_THEME_SYSTEM := 58
-const ID_PREF_CLEAR_CACHES := 59
+const ID_PREF_GPU := 50  ## Preferences ▸ GPU acceleration (check item).
+const ID_PREF_THEME_DARK := 51  ## Preferences ▸ Theme ▸ Dark.
+const ID_PREF_THEME_LIGHT := 52  ## Preferences ▸ Theme ▸ Light.
+const ID_PREF_QUALITY := 53  ## Id 53, reserved for a render-quality row; nothing in this file uses it (the Render quality submenu is addressed by tier index) -- intent unverified, left defined so 53 is not reissued.
+const ID_PREF_UNITS_KM := 54  ## Preferences ▸ Units ▸ kilometres.
+const ID_PREF_UNITS_MI := 55  ## Preferences ▸ Units ▸ miles.
+const ID_PREF_STORAGE := 56  ## Preferences ▸ Storage locations… (same dialog as `ID_STORAGE`).
+const ID_PREF_THEME_SYSTEM := 58  ## Preferences ▸ Theme ▸ Follow system.
+const ID_PREF_CLEAR_CACHES := 59  ## Preferences ▸ Clear caches….
 ## CM-4 residual (`OUTSTANDING_WORK.md`, `MAP_CONTEXT_SCOPE.md` §7.1):
 ## `DccSettings.dominant_hand()` was stored with no Preferences row to set it.
 ## 717/718 are free -- the highest ID this file used was 716
@@ -148,45 +153,47 @@ const ID_PREF_CLEAR_CACHES := 59
 ## (`ID_TABLET_TOGGLE_THEME`'s own note above), already spoken for by a live
 ## row rather than sitting open.
 const ID_PREF_HAND_LEFT := 717
-const ID_PREF_HAND_RIGHT := 718
+const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
 ## free everywhere, not just in its own popup: `78` was once issued twice).
 const ID_FACTIONS := 719
 
-const ID_WIN_LEFT := 60
-const ID_WIN_RIGHT := 61
-const ID_WIN_TIMELINE := 62
-const ID_WIN_STATUS := 63
-const ID_WIN_RAIL := 64
-const ID_WIN_RESET := 65
-const ID_WIN_DIAG_OVERLAY := 66
+const ID_WIN_LEFT := 60  ## Window region toggle: Left dock.
+const ID_WIN_RIGHT := 61  ## Window region toggle: Right dock.
+const ID_WIN_TIMELINE := 62  ## Window region toggle: Timeline.
+const ID_WIN_STATUS := 63  ## Window region toggle: Status bar.
+const ID_WIN_RAIL := 64  ## Window region toggle: Domain rail.
+const ID_WIN_RESET := 65  ## Window ▸ Reset layout.
+const ID_WIN_DIAG_OVERLAY := 66  ## Window ▸ Diagnostics overlay (Shift+D, check item).
 
 ## `Preferences ▸ Tiles & LOD ▸ Tile size` -- §2.5's "256/512/1024".
 const ID_LOD_TILE_FIRST := 140      ## size i is ID_LOD_TILE_FIRST + i
+## Tile edge lengths in pixels for `Tile size`; rung i is `ID_LOD_TILE_FIRST + i`.
+## Source: `DCC_SHELL_SPEC.md` §2.5, "256/512/1024".
 const ATLAS_TILE_SIZES: Array[int] = [256, 512, 1024]
 ## `Preferences ▸ Tiles & LOD ▸ Tile size · LOD levels ▸ LOD levels` --
 ## §2.5's "levels 0-8". Depth d is ID_LOD_LEVEL_FIRST + d.
 const ID_LOD_LEVEL_FIRST := 150   ## depths 0..8 occupy 150-158
-const ID_LOD_MODE_AUTO := 160
-const ID_LOD_MODE_MANUAL := 161
-const ID_LOD_ENTER_NOW := 162
-const ID_LOD_LEAVE_NOW := 163
+const ID_LOD_MODE_AUTO := 160  ## Tiled LOD ▸ Auto on zoom (radio).
+const ID_LOD_MODE_MANUAL := 161  ## Tiled LOD ▸ Manual (radio).
+const ID_LOD_ENTER_NOW := 162  ## Tiled LOD ▸ Enter deep detail now.
+const ID_LOD_LEAVE_NOW := 163  ## Tiled LOD ▸ Leave deep detail.
 ## `Preferences ▸ Graphics ▸ Lighting rig defaults`. Four ladders, spaced 20
 ## apiece so a longer rung list cannot collide with the next ladder.
 const ID_LIGHT_AZ_FIRST := 170
-const ID_LIGHT_ALT_FIRST := 190
-const ID_LIGHT_AMB_FIRST := 210
-const ID_LIGHT_NUM_FIRST := 230
-const ID_LIGHT_RESET := 250
-const ID_LOD_CLEAR_ATLAS := 149
+const ID_LIGHT_ALT_FIRST := 190  ## First id of the sun-altitude ladder; rung i is this + i (`LIGHT_ALT_STEPS`).
+const ID_LIGHT_AMB_FIRST := 210  ## First id of the ambient-relief ladder (`LIGHT_AMB_STEPS`).
+const ID_LIGHT_NUM_FIRST := 230  ## First id of the relief-light-count ladder (`LIGHT_NUM_STEPS`).
+const ID_LIGHT_RESET := 250  ## Lighting rig defaults ▸ Use the engine's own rig.
+const ID_LOD_CLEAR_ATLAS := 149  ## Atlas cache ▸ Clear atlas cache now….
 
-const ID_HELP_DOCS := 78
-const ID_HELP_CREDITS := 70
-const ID_HELP_ABOUT := 71
-const ID_HELP_SHORTCUTS := 72
-const ID_HELP_GEN_INFO := 73
+const ID_HELP_DOCS := 78  ## Help ▸ Documentation (opens `_docs_dir()` in the OS shell).
+const ID_HELP_CREDITS := 70  ## Help ▸ Credits & academic principles.
+const ID_HELP_ABOUT := 71  ## Help ▸ About.
+const ID_HELP_SHORTCUTS := 72  ## Help ▸ Keyboard shortcuts… (read-only list).
+const ID_HELP_GEN_INFO := 73  ## Help ▸ Generation info….
 ## `LARGE_ITEM_RULINGS.md`'s ruling on `Report an issue` -- see `_help()`
 ## below. Not slotted into 70-83 with its Help siblings: that neighbourhood is
 ## already fully booked (`74-76` are the LOD-debug trio, `77`/`80-83` belong to
@@ -201,8 +208,8 @@ const ID_HELP_REPORT := 700
 ## `lodDbgSeg` trio (line 1266). Named `ID_HELP_*` while the submenu lived
 ## under Help; renamed with it when §2.5's own placement was restored.
 const ID_LOD_DBG_GRID := 74
-const ID_LOD_DBG_COLORS := 75
-const ID_LOD_DBG_LABELS := 76
+const ID_LOD_DBG_COLORS := 75  ## Chunk debug overlay ▸ Colors (check item).
+const ID_LOD_DBG_LABELS := 76  ## Chunk debug overlay ▸ Labels (check item).
 ## 80/81, not 78/79: `ID_HELP_DOCS` already holds 78. Godot dispatches
 ## `id_pressed` per PopupMenu, so two popups sharing an id do not cross-fire --
 ## but `get_item_index(id)` does not know that, and a probe or a later reader
@@ -218,8 +225,8 @@ const ID_LOD_TILE_BORDERS := 80
 ## presser is this submenu's own `id_pressed` handler now, not
 ## `app.gd::_tool_options_generate()`.
 const ID_LOD_REFINE_VIEW := 81
-const ID_LOD_EXPORT_ATLAS := 82
-const ID_LOD_IMPORT_ATLAS := 83
+const ID_LOD_EXPORT_ATLAS := 82  ## Atlas cache ▸ Export atlas….
+const ID_LOD_IMPORT_ATLAS := 83  ## Atlas cache ▸ Import atlas….
 ## `Atlas cache ▸ Refine viewshed for the current view` (Ruling AT,
 ## 2026-09-24): the manual "recompute and refine" visibility pass over the
 ## current view only, saved with the project. `88` by a whole-file grep of
@@ -233,8 +240,8 @@ const ID_LOD_REFINE_VIEWSHED := 88
 ## `ID_DATA_ROUTE_FIRST` (400, an open-ended run), so 500 leaves both alone
 ## with room to grow.
 const ID_LM_ICONS := 500
-const ID_LM_LABELS := 501
-const ID_LM_HAND := 502
+const ID_LM_LABELS := 501  ## Landmark types ▸ Landmark label style….
+const ID_LM_HAND := 502  ## Landmark types ▸ Placed by hand.
 const ID_LM_FAMILY_FIRST := 510   ## family i's "open in the dock" row is +i
 
 ## The 2026-08-31 `UNWIRED_FUNCTIONS.md` batch. A fresh 600 block, allocated
@@ -246,9 +253,9 @@ const ID_LM_FAMILY_FIRST := 510   ## family i's "open in the dock" row is +i
 ## note on that says why a number must be free everywhere, not just in its own
 ## popup.
 const ID_EDIT_RESET_PARAMS := 600
-const ID_PREF_GPU_RETRY := 601
-const ID_WIN_SAVE_LAYOUT := 602
-const ID_WIN_FORGET_LAYOUT := 603
+const ID_PREF_GPU_RETRY := 601  ## Preferences ▸ Try the GPU again.
+const ID_WIN_SAVE_LAYOUT := 602  ## Window ▸ Layouts ▸ Save layout as….
+const ID_WIN_FORGET_LAYOUT := 603  ## Window ▸ Layouts ▸ Forget layout….
 ## PR-15's third unit. `ID_PREF_UNITS_KM`/`_MI` (54/55, above) were reserved
 ## before either was ever wired to anything; 604 is free -- grepped the whole
 ## file for every `ID_`/`_FIRST` value before picking it, the same check this
@@ -259,7 +266,7 @@ const ID_PREF_UNITS_NMI := 604
 const ID_PREF_SHORTCUTS := 605
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
-const ID_GFX_EXAG_ENGINE := 623
+const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
 const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
 const ID_WIN_LAYOUT_FIRST := 640
@@ -268,9 +275,9 @@ const ID_WIN_LAYOUT_FIRST := 640
 ## clear of every block above (highest is `ID_HELP_REPORT := 700`, and
 ## `ID_WIN_LAYOUT_FIRST`'s own span is nowhere near it either).
 const ID_WORLD_RUN_PIPELINE := 710
-const ID_WORLD_MODE_PIPELINE := 711
-const ID_WORLD_MODE_SCULPT := 712
-const ID_WORLD_SEED_SIZE := 713
+const ID_WORLD_MODE_PIPELINE := 711  ## Tablet World menu ▸ Generation pipeline (radio).
+const ID_WORLD_MODE_SCULPT := 712  ## Tablet World menu ▸ Sculpt (radio).
+const ID_WORLD_SEED_SIZE := 713  ## Tablet World menu ▸ Seed & size….
 
 ## 714 tried and freed 2026-09-13 (`ID_TABLET_TOGGLE_THEME`, a flat ☰ "Toggle
 ## theme" row matching `Cartalith Tablet.dc.html`'s VIEW section) -- reverted
@@ -309,7 +316,10 @@ const META_READOUT := "readout"
 ## dependence on prose that moves.
 const META_SIGNPOST := "signpost"
 
+## The `DccShell` that owns these menus (popup styling, shell actions). Set by `build()`;
+## never use before it.
 var _shell: DccShell
+## The engine bridge the engine-backed rows read and call. Set by `build()`.
 var _bridge: EngineBridge
 var _host: Node                 ## Where dialogs are parented and callbacks live.
 ## Edit ▸ Undo/Redo row refreshers: one closure per built Edit popup (the PC, tablet
@@ -319,15 +329,21 @@ var _undo_row_refreshers: Array[Callable] = []
 ## True once the look-history and engine signals below are connected, so a second
 ## Edit-menu build does not double-connect them.
 var _undo_rows_wired := false
+## `Render quality` tiers submenu (radio rows addressed by tier index).
 var _quality_popup: PopupMenu
+## `File ▸ Recent worlds` submenu.
 var _recent_popup: PopupMenu
+## `File ▸ Autosave interval` submenu (Off plus `AUTOSAVE_MINUTES`).
 var _autosave_popup: PopupMenu
+## `Assets ▸ Icon families` submenu; row i is `_icon_family_keys[i]`.
 var _icon_families_popup: PopupMenu
+## `Assets ▸ Texture sets` submenu; row i is `_texture_family_keys[i]`.
 var _texture_sets_popup: PopupMenu
 ## Family keys, index-parallel to the two submenus above. Members rather than
 ## locals because §2.3's "filled/capacity counts" have to be re-read on every
 ## popup -- an import changes them, and the submenus are built once.
 var _icon_family_keys: Array[String] = []
+## Texture family keys, index-parallel to `_texture_sets_popup`.
 var _texture_family_keys: Array[String] = []
 ## `Assets ▸ Landmark types ▸` and its per-family children. `_landmark_families`
 ## is index-parallel to `ID_LM_FAMILY_FIRST` and carries everything the live
@@ -335,8 +351,13 @@ var _texture_family_keys: Array[String] = []
 ## menu order, and the index of the family's own row on the parent popup (a
 ## submenu item has no id, so `get_item_index()` cannot find it and the index is
 ## recorded when it is added).
+## `Assets ▸ Landmark types` cascade (ids `ID_LM_*`).
 var _landmark_popup: PopupMenu
+## One record per landmark family, index-parallel to `ID_LM_FAMILY_FIRST`; see the block
+## comment above.
 var _landmark_families: Array = []
+## Row index of `Placed by hand` on `_landmark_popup` for the live refresh; `-1` until
+## built.
 var _landmark_hand_idx: int = -1
 
 ## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
@@ -360,9 +381,14 @@ var _ap_read_idx: Array[int] = []
 ## `Rescan devices…` is the explicit refresh, and is the honest place to put
 ## the cost.
 var _gpu_devices_popup: PopupMenu
+## `Multi-GPU mode` submenu.
 var _gpu_mode_popup: PopupMenu
+## `VRAM budget` submenu (`GPU_VRAM_CHOICES`).
 var _gpu_vram_popup: PopupMenu
+## `Fallback when VRAM full` submenu.
 var _gpu_fallback_popup: PopupMenu
+## Cached `gpu_devices()` result; refreshed by the first open and `Rescan devices…` only
+## (see the block comment above).
 var _gpu_devices: Array = []
 ## Whether `gpu_devices()` has run this session. See `_on_gpu_devices_about_to_popup`.
 var _gpu_enumerated := false
@@ -370,8 +396,13 @@ var _gpu_enumerated := false
 ## (`engine_bridge.gd`'s `gpu_settings_locked`), with the tooltips to put back
 ## afterwards. A submenu row carries no id, so it is tracked by index.
 var _gpu_pref_rows: Array[int] = []
+## Tooltips to restore on each tracked GPU row once a generation ends, index-parallel to
+## `_gpu_pref_rows`.
 var _gpu_pref_tips: Array[String] = []
+## Id of the `Automatic` row in the Devices submenu; device rows start at
+## `GPU_DEV_FIRST`.
 const GPU_DEV_AUTO := 0
+## Id of the `Rescan devices…` row in the Devices submenu.
 const GPU_DEV_RESCAN := 1
 const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
 ## §2.5's "VRAM budget · GB". A fixed ladder rather than a spinner: the value
@@ -417,18 +448,28 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 ## §2.5 Tiles & LOD. `_atlas_popup`'s first row is a live status readout, so
 ## its index is kept the way `_ap_read_idx` keeps the Asset pack ones.
 var _tile_size_popup: PopupMenu
+## `LOD levels` submenu (depths 0-8, ids from `ID_LOD_LEVEL_FIRST`).
 var _lod_levels_popup: PopupMenu
+## `Tiled LOD` submenu.
 var _tiled_lod_popup: PopupMenu
+## `Lighting rig defaults` parent popup; its four ladders are the `_light_*_popup`s
+## below.
 var _lighting_popup: PopupMenu
+## Sun-azimuth ladder (`LIGHT_AZ_STEPS`).
 var _light_az_popup: PopupMenu
+## Sun-altitude ladder (`LIGHT_ALT_STEPS`).
 var _light_alt_popup: PopupMenu
+## Ambient-relief ladder (`LIGHT_AMB_STEPS`).
 var _light_amb_popup: PopupMenu
+## Relief-light-count ladder (`LIGHT_NUM_STEPS`).
 var _light_num_popup: PopupMenu
 ## The rig submenu's own provenance readout -- which of the four keys the user
 ## has stored and which are following the engine. Tracked by index because,
 ## like the atlas stats row, it carries no id.
 var _light_source_idx: int = -1
+## `Atlas cache` submenu.
 var _atlas_popup: PopupMenu
+## Row index of the atlas cache's status readout; `-1` until built.
 var _atlas_stats_idx: int = -1
 ## The disabled status row under `Refine viewshed for the current view`
 ## (Ruling AT): fresh / stale / never refined. `-1` until the submenu is built.
@@ -441,6 +482,7 @@ var _working_set_row := -1
 ## so `about_to_popup` can put the engine's recommendation on its tooltip --
 ## see `_refresh_quality_row()` for why that sentence had to land somewhere.
 var _quality_pref_row := -1
+## `Undo history` budget submenu (`UNDO_BUDGETS_MB` plus a Clear row).
 var _undo_budget_popup: PopupMenu
 var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own row; a
 	## submenu row carries no id, so its index is the only handle there is --
@@ -452,17 +494,25 @@ var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own ro
 ## `_window_popup` is held because the five region flags a layout captures live
 ## as that popup's own check state and nothing else publishes them.
 var _reset_stage_popup: PopupMenu
+## `Relief exaggeration` submenu.
 var _exag_popup: PopupMenu
+## `Size cap · GB` submenu of the atlas cache.
 var _atlas_cap_popup: PopupMenu
+## `Window ▸ Layouts` submenu; rebuilt on every popup because saving adds rows.
 var _layouts_popup: PopupMenu
+## Saved layout names, index-parallel to the saved rows of `_layouts_popup`.
 var _layout_names: Array[String] = []
+## The Window menu popup; held because its check state is the only publisher of the
+## region flags a layout captures.
 var _window_popup: PopupMenu
 ## `Preferences ▸ Performance ▸ Try the GPU again`. Enabled only while a
 ## readback failure is on record, so its index is tracked the way
 ## `_working_set_row` is -- it carries an id, but the refresh needs the row
 ## whether or not `get_item_index` is cheap on a menu opened by hover.
 var _gpu_retry_row := -1
+## `Window ▸ Workspace` submenu: one radio row per `DccShell.DOMAINS` entry.
 var _workspace_popup: PopupMenu
+## `Window ▸ Open windows` submenu; items are index-parallel to `_open_windows`.
 var _windows_popup: PopupMenu
 var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
 
@@ -627,9 +677,14 @@ func shortcut_default(id: int) -> int:
 ## `ops_bridge.rs::region_new_world` / `WorldGen::region_new_world` --
 ## the reference's "Extract as new world".
 const REGION_NEW_WORLD_TIP := "Replaces the live world with a higher-resolution resample of the Region-select marquee. The selection's real width in km is preserved, so a smaller region reads as a closer look rather than a rescaled copy, and fresh tectonics are inferred under it. Asks first: everything positioned in the old grid is discarded."
+## Disabled-row reason for `New world from selection…` when the loaded cdylib lacks
+## `region_new_world`.
 const REGION_NEW_WORLD_NO_API := "This version of the app can't do that yet -- an update is needed to add it."
+## Disabled-row reason when no world is open.
 const REGION_NEW_WORLD_NO_WORLD := "No world yet. Generate or open one, then select a region of it."
+## Disabled-row reason when no marquee region is selected.
 const REGION_NEW_WORLD_NO_REGION := "No region is selected. Arm the Region select tool (R) and drag a marquee on the map -- this resamples that marquee and nothing else."
+## Disabled-row reason while a generation owns the engine object.
 const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belongs to the worker thread until it finishes."
 
 ## Builds the File menu: New world / Open project / Recent worlds (a submenu rebuilt
@@ -1334,6 +1389,8 @@ func _edit(p: PopupMenu, full: bool = true) -> void:
 
 ## `WorldGen.reset_params`.
 const RESET_ALL_TIP := "Puts every generation parameter back to the app's own default. It does not regenerate: the settings are read once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
+## Tooltip for the reset rows while a generation runs: the engine object belongs to the
+## worker thread, so `reset_params` must not be called.
 const RESET_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and a reset landing mid-run could not have affected the world being built anyway."
 
 ## `Edit ▸ Reset one stage` -- the `keys` half of `reset_params(keys)`.
@@ -1929,11 +1986,17 @@ func _refresh_clipboard_rows(p: PopupMenu, cut_idx: int, copy_idx: int, paste_id
 ## and reading a selection out of it mid-run is unsafe (`engine_bridge.gd`
 ## calls it a bind-already-bound panic).
 const CLIP_BUSY_TIP := "A generation is running, so selection can't be read right now."
+## Tooltip of `Edit ▸ Cut`.
 const CUT_TIP := "Copies the selected icons and labels onto the clipboard and deletes them. The clipboard is in-process: it lasts for this session and does not cross to another window."
+## Tooltip of `Edit ▸ Copy`.
 const COPY_TIP := "Copies the selected icons and labels onto the clipboard. The clipboard is in-process: it lasts for this session and does not cross to another window."
+## Tooltip of `Edit ▸ Paste` when the clipboard holds something.
 const PASTE_TIP := "Adds the clipboard's entities back, offset a few cells from where they were copied, and selects what it added."
+## Tooltip of `Edit ▸ Paste` while the clipboard is empty.
 const PASTE_EMPTY_TIP := "Nothing on the clipboard. Copy or Cut an icon or a label first; the clipboard is in-process and starts empty every time the app opens."
+## Tooltip of `Edit ▸ Select all` in the cartography domain.
 const SELECT_ALL_CARTO_TIP := "Selects every placed icon and every hand-placed label. Scoped to the active domain (§2.2) -- in WORLD it takes the Sculpt draft's stamps instead."
+## Tooltip of `Edit ▸ Select all` in the world (Sculpt) domain.
 const SELECT_ALL_WORLD_TIP := "Selects every stamp in the open Sculpt draft. Scoped to the active domain (§2.2) -- in CARTO it takes the icons and labels instead."
 
 # -- §2.3 Assets --------------------------------------------------------------
@@ -2117,6 +2180,8 @@ func _family_by_key(key: String) -> Dictionary:
 # reinvented, including its "count on every popup rather than at build time,
 # because a change between two opens changes it".
 
+## Read-only note at the top of the Landmark types cascade; points at CIVIL ▸ Landmarks,
+## where the arming slider lives.
 const LANDMARK_TYPES_NOTE := ("Every landmark family with its armed and placed "
 	+ "counts, and every type's cap, result and limiting reason. Read-only: the "
 	+ "slider that arms a type lives in CIVIL ▸ Landmarks and only there. "
@@ -3517,7 +3582,9 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	_live(p, "Keyboard shortcuts…", ID_PREF_SHORTCUTS)
 	p.id_pressed.connect(_on_preferences.bind(p))
 
+## Tooltip of `Try the GPU again` while no readback failure is on record (row disabled).
 const GPU_RETRY_NONE_TIP := "Nothing to clear: no GPU readback has failed this session, so nothing is banned. When one does fail, that grid size and every larger one are refused on that adapter until the app restarts -- and this row is what lifts it, after a driver update or on a smaller world."
+## Tooltip of `Try the GPU again` while a failure is on record (row enabled).
 const GPU_RETRY_READY_TIP := "A GPU readback failed this session, so that grid size and every larger one are being refused on that adapter and the work is falling back to the CPU. Clearing the record lets the next generate try the GPU again."
 
 ## `Preferences ▸ Performance ▸ Try the GPU again`.
@@ -4168,8 +4235,14 @@ static func _gb(bytes: int) -> String:
 ## bearings for azimuth, the reference's own band for elevation. The per-world
 ## controls in CARTO stay continuous -- this sets where they START.
 const LIGHT_AZ_STEPS: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+## Sun-altitude rungs in degrees. The band is described above as the reference's own; the
+## individual rung values are a labelled judgement.
 const LIGHT_ALT_STEPS: Array[float] = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0]
+## Ambient-relief rungs (fraction); labelled judgement, no source stated for the
+## individual values.
 const LIGHT_AMB_STEPS: Array[float] = [0.0, 0.15, 0.25, 0.35, 0.5, 0.7]
+## Relief light counts offered; labelled judgement, no source stated for the individual
+## values.
 const LIGHT_NUM_STEPS: Array[float] = [1.0, 2.0, 4.0, 6.0, 8.0, 12.0]
 
 ## Builds Preferences ▸ Lighting rig defaults: a source readout row (how many of the four

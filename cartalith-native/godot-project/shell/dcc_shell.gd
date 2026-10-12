@@ -14,7 +14,12 @@ class_name DccShell
 ## load-bearing rule from `UI_SHELL_DESIGN.md`: the top bar is about the
 ## program, the map is about the world.
 
+## Emitted by `_select_domain()` when the active domain changes;
+## `app.gd::_refresh_rail_foot()` listens.
 signal workspace_changed(id: String)
+## Declared for the active-tool id changing, but no emit or connection to it exists
+## anywhere in this project (grep, 2026-10-12) -- intent unverified; do not rely on it
+## firing.
 signal tool_changed(tool_id: String)
 signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 	## the phone chrome's edges sit, so `ViewportHost`'s own corner chrome
@@ -247,7 +252,10 @@ const RAIL_NODES: Array = [
 # Everything a workspace module needs is reachable from here. Workspaces never
 # reach past these into the frame's own containers.
 
+## The HBox the menu-bar buttons are added to; built by `_build_menu_bar()`.
 var menu_bar_row: HBoxContainer
+## The HBox the tool-options controls are added to (inside the band stored as
+## `tool_options_bar`).
 var tool_options_row: HBoxContainer
 var tool_options_bar: Control          ## The band `tool_options_row` sits in --
 	## `_build_tool_options_bar()`'s own return value, stored so a caller (a
@@ -255,30 +263,47 @@ var tool_options_bar: Control          ## The band `tool_options_row` sits in --
 	## in a `ScrollContainer`, so `tool_options_row.get_parent().get_parent()`
 	## no longer reaches this band on that composition -- see the header there.
 var rail_column: VBoxContainer
+## The left dock panel; its minimum width follows `_left_width` unless collapsed.
 var left_dock: PanelContainer
+## Header label of the left dock; set to the active domain's upper-cased label by the
+## domain switch.
 var left_dock_title: Label
 var left_dock_body: VBoxContainer      ## Workspace panels attach here.
+## The map host region that `viewport_content` lives in; assigned by the viewport
+## builder.
 var viewport_area: Control
 var viewport_content: Control          ## The map surface; overlays are children.
+## The right dock panel (its title and contents follow the selection, see
+## `right_dock_title`).
 var right_dock: PanelContainer
 var right_dock_title: Label          ## §6: contents follow the selection, not a fixed
 	## "Layers" chrome label -- kept live by `right_dock.gd`'s own `set_right_dock_title()` call at the end of every `_rebuild()`.
 var right_dock_body: VBoxContainer
+## The timeline region built by `_build_timeline()`; callers null-check it.
 var timeline_bar: Control
+## The HBox inside the timeline region that holds its controls; callers null-check it.
 var timeline_row: HBoxContainer
+## The HBox of status-bar slots; no label may raise its minimum width (see
+## `_build_status_bar()`).
 var status_row: HBoxContainer
 
+## Rotated label holding the rail's whole footer string; written by `set_rail_foot()`.
+## The stacked form `_rail_foot_run`/`_rail_foot_total` draws the same string.
 var rail_foot: Label
 ## The foot's second form -- `StatusBar.dc.html` panel 5's upright `00` / rule /
 ## `10`. `rail_foot` above still holds the whole string; this draws it.
 var _rail_foot_stack: MarginContainer
+## Upper half of the stacked rail footer (`StatusBar.dc.html` panel 5's upright pair).
 var _rail_foot_run: Label
+## Lower half of the stacked rail footer, under the rule.
 var _rail_foot_total: Label
 const RAIL_FOOT_GAP := 6      ## `gap:6px` between the two halves and the rule.
 const RAIL_FOOT_PAD_B := 8    ## `padding-bottom:8px` under the lower half.
 const RAIL_FOOT_RULE_W := 14  ## `width:14px` on the `--div` hairline.
 var _domain_buttons: Dictionary = {}   ## id -> Button
 var _domain_marks: Dictionary = {}     ## id -> {icon, label}
+## Id of the active domain; initial `world` is the boot default, applied by
+## `_select_domain()`.
 var _active_domain := "world"
 
 ## The per-domain mode, one live selection each, exactly as the prototype keeps
@@ -295,15 +320,22 @@ var _active_domain := "world"
 ## `style` are each their domain's first node).
 var _domain_mode: Dictionary = _default_modes()
 
+## Builds the initial `_domain_mode` from `RAIL_NODES`: each domain's first node is its
+## default mode.
 static func _default_modes() -> Dictionary:
 	var out := {}
 	for n in RAIL_NODES:
 		if String(n.get("kind", "")) == "node" and not out.has(String(n["domain"])):
 			out[String(n["domain"])] = String(n["mode"])
 	return out
+## True while the left dock is collapsed to its chevron strip.
 var _left_collapsed := false
+## True while the right dock is collapsed to its chevron strip.
 var _right_collapsed := false
+## Current left-dock width in px; seeded from `DccTheme.W_LEFT_DOCK`, reassigned by
+## `_compute_layout_mode()` from the `w_left_dock` role.
 var _left_width := float(DccTheme.W_LEFT_DOCK)
+## Current right-dock width in px; same scheme as `_left_width`.
 var _right_width := float(DccTheme.W_RIGHT_DOCK)
 var _status_labels: Dictionary = {}    ## slot -> Label
 ## §2's three trailing squares (`03-menu-bar.md` §2, children 4/5/8). Held
@@ -311,10 +343,14 @@ var _status_labels: Dictionary = {}    ## slot -> Label
 ## operation name in the tooltip -- that does not exist yet when
 ## `_build_menu_bar()` runs. `_wire_menu_squares()` is what keeps them true.
 var _menu_undo_btn: Button
+## The redo square at the menu bar's right end; its enabled state and tooltip are kept by
+## `_wire_menu_squares()`.
 var _menu_redo_btn: Button
 var _collapse_buttons: Dictionary = {} ## "left"/"right" -> Button, so the chevron can flip
 var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state Label
 var _workspace_panels: Dictionary = {} ## domain id -> Control
+## True on a real touch device (`is_touchscreen_available()` with the `mobile` feature)
+## or under `--force-touch`; mirrored into `DccTheme.set_touch`.
 var _touch := false
 
 # -- Domain rail ---------------------------------------------------------------
@@ -410,7 +446,11 @@ const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
 ## true, and `--force-touch` runs keep pure aspect, which is what every existing
 ## phone probe was written against.
 const _TABLET_MIN_DP := 900.0
+## True when the composition is the phone one. Decided once at boot (a device's form
+## factor does not change at runtime), mirrored into `DccTheme.set_phone`.
 var _phone := false
+## True while the viewport is wider than tall; unlike `_phone` it is re-decided on every
+## resize.
 var _landscape := false
 ## The on-screen keyboard's height in physical px, 0 when it is down. Written
 ## only by `_process()`, read by every bottom inset -- see that function for why
@@ -423,7 +463,9 @@ var _phone_scale := 1.0  ## Maps `DccTheme.PHONE_REF_SHORT` phone-px onto the
 
 # Phone region handles, built only when `_phone` is true.
 var _phone_root: Control
+## Portrait top safe-area spacer (status-bar inset); built only when `_phone`.
 var _phone_top_safe: Control
+## Landscape side safe-area spacer (the rotated pocket); built only when `_phone`.
 var _phone_side_safe: Control
 var _phone_chrome_margin: MarginContainer  ## Shifts right in landscape so the
 	## rail and app bar clear `_phone_side_safe` -- "the domain rail shifts
@@ -435,7 +477,9 @@ var _phone_tool_sheet: PanelContainer
 ## scroller is the desktop bar (§13); the GENERATE column is the canvas's
 ## `tabIsGen` sheet. Exactly one is visible -- see `_refresh_phone_gen_panel()`.
 var _phone_tool_scroll: ScrollContainer
+## Scroller holding the GENERATE column inside the phone tool sheet; vertical only.
 var _phone_gen_scroll: ScrollContainer
+## The GENERATE column inside `_phone_gen_scroll`.
 var _phone_gen_col: VBoxContainer
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
@@ -547,6 +591,7 @@ var _phone_sheet_subtitle: Label       ## `sheetSub` -- same refresh.
 var _phone_chrome_col: VBoxContainer   ## The portrait stack the two nodes above return to.
 var _phone_bar_row: BoxContainer       ## The bottom bar's four nested boxes, held
 var _phone_bar_domains: BoxContainer   ## only so `vertical` can be flipped on them.
+## The bottom bar's cells box (one of the four boxes flipped to `vertical` in landscape).
 var _phone_bar_cells: BoxContainer
 var _phone_bar_dests: BoxContainer     ## The three destination tabs, MORE excluded
 	## -- `_rail_region` on phone. See `_build_phone_menu_bar()`'s header.
@@ -557,7 +602,9 @@ const W_PHONE_LAND_SHEET_MAX := 440.0  ## `Math.min(440,Math.round(fw*0.46))`.
 ## Landscape sheet width as a fraction of the frame width; the prototype's `Math.round(fw*0.46)`, capped by `W_PHONE_LAND_SHEET_MAX`.
 const PHONE_LAND_SHEET_FRAC := 0.46
 
+## Clock readout in the phone status pocket.
 var _phone_clock_label: Label
+## Battery readout in the phone status pocket.
 var _phone_battery_label: Label
 var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
 var _phone_side_battery_label: Label   ## the two above -- see `_build_phone_side_safe()`.
@@ -569,8 +616,11 @@ var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
 ## `class_name` -- `tool_fan.gd`'s own header explains why -- so this is typed
 ## against the const below rather than a global class.
 const ToolFan := preload("res://shell/tool_fan.gd")
+## The CM-6 tool fan (a `ToolFan`) mounted in `_phone_content_gap`.
 var _tool_fan: ToolFan
+## True while the left dock is up as a phone sheet; written by `_set_sheet_open()`.
 var _left_sheet_open := false
+## True while the right dock is up as a phone sheet.
 var _right_sheet_open := false
 ## The two dock `ScrollContainer`s, held only so `_set_sheet_open()` can zero
 ## their scroll on open -- neither dock exposes its `_scroll()` return value
@@ -578,6 +628,8 @@ var _right_sheet_open := false
 ## never torn down between opens, so whatever scroll position was left from
 ## the previous open is still sitting on the node when it reopens.
 var _left_dock_scroll: ScrollContainer
+## The right dock's `ScrollContainer`, held so `_set_sheet_open()` can zero its scroll on
+## open.
 var _right_dock_scroll: ScrollContainer
 
 # -- Phone: app-bar search, floating undo chip, coach marks --------------------
@@ -599,9 +651,13 @@ var _right_dock_scroll: ScrollContainer
 # chip never shows, the search button never draws, the toasts never fire" --
 # never a crash.
 var _phone_search_overlay: Control
+## The phone app-bar search overlay's input.
 var _phone_search_field: LineEdit
+## The phone search overlay's results column.
 var _phone_search_results: VBoxContainer
+## The phone search overlay's scope chips.
 var _phone_search_chips: HFlowContainer
+## The phone search overlay's result-count readout.
 var _phone_search_count: Label
 var _place_search_index  ## `PlaceSearch` -- untyped, see `_has_place_search()`.
 ## `CommandIndex`, built lazily the first time a `.` query is run and dropped by
@@ -611,25 +667,38 @@ var _place_search_index  ## `PlaceSearch` -- untyped, see `_has_place_search()`.
 ## sibling, so a bare `CommandIndex` token here cannot fail to parse.
 var _command_index: CommandIndex
 
+## The floating undo chip (tap undoes, hold opens history); built only on phone.
 var _phone_undo_chip: Button
 ## `06-phone.md` §6.2's edit-history popover and sim strip, and the app bar's
 ## `⋮` overflow. All three float in the phone composition and are hidden until
 ## something opens them.
 var _phone_undo_pop: Control
+## The floating simulation strip (year, slider, transport); hidden until opened.
 var _phone_sim_strip: Control
+## The strip's year readout (`YEAR n`, or `NO WORLD`).
 var _phone_sim_year: Label
+## The strip's year slider, ranged `TL_YEAR_MIN`..`TL_YEAR_MAX`.
 var _phone_sim_slider: HSlider
+## The strip's play/pause button.
 var _phone_sim_play: Button
 var _phone_sim_speeds: Dictionary = {}   ## multiplier -> Button
 var _phone_sim_transport: Array[Control] = []  ## Everything `tl_available()` gates.
+## The app bar's `⋮` overflow popover; hidden until opened.
 var _phone_overflow_pop: Control
+## The overflow row's right-hand text for `Save project`: `_phone_saved_at`, or an em
+## dash when never saved.
 var _phone_overflow_saved: Label
+## The overflow row's right-hand text for `Theme`: `dark` or `light`.
 var _phone_overflow_theme: Label
 ## `savedAt` (§4.3's own state key). Filled from `EngineBridge.project_saved`,
 ## which is the signal `app.gd`'s own save bookkeeping already fires -- so this
 ## is the same event, not a second notion of "saved".
 var _phone_saved_at := ""
+## True between press and release of the undo chip; lets release tell a tap from a
+## completed hold.
 var _undo_chip_down := false
+## True once the hold timer opened history for the current press, so release does not
+## also undo.
 var _undo_chip_hold_fired := false
 const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
 	## (Android's own `ViewConfiguration.getLongPressTimeout()` default).
@@ -638,9 +707,13 @@ const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
 ## first `open_find_on_map()` call. See that function for why this is a plain
 ## `AcceptDialog` rather than the phone's hand-built overlay.
 var _desktop_search_dialog: AcceptDialog
+## Find-on-map dialog input (desktop).
 var _desktop_search_field: LineEdit
+## Find-on-map dialog results column (desktop).
 var _desktop_search_results: VBoxContainer
+## Find-on-map dialog scope chips (desktop).
 var _desktop_search_chips: HFlowContainer
+## Find-on-map dialog result-count readout (desktop).
 var _desktop_search_count: Label
 
 # -- Build identity ------------------------------------------------------------
@@ -3890,6 +3963,8 @@ static func domain_nodes(id: String) -> Array:
 			out.append(n)
 	return out
 
+## The `mode` of the first node of domain `id` whose `owns` list contains `category`; the
+## empty string when none does, so callers must check.
 static func mode_for_category(id: String, category: String) -> String:
 	for n in RAIL_NODES:
 		if String(n.get("kind", "")) != "node" or String(n["domain"]) != id:
@@ -4716,6 +4791,8 @@ func _build_viewport() -> Control:
 ## signal, which is the discipline `app.gd::_wire_status()`'s own comment sets
 ## out for `statusMid` after a duplicated stage table drifted once already.
 var _vp_stage := 0
+## True once the generation-stage signals of the engine bridge are connected, so a later
+## re-bind does not double-connect.
 var _vp_wired := false
 
 ## Composes and pushes §5.2's chip. Cheap enough to call from every signal that
@@ -5364,6 +5441,8 @@ const STATUS_RULE_H := 12
 var _status_cells: Dictionary = {}  ## slot -> the HBox holding its rule + label
 var _status_rules: Dictionary = {}  ## slot -> that cell's leading 1 px rule
 var _status_dot: Label              ## the autosave state marker
+## True once the status bar's progress signals are connected; `_wire_status_progress()`
+## returns early when set.
 var _status_wired := false
 var _status_tail: Control           ## the clipped, minimum-0 box holding `mid` + `hint`
 
@@ -5552,6 +5631,8 @@ func _wire_status_progress() -> void:
 ## severity writers (`accent` for `autosave failed`) depend on.
 const _STATUS_TOP_PREFIX := "top_"
 
+## The default ink token for a status slot: the menu-bar strip's `text_dim` for `top_`
+## slots, else the status bar's `text_faint` (see the canvas rows cited above).
 static func _status_default_token(slot: String) -> String:
 	return "text_dim" if slot.begins_with(_STATUS_TOP_PREFIX) else "text_faint"
 
@@ -6462,6 +6543,7 @@ const PHONE_TABS: Array = [
 		"tip": "program · data · preferences"},
 ]
 
+## Bottom-bar tab cells keyed by `PHONE_TABS` key; restyled by the tab-highlight refresh.
 var _phone_tab_cells: Dictionary = {}
 var _phone_tab := "gen"   ## Which of `PHONE_TABS` is lit.
 
@@ -8023,12 +8105,18 @@ const PLACE_BANDS: Array = ["STARTS WITH", "CONTAINS", "MATCHED ON KIND OR SUBTI
 ## Band headers for `CommandIndex` results, in ranker order: title, group, blurb.
 const COMMAND_BANDS: Array = ["MATCHED THE NAME", "MATCHED THE MENU", "MATCHED THE DESCRIPTION"]
 
+## Which seam band a place-search row belongs to: 0 name starts with the needle, 1
+## contains it, 2 neither (matched on kind or subtitle). Must mirror the ranker that
+## produced the order (see the comment above).
 static func _place_band(row: Dictionary, needle: String) -> int:
 	var at := String(row.get("name", "")).to_lower().find(needle)
 	if at == 0:
 		return 0
 	return 1 if at > 0 else 2
 
+## Which seam band a command row belongs to: 0 title contains the needle, 1 group (menu)
+## contains it, 2 otherwise (description). Mirrors the command ranker; same warning as
+## `_place_band`.
 static func _command_band(row: Dictionary, needle: String) -> int:
 	if String(row.get("title", "")).to_lower().find(needle) >= 0:
 		return 0
