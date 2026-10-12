@@ -2402,6 +2402,11 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 
 	if plan.is_empty():
 		var err := String(_last_result.get("error", "No result yet."))
+		## A refused zero-length route dashes the distance rather than leaving
+		## the block to a bare note, so the reason sits under the figure it
+		## replaces (`_build_zero_length_card` does the same in the dock).
+		if bool(_last_result.get("zero_length", false)):
+			_totals_row(_totals_body, "distance", "—", "warn")
 		DccWidgets.note(_totals_body, err)
 		return
 
@@ -3573,6 +3578,9 @@ func build_results(body: Control) -> void:
 	if rejected.size() > 0:
 		DccWidgets.note(body, "Rejected keys (defaults used instead): %s" % ", ".join(rejected))
 
+	if bool(_last_result.get("zero_length", false)):
+		_build_zero_length_card(body, String(_last_result.get("error", "")))
+		return
 	if not bool(_last_result.get("ok", false)):
 		DccWidgets.note(body, "Compute failed: %s" % String(_last_result.get("error", "unknown error")))
 		return
@@ -3590,6 +3598,31 @@ func build_results(body: Control) -> void:
 	_build_risk_note(body, plan)
 	_build_vessels_group(body, plan)
 	_build_trace_group(body)
+
+## The verdict card's place when `jp_compute` refused a zero-length route
+## (`zero_length: true`, found-bug row of 2026-10-11): the calendar-day and
+## distance figures are dashed and the engine's own refusal text is the reason
+## printed under them. It must never show a 0 -- a 0 km, 0 day plan is exactly
+## the plausible non-answer the refusal exists to keep off the screen.
+func _build_zero_length_card(body: Control, reason: String) -> void:
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 4)
+	var pad := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		pad.add_theme_constant_override("margin_" + side, 11)
+	pad.add_child(card)
+	body.add_child(pad)
+	body.add_child(DccTheme.rule())
+	card.add_child(DccTheme.mono_label("NO JOURNEY", "warn", DccTheme.FS_HEADER, 2, true))
+	for pair in [["—", "calendar days"], ["—", "distance"]]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		row.add_child(DccTheme.mono_label(pair[0], "text_bright", 26, 0, true))
+		row.add_child(DccTheme.mono_label(pair[1], "text_dim", DccTheme.FS_SMALL))
+		card.add_child(row)
+	var why := DccTheme.label(reason, "warn", DccTheme.FS_SMALL)
+	why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card.add_child(why)
 
 ## JP-17. `jp_risk` (reference line 19385, a port of V1.915's
 ## `assessCampaignRisk` tiers) -- the campaign-duration advisory.
@@ -3623,6 +3656,10 @@ func _build_risk_note(body: Control, plan: Dictionary) -> void:
 func readout_text() -> String:
 	if _route_index < 0:
 		return "no route"
+	## A refused zero-length route (`_build_zero_length_card`): dashed with its
+	## reason, never "0 d".
+	if bool(_last_result.get("zero_length", false)):
+		return "— d · zero-length route"
 	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
 		return "no result"
 	var plan: Dictionary = _last_result.get("plan", {})

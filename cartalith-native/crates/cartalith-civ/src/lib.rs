@@ -8918,6 +8918,13 @@ struct SmoothedPath {
 /// milestone D's `civ_dijkstra_path` adds `Water`, the sea-lane ferry
 /// exception, and `Unchecked` (the reference's `undefined`, which skips
 /// the repair pass entirely for `'mixed'` routing).
+///
+/// Every returned sampled point is clamped into the grid, `[0, gw - 1] x
+/// [0, gh - 1]`, after the repair and the km sum, which stay the reference's
+/// (a port divergence, see the comment at the clamp). Each
+/// run's two restored endpoints are returned as the reference returns them,
+/// which can leave one in the last half cell (see the comment there). It must
+/// never return a sampled point off the map.
 fn civ_smooth_path(
     raw: &[(f64, f64)],
     gw: usize,
@@ -8961,6 +8968,9 @@ fn civ_smooth_path(
             brks.push(pts.len());
         }
         let run_start = pts.len();
+        // The previous point of this run as the reference computes it
+        // (rounded and repaired, never clamped); the km sum reads these.
+        let mut prev_ref: Option<(f64, f64)> = None;
         for (k, &s) in smooth.iter().enumerate() {
             let mut p = (js_round(s.0), js_round(s.1));
             if !matches!(valid, TerrainValid::Unchecked)
@@ -8977,13 +8987,42 @@ fn civ_smooth_path(
             // route by the whole map width -- caught by milestone D's
             // case 1, the first wrapped route fixture this function has had.
             if k > 0 {
-                let prev = *pts
-                    .last()
-                    .expect("k > 0 means a point was pushed in this run");
+                let prev = prev_ref.expect("k > 0 means a point was computed in this run");
                 km += js_hypot(p.0 - prev.0, p.1 - prev.1) * map_width_km / gw as f64;
             }
-            pts.push(p);
+            prev_ref = Some(p);
+            // The RETURNED point is clamped into the grid, `[0, gw - 1] x
+            // [0, gh - 1]`: a deliberate divergence from `_civSmoothPath`
+            // (v2.11 line 22397 rounds and stops), DECISIONS.md 7p, found-bug
+            // row of 2026-10-11. The centripetal Catmull-Rom curve overshoots
+            // its control points where a path turns hard (measured 2026-10-12,
+            // unclamped: y from -23 to 51 on a flat 2048 x 24 map), and a
+            // sample at the last routing row's centre, `gh - 0.5`, rounds up to
+            // `gh`. Every reader of a route point already clamps to this same
+            // box (`TerrainValid::check`, `JpWorld::clamp_cell`), so the cell
+            // each point reads is unchanged; only the drawn line moves. In
+            // world mode x is clamped rather than wrapped: a run never crosses
+            // the seam (it is split at any `|dx| > gw / 2` above), so its
+            // points belong on its own side.
+            //
+            // The clamp is applied AFTER the repair and the km sum, both of
+            // which stay the reference's to the bit. Clamping before them was
+            // tried 2026-10-12 and moved pinned km goldens in
+            // `tests/golden_parity_civ_tools.rs` case 1 (mixed 664.3079547644414
+            // to 647.7394122695176; wrapped land 136.5685424949238 to 40; water
+            // unreachable 0 to 80), so `km` still counts an off-grid excursion
+            // the returned points no longer show -- left for an owner ruling.
+            // Tests: `tests/route_points_in_bounds.rs`.
+            pts.push((p.0.clamp(0.0, gw as f64 - 1.0), p.1.clamp(0.0, gh as f64 - 1.0)));
         }
+        // The run's own endpoints are restored exactly as the reference does
+        // (v0.92), NOT clamped. They are the caller's coordinate, or at a
+        // world-wrap seam a raw router point `(c + 0.5) / sc`, so they can sit
+        // in the last half cell (`gw - 0.5`, `gh - 0.5`; measured (0.5, 23.5)
+        // and (1023.5, 0.5) on a 1024 x 24 world-mode map). Clamping them too
+        // was tried 2026-10-12 and moves pinned goldens in
+        // `tests/golden_parity_civ_tools.rs` (case 1: e.g. (19.5, 15.5) became
+        // (19.0, 15.0) on its 20 x 16 grid), so it is left for an owner ruling.
         pts[run_start] = r[0];
         let last = pts.len() - 1;
         pts[last] = r[r.len() - 1];
@@ -16086,6 +16125,27 @@ pub fn jp_plan(
     wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
 ) -> Option<JpJourneyPlan> {
     jp_plan_ex(world, pts, plan, layovers, wildlife_forage_mod, None)
+}
+
+/// Whether a route has no length at all: every point is the first point (an
+/// empty route counts too). Found-bug row of 2026-10-11: a route whose two
+/// clicked stops coincide commits as two identical points
+/// (`civ_dijkstra_path`'s fallback), and [`jp_plan_full`] plans it as one
+/// 0 km stage of 0 days -- a plausible-looking total that is no answer.
+///
+/// Exact equality, no threshold: two distinct grid points are always at least
+/// a fraction of a cell apart and plan a real, if short, journey (a one-cell
+/// hop is a real trip), so any tolerance here would be an unsourced judgement.
+/// Equivalent to "the planner's total km is 0" for points inside the grid,
+/// since stage km is a sum of point-to-point distances.
+///
+/// The interactive planner (`cartalith-godot`'s `jp_compute`) refuses such a
+/// route with this as its reason. [`jp_plan_full`] itself still plans it,
+/// deliberately: the saved-journey timeline (`JourneyTimeline::from_plan`)
+/// already reports it honestly as `NoTimeline::NoTravel`, and a `None` here
+/// would turn that into the wrong reason ("no derivable stages").
+pub fn jp_route_is_zero_length(pts: &[(f64, f64)]) -> bool {
+    pts.iter().all(|p| *p == pts[0])
 }
 
 /// [`jp_plan_full`] with no vessel resolver -- the signature every caller

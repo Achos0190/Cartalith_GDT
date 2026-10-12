@@ -19233,6 +19233,13 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
     })
 }
 
+/// `jp_compute`'s refusal text for a zero-length route
+/// (`cartalith_civ::jp_route_is_zero_length`), shown by the planner shell under
+/// its dashed totals. Each clause is true of every route the test accepts: all
+/// its points are one point, so its two ends coincide and its length is 0.
+const JP_ZERO_LENGTH_REASON: &str =
+    "zero-length route: both ends are the same point, so there is no distance to travel and no day count to give -- pick two different stops";
+
 /// What [`jp_plan_with_autos`] produced: the journey (`None` is the
 /// reference's own "no derivable stages"), the plan **after** the auto picker
 /// mutated it, and the two reports `jp_compute` returns.
@@ -20114,7 +20121,11 @@ impl WorldGen {
     /// world opened without its substrate (`Self::full_world_refusal` says
     /// which), for a route
     /// index that does not exist, for a polyline under two points, and for
-    /// the reference's own "no derivable stages" `return null`.
+    /// the reference's own "no derivable stages" `return null`. A zero-length
+    /// route (every point the same, after the trim) is refused too, with
+    /// `"zero_length": true` added -- the only result that carries that key --
+    /// so the shell dashes its totals with the reason instead of showing a
+    /// 0 km, 0 day plan (found-bug row of 2026-10-11).
     #[func]
     fn jp_compute(&mut self, request: VarDictionary) -> VarDictionary {
         // `&mut self` for exactly one reason: the wildlife forage cache below
@@ -20176,6 +20187,26 @@ impl WorldGen {
             },
         };
         let JpRequestPlan { plan, layovers, animal_entries, auto_carriage, auto_stage, mut rejected, .. } = parsed;
+
+        // ---- a zero-length route is refused, not planned as 0 days ----
+        //
+        // Found-bug row of 2026-10-11 (`OUTSTANDING_WORK.md` §2.3): a route
+        // whose stops coincide planned as one 0 km stage of 0 days with no
+        // flag, a plausible value standing in for "no journey". Refused here,
+        // after the trim (a trim of a zero-length route is still one), with
+        // `zero_length: true` so the shell can dash its totals with this reason
+        // rather than show a generic failure. The key is present only on this
+        // refusal. `jp_plan_full` itself still plans such a route for the
+        // saved-journey timeline, which reports it as "no travel time"
+        // (`cartalith_civ::jp_route_is_zero_length`'s doc says why).
+        if cartalith_civ::jp_route_is_zero_length(&pts) {
+            return vdict! {
+                "ok" => false,
+                "error" => JP_ZERO_LENGTH_REASON,
+                "rejected" => &rejected,
+                "zero_length" => true,
+            };
+        }
 
         // ---- the world ----
         //
