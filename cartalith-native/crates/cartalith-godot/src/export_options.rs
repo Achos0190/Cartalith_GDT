@@ -297,6 +297,61 @@ pub fn parse_appearance_preset(text: &str) -> Result<TerrainAppearance, String> 
     Ok(a)
 }
 
+/// The saved-look document `WorldGen::save_appearance_preset` (and its ET-F3
+/// sibling `save_appearance_preset_styled`) writes: the format tag, `v: 1`,
+/// the display name and the merged appearance, plus -- ET-F3,
+/// `EDITING_TOOLS_SCOPE.md` section 7 -- an optional top-level
+/// `"style": {"preset", "variant"}` naming the style-preset variant the look
+/// was saved under.
+///
+/// `style` is `None` for a look saved with no variant (a base preset, Custom),
+/// and then the document is exactly the pre-ET-F3 shape: no `style` key at
+/// all, never an empty one, so every look saved without a variant keeps its
+/// bytes. The member is outside `appearance` on purpose:
+/// [`parse_appearance_preset`] reads only that block, so an older build loads a
+/// styled file unchanged and simply ignores the name. The preset and variant
+/// strings are written as given; their vocabulary is the shell's
+/// (`render_workspace.gd`'s `STYLE_PRESETS` / `STYLE_VARIANTS`), and the shell
+/// is what falls back on a name it does not know.
+pub fn appearance_preset_document(
+    name: &str,
+    appearance: &TerrainAppearance,
+    style: Option<(&str, &str)>,
+) -> serde_json::Value {
+    let mut doc = serde_json::json!({
+        "format": "cartalith-appearance",
+        "v": 1,
+        "name": name,
+        "appearance": appearance,
+    });
+    if let Some((preset, variant)) = style {
+        doc["style"] = serde_json::json!({ "preset": preset, "variant": variant });
+    }
+    doc
+}
+
+/// The `style` member of a saved-look file (see [`appearance_preset_document`])
+/// as `(preset, variant)`, or `None` when the text is not a Cartalith look, has
+/// no `style`, or either member is missing, not a string or empty. Never an
+/// error: a look without a variant is the common case, and a malformed `style`
+/// costs only the variant name -- the look itself is still loadable by
+/// [`parse_appearance_preset`], which never reads this member. Validating the
+/// names is the shell's job (an unknown variant falls back to the base preset
+/// there), so any non-empty string is returned as written.
+pub fn parse_preset_style(text: &str) -> Option<(String, String)> {
+    let doc: serde_json::Value = serde_json::from_str(text).ok()?;
+    if doc.get("format").and_then(|v| v.as_str()) != Some("cartalith-appearance") {
+        return None;
+    }
+    let style = doc.get("style")?;
+    let preset = style.get("preset")?.as_str()?;
+    let variant = style.get("variant")?.as_str()?;
+    if preset.is_empty() || variant.is_empty() {
+        return None;
+    }
+    Some((preset.to_string(), variant.to_string()))
+}
+
 /// The band budget, in output pixels, for a banded export.
 ///
 /// **Derived, not chosen**: a band holds at most `ungated_px` pixels — the

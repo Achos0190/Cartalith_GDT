@@ -167,6 +167,54 @@ fn a_saved_preset_parses_and_a_bad_one_is_refused() {
     assert!(export_options::read_appearance_preset(std::path::Path::new("Z:/no/such/preset.json")).err().expect("must be refused").starts_with("open failed"));
 }
 
+/// Protects: ET-F3's saved-look `style` member. With no variant the document is
+/// the pre-ET-F3 shape exactly (no `style` key, the four literal keys), so every
+/// look saved without a variant keeps its bytes; with one, the file still loads
+/// through `parse_appearance_preset` unchanged (the member is outside the
+/// `appearance` block an older build reads) and `parse_preset_style` returns the
+/// two literal names; a missing, non-string or empty member is `None`, never a
+/// defaulted name.
+#[test]
+fn a_saved_look_records_its_variant_only_when_it_has_one() {
+    let a = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+    let plain = export_options::appearance_preset_document("x", &a, None);
+    let keys: Vec<&str> = plain.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+    assert_eq!(keys, vec!["appearance", "format", "name", "v"]);
+    let old_shape = serde_json::json!({ "format": "cartalith-appearance", "v": 1, "name": "x", "appearance": a });
+    assert_eq!(
+        serde_json::to_string_pretty(&plain).unwrap(),
+        serde_json::to_string_pretty(&old_shape).unwrap()
+    );
+    assert_eq!(export_options::parse_preset_style(&plain.to_string()), None);
+
+    let styled = export_options::appearance_preset_document("x", &a, Some(("Antique", "dark")));
+    let text = serde_json::to_string_pretty(&styled).unwrap();
+    let back = export_options::parse_appearance_preset(&text).unwrap();
+    assert_eq!(serde_json::to_value(&back).unwrap(), serde_json::to_value(&a).unwrap());
+    assert_eq!(
+        export_options::parse_preset_style(&text),
+        Some(("Antique".to_string(), "dark".to_string()))
+    );
+
+    let style = |s: &str| {
+        export_options::parse_preset_style(&format!(
+            r#"{{"format":"cartalith-appearance","v":1,"name":"x","appearance":{{}},"style":{s}}}"#
+        ))
+    };
+    assert_eq!(style(r#"{"preset":"Antique"}"#), None);
+    assert_eq!(style(r#"{"preset":"Antique","variant":3}"#), None);
+    assert_eq!(style(r#"{"preset":"","variant":"dark"}"#), None);
+    assert_eq!(style(r#"{"preset":"Antique","variant":""}"#), None);
+    assert_eq!(style("null"), None);
+    // An unknown variant is returned as written: the shell, which owns the
+    // vocabulary, is what falls back to the base preset.
+    assert_eq!(style(r#"{"preset":"Antique","variant":"sepia"}"#), Some(("Antique".into(), "sepia".into())));
+    assert_eq!(
+        export_options::parse_preset_style(r#"{"format":"other","style":{"preset":"A","variant":"dark"}}"#),
+        None
+    );
+}
+
 /// Protects: a settlement tier draws itself and every larger tier but nothing smaller, only `all` reaches the additive villages, and even `all` does not reach an unknown kind.
 ///
 /// §5's explicit tier, largest first: a tier draws itself and everything

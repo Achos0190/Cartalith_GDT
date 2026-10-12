@@ -11340,12 +11340,52 @@ impl WorldGen {
     /// `user://…` through `ProjectSettings.globalize_path` before calling.
     #[func]
     fn save_appearance_preset(&self, path: GString, name: GString) -> bool {
-        let doc = serde_json::json!({
-            "format": "cartalith-appearance",
-            "v": 1,
-            "name": name.to_string(),
-            "appearance": self.appearance(),
-        });
+        self.write_appearance_preset(&path.to_string(), &name.to_string(), None)
+    }
+
+    /// ET-F3 (`EDITING_TOOLS_SCOPE.md` section 7): [`Self::save_appearance_preset`]
+    /// plus the style-preset variant the look is saved under, as the file's
+    /// top-level `"style": {"preset", "variant"}`
+    /// ([`export_options::appearance_preset_document`]). An empty `preset` or
+    /// `variant` writes no `style` member at all -- the byte-for-byte
+    /// pre-ET-F3 file -- so the shell may always call this one. A separate
+    /// `#[func]` rather than new parameters on the old one, because GDScript
+    /// checks a direct call's argument count when it parses, and a shell
+    /// paired with an older cdylib must still parse.
+    #[func]
+    fn save_appearance_preset_styled(
+        &self,
+        path: GString,
+        name: GString,
+        preset: GString,
+        variant: GString,
+    ) -> bool {
+        let (p, v) = (preset.to_string(), variant.to_string());
+        let style = (!p.is_empty() && !v.is_empty()).then_some((p.as_str(), v.as_str()));
+        self.write_appearance_preset(&path.to_string(), &name.to_string(), style)
+    }
+
+    /// The `style` member of the saved-look file at `path` as `{preset,
+    /// variant}`, or an EMPTY dictionary when the file has none (every look
+    /// saved without a variant), cannot be read, or is not a Cartalith look --
+    /// absent, never a defaulted `{"variant": ""}` (callers test `has()`).
+    /// Reads through [`export_options::parse_preset_style`], the one reader of
+    /// the member. Does not load the look.
+    #[func]
+    fn peek_appearance_preset_style(&self, path: GString) -> VarDictionary {
+        let Ok(text) = std::fs::read_to_string(path.to_string()) else { return VarDictionary::new() };
+        match export_options::parse_preset_style(&text) {
+            Some((preset, variant)) => dict! { "preset" => preset.as_str(), "variant" => variant.as_str() },
+            None => VarDictionary::new(),
+        }
+    }
+
+    /// The shared body of the two saved-look writers: build the document
+    /// ([`export_options::appearance_preset_document`]), pretty-print it and
+    /// write it to the native path `path`. `false`, with a printed reason, on
+    /// an encode or write failure; never panics.
+    fn write_appearance_preset(&self, path: &str, name: &str, style: Option<(&str, &str)>) -> bool {
+        let doc = export_options::appearance_preset_document(name, &self.appearance(), style);
         let text = match serde_json::to_string_pretty(&doc) {
             Ok(t) => t,
             Err(e) => {

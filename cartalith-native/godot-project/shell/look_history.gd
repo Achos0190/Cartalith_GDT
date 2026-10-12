@@ -40,7 +40,8 @@ extends RefCounted
 ## What it does NOT cover (nothing here can read it back): Painter/NPR/appearance
 ## SLIDER edits, the layer stack, colour space, saved-look load, and the quality
 ## tier. A preset entry restores the look name, the NPR block, the preset's own
-## appearance keys and the ramp -- exactly what `_apply_preset` writes.
+## appearance keys and the ramp -- exactly what `_apply_preset` writes -- and (ET-F3,
+## `PRESET_PART`) which preset and variant was applied.
 
 ## Longest history kept. A labelled judgement: a session of colour tuning is a few
 ## dozen gestures, a snapshot is a few hundred bytes (15 colours + ~10 stops + one
@@ -65,6 +66,19 @@ const _OA := preload("res://shell/overlay_adjust.gd")
 ## change" comparison, so a Cancel that reverts the data to equal pushes nothing
 ## even though the live ticks already flipped the readout to "Custom".
 const CHROME := "chrome"
+## ET-F3 (`EDITING_TOOLS_SCOPE.md` section 7): the snapshot part naming which style preset
+## and which of its variants is applied, `{"index": int, "variant": String}` (`""` = the base
+## preset, `index` -1 = Custom). Only `RenderWorkspace._apply_preset` asks for it, so a preset
+## press that changes nothing but the variant (a cdylib with no appearance API, where the
+## variant moves only the overlay inks) is still ONE entry, and an undo across a variant
+## switch restores the variant as data rather than as chrome. It is a DATA part (compared by
+## `_same()`), unlike `CHROME`, so it must never join a gesture that can be cancelled back to
+## equal data -- a Cancel after a live tick flipped the gallery to Custom would then push an
+## entry; that is why no other gesture snapshots it. `apply()` writes nothing for it: the
+## engine half of a variant is the `style` part's appearance keys; `RenderWorkspace.
+## on_look_restored()` relights the gallery from this part and pushes the overlay inks
+## recorded in `CHROME`.
+const PRESET_PART := "preset"
 ## Label prefix of an ET-F1 Look-slider gesture (`"Look: saturation"`), as Edit > Undo shows it.
 ## The control's name in the shell (section "Look"), so the undo row names what was moved.
 const LOOK_LABEL := "Look"
@@ -186,11 +200,16 @@ static func _same(a: Dictionary, b: Dictionary) -> bool:
 ##              the worker's) or when the cdylib has no adjustment stacks
 ##   "adjust_overlay" -> the labels/overlays stack, saved-form JSON text (static
 ##              GDScript state, readable at any time)
+##   "preset" -> (ET-F3, `PRESET_PART`) a copy of `preset_state`, the caller's
+##              `{"index", "variant"}`; omitted when the caller passes none (it is
+##              GDScript gallery state the bridge cannot read)
 ## Parts the running cdylib cannot read are omitted, never defaulted (MISTAKES:
 ## absent is not a plausible value) -- in particular a stack that could not be
 ## READ is never recorded as the empty stack, which would make an undo CLEAR it.
-static func snapshot(bridge: Object, parts: Array, appearance_keys: PackedStringArray = PackedStringArray()) -> Dictionary:
+static func snapshot(bridge: Object, parts: Array, appearance_keys: PackedStringArray = PackedStringArray(), preset_state: Dictionary = {}) -> Dictionary:
 	var s := {}
+	if PRESET_PART in parts and not preset_state.is_empty():
+		s[PRESET_PART] = preset_state.duplicate()
 	if "ramp" in parts and bridge.ramp_api:
 		s["ramp"] = bridge.color_ramp()
 		if bridge.ramp_mode_api:

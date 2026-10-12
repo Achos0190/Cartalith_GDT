@@ -3398,6 +3398,15 @@ func _restore_project_documents() -> PackedStringArray:
 	if oa_note != "":
 		notes.append(oa_note)
 	_refresh_adjust_panels()
+	## ET-F3: the style-preset variant. Called unconditionally for the overlay stack's reason:
+	## an ABSENT slot must drop a variant lit in the outgoing session, or the next save would
+	## write it into a project that never had one. After `world_loaded` (inside `load_save`),
+	## so the render workspace has already re-read the engine's look.
+	var rw := _render_workspace()
+	if rw != null:
+		var st_note := String(rw.restore_style_document(String(docs.get(STYLE_SLOT, ""))))
+		if st_note != "":
+			notes.append(st_note)
 	return notes
 
 ## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
@@ -3894,6 +3903,49 @@ func overlay_adjust_persists() -> bool:
 ## Cached answer of `overlay_adjust_persists_state()`; `-1` until first asked while idle.
 var _overlay_slot_state := -1
 
+## ET-F3 (`EDITING_TOOLS_SCOPE.md` section 7): the project-archive slot recording which
+## style-preset VARIANT is lit, `{"preset": <tile name>, "variant": "dark"|"light"|"pastel"}`
+## (`RenderWorkspace.style_document()`). Caller-owned like `OVERLAY_ADJUST_SLOT`, and
+## registered in `cartalith_io::DOCUMENT_SLOTS` for the same reason: an unregistered slot
+## refuses the whole save.
+const STYLE_SLOT := "appearance_style.json"
+## Cached `project_document_slots().has(STYLE_SLOT)`: `1` yes, `0` no, `-1` not asked yet
+## (asked only while idle -- the same `&self`-call-while-generating hazard
+## `overlay_adjust_persists_state()` documents).
+var _style_slot_state := -1
+
+## The render workspace (nested in the cartography one), or `null` before it is built.
+## `_restore_look()` finds it the same way.
+func _render_workspace() -> RenderWorkspace:
+	for ws in _workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			return ws._render
+	return null
+
+## The style-variant document for `STYLE_SLOT`, or `""` when there is nothing to write: no
+## variant lit (a base preset, Custom, an untouched project -- which is what keeps their
+## archives byte-identical), no render workspace, or an engine that does not register the
+## slot (then the person is told, once per session, because writing nothing is a silent loss
+## of the variant and writing it would refuse the whole save).
+func style_document() -> String:
+	var rw := _render_workspace()
+	if rw == null:
+		return ""
+	var doc: String = rw.style_document()
+	if doc == "":
+		return ""
+	if _style_slot_state < 0 and not bridge.generating:
+		_style_slot_state = 1 if bridge.project_document_slots().has(STYLE_SLOT) else 0
+	if _style_slot_state != 1:
+		if _style_slot_state == 0 and not _style_unsaved_told:
+			_style_unsaved_told = true
+			_report_failure("The map style variant was not saved: this build of the engine has no slot for it in the project file.")
+		return ""
+	return doc
+
+## Whether `style_document()` has already said this build cannot save the variant.
+var _style_unsaved_told := false
+
 ## The other end of `overlay_adjust_document()`: replace the overlay stack with the archive's,
 ## or CLEAR it when the archive has none (an old project, or one saved with an empty stack,
 ## opens with no overlay stack -- the outgoing project's must not follow the reader in).
@@ -3986,6 +4038,10 @@ func _project_documents() -> Dictionary:
 	var oa_doc := overlay_adjust_document()
 	if oa_doc != "":
 		documents[OVERLAY_ADJUST_SLOT] = oa_doc
+	## ET-F3: the style-preset variant, omitted when none is lit (see `style_document`).
+	var st_doc := style_document()
+	if st_doc != "":
+		documents[STYLE_SLOT] = st_doc
 	if journey_planner_view != null:
 		var doc := journey_planner_view.journeys_document()
 		if doc != "":

@@ -509,6 +509,19 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// slot. Additive: the shell writes it only when the stack has entries, so
 /// older archives and untouched projects carry no such member, and a project
 /// without it opens with no overlay stack.
+///
+/// # `appearance_style.json` is caller-owned
+///
+/// Registered 2026-10-12 (`EDITING_TOOLS_SCOPE.md` ET-F3). The payload is
+/// which style-preset **variant** is on screen, `{"preset": <tile name>,
+/// "variant": "dark"|"light"|"pastel"}`. The preset gallery and its variant
+/// rule are GDScript (`render_workspace.gd`), and the engine already saves the
+/// variant's raster effect in `appearance.json`'s `overrides`; what only the
+/// shell knows is the name, the lit chip and the overlay inks the variant
+/// derives, so the slot is caller-owned like the overlay stack's. Additive and
+/// omitted when there is no variant (a base preset, Custom, an untouched
+/// project), so older archives and untouched projects carry no such member and
+/// stay byte-identical.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -530,6 +543,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "drafts/paint.json",
     "drafts/sculpt.json",
     "appearance_overlay_adjust.json",
+    "appearance_style.json",
     "appearance.json",
     "vault.json",
 ];

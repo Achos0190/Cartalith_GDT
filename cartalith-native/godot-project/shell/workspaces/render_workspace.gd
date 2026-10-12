@@ -718,7 +718,10 @@ static func _preset_appearance_keys() -> PackedStringArray:
 # * Invent a value: a key the running cdylib does not publish is skipped, never
 #   written from a guess, and an unknown variant name falls back to the base
 #   preset (MapTiler's SDK does the same for an unknown variant).
-# * Persist anything: history and saves recording the variant are ET-F3.
+# * Persist anything itself. ET-F3 records the variant: in the look history
+#   (`_LookHistory.PRESET_PART`), in the project (`style_document()`, the
+#   `appearance_style.json` slot) and in a saved look (`_on_save_look`), each
+#   omitted when there is no variant.
 
 ## The three variants, in chip order. `""` is the base preset.
 const STYLE_VARIANTS := ["dark", "light", "pastel"]
@@ -1821,8 +1824,10 @@ func _apply_preset(index: int, variant: String = "") -> void:
 	if not is_variant(variant):
 		variant = ""
 	## One undo entry for the whole bundle (look + Painter + overrides + ramp);
-	## committed at the end of this function. Ruling BY item 2.
-	look_begin(["style", "ramp"])
+	## committed at the end of this function. Ruling BY item 2. ET-F3: plus which
+	## preset and variant (`_LookHistory.PRESET_PART`, a data part), so a press that
+	## moved only the variant is still an entry and its undo relights the chip.
+	look_begin(["style", "ramp", _LookHistory.PRESET_PART])
 	var values: Dictionary = STYLE_MANAGED.duplicate()
 	for key in Dictionary(STYLE_PRESETS[index][2]):
 		values[key] = STYLE_PRESETS[index][2][key]
@@ -1900,14 +1905,105 @@ func _apply_preset(index: int, variant: String = "") -> void:
 		## which clears the previous preset's treatment rather than leaving it.
 		## ET-F2: `variant_treatment_for` returns the base row itself for `""`.
 		app.viewport.set_overlay_treatment(variant_treatment_for(String(STYLE_PRESETS[index][0]), variant))
-	look_commit("Style: %s" % shown, ["style", "ramp"])
+	look_commit("Style: %s" % shown, ["style", "ramp", _LookHistory.PRESET_PART])
 
 ## The name a preset is shown and undone under: the tile's own name for the base,
-## `"Antique (Dark)"` for a variant (ET-F2; the label only -- recording the variant
-## in history and saves is ET-F3).
+## `"Antique (Dark)"` for a variant (ET-F2). The label only: what history and saves
+## record is the preset's name and the variant id (ET-F3), never this string.
 static func preset_display_name(index: int, variant: String) -> String:
 	var n := String(STYLE_PRESETS[index][0])
 	return "%s (%s)" % [n, String(VARIANT_LABEL[variant])] if is_variant(variant) else n
+
+# -- ET-F3: the variant in projects and saved looks ----------------------------
+#
+# `EDITING_TOOLS_SCOPE.md` section 7 ET-F3: *"The project and the saved look record
+# `{preset, variant}`, omitted when there is no variant."* The ENGINE half of a
+# variant (its appearance keys) already travels: `appearance.json`'s `overrides` in
+# a project, the merged `appearance` block in a saved look. What only this
+# workspace knows is which tile and chip that state came from -- and with it the
+# readout and the overlay inks, which `variant_treatment_for()` derives from the
+# two names. So the record is the two names, and restoring it re-lights the gallery
+# and re-pushes the inks WITHOUT writing the engine (the file already restored
+# it; re-running `_apply_preset` would rewrite it from the table and push a
+# history entry for an open).
+#
+# What it must never do: write a record for a base preset, Custom or an untouched
+# session (that is what keeps every such project and look byte-identical); refuse
+# or warn on an unknown variant (it falls back to the base preset, the scope's
+# rule, as MapTiler's SDK does); or let a variant lit in this session follow the
+# person into a project whose file has none (it would then be saved into it).
+
+## Index into `STYLE_PRESETS` of the tile named `preset_name`, or -1. By name,
+## not index, because the record is written to disk and the table's order is free
+## to change.
+static func preset_index(preset_name: String) -> int:
+	for i in STYLE_PRESETS.size():
+		if String(STYLE_PRESETS[i][0]) == preset_name:
+			return i
+	return -1
+
+## The `{preset, variant}` record for gallery state `index` / `variant`, or `{}`
+## when there is nothing to record: Custom (`index` -1), an out-of-range index, or
+## no variant (`""` and any name `is_variant()` does not know). Pure, so a probe can
+## check the omission rule without a window.
+static func style_record(index: int, variant: String) -> Dictionary:
+	if index < 0 or index >= STYLE_PRESETS.size() or not is_variant(variant):
+		return {}
+	return {"preset": String(STYLE_PRESETS[index][0]), "variant": variant}
+
+## The project document for the `appearance_style.json` slot (`app.gd::
+## _project_documents()`): the record as JSON with sorted keys, so the same state
+## always writes the same bytes, or `""` -- no slot at all -- when `style_record()`
+## is empty.
+func style_document() -> String:
+	var rec := style_record(_active_preset, _active_variant)
+	return "" if rec.is_empty() else JSON.stringify(rec, "", true)
+
+## Light tile `index` with `variant`'s chip (`""` = the base preset) and push the
+## readout and overlay inks that state implies, exactly as the tail of
+## `_apply_preset` does, but with NO engine write and no history entry: the caller
+## has just restored the engine state from a file. `index` must be in range.
+func _show_preset_state(index: int, variant: String) -> void:
+	_active_preset = index
+	_active_variant = variant if is_variant(variant) else ""
+	for i in _preset_tiles.size():
+		_set_tile_on(_preset_tiles[i], i == index, _active_variant)
+	if _custom_note != null:
+		_custom_note.visible = false
+	if app != null and app.viewport != null:
+		app.viewport.set_style_readout(preset_display_name(index, _active_variant))
+		app.viewport.set_overlay_treatment(variant_treatment_for(String(STYLE_PRESETS[index][0]), _active_variant))
+
+## Apply a style record read from a file (`{preset, variant}`, as `style_record()`
+## writes) to the gallery. Returns `""`, or a sentence for the open's notes when the
+## record names a preset this build does not have (the record is then dropped, as
+## when it is absent). An unknown VARIANT is not an error: the base preset is shown.
+## `rec` empty means the file had none: a variant lit in this session is dropped to
+## its base preset so it cannot be saved into a file that never had it; with no
+## variant lit, nothing changes (an old project opens exactly as before ET-F3).
+func apply_style_record(rec: Dictionary) -> String:
+	if rec.is_empty():
+		if _active_variant != "" and _active_preset >= 0 and _active_preset < STYLE_PRESETS.size():
+			_show_preset_state(_active_preset, "")
+		return ""
+	var idx := preset_index(String(rec.get("preset", "")))
+	if idx < 0:
+		apply_style_record({})
+		return "the map style named in this file (%s) is not one this build has, so its variant was not shown" % String(rec.get("preset", ""))
+	_show_preset_state(idx, String(rec.get("variant", "")))
+	return ""
+
+## The other end of `style_document()`: the slot's text (`""` when the archive had
+## no such slot) through `apply_style_record()`. Text that is not a JSON object is
+## reported and treated as absent; nothing here throws or writes the engine.
+func restore_style_document(text: String) -> String:
+	if text == "":
+		return apply_style_record({})
+	var parsed = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		apply_style_record({})
+		return "the map style variant in this file could not be read"
+	return apply_style_record(parsed)
 
 ## Pick a base look on its own. Marks Custom, because the tiles above name a
 ## look *and* a Painter bundle and only one half moved.
@@ -1961,12 +2057,14 @@ var _active_preset := -1
 ## in the history's chrome like `_active_preset` so an undo relights the right chip.
 var _active_variant := ""
 
-## Snapshot `parts` ("ramp", "biomes", "style") plus the gallery chrome. `{}` when
-## there is no app/history to record into (a probe that builds the workspace alone).
+## Snapshot `parts` ("ramp", "biomes", "style", and -- ET-F3, `_apply_preset` only --
+## `_LookHistory.PRESET_PART`) plus the gallery chrome. `{}` when there is no
+## app/history to record into (a probe that builds the workspace alone).
 func look_snapshot(parts: Array) -> Dictionary:
 	if app == null:
 		return {}
-	var s: Dictionary = _LookHistory.snapshot(bridge, parts, _preset_appearance_keys())
+	var s: Dictionary = _LookHistory.snapshot(bridge, parts, _preset_appearance_keys(),
+		{"index": _active_preset, "variant": _active_variant})
 	var chrome := {
 		"active": _active_preset,
 		"variant": _active_variant,
@@ -2017,6 +2115,13 @@ func on_look_restored(snap: Dictionary) -> void:
 	if not chrome.is_empty():
 		_active_preset = int(chrome.get("active", -1))
 		_active_variant = String(chrome.get("variant", ""))
+		## ET-F3: a preset step carries the preset and variant as data
+		## (`_LookHistory.PRESET_PART`); it is the record of what was applied, so it
+		## wins over the chrome copy when both are present (they are written together).
+		var ps: Dictionary = snap.get(_LookHistory.PRESET_PART, {})
+		if ps.has("index"):
+			_active_preset = int(ps["index"])
+			_active_variant = String(ps.get("variant", "")) if is_variant(String(ps.get("variant", ""))) else ""
 		for i in _preset_tiles.size():
 			_set_tile_on(_preset_tiles[i], i == _active_preset, _active_variant)
 		if _custom_note != null:
@@ -3303,7 +3408,10 @@ func _on_save_look() -> void:
 	if name == "":
 		push_warning("Save look: name the look first.")
 		return
-	if not bridge.save_appearance_preset(name):
+	## ET-F3: the variant the look is saved under, `{}` (nothing recorded, the
+	## pre-ET-F3 file) for a base preset or Custom -- `style_record()`'s rule.
+	var rec := style_record(_active_preset, _active_variant)
+	if not bridge.save_appearance_preset(name, String(rec.get("preset", "")), String(rec.get("variant", ""))):
 		push_warning("Save look: the engine could not write the preset.")
 		return
 	_refresh_preset_list()
@@ -3315,10 +3423,18 @@ func _on_save_look() -> void:
 ## re-syncs the appearance rows, the ramp and (when built) the layer rows from the
 ## engine, marks Custom and repaints. Does nothing with no selection. The file is
 ## found through `_preset_slugs`, never through the picker's displayed text.
+##
+## ET-F3: a look saved under a style-preset variant names it (`{preset, variant}`,
+## read before the load through `bridge.appearance_preset_style`); that look lights
+## its tile and chip and gets the variant's overlay inks instead of "Custom". A
+## preset this build does not have is Custom, as before; an unknown variant shows
+## the base preset (`apply_style_record`).
 func _on_load_look() -> void:
 	if _preset_pick == null or _preset_pick.selected < 0:
 		return
-	if not bridge.load_appearance_preset(String(_preset_slugs[_preset_pick.selected])):
+	var slug := String(_preset_slugs[_preset_pick.selected])
+	var rec: Dictionary = bridge.appearance_preset_style(slug)
+	if not bridge.load_appearance_preset(slug):
 		push_warning("Load look: the preset could not be read.")
 		return
 	_sync_appearance()
@@ -3331,7 +3447,10 @@ func _on_load_look() -> void:
 		_sync_layer_stack()
 	## ET-C4: the loaded look carries the Terrain and Water stacks too.
 	on_adjust_restored()
-	_mark_custom()
+	if rec.has("preset") and preset_index(String(rec["preset"])) >= 0:
+		_show_preset_state(preset_index(String(rec["preset"])), String(rec.get("variant", "")))
+	else:
+		_mark_custom()
 	_refresh_map()
 
 # -- The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) -------------------

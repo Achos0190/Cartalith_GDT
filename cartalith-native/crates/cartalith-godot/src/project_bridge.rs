@@ -7708,7 +7708,7 @@ mod tests {
                 "{slot}"
             );
         }
-        // The six the shell may have today, named so that a change to the
+        // The ones the shell may write today, named so that a change to the
         // split has to be deliberate. `annotations/measurements.json` joined
         // on 2026-09-03 and is the one GDScript still writes itself: a
         // saved measurement is a mode, the clicked points and the reading,
@@ -7742,6 +7742,8 @@ mod tests {
                 "drafts/paint.json",
                 "drafts/sculpt.json",
                 "appearance_overlay_adjust.json",
+                // ET-F3 (2026-10-12): the style-preset variant, GDScript state.
+                "appearance_style.json",
             ]
         );
     }

@@ -1849,11 +1849,32 @@ func _preset_slug(name: String) -> String:
 ## costs one redundant autosave and the unsaved-changes star after a save; it exists so the two
 ## preset wrappers and `load_ramp_preset` behave alike (`mark_world_dirty`'s own doc on why a
 ## spurious mark is the recoverable error).
-func save_appearance_preset(name: String) -> bool:
+##
+## ET-F3: `preset` / `variant` name the style-preset variant the look is saved under; both
+## non-empty writes the file's top-level `"style": {preset, variant}` through
+## `WorldGen.save_appearance_preset_styled`. Either empty -- a base preset, Custom, every
+## caller before ET-F3 -- takes the original call and writes the original bytes. A styled save
+## on a cdylib without the styled call is REFUSED (`false`) rather than written without the
+## variant: a look saved as "Antique (Dark)" that reopened as Custom would be a silent loss.
+func save_appearance_preset(name: String, preset: String = "", variant: String = "") -> bool:
 	if not preset_api or generating:
 		return false
+	if preset != "" and variant != "":
+		if not world_gen.has_method("save_appearance_preset_styled"):
+			return false
+		mark_world_dirty()
+		return bool(world_gen.callv("save_appearance_preset_styled", [_preset_path(name), name, preset, variant]))
 	mark_world_dirty()
 	return world_gen.save_appearance_preset(_preset_path(name), name)
+
+## ET-F3: the `{preset, variant}` a saved look was saved under (`WorldGen.
+## peek_appearance_preset_style`), read WITHOUT loading it; `{}` when the look has none, the
+## file cannot be read, the cdylib predates the call, or a generate holds the engine (the
+## worker owns it then). `name` is a display name or a slug, as `load_appearance_preset` takes.
+func appearance_preset_style(name: String) -> Dictionary:
+	if not preset_api or generating or not world_gen.has_method("peek_appearance_preset_style"):
+		return {}
+	return Dictionary(world_gen.callv("peek_appearance_preset_style", [_preset_path(name)]))
 
 ## Reads the preset file for `name` and makes it the look (`WorldGen.load_appearance_preset`).
 ## `false`, nothing changed, on any read/parse error, no preset API, or while `generating`.
