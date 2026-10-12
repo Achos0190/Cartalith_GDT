@@ -2031,6 +2031,24 @@ const FILL_TOL: f64 = 1e-6;
 enum Breach {
     Step,
     Continuous,
+    /// `Step` with Ruling CG item 2's sub-cell edge: the lowering factor's
+    /// jumps (rock and breach edges) blended by area share
+    /// (`cartalith_erosion::construction::subcell_edge_factor`). The built
+    /// stage's rule since 2026-10-12.
+    StepSubCell,
+}
+
+/// The breach rule a re-measurement runs under: `GF11_BREACH` = `step`
+/// (default, the rule GF-11 was judged by), `continuous`, or `subcell`
+/// (Ruling CG item 2's built rule, [`Breach::StepSubCell`]). An unknown
+/// value panics rather than falling back.
+fn gf11_rule_variant() -> Breach {
+    match std::env::var("GF11_BREACH").as_deref() {
+        Err(_) | Ok("step") => Breach::Step,
+        Ok("continuous") => Breach::Continuous,
+        Ok("subcell") => Breach::StepSubCell,
+        Ok(v) => panic!("GF11_BREACH={v}: expected step, continuous or subcell"),
+    }
 }
 
 /// A total order on `f32` for the priority flood below (`total_cmp`), so the
@@ -2259,6 +2277,8 @@ fn construct(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], 
     let budget = budget_m(p, pre, shape, d1_m, tau);
     let kc = |r: Rock| (r.props().kappa as f64).powf(c);
     let mut z: Vec<f32> = z0.to_vec();
+    // Cells the rule lowered (land, a column, not arc-exempt).
+    let mut lowered = vec![false; n];
     let (mut breached, mut two, mut arc, mut land) = (0usize, 0usize, 0usize, 0usize);
     for i in 0..n {
         if !land0[i] {
@@ -2285,13 +2305,40 @@ fn construct(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], 
                 } else {
                     breached += 1;
                     match rule {
-                        Breach::Step => b * kc(sub),
+                        Breach::Step | Breach::StepSubCell => b * kc(sub),
                         Breach::Continuous => h + (b - h / kt) * kc(sub),
                     }
                 }
             }
         };
         z[i] = (z0[i] as f64 - d / mpu) as f32;
+        lowered[i] = true;
+    }
+    if rule == Breach::StepSubCell {
+        // Ruling CG item 2: `D = B·k` with `k`'s edges at sub-cell precision.
+        // `k` is the step rule's factor (`κ_top^c`, or `κ_sub^c` where the
+        // budget breaches the cap), re-derived from the column, and blended by
+        // the production `subcell_edge_factor`, which carries its own unit
+        // tests; everything else in this arm stays an independent
+        // transcription. Cells off an edge keep `B·k`, the `Step` arm's `D`.
+        let kx: Vec<f64> = (0..n)
+            .map(|i| {
+                if !lowered[i] {
+                    return 0.0;
+                }
+                let kt = kc(col0.top(i).expect("top rock"));
+                match col0.substrate(i) {
+                    Some((sub, contact)) if budget[i] * kt > (z0[i] as f64 - contact as f64) * mpu => kc(sub),
+                    _ => kt,
+                }
+            })
+            .collect();
+        let ka = cartalith_erosion::construction::subcell_edge_factor(&kx, &lowered, gw, gh, world, cartalith_erosion::construction::EDGE_BLUR_R);
+        for i in 0..n {
+            if lowered[i] {
+                z[i] = (z0[i] as f64 - budget[i] * ka[i] / mpu) as f32;
+            }
+        }
     }
     let pre_fill = z.clone();
     let would_floor = (0..n).filter(|&i| land0[i] && (z[i] as f64) < sea + 1.0 / mpu).count();
@@ -4222,7 +4269,7 @@ fn gf11_construction_alone() {
     let seeds = env_list("GF0_SEEDS", &SEEDS);
     let km = 800.0;
     println!("{GF11_RULE}\n");
-    println!("GF-11 construction alone, grid {gw}x{gh}, {km} km.");
+    println!("GF-11 construction alone, grid {gw}x{gh}, {km} km; breach rule {:?} (GF11_BREACH).", gf11_rule_variant());
     let (mut g1, mut g2, mut measured) = (0usize, 0usize, 0usize);
     let (mut g3_all, mut g4_all) = (true, true);
     for &seed in &seeds {
@@ -4237,7 +4284,8 @@ fn gf11_construction_alone() {
         // Rule v3's G3 mask: one per seed, from z0 only, used for A and C alike.
         let in_dep = gf11_existing_depression(&ctx);
         let g3a = gf11_b8_checked(&ctx.a, &class_a, &in_dep, gw, gh, km);
-        let base = ArmCfg { construct: true, stage: false, c: 0.0, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
+        // `GF11_BREACH` picks the rule; unset, it is `Step`, the rule v3 run.
+        let base = ArmCfg { construct: true, stage: false, c: 0.0, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: gf11_rule_variant() };
         let ob = run_arm(&ctx, base);
         let oc = run_arm(&ctx, ArmCfg { c: C_TREAT, ..base });
         let (s_b_field, s_b_col) = ob.constructed.as_ref().expect("construction arm");
@@ -4508,7 +4556,7 @@ fn gf11_b9_cost() {
             })
             .collect();
         let d1 = median(&hv).expect("two-layer land");
-        let c = construct(&p, &pre, &shape, &ocean0, d1, 1.0, C_TREAT, Breach::Step);
+        let c = construct(&p, &pre, &shape, &ocean0, d1, 1.0, C_TREAT, gf11_rule_variant());
         let cc = t.elapsed().as_secs_f64();
         let mut f = c.field.clone();
         let mut col = c.col.clone();
@@ -4537,7 +4585,7 @@ fn gf11_b9_cost() {
         println!("  {name:44} median {m:.3} s ({l:.3} .. {h:.3})");
         m
     };
-    println!("GF-11 B9 seed {seed} 800 km {gw}x{gh}, {runs} runs each after one warm-up");
+    println!("GF-11 B9 seed {seed} 800 km {gw}x{gh}, {runs} runs each after one warm-up; breach rule {:?}", gf11_rule_variant());
     let g = show("generate_terrain (app, A)", &tg);
     show("pre-erosion world (incl. priming climate)", &tp);
     show("construction with its inputs", &tc);
@@ -4577,7 +4625,8 @@ fn relief_params(seed: i32, km: f64, gw: usize, gh: usize, c: f64, tau: f64) -> 
 /// and that the production column records the structural surface.
 fn assert_built_is_measured(ctx: &SeedCtx, c: f64, tau: f64) {
     let (p, seed) = (&ctx.p, ctx.p.tect.seed);
-    let measured = run_arm(ctx, ArmCfg { construct: true, stage: false, c, d_mult: 1.0, t_mult: 1.0, tau, rule: Breach::Step });
+    // The built stage's rule since Ruling CG item 2 (2026-10-12).
+    let measured = run_arm(ctx, ArmCfg { construct: true, stage: false, c, d_mult: 1.0, t_mult: 1.0, tau, rule: Breach::StepSubCell });
     let built = generate_terrain(&relief_params(seed, p.map_width_km, p.gw, p.gh, c, tau));
     assert!(same_world(&measured.ws, &built), "seed {seed} c {c} tau {tau}: the built stage diverged from the measured arm");
     match &built.geology.column().expect("column").construction {
@@ -4669,6 +4718,165 @@ fn gf11_built_stage_full_size() {
         )
         .expect("the app world constructs");
         println!("GF11BUILT seed={seed} identical=yes {r:?} [{:.1} s]", t0.elapsed().as_secs_f64());
+    }
+}
+
+/// What makes construction's lowering `D` jump between two 4-neighbours, read
+/// from the inputs alone (the column, `z0` and the budget), never from an
+/// arm's output. Codes, in precedence order: 0 no jump source (same rock
+/// state), 1 one side arc-exempt, 2 the top rock differs, 3 one side
+/// two-layer and the other single-layer, 4 the breach state differs (same top
+/// rock): the step rule's breach line.
+fn stair_cause(col: &GeologyColumn, z0: &[f32], budget: &[f64], h_in: &[f64], r_expose: f32, c: f64, i: usize, j: usize) -> u8 {
+    let arc = |k: usize| matches!(col.exposed(k, z0[k], r_expose), Some(Rock::Andesite | Rock::Tuff));
+    if arc(i) != arc(j) {
+        return 1;
+    }
+    if col.rock_top[i] != col.rock_top[j] {
+        return 2;
+    }
+    if col.substrate(i).is_some() != col.substrate(j).is_some() {
+        return 3;
+    }
+    if col.substrate(i).is_some() {
+        let kt = (col.top(i).expect("top rock").props().kappa as f64).powf(c);
+        if (budget[i] * kt > h_in[i]) != (budget[j] * kt > h_in[j]) {
+            return 4;
+        }
+    }
+    0
+}
+
+/// Protects: nothing by assertion beyond its helpers' non-emptiness: an
+/// ignored diagnostic for Ruling CG item 2 (the deep-zoom staircase GF-13
+/// saw, `GEOLOGY_FIRST_SCOPE.md` §7 "GF-13 under Ruling BY").
+///
+/// For every 4-neighbour pair of cells that are land in arm A and in arm C,
+/// it prints the height step `|z_i − z_j|` in metres in arm A's final world
+/// and in arm C's constructed surface (after the fill, before the hillslope)
+/// and final world, split by what makes construction's `D` jump across the
+/// pair ([`stair_cause`]): none, arc, top rock, layer count, breach line.
+/// Each class's population is selected by inputs only. A staircase is a
+/// one-cell step much larger than the same pair's step in arm A, along a
+/// boundary the grid rasterises: this says which class carries it and how
+/// large it is. It then counts the edge cells Ruling CG item 2's edge factor
+/// can blend (`EDGECELLS`: blendable, beside the coast or an arc edifice,
+/// three-value junction). `GF11_STAIR_TAU` (default 1) sets τ; `GF0_SEEDS`
+/// the seeds; `GF11_BREACH` the rule (default `step`, the pre-fix rule);
+/// `GF11_STAIR_BOX` a window. Measured 2026-10-12 (`STATUS.md`, GF-11 /
+/// Ruling CG entry): the GF-13 crops' steps are top-rock edges, not breach
+/// lines.
+///
+///   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_staircase_diag
+#[test]
+#[ignore = "Ruling CG item 2 diagnostic: construction's one-cell steps by cause; minutes at 2048x1311; run alone in release"]
+fn gf11_staircase_diag() {
+    let (gw, gh) = grid();
+    let tau: f64 = std::env::var("GF11_STAIR_TAU").ok().map(|v| v.parse().expect("GF11_STAIR_TAU")).unwrap_or(1.0);
+    let names = ["no jump", "arc edge", "top rock", "layer count", "breach line"];
+    // `GF11_STAIR_BOX=x0,y0,x1,y1` (inclusive cells) restricts the pairs to one
+    // window, e.g. a GF-13 crop; absent, the whole map.
+    let window: Option<[usize; 4]> = std::env::var("GF11_STAIR_BOX").ok().map(|v| {
+        let b: Vec<usize> = v.split(',').map(|t| t.trim().parse().expect("GF11_STAIR_BOX: four cell numbers")).collect();
+        [b[0], b[1], b[2], b[3]]
+    });
+    for &seed in &env_list("GF0_SEEDS", &[483_920, 314_159]) {
+        let ctx = build_ctx_opts(seed, 800.0, gw, gh, false);
+        let (p, sea, world) = (&ctx.p, ctx.pre.sea_level, ctx.p.world);
+        let rule = gf11_rule_variant();
+        let oc = run_arm(&ctx, ArmCfg { construct: true, stage: false, c: C_TREAT, d_mult: 1.0, t_mult: 1.0, tau, rule });
+        let (cf, _) = oc.constructed.as_ref().expect("construction arm");
+        let col0 = ctx.pre.geology.column().expect("column");
+        let z0: &[f32] = &ctx.pre.field;
+        let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+        let budget = budget_m(p, &ctx.pre, &ctx.shape, ctx.d1_m, tau);
+        let (fa, fc) = (&ctx.a.field, &oc.ws.field);
+        // [class][arm A final, C constructed, C final] -> steps in metres.
+        let mut steps: Vec<[Vec<f64>; 3]> = (0..5).map(|_| [vec![], vec![], vec![]]).collect();
+        for i in 0..gw * gh {
+            let x = i % gw;
+            if let Some([x0, y0, x1, y1]) = window {
+                if x < x0 || x > x1 || i / gw < y0 || i / gw > y1 {
+                    continue;
+                }
+            }
+            for j in [(x + 1 < gw).then(|| i + 1), (i + gw < gw * gh).then(|| i + gw)].into_iter().flatten() {
+                let land = |f: &[f32]| f[i] as f64 > sea && f[j] as f64 > sea;
+                if !(land(z0) && land(fa) && land(fc)) {
+                    continue;
+                }
+                let k = stair_cause(col0, z0, &budget, &ctx.h_in, r_expose, C_TREAT, i, j) as usize;
+                let d = |f: &[f32]| (f[i] as f64 - f[j] as f64).abs() * ctx.mpu;
+                steps[k][0].push(d(fa));
+                steps[k][1].push(d(cf));
+                steps[k][2].push(d(fc));
+            }
+        }
+        println!("\n==== staircase diag seed {seed} tau {tau} rule {rule:?} ({gw}x{gh}, cell {:.0} m) ====", ctx.cell_m);
+        for (k, s) in steps.iter().enumerate() {
+            let q = |v: &[f64], f: f64| fmt_opt(quantile(v, f));
+            let big = |v: &[f64]| v.iter().filter(|&&d| d > 50.0).count();
+            println!(
+                "STAIR seed={seed} class={:12} pairs {:8} | A final m p50 {} p90 {} p99 {} (>50 m {}) | C constructed p50 {} p90 {} p99 {} (>50 m {}) | C final p50 {} p90 {} p99 {} (>50 m {})",
+                names[k],
+                s[0].len(),
+                q(&s[0], 0.5),
+                q(&s[0], 0.9),
+                q(&s[0], 0.99),
+                big(&s[0]),
+                q(&s[1], 0.5),
+                q(&s[1], 0.9),
+                q(&s[1], 0.99),
+                big(&s[1]),
+                q(&s[2], 0.5),
+                q(&s[2], 0.9),
+                q(&s[2], 0.99),
+                big(&s[2]),
+            );
+        }
+        // Which edge cells Ruling CG item 2's edge factor can blend: a cell
+        // whose 8-neighbourhood holds another lowering factor is an edge cell;
+        // it is blended only if every neighbour is lowered land (not coast,
+        // not arc) and the neighbourhood holds exactly two values.
+        let kf: Vec<Option<u64>> = (0..gw * gh)
+            .map(|i| {
+                if z0[i] as f64 <= sea || matches!(col0.exposed(i, z0[i], r_expose), Some(Rock::Andesite | Rock::Tuff)) {
+                    return None;
+                }
+                let kt = (col0.top(i).expect("top").props().kappa as f64).powf(C_TREAT);
+                Some(match col0.substrate(i) {
+                    Some((sub, _)) if budget[i] * kt > ctx.h_in[i] => (sub.props().kappa as f64).powf(C_TREAT).to_bits(),
+                    _ => kt.to_bits(),
+                })
+            })
+            .collect();
+        let (mut edge, mut band, mut junction, mut beside) = (0usize, 0usize, 0usize, 0usize);
+        for y in 1..gh - 1 {
+            for x in 1..gw - 1 {
+                let i = y * gw + x;
+                if window.is_some_and(|[x0, y0, x1, y1]| x < x0 || x > x1 || y < y0 || y > y1) {
+                    continue;
+                }
+                let Some(ki) = kf[i] else { continue };
+                let nb: Vec<Option<u64>> = [i - gw - 1, i - gw, i - gw + 1, i - 1, i + 1, i + gw - 1, i + gw, i + gw + 1].iter().map(|&j| kf[j]).collect();
+                let mut vals: Vec<u64> = nb.iter().flatten().copied().chain([ki]).collect();
+                vals.sort_unstable();
+                vals.dedup();
+                if vals.len() < 2 {
+                    continue;
+                }
+                edge += 1;
+                if nb.iter().any(|v| v.is_none()) {
+                    beside += 1;
+                } else if vals.len() > 2 {
+                    junction += 1;
+                } else {
+                    band += 1;
+                }
+            }
+        }
+        println!("EDGECELLS seed={seed} edge cells {edge}: blendable {band}, beside coast/arc {beside}, three-value junction {junction}");
+        let _ = world;
     }
 }
 

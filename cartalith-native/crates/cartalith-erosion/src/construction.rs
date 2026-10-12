@@ -5,7 +5,9 @@
 //! through each land cell's rock column at each unit's own erodibility: a
 //! cap is lowered slowly while it survives, and once the budget breaches it
 //! the whole budget is spent at the substrate's rate. The breach line is
-//! where the surface steps down, which is the scarp. Then the depressions
+//! where the surface steps down, which is the scarp; a cell the step's edge
+//! crosses takes the area-weighted share of each side (Ruling CG item 2), so
+//! the scarp does not follow the grid's staircase. Then the depressions
 //! that differential lowering opened are filled back to their spill points
 //! from the ocean, and the fill becomes regolith.
 //!
@@ -18,7 +20,8 @@
 //! measured 1.211 and 1.187).
 //!
 //! **This is the measured arm, transcribed.** Every expression here is the
-//! harness's `uplift_shape`, `budget_m`, `construct` (step rule) and
+//! harness's `uplift_shape`, `budget_m`, `construct` (step rule, with the
+//! sub-cell edge since Ruling CG item 2: `Breach::StepSubCell`) and
 //! `flood4` (`cartalith-godot/tests/gf0_geology_harness.rs`), in the same
 //! order, in the same types, so the built stage reproduces the prototype the
 //! bars judged bit for bit. `gf0_geology_harness.rs`'s
@@ -68,6 +71,17 @@ pub const FILL_TOL: f64 = 1e-6;
 /// confirms; the cap binds only on a world that needs more, which none
 /// tested does.
 pub const FILL_PASS_CAP: usize = 64;
+
+/// [`subcell_edge_factor`]'s blur radius, in `cartalith_terrain::gauss_blur`'s
+/// own units (its three box passes then have half-width `round(r / 1.6)`).
+/// Measured: `edge_blur_radius_is_the_measured_best` sweeps the radii that
+/// give box half-widths 1 to 4 against the exact area cover of straight edges
+/// (5-85 degrees) and discs (radius 4-18 cells), and 1.6 has the least RMS
+/// error (2026-10-12: 0.116 against the staircase's 0.251; 3.2 gave 0.153,
+/// 4.8 0.210, 6.4 0.253). A larger blur straightens shallow lines better and
+/// rounds curves worse; which shapes stand in for `build_geology`'s edges
+/// (chamfer belts, thresholded cover) is the calibration's **judgement**.
+pub const EDGE_BLUR_R: f64 = 1.6;
 
 /// Everything construction reads besides the field and the column: the
 /// pipeline's own values at the geology stage.
@@ -384,6 +398,153 @@ pub fn construction_budget_m(field: &[f32], shape: &[f64], d1_m: f64, inp: &Cons
     Some((0..n).map(|i| if field[i] as f64 > sea { inp.tau * d1_m * (ubar[i] as f64 / m).clamp(W_MIN, W_MAX) } else { 0.0 }).collect())
 }
 
+/// Ruling CG item 2: the per-cell lowering factor `k` (the `κ^c` construction
+/// multiplies the budget by) with its jumps placed at sub-cell precision.
+///
+/// **What.** Where a cell's 3 × 3 neighbourhood is all participating cells
+/// (`part`) holding exactly two distinct values `lo < hi`, the cell gets
+/// `lo + (hi − lo)·a`, with `a` the share of the cell's area on the `hi`
+/// side of the edge. Every other cell keeps its value bit for bit. The edge
+/// is recovered from the staircase itself: the factor field is blurred
+/// (normalised over participating cells, radius `blur_r`), the edge is the
+/// blurred field's mid level `(lo + hi)/2`, the cell centre's signed distance
+/// to it is `s = (k̄ − mid)/|∇k̄|` in cells (central differences), and `a`
+/// is the exact area a straight edge at that distance and along that normal
+/// leaves on the `hi` side of the unit cell ([`unit_cell_cover`]). This is
+/// distance-field anti-aliasing (Green, "Improved Alpha-Tested Magnification
+/// for Vector Textures and Special Effects", SIGGRAPH 2007 course notes:
+/// coverage as a function of signed distance about one pixel wide), with the
+/// linear ramp replaced by the exact box-filtered half-plane.
+///
+/// **Why.** Construction's lowering is categorical: it jumps where the top
+/// rock changes (`build_geology`'s belts are chamfer-distance thresholds) and
+/// where a cap is breached. Taken at cell centres, each jump runs along the
+/// grid's own staircase, and a magnified render draws that staircase
+/// (GF-13's deep-zoom crops; `gf0_geology_harness.rs`'s
+/// `gf11_staircase_diag` measured the crops' top-rock pairs stepping a
+/// median 167 m (314159, τ 1) and 954 m (483920, τ 4) where arm A steps 12
+/// and 1.5 m). The scarp is intended; its staircase is aliasing.
+///
+/// **Must never** move a value outside `[lo, hi]` (so it never lowers more
+/// than the stronger side's rule allows, nor raises), touch a cell with a
+/// non-participating 8-neighbour (the coast, an arc edifice: Ruling BN's
+/// exemption stays exact), or touch a cell whose neighbourhood is uniform, so
+/// a field with one value (`c = 0`, the rock-blind control) is returned bit
+/// for bit. At a junction of three values it leaves the cell alone rather
+/// than guess.
+pub fn subcell_edge_factor(k: &[f64], part: &[bool], gw: usize, gh: usize, world: bool, blur_r: f64) -> Vec<f64> {
+    let n = gw * gh;
+    assert!(k.len() == n && part.len() == n, "subcell_edge_factor: inputs must be {n} cells");
+    let mut out = k.to_vec();
+    // The 3 × 3 neighbourhood of (x, y), or None where it leaves a bounded
+    // map; the east-west seam wraps on a world map.
+    let nbhd = |x: usize, y: usize| -> Option<[usize; 9]> {
+        if y == 0 || y + 1 >= gh || (!world && (x == 0 || x + 1 >= gw)) {
+            return None;
+        }
+        let xl = if x == 0 { gw - 1 } else { x - 1 };
+        let xr = if x + 1 == gw { 0 } else { x + 1 };
+        let mut v = [0usize; 9];
+        let mut t = 0;
+        for yy in [y - 1, y, y + 1] {
+            for xx in [xl, x, xr] {
+                v[t] = yy * gw + xx;
+                t += 1;
+            }
+        }
+        Some(v)
+    };
+    // Band cells first: most of a world has none, and then nothing is blurred.
+    let mut band = Vec::new();
+    for i in 0..n {
+        if !part[i] {
+            continue;
+        }
+        let Some(nb) = nbhd(i % gw, i / gw) else { continue };
+        if nb.iter().any(|&j| !part[j]) {
+            continue;
+        }
+        let (mut lo, mut hi) = (k[i], k[i]);
+        let mut third = false;
+        for &j in &nb {
+            let v = k[j];
+            if v == lo || v == hi {
+                continue;
+            }
+            if lo == hi {
+                if v < lo {
+                    lo = v
+                } else {
+                    hi = v
+                }
+            } else {
+                third = true;
+            }
+        }
+        if lo != hi && !third {
+            band.push((i, lo, hi));
+        }
+    }
+    if band.is_empty() {
+        return out;
+    }
+    let w: Vec<f32> = part.iter().map(|&p| if p { 1.0 } else { 0.0 }).collect();
+    let kw: Vec<f32> = (0..n).map(|i| if part[i] { k[i] as f32 } else { 0.0 }).collect();
+    let num = cartalith_terrain::gauss_blur(&kw, blur_r, gw, gh, world);
+    let den = cartalith_terrain::gauss_blur(&w, blur_r, gw, gh, world);
+    let kb = |j: usize| num[j] as f64 / den[j] as f64;
+    for (i, lo, hi) in band {
+        let (x, y) = (i % gw, i / gw);
+        let nb = nbhd(x, y).expect("a band cell has a full neighbourhood");
+        // nb: [NW, N, NE, W, C, E, SW, S, SE].
+        let gx = 0.5 * (kb(nb[5]) - kb(nb[3]));
+        let gy = 0.5 * (kb(nb[7]) - kb(nb[1]));
+        let g = gx.hypot(gy);
+        if !(g > 0.0) {
+            continue;
+        }
+        let s = (kb(i) - 0.5 * (lo + hi)) / g;
+        // The ends return `lo` and `hi` themselves: `lo + (hi − lo)·1` can
+        // round off `hi` by an ulp, and an untouched side must stay exact.
+        out[i] = match unit_cell_cover(s, gx / g, gy / g) {
+            a if a <= 0.0 => lo,
+            a if a >= 1.0 => hi,
+            a => lo + (hi - lo) * a,
+        };
+    }
+    out
+}
+
+/// The exact share of a unit cell's area on the positive side of a straight
+/// edge with unit normal `(nx, ny)` whose signed distance from the cell
+/// centre is `s` (positive: the centre is on the positive side). The
+/// box-filtered half-plane: linear in `s` while the edge crosses two
+/// opposite sides, quadratic while it cuts a corner. With `a ≥ b` the
+/// normal's larger and smaller absolute components, `A = 0.5 + s/a` for
+/// `|s| ≤ (a − b)/2`, `A = 1 − ((a + b)/2 − s)²/(2ab)` up to `(a + b)/2`, and
+/// symmetric below. Geometry, not a judgement; checked against 64 × 64
+/// supersampling in `edge_blur_radius_is_the_measured_best`.
+fn unit_cell_cover(s: f64, nx: f64, ny: f64) -> f64 {
+    let (a, b) = if nx.abs() >= ny.abs() { (nx.abs(), ny.abs()) } else { (ny.abs(), nx.abs()) };
+    let half = 0.5 * (a + b);
+    if s >= half {
+        return 1.0;
+    }
+    if s <= -half {
+        return 0.0;
+    }
+    let lin = 0.5 * (a - b);
+    if s.abs() <= lin || b <= 0.0 {
+        return (0.5 + s / a).clamp(0.0, 1.0);
+    }
+    let corner = |t: f64| (half - t) * (half - t) / (2.0 * a * b);
+    if s > 0.0 {
+        1.0 - corner(s)
+    } else {
+        corner(-s)
+    }
+}
+
 /// GF-11's stage: lowers `field` (the structural surface on entry) by
 /// §4.14's construction, fills what it opened, adds the fill to the
 /// column's regolith, and records the structural surface on the column.
@@ -444,6 +605,13 @@ pub fn construct_relief(field: &mut [f32], column: &mut GeologyColumn, inp: &Con
 /// is continuous at the breach line and so makes no scarp by arithmetic
 /// (GF-10 measured both, §5.10).
 ///
+/// Then the edge (Ruling CG item 2, 2026-10-12): writing `D = B·k`, the
+/// factor `k` of a cell on a two-valued edge (a top-rock change or a breach
+/// line, not the coast or an arc edifice) becomes its area-weighted blend
+/// ([`subcell_edge_factor`]), so the scarp keeps its height and stands on a
+/// sub-cell line instead of the grid's staircase. Every other cell's `D` is
+/// the table's, bit for bit; at `c = 0` every `k` is 1 and nothing changes.
+///
 /// Then the fill (Ruling BN's coast): both surfaces are filled from the
 /// structural ocean and the map's outlets ([`flood4`]); wherever the lowered
 /// surface's depression is deeper than the structural surface's by more than
@@ -464,6 +632,10 @@ pub fn construct_with_budget(field: &mut [f32], column: &mut GeologyColumn, inp:
     let land0: Vec<bool> = (0..n).map(|i| z0[i] as f64 > sea).collect();
     let kc = |r: Rock| (r.props().kappa as f64).powf(inp.contrast);
     let (mut breached, mut two, mut arc, mut land) = (0usize, 0usize, 0usize, 0usize);
+    // Each land cell's lowering factor (`D = B·k`); `part` marks the cells
+    // the step rule lowers, which are the ones the edge factor may blend.
+    let mut k = vec![0f64; n];
+    let mut part = vec![false; n];
     for i in 0..n {
         if !land0[i] {
             continue;
@@ -480,20 +652,29 @@ pub fn construct_with_budget(field: &mut [f32], column: &mut GeologyColumn, inp:
         }
         let b = budget[i];
         let kt = kc(top);
-        let d = match column.substrate(i) {
-            None => b * kt,
+        k[i] = match column.substrate(i) {
+            None => kt,
             Some((sub, contact)) => {
                 two += 1;
                 let h = (z0[i] as f64 - contact as f64) * mpu;
                 if b * kt <= h {
-                    b * kt
+                    kt
                 } else {
                     breached += 1;
-                    b * kc(sub)
+                    kc(sub)
                 }
             }
         };
-        field[i] = (z0[i] as f64 - d / mpu) as f32;
+        part[i] = true;
+    }
+    // Ruling CG item 2: the jumps in `k` placed at sub-cell precision, so a
+    // rock or breach edge is not drawn as the grid's staircase. Cells off an
+    // edge keep `k` bit for bit, so their `D` is the step rule's `B·k`.
+    let k = subcell_edge_factor(&k, &part, gw, gh, world, EDGE_BLUR_R);
+    for i in 0..n {
+        if part[i] {
+            field[i] = (z0[i] as f64 - budget[i] * k[i] / mpu) as f32;
+        }
     }
     let would_floor = (0..n).filter(|&i| land0[i] && (field[i] as f64) < sea + 1.0 / mpu).count();
     let edge = boundary_cells(gw, gh, world);
@@ -678,6 +859,222 @@ mod tests {
                 assert_eq!(stranded, 0, "Ruling BN: land below sea must open onto the ocean");
             }
         }
+    }
+
+    /// The calibration shapes: straight edges `cos t·x + sin t·y > d` at 5 to
+    /// 85 degrees (0 and 90 are left out: an axis-aligned centre-sampled edge
+    /// carries no trace of its sub-cell offset, so no reconstruction can
+    /// recover it and every radius scores the same there), each at three
+    /// offsets; and discs of radius 4, 7, 11 and 18 cells at three sub-cell
+    /// centres, for the curvature a larger blur rounds off. `hi` is inside.
+    fn calibration_shapes() -> Vec<Box<dyn Fn(f64, f64) -> bool>> {
+        let mut v: Vec<Box<dyn Fn(f64, f64) -> bool>> = Vec::new();
+        for deg in (5..=85).step_by(5) {
+            let t = (deg as f64).to_radians();
+            for off in [0.0, 0.31, 0.77] {
+                let d = t.cos() * 32.0 + t.sin() * 32.0 + off;
+                v.push(Box::new(move |x, y| t.cos() * x + t.sin() * y > d));
+            }
+        }
+        for r in [4.0, 7.0, 11.0, 18.0] {
+            for (cx, cy) in [(32.0, 32.0), (32.27, 31.6), (31.55, 32.4)] {
+                v.push(Box::new(move |x: f64, y: f64| (x - cx).hypot(y - cy) < r));
+            }
+        }
+        v
+    }
+
+    /// Exact area share of cell (x, y) inside `shape` (cell centres at
+    /// integers), by 32 × 32 supersampling: the anti-aliasing target.
+    fn exact_cover(x: usize, y: usize, shape: &dyn Fn(f64, f64) -> bool) -> f64 {
+        let m = 32;
+        let mut c = 0;
+        for a in 0..m {
+            for b in 0..m {
+                let px = x as f64 - 0.5 + (a as f64 + 0.5) / m as f64;
+                let py = y as f64 - 0.5 + (b as f64 + 0.5) / m as f64;
+                c += shape(px, py) as usize;
+            }
+        }
+        c as f64 / (m * m) as f64
+    }
+
+    /// RMS error of the edge factor against the exact cover over every cell
+    /// the exact cover puts strictly inside (0, 1), over
+    /// [`calibration_shapes`] on a 64 × 64 grid with `lo = 0`, `hi = 1`.
+    /// `None` = the centre-sampled staircase (no anti-aliasing), `Some(r)` =
+    /// [`subcell_edge_factor`] at radius `r`.
+    fn edge_rms(r: Option<f64>) -> f64 {
+        let (gw, gh) = (64usize, 64usize);
+        let part = vec![true; gw * gh];
+        let (mut se, mut cnt) = (0.0, 0usize);
+        for shape in calibration_shapes() {
+            let k: Vec<f64> = (0..gw * gh).map(|i| shape((i % gw) as f64, (i / gw) as f64) as u8 as f64).collect();
+            let got = match r {
+                Some(r) => subcell_edge_factor(&k, &part, gw, gh, false, r),
+                None => k.clone(),
+            };
+            // Interior cells only, clear of the map edge the blur clamps at.
+            for y in 8..gh - 8 {
+                for x in 8..gw - 8 {
+                    let e = exact_cover(x, y, &*shape);
+                    if e > 0.0 && e < 1.0 {
+                        se += (got[y * gw + x] - e).powi(2);
+                        cnt += 1;
+                    }
+                }
+            }
+        }
+        assert!(cnt > 1000, "the sweep must reach the edge cells; got {cnt}");
+        (se / cnt as f64).sqrt()
+    }
+
+    /// Protects: [`EDGE_BLUR_R`] is the measured best of the swept radii (the
+    /// shape set is the judgement, labelled at the constant). Among the
+    /// `gauss_blur` radii giving box half-widths 1 to 4 (1.6, 3.2, 4.8, 6.4),
+    /// the one with the least RMS error against the exact area cover of
+    /// [`calibration_shapes`] (straight edges and discs) is the constant, and
+    /// it cuts the centre-sampled staircase's error at least in half (the
+    /// sweep prints its numbers). Mutating the constant to any other swept
+    /// radius turns it red.
+    #[test]
+    fn edge_blur_radius_is_the_measured_best() {
+        let raw = edge_rms(None);
+        let sweep: Vec<(f64, f64)> = [1.6, 3.2, 4.8, 6.4].iter().map(|&r| (r, edge_rms(Some(r)))).collect();
+        println!("edge RMS: staircase {raw:.4}; {sweep:?}");
+        let best = sweep.iter().fold((f64::NAN, f64::INFINITY), |b, &(r, e)| if e < b.1 { (r, e) } else { b });
+        assert_eq!(best.0, EDGE_BLUR_R, "the least-error radius must be the constant: {sweep:?}");
+        assert!(best.1 * 2.0 < raw, "anti-aliasing must at least halve the staircase's error: {} vs {raw}", best.1);
+    }
+
+    /// Protects: [`subcell_edge_factor`]'s three "must never"s on hand-built
+    /// fields: a uniform field returns bit for bit (the `c = 0` control); a
+    /// cell next to a non-participating cell is untouched, and so is a
+    /// three-value junction; every output lies in its neighbourhood's
+    /// `[lo, hi]`; and an axis-aligned edge between cell centres, which the
+    /// grid already holds exactly, is returned unchanged.
+    #[test]
+    fn edge_factor_keeps_its_bounds_and_its_exemptions() {
+        let (gw, gh) = (40usize, 30usize);
+        let n = gw * gh;
+        let part = vec![true; n];
+        let uni = vec![0.548f64; n];
+        let got = subcell_edge_factor(&uni, &part, gw, gh, false, EDGE_BLUR_R);
+        assert!(got.iter().zip(&uni).all(|(a, b)| a.to_bits() == b.to_bits()), "a uniform field is returned bit for bit");
+        // Axis-aligned edge at x = 19.5: exact already.
+        let ax: Vec<f64> = (0..n).map(|i| if i % gw < 20 { 0.3 } else { 0.9 }).collect();
+        let got = subcell_edge_factor(&ax, &part, gw, gh, false, EDGE_BLUR_R);
+        assert!(got.iter().zip(&ax).all(|(a, b)| a.to_bits() == b.to_bits()), "an axis-aligned edge is already exact");
+        // A diagonal edge: changed somewhere, never outside [0.3, 0.9].
+        let dg: Vec<f64> = (0..n).map(|i| if 2 * (i % gw) > i / gw + 20 { 0.9 } else { 0.3 }).collect();
+        let got = subcell_edge_factor(&dg, &part, gw, gh, false, EDGE_BLUR_R);
+        assert!(got.iter().zip(&dg).any(|(a, b)| a != b), "a diagonal staircase must be anti-aliased");
+        assert!(got.iter().all(|&v| (0.3..=0.9).contains(&v)), "never outside [lo, hi]");
+        // Non-participating neighbour (an arc cell, say) beside the edge: the
+        // cells around it keep their values.
+        let mut part2 = part.clone();
+        let hole = 15 * gw + 17;
+        part2[hole] = false;
+        let got2 = subcell_edge_factor(&dg, &part2, gw, gh, false, EDGE_BLUR_R);
+        for dy in [-1i64, 0, 1] {
+            for dx in [-1i64, 0, 1] {
+                let j = (hole as i64 + dy * gw as i64 + dx) as usize;
+                assert_eq!(got2[j].to_bits(), dg[j].to_bits(), "a cell beside a non-participating cell is untouched");
+            }
+        }
+        // Three values meeting: the junction cell is untouched.
+        let mut tri = dg.clone();
+        let jn = (0..n).find(|&i| got[i] != dg[i] && i % gw > 2 && i % gw < gw - 3).expect("a band cell");
+        tri[jn + 1] = 0.6;
+        let got3 = subcell_edge_factor(&tri, &part, gw, gh, false, EDGE_BLUR_R);
+        assert_eq!(got3[jn].to_bits(), tri[jn].to_bits(), "a three-value junction is left alone");
+    }
+
+    /// Protects: [`unit_cell_cover`] is the exact box-filtered half-plane:
+    /// against 256 × 256 supersampling at seven angles and nine distances,
+    /// within 0.005 (the supersampling's own resolution), including the
+    /// quadratic corner branch a linear ramp would miss by up to 0.125.
+    #[test]
+    fn unit_cell_cover_is_the_exact_area() {
+        let m = 256;
+        for deg in [0.0f64, 10.0, 22.5, 30.0, 45.0, 60.0, 80.0] {
+            let (nx, ny) = (deg.to_radians().cos(), deg.to_radians().sin());
+            for s in [-0.8, -0.6, -0.45, -0.2, 0.0, 0.15, 0.4, 0.55, 0.75] {
+                let mut c = 0usize;
+                for a in 0..m {
+                    for b in 0..m {
+                        let px = -0.5 + (a as f64 + 0.5) / m as f64;
+                        let py = -0.5 + (b as f64 + 0.5) / m as f64;
+                        c += (nx * px + ny * py + s > 0.0) as usize;
+                    }
+                }
+                let want = c as f64 / (m * m) as f64;
+                let got = unit_cell_cover(s, nx, ny);
+                assert!((got - want).abs() < 0.005, "angle {deg} s {s}: {got} vs exact {want}");
+            }
+        }
+    }
+
+    /// Protects: the edge factor is wired into the built stage. A 64 × 48
+    /// single-layer world, granite (κ 0.30) west of a 30-degree line and
+    /// schist (κ 0.80) east of it, a flat 100 m budget at c = 0.5: every cell
+    /// lowers either by exactly its own rock's `100·κ^0.5` (54.772 or
+    /// 89.443 m, bit for bit as the step rule writes it) or by a blend inside
+    /// that range, and at least 20 cells lower by a blend more than 0.5 m
+    /// clear of both. Dropping the `subcell_edge_factor` call leaves no
+    /// blended cell.
+    #[test]
+    fn a_rock_edge_is_built_at_sub_cell_precision() {
+        let (gw, gh) = (64usize, 48usize);
+        let n = gw * gh;
+        let sea = 0.42f64;
+        let mpu = 4000.0 / (1.0 - sea);
+        let t = 30f64.to_radians();
+        let east = |i: usize| t.cos() * (i % gw) as f64 + t.sin() * (i / gw) as f64 > t.cos() * 32.0 + t.sin() * 24.0 + 0.3;
+        let top: Vec<u8> = (0..n).map(|i| if east(i) { Rock::Schist as u8 } else { Rock::Granite as u8 }).collect();
+        let mut col = GeologyColumn {
+            rock_top: top,
+            rock_sub: vec![NO_LAYER; n],
+            contact: vec![f32::NAN; n],
+            regolith: vec![0.0; n],
+            volcanic_setting: vec![0; n],
+            construction: Construction::Off,
+        };
+        // A gentle eastward rise well above sea, so no fill touches the edge.
+        let z0: Vec<f32> = (0..n).map(|i| (sea + 0.2 + 0.001 * (i % gw) as f64) as f32).collect();
+        let (zeros, mask, crust) = (vec![0f32; n], vec![0u8; n], vec![1f32; n]);
+        let inp = ConstructionInputs {
+            gw,
+            gh,
+            world: false,
+            sea,
+            peak_m: 4000.0,
+            blur_r: 18.0,
+            tau: 1.0,
+            contrast: 0.5,
+            stress: &zeros,
+            boundary_mask: &mask,
+            boundary_type: &mask,
+            crust: &crust,
+        };
+        let budget = vec![100.0f64; n];
+        let ocean0 = vec![false; n];
+        let mut z = z0.clone();
+        let r = construct_with_budget(&mut z, &mut col, &inp, &budget, &ocean0);
+        assert_eq!(r.raised_cells, 0, "the fixture must not fill");
+        let (lo, hi) = (100.0 * 0.3f64.sqrt(), 100.0 * 0.8f64.sqrt());
+        assert!((lo - 54.772).abs() < 1e-3 && (hi - 89.443).abs() < 1e-3);
+        let mut blended = 0;
+        for i in 0..n {
+            let d = (z0[i] as f64 - z[i] as f64) * mpu;
+            let step = if east(i) { hi } else { lo };
+            let exact = z[i].to_bits() == ((z0[i] as f64 - step / mpu) as f32).to_bits();
+            if !exact {
+                assert!(d > lo - 1e-3 && d < hi + 1e-3, "cell {i}: lowered {d} m, outside [{lo}, {hi}]");
+                blended += (d > lo + 0.5 && d < hi - 0.5) as usize;
+            }
+        }
+        assert!(blended >= 20, "the 30-degree edge must be blended; {blended} cells were");
     }
 
     /// Protects: `construct_relief`'s two skips -- no land, and no two-layer

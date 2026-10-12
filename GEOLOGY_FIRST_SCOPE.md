@@ -3760,6 +3760,103 @@ route B (§6.2).
    GF-13").** Default: **none while it is off.** If it is switched on, a
    stage-04 checkbox row with the age row's dim-and-reason pattern.
 
+### The deep-zoom staircase under Ruling CG item 2: cause, fix, re-measurement (2026-10-12)
+
+*Design and evidence, not status; `cartalith-native/docs/STATUS.md` says how
+far it has got. `relief_model` stays off in the app throughout.*
+
+**Cause, measured.** `gf0_geology_harness.rs` `gf11_staircase_diag` splits
+every 4-neighbour pair of land cells by what makes construction's lowering
+`D = B·k` jump across it, read from inputs only. In the two GF-13 crops the
+stepping pairs are **top-rock edges, not breach lines**: at 314159 (768,224),
+τ 1, 184 top-rock pairs step a median 167 m in arm C against 12 m in arm A,
+and its 28 breach-line pairs step 0 m. At 483920 (384,64), τ 4, 44 top-rock
+pairs step a median 954 m before the hillslope (677 m after) against 1.5 m in
+A. `build_geology`'s belts are chamfer-distance thresholds and its cover is a
+threshold, so the factor `k = κ^c` changes along lines the grid samples at
+cell centres. The scarp is intended; drawing it along the grid's staircase is
+aliasing. On whole maps, at τ 1 and C final: top-rock pairs 26 925 (483920)
+and 33 615 (314159), median step 47 and 48 m against A's 5.1 and 5.4 m;
+breach-line pairs 773 and 881; arc-edge pairs 771 and 583. The hillslope
+barely changes any of them.
+
+**Fix (behind `relief_model`).** `cartalith_erosion::construction::subcell_edge_factor`
+gives each cell on a two-valued edge the area-weighted blend of the two
+factors: the edge is recovered as the mid-level of the factor field blurred
+over lowered cells (`EDGE_BLUR_R` 1.6), and the cell's share comes from its
+signed distance to that edge through the exact box-filtered half-plane
+(`unit_cell_cover`). This is distance-field anti-aliasing (Green 2007). Never
+outside `[lo, hi]`. Cells beside the coast or an arc edifice and three-value
+junctions are untouched, which keeps §9 Q17's exemption and the `c = 0`
+identity exact. 98.6 % of edge cells (483920) and 98.0 % (314159) are blended.
+`EDGE_BLUR_R` was picked by measurement: it has the least RMS error against
+the exact area cover of straight edges and discs, 0.116 against the
+staircase's 0.251. Which shapes stand in for the geology's edges is a
+judgement. The harness gained `Breach::StepSubCell` (`GF11_BREACH=subcell`),
+and the built stage reproduces it bit for bit.
+
+**Switch-off identity.** Parity, app, and processes-on worlds at τ 1 and 4
+were hashed (seeds 483920, 314159, 12345, 512×328) in a `git archive` copy of
+`f8ea9f93` and in that copy plus this change: all 12 are identical. The
+relief-on control moves on all three seeds.
+
+**Re-measurement (rule v3's thresholds, unchanged; not a new pre-registered
+rule).** The rule's setting line names the step rule, so this is a variant
+run, disclosed as one. Both rules were run on the same tree on the same day.
+Since GF-11's measurement the app world has moved (the river chain-break fix
+F1 re-baselined app worlds), so the GF-13 table's G1 readings are stale.
+
+| Bar | Step, HEAD tree | StepSubCell |
+|---|---|---|
+| G1 (B4 ratio ≥ 2.0, share ≥ 0.40) | **3 of 5**. Fails 483920 (ratio 1.355) and 314159 (0.984); 12345 passes (2.004, 0.472) | **2 of 5**. Fails 483920 (1.180), 12345 (1.402, share 0.358) and 314159 (0.996) |
+| B4 ratios, all seeds | 1.355, 4.198, 10.253, 2.004, 0.984 | 1.180, 2.662, 3.090, 1.402, 0.996 |
+| G2 (≥ 1.2) | 5 of 5 | 5 of 5 (2.56-10.07) |
+| G3, every τ | pass | pass |
+| G4 | pass | pass (c = 0 identity misses 0) |
+| B9 (≤ 1.25, Ruling CA) | 1.192, 1.191 | **1.224, 1.238**. Construction 1.43 → 1.56 s median |
+
+The fix **costs B4**. B4 reads a one-cell slope at breach-line cells, and
+spreading the step by area share across the cells the edge crosses lowers
+that slope. That is the arithmetic of anti-aliasing. Nothing was tuned
+toward B4.
+
+**Screenshots** (windowed, `_gf2relief_shot.tscn`, before = a `git archive`
+copy of `f8ea9f93`, after = the same plus this change, each with its own DLL
+and its own `config/name`; every image opened, crops checked at full
+resolution). Evidence: `cartalith-native/docs/evidence/cg2-staircase-2026-10-12/`.
+`cmp_*` sets top row before, bottom row after, columns A, C1 and C4; `c*_*`
+are 2× crops, before on the left. Arm A moved 0 px in every crop.
+- **Gone:** 314159's τ 1 ice edge (`c1_768_ne`) is a smooth line, and the
+  τ 1 and τ 4 breach-line "ditch" at 314159 (500,1000) loses its beads.
+- **Reduced, not gone:** 483920's τ 4 lake shore (`c4_384_shore`) loses its
+  notches but keeps a one-cell scallop; 483920's τ 1 scarp beside the river
+  (`c1_384_scarp`) is still notched.
+- **Not touched:** 314159's τ 4 NE edge (`c4_768_ne`) keeps crisp 8-px stair
+  blocks in both builds. There a filled flat at 1 120 m meets the slope on an
+  exact 45° diagonal (1 120 → 1 345 → 1 446 m per row), and the blocks are
+  sharp-edged, so a field sampled at the nearest cell is a **suspicion, not
+  checked**.
+- **New:** (a) at τ 4, 314159 (`c4_768_nw`), a beaded dark diagonal line
+  across a ~1 100 m-deep filled flat. The surface there is bit-identical
+  between builds. What moved is `flow_discharge`: a new drainage path over
+  the flat, after the edge cells' regolith changed. It is a re-routed flow
+  line drawn cell by cell, not a height step. (b) At 483920 τ 1, a river
+  segment beside the scarp draws much wider, and new short river strokes
+  appear at 314159 (500,1000). Both are routing consequences of the moved
+  heights.
+
+**Owner questions, each with a default.**
+1. **Keep the anti-aliased edge (built, off with `relief_model`)?** Default:
+   **keep it.** It removes the measured τ 1 staircase, and its cost is B4
+   2 of 5 instead of 3 of 5, with B9 at 1.22-1.24 against 1.25.
+2. **Blend top-rock edges only, and leave breach lines one-cell?** That
+   would probably give back most of B4, but it would keep the staircase on
+   breach lines (773 and 881 pairs per map). It was not measured. Default:
+   **no**: it is tuning toward the bar.
+3. **Chase the remaining τ 4 stair** (the filled-flat margin and the nearest
+   cell render) and the beaded flow line? Default: **yes, before any
+   switch-on**, as its own row.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry
