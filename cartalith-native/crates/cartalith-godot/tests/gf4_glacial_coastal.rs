@@ -23,11 +23,12 @@
 //!   and column are exactly what the passes block receives (the GF-0
 //!   harness's argument, `gf0_geology_harness.rs`, module doc).
 //! - **Control arm:** each rock kernel at contrast `c = 0`, asserted bit for
-//!   bit equal to the legacy kernel, and the legacy glacial chain (glacial,
-//!   strip, rebound, clamp) asserted to reproduce the generated world bit for
-//!   bit -- so the control is the pass the app runs, not a stand-in. (The
-//!   coastal chain was asserted the same way before the pass moved ahead of
-//!   the trace; see the B7 block.)
+//!   bit equal to the legacy kernel. Before GF-4 moved the passes ahead of
+//!   the trace (coastal in `5627735d`, glacial under Ruling CH), the legacy
+//!   chains were also asserted to reproduce the generated world bit for bit,
+//!   and held on all five seeds; that is what ties these inputs to the
+//!   pipeline. B6 at glacial's moved position is `gf0_geology_harness.rs`'s
+//!   `gf4_b6_moved`.
 //! - **Treatment arm:** the same kernels at the app's `c = tect.resist`
 //!   (0.50, `WorldParams::defaults`; §9 Q5 repurposes it as `c`).
 //!
@@ -298,17 +299,17 @@ fn gf4_bars() {
         let mut treat = pre.field.to_vec();
         cartalith_erosion::glacial_kernel_rock(&mut treat, &pre.temperature, gw, gh, &gpar, &cartalith_erosion::PassRock { column: &col0, contrast: c, r_expose });
 
-        // Validity: the legacy chain is the pipeline's (glacial, strip,
-        // rebound, clamp), bit for bit against the generated world.
+        // The coastal input below: the legacy chain (glacial, strip,
+        // rebound). Until Ruling CH moved glacial ahead of the trace on
+        // processes-on worlds this chain + clamp was asserted bit for bit
+        // against the generated world (it held on all five seeds at
+        // 2048 x 1311); B6 at the moved position is
+        // `gf0_geology_harness.rs`'s `gf4_b6_moved`.
         let mut col = col0.clone();
         cartalith_erosion::account_regolith(&mut col, &pre.field, &legacy, false);
         let mut after_rb = legacy.clone();
         cartalith_erosion::isostatic_rebound(&mut after_rb, &pre.field, gw, gh, p.tect.blur_r, world);
         cartalith_erosion::lift_column(&mut col, &legacy, &after_rb);
-        let mut replay = after_rb.clone();
-        clamp01(&mut replay);
-        let with_glacial = generate_terrain(&p);
-        assert!(replay == *with_glacial.field, "seed {seed}: glacial + strip + rebound + clamp does not reproduce the processes-on world");
 
         let class0 = cartalith_civ::build_water_bodies(&pre.field, gw, gh, sea, world, Some(&pre.rainfall)).classification;
         let snow_el = sea + (1.0 - sea) * q.glacial_snowline;
@@ -430,6 +431,29 @@ fn gf4_bars() {
             );
             let ok8 = o1 == 0 && l1.zip(l0).is_some_and(|(b, a)| b <= a + 2.0) && (s1 as f64) <= 1.25 * s0 as f64;
             println!("   bar (ocean 0; lake % <= control + 2 pp; small lakes <= 1.25 x control) => {}", if ok8 { "PASS" } else { "FAIL" });
+            // Diagnostic for the small-lake rise (Ruling CH item 3): the same
+            // flip with one coastal term removed at a time -- the marsh
+            // (`marsh_band` 0) and the wave and estuary cut (`wave_str` 0,
+            // which zeroes both). Whichever leaves the 1-3-cell lakes at the
+            // control's count is the cause.
+            for (term, mut qq) in [
+                ("marsh off", cartalith_engine::ErosionPassParams { coastal: true, ..base.passes.clone() }),
+                ("wave+estuary off", cartalith_engine::ErosionPassParams { coastal: true, ..base.passes.clone() }),
+            ] {
+                if term == "marsh off" {
+                    qq.marsh_band = 0.0;
+                } else {
+                    qq.wave_str = 0.0;
+                }
+                let d_ws = generate_terrain(&WorldParams { passes: qq, ..base.clone() });
+                let cd = cartalith_civ::build_water_bodies(&d_ws.field, gw, gh, d_ws.sea_level, world, Some(&d_ws.rainfall)).classification;
+                let (od, ld, sd, nd) = b8(&d_ws, &cd, gw, gh);
+                println!(
+                    "   diagnostic, {term}: ocean on paths {od}; lake % of path {:.3} ({nd}); 1-3-cell lakes {sd}; land cells {}",
+                    ld.unwrap_or(f64::NAN),
+                    land(&cd)
+                );
+            }
         }
     }
 }

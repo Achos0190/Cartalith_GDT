@@ -2457,8 +2457,11 @@ fn hillslope(p: &WorldParams, sea: f64, field: &mut [f32], col: &mut GeologyColu
 /// The rest of `generate_terrain_inner` after the erosion stage, replayed from
 /// public functions: routing, channels, Strahler order, the trace, the
 /// river-intensity stamp, the carve (RV-1), the climate refresh, the glacial
-/// pass and its rebound, the passes' clamp and the final refresh. `rain` is
-/// the priming rainfall the pipeline still holds at that point.
+/// pass and its rebound, the passes' clamp and the final refresh. `rain` and
+/// `temp` are the priming rainfall and temperature the pipeline still holds
+/// at that point. With the processes on (`col` is `Some`), glacial runs
+/// first instead, ahead of the trace, on the rock kernel and `temp` (GF-4,
+/// Ruling CH), as `generate_terrain_inner` runs it.
 ///
 /// `col` is `Some` exactly when the processes are on; then the carve and
 /// glacial strip regolith and the rebound lifts the contact (`RockContext`'s
@@ -2469,7 +2472,7 @@ fn hillslope(p: &WorldParams, sea: f64, field: &mut [f32], col: &mut GeologyColu
 ///
 /// Must never be given a `p` with a pass other than glacial on (asserted):
 /// the replay covers the app's own passes and no others.
-fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, mut col: Option<GeologyColumn>, clock: &cartalith_engine::geo_clock::GeoClock) -> WorldState {
+fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, temp: &[f32], mut col: Option<GeologyColumn>, clock: &cartalith_engine::geo_clock::GeoClock) -> WorldState {
     let (gw, gh, world) = (p.gw, p.gh, p.world);
     let sea = pre.sea_level;
     let q = &p.passes;
@@ -2477,6 +2480,34 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     let mut others = q.clone();
     others.glacial = false;
     assert!(!others.any(), "the replica covers the glacial pass only");
+    // GF-4 (Ruling CH): with the processes on, glacial runs here, ahead of
+    // the trace, on the rock kernel at `c = tect.resist`, reading the priming
+    // temperature (`temp`); then the strip and the rebound with the column.
+    if let (true, Some(c)) = (q.glacial, col.as_mut()) {
+        let before = field.clone();
+        let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+        cartalith_erosion::glacial_kernel_rock(
+            &mut field,
+            temp,
+            gw,
+            gh,
+            &cartalith_erosion::GlacialParams {
+                kg: q.glacial_kg,
+                mg: q.glacial_mg,
+                snowline: q.glacial_snowline,
+                u_factor: q.glacial_u_factor,
+                passes: clock.glacial_passes(q.glacial_passes).n,
+                g: p.planet.g,
+                sea,
+                world,
+            },
+            &cartalith_erosion::PassRock { column: &*c, contrast: p.tect.resist, r_expose },
+        );
+        cartalith_erosion::account_regolith(c, &before, &field, false);
+        let before_rb = field.clone();
+        cartalith_erosion::isostatic_rebound(&mut field, &before, gw, gh, p.tect.blur_r, world);
+        cartalith_erosion::lift_column(c, &before_rb, &field);
+    }
     let integrate = p.integrate_drainage;
     let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
     let flow_net = cartalith_hydrology::compute_flow(gw, gh, &route, Some(&rain), true, world);
@@ -2537,7 +2568,8 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     let mut rainfall = cartalith_climate::simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &wp);
     cartalith_climate::apply_climate_moisture_correctors(gw, gh, &field, &flow, &mut rainfall, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
     currents(p, sea, &field, &mut temperature, &mut rainfall);
-    if q.glacial {
+    // The processes-off path: glacial after the trace, rock-blind, as before GF-4.
+    if q.glacial && col.is_none() {
         let before = field.clone();
         cartalith_erosion::glacial_kernel(
             &mut field,
@@ -2712,12 +2744,12 @@ fn replica_reproduces_generate_terrain() {
         assert!(t == *pre.temperature && r == *pre.rainfall, "priming climate replay diverged on seed {seed}");
         let off = cartalith_engine::geo_clock::GeoClock::new(false, 1.0);
         let (f, _, _, _) = light_pass(&p, &pre, false, 1.0, false, true);
-        let a = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+        let a = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, None, &off);
         assert!(same_world(&a, &generate_terrain(&p)), "app-path replay diverged on seed {seed}");
         for tau in [1.0, 4.0] {
             let clock = cartalith_engine::geo_clock::GeoClock::new(true, tau);
             let (f, col, _, _) = light_pass(&p, &pre, true, tau, false, true);
-            let t = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &clock);
+            let t = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, col, &clock);
             assert!(same_world(&t, &treated_at(&p, tau)), "processes-on replay diverged on seed {seed} at tau {tau}");
         }
     }
@@ -3285,14 +3317,19 @@ fn run_arm(ctx: &SeedCtx, cfg: ArmCfg) -> ArmOut {
         (ctx.pre.field.to_vec(), ctx.pre.geology.column().unwrap().clone(), None)
     };
     let constructed = cfg.construct.then(|| (field.clone(), col.clone()));
-    let rain = if cfg.construct { priming_climate(p, sea, &field).1 } else { ctx.pre.rainfall.to_vec() };
+    let (temp, rain) = if cfg.construct { priming_climate(p, sea, &field) } else { (ctx.pre.temperature.to_vec(), ctx.pre.rainfall.to_vec()) };
     let stage = cfg.stage.then(|| {
         let u0_m = ctx.u0.expect("the stage needs U0: build the context with build_ctx").0;
         let u: Vec<f64> = ctx.shape.iter().map(|&s| s * u0_m / ctx.mpu).collect();
         bm_stage(p, sea, &mut field, &mut col, &u, &rain, cfg.c, cfg.tau * cfg.t_mult * ctx.t1, N_BM)
     });
     hillslope(p, sea, &mut field, &mut col, &clock);
-    let ws = tail(p, &ctx.pre, field, rain, Some(col), &clock);
+    // GF-4 (Ruling CH): glacial now reads rock at the world's one contrast
+    // knob (`tect.resist`, §9 Q5), so the arm's `c` must reach the tail too,
+    // as `relief_params` sets it on the production side.
+    let mut pt = p.clone();
+    pt.tect.resist = cfg.c;
+    let ws = tail(&pt, &ctx.pre, field, rain, &temp, Some(col), &clock);
     ArmOut { ws, constructed, cons, stage }
 }
 
@@ -3785,7 +3822,7 @@ fn gf10_small_lake_diag() {
             let n_rb = small(&after_rb, rain0);
             let n_pre_carve = small(&f, rain0);
             let clock = cartalith_engine::geo_clock::GeoClock::new(proc_on, tau);
-            let ws = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &clock);
+            let ws = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, col, &clock);
             let n_final = small(&ws.field, &ws.rainfall);
             // Only the as-built rows describe a world the pipeline makes.
             let check = if !refresh && regolith {
@@ -4564,7 +4601,7 @@ fn gf11_b9_cost() {
         hillslope(&p, sea, &mut f, &mut col, &clock);
         let h = t.elapsed().as_secs_f64();
         let t = std::time::Instant::now();
-        let _ = tail(&p, &pre, f, pre.rainfall.to_vec(), Some(col), &clock);
+        let _ = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, Some(col), &clock);
         let tl = t.elapsed().as_secs_f64();
         if k > 0 {
             tg.push(g);
@@ -5041,12 +5078,12 @@ fn rr_routing_refresh() {
         let iters = off.light_pass_iters(p.stream.iters).n;
         println!("\n==== §5.11 seed {seed}, 800 km, {gw}x{gh}: app path, light pass {iters} iterations ====");
         let (f, _, secs) = light_pass_rr(&p, &pre, false, 1.0, None);
-        let base = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+        let base = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, None, &off);
         let check = if same_world(&base, &generate_terrain(&p)) { "replica == generate_terrain" } else { "REPLICA DIVERGED" };
         println!("  today (frozen)       [{check}; SP call {secs:.3} s]  {}", rr_row(&p, &base));
         for &k in &everys {
             let (f, _, secs) = light_pass_rr(&p, &pre, false, 1.0, std::num::NonZeroUsize::new(k));
-            let v = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+            let v = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, None, &off);
             let same = if same_world(&v, &base) { "BIT-IDENTICAL to today" } else { "differs from today" };
             println!("  refresh every {k:<2}     [{same}; {}; SP call {secs:.3} s]  {}", field_delta(&p, &base, &v), rr_row(&p, &v));
         }
@@ -5054,12 +5091,12 @@ fn rr_routing_refresh() {
             let on = cartalith_engine::geo_clock::GeoClock::new(true, tau);
             println!("  -- gated path, geology_processes on, tau {tau} ({} iterations) --", on.light_pass_iters(p.stream.iters).n);
             let (f, col, secs) = light_pass_rr(&p, &pre, true, tau, None);
-            let built = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &on);
+            let built = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, col, &on);
             let check = if same_world(&built, &treated_at(&p, tau)) { "replica == generate_terrain" } else { "REPLICA DIVERGED" };
             println!("  tau {tau} as built       [{check}; SP call {secs:.3} s]  {}", rr_row(&p, &built));
             for k in [1usize, 4] {
                 let (f, col, secs) = light_pass_rr(&p, &pre, true, tau, std::num::NonZeroUsize::new(k));
-                let v = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &on);
+                let v = tail(&p, &pre, f, pre.rainfall.to_vec(), &pre.temperature, col, &on);
                 println!("  tau {tau} refresh {k:<2}     [variant; SP call {secs:.3} s]  {}", rr_row(&p, &v));
             }
         }
@@ -5118,5 +5155,99 @@ fn rr_routing_refresh_cost() {
             g + m - f0,
             (g + m - f0) / g
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GF-4 under Ruling CH (2026-10-12): B6 at glacial's moved position
+// ---------------------------------------------------------------------------
+
+/// B6 with the model's groups (`GEOLOGY_FIRST_SCOPE.md` §5.2: weak γ >= 1.5,
+/// strong γ <= 0.6, read on the kernel's input surface), the same equal-count
+/// discharge bands and per-band median ratio as [`b6`].
+fn b6_gamma(gamma: &[f32], lowering_m: &[f64], q: &[f32], ice: &[usize]) -> Reading {
+    if ice.len() < MIN_POP {
+        return Reading::none(format!("not measurable on this seed: ice cells {} < {MIN_POP}", ice.len()), vec![("ice cells", ice.len())]);
+    }
+    let mut ranked = ice.to_vec();
+    ranked.sort_by(|&a, &b| q[a].total_cmp(&q[b]).then(a.cmp(&b)));
+    let (mut ratios, mut nw, mut ns) = (Vec::new(), 0usize, 0usize);
+    for d in 0..10 {
+        let band = &ranked[d * ranked.len() / 10..(d + 1) * ranked.len() / 10];
+        let weak: Vec<f64> = band.iter().filter(|&&i| gamma[i] >= 1.5).map(|&i| lowering_m[i]).collect();
+        let strong: Vec<f64> = band.iter().filter(|&&i| gamma[i] <= 0.6).map(|&i| lowering_m[i]).collect();
+        if weak.len() < 10 || strong.len() < 10 {
+            continue;
+        }
+        let (mw, ms) = (median(&weak).unwrap(), median(&strong).unwrap());
+        if ms <= 0.0 {
+            continue;
+        }
+        nw += weak.len();
+        ns += strong.len();
+        ratios.push(mw / ms);
+    }
+    let pops = vec![("ice cells", ice.len()), ("weak in used bands", nw), ("strong in used bands", ns)];
+    match median(&ratios) {
+        Some(r) => Reading::ok(r, pops).floored(),
+        None => Reading::none("no discharge band had >=10 weak and >=10 strong cells with a positive strong median", pops),
+    }
+}
+
+/// B6 for the wired glacial pass (Ruling CH): the kernel's input is the
+/// processes-on light pass's output ([`light_pass`], stream power, rebound and
+/// GF-3's hillslope) with the priming temperature, which is where
+/// `generate_terrain_inner` now runs glacial. Control: `glacial_kernel_rock`
+/// at `c = 0` (asserted equal to `glacial_kernel`); treatment: `c` =
+/// `tect.resist`. Asserts only validity: the replay of that input through
+/// [`tail`] is the generated processes-on world bit for bit.
+#[test]
+#[ignore = "GF-4 B6 at the moved position: minutes at 2048x1311; run alone in release"]
+fn gf4_b6_moved() {
+    let (gw, gh) = grid();
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let p = WorldParams { geology_processes: true, ..app_params(seed, 800.0, gw, gh) };
+        let pre = pre_erosion(&p);
+        let sea = pre.sea_level;
+        let mpu = p.peak_m / (1.0 - sea);
+        let clock = cartalith_engine::geo_clock::GeoClock::new(true, 1.0);
+        let (f, col, _, _) = light_pass(&p, &pre, true, 1.0, false, true);
+        let col = col.expect("processes on");
+        let replay = tail(&p, &pre, f.clone(), pre.rainfall.to_vec(), &pre.temperature, Some(col.clone()), &clock);
+        assert!(same_world(&replay, &treated(&p)), "seed {seed}: the replay is not the generated processes-on world");
+        let q = &p.passes;
+        let gp = cartalith_erosion::GlacialParams {
+            kg: q.glacial_kg,
+            mg: q.glacial_mg,
+            snowline: q.glacial_snowline,
+            u_factor: q.glacial_u_factor,
+            passes: q.glacial_passes,
+            g: p.planet.g,
+            sea,
+            world: p.world,
+        };
+        let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+        let run = |c: f64| {
+            let mut z = f.clone();
+            cartalith_erosion::glacial_kernel_rock(&mut z, &pre.temperature, gw, gh, &gp, &cartalith_erosion::PassRock { column: &col, contrast: c, r_expose });
+            z
+        };
+        let (ctrl, treat) = (run(0.0), run(p.tect.resist));
+        let mut legacy = f.clone();
+        cartalith_erosion::glacial_kernel(&mut legacy, &pre.temperature, gw, gh, &gp);
+        assert!(ctrl == legacy, "seed {seed}: c = 0 is not the legacy kernel");
+        let class = cartalith_civ::build_water_bodies(&f, gw, gh, sea, p.world, None).classification;
+        let snow_el = sea + (1.0 - sea) * q.glacial_snowline;
+        let ice: Vec<usize> = (0..gw * gh).filter(|&i| class[i] == 0 && f[i] as f64 >= snow_el && (pre.temperature[i] as f64) < 0.0).collect();
+        let gamma: Vec<f32> = (0..gw * gh).map(|i| col.exposed(i, f[i], r_expose).expect("rock").props().gamma).collect();
+        let route = cartalith_hydrology::build_routing_surface(&f, gw, gh, sea, p.world);
+        let qd = cartalith_hydrology::compute_flow(gw, gh, &route, None, false, p.world);
+        let low = |z: &[f32]| -> Vec<f64> { (0..gw * gh).map(|i| (f[i] as f64 - z[i] as f64) * mpu).collect() };
+        let (rc, rt) = (b6_gamma(&gamma, &low(&ctrl), &qd, &ice), b6_gamma(&gamma, &low(&treat), &qd, &ice));
+        let v = match (rt.value, rc.value) {
+            (Some(t), Some(c)) => verdict(Some(t >= 1.5 && t >= 1.5 * c)),
+            _ => verdict(None),
+        };
+        println!("seed {seed}: B6 at the moved position  control {}  treatment {}  => {v}", rc.show(), rt.show());
     }
 }

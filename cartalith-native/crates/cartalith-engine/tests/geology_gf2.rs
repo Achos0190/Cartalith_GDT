@@ -98,6 +98,11 @@ fn at_contrast_zero_the_treatment_terrain_is_the_controls() {
     let mut p = app_params(24601);
     p.geology_model = true;
     p.tect.resist = 0.0;
+    // RE-BASELINED 2026-10-12 (GF-4, Ruling CH): glacial off. With the
+    // processes on it now runs ahead of the trace, so at any contrast the two
+    // arms run it in a different place and cannot be equal; this test's claim
+    // is about the rock factors, which glacial off still isolates.
+    p.passes.glacial = false;
     p.passes.evolve_cycles = 1;
     p.passes.sediment_fill = true;
     let t = generate_terrain(&p);
@@ -134,55 +139,16 @@ fn with_the_switch_on_the_world_changes() {
     assert!(reg_more, "evolve + sediment fill left the regolith unchanged");
 }
 
-/// Protects the glacial call site's regolith-first stripping (§4.9) by exact
-/// replay. The glacial pass is the only pass on, and the passes run after the
-/// hydrology, so the same world with glacial off is exactly the state the pass
-/// received (field, temperature, column). Replaying `glacial_kernel` on it,
-/// the column must equal `account_regolith(strip only)` of that lowering, bit
-/// for bit, and rebound + the passes' clamp must reproduce the field -- or
-/// this is not the pass the world ran.
-#[test]
-fn glacial_lowering_strips_regolith_first_exactly() {
-    // Protects: §4.9's regolith-first stripping at the glacial call site
-    // specifically, by exact replay of glacial_kernel + rebound + clamp
-    // against the world the pass actually ran on.
-    let mut p = app_params(24601);
-    p.geology_model = true;
-    let mut off = p.clone();
-    off.passes.glacial = false;
-    assert!(!off.passes.any());
-    let w0 = generate_terrain(&off);
-    let w1 = generate_terrain(&p);
-    let q = &p.passes;
-    let mut after_kernel = w0.field.to_vec();
-    cartalith_erosion::glacial_kernel(
-        &mut after_kernel,
-        &w0.temperature,
-        GW,
-        GH,
-        &cartalith_erosion::GlacialParams {
-            kg: q.glacial_kg,
-            mg: q.glacial_mg,
-            snowline: q.glacial_snowline,
-            u_factor: q.glacial_u_factor,
-            passes: q.glacial_passes,
-            g: p.planet.g,
-            sea: w0.sea_level,
-            world: p.world,
-        },
-    );
-    let mut replay = after_kernel.clone();
-    cartalith_erosion::isostatic_rebound(&mut replay, &w0.field, GW, GH, p.tect.blur_r, p.world);
-    for v in replay.iter_mut() {
-        *v = v.clamp(0.0, 1.0);
-    }
-    assert_eq!(bits(&replay), bits(&w1.field), "the replay is not the pass the world ran");
-    let mut col = w0.geology.column().unwrap().clone();
-    let had = col.regolith.iter().zip(w0.field.iter().zip(after_kernel.iter())).filter(|(r, (a, b))| **r > 0.0 && b < a).count();
-    assert!(had > 0, "no glacially lowered cell held regolith, so this test cannot fail");
-    cartalith_erosion::account_regolith(&mut col, &w0.field, &after_kernel, false);
-    assert_eq!(bits(&col.regolith), bits(&w1.geology.column().unwrap().regolith), "glacial stripping");
-}
+// Retired 2026-10-12 (GF-4, Ruling CH): `glacial_lowering_strips_regolith_first_exactly`
+// replayed `glacial_kernel` on the same world with glacial off, which was the
+// pass's input only while glacial ran after the trace. With the processes on
+// it now runs ahead of the trace on `glacial_kernel_rock`, an input no
+// `WorldState` carries. Its two claims are held elsewhere: the strip and the
+// column lift at that call site by the pipeline replica
+// (`cartalith-godot/tests/gf0_geology_harness.rs`,
+// `replica_reproduces_generate_terrain`, which compares regolith and contact
+// bit for bit), and `RockContext::glacial`'s own sequence by `lib.rs`'s
+// `gf4_rock_context_glacial_is_the_rock_kernel_strip_and_rebound`.
 
 /// Protects the light pass end to end and the RV-1 carve's regolith-first
 /// stripping (§4.9), by exact replay from the pre-erosion world (carve off,

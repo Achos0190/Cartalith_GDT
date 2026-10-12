@@ -468,7 +468,8 @@ pub struct StreamParams {
 /// with `carve_rivers` on, `coastal` runs ahead of the river trace, not
 /// here, because run after it the pass sank land the traced rivers already
 /// crossed (B8's ocean-on-paths guard, measured in
-/// `cartalith-godot/tests/gf4_glacial_coastal.rs`). The others keep this
+/// `cartalith-godot/tests/gf4_glacial_coastal.rs`). With `geology_processes`
+/// on, `glacial` runs ahead of the trace too (Ruling CH). The others keep this
 /// position.
 ///
 /// ## Order
@@ -1454,11 +1455,9 @@ pub(crate) fn compute_stress_gpu(
 ///
 /// Must never be `on` without a column (the constructor derives `on` from
 /// the column's presence), and must never make a process read rock that its
-/// milestone has not reached: glacial and the carve only *strip* regolith
-/// here. The coastal pass reads rock since GF-4 ([`RockContext::coastal`]);
-/// glacial's rock kernel (`cartalith_erosion::glacial_kernel_rock`) exists
-/// but is not called yet (`GEOLOGY_FIRST_SCOPE.md` §7, "GF-4 measured"), and
-/// the carve reads rock at GF-6.
+/// milestone has not reached: the carve only *strips* regolith here and
+/// reads rock at GF-6. The coastal and glacial passes read rock since GF-4
+/// ([`RockContext::coastal`], [`RockContext::glacial`]; Ruling CH).
 struct RockContext {
     on: bool,
     /// §4.1's rock contrast `c`: `tect.resist`, repurposed (§9 Q5's default).
@@ -1614,6 +1613,62 @@ impl RockContext {
                 cartalith_erosion::account_regolith(column, &before, field, true);
             }
             None => coastal_process(field, flow, gw, gh, sea_level, world, g, cp),
+        }
+    }
+
+    /// The glacial pass with its tail, as the passes block ran it before
+    /// GF-4: the kernel, §4.9's strip (lowering takes regolith first), the
+    /// reference's `eroFinish` isostatic rebound (glacial is the one pass the
+    /// reference follows with one; the column rises with it when on), and
+    /// `dynamic_lithology`'s resistance update.
+    ///
+    /// When on (GF-4, Ruling CH; `GEOLOGY_FIRST_SCOPE.md` §4.4) the kernel is
+    /// `glacial_kernel_rock`: every lowering term times the exposed rock's
+    /// `γ^c`. Off, `glacial_kernel` verbatim and the strip is skipped, so a
+    /// world with the processes off (the app, the parity path) runs the
+    /// pre-GF-4 statements by control flow.
+    #[allow(clippy::too_many_arguments)]
+    fn glacial(
+        &self,
+        geology: &mut Geology,
+        resistance: &mut [f32],
+        field: &mut Vec<f32>,
+        temperature: &[f32],
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        p: &WorldParams,
+    ) {
+        let q = &p.passes;
+        let gp = GlacialParams {
+            kg: q.glacial_kg,
+            mg: q.glacial_mg,
+            snowline: q.glacial_snowline,
+            u_factor: q.glacial_u_factor,
+            // Saturating in τ when GF-7's clock acts (§4.12).
+            passes: self.clock.glacial_passes(q.glacial_passes).n,
+            g: p.planet.g,
+            sea: sea_level,
+            world,
+        };
+        let pre = field.clone();
+        match geology.column().filter(|_| self.on) {
+            Some(column) => cartalith_erosion::glacial_kernel_rock(
+                field,
+                temperature,
+                gw,
+                gh,
+                &gp,
+                &cartalith_erosion::PassRock { column, contrast: self.contrast, r_expose: self.r_expose },
+            ),
+            None => glacial_kernel(field, temperature, gw, gh, &gp),
+        }
+        // GF-2 (§4.9): glacial lowering strips regolith first.
+        self.strip(geology, Some(&pre), field);
+        self.rebound(geology, field, &pre, gw, gh, p.tect.blur_r, world);
+        if p.tect.dynamic_lithology {
+            recompute_resistance_after_erosion(resistance, &pre, field, 6.0);
         }
     }
 
@@ -2572,6 +2627,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // uses the function's built-in default of 6.0.
             recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
         }
+        // GF-4 (Ruling CH; `GEOLOGY_FIRST_SCOPE.md` §3.2 item 2, §4.4): with
+        // the processes on, glacial runs here, ahead of the trace and of the
+        // coastal pass (§3.1's order: glacial, rebound, coastal), reading
+        // rock, so the network and the carve describe the surface the ice
+        // left. It reads the priming climate's `temperature` (the only one
+        // computed by now; the post-carve refresh is below). Off -- the app
+        // and the parity path -- it stays in the passes block, after the
+        // trace, rock-blind, as before. This moves every processes-on world
+        // that runs glacial (the app's own parameters do); none ships.
+        if rock.on && p.passes.glacial {
+            rock.glacial(&mut geology, &mut resistance_field, &mut field, &temperature, gw, gh, sea_level, world, p);
+        }
         // GF-4 (`GEOLOGY_FIRST_SCOPE.md` §3.2 item 2, §4.5): the coastal pass
         // runs here, ahead of the trace, whenever it is on, so the channel
         // network and the carve describe the surface it leaves. After the
@@ -2881,42 +2948,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // reference's own comment says so ("it's a full hydraulic sim").
             let _ = velocity_erode_kernel(&mut field, Some(&rainfall), gw, gh, &vp);
         }
-        if q.glacial {
-            let pre = field.clone();
-            glacial_kernel(
-                &mut field,
-                &temperature,
-                gw,
-                gh,
-                &GlacialParams {
-                    kg: q.glacial_kg,
-                    mg: q.glacial_mg,
-                    snowline: q.glacial_snowline,
-                    u_factor: q.glacial_u_factor,
-                    // Saturating in τ when GF-7's clock acts (§4.12).
-                    passes: rock.clock.glacial_passes(q.glacial_passes).n,
-                    g: p.planet.g,
-                    sea: sea_level,
-                    world,
-                },
-            );
-            // GF-2 (§4.9): glacial lowering strips regolith first. The kernel
-            // called here reads no rock: GF-4's `glacial_kernel_rock` and the
-            // move ahead of the trace are not wired, because they change
-            // processes-on worlds that the GF-0 harness's replica
-            // (`replica_reproduces_generate_terrain`) must be changed with
-            // (`GEOLOGY_FIRST_SCOPE.md` §7, "GF-4 measured").
-            rock.strip(&mut geology, Some(&pre), &field);
-            // glacialErode()'s own `eroFinish(pre)` tail -- glacial is the one
-            // of these the reference follows with an isostatic rebound.
-            rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
-            if p.tect.dynamic_lithology {
-                recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
-            }
+        // GF-4 (Ruling CH): with the processes on and a trace, glacial already
+        // ran ahead of it (the carve block); only the other worlds run it here.
+        if q.glacial && !(rock.on && p.carve_rivers) {
+            rock.glacial(&mut geology, &mut resistance_field, &mut field, &temperature, gw, gh, sea_level, world, p);
         }
-        // GF-4: with `carve_rivers` on the coastal pass already ran, ahead
-        // of the trace (the carve block above); only a world with no trace
-        // runs it here.
         if q.coastal && !p.carve_rivers {
             rock.coastal(
                 &mut geology,
@@ -3353,6 +3389,63 @@ mod tests {
         ctx(false).coastal(&mut geo_off, &mut f_off, &flow, w, h, 0.1, false, 1.0, &cp);
         assert!(f_off.iter().zip(&legacy).all(|(a, b)| a.to_bits() == b.to_bits()), "off: not the legacy pass");
         assert!(geo_off.column().unwrap().regolith.iter().all(|&r| r == 0.0), "off: the column must not move");
+    }
+
+    /// Protects: GF-4's glacial wiring through `RockContext` (Ruling CH;
+    /// `GEOLOGY_FIRST_SCOPE.md` §4.4, §4.9). On, it is `glacial_kernel_rock`
+    /// at the context's contrast, then the strip (the lowering takes the
+    /// fixture's regolith first, exactly), then the rebound with the column
+    /// lifted; off, `glacial_kernel` and the rebound with the column untouched.
+    /// Replaces `geology_gf2.rs`'s retired replay of the same sequence.
+    #[test]
+    fn gf4_rock_context_glacial_is_the_rock_kernel_strip_and_rebound() {
+        use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
+        let (w, h) = (8usize, 12usize);
+        let n = w * h;
+        let mut p = WorldParams::defaults(w, h, 1);
+        p.passes.glacial_kg = 5.0;
+        p.passes.glacial_snowline = 0.0;
+        p.passes.glacial_passes = 1;
+        let field0: Vec<f32> = (0..n).map(|i| 0.3 + 0.04 * (i / w) as f32 + 0.003 * (i % w) as f32).collect();
+        let temp = vec![-5.0f32; n];
+        let col0 = GeologyColumn {
+            rock_top: vec![Rock::Shale as u8; n],
+            rock_sub: vec![NO_LAYER; n],
+            contact: vec![f32::NAN; n],
+            // Thin regolith (under R_EXPOSE), so the rock read is shale's.
+            regolith: vec![0.0005; n],
+            volcanic_setting: vec![0; n],
+            construction: cartalith_terrain::geology::Construction::Off,
+        };
+        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0) };
+        let gp = GlacialParams { kg: 5.0, mg: p.passes.glacial_mg, snowline: 0.0, u_factor: p.passes.glacial_u_factor, passes: 1, g: p.planet.g, sea: 0.1, world: false };
+
+        let mut geo = Geology::Column(Box::new(col0.clone()));
+        let mut f = field0.clone();
+        let mut res = vec![0.5f32; n];
+        ctx(true).glacial(&mut geo, &mut res, &mut f, &temp, w, h, 0.1, false, &p);
+        let mut e = field0.clone();
+        cartalith_erosion::glacial_kernel_rock(&mut e, &temp, w, h, &gp, &cartalith_erosion::PassRock { column: &col0, contrast: 0.5, r_expose: 0.001 });
+        let mut ecol = col0.clone();
+        cartalith_erosion::account_regolith(&mut ecol, &field0, &e, false);
+        let before_rb = e.clone();
+        isostatic_rebound(&mut e, &field0, w, h, p.tect.blur_r, false);
+        assert!(f.iter().zip(&e).all(|(a, b)| a.to_bits() == b.to_bits()), "on: not kernel + rebound");
+        let stripped = (0..n).filter(|&i| ecol.regolith[i] < 0.0005).count();
+        assert!(stripped >= 20, "the fixture must strip regolith: {stripped} cells");
+        cartalith_erosion::lift_column(&mut ecol, &before_rb, &e);
+        let got = geo.column().unwrap();
+        assert!(got.regolith.iter().zip(&ecol.regolith).all(|(a, b)| a.to_bits() == b.to_bits()), "on: regolith is not the strip");
+
+        let mut geo_off = Geology::Column(Box::new(col0.clone()));
+        let mut f_off = field0.clone();
+        ctx(false).glacial(&mut geo_off, &mut res, &mut f_off, &temp, w, h, 0.1, false, &p);
+        let mut l = field0.clone();
+        glacial_kernel(&mut l, &temp, w, h, &gp);
+        isostatic_rebound(&mut l, &field0, w, h, p.tect.blur_r, false);
+        assert!(f_off.iter().zip(&l).all(|(a, b)| a.to_bits() == b.to_bits()), "off: not the legacy kernel + rebound");
+        assert!(f_off != f, "on must differ from off: the rock factor has to reach the field");
+        assert!(geo_off.column().unwrap().regolith.iter().all(|&r| r == 0.0005), "off: the column must not move");
     }
 
     /// A two-cell shale row with a 0.1 step at 800 km over 2048 cells (sea

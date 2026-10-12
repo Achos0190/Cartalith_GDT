@@ -1658,6 +1658,14 @@ raised, and the change is disclosed.
   2026-09-27: a coastal pass that reads no rock measured 0.13 to 2.10 on the
   stand-in map, §5.4, so an absolute bar alone could be met, or missed, by
   geography.)*
+- ***Revised 2026-10-12 by Ruling CH, AFTER the result was seen; not a
+  pre-registered bar.*** B7 is read with the tidal marsh off in both arms
+  (`marsh_band` 0 in the metric's replay; the pass itself is unchanged).
+  The marsh's value-noise bump reads no rock under §4.5 and sinks cells on
+  its own. Disclosure: with the marsh the bar's relative half read
+  1.27-1.49 × control on the 4 measurable seeds; without it 1.62-2.17 ×,
+  and the revised bar passes on **2 of 4** measurable seeds (483920,
+  12345), not all (§7 "GF-4 measured").
 - Ruling BJ turns the pass on in the app at GF-4 (§4.5), so the bar is
   measured from GF-4 on. GF-0 measures its baseline on an extra arm with the
   pass forced on (§5.4).
@@ -4114,6 +4122,88 @@ rock", assumed rock-reading would be live in the app. It is not, because
 11. **Wire glacial now** (rock kernel plus the move ahead of the trace,
     updating the GF-0 replica in the same change)? Default: **yes**, once
     the harness file is free. Its B6 passes where measurable.
+
+### GF-4 under Ruling CH: B7 revised, glacial wired, the small lakes traced (2026-10-12)
+
+*Design and evidence, not status.* Ruling CH answered questions 8-11: B7
+revised (question 9, option a; §5.2's B7 carries the disclosure), glacial
+wired (question 11), small lakes investigated (question 10), and no coastal
+flip (question 8's default stands, since B8 still fails).
+
+**B7, revised (marsh off in the metric; written after the result was
+seen).** From the table above: 483920 3.174 → 6.903 (PASS: ≥ 3 and ≥ 6.35),
+24601 0.083 → 0.155 (FAIL), 71077345 0.919 → 1.488 (FAIL), 12345
+1.607 → 3.418 (PASS: ≥ 3 and ≥ 3.21), 314159 not measurable. **2 of 4
+measurable seeds**, so B7 still does not pass on all seeds.
+
+**Glacial wired** (`RockContext::glacial`). With the processes on, glacial
+runs on `glacial_kernel_rock` **ahead of the trace** (§3.1: glacial,
+rebound, coastal), after GF-3's hillslope, reading the priming
+temperature (the only one computed by then), then the strip and the
+rebound with the column. With the processes off it stays after the trace,
+rock-blind, as before. The GF-0 replica's `tail` does the same (it now
+takes the priming temperature, and `run_arm` passes its arm's `c` as
+`tect.resist`, since glacial reads the one contrast knob).
+`replica_reproduces_generate_terrain` and
+`gf11_built_stage_reproduces_the_measured_arm` hold bit for bit.
+
+- **Re-baseline, disclosed per DECISIONS §7p.** Every processes-on world
+  that runs glacial moves (the app's own parameters do). Parity and app
+  worlds hash identical to `cb4a7927` (two seeds, 512 × 328, 13 arrays);
+  processes-on worlds differ in every array. Their B8 at 2048 × 1311, old
+  → new (lake % of path cells; 1-3-cell lakes): 483920 0.977 → 0.977,
+  43 → 43; 24601 1.965 → 1.966, 49 → 49; 71077345 0.660 → 0.660, 27 → 27;
+  12345 3.809 → 3.855, 89 → 87; 314159 10.039 → 10.049, 37 → 37. Ocean on
+  paths 0 → 0 throughout. One test changed:
+  `geology_gf2.rs`'s `at_contrast_zero_the_treatment_terrain_is_the_controls`
+  now runs with glacial off (the two arms now run glacial in different
+  places, so no contrast can make them equal). One was retired:
+  `glacial_lowering_strips_regolith_first_exactly` replayed a post-trace
+  input that no longer exists. Its claims are held by the replica and by
+  `lib.rs`'s `gf4_rock_context_glacial_is_the_rock_kernel_strip_and_rebound`.
+- **B6 at the moved position** (`gf0_geology_harness.rs` `gf4_b6_moved`:
+  the replica's own input, asserted to replay to the generated world):
+  483920 2.040 → 3.503, 24601 17.950 → 29.333, 71077345 1.778 → 2.814,
+  all PASS. 12345 and 314159 are not measurable (46 and 84 weak-rock ice
+  cells). **3 of 5, the other 2 not measurable.**
+
+**The small lakes (B8), traced.** The flip was re-run with one coastal
+term removed at a time (`gf4_bars`' diagnostics; 1-3-cell lakes, control →
+coastal on → marsh off → wave and estuary off):
+
+| Seed | app world | processes-on world |
+|---|---|---|
+| 24601 | 68 → 205 → **69** → 155 | 49 → 239 → **169** → 135 |
+| 314159 | 62 → 102 → **61** → 89 | 37 → 62 → **35** → 63 |
+
+- **Cause on the app world and on processes-on 314159: the tidal marsh.**
+  With the marsh off the count is back at the control's (69 vs 68, 61 vs
+  62, 35 vs 37). The marsh's bump is centred value noise,
+  `(vnoise − 0.5)·marsh_band·0.55·fade`, so it lowers about half the
+  low-slope cells in its band by up to 0.008 (normalised). On flat
+  lowland that digs one- to three-cell closed hollows, which the classifier
+  calls lakes.
+- **Processes-on 24601 has a second cause, not isolated.** With the marsh
+  off it still reads 169 against 49, and with the cut off 135: both terms
+  add lakes there. The rock-reading cut (`ρ^c` up to 3.16 on unconsolidated
+  ground) and the debris written as regolith (which then reads as
+  unconsolidated) are the suspects. Not measured.
+- **Proposed fix, not built:** make the marsh accrete only (`max(0, bump)`).
+  A marsh builds up and never digs. That is a physical reading of the
+  pass, not one taken from a source at this line. It removes the measured
+  cause on three of the four failing arms. It is **not applied**: in the
+  app it changes the reference kernel (`coastal_process`, golden-verified
+  in `golden_parity_passes.rs`), and on the processes-on path alone it
+  would not fix 24601. Ruling CH allows a fix only if it is confined and
+  golden-neutral, and this one is neither by itself.
+
+**Owner questions, each with a default.**
+12. **Accretion-only marsh?** In both kernels it re-baselines the
+    reference marsh golden (§7p). In the rock path only, the app flip stays
+    blocked. Default: **both kernels, with the golden re-recorded and
+    disclosed**, since the noise-dug pits are an artefact, not a landform.
+13. **The second small-lake cause on processes-on 24601?** Default:
+    **investigate before any switch-on of `geology_processes`.**
 
 ---
 
