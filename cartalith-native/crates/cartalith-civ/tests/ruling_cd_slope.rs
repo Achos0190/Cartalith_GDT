@@ -16,9 +16,10 @@
 //!
 //! Since Ruling CG item 4 (owner, 2026-10-12) the term is Tobler-asymmetric:
 //! a stage keeps its climb and descent apart (`JpSlope::rise` / `fall`) and
-//! downhill is faster than uphill, so A->B and B->A plan differently; and the
-//! term is not applied on the `Hills` / `Mountain Trails` rows. The tests named
-//! for that ruling in their `Protects:` line are its.
+//! downhill is faster than uphill, so A->B and B->A plan differently. The
+//! term still applies on the `Hills` / `Mountain Trails` rows, on top of their
+//! own factors (owner clarification, Ruling CG item 4 addendum). The tests
+//! named for that ruling in their `Protects:` line are its.
 //!
 //! Every expectation is a literal or an independent quantity computed here from
 //! Tobler's (1993) exponent 3.5 (`exp(-0.35)` off a way, `exp(-0.175)` on one),
@@ -326,17 +327,15 @@ fn a_mixed_stage_is_the_harmonic_mean_of_its_climb_and_descent() {
     assert!(rev > mix, "the mostly-descending direction is faster: {rev} vs {mix}");
 }
 
-/// Protects (Ruling CG item 4): slope does not stack on the `Hills` and
-/// `Mountain Trails` rows, which already price the relief. On a 10 % ramp of
-/// either, the plan with slope measured equals the slope-free plan to the bit
-/// and its trace has no `slope` term, though the stage still reports its
-/// measured grade. Control: the same ramp as `Rocky Terrain` (another rough
-/// row the ruling did not name) is charged.
+/// Protects (Ruling CG item 4 addendum, owner 2026-10-12): slope DOES apply
+/// on the `Hills` and `Mountain Trails` rows, on top of their own terrain
+/// factors. On a 10 % ramp of either, the trace carries the `slope` term at
+/// Tobler's uphill factor and the plan is slower than the same ramp with slope
+/// off; walked down, the term is the descent's (exactly flat at -10 %).
 #[test]
-fn slope_does_not_stack_on_hills_or_mountain_trails() {
+fn slope_applies_on_hills_and_mountain_trails() {
     let none = HashMap::new();
-    // CART_TERRAINS (1-based in the raster): 6 = Hills, 9 = Mountain Trails,
-    // 7 = Rocky Terrain.
+    // CART_TERRAINS (1-based in the raster): 6 = Hills, 9 = Mountain Trails.
     for (t, name) in [(6u8, "Hills"), (9u8, "Mountain Trails")] {
         let mut s = ground(STEP);
         s.terrain = vec![t; W * H];
@@ -345,14 +344,12 @@ fn slope_does_not_stack_on_hills_or_mountain_trails() {
         assert_eq!(jp.stages[0].terrain, name, "premise: the stage is priced on {name}");
         let with = plan_on(&s, &none, true, &east());
         let off = plan_on(&s, &none, false, &east());
-        assert!((with.grade.expect("measured") - 0.1).abs() < 1e-6, "{name}: the grade is still measured");
-        assert_eq!(with.factor, None, "{name}: no slope term in the trace");
-        assert_eq!(with.days.to_bits(), off.days.to_bits(), "{name}: {} vs {}", with.days, off.days);
+        let f = with.factor.expect("the slope term is in the trace");
+        assert!((f - OFF_WAY_10PCT).abs() < 1e-6, "{name}: up factor {f}");
+        assert!(with.days > off.days * 1.4, "{name}: {} vs {}", with.days, off.days);
+        let down = plan_on(&s, &none, true, &west()).factor.expect("term present");
+        assert!((down - 1.0).abs() < 1e-5, "{name}: 10 % down factor {down}");
     }
-    let mut s = ground(STEP);
-    s.terrain = vec![7; W * H];
-    let rocky = plan_on(&s, &none, true, &east());
-    assert!((rocky.factor.expect("Rocky Terrain is charged") - OFF_WAY_10PCT).abs() < 1e-6);
 }
 
 /// Protects (Ruling CG item 4): a round trip. An out-and-back route over the

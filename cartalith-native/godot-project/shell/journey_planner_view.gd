@@ -3038,9 +3038,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		## stat also shows the grade's climbing and descending halves
 		## (`slope_rise` / `slope_fall`, emitted together with `slope_grade`):
 		## the same stage walked the other way swaps them, which is why its days
-		## differ. On a `Hills` / `Mountain Trails` stage the grade is still
-		## shown but the trace has no `slope` row: those rows already price the
-		## relief and the engine applies no slope term there.
+		## differ.
 		if s.has("slope_grade"):
 			var updown := ""
 			if s.has("slope_rise") and s.has("slope_fall"):
@@ -4507,9 +4505,9 @@ const _TRACE_TERMS := {
 	## Ruling CD item 2 (batch 3, 2026-10-11): the engine emits a `slope` term
 	## (`cartalith-civ`'s `jp_calc_land`, `term("slope", "<n> % grade · <u> %
 	## up / <d> % down[ · on a way]", factor)`) on a LAND leg whose stage
-	## carries slope data and is not priced on `Hills` / `Mountain Trails`
-	## (Ruling CG item 4: slope does not stack on those rows), and on no other
-	## leg -- so this row is only ever looked up for those. The factor is
+	## carries slope data (every land row, `Hills` / `Mountain Trails`
+	## included), and on no other leg -- so this row is only ever looked up for
+	## those. The factor is
 	## Tobler's (1993) hiking function normalised to flat ground, signed since
 	## Ruling CG (downhill faster than uphill, a steep descent slow again): the
 	## stage's km split into a climb and a descent at its mean grade, each

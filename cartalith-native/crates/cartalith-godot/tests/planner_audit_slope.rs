@@ -161,9 +161,7 @@ fn stage_lines(jp: &cartalith_civ::JpJourneyPlan) -> String {
                     sl.rise,
                     sl.fall,
                     if sl.on_way { " way" } else { "" },
-                    // Ruling CG item 4: the factor the planner applies, 1 on a
-                    // Hills / Mountain Trails stage (no term there).
-                    if cartalith_civ::jp_slope_applies_to(&s.terrain) { cartalith_civ::jp_slope_mod(&sl) } else { 1.0 },
+                    cartalith_civ::jp_slope_mod(&sl),
                     along
                 ),
                 None => format!("[{} | {} | {:.1} km | no slope]", s.terrain, s.route_cond, s.km),

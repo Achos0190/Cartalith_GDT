@@ -12798,10 +12798,10 @@ pub fn jp_tobler_rel(s: f64) -> f64 {
 /// sub-cell steps would see a zero-grade step then a steep jump). Not
 /// Tobler's own aggregation; Tobler gives the speed at one grade.
 ///
-/// **Must never** apply on `Hills` or `Mountain Trails`: those reference
-/// terrain rows already price the ground's relief, and Ruling CG item 4 says
-/// slope does not stack on them; [`jp_calc_land_ex`] skips the term there
-/// (see [`jp_slope_applies_to`]).
+/// Applies on every land terrain row, `Hills` (0.70) and `Mountain Trails`
+/// (0.45) included, on top of the row's own factor: the owner clarified on
+/// 2026-10-12 (Ruling CG item 4 addendum) that the existing slope on those
+/// rows stays and only the asymmetry is added.
 pub fn jp_slope_mod(s: &JpSlope) -> f64 {
     let share = if s.on_way { JP_WAY_SLOPE_SHARE } else { 1.0 };
     let (rise, fall) = (s.rise.max(0.0), s.fall.max(0.0));
@@ -12815,14 +12815,6 @@ pub fn jp_slope_mod(s: &JpSlope) -> f64 {
         return jp_tobler_rel(-g);
     }
     (rise + fall) / (rise / jp_tobler_rel(g) + fall / jp_tobler_rel(-g))
-}
-
-/// Ruling CG item 4: whether the `slope` term applies on a stage priced on
-/// this terrain row. `false` on `Hills` and `Mountain Trails`, whose reference
-/// factors (0.70 and 0.45, [`jp_terrain_land_mod`]) already stand for the
-/// relief; `true` everywhere else, roads over steep ground included.
-pub fn jp_slope_applies_to(terrain: &str) -> bool {
-    !matches!(terrain, "Hills" | "Mountain Trails")
 }
 
 /// A stage that cannot be travelled as configured. The reference returns
@@ -13041,10 +13033,9 @@ pub fn jp_calc_land_ex(
     // Ruling CD item 2: the slope term. `None` (no slope data) applies no term
     // and no trace entry -- the reference's chain; `x * 1.0` is exact, so the
     // `1.0` below changes no bit of an unsloped stage, and flat ground's
-    // `Some` term is exactly 1.0 too (`jp_slope_mod`). Ruling CG item 4: no
-    // term on `Hills` / `Mountain Trails` (`jp_slope_applies_to`), whose rows
-    // already price the relief; the stage still carries its measured slope.
-    let s_mod = st.slope.as_ref().filter(|_| jp_slope_applies_to(terrain)).map(jp_slope_mod);
+    // `Some` term is exactly 1.0 too (`jp_slope_mod`). Applied on every land
+    // row, `Hills` / `Mountain Trails` included (Ruling CG item 4 addendum).
+    let s_mod = st.slope.as_ref().map(jp_slope_mod);
     let p_mod = jp_pace_mod(&plan.pace);
     let i_mod = jp_infra_mod(&st.infra);
     let is_haste = plan.pace == "Haste";
@@ -26043,13 +26034,12 @@ mod tests {
         // Protects: slope reaches planned time on the real m5 world through the
         //   live path (`JpWorld::measure_slope` -> `JpSlope` -> the `slope` term):
         //   every land stage carries a grade and its way flag, every land leg
-        //   priced on a row the term applies to is slower than the slope-free
-        //   (reference) plan, the Hills leg is not charged (Ruling CG item 4:
-        //   slope does not stack on Hills / Mountain Trails), and the sea and
-        //   river legs do not move by a bit. Grades and the total are pinned
-        //   literals measured once on this fixture (2026-10-11, after seeing
-        //   the result). Every land stage here only climbs (`fall` 0), so
-        //   Ruling CG's asymmetry moves none of them.
+        //   (the Hills leg included: slope stacks on that row, Ruling CG item
+        //   4 addendum) is slower than the slope-free (reference) plan, and the
+        //   sea and river legs do not move by a bit. Grades and the total are
+        //   pinned literals measured once on this fixture (2026-10-11, after
+        //   seeing the result). Every land stage here only climbs (`fall` 0),
+        //   so Ruling CG's asymmetry moves none of them.
         let f = m5_fields();
         let pts = m5_pts();
         let with = JpWorld { measure_slope: true, ..m5_world(&f) };
@@ -26082,23 +26072,16 @@ mod tests {
                 (Some((g, w)), Some((eg, ew))) => {
                     assert!((g - eg).abs() < 1e-12, "stage {i} grade {g}");
                     assert_eq!(w, *ew, "stage {i} on_way");
-                    if q.stages[i].terrain == "Hills" {
-                        // RE-BASELINED 2026-10-12 under Ruling CG: this leg (stage
-                        // 3) was slower (2.0703527 d slope-free); now unchanged.
-                        assert_eq!(q.results[i].days().to_bits(), base.results[i].days().to_bits(), "Hills leg {i} must not move");
-                    } else {
-                        assert!(q.results[i].days() > base.results[i].days(), "land leg {i} must be slower");
-                    }
+                    assert!(q.results[i].days() > base.results[i].days(), "land leg {i} must be slower");
                 }
                 _ => panic!("stage {i}: slope {got:?}, expected {e:?}"),
             }
         }
         // The golden plan is 43.202_734_060_708_24 days without slope.
         // RE-BASELINED 2026-10-12 (along-track grade): was 43.656_742_899_635_39.
-        // RE-BASELINED 2026-10-12 under Ruling CG (no slope term on the Hills
-        // leg, stage 3): was 43.621_144_583_987_19.
-        assert_eq!(q.stages[3].terrain, "Hills", "premise: stage 3 is the Hills leg");
-        near5(q.days, 43.504_482_251_725_43, "days with slope");
+        // Unchanged by Ruling CG item 4: every land stage here only climbs,
+        // and a pure climb is the pre-asymmetry factor to the bit.
+        near5(q.days, 43.621_144_583_987_19, "days with slope");
     }
 
     #[test]
