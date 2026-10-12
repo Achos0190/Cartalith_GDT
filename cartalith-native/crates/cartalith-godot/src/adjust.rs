@@ -520,8 +520,10 @@ fn curve_eval(pts: &[(f64, f64)], m: &[f64; MAX_CURVE_POINTS], x: f64) -> f64 {
 /// Ottosson 2020, linear sRGB to LMS (the post's `M1`, rows l, m, s).
 /// Transcribed from the post's published 10-decimal values; the white-point
 /// residual of those digits (OkLab b of sRGB white is about 4e-8) is inherent to
-/// the published matrices and is why a neutral grey comes back from OkLab a few
-/// 1e-8 of the 0..255 scale away from neutral.
+/// the published matrices and is why a neutral grey comes back from a plain
+/// OkLab round trip a few 1e-8 of the 0..255 scale away from neutral. The HSL
+/// adjustment does not round-trip neutrals this way: see [`hsl_oklch`]'s
+/// exact-grey branches (Ruling CF item 1).
 pub const LINEAR_SRGB_TO_LMS: [[f64; 3]; 3] = [
     [0.4122214708, 0.5363325363, 0.0514459929],
     [0.2119034982, 0.6806995451, 0.1073969566],
@@ -595,7 +597,29 @@ pub fn oklab_to_srgb(lab: [f64; 3]) -> Rgb {
 /// [`AdjustKind::Hsl`]. Each of the three is applied only when non-zero (control
 /// flow, so a zero axis costs and changes nothing). Rotating the (a, b) plane by
 /// the angle *is* the hue rotation of OkLCh, with chroma and L untouched.
+///
+/// **Neutral colours stay exactly neutral** (Ruling CF item 1, owner,
+/// 2026-10-12; `LARGE_ITEM_RULINGS.md`). The published Ottosson matrices do not
+/// put sRGB white at exactly `a = b = 0`, and their exact inverse does not map
+/// `a = b = 0` to exactly equal channels: the generic path returns a grey whose
+/// channels differ by up to ~2e-5, which the truncating quantiser
+/// (`render::finish_rgb`) splits into a 1-LSB tint such as (139,139,140) — the
+/// ET-F1 chroma bar's failure. Two branches remove that, and must never be
+/// widened to colours with real chroma:
+/// - an input whose three channels are bit-equal is a neutral, and hue rotation
+///   and chroma scaling are identities on a neutral, so with `lightness == 0`
+///   it is returned **unchanged** (control flow, so a grey's bytes do not move);
+///   with a lightness shift it takes the exact-grey path below;
+/// - a result whose `a` and `b` are both exactly zero (saturation `-1`, i.e.
+///   `k = 0`) is written as an exact grey by [`grey_from_oklab_l`].
+///
+/// Moves bytes only for those two cases; every coloured result is the
+/// unchanged generic path.
 fn hsl_oklch(c: Rgb, hue_deg: f64, saturation: f64, lightness: f64) -> Rgb {
+    let input_is_grey = c.0.to_bits() == c.1.to_bits() && c.1.to_bits() == c.2.to_bits();
+    if input_is_grey && lightness == 0.0 {
+        return c;
+    }
     let [mut l, mut a, mut b] = srgb_to_oklab(c);
     if hue_deg != 0.0 {
         let th = hue_deg.to_radians();
@@ -614,7 +638,27 @@ fn hsl_oklch(c: Rgb, hue_deg: f64, saturation: f64, lightness: f64) -> Rgb {
     } else if lightness < 0.0 {
         l *= 1.0 + lightness;
     }
+    // `== 0.0` is also true for -0.0, which `a * 0.0` gives for a negative `a`.
+    if input_is_grey || (a == 0.0 && b == 0.0) {
+        return grey_from_oklab_l(l);
+    }
     oklab_to_srgb([l, a, b])
+}
+
+/// The exact neutral 0..255 sRGB colour (three bit-equal channels) at OkLab
+/// lightness `l`, unclamped. For a neutral, OkLab defines `L = cbrt(Y)`; these
+/// published matrices give `L = K * cbrt(Y)` on the neutral axis, with
+/// `K` = the `L` of sRGB white (`0.99999999...`, the white-point residual
+/// documented on [`LINEAR_SRGB_TO_LMS`]). Dividing by `K` makes white come back
+/// as exactly 255 and an input grey's `L` come back to that grey (within float
+/// rounding), instead of landing just below it where the truncating quantiser
+/// would drop it a whole LSB. Must never be used for a colour with chroma: it
+/// discards `a` and `b`.
+fn grey_from_oklab_l(l: f64) -> Rgb {
+    let k = srgb_to_oklab((255.0, 255.0, 255.0))[0];
+    let t = l / k;
+    let v = 255.0 * oetf(t * t * t);
+    (v, v, v)
 }
 
 #[cfg(test)]
@@ -774,12 +818,45 @@ mod tests {
 
     #[test]
     fn hsl_saturation_minus_one_is_grey() {
-        // Protects: chroma scale 1+s reaching exactly zero chroma. Reference:
-        // ref.py hsl_sat-1 (channels agree to ~2e-5 because the published
-        // OkLab white point is not exactly neutral, see LINEAR_SRGB_TO_LMS).
+        // Protects: chroma scale 1+s reaching exactly zero chroma, written as
+        // an EXACT grey (Ruling CF item 1, 2026-10-12). Re-baselined from the
+        // generic path's (106.46571180054221, 106.46571628108074,
+        // 106.46572840906943), whose ~2e-5 channel spread the quantiser split
+        // into 1-LSB tints. Literal from an independent Python transcription
+        // (scratchpad grey_ref.py: forward OkLab only, L / L(white), cubed,
+        // sRGB OETF), not from this code.
         let g = hsl(0.0, -1.0, 0.0).apply(PX);
-        close(g, (106.46571180054221, 106.46571628108074, 106.46572840906943), 1e-8);
-        assert!((g.0 - g.2).abs() < 1e-4);
+        assert!(g.0.to_bits() == g.1.to_bits() && g.1.to_bits() == g.2.to_bits(), "{g:?}");
+        close(g, (106.46571627438693, 106.46571627438693, 106.46571627438693), 1e-9);
+    }
+
+    #[test]
+    fn every_grey_stays_exactly_neutral_through_hsl() {
+        // Protects: Ruling CF item 1 -- an input grey 0..=255 comes out with
+        // three bit-equal channels under every hue / saturation / lightness
+        // combination, and with lightness 0 comes out bit-identical to its
+        // input (hue and chroma are identities on a neutral). Mutation: drop
+        // either neutral branch of `hsl_oklch` and this goes red.
+        let hues = [0.0, -170.0, 33.0, 90.0, 360.0];
+        let sats = [-1.0, -0.6, 0.0, 0.5, 1.0];
+        let lights = [-1.0, -0.25, 0.0, 0.3, 1.0];
+        for v in 0..=255u32 {
+            let c = (v as f64, v as f64, v as f64);
+            for &h in &hues {
+                for &s in &sats {
+                    for &l in &lights {
+                        let o = hsl(h, s, l).apply(c);
+                        assert!(o.0.to_bits() == o.1.to_bits() && o.1.to_bits() == o.2.to_bits(), "grey {v} hsl({h},{s},{l}) -> {o:?}");
+                        if l == 0.0 {
+                            assert!(same_bits(o, c), "grey {v} hsl({h},{s},0) moved: {o:?}");
+                        }
+                    }
+                }
+            }
+        }
+        // Independent literals (grey_ref.py) for the lightness path on a grey.
+        close(hsl(0.0, 0.0, -0.25).apply((140.0, 140.0, 140.0)), (93.4773100674007, 93.4773100674007, 93.4773100674007), 1e-9);
+        close(hsl(45.0, 0.0, 0.25).apply((140.0, 140.0, 140.0)), (167.52431666075415, 167.52431666075415, 167.52431666075415), 1e-9);
     }
 
     #[test]

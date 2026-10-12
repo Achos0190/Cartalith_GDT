@@ -784,9 +784,10 @@ const VARIANT_INK := {
 ## **The per-preset override slot** (Ruling CB item 2: "hand-tuned overrides only
 ## where a guard fails"). Shape: `{preset name: {variant: {"appearance": {key:
 ## value}, "overlay": {key: value}}}}`, each value ABSOLUTE and written after the
-## rule. An entry must name the guard it fixes and the measurement that showed the
-## failure. One entry, of 51 renders (`_etf2_probe.gd`, 2026-10-12, seed 483920,
-## 1024x656):
+## rule. An entry must name the guard it fixes (or the owner ruling that asked for
+## it) and the measurement that showed the need. Two entries, of 51 renders
+## (`_etf2_probe.gd`, 2026-10-12, seed 483920, 1024x656) -- one guard failure, one
+## owner ruling:
 ## * **Blueprint, light** -- the ordering guard (mean OkLab L of the map, light >
 ##   base) failed: base 0.638, light 0.636 under the rule alone. Cause, seen in the
 ##   capture: the light rule's polarity mirror turns Blueprint's white linework and
@@ -794,8 +795,19 @@ const VARIANT_INK := {
 ##   large share of the sheet. `grade_gamma` 0.6 (the rule gives 0.35 here; a
 ##   labelled judgement, the only value tried; not minimised) lifts the ground enough
 ##   to carry it: light 0.673 against base 0.638, re-measured by the probe.
+## * **Night, dark** -- not a guard failure but an owner ruling (Ruling CF item 2,
+##   2026-10-12: *"Night (Dark): lift the darkest surfaces slightly for
+##   legibility"*). The rule stacks its dark grade on Night's own (exposure
+##   -0.35 - 0.55 = -0.90, gamma -0.2 - 0.3 = -0.50) and the map read almost
+##   black: mean OkLab L 0.109 against Night base 0.331 (`_etf2_probe.gd --only
+##   Night`, seed 483920, 1024x656, 2026-10-12). Exposure -0.70 and gamma -0.40
+##   (labelled judgements: about a third of the rule's extra darkening given
+##   back) give 0.188 -- relief, lakes and coast readable, still a dark sheet,
+##   dark < base kept. Tried and rejected as more than "slightly": -0.60 / -0.35,
+##   0.224. The probe's ordering guard re-measures it on every run.
 const VARIANT_OVERRIDES := {
 	"Blueprint": {"light": {"appearance": {"grade_gamma": 0.6}}},
+	"Night": {"dark": {"appearance": {"grade_exposure": -0.70, "grade_gamma": -0.40}}},
 }
 
 ## OkLab conversions (`overlay_adjust.gd::srgb_to_oklab` / `oklab_to_srgb`, the

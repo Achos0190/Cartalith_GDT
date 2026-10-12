@@ -3343,6 +3343,47 @@ mod adjust_census_tests {
         assert_eq!(b, vec![245, 235, 225, 245, 235, 225, 245, 235, 225, 55, 155, 255]);
     }
 
+    /// Protects: Ruling CF item 1 (2026-10-12) through the real quantiser --
+    /// every byte grey 0..=255 leaves `finish_rgb` as three equal bytes under a
+    /// pinned Look `hsl` entry (ET-F1's index-0 entry), unchanged when the Look
+    /// has no lightness; and a coloured pixel at saturation -1 leaves as three
+    /// equal bytes (the `_etf1_probe` chroma bar's failure was (139,139,140)).
+    /// Also through the weighted two-stack mix, whose per-channel arithmetic
+    /// keeps equal channels equal.
+    #[test]
+    fn finish_rgb_keeps_greys_exactly_neutral_under_the_look() {
+        let look = |h: f64, s: f64, l: f64| stack(vec![AdjustKind::Hsl { hue_deg: h, saturation: s, lightness: l }]);
+        let greys: Vec<u8> = (0..=255u8).flat_map(|v| [v, v, v]).collect();
+        let colours: Vec<u8> = vec![130, 100, 70, 10, 200, 90, 255, 0, 128, 139, 141, 138, 1, 2, 250, 77, 160, 33];
+        for (h, s, l) in [(0.0, -1.0, 0.0), (90.0, 0.0, 0.0), (0.0, 0.6, 0.0), (-33.0, -1.0, 0.2), (0.0, 0.0, -0.3), (200.0, 0.4, 0.5)] {
+            let st = look(h, s, l);
+            let mut b = greys.clone();
+            render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((&st, &st, &[][..])), ColorSpace::Srgb);
+            for (v, px) in b.chunks(3).enumerate() {
+                assert!(px[0] == px[1] && px[1] == px[2], "grey {v} hsl({h},{s},{l}) -> {px:?}");
+                if l == 0.0 {
+                    assert_eq!(px[0] as usize, v, "grey {v} hsl({h},{s},0) moved");
+                }
+            }
+            if s == -1.0 {
+                let mut b = colours.clone();
+                render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((&st, &st, &[][..])), ColorSpace::Srgb);
+                for px in b.chunks(3) {
+                    assert!(px[0] == px[1] && px[1] == px[2], "hsl({h},-1,{l}) left a tint {px:?}");
+                }
+            }
+        }
+        // Weighted mix: a terrain Look and a water stack of the same Look plus
+        // a Levels pass, every weight 0..=255 over the greys.
+        let t = look(30.0, -1.0, 0.0);
+        let mut w = look(30.0, -1.0, 0.0);
+        w.entries.push(crate::render::adjust::Adjustment::new(AdjustKind::Levels { in_black: 10.0, in_white: 240.0, gamma: 1.3, out_black: 0.0, out_white: 255.0 }));
+        let weight: Vec<u8> = (0..=255u8).collect();
+        let mut b = greys.clone();
+        render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((&t, &w, &weight[..])), ColorSpace::Srgb);
+        assert!(b.chunks(3).all(|px| px[0] == px[1] && px[1] == px[2]));
+    }
+
     /// Protects: [`render::adjust_needs_water_weight`]'s rule -- a weight is
     /// asked for only when the stacks differ and one is live.
     #[test]
