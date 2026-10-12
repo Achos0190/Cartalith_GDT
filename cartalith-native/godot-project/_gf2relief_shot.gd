@@ -38,6 +38,10 @@ extends Node
 ## centres are given, never picked by the probe, so every arm is cropped at
 ## the same cells. A crop centre is a cell of one world, so pass `--seed N` (one
 ## of `SEEDS`) with it; `--seed` alone also restricts the fit shots to that seed.
+## `--coastal on|off` (optional, GF-4, Ruling CH addendum) sets `passes.coastal`
+## the same way, so the tidal marsh's accretion-only change can be seen on the
+## app's own world with the coastal pass forced on (it is off in the app):
+##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag marsh_after --coastal on --seed 314159
 ## An unknown argument aborts (exit 2) rather than being ignored
 ## (`MISTAKES.md`, "Write a probe's usage header").
 ## Held fixed across tags: seeds, extent, grid, the app's default parameters
@@ -70,6 +74,8 @@ func _ready() -> void:
 	## "" = `--relief` not given: the build's default is left alone. Kept apart
 	## from "off" so an omitted flag never writes a value nobody asked for.
 	var relief := ""
+	## "" = `--coastal` not given: the build's default is left alone.
+	var coastal := ""
 	## Deep-zoom crop centres in grid cells (`--zoom-at X,Y`, repeatable).
 	var zooms: Array[Vector2i] = []
 	var zoom_radius := 32
@@ -82,6 +88,9 @@ func _ready() -> void:
 	while i < args.size():
 		if args[i] == "--tag" and i + 1 < args.size():
 			tag = args[i + 1]
+			i += 2
+		elif args[i] == "--coastal" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
+			coastal = args[i + 1]
 			i += 2
 		elif args[i] == "--relief" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
 			relief = args[i + 1]
@@ -107,7 +116,7 @@ func _ready() -> void:
 			age = float(args[i + 1])
 			i += 2
 		else:
-			print("[FATAL] unknown argument %s (read: --tag NAME, --processes on|off, --age TAU, --relief on|off, --seed N, --zoom-at X,Y, --zoom-radius N, --zoom-size PX)" % args[i])
+			print("[FATAL] unknown argument %s (read: --tag NAME, --processes on|off, --age TAU, --relief on|off, --coastal on|off, --seed N, --zoom-at X,Y, --zoom-radius N, --zoom-size PX)" % args[i])
 			get_tree().quit(2); return
 	if tag == "":
 		print("[FATAL] --tag NAME is required"); get_tree().quit(2); return
@@ -135,6 +144,11 @@ func _ready() -> void:
 			var rep_rel: Dictionary = wg.set_params({"relief_model": relief == "on"})
 			if not (rep_rel.get("rejected", PackedStringArray()) as PackedStringArray).is_empty():
 				print("[FATAL] set_params rejected relief_model: %s" % [rep_rel])
+				get_tree().quit(2); return
+		if coastal != "":
+			var rep_c: Dictionary = wg.set_params({"passes.coastal": coastal == "on"})
+			if not (rep_c.get("rejected", PackedStringArray()) as PackedStringArray).is_empty():
+				print("[FATAL] set_params rejected passes.coastal: %s" % [rep_c])
 				get_tree().quit(2); return
 		wg.generate_sized(sd, WIDTH_KM, GRID_W, GRID_H)
 		var tex: Texture2D = wg.build_color_texture()

@@ -1046,8 +1046,23 @@ fn coastal_core(
                         * p.marsh_band
                         * 0.55
                         * fade;
-                    let v = fld[i] as f64 + bump;
-                    store_clamped01(&mut fld[i], v);
+                    // Accretion only (Ruling CH addendum, 2026-10-13; a
+                    // DEVIATION from the reference, which adds the centred
+                    // bump both ways). A marsh builds up and does not dig:
+                    // the negative half of the noise dug one- to three-cell
+                    // hollows on flat lowland, which the lake classifier
+                    // counted as lakes (measured: with the marsh off, the
+                    // app world's 1-3-cell lake count with the coastal pass
+                    // on fell from 205 to 69 against a control of 68 on
+                    // seed 24601; `GEOLOGY_FIRST_SCOPE.md` §7 "GF-4 under
+                    // Ruling CH"). That a marsh only accretes is a physical
+                    // reading, not a value from a source at this line.
+                    // `golden_parity_passes.rs`' coastal cases were
+                    // re-recorded for it (DECISIONS §7p).
+                    if bump > 0.0 {
+                        let v = fld[i] as f64 + bump;
+                        store_clamped01(&mut fld[i], v);
+                    }
                 }
             }
         }
@@ -1646,6 +1661,29 @@ mod gf4_rock_tests {
         let a = coastal_change(Some(&PassRock { column: &capped, contrast: 0.5, r_expose: 0.001 }), 0.0);
         let t = coastal_change(Some(&PassRock { column: &uniform(Rock::Tuff, n), contrast: 0.5, r_expose: 0.001 }), 0.0);
         assert!(a.iter().zip(&t).all(|(x, y)| x.to_bits() == y.to_bits()));
+    }
+
+    /// Protects: the marsh accretes only (Ruling CH addendum). With the wave
+    /// and estuary cut off (`wave_str` 0), a pass over a flat lowland in the
+    /// marsh band raises some cells and lowers none, in both kernels. With
+    /// the reference's centred bump about half of them would sink.
+    #[test]
+    fn the_marsh_never_lowers_a_cell() {
+        let (w, h) = (24usize, 16usize);
+        let before: Vec<f32> = (0..w * h).map(|i| if i % w < 3 { 0.05 } else { 0.11 }).collect();
+        let flow = vec![0.0f32; w * h];
+        let p = CoastalParams { wave_str: 0.0, estuary_depth: 0.08, marsh_band: 0.03, passes: 1 };
+        let col = uniform(Rock::Shale, w * h);
+        for rock in [None, Some(PassRock { column: &col, contrast: 0.5, r_expose: 0.001 })] {
+            let mut f = before.clone();
+            match &rock {
+                Some(r) => coastal_process_rock(&mut f, &flow, w, h, 0.1, false, 1.0, &p, r),
+                None => coastal_process(&mut f, &flow, w, h, 0.1, false, 1.0, &p),
+            }
+            assert!(f.iter().zip(&before).all(|(a, b)| a >= b), "a marsh cell was lowered");
+            let raised = f.iter().zip(&before).filter(|(a, b)| a > b).count();
+            assert!(raised >= 20, "the marsh must accrete somewhere: {raised} cells");
+        }
     }
 
     /// Protects: the multiplier helpers against §2.3's table as literals

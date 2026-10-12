@@ -4205,6 +4205,98 @@ coastal on → marsh off → wave and estuary off):
 13. **The second small-lake cause on processes-on 24601?** Default:
     **investigate before any switch-on of `geology_processes`.**
 
+### GF-4: accretion-only marsh and the second lake cause (2026-10-13, Ruling CH addendum)
+
+*Design and evidence, not status.* The owner answered Q12 yes and Q13
+yes. The coastal flip stays off.
+
+**Accretion-only marsh, built in both kernels** (`coastal_process` and
+`coastal_process_rock`: the bump is applied only when positive). The
+coastal pass is off in the app and on the parity path, so app, parity and
+processes-on worlds are unchanged: 13 arrays on two seeds hash identical
+to `1376bc9a`. The reference golden moved, as expected:
+`golden_parity_passes.rs` `coastal_process_case_0/1/2` were re-recorded
+(6, 8 and 1 cells, every one higher; `RE-BASELINED 2026-10-13 under Ruling
+CH`). Case 3 and every other golden, the `js_reference` ones included,
+are unmoved (workspace run below). DECISIONS §7p has the entry. A new
+test, `the_marsh_never_lowers_a_cell`, covers both kernels, and the mutant
+that restores the dig fails it. **Frames** (app world, relief off, coastal
+forced on with `_gf2relief_shot.gd --coastal on`, before and after DLLs
+built from one worktree; `cartalith-native/docs/evidence/gf4-marsh-2026-10-13/`,
+all opened). At fit the maps are nearly identical. In the most-changed
+65-cell window of 314159, the scattered one- to three-cell blue water
+specks on the coastal lowland are gone after, and the land around them is
+unbroken. On 483920 a narrow isthmus that was notched and broken before is
+continuous after. No new artefact was seen.
+
+**Re-measured** (2048 × 1311, 800 km, the coastal pass on;
+`gf4_glacial_coastal.rs` `gf4_bars`, from the exact commit content):
+- **B7 (revised, marsh-free):** unchanged by construction, because the
+  marsh can no longer sink a cell: 483920 3.174 → 6.903 PASS, 12345
+  1.607 → 3.418 PASS, 24601 0.083 → 0.155 FAIL, 71077345 0.919 → 1.488
+  FAIL, 314159 not measurable. **2 of 4.**
+- **B8, 1-3-cell lakes, control → coastal on** (ocean on paths 0
+  everywhere):
+
+  | Seed | app world | processes-on world |
+  |---|---|---|
+  | 483920 | 34 → 32 | 43 → 41 |
+  | 24601 | 68 → **112** (FAIL) | 49 → **169** (FAIL) |
+  | 71077345 | 30 → 24 | 27 → 26 |
+  | 12345 | 89 → 75 | 87 → 76 |
+  | 314159 | 62 → 71 (was 102) | 37 → 39 (was 62) |
+
+  B8 now fails on **1 of 5** seeds (24601), on both worlds. Lake share
+  of path cells stays within +2 pp everywhere: 24601 is 1.61 → 2.35 % on
+  the app world and 1.97 → 4.33 % processes-on, the largest rise.
+- **B9** (app world, seed 483920, 5 interleaved runs): off 3.944 s
+  (3.493..4.194), on 4.335 s (3.593..4.930). The brackets overlap, so no
+  difference is established.
+
+**Q13, the second cause on processes-on 24601: the estuary cut.** Each
+variant was built into the engine in a scratch run and restored after
+(hash-checked). These are processes-on, seed 24601, 1-3-cell lakes against
+a control of 49:
+
+| Variant | lakes |
+|---|---|
+| as built | 169 |
+| debris not written to regolith | 169 (no effect) |
+| coastal rock factor off (`c = 0` in the pass only) | 99 |
+| estuary cut off (`estuary_depth` 0) | **53** |
+| wave and estuary cut off | 55 |
+
+- So the wave cut adds almost nothing. The estuary cut adds about 50 lakes
+  rock-blind and about 70 more through `ρ^c`. On this world `ρ^c` is up to
+  3.16 on alluvium, because stream-power deposit over `R_EXPOSE` reads as
+  unconsolidated rock (ρ 10).
+- **Why the estuary cut can dig.** The cut applies to every cell whose
+  discharge exceeds `w·h·0.001` and whose height is under
+  `sea + estuary_depth`. At the default 0.08 that is about 552 m above sea
+  (0.08 × 4 000 m / 0.58, arithmetic; sea 0.42, `peak_m` 4 000). So it acts
+  along every large river far inland, not only at the mouth. It scales
+  with `ln(flow)`, which jumps where a tributary joins. Cells along a
+  channel are therefore lowered by different amounts, and some end below
+  their downstream neighbour: a closed hollow. That is inferred from the
+  variant table, not traced cell by cell.
+- **Not fixed.** A fix confined to processes-on worlds would have to change
+  only the rock kernel's estuary term. Even rock-blind, the estuary cut
+  leaves 99 against 61 (B8's 1.25 × 49), so no change to the rock factor
+  alone passes. The fix that would work changes the reference estuary term
+  in both kernels, which reaches beyond processes-on worlds. Ruling CH
+  allows that only on a ruling, so it is reported, not built.
+
+**Owner questions, each with a default.**
+14. **The estuary cut's reach.** Limit it to cells near the sea in
+    physical terms (for example a fixed height or distance band, scaled
+    with `peak_m` / extent), or cap its per-cell drop to the downstream
+    neighbour's height so it cannot dig, in both kernels, with the golden
+    re-recorded and disclosed. Default: **the downstream cap**: it removes
+    the mechanism without changing where estuaries form. Not measured.
+15. **B7 on 24601 and 71077345** (0.155 and 1.488 against 3). Default:
+    **leave B7 failing and the flip off**; with 2 of 4 seeds the rock
+    signal is real but weak at the default `wave_str`.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry
