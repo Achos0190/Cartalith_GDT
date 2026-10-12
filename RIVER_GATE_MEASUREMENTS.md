@@ -5,7 +5,10 @@ River Transport discharge gate: measure first, report numbers, change nothing
 yet. Ruling BV (no river density/threshold changes) stands meanwhile."*
 
 This file is the measurement. **Nothing in generation, drawing or planning was
-changed**, and no golden moved: the only code added is an `#[ignore]`d harness.
+changed** by it, and no golden moved: the only code added is an `#[ignore]`d harness.
+The fix it led to (F1, the receiver guard, Ruling CF addendum) shipped later the
+same day and is measured in **After the fix** at the end; the tables before
+that section describe the network as it was.
 It records no status; `cartalith-native/docs/STATUS.md` does that.
 
 ## The two gates, opened at their symbols
@@ -490,3 +493,83 @@ measured against grows by a quarter to a double.
 11. **Should "to-water" count a river that runs off the map border as
     reaching an outlet?** Default: **yes, in the measurement only**; it does
     not change what the planner does.
+
+## After the fix (2026-10-12, Ruling CF addendum, F1 shipped)
+
+The owner chose F1. `cartalith_hydrology::build_channels_core` now applies the
+**receiver guard** on the integrated-drainage path: a channel cell whose
+aspect-steered receiver is not a channel cell, or carries less discharge than
+the cell, takes its steepest-descent (D8) receiver on the routing surface. The
+reference path (`integrated` false, where `golden_parity_river` runs) is
+unchanged by control flow. The doc of `build_channels_routed` carries the
+what/why/never. Both ignored tests were re-run alone in release on the same 37
+worlds (`RG_OWNER=1`, commands above).
+
+**Chain breaks.** 0 on every world, on the planner network and on the drawn
+(generation) network alike; `river_chain_breaks` now asserts it.
+
+| Shape | Breaks before (planner / drawn) | After | Channel cells the shipped guard re-points |
+|---|---|---|---:|
+| 512x328 | 1 467 / 1 624 | 0 / 0 | 13 611 of 523 171 (2.6 %) |
+| 384x246 | 193 / 168 | 0 / 0 | 3 799 of 78 773 (4.8 %) |
+| 1024x656 | 1 867 / 2 844 | 0 / 0 | 19 937 of 1 065 726 (1.9 %) |
+| owner 2048x1311 | 232 / 519 | 0 / 0 | 3 199 of 259 396 (1.2 %, a proxy: the comparison call at density 1.55 also restores the slope ease) |
+
+The re-point share is lower than the simulation's 1.9-7.1 %: the simulation's
+counter also counted cells whose receiver already was the D8 one (for example
+a river stepping into the sea); the harness now counts only real changes.
+
+**Gate 2, River Transport (order >= 3, unchanged rule).** *to-outlet* is new
+(owner question 11's default, measurement only): a chain ending on the map's
+border counts as reaching an outlet.
+
+| Shape | Cells before -> after | Pieces before -> after | Largest piece | To-water before -> after | To-outlet after |
+|---|---|---|---|---|---|
+| 512x328 | 49 371 -> 73 737 | 2 736 -> 1 840 | 6 -> 14 % | 31 -> 66 % | 100 % |
+| 384x246 | 3 980 -> 8 042 | 312 -> 237 | 18 -> 23 % | 27 -> 61 % | 100 % |
+| 1024x656 | 112 657 -> 156 869 | 3 221 -> 2 081 | 8 -> 15 % | 25 -> 61 % | 100 % |
+| owner | 30 745 -> 38 624 | 397 -> 255 | 9 -> 17 % | 12 -> 48 % | 100 % |
+
+Every navigable chain now reaches the sea, a lake or the map border; none ends
+inland. The discharge candidates, re-measured on the new network (512x328):
+`Q >= 8 x T` alone 159 380 cells (2.2x today's), OR-ed with order 3 159 641,
+AND-ed 73 476 (removes 0.4 %); at 384x246 14 690 OR / 7 940 AND; 1024x656
+280 515 / 155 553; owner 52 184 / 37 044. Order-1/2 land cells carrying at
+least 75 x T fell from 7 647 to 271 (512x328), 793 to 4 (384x246) and to 179
+(1024x656) and 19 (owner): the high-discharge, low-order cells that motivated a
+discharge gate were mostly the breaks. The gate-2 recommendation stands and is
+stronger: **keep `NAVIGABLE_ORDER = 3` alone.**
+
+**Gate 1, delta fans (rule unchanged).** Fans under today's rule (order >= 3
+and the discharge floor): 967 -> 1 381 (512x328), 115 -> 225 (384x246),
+1 161 -> 1 770 (1024x656), 111 -> 185 (owner). Of each world's ten
+largest-discharge mouths, today's rule now admits 98 of 120 (was 80), 104 of
+120 (58), 112 of 120 (87) and 10 of 10 (4): the "biggest mouths get no fan"
+cost of the order rule (owner question 2) has mostly gone. Discharge-not-order
+mouths fell (2 342 -> 1 977, 1 364 -> 1 246, 2 506 -> 1 939, 152 -> 105).
+Owner questions 1 to 3 keep their defaults.
+
+**Loose ends (owner question 9: keep the draw-side extension, re-measure).**
+`river_gap_harness.rs` at the app's parameters (2048x1311, 800 km; seeds
+483920 / 24601 / 71077345): loose ends on dry land with no downhill data
+145 / 151 / 111 before, **7 / 6 / 4** after; with the extension 0 / 0 / 0 both
+times. The extension now fires on 7 / 6 / 4 runs. `river_gap_bars` pins the
+no-downhill counts, so it was re-baselined (see `STATUS.md`).
+
+**Timing**, `fresh_river_channels` on seed 246371, five calls, run alone:
+0.005 s (0.005..0.005) / 0.010 s (0.010..0.010) / 0.041 s (0.040..0.042) /
+0.166 s (0.166..0.168) at 384x246 / 512x328 / 1024x656 / 2048x1311, inside
+the spread of the two runs in **Timing** above: no cost difference from the
+guard's second pass is established.
+
+**Frames.** Three seeds at 512x328 / 40 075 km (483920, 24601, 71077345) and
+the owner's world, each at the largest-discharge break of each class and a
+trunk, at zoom 1, 2, 4 and 8 (4 and 8 are the deep-zoom tiles), HEAD DLL
+against this one, read by eye. No staircase or kink look appeared: trunks that
+used to break now run continuous and darken downstream, long diagonal reaches
+are as straight as before, and order-1 hatching is unchanged in kind. More
+mouths carry a delta fan (its thin straight strands are the existing RIM-4
+look, owner item 8 deferred). Probe `_riverzoom_probe` reported one free end
+short of adjacent water on seed 483920 (0 at HEAD) and two on the owner world
+(1 at HEAD), each about half a cell from a diagonal water cell: a small
+draw-side regression in `extend_shore_ends`' reach, not fixed here.

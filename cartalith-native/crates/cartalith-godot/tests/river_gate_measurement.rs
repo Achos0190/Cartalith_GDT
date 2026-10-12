@@ -58,7 +58,10 @@
 //! pieces): it sorts every place an order >= 3 chain hands its water to a
 //! lower-order land cell into a cause, prints examples, and sizes candidate
 //! fixes by simulating them on a copy of the receiver tree. Same matrix, same
-//! rule: it reads and changes nothing.
+//! rule: it reads and changes nothing. One fix, the receiver guard, has since
+//! shipped in `cartalith_hydrology::build_channels_core` (Ruling CF addendum,
+//! 2026-10-12); the test now asserts the app network has no break, and counts
+//! what the shipped guard re-points.
 //!
 //! ```text
 //! RG_OWNER=1 cargo test --release -p cartalith-godot --test river_gate_measurement river_chain_breaks -- --ignored --nocapture --test-threads=1
@@ -325,6 +328,12 @@ struct Nav {
     /// lake) without a portage: down `recv` while navigable, until a water
     /// cell, or a tree end that touches water.
     to_water_share: f64,
+    /// `to_water_share`, plus the length whose chain ends on the map's border
+    /// (top or bottom row, or a non-wrapping side) where the river runs off
+    /// the map: owner question 11's default ("count a river leaving the map
+    /// border as reaching an outlet, in the measurement only", Ruling CF
+    /// addendum). Measurement only; the planner does not read it.
+    to_outlet_share: f64,
     /// Pieces shorter than 5 cells: fragments a planner stage would flicker
     /// between river and portage on.
     short_frags: usize,
@@ -394,9 +403,11 @@ fn nav_stats(nav: &[bool], base: &[bool], recv: &[i32], wb: &[u8], gw: usize, wr
     s.short_frags = comp_km.values().filter(|c| c.1 < 5).count();
     s.largest_share = if s.km > 0.0 { comp_km.values().map(|c| c.0).fold(0.0, f64::max) / s.km } else { f64::NAN };
     // Reaches water without a portage: memoised walk down `recv`.
-    // 0 = unknown, 1 = yes, 2 = no.
+    // 0 = unknown, 1 = yes, 2 = no, 3 = no but the chain ends on the map
+    // border (counted by `to_outlet_share` only).
     let mut memo = vec![0u8; n];
     let mut to_water_km = 0.0;
+    let mut to_outlet_km = 0.0;
     for i in 0..n {
         if !nav[i] {
             continue;
@@ -424,7 +435,14 @@ fn nav_stats(nav: &[bool], base: &[bool], recv: &[i32], wb: &[u8], gw: usize, wr
                         nx >= 0 && ny >= 0 && nx < gw as i64 && ny < gh && wb[ny as usize * gw + nx as usize] != 0
                     })
                 });
-                break if touches { 1 } else { 2 };
+                let border = y == 0 || y == gh - 1 || (!wrap && (x == 0 || x == gw as i64 - 1));
+                break if touches {
+                    1
+                } else if border {
+                    3
+                } else {
+                    2
+                };
             }
             let r = r as usize;
             if wb[r] != 0 {
@@ -441,8 +459,12 @@ fn nav_stats(nav: &[bool], base: &[bool], recv: &[i32], wb: &[u8], gw: usize, wr
         if verdict == 1 {
             to_water_km += step_km(i);
         }
+        if verdict == 1 || verdict == 3 {
+            to_outlet_km += step_km(i);
+        }
     }
     s.to_water_share = if s.km > 0.0 { to_water_km / s.km } else { f64::NAN };
+    s.to_outlet_share = if s.km > 0.0 { to_outlet_km / s.km } else { f64::NAN };
     s
 }
 
@@ -657,6 +679,7 @@ fn river_gate_measurement() {
                 a.removed += b.removed;
                 a.largest_share += if b.largest_share.is_finite() { b.largest_share } else { 0.0 };
                 a.to_water_share += if b.to_water_share.is_finite() { b.to_water_share } else { 0.0 };
+                a.to_outlet_share += if b.to_outlet_share.is_finite() { b.to_outlet_share } else { 0.0 };
             }
             if g2.med_q_o3.is_finite() {
                 mq12.push((g2.med_q_o3, g2.med_q_o12));
@@ -691,10 +714,10 @@ fn river_gate_measurement() {
             f(median(&mut a12), 1),
             big
         );
-        println!("    {:<22} {:>8} {:>9} {:>7} {:>8} {:>7} {:>9} {:>8} {:>8}", "rule", "cells", "km", "pieces", "<5cell", "largest", "to-water", "+vs o3", "-vs o3");
+        println!("    {:<22} {:>8} {:>9} {:>7} {:>8} {:>7} {:>9} {:>9} {:>8} {:>8}", "rule", "cells", "km", "pieces", "<5cell", "largest", "to-water", "to-outlet", "+vs o3", "-vs o3");
         for (name, a) in names.iter().zip(&pool2) {
             println!(
-                "    {:<22} {:>8} {:>9.0} {:>7} {:>8} {:>6.0}% {:>8.0}% {:>8} {:>8}",
+                "    {:<22} {:>8} {:>9.0} {:>7} {:>8} {:>6.0}% {:>8.0}% {:>8.0}% {:>8} {:>8}",
                 name,
                 a.cells,
                 a.km,
@@ -702,6 +725,7 @@ fn river_gate_measurement() {
                 a.short_frags,
                 100.0 * a.largest_share / ns,
                 100.0 * a.to_water_share / ns,
+                100.0 * a.to_outlet_share / ns,
                 a.added,
                 a.removed
             );
@@ -838,6 +862,10 @@ struct Breaks {
     /// Under the receiver guard, navigable cells with no receiver: touching
     /// water / on the map border / neither (an inland dead end).
     guard_ends: [usize; 3],
+    /// Channel cells (in both networks) whose receiver the shipped guard
+    /// changed, and how many cells were compared.
+    shipped_repointed: usize,
+    shipped_both: usize,
 }
 
 /// Classifies every chain break on one world's planner network and appends
@@ -1022,14 +1050,31 @@ fn chain_breaks(ws: &WorldState, wrap: bool, gw: usize, gh: usize, km: f64, dens
     // at least the donor's"). Ordered by the SHIPPED flow-sorted Strahler,
     // since on the guarded tree ascending discharge is a topological order
     // wherever the D8 receiver gains discharge.
+    // Since the guard shipped (Ruling CF addendum) `recv` is already guarded on
+    // the app path, so this re-application should change nothing; it counts
+    // only cells whose receiver it actually CHANGES (before 2026-10-12 it also
+    // counted cells whose receiver already was the D8 one, e.g. a river
+    // stepping into the sea, which over-stated "re-pointed").
     let mut recv3 = recv.clone();
     for i in 0..n {
         let r = recv[i];
         if chan[i] != 0 && r >= 0 && (chan[r as usize] == 0 || q[r as usize] < q[i]) && d8[i] >= 0 {
             recv3[i] = d8[i];
-            b.guard_changed += 1;
+            b.guard_changed += (d8[i] != r) as usize;
         }
         b.chan_cells += (chan[i] != 0) as usize;
+    }
+    // What the SHIPPED guard re-points: the same `build_channels_routed` call
+    // with `integrated` false, which differs from the app's call only by the
+    // guard when density is 1 (the slope ease is a no-op there), compared on
+    // cells that are channel in both. On a density != 1 world `integrated`
+    // false also restores the slope ease, so the count there is a proxy.
+    let unguarded = cartalith_hydrology::build_channels_routed(&ws.field, &route, q, gw, gh, ws.sea_level, wrap, density, km, false);
+    for i in 0..n {
+        if chan[i] != 0 && unguarded.chan[i] != 0 {
+            b.shipped_both += 1;
+            b.shipped_repointed += (unguarded.recv[i] != recv[i]) as usize;
+        }
     }
     let guard = cartalith_hydrology::strahler_from_receivers(&recv3, q, &chan);
     let guard_mask: Vec<bool> = (0..n).map(|i| land(i) && guard[i] >= 3).collect();
@@ -1079,10 +1124,11 @@ fn chain_breaks(ws: &WorldState, wrap: bool, gw: usize, gh: usize, km: f64, dens
 /// place the planner's navigable chain drops below order 3 into a cause, over
 /// the same seed matrix as [`river_gate_measurement`], prints examples, and
 /// sizes two candidate fixes (topological Strahler; topological Strahler plus
-/// a D8 fallback for an off-network receiver) by the to-water share. Protects
-/// nothing by assertion beyond "the fixture reached the code" (breaks were
-/// found, and the five partitioning classes add up to the break count).
-/// Changes nothing.
+/// a D8 fallback for an off-network receiver) by the to-water share. Since the
+/// receiver guard shipped (Ruling CF addendum) it protects that outcome: no
+/// break on any app world, with order >= 3 cells present so the zero means
+/// something, and the five partitioning classes still adding up. Changes
+/// nothing.
 #[test]
 #[ignore = "Chain-break diagnosis: 36 generated worlds; run alone in release (see the module doc)"]
 fn river_chain_breaks() {
@@ -1095,6 +1141,7 @@ fn river_chain_breaks() {
     }
     let mut ex: Vec<String> = Vec::new();
     let mut total_breaks = 0usize;
+    let mut total_o3 = 0usize;
     for (gw, gh, km, density, seeds) in shapes {
         println!("\n=== chain breaks {gw}x{gh}, {km} km, density {density}, {} seeds ===", seeds.len());
         let mut pool = Breaks::default();
@@ -1135,6 +1182,8 @@ fn river_chain_breaks() {
             for k in 0..3 {
                 pool.guard_ends[k] += b.guard_ends[k];
             }
+            pool.shipped_repointed += b.shipped_repointed;
+            pool.shipped_both += b.shipped_both;
             for k in 0..4 {
                 tw[k] += navs[k].to_water_share;
                 pc[k] += navs[k].comps;
@@ -1152,6 +1201,7 @@ fn river_chain_breaks() {
         println!("    topological Strahler on the same tree: o3 cells {} breaks {}", pool.topo_o3_cells, pool.topo_breaks);
         println!("    receiver guard: {} of {} channel cells re-pointed; breaks left {} (off-network {})", pool.guard_changed, pool.chan_cells, pool.guard_breaks, pool.guard_breaks_off);
         println!("    receiver guard, navigable chain ends with no receiver: touching water {} / map border {} / inland {}", pool.guard_ends[0], pool.guard_ends[1], pool.guard_ends[2]);
+        println!("    shipped guard (app call vs integrated=false): {} of {} channel cells re-pointed", pool.shipped_repointed, pool.shipped_both);
         println!("    generation network (drawn): o3 cells {} breaks {} of which off-network {}", pool.gen_o3_cells, pool.gen_breaks, pool.gen_breaks_off);
         println!(
             "    navigable today/topo/topo+d8/guard: cells {}/{}/{}/{}; pieces {}/{}/{}/{}; mean to-water {:.0}/{:.0}/{:.0}/{:.0}%",
@@ -1159,10 +1209,16 @@ fn river_chain_breaks() {
             100.0 * tw[0] / ns, 100.0 * tw[1] / ns, 100.0 * tw[2] / ns, 100.0 * tw[3] / ns
         );
         total_breaks += pool.breaks;
+        total_o3 += pool.o3_cells;
     }
     println!("\n--- examples (per world, the largest-discharge class-A and class-B break):");
     for e in &ex {
         println!("  {e}");
     }
-    assert!(total_breaks > 0, "no chain break anywhere -- the fixture measured nothing");
+    // Before the receiver guard shipped (Ruling CF addendum, 2026-10-12) this
+    // asserted `total_breaks > 0` (the fixture reached the defect). Since then
+    // it is the other way round: the app network must have no break, and the
+    // fixture must still reach order >= 3 rivers for that to mean anything.
+    assert!(total_o3 > 0, "no order >= 3 cell anywhere -- the fixture measured nothing");
+    assert_eq!(total_breaks, 0, "the receiver guard must leave no chain break on the app network");
 }

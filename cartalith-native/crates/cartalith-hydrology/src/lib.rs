@@ -585,7 +585,7 @@ pub fn build_channels_with_threshold(
     slope_w: usize,
     thresh: f64,
 ) -> ChannelResult {
-    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh, true)
+    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh, false)
 }
 
 /// [`build_channels`] with the receiver tree built over a separate routing
@@ -652,6 +652,34 @@ pub fn build_channels_with_threshold(
 /// Density still scales the threshold uniformly (`/ density`), so a denser
 /// setting still means more rivers everywhere, just not a comb on every ramp.
 ///
+/// # `integrated`: the receiver guard (deliberate divergence, §7p, Ruling CF addendum)
+///
+/// When `integrated` is `true`, a channel cell whose aspect-steered receiver
+/// is **not a channel cell**, or carries **less discharge than the cell
+/// itself**, takes its plain steepest-descent receiver on `route` instead —
+/// the same receiver the filled-depression rule above already takes, i.e.
+/// the D8 tree [`compute_flow`] accumulated the discharge along. A steered
+/// receiver that is a channel cell carrying at least the cell's own
+/// discharge is kept, so the guard leaves the D-infinity steering (and its
+/// anti-staircase purpose) wherever steering agrees with where the water goes.
+///
+/// **Why** (owner, 2026-10-12, Ruling CF addendum, option F1, after
+/// `RIVER_GATE_MEASUREMENTS.md` "Chain breaks"): aspect steering sent big
+/// rivers to neighbours the water does not flow to, so an order >= 3 chain
+/// dropped to order 0-2 downstream (a "break") 3 759 times across 37 app
+/// worlds; in every break the receiver was not the D8 receiver. The breaks
+/// fragmented the planner's navigable network (River Transport portaged on
+/// rivers drawn continuous) and the drawn network alike. With the guard the
+/// same 37 worlds measured 0 breaks, re-pointing 1.9 to 7.1 % of channel
+/// cells. It also makes the shipped ascending-discharge order in
+/// [`strahler_from_receivers`] an upstream-before-downstream order on every
+/// guarded edge, since a D8 receiver carries at least its donor's discharge.
+///
+/// Must never: run when `integrated` is `false` (the reference path stays
+/// `buildRiverNetwork` by control flow, so `golden_parity_river` cannot move);
+/// replace a steered receiver that is a channel carrying at least the cell's
+/// own discharge; look at anything but `chan` and `flow` to decide.
+///
 /// Must never: change the threshold when `integrated` is `false` (the
 /// golden-pinned reference path) or when `river_density == 1`; touch the
 /// slope field, which is still written from the real gradient.
@@ -668,7 +696,7 @@ pub fn build_channels_routed(
     map_width_km: f64,
     integrated: bool,
 ) -> ChannelResult {
-    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), !integrated)
+    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated)
 }
 
 /// The shared body [`build_channels_with_threshold`] and [`build_channels_routed`]
@@ -680,10 +708,14 @@ pub fn build_channels_routed(
 /// both a threshold and a slope-normalisation width explicitly, so neither
 /// public entry point can drift from the other by re-deriving either.
 ///
-/// `slope_ease`: `true` applies the reference's [`channel_threshold`];
-/// `false` (only [`build_channels_routed`] on the integrated-drainage path)
-/// drops its slope factor away from density 1 — see that function's
-/// `integrated` section. Must never be `false` from a JS-parity caller.
+/// `integrated`: `false` is the reference's `buildRiverNetwork` loop — the
+/// slope-eased [`channel_threshold`] and the steered receiver as picked.
+/// `true` (only [`build_channels_routed`] on the integrated-drainage path)
+/// switches on that function's two documented divergences: the slope ease is
+/// dropped away from density 1, and the receiver guard re-points a channel
+/// cell whose steered receiver is off the network or carries less discharge
+/// to its D8 receiver (Ruling CF addendum). Must never be `true` from a
+/// JS-parity caller.
 #[allow(clippy::too_many_arguments)]
 fn build_channels_core(
     fld: &[f32],
@@ -696,7 +728,7 @@ fn build_channels_core(
     river_density: f64,
     slope_w: usize,
     thresh: f64,
-    slope_ease: bool,
+    integrated: bool,
 ) -> ChannelResult {
     let wrap = world;
     let n = w * h;
@@ -705,6 +737,10 @@ fn build_channels_core(
     let mut recv = vec![-1i32; n];
     let mut chan = vec![0u8; n];
     let mut slope = vec![0f32; n];
+    // Each channel cell's plain steepest-descent receiver on `route`, kept for
+    // the receiver guard below; allocated only on the integrated path, so the
+    // reference path's work and memory are unchanged.
+    let mut steepest: Vec<i32> = if integrated { vec![-1i32; n] } else { Vec::new() };
 
     let mut d8 = [0f64; 9];
     for dy in -1i32..=1 {
@@ -718,11 +754,16 @@ fn build_channels_core(
     // cross-cell write, no dependency on any other output cell. Unlike
     // `compute_flow` above (a real downstream-accumulation scatter), this
     // is genuinely independent -- the one real win in this crate.
+    // One row slice of `steepest` per grid row, or an empty slice per row on
+    // the reference path (where nothing is written to it).
+    let mut steepest_rows: Vec<&mut [i32]> =
+        if integrated { steepest.chunks_mut(w).collect() } else { (0..h).map(|_| &mut [][..]).collect() };
     recv.par_chunks_mut(w)
         .zip(chan.par_chunks_mut(w))
         .zip(slope.par_chunks_mut(w))
+        .zip(steepest_rows.par_iter_mut())
         .enumerate()
-        .for_each(|(y, ((recv_row, chan_row), slope_row))| {
+        .for_each(|(y, (((recv_row, chan_row), slope_row), steepest_row))| {
             for x in 0..w {
                 let i = y * w + x;
                 if (fld[i] as f64) < sea {
@@ -773,7 +814,7 @@ fn build_channels_core(
                 // integrated path asked for it dropped AND density is not 1:
                 // density 1 takes this same `channel_threshold` call either
                 // way (`build_channels_routed`'s `integrated` section).
-                let t = if slope_ease || density == 1.0 { channel_threshold(thresh, slope_n, density) } else { thresh / density };
+                let t = if !integrated || density == 1.0 { channel_threshold(thresh, slope_n, density) } else { thresh / density };
                 if flow[i] as f64 <= t {
                     continue;
                 }
@@ -829,8 +870,30 @@ fn build_channels_core(
                 // `build_channels_routed` for why and what it measured.
                 let filled = route[i] > fld[i];
                 recv_row[x] = if best >= 0 && !filled { best as i32 } else { s_best as i32 };
+                if integrated {
+                    steepest_row[x] = s_best as i32;
+                }
             }
         });
+    drop(steepest_rows);
+
+    // The receiver guard (integrated path only; `build_channels_routed`'s
+    // "receiver guard" section, Ruling CF addendum). A second pass because it
+    // reads the finished `chan` mask of the neighbour. Per cell it reads only
+    // frozen `chan`/`flow`/`steepest` and writes only its own `recv`, so the
+    // order of the pass cannot matter.
+    if integrated {
+        recv.par_iter_mut().enumerate().for_each(|(i, r)| {
+            let s = steepest[i];
+            if chan[i] == 0 || *r < 0 || s < 0 {
+                return;
+            }
+            let j = *r as usize;
+            if chan[j] == 0 || flow[j] < flow[i] {
+                *r = s;
+            }
+        });
+    }
 
     ChannelResult { recv, chan, slope, intensity: Vec::new() }
 }
@@ -4784,6 +4847,128 @@ mod tests {
         let a = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
         let b = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, false);
         assert_eq!((a.chan, a.recv), (b.chan, b.recv));
+    }
+
+    /// A 5x5 fixture where aspect steering and steepest descent disagree at the
+    /// centre cell (2,2): the real ground `fld` falls east only, so the aspect
+    /// is due east; the routing surface `route` also falls 0.03 a row south, so
+    /// its steepest neighbour is due south (drop 0.030) while the steering
+    /// score prefers south-east (0.0283 x 0.854 = 0.024 against south's
+    /// 0.015 and east's 0.010). `route <= fld` everywhere, so no cell counts
+    /// as filled. `flow` is supplied by hand: 100 at the centre, 101 to the
+    /// south, `se_q` at the south-east cell, 0 elsewhere. `se_sea` drops the
+    /// real ground at the south-east cell to 0.5, below the 0.6 sea level the
+    /// callers pass in that case, leaving `route` (and so the steering)
+    /// unchanged: the steered receiver is then off the network because it is
+    /// sea, whatever its discharge. No other cell is near 0.6.
+    fn guard_fixture(se_q: f32, se_sea: bool) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        let (w, h) = (5usize, 5usize);
+        let mut fld: Vec<f32> = (0..w * h).map(|i| 1.0 - 0.01 * (i % w) as f32).collect();
+        let route: Vec<f32> = (0..w * h).map(|i| fld[i] - 0.03 * (i / w) as f32).collect();
+        if se_sea {
+            fld[3 * w + 3] = 0.5;
+        }
+        let mut flow = vec![0f32; w * h];
+        flow[2 * w + 2] = 100.0;
+        flow[3 * w + 2] = 101.0; // (2,3): south, the D8 receiver
+        flow[3 * w + 3] = se_q; // (3,3): south-east, the steered receiver
+        (fld, route, flow)
+    }
+
+    /// The receiver guard (Ruling CF addendum, option F1): on the integrated
+    /// path a channel cell whose steered receiver is off the network, or
+    /// carries less discharge, takes the D8 receiver; a steered receiver that
+    /// is a channel with at least the cell's discharge is kept; the reference
+    /// path keeps the steered receiver in all three cases.
+    #[test]
+    fn the_receiver_guard_takes_the_d8_receiver_when_steering_leaves_the_water() {
+        // Protects: build_channels_routed's receiver guard (RIVER_GATE_MEASUREMENTS.md "Chain breaks") -- the integrated path must re-point a channel cell to its steepest (D8) receiver when the steered one is not a channel or carries less discharge, must keep a steered channel receiver that carries at least as much, and the reference path (integrated = false, golden_parity_river's) must never re-point. Reverting the guard turns the integrated asserts red; dropping its discharge clause or its channel clause each turns at least one red (the sea case covers the channel clause).
+        let (w, h) = (5usize, 5usize);
+        let centre = 2 * w + 2;
+        let (south, south_east) = ((3 * w + 2) as i32, (3 * w + 3) as i32);
+        let run = |se_q: f32, se_sea: bool, integrated: bool| {
+            let (fld, route, flow) = guard_fixture(se_q, se_sea);
+            let sea = if se_sea { 0.6 } else { -10.0 };
+            let c = super::build_channels_routed(&fld, &route, &flow, w, h, sea, false, 1.0, 800.0, integrated);
+            // The fixture premise: the centre and the D8 receiver channelize.
+            assert!(c.chan[centre] != 0 && c.chan[south as usize] != 0, "fixture: centre and south must be channel cells");
+            (c.recv[centre], c.chan[south_east as usize])
+        };
+        let recv_at = |se_q: f32, integrated: bool| run(se_q, false, integrated);
+        // Steered receiver is not a channel (discharge 0).
+        assert_eq!(recv_at(0.0, false), (south_east, 0), "reference path must keep the steered pick (positive control)");
+        assert_eq!(recv_at(0.0, true), (south, 0), "integrated: an off-network steered receiver must give way to D8");
+        // Steered receiver is a channel carrying less than the centre.
+        assert_eq!(recv_at(50.0, false), (south_east, 1));
+        assert_eq!(recv_at(50.0, true), (south, 1), "integrated: a smaller steered receiver must give way to D8");
+        // Steered receiver is a channel carrying more: kept on both paths.
+        assert_eq!(recv_at(200.0, true), (south_east, 1), "integrated: a larger steered receiver must be kept");
+        assert_eq!(recv_at(200.0, false), (south_east, 1));
+        // Steered receiver is sea: off the network although it carries more,
+        // so the `chan` half of the guard (not the discharge half) re-points it.
+        assert_eq!(run(200.0, true, false), (south_east, 0), "reference path keeps a steered sea receiver");
+        assert_eq!(run(200.0, true, true), (south, 0), "integrated: an off-network (sea) steered receiver must give way to D8");
+    }
+
+    /// A smooth tilted test terrain: a plane falling towards the bottom row
+    /// plus LCG noise, box-blurred three times so rivers form branching trees
+    /// rather than the one-cell strips white noise gives.
+    fn smooth_field(w: usize, h: usize, seed: u64) -> Vec<f32> {
+        let noise = lcg_field(w, h, seed);
+        let mut f: Vec<f32> = (0..w * h).map(|i| 0.4 * (h - i / w) as f32 / h as f32 + 0.25 * noise[i]).collect();
+        for _ in 0..3 {
+            let g = f.clone();
+            for y in 1..h - 1 {
+                for x in 1..w - 1 {
+                    let mut s = 0.0;
+                    for dy in 0..3 {
+                        for dx in 0..3 {
+                            s += g[(y + dy - 1) * w + x + dx - 1];
+                        }
+                    }
+                    f[y * w + x] = s / 9.0;
+                }
+            }
+        }
+        f
+    }
+
+    /// Over several seeds, on the integrated path with the shipped Strahler,
+    /// no order >= 3 channel cell hands on to a receiver that carries less
+    /// discharge or is off the network: the property whose violations were the
+    /// River Transport chain breaks.
+    #[test]
+    fn no_order_three_channel_cell_hands_on_to_a_smaller_receiver() {
+        // Protects: the receiver guard's measured outcome (RIVER_GATE_MEASUREMENTS.md "Chain breaks", Ruling CF addendum) -- on the integrated path no order>=3 channel cell's receiver is a non-channel cell or carries less discharge than it, over six seeds; the reference path on the same fixtures is the positive control that such hand-offs exist to be prevented.
+        let (w, h) = (96usize, 72usize);
+        let (mut o3_cells, mut unguarded_bad) = (0usize, 0usize);
+        for seed in [1u64, 2, 3, 5, 8, 13] {
+            let f = smooth_field(w, h, seed);
+            let s = super::build_routing_surface(&f, w, h, 0.0, false);
+            let flow = super::compute_flow(w, h, &s, None, false, false);
+            let bad = |c: &super::ChannelResult, order: &[i16]| -> (usize, usize) {
+                let (mut cells, mut bad) = (0, 0);
+                for i in 0..w * h {
+                    if order[i] < 3 || c.recv[i] < 0 {
+                        continue;
+                    }
+                    cells += 1;
+                    let r = c.recv[i] as usize;
+                    if c.chan[r] == 0 || flow[r] < flow[i] {
+                        bad += 1;
+                    }
+                }
+                (cells, bad)
+            };
+            let g = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
+            let (cells, b) = bad(&g, &super::strahler_from_receivers(&g.recv, &flow, &g.chan));
+            assert_eq!(b, 0, "seed {seed}: {b} order>=3 channel cells hand on to a smaller or off-network receiver");
+            o3_cells += cells;
+            let u = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, false);
+            unguarded_bad += bad(&u, &super::strahler_from_receivers(&u.recv, &flow, &u.chan)).1;
+        }
+        assert!(o3_cells > 200, "fixture must grow order>=3 rivers to be a test ({o3_cells})");
+        assert!(unguarded_bad > 0, "positive control: without the guard some order>=3 cell must hand on to a smaller receiver");
     }
 
     /// A land grid `w x h` at height 0.8 whose bottom row is sea (0.1), with

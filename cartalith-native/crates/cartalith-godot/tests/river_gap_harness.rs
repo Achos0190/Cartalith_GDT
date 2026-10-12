@@ -1050,7 +1050,18 @@ fn river_gap_measurement() {
 /// end the old pass bridged is left to the extension, which closes it (after: 0). The
 /// no-downhill-data plan is therefore `6af2d722`'s plan with that one pass-1
 /// difference; the other two seeds' counts did not move.
-const BASELINE_LOOSE: [(i32, usize); 3] = [(483_920, 145), (24_601, 151), (71_077_345, 111)];
+///
+/// RE-BASELINED 2026-10-12 under Ruling CF addendum: 145 / 151 / 111 -> 7 / 6 / 4.
+/// The receiver guard in `cartalith_hydrology::build_channels_core` (integrated
+/// path; `RIVER_GATE_MEASUREMENTS.md` "After the fix") sends a channel cell whose
+/// steered receiver was off the network to its D8 receiver, so the generation
+/// network itself no longer stops on dry land where it used to: the
+/// no-downhill-data plan on the same three worlds now leaves 7 / 6 / 4 loose ends
+/// (measured by [`river_gap_measurement`] the same day), and the downhill
+/// continuation still closes every one of them (after: 0 / 0 / 0). The numbers
+/// are no longer `6af2d722`'s; they are the no-downhill plan of the guarded
+/// network, re-measured after seeing the result.
+const BASELINE_LOOSE: [(i32, usize); 3] = [(483_920, 7), (24_601, 6), (71_077_345, 4)];
 /// The owner-task bar: the loose-end count must fall by at least this share.
 const MIN_LOOSE_REDUCTION: f64 = 0.80;
 
