@@ -7150,6 +7150,151 @@ pub fn road_edge_map_path(path: &[usize], gw: usize) -> (Vec<(f64, f64)>, Vec<us
     (pts, brks)
 }
 
+/// The routing-grid cap before Ruling BT (owner, 2026-09-28, commit
+/// `1127dfef`) raised it to [`RW_CAP`]. A project saved between 2026-09-24
+/// (when `road_edges` began to be saved, `e8b92fbd`) and that commit, of a
+/// map wider than 384 cells, holds [`RoadEdge::path`] indices on a grid this
+/// wide, with no member saying so. Kept only so such a save can still be read
+/// ([`road_edges_infer_grid_w`], [`road_edge_regrid`]); nothing routes on it.
+pub const RW_CAP_BEFORE_RULING_BT: usize = 384;
+
+/// The routing grid a map `gw x gh` has when its width is `rw`: `(rh, sc)`,
+/// `sc = rw / gw` and `rh = max(2, round(gh x sc))` -- [`civ_routing_grid`]'s
+/// own height rule, for any `rw` (today's is [`routing_grid_scale`]'s).
+fn routing_grid_rows(rw: usize, gw: usize, gh: usize) -> (usize, f64) {
+    let sc = rw as f64 / gw as f64;
+    (((gh as f64 * sc).round() as usize).max(2), sc)
+}
+
+/// One routing cell `i` of a grid `w` wide (scale `sc`) as a full-resolution
+/// cell: `(round(cx / sc), round(cy / sc))`, clamped to the map --
+/// [`road_edge_map_path`]'s inverse map, also clamping `y`.
+fn routing_cell_to_map(i: usize, w: usize, sc: f64, gw: usize, gh: usize) -> (usize, usize) {
+    let (cx, cy) = (i % w, i / w);
+    (((cx as f64 / sc).round() as usize).min(gw - 1), ((cy as f64 / sc).round() as usize).min(gh - 1))
+}
+
+/// Which routing-grid width a saved list of road edges was laid on, for an
+/// archive whose `ways.json` does not say (`SAVEFILE_COMPAT.md` §9.3,
+/// `road_edges_grid_w`, absent before 2026-10-12).
+///
+/// Two widths are possible: today's (`min(gw, RW_CAP)`) and
+/// [`RW_CAP_BEFORE_RULING_BT`]'s `min(gw, 384)`. They are equal on a map no
+/// wider than 384, which is answered without looking. Otherwise each candidate
+/// is judged by **where it puts each edge's two ends**: an edge runs from
+/// settlement `b`'s routing cell to `a`'s ([`RoadEdge`]), so decoded on the
+/// grid it was laid on, both ends land on (or next to) those two settlements,
+/// and decoded on the wrong one they land wherever the misread index points.
+/// A candidate that puts any cell off its own grid is out. The score is the
+/// summed Chebyshev distance, in map cells, from each edge's two ends to its
+/// two settlements (either orientation); the lower wins, and a tie -- no edge
+/// with in-range endpoints to judge by -- returns today's width (the format
+/// was written for two weeks after the cap changed, against four days before).
+///
+/// `places` is each settlement's `(x, y)` in map cells, in saved order.
+/// Returns the width and whether the evidence decided it (`false`: the
+/// candidates were equal, or nothing could tell them apart).
+///
+/// Must never be used to second-guess an archive that does record its width.
+pub fn road_edges_infer_grid_w(edges: &[RoadEdge], places: &[(usize, usize)], gw: usize, gh: usize) -> (usize, bool) {
+    let today = routing_grid_scale(gw).0;
+    let before = gw.min(RW_CAP_BEFORE_RULING_BT);
+    if gw == 0 || gh == 0 || today == before {
+        return (today, false);
+    }
+    let score = |w: usize| -> Option<u64> {
+        let (rh, sc) = routing_grid_rows(w, gw, gh);
+        if edges.iter().any(|e| e.path.iter().any(|&c| c >= w * rh)) {
+            return None;
+        }
+        let d = |p: (usize, usize), q: (usize, usize)| p.0.abs_diff(q.0).max(p.1.abs_diff(q.1)) as u64;
+        Some(
+            edges
+                .iter()
+                .filter(|e| e.a < places.len() && e.b < places.len() && !e.path.is_empty())
+                .map(|e| {
+                    let first = routing_cell_to_map(e.path[0], w, sc, gw, gh);
+                    let last = routing_cell_to_map(e.path[e.path.len() - 1], w, sc, gw, gh);
+                    let (pa, pb) = (places[e.a], places[e.b]);
+                    (d(first, pb) + d(last, pa)).min(d(first, pa) + d(last, pb))
+                })
+                .sum(),
+        )
+    };
+    match (score(today), score(before)) {
+        (Some(t), Some(b)) if b < t => (before, true),
+        (Some(t), Some(b)) => (today, b > t),
+        (None, Some(_)) => (before, true),
+        (Some(_), None) => (today, true),
+        (None, None) => (today, false),
+    }
+}
+
+/// A [`RoadEdge::path`] laid on a routing grid `from_w` wide, re-expressed on
+/// today's grid for a `gw x gh` map ([`routing_grid_scale`]), so every reader
+/// of the path ([`road_edge_map_path`] and the router's polylines) can keep
+/// assuming today's grid. For a project saved under the old 384 cap
+/// ([`RW_CAP_BEFORE_RULING_BT`]); see `SAVEFILE_COMPAT.md` §9.3.
+///
+/// `from_w` equal to today's width returns the path unchanged (identity by
+/// control flow, so every save written on today's grid reopens exactly as it
+/// did). Otherwise each cell goes to the map (`round(c / sc_from)`, clamped)
+/// and from there to today's grid (`round(m x sc_today)`, the router's own
+/// forward map, clamped), and two cells that were 8-adjacent on the old grid
+/// are joined by a straight 8-connected run on the new one, so a coarse path
+/// stays a continuous path; a step that was already a break (not 8-adjacent)
+/// stays a jump. A repeated cell is written once.
+///
+/// `None` when any cell is off the `from_w` grid (the caller drops the edge
+/// and reports it, as for any off-grid edge), or the map or width is empty.
+/// Must never be used to change a path that was laid on today's grid.
+pub fn road_edge_regrid(path: &[usize], from_w: usize, gw: usize, gh: usize) -> Option<Vec<usize>> {
+    if gw == 0 || gh == 0 || from_w == 0 {
+        return None;
+    }
+    let (rw, sc) = routing_grid_scale(gw);
+    let (fh, fsc) = routing_grid_rows(from_w, gw, gh);
+    if path.iter().any(|&c| c >= from_w * fh) {
+        return None;
+    }
+    if from_w == rw {
+        return Some(path.to_vec());
+    }
+    let (rh, _) = routing_grid_rows(rw, gw, gh);
+    let to_grid = |i: usize| {
+        let (mx, my) = routing_cell_to_map(i, from_w, fsc, gw, gh);
+        (((mx as f64 * sc).round() as usize).min(rw - 1), ((my as f64 * sc).round() as usize).min(rh - 1))
+    };
+    let mut out: Vec<usize> = Vec::with_capacity(path.len());
+    let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+        let i = c.1 * rw + c.0;
+        if out.last() != Some(&i) {
+            out.push(i);
+        }
+    };
+    for (k, &i) in path.iter().enumerate() {
+        let to = to_grid(i);
+        let joined = k > 0 && {
+            let p = path[k - 1];
+            (p % from_w).abs_diff(i % from_w) <= 1 && (p / from_w).abs_diff(i / from_w) <= 1
+        };
+        if joined {
+            // A straight 8-connected run from the previous cell (already
+            // written) to this one: `n` steps, each rounding the lerp.
+            let from = to_grid(path[k - 1]);
+            let (dx, dy) = (to.0 as i64 - from.0 as i64, to.1 as i64 - from.1 as i64);
+            let n = dx.abs().max(dy.abs());
+            for s in 1..=n {
+                let t = s as f64 / n as f64;
+                let c = ((from.0 as f64 + dx as f64 * t).round() as usize, (from.1 as f64 + dy as f64 * t).round() as usize);
+                push(c, &mut out);
+            }
+        }
+        push(to, &mut out);
+    }
+    Some(out)
+}
+
 /// The downsampled grid the road router works on: the sampled heights `dfld`, its
 /// size `rw` x `rh`, and the scale `sc` from full-resolution cells to routing
 /// cells. Built only by `civ_routing_grid`.
@@ -12496,8 +12641,9 @@ pub struct JpStage {
     pub wildlife_forage_mod: f64,
     /// Ruling CD item 2: this land stage's measured slope ([`JpSlope`]), which
     /// [`jp_calc_land_ex`] turns into the `slope` speed term
-    /// ([`jp_slope_mod`]). `None` means **no slope data** -- no slope field was
-    /// supplied, the stage is not land, or it has no measured length -- and
+    /// ([`jp_slope_mod`]). `None` means **no slope data** -- the world does not
+    /// measure slope ([`JpWorld::measure_slope`] false), the stage is not land,
+    /// or it has no measured length -- and
     /// the calculator then applies no slope term at all, exactly the
     /// reference's behaviour. It is never a stand-in for flat ground: flat
     /// ground is `Some` with a grade of `0.0`.
@@ -12529,14 +12675,23 @@ impl Default for JpStage {
 /// (`PLANNER_AUDIT_2026-10-11.md` Q2 finding 3: a road over Mountain Trails
 /// planned as a flat dirt road).
 ///
-/// What the grade is. The **router's own slope**: `build_raw_slope_field`
-/// (the reference's `currentSlopeField`, the same central-difference gradient
-/// magnitude `build_travel_cost`'s `1 + 50 x sl^2` reads), converted from
-/// normalised height per cell to rise over run as `sl x peak_m / (1 -
-/// sea_level) / (cell_km x 1000)` -- the same metres-above-sea scale
-/// `JpWorld::height_m` uses for gain and loss -- and averaged per stage
-/// weighted by the length of each land step (see [`jp_derive_stages`]). It is
-/// a magnitude: it has no direction, so uphill and downhill read the same.
+/// What the grade is. The **route's own along-track grade**: for every land
+/// step, the height change between its two points (`JpWorld::height_m`, the
+/// metres-above-sea scale gain and loss use) over the step's wrap-aware length,
+/// `|dh| / (step_km x 1000)`, averaged per stage weighted by step length (see
+/// [`jp_derive_stages`]). Over a stage that is `(land gain + land loss) / land
+/// km`. It is unsigned: uphill and downhill read the same.
+///
+/// **Changed 2026-10-12 from the router's gradient magnitude** (`OUTSTANDING_WORK.md`
+/// "Slope in planned speed" row; DECISIONS.md 7p). Until then the grade was
+/// `build_raw_slope_field` (the reference's `currentSlopeField`, the gradient
+/// `build_travel_cost` prices) sampled at each step. A gradient magnitude is
+/// the steepest slope at a cell, not the slope the route climbs: a route that
+/// contours along a hillside was charged the full fall line (measured on the
+/// planner audit's world: one stage read 0.0854 against 0.0043 along its own
+/// gain and loss), and a coastal land cell differenced against the sea floor
+/// beside it. The time a party loses is to the grade it walks, so the router
+/// keeps its gradient for choosing a path and the planner measures the path.
 ///
 /// What it must never be: a placeholder. A stage with no slope data carries
 /// `JpStage::slope == None`, not a `JpSlope` with a zero grade.
@@ -12568,8 +12723,8 @@ pub const JP_WAY_SLOPE_SHARE: f64 = 0.5;
 /// ground**: for `S >= 0`, `W(S) / W(0) = exp(-3.5 S)` exactly, so flat ground
 /// is exactly `1.0` (no flat-terrain plan moves) and a 10 % grade is
 /// `exp(-0.35)` = 0.705. A **labelled simplification** of Tobler: the grade is
-/// the router's unsigned gradient magnitude, so a descent is charged as a
-/// climb of the same steepness (Tobler would speed a gentle descent up, by up
+/// the route's unsigned along-track grade ([`JpSlope`]), so a descent is
+/// charged as a climb of the same steepness (Tobler would speed a gentle descent up, by up
 /// to `exp(0.175)` = 1.19 at -5 %, and slow a steep one). Conservative, and
 /// symmetric by construction. The reference's terrain rows (`Hills` 0.70,
 /// `Mountain Trails` 0.45) already price rough ground, so on those rows this
@@ -15056,7 +15211,7 @@ pub struct JpDerivedStage {
     pub mx: f64,
     pub my: f64,
     /// Ruling CD item 2: the stage's measured slope, `Some` only on a land
-    /// stage of a world that supplied [`JpWorld::slope_field`] (see
+    /// stage of a world with [`JpWorld::measure_slope`] set (see
     /// [`JpSlope`]); `None` is no slope data, never flat ground.
     pub slope: Option<JpSlope>,
 }
@@ -15123,13 +15278,15 @@ pub struct JpWorld<'a> {
     /// zero-flow river. Read only when the plan's transport is River
     /// Transport (see [`jp_derive_stages`]).
     pub river_net: Option<JpRiverNet<'a>>,
-    /// Ruling CD item 2: the router's slope field, [`build_raw_slope_field`]'s
-    /// output over `field` (the reference's `currentSlopeField`), from which
-    /// each land stage's grade is measured ([`JpSlope`]). `None` -- or a slice
-    /// not `gw * gh` long -- means **no slope data**: every stage's `slope` is
-    /// `None` and planned time is the reference's, never a flat-ground
-    /// reading.
-    pub slope_field: Option<&'a [f32]>,
+    /// Ruling CD item 2: whether each land stage measures its along-track grade
+    /// from `field` ([`JpSlope`]) for the planner's `slope` speed term. `false`
+    /// means **no slope data**: every stage's `slope` is `None` and planned
+    /// time is the reference's, never a flat-ground reading. Was
+    /// `slope_field: Option<&[f32]>` (the router's gradient field) until
+    /// 2026-10-12; the grade no longer reads that field (see [`JpSlope`]), so
+    /// the planner no longer takes it (DECISIONS.md 7p: the superseded input
+    /// is removed, not kept beside the new one).
+    pub measure_slope: bool,
 }
 
 /// The river network [`jp_derive_stages`] reads for River Transport (Ruling CD
@@ -15217,19 +15374,14 @@ impl JpWorld<'_> {
         99
     }
 
-    /// Ruling CD item 2: the slope field when present and sized to this grid,
-    /// with the factor that turns its normalised-height-per-cell values into a
-    /// grade (rise over run): `peak_m / (1 - sea_level) / (cell_km x 1000)`,
-    /// the metres-above-sea scale [`Self::height_m`] uses. `None` -- no slope
-    /// data -- when the field is absent or mis-sized, or the scale is not a
-    /// positive finite number (a sea level at or above 1 has no land range).
-    fn slope_inputs(&self) -> Option<(&[f32], f64)> {
-        let s = self.slope_field?;
-        if s.len() != self.gw * self.gh {
-            return None;
-        }
-        let to_grade = self.peak_m / (1.0 - self.sea_level) / (self.cell_km() * 1000.0);
-        (to_grade.is_finite() && to_grade > 0.0).then_some((s, to_grade))
+    /// Ruling CD item 2: whether land stages measure a grade. True only when
+    /// [`Self::measure_slope`] is set **and** [`Self::height_m`]'s scale
+    /// `peak_m / (1 - sea_level)` is a positive finite number (a sea level at
+    /// or above 1 has no land range, so no height difference means anything):
+    /// otherwise no slope data, never a zero grade.
+    fn measures_slope(&self) -> bool {
+        let scale = self.peak_m / (1.0 - self.sea_level);
+        self.measure_slope && scale.is_finite() && scale > 0.0
     }
 
     /// The river network and discharge, when both are present and sized to
@@ -15392,8 +15544,10 @@ struct JpChunk {
     loss: f64,
     in_riv: bool,
     /// Ruling CD item 2: the sum of `step km x grade` over this chunk's land
-    /// steps, and the km those steps cover (its own denominator: a water gap
-    /// collapsed into a land chunk adds `km` but no measured slope).
+    /// steps -- which for an along-track grade is the climb plus descent in km,
+    /// `|dh| / 1000` per step -- and the km those steps cover (its own
+    /// denominator: a water gap collapsed into a land chunk adds `km` but no
+    /// measured slope).
     slope_acc: f64,
     slope_km: f64,
 }
@@ -15432,10 +15586,10 @@ struct JpChunk {
 /// the reference does.
 ///
 /// **A second departure (Ruling CD item 2, DECISIONS.md 7p): slope.** When the
-/// world carries the router's slope field ([`JpWorld::slope_field`]), every
-/// land stage records its length-weighted mean grade and whether it rides a
-/// way ([`JpSlope`]), which [`jp_calc_land_ex`] turns into a speed term. A
-/// world without the field derives every stage with `slope: None`, exactly as
+/// world measures slope ([`JpWorld::measure_slope`]), every land stage records
+/// its length-weighted mean along-track grade and whether it rides a way
+/// ([`JpSlope`]), which [`jp_calc_land_ex`] turns into a speed term. A world
+/// that does not derives every stage with `slope: None`, exactly as
 /// the reference (which never reads slope into planned time). Chunking, km,
 /// gain/loss and every other field are unchanged either way.
 pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> Vec<JpDerivedStage> {
@@ -15461,9 +15615,9 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // transport, and a world with no network, classifies exactly as the
     // reference does.
     let river_inputs = if plan.transport == "River Transport" { world.river_inputs() } else { None };
-    // Ruling CD item 2: the router's slope field, or `None` (no slope data:
-    // every stage derives exactly as the reference does).
-    let slope_inputs = world.slope_inputs();
+    // Ruling CD item 2: whether land steps measure their grade (false: no
+    // slope data, every stage derives exactly as the reference does).
+    let measure_slope = world.measures_slope();
     for &(px, py) in pts {
         let (x, y) = world.clamp_cell(px, py);
         let i = y * gw + x;
@@ -15593,18 +15747,18 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             let dy = pts[k].1 - pts[k - 1].1;
             let step_km = adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
             cur.km += step_km;
-            // Ruling CD item 2: a land step's grade is the router's slope at
-            // the point it arrives at -- the same point whose classification
-            // put this step's km in this chunk.
-            if f.cat == "land"
-                && let Some((sf, to_grade)) = slope_inputs
-            {
-                let (sx, sy) = world.clamp_cell(pts[k].0, pts[k].1);
-                cur.slope_acc += step_km * sf[sy * gw + sx] as f64 * to_grade;
-                cur.slope_km += step_km;
-            }
             let dh =
                 world.height_m(pts[k].0, pts[k].1) - world.height_m(pts[k - 1].0, pts[k - 1].1);
+            // Ruling CD item 2: a land step's grade is its own rise over run,
+            // `|dh| / (step_km x 1000)`, on the step whose arriving point's
+            // classification put its km in this chunk (see `JpSlope` for why
+            // the along-track grade and not the router's gradient). Weighted
+            // by `step_km`, the step adds `|dh| / 1000` and needs no division,
+            // so a zero-length step adds nothing to either sum.
+            if f.cat == "land" && measure_slope {
+                cur.slope_acc += dh.abs() / 1000.0;
+                cur.slope_km += step_km;
+            }
             if dh > 0.0 {
                 cur.gain += dh;
             } else {
@@ -15758,9 +15912,9 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             // land steps (a labelled simplification: the mean grade, not the
             // time-correct harmonic mean of per-step factors). `on_way` is the
             // chunk's own road condition, set only by a `jp_road_cells` row.
-            // No slope field, a water stage, or no measured land length gives
+            // No slope measurement, a water stage, or no measured land length gives
             // `None` (no data), never a zero grade.
-            slope: (c.cat == "land" && slope_inputs.is_some() && c.slope_km > 0.0)
+            slope: (c.cat == "land" && measure_slope && c.slope_km > 0.0)
                 .then(|| JpSlope { grade: c.slope_acc / c.slope_km, on_way: c.cond.is_some() }),
         };
         st.infra = match plan.infra.as_deref() {
@@ -24479,11 +24633,11 @@ mod tests {
             // derivation (Ruling CD item 1 reads a network only under River
             // Transport, which this fixture's plans do not use).
             river_net: None,
-            // No slope field: the milestone-5/6 goldens stay the reference's
-            // own derivation (Ruling CD item 2 reads slope only when a world
-            // supplies it). `m5_slope_moves_only_the_land_legs` plans this
-            // fixture with the field and pins what it moves.
-            slope_field: None,
+            // No slope measurement: the milestone-5/6 goldens stay the
+            // reference's own derivation (Ruling CD item 2 measures slope only
+            // when a world asks). `m5_slope_moves_only_the_land_legs` plans
+            // this fixture with it and pins what it moves.
+            measure_slope: false,
         }
     }
 
@@ -25764,31 +25918,38 @@ mod tests {
     }
 
     /// Ruling CD item 2 on the milestone-5 world: the same fixture planned
-    /// with the router's slope field (`build_raw_slope_field` over its own
-    /// height field), against the golden plan without one.
+    /// with slope measured (the along-track grade over its own height field),
+    /// against the golden plan without it.
     #[test]
     fn m5_slope_moves_only_the_land_legs() {
         // Protects: slope reaches planned time on the real m5 world through the
-        //   live path (`JpWorld::slope_field` -> `JpSlope` -> the `slope` term):
+        //   live path (`JpWorld::measure_slope` -> `JpSlope` -> the `slope` term):
         //   every land stage carries a grade and its way flag, every land leg is
         //   slower than the slope-free (reference) plan, and the sea and river
         //   legs do not move by a bit. Grades and the total are pinned literals
         //   measured once on this fixture (2026-10-11, after seeing the result).
         let f = m5_fields();
         let pts = m5_pts();
-        let slope = build_raw_slope_field(&f.field, M5_GW, M5_GH, false);
-        let with = JpWorld { slope_field: Some(&slope), ..m5_world(&f) };
+        let with = JpWorld { measure_slope: true, ..m5_world(&f) };
         let q = jp_plan(&with, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         let base = jp_plan(&m5_world(&f), &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         assert_eq!(q.stages.len(), 7, "premise: the golden seven stages");
+        // RE-BASELINED 2026-10-12: the grade is now the route's along-track
+        // grade, not the router's gradient magnitude (`JpSlope`'s doc;
+        // OUTSTANDING_WORK.md "Slope in planned speed"). Measured once after
+        // seeing the result. Old -> new: stage 3 0.011227001660856707 ->
+        // 0.015632899739010577; stage 4 0.01122700320235614 ->
+        // 0.011555979304650405; stage 5 0.0096016864709813 ->
+        // 0.009516006183715278; stage 6 0.006068963429023479 ->
+        // 0.0030576934323486744. Way flags unchanged.
         let expect: [Option<(f64, bool)>; 7] = [
             None,
             None,
             None,
-            Some((0.011_227_001_660_856_707, false)),
-            Some((0.011_227_003_202_356_14, true)),
-            Some((0.009_601_686_470_981_3, true)),
-            Some((0.006_068_963_429_023_479, false)),
+            Some((0.015_632_899_739_010_577, false)),
+            Some((0.011_555_979_304_650_405, true)),
+            Some((0.009_516_006_183_715_278, true)),
+            Some((0.003_057_693_432_348_674_4, false)),
         ];
         for (i, e) in expect.iter().enumerate() {
             let got = q.stages[i].slope.map(|s| (s.grade, s.on_way));
@@ -25805,7 +25966,8 @@ mod tests {
             }
         }
         // The golden plan is 43.202_734_060_708_24 days without slope.
-        near5(q.days, 43.656_742_899_635_39, "days with slope");
+        // RE-BASELINED 2026-10-12 (along-track grade): was 43.656_742_899_635_39.
+        near5(q.days, 43.621_144_583_987_19, "days with slope");
     }
 
     #[test]

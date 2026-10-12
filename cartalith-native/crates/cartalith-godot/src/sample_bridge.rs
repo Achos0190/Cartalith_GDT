@@ -4160,7 +4160,7 @@ mod tests {
             ocean_field: None,
             wind_field: None,
             river_net: None,
-            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let plan = cartalith_civ::JpPlan {
             foraging: "Active".to_string(),
@@ -4322,7 +4322,7 @@ mod tests {
                 cart_terrain: &jw.cart_terrain, temp: &o.temp, rain: &o.rain,
                 flow_field: Some(&o.flow), flow_thresh: 300.0, water_bodies: Some(&o.wb),
                 territory: Some(&o.terr), places: &jw.places, road_cells: &jw.road_cells,
-                ocean_field: None, wind_field: None, river_net: None, slope_field: None,
+                ocean_field: None, wind_field: None, river_net: None, measure_slope: false,
             };
             let pts: Vec<(f64, f64)> = (0..40).map(|i| {
                 let f = i as f64 / 39.0;

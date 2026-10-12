@@ -5,12 +5,14 @@
 //!
 //! What the fixture is. A 30 x 12 all-land world (cart biome 5, cart terrain 0
 //! = Open Plains) whose height rises linearly west to east by `STEP` per cell
-//! (or is flat), with sea level 0.40, a 8000 m peak and 2 km cells. The
-//! router's slope field (`build_raw_slope_field`, the reference's
-//! `currentSlopeField`) is then exactly `STEP` in the interior, which is a
-//! grade of `STEP x 8000 / 0.60 / 2000` = 0.1 (to f32 rounding). The route
-//! runs along row 6, one point per cell, x = 3..=26, clear of the edge cells
-//! whose one-sided difference is half as steep.
+//! (or is flat), with sea level 0.40, a 8000 m peak and 2 km cells. A route
+//! along a row then climbs `STEP x 8000 / 0.60` m per 2 km cell, an
+//! along-track grade of `STEP x 8000 / 0.60 / 2000` = 0.1 (to f32 rounding).
+//! The route runs along row 6, one point per cell, x = 3..=26.
+//!
+//! Since 2026-10-12 the grade is the route's own along-track grade, not the
+//! router's gradient magnitude (`cartalith_civ::JpSlope`'s doc says why); the
+//! two contouring tests at the end are the cases where they differ.
 //!
 //! Every expectation is a literal or an independent quantity computed here from
 //! Tobler's (1993) exponent 3.5 (`exp(-0.35)` off a way, `exp(-0.175)` on one),
@@ -41,7 +43,6 @@ const ON_WAY_10PCT: f64 = 0.839_457_020_769_207_4;
 /// The fixture's owned rasters.
 struct Sl {
     field: Vec<f32>,
-    slope: Vec<f32>,
     biome: Vec<u8>,
     terrain: Vec<u8>,
     temp: Vec<f32>,
@@ -49,16 +50,12 @@ struct Sl {
     wb: Vec<u8>,
 }
 
-/// Builds the fixture: height `0.45 + step x x` everywhere; the slope field is
-/// the router's own (`build_raw_slope_field`), not a hand-written one, so the
-/// test reads the definition the router reads.
+/// Builds the fixture: height `0.45 + step x x` everywhere.
 fn ground(step: f32) -> Sl {
     let n = W * H;
     let field: Vec<f32> = (0..n).map(|i| 0.45 + step * (i % W) as f32).collect();
-    let slope = cartalith_civ::build_raw_slope_field(&field, W, H, false);
     Sl {
         field,
-        slope,
         biome: vec![5; n],
         terrain: vec![0; n],
         temp: vec![15.0; n],
@@ -68,8 +65,8 @@ fn ground(step: f32) -> Sl {
 }
 
 impl Sl {
-    /// The planner's world over this fixture. `slope` false withholds the slope
-    /// field: the "no slope data" marker, not a flat one.
+    /// The planner's world over this fixture. `slope` false turns slope
+    /// measurement off: the "no slope data" marker, not a flat one.
     fn world<'a>(&'a self, road: &'a HashMap<(i64, i64), JpRoadCell>, slope: bool) -> JpWorld<'a> {
         JpWorld {
             gw: W,
@@ -92,7 +89,7 @@ impl Sl {
             ocean_field: None,
             wind_field: None,
             river_net: None,
-            slope_field: slope.then_some(&self.slope[..]),
+            measure_slope: slope,
         }
     }
 }
@@ -148,14 +145,14 @@ fn plan_on(s: &Sl, road: &HashMap<(i64, i64), JpRoadCell>, slope: bool, pts: &[(
 }
 
 /// Protects: an uphill route is slower than the same route on flat ground by
-/// Tobler's normalised factor, `exp(-3.5 x grade)`, measured on the router's
-/// own slope field; the grade itself is the fixture's 0.1.
+/// Tobler's normalised factor, `exp(-3.5 x grade)`, measured along the
+/// route; the grade itself is the fixture's 0.1.
 #[test]
 fn an_uphill_route_is_slower_than_a_flat_one_by_toblers_factor() {
     let none = HashMap::new();
     let hill = plan_on(&ground(STEP), &none, true, &east());
     let flat = plan_on(&ground(0.0), &none, true, &east());
-    let g = hill.grade.expect("a slope field gives the stage a grade");
+    let g = hill.grade.expect("slope measurement gives the stage a grade");
     assert!((g - 0.1).abs() < 1e-6, "grade {g}");
     let f = hill.factor.expect("the trace names the slope term");
     assert!((f - OFF_WAY_10PCT).abs() < 1e-6, "factor {f}");
@@ -167,17 +164,16 @@ fn an_uphill_route_is_slower_than_a_flat_one_by_toblers_factor() {
 }
 
 /// Protects: the slope term is symmetric -- downhill costs what uphill does --
-/// because the router's slope is a gradient magnitude with no direction (the
-/// batch's documented choice; Tobler's own curve is asymmetric).
+/// because the along-track grade is unsigned (`|dh|`, the documented
+/// simplification in `jp_slope_mod`; Tobler's own curve is asymmetric).
 #[test]
 fn downhill_and_uphill_cost_the_same() {
     let none = HashMap::new();
     let s = ground(STEP);
     let up = plan_on(&s, &none, true, &east());
     let down = plan_on(&s, &none, true, &west());
-    // Equal up to the f32 rounding of the height field: the two directions
-    // arrive at different points (x = 4..=26 east, 3..=25 west), whose f32
-    // differences are not bit-identical (measured: 1.1e-8 apart).
+    // Equal up to rounding: the two directions sum the same height
+    // differences in the opposite order.
     let (fu, fd) = (up.factor.expect("term present"), down.factor.expect("term present"));
     assert!((fu - fd).abs() < 1e-6, "up {fu} down {fd}");
     assert!((up.days - down.days).abs() < 1e-5 * up.days, "up {} down {}", up.days, down.days);
@@ -202,7 +198,7 @@ fn slope_on_a_road_costs_less_than_off_road_but_still_costs() {
     assert!(on.days > flat_road.days, "a road up a hill is slower than a flat road");
 }
 
-/// Protects: flat ground with a slope field plans to the bit what it planned
+/// Protects: flat ground with slope measured plans to the bit what it planned
 /// before slope existed (no slope data), so no flat-terrain plan moves; the
 /// trace shows the term at exactly 1.
 #[test]
@@ -216,7 +212,7 @@ fn flat_ground_is_unchanged_to_the_bit() {
     assert_eq!(with.days.to_bits(), without.days.to_bits(), "{} vs {}", with.days, without.days);
 }
 
-/// Protects: no slope data is not zero slope. Without a slope field the stage
+/// Protects: no slope data is not zero slope. Without slope measurement the stage
 /// carries no slope at all (`None`, not a grade of 0), the trace has no slope
 /// term, and the plan is today's (reference) plan -- on a hill, where a
 /// zero-grade reading would be wrong.
@@ -231,11 +227,15 @@ fn no_slope_data_is_not_a_zero_slope_and_falls_back_to_the_reference() {
     // slope into time).
     let flat = plan_on(&ground(0.0), &none, false, &east());
     assert_eq!(nodata.days.to_bits(), flat.days.to_bits());
-    // A slope field of the wrong size is also no data, never indexed.
-    let short = &s.slope[..W];
-    let w = JpWorld { slope_field: Some(short), ..s.world(&none, true) };
+    // A sea level at 1 leaves no land range to scale a height difference by:
+    // also no data, never a zero (or infinite) grade.
+    let w = JpWorld { sea_level: 1.0, ..s.world(&none, true) };
     let st = cartalith_civ::jp_derive_stages(&w, &east(), &JpPlan::default());
-    assert!(st.iter().all(|x| x.slope.is_none()), "a mis-sized slope field must read as absent");
+    assert!(st.iter().all(|x| x.slope.is_none()), "no land range must read as no slope data: {st:?}");
+    // Above 1 the scale is finite but negative: still no land range.
+    let w = JpWorld { sea_level: 1.5, ..s.world(&none, true) };
+    let st = cartalith_civ::jp_derive_stages(&w, &east(), &JpPlan::default());
+    assert!(st.iter().all(|x| x.slope.is_none()), "a negative scale must read as no slope data: {st:?}");
 }
 
 /// Protects: only land stages carry a slope; `jp_slope_mod` is exactly 1 at
@@ -301,7 +301,7 @@ fn merged_stages_keep_the_length_weighted_grade() {
     let st = cartalith_civ::jp_derive_stages(&s.world(&none, true), &east(), &JpPlan::default());
     assert_eq!(st.len(), 14, "premise: the 14-stage cap merged the alternating runs");
     for (i, x) in st.iter().enumerate() {
-        let g = x.slope.expect("land stage with a slope field").grade;
+        let g = x.slope.expect("land stage with slope measured").grade;
         assert!((g - 0.1).abs() < 1e-6, "stage {i} grade {g}");
     }
 }
@@ -326,4 +326,43 @@ fn a_water_stage_never_carries_a_slope() {
     let st = cartalith_civ::jp_derive_stages(&s.world(&none, true), &pts, &plan);
     assert!(!st.is_empty() && st.iter().all(|x| x.cat == "sea"), "premise: the sliver was absorbed: {st:?}");
     assert!(st.iter().all(|x| x.slope.is_none()), "a sea stage carries no slope: {st:?}");
+}
+
+/// Protects: a route that contours -- runs across the fall line, level -- is
+/// charged no slope, though the ground under it is the fixture's 10 % ramp.
+/// The router's gradient magnitude read 0.1 at every one of these cells (the
+/// overstatement this grade replaced, `OUTSTANDING_WORK.md` "Slope in planned
+/// speed"); the planned days equal the slope-free plan's to the bit.
+#[test]
+fn a_contouring_route_on_a_hillside_is_charged_no_slope() {
+    let none = HashMap::new();
+    let s = ground(STEP);
+    // Column 15, rows 1..=10: north to south, at one height.
+    let across: Vec<(f64, f64)> = (1..=10).map(|y| (15.0, y as f64)).collect();
+    let on = plan_on(&s, &none, true, &across);
+    let off = plan_on(&s, &none, false, &across);
+    assert_eq!(on.grade, Some(0.0), "a level route on a hillside has no along-track grade");
+    assert_eq!(on.factor, Some(1.0));
+    assert_eq!(on.days.to_bits(), off.days.to_bits(), "{} vs {}", on.days, off.days);
+    // Control: the same hillside walked up its fall line is charged.
+    assert!(plan_on(&s, &none, true, &east()).factor.expect("term present") < 0.75);
+}
+
+/// Protects: a level coastal route is not charged for the sea floor beside
+/// it. Land at one height with a deep sea row next to the route: a gradient
+/// would difference the route's cells against the sea floor; the along-track
+/// grade reads only the route's own points and is 0.
+#[test]
+fn a_level_coastal_route_is_not_charged_for_the_sea_floor() {
+    let none = HashMap::new();
+    let mut s = ground(0.0);
+    for x in 0..W {
+        let i = (ROW + 1) * W + x;
+        s.field[i] = 0.05; // far below sea level 0.40
+        s.biome[i] = 15;
+        s.wb[i] = 1;
+    }
+    let p = plan_on(&s, &none, true, &east());
+    assert_eq!(p.grade, Some(0.0), "the route's own points are level");
+    assert_eq!(p.factor, Some(1.0));
 }

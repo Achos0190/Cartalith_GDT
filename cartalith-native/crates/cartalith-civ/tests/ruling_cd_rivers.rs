@@ -93,7 +93,7 @@ impl Rv {
             ocean_field: None,
             wind_field: None,
             river_net: net.then_some(JpRiverNet { order: &self.order, recv: &self.recv }),
-            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         }
     }
 }
@@ -309,7 +309,7 @@ fn a_lake_margin_stage_is_unchanged() {
                 ocean_field: None,
                 wind_field: None,
                 river_net: net.then_some(JpRiverNet { order: &order, recv: &recv }),
-                slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+                measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
             };
             for (pts, want, cond) in [(&fwd, want_fwd, cf), (&rev, want_rev, cr)] {
                 let jp = cartalith_civ::jp_plan(&w, pts, &p, &HashMap::new(), &|_, _| 1.0).expect("plans");

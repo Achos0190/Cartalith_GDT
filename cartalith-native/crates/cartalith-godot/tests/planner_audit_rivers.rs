@@ -118,7 +118,7 @@ fn q3_real_river_with_the_river_network() {
         ocean_field: None,
         wind_field: None,
         river_net: net.then_some(JpRiverNet { order: &order, recv: &recv }),
-        slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+        measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
     };
     let plan = JpPlan { transport: "River Transport".into(), vessel: "Keelboat".into(), ..JpPlan::default() };
     for net in [false, true] {

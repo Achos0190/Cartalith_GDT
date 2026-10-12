@@ -83,7 +83,7 @@ fn jp_world<'a>(f: &'a Flat, road: &'a HashMap<(i64, i64), cartalith_civ::JpRoad
         ocean_field: None,
         wind_field: None,
         river_net: None,
-        slope_field: None,
+        measure_slope: false,
     }
 }
 

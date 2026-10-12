@@ -4,10 +4,15 @@ extends Node
 ##   godot --headless --path . _exportbig_probe.tscn -- --width 16384
 ##   godot --headless --path . _exportbig_probe.tscn -- --width 32768 --seed 7
 ##   godot --headless --path . _exportbig_probe.tscn -- --width 32768 --heightmap
+##   godot --headless --path . _exportbig_probe.tscn -- --width 16384 --water-stack
 ##
 ## `--width` is required; `--seed` (default 20260906) and `--heightmap` (which
 ## runs `export_heightmap_png` instead of `export_raster_png`, the other
-## consumer of the same `BAKE_WIDTHS` ladder) are optional. All are read from
+## consumer of the same `BAKE_WIDTHS` ladder) are optional, and so is
+## `--water-stack` (2026-10-12): a one-entry Curves stack on the WATER layer
+## only, so the two stacks differ and one is live, which is the one case the
+## export builds ET-C2's 1 B/px water weight (`render::bake_water_weight`) --
+## the case `PEAK_BYTES_PER_PIXEL` was never re-measured for. All are read from
 ## `OS.get_cmdline_user_args()`, i.e. after the `--`, and **anything else
 ## aborts** rather than being ignored -- `MISTAKES.md`'s rule that a probe
 ## header is a claim about the probe's own parsing, and that a flag it does not
@@ -38,6 +43,7 @@ func _ready() -> void:
 	var width := -1
 	var seed_value := 20260906
 	var heightmap := false
+	var water_stack := false
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
@@ -51,8 +57,11 @@ func _ready() -> void:
 			"--heightmap":
 				heightmap = true
 				i += 1
+			"--water-stack":
+				water_stack = true
+				i += 1
 			_:
-				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed and --heightmap only" % args[i])
+				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed, --heightmap and --water-stack only" % args[i])
 				get_tree().quit(2)
 				return
 	if width <= 0:
@@ -77,6 +86,15 @@ func _ready() -> void:
 	bridge.world_gen.generate_sized(seed_value, 1200.0, 2048, 1311)
 	bridge.has_world = true
 	print("  seed %d generated 2048 x 1311 in %.1f s" % [seed_value, (Time.get_ticks_msec() - tg) / 1000.0])
+
+	if water_stack:
+		var stack := '{"entries":[{"kind":{"curves":{"points":[[0.0,0.0],[64.0,50.0],[128.0,140.0],[192.0,205.0],[255.0,255.0]]}}}]}'
+		var ra: Dictionary = bridge.world_gen.appearance_set_adjust("water", stack)
+		if not bool(ra.get("ok", false)):
+			print("ABORT: the water stack was refused: %s" % str(ra))
+			get_tree().quit(2)
+			return
+		print("  WATER STACK set (terrain empty, water one Curves entry): %s" % str(ra.keys()))
 
 	var e: Dictionary = bridge.world_gen.export_raster_estimate(width)
 	print("  estimate %d -> %d x %d, %.1f MP, peak %.0f MB, keys %s"

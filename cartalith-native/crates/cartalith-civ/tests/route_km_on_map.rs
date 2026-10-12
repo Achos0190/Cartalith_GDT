@@ -259,7 +259,7 @@ fn jp_world<'a>(f: &'a Flat, p: &'a PlanInputs, world: bool) -> cartalith_civ::J
         ocean_field: None,
         wind_field: None,
         river_net: None,
-        slope_field: None,
+        measure_slope: false,
     }
 }
 

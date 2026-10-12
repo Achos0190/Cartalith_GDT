@@ -466,10 +466,23 @@ struct WaysDoc {
     /// re-saving such a project leaves this document byte-identical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     road_edges: Vec<RoadEdgeDto>,
+    /// The routing-grid cap (`cartalith_civ::RW_CAP`) the router ran under,
+    /// which says what grid `road_edges`' `cells` index: `min(gw, cap)` wide
+    /// (`SAVEFILE_COMPAT.md` §9.3, added 2026-10-12). Written with
+    /// `road_edges` and only with it. Absent in every archive written before,
+    /// where the cap was either 384 (until 2026-09-28) or 1024, and
+    /// `civ_from_project` decides which from the edges themselves
+    /// (`cartalith_civ::road_edges_infer_grid_w`). Must never be written
+    /// without edges: absent then means "no router edges known", as it always
+    /// has, and an old project without edges re-saves byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    road_edges_rw_cap: Option<usize>,
 }
 
 /// One `CivData::road_edges` entry: `from`/`to` are `RoadEdge::a`/`b`, and
-/// `cells` is `RoadEdge::path` -- flat cell indices, `y * gw + x`.
+/// `cells` is `RoadEdge::path` -- flat indices `y * rw + x` on the **routing
+/// grid**, `rw = min(gw, road_edges_rw_cap)` wide (equal to `y * gw + x` of the
+/// map only while `gw <= rw`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 struct RoadEdgeDto {
     #[serde(default)]
@@ -2311,6 +2324,9 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
             .iter()
             .map(|e| RoadEdgeDto { from: e.a, to: e.b, cells: e.path.clone() })
             .collect(),
+        // The grid the paths above are on: every `RoadEdge` in memory was
+        // routed (or re-gridded on open) at today's cap.
+        road_edges_rw_cap: (!civ.road_edges.is_empty()).then_some(cartalith_civ::RW_CAP),
     };
     insert_doc(out, SLOT_WAYS, &ways);
 
@@ -2645,16 +2661,55 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
     // settlement deleted since leaves them stale in memory too, so dropping
     // on them would make the reopened network differ from the saved one.
     let stored_edges = &ways_doc.road_edges;
-    let road_edges: Vec<cartalith_civ::RoadEdge> = stored_edges
+    let raw: Vec<cartalith_civ::RoadEdge> = stored_edges
         .iter()
         .filter(|e| e.cells.iter().all(|&c| c < n))
         .map(|e| cartalith_civ::RoadEdge { a: e.from, b: e.to, path: e.cells.clone() })
         .collect();
+    // §9.3's `road_edges_rw_cap`: the routing grid the cells index. A save
+    // written while the cap was 384 (2026-09-24 to 09-28) of a map wider than
+    // 384 holds indices on a 384-wide grid; today's readers assume today's
+    // grid (`road_edge_map_path`), so such a list is re-expressed on it here
+    // (OUTSTANDING_WORK.md "Saves written while `RW_CAP` was 384", 2026-10-12).
+    // A list on today's grid is left exactly as stored (`road_edge_regrid`'s
+    // identity), and so is every save whose grid size does not match `n`
+    // (nothing to scale against).
+    let (sgw, sgh) = (data.save.params.gw, data.save.params.gh);
+    let today_w = sgw.min(cartalith_civ::RW_CAP);
+    let from_w = if raw.is_empty() || sgw * sgh != n {
+        today_w
+    } else if let Some(cap) = ways_doc.road_edges_rw_cap {
+        sgw.min(cap.max(1))
+    } else {
+        let places: Vec<(usize, usize)> = settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect();
+        let (w, decided) = cartalith_civ::road_edges_infer_grid_w(&raw, &places, sgw, sgh);
+        // Said only when it was a guess between two real candidates (a map
+        // wider than the old cap); a decided move is reported below.
+        if !decided && sgw.min(cartalith_civ::RW_CAP_BEFORE_RULING_BT) != today_w {
+            warnings.push(format!(
+                "{SLOT_WAYS}: road edges carry no grid size (saved before 2026-10-12) and nothing in the save told the old 384-wide grid from today's; read as {w} wide"
+            ));
+        }
+        w
+    };
+    let road_edges: Vec<cartalith_civ::RoadEdge> = if from_w == today_w {
+        raw
+    } else {
+        raw.into_iter()
+            .filter_map(|e| cartalith_civ::road_edge_regrid(&e.path, from_w, sgw, sgh).map(|path| cartalith_civ::RoadEdge { path, ..e }))
+            .collect()
+    };
     if road_edges.len() < stored_edges.len() {
         warnings.push(format!(
             "{SLOT_WAYS}: {} of {} road edges skipped (a cell outside the grid)",
             stored_edges.len() - road_edges.len(),
             stored_edges.len()
+        ));
+    }
+    if from_w != today_w {
+        warnings.push(format!(
+            "{SLOT_WAYS}: {} road edges moved from a {from_w}-cell-wide routing grid to today's {today_w}",
+            road_edges.len()
         ));
     }
 
@@ -8940,9 +8995,6 @@ mod substrate_tests {
             &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km,
             ws.integrated_drainage,
         );
-        // Ruling CD item 2: the slope field `jp_world_parts` builds, built the
-        // same way, for the same reason.
-        let slope = cartalith_civ::build_raw_slope_field(&ws.field, GW, GH, p.world);
         let jpw = cartalith_civ::JpWorld {
             gw: GW,
             gh: GH,
@@ -8964,7 +9016,8 @@ mod substrate_tests {
             ocean_field: Some(&ocean),
             wind_field: Some(&wind),
             river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
-            slope_field: Some(&slope),
+            // Ruling CD item 2: slope measured, as `jp_world` sets it.
+            measure_slope: true,
         };
         cartalith_civ::jp_plan_full(
             &jpw,
@@ -9248,6 +9301,96 @@ mod substrate_tests {
         // civ layer, which this very archive restores.
         assert!(!substrate::NEEDS_SUBSTRATE.contains("civilisation layer"));
         assert!(substrate::NEEDS_SUBSTRATE.contains("regenerate"));
+    }
+
+    /// The end cells of every road edge, decoded on today's grid by the
+    /// readers' own map (`cartalith_civ::road_edge_map_path`), and the largest
+    /// Chebyshev distance, in map cells, from an edge's two ends to its two
+    /// settlements (either orientation); edges whose settlements are out of
+    /// range are skipped. The measure the 384-cap fixture test reports.
+    fn worst_end_gap(civ: &CivData, gw: usize) -> (usize, u64) {
+        let mut judged = 0;
+        let mut worst = 0u64;
+        for e in &civ.road_edges {
+            let (Some(a), Some(b)) = (civ.settlements.get(e.a), civ.settlements.get(e.b)) else { continue };
+            let (pts, _) = cartalith_civ::road_edge_map_path(&e.path, gw);
+            let (Some(&f), Some(&l)) = (pts.first(), pts.last()) else { continue };
+            let d = |p: (f64, f64), s: &cartalith_civ::NamedSettlement| {
+                (p.0 - s.placement.x as f64).abs().max((p.1 - s.placement.y as f64).abs()) as u64
+            };
+            worst = worst.max((d(f, b) + d(l, a)).min(d(f, a) + d(l, b)));
+            judged += 1;
+        }
+        (judged, worst)
+    }
+
+    /// Protects: a project saved while the routing cap was 384
+    /// (OUTSTANDING_WORK.md "Saves written while `RW_CAP` was 384") reopens
+    /// with its road edges where the router laid them. The fixture is real:
+    /// `project.json`, `entities/settlements.json`, `ways.json` and
+    /// `factions.json` copied byte for byte from an archive written by the
+    /// pre-Ruling-BT tree (`1127dfef~1`, cap 384) through `substrate_tests`'s
+    /// own `archive()` on a 512 x 328 world, seed 24601 (2026-10-12). Its six
+    /// core rasters are zero-filled at their real sizes and the rest left out,
+    /// to keep the fixture at 35 KB: nothing here reads them.
+    /// Its 55 edges index a 384-wide grid and carry no grid member.
+    ///
+    /// Measured (printed): read on today's grid as before this fix, the edge
+    /// ends land far from their settlements; re-gridded, every judged edge ends
+    /// within 2 cells of both (the old grid's own rounding, `1 / 0.75`). A
+    /// re-save writes `road_edges_rw_cap` and re-reads with no move and no
+    /// warning, the paths unchanged.
+    #[test]
+    fn a_project_saved_under_the_384_cap_reopens_with_its_road_edges_in_place() {
+        let bytes = include_bytes!("../tests/fixtures/project_384cap_512x328_2026-09-28.zip");
+        let data = project::read_project(Cursor::new(&bytes[..])).expect("the fixture reads");
+        let (gw, gh) = (data.save.params.gw, data.save.params.gh);
+        assert_eq!((gw, gh), (512, 328), "premise: wider than 384, under 1024");
+        let ways: serde_json::Value = serde_json::from_str(data.text_of(SLOT_WAYS).expect("ways")).unwrap();
+        assert!(ways.get("road_edges_rw_cap").is_none(), "premise: written before the member");
+        assert_eq!(ways["road_edges"].as_array().map(|a| a.len()), Some(55));
+
+        // As read before this fix: the stored cells taken as today's grid.
+        let mut raw_civ = civ_from_project(&data, gw * gh, &mut Vec::new()).expect("restores");
+        let stored: Vec<Vec<usize>> = ways["road_edges"].as_array().unwrap().iter()
+            .map(|e| e["cells"].as_array().unwrap().iter().map(|c| c.as_u64().unwrap() as usize).collect()).collect();
+        for (e, s) in raw_civ.road_edges.iter_mut().zip(&stored) {
+            e.path = s.clone();
+        }
+        let (judged_raw, worst_raw) = worst_end_gap(&raw_civ, gw);
+
+        let mut warnings = Vec::new();
+        let civ = civ_from_project(&data, gw * gh, &mut warnings).expect("restores");
+        assert_eq!(civ.road_edges.len(), 55, "no edge lost: {warnings:?}");
+        let (judged, worst) = worst_end_gap(&civ, gw);
+        eprintln!("384-cap fixture: {judged_raw} edges judged; worst end gap read as today's grid {worst_raw} cells, re-gridded {worst} cells");
+        assert!(judged >= 50, "premise: the edges' settlements are in range ({judged})");
+        assert!(worst_raw > 50, "premise: the old reading really is misplaced ({worst_raw})");
+        assert!(worst <= 2, "every re-gridded edge ends at its settlements ({worst})");
+        assert!(warnings.iter().any(|w| w.contains("55 road edges moved from a 384-cell-wide routing grid to today's 512")), "{warnings:?}");
+        // Continuity: an old path with no break (every step 8-adjacent on
+        // the 384 grid) is still unbroken on today's grid.
+        for (e, s) in civ.road_edges.iter().zip(&stored) {
+            let old_unbroken = s.windows(2).all(|p| (p[0] % 384).abs_diff(p[1] % 384) <= 1 && (p[0] / 384).abs_diff(p[1] / 384) <= 1);
+            if old_unbroken {
+                assert!(cartalith_civ::road_edge_map_path(&e.path, gw).1.is_empty(), "re-gridding adds no break");
+            }
+        }
+
+        // Re-saved: the member is written, and the re-read is the identity.
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let w2: serde_json::Value = serde_json::from_str(&docs[SLOT_WAYS]).unwrap();
+        assert_eq!(w2["road_edges_rw_cap"], 1024);
+        let mut data2 = data.clone();
+        data2.documents.insert(SLOT_WAYS.to_string(), w2.clone());
+        data2.document_text.insert(SLOT_WAYS.to_string(), docs[SLOT_WAYS].clone());
+        let mut warnings2 = Vec::new();
+        let back = civ_from_project(&data2, gw * gh, &mut warnings2).expect("restores");
+        // (The fixture omits the civ rasters, so territory/provinces warn;
+        // nothing may be said about road edges.)
+        assert!(!warnings2.iter().any(|w| w.contains("road edge")), "{warnings2:?}");
+        assert_eq!(back.road_edges, civ.road_edges);
     }
 
     /// The real pre-substrate archive `a_project_saved_before_the_substrate_

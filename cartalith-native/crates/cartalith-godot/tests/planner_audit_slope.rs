@@ -7,12 +7,14 @@
 //! `jp_slope_mod`) and addendum item 5 gave Track its own `None / Wild` row.
 //! This harness plans the audit's own routes on the audit's own world (seed
 //! 24601, 256 x 192, engine defaults; see `planner_audit_journey.rs`) with and
-//! without the router's slope field, so the before/after of item 2 is one run:
-//! "before" is `JpWorld::slope_field = None` (no slope data, the reference's
-//! time) and "after" is the field `WorldGen::jp_world_parts` builds. It also
-//! prints the slope distribution over land and, per stage, the router's
-//! gradient-magnitude grade beside the route's own along-track grade
-//! (`(gain + loss) / km`), because the two differ wherever a route contours.
+//! without slope measured, so the before/after of item 2 is one run: "before"
+//! is `JpWorld::measure_slope = false` (no slope data, the reference's time)
+//! and "after" is what `WorldGen::jp_world` sets. It also prints the router's
+//! gradient-magnitude distribution over land and, per stage, the planner's
+//! grade beside `(gain + loss) / km`. Since 2026-10-12 the planner's grade IS
+//! the along-track grade (it was the router's gradient, which overstated a
+//! contouring route; `cartalith_civ::JpSlope`), so the two columns agree up
+//! to a water gap's km folded into a land stage.
 //!
 //! Why it lives in `cartalith-godot/tests`: the same reason as
 //! `planner_audit_journey.rs` (the only crate whose dependency set has
@@ -104,7 +106,7 @@ impl Fx {
             ocean_field: None,
             wind_field: None,
             river_net: None,
-            slope_field: slope.then_some(&self.slope[..]),
+            measure_slope: slope,
         }
     }
 
@@ -142,8 +144,8 @@ fn travel_days(w: &JpWorld, pts: &[(f64, f64)]) -> (f64, cartalith_civ::JpJourne
     (jp.travel_days, jp)
 }
 
-/// Per stage: terrain, condition, km, the router-slope grade and its factor,
-/// and the along-track grade `(gain + loss) / km`.
+/// Per stage: terrain, condition, km, the planner's grade and its factor, and
+/// the cross-check `(gain + loss) / km`.
 fn stage_lines(jp: &cartalith_civ::JpJourneyPlan) -> String {
     jp.stages
         .iter()
@@ -210,7 +212,7 @@ fn slope_distribution_over_land() {
 /// Protects (measurement only): before/after of Ruling CD items 2 and 5 on the
 /// audit's Q1 routes -- a land route with no way, and the same route with a
 /// hand-drawn Road, Track or Ancient way through the audit's detour waypoint --
-/// planned without the slope field (before) and with it (after), per stage.
+/// planned without slope measured (before) and with it (after), per stage.
 /// Guards that each route is real and each way stamps road cells.
 #[test]
 #[ignore = "measurement harness for Ruling CD batch 3; prints, pins nothing"]

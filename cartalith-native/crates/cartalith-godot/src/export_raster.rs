@@ -165,6 +165,14 @@ const TILE_SIZE: usize = 1024;
 /// gate has to budget against, and an estimate that can be exceeded is worse
 /// than none.
 ///
+/// **Re-measured 2026-10-12, after ET-C2's 1 B/px water weight**, same method
+/// (`_exportbig_probe.gd`, now with `--water-stack`; release DLL; the Godot
+/// child process's `PeakWorkingSet64`): 8K 1 625-1 626 MiB and 16K 4 411 MiB
+/// with the water stack, 1 625-1 626 and 4 411-4 453 MiB without, so the
+/// weight adds nothing measurable (it is built after local contrast's blurs
+/// return, `render::bake_and_finish`). The 8K->16K slope came out 22.7-23.0
+/// B/px that day: at this bound, not over it. 32K was not re-run.
+///
 /// The PNG encode is **not** an additional peak: `image` 0.25.10's PNG encoder
 /// passes an `Rgb8` buffer through untouched (`codecs/png.rs`'s `L8 | La8 |
 /// Rgb8 | Rgba8 => self.encode_inner(buf, …)` arm), so at encode time the
@@ -3453,8 +3461,11 @@ mod adjust_census_tests {
     /// (so the at-rest pass is the real per-pixel loop, not the early return),
     /// the grade at rest, sRGB: no stack; a four-adjustment water stack
     /// (Levels, five-point Curves, OkLCh HSL, gradient map) over a half-water
-    /// weight; and the same stack on both layers (every pixel adjusted). Five
-    /// runs each, median and min..max printed. Run alone, in release:
+    /// weight; and the same stack on both layers (every pixel adjusted). Since
+    /// 2026-10-12 also a Curves entry alone (5 and 16 points) and Levels alone on
+    /// every pixel, the measurement the "Curves look-up table" row asked for: a
+    /// LUT could save at most the Curves-alone figure minus the at-rest pass.
+    /// Five runs each, median and min..max printed. Run alone, in release:
     /// `cargo test -p cartalith-godot --release --lib bench_finish_rgb_stack_cost -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -3472,6 +3483,9 @@ mod adjust_census_tests {
             AdjustKind::GradientMap { ramp: render::ElevationRamp::normalized([(0.0, (20.0, 30.0, 90.0), 0.5), (1.0, (240.0, 230.0, 200.0), 0.5)].map(|(at, col, a)| render::RampStop { at, col, a })) },
         ]);
         let empty = AdjustStack::default();
+        let curve5 = stack(vec![AdjustKind::Curves { points: vec![(0.0, 0.0), (64.0, 50.0), (128.0, 140.0), (192.0, 205.0), (255.0, 255.0)] }]);
+        let curve16 = stack(vec![AdjustKind::Curves { points: (0..16).map(|k| (k as f64 * 17.0, (k as f64 * 17.0 * 0.9 + 10.0).min(255.0))).collect() }]);
+        let levels = stack(vec![AdjustKind::Levels { in_black: 8.0, in_white: 240.0, gamma: 1.3, out_black: 4.0, out_white: 250.0 }]);
         let delta = |i: usize| ((i % 7) as f64 - 3.0) * 0.5;
         let time = |layers: render::AdjustLayers<'_>| {
             let mut ms: Vec<f64> = (0..5)
@@ -3491,6 +3505,9 @@ mod adjust_census_tests {
             ("no stack", None),
             ("4-entry water stack, half-water weight", Some((&empty, &four, &weight[..]))),
             ("4-entry stack on both layers (uniform)", Some((&four, &four, &[][..]))),
+            ("Curves alone, 5 points (uniform)", Some((&curve5, &curve5, &[][..]))),
+            ("Curves alone, 16 points (uniform)", Some((&curve16, &curve16, &[][..]))),
+            ("Levels alone (uniform)", Some((&levels, &levels, &[][..]))),
         ] {
             let (med, lo, hi) = time(layers);
             eprintln!("BENCH finish_rgb 2048x1311 {name}: median {med:.1} ms ({lo:.1}..{hi:.1})");

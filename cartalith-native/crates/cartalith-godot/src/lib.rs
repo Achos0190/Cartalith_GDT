@@ -20102,7 +20102,7 @@ impl WorldGen {
             // (Ruling CD item 1), so building one here would change nothing.
             // If `jp_ensure_plan` ever guesses River Transport, supply it.
             river_net: None,
-            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
         let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));

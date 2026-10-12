@@ -1216,7 +1216,31 @@ and is what a reader of any earlier archive sees.
 | Member | Type | Meaning |
 |---|---|---|
 | `from`, `to` | integer | The two settlements the router joined — indices into `entities/settlements.json`'s array at the time it ran. **Informational**: a settlement deleted since leaves them stale, and a reader MUST NOT drop an edge for them. |
-| `cells` | array of integers | The un-smoothed path the router laid, as flat cell indices `y × gw + x`, in order. A reader MUST drop an edge any of whose cells is outside `0 … gw × gh − 1`, and report the count. |
+| `cells` | array of integers | The un-smoothed path the router laid, in order, as flat indices `y × rw + x` on the router's **routing grid**, `rw = min(gw, road_edges_rw_cap)` cells wide and `max(2, round(gh × rw / gw))` rows high. That is `y × gw + x` of the map only while `gw ≤ rw`. A reader MUST drop an edge any of whose cells is outside `0 … gw × gh − 1`, and report the count. |
+
+**`road_edges_rw_cap` (added 2026-10-12, additive; `format_version` stays 2).**
+A sibling of `road_edges`: the integer cap on the routing grid's width the
+router ran under, so `cells` index a grid `min(gw, road_edges_rw_cap)` wide.
+A writer writes it whenever it writes `road_edges`, and never without them, so
+an archive with no edges still re-saves byte-identically. This port writes
+`1024`.
+
+An archive with `road_edges` and **no** `road_edges_rw_cap` predates the
+member, and its cap was one of two values: **384** if it was written between
+2026-09-24 and 2026-09-28 (the reference's own cap, raised by Ruling BT in
+`1127dfef`), **1024** after. On a map no wider than 384 the two are the same
+grid. On a wider map a reader decides from the edges themselves: an edge runs
+from its `to` settlement's routing cell to its `from` settlement's, so on the
+grid it was laid on both ends decode onto (or next to) those settlements; a
+candidate that puts any cell off its own grid is out, and of the rest the one
+whose ends land nearer their settlements, summed over every edge with in-range
+`from`/`to`, wins (ties: 1024). This port then re-expresses a list laid on the
+old grid on today's (`cartalith_civ::road_edges_infer_grid_w`,
+`road_edge_regrid`) and reports the move as a warning. Measured on a real
+archive written by the pre-Ruling-BT tree (512 × 328, 55 edges, fixture
+`cartalith-godot/tests/fixtures/project_384cap_512x328_2026-09-28.zip`): read
+as today's grid, the worst edge ended **760 cells** from its settlements;
+re-gridded, every edge ends within **2 cells** of both.
 
 Why it is stored beside `roads[]` rather than derived from it: `roads[]` is
 the consolidated, smoothed, classified network the map draws, and the router's

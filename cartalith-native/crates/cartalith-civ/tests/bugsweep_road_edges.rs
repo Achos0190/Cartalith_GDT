@@ -114,3 +114,78 @@ fn up_to_rw_cap_the_new_reading_is_the_old_one_exactly() {
         assert_eq!(polys, vec![old], "gw {gw}");
     }
 }
+
+// ---- Saves written under the old 384 cap (OUTSTANDING_WORK.md row "Saves
+// written while `RW_CAP` was 384", 2026-10-12) ----------------------------------
+//
+// A project saved between 2026-09-24 and 2026-09-28 of a map wider than 384
+// holds `RoadEdge::path` indices on a 384-wide routing grid, and says nothing
+// about it. `road_edges_infer_grid_w` decides which grid a keyless list was laid
+// on; `road_edge_regrid` re-expresses it on today's. Every expected value below
+// is worked by hand beside it.
+
+use cartalith_civ::{road_edge_regrid, road_edges_infer_grid_w, RW_CAP_BEFORE_RULING_BT};
+
+/// Protects: the regrid of a 384-grid path onto today's grid at gw = 768
+/// (today `rw = 768`, `sc = 1`; then `sc = 0.5`, `rh = round(500 x 0.5) = 250`).
+/// Old cells (10, 5), (11, 5), (12, 6) go to map cells (20, 10), (22, 10),
+/// (24, 12): each old 8-adjacent step becomes a straight run, so the new path
+/// is (20,10) (21,10) (22,10) (23,11) (24,12) -- continuous, which is what keeps
+/// the road credited between the old cell centres. A later non-adjacent old
+/// step (12,6) -> (20,6) stays a jump: (40, 12) alone.
+#[test]
+fn a_384_grid_path_is_re_expressed_on_todays_grid_continuously() {
+    let (gw, gh) = (768usize, 500usize);
+    assert_eq!(RW_CAP_BEFORE_RULING_BT, 384, "literal: the cap before Ruling BT");
+    let old = |x: usize, y: usize| y * 384 + x;
+    let new = |x: usize, y: usize| y * 768 + x;
+    let got = road_edge_regrid(&[old(10, 5), old(11, 5), old(12, 6), old(20, 6)], 384, gw, gh).expect("on the old grid");
+    assert_eq!(got, vec![new(20, 10), new(21, 10), new(22, 10), new(23, 11), new(24, 12), new(40, 12)]);
+    // A cell off the old grid (rows 0..250) refuses the edge, never guesses.
+    assert_eq!(road_edge_regrid(&[old(0, 250)], 384, gw, gh), None);
+}
+
+/// Protects: identity by control flow for a path already on today's grid --
+/// every save written since Ruling BT reopens byte for byte -- including a
+/// path a regrid would have changed (a jump and a repeat).
+#[test]
+fn a_path_on_todays_grid_is_returned_unchanged() {
+    for (gw, gh) in [(300usize, 200usize), (768, 500), (2048, 1311)] {
+        let rw = gw.min(RW_CAP);
+        let path = vec![5 * rw + 3, 5 * rw + 3, 9 * rw + 40];
+        assert_eq!(road_edge_regrid(&path, rw, gw, gh), Some(path.clone()), "gw {gw}");
+    }
+}
+
+/// Protects: the inference. Two settlements at map (100, 100) and (140, 120) on
+/// a 768 x 500 map; an edge from b back to a. Laid on the 384 grid its ends are
+/// routing cells (70, 60) and (50, 50) -- indices 23 110 and 19 250; read on
+/// today's 768 grid those same indices are (70, 30) and (50, 25), far from both
+/// settlements, so the 384 grid wins. The same edge laid on today's grid (ends
+/// (140, 120) and (100, 100)) is judged today's. A map no wider than 384 has one
+/// candidate and decides nothing.
+#[test]
+fn a_keyless_edge_list_is_judged_by_where_its_ends_land() {
+    let (gw, gh) = (768usize, 500usize);
+    let places = [(100usize, 100usize), (140, 120)];
+    let old = RoadEdge { a: 0, b: 1, path: vec![60 * 384 + 70, 55 * 384 + 60, 50 * 384 + 50] };
+    assert_eq!((old.path[0], old.path[2]), (23_110, 19_250), "the hand-worked indices");
+    assert_eq!(road_edges_infer_grid_w(std::slice::from_ref(&old), &places, gw, gh), (384, true));
+    let new = RoadEdge { a: 0, b: 1, path: vec![120 * 768 + 140, 110 * 768 + 120, 100 * 768 + 100] };
+    assert_eq!(road_edges_infer_grid_w(std::slice::from_ref(&new), &places, gw, gh), (768, true));
+    // No usable evidence (endpoints out of range): today's, undecided.
+    let stale = RoadEdge { a: 7, b: 9, path: old.path.clone() };
+    assert_eq!(road_edges_infer_grid_w(&[stale], &places, gw, gh), (768, false));
+    // Up to 384 wide the two grids are one grid.
+    assert_eq!(road_edges_infer_grid_w(&[old], &places, 384, 250), (384, false));
+}
+
+/// Protects: a candidate that puts a cell off its own grid is ruled out. On a
+/// 2048 x 1311 map the 384 grid has 384 x 246 = 94 464 cells; an index above
+/// that can only be today's 1024 grid, even with no settlements to judge by.
+#[test]
+fn an_index_past_the_old_grid_rules_the_old_grid_out() {
+    let e = RoadEdge { a: 0, b: 0, path: vec![200 * 1024 + 10] };
+    assert!(e.path[0] >= 384 * 246, "premise: off the 384 grid");
+    assert_eq!(road_edges_infer_grid_w(&[e], &[], 2048, 1311), (1024, true));
+}

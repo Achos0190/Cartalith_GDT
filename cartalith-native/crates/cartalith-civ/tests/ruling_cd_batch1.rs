@@ -74,7 +74,7 @@ impl Sea {
             ocean_field: Some(&self.ocean),
             wind_field: Some(&self.wind),
             river_net: None,
-            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         }
     }
 }

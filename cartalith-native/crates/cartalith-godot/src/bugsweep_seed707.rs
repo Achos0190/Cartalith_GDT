@@ -126,7 +126,6 @@ fn replay(seed: i32, villages: bool) {
     let (river_order, river_recv) = cartalith_civ::fresh_river_channels(
         &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km, ws.integrated_drainage,
     );
-    let slope = cartalith_civ::build_raw_slope_field(&ws.field, GW, GH, p.world);
     let world = JpWorld {
         gw: GW,
         gh: GH,
@@ -148,7 +147,7 @@ fn replay(seed: i32, villages: bool) {
         ocean_field: Some(&o),
         wind_field: Some(&w),
         river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
-        slope_field: Some(&slope),
+        measure_slope: true,
     };
     let plan = JpPlan { transport: "Sea Faring".into(), vessel: "Cog".into(), ..JpPlan::default() };
 
