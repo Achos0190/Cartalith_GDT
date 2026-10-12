@@ -481,6 +481,12 @@ func _ready() -> void:
 				## label column, which scrolled normally even at HEAD.
 				sc.scroll_vertical = 0
 				await _frames(6)
+				## The card is taller than the phone viewport now, so at scroll 0 the
+				## Archetype row is off-screen and a swipe "at its y" lands outside the
+				## card. Scroll the row into view first (the probe's own Parts C/F do the
+				## same), and pick the swipe's travel from where it ends up.
+				sc.ensure_control_visible(ob)
+				await _frames(6)
 				var lbl_x: float = _screen_pt(ob, Vector2(0.0, ob.size.y * 0.5)).x - 120.0
 				var lbl_pt := Vector2(lbl_x, _screen_pt(ob, ob.size * 0.5).y)
 				var ls0 := sc.scroll_vertical
@@ -494,7 +500,10 @@ func _ready() -> void:
 			if _want("E"):
 				_log("-- PART E: tap-open, then tap an item")
 				ob.select(0)
-				await _frames(4)
+				## Archetype may be below the fold on a phone (the card scrolls);
+				## bring it on screen before tapping, or the tap lands off the card.
+				sc.ensure_control_visible(ob)
+				await _frames(6)
 				var pt := _screen_pt(ob, ob.size * 0.5)
 				await _tap_at(pt)
 				var pm := ob.get_popup()

@@ -1221,7 +1221,10 @@ func _draw_preview_mask(mask: PackedByteArray, ms: float) -> void:
 	_set_preview_title(h)
 	var land := 100.0 * float(mask.count(1)) / float(mask.size())
 	var n := effective_plates()
-	_preview_stats.text = "land %d%% · %s plates · %s · drawn in %d ms" % [
+	## Two explicit lines, and a no-break space inside "N ms": on the 2400x1080
+	## emulator run the single wrapping line split "295 / ms" and clipped its
+	## second row (STATUS 2026-10-12).
+	_preview_stats.text = "land %d%% · %s plates · %s\ndrawn in %d ms" % [
 		int(round(land)), str(n) if n >= 0 else "—",
 		"whole world, x wraps" if extent_input.selected == 1 else "region", int(round(ms))]
 	if _history_push_pending:

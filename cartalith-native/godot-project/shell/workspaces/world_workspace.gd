@@ -903,7 +903,10 @@ func _build_generate_head(parent: Control) -> void:
 	var gen := DccWidgets.action(sec, "Generate world", _on_generate_pressed, true)
 	gen.tooltip_text = "The reference's #genBtn. Runs all ten stages against the current parameters and the current seed. The same button sits in the tool options bar above the map."
 	var seed_btn := DccWidgets.action(sec, "New seed", func(): app._new_seed())
-	seed_btn.tooltip_text = "The reference's #reseedBtn. Rolls a new seed in File ▸ New world and regenerates from it."
+	## Prose matches `app.gd::_new_seed()` -> `NewWorldDialog.randomise_seed()`, which only
+	## writes the dialog's seed (no-op when `seed_locked`); corrected 2026-10-12, it said
+	## it also regenerated.
+	seed_btn.tooltip_text = "The reference's #reseedBtn. Rolls a new random seed into File ▸ New world's Seed field (and its preview); it does nothing while the seed is locked. It does not regenerate: press Generate world to build from the new seed."
 	var centre := DccWidgets.action(sec, "Center landmasses", func(): app._center_landmasses())
 	centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior. Whole-world mode only; the outcome is reported in the status bar."
 

@@ -39,7 +39,7 @@ extends Node
 ##
 ## HELD-UNTIL-CONFIRM (kept as OK/Cancel, OK named for the action) --
 ## untouched by this batch, checked here to prove they still are:
-##   new_world_dialog ("Create", commits only in `confirmed` -> `_on_create`)
+##   new_world_dialog ("Generate world"; "Create" on a phone, commits only in `confirmed` -> `_on_create`)
 ##   open_project_dialog / browse_dialog (own "Cancel" + a named primary,
 ##     commits only on the primary press)
 ##   `menus.gd`'s three hand-built `ConfirmationDialog`s: pack metadata
@@ -288,7 +288,11 @@ func _ready() -> void:
 	# -- held-change dialogs, untouched by this batch --------------------------
 	_app.open_new_world()
 	await _frames(3)
-	_assert_held_ok_text("new_world_dialog", _app.new_world_dialog, "Create")
+	## The held-change OK is named for the action: "Generate world" on desktop and
+	## tablet (NWP-3 footer), "Create" only on a phone (`new_world_dialog.gd`,
+	## where the stock button is hidden anyway).
+	_assert_held_ok_text("new_world_dialog", _app.new_world_dialog,
+		"Create" if _app.is_phone() else "Generate world")
 	_app.new_world_dialog.hide()
 	await _frames(2)
 

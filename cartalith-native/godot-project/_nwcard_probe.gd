@@ -111,9 +111,23 @@ func _ready() -> void:
 		## The desktop control. A phone-only branch that leaks here is the
 		## regression this half exists to catch.
 		_ck("no card on desktop", dlg._card == null)
-		_ck("no extent chips on desktop", dlg._extent_chips.is_empty())
-		_ck("extent dropdown visible on desktop", dlg.extent_input.is_visible_in_tree())
-		_ck("grid rows visible on desktop", dlg.grid_h_input.is_visible_in_tree())
+		## Since NWP-3 the extent chips are built on EVERY density and drive the
+		## (always hidden) extent dropdown; Grid columns/rows/Aspect live under the
+		## desktop's folded "More options". So the desktop control now asserts: two
+		## chips, dropdown hidden, grid rows hidden until More options opens, then
+		## reachable. (Previously asserted the pre-NWP-3 layout: no chips, dropdown
+		## and grid rows always shown.)
+		_ck("two extent chips on desktop", dlg._extent_chips.size() == 2,
+			str(dlg._extent_chips.size()))
+		_ck("extent dropdown stays hidden on desktop (the chips drive it)",
+			not dlg.extent_input.is_visible_in_tree())
+		_ck("grid rows folded away by default on desktop",
+			not dlg.grid_h_input.is_visible_in_tree())
+		dlg.set_more_open(true)
+		await _frames(2)
+		_ck("grid rows reachable once More options opens",
+			dlg.grid_h_input.is_visible_in_tree())
+		dlg.set_more_open(false)
 		_ck("archetype visible on desktop", dlg.archetype_input.is_visible_in_tree())
 		_report()
 		return
@@ -246,10 +260,9 @@ func _ready() -> void:
 	_ck("an unchanged parameter leaves the selection alone", dlg.extent_input.selected == 1)
 
 	## ---- dice ----------------------------------------------------------------
-	var dice: Button = null
-	for c in dlg.seed_input.get_parent().get_children():
-		if c is Button and c != dlg.seed_input:
-			dice = c
+	## Looked up by NAME: the seed row holds more than one Button now, so "the last
+	## Button in the row" no longer identifies the dice (`_build_seed_dice()`).
+	var dice: Button = dlg.find_child("nw_dice", true, false) as Button
 	_ck("dice button is in the seed row", dice != null)
 	if dice != null:
 		var before: float = dlg.seed_input.value

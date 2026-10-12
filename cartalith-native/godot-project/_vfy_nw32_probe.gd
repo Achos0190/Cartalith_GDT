@@ -61,23 +61,44 @@ func _run(app: Node, tag: String) -> void:
 	var card: PanelContainer = d.get("_card")
 	var chips: Array = d.get("_extent_chips")
 	_ck(tag, "card exists iff phone", (card != null) == phone, "card=%s" % (card != null))
-	_ck(tag, "extent chips exist iff phone", (chips.size() == 2) == phone,
+	## Since NWP-3 the chips exist on every density (they drive the always-hidden
+	## extent dropdown), so this is no longer "iff phone".
+	_ck(tag, "extent chips exist on every density", chips.size() == 2,
 		"chips=%d" % chips.size())
 
-	## The load-bearing question: on a phone the *desktop* controls must be off
-	## the screen, and on desktop they must all be on it.
-	var desktop_only := {
-		"extent dropdown": d.extent_input,
+	## The load-bearing question. Map-width preset and Archetype were lifted onto
+	## the phone card by `77f91942` (2026-09-07), so they are on the form on EVERY
+	## density (this used to assert `== not phone`, the pre-lift layout). The grid
+	## and Generation controls sit under the folded "More options" and the extent
+	## dropdown is hidden everywhere (the chips drive it): asserted below.
+	var on_form := {
 		"map-width preset": d.size_preset_input,
+		"archetype": d.archetype_input,
+	}
+	for k in on_form:
+		_ck(tag, "%s reachable on every density" % k, _shown(on_form[k]),
+			"shown=%s" % _shown(on_form[k]))
+	## Hidden everywhere by default: the dropdown (chips drive it) and the
+	## folded More options body.
+	var folded := {
+		"extent dropdown": d.extent_input,
 		"grid columns": d.grid_w_input,
 		"grid rows": d.grid_h_input,
-		"archetype": d.archetype_input,
 		"villages toggle": d.villages_check,
 	}
-	for k in desktop_only:
-		var c: Control = desktop_only[k]
-		_ck(tag, "%s reachable == not phone" % k, _shown(c) == (not phone),
-			"shown=%s" % _shown(c))
+	for k in folded:
+		_ck(tag, "%s hidden by default" % k, not _shown(folded[k]),
+			"shown=%s" % _shown(folded[k]))
+	if not phone:
+		d.set_more_open(true)
+		await _frames(3)
+		for k in ["grid columns", "grid rows", "villages toggle"]:
+			_ck(tag, "%s reachable once More options opens" % k, _shown(folded[k]),
+				"shown=%s" % _shown(folded[k]))
+		_ck(tag, "extent dropdown still hidden once More options opens",
+			not _shown(d.extent_input))
+		d.set_more_open(false)
+		await _frames(3)
 	## ...while the three the card DOES draw stay reachable in both.
 	_ck(tag, "seed reachable", _shown(d.seed_input))
 	_ck(tag, "resolution reachable", _shown(d.resolution_input))
@@ -100,13 +121,15 @@ func _run(app: Node, tag: String) -> void:
 	await _frames(3)
 
 	if phone:
-		_ck(tag, "card width is 360 at 412 dp",
-			is_equal_approx(card.custom_minimum_size.x, 360.0),
-			"got=%.1f phone_scale=%.3f" % [card.custom_minimum_size.x, DccTheme._phone_scale])
-		var dice: Button = null
-		for c in (d.seed_input.get_parent() as Node).get_children():
-			if c is Button and (c as Button).accessibility_name == "New seed":
-				dice = c
+		## 360 is §6.7's max-width at a ~412 dp handset. Under `--force-touch` the
+		## 1920x1080 "DESKTOP" leg also reports phone (a wide tablet-shaped card,
+		## dp-44 = 688), so the 360 assertion belongs to the PHONE leg only.
+		if tag.begins_with("PHONE"):
+			_ck(tag, "card width is 360 at 412 dp",
+				is_equal_approx(card.custom_minimum_size.x, 360.0),
+				"got=%.1f phone_scale=%.3f" % [card.custom_minimum_size.x, DccTheme._phone_scale])
+		## By name (`nw_dice`), not by scanning the seed row's children.
+		var dice: Button = d.find_child("nw_dice", true, false) as Button
 		_ck(tag, "the dice exists, is named and is 44x44", dice != null \
 			and dice.custom_minimum_size == Vector2(44, 44), "dice=%s" % dice)
 		var before := int(d.seed_input.value)
