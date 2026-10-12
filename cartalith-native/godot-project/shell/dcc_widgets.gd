@@ -1601,6 +1601,7 @@ static func stale_mark(parent: Control) -> Label:
 # chrome. Nothing here computes -- every one is presentation only.
 # ---------------------------------------------------------------------------
 
+## A bordered, filled `StyleBoxFlat` (`DccTheme.outline(border_token, bg_token)`) with `px` / `py` as the horizontal / vertical content margins. Presentation only; the shared form of `asset_library_window.gd`'s private delegator and the data manager's boxes.
 static func box(border_token: String, bg_token: String, px: int, py: int) -> StyleBoxFlat:
 	var sb := DccTheme.outline(border_token, bg_token)
 	sb.content_margin_left = px

@@ -32,10 +32,12 @@ class_name NewWorldDialog
 ## has no engine-side storage (seed, grid dimensions, archetype name, village
 ## seeding) is this dialog's own.
 
+## The engine facade, assigned by `setup()`. Every read and write of engine state goes through it; an older build may lack newer `world_gen` methods, so callers test `has_method` first.
 var bridge: EngineBridge
 
 # -- Ported constants (main.gd, verbatim) --------------------------------------
 
+## Map-width presets (label plus width in km) for the Size picker, ported from `main.gd`'s `_build_world_setup` per the "Ported constants" header above. A hand-typed width selects `SIZE_CUSTOM_INDEX`.
 const SIZE_PRESETS: Array = [
 	{"label": "Local · 200 km", "km": 200.0},
 	{"label": "Province · 800 km", "km": 800.0},
@@ -107,6 +109,7 @@ const DEGENERATE_ASPECT := 16.0 ## Past this, the coarse weather grid loses almo
 ## folds them into one line with both as its tooltip (NWP-3), and §6.7's phone
 ## card carries them inside itself in full.
 const NOTE_CREATION_ONLY := "Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason."
+## Second advisory (see `NOTE_CREATION_ONLY`): says Create leaves Look, NPR, ramps and presets alone. Shown in full on the phone card and as half of the desktop advisory tooltip.
 const NOTE_APPEARANCE_KEPT := "Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it."
 
 ## `design/dcc-environment-2026-08-31/spec/06-phone.md` §6.7's New World modal:
@@ -116,7 +119,7 @@ const NOTE_APPEARANCE_KEPT := "Your appearance settings are kept. Look, NPR, ram
 ## ruling; §6.7 is the phone's own drawing and these are its numbers.
 const PHONE_CARD_MAX_W := 360
 const PHONE_CARD_INSET := 22    ## The scrim's `padding:22px`, both sides.
-const PHONE_CARD_RADIUS := 22
+const PHONE_CARD_RADIUS := 22  ## Card corner radius, 22 (§6.7); the card stylebox is `DccTheme.flat(..., PHONE_CARD_RADIUS)`.
 const PHONE_CARD_MIN_W := 240   ## A floor, so a narrow viewport yields a card rather than a sliver.
 const PHONE_CHIP_RADIUS := 14   ## §6.7's extent chips.
 ## **Landscape phone** (a rotated handset; found on an emulator at 3168x1440,
@@ -144,15 +147,15 @@ const PHONE_LAND_PAD_V := 8          ## Card padding top and bottom in landscape
 ##
 ## Both `font:500 10.5px 'IBM Plex Mono'` with `letter-spacing:.14em`.
 const PHONE_ACTION_H := 46
-const PHONE_ACTION_RADIUS := 23
-const PHONE_ACTION_GAP := 10
-const PHONE_ACTION_TOP := 16
+const PHONE_ACTION_RADIUS := 23  ## Action-button corner radius, §6.7's `border-radius:23px` (half of `PHONE_ACTION_H`, so a pill).
+const PHONE_ACTION_GAP := 10  ## Gap between Cancel and Create, §6.7's `gap:10px`.
+const PHONE_ACTION_TOP := 16  ## Space above the action row, §6.7's `padding-top:16px`.
 ## `flex:1` and `flex:1.4`. A Godot `HBoxContainer` shares surplus width by
 ## `size_flags_stretch_ratio` among its `SIZE_EXPAND` children, which is what
 ## CSS `flex-grow` does with the free space after content -- the same
 ## distribution, not merely a similar one, once both children are `EXPAND_FILL`.
 const PHONE_CANCEL_FLEX := 1.0
-const PHONE_CREATE_FLEX := 1.4
+const PHONE_CREATE_FLEX := 1.4  ## Create button's stretch ratio, §6.7's `flex:1.4` (Cancel is `PHONE_CANCEL_FLEX`, 1.0).
 ## `10.5px`, rounded up. `Control.add_theme_font_size_override()` takes an int,
 ## so the half pixel is not expressible; recorded in `ANDROID_UI_SPEC.md`
 ## **§6.6** rather than left as a silent difference. `.14em` of 10.5 px is
@@ -164,7 +167,7 @@ const PHONE_CREATE_FLEX := 1.4
 ## it, which is the cheapest kind of citation to get wrong and the hardest to
 ## notice: a section number is not checkable by reading the sentence it sits in.
 const PHONE_ACTION_FS := 11
-const PHONE_ACTION_TRACKING := 1
+const PHONE_ACTION_TRACKING := 1  ## Whole-pixel stand-in for `.14em` tracking, passed to `DccTheme.mono()` (see the block above).
 
 ## Advisory shown under the Extent picker in Region mode.
 const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here."
@@ -214,12 +217,12 @@ const PREVIEW_W := 320
 ## height is the region frame's (`round(w * 0.64)`, proposal §2.1); a
 ## whole-world mask (2:1) letterboxes inside it rather than moving every row.
 const PREVIEW_DISPLAY_W_DESKTOP := 640
-const PREVIEW_DISPLAY_W_PHONE := 296
+const PREVIEW_DISPLAY_W_PHONE := 296  ## Phone preview width in dp, used to size the stage height and the landscape column (see the block above).
 ## On a phone, the width floor given to the preview's wrapping labels (see the
 ## disclaimer's own comment for why they need one): small enough that the card
 ## form, not the label, decides the width.
 const PHONE_PREVIEW_LABEL_FLOOR := 200
-const PREVIEW_REGION_ASPECT := 0.64
+const PREVIEW_REGION_ASPECT := 0.64  ## Stage height / width, the region frame's `round(w * 0.64)` (proposal §2.1, per the block above).
 ## Grey land on blue ocean, the owner's colours and Q7's default (Ruling CE).
 ## Literals, deliberately independent of `DccTheme`'s palette and of the map's
 ## look: the preview is a diagnostic, and the owner asked for exactly these two.
@@ -236,8 +239,8 @@ const PREVIEW_DISCLAIMER := "Approximate preview: plate layout and land/ocean sp
 ## "Dash a field with a reason": the reason is a claim). The first is the
 ## proposal's own wording for the missing binding (§8 NWP-3).
 const PREVIEW_REASON_NO_BINDING := "this engine build has no preview (WorldGen.preview_land_mask is missing; rebuild the engine)"
-const PREVIEW_REASON_NO_PARAMS := "no preview: this engine build publishes no parameter table"
-const PREVIEW_REASON_REFUSED := "no preview: the engine refused these settings (the reason is in the console)"
+const PREVIEW_REASON_NO_PARAMS := "no preview: this engine build publishes no parameter table"  ## Dash reason when the build publishes no parameter table (state `no_params`).
+const PREVIEW_REASON_REFUSED := "no preview: the engine refused these settings (the reason is in the console)"  ## Dash reason when the engine rejected the settings (state `refused`).
 ## While a world generates the worker thread owns `WorldGen`, so nothing here
 ## touches the engine (proposal §6, "Where it runs"); the last drawn mask stays
 ## up and the stats line says it is held.
@@ -261,11 +264,11 @@ const HISTORY_SLOTS := 4
 ## Phone: four across the 296 dp card. Both are above the 44 dp touch floor
 ## on both axes (the phone one is floored there anyway).
 const THUMB_SIZE_DESKTOP := Vector2(154, 116)
-const THUMB_SIZE_PHONE := Vector2(68, 64)
+const THUMB_SIZE_PHONE := Vector2(68, 64)  ## History thumbnail size on a phone, four across the 296 dp card; the 68 x 64 pair is a labelled judgement (the comment above states only the 44 dp touch floor).
 ## `tect.plates`' own range in `params.rs` `PARAMS` (`Kind::Int`, 4 to 40). Used
 ## only when the running build publishes no `param_info("tect.plates")`.
 const PLATES_MIN_FALLBACK := 4
-const PLATES_MAX_FALLBACK := 40
+const PLATES_MAX_FALLBACK := 40  ## Upper bound used when `param_info("tect.plates")` is absent; matches `params.rs` per the comment above.
 ## The phone seed row's label width: the mockup's phone frame draws
 ## `<label style="flex-basis:44px">Seed</label>`.
 const PHONE_SEED_LABEL_W := 44
@@ -282,27 +285,46 @@ const MASK_SHADER := "shader_type canvas_item;\nuniform vec4 land_color;\nunifor
 
 # -- Controls -------------------------------------------------------------------
 
+## The Seed spin box. Typed text is only committed by `apply()`; see `_seed_dirty` and `request()`.
 var seed_input: SpinBox
+## The Region / World picker (Extent); its value decides the aspect pinning and which advisory shows.
 var extent_input: OptionButton
+## The advisory under the Extent picker; set to `EXTENT_NOTE_WORLD` or `EXTENT_NOTE_REGION` (`_update_extent_state`).
 var extent_note_label: Label
+## The Size picker over `SIZE_PRESETS`, Custom at `SIZE_CUSTOM_INDEX`.
 var size_preset_input: OptionButton
+## Map width in km (spin box).
 var width_input: SpinBox
+## The Resolution picker over `RESOLUTION_PRESETS` / `RESOLUTION_LABELS`, Custom at `RESOLUTION_CUSTOM_INDEX`.
 var resolution_input: OptionButton
+## Grid width in cells, bounded by `GRID_MIN`..`GRID_MAX`. Hidden on a phone, but `request()` still reads it.
 var grid_w_input: SpinBox
+## The Aspect picker over `ASPECT_PRESETS` (Custom at `ASPECT_CUSTOM_INDEX`); `_derived_grid_h()` reads it.
 var aspect_input: OptionButton
+## Grid height in cells: derived from width and aspect, except when hand-typed. Read directly by `request()`.
 var grid_h_input: SpinBox
+## The Archetype picker, filled from `bridge.archetypes()` with `ARCHETYPE_LABELS` names; Classic is the empty `_archetype`.
 var archetype_input: OptionButton
+## Village-seeding toggle; its handler writes `_villages`.
 var villages_check: CheckBox
+## Metropolis toggle; its handler writes `_metropolis`.
 var metropolis_check: CheckBox
+## Biome carrying-capacity toggle; its handler writes `_biome_k`.
 var biome_k_check: CheckBox
+## The Recovery phase picker (names from `get_recovery_phase_names()`); its handler writes `_recovery_phase`.
 var recovery_input: OptionButton
+## Warning line under the derived panel: the joined warnings, hidden when there are none (`_update_derived`).
 var dimension_warning_label: Label
 var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> value Label
 
+## Archetype keys read from `bridge.archetypes()` when the form is built.
 var _archetype_names: PackedStringArray = []
 var _archetype := "" ## Empty = Classic (World Structure disabled).
+## Village-seeding choice posted by `request()`; refreshed from the engine by `_sync_from_engine()`.
 var _villages := false
+## Metropolis choice posted by `request()`; refreshed by `_sync_from_engine()`.
 var _metropolis := false
+## Recovery-phase index posted by `request()`; clamped to the picker's item count in `_sync_from_engine()`.
 var _recovery_phase := 0
 ## `civBiomeKChk` (reference `_biomeK`, line 6441), default OFF -- "0 =
 ## biome carrying-capacity residual OFF (bit-identical)".
@@ -311,6 +333,7 @@ var _biome_k := false
 ## treatment and why; here it decides whether the in-content header and the
 ## Cancel button exist, and whether the form is re-fitted for touch.
 var _phone := false
+## Re-entrancy guard: true while code (not the user) writes the dimension controls, so their handlers do not feed back.
 var _dim_syncing := false
 ## Lane SEED, 2026-09-13 (the row found on glass 2026-09-07: a typed seed
 ## surfacing silently on a LATER Generate). True once the user has actually
@@ -323,11 +346,13 @@ var _seed_dirty := false
 ## §6.7's card (phone only, `null` on desktop and tablet) and the two extent
 ## chips, which every density builds since NWP-3 (`_build_extent_chips()`).
 var _card: PanelContainer
+## The Region / World chips (§6.7); they drive the Extent picker.
 var _extent_chips: Array[Button] = []
 ## §6.7's own action row, phone only. `null` on desktop and tablet, where
 ## `AcceptDialog`'s button row is the right control (Cancel / Generate world,
 ## `_build_desktop_footer()`).
 var _phone_cancel: Button
+## The phone's CREATE WORLD button in the action row; `null` on desktop and tablet.
 var _phone_create: Button
 ## The three nodes `_fit_phone_card_height()` works between, phone only.
 ## `_outer_scroll` is the form scroller `setup()` builds for every density (on
@@ -342,12 +367,18 @@ var _card_actions: VBoxContainer    ## The card's outer column; holds the pinned
 ## `_card_scroll`. `_grp_preview` is the preview frame's group: the first child
 ## of `_card_form` in portrait, the content of `_land_scroll` in landscape.
 var _card_bands: HBoxContainer
+## Landscape phone only: the left scroller that holds `_grp_preview`; hidden in portrait.
 var _land_scroll: ScrollContainer
+## The preview frame's group; moves between `_card_form` (portrait) and `_land_scroll` (landscape). `null` on desktop and tablet.
 var _grp_preview: VBoxContainer
 var _grp_seed: VBoxContainer         ## Seed row + history; stays in `_card_form` in both orientations.
+## The card's outer `MarginContainer`; landscape sets its top/bottom margins to `PHONE_LAND_PAD_V` (portrait: 18 / 16).
 var _card_pad: MarginContainer
+## The `nw_preview_stage` panel that holds the mask canvas.
 var _preview_stage: PanelContainer
+## The phone in-content header's outer node; hidden in landscape.
 var _phone_head_wrap: Control
+## True while the phone card is in its two-column landscape layout (see `PHONE_LAND_MIN_DP`).
 var _phone_land := false
 
 # -- Seed preview state (NWP-3) --------------------------------------------------
@@ -355,13 +386,21 @@ var _phone_land := false
 ## The preview frame and its parts. Named nodes (`nw_preview_*`) so a probe
 ## finds them by name rather than by position.
 var _preview_frame: PanelContainer
+## Title label, text from `_set_preview_title()`.
 var _preview_title: Label
+## The `PREVIEW_DISCLAIMER` label, visible on the frame at every density (Ruling CE).
 var _preview_disclaimer: Label
+## The `TextureRect` that draws the mask through `_mask_material`.
 var _preview_canvas: TextureRect
+## The `ImageTexture` (an `L8` mask) the canvas shows.
 var _preview_tex: ImageTexture
+## The dash label shown in place of the canvas when there is no preview; the reason is `_preview_reason`.
 var _preview_dash: Label
+## Why there is no preview (a `PREVIEW_REASON_*` string).
 var _preview_reason: Label
+## The stats line under the preview: land share, plates and draw time, the `PREVIEW_HELD` note, or a dash with its reason.
 var _preview_stats: Label
+## The `ShaderMaterial` running `MASK_SHADER` with `PREVIEW_LAND` / `PREVIEW_OCEAN` as its uniforms.
 var _mask_material: ShaderMaterial
 ## What the canvas shows now: "drawn", "held", "no_binding", "no_params",
 ## "refused", or "" before the first attempt. Read by the probe; the dash and
@@ -370,39 +409,53 @@ var preview_state := ""
 ## The last mask drawn, as the engine returned it (1 = land, 0 = ocean), and its
 ## height. Empty until a draw succeeds. Never filled with a placeholder.
 var preview_mask := PackedByteArray()
+## Height in cells of `preview_mask`, as returned by the engine; 0 until a draw succeeds.
 var preview_h := 0
 ## The full input key of the last successful draw (the whole parameter table
 ## plus the dialog's own inputs). A redraw with an unchanged key is skipped.
 var _preview_key := ""
+## One-shot timer of `PREVIEW_DEBOUNCE_S` that calls `_redraw_preview`.
 var _preview_debounce: Timer
+## Repeating timer of `PREVIEW_POLL_S` that also calls `_redraw_preview`; started and stopped with the dialog's visibility.
 var _preview_poll: Timer
 ## Set by the inputs that push a history entry (dice, a typed seed, a width or
 ## extent change); consumed by the next successful draw. A restore clears it.
 var _history_push_pending := false
+## True while a history entry is being restored, so the controls it rewrites do not push another history entry.
 var _restoring := false
 ## Session-only history, newest first: {seed, world, km, plates, manual, mask,
 ## h, land}. Never saved (Q5).
 var _history: Array[Dictionary] = []
+## The thumbnail buttons for `_history`.
 var _history_buttons: Array[Button] = []
 ## The seed lock (Q4, Ruling CE: for the session, not saved in the project).
 ## `randomise_seed()` is a no-op while it is on, which is what makes the WORLD
 ## dock's and the tool bar's *New seed* (`app.gd::_new_seed()`) honour it too.
 var seed_locked := false
+## The seed row's dice (randomise) button, built by `_build_seed_dice()`.
 var _dice: Button
+## The seed row's lock toggle, built by `_build_seed_lock()`; mirrors `seed_locked`.
 var _lock: Button
 ## Plates (Q1): `auto` follows `plates_for_km(width)`; a press of − or + sets
 ## it by hand until reset. Under an archetype the count is the engine's own
 ## derivation and the row is read-only (Q8).
 var _plates_manual := false
+## Plate count shown, written to `tect.plates` on Create. The initial 14 is a placeholder; its source is not stated in the code (intent unverified).
 var _plates_value := 14
+## The Plates row's minus button.
 var _plates_minus: Button
+## The Plates row's plus button.
 var _plates_plus: Button
+## The Plates row's number readout.
 var _plates_readout: Label
+## Small label saying where the count comes from: "auto from width", "set by hand" or "from archetype (read-only)".
 var _plates_source: Label
+## Button that returns the count to automatic (clears `_plates_manual`).
 var _plates_reset: Button
 ## Desktop/tablet only: the disclosure that holds today's aspect, grid and
 ## Generation controls, unchanged. `null` on a phone, where those stay hidden.
 var _more_toggle: Button
+## The collapsible body of "More options" (aspect, grid, Generation controls); `null` on a phone.
 var _more_body: VBoxContainer
 ## Desktop/tablet only: `AcceptDialog`'s own Cancel, added beside the OK
 ## button (which reads "Generate world" there).
@@ -2066,9 +2119,13 @@ func _build_placement_dials(parent: Control) -> void:
 ## older cdylib, for the same reason the dials are.
 const COUNT_ROWS := [["civ.n_capital", "Capitals"], ["civ.n_city", "Cities"],
 	["civ.n_town", "Towns"], ["civ.n_village", "Villages"], ["civ.n_hamlet", "Hamlets"]]
+## One `SpinBox` per `COUNT_ROWS` tier, in row order.
 var _count_boxes: Array[SpinBox] = []
+## The two automatic placement sliders (the `dials` argument) that are greyed while fixed counts are on.
 var _count_dials: Array = []
+## Explanatory line under the count boxes; its text depends on the toggle and the total.
 var _count_note: Label
+## The "Fixed settlement counts" check box.
 var _count_toggle: CheckBox
 
 ## Fixed settlement counts: a toggle plus one spin box per tier in `COUNT_ROWS`.
@@ -2420,7 +2477,7 @@ const PEAK_BYTES_PER_CELL := 190.0
 ## What the same section measured beneath the pipeline, and the headroom it
 ## had: `~420 MB` of Godot process on a handset reporting 2.38 GB available.
 const PHONE_APP_BASE_MB := 420
-const PHONE_MEASURED_AVAILABLE_GB := 2.38
+const PHONE_MEASURED_AVAILABLE_GB := 2.38  ## Available memory (GB) on the measured handset, from the memory-audit section cited above; used in the warning text, not read from the device.
 
 ## The open memory question, or `null` when none is up. Kept so a probe can
 ## find it; nothing else reads it.

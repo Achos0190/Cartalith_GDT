@@ -8,17 +8,28 @@ class_name DccApp
 ## the viewport, registers the five workspaces, and answers the menu callbacks.
 ## Anything that needs world state goes through `bridge`.
 
+## The one `EngineBridge`, created during setup; everything that needs world state goes through it (see the header).
 var bridge: EngineBridge
+## The map viewport node, created during setup and attached to the shell's viewport region.
 var viewport: ViewportHost
+## The program menus' model (`DccMenus`); its `ID_*` constants are what the menu callbacks in this file switch on.
 var menus := DccMenus.new()
 
+## File ▸ New world…; built once during setup and reused.
 var new_world_dialog: NewWorldDialog
+## The World Data window (`WorldDataWindow`), built with `setup(bridge)`.
 var world_data_window: WorldDataWindow
+## The resource overlay, anchored to the top-right of the shell (`Control.PRESET_TOP_RIGHT`).
 var resource_overlay: ResourceOverlay
+## The generation-info dialog.
 var gen_info_dialog: GenInfoDialog
+## The keyboard shortcuts dialog; its `UNLISTED` list names the shortcuts the menus do not carry.
 var shortcuts_dialog: ShortcutsDialog
+## The journey planner view (`JourneyPlannerView`).
 var journey_planner_view: JourneyPlannerView
+## The layers popover (`LayersPopover`).
 var layers_popover: LayersPopover
+## The right-dock controller (`RightDock`); also appended to `_workspaces` so the selection forwarding loop reaches it.
 var right_dock_ctrl: RightDock
 ## The shared LOOK undo/redo history (ramp stops, biome colours, style presets;
 ## Ruling BY item 2, `shell/look_history.gd`). Untyped on purpose: the script has
@@ -36,8 +47,11 @@ var section_strip: SectionStrip
 ## Toolbar.dc.html`). Not a `Node` -- it owns no scene state of its own, only
 ## the callback that fills `tool_options_row`.
 var tool_bar: DccToolBar
+## The data manager window (`DataManagerWindow`), long-lived like its neighbours.
 var data_manager_window: DataManagerWindow
+## The asset library window (`AssetLibraryWindow`), long-lived.
 var asset_library_window: AssetLibraryWindow
+## The travel library window (`TravelLibraryWindow`), long-lived.
 var travel_library_window: TravelLibraryWindow
 ## `GUI_GAP_REGISTER.md` UM-02, the reference's `cityViewerModal`. Long-lived
 ## for the same reason as its neighbours here -- it keeps a settlement picker
@@ -46,6 +60,7 @@ var city_viewer_window: CityViewerWindow
 ## `placeEditPopup` / `_civPopulatePlaceEditor` and `civFactionsModal` /
 ## `_civOpenFactionsModal` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 var place_editor_window: PlaceEditorWindow
+## The factions modal (`civFactionsModal` per the line above).
 var faction_roster_window: FactionRosterWindow
 ## `lazy-riding-piglet.md` Batch D -- artboard 1f's own "separate popup"
 ## framing. A pure UI over `SettlementTypeStore`'s static state (see that
@@ -105,8 +120,11 @@ var _include_lod_tiles_pref := false
 ## returns `false`, never held across an unrelated later call.
 var last_open_refusal := ""
 
+## The built workspace controls (world, civilization, cartography, in `_register_workspaces()` order, then the right dock); the loops that forward selection, stale marks and refreshes iterate it.
 var _workspaces: Array = []
+## Region-visibility map from `DccMenus.ID_WIN_*` to the node whose `visible` is the whole truth (timeline and rail, plus the docks and status row where built); see its assignment.
 var _region_nodes: Dictionary = {}
+## The tool-options bar's staleness label; text is `generating…` while the engine is busy and empty afterwards.
 var _tool_options_stale: Label
 ## The tool-options bar's copy of the WORLD dock's bake button. Rebuilt every
 ## time `_tool_options_generate()` runs, so always reached through
@@ -122,9 +140,12 @@ var _tool_options_bake: Button
 # another domain's tool; it registers a click/drag handler under its own tool
 # id and never learns whether anyone else's tool exists.
 
+## Emitted when the armed tool changes, with its tool id; `_sync_tool_strip` listens. While the engine is busy the emit is deferred (`_arm_pending`).
 signal tool_armed(id: String)
 
+## The one `ButtonGroup` shared by every domain's tool buttons (see the block above).
 var tool_group := ButtonGroup.new()
+## The armed tool id; "inspect" at start. Runs ahead of `_emitted_tool` only while `_arm_pending`.
 var armed_tool := "inspect"
 ## True from an `arm_tool` made while the engine was busy until `_flush_deferred_arm`
 ## has told the `tool_armed` listeners (see `arm_tool`'s doc comment).
@@ -139,6 +160,7 @@ var _emitted_tool := "inspect"
 ## `settlement_selected` emission, already wired in `_wire_selection()`, not a
 ## registered handler.
 var _click_handlers: Dictionary = {}
+## tool id -> Callable(gx, gy), run on drag motion for the armed tool (`register_tool_drag_handler`).
 var _drag_handlers: Dictionary = {}
 var _release_handlers: Dictionary = {}   ## Callable(gx, gy, valid) -- a drag gesture's end.
 ## tool id -> Callable(), called on Escape instead of the default disarm, for
@@ -256,8 +278,11 @@ func _flush_deferred_arm(_r: Variant = null) -> void:
 ## here is that row's. Off the phone only; `tools_block()` says why the phone
 ## keeps its dock copy.
 var _domain_tools: Dictionary = {}
+## The tool palette's bar, directly above the tool-options bar (see the block above); off the phone only.
 var tool_palette_bar: PanelContainer
+## The row inside `tool_palette_bar` that is rebuilt for the active domain.
 var _tool_palette_row: HBoxContainer
+## The strip `DccWidgets.tool_strip` returns; `is_instance_valid` is tested before use because the row is rebuilt.
 var _tool_strip_row: HBoxContainer
 
 ## Inserted into the shell's own top-level stack directly above
@@ -396,11 +421,13 @@ func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 ## `map_right_clicked` to each workspace's `on_map_right_clicked`, which only
 ## `civilization_workspace.gd` ever implemented.
 const ContextBroker := preload("res://shell/context_broker.gd")
+## The right-click context broker (`context_broker.gd`); merges context actions and presents them (see the block above).
 var context_broker: ContextBroker
 
 ## Ruling BR: shows the armed paint layer's as-generated raster at a slider
 ## opacity. `paint_original.gd` has the whole story; it is a viewing aid only.
 const PaintOriginal := preload("res://shell/paint_original.gd")
+## The as-generated raster viewing aid of Ruling BR (see the block above).
 var paint_original: PaintOriginal
 
 ## `DccShell.set_tool_options()` with one addition: when the Paint bar is the
@@ -1074,6 +1101,7 @@ func _ready() -> void:
 ## per-handler `generating` guard in the shell stays: this is the outer layer, not a replacement.
 ## Never call before `bridge` exists (`setup` connects to its signals).
 const BusyOverlay := preload("res://shell/busy_overlay.gd")
+## The busy overlay control; created by the setup call below and kept as this node's last child (see the block above).
 var busy_overlay: Control
 
 ## Creates the overlay's `CanvasLayer` and the overlay, and hands it the bridge. Called once from
@@ -1861,6 +1889,7 @@ func _wire_selection() -> void:
 ## already been overwritten to the new call's values by the time this runs --
 ## so this file remembers what it last actually saw, itself.
 var _last_workspace_domain := ""
+## The `mode` argument of the last workspace change seen; with `_last_workspace_domain`, how re-entry is told from navigation.
 var _last_workspace_mode := ""
 
 ## `workspace_changed` sink: rewrites everything that mirrors the active (domain,
@@ -2038,12 +2067,17 @@ var _tl_expanded := false
 ## and only falls back to a rebuild when they are gone -- which is the normal
 ## state whenever the journey planner has taken `timeline_row` over.
 var _tl_year_labels: Array[Label] = []
+## Timeline state word label (`tl_state_text()`, or `no world`).
 var _tl_state_label: Label
+## The timeline's play/pause button.
 var _tl_play_button: Button
 var _tl_fwd_button: Button                ## Dead at the top of the track, with `_tl_play_button`.
 var _tl_speed_segments: Dictionary = {}   ## multiplier -> Button
+## The scrub track control; the playhead `_tl_head` is positioned within it.
 var _tl_track: Control
+## The playhead, a 2 x 13 px `ColorRect` placed along `_tl_track`.
 var _tl_head: ColorRect
+## The phone's TIMELINE button; its text carries the year label.
 var _tl_phone_button: Button
 ## `Timeline.dc.html` rows 2-3, 2026-09-05. The scrub track's marks, the word
 ## beside the year and the clause after it, the drag bubble, and the two range
@@ -2054,7 +2088,9 @@ var _tl_detail_dot: Label                 ## Its separator, hidden with it.
 var _tl_count_row: HBoxContainer          ## `42 present · +3 −1 since 340 AD`; recorded years only.
 var _tl_count_parts: Dictionary = {}      ## Its five labels, by name -- three inks, so three Labels.
 var _tl_bubble: Label                     ## Rides the playhead, and only during a drag.
+## The `YEAR TL_YEAR_MIN` range literal at the start of the track.
 var _tl_min_label: Label
+## The `YEAR TL_YEAR_MAX` range literal at the end of the track.
 var _tl_max_label: Label
 var _tl_end_hint: Label                   ## `step back or drag to resume`, row 1, end of track only.
 var _tl_collapsed_dot: Label              ## Board B's `·`; hidden with the word it separates.
@@ -2069,6 +2105,7 @@ var _tl_scrubbing := false
 var _tl_transport: Array[Control] = []
 ## Row 3b (SP-2): the day slider and the `YYYY-MM-DD` beside it.
 var _tl_day_slider: HSlider
+## The `YYYY-MM-DD` label beside the day slider; `—` without a live timeline.
 var _tl_date_label: Label
 
 ## (Re)builds the timeline strip's contents inside `timeline_row`: clears the row,
@@ -4447,6 +4484,7 @@ func _back_exhausted() -> void:
 ## once it resolves; `_quit_asked` records that we *tried*, and is set before the
 ## attempt so that it survives an attempt that fails halfway.
 var _quit_prompt: AcceptDialog = null
+## True once a quit prompt was attempted; see the block above for why it is set before the attempt.
 var _quit_asked := false
 
 ## The desktop title bar's ×, Alt+F4, the taskbar's Close (BK-02). Same fault as

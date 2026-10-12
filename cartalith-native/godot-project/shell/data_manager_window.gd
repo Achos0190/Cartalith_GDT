@@ -263,8 +263,8 @@ const PATTERN_LABEL_W := 74
 ## `Modal.dc.html`, which is why the two artboards' shared `_shared.css`
 ## vocabulary is treated as one system here.
 const PATTERN_CHIP_R := 999
-const PATTERN_CHIP_PAD_X := 11
-const PATTERN_CHIP_PAD_Y := 3
+const PATTERN_CHIP_PAD_X := 11  ## `.chip` horizontal padding, `padding:3px 11px` (block above).
+const PATTERN_CHIP_PAD_Y := 3  ## `.chip` vertical padding (same CSS rule).
 ## The FORMAT control is a **track**: `background:var(--ins);border-radius:14px;
 ## padding:2px`, with the lit segment `border-radius:12px;padding:3px 12px;
 ## background:var(--wash2);color:var(--acc)` inside it. That is a different
@@ -272,16 +272,16 @@ const PATTERN_CHIP_PAD_Y := 3
 ## Scheme / CRS / Packaging rows, and the difference is the artboard's, not a
 ## reinterpretation -- see `_pattern_segments()`.
 const PATTERN_TRACK_R := 14
-const PATTERN_TRACK_PAD := 2
-const PATTERN_SEG_R := 12
-const PATTERN_SEG_PAD_X := 12
-const PATTERN_SEG_PAD_Y := 3
+const PATTERN_TRACK_PAD := 2  ## The FORMAT track's `padding:2px` (block above).
+const PATTERN_SEG_R := 12  ## The lit segment's `border-radius:12px` (block above).
+const PATTERN_SEG_PAD_X := 12  ## The lit segment's horizontal padding, `padding:3px 12px` (block above).
+const PATTERN_SEG_PAD_Y := 3  ## The lit segment's vertical padding (same rule).
 ## The receipt block: `background:var(--ins);border-radius:8px;padding:9px 11px`.
 ## The radius is `DccWidgets.MODAL_INSET_RADIUS`, whose own comment names the
 ## same `border-radius:8px` from the same `.tok` block; only the paddings are
 ## local.
 const PATTERN_RECEIPT_PAD_X := 11
-const PATTERN_RECEIPT_PAD_Y := 9
+const PATTERN_RECEIPT_PAD_Y := 9  ## Receipt block vertical padding, `padding:9px 11px` (block above).
 ## `color:var(--ink);font-weight:500;font-size:14px` on the pane title. **No
 ## `DccTheme` role carries 14 px as a font size** -- `role_px("fs_prose")`
 ## reaches 14 only as its *tablet* rung, which is a density answer and not this
@@ -292,8 +292,8 @@ const PATTERN_TITLE_FS := 14
 ## `margin:12px 0 12px` on the first `.rule`, `margin:13px 0 12px` on the
 ## second.
 const PATTERN_RULE_TOP := 12
-const PATTERN_RULE_TOP_2 := 13
-const PATTERN_RULE_BOTTOM := 12
+const PATTERN_RULE_TOP_2 := 13  ## Space above the second `.rule`, `margin:13px 0 12px` (block above).
+const PATTERN_RULE_BOTTOM := 12  ## Space below either `.rule`, 12 in both margins (block above).
 
 ## The one-line purpose under each route's title -- the artboard's
 ## `every generated entity as one file — settlements, factions, ways,
@@ -367,6 +367,7 @@ const GIS_GROUPS: Array[Dictionary] = [
 # used to be one concatenated `Maps (tiles) · GIS / GeoJSON` row.
 # ---------------------------------------------------------------------------
 
+## The data manager's routes, in rail order: `group`, `id`, `label`, `badge` and `kind` ("live", "route" or "gap") as described in the header block above, plus `sub` (the band's right-hand descriptor) and, for a gap, the `reason` shown verbatim. `GROUP_ORDER` fixes the group order.
 const ROUTES: Array[Dictionary] = [
 	{"group": "Import", "id": "import_maps", "label": "Maps", "badge": "tiles", "kind": "gap",
 		"sub": "no importer",
@@ -413,6 +414,7 @@ const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Validation"]
 # Export ▸ Maps -- the disclosures the canvas's pyramid controls need
 # ---------------------------------------------------------------------------
 
+## Disclosure under the Scheme row (Export ▸ Maps): which schemes export the marquee and which the whole-world pyramid. Prose, not a value; keep it in step with `TX_SCHEMES`.
 const SCHEME_NOTE := "grid + index.json exports the Region-select marquee as a flat row/column grid of height and colour tiles plus tiles/index.json (region_export_tiles). XYZ, TMS and WMTS export the WHOLE world's LOD pyramid, levels 0..N, as PNG tiles plus a tiles.json manifest (slippy_export_tiles): XYZ is z/x/y with row 0 at the top, TMS flips y, WMTS is TileMatrixSet/TileMatrix/TileRow/TileCol. There is no CRS -- tiles sit on the world's own planar cell grid, so a web client needs a flat CRS such as Leaflet's L.CRS.Simple."
 
 ## The OUTPUT checkboxes around the viewer page. The pyramid export writes
@@ -420,12 +422,14 @@ const SCHEME_NOTE := "grid + index.json exports the Region-select marquee as a f
 ## leaflet_preview_html`, 2026-09-23); the marquee grid does not, and nothing
 ## writes a style.json.
 const PREVIEW_NOTE := "The pyramid export (XYZ / TMS / WMTS) always writes leaflet-preview.html beside tiles.json: a Leaflet page on L.CRS.Simple that addresses the archive's own tiles -- unzip and open it in a browser. The grid + index.json scheme is not a slippy pyramid, so it has no viewer page."
+## Disclosure for the Style row: says no style model exists, so no `style.json` is written.
 const STYLE_NOTE := "Not built. No style model exists to write a style.json from; the viewer page carries its own attribution line."
 
 ## Why `0–8` is disabled: `slippy_export_tiles` clamps to the bake's own
 ## ceiling, `bake_bridge::MAX_BAKE_DEPTH` (6).
 const ZOOM_NOTE := "The pyramid export shares the atlas bake's depth ceiling (MAX_BAKE_DEPTH = 6, 5 461 tiles per pixel density) and builds the whole archive in memory, so levels past 6 are refused rather than attempted."
 
+## Disclosure under the CRS row: the export stays in the world's own cell grid; its own text cites the deleted Conversion group (`GUI_GAP_REGISTER.md` §7.4) as the reason there is no reprojection.
 const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling exists anywhere in the workspace -- reprojection was the substance of the Conversion group the owner deleted on 2026-08-20 (GUI_GAP_REGISTER.md §7.4), and no import or export path has carried a projection since."
 
 ## **Corrected 2026-09-01.** This used to say the political tint, labels/icons
@@ -487,6 +491,7 @@ const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vaul
 ## connection above them.
 const VAULT_EXPORT_NOTE := "Not built. cartalith-vault deliberately generates no obsidian:// URLs (its own module doc: \"no obsidian:// scheme here, no wikilink generation\"), cartalith-engine::geojson writes no note property, and two-way sync is MARKDOWN_VAULT_INTEGRATION.md §33's explicit V1 non-goal. Linking an entity to a note is live and lives in Data ▸ Markdown vault."
 
+## Disclosure under the Packaging row: both exports write one stored (uncompressed) .zip; loose-folder and MBTiles writers do not exist.
 const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers; MBTiles would take the XYZ/TMS pyramid the scheme row above now writes as its input."
 
 # ---------------------------------------------------------------------------
@@ -497,6 +502,7 @@ const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A 
 ## from the reference, so a consumer reading the file learns it too.
 const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north) at this world's own scale, with north up -- not WGS84 longitude/latitude. RFC 7946 assumes WGS84, but a procedurally generated world has no true georeference; the reference makes the same call, and the document says so in its own note property."
 
+## Disclosure under the GeoJSON INCLUDE chips: which layers come from the civilisation layer and which source (generated world, reopened project, legacy .zip) carries them. See the correction note after it.
 const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer. A generated world and a reopened project both carry it, and so does a legacy .zip save for its settlements and painted territory -- not its ways, which that import does not bring in yet. Rivers are traced from the drainage network, which a generated world holds and a project saved since 2026-09-24 keeps; a project saved before then, and a legacy .zip save, export their settlements, roads and borders without rivers. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
 ## Civ/river sentences corrected 2026-09-24 (ALIGNMENT_AUDIT Part 1 A1):
 ## `geojson_bridge.rs::export_geojson` reads `self.civ` whatever the source
@@ -541,7 +547,7 @@ const ZOOM_CHOICES: Array[int] = [4, 6, 8]
 ## destination alone. Two spellings of "region-tiles.zip" that drift apart make
 ## a moved exports root silently strand `_tx_dest` in the old folder.
 const TX_DEFAULT_NAME := "region-tiles.zip"
-const GIS_DEFAULT_NAME := "world.geojson"
+const GIS_DEFAULT_NAME := "world.geojson"  ## Default file name for the GeoJSON destination; the same four-site rule as `TX_DEFAULT_NAME` above applies.
 ## Tile edge lengths (px) the Tile size segment offers, for both the marquee grid
 ## and the pyramid; `_tx_tile` must always be one of them. 256/512/1024 is the
 ## usual slippy-tile ladder (256 and 512 are the web-map norms); a labelled
@@ -559,16 +565,24 @@ const TILE_SIZES: Array[int] = [256, 512, 1024]
 ## general reasoning; what is specific here is that the pane body is rebuilt
 ## per route, so the fit has to be re-run (`_phone_refit()`).
 var _phone := false
+## Which phone pane is showing: "routes" (the rail) or "route" (the body); set by `_show_phone_pane()`. Empty off a phone.
 var _phone_pane := ""
+## The two switcher buttons keyed by pane; phone only.
 var _phone_pane_buttons: Dictionary = {}
+## The routes rail node on a phone, visible while `_phone_pane == "routes"`.
 var _phone_rail: Control
+## The pane body node on a phone, visible while `_phone_pane == "route"`.
 var _phone_body: Control
+## The phone header's title label (`DccWidgets.phone_head`).
 var _phone_title: Label
 
+## The `DccApp` shell, assigned by `setup()`; used for phone fit and for the routes that hand off to another window (heightmap import, project picker, asset library, reveal on disk).
 var _host: DccApp
+## The engine facade used by every live route; its `world_gen` is the export binding.
 var _bridge: EngineBridge
 
 var _rail_rows: Dictionary = {}   ## route id -> {button, label, badge, caret}
+## The `ROUTES` id of the route currently shown; written by route selection.
 var _selected_id := ""
 
 ## The last `_checks_run()` on Validation ▸ Definitions, so the status line can
@@ -577,7 +591,9 @@ var _selected_id := ""
 ## rather than printing a zero, which would be a real count on a healthy world.
 var _checks_last: Dictionary = {}
 
+## Header band title, `GROUP ▸ LABEL` of the selected route.
 var _pane_title: Label
+## Header band right-hand descriptor, the route's `sub`.
 var _pane_sub: Label
 var _pane_body: VBoxContainer     ## cleared and rebuilt per route
 ## **`Container`, because it is not the same class at every density.** An
@@ -588,9 +604,13 @@ var _pane_body: VBoxContainer     ## cleared and rebuilt per route
 ## to be admitted. Declaring it `HBoxContainer` and assigning a flow container
 ## to it is a hard runtime error in GDScript, not a warning.
 var _pane_footer: Container
+## Rail footer line showing the current destination.
 var _foot_dest: Label
+## Rail footer line showing the last run of this session (see the tooltip it carries).
 var _foot_last_run: Label
+## Status band, left readout: idle, or the running pass (for example `baking 8K…`).
 var _status_left: Label
+## Status band, middle readout: per-route counts.
 var _status_mid: Label
 
 ## Export ▸ Maps, live `region_export_tiles` opts. Defaults are the binding's
@@ -599,17 +619,25 @@ var _status_mid: Label
 ## carry no colour is not what this route is for. That is a shell default, not
 ## an engine change.
 var _tx_cols := 4
+## Marquee grid rows; the binding's own default is 4 (see the block above).
 var _tx_rows := 4
 ## Scheme segment: 0 is the marquee grid, 1-3 the whole-world pyramid under
 ## `TX_SCHEMES[_tx_scheme]` addressing. `_tx_zmax`/`_tx_retina` are read only
 ## by the pyramid.
 var _tx_scheme := 0
+## Pyramid maximum zoom level; read only by the pyramid schemes. Bounded by the bake depth ceiling (see `ZOOM_NOTE`). Default 4 is the binding's own per the block above.
 var _tx_zmax := 4
+## Pyramid at double pixel density; read only by the pyramid schemes.
 var _tx_retina := false
+## Tile edge length in px; always one of `TILE_SIZES`. 512 is the binding's own default.
 var _tx_tile := 512
+## `region_export_tiles`' `gzip` option for the height tiles; off by default.
 var _tx_gzip := false
+## Also write colour and hillshade PNG tiles (the `visual` option). On here although the binding defaults it off; a shell default, as the block above says.
 var _tx_visual := true
+## `cartalith_terrain::amplify`'s `ridged` flag for the tiles' detail pass; off by default.
 var _tx_ridged := false
+## Export ▸ Maps destination path; pre-filled from `DccSettings.storage_root("exports")` plus `TX_DEFAULT_NAME`.
 var _tx_dest := ""
 
 ## Export ▸ World Data, live `export_raster_png`/`export_channel_atlas` opts.
@@ -625,8 +653,11 @@ var _tx_dest := ""
 ## The width list is asked of the binding (`export_raster_widths`) rather than
 ## written here, so the shell cannot offer a resolution the engine refuses.
 const WD_WIDTH_FALLBACK: Array[int] = [2048, 4096, 8192, 16384, 32768]
+## Raster widths offered by the Width segment: the binding's `export_raster_widths`, else `WD_WIDTH_FALLBACK`.
 var _wd_widths: Array[int] = WD_WIDTH_FALLBACK.duplicate()
+## The selected raster width in px; 4096 is the reference's own default (see the block above).
 var _wd_width := 4096
+## Write the raster as tile files plus `index.json` instead of one file (`bakeTiles`, off as in the reference).
 var _wd_tiled := false
 ## `layersPreviewChk` (reference line 555, read by `exportZip` at 12452).
 ## Off by default, exactly as the reference has it -- v0.92 made these
@@ -647,14 +678,14 @@ var _wd_space := "sRGB"
 ## of being a comment waiting for a format picker. Must never be set from
 ## anything but a real format choice.
 var _wd_format := "png"
-const WD_SPACE_SRGB := "sRGB"
-const WD_SPACE_P3 := "Display P3"
+const WD_SPACE_SRGB := "sRGB"  ## Value of `_wd_space` for the default sRGB label.
+const WD_SPACE_P3 := "Display P3"  ## Value of `_wd_space` that embeds a Display P3 profile.
 ## The two lines ET-E1's scope specifies verbatim (`EDITING_TOOLS_SCOPE.md`
 ## ET-E1 / its Risks paragraph: third-party viewers differ, so the dialog says so).
 const WD_P3_HINT := "Embeds a Display P3 profile. Colours match a P3 screen; some viewers ignore the tag."
-const WD_SRGB_HINT := "Labels the PNG sRGB. The heightmap and the channel atlas carry no profile: they are data."
-const WD_BIGTIFF_P3 := "BigTIFF cannot carry a P3 profile: use PNG"
-const WD_NO_P3_BINDING := "This build's engine predates the export colour-space option: rebuild cartalith-godot to embed a Display P3 profile."
+const WD_SRGB_HINT := "Labels the PNG sRGB. The heightmap and the channel atlas carry no profile: they are data."  ## Hint shown while sRGB is chosen; ET-E1's own wording per the block above.
+const WD_BIGTIFF_P3 := "BigTIFF cannot carry a P3 profile: use PNG"  ## Problem text `wd_space_problem()` gives for BigTIFF with P3 (rule from `export_options.rs`).
+const WD_NO_P3_BINDING := "This build's engine predates the export colour-space option: rebuild cartalith-godot to embed a Display P3 profile."  ## Shown when the engine build lacks the colour-space export option.
 
 ## Export ▸ GIS / GeoJSON's destination, held the way `_tx_dest` is held for
 ## Export ▸ Maps.
@@ -695,9 +726,13 @@ var _gis_doc_layers: Dictionary = {}
 ## screen's smooth shoreline (`render::paint_vector_rivers`,
 ## `BakeFields::with_shore_field`). The re-render claim is `render::bake_rect`'s.
 const WD_RASTER_NOTE := "The export re-renders the map at each output pixel's own position -- materials, hillshade, shading, the paper ground and the plate frame -- so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. Rivers are drawn from the same smooth vector lines the screen draws, in the style's own river treatment, at the export's own resolution, and water uses the screen's smooth shoreline, so coasts and lake shores do not step."
+## Disclosure for the tiles option (World Data): says the raster is rendered once either way and only the file layout differs.
 const WD_TILES_NOTE := "Writes tile_{row}_{col}.png plus index.json (cartalith_io::build_tile_manifest) instead of one file. The raster is rendered ONCE either way and only the file layout differs, so this cannot change what the map looks like -- unlike the reference, which re-renders per tile because a browser canvas has a hard area cap no native build has."
+## Disclosure for the channel-atlas option (`chanAtlasChk`): lists the files it writes.
 const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying capacity in one RGB8 PNG; settlement suitability in another; the fifteen resource potentials three to a file; biome and lithology indices in a third -- plus atlas/index.json documenting which channel of which file holds which field. Data at grid resolution, not a picture. The Köppen channel is documented and left at zero: this port retains no Köppen raster, exactly as the reference leaves it null when state.climate.seasons never built one."
+## Disclosure for the layer-previews option (`layersPreviewChk`, `_wd_layers`): the four previews written into a `layers/` folder.
 const WD_LAYERS_NOTE := "layersPreviewChk: the reference's own four human-viewable previews of the f32 data layers -- biome, hillshade, temperature, rainfall -- written into a layers/ folder beside whatever this run just wrote. Each is built from the pass the reference's own layerBytes(mode, debug) branch would have taken: bake_rect for biome, render::hillshade_raster for renderNow's mode==='shade' branch, and the temp/rain debug rasters, which are whole-image palette replacements rather than overlays because the reference's debugOpacity defaults to 1. Always at the GRID's size, not the raster width above: the .f32 blobs these preview are one value per cell, and the README line calls them reference only. Generated worlds only."
+## Disclosure that this route writes loose files and not a project .zip (`cartalith_io::write_save` exists; the full `exportZip` archive is not assembled here).
 const WD_ZIP_NOTE := "This route writes loose files, not one project .zip. The save writer (cartalith_io::write_save, FI-01) and these two rasters are both real now; assembling exportZip's full archive -- params.json, the f32 layer blobs, map.png, the atlas and features.json in one file -- is the remaining third piece and is not wired here."
 
 ## Session-scoped run log -- `[{stamp, label, bytes, secs, ok}]`, newest first.

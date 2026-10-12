@@ -375,6 +375,7 @@ const LANDMARK_REUSE := {
 	"volcanic_feature": "volcano",
 }
 
+## The icon name for an engine landmark kind key: `LANDMARK_REUSE`'s reused glyph if listed, else `lm_<kind>` if `PATHS` has it, else "" (no glyph). Must never return a name `PATHS` lacks. Called from `civilization_workspace.gd`.
 static func landmark_glyph(kind_key: String) -> String:
 	if LANDMARK_REUSE.has(kind_key):
 		return String(LANDMARK_REUSE[kind_key])

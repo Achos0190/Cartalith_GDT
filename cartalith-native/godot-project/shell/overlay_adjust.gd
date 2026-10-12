@@ -498,6 +498,7 @@ static func _fail(entry: int, param: String, reason: String) -> Dictionary:
 	return {"ok": false, "error": "%s%s: %s" % [prefix, param, reason]}
 
 
+## True when `v` is an `int` or a `float`, and so not a bool, string or null. Used by the stack validator; it does not test finiteness (`_in_range` does).
 static func _is_num(v) -> bool:
 	return typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT
 

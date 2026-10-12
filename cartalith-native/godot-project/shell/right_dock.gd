@@ -32,10 +32,10 @@ class_name RightDock
 ## reads and, in one case, for a correction to what the old comment claimed
 ## the ceiling was.
 
-const CTX_SAMPLE := "sample"
-const CTX_SETTLEMENT := "settlement"
-const CTX_ROUTE := "route"
-const CTX_RIVER := "river"
+const CTX_SAMPLE := "sample"  ## Context id: the cursor-sample readout, the dock's default (`_context` starts here).
+const CTX_SETTLEMENT := "settlement"  ## Context id: a selected settlement (`_settlement_data`, `_settlement_index`).
+const CTX_ROUTE := "route"  ## Context id: a selected route (`_route_entry`).
+const CTX_RIVER := "river"  ## Context id: a picked river (`_river`).
 ## Ruling AL: a generated landmark clicked on the map (`on_landmark_selected`).
 const CTX_LANDMARK := "landmark"
 ## A drawn icon glyph clicked on the map (`on_icon_selected`, 2026-09-27) -- the
@@ -45,9 +45,9 @@ const CTX_ICON := "icon"
 ## Military ▸ Conflicts or just committed by the Conflict tool. A selection,
 ## so a context -- the tool itself appends nothing here.
 const CTX_CONFLICT := "conflict"
-const CTX_FACTION := "faction"
-const CTX_MEASURE := "measure"
-const CTX_REGION := "region"
+const CTX_FACTION := "faction"  ## Context id: a selected faction (`_faction_id`).
+const CTX_MEASURE := "measure"  ## Context id: a measurement reading (`_measure_result`).
+const CTX_REGION := "region"  ## Context id: a selected region (`_region_result`) or Wildlife ecoregion (`_wildlife_region`).
 ## `CTX_SCULPT` and `CTX_JOURNEY` were here. They are now `TOOL_STAMPS` and
 ## `TOOL_JOURNEY`, appended section ids -- see those constants for the
 ## measurements that caught each of them replacing a selected settlement. Do
@@ -398,18 +398,26 @@ const SAMPLE_STAGE := {
 ## Computed here from each settlement's x/y position against the cursor cell.
 const _NEAREST_TIP := "The closest settlement to the cursor's cell, computed on the fly, not stored."
 
+## The `DccApp` shell; reached for readouts, the city viewer and other windows.
 var app: DccApp
+## The engine facade every section reads; its `generating` flag gates rebuilds.
 var bridge: EngineBridge
 
+## Which `CTX_*` the dock is drawing; it follows the selection.
 var _context := CTX_SAMPLE
+## The settlement dictionary handed to `on_settlement_selected()`; null when none. Re-read fresh from the bridge where it must not be stale (`_live_settlement`).
 var _settlement_data: Variant = null
+## Index of the selected settlement in the engine's places list; -1 when none.
 var _settlement_index := -1
+## The selected route's entry; its `points` feed the length readout.
 var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"
+## The selected faction's id; -1 when none.
 var _faction_id := -1
 ## The other party of the pair the reader asked for, or -1 when the faction was
 ## opened on its own (a Factions-list row, a map click). See `show_faction`.
 var _faction_pair := -1
+## The latest measurement result shown under `CTX_MEASURE`.
 var _measure_result: Dictionary = {}
 var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
 ## The saved-measurements store -- the canvas's own "Saved measurements" list,
@@ -440,11 +448,14 @@ var _landmark: Dictionary = {}
 ## shows a note if that index no longer holds the same icon -- the same test
 ## `refresh_settlement()` applies to a settlement index.
 var _icon_index := -1
+## The picked icon's row as it was clicked (see the block above).
 var _icon_data: Dictionary = {}
 ## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
 ## rebuild so the form can never show a copy the engine has moved past.
 var _conflict_id := -1
+## The selected region's result dictionary; its `cell_count` feeds the readout.
 var _region_result: Dictionary = {}
+## The clicked Wildlife ecoregion's record; its `richness` feeds the readout.
 var _wildlife_region: Dictionary = {}
 ## ECOREGION's `12 more` collapse row (`design/proposed-2026-09-05/Wildlife.dc
 ## .html`). Per-dock view state, not world state: reset whenever a different
@@ -486,6 +497,7 @@ var _journey_view: JourneyPlannerView = null   ## TOOL_JOURNEY delegate -- see `
 ## file guessing at the other four `paint_set_brush` fields (radius/hardness/
 ## softness/land_only) it has no way to know -- see `show_paint()`.
 var _paint_ctx_layer := "biome"
+## Callback bound by the Paint tool's caller so a legend click can arm a value (see the block above).
 var _paint_on_pick: Callable = Callable()
 
 ## -- TOOL_STOPS. Which ramp stop (by position in `bridge.color_ramp()`, sorted)
@@ -518,7 +530,9 @@ var _terr_faction := -1
 ## there is no `way_draft()` getter to derive it from -- the same reason
 ## `infrastructure_workspace.gd` keeps `_way_points` for the canvas preview.
 var _way_owner := ""
+## The draft way's points as the dock remembers them (see the block above for why they are kept here).
 var _way_draft: PackedVector2Array = PackedVector2Array()
+## The draft way's kind label, set when a draft starts and cleared with it.
 var _way_kind := ""
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
@@ -536,7 +550,9 @@ var _way_kind := ""
 var _sample_stale_note: Label
 var _sample_pos: Label     ## km from the map's north-west corner, X · Y
 var _sample_cell: Label    ## the raster index every other row in this panel reads
+## The Elevation readout label; nulled when the dock is torn down.
 var _sample_elev: Label
+## The Nearest-settlement readout label; its tip is `_NEAREST_TIP` plus any staleness reason.
 var _sample_nearest: Label
 ## `SAMPLE_FIELDS` label -> its value `Label`, so one `sample_cell()` dict
 ## per motion event fills every row. **One call, not sixteen**: the engine
@@ -553,7 +569,7 @@ var _sample_rows: Dictionary = {}
 ## Nothing makes a stage stale except a tool commit, so a reading up to a second
 ## old is the same reading.
 var _stale_cache: Dictionary = {}
-var _stale_cache_ms := -1000000
+var _stale_cache_ms := -1000000  ## Millisecond timestamp of the last `stale_stages()` read; the `-1000000` start makes the first call read at once.
 
 ## The `stale_stages()` answer, re-read from the bridge at most once a second (see
 ## `_stale_cache`). Called per cursor sample by `on_cursor_sampled()`; must never call
@@ -1765,6 +1781,7 @@ func _sculpt_draft_backstop() -> void:
 ## and was skipped. Cleared by the call that finally runs. Read only by
 ## `_flush_deferred_rebuild()`.
 var _rebuild_deferred := false
+## Set when `_sculpt_draft_backstop()` was skipped because `bridge.generating`; cleared when it next runs, and read by `_flush_deferred_rebuild()`.
 var _backstop_deferred := false
 
 ## Replays what the `bridge.generating` gates skipped, once the worker has let go
@@ -6275,8 +6292,11 @@ func _on_stops_mode_changed(i: int, modes: Array) -> void:
 ## sample can repaint them in place. Cleared at the top of `_build_stops` and
 ## guarded with `is_instance_valid` at use: a `_rebuild()` frees them.
 var _stops_bar: Control
+## Stop index -> colour swatch of that stop's row (see the block above).
 var _stops_row_sw: Dictionary = {}
+## Stop index -> the row's label (see the block above).
 var _stops_row_lbl: Dictionary = {}
+## The selected stop's `#RRGGBB` readout label (see the block above).
 var _stops_head_lbl: Label
 
 ## A colour sample from the selected-stop picker. **Deliberately no
@@ -6700,7 +6720,7 @@ func _way_max_grade() -> Array:
 # nothing to a file whose whole job is drawing editable rows, so it stays
 # local to the file that actually needs read-only inspection.
 
-const _FIELD_LABEL_W := 116
+const _FIELD_LABEL_W := 116  ## Width in px of a row's label column (for example the Name row); 116 has no stated source (labelled judgement). The plan thumbnail's row narrows it.
 
 # -- Artboard primitives (`design/proposed-2026-09-05`) ----------------------
 #
@@ -6744,7 +6764,7 @@ const _CTL_PX := [24, 36]
 ## row for a thumbnail. Stated here rather than routed through a role that
 ## would be the wrong one, the same way `_CTL_PX` above is.
 const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
-const PLAN_THUMB_PX := 84
+const PLAN_THUMB_PX := 84  ## Plan thumbnail edge, `SettlementExtras.dc.html`'s `84px` (see the block above).
 
 ## `05-right-dock-and-bars.md` §5.7's own geometry, in its own units. The strip
 ## authors its chart as `viewBox="0 0 1000 130" preserveAspectRatio="none"`, so
@@ -6754,12 +6774,12 @@ const PLAN_THUMB_PX := 84
 ## why the artboard's chart column is 132 px tall; `PROFILE_Y_COL` is the
 ## metre-label column, 40 px at dock width against §5.7's 52 at viewport width.
 const PROFILE_VIEWBOX_H := 130.0
-const PROFILE_GRID_Y := [43.0, 86.0]
-const PROFILE_TRACE_BASE := 126.0
-const PROFILE_TRACE_SPAN := 118.0
-const PROFILE_H := 118
-const PROFILE_AXIS_H := 14
-const PROFILE_Y_COL := 40
+const PROFILE_GRID_Y := [43.0, 86.0]  ## Grid-line y positions in the 130-unit viewBox (§5.7); read from the artboard per the block above.
+const PROFILE_TRACE_BASE := 126.0  ## Trace baseline y in the 130-unit viewBox (§5.7, see the block above).
+const PROFILE_TRACE_SPAN := 118.0  ## Trace vertical span in the 130-unit viewBox (§5.7, see the block above).
+const PROFILE_H := 118  ## Drawn chart box height in px (see the block above).
+const PROFILE_AXIS_H := 14  ## x-label strip under the chart, `height:14px` (see the block above).
+const PROFILE_Y_COL := 40  ## Metre-label column width in px: 40 at dock width against §5.7's 52 (see the block above).
 ## The narrowest plot the trace is drawn into at all. Not a design figure: it
 ## is the width below which 121 samples collapse into a polygon Godot's
 ## triangulator rejects. See `_profile_chart()`'s own guard.

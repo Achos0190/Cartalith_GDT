@@ -55,6 +55,7 @@ extends Control
 ## toward the completed-stages fraction (`_solid`) and never past it, so it is monotonic and stops
 ## at the last tick the engine reported; the glint running along it is animation, not a measurement.
 
+## The message tables and pickers (`category_for_label`, `stage_category`, `pick_entry`); this file only draws what it returns.
 const LoadingMessages := preload("res://shell/loading_messages.gd")
 
 ## The `CanvasLayer.layer` `app.gd` mounts this on. Above every canvas item the shell draws (the
@@ -97,9 +98,9 @@ const ROUGHNESS := 0.55
 ## Card geometry in reference px (multiplied by the phone scale on a phone). Judgements, matching
 ## the DCC modal's own scale (`DccWidgets.MODAL_W` family) and the shell's 16 px phone gutter.
 const CARD_W := 560.0
-const GUTTER := 16.0
-const PAD := 20.0
-const BAR_H := 78.0
+const GUTTER := 16.0  ## Minimum side gap between card and viewport edge in reference px (a judgement, per the line above); multiplied by the phone scale.
+const PAD := 20.0  ## Card inner padding in reference px (a judgement, per the line above); multiplied by the phone scale.
+const BAR_H := 78.0  ## Relief-trace bar height in reference px (a judgement, per the line above); multiplied by the phone scale.
 ## Scrim opacity over the `bg` token. A labelled judgement: dark enough that the map clearly reads
 ## as "not available", light enough to see it is still there.
 const SCRIM_ALPHA := 0.78
@@ -119,34 +120,60 @@ var enabled := true
 ## Probe-visible counters. `swallowed` counts every event `_input` consumed;
 ## `watchdog_releases` counts every release the watchdog made (each also `push_warning`s).
 var swallowed := 0
+## Probe-visible: `swallowed` broken down by `InputEvent.get_class()`.
 var swallowed_by_class: Dictionary = {}
+## Probe-visible count of watchdog releases (each also calls `push_warning`).
 var watchdog_releases := 0
 ## The trace's head as a fraction of the range, as last DRAWN (`-1` while indeterminate).
 var drawn_extent := -1.0
 
+## Busy-source nesting count (the HTML's `showBusy` counter); blocking and visible while above 0.
 var _depth := 0
+## True while the engine is holding exactly one `_depth` unit, so an unpaired finish cannot release another source's count.
 var _engine_held := false
+## The engine source's kind (`bridge.busy_kind`, or "generate" by default); empty when none is held.
 var _engine_kind := ""
+## The title line, set by `show_busy` for a fresh run or while no stages are reporting.
 var _label := ""
+## The current message category ("init" until a label or stage sets one).
 var _category := "init"
+## The line of wit currently drawn.
 var _message := ""
+## The tier of the current message entry ("cat" until `pick_entry` returns one); exposed by `message_tier()`.
 var _tier := "cat"
+## RNG for message picks; seeded from the clock in `_init` and carried across runs so no line repeats back to back. A probe re-seeds it.
 var _msg_rng := RandomNumberGenerator.new()
+## RNG for the trace's mountain-range profile (`_rebuild_profile`); seeded from the clock; a probe may re-seed it.
 var _range_rng := RandomNumberGenerator.new()
+## Seconds since the last message pick; a fresh line is picked at `ROTATE_S`.
 var _since_rotate := 0.0
+## Seconds since this run began; the clock the ridge-rise animation reads.
 var _t := 0.0
+## True once the engine reports stages (`generation_stage`); a generate starts in stage mode, other kinds stay indeterminate.
 var _stage_mode := false
+## Last stage index reported; -1 before any.
 var _stage_index := -1
+## Stage total, `DEFAULT_STAGES` until a signal's own `total` replaces it.
 var _stage_count := DEFAULT_STAGES
+## Last stage name reported; empty before any.
 var _stage_name := ""
+## Completed-stages fraction of the range, only ever raised; the trace's head eases toward it and never past it.
 var _solid := 0.0
+## The trace head's fraction of the range, eased by `_advance_head`; reset to 0 for each run.
 var _head := 0.0
+## The head's value when the finish flourish began; the flourish interpolates from it to 1.
 var _finish_from := 0.0
+## Per stage, the `_t` at which that stage completed (the ridge's rise start); -1.0 while not yet completed.
 var _beats: PackedFloat32Array = PackedFloat32Array()
+## The mountain-range height samples (`_stage_count * SAMPLES_PER_STAGE + 1`), 0.05 to 0.60 of the bar, rebuilt by `_rebuild_profile`.
 var _profile: PackedFloat32Array = PackedFloat32Array()
+## True while a successful run's completed range is still on screen (the flourish); input is already released.
 var _finishing := false
+## Seconds into the flourish; compared with `FINISH_S`.
 var _finish_t := 0.0
+## Consecutive frames of `bridge.generating == false` with the engine source held; the watchdog trips at `WATCHDOG_FRAMES`.
 var _idle_frames := 0
+## Consecutive frames a non-engine source has outlived an idle engine; the watchdog trips at `WATCHDOG_FRAMES`.
 var _orphan_frames := 0
 
 ## Builds the inert overlay: hidden, full-rect, input-transparent until a source arrives. Seeds the
@@ -216,6 +243,7 @@ const SETTLE_FRAMES := 1
 ## inside the blocked call through them); nothing in the shell connects to them, and a listener must
 ## never call the engine (the work is about to hold, or has just released, the main thread).
 signal work_started(label: String)
+## Emitted by `busy_run` just after `work` returns (see `work_started` above).
 signal work_finished(label: String)
 
 ## **Runs one SYNCHRONOUS main-thread job under the overlay** (save, open, export, bake, erosion

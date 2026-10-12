@@ -545,6 +545,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 ## could still find one; this is a measurement of Sevjuniana at z64, not a
 ## proof for every settlement.
 
+## Fills `pts` on `ci`: `draw_colored_polygon` when `Geometry2D.triangulate_polygon` accepts it, else a triangle fan from `pts[0]` through `draw_primitive`. Does nothing below three points. The fan is the fallback for polygons the triangulator rejects.
 static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color: Color) -> void:
 	if pts.size() < 3:
 		return
@@ -1110,6 +1111,7 @@ static func _draw_details(ci: CanvasItem, layout: Dictionary, to_screen: Callabl
 		ci.draw_circle(tree_c[k], tree_r[k], a.call(TREE_ORCHARD if tree_orch[k] else TREE))
 
 
+## Draws the settlement's point props (for example wells) from parallel `kinds` / `geoms` / `radii` / `flags` arrays of length `n`, only when `fine` is true. `to_screen` projects a point, `a` tints a colour, and glyph radius and ink width scale with `m_scale` with `px_floor` as the minimum.
 static func _draw_props(ci: CanvasItem, kinds: PackedStringArray, geoms: Array,
 		radii: PackedFloat32Array, flags: PackedByteArray, n: int, to_screen: Callable,
 		m_scale: float, px_floor: float, a: Callable, ink: Color, fine: bool) -> void:

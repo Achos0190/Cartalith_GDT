@@ -2727,6 +2727,7 @@ static func _currency_text(cur: Dictionary, key: String) -> String:
 		return _rate_text(float(cur.get("rate", 0.0)))
 	return String(cur.get(key, ""))
 
+## Placeholder text for a currency field left at its default: "1 (at par, default)" for `rate`, else the default value with "(default)". Display only; `_currency_text` is what an edit is compared against.
 static func _currency_placeholder(cur: Dictionary, key: String) -> String:
 	if key == "rate":
 		return "1 (at par, default)"
@@ -2893,6 +2894,7 @@ func _set_tariff(exporter_id: int, value: String, le: LineEdit) -> void:
 	_drop_panes(_tab)
 	tariff_changed.emit()
 
+## A tariff as shown in a rejection message: `_tariff_text(rate)` when positive, "0" otherwise.
 static func _tariff_display(rate: float) -> String:
 	return _tariff_text(rate) if rate > 0.0 else "0"
 
@@ -3678,6 +3680,7 @@ func _color_of(d: Dictionary) -> Color:
 	return Color8(int(d.get("color_r", 150)), int(d.get("color_g", 150)), int(d.get("color_b", 150)))
 
 
+## Formats `n` with a space between each group of three digits and a leading minus for a negative (`1234567` becomes `1 234 567`). Display only.
 static func _thousands(n: int) -> String:
 	var s := str(absi(n))
 	var out := ""

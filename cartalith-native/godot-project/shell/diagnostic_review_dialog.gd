@@ -139,6 +139,7 @@ static func _fill(table: VBoxContainer, app: Node, bridge: EngineBridge,
 	DccWidgets.modal_foot(table, "%d of %d values will be written."
 		% [included, rows.size()])
 
+## The review dialog's "Save report" action: hands `opts` straight to `DiagnosticReport.write` and does nothing else.
 static func _save(app: Node, bridge: EngineBridge, opts: Dictionary) -> void:
 	DiagnosticReport.write(app, bridge, opts)
 

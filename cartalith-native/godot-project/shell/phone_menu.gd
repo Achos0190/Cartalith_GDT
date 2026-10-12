@@ -322,25 +322,40 @@ const STATUS_ROWS: Array = [
 	["top_mem", "Memory"],
 ]
 
+## The `DccShell` this menu serves, assigned in setup; the source of `phone_scale()` and of every action a row calls.
 var _shell: DccShell
+## The shell's `phone_scale()` captured at setup; `_ps()` and `_pt()` multiply dp values by it.
 var _scale := 1.0
 var _stack: Array = []  ## of `_Step`; untyped because a typed `Array[_Step]`
 	## over an inner class is not portable across GDScript versions.
 
+## The full-screen drill-down panel (the menu root and its child screens).
 var _screen: PanelContainer
+## The screen header's title label.
 var _screen_head_title: Label
+## The screen header's breadcrumb line; shown only below the root.
 var _screen_head_trail: Label
 var _screen_head_meta: Label   ## The root's right-hand `ELDRA · 1.6 GB`.
+## The header's back button; visible only below the root.
 var _screen_back: Button
+## The header's close button; visible only below the root.
 var _screen_close: Button
+## The scroller around `_screen_body`.
 var _screen_scroll: ScrollContainer
+## The column rebuilt for each screen.
 var _screen_body: VBoxContainer
 
+## The scrim behind the bottom sheet; shared with the peek card (see the CM-5 block below).
 var _sheet_scrim: ColorRect
+## The bottom sheet panel, used for popup menus in the stack.
 var _sheet: PanelContainer
+## The sheet header's title label.
 var _sheet_head_title: Label
+## The sheet header's trail label (text from the top `_Step`'s `trail`).
 var _sheet_head_trail: Label
+## The scroller around `_sheet_body`.
 var _sheet_scroll: ScrollContainer
+## The column rebuilt for each sheet.
 var _sheet_body: VBoxContainer
 
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, §9.1): the phone's own noun-surface
@@ -349,19 +364,31 @@ var _sheet_body: VBoxContainer
 ## overlays()` already guarantees only one of `_sheet` / `_peek_panel` is ever
 ## shown at a time (`phone_present_peek_card()`, `dcc_shell.gd`).
 var _peek_panel: PanelContainer
+## The peek card's grab handle; its `gui_input` runs `_on_peek_grab_input`, and its rect is what the broker may ask for.
 var _peek_grab: Control
+## The peek card's title label.
 var _peek_title: Label
+## The peek card's second line (for example `Map · cell x, y`).
 var _peek_trail: Label
+## Margin wrapper for the chip row; visible only at the `peek` detent.
 var _peek_chip_wrap: MarginContainer
+## The chip row of primary actions shown at the `peek` detent.
 var _peek_chip_row: HBoxContainer
+## The scroller around `_peek_full_col`; visible only at the `half` detent.
 var _peek_full_scroll: ScrollContainer
+## The full sectioned action list (or, in select mode, the hit list).
 var _peek_full_col: VBoxContainer
+## True while the peek card is shown (set when it opens, cleared in dismissal).
 var _peek_open := false
 var _peek_detent := "peek"          ## "peek" or "half".
 var _peek_drag: Dictionary = {}     ## the grab handle's own press/move state.
+## The running detent-height tween, if any; killed before a new tween or a drag starts.
 var _peek_tween: Tween
+## The action list of the current request, kept so the full rows can be rebuilt on a detent change.
 var _peek_actions: Array = []
+## Callback passed in by the context broker; called with a hit when the user taps one in select mode.
 var _peek_reselect: Callable = Callable()
+## Callback the broker passes in to be told when the card closes; called once and then cleared.
 var _peek_dismiss_cb: Callable = Callable()
 ## CM-5 residual (`OUTSTANDING_WORK.md`'s "CM-5 residuals" row): §8.1.4's
 ## multi-hit "Select ▸" chip. `_peek_all_hits` is `req.get("all_hits", ...)`,
@@ -371,7 +398,9 @@ var _peek_dismiss_cb: Callable = Callable()
 ## action rows to the hit list -- forced to the `half` detent, since a
 ## `peek`-height sheet has no room for a list.
 var _peek_all_hits: Array = []
+## The hit the card is currently about (`req["hits"][0]`), per the block above; empty when none.
 var _peek_primary: Dictionary = {}
+## True while `_peek_full_col` shows the hit list instead of the action rows.
 var _peek_select_mode := false
 ## `context_card.gd`'s own SELECT_CAP (§9.1: "nearest first, capped at 8") --
 ## read off that script rather than a re-declared literal, so the two lists
@@ -389,8 +418,8 @@ const _PEEK_CARD_PEEK_DP := 66.0
 ## detent borrows it as a ceiling instead of a fixed height, so a short list
 ## does not leave a wall of empty sheet under it.
 const _PEEK_CARD_HALF_CAP_FRAC := 0.6
-const _PEEK_CARD_ANIM := 0.22
-const _PEEK_CARD_MIN_DRAG_DP := 24.0
+const _PEEK_CARD_ANIM := 0.22  ## Seconds for the detent height tween (labelled judgement; no source stated).
+const _PEEK_CARD_MIN_DRAG_DP := 24.0  ## Declared with a 24 dp value and not referenced anywhere in this file; intent unverified (presumably a drag threshold).
 
 # -- Geometry ----------------------------------------------------------------
 #
@@ -3053,9 +3082,9 @@ func _fill_gestures(body: VBoxContainer) -> void:
 ## `retina:true`, `zmax:5`). Its fifth, `skip:true`, has no engine behind it --
 ## see `_fill_data_tiles()`.
 var _dt_scheme := "xyz"
-var _dt_tile := 256
-var _dt_zmax := 5
-var _dt_retina := true
+var _dt_tile := 256  ## Selected tile size in px (§6.6 default 256); always one of `DT_TILE_SIZES`.
+var _dt_zmax := 5  ## Selected maximum zoom (§6.6 default 5); one of `DT_ZMAX_CHOICES`.
+var _dt_retina := true  ## Retina toggle (§6.6 default true); doubles the tile count in the size estimate.
 ## The last export from this screen -- `{key, bytes, secs, path}` -- or empty.
 ## `key` is the settings it ran with, so SIZE and RENDER TIME are only drawn
 ## against the settings that produced them.
@@ -3065,7 +3094,7 @@ var _dt_last: Dictionary = {}
 ## §6.6's range runs to 8. The set drawn is the set the engine honours --
 ## `DataManagerWindow.ZOOM_NOTE` is the reason the rest are refused.
 const DT_ZMAX_CHOICES: Array[int] = [1, 2, 3, 4, 5, 6]
-const DT_TILE_SIZES: Array[int] = [256, 512]
+const DT_TILE_SIZES: Array[int] = [256, 512]  ## Tile sizes drawn as chips; §6.6 offers 256 and 512.
 
 ## A string identifying the export settings (scheme, tile size, max zoom, retina), used to
 ## decide whether `_dt_last`'s measured size/time belong to the settings now selected.
@@ -3366,7 +3395,7 @@ func _add(body: VBoxContainer, ctrl: Control) -> void:
 		body.add_child(DccTheme.rule())
 	body.add_child(ctrl)
 
-const _META_BAND := "phone_band"
+const _META_BAND := "phone_band"  ## Meta key set on a band row; `_add()` draws no hairline after a row carrying it.
 
 ## Appends a section band, tagged so `_add` draws no hairline against it (a band supplies
 ## its own leading gap).
@@ -3944,8 +3973,8 @@ func _activate(p: PopupMenu, index: int, stay: bool) -> void:
 # wrapped second line, and only a container-parented label makes the row grow to
 # fit it -- a `Button` sizes from its own text and would clip.
 
-const _META_PRESSED := "pressed"
-const _META_PRESS_POS := "press_pos"
+const _META_PRESSED := "pressed"  ## Meta key on a row: true between press and release; cleared once the pointer moves past `DccShell.PHONE_SCROLL_DEADZONE`.
+const _META_PRESS_POS := "press_pos"  ## Meta key on a row: where the press began, the origin for the deadzone test.
 
 ## `lead` is §6.6's `nav` glyph column -- *"Glyph `12px mono`, `width:18px`,
 ## centred"* -- and it is a seventh, optional argument rather than a reuse of
