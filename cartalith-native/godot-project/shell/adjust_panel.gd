@@ -913,33 +913,67 @@ func _clear_notice() -> void:
 	_notice.visible = false
 
 
-## The overlay contrast guard's plain-language outcome, shown only on the Labels & overlays
-## layer. `MapOverlay.adjusted_factions_mode()` records what the FACTION-colour guard settled
-## on (`"stack"` met the guard as it was; `"guarded"`, `"clamped"` and `"original"` each mean it
-## held the adjustment back). The label and halo guard (`guard_ink_pair`) is a pure function per
-## ink and records nothing, so its outcome has no state to read; the note says it is applied.
+## What the guards did to the CURRENT layer's stack, in plain language, one paragraph per guard
+## that held something back (empty = nothing held back, or no live stack). Built from the
+## guards' own reports, never from a state of its own:
+## * Labels & overlays, faction colours: `MapOverlay.adjusted_factions_report()` (`mode` is
+##   `"stack"` met as it was; `"guarded"` colours moved; `"clamped"` strength reduced;
+##   `"original"` held back entirely) with its measured and required distinctness / contrast.
+## * Labels & overlays, label and halo inks: `MapOverlay.label_guard_summary()` (how many
+##   distinct ink pairs had the fill moved or were reverted to the preset's pair).
+## * Terrain and Water: the engine has NO guard on these stacks; it applies them exactly and
+##   refuses an out-of-range value whole (the "Refused" notice), so the line says "applied as
+##   set" rather than staying silent. Shown only while the stack has an entry.
+## `ov` is the live `MapOverlay` or null. Static and pure so a probe can drive it.
+static func guard_text(layer: String, ov, entries: int, unknown: bool) -> String:
+	if unknown:
+		return ""
+	if layer != OVERLAY:
+		if entries > 0:
+			return "No guard holds this layer back: the engine applies the stack exactly as set, and refuses a value outside its range rather than clamping it."
+		return ""
+	if not _OA.is_live():
+		return ""
+	var parts: PackedStringArray = []
+	var rep: Dictionary = {}
+	if ov != null and ov.has_method("adjusted_factions_report"):
+		rep = ov.adjusted_factions_report()
+	var mode := String(rep.get("mode", "none"))
+	var need := ""
+	if rep.has("required_de"):
+		need = " (colours must stay at least %.1f apart in CIE76 delta-E%s; the set now sits at %.1f%s)" % [
+			float(rep["required_de"]),
+			(" and reach contrast %.1f against the ground" % float(rep["required_contrast"])) if float(rep.get("required_contrast", 0.0)) > 0.0 else "",
+			float(rep["min_de"]),
+			(" and %.1f" % float(rep["min_contrast"])) if float(rep.get("required_contrast", 0.0)) > 0.0 else ""]
+	match mode:
+		"guarded":
+			parts.append("Faction colours: the contrast guard moved some of them so they stay tell-apart-able and readable on the map" + need + ".")
+		"clamped":
+			parts.append("Faction colours: the contrast guard reduced the strength of this stack so they stay tell-apart-able" + need + ".")
+		"original":
+			parts.append("Faction colours: the contrast guard held this stack back entirely, so they are drawn in their original colours" + need + ".")
+	var lg: Dictionary = {}
+	if ov != null and ov.has_method("label_guard_summary"):
+		lg = ov.label_guard_summary()
+	if int(lg.get("guarded", 0)) > 0:
+		parts.append("Labels and halos: the guard moved the text colour of %d of %d ink pairs so they stay readable (contrast of at least %.1f, or the preset's own if lower)." % [
+			int(lg["guarded"]), int(lg["pairs"]), float(lg["bar"])])
+	if int(lg.get("original", 0)) > 0:
+		parts.append("Labels and halos: the guard reverted %d of %d ink pairs to the preset's own colours, because the stack left them at contrast %.1f against a required %.1f." % [
+			int(lg["original"]), int(lg["pairs"]), float(lg["worst_before"]), float(lg["worst_required"])])
+	return "\n".join(parts)
+
+
+## Show `guard_text` for the current layer on the "AdjGuard" line; hidden when empty.
 func _refresh_guard() -> void:
 	if _guard == null:
 		return
-	var text := ""
-	if _layer == OVERLAY and not _unknown and _OA.is_live():
-		var ov = null
-		if app != null and app.get("viewport") != null:
-			ov = app.viewport.get("overlay")
-		var mode := "none"
-		if ov != null and ov.has_method("adjusted_factions_mode"):
-			mode = String(ov.adjusted_factions_mode())
-		match mode:
-			"guarded":
-				text = "The contrast guard moved some faction colours so they stay tell-apart-able and readable on the map. Labels and halos are held readable the same way."
-			"clamped":
-				text = "The contrast guard reduced the strength of this stack on faction colours so they stay tell-apart-able. Labels and halos are held readable the same way."
-			"original":
-				text = "The contrast guard held this stack back from faction colours entirely: they are drawn in their original colours. Labels and halos are held readable the same way."
-			_:
-				text = "Labels and halos are held readable (contrast of at least 4.5, or the preset's own if lower) and faction colours stay distinct: the guard may soften a strong stack."
-	_guard.text = text
-	_guard.visible = text != ""
+	var ov = null
+	if _layer == OVERLAY and app != null and app.get("viewport") != null:
+		ov = app.viewport.get("overlay")
+	_guard.text = guard_text(_layer, ov, _entries().size(), _unknown)
+	_guard.visible = _guard.text != ""
 
 ## The labels/overlays stack is saved with the project only when the engine registers its document slot
 ## (`DccApp.overlay_adjust_persists()`); on a build that does not, say so on that layer instead of letting

@@ -3504,6 +3504,13 @@ func _on_save_look() -> void:
 	if not bridge.save_appearance_preset(name, String(rec.get("preset", "")), String(rec.get("variant", ""))):
 		push_warning("Save look: the engine could not write the preset.")
 		return
+	## Rule (OUTSTANDING_WORK "Overlay stack in saved looks"): a look carries ALL THREE
+	## adjustment stacks. Terrain and Water went into the engine's file above; the labels &
+	## overlays stack is GDScript state, so it rides in a sidecar beside it. An empty stack
+	## removes a stale sidecar, so re-saving over an older look cannot keep its old overlay.
+	var oa_json := _OkLab.get_stack_json() if _OkLab.entry_count() > 0 else ""
+	if not bridge.save_preset_overlay(name, oa_json):
+		push_warning("Save look: the look was written but its labels & overlays adjustments could not be.")
 	_refresh_preset_list()
 	for i in _preset_slugs.size():
 		if String(_preset_pick.get_item_text(i)) == name:
@@ -3524,9 +3531,21 @@ func _on_load_look() -> void:
 		return
 	var slug := String(_preset_slugs[_preset_pick.selected])
 	var rec: Dictionary = bridge.appearance_preset_style(slug)
+	## The look's labels & overlays stack (its sidecar; `""` for a look saved without one, which
+	## then clears the live stack, exactly as a look with empty Terrain/Water stacks resets
+	## those). Validated BEFORE anything changes: an invalid one refuses the whole look, as the
+	## engine refuses a preset with an invalid Terrain or Water stack.
+	var oa_json: String = bridge.read_preset_overlay(slug)
+	if oa_json != "":
+		var chk: Dictionary = _OkLab.validate_json(oa_json)
+		if not bool(chk.get("ok", false)):
+			push_warning("Load look: refused, its labels & overlays adjustments are invalid (%s)." % String(chk.get("error", "unknown")))
+			return
 	if not bridge.load_appearance_preset(slug):
 		push_warning("Load look: the preset could not be read.")
 		return
+	if app != null and app.has_method("restore_overlay_adjust_document"):
+		app.restore_overlay_adjust_document(oa_json)
 	_sync_appearance()
 	_sync_ramp()
 	## Re-read the layer rows for the same reason every other block above is

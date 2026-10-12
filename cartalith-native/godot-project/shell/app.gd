@@ -1260,11 +1260,13 @@ func _wire_status() -> void:
 		set_status("pass", ("generated · %.1fs" % (bridge.last_generate_ms / 1000.0)) if ok
 			else "generate failed", "text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
-		## ET-C4: a NEW world is a new project, so the labels/overlays adjustment stack (which
-		## is saved with its project) does not follow it. Only on success: a failed generate
-		## leaves the previous world on screen.
-		if ok:
-			_clear_overlay_adjust()
+		## The labels/overlays adjustment stack SURVIVES a generate, as the engine's Terrain and
+		## Water stacks do (they reset only on a project open or close, `load_save` /
+		## `close_world`). It was cleared here until 2026-10-12 (ET-C4), which made the three
+		## layers disagree: a stack is a property of the LOOK, not of the generated world, so a
+		## new world is seen through the look already in force. The stack still follows the
+		## project through a save, an open (`restore_overlay_adjust_document`) and a close
+		## (`_close_world`), and a saved look carries it (`render_workspace.gd::_on_save_look`).
 		## The first of `UNWIRED_FUNCTIONS.md`'s three phone-invisible failures:
 		## a generate that fails wrote `pass` and `hint`, both of which live in
 		## the hidden `PhoneMenuModel` host on a handset, so the only symptom
@@ -4039,8 +4041,9 @@ func restore_overlay_adjust_document(text: String) -> String:
 			note = "the labels & overlays adjustments in this archive were refused (%s)" % String(r2.get("error", "unknown"))
 	return note
 
-## Empty the overlay stack because a DIFFERENT world is now on screen (a generate or a
-## close): a stack belongs to its project. Not called on `world_loaded`, which also fires for
+## Empty the overlay stack because a DIFFERENT project is now on screen (a close; NOT a generate,
+## which keeps the stack as the engine keeps its own, see `generation_finished`): a stack
+## belongs to its project. Not called on `world_loaded`, which also fires for
 ## a centring pass, a fjord carve, an applied asset pack -- the same project -- where the
 ## stack must survive; a project OPEN clears it through `restore_overlay_adjust_document`.
 func _clear_overlay_adjust() -> void:

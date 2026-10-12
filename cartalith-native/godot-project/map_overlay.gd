@@ -3169,14 +3169,62 @@ const LABEL_MIN_CONTRAST := 4.5
 ## never leave a label less readable than the preset left it. Alpha is kept. Never
 ## modifies its arguments.
 static func guard_ink_pair(fill0: Color, halo0: Color, fill1: Color, halo1: Color) -> Array:
+	return guard_ink_pair_report(fill0, halo0, fill1, halo1)["pair"]
+
+
+## `guard_ink_pair` with its outcome named, so the Adjust panel can say what the guard did
+## instead of the guard being silent. `{pair, mode, required, before, after}`: `mode` is
+## `"stack"` (the stacked pair met the bar as it was), `"guarded"` (the fill was moved along
+## value until it did) or `"original"` (even that could not, so the preset's own pair is
+## returned); `required` is the bar (min of `LABEL_MIN_CONTRAST` and the preset pair's own
+## contrast), `before` the stacked pair's contrast against its halo and `after` the returned
+## pair's. This IS the guard's body (`guard_ink_pair` returns its `pair`), so the report can
+## never describe a different decision than the one drawn. Pure; never modifies its arguments.
+static func guard_ink_pair_report(fill0: Color, halo0: Color, fill1: Color, halo1: Color) -> Dictionary:
 	var req := minf(LABEL_MIN_CONTRAST, contrast_ratio(fill0, Color(halo0.r, halo0.g, halo0.b)))
 	var ground := Color(halo1.r, halo1.g, halo1.b)
-	if contrast_ratio(fill1, ground) >= req - 0.0001:
-		return [fill1, halo1]
+	var before := contrast_ratio(fill1, ground)
+	if before >= req - 0.0001:
+		return {"pair": [fill1, halo1], "mode": "stack", "required": req, "before": before, "after": before}
 	var fixed := _pin_contrast_fix(fill1, ground, req)
-	if contrast_ratio(fixed, ground) >= req - 0.0001:
-		return [fixed, halo1]
-	return [fill0, halo0]
+	var fixed_c := contrast_ratio(fixed, ground)
+	if fixed_c >= req - 0.0001:
+		return {"pair": [fixed, halo1], "mode": "guarded", "required": req, "before": before, "after": fixed_c}
+	return {"pair": [fill0, halo0], "mode": "original", "required": req, "before": before,
+		"after": contrast_ratio(fill0, Color(halo0.r, halo0.g, halo0.b))}
+
+
+## What the label and halo guard did across the inks this map actually draws: one report per
+## DISTINCT preset pair among `_labels` and the settlement-name pair, through the live
+## overlay stack. `{}` with no live stack (nothing to guard). Otherwise `{pairs, bar, guarded,
+## original, worst_required, worst_before}`: how many distinct pairs there are, how many had
+## the fill moved (`guarded`), how many were reverted to the preset pair (`original`), and
+## for the reverted ones the highest required bar and lowest stacked contrast (0.0 if none).
+## Recomputed from `guard_ink_pair_report` on demand (the panel calls it on a refresh, never per
+## frame), so it holds no state that could go stale; it must never draw or mutate `_labels`.
+func label_guard_summary() -> Dictionary:
+	if not _OA.is_active():
+		return {}
+	var seen := {}
+	var out := {"pairs": 0, "guarded": 0, "original": 0, "worst_required": 0.0, "worst_before": 0.0, "bar": LABEL_MIN_CONTRAST}
+	var raws: Array = [_settlement_name_inks_preset()]
+	for lb: Dictionary in _labels:
+		raws.append(_label_inks_preset(lb))
+	for raw: Array in raws:
+		var key := [raw[0], raw[1]]
+		if seen.has(key):
+			continue
+		seen[key] = true
+		var r := guard_ink_pair_report(raw[0], raw[1], _OA.color(raw[0]), _OA.color(raw[1]))
+		out["pairs"] = int(out["pairs"]) + 1
+		if r["mode"] == "guarded":
+			out["guarded"] = int(out["guarded"]) + 1
+		elif r["mode"] == "original":
+			var first: bool = int(out["original"]) == 0
+			out["original"] = int(out["original"]) + 1
+			out["worst_required"] = maxf(float(out["worst_required"]), float(r["required"]))
+			out["worst_before"] = float(r["before"]) if first else minf(float(out["worst_before"]), float(r["before"]))
+	return out
 
 
 ## The preset's halo-width multiplier on a label's own `halo_em` (`label_halo_k`,
@@ -3482,6 +3530,7 @@ func _refresh_styled_factions() -> void:
 	_styled_factions = []
 	_styled_factions_mode = "none"
 	_adjust_factions_mode = "none"
+	_adjust_factions_report = {}
 	if _faction_colors.is_empty():
 		return
 	var styled := has_pin_style(_style_treatment)
@@ -3500,6 +3549,7 @@ func _refresh_styled_factions() -> void:
 		var g := guard_adjusted_factions(pre, adj, ground, _OA.color(ground), styled)
 		pre = g["colors"]
 		_adjust_factions_mode = String(g["mode"])
+		_adjust_factions_report = g
 		styled = true
 	if not styled:
 		return
@@ -3519,6 +3569,16 @@ func adjusted_factions_mode() -> String:
 
 ## See `adjusted_factions_mode()`.
 var _adjust_factions_mode := "none"
+
+## `guard_adjusted_factions`' full result (`{colors, mode, min_de, min_contrast, required_de,
+## required_contrast}`) for the live set, `{}` with no live stack. Kept beside the mode so the
+## Adjust panel can quote the guard's own numbers rather than only its verdict. Read-only.
+var _adjust_factions_report: Dictionary = {}
+
+
+## See `_adjust_factions_report`; a copy, so a caller cannot move the guard's record.
+func adjusted_factions_report() -> Dictionary:
+	return _adjust_factions_report.duplicate()
 
 
 ## **The contrast guard, after the stack, for faction colours** (Ruling BX item 2's two

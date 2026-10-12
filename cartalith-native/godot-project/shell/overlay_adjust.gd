@@ -227,6 +227,22 @@ static func set_stack_json(json: String) -> Dictionary:
 	return {"ok": true, "entries": entries.size(), "identity": not live}
 
 
+## Whether `json` is a stack `set_stack_json` would accept: `{ok: true, entries, identity}` or
+## `{ok: false, error}` with the same wording, and **nothing stored either way** (no revision
+## bump, no cache drop). For a caller that must refuse a document whole BEFORE changing
+## anything else, as a saved look does (it carries three stacks and applies all or none).
+static func validate_json(json: String) -> Dictionary:
+	var parsed := _parse(json)
+	if not bool(parsed["ok"]):
+		return parsed
+	var live := false
+	for e in parsed["entries"]:
+		if not _entry_skipped(e):
+			live = true
+			break
+	return {"ok": true, "entries": (parsed["entries"] as Array).size(), "identity": not live}
+
+
 ## Empties the stack (`{"entries":[]}`); the same path as `set_stack_json`, so the revision
 ## moves and every instance's caches are dropped.
 static func clear() -> void:

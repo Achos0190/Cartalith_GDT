@@ -2129,6 +2129,39 @@ func load_appearance_preset(name: String) -> bool:
 	mark_world_dirty()
 	return world_gen.load_appearance_preset(_preset_path(name))
 
+## The sidecar that carries a saved look's labels & overlays adjustment stack, beside the
+## engine's `<slug>.json`. The stack is GDScript state (`overlay_adjust.gd`) the engine never
+## sees, so the engine's preset file cannot hold it; this file does, so a look carries all
+## three stacks (Terrain and Water inside `<slug>.json`, this one beside it). **Not
+## `.json`**, so `appearance_presets()` never offers it as a look. Pure path arithmetic.
+func preset_overlay_path(name: String) -> String:
+	return "%s/%s.overlay_adjust" % [PRESET_DIR, _preset_slug(name)]
+
+## Writes the overlay stack beside the look `name` (`json` is `OverlayAdjust.get_stack_json()`),
+## or removes a stale sidecar when `json` is empty, so re-saving a look over an older one
+## never leaves the older look's overlay stack behind. False only if a write failed.
+func save_preset_overlay(name: String, json: String) -> bool:
+	var path := preset_overlay_path(name)
+	if json == "":
+		if FileAccess.file_exists(path):
+			return DirAccess.remove_absolute(ProjectSettings.globalize_path(path)) == OK
+		return true
+	DirAccess.make_dir_recursive_absolute(PRESET_DIR)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(json)
+	f.close()
+	return true
+
+## The overlay stack saved beside the look `name`, or `""` when the look has none (every look
+## saved before this sidecar existed, and any look saved with an empty overlay stack).
+func read_preset_overlay(name: String) -> String:
+	var path := preset_overlay_path(name)
+	if not FileAccess.file_exists(path):
+		return ""
+	return FileAccess.get_file_as_string(path)
+
 ## `[[display name, slug], ...]` for every preset file in `PRESET_DIR`, read
 ## through the engine's own `peek_appearance_preset` so a stray JSON file that
 ## is not a Cartalith preset is skipped rather than offered.
