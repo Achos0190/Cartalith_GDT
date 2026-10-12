@@ -2198,3 +2198,16 @@ Owner, after reading `NEW_WORLD_PREVIEW_PROPOSAL.md` and seeing its mockup: **"L
 1. **Build milestones NWP-1 to NWP-4** of the proposal: the engine's own early stages at 320 px with the two cell-unit settings rescaled to the target resolution (recommendation (a)), a `preview_land_mask` binding, and the new two-column New World dialog with the grey-on-blue preview, the seed dice and lock, the four-thumbnail history and the plates control.
 2. **A visible disclaimer is part of the screen**, on the preview itself, in plain words: it is an approximation of the plate layout and the land/ocean split, not the finished map (it will not show fine coastline, small islands, lakes or relief).
 3. **The proposal's recommended defaults stand** for its open questions unless the owner says otherwise: Create uses the width-scaled plate count (so the preview shows the plates the world will have; 800 km stays at 14, today's default), "36 for world" means the 40,075 km width, log-linear scaling, the seed lock lasts for the session, four history thumbnails (session only), grey #8f9295 on blue #2b4d6b, and under an archetype the derived plate count is shown read-only.
+
+## 2026-10-12 — Ruling CF: the open-rulings round (chroma, Night, press ICC, planner goldens, FH-R2, river gates, output moves)
+
+Owner, answering the coordinating session's prompt for rulings, in the owner's selections:
+
+1. **ET-F1 chroma bar: the exact-grey Rust fix**, not a restated tolerance. Greys must stay exactly neutral through the Look path. It may move look outputs; re-baseline them and disclose it (DECISIONS §7p).
+2. **Night (Dark): lift the darkest surfaces slightly** for legibility.
+3. **Press `.icc` loader: deferred.** Own synthetic ICC v4 profile plus the generic fallback stand until a real press profile is available to test.
+4. **Planner leftovers (seam-run endpoints, off-map km): fix and re-baseline** the pinned goldens that move.
+5. **FH-R2: proceed with a plan first.** Draft the research read (S1-S7 location to be found or asked) and the re-baseline plan for owner sign-off before any code.
+6. **Order-versus-discharge river gate and River Transport discharge gate: measure first**, report numbers, change nothing yet. Ruling BV (no river density/threshold changes) stands meanwhile.
+7. **Parcel-water re-baseline and authored-battle spacing: do both, with re-baseline** and disclosure per DECISIONS §7p.
+8. **Delta look and interior hatching on 512x328: deferred**; Ruling BV stands.
