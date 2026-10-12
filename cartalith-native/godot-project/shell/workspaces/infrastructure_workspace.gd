@@ -1765,16 +1765,17 @@ func _build_road_gaps(sec: Control) -> void:
 
 ## Stage 2 of the civ-authoring ruling's five. Same progress affordance as
 ## `civilization_workspace.gd`'s `_recompute_civ`, and for the same reason:
-## a synchronous engine call with no progress signal, so relabel, disable, let
-## two frames actually paint that, then block.
+## a synchronous engine call with no progress signal, so relabel, disable, and
+## run it under the busy overlay (`DccApp.busy_run`, which waits the two paint
+## frames), then block.
 func _generate_roads() -> void:
 	var b := _gen_roads_btn
 	if b != null and is_instance_valid(b):
 		b.text = "Generating…"
 		b.disabled = true
-		await get_tree().process_frame
-		await get_tree().process_frame
-	var r: Dictionary = bridge.civ_auto_routes()
+	## Under the busy overlay, as `_recompute_civ` (2026-10-12).
+	var rv: Variant = await app.busy_run("generating roads…", bridge.civ_auto_routes)
+	var r: Dictionary = rv if rv is Dictionary else {}
 	if b != null and is_instance_valid(b):
 		b.disabled = false
 		b.text = "Generate roads"

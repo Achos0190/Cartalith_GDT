@@ -1088,6 +1088,30 @@ func _mount_busy_overlay() -> void:
 	layer.add_child(busy_overlay)
 	busy_overlay.setup(bridge)
 
+## **The one door every synchronous busy action goes through** (2026-10-12): `busy_overlay.gd::
+## busy_run` -- show the card with `label`'s lines, let it paint, run `work` (blocking), keep
+## swallowing for one frame, hide on every exit path -- and `work`'s return value back. A coroutine:
+## callers `await` it, and the synchronous function it wraps stays callable directly (the probes and
+## every caller that needs the result before returning keep calling that one).
+##
+## Without an overlay (one not mounted yet, or freed) `work` runs at once with no frames waited, the
+## behaviour every wired site had before; nothing is invented to stand in for the card.
+##
+## Wired 2026-10-12, each by a wrapper rather than by turning the synchronous function into a
+## coroutine: `save_project`/`save_project_as`/`confirm_unsaved_world`'s save (`_write_project_busy`),
+## `revert_to_saved` and `menus.gd`'s Recent worlds (`open_project_busy`), the Data manager's map,
+## heightmap and channel-atlas exports and `menus.gd::_export_atlas`, `world_workspace.gd`'s bake and
+## Erode, `menus.gd`'s Refine tiles, the civilisation recompute / populate / roads buttons, and the
+## status bar's stale-stage Recompute (`_recompute_stale`). Not the autosave timer: it fires
+## mid-gesture, and blocking would swallow a drag's release. Not the journey planner's `_compute`:
+## it reruns on every plan edit, and `jp_compute` on a 512 x 320 world's longest town-to-town route
+## measured a median of 26 ms (26..39, five calls, `_busysync_probe.gd` 2026-10-12), so a card would
+## only flash. Not the picker dialogs' opens: see `open_project_busy`.
+func busy_run(label: String, work: Callable) -> Variant:
+	if busy_overlay != null and is_instance_valid(busy_overlay) and busy_overlay.is_inside_tree():
+		return await busy_overlay.busy_run(label, work)
+	return work.call() if work.is_valid() else null
+
 ## `call_deferred` was not enough, and the difference is a hard crash rather
 ## than a cosmetic one. It runs at the end of the *current* idle frame, which
 ## is still before the renderer has finished standing up: a `Window` (which an
@@ -1597,8 +1621,12 @@ func refresh_staleness() -> void:
 
 ## The "Recompute" button beside the `stale` slot. Synchronous, with no
 ## progress signal to subscribe to, so it does what `civilization_workspace.
-## gd`'s `_recompute_civ()` does for the same reason: relabel, disable, let two
-## frames actually paint that, then block.
+## gd`'s `_recompute_civ()` does for the same reason: relabel, disable, then
+## block under the busy overlay (`busy_run`, 2026-10-12, which waits the two
+## paint frames this used to await itself). Labelled with the HTML's own
+## "finishing…" (its validation lines): this pass re-derives whatever the
+## staleness graph marked, so no single stage's lines describe it. A
+## non-Dictionary result (the call aborted) reads as "nothing recomputed".
 func _recompute_stale() -> void:
 	if bridge.generating or bridge.world_gen == null:
 		return
@@ -1606,9 +1634,8 @@ func _recompute_stale() -> void:
 	if is_instance_valid(b):
 		b.text = "Recomputing…"
 		b.disabled = true
-		await get_tree().process_frame
-		await get_tree().process_frame
-	var r: Dictionary = bridge.world_gen.recompute_stale_stages()
+	var rv: Variant = await busy_run("finishing…", bridge.world_gen.recompute_stale_stages)
+	var r: Dictionary = rv if rv is Dictionary else {}
 	if is_instance_valid(b):
 		b.disabled = false
 		b.text = "Recompute"
@@ -3799,7 +3826,7 @@ func save_project() -> void:
 	if current_project_path == "":
 		save_project_as()
 		return
-	_write_project(current_project_path, Callable(), _include_lod_tiles_pref)
+	_write_project_busy(current_project_path, Callable(), _include_lod_tiles_pref)
 
 ## File ▸ Save as… Uses the shell's own browser in its save mode rather than
 ## a stock `FileDialog`, for the same reason `open_project_picker()` uses the
@@ -3849,9 +3876,9 @@ func save_project_as(then: Callable = Callable()) -> void:
 				_confirm(
 					"Overwrite %s?" % path.get_file(),
 					"That file already exists. Saving replaces it.",
-					"Overwrite", func(): _write_project(path, then, _include_lod_tiles_pref))
+					"Overwrite", func(): _write_project_busy(path, then, _include_lod_tiles_pref))
 			else:
-				_write_project(path, then, _include_lod_tiles_pref),
+				_write_project_busy(path, then, _include_lod_tiles_pref),
 		lod_option)
 
 ## ET-C4: the project-archive slot the labels/overlays adjustment stack is saved in. A
@@ -4116,14 +4143,21 @@ func _capture_preview_png() -> PackedByteArray:
 ## `save_project_as()`'s dialog (or carried forward from it by
 ## `save_project()`'s quiet re-save path) -- `false` unless a caller passes
 ## it explicitly, matching ruling 28's own default.
-func _write_project(path: String, then: Callable = Callable(), include_lod_tiles: bool = false) -> void:
+##
+## `preview_override` (2026-10-12, `_write_project_busy`): a thumbnail captured by the caller. Null
+## (every direct caller) captures it here, as before. The busy path must capture BEFORE the busy
+## overlay is shown, because `_capture_preview_png()` reads the last drawn frame -- which, once
+## the overlay is up, is the scrim and the card, not the map.
+func _write_project(path: String, then: Callable = Callable(), include_lod_tiles: bool = false,
+		preview_override: Variant = null) -> void:
 	var documents := _project_documents()
 	## Checked before the writer is called, not after it fails: the engine
 	## assembles the whole archive in memory first, so a doomed save on a full
 	## volume costs a full serialisation before anyone hears about it.
 	if _save_blocked_by_space(path, include_lod_tiles):
 		return
-	var preview_png := _capture_preview_png()
+	var preview_png: PackedByteArray = preview_override if preview_override is PackedByteArray \
+		else _capture_preview_png()
 	if not bridge.save_project(path, documents, preview_png, include_lod_tiles):
 		## **Was "save failed -- see console".** That named somewhere an exported
 		## Android build has no way to reach, which is the half of
@@ -4146,6 +4180,26 @@ func _write_project(path: String, then: Callable = Callable(), include_lod_tiles
 	if then.is_valid():
 		then.call()
 
+## `_write_project` under the busy overlay ("saving project…"): what File ▸ Save, Save as… and the
+## unsaved-world prompt's Save call, so the window shows the card instead of freezing on whatever was
+## last drawn. The thumbnail is captured FIRST, while the last drawn frame is still the map (see
+## `_write_project`'s `preview_override`). `then` still runs inside `_write_project`, on success
+## only, exactly as before -- so it runs while the overlay is up; a `then` that starts a generate
+## nests under it through the depth counter. `_write_project` itself stays synchronous for its
+## direct callers (probes write then immediately reopen).
+func _write_project_busy(path: String, then: Callable = Callable(), include_lod_tiles: bool = false) -> void:
+	var preview := _capture_preview_png()
+	await busy_run("saving project…", _write_project.bind(path, then, include_lod_tiles, preview))
+
+## `_load_project` under the busy overlay ("opening project…"), returning its success bool (false
+## if the call aborted). For the callers that act on nothing until it returns -- Recent worlds and
+## Revert. The picker dialogs still call `open_recent_project()` synchronously: they read the
+## result before their next line, and the overlay would draw underneath them anyway (an embedded
+## window draws above every `CanvasLayer`; `busy_overlay.gd::_mute_subwindows`).
+func open_project_busy(path: String) -> bool:
+	var ok: Variant = await busy_run("opening project…", _load_project.bind(path))
+	return ok is bool and ok
+
 ## File ▸ Revert to last save. Throws the in-memory world away and reloads
 ## the file, which is exactly `_load_project` on the current path -- the
 ## confirm in front of it is the whole feature, since the discard is
@@ -4157,7 +4211,7 @@ func revert_to_saved() -> void:
 	_confirm(
 		"Revert to last save?",
 		"Everything since the last save of %s is discarded." % current_project_path.get_file(),
-		"Revert", func(): _load_project(current_project_path))
+		"Revert", func(): open_project_busy(current_project_path))
 
 ## `File ▸ New world from selection…` -- `EngineBridge.region_new_world()`, over
 ## `ops_bridge.rs::region_new_world` and the reference's `#regionNewWorldBtn`.
@@ -4346,7 +4400,7 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 			if current_project_path == "":
 				save_project_as(then)
 			else:
-				_write_project(current_project_path, then, _include_lod_tiles_pref)},
+				_write_project_busy(current_project_path, then, _include_lod_tiles_pref)},
 	})
 	## `_close_requested()` and `_backnav_probe.gd` both resolve this prompt by
 	## calling `hide()` on it directly, so the free has to hang off visibility

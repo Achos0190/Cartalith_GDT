@@ -2375,18 +2375,21 @@ func _refresh_staleness() -> void:
 
 ## The button's own progress affordance. `recompute_civilisation` is a
 ## synchronous engine call with no progress signal to subscribe to, so the
-## honest minimum is to say so before blocking: relabel, disable, let two
-## frames actually paint that, then run. Two frames rather than one because a
-## single `process_frame` await returns before the redraw has reached the
-## screen on the frame the label changed.
+## honest minimum is to say so before blocking: relabel, disable, then run it
+## through `DccApp.busy_run` (2026-10-12), which shows the busy overlay and
+## waits two frames so the card and the label both paint before the block. Two
+## frames rather than one because a single `process_frame` await returns before
+## the redraw has reached the screen on the frame the label changed.
 func _recompute_civ() -> void:
 	var b := _recompute_btn
 	if b != null and is_instance_valid(b):
 		b.text = "Recomputing…"
 		b.disabled = true
-		await get_tree().process_frame
-		await get_tree().process_frame
-	var r: Dictionary = bridge.civ_recompute()
+	## Under the busy overlay (`DccApp.busy_run`, 2026-10-12), which owns the two
+	## paint frames this used to await itself and hides on every exit. A
+	## non-Dictionary result (the call aborted) reads as the refusal branch below.
+	var rv: Variant = await app.busy_run("recomputing civilisation…", bridge.civ_recompute)
+	var r: Dictionary = rv if rv is Dictionary else {}
 	if b != null and is_instance_valid(b):
 		b.disabled = false
 		b.text = "Recompute civilisation"
@@ -2453,9 +2456,8 @@ func _confirm_destructive(title: String, body: String, ok_text: String, skip_whe
 ##
 ## Same progress affordance as `_recompute_civ`, and for the same reason:
 ## `civ_populate` is a synchronous engine call with no progress signal, so the
-## honest minimum is to relabel, disable, let two frames actually paint that,
-## then block. Two frames rather than one because a single `process_frame`
-## await returns before the redraw has reached the screen.
+## honest minimum is to relabel, disable, and run it under the busy overlay
+## (`DccApp.busy_run`, which waits the two paint frames), then block.
 func _populate_world() -> void:
 	_confirm_destructive(
 		"Re-place every settlement?",
@@ -2467,16 +2469,16 @@ func _populate_world() -> void:
 		bridge.settlements().is_empty(),
 		func(): _populate_world_now())
 
-## Runs `bridge.civ_populate()` after the confirm: shows "Populating…", yields two frames so the label paints, reports settlements, ways and provinces
+## Runs `bridge.civ_populate()` after the confirm: shows "Populating…", runs it under the busy overlay (`DccApp.busy_run`), reports settlements, ways and provinces
 ## or the engine's refusal reason, then `_after_civ_layer_replaced()`. Replaces the civ layer; never call it without the confirm.
 func _populate_world_now() -> void:
 	var b := _populate_btn
 	if b != null and is_instance_valid(b):
 		b.text = "Populating…"
 		b.disabled = true
-		await get_tree().process_frame
-		await get_tree().process_frame
-	var r: Dictionary = bridge.civ_populate()
+	## Under the busy overlay, as `_recompute_civ` (2026-10-12).
+	var rv: Variant = await app.busy_run("populating world…", bridge.civ_populate)
+	var r: Dictionary = rv if rv is Dictionary else {}
 	if b != null and is_instance_valid(b):
 		b.disabled = false
 		b.text = "Auto-populate world"

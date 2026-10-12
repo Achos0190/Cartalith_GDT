@@ -1386,8 +1386,8 @@ func _build_finalize(parent: Control) -> void:
 ## Bake ALL levels & finalize button: bakes the LOD pyramid to `_bake_depth`
 ## via `bridge.bake_estimate` / `bridge.bake_all`, then
 ## `bridge.set_finalized(true)`. Returns early (nothing) when already
-## finalized. Synchronous on the main thread -- the one awaited frame only
-## paints the busy label; never re-enter while baking (the button is disabled).
+## finalized. Synchronous on the main thread, under the busy overlay
+## (`DccApp.busy_run`); never re-enter while baking (the button is disabled).
 func _on_bake_all() -> void:
 	if bridge.is_finalized():
 		return
@@ -1395,12 +1395,18 @@ func _on_bake_all() -> void:
 	var remaining := int(est.get("remaining", 0))
 	_bake_button.disabled = true
 	_bake_button.text = "Baking %d tile%s…" % [remaining, "" if remaining == 1 else "s"]
-	## One frame so the button's own label actually paints before the
-	## synchronous bake blocks the main thread -- the bake is not threaded (see
-	## `bake_all`'s own doc comment in lib.rs), so this is the whole of the
-	## busy state the shell can honestly offer.
-	await get_tree().process_frame
-	var r: Dictionary = bridge.bake_all(_bake_depth)
+	## The bake is not threaded (see `bake_all`'s own doc comment in lib.rs), so
+	## it runs under the busy overlay (`DccApp.busy_run`, 2026-10-12): the card
+	## paints before the main thread blocks and stays on screen through it. A
+	## non-Dictionary result (the call aborted) reads as a failed bake. Without
+	## an app, the one-frame label paint this function always had.
+	var rv: Variant
+	if app != null:
+		rv = await app.busy_run("baking atlas…", bridge.bake_all.bind(_bake_depth))
+	else:
+		await get_tree().process_frame
+		rv = bridge.bake_all(_bake_depth)
+	var r: Dictionary = rv if rv is Dictionary else {"ok": false, "error": "the bake call did not return"}
 	_bake_button.text = "Bake ALL levels & finalize"
 	if not bool(r.get("ok", false)):
 		_bake_status.text = "Bake failed: %s" % String(r.get("error", "unknown"))
@@ -1795,7 +1801,7 @@ func _build_droplet_erosion(grp: Control) -> void:
 			_wrap_slider_cell(made)
 		sliders.append(made["slider"])
 
-	var btn := DccWidgets.action(grp, "Erode (droplet)", _run_erode, true)
+	var btn := DccWidgets.action(grp, "Erode (droplet)", _run_erode_busy, true)
 	btn.disabled = not live
 	## The disabled-state message names `WorldGen.erode_op()`, the missing binding.
 	btn.tooltip_text = ("The reference's #erodeBtn. Runs over the whole map and pushes one " +
@@ -1873,6 +1879,16 @@ func _build_fjord_row(grp: Control) -> void:
 	DccWidgets.note(grp, "Fjord carving is ported: it overdeepens the glacially-carvable coastal valleys into drowned inlets, leaving the ridges between them high. Preview the mask first with Layers ▸ Hydrology ▸ Fjord mask. Flow and climate are recomputed afterwards; the vector river network is not.")
 	var fjord := DccWidgets.action(grp, "Carve fjords", _carve_fjords)
 	fjord.tooltip_text = "The reference's #fjordBtn. Cold, steep, competent-rock coast only -- a warm or low-relief world honestly carves nothing."
+
+## The Erode button's handler (2026-10-12): `_run_erode()` under the busy overlay ("erosion
+## pass…"), since 60k droplets at 2048² hold the main thread for seconds. The two guards are
+## `_run_erode()`'s own, checked first only so a press that does nothing does not flash the card;
+## `_run_erode()` re-checks them and stays synchronous for its direct callers
+## (`_sculptlodcache_probe.gd` times it inside a lambda).
+func _run_erode_busy() -> void:
+	if not bridge.has_world or not bridge._has("erode_op"):
+		return
+	await app.busy_run("erosion pass…", _run_erode)
 
 ## Carve fjords button (the reference's #fjordBtn): calls
 ## `bridge.carve_fjords()`, then repaints like `_run_erode`. Does nothing with

@@ -625,6 +625,15 @@ const LABEL_HINT := {
 	"erosion pass…": "erode",
 	"settling the land…": "civilisation",
 	"planning journey…": "journey",
+	## `busy_run`'s labels (2026-10-12): the card's title names the action actually running, so each
+	## call site gets its own label; each maps onto the existing category whose lines describe it.
+	"exporting map…": "export",
+	"exporting heightmap…": "export",
+	"exporting atlas…": "export",
+	"exporting atlas cache…": "export",
+	"recomputing civilisation…": "civilisation",
+	"populating world…": "civilisation",
+	"generating roads…": "civilisation",
 }
 
 ## Every category `pick()` can be asked for (the HTML's nine, then the port's). `rare`/`xrare` are

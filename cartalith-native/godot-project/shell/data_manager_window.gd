@@ -2959,12 +2959,12 @@ func _pick_raster_destination() -> void:
 		## folder rather than a path inside a zip.
 		DccBrowseDialog.choose_folder(self, "Export map tiles into…", start,
 			"one .png per tile plus index.json, written into the folder you choose",
-			func(path: String): _run_raster_export(path))
+			func(path: String): _busy("exporting map…", _run_raster_export.bind(path)))
 	else:
 		## `exportZip`'s own name for this file.
 		DccBrowseDialog.choose_save_path(self, "Export map raster", "png", start,
 			"the colour map as one .png, %d px wide" % _wd_width, "map.png",
-			func(path: String): _overwrite_guard(path, func(): _run_raster_export(path)))
+			func(path: String): _overwrite_guard(path, func(): _busy("exporting map…", _run_raster_export.bind(path))))
 
 ## The heightmap's own picker. A single file, always -- unlike the colour
 ## raster it has no tiled mode, because the formats that read a heightmap want
@@ -2973,7 +2973,24 @@ func _pick_heightmap_destination() -> void:
 	DccBrowseDialog.choose_save_path(self, "Export heightmap", "png",
 		DccSettings.storage_root("exports"),
 		"16-bit grayscale .png, %d px wide" % _wd_width, "heightmap.png",
-		func(path: String): _overwrite_guard(path, func(): _run_heightmap_export(path)))
+		func(path: String): _overwrite_guard(path, func(): _busy("exporting heightmap…", _run_heightmap_export.bind(path))))
+
+## The three export picker callbacks' runner (2026-10-12): the export under the busy overlay
+## (`DccApp.busy_run`), so pressing Export no longer freezes the window on the picker's last frame.
+## Each `_run_*_export` stays synchronous and is still what a probe calls directly. **The card is
+## NOT visible here**: an embedded window draws above every `CanvasLayer`, and this window is open
+## whenever its exports run. Measured by `_busysync_probe.gd` (2026-10-12, 1600 x 900 desktop): the
+## window occupies (0, 36) 1600 x 864, the card's rect is unchanged inside the blocked call (mean
+## difference 0.0) and only the 36 px strip above the window shows the scrim. What the overlay does
+## buy here is the guard: this window's input is muted (`gui_disable_input`) for the whole call, so
+## clicks made into it during the freeze are dropped rather than replayed. Making the card visible
+## needs the overlay hosted above embedded windows -- a change to `busy_overlay.gd`, not to this
+## call site. Without a host it runs `work` directly, as before.
+func _busy(label: String, work: Callable) -> void:
+	if _host != null and is_instance_valid(_host):
+		_host.busy_run(label, work)
+	else:
+		work.call()
 
 ## Godot's stock `FileDialog` would not hand a save path back to its caller
 ## while a file of that name already existed: it interposed *File "…" already
@@ -3028,7 +3045,7 @@ func _pick_atlas_destination() -> void:
 	DccBrowseDialog.choose_folder(self, "Export channel atlas into…",
 		DccSettings.storage_root("exports"),
 		"one .png per channel group plus atlas/index.json, written into the folder you choose",
-		func(path: String): _run_atlas_export(path))
+		func(path: String): _busy("exporting atlas…", _run_atlas_export.bind(path)))
 
 ## Both exports write from Rust with `std::fs`, so the path handed across has
 ## to be a real OS path -- `globalize_path` is a no-op for one already, and the

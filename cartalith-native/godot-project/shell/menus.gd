@@ -999,10 +999,17 @@ func _refresh_recent_worlds() -> void:
 ## Serves a File ▸ Recent worlds row: the id is an index into the CURRENT
 ## `DccSettings.recent_projects()`, and an out-of-range id (the list shrank since the
 ## popup was built) is ignored rather than opening a wrong path.
+##
+## Opens under the busy overlay (`DccApp.open_project_busy`, 2026-10-12): the result was never read
+## here, so nothing waits on it. A host without that method (an older or stub host) gets the plain
+## synchronous open it always had.
 func _on_recent_world(id: int) -> void:
 	var recents: Array = DccSettings.recent_projects()
 	if id >= 0 and id < recents.size():
-		_host.open_recent_project(String(recents[id]))
+		if _host.has_method("open_project_busy"):
+			_host.open_project_busy(String(recents[id]))
+		else:
+			_host.open_recent_project(String(recents[id]))
 
 ## Dispatcher for the File menu's `id_pressed`: each arm calls the matching `_host`
 ## method (new/open/save/save-as/autosave toggle/revert/close/storage/show-on-disk).
@@ -4707,7 +4714,7 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 		if id == ID_LOD_CLEAR_ATLAS:
 			_clear_caches()
 		elif id == ID_LOD_REFINE_VIEW:
-			refine_current_view()
+			_refine_current_view_busy()
 		elif id == ID_LOD_REFINE_VIEWSHED:
 			refine_viewshed_for_view()
 		elif id == ID_LOD_EXPORT_ATLAS:
@@ -4892,19 +4899,30 @@ func _export_atlas() -> void:
 	DccBrowseDialog.choose_save_path(_host, "Export atlas cache", "zip", start,
 		"The baked tile pyramid only. The world itself is saved from File > Save project.",
 		"atlas.zip", func(path: String):
-			var bytes: PackedByteArray = _bridge.atlas_export_zip(true)
-			if bytes.is_empty():
-				_host.set_status("hint", "atlas export produced no data", "warn")
-				return
-			var f := FileAccess.open(path, FileAccess.WRITE)
-			if f == null:
-				_host.set_status("hint", "could not write %s (error %d)" % [
-					path.get_file(), FileAccess.get_open_error()], "warn")
-				return
-			f.store_buffer(bytes)
-			f.close()
-			_host.set_status("hint", "atlas exported — %s, %s" % [
-				path.get_file(), _gb(bytes.size())], "text_dim"))
+			## Under the busy overlay since 2026-10-12: the zip is built in one engine call
+			## and written in one buffer, both on the main thread.
+			if _host.has_method("busy_run"):
+				_host.busy_run("exporting atlas cache…", _write_atlas_export.bind(path))
+			else:
+				_write_atlas_export(path))
+
+## `_export_atlas()`'s write, lifted out of its picker callback unchanged (2026-10-12) so it can run
+## under `DccApp.busy_run`: builds the archive, writes it to `path`, and reports each outcome --
+## empty archive, unwritable file, success -- on the status line. Synchronous.
+func _write_atlas_export(path: String) -> void:
+	var bytes: PackedByteArray = _bridge.atlas_export_zip(true)
+	if bytes.is_empty():
+		_host.set_status("hint", "atlas export produced no data", "warn")
+		return
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		_host.set_status("hint", "could not write %s (error %d)" % [
+			path.get_file(), FileAccess.get_open_error()], "warn")
+		return
+	f.store_buffer(bytes)
+	f.close()
+	_host.set_status("hint", "atlas exported — %s, %s" % [
+		path.get_file(), _gb(bytes.size())], "text_dim")
 
 ## `Atlas cache ▸ Import atlas…`, the read half.
 ##
@@ -6119,6 +6137,22 @@ func refine_current_view() -> void:
 		int(r.get("z", 0)), int(res.get("baked", 0)),
 		"" if int(res.get("baked", 0)) == 1 else "s",
 		int(res.get("skipped", 0)), float(Time.get_ticks_msec() - t0) / 1000.0], "text_dim")
+
+## The Refine row's handler (2026-10-12): `refine_current_view()` under the busy overlay, with the
+## HTML's own label for this button (`#lodRefineBtn`'s `withBusy('refining tiles…', …)`). Only when
+## the bake will actually run: the refusals (no world on screen, pyramid not up) are instant and say
+## why on the status line, so flashing the card for three frames ahead of them would only hide that
+## line. The gate reads the same `lod_active` key `refine_current_view()` itself refuses on, and
+## that function re-checks everything, so the gate can only decide WHETHER the card shows.
+## `refine_current_view()` stays synchronous for its other callers.
+func _refine_current_view_busy() -> void:
+	var r: Dictionary = {}
+	if _host != null and _host.viewport != null and _host.viewport.has_method("visible_grid_rect"):
+		r = _host.viewport.visible_grid_rect()
+	if not bool(r.get("ok", false)) or not bool(r.get("lod_active", false)) or not _host.has_method("busy_run"):
+		refine_current_view()
+		return
+	await _host.busy_run("refining tiles…", refine_current_view)
 
 ## Ruling AT's tooltip. States what the pass reads, where the result lives, what
 ## makes it stale and what scoring does then, because the status line below it

@@ -35,10 +35,13 @@ extends Control
 ## unpaired `generation_finished(false)` (the VRAM refusal emits one without a start) cannot steal
 ## another source's count. The WATCHDOG releases a source the engine no longer backs: the engine
 ## source after `WATCHDOG_FRAMES` frames of `generating == false` with no finish signal, and any
-## other depth after the same run of frames with the engine idle. No shell code calls
-## `show_busy` itself today (2026-10-11: the engine source is the only one wired); a future caller
-## must pair it with `hide_busy` inside one synchronous call or hold the engine, or the watchdog
-## releases it -- and a synchronous caller blocks the main thread, so nothing is drawn meanwhile.
+## other depth after the same run of frames with the engine idle. The second kind of source is
+## `busy_run` (2026-10-12): the synchronous main-thread actions -- save, open, export, bake, the
+## droplet erosion pass, the stale-stage and civilisation recomputes -- show, paint, block, settle
+## and hide inside one coroutine, well inside the watchdog's frames (`app.gd::busy_run` lists the
+## call sites and the ones deliberately left out).
+## Nothing else calls `show_busy` directly; a new caller should go through `busy_run` too, since a
+## bare `show_busy` before a synchronous call blocks before anything is drawn.
 ##
 ## **Messages follow the real stage.** `generation_stage(index, name, total)` -- the bridge's ONE
 ## poll of `GenerationProgress`; this file reads only that signal, `bridge.generating` and
@@ -47,8 +50,8 @@ extends Control
 ##
 ## **Never.** Never call a `world_gen` method or `GenerationProgress` from here. Never offer a
 ## cancel (the engine has no cancel entry point; `world_workspace.gd::_pg_progress_card` says the
-## same). Never hold a source across frames for work that is not the engine's (the watchdog will
-## release it). Never draw progress the engine did not report: the trace's head (`_head`) eases
+## same). Never hold a non-engine source across more frames than `WATCHDOG_FRAMES` (the watchdog
+## will release it; `busy_run` holds `PAINT_FRAMES + SETTLE_FRAMES`). Never draw progress the engine did not report: the trace's head (`_head`) eases
 ## toward the completed-stages fraction (`_solid`) and never past it, so it is monotonic and stops
 ## at the last tick the engine reported; the glint running along it is animation, not a measurement.
 
@@ -192,6 +195,63 @@ func hide_busy() -> void:
 	_depth = maxi(0, _depth - 1)
 	if _depth == 0:
 		_leave(false)
+
+## Process frames `busy_run` waits after `show_busy` before it starts the work. Two, not one: a single
+## `process_frame` await resumes before the frame that drew the change has reached the screen -- the
+## shell's own measured rule, stated at `civilization_workspace.gd::_recompute_civ` and
+## `_populate_world_now`, which used exactly this pair to paint a button label before blocking.
+const PAINT_FRAMES := 2
+## Process frames `busy_run` keeps blocking AFTER the work returns, before it hides. One: input the OS
+## queued while the main thread was frozen is delivered at the start of the next loop iteration
+## (`DisplayServer.process_events`, which flushes buffered input), before that iteration's
+## `process_frame` -- so holding the overlay through exactly one more frame is what lets `_input`
+## swallow the clicks and keys a user mashed during the freeze, instead of replaying them into the
+## shell the instant it unfreezes (the gap STATUS.md's 2026-10-11 entry recorded as "input during
+## them is queued and delivered after"). A labelled judgement on the count; the mechanism is
+## Godot's main-loop order. `_busysync_probe.gd` models it with an event deferred out of the work.
+const SETTLE_FRAMES := 1
+
+## Emitted by `busy_run` immediately before / after it calls `work`, with the run's label. Probe
+## hooks only (`_busysync_probe.gd` reads the overlay's state and the action's on-disk effect from
+## inside the blocked call through them); nothing in the shell connects to them, and a listener must
+## never call the engine (the work is about to hold, or has just released, the main thread).
+signal work_started(label: String)
+signal work_finished(label: String)
+
+## **Runs one SYNCHRONOUS main-thread job under the overlay** (save, open, export, bake, erosion
+## pass, civilisation recompute): the try/finally GDScript does not have.
+##
+## **What.** `show_busy(label)` (one depth unit; the category is `label`'s, through
+## `LoadingMessages.LABEL_HINT`), `PAINT_FRAMES` frames so the card is actually on screen, then
+## `work.call()` -- which blocks the main thread, so the card stays frozen on screen for the whole
+## call -- then `SETTLE_FRAMES` frames still blocking, then `hide_busy()`. Returns whatever `work`
+## returned (null for an invalid `work`).
+##
+## **Why here and not at each call site.** A synchronous engine call inside a button handler blocks
+## before anything can paint, so every site needs the same show / await / work / await / hide
+## sequence; written out at each site the hide is the line an early `return` skips. Here `work`'s own
+## early returns and failure branches only return from `work`, and a GDScript runtime error inside it
+## aborts that call with a null result and resumes HERE -- so every exit path reaches the single
+## `hide_busy()` below. The coroutine also lives on this node, so a caller freed mid-await (a dock
+## rebuilt during the paint frames) cannot strand a held source.
+##
+## **Never.** Never pass `work` that awaits: it would return at its first `await` and the overlay
+## would hide while it continued (nothing here can see that). Never call it from code that must have
+## the result before it returns -- it is a coroutine; keep the synchronous function and give the
+## button a wrapper that awaits this. Never use it for the generation thread's runs (those hold the
+## ENGINE source through the bridge's signals) or for timer-fired work: its blocking would swallow
+## the release of a drag already in progress.
+func busy_run(label: String, work: Callable) -> Variant:
+	show_busy(label)
+	for i in PAINT_FRAMES:
+		await get_tree().process_frame
+	work_started.emit(label)
+	var result: Variant = work.call() if work.is_valid() else null
+	work_finished.emit(label)
+	for i in SETTLE_FRAMES:
+		await get_tree().process_frame
+	hide_busy()
+	return result
 
 ## True while input is being swallowed: some source is held and the overlay is enabled.
 func is_blocking() -> bool:
