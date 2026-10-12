@@ -12,6 +12,10 @@ extends Node
 ##   3. applying a different preset drops it from the map's cache;
 ##   4. re-requesting it gives a different street layout -- the rules reach the
 ##      generator, so dropping the cache was necessary, not cosmetic.
+##
+## Result: `RULESINV ok  <what>` / `RULESINV FAIL  <what>` per check and a final `RULESINV
+##         PASS|FAIL  (N failures)`; exit 0 / 1. `RULESINV REFUSED: headless` exits 2,
+##         `RULESINV WATCHDOG` exits 3.
 
 var _fails := 0
 

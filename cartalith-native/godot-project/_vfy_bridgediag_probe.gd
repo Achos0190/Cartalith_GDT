@@ -2,6 +2,13 @@ extends Node
 ## Diagnostic: on a REAL generated world, what does `detectRiverCrossings`
 ## actually resolve to? Lane A measured 1 bridge on a 64x64 synthetic fixture
 ## with hand-built ways; the brief asked for "a real seed".
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_bridgediag_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: a diagnostic, not a test: `settlements=N`, `asking for N layouts (M of them
+##         riverthrough-by-diagnostics)`, one `i= kind= pop= realwater= river_pts= bridge_pt=
+##         bridges= ford= | <stage line>` row per town, and a final `TOTAL bridges= fords= towns=
+##         with_bridge_pt= uses_real_water= river_pts_sum=` line; always exit 0.
 
 var _app: Node
 

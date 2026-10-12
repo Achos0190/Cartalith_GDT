@@ -3,6 +3,13 @@ extends SceneTree
 # Adversarial verification of Lane A1: units in all three modes.
 # Replicates right_dock.gd's converted call sites verbatim, plus the
 # surviving hard-coded ones, at km / mi / nmi.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _verify_units_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `ORIGINAL units_mode = <mode>`, `format(...)` and `--- units_mode = <mode> ---`
+##         readout lines, `  FAIL <what>` for each broken claim, `RESTORED units_mode = <mode>`
+##         and a final `UNITS PROBE FAILURES = N`. The exit code is always 0 (`quit()`), so
+##         read that last line, not the exit code.
 
 func _init() -> void:
 	var orig := DccSettings.units_mode()

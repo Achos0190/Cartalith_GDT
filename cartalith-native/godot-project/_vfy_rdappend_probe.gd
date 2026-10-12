@@ -8,6 +8,9 @@ extends Node
 ## so a bug in either helper cannot be hidden by asking the helper.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_rdappend_probe.tscn
+##
+## Result: `VFY ok  <name>` / `VFY FAIL  <name>  -- <detail>` per check and a final `VFY
+##         fail=N`; exit 1 when N > 0, else 0. `VFY !! no world` and `VFY !! no settlement` exit 1.
 
 var app: Node
 var _fail := 0

@@ -15,6 +15,10 @@ extends SceneTree
 ## through the same setters the File menu calls. The file's original bytes are
 ## captured before anything is written and restored at the end, so running this
 ## leaves the install as it was found.
+##
+## Result: `AUTO ok  <name> got= want=` or `AUTO FAIL ...` per check, an `AUTO cfg=... bytes=...
+##         had_autosave_section=...` info line, and a final `AUTO PASS|FAIL (N failed)`. The exit
+##         code is the number of failed checks (`quit(_fail)`).
 
 var _fail := 0
 

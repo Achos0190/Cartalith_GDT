@@ -8,6 +8,10 @@ extends Node
 ##
 ## Nothing here is palette-bound: every assertion is a dictionary key, an
 ## integer, or a substring of a Label/tooltip.
+##
+## Result: `  ok   <name>` / `  FAIL <name>` per check, `[1]`..`[3]` section lines, and a final
+##         `=== N FAILED (a FAIL here is the verifier's finding, not a broken probe) ===`. The
+##         exit code is always 0 (`quit(0)`), so read the FAILED count, not the exit code.
 
 var app: Node
 var _fail := 0

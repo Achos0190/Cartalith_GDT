@@ -5,6 +5,11 @@ extends SceneTree
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . \
 ##       --script _vfy_grpmin_probe.gd
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _vfy_grpmin_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `GUARD ...` and `MINIMUM ...` section
+##         lines with measured widths, and a final `VERIFIER RESULT: N FAIL`; exit 1 when N > 0.
 
 const TITLE := "who the bands are measured against"
 

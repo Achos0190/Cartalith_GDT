@@ -11,6 +11,10 @@ extends Node
 ##   3. closing the window stores that size;
 ##   4. a fresh window of the same kind opens at the stored size.
 ## The user's own stored value for this key is put back at the end.
+##
+## Result: `WINGRIP ok  <what>` / `WINGRIP FAIL  <what>` per check, a `WINGRIP key <k>, prior
+##         stored <v>` line, and a final `WINGRIP PASS|FAIL  (N failures)`; exit 0 / 1. `WINGRIP
+##         REFUSED: headless` exits 2.
 
 var _fails := 0
 

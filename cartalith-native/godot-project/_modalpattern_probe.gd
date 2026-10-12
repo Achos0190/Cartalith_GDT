@@ -26,6 +26,10 @@ extends Node
 ## artboard is the dark canvas and this machine boots light.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _modalpattern_probe.tscn
+##
+## Result: `MOD ok  <name>` / `MOD FAIL  <name>  -- <detail>` per check and a final
+##         `=== MODAL PATTERN OK ===` or `=== MODAL PATTERN FAILED (N) ===`; exit 0 / 1.
+##         `MOD FAIL  could not force the dark palette -- refusing to run` exits 1 at once.
 
 var app: Node
 var _fail := 0

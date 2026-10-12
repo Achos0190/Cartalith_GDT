@@ -6,6 +6,11 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1080x2400 \
 ##     _vfybold_probe.tscn -- --force-touch
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `[N] <section>` headings with measured
+##         widths and ink areas, and a final `[RESULT] vfybold fails=N`; exit 1 when N > 0.
+##         `!! not a handset composition` and the `[RESULT]` line at the early exit (line ~105)
+##         also exit 1; `WATCHDOG` exits 3.
 
 var app: Node
 var pm: Node

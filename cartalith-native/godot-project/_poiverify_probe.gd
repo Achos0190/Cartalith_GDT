@@ -16,6 +16,14 @@ extends Node
 ##      If any of these panics the process dies here and that is the finding.
 ##   E. `landmark_last_run()` directly, before any pass and after a regenerate.
 ##   F. that the rings map to on-screen pixels (`_cell_to_screen` finite).
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _poiverify_probe.tscn [-- <grid_w> <grid_h>]
+##         (from godot-project/; the two optional user arguments, when both are given, set the
+##         world grid size)
+## Result: `=== _poiverify_probe  grid WxH ===`, `[E1]`, `[B]`, `[D0]` ... section lines,
+##         `  ok   <name>   got= want=` / `  FAIL ...` per check, and a final `=== SUMMARY WxH
+##         fails=N ===`; exit 1 when N > 0, else 0. `[FATAL] app.bridge null` exits 1,
+##         `WATCHDOG TIMEOUT` exits 2.
 
 const WATCHDOG_S := 900.0
 var _app: Node

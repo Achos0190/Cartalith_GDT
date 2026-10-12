@@ -17,6 +17,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _iconbrush_probe.tscn
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row.
+##
+## Result: `  ok: <what>` / `  FAIL: <what>` per check, `--- <section> ---` headings, and a final
+##         `ALL PASS (0 failures)` or `FAILURES (N failures)`; exit 1 when any failed.
+##         `WATCHDOG TIMEOUT` exits 3.
 
 var app: Node
 var _fails := 0

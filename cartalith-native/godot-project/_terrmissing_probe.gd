@@ -18,6 +18,9 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script res://_terrmissing_probe.gd
+##
+## Result: `TERRMISSING ok  <name>` / `TERRMISSING FAIL  <name>` per check and a final `RESULT
+##         PASS|FAIL  checks=N fails=M`; exit 1 when M > 0, else 0.
 
 const FIXTURE := "res://../crates/cartalith-godot/tests/fixtures/project_pre_substrate_2026-09-24.zip"
 const ENTRY := "rasters/territory.shuffled.i32"

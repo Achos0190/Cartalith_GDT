@@ -1,6 +1,12 @@
 extends Node
 ## What the switch ACTUALLY looks like on screen, versus the `ImageTexture`
 ## `_switch()` built. Run WINDOWED.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_cbdraw_probe.tscn   (from
+##         godot-project/; windowed, see the header)
+## Result: a measurement, no PASS/FAIL: `=== _vfy_cbdraw_probe ===`, then per switch state a
+##         `knob raw= brightest-on-screen= (x=N) track raw=` line and a `modulate in force:`
+##         line; exit 0.
 func frames(n: int) -> void:
 	for _i in n:
 		await get_tree().process_frame

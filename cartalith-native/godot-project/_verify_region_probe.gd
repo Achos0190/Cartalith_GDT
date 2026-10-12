@@ -2,6 +2,12 @@ extends SceneTree
 
 # Adversarial verification of Lane B: WorldGen::region_new_world.
 # Drives the REAL cdylib. Nothing here is a stub.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _verify_region_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N. ... ==` section headings, and a
+##         final `ALL PASS (0 failures)` or `FAILURES (N failure[s])`; exit 1 when any failed.
+##         `FATAL: WorldGen not registered` exits 1 at once.
 
 var g: RefCounted
 var fails := 0

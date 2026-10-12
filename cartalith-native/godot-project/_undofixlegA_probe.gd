@@ -5,6 +5,10 @@ extends Node
 ## from "does the phone chip repaint", after the combined probe hung.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _undofixlegA_probe.tscn
+##
+## Result: `STEP <name>` progress lines, `PASS|FAIL  <what>` per check, and a final `###
+##         UNDOFIXLEGA GREEN|RED  <passed>/<checks> checks passed ###`; exit 0 when green, 1
+##         when red. `WATCHDOG` exits 3.
 
 const SEED := 552017
 

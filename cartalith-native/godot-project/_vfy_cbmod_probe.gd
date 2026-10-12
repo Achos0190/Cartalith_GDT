@@ -10,6 +10,10 @@ extends Node
 ## returns a blank viewport texture.
 ##
 ##   Godot_v4.7.1 --path . _vfy_cbmod_probe.tscn
+##
+## Result: a one-question verdict, not a tally: `=== _vfy_cbmod_probe ===`, the lit-pixel and
+##         changed-pixel counts, then exactly one of `MODULATED: ...`, `NOT MODULATED: ...` or
+##         `INCONCLUSIVE: nothing drew -- run WINDOWED, not --headless`. Exit 0 whichever it is.
 
 func shot() -> Image:
 	for _i in 5:

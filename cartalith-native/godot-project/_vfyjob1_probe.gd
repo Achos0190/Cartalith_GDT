@@ -12,6 +12,10 @@ extends Node
 ##
 ## WINDOWED ONLY. An embedded `Window` clamps against the real screen and the
 ## dummy driver's screen is not this machine's; there is also nothing to draw.
+##
+## Result: a measurement, no PASS/FAIL tally: every line is `[<tag>] ...` (`--tag`, default
+##         `vfy1`), the last being `[<tag>] DONE`; exit 0 (an abort exits 2). Flags: `--vp WxH`
+##         (default 1152x648), `--route ID` (default export_world), `--minx N`, `--all`.
 
 var app: Node
 var _tag := "vfy1"

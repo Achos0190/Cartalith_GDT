@@ -15,6 +15,10 @@ extends Node
 ##
 ## Windowed (MISTAKES.md: headless textures and layout are not evidence):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _currency_probe.tscn
+##
+## Result: `CURRENCY ok  <what>` / `CURRENCY FAIL  <what>` per check, `CURRENCY row ...` and
+##         `CURRENCY after rate 12.5: ...` info lines, and a final `CURRENCY PASS|FAIL  (N
+##         failures)`; exit 0 when none failed, else 1.
 
 var _fails := 0
 

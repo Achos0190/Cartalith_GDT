@@ -12,6 +12,11 @@ extends Node
 ## rather than reasoning from `_tool_section()`.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _jp8append_probe.tscn
+##
+## Result: `JP8 ok  <name>` / `JP8 FAIL  <name>  -- <detail>` per check, `JP8 [T1]`...`[T8]` and
+##         `[W]` measurement lines, and a final `JP8 DONE  fail=N`; exit 1 when N > 0. A
+##         `JP8  !! ...` line (world generation failed, or no settlement to select) exits 1
+##         early.
 
 var app: Node
 var _fail := 0

@@ -5,6 +5,12 @@ extends Node
 ## the vault browser against `vault_dir`, measures its geometry, and drives a
 ## REAL border drag through Input.parse_input_event to test resize.
 ## Never emits `store_changed`, so nothing is persisted to user://.
+##
+## Result: a capture session, no assertions: `UX viewport <size>`, one `UX shot <name> WxH` line
+##         per PNG saved under the output directory, `UX vault ...` / `UX DBG ...` geometry
+##         lines, then `UX DONE` (exit 0). `UX REFUSED headless` exits 2, `WATCHDOG` exits 3.
+##         The first user argument after `--` is the output directory (default: the TEMP
+##         environment variable).
 
 var _app: Node
 var _out := ""

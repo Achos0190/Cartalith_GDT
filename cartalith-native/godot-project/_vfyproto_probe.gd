@@ -12,6 +12,12 @@ extends Node
 ##   app.open_credits()        touched by NEITHER pass, and graded by
 ##                                 NEITHER census            -> expect fails:*
 ##   right_dock_ctrl._confirm_revert()  graded `none`        -> expect fails:*
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfyproto_probe.tscn -- --force-touch [--vp WxH] [--tag NAME]
+##         (from godot-project/; windowed -- `ABORT headless` and `ABORT not phone -- pass
+##         --force-touch` both exit 2; `--vp` defaults to 1080x2400, `--tag` to `vfyproto`)
+## Result: every line is `[<tag>] ...`: per-site grade lines and a final `[<tag>] RESULT <tag>
+##         fail=N`; exit 1 when N > 0, else 0.
 
 var app: Node
 var _tag := "vfyproto"

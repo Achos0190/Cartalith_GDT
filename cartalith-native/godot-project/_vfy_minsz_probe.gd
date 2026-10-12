@@ -6,6 +6,12 @@ extends Node
 ## scroll-disabled dock column.
 ##
 ##   Godot_v4.7.1 --headless --path . _vfy_minsz_probe.tscn [-- --force-touch]
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_minsz_probe.tscn [-- --force-touch]
+##         (from godot-project/; `--force-touch` selects the TABLET density, otherwise POINTER)
+## Result: printed for a BEFORE/AFTER diff, no assertions: `=== _vfy_minsz TABLET|POINTER ===`,
+##         one `<name> min=<size> row_min=<size>` line per input, `row0 min =` and `col  min =`;
+##         exit 0.
 
 func _ready() -> void:
 	var touch := "--force-touch" in OS.get_cmdline_user_args()

@@ -7,6 +7,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _wayfilter_probe.tscn   (from
+##         godot-project/; windowed -- it saves a PNG of the panel)
+## Result: `WAYFILTER  <text>` lines per check or measurement and a final `WAYFILTER  shot ->
+##         <absolute path of user://wayfilter.png>`; exit 0. The watchdog exits 2.
 
 func _p(s: String) -> void:
 	print("WAYFILTER  %s" % s)

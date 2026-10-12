@@ -8,6 +8,9 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _geoterr_probe.gd
+##
+## Result: `GEOTERR ok  <name>` / `GEOTERR FAIL  <name>  -- <detail>` per check and a final
+##         `GEOTERR PASS|FAIL (N failed)`; exit 0 when none failed, else 1.
 
 var _fail := 0
 

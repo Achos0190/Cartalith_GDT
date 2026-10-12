@@ -5,6 +5,12 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _vfy_grpmin2_probe.tscn
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_grpmin2_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: a measurement, no PASS/FAIL: `VM live group headers in the left dock: N`, one `VM
+##         min.x ON= OFF= size.x= clip= '<text>'` line per header, and `VM headers whose
+##         autowrapped min.x is exactly 0: N of M (non-zero: N, largest X)`; exit 0.
 
 var app: Node
 

@@ -17,6 +17,11 @@ extends Control
 ## sampled pixels: an outer corner is tower ink, the inner-face midpoint (the
 ## gate) is NOT wall ink, and a point on the inner face away from the gate IS.
 ## The background is a fixed colour this file paints, so no theme is involved.
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `CITADEL ...` info lines (target
+##         settlement, pixel counts inside/outside the citadel box), and a final
+##         `CITADEL ALL PASS` or `CITADEL SOME FAILED (N failed)`; exit 1 when any check failed.
+##         The first user argument after `--` is the output directory (default: the user data dir).
 
 const SEED := 24601
 const VP := Vector2(1000, 760)

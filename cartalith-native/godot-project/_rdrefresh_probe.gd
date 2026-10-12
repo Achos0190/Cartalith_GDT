@@ -19,6 +19,10 @@ extends Node
 ## second also retires the ones the first just made.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _rdrefresh_probe.tscn
+##
+## Result: `RDR ok  <name>` / `RDR FAIL  <name>  -- <detail>` per check, `RDR [T1]`... state
+##         lines, and a final `RDR done -- N failure(s)`; exit 1 when N > 0, else 0. `RDR  !! ...`
+##         (generate failed / no sculpt editor) exits 1 early.
 
 var app: Node
 var _fail := 0

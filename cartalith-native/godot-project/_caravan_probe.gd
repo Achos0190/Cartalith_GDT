@@ -8,6 +8,9 @@ extends Node
 ##   4. the Trade panel draws a "Caravans" group with rows after a match.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _caravan_probe.tscn
+##
+## Result: `CARAVAN ok  <what>` or `CARAVAN FAIL  <what>` per check, then a final
+##         `CARAVAN PASS|FAIL  (N failures)`; exit 0 when none failed, else 1.
 
 var _fails := 0
 

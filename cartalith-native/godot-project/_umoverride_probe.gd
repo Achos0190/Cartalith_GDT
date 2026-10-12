@@ -15,6 +15,12 @@ extends SceneTree
 ## test, which is why this is a probe (`MISTAKES.md`).
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _umoverride_probe.gd
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _umoverride_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, info lines, and a final `ALL PASS (0
+##         failures)` or `FAILURES (N failure[s])`; exit 1 when any failed. `FAIL  no layouts at
+##         all` exits 1 at once.
 
 var fails := 0
 

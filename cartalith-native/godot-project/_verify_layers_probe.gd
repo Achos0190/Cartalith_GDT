@@ -4,6 +4,11 @@ extends SceneTree
 # the REAL CartographyWorkspace._sync_layers() over REAL CheckBoxes built by
 # the REAL DccWidgets.toggle() wiring, so the claim under test -- "the checkbox
 # follows the engine" -- is actually asserted, not asserted-by-proxy.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _verify_layers_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N. ... ==` section headings, and a
+##         final `ALL PASS (0 failures)` or `FAILURES (N failure[s])`; exit 1 when any failed.
 
 var fails := 0
 var writebacks: Array = []

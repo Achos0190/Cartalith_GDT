@@ -8,6 +8,11 @@ extends Node
 ## supplied by the project theme, not by the widget.
 ##
 ##   Godot_v4.7.1 --headless --path . _vfy_indep_probe.tscn [-- --force-touch]
+##
+## Result: a verdict by count, not a PASS/FAIL line: `=== _vfy_indep_probe  density=TABLET|
+##         POINTER ===`, theme info lines, `-- items compared: N --`, `INDEPENDENT: every item held
+##         ...` or `DEPENDENT on the project theme in N item(s):` plus one line per moved item,
+##         and `=== indep: N moved ===`. Exit 1 when any item moved, else 0.
 
 const ITEMS := {
 	"CheckBox": {

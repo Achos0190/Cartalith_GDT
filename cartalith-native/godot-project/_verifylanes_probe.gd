@@ -1,6 +1,11 @@
 extends Node
 ## INDEPENDENT verification probe (adversarial). Not either lane's.
 ##   godot --headless --path . _verifylanes_probe.tscn
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `  info <text>` lines, `=== V1:
+##         ... ===` section headings, and a final `_verifylanes_probe: PASS` or
+##         `_verifylanes_probe: N FAILURE(S)`; exit 1 when any failed. `[FATAL] extension did not
+##         load` exits 1.
 
 var _fail := 0
 

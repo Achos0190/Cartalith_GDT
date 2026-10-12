@@ -8,6 +8,10 @@ extends Node
 ## That claim is the whole reason the row was disabled for six days, so it is
 ## what this asserts: write through the MENU, read it back from the DOCK, and
 ## the other way round.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` headings,
+##         `[BOOT]`/`info` lines, and a final `_lodlevels_probe: PASS` or `_lodlevels_probe: N
+##         FAILURE(S)`; exit 1 when any failed.
 
 var _fail := 0
 

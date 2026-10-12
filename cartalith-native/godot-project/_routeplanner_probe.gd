@@ -11,6 +11,13 @@ extends SceneTree
 ##     vessel, not on the land itinerary with a Keelboat.
 ##
 ## Deterministic: one fixed seed, no RNG anywhere in the routing path.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _routeplanner_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: indented info lines (`route #N: N pts, N km, mode=, unreachable=`), `  FAIL: <what>`
+##         per broken claim, and a final `route-planner probe: PASS` or `route-planner probe: N
+##         FAILURE(S)`; exit 1 when any failed. `FAIL: <method> absent -- rebuild
+##         cartalith-godot` exits 1 at once.
 
 func _init() -> void:
 	var fails := 0

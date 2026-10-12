@@ -2,6 +2,11 @@ extends SceneTree
 
 # Lane B, round 2: the refusal floor at an aspect norm_region's min-8 clamp
 # actually permits, plus refusal atomicity.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _verify_region2_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== ... ==` section headings, and a
+##         final `ALL PASS (0 failures)` or `FAILURES (N failure[s])`; exit 1 when any failed.
 
 var g: RefCounted
 var fails := 0

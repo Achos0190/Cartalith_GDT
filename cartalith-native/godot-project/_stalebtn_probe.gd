@@ -9,6 +9,10 @@ extends Node
 ## What only the real shell can show is that the button sits beside that
 ## readout, appears and disappears with it on the same one-second poll, and
 ## that pressing it actually settles a stale stage.
+##
+## Result: `SBTN ok  <tag>   got= want=` / `SBTN !!  <tag> ...` per check, `SBTN stale slot =`,
+##         `SBTN hint  =`, `SBTN stale =` and `SBTN shot -> <path>` info lines, and a final
+##         `SBTN RESULT PASS|FAIL`; exit 0 / 1.
 
 var _app: Node
 var _bridge

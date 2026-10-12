@@ -13,6 +13,10 @@ extends Node
 ##   3. opening the window on it draws one grid cell per engine slot, with a
 ##      control: the same window on `poi` draws that family's own count, so the
 ##      grid demonstrably follows the family rather than a fixed size.
+##
+## Result: `SEAFAM ok  <what>` / `SEAFAM FAIL  <what>` per check and a final `SEAFAM PASS|FAIL
+##         (N failures)`; exit 0 / 1. `SEAFAM REFUSED: headless ...` exits 2. The body also reads
+##         a `--nowelcome` user argument (after `--`).
 
 var _fails := 0
 

@@ -11,6 +11,13 @@ extends SceneTree
 ## two rasters agree in `PaintEditor`; this proves the two *textures* agree
 ## after crossing the binding, pixel for pixel, and that the empty-Dictionary
 ## and full-grid answers survive marshalling as distinguishable things.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . --script _paintpatch_probe.gd
+##         (a SceneTree script, no .tscn; windowed -- the body prints `FAIL: get_image()
+##         returned null headless -- this check cannot run` when it gets no image)
+## Result: indented info lines, `FAIL: build_paint_preview_patch absent from the extension`
+##         (exit 1), `  FAIL: <what>` lines, and a final `PROBE PASS|FAIL (N failures)`;
+##         exit 0 when none failed, else 1.
 
 const GW := 256
 const GH := 192

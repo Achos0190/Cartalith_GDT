@@ -13,6 +13,12 @@ extends SceneTree
 ## is null, so this harness only ever exercised `EXTRAS`, never the live menu
 ## walk. `_vfy_batch0905_probe.gd` builds `CommandIndex` against a real `app`
 ## and still asserts `Refine detail` is title-findable there.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _idxfind_probe.gd
+##         (a SceneTree script, no .tscn; it reads no pixels)
+## Result: one `IDXFIND  <query>  title-matches=N` line per query, then
+##         `IDXFIND  rows=N  failures=M`; exit 1 when M > 0, else 0 (a query must match exactly
+##         one title).
 func _init() -> void:
 	var idx = load("res://shell/command_index.gd").new()
 	idx.build(null, null)

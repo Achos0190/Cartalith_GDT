@@ -22,6 +22,9 @@ extends Node
 ##     export pixel for pixel.
 ##  4. Every refusal refuses.
 ## BigTIFF files are left in the scratch dir for an external Pillow decode.
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N: ... ==` section headings, and a
+##         final `== PASS|FAIL: N failure(s) ==`; exit 1 when any check failed, else 0.
 
 var bridge: Node
 var fails := 0

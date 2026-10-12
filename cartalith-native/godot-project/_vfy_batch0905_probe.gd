@@ -5,6 +5,10 @@ extends Node
 ## from `_structmove_probe.gd`, `_lanebpickers_probe.gd` or `_vaultgone_probe.gd`.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _vfy_batch0905_probe.tscn
+##
+## Result: `VFY  ok    <label>` / `VFY  FAIL  <label>   <detail>` per check and a final `VFY
+##         DONE  N checks, M FAILED`; exit 1 when M > 0, else 0. `VFY  ABORT: the shell did not
+##         build` and `VFY  ABORT: vault window absent` exit 2.
 
 const SEED := 771203
 

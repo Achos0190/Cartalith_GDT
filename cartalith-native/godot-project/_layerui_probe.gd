@@ -17,6 +17,10 @@ extends SceneTree
 #   5. an older cdylib (no bindings) disables the panel instead of erroring
 #
 #   godot --headless --script _layerui_probe.gd
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N. ... ==` section headings, and a
+##         final `ALL PASS -- 0 failure(s)` or `FAILURES -- N failure(s)`; exit 1 when any
+##         failed. `FAIL  WorldGen is not registered` exits 1 at once.
 
 var fails := 0
 var pushes := 0

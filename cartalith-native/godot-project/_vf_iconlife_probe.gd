@@ -8,6 +8,12 @@ extends Node
 ##      regenerate, and whether a brush drag after one silently does nothing.
 ## Plus the live layer signal, driven through the REAL app rather than a
 ## synthetic ViewportHost.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vf_iconlife_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  ok: <what>` / `  FAIL: <what>` per check, `--- N. ... ---` section headings, info
+##         lines, and a final `ALL PASS (0 failures)` or `FAILURES (N failure[s])`; exit 1 when
+##         any failed. `FAIL: no asset pack` exits 1, `WATCHDOG TIMEOUT` exits 3.
 
 var app: Node
 var _fails := 0

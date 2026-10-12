@@ -11,6 +11,11 @@ extends SceneTree
 ##   c) how many ruled settlements diverge from their ruler's faith;
 ##   d) whether a per-faction plurality ever disagrees with the hand-set
 ##      state religion (RELIGION_DIFFUSION_SCOPE.md §4's fork, measured).
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _faithmeasure_probe.gd
+##         (a SceneTree script, no .tscn; it reads no pixels)
+## Result: a measurement, not a test -- plain `factions=N` and `years=... settlements=...` lines
+##         (the counts a) to d) above), always exit 0.
 
 func _init() -> void:
 	var wg: WorldGen = WorldGen.new()

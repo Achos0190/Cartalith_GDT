@@ -23,6 +23,13 @@ extends Node
 ## A positive control follows each: one real change (a hover-free status write
 ## that alters text) must be drawn, or a zero draw rate means "never draws",
 ## not "idles correctly".
+##
+## Result: a measurement, not a test, in the default mode: `[IDLE <tag>] low_processor= window=
+##         drawn= (/s) iterations= (/s) cpu= ms (% of a core)` and a `[CONTROL <tag>] frames
+##         drawn after one status write: N (must be >= 1)` line per tag; exit 0 at the end of the
+##         run. With `-- --hosted` it asserts: `[HOSTED] low_processor= drawn= iterations= ->
+##         PASS|FAIL`, exit 0 / 1. `[FATAL] unknown argument` exits 2; a missing extension
+##         exits 1.
 
 const WINDOW := 5.0
 

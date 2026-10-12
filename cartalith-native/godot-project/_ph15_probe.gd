@@ -14,6 +14,11 @@ extends Node
 ##
 ## Run:
 ##   godot --headless --path . _ph15_probe.tscn -- --force-touch --h1080
+##
+## Result: a measurement, no PASS/FAIL tally: `=== phone= scale= ===`, row and event lines
+##         (some carry a `(PASS if ...)` hint for the reader to apply) and `=== done ===`.
+##         `NOT PHONE -- nothing measured` and `TOO FEW ROWS to test a multi-row flick` end the
+##         run early; the exit code is always 0.
 
 func _frames(n: int) -> void:
 	for i in n:

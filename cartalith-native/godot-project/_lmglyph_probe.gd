@@ -17,6 +17,10 @@ extends Node
 ##      kind census, screenshots, and clicks pushed through `_gui_input` --
 ##      a landmark (dock shows exactly `bridge.landmarks()[i]`), a settlement
 ##      (unchanged), empty map (unchanged), and a contested pair.
+##
+## Result: every line is prefixed `LMGLYPH `: `ok  <name>` / `FAIL  <name>  -- <detail>` per
+##         check and a final `---- PASS ----` or `---- N FAILED ----`; exit 1 when any failed,
+##         2 for an argument problem, 3 for the watchdog.
 
 var app: Node
 var _fail := 0

@@ -6,6 +6,11 @@ extends Node
 ## from the live MenuBar rather than read off a printed total.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_r2_menus_probe.tscn
+##
+## Result: a census dump -- the body prints no ok/FAIL lines: `VFY  TOTAL=N  kinds=...`, `VFY
+##         UNAVAILABLE=N  with_reason=M`, one `VFY  UNAVAIL  <group> | <title> | <why>` line per
+##         unavailable row, `VFY  READOUT <group> | <title>` rows, then `VFY  DONE` (exit 0).
+##         `VFY  TIMEOUT` exits 2, `[FATAL] extension did not load` exits 1.
 
 var _app: Node
 

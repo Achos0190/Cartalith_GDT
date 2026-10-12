@@ -7,6 +7,10 @@ extends Node
 ## Measures the drawn button rects, not the code: at 400 px no two tabs overlap,
 ## same-line neighbours have a real gap, and no tab spills past the window's
 ## width; at 1000 px (control) all six sit on one line.
+##
+## Result: `PETABS ok  <what>` / `PETABS FAIL  <what>` per check, `PETABS <label>: N line(s)`
+##         measurement lines, and a final `PETABS PASS|FAIL  (N failures)`; exit 0 / 1. `PETABS
+##         REFUSED: headless` exits 2.
 
 const LABELS := ["Overview", "Economy & notables", "Timeline", "Political history",
 	"Vault notes", "Layout"]

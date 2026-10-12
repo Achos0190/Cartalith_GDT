@@ -10,6 +10,10 @@ extends Node
 ## So the assertion that matters is not "a file appeared". It is that the file
 ## this app writes is a file this app can read, and that what comes back is the
 ## field that went out. Anything less would ship a format that only looks right.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` section headings,
+##         `[GEN]`/`info` lines, and a final `_heightmap_probe: PASS` or `_heightmap_probe: N
+##         FAILURE(S)`; exit 1 when any check failed. `[FATAL] extension did not load` exits 1.
 
 var _fail := 0
 

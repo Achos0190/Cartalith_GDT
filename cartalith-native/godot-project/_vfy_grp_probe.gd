@@ -7,6 +7,11 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _vfy_grp_probe.tscn
+##
+## Result: `VG FAIL  <what>` per broken claim, `VG <label> headers= floor= stops: shipped=
+##         reverted=` measurement lines, `VG COST` and `VG CONTROL` lines, `VG relationship
+##         assertions run: N`, and a final `VG RESULT: N FAIL`; exit 1 when N > 0, else 0.
+##         `VG WATCHDOG` exits 2.
 
 const SEEDS := [483920, 77021, 4242]
 

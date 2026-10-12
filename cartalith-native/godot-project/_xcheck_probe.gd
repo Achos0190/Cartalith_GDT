@@ -3,6 +3,11 @@ extends Node
 ## Counts rows/separators per menu, tallies accelerators bar-wide, and dumps
 ## the specific rows three lanes disputed. Run windowed:
 ##   godot --path . --resolution 1600x900 _xcheck_probe.tscn
+##
+## Result: `[PASS] <label>  got= want=` / `[FAIL] ...` per check, then a large dump:
+##         `########## MENU: <name> ##########` blocks with one line per row, `ROW COUNTS`
+##         and `ACCELERATORS` sections, and a final `[DONE] failures=N`. The exit code is always
+##         0 (`quit(0)`), so read the `[FAIL]` lines or N.
 
 var _vp: SubViewport
 var _accels := {}      # accel_int -> Array[String] paths

@@ -11,6 +11,10 @@ extends Node
 ## cannot be constructed in a unit test.
 ##
 ## Run: godot4 --headless --path . _measurestore_probe.tscn
+##
+## Result: `  ok: <what>` / `  FAIL: <what>` per check, `--- <section> ---` headings, info
+##         lines, and a final `=== SUMMARY fails=N ===`; exit 1 when N > 0, else 0.
+##         `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 

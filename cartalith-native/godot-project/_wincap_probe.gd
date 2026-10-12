@@ -10,6 +10,10 @@ extends Node
 ##   2. it opens at its own default size -- content did not grow it;
 ##   3. it opens inside the main window, so its footer is on screen;
 ##   4. it accepts a size larger than the OLD cap -- the thing the cap blocked.
+##
+## Result: `WINCAP ok  <what>` / `WINCAP FAIL  <what>` per check, `WINCAP main window <size>`, and a
+##         final `WINCAP PASS|FAIL  (N failures)`; exit 0 / 1. `WINCAP REFUSED: headless` exits 2,
+##         `WINCAP WATCHDOG` exits 3.
 
 const OLD_CAP := {
 	"place_editor_window": Vector2i(560, 760),

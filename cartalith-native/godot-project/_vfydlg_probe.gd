@@ -12,6 +12,11 @@ extends Node
 ## Everything is measured in BOTH spaces on purpose: `Window.size` is physical,
 ## every child rect is in the content-scaled space, and conflating them is what
 ## made the pre-fix number look survivable.
+##
+## Result: every line is `[<tag>] ...` (`--tag`, default `vfydlg`): per-check lines and a final
+##         `[<tag>] RESULT <tag> fail=N`; exit 1 when N > 0, else 0. The `ABORT headless`, `ABORT
+##         not in phone mode -- pass --force-touch` and `ABORT could not find the dialog` lines
+##         each exit 2. `--vp WxH` defaults to 1080x2400.
 
 var app: Node
 var _tag := "vfydlg"

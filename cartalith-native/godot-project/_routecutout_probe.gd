@@ -6,6 +6,10 @@ extends Node
 ## line, and clear back to nothing for "None".
 ##
 ## Run: godot4 --headless --path . _routecutout_probe.tscn
+##
+## Result: `FAIL: <what>` / `    FAIL: <what>` for each broken claim, info lines (`committed
+##         route #N`, `default layer id= map_texture=`, one line per layer), and a final `===
+##         SUMMARY fails=N ===`; exit 1 when N > 0, else 0. `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 

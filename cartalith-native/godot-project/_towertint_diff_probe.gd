@@ -6,6 +6,14 @@ extends SceneTree
 ## for capturing a NEW frame; reading an already-saved PNG is data).
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _towertint_diff_probe.gd -- --dir <shared out dir>
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _towertint_diff_probe.gd -- --dir DIR
+##         (a SceneTree script, no .tscn; `--dir` is the directory holding the PNG pairs
+##         `_towertint_probe.gd` saved; without it the probe prints `DIFFPROBE ABORT -- no --dir
+##         given` and exits 2)
+## Result: a measurement, no PASS/FAIL: per settlement `DIFFPROBE settlement #N: WxH=T px,
+##         diff=D (P%), bbox=(x0,y0)-(x1,y1)`, or `diff=0 (byte-identical)`, or `load error` /
+##         `SIZE MISMATCH`; exit 0.
 
 func _init() -> void:
 	var args := OS.get_cmdline_user_args()

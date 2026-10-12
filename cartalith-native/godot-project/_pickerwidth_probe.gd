@@ -6,6 +6,12 @@ extends Node
 ## `MarginContainer`, `_list`).
 ##
 ##   Godot_v4.7.1 --path . --resolution 1600x900 --rendering-driver opengl3 _pickerwidth_probe.tscn -- --force-touch
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _pickerwidth_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: a measurement, no PASS/FAIL: `[BOOT] is_phone= phone_scale=`, `[PICKER] visible=
+##         window size=...`, then one line per measured node in the layout chain; exit 0.
+##         `[FATAL] extension did not load` / `[FATAL] no picker` exit 1.
 
 func _frames(n: int) -> void:
 	for i in n:

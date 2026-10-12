@@ -13,6 +13,9 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script res://_namestream_probe.gd
+##
+## Result: `NAMESTREAM ok  <name>` / `NAMESTREAM FAIL  <name>` per check and a final
+##         `RESULT PASS|FAIL  checks=N fails=M`; exit 1 when M > 0, else 0.
 
 var _checks := 0
 var _fails := 0

@@ -7,6 +7,11 @@ extends SceneTree
 ## for pixels; this reads a Dictionary).
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _urbandraw_keys_probe.gd
+##
+## Result: a key census, no pass/fail tally: `URBANDRAWKEYS N settlements, seed=S`, per
+##         settlement a `---- settlement #N "<name>" ... ----` block with `walled= wall_style=
+##         wall_spec= ...` and `ALL N KEYS = [...]` lines, then a closing finding sentence;
+##         exit 0. `FAIL fewer than 2 populated settlements generated` exits 2.
 
 const SEED := 24601
 const SIZE_KM := 96.0

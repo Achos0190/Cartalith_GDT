@@ -16,6 +16,12 @@ extends Node
 ##   D  every Preferences submenu row either carries its group's sole checked
 ##      value after the separator, or carries no readout at all; and firing
 ##      `about_to_popup` three times does not append three times.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy0907_probe.tscn -- --force-touch [--vp WxH]
+##         (from godot-project/; `--vp` defaults to 1080x2340; without `--force-touch` the probe
+##         logs `ABORT not a phone shell -- pass --force-touch` and exits 2)
+## Result: every line is `[vfy] ...`: `[vfy]   OK   <what>` / `[vfy]   FAIL <what>` per check
+##         and a final `[vfy] RESULT PASS|FAIL (N failures)`; exit 0 / 1.
 
 var app: Node
 var _vp: SubViewport

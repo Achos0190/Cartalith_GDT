@@ -7,6 +7,11 @@ extends Node
 ## This repo has been bitten four times by silently-empty golden output
 ## (CLAUDE.md's own working-rules list), so every assertion below is about
 ## something concrete being present or absent, never just "no crash".
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` headings,
+##         `PLACESEARCH  <text>` info lines (`PLACESEARCH  FAIL  <text>` for a failure), and a final
+##         `place_search_probe: PASS` or `place_search_probe: N FAILURE(S)`; exit 1 when any
+##         failed. `[FATAL] extension did not load` exits 1, `WATCHDOG` exits 3.
 
 var _fail := 0
 

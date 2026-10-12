@@ -5,6 +5,13 @@ extends SceneTree
 ## 2. world-replacement: does adherence actually disappear on each path?
 ## 3. the uncovered seed input: civ_edit_settlement changing a settlement's faction
 ## 4. layer-stack: does the default really round-trip byte-for-byte through set()?
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . --script _vfy_wave_probe.gd
+##         (a SceneTree script, no .tscn; windowed -- its `_fp()` reads `tex.get_image()`, which a
+##         headless run cannot be trusted to return, MISTAKES.md "Assert on pixels")
+## Result: `  PASS ...` / `  FAIL: ...` / `  NOTE: ...` lines per leg (a NOTE is informational) and a
+##         final `VERIFY PASS -- 0 failure(s)` or `VERIFY FAIL -- N failure(s)`; exit 1 when any
+##         failed, else 0.
 
 func _fp(wg: WorldGen) -> String:
 	var tex := wg.build_color_texture()

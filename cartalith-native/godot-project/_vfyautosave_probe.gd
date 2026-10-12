@@ -3,6 +3,12 @@ extends SceneTree
 ## VERIFIER probe (untracked, delete after use). Reads only -- never writes
 ## `user://cartalith_settings.cfg`. The config is staged by the harness before
 ## each run so each leg is a fresh process with its own `DccSettings._loaded`.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _vfyautosave_probe.gd
+##         (a SceneTree script, no .tscn; one process per leg -- stage `user://
+##         cartalith_settings.cfg` first, the probe only reads it)
+## Result: a single reading, no PASS/FAIL: `RESULT file_bytes= has_section= has_enabled=
+##         has_minutes= enabled= minutes= ladder=[...] ladder_has_5= ladder_has_10=`; exit 0.
 
 func _init() -> void:
 	var f := FileAccess.open(DccSettings.CONFIG_PATH, FileAccess.READ)

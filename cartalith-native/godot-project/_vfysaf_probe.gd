@@ -10,6 +10,9 @@ extends Node
 ## case); a dest_dir that does not exist; a dest_dir that exists and CANNOT BE
 ## WRITTEN -- which is what `_picker_start_dir()` -> `home_dir()` resolves to on
 ## the handset this feature ships for.
+##
+## Result: every line is `[vfysaf] ...`: per-check lines and a final `[vfysaf] RESULT vfysaf
+##         fail=N`; exit 1 when N > 0, else 0.
 
 var _fail := 0
 func _log(s: String) -> void: print("[vfysaf] %s" % s)

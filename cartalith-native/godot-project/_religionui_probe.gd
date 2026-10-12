@@ -12,6 +12,11 @@ extends SceneTree
 ## 3. `map_overlay.gd`'s `_faith_diverged` across every branch of its own
 ##    definition -- no key, unclaimed, unpushed roster, agreement, difference;
 ## 4. `map_overlay.gd`'s `_faith_lines` over real settlement dictionaries.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _religionui_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N. ... ==` section headings, and
+##         a final `RESULT: ALL PASS` or `RESULT: N FAILURES`; exit 0 / 1.
 
 const CIVWS := preload("res://shell/workspaces/civilization_workspace.gd")
 const OVERLAY := preload("res://map_overlay.gd")

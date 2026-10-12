@@ -44,6 +44,12 @@ extends Node
 ## to `phone_project_picker.gd`'s `visibility_changed` forwarding that
 ## reintroduces the race -- either by starting the sequence unconditionally
 ## again, or by never starting it at all once the picker closes.
+##
+## Result: `[coachcoldboot] ...` log lines and a final exit code: 0 when no check failed, 1 when
+##         one did, 2 for `### COACHCOLDBOOT ABORT: unknown argument` or `ABORT not phone -- pass
+##         --force-touch`, 3 for `WATCHDOG TIMEOUT`. If the environment variable
+##         COACHCOLDBOOT_SHOT_DIR is set and non-empty, `_shot()` does extra work for each tag
+##         (empty or unset: it returns at once).
 
 const BOTTOMBAR_TEXT := "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."
 const SHEETHANDLE_TEXT := "Drag this handle to expand tool options."

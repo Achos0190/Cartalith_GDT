@@ -30,6 +30,13 @@ extends Node
 ## truth `_exportraster_probe.gd`/`_gradeexport_probe.gd`'s river masks use,
 ## rather than re-deriving river presence from whatever happens to be drawn
 ## on screen this week.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _riverwidth_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, one line per map extent (`N km
+##         land cells N river-on-land N (P% of land) [N river cells traced]`), `info` lines, and
+##         a final `_riverwidth_probe: PASS` or `_riverwidth_probe: N FAILURE(S)`; exit 1 when any
+##         failed. `[FATAL] no extension` exits 1.
 
 var _fail := 0
 

@@ -6,6 +6,12 @@ extends Node
 ## `adherents` dictionaries and `get_factions()`' religion column) and then
 ## compared against the RENDERED text, so a panel that agrees with itself but
 ## not with the world fails here.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _lbrelig_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, info lines of the engine's and the
+##         panel's own text, and a final `RESULT: ALL PASS` or `RESULT: N FAIL`; exit 0 / 1.
+##         `PROBE FAIL: no CivilizationWorkspace` exits 2, `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 var _fails := 0

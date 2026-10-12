@@ -6,6 +6,13 @@ extends SceneTree
 ## `get_settlements` are `#[func]`s on a cdylib `GodotClass`, so the nested
 ## `adherents` Dictionary, the omitted-key contract and the status dictionary
 ## have never been marshalled until this runs.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _belief_probe.gd
+##         (a SceneTree script, no .tscn; it reads no pixels)
+## Result: indented info lines, `FAIL: ...` lines for each broken claim, and a final
+##         `PASS: belief layer marshals, omits its keys until run, and conserves population` (exit 0)
+##         or `FAIL: N check(s) failed` (exit 1). A `NOTE:` line (no cross-faction spread) is
+##         informational and not a failure.
 
 func _init() -> void:
 	var fails := 0

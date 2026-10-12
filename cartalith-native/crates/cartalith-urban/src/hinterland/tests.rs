@@ -456,11 +456,11 @@ fn idx_hash(v: &[usize]) -> u32 {
 
 /* -------------------------------------------------------------- the golden */
 
+/// Protects: the whole milestone-15 pipeline (build_details, build_farmland,
+/// apply_decay, compute_metrics) against the reference's own captured
+/// output, bit for bit, across every scenario in the golden set.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
-    // Protects: the whole milestone-15 pipeline (build_details, build_farmland,
-    // apply_decay, compute_metrics) against the reference's own captured
-    // output, bit for bit, across every scenario in the golden set.
     assert!(golden::GOLDEN.len() >= 30, "the golden set shrank");
     let mut saw_walled = 0usize;
     let mut saw_unwalled = 0usize;
@@ -593,10 +593,10 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
     }
 }
 
+/// Protects: crosses_street against the reference's own probed points, on
+/// both sides of the answer (a hit and a miss), not just one direction.
 #[test]
 fn golden_crosses_street_answers_both_ways() {
-    // Protects: crosses_street against the reference's own probed points, on
-    // both sides of the answer (a hit and a miss), not just one direction.
     // The `river11` scenario's own graph -- the capture probed on that fixture.
     let c = golden::GOLDEN.iter().find(|c| c.name == "river11").expect("river11 scenario");
     let f = fixture(c);
@@ -609,10 +609,10 @@ fn golden_crosses_street_answers_both_ways() {
     assert!(hits > 0 && hits < golden::CROSSES.len(), "the probes must answer both ways");
 }
 
+/// Protects: farm_spec's per-profile table against the reference's own
+/// FARM_SPEC rows, and the "no row for a removed profile" behaviour.
 #[test]
 fn the_farm_spec_table_is_the_references_own() {
-    // Protects: farm_spec's per-profile table against the reference's own
-    // FARM_SPEC rows, and the "no row for a removed profile" behaviour.
     assert_eq!(golden::FARM_SPEC.len(), 2, "FARM_SPEC has exactly two rows");
     for s in golden::FARM_SPEC {
         let got = farm_spec(s.id).unwrap_or_else(|| panic!("no FARM_SPEC row for {}", s.id));
@@ -642,13 +642,13 @@ fn the_farm_spec_table_is_the_references_own() {
 
 /* --------------------------------------------------- proofs and unit probes */
 
+/// Protects: the finding that ring_fields' `details.length > 200` cap is
+/// structurally dead code -- `nRings = rng.int(3, 4)`, `nSeg = rng.int(14, 20)`,
+/// and one wedge is pushed per (ring, segment) at most -- so the ceiling is
+/// 4 x 20 = 80, which can never exceed 200. Stated as arithmetic rather than
+/// left as an unexplained mutation survivor.
 #[test]
 fn the_two_hundred_wedge_cap_is_unreachable_by_construction() {
-    // Protects: the finding that ring_fields' `details.length > 200` cap is
-    // structurally dead code -- `nRings = rng.int(3, 4)`, `nSeg = rng.int(14, 20)`,
-    // and one wedge is pushed per (ring, segment) at most -- so the ceiling is
-    // 4 x 20 = 80, which can never exceed 200. Stated as arithmetic rather than
-    // left as an unexplained mutation survivor.
     const MAX_RINGS: usize = 4; // rng.int(3, 4)'s upper bound.
     const MAX_SEG: usize = 20; // rng.int(14, 20)'s upper bound.
     const { assert!(MAX_RINGS * MAX_SEG <= 200, "the cap would be reachable") };
@@ -659,10 +659,10 @@ fn the_two_hundred_wedge_cap_is_unreachable_by_construction() {
     }
 }
 
+/// Protects: apply_decay's churchyard guard, reachable only by a direct
+/// call since generate()'s own order never sets the flag before decay runs.
 #[test]
 fn a_churchyard_parcel_is_skipped_even_though_generate_cannot_produce_one() {
-    // Protects: apply_decay's churchyard guard, reachable only by a direct
-    // call since generate()'s own order never sets the flag before decay runs.
     // `applyDecay` runs at reference line 31035, five lines before
     // `buildFaithSites` (31040) -- the only writer of `churchyard`. So the guard
     // is dead on the reference's own path and only a direct call can reach it.
@@ -693,10 +693,10 @@ fn a_churchyard_parcel_is_skipped_even_though_generate_cannot_produce_one() {
     assert_eq!(none, Decay::default(), "an all-churchyard town must ruin nothing");
 }
 
+/// Protects: apply_decay's `!p.built` guard, the parcel->building linkage
+/// among ruined items, and that both index lists come back ascending.
 #[test]
 fn an_unbuilt_parcel_is_skipped_and_a_ruined_parcel_takes_its_buildings() {
-    // Protects: apply_decay's `!p.built` guard, the parcel->building linkage
-    // among ruined items, and that both index lists come back ascending.
     let c = golden::GOLDEN.iter().find(|c| c.name == "river11").expect("river11 scenario");
     let f = fixture(c);
     let (mut lots, buildings) = f.town(c);
@@ -724,11 +724,11 @@ fn an_unbuilt_parcel_is_skipped_and_a_ruined_parcel_takes_its_buildings() {
     assert!(d.ruined_buildings.windows(2).all(|w| w[0] < w[1]), "building indices ascend");
 }
 
+/// Protects: the orchard grid's accumulated-loop shape (4 columns x 3
+/// rows) against both the accumulation and its closed form, and that every
+/// golden orchard count is a multiple of twelve.
 #[test]
 fn the_orchard_grid_is_four_by_three_because_the_accumulation_says_so() {
-    // Protects: the orchard grid's accumulated-loop shape (4 columns x 3
-    // rows) against both the accumulation and its closed form, and that every
-    // golden orchard count is a multiple of twelve.
     // `for(let u=0.18;u<0.9;u+=0.24)` reaches 0.899999999999999911 on its
     // fourth step, which IS below 0.9 -- read as three columns, a quarter of
     // every orchard vanishes.
@@ -766,9 +766,9 @@ fn the_orchard_grid_is_four_by_three_because_the_accumulation_says_so() {
     }
 }
 
+/// Protects: the five BAND_* constants against the reference's own table.
 #[test]
 fn the_metric_bands_are_the_references_own_table() {
-    // Protects: the five BAND_* constants against the reference's own table.
     // Line 30927's `bands` object -- and note it is NOT the same dead-end band
     // the M-NET-2 comment on line 30919 quotes.
     assert_eq!(BAND_DEG4_SHARE, [0.05, 0.28]);
@@ -778,10 +778,10 @@ fn the_metric_bands_are_the_references_own_table() {
     assert_eq!(BAND_MEDIAN_FRONTAGE, [4.0, 10.0]);
 }
 
+/// Protects: every compute_metrics ratio's zero-guard (`V0 ? ... : 0`,
+/// `inter ? ... : 0`, the median-of-empty-list case) against a NaN or panic.
 #[test]
 fn compute_metrics_reads_an_empty_graph_without_dividing_by_zero() {
-    // Protects: every compute_metrics ratio's zero-guard (`V0 ? ... : 0`,
-    // `inter ? ... : 0`, the median-of-empty-list case) against a NaN or panic.
     let g = Graph::new();
     let m = compute_metrics(&g, &[], &[]);
     assert_eq!(m.nodes, 0);
@@ -800,10 +800,10 @@ fn compute_metrics_reads_an_empty_graph_without_dividing_by_zero() {
     eq_bits(m.total_len, 0.0, "totalLen");
 }
 
+/// Protects: compute_metrics' median tie-break (upper element, not the
+/// mean) and totalLen's sum, on a hand-checkable two-segment graph.
 #[test]
 fn the_median_is_the_upper_one_and_the_total_sums_the_sorted_list() {
-    // Protects: compute_metrics' median tie-break (upper element, not the
-    // mean) and totalLen's sum, on a hand-checkable two-segment graph.
     // Two `add_street` calls of very different lengths, far enough apart that
     // `attach_point`'s 11 m snap cannot join them into one edge, so the medians
     // are hand-checkable and the upper-median tie-break is visible.
@@ -818,10 +818,10 @@ fn the_median_is_the_upper_one_and_the_total_sums_the_sorted_list() {
     eq_bits(m.total_len, 110.0, "totalLen");
 }
 
+/// Protects: crosses_street's `e.alive` guard and its zero-iteration
+/// behaviour on an empty polygon.
 #[test]
 fn crosses_street_ignores_a_dead_edge() {
-    // Protects: crosses_street's `e.alive` guard and its zero-iteration
-    // behaviour on an empty polygon.
     let mut g = Graph::new();
     g.add_street(0.0, 50.0, 100.0, 50.0, "street", 5.0, 0, "x");
     let quad = vec![
@@ -839,10 +839,10 @@ fn crosses_street_ignores_a_dead_edge() {
     assert!(!crosses_street(&g, &[]), "an empty polygon crosses nothing");
 }
 
+/// Protects: strip_fields' `e.cls !== 'primary'` and `!e.alive` guards, the
+/// per-strip quad/prov/rr/orchard shape, and dense zero-based farm ids.
 #[test]
 fn strip_fields_skips_every_edge_that_is_not_a_live_primary() {
-    // Protects: strip_fields' `e.cls !== 'primary'` and `!e.alive` guards, the
-    // per-strip quad/prov/rr/orchard shape, and dense zero-based farm ids.
     // A single long non-primary road far outside `urban` produces nothing, and
     // the same road as a primary produces strips -- which is the whole
     // `e.cls !== 'primary'` guard, isolated.
@@ -890,10 +890,12 @@ fn strip_fields_skips_every_edge_that_is_not_a_live_primary() {
     }
 }
 
+/// Protects: strip_fields' urban() gate (an everywhere-urban predicate empties the
+/// result) and that every strip anchor stays well clear of the market (a loose
+/// 130 m bound, 330 - 200, not the exact 330 m edge -- that boundary is pinned by
+/// `the_three_hundred_and_thirty_metre_market_exclusion_is_exact`).
 #[test]
 fn the_market_exclusion_and_the_urban_test_both_gate_strip_fields() {
-    // Protects: strip_fields' urban() gate and the 330 m market exclusion, as
-    // two independent guards that each alone can empty the result.
     let c = golden::GOLDEN.iter().find(|c| c.name == "landlocked11").expect("landlocked11");
     let f = fixture(c);
     let spec = farm_spec("medieval").unwrap();
@@ -921,10 +923,10 @@ fn the_market_exclusion_and_the_urban_test_both_gate_strip_fields() {
     }
 }
 
+/// Protects: ring_fields' quad shape, its inner-band exclusion at
+/// `maxRF * 1.02`, and its urban() guard on the venus culture profile.
 #[test]
 fn ring_fields_is_the_only_venus_pattern_and_it_wedges() {
-    // Protects: ring_fields' quad shape, its inner-band exclusion at
-    // `maxRF * 1.02`, and its urban() guard on the venus culture profile.
     let c = golden::GOLDEN.iter().find(|c| c.name == "venus").expect("venus scenario");
     let f = fixture(c);
     assert_eq!(f.profile.id, "venus", "the venus scenario resolves the venus profile");
@@ -962,10 +964,10 @@ fn ring_fields_is_the_only_venus_pattern_and_it_wedges() {
     );
 }
 
+/// Protects: Detail::anchor for all three geometry variants (point,
+/// segment midpoint, polygon centroid) against the reference's own chain.
 #[test]
 fn a_detail_resolves_the_references_own_anchor_chain() {
-    // Protects: Detail::anchor for all three geometry variants (point,
-    // segment midpoint, polygon centroid) against the reference's own chain.
     // The chain `clearFortZone` (line 30135) walks, and therefore what
     // `crate::cleanup::clear_fort_zone`'s `detail_pts` must be built from.
     let p = Detail {
@@ -996,10 +998,10 @@ fn a_detail_resolves_the_references_own_anchor_chain() {
     assert_eq!(q.anchor(), Some(Vec2::new(5.0, 5.0)), "a polygon anchors at its centroid");
 }
 
+/// Protects: build_details' two-well floor for low population and the
+/// 150 m separation among every pair of wells after the first.
 #[test]
 fn the_well_floor_and_the_hundred_and_fifty_metre_spacing_hold() {
-    // Protects: build_details' two-well floor for low population and the
-    // 150 m separation among every pair of wells after the first.
     // `Math.max(2, Math.round(pop/320))`: the floor bites below 640 and the
     // spacing keeps every pair of wells apart -- except the plaza's, which is
     // pushed BEFORE the loop and so is exempt from its own test.
@@ -1037,21 +1039,21 @@ fn the_well_floor_and_the_hundred_and_fifty_metre_spacing_hold() {
     }
 }
 
+/// Protects: build_details' plaza-gated market cross, against the golden
+/// set's own plaza and plaza-less scenarios.
 #[test]
 fn a_null_plaza_removes_the_market_cross_and_the_free_well() {
-    // Protects: build_details' plaza-gated market cross, against the golden
-    // set's own plaza and plaza-less scenarios.
     let with = golden::GOLDEN.iter().find(|c| c.name == "river11").expect("river11");
     let without = golden::GOLDEN.iter().find(|c| !c.has_plaza).expect("a plaza-less scenario");
     assert_eq!(with.kind_counts[1], 1, "a town with a plaza has exactly one market cross");
     assert_eq!(without.kind_counts[1], 0, "a town without one has none");
 }
 
+/// Protects: build_details' `if(site.economy)` guard and each of the three
+/// per-specialisation prop branches (mining, fishing, timber), plus the
+/// fact that `grain` re-tags districts without producing a prop.
 #[test]
 fn the_economy_pass_is_skipped_without_an_economy() {
-    // Protects: build_details' `if(site.economy)` guard and each of the three
-    // per-specialisation prop branches (mining, fishing, timber), plus the
-    // fact that `grain` re-tags districts without producing a prop.
     // Reference line 30853's `if(site.economy)` guard, which is what keeps the
     // synthetic path byte-identical. Every scenario with no economy has zero
     // props of all three kinds; every one with the matching specialisation has
@@ -1086,10 +1088,10 @@ fn the_economy_pass_is_skipped_without_an_economy() {
     assert_eq!(land_timber.kind_counts[8], 0, "a landlocked saw yard cannot boom logs");
 }
 
+/// Protects: build_details' harbour branch — exactly one crane and one
+/// bollard per pier when a harbour exists, and none when it does not.
 #[test]
 fn the_harbour_pass_places_one_crane_and_one_bollard_per_pier() {
-    // Protects: build_details' harbour branch — exactly one crane and one
-    // bollard per pier when a harbour exists, and none when it does not.
     for c in golden::GOLDEN {
         if c.harbour {
             assert_eq!(c.kind_counts[2], 1, "{}: one crane", c.name);
@@ -1101,11 +1103,11 @@ fn the_harbour_pass_places_one_crane_and_one_bollard_per_pier() {
     }
 }
 
+/// Protects: the finding that build_details' tree cap only breaks the
+/// per-block inner loop, not the whole pass — proved by golden scenarios
+/// that exceed it — and that orchard rows are counted separately.
 #[test]
 fn the_tree_cap_breaks_the_inner_loop_only() {
-    // Protects: the finding that build_details' tree cap only breaks the
-    // per-block inner loop, not the whole pass — proved by golden scenarios
-    // that exceed it — and that orchard rows are counted separately.
     // If the cap ended the whole pass, no town could exceed 241 trees. Several
     // do -- which is the reference's behaviour, and the reason it is documented
     // rather than "fixed".
@@ -1155,10 +1157,10 @@ fn razor_road(m: Vec2, d: f64) -> Graph {
     g
 }
 
+/// Protects: the 330 m market exclusion constant in strip_fields, pinned
+/// from both sides by a razor road at 330.5 m and 329.5 m.
 #[test]
 fn the_three_hundred_and_thirty_metre_market_exclusion_is_exact() {
-    // Protects: the 330 m market exclusion constant in strip_fields, pinned
-    // from both sides by a razor road at 330.5 m and 329.5 m.
     // The edge midpoint sits at 330.5 m: outside `< 330` and inside `< 331`.
     let site = dry_site();
     let a = anchors_at(600.0, 600.0);
@@ -1181,10 +1183,10 @@ fn the_three_hundred_and_thirty_metre_market_exclusion_is_exact() {
     );
 }
 
+/// Protects: strip_fields' `urban(q2)` far-end test, which a midpoint-only
+/// test cannot substitute for — every inward strip must be rejected.
 #[test]
 fn the_far_end_of_a_strip_is_urban_tested_and_the_midpoint_is_not_enough() {
-    // Protects: strip_fields' `urban(q2)` far-end test, which a midpoint-only
-    // test cannot substitute for — every inward strip must be rejected.
     // The edge midpoint is 330.5 m out and the urban radius is 320, so the road
     // itself is worked -- but every strip thrown INWARD reaches 70-140 m back
     // toward the market, landing at 260.5 m or nearer, well inside the town.
@@ -1214,10 +1216,10 @@ fn the_far_end_of_a_strip_is_urban_tested_and_the_midpoint_is_not_enough() {
     assert_eq!(inward, 0, "every inward strip lands inside the urban radius and is rejected");
 }
 
+/// Protects: build_details' 150 m well-separation constant, pinned from
+/// above by a razor spacing of 150.5 m that must clear it.
 #[test]
 fn two_wells_must_be_a_hundred_and_fifty_metres_apart() {
-    // Protects: build_details' 150 m well-separation constant, pinned from
-    // above by a razor spacing of 150.5 m that must clear it.
     // Two junctions of degree 3 and nothing else of degree 3: the second is
     // 150.5 m from the first, so it clears `> 150` and would fail `> 151`.
     let site = dry_site();
@@ -1245,10 +1247,10 @@ fn two_wells_must_be_a_hundred_and_fifty_metres_apart() {
     );
 }
 
+/// Protects: compute_metrics' `V > 2` meshedness gate on a triangle, the
+/// smallest graph where the gate opens.
 #[test]
 fn meshedness_needs_more_than_two_live_nodes() {
-    // Protects: compute_metrics' `V > 2` meshedness gate on a triangle, the
-    // smallest graph where the gate opens.
     // A triangle: V = 3, E = 3, so `(3 - 3 + 1) / (2*3 - 5)` is exactly 1. Move
     // the `V > 2` gate up by one and it collapses to 0.
     let mut g = Graph::new();
@@ -1260,10 +1262,10 @@ fn meshedness_needs_more_than_two_live_nodes() {
     eq_bits(m.meshedness, 1.0, "a triangle's alpha index");
 }
 
+/// Protects: compute_metrics' node-liveness rule — `any` over incident live
+/// edges, not `all` — on a triangle with one edge killed.
 #[test]
 fn a_node_counts_when_any_incident_edge_is_live_not_when_all_are() {
-    // Protects: compute_metrics' node-liveness rule — `any` over incident live
-    // edges, not `all` — on a triangle with one edge killed.
     let mut g = Graph::new();
     g.add_street(0.0, 0.0, 200.0, 0.0, "street", 5.0, 0, "t1");
     g.add_street(200.0, 0.0, 100.0, 150.0, "street", 5.0, 0, "t2");
@@ -1276,11 +1278,11 @@ fn a_node_counts_when_any_incident_edge_is_live_not_when_all_are() {
     assert_eq!(m.edges, 2, "the dead edge is not counted");
 }
 
+/// Protects: compute_metrics' totalLen summing edge lengths in sorted
+/// (shortest-first) order rather than edge order, where float
+/// ties-to-even makes the two orders genuinely disagree.
 #[test]
 fn the_total_length_sums_the_sorted_list_shortest_first() {
-    // Protects: compute_metrics' totalLen summing edge lengths in sorted
-    // (shortest-first) order rather than edge order, where float
-    // ties-to-even makes the two orders genuinely disagree.
     // Three segments of 1 m, 1 m and 2^53 m. Shortest-first the two ones add to
     // 2 before they meet the big number and survive it; longest-first each is
     // swallowed one at a time by ties-to-even. The engine sorts before it
@@ -1318,11 +1320,11 @@ fn the_total_length_sums_the_sorted_list_shortest_first() {
 
 /* ------------------------------------------- survivors proved dead, not open */
 
+/// Protects: the finding that the log boom's dry-site guards are dead code
+/// in this engine, measured over the whole box for every site kind and
+/// seed rather than asserted from reading the source.
 #[test]
 fn the_log_booms_dry_guards_cannot_fire_in_this_engine() {
-    // Protects: the finding that the log boom's dry-site guards are dead code
-    // in this engine, measured over the whole box for every site kind and
-    // seed rather than asserted from reading the source.
     // `!site.noWater` and the `site.riverW || 16` fallback both only matter on a
     // site with no channel -- and `build_site` sets `no_water` and
     // `river_w == 0` on exactly one branch, which puts the dummy centreline at
@@ -1356,11 +1358,11 @@ fn the_log_booms_dry_guards_cannot_fire_in_this_engine() {
     }
 }
 
+/// Protects: the finding that build_details' `area < 900` skip and `i < 60`
+/// try ceiling are both arithmetically redundant with the tree budget
+/// formula `nT = min(9, floor(area/1200))`.
 #[test]
 fn the_block_area_floor_is_redundant_with_the_tree_budget() {
-    // Protects: the finding that build_details' `area < 900` skip and `i < 60`
-    // try ceiling are both arithmetically redundant with the tree budget
-    // formula `nT = min(9, floor(area/1200))`.
     // `nT = min(9, floor(area/1200))`, and the loop runs `i < nT*4 && i < 60`.
     // Below 1200 m² the budget is already zero, so the separate `area < 900`
     // skip can never change an output -- and above it `nT*4 <= 36`, so the
@@ -1377,11 +1379,11 @@ fn the_block_area_floor_is_redundant_with_the_tree_budget() {
     }
 }
 
+/// Protects: the measured proof that js_round and f64::round agree on every
+/// non-negative argument totalLen can present, while genuinely disagreeing
+/// below zero — so swapping one for the other in this call site is safe.
 #[test]
 fn js_round_and_the_platforms_agree_on_every_non_negative_total() {
-    // Protects: the measured proof that js_round and f64::round agree on every
-    // non-negative argument totalLen can present, while genuinely disagreeing
-    // below zero — so swapping one for the other in this call site is safe.
     // `totalLen` is `Math.round` of a sum of distances, so it is never negative
     // -- and for a non-negative argument JS's round-half-up and Rust's
     // round-half-away-from-zero are the same function. That is why swapping
@@ -1410,10 +1412,10 @@ fn js_round_and_the_platforms_agree_on_every_non_negative_total() {
     }
 }
 
+/// Protects: compute_metrics returning positive zero (not the formula's
+/// negative zero) on the `V > 2` gate's else-arm, checked bit for bit.
 #[test]
 fn meshedness_is_positive_zero_on_a_two_node_graph() {
-    // Protects: compute_metrics returning positive zero (not the formula's
-    // negative zero) on the `V > 2` gate's else-arm, checked bit for bit.
     // With V = 2 the reference takes the `V > 2 ? ... : 0` else-arm, which is
     // POSITIVE zero. Letting the formula run instead gives `(1 - 2 + 1) / -1`,
     // which is negative zero -- a different bit pattern, so the bit-exact
@@ -1426,10 +1428,10 @@ fn meshedness_is_positive_zero_on_a_two_node_graph() {
     assert_ne!(0.0f64.to_bits(), (-0.0f64).to_bits(), "the two zeroes differ in bits");
 }
 
+/// Protects: build_farmland's unwalled `urban()` radius constant
+/// (`maxRF * 0.7`), pinned exactly at the boundary by a razor road.
 #[test]
 fn the_urban_radius_is_seven_tenths_of_max_rf() {
-    // Protects: build_farmland's unwalled `urban()` radius constant
-    // (`maxRF * 0.7`), pinned exactly at the boundary by a razor road.
     // `urban(p) = dist(p, market) < maxRF * 0.7` on an unwalled town. At
     // maxRF = 500 that boundary is exactly 350 m, so a road whose midpoint sits
     // AT 350 is worked (`350 < 350` is false) and one at 348 is not.
@@ -1458,10 +1460,10 @@ fn the_urban_radius_is_seven_tenths_of_max_rf() {
     );
 }
 
+/// Protects: build_details' 40 m river-clearance constant for well
+/// placement, on a junction binary-searched to land just past it.
 #[test]
 fn a_well_junction_must_be_more_than_forty_metres_from_the_channel() {
-    // Protects: build_details' 40 m river-clearance constant for well
-    // placement, on a junction binary-searched to land just past it.
     // Binary-searched so the junction's own `river_dist` lands in (40, 41] --
     // the one-metre band no generated town in the golden set happens to put a
     // degree-3 node in.
@@ -1504,10 +1506,10 @@ fn a_well_junction_must_be_more_than_forty_metres_from_the_channel() {
     );
 }
 
+/// Protects: build_details' 1200 m² tree-budget divisor, pinned exactly at
+/// the boundary by a block whose area equals it.
 #[test]
 fn the_tree_budget_divisor_is_twelve_hundred_exactly() {
-    // Protects: build_details' 1200 m² tree-budget divisor, pinned exactly at
-    // the boundary by a block whose area equals it.
     // A block of area exactly 1200 m^2 gets `floor(1200/1200) = 1` and so four
     // tries; at 1201 it would get zero and the block would go bare. The square
     // is sqrt(1200) on a side, so the polygon's own area really is its `area`.
@@ -1542,10 +1544,10 @@ fn the_tree_budget_divisor_is_twelve_hundred_exactly() {
     assert_eq!(trees, 4, "four tries, four trees on an unparcelled block");
 }
 
+/// Protects: build_details' 80 m log-boom bank-distance constant, pinned
+/// from both sides by two synthetic saw yards.
 #[test]
 fn the_log_boom_needs_the_yard_within_eighty_metres_of_the_bank() {
-    // Protects: build_details' 80 m log-boom bank-distance constant, pinned
-    // from both sides by two synthetic saw yards.
     // Two synthetic saw yards, one at river_dist 79.5 and one at 80.5, on a
     // timber site. The near one booms and the far one does not, which pins the
     // threshold from both sides at once.
@@ -1623,11 +1625,11 @@ fn the_log_boom_needs_the_yard_within_eighty_metres_of_the_bank() {
     }
 }
 
+/// Protects: ring_fields' 15 m box-edge margin, on all four sides, found by
+/// scanning maxRF until a kept wedge's corner lands in the [15, 16) band a
+/// wider margin would have rejected.
 #[test]
 fn a_ring_wedge_is_dropped_within_fifteen_metres_of_the_box_edge() {
-    // Protects: ring_fields' 15 m box-edge margin, on all four sides, found by
-    // scanning maxRF until a kept wedge's corner lands in the [15, 16) band a
-    // wider margin would have rejected.
     // The margin is only observable when a KEPT wedge has a corner between 15
     // and 16 m of an edge -- no generated Venus town in the golden set puts one
     // there. Scan `max_rf` until one lands in that band on each of the four

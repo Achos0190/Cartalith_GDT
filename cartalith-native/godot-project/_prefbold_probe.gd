@@ -5,6 +5,10 @@ extends Node
 ##   godot --headless --path . _prefbold_probe.tscn
 ##
 ## Reads no flags. Anything after `--` is rejected loudly.
+##
+## Result: informational -- `[bold] ...` lines listing the `PopupMenu` per-item methods and
+##         properties found, then `[bold] RESULT informational` (exit 0). An unknown flag prints
+##         `[bold] ABORT unknown flag ...` and exits 2.
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--"):

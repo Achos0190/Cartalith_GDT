@@ -1,4 +1,9 @@
 extends SceneTree
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _worldname_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `OK: ...` / `FAIL: ...` / `WARN: ...` lines per leg (a WARN is informational), info
+##         lines (`generated name:`, `tree save ok:`, `flat load ok:`), and a final
+##         `PROBE_RESULT: PASS|FAIL`; exit 0 / 1.
 
 func _init() -> void:
 	var ok := true

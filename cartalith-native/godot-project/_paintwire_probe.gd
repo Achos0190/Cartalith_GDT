@@ -13,6 +13,12 @@ extends Node
 ## `_paintpatch_probe.gd` proves the engine's two rasters agree. This proves
 ## the SHELL's accumulated composite agrees, which is a different claim: the
 ## patch is correct per call there, and correct after twenty of them here.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _paintwire_probe.tscn   (from
+##         godot-project/; windowed -- under --headless it prints `PROBE REFUSED: ...` and
+##         exits 2, see the header)
+## Result: `  after 20 dabs: N patched, N full, N cleared` style info lines, `  FAIL: <msg>` per
+##         failed check, and a final `PROBE PASS|FAIL (N failures)`; exit 0 / 1.
 
 const GW := 256
 const GH := 192

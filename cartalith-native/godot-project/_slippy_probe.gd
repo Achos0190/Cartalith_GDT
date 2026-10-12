@@ -18,6 +18,10 @@ extends Node
 ##      the zoom range, retina must double the footer's count, `0–8` must be
 ##      refused with a reason, and a real Export must write a zip whose entries
 ##      are z/x/y paths.
+##
+## Result: `SL ok  <name>` / `SL FAIL  <name>  (<detail>)` per check, info lines, and
+##         `SL ---- N failure(s)`; exit 1 when N > 0, else 0. `SL  !! generate failed` exits 1,
+##         `SL ==== WATCHDOG: the probe did not finish ====` exits 2.
 
 var app: Node
 var dm: Node

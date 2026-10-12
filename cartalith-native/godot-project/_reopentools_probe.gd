@@ -12,6 +12,9 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _reopentools_probe.gd
+##
+## Result: `REOPENTOOLS ok  <name>` / `REOPENTOOLS FAIL  <name>` per check and a final
+##         `REOPENTOOLS PASS|FAIL (N failed)`; exit 0 when none failed, else 1.
 
 var _fail := 0
 

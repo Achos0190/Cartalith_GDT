@@ -5,6 +5,10 @@ extends Node
 ## category that leaves a mode.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_ld32_probe.tscn
+##
+## Result: `V32 ok  <name>` / `V32 FAIL  <name>  -- <detail>` per check, `V32 -- sN ... --`
+##         section lines with census figures, and a final `V32 DONE  failures=N`; exit 1 when
+##         N > 0, else 0.
 
 var app: Node
 var _fail := 0

@@ -25,6 +25,12 @@ extends Node
 ## starts.** That survives any width change -- including the ones this lane and
 ## the other three are making to `dcc_widgets.gd` this batch -- where an
 ## absolute pixel column would not.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _numglass_probe.tscn [-- --shot DIR]
+##         (from godot-project/; windowed -- `[FATAL] no image -- run WITHOUT --headless`;
+##         `--shot DIR` is the one argument the body reads, it also writes PNGs there)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `[<tag>]` section lines, `[shot]
+##         <path>` per PNG written, and a final `[RESULT] fails=N`; exit 1 when N > 0, else 0.
 
 var app: Node
 var _img: Image

@@ -5,6 +5,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --headless \
 ##     _vfythumb_probe.tscn -- --out <dir>
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `[N] <section>` headings with measured
+##         figures, and a final `[RESULT] vfythumb fails=N`; exit 1 when N > 0, else 0. The
+##         optional `--out DIR` user argument sets the scratch directory.
 
 var app: Node
 var _bridge: Node

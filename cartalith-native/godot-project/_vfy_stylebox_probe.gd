@@ -2,6 +2,12 @@ extends SceneTree
 ## Measures the content margins Godot derives for the two styleboxes the
 ## place-editor trait chip now uses for `normal` vs `hover`, and the widget
 ## library's own chip pair, to see whether the label moves on hover.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _vfy_stylebox_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: four measurement lines (`place_editor off-chip  normal flat()   L/T = a/b`, the
+##         `hover  outline()` line, and the same two for `dcc_widgets action()`); no PASS/FAIL,
+##         exit 0. Whether the label moves on hover is read off those four pairs by hand.
 
 func _initialize() -> void:
 	var flat := DccTheme.flat(DccTheme.c("sunken"))

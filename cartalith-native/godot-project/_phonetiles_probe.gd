@@ -23,6 +23,12 @@ extends Node
 ##      tile bytes at one Leaflet coordinate, with a control that the XYZ
 ##      template pointed at the TMS archive shows a different one;
 ##   5. back returns to the `data` screen.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _phonetiles_probe.tscn -- --force-touch
+##         (from godot-project/; the body needs the phone shell: `PT  !! no PhoneMenu -- run
+##         with -- --force-touch` exits 1)
+## Result: `PT ok  <name>` / `PT FAIL  <name>` per check, info lines, and a final `PT done: N
+##         failure(s)`; exit 1 when N > 0, else 0. `PT WATCHDOG TIMEOUT` exits 3.
 
 var app: Node
 var pm

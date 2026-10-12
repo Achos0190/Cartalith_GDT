@@ -23,6 +23,10 @@ extends Node
 ## Rust-side, `bake_bridge.rs`'s own suite pins the signature. What only this
 ## probe can reach is whether the *bridge* wires it: a `#[func]` running
 ## against a real `WorldGen` over a real replacement.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== A1: ... ===` section
+##         headings, `[SETUP]` and `[FATAL]` lines, and a final `_worldswap_probe: PASS` or
+##         `_worldswap_probe: N FAILURE(S)`; exit 1 when any failed. `[FATAL] ...` exits 1.
 
 var _fail := 0
 

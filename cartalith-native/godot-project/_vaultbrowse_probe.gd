@@ -37,6 +37,10 @@ extends Node
 ## **2026-09-27, Ruling BE**: §3's entity view draws the browser layout, so its
 ## open button is "Open to edit" too, and the editor behind it is
 ## `markdown_editor.gd` (whose `text_edit` is still `vw._browse_edit`).
+##
+## Result: `BROWSE   OK  <label>` / `BROWSE   !!  <label>   <detail>` per check, `BROWSE   shot:
+##         <path> (WxH)`, and a final `BROWSE   ALL CHECKS PASSED` (exit 0) or `BROWSE   N FAILED:
+##         <labels>` (exit 1). `PROBE REFUSED: headless` exits 2, `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 var _fails: Array = []

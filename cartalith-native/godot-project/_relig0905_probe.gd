@@ -7,6 +7,12 @@ extends Node
 ## and every expected figure is recomputed in this file from
 ## `get_settlements()`' own dictionaries, never read back out of the shell
 ## variable that produced it.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _relig0905_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, info lines read off the engine and the
+##         drawn nodes, and a final `RESULT: ALL PASS` or `RESULT: N FAIL`; exit 0 / 1.
+##         `PROBE FAIL: no CivilizationWorkspace` exits 2, `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 var _fails := 0

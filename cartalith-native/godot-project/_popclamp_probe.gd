@@ -12,6 +12,10 @@ extends Node
 ##      window and clear of the trigger;
 ##   4. a short popover under a mid-screen anchor still opens right below it
 ##      (the helper does not move a popover that already fits).
+##
+## Result: `POPCLAMP visible area <rect>`, `POPCLAMP ok  <what>` / `POPCLAMP FAIL  <what>` per
+##         check, and a final `POPCLAMP PASS|FAIL  (N failures)`; exit 0 / 1. `POPCLAMP
+##         REFUSED: headless` exits 2.
 
 var _fails := 0
 

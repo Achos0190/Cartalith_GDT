@@ -13,6 +13,9 @@ extends Node
 ## here with `Geometry2D.is_point_in_polygon` on cell centres, not by the engine's
 ## own rasteriser. A Subtract ring over the same polygon must then restore the
 ## pre-edit image byte for byte, and Esc / Discard must leave it untouched.
+##
+## Result: `TLP ok  <name>` / `TLP FAIL  <name>  -- <detail>` per check, `TLP ring cells ...`
+##         info lines, and a final `TLP done, N failure(s)`; exit 1 when N > 0, else 0.
 
 var app: Node
 var fails := 0

@@ -24,6 +24,16 @@ extends Node
 ## Windowed (no `--headless`): every figure here is a Control minimum/drawn
 ## size, which needs no rasterised frame, but the brief's own instruction was
 ## windowed and it costs nothing to honour it exactly as given.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _worldportraitgrid_probe.tscn -- --force-touch [--rotate [--boot-landscape] | --with-world]
+##         (from godot-project/; the body reads these user arguments: `--force-touch` selects the
+##         touch sweeps, `--rotate` runs the rotation sweep, `--boot-landscape` starts it
+##         landscape, `--with-world` runs the generated-world sweep; plain `--force-touch` runs
+##         the 800x1280 and 900x1440 portrait frames)
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `--- <frame> ---` and `[drivers
+##         over N]` measurement blocks, and a final `_worldportraitgrid_probe[ (rotate)| (with-
+##         world)]: N FAILURE(S)` line; exit 1 when N > 0, else 0. `[FATAL] extension did not
+##         load` exits 1.
 
 var _fail := 0
 

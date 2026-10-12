@@ -11,6 +11,10 @@ extends Node
 ## Run WINDOWED, not `--headless`: the dummy rasterizer's `texture_2d_get`
 ## returns null, and the map has to actually be up for the camera math to mean
 ## anything.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` headings,
+##         `info` lines, and a final `_tilegrid_probe: PASS` or `_tilegrid_probe: N FAILURE(S)`;
+##         exit 1 when any failed. `[FATAL] extension did not load` exits 1.
 
 var _fail := 0
 

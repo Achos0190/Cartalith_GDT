@@ -1,6 +1,12 @@
 extends Node
 ## Two readouts of ONE fact: the `custom` family's fill, as the Assets menu
 ## draws it and as the Asset library's own rail draws it.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _adcustom_probe.tscn   (from godot-project/;
+##         the header names no headless/windowed requirement; the body reads no pixels)
+## Result: a readout, not an assertion -- no PASS/FAIL line. Prints `[FATAL] extension did not
+##         load` (exit 1), `[BOOT] shell up, build <id>`, the Assets-menu `MENU  row text` and
+##         `MENU  tooltip` lines, a `RAIL  labels around 'Custom icons'` line, then `[DONE]` (exit 0).
 
 var _vp: SubViewport
 var _app: Node

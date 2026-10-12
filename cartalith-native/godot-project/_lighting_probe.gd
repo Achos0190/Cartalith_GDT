@@ -9,6 +9,10 @@ extends Node
 ## new rendering". So what this asserts is that the key exists AND that it
 ## actually reaches the renderer: a settings value nothing reads would satisfy
 ## every structural check and change nothing on screen.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` section
+##         headings, `[BOOT]`/`info` lines, and a final `_lighting_probe: PASS` or
+##         `_lighting_probe: N FAILURE(S)`; exit 1 when any failed.
 
 var _fail := 0
 

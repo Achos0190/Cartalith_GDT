@@ -12,6 +12,11 @@ extends Node
 ##
 ## Headless is fine here -- this reads Control rects from the scene tree, not
 ## the framebuffer (`MISTAKES.md`'s pixel-probe rule is about the latter).
+##
+## Result: a geometry dump, not a test: `TCWD control_count=N`, one `TCWD <class> <position>
+##         <size>` style line per control of the World dock in tree order, then `TCWD DONE` (exit
+##         0). `TCWD WARN never settled ...` is informational. `[FATAL] the .gdextension did not
+##         load.` and `[ABORT] no world` / `[ABORT] no WorldWorkspace` exit 2.
 
 func _frames(n: int) -> void:
 	for i in n:

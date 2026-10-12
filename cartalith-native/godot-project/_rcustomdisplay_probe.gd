@@ -9,6 +9,12 @@ extends Node
 ##
 ## Run WINDOWED from a scratch project beside a freshly built DLL; the Rust
 ## side is reached only through the DLL, so state its mtime when reporting.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _rcustomdisplay_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  PASS  <what>` / `  FAIL  PROBE-FAIL <what>` per check and a final `RESULT: ALL PASS`
+##         or `RESULT: N FAILURES`. CAUTION: the process exits 0 either way (`quit(0)`), so
+##         read the `RESULT:` line, not the exit code.
 
 const OVERLAY := preload("res://map_overlay.gd")
 

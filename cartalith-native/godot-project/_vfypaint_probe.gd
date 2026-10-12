@@ -10,6 +10,9 @@ extends Node
 ##  - the sculpt draft must be untouched
 ## Plus: the right dock's own paint context must be refreshed by the bar's
 ## Discard (the lane's claimed third refresh), read off the rendered dock.
+##
+## Result: `P ok  <label>   got= want=` / `P FAIL ...` per check and a final `P ==== PASS|FAIL
+##         N/M assertions, K failed ====`. The exit code is the failure count (`quit(_fail)`).
 
 var app: Node
 var _fail := 0

@@ -19,6 +19,10 @@ extends Node
 ## The `SubViewport` host is `_audit4_probe.gd`'s idiom, for the reason it
 ## documents: a real window is clamped to the desktop work area, and the shell
 ## classifies its layout from the viewport rect.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` headings,
+##         `[BOOT]`/`[DIAG]` lines, and a final `_loddbg_probe: PASS` or `_loddbg_probe: N
+##         FAILURE(S)`; exit 1 when any failed. `[FATAL]` lines exit 1.
 
 var _vp: SubViewport
 var _fail := 0

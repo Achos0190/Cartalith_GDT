@@ -6,6 +6,10 @@ extends Node
 ## projects directory is created and removed by this script.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_op32_probe.tscn
+##
+## Result: `VOP ok  [<tag>] <name>` / `VOP FAIL  [<tag>] <name>` per check, `VOP   [cold]` and
+##         `VOP   [gallery] reachable buttons:` info lines, and a final `VOP DONE  failures=N`;
+##         exit 1 when N > 0, else 0.
 
 var _fail := 0
 var _root := ""

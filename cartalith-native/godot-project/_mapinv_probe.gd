@@ -25,6 +25,10 @@ const PHONE_DETENT_SETTLE := 0.40
 ## **Reachability is measured by hit-testing, not by reading `.visible`.** A
 ## control can be `visible` and still sit under an opaque sibling, off-screen,
 ## or be `MOUSE_FILTER_IGNORE`. `_reachable()` asks the real GUI tree instead.
+##
+## Result: a measurement, no PASS/FAIL tally. Every line is `[<tag>] ...` (`--tag`, default
+##         `map`); `[<tag>] ABORT unknown flag ...` and `ABORT not phone mode -- pass
+##         --force-touch` end the run early (the latter exits 2); a completed run exits 0.
 
 var app: Node
 var _vp: SubViewport

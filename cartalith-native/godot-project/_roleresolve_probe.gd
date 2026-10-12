@@ -33,6 +33,9 @@ extends Node
 ##      -- `MISTAKES.md`, "a test that compares a constant against itself" (x2).
 ##   E. The desktop column is dumped in full, so a change to the tablet half can
 ##      be shown to move nothing on a pointer.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `-- A. ... --` section
+##         headings, and a final `[RESULT] failures=N`; exit 1 when N > 0, else 0.
 
 var _fail := 0
 

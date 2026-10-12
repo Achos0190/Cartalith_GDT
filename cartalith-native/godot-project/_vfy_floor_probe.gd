@@ -2,6 +2,12 @@ extends Node
 ## Does the new floor change WORLD ▸ Generation pipeline (mode a), where §3 asks
 ## for no gate and nine headers are on screen? Compared against CARTO, which the
 ## lane deliberately left without a floor.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_floor_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: a measurement, no PASS/FAIL: `FLR world/a open before close: <list>`, `FLR world/a
+##         after closing the one open header: <list>`, and the same pair for `carto` and `civil`;
+##         exit 0.
 var app: Node
 func _f(n: int) -> void:
 	for i in n:

@@ -12,6 +12,12 @@ extends Node
 ##   C) rows with no `religion` key that do NOT carry a dashed reason
 ##   D) hover-card lines printing a bare `0%` or a self-contradicting `100%`
 ## Then edits a culture and re-reads the panel.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_religion_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, info lines (`rows matched to rendered
+##         text: N of M`), and a final `VFY RESULT: ALL PASS` or `VFY RESULT: N FAILURES`; exit
+##         0 / 1. `PROBE FAIL: no CivilizationWorkspace` exits 2, `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 var _fails := 0

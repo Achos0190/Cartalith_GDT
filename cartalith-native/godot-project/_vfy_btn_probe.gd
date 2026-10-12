@@ -6,6 +6,11 @@ extends Node
 #   design/mcp-2026-09-07/Cartalith Tablet.dc.html           (--rCtl:12px)
 # No DccTheme symbol appears on the want side, so a token asserted against
 # itself cannot pass.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_btn_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `CHECKS=N FAILS=M`, one `  FAIL <check>` line per failure, then `RESULT=PASS` or
+##         `RESULT=FAIL`; exit 0 / 1.
 
 const ACC := {"dark": "e0a34a", "light": "a4650f"}   # --acc
 const ACCH := {"dark": "f0bd72", "light": "8a5309"}  # --accH

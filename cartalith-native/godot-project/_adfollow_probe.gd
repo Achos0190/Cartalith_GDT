@@ -2,6 +2,14 @@ extends Node
 ## Lane AssetsData follow-ups: status-line text for the two Assets rows that
 ## open no window, the two `route`-kind Data panes, and an accelerator sweep
 ## over the WHOLE menu bar (a collision is only visible bar-wide).
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _adfollow_probe.tscn   (from godot-project/;
+##         the header names no headless/windowed requirement)
+## Result: a readout, no PASS/FAIL verdict line. Sections `=== 1: ... ===`, `=== 2: ... ===`,
+##         `=== 3: accelerator sweep, whole bar ===`; per row a status/title/body/foot line; every
+##         duplicate accelerator prints `*** COLLISION with <other row>`; then
+##         `total accelerators: N  distinct: M` and `[DONE]` (exit 0). `[FATAL] extension did not
+##         load` exits 1.
 
 var _vp: SubViewport
 var _app: Node

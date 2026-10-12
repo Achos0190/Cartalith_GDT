@@ -14,6 +14,10 @@ extends Node
 ## Protects nothing by itself (it has no assertion) -- it is evidence for a
 ## human, and `_navbarfix_probe.gd` is the thing that actually protects the
 ## rect math from regressing.
+##
+## Result: no assertion and no PASS/FAIL line -- it prints `saved <path>` after writing one PNG
+##         to a path hard-coded in the script (a scratchpad directory of an earlier session; edit
+##         `out` to reuse it). `WATCHDOG TIMEOUT` exits 3.
 
 func _frames(n: int) -> void:
 	for i in n:

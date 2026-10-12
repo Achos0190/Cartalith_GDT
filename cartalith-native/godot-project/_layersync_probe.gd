@@ -21,6 +21,9 @@ extends SceneTree
 ## needs `DccApp`/`EngineBridge` to build and is out of this probe's reach --
 ## see that file's own doc comment on `_sync_layers()` for the mechanism this
 ## proves the engine half of).
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N. ... ==` section headings, and a
+##         final `ALL PASS (0 failures)` or `FAILURES (N failures)`; exit 1 when any failed.
 
 var fails := 0
 

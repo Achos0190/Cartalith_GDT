@@ -9,6 +9,13 @@ extends Node
 ##   C) the disagreement headline vs. a control count of pluralities
 ##   D) no bare `0.0%` and no `100.0%` beside a second faith at faction scale
 ##   E) a faction emptied of settlements dashes with its reason instead of 0
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _faithfaction_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, info lines (`settlements= factions=`,
+##         `headline: ... control: disagree=`, `added faction id=`, `orphaned settlements=`), and
+##         `FAILS=N`; exit 1 when N > 0. `PROBE FAIL: no CivilizationWorkspace` exits 2,
+##         `WATCHDOG TIMEOUT` exits 3.
 
 var _app: Node
 var _fails := 0

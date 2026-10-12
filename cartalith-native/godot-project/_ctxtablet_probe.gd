@@ -48,6 +48,11 @@ extends Node
 ## no-op off Android/iOS by that function's own guard (`OS.has_feature
 ## ("mobile")`) -- this probe runs on the desktop windowed host and so cannot
 ## observe a vibration either way. Not tested here; not claimed either.
+##
+## Result: `PASS|FAIL  <what>  got= want=` per check, info lines prefixed by their leg letter
+##         (O, T, D, E, G, L), and a final `### CTXTABLET GREEN|RED  <passed>/<checks> checks
+##         passed ###`. Exit 0 when green, 1 when red, 2 for an unknown argument or a missing
+##         `--vp`/`--force-touch` (`### CTXTABLET ABORT ...`).
 
 const SEED := 719203
 

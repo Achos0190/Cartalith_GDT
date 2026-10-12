@@ -63,6 +63,11 @@ extends Node
 ##     takeover, not a `Window`/`AcceptDialog` (its own header records the
 ##     `extends AcceptDialog` shape was deleted)
 ##   `layers_popover.gd` -- `extends PopupPanel`, no OK/Close button at all
+##
+## Result: `EXIT     OK  [kind] name -- detail` / `EXIT     !!  [kind] name -- detail` per
+##         window, then `EXIT     ALL CHECKS PASSED` (exit 0) or `EXIT     N FAILED:` plus one
+##         `EXIT       - <name>` line each (exit 1). `PROBE REFUSED: headless` exits 2 and
+##         `WATCHDOG TIMEOUT` exits 3.
 
 var _fails: Array = []
 var _app: Node

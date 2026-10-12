@@ -9,6 +9,10 @@ extends SceneTree
 ## road and sea inks through it. (5) An unknown space is refused and changes nothing.
 ## Run WINDOWED (MISTAKES.md, "Run a pixel probe"; this probe asserts colour values, not
 ## pixels): godot --path <scratch copy> -s res://_etp3_probe.gd
+##
+## Result: `FAIL: <what>` for each failed check and a final `etp3 probe: N checks, M failed`;
+##         exit 1 when M > 0, else 0. It needs `res://_oa_head.gd`, a copy of HEAD's
+##         `overlay_adjust.gd` (see the header).
 
 const OA := preload("res://shell/overlay_adjust.gd")
 var _fail := 0

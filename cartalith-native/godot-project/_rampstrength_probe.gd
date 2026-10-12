@@ -16,6 +16,11 @@ extends SceneTree
 # headless; running it windowed anyway costs nothing and keeps the claim honest.
 #
 #   godot --path <godot-project> --script _rampstrength_probe.gd
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, one `strength S -> P% of channel bytes
+##         move by >2, mean |d| M levels, max N` measurement line per ramp strength, and a final
+##         `ALL PASS -- 0 failure(s)` or `FAILURES -- N failure(s)`; exit 1 when any failed.
+##         `FAIL  WorldGen is not registered` exits 1 at once.
 
 const SEEDS := [1234, 483920, 4242]
 const GRID_W := 192

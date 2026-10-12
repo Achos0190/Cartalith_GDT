@@ -17,6 +17,11 @@ extends Node
 ## saved at x8 and x32 with the Rivers layer off (the stroke would cover the
 ## ground being looked at) and on, every other overlay hidden:
 ## `s<seed>_m<k>_z<zoom>_<off|on>.png`. The frame's centre is the mouth cell.
+##
+## Result: a measurement that saves PNGs, no pass/fail count: `mouths on the sea: N`, then
+##         `PROBE-RESULT: DONE` (exit 0), or `PROBE-RESULT: ABORT no world` / `ABORT no river
+##         mouth on the sea` (exit 2). `PROBE-CANNOT-RUN: headless` and `unknown arg ...` also
+##         exit 2.
 
 const ZOOMS := [8.0, 32.0]
 const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",

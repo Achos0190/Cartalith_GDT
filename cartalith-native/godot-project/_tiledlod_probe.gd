@@ -9,6 +9,10 @@ extends Node
 ## nothing"*. So what this asserts is precisely that manual DOES something, and
 ## that it is not a trap: a suppressor with no way back in would make deep
 ## detail unreachable, which is worse than not offering the choice.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` headings,
+##         `[BOOT]` line, and a final `_tiledlod_probe: PASS` or `_tiledlod_probe: N FAILURE(S)`;
+##         exit 1 when any failed. `[FATAL] extension did not load` exits 1.
 
 var _fail := 0
 

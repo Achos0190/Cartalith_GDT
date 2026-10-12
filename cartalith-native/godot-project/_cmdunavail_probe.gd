@@ -8,6 +8,12 @@ extends Node
 ## which is the same defect as a false reason with the volume turned to zero.
 ##
 ##   godot --headless --path . --resolution 1600x900 _cmdunavail_probe.tscn
+##
+## Result: an audit dump, not a pass/fail test (always exit 0 unless the extension is missing:
+##         `[FATAL] extension did not load`, exit 1). `TOTALS total= params= menu= readout=
+##         unavailable=`, then one `[NN] group | title | kind=` plus `why:` line per unavailable
+##         row, `RO` lines for readout rows, `DROP` lines for rows disabled AND silent, and
+##         `count: N`.
 
 var _vp: SubViewport
 

@@ -5,6 +5,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_nw32_probe.tscn
 ##   ... -- --force-touch                      (tablet leg)
+##
+## Result: `VNW ok  [<tag>] <name>` / `VNW FAIL  [<tag>] <name>` per check, `VNW -- <tag>
+##         is_phone= is_touch=` and `VNW   [<tag>] request()=...` info lines, and a final `VNW
+##         DONE  failures=N`; exit 1 when N > 0, else 0.
 
 var _fail := 0
 

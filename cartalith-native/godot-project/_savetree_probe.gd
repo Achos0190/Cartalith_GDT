@@ -3,6 +3,12 @@ extends SceneTree
 ## Proves File ▸ Save now writes the documented tree and that the civ layer
 ## survives a reopen. Before 2026-08-25 `load_save` cleared civ/sculpt/icons/
 ## paint/labels/infra on every load, so a saved settlement could not come back.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _savetree_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: indented info lines (`wrote N bytes, N entries`, ...), `  FAIL: <what>` per broken
+##         claim (most exit 1 at once), and a final `save-tree probe: PASS` or `save-tree probe:
+##         N FAILURE(S)`; exit 1 when any failed. `FAIL: project_save absent` exits 1 at once.
 
 func _init() -> void:
 	var fails := 0

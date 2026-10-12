@@ -23,6 +23,11 @@ extends Node
 ## own 320 landscape branch is deferred, not carried in, pending a content
 ## reflow (`DccTheme.W_DOCK_TABLET`'s header has the measurement that deferred
 ## it).
+##
+## Result: `=== compfit vp=WxH portrait= tablet= tablet_portrait= ===`, one `  [ok|FAIL] <label>
+##         got= want=` (or `cap=`) line per check, measurement lines under the `[row minimums]`,
+##         `[shell VBox direct children, unfiltered]` and `[menu bar interior ...]` headings, and
+##         `=== end compfit fails=N ===`; exit 1 when N > 0.
 
 var _fail := 0
 var _vp: SubViewport

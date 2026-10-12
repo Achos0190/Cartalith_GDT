@@ -16,6 +16,10 @@ extends Node
 ##     looked right.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _lanebpickers_probe.tscn
+##
+## Result: `LB ok  <label>` / `LB FAIL  <label>` per check, `LB geom ...` measurement lines, and
+##         `LB ---- N failure(s)`; exit 1 when N > 0, else 0. `LB  !! generate failed` exits 1
+##         early.
 
 var app: Node
 var _fail := 0

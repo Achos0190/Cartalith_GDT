@@ -21,6 +21,10 @@ extends Node
 ##     overlap, a band out of order and an abort all refuse (or clean up) and
 ##     leave no partial file; export_image still refuses overlays while
 ##     export_session_begin accepts them.
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `== N: ... ==` section headings, and a
+##         final `== PASS|FAIL: N failure(s) ==`; exit 1 when any failed, else 0 (a watchdog
+##         timer also quits with 2).
 
 var bridge: Node
 var fails := 0

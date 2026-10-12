@@ -18,6 +18,10 @@ extends Node
 ## in. The fourth — `EDITED` / `RESOLVED` — needs `stale_stages()` and therefore
 ## a generate; §2 asserts the world-less branch says so instead, which is the
 ## branch a user actually meets first.
+##
+## Result: `  ok   <name>   got= want=` / `  FAIL ...` per check, `=== N: ... ===` section
+##         headings, `[BOOT]` line, and a final `[RESULT] PASS|FAIL  failures=N`; exit 1 when
+##         N > 0. `[FATAL] extension did not load` exits 1.
 
 var _vp: SubViewport
 var _fail := 0

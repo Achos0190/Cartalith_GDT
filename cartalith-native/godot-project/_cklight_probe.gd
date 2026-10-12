@@ -8,6 +8,9 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --rendering-driver vulkan \
 ##     --resolution 320x200 _cklight_probe.tscn
 ## Not `--headless`: the dummy rasteriser cannot read a pixel back.
+##
+## Result: `  PASS  <what>` / `  FAIL  <what>` per check, `[tag] bbox= knob= track=` measurement
+##         lines, and a final `[RESULT] fails=N`; exit 1 when N > 0. `[FATAL] ...` lines exit 1.
 
 var fails := 0
 var app: Node

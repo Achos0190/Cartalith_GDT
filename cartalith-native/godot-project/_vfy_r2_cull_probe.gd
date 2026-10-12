@@ -7,6 +7,13 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _vfy_r2_cull_probe.tscn
 ##      [-- --only-timing]
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_r2_cull_probe.tscn [-- --only-timing]
+##         (from godot-project/; windowed -- headless prints `ABORT: pixels/timing need a real
+##         display` and exits 2; `--only-timing` skips the count, pixel and rasteriser phases)
+## Result: every line is `VCULL  ...`; per-check ok/FAIL lines, a `TIMING-RATIO median NEW/OLD =
+##         X` line, and a final `VCULL  RESULT: PASS|FAIL -- N check(s) failed`; exit 1 when any
+##         failed, else 0. `WATCHDOG` exits 2.
 
 const W := 900
 const H := 600

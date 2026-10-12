@@ -12,6 +12,12 @@ extends Node
 ##   3. choosing Set stores exactly N (so switching changes nothing yet) and
 ##      reveals a number field reading N;
 ##   4. choosing Auto again stores -1 and removes the field.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _peage_probe.tscn   (from
+##         godot-project/; windowed -- `PEAGE REFUSED: headless` exits 2 under --headless)
+## Result: `PEAGE ok  <what>` / `PEAGE FAIL  <what>` per check and a final `PEAGE PASS|FAIL
+##         (N failures)`; exit 0 / 1. `PEAGE ABORT: no settlement generated` exits 2,
+##         `PEAGE WATCHDOG` exits 3.
 
 var _app: Node
 var _bridge: Node

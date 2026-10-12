@@ -3,6 +3,13 @@ extends Node
 ## theme item the class actually consumes (the DEFAULT theme's list is the
 ## authority on what the class reads), and where a DccWidgets-built instance
 ## resolves it from -- a local override, `dark_theme.tres`, or Godot's default.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _ck8_probe.tscn   (from godot-project/;
+##         the header names no headless/windowed requirement)
+## Result: an enumeration, no PASS/FAIL: `[BOOT] godot <version> ...`, per class a `--- <tag>
+##         (<class>)  items the class consumes: N` heading followed by one line per colour item
+##         tagged `[FROM-RES]`, `[ovr     ]` or `[default ]` with its resolved hex, the
+##         default-theme CheckBox lines, then `[DONE]` (exit 0).
 
 var _vp: SubViewport
 var _root: VBoxContainer

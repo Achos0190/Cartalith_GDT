@@ -6,6 +6,12 @@ extends SceneTree
 ## Godot Variant and re-emitted it, and Godot's JSON has one number type --
 ## `float`. Every `i64`/`u64` came back with a decimal point and serde refused
 ## the lot, so `load_into()` discarded every link on every boot.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _vaultjson_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: `old path -> <output>` and `new path -> byte-identical, integers intact` info lines,
+##         `  FAIL: <what>` for each broken claim, and a final `KV-04 probe: PASS` or `KV-04 probe:
+##         N FAILURE(S)`; exit 1 when any failed, else 0.
 
 func _init() -> void:
 	## Shaped like the real store: an i64 entity_id and a u64 unix timestamp,

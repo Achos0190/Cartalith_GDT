@@ -5,6 +5,12 @@ extends Node
 ## since a popup can be restyled on open.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _menupop_probe.tscn
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _menupop_probe.tscn   (from
+##         godot-project/; windowed -- `MENUPOP REFUSED: headless` exits 2 under --headless)
+## Result: `MENUPOP palette <dark|light>  panel token <colour>`, `MENUPOP ok  <what>` /
+##         `MENUPOP FAIL  <what>` per popup, and a final `MENUPOP PASS|FAIL  (N failures)`;
+##         exit 0 / 1. `MENUPOP ABORT: no menu_bar_row` exits 2.
 
 var _fails := 0
 

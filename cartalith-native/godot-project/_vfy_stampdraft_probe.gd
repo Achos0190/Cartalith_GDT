@@ -14,6 +14,13 @@ extends Node
 ## screen at once. This probe does not assert the old behaviour -- it prints
 ## the new one per tool and fails only if a live draft has no Commit control
 ## anywhere on screen.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_stampdraft_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `SD ok  <name>` / `SD FAIL  <name>` per check, `SD   state:` and `SD   armed=` info
+##         lines, and a final `SD RESULT fail=N`; exit 1 when N > 0, else 0. `SD RESULT: PREMISE
+##         FAILED fail=N` (exit 1) means the draft never formed, so nothing after it ran;
+##         `SD WATCHDOG TIMEOUT` exits 3.
 
 var app: Node
 var fail := 0

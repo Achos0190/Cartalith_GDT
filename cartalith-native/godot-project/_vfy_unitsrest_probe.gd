@@ -10,6 +10,12 @@ extends Node
 ## set -- never a hand-typed conversion. Negative controls carried for the
 ## rows that must NOT move: Mean elevation (m), Centroid (grid cells),
 ## Source elevation / Fall (m), Discharge (a rate), Productivity, Ruggedness.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _vfy_unitsrest_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `VUR ok  <name>` / `VUR FAIL  <name>  -- <detail>` per check, `VUR original
+##         units_mode=` and `VUR units_mode restored to` lines, and a final `VUR TOTAL FAILURES:
+##         N`; exit 1 when N > 0, else 0. `VUR  !! generate failed` exits 2.
 
 var app: Node
 var _fail := 0

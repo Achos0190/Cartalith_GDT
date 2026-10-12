@@ -6,6 +6,13 @@ extends Node
 ## and are written in three files. This asserts they agree on the faith, on
 ## whether a share exists, and on the share itself where one does -- and that
 ## no surface anywhere in a live world turns a real congregation into 0%.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _xlane_faith_probe.tscn   (from
+##         godot-project/; the header names no headless/windowed requirement)
+## Result: `XL ok  <name>` / `XL FAIL  <name>` per check, `XL   <state>` info lines (panel / dock
+##         / hover-card texts per settlement), and a final `XL RESULT fail=N`; exit 1 when
+##         N > 0, else 0. `XL RESULT: PREMISE FAILED fail=N` (premise unmet) and `XL FAIL: no
+##         CivilizationWorkspace` (exit 2), `XL WATCHDOG TIMEOUT` (exit 3).
 
 var app: Node
 var fail := 0

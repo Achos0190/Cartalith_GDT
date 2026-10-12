@@ -2,6 +2,11 @@ extends Node
 ## VERIFIER batch 24, lane A. Independent width + inventory measurement.
 ## Own seeds, deliberately NOT the lane's 483920 / 77021 / 4242.
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfyw_probe.tscn
+##
+## Result: a width and inventory measurement, no PASS/FAIL. Per seed a `VFYW ===== seed N
+##         route= settlements= groups_opened= =====` block with `body min.x=` / `controls=`
+##         lines, `VFYW   widest ...` rows and `VFYW   TXT <text>` rows; `VFYW seed N: generate
+##         FAILED` marks a seed that did not generate; ends `VFYW DONE`; exit 0.
 
 const SEEDS := [7, 131313, 20260904]
 

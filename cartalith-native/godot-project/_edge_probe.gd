@@ -9,6 +9,13 @@ extends Node
 ## The discriminator is the edge gradient: a natively-rasterised glyph steps
 ## from ground to ink in ~1 px, a 3.664x resample spreads that ramp over ~4 px,
 ## so max |dLum| between horizontally adjacent pixels caps at about 1/3.664.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _edge_probe.tscn   (from godot-project/;
+##         windowed -- the body reads rendered pixels, and headless readbacks are not evidence,
+##         see MISTAKES.md "Assert on pixels")
+## Result: a measurement, no PASS/FAIL line. `=== engine <version> scale=<S> ===`, window
+##         oversampling lines, one `[edge] <label> max= p99= hard(>0.5)= inkpx= n= WxH` line per
+##         window (A = the scaled case, B = the native-raster control), then `=== done ===`.
 
 const SCALE := 1440.0 / 393.0
 

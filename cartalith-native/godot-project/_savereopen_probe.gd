@@ -8,6 +8,12 @@ extends SceneTree
 ##
 ## Also covers the caller-owned document channel in the same pass, since it
 ## rides the same two calls.
+##
+## Run:    Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _savereopen_probe.gd
+##         (a SceneTree script, no .tscn; the body reads no pixels)
+## Result: indented info lines (`settlements before save:`, `settlements after reopen:`), `  FAIL:
+##         <what>` per broken claim (most exit 1 at once), and a final `save/reopen probe: PASS`
+##         or `save/reopen probe: N FAILURE(S)`; exit 1 when any failed.
 
 func _init() -> void:
 	var fails := 0

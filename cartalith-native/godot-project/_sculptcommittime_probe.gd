@@ -10,6 +10,11 @@ extends Node
 ##
 ## Headless is fine -- `Time.get_ticks_usec()` around a plain function call,
 ## no framebuffer read.
+##
+## Result: a timing measurement, not a test: `TIME setup: zoom= lod_active= tiles=`, one `TIME
+##         rep N: X ms` line per stroke (or `SKIPPED, no stamp landed`), then `TIME RESULT n=
+##         median= min= max= all=[...]`; exit 0. A missing extension, no world, never reaching
+##         deep zoom, or no timed rep each print `[FATAL]`/`[ABORT] ...` and exit 2.
 
 const REPS := 10
 

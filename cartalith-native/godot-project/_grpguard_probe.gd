@@ -16,6 +16,10 @@ extends Node
 ## is asserted live rather than inferred from a grep of the call sites.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _grpguard_probe.tscn
+##
+## Result: `GG ok  <name>` / `GG FAIL  <name>  -- <detail>` per check, `GG ---- seed N ----`
+##         section lines, `GG    distributing parent: <button text> under <class>` lines, and a
+##         final `GG === N failures ===`; exit 1 when N > 0, else 0.
 
 const SEEDS := [483920, 77021, 4242]
 
