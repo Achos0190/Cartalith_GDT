@@ -51,6 +51,24 @@ extends VBoxContainer
 ## 6. **Controls on touch are at least 44 px on BOTH axes**, floored at the call site because
 ##    this list is rebuilt after `phone_fit()` / `tablet_fit()` have already run once
 ##    (MISTAKES.md: a rebuild creates controls that escape both fitters).
+##
+## # The Look entry (ET-F1, `EDITING_TOOLS_SCOPE.md` section 7)
+##
+## The Look sliders (`render_workspace.gd`, section "Look") write ONE Hue/Sat/Light entry
+## pinned at the top of each selected layer's stack. It is an ordinary entry -- the saved form
+## has no field to tag it with (`adjust.rs::Adjustment` and `overlay_adjust.gd::_parse` both
+## drop unknown keys), so it is identified by POSITION and KIND alone: **the Look entry is
+## entry 0 when entry 0 is `hsl`** (`is_look_entry()`, the one definition both files read).
+## This panel therefore lists it once, as row 1 tagged "Look", still editable (one state, two
+## views: an edit here emits `stack_written`, and the Look sliders re-read), and keeps it on
+## top: its Down and the next row's Up are disabled, so no other entry can be moved above it.
+## Consequence, stated rather than hidden: a Hue/Sat/Light added here to an EMPTY layer is
+## entry 0 and so is that layer's Look entry -- which is exactly what it does to the picture.
+
+## Emitted after every successful write this panel makes (a gesture tick, a structural edit),
+## with the layer id. The Look sliders listen so they never show a stack the owner no longer
+## holds. Not emitted by `write_layer()` (the Look sliders' own path), so it cannot loop.
+signal stack_written(layer: String)
 
 const _OA := preload("res://shell/overlay_adjust.gd")
 const _RampBar := preload("res://shell/ramp_bar.gd")
@@ -287,7 +305,31 @@ func _apply() -> bool:
 	if _layer != OVERLAY and _edited.is_valid():
 		_edited.call(_layer)
 	_refresh_guard()
+	stack_written.emit(_layer)
 	return true
+
+
+## True when `entries` (a stack's saved-form entry list) holds a Look entry: entry 0 is a
+## Hue/Sat/Light. The single definition of the ET-F1 convention (see the header): position and
+## kind, because the saved form has nowhere to carry a tag.
+static func is_look_entry(entries: Array) -> bool:
+	if entries.is_empty() or not (entries[0] is Dictionary):
+		return false
+	var k = (entries[0] as Dictionary).get("kind")
+	return k is Dictionary and (k as Dictionary).has("hsl")
+
+
+## Public read of any layer's stack for the Look sliders: the panel's own `_read_layer` (parsed
+## `{"entries": [...]}`, or `null` when it cannot be read -- never an empty stack in its place).
+func read_layer(layer: String) -> Variant:
+	return _read_layer(layer)
+
+
+## Public write for the Look sliders: the panel's own generating-gated `_write_layer`, so the
+## Look writes the engine and the overlay by exactly the path a panel edit takes. Does NOT emit
+## `stack_written`, re-sync or touch history: the caller brackets and refreshes.
+func write_layer(layer: String, doc: Dictionary) -> Dictionary:
+	return _write_layer(layer, doc)
 
 
 ## A parameter changed under a drag or a keypress: record the gesture's start, then write now
@@ -426,6 +468,9 @@ func _on_move(i: int, dir: int) -> void:
 	var j := i + dir
 	if j < 0 or j >= _entries().size():
 		return
+	## ET-F1: nothing swaps with a pinned Look entry (the buttons are disabled; this is the net).
+	if is_look_entry(_entries()) and (i == 0 or j == 0):
+		return
 	_structural("%s: reorder adjustments" % _layer_label(), func():
 		var e: Array = _entries()
 		var t = e[i]
@@ -547,8 +592,17 @@ func _build_entry(i: int, n: int) -> void:
 	card.add_theme_constant_override("separation", 2)
 	card.set_meta("adj_kind", kind)
 	_list.add_child(card)
-	var cb := DccWidgets.toggle(card, "%d  %s" % [i + 1, String(KIND_SHORT[kind])], bool(e.get("enabled", true)),
-		func(on: bool): _on_toggle(i, on), String(KIND_TIP[kind]) + " Untick to skip it without deleting it.")
+	## ET-F1: the Look entry (see the header) is tagged and pinned, never listed a second time.
+	var pinned := is_look_entry(_entries())
+	var is_look := pinned and i == 0
+	card.set_meta("adj_look", is_look)
+	var title := "%d  %s" % [i + 1, String(KIND_SHORT[kind])]
+	var tip := String(KIND_TIP[kind]) + " Untick to skip it without deleting it."
+	if is_look:
+		title = "%d  Look: %s" % [i + 1, String(KIND_SHORT[kind])]
+		tip += " This is the Look entry: the Hue, Saturation and Brightness sliders under Look write it, and it stays first. Setting all three to 0 removes it."
+	var cb := DccWidgets.toggle(card, title, bool(e.get("enabled", true)),
+		func(on: bool): _on_toggle(i, on), tip)
 	cb.name = "AdjEnable_%d" % i
 	_floor_touch(cb)
 	var bar := HBoxContainer.new()
@@ -556,13 +610,17 @@ func _build_entry(i: int, n: int) -> void:
 	card.add_child(bar)
 	var up := _action(bar, "Up", func(): _on_move(i, -1), "Apply this adjustment earlier.")
 	up.name = "AdjUp_%d" % i
-	up.disabled = i == 0
-	if i == 0:
+	## Row 2 cannot move above a pinned Look entry.
+	var up_off := i == 0 or (pinned and i == 1)
+	up.disabled = up_off
+	if up_off:
 		up.set_meta("adj_off", true)
 	var down := _action(bar, "Down", func(): _on_move(i, 1), "Apply this adjustment later.")
 	down.name = "AdjDown_%d" % i
-	down.disabled = i == n - 1
-	if i == n - 1:
+	## The Look entry itself cannot move down.
+	var down_off := i == n - 1 or is_look
+	down.disabled = down_off
+	if down_off:
 		down.set_meta("adj_off", true)
 	var del := _action(bar, "Delete", func(): _on_delete(i), "Remove this adjustment.")
 	del.name = "AdjDel_%d" % i

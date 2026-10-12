@@ -1059,7 +1059,8 @@ func build_layer_stack_into(parent: Control) -> void:
 ## Ruling L CARTO ▸ COLOURS (`left_rail_tree_resorted.md` L284-300): the colour
 ## relief ramp (◄ Terrain appearance), the grade and its field weights, the
 ## biome pair (◄ Map view's `bio_blend` and the table link that was under the
-## grade), then (ET-C4) the per-layer adjustment stacks, then colour management.
+## grade), then (ET-F1) the Look sliders and (ET-C4) the per-layer adjustment stacks
+## they write into, then colour management.
 ## The adjustments sit between the two because the pipeline's order is the
 ## reading order: the grade, then the adjustments (`finish_rgb` runs them after
 ## the grade), then the display transform.
@@ -1684,6 +1685,8 @@ func on_look_restored(snap: Dictionary) -> void:
 		for part in snap:
 			if String(part).begins_with("adjust_"):
 				_adjust_panel.sync()
+				## ET-F1: the Look sliders read the same stacks.
+				_sync_quick_look()
 				break
 	_applying = false
 	_refresh_map()
@@ -1709,6 +1712,8 @@ var _adjust_panel: Control
 ## Never writes on build (an untouched project keeps `None` stacks and a
 ## byte-identical `appearance.json`).
 func _build_adjustments() -> void:
+	## ET-F1: the Look sliders draw first (the quick surface above the full stacks they write).
+	_build_quick_look()
 	var body := DccWidgets.section(_h(), "Adjustments")
 	_adjust_panel = _AdjustPanel.new()
 	body.add_child(_adjust_panel)
@@ -1716,6 +1721,10 @@ func _build_adjustments() -> void:
 		func(parts: Array): look_begin(parts),
 		func(label: String, parts: Array): look_commit(label, parts),
 		_on_adjust_edited)
+	## A panel edit may change (or delete) a Look entry: the sliders re-read, so the two views
+	## of that one entry never disagree (MISTAKES.md, "a second route to a control").
+	_adjust_panel.stack_written.connect(func(_l: String): _sync_quick_look())
+	_finish_quick_look()
 
 ## An ENGINE adjustment stack was written: mark the look Custom (a look tile no
 ## longer names the picture) and re-render the map. The overlay layer does not
@@ -1729,6 +1738,275 @@ func _on_adjust_edited(_layer: String) -> void:
 func on_adjust_restored() -> void:
 	if _adjust_panel != null and is_instance_valid(_adjust_panel):
 		_adjust_panel.sync()
+	_sync_quick_look()
+
+# -- ET-F1: the Look sliders (`EDITING_TOOLS_SCOPE.md` section 7) ----------------
+#
+# Hue, Saturation and Brightness as MapTiler-style quick edits over the ET-C stacks. They
+# own NO state: they write one Hue/Sat/Light entry pinned at the top of the selected
+# groups' stacks (all groups by default, or Terrain, Water, or Labels & overlays), through
+# the adjustment panel's own generating-gated write path, bracketed by the shared look
+# history. So the Look is undoable, saved with the project and guarded (the overlay's
+# contrast guards run on any overlay stack) with no machinery of its own. "Brightness" is
+# OkLCh lightness (the entry's `lightness`), not `grade_exposure`, so it acts the same on
+# every group. The grade sliders stay; this is the quick surface over them.
+#
+# What it must never do:
+# * Write on build, sync, world change or group change -- only a gesture writes.
+# * Leave an entry at 0/0/0: the neutral Look is the entry ABSENT (removed; a layer that
+#   never had one is not written at all), so an untouched stack stays byte-identical.
+# * Call the engine while a generate runs: the sliders lock, and the write path refuses.
+#
+# The Look entry is identified by `adjust_panel.gd::is_look_entry()` (entry 0, kind `hsl`),
+# whose header says why position and kind are the only marker the saved form allows.
+
+## Group picker ids in menu order. "all" is every adjustable layer; the others are the
+## panel's own layer ids (`adjust_panel.gd::layer_ids()`), offered only when present.
+const LOOK_ALL := "all"
+## Saturation and Brightness are shown in percent of the entry's -1..1 range (the engine's
+## validated range, `adjust.rs::AdjustKind::validate`): 100 % = 1.0.
+const LOOK_PCT := 100.0
+## Hue range in degrees: the engine's own `adjust.rs::HUE_RANGE_DEG` (+-360), so any entry the
+## panel can hold is shown without wrapping or rewriting it.
+const LOOK_HUE_MAX := 360.0
+## Minimum milliseconds between live writes during a drag: the panel's `LIVE_MS` (a labelled
+## judgement there, about 30 Hz). The release always writes.
+const LOOK_LIVE_MS := 33
+## History-label word per entry key: the slider's own caption ("Brightness" writes `lightness`).
+const LOOK_AXIS_NAMES := {"hue_deg": "hue", "saturation": "saturation", "lightness": "brightness"}
+
+## Slider handles by entry key (`hue_deg`, `saturation`, `lightness`); empty until built.
+var _quick_rows: Dictionary = {}
+var _quick_pick: OptionButton
+var _quick_note: Label
+## Group ids parallel to `_quick_pick`'s items.
+var _quick_ids: Array = []
+var _quick_group := LOOK_ALL
+## The entry body the sliders show and write, in the engine's units. Re-read from the stacks
+## on every sync; a slider move changes only its own key, so untouched axes keep their exact
+## stored values.
+var _quick_vals := {"hue_deg": 0.0, "saturation": 0.0, "lightness": 0.0}
+## Gesture state (the panel's pattern): a snapshot has been taken / something was written /
+## a drag is in progress / a throttled write is owed / the last write's time.
+var _quick_open := false
+var _quick_dirty := false
+var _quick_dragging := false
+var _quick_pending := false
+var _quick_last := 0
+var _quick_label := ""
+var _quick_parts: Array = []
+
+## Draw the "Look" section: a group picker and three sliders. Values are filled by
+## `_finish_quick_look()` once the adjustment panel (the read/write path) exists.
+func _build_quick_look() -> void:
+	var body := DccWidgets.section(_h(), "Look")
+	_quick_rows.clear()
+	_quick_pick = DccWidgets.choice(body, "Apply to", ["All groups"], 0, _on_quick_group,
+		"Which part of the map the Look sliders act on: everything, or one group.")
+	_quick_pick.name = "LookGroupPick"
+	var specs := [
+		["hue_deg", "Hue", -LOOK_HUE_MAX, LOOK_HUE_MAX, "°", "Rotate every colour's hue, in degrees. Lightness is kept (OkLCh)."],
+		["saturation", "Saturation", -LOOK_PCT, LOOK_PCT, "%", "Scale colour strength: -100 % removes all colour, +100 % doubles it."],
+		["lightness", "Brightness", -LOOK_PCT, LOOK_PCT, "%", "Lighten toward white or darken toward black (OkLCh lightness, the same on every group; the grade's Exposure is separate)."],
+	]
+	for sp in specs:
+		var key := String(sp[0])
+		var h := DccWidgets.slider(body, String(sp[1]), float(sp[2]), float(sp[3]), 1.0, 0.0, String(sp[4]),
+			func(v: float): _on_quick_slider(key, v), String(sp[5]),
+			func():
+				_quick_dragging = false
+				_quick_end())
+		var s: HSlider = h["slider"]
+		s.name = "Look_" + key
+		s.drag_started.connect(func():
+			_quick_dragging = true
+			_quick_begin(key))
+		## Touch: the ROW is floored here; the track itself is not, because these rows are built
+		## once at launch and `dcc_shell.gd::phone_fit()`'s Range pass already reaches the
+		## slider. Measured by `_etf1_probe.gd` leg H at 1080x2340: without the row floor the row
+		## read 24 px (slider 115 px); a call-site slider floor was a surviving mutant.
+		if DccTheme.is_touch():
+			(h["row"] as Control).custom_minimum_size.y = maxf((h["row"] as Control).custom_minimum_size.y, _AdjustPanel.TOUCH_PX)
+		_quick_rows[key] = h
+	_quick_note = DccWidgets.note(body, "")
+	_quick_note.name = "LookNote"
+	_quick_note.visible = false
+	DccWidgets.note(body,
+		"A quick edit over the adjustment stacks below: it is the first Hue / Sat / Light "
+		+ "entry (tagged Look) of each group it applies to. Set all three to 0 to remove it. "
+		+ "The colour grade is separate and stays as it is.")
+
+## Second half of the build, after the panel exists: the group picker's items (the panel's
+## layer ids), the generate lock, and the first read.
+func _finish_quick_look() -> void:
+	if _quick_pick == null or _adjust_panel == null:
+		return
+	_quick_ids = [LOOK_ALL]
+	_quick_pick.clear()
+	_quick_pick.add_item("All groups")
+	for id in _adjust_panel.layer_ids():
+		_quick_ids.append(String(id))
+		_quick_pick.add_item(String(_AdjustPanel.LAYER_LABELS.get(id, String(id).capitalize())))
+	_quick_pick.select(0)
+	if bridge.has_signal("generation_started"):
+		bridge.generation_started.connect(_on_quick_generation_started)
+		bridge.generation_finished.connect(func(_ok: bool):
+			_quick_lock(false)
+			_sync_quick_look())
+	_sync_quick_look()
+
+## The layer ids the Look writes: every panel layer for "all groups", else the one picked.
+func _quick_layers() -> Array:
+	if _adjust_panel == null:
+		return []
+	if _quick_group == LOOK_ALL:
+		return _adjust_panel.layer_ids()
+	return [_quick_group] if _quick_group in _adjust_panel.layer_ids() else []
+
+## True when all three values are 0: the Look is then the entry ABSENT, never a neutral entry.
+func _quick_neutral() -> bool:
+	return float(_quick_vals["hue_deg"]) == 0.0 and float(_quick_vals["saturation"]) == 0.0 \
+		and float(_quick_vals["lightness"]) == 0.0
+
+## Re-read the sliders from the stacks (never writes): the first selected group holding a Look
+## entry gives the values, else 0/0/0. With "all groups" whose Look entries differ (one was
+## edited alone), the sliders show the first and the next move writes that value everywhere.
+func _sync_quick_look() -> void:
+	if _quick_rows.is_empty() or _adjust_panel == null or not is_instance_valid(_adjust_panel):
+		return
+	var vals := {"hue_deg": 0.0, "saturation": 0.0, "lightness": 0.0}
+	for l in _quick_layers():
+		var d = _adjust_panel.read_layer(String(l))
+		if d == null:
+			continue
+		var e: Array = d["entries"]
+		if _AdjustPanel.is_look_entry(e):
+			var b: Dictionary = (e[0]["kind"] as Dictionary)["hsl"]
+			for k in vals:
+				vals[k] = float(b.get(k, 0.0))
+			break
+	_quick_vals = vals
+	for k in _quick_rows:
+		var h: Dictionary = _quick_rows[k]
+		var shown := float(vals[k]) * (1.0 if k == "hue_deg" else LOOK_PCT)
+		(h["slider"] as Range).set_value_no_signal(shown)
+		(h["readout"] as Label).text = (h["format"] as Callable).call(shown)
+
+## Group picker handler: close any open gesture, switch, re-read. Never writes.
+func _on_quick_group(idx: int) -> void:
+	_quick_end()
+	_quick_group = String(_quick_ids[idx]) if idx >= 0 and idx < _quick_ids.size() else LOOK_ALL
+	_sync_quick_look()
+
+## A generate started: close any gesture, lock the sliders and the picker (the panel's rule 3).
+func _on_quick_generation_started() -> void:
+	_quick_end()
+	_quick_lock(true)
+
+## Lock (or unlock) every Look control.
+func _quick_lock(on: bool) -> void:
+	if _quick_pick != null:
+		_quick_pick.disabled = on
+	for k in _quick_rows:
+		((_quick_rows[k] as Dictionary)["slider"] as Range).editable = not on
+
+## Open a gesture on the selected groups: snapshot their stacks BEFORE the first write. A
+## second call inside the same gesture changes nothing (the "before" is the first one).
+func _quick_begin(key: String) -> void:
+	_quick_label = "%s: %s" % [_LookHistory.LOOK_LABEL, String(LOOK_AXIS_NAMES.get(key, key))]
+	if _quick_open:
+		return
+	_quick_open = true
+	_quick_dirty = false
+	_quick_parts = []
+	for l in _quick_layers():
+		_quick_parts.append("adjust_" + String(l))
+	look_begin(_quick_parts)
+
+## A slider moved (drag tick or click): store its value in the engine's units, then write now
+## or, inside the throttle window, owe the write to a timer. A move with no drag closes its
+## own gesture at the end of the frame.
+func _on_quick_slider(key: String, v: float) -> void:
+	_quick_begin(key)
+	_quick_vals[key] = v if key == "hue_deg" else v / LOOK_PCT
+	if Time.get_ticks_msec() - _quick_last >= LOOK_LIVE_MS:
+		_quick_write()
+	elif not _quick_pending:
+		_quick_pending = true
+		get_tree().create_timer(LOOK_LIVE_MS / 1000.0).timeout.connect(func():
+			if _quick_pending:
+				_quick_write())
+	if not _quick_dragging:
+		call_deferred("_quick_end_idle")
+
+## Deferred close of a gesture no drag will end.
+func _quick_end_idle() -> void:
+	if not _quick_dragging:
+		_quick_end()
+
+## Close the gesture: flush an owed write, push ONE history entry (skipped by the history when
+## nothing changed, so a slider dragged back to where it started pushes nothing), and let the
+## panel re-read the stacks it shows.
+func _quick_end() -> void:
+	if not _quick_open:
+		return
+	if _quick_pending:
+		_quick_write()
+	_quick_open = false
+	_quick_dragging = false
+	if _quick_dirty:
+		look_commit(_quick_label, _quick_parts)
+		if _adjust_panel != null and is_instance_valid(_adjust_panel):
+			_adjust_panel.sync()
+	_quick_dirty = false
+
+## Write the Look into every selected group: replace the pinned entry's parameters (its
+## `enabled` and `opacity`, which the panel may have changed, are kept), insert a new pinned
+## entry at the TOP, or -- at 0/0/0 -- remove the pinned entry; a group with no Look entry is
+## not written at all at 0/0/0. A refusal (generating, a full stack, an unreadable layer) is
+## shown in the note with the owner's own words and the other groups still apply.
+func _quick_write() -> void:
+	_quick_pending = false
+	_quick_last = Time.get_ticks_msec()
+	if _adjust_panel == null or not is_instance_valid(_adjust_panel):
+		return
+	var body := {"hue_deg": float(_quick_vals["hue_deg"]), "saturation": float(_quick_vals["saturation"]),
+		"lightness": float(_quick_vals["lightness"])}
+	var refused: Array = []
+	var engine_written := false
+	for l in _quick_layers():
+		var layer := String(l)
+		var d = _adjust_panel.read_layer(layer)
+		if d == null:
+			refused.append("%s: cannot be read now" % layer)
+			continue
+		var entries: Array = d["entries"]
+		var pinned := _AdjustPanel.is_look_entry(entries)
+		if _quick_neutral():
+			if not pinned:
+				continue
+			entries.remove_at(0)
+		elif pinned:
+			(entries[0]["kind"] as Dictionary)["hsl"] = body.duplicate()
+		else:
+			if entries.size() >= _AdjustPanel.MAX_ENTRIES:
+				refused.append("%s: already holds %d adjustments" % [layer, _AdjustPanel.MAX_ENTRIES])
+				continue
+			var e: Dictionary = _AdjustPanel.new_entry("hsl")
+			(e["kind"] as Dictionary)["hsl"] = body.duplicate()
+			entries.insert(0, e)
+		var r: Dictionary = _adjust_panel.write_layer(layer, d)
+		if bool(r.get("ok", false)):
+			_quick_dirty = true
+			if layer != _AdjustPanel.OVERLAY:
+				engine_written = true
+		else:
+			refused.append("%s: %s" % [layer, String(r.get("error", "refused"))])
+	if engine_written:
+		_on_adjust_edited("look")
+	if _quick_note != null:
+		_quick_note.text = "" if refused.is_empty() else "Not applied to %s." % "; ".join(refused)
+		_quick_note.visible = not refused.is_empty()
 
 # -- The reference's Rendering-advanced block (reference HTML 1731-1751) -------
 

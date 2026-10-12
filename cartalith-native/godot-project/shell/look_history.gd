@@ -6,6 +6,10 @@ extends RefCounted
 ## section 5) the three per-layer adjustment stacks (Terrain, Water, Labels &
 ## overlays). One entry per gesture: a slider drag is one entry.
 ##
+## ET-F1's Look sliders (Hue, Saturation, Brightness) need no part of their own: they write
+## one Hue/Sat/Light entry pinned at the top of the selected layers' stacks, so their
+## gestures are ordinary `adjust_*` parts, labelled with `LOOK_LABEL`.
+##
 ## No `class_name` on purpose: hosts load it with
 ## `preload("res://shell/look_history.gd")`, so registering it never needs the
 ## `godot --import` pass that strips `project.godot`'s `;` comment block
@@ -61,6 +65,9 @@ const _OA := preload("res://shell/overlay_adjust.gd")
 ## change" comparison, so a Cancel that reverts the data to equal pushes nothing
 ## even though the live ticks already flipped the readout to "Custom".
 const CHROME := "chrome"
+## Label prefix of an ET-F1 Look-slider gesture (`"Look: saturation"`), as Edit > Undo shows it.
+## The control's name in the shell (section "Look"), so the undo row names what was moved.
+const LOOK_LABEL := "Look"
 
 ## Emitted whenever the entries or cursor change (push, undo, redo, clear), so
 ## an Edit menu or toolbar can refresh its enabled state.
