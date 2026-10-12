@@ -106,6 +106,9 @@ var ring: RadialRing
 var _ring_press_local: Vector2 = Vector2.ZERO
 ## What the last `resolve()` asked and got -- read by `_on_id`, and by probes.
 var last_request: Dictionary = {}
+## The merged, section-sorted rows `last_request` produced, exactly as shown --
+## `_on_id` indexes this by the popup's item id, so `_present_phone` keeps it equal
+## to what is displayed. Reassigned by every `resolve()` and Select ▸ re-resolve.
 var last_actions: Array = []
 
 
@@ -170,6 +173,8 @@ func engine_picks(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -
 ## a route are equally easy to hit. With no world on screen to measure a
 ## pixel-per-cell ratio from, a fixed 1.5 cells, the same fallback.
 const PICK_LINE_PX := 6.0
+## The 1.5-cell fallback tolerance used when `px_per_cell` is not positive
+## (see `PICK_LINE_PX` above); `engine_picks`' line branch is its only reader.
 const PICK_LINE_FALLBACK_CELLS := 1.5
 ## Preloaded only for its static `way_title()`, so a way hit is titled exactly as
 ## the CIVIL workspace titles it. Never instantiated here.

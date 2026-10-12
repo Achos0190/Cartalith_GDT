@@ -124,6 +124,14 @@ fn assert_pts_match(actual: &[(f64, f64)], expected: &[(f64, f64)], label: &str)
     }
 }
 
+/// Protects: `_civMstRoutes(ports, true)` (reference 21240, sea branch) on a 14 x 11 world with
+/// three ports: two MST edges, the v0.73 nearest-port augmentation pass finding no extra pair
+/// within the 1.15x cap, and each route's name, 3 points, km and empty breaks. The land/ocean cell
+/// counts (79/75) guard the world itself. Red means the Dijkstra sea path, the MST or the cap
+/// changed. case0_region: gw=14 gh=11 seed=24601 world=false. Same 3 ports as
+/// golden_parity_road_consolidation.rs's case0. Real extraction: _civMstRoutes(ports,true) -- 2
+/// edges (n=3 -> 2 MST edges; the v0.73 augmentation pass found no additional pair within the 1.15x
+/// cap, so the result is exactly the MST).
 #[test]
 fn sea_routes_case_0_three_ports_augmentation() {
     // Protects: `_civMstRoutes(ports, true)` (reference 21240, sea branch) on
@@ -171,6 +179,15 @@ fn sea_routes_case_0_three_ports_augmentation() {
     assert!(routes[1].brks.is_empty(), "case0 route1: brks should be empty");
 }
 
+/// Protects: the same function on a wrapped 16 x 12 world with five ports and mixed land, ocean and
+/// lake (127/13/52): four MST edges, and two routes whose `km` is 0 despite 3 points, a genuine
+/// reference quirk (`_civSmoothPath` sums km over rounded points before restoring the endpoints;
+/// module doc). Red means the water-body split or the km accumulation changed. Both worlds pass
+/// `None, None` for the current and wind fields, the reference's own fallback, so this pins v2.10
+/// behaviour. case1_world_wrap: gw=16 gh=12 seed=314159 world=true. Same 5 ports as
+/// golden_parity_road_consolidation.rs's case1. Real extraction: _civMstRoutes(ports,true) -- 4
+/// edges (n=5 -> 4 MST edges; again no additional augmentation edge survived the 1.15x cap). Two
+/// routes carry km:0 -- a genuine rounding quirk, see module doc comment.
 #[test]
 fn sea_routes_case_1_five_ports_mixed_geography() {
     // Protects: the same function on a wrapped 16 x 12 world with five ports

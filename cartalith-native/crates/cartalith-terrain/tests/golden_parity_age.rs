@@ -5,6 +5,8 @@
 
 use cartalith_terrain::build_age_field;
 
+/// Protects: build_age_field() matching the reference's distanceToBoundary + ageField normalize
+/// bit-for-bit for scattered boundary cells.
 #[test]
 fn age_field_case_0_scattered() {
     // Protects: build_age_field() matching the reference's
@@ -15,6 +17,8 @@ fn age_field_case_0_scattered() {
     assert_eq!(build_age_field(10, 8, &boundary_mask), expected);
 }
 
+/// Protects: build_age_field() matching the reference bit-for-bit for a mix of a boundary line and
+/// isolated boundary cells (distinct from case 0's purely scattered layout).
 #[test]
 fn age_field_case_1_line_plus_isolated() {
     // Protects: build_age_field() matching the reference bit-for-bit for a
@@ -25,6 +29,8 @@ fn age_field_case_1_line_plus_isolated() {
     assert_eq!(build_age_field(12, 9, &boundary_mask), expected);
 }
 
+/// Protects: build_age_field()'s degenerate no-boundary case -- maxd stays clamped at 1e-6, every
+/// raw distance (1e9) divides to something huge, and min(1, ...) clamps every cell to exactly 1.0.
 #[test]
 fn age_field_case_2_no_boundary() {
     // Protects: build_age_field()'s degenerate no-boundary case -- maxd

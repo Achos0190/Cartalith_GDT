@@ -60,6 +60,10 @@ fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
     f
 }
 
+/// Protects: `pack_height16`'s output matches the reference's `packHeight16` byte-for-byte over a
+/// probe covering both endpoints, both clamps, a repeating fraction, and the two values one 16-bit
+/// step from each end. 0, 1, a half, both out-of-range clamps, a repeating fraction, and the two
+/// values one 16-bit step from each end.
 #[test]
 fn pack_height16_matches_the_reference_byte_for_byte() {
     // Protects: `pack_height16`'s output matches the reference's
@@ -79,6 +83,9 @@ fn pack_height16_matches_the_reference_byte_for_byte() {
     assert_eq!(fnv_u8(&packed), "93de0af59a8a803a");
 }
 
+/// Protects: `unpack_height16`'s round trip matches the reference's exact bit pattern for every
+/// probe value, including where the 16-bit step is visible (0.5 -> 0.5000076...), asserted by
+/// `to_bits` for literal bit-for-bit agreement rather than float tolerance.
 #[test]
 fn unpack_height16_round_trips_exactly_as_the_reference_does() {
     // Protects: `unpack_height16`'s round trip matches the reference's
@@ -106,6 +113,9 @@ fn unpack_height16_round_trips_exactly_as_the_reference_does() {
     }
 }
 
+/// Protects: a whole synthetic field packs to the reference's exact bytes at realistic scale
+/// (48x32), not just the isolated probe values above -- the source field's own hash is checked
+/// first so a mismatch is attributable to the encoder, not to a drifted fixture.
 #[test]
 fn packing_a_whole_field_matches_the_reference() {
     // Protects: a whole synthetic field packs to the reference's exact
@@ -128,6 +138,9 @@ fn packing_a_whole_field_matches_the_reference() {
     assert_eq!(fnv_u8(&packed), "0835250dc2d3fcb3");
 }
 
+/// Protects: a full refine-export manifest (custom file_for, coarse bounds, non-default
+/// encoding/compression) matches the reference's exact JSON, key order included, literal string for
+/// literal string.
 #[test]
 fn manifest_case0_a_full_refine_export_header() {
     // Protects: a full refine-export manifest (custom file_for, coarse
@@ -154,6 +167,8 @@ fn manifest_case0_a_full_refine_export_header() {
     assert_eq!(manifest_json(&m, None), r#"{"schema":2,"version":"TESTVER","tileSize":512,"tileW":512,"tileH":256,"cols":2,"rows":3,"width":1024,"height":768,"worldSeed":24601,"world":true,"bounds":{"x":4,"y":6,"w":30,"h":24},"heightEncoding":"rg16","compression":"gzip","tiles":[{"row":0,"col":0,"file":"tiles/refined_0_0.png","coarse":{"x":4,"y":6,"w":16,"h":9}},{"row":0,"col":1,"file":"tiles/refined_0_1.png","coarse":{"x":19,"y":6,"w":16,"h":9}},{"row":1,"col":0,"file":"tiles/refined_1_0.png","coarse":{"x":4,"y":14,"w":16,"h":9}},{"row":1,"col":1,"file":"tiles/refined_1_1.png","coarse":{"x":19,"y":14,"w":16,"h":9}},{"row":2,"col":0,"file":"tiles/refined_2_0.png","coarse":{"x":4,"y":22,"w":16,"h":9}},{"row":2,"col":1,"file":"tiles/refined_2_1.png","coarse":{"x":19,"y":22,"w":16,"h":9}}]}"#);
 }
 
+/// Protects: an all-default options bag's manifest matches the reference exactly, including that
+/// `bounds` renders `null` (not `{}`) and no `coarse` key appears on the single tile.
 #[test]
 fn manifest_case1_an_empty_bag_takes_every_fallback() {
     // Protects: an all-default options bag's manifest matches the
@@ -165,6 +180,8 @@ fn manifest_case1_an_empty_bag_takes_every_fallback() {
     assert_eq!(manifest_json(&m, None), r#"{"schema":2,"version":"TESTVER","tileSize":1024,"tileW":1024,"tileH":1024,"cols":1,"rows":1,"width":0,"height":0,"worldSeed":0,"world":false,"bounds":null,"heightEncoding":"none","compression":"store","tiles":[{"row":0,"col":0,"file":"tiles/tile_0_0.png"}]}"#);
 }
 
+/// Protects: a whole-map bake (no bounds, so no coarse region) matches the reference exactly across
+/// a 2x2 tile grid.
 #[test]
 fn manifest_case2_a_whole_map_bake_with_no_coarse_region() {
     // Protects: a whole-map bake (no bounds, so no coarse region) matches
@@ -185,6 +202,11 @@ fn manifest_case2_a_whole_map_bake_with_no_coarse_region() {
     assert_eq!(manifest_json(&m, None), r#"{"schema":2,"version":"TESTVER","tileSize":1024,"tileW":1024,"tileH":1024,"cols":2,"rows":2,"width":2048,"height":2048,"worldSeed":7,"world":false,"bounds":null,"heightEncoding":"none","compression":"store","tiles":[{"row":0,"col":0,"file":"tiles/tile_0_0.png"},{"row":0,"col":1,"file":"tiles/tile_0_1.png"},{"row":1,"col":0,"file":"tiles/tile_1_0.png"},{"row":1,"col":1,"file":"tiles/tile_1_1.png"}]}"#);
 }
 
+/// Protects: `js_num`'s number formatter matches `JSON.stringify` on genuinely long repeating
+/// fractions (not just round numbers) and on a negative seed, checked both by hash/length and by
+/// the fractions spelled out literally so a formatter regression names itself. cols=7 does not
+/// divide bounds.w=30, so every coarse x/w is a long fraction -- the case that actually tests the
+/// number formatter.
 #[test]
 fn manifest_case3_fractional_coarse_bounds_and_a_negative_seed() {
     // Protects: `js_num`'s number formatter matches `JSON.stringify` on
@@ -218,6 +240,10 @@ fn manifest_case3_fractional_coarse_bounds_and_a_negative_seed() {
     assert!(json.contains(r#""worldSeed":-5"#));
 }
 
+/// Protects: the pretty (indent=2) form written into `tiles/index.json` by the real export path
+/// matches `JSON.stringify(man, null, 2)` exactly -- indentation, key order and all -- not just the
+/// compact form the cases above check. What `exportRegionTiles` actually writes into
+/// `tiles/index.json`: JSON.stringify(man, null, 2) for the 2x2 refine of a 24x16 selection.
 #[test]
 fn the_pretty_index_json_matches_export_region_tiles_byte_for_byte() {
     // Protects: the pretty (indent=2) form written into `tiles/index.json`

@@ -6,6 +6,8 @@
 
 use cartalith_terrain::{compute_height, normalize_field, HeightParams};
 
+/// Protects: compute_height() and normalize_field() matching the reference bit-for-bit,
+/// non-wrapping and non-ridged.
 #[test]
 fn compute_height_case_0() {
     // Protects: compute_height() and normalize_field() matching the
@@ -24,6 +26,8 @@ fn compute_height_case_0() {
     assert_eq!(normed, expected_normed, "normalized field");
 }
 
+/// Protects: compute_height() matching the reference bit-for-bit with world-wrap and ridged mode
+/// both enabled, warp fields supplied, no orogeny field.
 #[test]
 fn compute_height_case_1() {
     // Protects: compute_height() matching the reference bit-for-bit with
@@ -45,6 +49,9 @@ fn compute_height_case_1() {
     assert_eq!(normed, expected_normed, "normalized field");
 }
 
+/// Protects: compute_height() matching the reference bit-for-bit with a different noise
+/// floor/seed/weights, ridged mode, and an orogeny field supplied (the fifth optional input, absent
+/// from cases 0-1).
 #[test]
 fn compute_height_case_2() {
     // Protects: compute_height() matching the reference bit-for-bit with a

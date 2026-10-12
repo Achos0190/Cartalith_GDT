@@ -64,6 +64,9 @@ fn u8s(v: &serde_json::Value) -> Vec<u8> {
     v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u8).collect()
 }
 
+/// Protects: best_empty_column() against the reference's `bestEmptyColumn` (line 3156) on a real
+/// generated world, and that the fixture actually needs centering rather than trivially returning
+/// 0.
 #[test]
 fn best_empty_column_matches_the_reference_on_a_real_world() {
     // Protects: best_empty_column() against the reference's
@@ -84,6 +87,8 @@ fn best_empty_column_matches_the_reference_on_a_real_world() {
     assert_ne!(expected, 0, "the fixture must be a world that actually needs centering");
 }
 
+/// Protects: best_empty_column()'s strict `<` tie-break (first/lowest column wins) and the
+/// `geo?geo[i]:0` term actually changing the answer at a sea level shaped to flip it.
 #[test]
 fn best_empty_column_ties_go_to_the_lowest_column_and_the_geoid_is_read() {
     // Protects: best_empty_column()'s strict `<` tie-break (first/lowest
@@ -106,6 +111,8 @@ fn best_empty_column_ties_go_to_the_lowest_column_and_the_geoid_is_read() {
     assert_ne!(t["best_geo_flips"], t["best_no_geo_high"], "the geoid must change an answer in this fixture");
 }
 
+/// Protects: shift_grid_x() against the reference's `shiftGridX` (line 3161) for in-range, no-op,
+/// negative, over-wide and exactly-grid-width offsets.
 #[test]
 fn shift_grid_x_matches_the_reference_for_every_offset_class() {
     // Protects: shift_grid_x() against the reference's `shiftGridX`
@@ -121,6 +128,8 @@ fn shift_grid_x_matches_the_reference_for_every_offset_class() {
     }
 }
 
+/// Protects: shift_grid_x() being generic over element type -- a `u8` grid shifts identically to
+/// the `f32` case, matching the reference's `new arr.constructor(W)` allocation.
 #[test]
 fn shift_grid_x_shifts_an_integer_grid_the_same_way() {
     // Protects: shift_grid_x() being generic over element type -- a `u8`
@@ -132,6 +141,8 @@ fn shift_grid_x_shifts_an_integer_grid_the_same_way() {
     assert_eq!(a, u8s(&g["shift"]["u8_off3"]));
 }
 
+/// Protects: feather_seam_x() against the reference's `featherSeamX` (line 3171) across four
+/// (column, half-width) pairs, including a column at the grid edge where every read wraps.
 #[test]
 fn feather_seam_x_matches_the_reference_including_the_wrap() {
     // Protects: feather_seam_x() against the reference's `featherSeamX`
@@ -146,6 +157,9 @@ fn feather_seam_x_matches_the_reference_including_the_wrap() {
     }
 }
 
+/// Protects: the full `centerLandmasses` composition (best column -> shift -> seam column ->
+/// feather) matching the reference end to end, and that both the shift and the feather each visibly
+/// change the field -- guarding against a silently-empty golden.
 #[test]
 fn the_whole_centering_composition_matches_the_reference_on_a_real_world() {
     // Protects: the full `centerLandmasses` composition (best column ->

@@ -51,6 +51,11 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: length mismatch");
 }
 
+/// Protects: `compute_affordance_fields` on a 14 x 11 region: lithology classification bit-exact,
+/// and soil fertility and water access to tolerance. The first milestone's fixture
+/// (`PHASE2_SCOPE.md` milestone 1), also a cross-check that this extraction and the carve fixture
+/// agree on the same `generate()` run. Red means a lithology class rule, the soil model or the
+/// water-access model changed. case 0: region: gw=14 gh=11 seed=24601 world=false
 #[test]
 fn affordance_fields_case_0_region() {
     // Protects: `compute_affordance_fields` on a 14 x 11 region: lithology
@@ -79,6 +84,9 @@ fn affordance_fields_case_0_region() {
 }
 
 
+/// Protects: the same three outputs on a wrapped 16 x 12 world, so the wrap seams in the slope and
+/// distance terms are pinned. Red means a wrap handling change in one of the three builders. case
+/// 1: world_wrap: gw=16 gh=12 seed=314159 world=true
 #[test]
 fn affordance_fields_case_1_world_wrap() {
     // Protects: the same three outputs on a wrapped 16 x 12 world, so the

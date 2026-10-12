@@ -27,6 +27,9 @@ const GW: usize = 20;
 // Grid height the captured fixture was generated at, paired with GW.
 const GH: usize = 14;
 
+/// Protects: stamp_volcanoes_provinces() matching a real end-to-end generate() run's captured
+/// field/volcanic_field bit-for-bit -- the only fixture in this crate whose inputs were themselves
+/// produced by the reference pipeline rather than hand-constructed.
 #[test]
 fn stamp_volcanoes_provinces_matches_js() {
     // Protects: stamp_volcanoes_provinces() matching a real end-to-end

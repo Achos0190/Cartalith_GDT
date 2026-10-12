@@ -113,6 +113,10 @@ fn lat_ladder(v: &serde_json::Value) -> Vec<f64> {
     (0..gh).map(|y| 90.0 - (y as f64 / (gh - 1) as f64) * 180.0).collect()
 }
 
+/// Protects: `buildTRI` (reference v2.10 line 6504; the module doc's 6489 is the slice start): the
+/// terrain ruggedness raster, bit for bit, in both the x-wrapping and clamped forms. The
+/// `assert_ne!` shows the wrap flag is not dead, and the distinct-value count (more than 500; a
+/// labelled judgement) guards against a flat raster that would measure nothing.
 #[test]
 fn build_tri_matches_the_reference_wrapped_and_clamped() {
     // Protects: `buildTRI` (reference v2.10 line 6504; the module doc's 6489 is the slice start): the terrain ruggedness
@@ -140,6 +144,9 @@ fn build_tri_matches_the_reference_wrapped_and_clamped() {
     );
 }
 
+/// Protects: `WILD_GUILDS`, `WILD_GUILD_LABELS` and `guildTrophic` against the reference's tables:
+/// the guild list and order, each guild's trophic class (pred, scav or herb) and each label. Red
+/// means a guild was added, renamed or reclassified.
 #[test]
 fn the_guild_tables_match_the_reference() {
     // Protects: `WILD_GUILDS`, `WILD_GUILD_LABELS` and `guildTrophic` against
@@ -208,6 +215,9 @@ fn every_roster_matches_the_reference_entry_for_entry_and_in_order() {
     assert_eq!(seen, 15, "the reference defines a roster for all 15 Cartalith biomes");
 }
 
+/// Protects: `wildSig2` (two-significant-figure rounding) and `wildFmtPop` (reference 8257): the
+/// formatted population strings across the 1000, 1050 and 1 000 000 boundaries and the 0, negative
+/// and sub-1 inputs. A mutation of the rounding or the unit thresholds changes a string.
 #[test]
 fn wild_sig2_and_wild_fmt_pop_match_the_reference() {
     // Protects: `wildSig2` (two-significant-figure rounding) and `wildFmtPop`
@@ -239,6 +249,10 @@ fn wild_sig2_and_wild_fmt_pop_match_the_reference() {
     }
 }
 
+/// Protects: `buildEcoregions`: the region-id raster, the marker minimum, and every region's cells,
+/// biome and f64 aggregates (exact, because they are order-dependent running sums, so a different
+/// traversal order shows). The `min_area` assert pins the `max(12, ...)` floor the captured world
+/// used.
 #[test]
 fn build_ecoregions_matches_the_reference_on_a_real_world() {
     // Protects: `buildEcoregions`: the region-id raster, the marker minimum,
@@ -301,6 +315,10 @@ fn build_ecoregions_matches_the_reference_on_a_real_world() {
     );
 }
 
+/// Protects: `assignWildlife` / `currentWildlife`: each region's richness, summary, area, colour
+/// and, per guild, biomass and each species' name, mass and population estimate. The total species
+/// count (more than 40; a labelled judgement) guards against a thin fixture. The last assert checks
+/// `wild_region_color` agrees with what was stored.
 #[test]
 fn current_wildlife_matches_the_reference_roster_for_roster() {
     // Protects: `assignWildlife` / `currentWildlife`: each region's richness,

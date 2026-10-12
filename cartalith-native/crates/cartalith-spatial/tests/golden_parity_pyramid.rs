@@ -44,6 +44,8 @@ const CW: usize = 48;
 /// [`CW`]).
 const CH: usize = 32;
 
+/// Protects: pyramid_dims() against the reference's `pyramidDims` (line 10461), including its
+/// negative-level floor to the root. [z, cols, rows], straight from the harness.
 #[test]
 fn pyramid_dims_matches_the_reference() {
     // Protects: pyramid_dims() against the reference's `pyramidDims`
@@ -57,6 +59,10 @@ fn pyramid_dims_matches_the_reference() {
     }
 }
 
+/// Protects: pyramid_tile_bounds() against the reference's `pyramidTileBounds` (line 10594),
+/// bit-for-bit on the fractional steps a rounding port would get wrong. [z, col, row, x, y, w, h].
+/// The fractional steps are the point: 47/2, 47/4, 47/8 and their vertical twins are exactly what a
+/// rounding port would get wrong.
 #[test]
 fn pyramid_tile_bounds_matches_the_reference() {
     // Protects: pyramid_tile_bounds() against the reference's
@@ -78,6 +84,9 @@ fn pyramid_tile_bounds_matches_the_reference() {
     }
 }
 
+/// Protects: tiles_in_view() against the reference's `tilesInView` (line 10637), including the
+/// off-grid case that names tile (0,0) rather than an empty range. [z, vx0, vy0, vx1, vy1] ->
+/// [cols, rows, c0, c1, r0, r1, count]
 #[test]
 fn tiles_in_view_matches_the_reference() {
     // Protects: tiles_in_view() against the reference's `tilesInView`
@@ -103,6 +112,9 @@ fn tiles_in_view_matches_the_reference() {
     }
 }
 
+/// Protects: pyramid_level_for_zoom() against the reference's `pyramidLevelForZoom` (line 10600),
+/// including the below-the-floor scale, the past-the-cap scale, and the `None` max_level default.
+/// [scale, baseW, tileSize, maxLevel] -> level.
 #[test]
 fn pyramid_level_for_zoom_matches_the_reference() {
     // Protects: pyramid_level_for_zoom() against the reference's

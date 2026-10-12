@@ -866,6 +866,10 @@ fn an_empty_roster_is_returned_empty_at_every_phase() {
 /// `_CIV_RECOVERY_NAME[phase]`.
 type PhaseRow = (RecoveryPhase, u8, Option<(f64, f64)>, &'static str);
 
+/// Protects: `RecoveryPhase`'s index, band and name against the reference's `_CIV_RECOVERY_FRAC`
+/// and `_CIV_RECOVERY_NAME` tables, and `from_index_clamped`'s clamping at both ends (-7 gives
+/// Stable, 99 gives Mature). An off-by-one index would move the `phase <= 2` prune onto the wrong
+/// phases.
 #[test]
 fn recovery_phase_indices_and_bands_match_the_reference_tables() {
     // Protects: `RecoveryPhase`'s index, band and name against the

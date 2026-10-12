@@ -92,6 +92,13 @@ fn places_from_xy(xy: &[(usize, usize)]) -> Vec<cartalith_civ::SettlementPlaceme
         .collect()
 }
 
+/// Protects: `buildTravelCost` (reference 3257), `roadDijkstra` (3275) and `buildRoadNetwork`
+/// (3316) on a 14 x 11 region: a 10-cell sample of the cost field (water cells `Infinity`), and the
+/// real-terrain unreachable branch, where the minimum spanning tree has only one edge (0 to 2, path
+/// [34, 35]) because place 1 is on an island the search never reaches. Red means the cost formula
+/// or the early break on an infinite best distance changed. The 10-cell sample is a spot check, not
+/// the whole raster. case0_region: gw=14 gh=11 seed=24601 world=false. Places from
+/// golden_parity_settlement_naming.rs's own case0 (x,y) pairs.
 #[test]
 fn road_network_case_0_region() {
     // Protects: `buildTravelCost` (reference 3257), `roadDijkstra` (3275) and
@@ -146,6 +153,10 @@ fn road_network_case_0_region() {
     assert_eq!(edges[0].path, vec![34usize, 35usize]);
 }
 
+/// Protects: the same three functions on a wrapped 16 x 12 world with five places: the cost sample
+/// (two water cells infinite), and exactly four minimum-spanning-tree edges with their cell paths,
+/// in the reference's order. Red means wrap handling in the Dijkstra neighbour step, the Prim edge
+/// order or the path reconstruction changed. case1_world_wrap: gw=16 gh=12 seed=314159 world=true.
 #[test]
 fn road_network_case_1_world_wrap() {
     // Protects: the same three functions on a wrapped 16 x 12 world with five

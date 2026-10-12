@@ -57,6 +57,13 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     }
 }
 
+/// Protects: `buildCarryingCapacity` (reference 6238), `buildNPP` (6497) and
+/// `estimateRegionalDensityKm2` (6217) on a 14 x 11 region, all three rasters whole. Runs with
+/// `biome_k` 0 and no wet mask (the reference's default), so the biome-residual and wetland path is
+/// not exercised here. The NPP call passes 3000.0, taken from the harness's own call, so the value
+/// is the reference's default in effect when the capture was made (source not re-established here).
+/// Red means a carrying-capacity, NPP or density formula changed. case 0: region: gw=14 gh=11
+/// seed=24601 world=false.
 #[test]
 fn carrying_capacity_npp_density_case_0_region() {
     // Protects: `buildCarryingCapacity` (reference 6238), `buildNPP` (6497)
@@ -160,6 +167,11 @@ fn carrying_capacity_npp_density_case_0_region() {
     assert_close(&dens, &expected_dens, "dens case0");
 }
 
+/// Protects: the same three builders on a wrapped 16 x 12 world. `expected_k` and `expected_npp`
+/// are the reference's values; `expected_dens` was re-baselined by Ruling Q and restored by Ruling
+/// T (history comment in the body), because density reads the biome raster, which reads the
+/// water-body rule. Red means a formula or the wrapped-map water-body rule changed. case 1:
+/// world_wrap: gw=16 gh=12 seed=314159 world=true.
 #[test]
 fn carrying_capacity_npp_density_case_1_world_wrap() {
     // Protects: the same three builders on a wrapped 16 x 12 world.

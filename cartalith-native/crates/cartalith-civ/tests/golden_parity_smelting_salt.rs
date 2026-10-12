@@ -488,6 +488,11 @@ fn check(c: &Case, expect: &[Expect], label: &str) {
 
 // -------------------------------------------------------------------- tests
 
+/// Protects: `_civPlaceSmelting` (reference 24208) and `_civSaltAccess` (24430) on a real 64 x 48
+/// non-wrapping world: nine places compared against the reference capture, plus the catchment
+/// radius, the salt-deposit window mean and the pinned input hashes. The biome hash was
+/// re-baselined by Ruling Q (see the inline comment). Red on a hash means the world changed; red
+/// inside `check` means the rule changed.
 #[test]
 fn smelting_and_salt_case_0_region_no_wrap() {
     // Protects: `_civPlaceSmelting` (reference 24208) and `_civSaltAccess`
@@ -516,6 +521,15 @@ fn smelting_and_salt_case_0_region_no_wrap() {
     check(&c, CASE0_EXPECT, "case0");
 }
 
+/// Protects: the same two functions on a real 48 x 36 wrapping world, which reaches the salt-lake
+/// branch (place 5) and the `ore_rich` flag (place 6) on real terrain. The closing asserts name
+/// those two so a fixture change that loses them goes red here. `world=true`, so
+/// `LARGE_ITEM_RULINGS.md`'s Ruling T (2026-09-21) reverts this fixture's `build_water_bodies` call
+/// to the original size-primary rule. Re-checked directly rather than assumed: every hash below is
+/// UNCHANGED by that reversion -- this fixture was never touched by Ruling Q's own diff either
+/// (only `smelting_and_salt_case_0_region_no_wrap`, `world=false`, moved, and stays exactly as
+/// Ruling Q left it, unaffected by Ruling T). No value in this function needed an edit for either
+/// ruling.
 #[test]
 fn smelting_and_salt_case_1_world_wrap() {
     // Protects: the same two functions on a real 48 x 36 wrapping world,
@@ -548,6 +562,9 @@ fn smelting_and_salt_case_1_world_wrap() {
     assert!(CASE1_EXPECT[6].ore_rich, "case1 place 6 is the real-terrain ore_rich case");
 }
 
+/// Protects: the large-catchment paths a real 800 km world cannot reach: the circle rejection, the
+/// un-wrapped edge clip and the ocean exclusion over discs up to 14 cells. Also the discriminating
+/// pair (places 3 and 4, same lake biome at rain 0.20 vs 0.55: only the arid one is a salt lake).
 #[test]
 fn smelting_and_salt_case_2_synthetic_wide_catchments() {
     // Protects: the large-catchment paths a real 800 km world cannot reach:

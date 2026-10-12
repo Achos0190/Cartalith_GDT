@@ -46,6 +46,8 @@ const FIT_CASES: &[FitCase] = &[
     FitCase { w: 300, h: 100, size: 512, scale: 1.3, pan_x: -20.0, pan_y_before: 40.0, pan_y_after: 145.06666666666666 },
 ];
 
+/// Protects: fit_to_bottom's resulting pan_y matches the reference across every fixture, and it
+/// never touches pan_x or scale.
 #[test]
 fn fit_to_bottom_matches_the_reference_on_every_fixture() {
     // Protects: fit_to_bottom's resulting pan_y matches the reference across
@@ -90,6 +92,9 @@ struct TexCase {
     inv: [f64; 3],
 }
 
+/// Protects: finalize_pack_texture_inv_mean's per-channel inverse mean matches the reference
+/// exactly, including clamping near-black/ sub-1-mean channels to 1.0 and the zero-dimension edge
+/// case.
 #[test]
 fn finalize_pack_texture_inv_mean_matches_the_reference_on_every_fixture() {
     // Protects: finalize_pack_texture_inv_mean's per-channel inverse mean

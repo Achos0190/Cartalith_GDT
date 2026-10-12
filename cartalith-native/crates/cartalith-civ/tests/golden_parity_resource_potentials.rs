@@ -56,6 +56,12 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     }
 }
 
+/// Protects: `buildResourcePotentials` (reference 6085-6172) on a 14 x 11 region, all 15 resource
+/// rasters whole, with scarcity on and legacy scarcity off as production calls it (module doc: the
+/// original six are not thinned, only the nine v1.31 additions). Red means a resource's placement
+/// rule, strength or scarcity thinning changed. Mutating one constant moves only the raster it
+/// belongs to, so the failure message's label names the resource. case0_region: gw=14 gh=11
+/// seed=24601 world=false.
 #[test]
 fn resource_potentials_case_0_region() {
     // Protects: `buildResourcePotentials` (reference 6085-6172) on a 14 x 11
@@ -129,6 +135,16 @@ fn resource_potentials_case_0_region() {
     assert_close(&rp.alum, &expected_alum, "alum case0_region");
 }
 
+/// Protects: the same 15 rasters on a wrapped 16 x 12 world, re-baselined by Ruling Q and restored
+/// by Ruling T (history comment in the body): the values are the pre-Ruling-Q content, re-run
+/// against this crate's own output. Red means a placement rule or the wrapped-map water-body rule
+/// changed. case1_world_wrap: gw=16 gh=12 seed=314159 world=true. RE-BASELINED then RE-REVERTED,
+/// both 2026-09-21. `LARGE_ITEM_RULINGS.md`'s Ruling Q briefly moved every array below (via
+/// `build_water_bodies`' topology-primary ocean/lake rule, see `golden_parity_waterbodies.rs`'s
+/// header for the full account), then Ruling T special-cased this fixture's `world=true` map back
+/// to the original size-primary rule, reverting these arrays a second time to their pre-Ruling-Q
+/// content (`git show c6de2a2:crates/cartalith-civ/tests/golden_parity_resource_potentials.rs`).
+/// Re-run and confirmed against this crate's own current actual output.
 #[test]
 fn resource_potentials_case_1_world_wrap() {
     // Protects: the same 15 rasters on a wrapped 16 x 12 world, re-baselined

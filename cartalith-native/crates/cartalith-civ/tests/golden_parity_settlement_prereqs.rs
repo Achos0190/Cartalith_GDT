@@ -85,6 +85,12 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     }
 }
 
+/// Protects: `buildRouteCorridors` (reference ~5903), `buildLandmassQuality` (~5970) and
+/// `buildCoastSDF` (~7462, run with `{euclid:true}` as `currentSettlementSuitability()` does) on a
+/// 14 x 11 world: the corridor raster (all zero at this size), landmass quality and its component
+/// count (4, exact), and the signed coast distance. Red means a corridor, landmass or
+/// coast-distance rule moved. Because the corridor raster here is all zero, it cannot catch an
+/// inverted flank test; case 2 exists for that. case0_region: gw=14 gh=11 seed=24601 world=false
 #[test]
 fn settlement_prereqs_case_0_region() {
     // Protects: `buildRouteCorridors` (reference ~5903),
@@ -135,6 +141,10 @@ fn settlement_prereqs_case_0_region() {
     assert_close(&coast_sdf, &expected_coast_sdf, "coast_sdf case0_region");
 }
 
+/// Protects: the same three builders on a wrapped 16 x 12 world: the wrap seams in the corridor and
+/// landmass builders (landmass is one component, exact; the corridor raster is all zero here), plus
+/// the coast distance, whose builder takes no wrap flag. Red means wrap handling in one of the
+/// builders changed. case1_world_wrap: gw=16 gh=12 seed=314159 world=true
 #[test]
 fn settlement_prereqs_case_1_world_wrap() {
     // Protects: the same three builders on a wrapped 16 x 12 world: the wrap
@@ -182,6 +192,11 @@ fn settlement_prereqs_case_1_world_wrap() {
     assert_close(&coast_sdf, &expected_coast_sdf, "coast_sdf case1_world_wrap");
 }
 
+/// Protects: the branch that cases 0 and 1 cannot reach: on a 48 x 40 world 203 of 1920 corridor
+/// cells are nonzero, so `gap > CORRIDOR_KNEE` (0.45) and the flanking-barrier min/max are
+/// exercised; an all-zero fixture would pass even with min and max swapped. Landmass (one
+/// component) and coast distance are checked as well. case2_larger_corridors_check: gw=48 gh=40
+/// seed=777 world=false
 #[test]
 fn settlement_prereqs_case_2_larger_corridors_check() {
     // Protects: the branch that cases 0 and 1 cannot reach: on a 48 x 40

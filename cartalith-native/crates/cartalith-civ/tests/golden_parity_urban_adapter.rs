@@ -425,6 +425,10 @@ fn eq(what: &str, got: f64, want: f64) {
     );
 }
 
+/// Protects against a silently-empty golden: it re-asserts the captured row counts (2 worlds, 22 ages, 12
+/// harbours, 10 rays, 241 kinds, 22 ores, 18 profiles) and that each world really has sea, land, river flow,
+/// >=2 traced stems, a coast distance field reaching the shore and a non-uniform biome raster. Without it an
+/// emptied table would make every `for c in ...` loop below pass over nothing and report a healthy `ok`.
 #[test]
 fn the_fixture_is_not_degenerate() {
     // The silently-empty-golden gate, re-run on this side: four subsystems in
@@ -469,6 +473,9 @@ fn eqf(a: f64, b: f64) -> bool {
     a.to_bits() == b.to_bits()
 }
 
+/// Protects the three scalar distances every later site rule is scaled by (`_umSiteBoxKm`, `_umWaterNearKm`,
+/// `_umWaterReachKm`) against the value captured for each world. A drift here shifts every coast/river
+/// classification downstream while each downstream test could still look locally plausible.
 #[test]
 fn site_box_ladder_matches_reference() {
     for w in WORLDS {
@@ -482,6 +489,9 @@ fn site_box_ladder_matches_reference() {
     }
 }
 
+/// Protects `_umInferAge`'s log mapping (60 + 240*log10(pop/100)) at the 22 captured populations, including
+/// both ends of its 30..1000 clamp. Age feeds wall and street-style choices, so a wrong step or clamp would
+/// only show up later as a visual change.
 #[test]
 fn infer_age_matches_reference() {
     for &(pop, age) in AGES {
@@ -489,6 +499,9 @@ fn infer_age_matches_reference() {
     }
 }
 
+/// Protects `_umHarbourScale`: quay extent grows sub-linearly with population (`(pop/3000)^0.4`), clamped to
+/// 0.6..3, and a landlocked site returns 1. The 12 captured cases cover both clamp ends, so a linear scale or
+/// a dropped clamp fails here.
 #[test]
 fn harbour_scale_matches_reference() {
     for c in HARBOURS {
@@ -513,6 +526,10 @@ fn ray_box_exit_matches_reference() {
     }
 }
 
+/// Protects `_umSiteKindFromTerrain`'s river / riverthrough / bay / coast / landlocked classification at 241
+/// captured points on both worlds' real terrain. It is the first branch every settlement layout takes, so a
+/// misclassified point changes the whole town; it also pins the km-derived radius going through
+/// `_umWaterReachKm` (the reference note records that the near-radius produced zero coast settlements).
 #[test]
 fn site_kind_matches_reference() {
     for c in KINDS {
@@ -530,6 +547,10 @@ fn site_kind_matches_reference() {
     }
 }
 
+/// Protects `_umOreBearing`: the bearing toward the strongest resource potential in the scan window (above
+/// the reference's 0.25 floor), or `None` when there is none. Each case plants one potential at an offset on
+/// an otherwise empty field, so both the found and the nothing-in-range outcomes (including an off-grid
+/// plant) are exercised; a `None` instead of a bearing would silently drop the ore-yard district rule.
 #[test]
 fn ore_bearing_matches_reference() {
     for c in ORES {
@@ -550,6 +571,10 @@ fn ore_bearing_matches_reference() {
     }
 }
 
+/// Protects the assembled `_umSiteProfile` record (kind, elevation, slope, aspect, river order, road count,
+/// nearby resources, coast distance, carrying capacity, defensibility, buildable fraction) for 18 sites,
+/// plus the wall decision `_umInferWalls`, against the reference field by field. It is the integration point
+/// of every earlier adapter function, so it catches a wrong wiring even when each helper test passes.
 #[test]
 fn site_profile_matches_reference() {
     for c in PROFILES {

@@ -313,6 +313,21 @@ fn near_abs(got: f64, want: f64, tol: f64, what: &str) {
     assert!((got - want).abs() <= tol, "{what}: got {got}, want {want} (tol {tol})");
 }
 
+/// Protects: `_civFactionAggregates` (reference 23575, with v1.55's Territory Fit),
+/// `_civFactionCapital` (23560) and `_civOceanDistField` (22450) on a 24 x 18 non-wrapping region.
+/// The fixture is shaped to reach the edge cases: an empty faction, a faction with territory and no
+/// settlement, a zero-population hamlet, an out-of-range faction id skipped by the guard, and a
+/// faction spanning the seam. The biome and ocean-distance hashes were re-baselined by Ruling Q
+/// (inline comment). Red on a hash means the world moved; red below it means an aggregate moved.
+/// Case 0 (gw=24 gh=18 seed=24601 world=false): a small non-wrapping region whose fixture SHAPE
+/// reaches the edges on purpose -- faction 6 has neither territory nor settlements (aggregation
+/// over an empty faction), faction 2 has exactly one settlement, faction 4 has territory but no
+/// settlement at all, faction 1 carries a zero-population hamlet, one place is a non-settlement
+/// category (excluded upstream, so it never appears in the slice below), and one carries an
+/// out-of-range faction id 99 (must be skipped by the `f<0||f>=nF` guard -- it IS in the slice).
+/// Faction 2 also owns both x=0 and x=gw-1, so its territory spans the map seam. riverFlowThresh is
+/// degenerate at this size (every land cell clears it, so world_mean_terrain.river == 1.0) -- a
+/// real property of small grids, and case 1 is the one that exercises a discriminating threshold.
 #[test]
 fn faction_aggregates_case_0_region_no_wrap() {
     // Protects: `_civFactionAggregates` (reference 23575, with v1.55's
@@ -851,6 +866,15 @@ fn faction_aggregates_case_0_region_no_wrap() {
     assert!(civ_culture_terrain_fit("imperial", &agg.by_faction[6].terrain_mix, &agg.world_mean_terrain).is_none(), "imperial/f6 must have no verdict");
 }
 
+/// Protects: the same aggregation on a 48 x 36 wrapping world, where the river threshold
+/// discriminates (0.920 of land is river rather than case 0's degenerate 1.0) and coast, arid,
+/// forest and hills take intermediate values. Faction 3 straddles the seam. Red means a
+/// seam-spanning faction, or one of the terrain-mix axes, aggregates differently from the
+/// reference. Case 1 (gw=48 gh=36 seed=314159 world=true): a wrapping world, big enough that
+/// riverFlowThresh actually discriminates (0.920 of land is river here, not case 0's degenerate
+/// 1.0) and that coast/arid/forest/hills all take intermediate values. Faction 3 owns both edge
+/// columns AND holds settlements at x=0 and x=gw-1 -- a faction whose settlements straddle the
+/// seam. Factions 2 and 5 have territory but no settlement; faction 6 has neither.
 #[test]
 fn faction_aggregates_case_1_world_wrap() {
     // Protects: the same aggregation on a 48 x 36 wrapping world, where the

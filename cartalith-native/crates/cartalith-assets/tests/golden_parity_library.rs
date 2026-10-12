@@ -43,6 +43,9 @@ fn item(name: &str, hash: &str) -> LibraryItem {
 // AssetValidator.run()
 // ---------------------------------------------------------------------------
 
+/// Protects the validator's warning pair for a brand-new library: blank pack name first, then
+/// empty-library. A reorder or a dropped message would diverge from the reference's
+/// `AssetValidator.run()`, which the UI shows verbatim.
 #[test]
 fn validator_empty_library_empty_pack_name() {
     // Protects: run() emits both warnings, blank-pack-name first, for a totally empty library.
@@ -53,6 +56,8 @@ fn validator_empty_library_empty_pack_name() {
     );
 }
 
+/// Protects the blank-pack-name warning being conditional: setting a name must remove it while the
+/// empty-library warning stays. Catches a validator that emits the name warning unconditionally.
 #[test]
 fn validator_empty_library_named_pack() {
     // Protects: run() drops the blank-pack-name warning once a pack name is set, but keeps the empty-library one.
@@ -64,6 +69,8 @@ fn validator_empty_library_named_pack() {
     );
 }
 
+/// Protects the clean case: a named pack with one item must produce zero warnings. Catches any
+/// check that fires spuriously and would block export of a healthy library.
 #[test]
 fn validator_one_item_no_warnings() {
     // Protects: A named pack with one item passes run() with no warnings at all.
@@ -73,6 +80,9 @@ fn validator_one_item_no_warnings() {
     assert!(cartalith_assets::library::run(&db).is_empty());
 }
 
+/// Protects the duplicate-image warning naming entries by slot display title (`Mountain#1`), not
+/// slot id. This is the reference finding that justifies `slot_title` existing; using the id would
+/// change the user-visible text.
 #[test]
 fn validator_identical_images_across_two_slots_names_by_slot_title() {
     // Protects: the "Identical images" message names entries by slot display title ("Mountain", "Hill"), not by slot id — a real reference finding (module docs).
@@ -86,6 +96,9 @@ fn validator_identical_images_across_two_slots_names_by_slot_title() {
     );
 }
 
+/// Protects duplicate detection grouping every item sharing one hash into a single message, in
+/// store order. Catches pairwise messages or a sorted order, either of which differs from the
+/// reference.
 #[test]
 fn validator_identical_images_three_way_group_in_store_order() {
     // Protects: a three-way hash collision is reported as one group, in store order, not sorted.
@@ -100,6 +113,8 @@ fn validator_identical_images_three_way_group_in_store_order() {
     );
 }
 
+/// Protects the splat-blend hint: it must fire once any texture slot is filled and `grass` is not,
+/// because the engine splat blends grass most. Catches a missing or mis-gated hint.
 #[test]
 fn validator_grass_hint_fires_when_textures_present_without_grass() {
     // Protects: the splat-blend hint fires once any texture slot is filled but "grass" is not.
@@ -112,6 +127,8 @@ fn validator_grass_hint_fires_when_textures_present_without_grass() {
     );
 }
 
+/// Protects the splat-blend hint staying silent when `grass` is filled even though other textures
+/// exist. Catches a hint keyed on 'any texture' alone.
 #[test]
 fn validator_grass_hint_silent_once_grass_is_present() {
     // Protects: the splat-blend hint is silent once "grass" itself is filled, even with other textures present.
@@ -122,6 +139,8 @@ fn validator_grass_hint_silent_once_grass_is_present() {
     assert!(cartalith_assets::library::run(&db).is_empty());
 }
 
+/// Protects the empty-custom-slot warning using the slot's display name (`Lighthouse`) and
+/// appearing after the empty-library warning. Catches id-based naming or a changed message order.
 #[test]
 fn validator_empty_custom_slot_warns_by_display_name() {
     // Protects: an empty custom slot is reported by its display name ("Lighthouse"), not its id.
@@ -134,6 +153,8 @@ fn validator_empty_custom_slot_warns_by_display_name() {
     );
 }
 
+/// Protects the empty-slot check being lifted by a single item: a custom slot with one variant must
+/// produce no warning at all. Catches an off-by-one on the item count.
 #[test]
 fn validator_custom_slot_with_a_variant_has_no_empty_slot_warning() {
     // Protects: a custom slot with at least one item never triggers the empty-slot warning.
@@ -144,6 +165,9 @@ fn validator_custom_slot_with_a_variant_has_no_empty_slot_warning() {
     assert!(cartalith_assets::library::run(&db).is_empty());
 }
 
+/// Protects the finding that `remove_custom_slot` drops collection membership itself, so this path
+/// can never leave a stale reference for the validator to report. Catches a removal that forgets
+/// `drop_uid`.
 #[test]
 fn validator_removing_a_custom_slot_cleans_up_its_own_collection_membership_first() {
     // Protects: remove_custom_slot's own drop_uid call means this path can never leave a stale collection reference for run() to catch — a real finding (module docs).
@@ -161,6 +185,9 @@ fn validator_removing_a_custom_slot_cleans_up_its_own_collection_membership_firs
     );
 }
 
+/// Protects the one real route to the 'references a missing asset' warning:
+/// `AssetCollections::from_map` assigning parsed collections unchecked, as `apply_library_file`
+/// does. Catches a from_map that validates, which would hide corrupt files.
 #[test]
 fn validator_stale_collection_only_fires_via_an_unchecked_assignment() {
     // Protects: the only real path to "references a missing asset" is AssetCollections::from_map bypassing the live registry, exactly as apply_library_file uses it.
@@ -181,6 +208,9 @@ fn validator_stale_collection_only_fires_via_an_unchecked_assignment() {
     );
 }
 
+/// Protects the fixed relative order of every warning when all checks fire together. Individually
+/// correct checks could still be emitted in the wrong order; this catches that against the
+/// reference's captured output.
 #[test]
 fn validator_kitchen_sink_matches_the_references_own_warning_order() {
     // Protects: every check fires together in the reference's own fixed warning order, not alphabetical or insertion order.
@@ -206,6 +236,9 @@ fn validator_kitchen_sink_matches_the_references_own_warning_order() {
 // AssetDB::add_custom_slot / rename_custom_slot / remove_custom_slot
 // ---------------------------------------------------------------------------
 
+/// Protects `add_custom_slot` returning the existing slot for an identical name and set, with the
+/// derived uid `custom:naval/lighthouse`. Catches duplicate slots appearing when an import re-adds
+/// a slot.
 #[test]
 fn add_custom_slot_is_idempotent_on_repeated_identical_name_and_set() {
     // Protects: calling add_custom_slot twice with the same name/set returns the same slot, not a duplicate.
@@ -219,6 +252,9 @@ fn add_custom_slot_is_idempotent_on_repeated_identical_name_and_set() {
     assert_eq!(a1.set_id.as_deref(), Some("naval"));
 }
 
+/// Protects slug collisions resolving to the first writer: two spellings that slug to `wind_mill`
+/// must share one slot keeping its original display name. Catches a second slot or an overwritten
+/// name.
 #[test]
 fn add_custom_slot_display_names_slugging_to_the_same_id_collide_onto_the_first() {
     // Protects: two display names that slug to the same id collide onto the first slot created, keeping its original display name.
@@ -230,6 +266,8 @@ fn add_custom_slot_display_names_slugging_to_the_same_id_collide_onto_the_first(
     assert_eq!(b1.id, "wind_mill");
 }
 
+/// Protects the reference's fallbacks for blank input: id `icon` and set `Default`, with an empty
+/// display name kept. Catches empty ids or uids that would break lookups.
 #[test]
 fn add_custom_slot_blank_name_and_set_fall_back_the_same_way_as_the_reference() {
     // Protects: a blank name/set falls back to the reference's own defaults ("icon" id, "Default" set) rather than producing an empty or invalid slot.
@@ -242,6 +280,8 @@ fn add_custom_slot_blank_name_and_set_fall_back_the_same_way_as_the_reference() 
     assert_eq!(slot.uid, "custom:default/icon");
 }
 
+/// Protects rename re-keying a custom slot: new id and uid, display name updated, old uid no longer
+/// resolvable. Catches a rename that leaves the old key live, orphaning items filed under it.
 #[test]
 fn rename_custom_slot_changes_id_and_uid() {
     // Protects: renaming a custom slot updates its id and uid, and the old uid no longer resolves.
@@ -255,6 +295,8 @@ fn rename_custom_slot_changes_id_and_uid() {
     assert_eq!(slot.name, "Old Lighthouse");
 }
 
+/// Protects a case-only rename keeping the uid and updating just the display name. Catches a rename
+/// that re-keys when the slug did not change.
 #[test]
 fn rename_custom_slot_in_place_when_the_slug_is_unchanged_keeps_the_uid() {
     // Protects: renaming to a spelling that slugs the same keeps the original uid, only updating the display name.
@@ -266,6 +308,8 @@ fn rename_custom_slot_in_place_when_the_slug_is_unchanged_keeps_the_uid() {
     assert_eq!(db.get(&uid).unwrap().id, "lighthouse");
 }
 
+/// Protects a colliding rename being refused: the renamed slot keeps its identity and the existing
+/// target is untouched. Catches a silent overwrite that would destroy another slot's items.
 #[test]
 fn rename_custom_slot_collision_keeps_the_old_uid_and_does_not_clobber_the_target() {
     // Protects: a rename that would collide with an existing slot is refused: the renaming slot keeps its old identity and the target slot is untouched.
@@ -278,6 +322,8 @@ fn rename_custom_slot_collision_keeps_the_old_uid_and_does_not_clobber_the_targe
     assert_eq!(db.get(&uid2).unwrap().name, "Buoy", "the existing target slot is untouched");
 }
 
+/// Protects renaming an unknown uid returning it unchanged without panicking or inserting a slot.
+/// Catches an unwrap on lookup.
 #[test]
 fn rename_custom_slot_is_a_no_op_for_an_unknown_uid() {
     // Protects: renaming an unknown uid is a no-op that returns the uid unchanged, not a panic or an inserted slot.
@@ -285,6 +331,8 @@ fn rename_custom_slot_is_a_no_op_for_an_unknown_uid() {
     assert_eq!(db.rename_custom_slot("custom:nope/nope", "X"), "custom:nope/nope");
 }
 
+/// Protects the frozen built-in slots being un-renamable: their display names are part of the pack
+/// format. Catches rename applying to non-custom slots.
 #[test]
 fn rename_custom_slot_is_a_no_op_for_a_frozen_slot() {
     // Protects: a frozen (non-custom) slot cannot be renamed at all.
@@ -293,6 +341,8 @@ fn rename_custom_slot_is_a_no_op_for_a_frozen_slot() {
     assert_eq!(db.get("icons:mountain").unwrap().name, "Mountain");
 }
 
+/// Protects removal being total: registry entry, item store and every collection membership go
+/// together. Catches a partial removal leaving dangling collection references.
 #[test]
 fn remove_custom_slot_removes_slot_store_and_collection_membership() {
     // Protects: removing a custom slot drops its registry entry, its item store and every collection membership together.
@@ -304,6 +354,8 @@ fn remove_custom_slot_removes_slot_store_and_collection_membership() {
     assert!(db.collections.names().is_empty());
 }
 
+/// Protects frozen slots being non-removable: `remove_custom_slot` returns false and the slot
+/// remains. Catches removal of built-in slots.
 #[test]
 fn remove_custom_slot_refuses_a_frozen_slot() {
     // Protects: a frozen slot cannot be removed via remove_custom_slot.
@@ -316,6 +368,9 @@ fn remove_custom_slot_refuses_a_frozen_slot() {
 // AssetCollections
 // ---------------------------------------------------------------------------
 
+/// Protects the collection operations composing correctly over a realistic sequence (add with
+/// duplicates, remove, drop_uid, rename_uid, membership), matching the reference's
+/// `AssetCollections`. Catches ordering or dedupe drift that single-call tests would miss.
 #[test]
 fn collections_add_remove_drop_uid_rename_uid_membership_match_the_reference() {
     // Protects: add/remove/drop_uid/rename_uid and membership() compose correctly across a realistic sequence, matching the reference's own AssetCollections behaviour.
@@ -341,6 +396,8 @@ fn collections_add_remove_drop_uid_rename_uid_membership_match_the_reference() {
     assert!(c.names().is_empty());
 }
 
+/// Protects removing a collection's final member deleting the collection rather than leaving an
+/// empty array, which would export as an empty collection. Catches a missing prune.
 #[test]
 fn collections_removing_the_last_uid_drops_the_collection_entirely() {
     // Protects: removing a collection's last member drops the whole collection, not an empty array.
@@ -350,6 +407,8 @@ fn collections_removing_the_last_uid_drops_the_collection_entirely() {
     assert!(c.names().is_empty());
 }
 
+/// Protects whitespace-only collection names being ignored on add. Catches an unnamed collection
+/// appearing in the library file.
 #[test]
 fn collections_blank_name_is_a_no_op_on_add() {
     // Protects: adding to a blank (post-trim) collection name is a no-op; no collection is created.
@@ -362,6 +421,9 @@ fn collections_blank_name_is_a_no_op_on_add() {
 // AssetDB counting
 // ---------------------------------------------------------------------------
 
+/// Protects the per-family filled-slot count (distinct slots with items, not items) and the
+/// registry-wide item total, which gate the UI badges and the export. Catches counting items
+/// instead of slots.
 #[test]
 fn filled_count_and_total_items_match_the_reference() {
     // Protects: filled_count and total_items report per-family and whole-registry counts correctly.
@@ -378,6 +440,9 @@ fn filled_count_and_total_items_match_the_reference() {
 // library.json record shape, via the real reference `_alExportEntries`
 // ---------------------------------------------------------------------------
 
+/// Protects the exact exported record shape for a minimal library (pack fields, one icon item with
+/// transform) against the reference's `_alExportEntries`-shaped output. Catches any renamed,
+/// reordered or dropped field in the saved file.
 #[test]
 fn export_minimal_one_icon_item_with_pack_fields_set() {
     // Protects: to_library_json produces the exact reference record shape for a minimal one-item, pack-fields-set library.
@@ -424,6 +489,8 @@ fn export_minimal_one_icon_item_with_pack_fields_set() {
     assert_eq!(file, expected);
 }
 
+/// Protects custom slots always surviving the export filter, even with no items, since a custom
+/// slot is user-authored data. Catches dropping a freshly created slot on save.
 #[test]
 fn export_custom_slot_with_tags_and_no_items_is_still_included() {
     // Protects: a custom slot always survives the export inclusion filter, even with zero items, because fam.custom always does.
@@ -444,6 +511,8 @@ fn export_custom_slot_with_tags_and_no_items_is_still_included() {
     assert_eq!(lighthouse.meta.tags, vec!["coastal", "landmark"]);
 }
 
+/// Protects the export inclusion rule for built-in slots: tags alone justify inclusion. Catches
+/// losing a user's tag edits on an empty frozen slot.
 #[test]
 fn export_frozen_slot_with_tags_but_no_items_is_included_because_of_the_tags() {
     // Protects: a frozen slot with tags but no items is still included in the export, because it carries tags.
@@ -457,6 +526,8 @@ fn export_frozen_slot_with_tags_but_no_items_is_included_because_of_the_tags() {
     assert_eq!(shrub.meta.tags, vec!["sparse"]);
 }
 
+/// Protects the export staying compact: empty, untagged built-in slots must not be written. Catches
+/// a file bloated with every default slot.
 #[test]
 fn export_frozen_slot_with_no_items_and_no_tags_is_excluded_entirely() {
     // Protects: a frozen slot with neither items nor tags is dropped from the export entirely.
@@ -469,6 +540,8 @@ fn export_frozen_slot_with_no_items_and_no_tags_is_excluded_entirely() {
     assert!(!file.slots.iter().any(|s| s.id == "hill"));
 }
 
+/// Protects collections being written to the export unchanged, including a custom-slot uid member.
+/// Catches a collection lost or rewritten on export.
 #[test]
 fn export_collections_travel_verbatim() {
     // Protects: collections are carried into the exported record unchanged.
@@ -480,6 +553,8 @@ fn export_collections_travel_verbatim() {
     assert_eq!(file.collections.get("Coastal").unwrap(), &[uid]);
 }
 
+/// Protects the reference's null-return guard: a library with zero items exports nothing (`None`)
+/// instead of an empty file. Catches writing a pointless empty library.
 #[test]
 fn export_of_a_totally_empty_library_is_none() {
     // Protects: to_library_json returns None for a library with zero total items, matching the reference's own null-return guard.

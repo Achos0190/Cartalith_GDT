@@ -35,6 +35,11 @@ const CASES: &[(&[bool], [usize; 5], &[SettlementKind])] = &[
     (&[false, true, false, false, true, false, true, false, true, false, false, true, false, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true, true, false, false, false, false, false, false, false, true, false, false, false], [8, 1, 8, 6, 1], &[Capital, Capital, Capital, Capital, Capital, Capital, Capital, Capital, City, Town, Town, Town, Town, Town, Town, Town, Town, Village, Village, Village, Village, Village, Village, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet, Hamlet]),
 ];
 
+/// Protects `civ_quota_tier`, one step of the reference's `wantCounts` tier classifier, against the
+/// reference's own source text run over synthetic (capital_of, quota) pairs: each case calls it
+/// once per rank, in order, on a quota that it spends. A wrong tier order, a capital seat not
+/// taking the capital quota first, or the all-spent hamlet fallback changing would shift every
+/// settlement's tier. The `>= 20` case-count assert is the silently-empty-fixture gate.
 #[test]
 fn quota_classifier_matches_the_reference_text() {
     assert!(CASES.len() >= 20, "fixture empty");

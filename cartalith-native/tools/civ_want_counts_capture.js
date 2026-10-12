@@ -90,6 +90,11 @@ for (const [capitalOf, w] of cases) {
 }
 out.push('];');
 out.push('');
+out.push("/// Protects `civ_quota_tier`, one step of the reference's `wantCounts` tier classifier, against the");
+out.push("/// reference's own source text run over synthetic (capital_of, quota) pairs: each case calls it");
+out.push('/// once per rank, in order, on a quota that it spends. A wrong tier order, a capital seat not');
+out.push('/// taking the capital quota first, or the all-spent hamlet fallback changing would shift every');
+out.push("/// settlement's tier. The `>= 20` case-count assert is the silently-empty-fixture gate.");
 out.push('#[test]');
 out.push('fn quota_classifier_matches_the_reference_text() {');
 out.push('    assert!(CASES.len() >= 20, "fixture empty");');

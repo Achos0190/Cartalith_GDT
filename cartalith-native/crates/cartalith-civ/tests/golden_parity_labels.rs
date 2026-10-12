@@ -118,6 +118,11 @@ fn layout_hash(text: &str, arc: f64, size_px: f64) -> (String, usize, f64) {
 
 const TEXT: &str = "Kingdom of Aldar";
 
+/// Protects: the harness's stub text metrics. Every layout golden in this file is only evidence
+/// about `arc_label_layout` if [`measured`] feeds it the same widths the reference run saw; if this
+/// goes red the other golden hashes are meaningless, not necessarily wrong. Every layout golden
+/// below is only evidence about the layout if the widths going in match the harness's. Spot-checked
+/// against the recorded per-char array for the 24px case.
 #[test]
 fn the_stub_metrics_are_reproduced_exactly() {
     // Protects: the harness's stub text metrics. Every layout golden in this
@@ -153,6 +158,9 @@ fn the_stub_metrics_are_reproduced_exactly() {
     }
 }
 
+/// Protects: the `arc == 0` straight branch of `arc_label_layout` (reference `drawArcLabel`, line
+/// 15244): a label with no bow must return `ArcLayout::Straight`. Red means flat labels would be
+/// laid out glyph by glyph.
 #[test]
 fn case0_a_flat_label_takes_the_straight_branch() {
     // Protects: the `arc == 0` straight branch of `arc_label_layout`
@@ -163,6 +171,8 @@ fn case0_a_flat_label_takes_the_straight_branch() {
                ArcLayout::Straight);
 }
 
+/// Protects: the lower side of `ARC_STRAIGHT_THRESHOLD` (0.01). 0.009 is just under it, so a
+/// mutation of the threshold downward (e.g. to 0.005) turns this red.
 #[test]
 fn case1_an_arc_just_below_the_threshold_is_still_straight() {
     // Protects: the lower side of `ARC_STRAIGHT_THRESHOLD` (0.01). 0.009 is
@@ -172,6 +182,9 @@ fn case1_an_arc_just_below_the_threshold_is_still_straight() {
     assert_eq!(arc_label_layout(&per, total, 0.009, 24.0), ArcLayout::Straight);
 }
 
+/// Protects: the boundary of `ARC_STRAIGHT_THRESHOLD`: `|arc| == 0.01` must take the arc branch
+/// (strict `<`). A change to `<=`, or raising the constant, turns this red; the layout hash pins
+/// the glyph positions at the smallest allowed bow.
 #[test]
 fn case2_the_threshold_itself_takes_the_arc_branch() {
     // Protects: the boundary of `ARC_STRAIGHT_THRESHOLD`: `|arc| == 0.01`
@@ -183,6 +196,8 @@ fn case2_the_threshold_itself_takes_the_arc_branch() {
     assert_eq!(h, "94cbe6de7105da60");
 }
 
+/// Protects: the arc glyph layout (radius, theta, dx/dy/rot) bit for bit at arc 0.5. The first two
+/// glyphs are spelled out so a regression names the field that moved; the hash then covers all 16.
 #[test]
 fn case3_a_half_dome_matches_the_reference_glyph_for_glyph() {
     // Protects: the arc glyph layout (radius, theta, dx/dy/rot) bit for bit
@@ -203,6 +218,9 @@ fn case3_a_half_dome_matches_the_reference_glyph_for_glyph() {
     assert_eq!(h, "0126b945ee51b93e");
 }
 
+/// Protects: the sign handling of a negative arc (`dir = -1`, the arch-down style) at 18 px, and
+/// the measured total of 186.3 at that size. A dropped `dir` factor flips every `dy` and `rot` and
+/// moves the hash.
 #[test]
 fn case4_a_negative_arc_at_a_smaller_size() {
     // Protects: the sign handling of a negative arc (`dir = -1`, the
@@ -215,6 +233,9 @@ fn case4_a_negative_arc_at_a_smaller_size() {
     assert_eq!(h, "8dac858619f45187");
 }
 
+/// Protects: the `arc.clamp(-1.0, 1.0)` in `arc_label_layout`: 1.5 must lay out exactly as 1.0 and
+/// -3.0 exactly as -1.0, and the two ends must differ from each other. Removing the clamp changes
+/// the radius and moves both hashes.
 #[test]
 fn case5_and_6_arc_is_clamped_to_the_unit_range() {
     // Protects: the `arc.clamp(-1.0, 1.0)` in `arc_label_layout`: 1.5 must
@@ -233,6 +254,8 @@ fn case5_and_6_arc_is_clamped_to_the_unit_range() {
     assert_ne!(h5, h6);
 }
 
+/// Protects: the `size_px * 1.2` radius floor. A single glyph on a hard bow would otherwise get a
+/// tiny radius; the recorded hash only matches if the floor is the larger of the two radii.
 #[test]
 fn case7_a_single_glyph_hits_the_radius_floor() {
     // Protects: the `size_px * 1.2` radius floor. A single glyph on a hard
@@ -243,6 +266,8 @@ fn case7_a_single_glyph_hits_the_radius_floor() {
     assert_eq!(h, "81d23fd7003c2305");
 }
 
+/// Protects: empty-string behaviour. The reference loops over zero chars and returns without
+/// throwing; the port must return an empty `Arc` vector (not panic on a zero total).
 #[test]
 fn case8_empty_text_on_a_real_arc_produces_no_glyphs_and_does_not_throw() {
     // Protects: empty-string behaviour. The reference loops over zero chars
@@ -309,6 +334,21 @@ fn ulps_apart(a: f64, b: f64) -> i64 {
     (key(ia) - key(ib)).abs()
 }
 
+/// Protects: the one deliberately non-bit-exact result in this file. Every value must be within 1
+/// ULP of [`CASE9`] and exactly two values (`dx` of glyphs 28 and 34) may differ, from V8's
+/// `Math.sin` versus Rust's. A third inexact value, or a 2-ULP one, means the layout itself
+/// changed, not the libm. Measured, not assumed: this is the one non-bit-exact result in this milestone.
+/// 106 of this case's 108 values are bit-identical to the reference. Two are one ULP away,
+/// both `dx` (glyphs 28 and 34) and both from `r * sin(theta)`: `dy` and `rot` agree exactly at
+/// those same glyphs, so `theta` itself is bit-identical and the divergence is purely V8's
+/// `Math.sin` against Rust's. Every other arc case in this file is exact. This is the project's
+/// second such allowance after `CHANGELOG.md`'s `1e-4` for `Math.pow`/`Math.exp`, and it is very
+/// much tighter: one ULP is ~1.4e-16 relative, i.e. a sub-picometre glyph offset. It is safe here
+/// in a way it would not have been in milestone D, where an ULP could flip a `dist < best` segment
+/// pick and with it the *sign* of a signed distance. Nothing branches on a glyph position; it goes
+/// straight into a canvas transform. The test pins the exact divergence so it cannot quietly grow:
+/// every value within 1 ULP, and *exactly two* values not bit-identical, at exactly those two
+/// indices.
 #[test]
 fn case9_a_long_name_at_a_shallow_arc() {
     // Protects: the one deliberately non-bit-exact result in this file. Every
@@ -356,6 +396,8 @@ fn case9_a_long_name_at_a_shallow_arc() {
     assert_eq!(inexact, vec![(28, "dx"), (34, "dx")], "the known Math.sin divergence moved");
 }
 
+/// Protects: the extreme end of the layout, a two-glyph string at 9 px (the label font floor) with
+/// `arc = 1.0`: two glyphs, a measured total of 10.62, and the recorded hash.
 #[test]
 fn case10_two_glyphs_at_the_minimum_size_and_a_full_bow() {
     // Protects: the extreme end of the layout, a two-glyph string at 9 px
@@ -367,6 +409,8 @@ fn case10_two_glyphs_at_the_minimum_size_and_a_full_bow() {
     assert_eq!(h, "58a64011adce33d5");
 }
 
+/// Protects: `arc_label_line_width` = `max(1, size * 0.16)` at six sizes (9 to 40 px). The 0.16
+/// factor is the reference's literal; a mutation of it moves every row.
 #[test]
 fn the_halo_stroke_width_matches_the_reference_at_every_tested_size() {
     // Protects: `arc_label_line_width` = `max(1, size * 0.16)` at six sizes
@@ -423,6 +467,10 @@ fn boxed(lb: &MapLabel, env: &LabelViewEnv) -> LabelBox {
     label_box(lb, env, w)
 }
 
+/// Protects: `label_box` / `label_font_size` / `civ_zoom_k` against the reference's `_civLabelBox`
+/// over the 24 recorded runs (grid widths 48 and 2048; zoom 0.2 to 9; icon scale 1 and 1.75): box
+/// position, font size and side, bit for bit. The 9 px floor, the zoom clamp at 0.35 and 5, and the
+/// grid-width/512 scale all show up as moved rows.
 #[test]
 fn label_box_matches_the_reference_across_every_zoom_and_scale() {
     // Protects: `label_box` / `label_font_size` / `civ_zoom_k` against the
@@ -473,6 +521,8 @@ fn label_box_matches_the_reference_across_every_zoom_and_scale() {
     }
 }
 
+/// Protects: the `LabelSizeMode::Fixed` versus `Zoom` distinction in `label_font_size`. Red means a
+/// fixed-size label scales with zoom, or a zoom-mode one stopped scaling.
 #[test]
 fn a_fixed_mode_label_is_the_same_size_at_every_zoom_and_a_zoom_mode_one_is_not() {
     // Protects: the `LabelSizeMode::Fixed` versus `Zoom` distinction in
@@ -512,6 +562,10 @@ fn hit_fixture() -> (Vec<MapLabel>, Vec<LabelBox>) {
     (labels, boxes)
 }
 
+/// Protects: `label_hit_test`'s box tests: the most recently added label wins an overlap, the far
+/// corner is a genuine miss, and a probe two cells past a box edge misses (this last pair exists
+/// because mutation testing showed the `side / 2.0` half-side comparison surviving without it). The
+/// final asserts keep the table from degenerating into all hits or all misses.
 #[test]
 fn hit_testing_matches_the_reference_including_its_misses_and_overlaps() {
     // Protects: `label_hit_test`'s box tests: the most recently added label
@@ -556,6 +610,10 @@ fn hit_testing_matches_the_reference_including_its_misses_and_overlaps() {
     assert!(want.iter().any(|w| w.3 == Some(2)));
 }
 
+/// Protects: the handle priority and tolerance in `label_hit_test`: armed handles win over boxes in
+/// the reference's order (resize, rotate, arc, check, cross), the check handle accepts a probe
+/// inside its 1.3x slack (`LABEL_BUTTON_SLACK`) and rejects one just outside, and a probe just past
+/// the resize radius falls through to a box.
 #[test]
 fn armed_handles_beat_every_box_in_the_references_own_order() {
     // Protects: the handle priority and tolerance in `label_hit_test`: armed
@@ -597,6 +655,10 @@ fn armed_handles_beat_every_box_in_the_references_own_order() {
 // select / confirm / cancel
 // ---------------------------------------------------------------------------
 
+/// Protects: `LabelEditSession`'s snapshot semantics (`_civSelectLabel` / `_civCancelLabel`):
+/// select snapshots the style fields once, a re-select must not retake the snapshot, and cancel
+/// reverts name, angle, arc and size while leaving the position edit alone. Red on the re-select
+/// line means a second click would overwrite the undo state.
 #[test]
 fn the_edit_session_matches_the_references_snapshot_semantics() {
     // Protects: `LabelEditSession`'s snapshot semantics (`_civSelectLabel` /
@@ -641,6 +703,8 @@ fn the_edit_session_matches_the_references_snapshot_semantics() {
     assert_eq!((labels[0].x, labels[0].y), (11.0, 12.0));
 }
 
+/// Protects: `LabelEditSession::confirm` (`_civConfirmLabel`): edits stay on the label and the
+/// selection is cleared; confirm must not revert to the snapshot.
 #[test]
 fn confirming_keeps_the_edits_and_clears_the_selection() {
     // Protects: `LabelEditSession::confirm` (`_civConfirmLabel`): edits stay
@@ -661,6 +725,10 @@ fn confirming_keeps_the_edits_and_clears_the_selection() {
 // Handle drag math (transcribed -- see the module docs)
 // ---------------------------------------------------------------------------
 
+/// Protects: `label_resize_size`, transcribed from the reference's pointer-move handler (lines
+/// 9686-9689): `clamp(start_size * dist / start_dist, 8, 48)` with `dist` floored at 1. The
+/// `clamped` rows pin both ends and the floor. Evidence is a transcription, not a slice (see the
+/// module doc).
 #[test]
 fn the_resize_handle_matches_the_reference() {
     // Protects: `label_resize_size`, transcribed from the reference's
@@ -681,6 +749,9 @@ fn the_resize_handle_matches_the_reference() {
     }
 }
 
+/// Protects: `label_rotate_deg`, transcribed from lines 9698-9702 of the reference: the absolute
+/// pointer angle about the label centre in degrees, normalised to -180..180. The (9.5, 9.5) row
+/// pins the zero-vector result (90) and the (9.5, 14.0) row the wrap to -180.
 #[test]
 fn the_rotate_handle_matches_the_reference() {
     // Protects: `label_rotate_deg`, transcribed from lines 9698-9702 of the
@@ -702,6 +773,10 @@ fn the_rotate_handle_matches_the_reference() {
     }
 }
 
+/// Protects: `label_arc_value`, transcribed from lines 9711-9716: the pointer offset in the label's
+/// rotated frame, divided by `max(20, side * 0.9)` and clamped to -1..1 (the two `clamped` rows).
+/// The closing `assert_ne!` guards the grab-angle inverse rotation: without it two label angles
+/// would give the same arc.
 #[test]
 fn the_arc_handle_matches_the_reference() {
     // Protects: `label_arc_value`, transcribed from lines 9711-9716: the

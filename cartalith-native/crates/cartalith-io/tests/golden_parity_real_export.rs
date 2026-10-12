@@ -38,6 +38,9 @@
 
 use std::fs::File;
 
+/// Protects: MVP criterion 7 -- `load_save` parses a REAL HTML-app export byte-for-byte against an
+/// independent capture taken from the JS sandbox's own typed arrays, not against a re-read of the
+/// same zip.
 #[test]
 fn load_save_matches_real_html_app_export() {
     // Protects: MVP criterion 7 -- `load_save` parses a REAL HTML-app export

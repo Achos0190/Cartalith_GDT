@@ -169,6 +169,13 @@ fn assert_seeds_close(actual: &[cartalith_civ::SettlementSeed], expected: &[(usi
     }
 }
 
+/// Protects: `buildSettlementSuitability` / `findSettlementSeeds` (reference 6319 / 6418) on the 14
+/// x 11 bounded fixture, in both arms. The legacy arm must reproduce the reference capture
+/// (`reference_suit`, `reference_seeds`) bit-tolerantly; the production arm must reproduce the
+/// Ruling N re-baseline. The final assert demands the arms differ, so a change that made them the
+/// same function turns this red. A mutation of a suitability weight or a seed threshold moves one
+/// or both. case0_region: gw=14 gh=11 seed=24601 world=false CASE0 sea=0.42 flowThresh=0.0616
+/// seedsCount=3
 #[test]
 fn settlement_suitability_case_0_region() {
     // Protects: `buildSettlementSuitability` / `findSettlementSeeds`
@@ -213,6 +220,11 @@ fn settlement_suitability_case_0_region() {
     assert!(moved > 0, "case0_region: the re-baseline moved no cell at all");
 }
 
+/// Protects: the same pair of arms on the 16 x 12 wrap fixture. For this fixture Ruling T makes the
+/// production and legacy water-body classifications identical, so only the river and coast terms
+/// separate the arms. Red on the legacy arm means the unchanged function drifted from the
+/// reference; red on the production arm means Ruling N's composition moved. case1_world_wrap: gw=16
+/// gh=12 seed=314159 world=true CASE1 sea=0.42 flowThresh=0.07680000000000001 seedsCount=5
 #[test]
 fn settlement_suitability_case_1_world_wrap() {
     // Protects: the same pair of arms on the 16 x 12 wrap fixture. For this

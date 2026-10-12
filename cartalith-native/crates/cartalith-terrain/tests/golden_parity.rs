@@ -9,6 +9,8 @@
 
 use cartalith_terrain::compute_warp;
 
+/// Protects: compute_warp() matching the reference's domain-warped fbm bit-for-bit at seed 12345,
+/// amp 0.6, warpRows disabled.
 #[test]
 fn compute_warp_case_0() {
     // Protects: compute_warp() matching the reference's domain-warped fbm
@@ -21,6 +23,8 @@ fn compute_warp_case_0() {
     assert_eq!(warp_y.as_slice(), expected_y);
 }
 
+/// Protects: compute_warp() matching the reference bit-for-bit with the same seed/amp as case 0 but
+/// warpRows enabled -- the flag must change the output, and change it to this exact value.
 #[test]
 fn compute_warp_case_1() {
     // Protects: compute_warp() matching the reference bit-for-bit with the
@@ -34,6 +38,8 @@ fn compute_warp_case_1() {
     assert_eq!(warp_y.as_slice(), expected_y);
 }
 
+/// Protects: compute_warp() matching the reference bit-for-bit at a different grid size (8x6), seed
+/// and amp, confirming the golden coverage isn't tied to one grid shape.
 #[test]
 fn compute_warp_case_2() {
     // Protects: compute_warp() matching the reference bit-for-bit at a
@@ -47,6 +53,8 @@ fn compute_warp_case_2() {
     assert_eq!(warp_y.as_slice(), expected_y);
 }
 
+/// Protects: compute_warp() returning None when amp falls below the reference's 0.5 threshold,
+/// instead of computing a warp that is too weak to matter.
 #[test]
 fn compute_warp_case_3() {
     // Protects: compute_warp() returning None when amp falls below the

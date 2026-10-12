@@ -138,6 +138,12 @@ fn assert_close(actual: f64, expected: f64, label: &str) {
 
 // ---------- _civMortalityMigrationRates ----------
 
+/// Protects: `_civMortalityMigrationRates` (reference 24726-24731): the per-character mortality and
+/// migration split (Mixed 0.15 / 0.25 at full stress and severity, Disease with equal rates,
+/// Conflict with a larger migration share), the zero rate at zero stress, and the products for a
+/// severity above 1. A mutation of a character's weight changes a row. The 0.95 clamp is NOT
+/// reached by any row (the largest product is 0.5), so a mutation of the clamp stays green here; it
+/// is pinned nowhere in this test.
 #[test]
 fn mortality_migration_rates_match_the_reference_across_characters_and_clamps() {
     // Protects: `_civMortalityMigrationRates` (reference 24726-24731): the

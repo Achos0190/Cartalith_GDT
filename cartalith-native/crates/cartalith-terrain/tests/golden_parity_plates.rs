@@ -6,6 +6,8 @@
 
 use cartalith_terrain::{build_plates, Plate, WorldStructure};
 
+/// Protects: build_plates() matching the reference bit-for-bit with no Lloyd relaxation iterations,
+/// non-world (no X-wrap), no world structure.
 #[test]
 fn build_plates_case_0() {
     // Protects: build_plates() matching the reference bit-for-bit with no
@@ -20,6 +22,8 @@ fn build_plates_case_0() {
     assert_eq!(plates, expected);
 }
 
+/// Protects: build_plates() matching the reference bit-for-bit with 2 Lloyd relaxation iterations,
+/// non-world, no world structure.
 #[test]
 fn build_plates_case_1() {
     // Protects: build_plates() matching the reference bit-for-bit with 2
@@ -34,6 +38,9 @@ fn build_plates_case_1() {
     assert_eq!(plates, expected);
 }
 
+/// Protects: build_plates() matching the reference bit-for-bit with the same seed/relaxation count
+/// as case 1 but world (X-wrap) enabled -- this is the feature golden for the world-wrap
+/// circular-mean path.
 #[test]
 fn build_plates_case_2() {
     // Protects: build_plates() matching the reference bit-for-bit with the
@@ -49,6 +56,8 @@ fn build_plates_case_2() {
     assert_eq!(plates, expected);
 }
 
+/// Protects: build_plates() matching the reference bit-for-bit at a different grid size, seed and
+/// plate count, world enabled -- the second feature golden for the world-wrap circular-mean path.
 #[test]
 fn build_plates_case_3() {
     // Protects: build_plates() matching the reference bit-for-bit at a
@@ -65,6 +74,8 @@ fn build_plates_case_3() {
     assert_eq!(plates, expected);
 }
 
+/// Protects: build_plates() matching the reference bit-for-bit when a WorldStructure (ocean depth +
+/// continental field) is supplied, biasing plate placement toward/away from continents.
 #[test]
 fn build_plates_case_4() {
     // Protects: build_plates() matching the reference bit-for-bit when a

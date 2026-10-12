@@ -156,6 +156,25 @@ fn case_a() -> PackManifest {
     parse_pack_manifest(&raw, &files(&FILES_A))
 }
 
+/// Protects: parse_pack_manifest's warnings, and their order, match the reference exactly for a
+/// manifest exercising every failure mode at once, except the one authorised divergence this file's
+/// module doc names (the "not yet used by the live map" summary's slot list). Reference output,
+/// verbatim -- with the one authorised exception this file's module doc names. The ordering encodes
+/// the reference's own traversal: textures (missing, then unknown) -> biomes -> terrains -> icons
+/// (missing per variant, then unknown) -> structures in settlement/poi/trait order -> custom sets
+/// in document order -> the trailing "not yet used by the live map" summary. **The last line is the
+/// divergence.** The reference emitted `"3 pack section(s) not yet used by the live map (trait,
+/// biomes, terrains)"` for this manifest; the port dropped `biomes`/`terrains` from its own list
+/// (owner ruling 2026-09-03, because it draws both), widened the rest of the list to name
+/// `structures.settlement`, `structures.poi` and `custom` too (Ruling W, owner, 2026-09-21) -- this
+/// manifest carries surviving art in all three -- and then, on 2026-09-22 (owner ruling), dropped
+/// `trait` too: the trait-art resolver is installed now, so this manifest's
+/// `structures/trait/port_01.png` reaches the live map the same as its biomes/terrains art does.
+/// **Old -> new for the last line: `"4 pack section(s) not yet used by the live map (trait,
+/// structures.settlement, structures.poi, custom)"` -> `"3 pack section(s) not yet used by the live
+/// map (structures.settlement, structures.poi, custom)"`** -- re-derived by running
+/// `parse_pack_manifest` on this unchanged fixture, not by hand-editing the old string. Everything
+/// above the last line is still the original capture, untouched.
 #[test]
 fn case_a_warnings_match_the_reference_exactly_including_order() {
     // Protects: parse_pack_manifest's warnings, and their order, match the
@@ -201,6 +220,9 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
     assert_eq!(case_a().warnings, expected);
 }
 
+/// Protects: the surviving slot/variant resolution for case A matches the reference — slot order,
+/// dropped-slot vs. dropped-variant behaviour, a bare-string variant list, and custom sets keeping
+/// their raw (un-slugified) document order.
 #[test]
 fn case_a_resolved_art_matches_the_reference() {
     // Protects: the surviving slot/variant resolution for case A matches the
@@ -269,6 +291,7 @@ fn case_a_resolved_art_matches_the_reference() {
     );
 }
 
+/// Protects: pack_summary's exact text for case A's resolved manifest.
 #[test]
 fn case_a_summary_matches_the_reference() {
     // Protects: pack_summary's exact text for case A's resolved manifest.
@@ -311,6 +334,12 @@ const FILES_B: [&str; 7] = [
     "terrains/snow.png",
 ];
 
+/// Protects: parse_pack_csv sorts numbered variants by number, pushes unnumbered ones to the end,
+/// and does so with a stable sort — order among ties is preserved, not scrambled. Straight
+/// `parsePackCsv` output, before any file-existence validation: numbered rows sort first by their
+/// number, unnumbered rows fall to the end at 1e9 -- and keep the order they were written in,
+/// because `Array.prototype.sort` is stable. `m_z` before `m_y` is that stability showing, and is
+/// the detail an unstable sort would silently get wrong.
 #[test]
 fn case_b_csv_variant_ordering_matches_the_reference() {
     // Protects: parse_pack_csv sorts numbered variants by number, pushes
@@ -340,6 +369,9 @@ fn case_b_csv_variant_ordering_matches_the_reference() {
     assert!(raw.name.is_none() && raw.author.is_none() && raw.license.is_none());
 }
 
+/// Protects: a CSV-only pack parses and validates through parse_pack_entries with the reference's
+/// defaults for name/author/ license and matching warnings/summary text (module doc's one
+/// authorised divergence applies to the summary line here too).
 #[test]
 fn case_b_validated_manifest_and_summary_match_the_reference() {
     // Protects: a CSV-only pack parses and validates through
@@ -383,6 +415,8 @@ fn case_b_validated_manifest_and_summary_match_the_reference() {
 // baseline, and the check that a schema-1 manifest needs nothing schema 2 adds.
 // ============================================================================
 
+/// Protects: a fully valid schema-1 manifest produces no warnings and needs none of the
+/// schema-2-only sections (structures, custom).
 #[test]
 fn case_c_clean_schema_1_pack_matches_the_reference() {
     // Protects: a fully valid schema-1 manifest produces no warnings and
@@ -416,6 +450,9 @@ fn case_c_clean_schema_1_pack_matches_the_reference() {
 // reference's `has` is a truthiness test, not an `undefined` test).
 // ============================================================================
 
+/// Protects: when both pack.json and pack.csv are present, JSON wins outright (the CSV's texture
+/// never appears), a blank name falls back to the default, and an empty-string path counts as a
+/// missing file rather than being skipped as "not declared".
 #[test]
 fn case_d_json_wins_and_an_empty_path_is_a_missing_file() {
     // Protects: when both pack.json and pack.csv are present, JSON wins
@@ -450,6 +487,8 @@ fn case_d_json_wins_and_an_empty_path_is_a_missing_file() {
 // error carrying that exact message.
 // ============================================================================
 
+/// Protects: a pack with neither pack.json nor pack.csv returns PackError::NoManifest whose Display
+/// text matches the reference's own thrown message verbatim.
 #[test]
 fn case_e_missing_manifest_message_matches_the_reference() {
     // Protects: a pack with neither pack.json nor pack.csv returns
@@ -472,6 +511,8 @@ fn case_e_missing_manifest_message_matches_the_reference() {
 // the design doc's prose.
 // ============================================================================
 
+/// Protects: every PACK_*_SLOTS array, content and order, against the reference's own arrays — a
+/// silent edit here would re-point every pack ever authored.
 #[test]
 fn frozen_slot_vocabularies_match_the_reference() {
     // Protects: every PACK_*_SLOTS array, content and order, against the

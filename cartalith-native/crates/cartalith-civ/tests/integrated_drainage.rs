@@ -297,6 +297,10 @@ fn app_params(gw: usize, gh: usize, seed: i32, km: f64) -> WorldParams {
     p
 }
 
+/// Protects: nothing; an ignored measurement that prints the §6k before/after table for four worlds
+/// next to the spec's own figures (pit 68.5% to 0.0%, sea-draining land x1.63, longest stem x1.80,
+/// biggest catchment x18.3, from `RC_ENGINE_CHANGES.md` §6k). It asserts nothing, so it only goes
+/// red by panicking. The pass/fail claim lives in the test below.
 #[test]
 #[ignore = "measurement: prints §6k's before/after table for four worlds; run in --release"]
 fn measure_integrated_drainage() {
@@ -318,6 +322,9 @@ fn measure_integrated_drainage() {
     report("wrapped whole world", w);
 }
 
+/// Protects: nothing beyond the length of the returned surface (`build_routing_surface` returns one
+/// value per cell); an ignored wall-clock measurement of the routing surface and `compute_flow` at
+/// 2048 x 1312, median of 7 runs. The timings are for the performance record, not a bar.
 #[test]
 #[ignore = "measurement: routing-surface wall clock at the shell's 2048x1312; run in --release, alone"]
 fn time_routing_surface_at_shell_size() {

@@ -143,8 +143,46 @@ fn check(name: &str, before: &[K], pairs: &[(usize, usize)], btw_bits: &[u64], a
     assert_eq!(kinds, after, "{name}: tiers");
 }
 `;
+// One-line-per-element `///` docs for each emitted test (Ruling BK: every test says what it
+// protects). Kept here, not hand-added to the output, because the output is regenerated.
+const TEST_DOCS = {
+  "star": [
+    "Protects the hub case: the star's centre carries all the betweenness (ratio 1.0, over the 0.65",
+    "promote threshold) and moves up one tier, while every zero-betweenness leaf moves down one tier and the",
+    "bottom tier (Hamlet) clamps instead of falling off the table."
+  ],
+  "path": [
+    "Protects the promote threshold from just above: the two interior places at ratio 1.0 and ~0.667 (just",
+    "over 0.65) are both promoted, and both zero-betweenness ends are demoted."
+  ],
+  "single": [
+    "Protects the degenerate graph with no ways: betweenness is 0, the reference's `max(.., 1e-9)` floor",
+    "keeps the ratio finite (no 0/0 NaN), and the lone Capital is demoted one tier."
+  ],
+  "pair": [
+    "Protects that a bare link gives no centrality: two joined places both have zero betweenness, so both",
+    "are demoted one tier."
+  ],
+  "complete5": [
+    "Protects tie handling in the betweenness count: in a complete graph every shortest path is direct,",
+    "so all five betweenness values are exactly 0 and all five Capitals are demoted together."
+  ],
+  "components": [
+    "Protects input hygiene and the metropolis exemption: a duplicate pair, a self pair and an",
+    "out-of-range pair are ignored by the betweenness count, components do not leak into each other, and",
+    "the isolated Metropolis is left alone rather than demoted."
+  ]
+};
+const randomDoc = g => [
+  `Protects seeded random graph ${g} (8-30 places: a random spanning tree plus extra, possibly`,
+  `duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly`,
+  `against the reference's own run, so a changed accumulation order or a moved 0.65/0.08`,
+  `threshold shows up here.`,
+];
+const docFor = name => TEST_DOCS[name] || randomDoc(name.replace('random', ''));
 for (const c of out) {
   rs += `
+${docFor(c.name).map(l => '/// ' + l).join('\n')}
 #[test]
 fn ${c.name}() {
     check(

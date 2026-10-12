@@ -76,6 +76,9 @@ fn sweep(seed: u32, n: usize, sin: fn(f64) -> f64, cos: fn(f64) -> f64, atan2: f
     h
 }
 
+/// Protects: the js_sin/js_cos/js_atan2 triple reproducing V8's circular mean bit-for-bit (FNV-1a
+/// hash over 2000 plates) while Rust's own libm, and the js_atan2-only partial fix, both provably
+/// do not.
 #[test]
 fn the_world_wrap_circular_mean_matches_v8_and_rusts_own_libm_does_not() {
     // Protects: the js_sin/js_cos/js_atan2 triple reproducing V8's circular

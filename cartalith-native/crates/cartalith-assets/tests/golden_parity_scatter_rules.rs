@@ -133,6 +133,8 @@ const PRESETS: &[(&str, &str)] = &[
     ("custom::Trees::oak", DEFAULT_RULE),
 ];
 
+/// Protects: ScatterRule::default()'s canonical text matches the reference's own
+/// defaultScatterRule() field for field.
 #[test]
 fn default_rule_matches_the_reference() {
     // Protects: ScatterRule::default()'s canonical text matches the
@@ -140,6 +142,8 @@ fn default_rule_matches_the_reference() {
     assert_eq!(canon(&ScatterRule::default()), DEFAULT_RULE);
 }
 
+/// Protects: preset_scatter_rule reproduces every SCATTER_RULE_PRESETS entry exactly, and falls
+/// back to the bare default for a slot with no preset (frozen or custom).
 #[test]
 fn slot_presets_match_the_reference() {
     // Protects: preset_scatter_rule reproduces every SCATTER_RULE_PRESETS
@@ -150,6 +154,11 @@ fn slot_presets_match_the_reference() {
     }
 }
 
+/// Protects: scatter_rule_key's key shape (bare id, custom::<set>::id, and the falsy-empty-set-name
+/// fallback) matches the reference across every argument shape the harness exercised. The harness
+/// called scatterRuleKey with, in order: one argument, an explicit `undefined`, an explicit `null`,
+/// a real set name, an empty set name (falsy -> no prefix), and a set name containing the
+/// separator.
 #[test]
 fn rule_keys_match_the_reference() {
     // Protects: scatter_rule_key's key shape (bare id, custom::<set>::id,
@@ -407,6 +416,9 @@ fn normalize_fixtures() -> Vec<(&'static str, Value, &'static str, &'static str)
     ]
 }
 
+/// Protects: normalize_scatter_rule's every JS-coercion quirk against untrusted input —
+/// numeric-string coercion, falsy-zero, clamping, the v1.27 min/max-size aliasing fix,
+/// Number.isFinite non-coercion in biomes, and the density-falls-back-to-literal-1 asymmetry.
 #[test]
 fn normalize_matches_the_reference_on_every_hostile_input() {
     // Protects: normalize_scatter_rule's every JS-coercion quirk against
@@ -449,6 +461,8 @@ fn sweep_positions() -> Vec<(i32, i32)> {
         .collect()
 }
 
+/// Protects: pick_icon_variant matches the reference's own v1.25 hash index for index across a
+/// 36-position sweep, including negative x.
 #[test]
 fn plain_variant_pick_matches_the_reference() {
     // Protects: pick_icon_variant matches the reference's own v1.25 hash
@@ -464,6 +478,11 @@ fn plain_variant_pick_matches_the_reference() {
     assert_eq!(got, EXPECTED);
 }
 
+/// Protects: pick_weighted_variant matches the reference index for index across every weight shape
+/// — no weights, single/zero variants, length mismatch, all-zero, negative/NaN weights, one-hot,
+/// tiny weights and a real ratio — with the degenerate cases correctly falling through to the
+/// unweighted v1.25 hash. The v1.25 hash, which the three degenerate cases below must reproduce
+/// exactly — that fall-through is what keeps an un-weighted asset's variant selection unchanged.
 #[test]
 fn weighted_variant_pick_matches_the_reference() {
     // Protects: pick_weighted_variant matches the reference index for
@@ -544,6 +563,8 @@ fn weighted_variant_pick_matches_the_reference() {
 // currentScatterRules / autopopulateScatterRules
 // ============================================================================
 
+/// Protects: current_scatter_rules returns None for an empty or all-disabled table, and for a mixed
+/// table returns only the enabled rules in the table's own insertion order, not alphabetical.
 #[test]
 fn current_scatter_rules_matches_the_reference() {
     // Protects: current_scatter_rules returns None for an empty or
@@ -603,6 +624,11 @@ fn pack_with(icons: Slots<'_>, custom: &[(&str, Slots<'_>)]) -> PackManifest {
     p
 }
 
+/// Protects: autopopulate_scatter_rules seeds a table entry (preset or bare default) for every
+/// icon/custom slot that actually carries art, skipping empty icon slots but NOT skipping empty
+/// custom slots — the reference's own asymmetry. A pack with: a normal slot, a multi-variant slot,
+/// an EMPTY icon slot (skipped), a slot with no preset (bare default), and two custom sets — one of
+/// which has an empty slot, which the reference does NOT skip.
 #[test]
 fn autopopulate_matches_the_reference() {
     // Protects: autopopulate_scatter_rules seeds a table entry (preset or
@@ -632,6 +658,8 @@ fn autopopulate_matches_the_reference() {
     );
 }
 
+/// Protects: autopopulate_scatter_rules never overwrites a rule already present in the table (a
+/// user's own tuning), even when the pack's slot would otherwise seed a different value.
 #[test]
 fn autopopulate_never_clobbers_a_tuned_rule() {
     // Protects: autopopulate_scatter_rules never overwrites a rule already
@@ -655,6 +683,8 @@ fn autopopulate_never_clobbers_a_tuned_rule() {
     );
 }
 
+/// Protects: autopopulate_scatter_rules on a default (artless) PackManifest adds no table entries
+/// at all.
 #[test]
 fn autopopulate_on_an_artless_pack_adds_nothing() {
     // Protects: autopopulate_scatter_rules on a default (artless)

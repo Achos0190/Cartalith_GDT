@@ -150,6 +150,11 @@ fn same_net(a: &civ::HierarchicalNetworkResult, b: &civ::HierarchicalNetworkResu
         && a.edges.iter().zip(&b.edges).all(|(x, y)| x.a == y.a && x.b == y.b && x.path == y.path)
 }
 
+/// Protects: the place pairs the centrality loop feeds `civ_network_betweenness`:
+/// `civ_network_way_pairs` must equal the pairs the consolidated ways carry, in the same order,
+/// with each edge's run collapsed. Red means the loop measures a different graph from the one the
+/// user sees drawn. The `assert_ne!` against raw edge order proves this world reorders edges, so a
+/// pairs function that skipped the sort would be caught.
 #[test]
 fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
     // Protects: the place pairs the centrality loop feeds
@@ -186,6 +191,9 @@ fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
     assert_ne!(raw, pairs, "fixture does not reorder edges; pick another seed");
 }
 
+/// Protects: that one pass is byte-identical to the single network build the port made before the
+/// loop existed, with no re-tiering, and that `passes == 0` is clamped to one pass rather than
+/// running three. Red means the loop changed output for a one-pass caller.
 #[test]
 fn one_pass_is_the_single_network_build() {
     // Protects: that one pass is byte-identical to the single network build
@@ -205,6 +213,11 @@ fn one_pass_is_the_single_network_build() {
     assert_eq!(places0, before);
 }
 
+/// Protects: the loop count: `CIV_AUTO_WORLD_PASSES` (3) means network, re-tier, network, re-tier,
+/// network, i.e. two feedback rounds, checked against the same steps done by hand. The two
+/// `assert_ne!` calls show each round moves something on this fixture, so an off-by-one in the
+/// count cannot pass by coincidence. Only `kind` may move: position, faction, seat and port flags
+/// must not.
 #[test]
 fn three_passes_run_two_feedback_rounds() {
     // Protects: the loop count: `CIV_AUTO_WORLD_PASSES` (3) means network,

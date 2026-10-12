@@ -27,6 +27,9 @@ fn check(name: &str, before: &[K], pairs: &[(usize, usize)], btw_bits: &[u64], a
     assert_eq!(kinds, after, "{name}: tiers");
 }
 
+/// Protects the hub case: the star's centre carries all the betweenness (ratio 1.0, over the 0.65
+/// promote threshold) and moves up one tier, while every zero-betweenness leaf moves down one tier and the
+/// bottom tier (Hamlet) clamps instead of falling off the table.
 #[test]
 fn star() {
     check(
@@ -38,6 +41,8 @@ fn star() {
     );
 }
 
+/// Protects the promote threshold from just above: the two interior places at ratio 1.0 and ~0.667 (just
+/// over 0.65) are both promoted, and both zero-betweenness ends are demoted.
 #[test]
 fn path() {
     check(
@@ -49,6 +54,8 @@ fn path() {
     );
 }
 
+/// Protects the degenerate graph with no ways: betweenness is 0, the reference's `max(.., 1e-9)` floor
+/// keeps the ratio finite (no 0/0 NaN), and the lone Capital is demoted one tier.
 #[test]
 fn single() {
     check(
@@ -60,6 +67,8 @@ fn single() {
     );
 }
 
+/// Protects that a bare link gives no centrality: two joined places both have zero betweenness, so both
+/// are demoted one tier.
 #[test]
 fn pair() {
     check(
@@ -71,6 +80,8 @@ fn pair() {
     );
 }
 
+/// Protects tie handling in the betweenness count: in a complete graph every shortest path is direct,
+/// so all five betweenness values are exactly 0 and all five Capitals are demoted together.
 #[test]
 fn complete5() {
     check(
@@ -82,6 +93,9 @@ fn complete5() {
     );
 }
 
+/// Protects input hygiene and the metropolis exemption: a duplicate pair, a self pair and an
+/// out-of-range pair are ignored by the betweenness count, components do not leak into each other, and
+/// the isolated Metropolis is left alone rather than demoted.
 #[test]
 fn components() {
     check(
@@ -93,6 +107,10 @@ fn components() {
     );
 }
 
+/// Protects seeded random graph 0 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random0() {
     check(
@@ -104,6 +122,10 @@ fn random0() {
     );
 }
 
+/// Protects seeded random graph 1 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random1() {
     check(
@@ -115,6 +137,10 @@ fn random1() {
     );
 }
 
+/// Protects seeded random graph 2 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random2() {
     check(
@@ -126,6 +152,10 @@ fn random2() {
     );
 }
 
+/// Protects seeded random graph 3 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random3() {
     check(
@@ -137,6 +167,10 @@ fn random3() {
     );
 }
 
+/// Protects seeded random graph 4 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random4() {
     check(
@@ -148,6 +182,10 @@ fn random4() {
     );
 }
 
+/// Protects seeded random graph 5 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random5() {
     check(
@@ -159,6 +197,10 @@ fn random5() {
     );
 }
 
+/// Protects seeded random graph 6 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random6() {
     check(
@@ -170,6 +212,10 @@ fn random6() {
     );
 }
 
+/// Protects seeded random graph 7 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random7() {
     check(
@@ -181,6 +227,10 @@ fn random7() {
     );
 }
 
+/// Protects seeded random graph 8 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random8() {
     check(
@@ -192,6 +242,10 @@ fn random8() {
     );
 }
 
+/// Protects seeded random graph 9 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random9() {
     check(
@@ -203,6 +257,10 @@ fn random9() {
     );
 }
 
+/// Protects seeded random graph 10 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random10() {
     check(
@@ -214,6 +272,10 @@ fn random10() {
     );
 }
 
+/// Protects seeded random graph 11 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random11() {
     check(
@@ -225,6 +287,10 @@ fn random11() {
     );
 }
 
+/// Protects seeded random graph 12 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random12() {
     check(
@@ -236,6 +302,10 @@ fn random12() {
     );
 }
 
+/// Protects seeded random graph 13 (8-30 places: a random spanning tree plus extra, possibly
+/// duplicate or self, edges, shuffled): betweenness is compared bit for bit and tiers exactly
+/// against the reference's own run, so a changed accumulation order or a moved 0.65/0.08
+/// threshold shows up here.
 #[test]
 fn random13() {
     check(

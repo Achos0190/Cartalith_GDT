@@ -4,6 +4,8 @@
 //! Reference HTML lines 2556-2589 (generateContinentalityField) and
 //! 2603-2617 (applyWorldStructureSeaLevel).
 
+/// Protects: generate_continentality_field() matching the reference bit-for-bit, non-world (no
+/// X-wrap), a regional continent shape.
 #[test]
 fn generate_continentality_field_case_0_region() {
     // Protects: generate_continentality_field() matching the reference
@@ -13,6 +15,8 @@ fn generate_continentality_field_case_0_region() {
     assert_eq!(actual, expected);
 }
 
+/// Protects: generate_continentality_field() matching the reference bit-for-bit, world (X-wrap)
+/// enabled, a supercontinent shape.
 #[test]
 fn generate_continentality_field_case_1_world_supercontinent() {
     // Protects: generate_continentality_field() matching the reference
@@ -22,6 +26,8 @@ fn generate_continentality_field_case_1_world_supercontinent() {
     assert_eq!(actual, expected);
 }
 
+/// Protects: generate_continentality_field() matching the reference bit-for-bit, non-world, an
+/// archipelago (fragmented) shape.
 #[test]
 fn generate_continentality_field_case_2_archipelago() {
     // Protects: generate_continentality_field() matching the reference
@@ -31,6 +37,8 @@ fn generate_continentality_field_case_2_archipelago() {
     assert_eq!(actual, expected);
 }
 
+/// Protects: apply_world_structure_sea_level() matching the reference's sea-level solve bit-for-bit
+/// on an archipelago-shaped continentality field.
 #[test]
 fn apply_world_structure_sea_level_case_0_archipelago() {
     // Protects: apply_world_structure_sea_level() matching the reference's
@@ -41,6 +49,8 @@ fn apply_world_structure_sea_level_case_0_archipelago() {
     assert_eq!(sea_level, 0.7662654031515121_f64);
 }
 
+/// Protects: apply_world_structure_sea_level() matching the reference's sea-level solve bit-for-bit
+/// on a supercontinent-shaped field with a different target land fraction.
 #[test]
 fn apply_world_structure_sea_level_case_1_supercontinent() {
     // Protects: apply_world_structure_sea_level() matching the reference's

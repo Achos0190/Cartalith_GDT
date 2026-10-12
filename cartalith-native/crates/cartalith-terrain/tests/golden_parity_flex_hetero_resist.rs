@@ -4,6 +4,7 @@
 
 use cartalith_terrain::{compute_flexure, compute_heterogeneity, compute_resistance, Plate};
 
+/// Protects: compute_flexure() matching the reference bit-for-bit, non-wrapping grid.
 #[test]
 fn compute_flexure_case_0() {
     // Protects: compute_flexure() matching the reference bit-for-bit,
@@ -15,6 +16,7 @@ fn compute_flexure_case_0() {
     assert_eq!(result, expected);
 }
 
+/// Protects: compute_flexure() matching the reference bit-for-bit with X-wrap enabled.
 #[test]
 fn compute_flexure_case_1() {
     // Protects: compute_flexure() matching the reference bit-for-bit with
@@ -26,6 +28,8 @@ fn compute_flexure_case_1() {
     assert_eq!(result, expected);
 }
 
+/// Protects: compute_heterogeneity() matching the reference bit-for-bit, non-wrapping grid, no warp
+/// fields.
 #[test]
 fn compute_heterogeneity_case_0() {
     // Protects: compute_heterogeneity() matching the reference bit-for-bit,
@@ -36,6 +40,8 @@ fn compute_heterogeneity_case_0() {
     assert_eq!(result, expected);
 }
 
+/// Protects: compute_heterogeneity() matching the reference bit-for-bit with X-wrap enabled and
+/// both warp fields supplied.
 #[test]
 fn compute_heterogeneity_case_1() {
     // Protects: compute_heterogeneity() matching the reference bit-for-bit
@@ -48,6 +54,8 @@ fn compute_heterogeneity_case_1() {
     assert_eq!(result, expected);
 }
 
+/// Protects: compute_resistance() matching the reference bit-for-bit, combining per-plate base
+/// resistance with the age field.
 #[test]
 fn compute_resistance_case_0() {
     // Protects: compute_resistance() matching the reference bit-for-bit,

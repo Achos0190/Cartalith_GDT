@@ -58,6 +58,9 @@ fn fixtures() -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
     (png, bin, params, rnd)
 }
 
+/// Protects: zip_store_bytes for a single-PNG (STORE-only) archive matches the reference's own
+/// zipStore output byte for byte, apart from the two cosmetic fields (version tag, external attrs)
+/// the module doc explains. The reference's own bytes for `zipStore([{name:'a.png', data:png}])`.
 #[test]
 fn a_store_only_archive_is_byte_identical_apart_from_two_cosmetic_fields() {
     // Protects: zip_store_bytes for a single-PNG (STORE-only) archive matches
@@ -93,6 +96,11 @@ fn a_store_only_archive_is_byte_identical_apart_from_two_cosmetic_fields() {
     assert_eq!(ours, REFERENCE, "every other byte must match the reference exactly");
 }
 
+/// Protects: zip_store_bytes's STORE-vs-DEFLATE choice matches the reference entry for entry,
+/// including the two small entries the reference stores because deflating them would not shrink
+/// them -- milestone 2 did not port that rule; E2 does. Reference: png STORED, the compressible
+/// .bin DEFLATED, and BOTH small entries STORED because deflating them would not shrink them. That
+/// last pair is the behaviour milestone 2 did not port.
 #[test]
 fn the_method_rule_matches_the_reference_entry_for_entry() {
     // Protects: zip_store_bytes's STORE-vs-DEFLATE choice matches the
@@ -136,6 +144,11 @@ fn the_method_rule_matches_the_reference_entry_for_entry() {
     }
 }
 
+/// Protects: the STORE-vs-DEFLATE rule keys on the file extension, not on measured compressibility
+/// -- a highly compressible ".PNG" payload is still stored, matching the reference's own name-based
+/// rule. The rule is on the NAME, not on the numbers -- a real PNG is already deflated internally,
+/// so re-compressing it is wasted CPU. A run of one repeated byte is the strongest possible
+/// counter-pressure.
 #[test]
 fn a_png_is_stored_even_when_it_would_compress_beautifully() {
     // Protects: the STORE-vs-DEFLATE rule keys on the file extension, not on
@@ -152,6 +165,8 @@ fn a_png_is_stored_even_when_it_would_compress_beautifully() {
     assert_eq!(f.compressed_size(), 8192, "stored means stored");
 }
 
+/// Protects: zip_store_bytes is deterministic for identical input -- the frozen DOS-epoch timestamp
+/// is what makes two independent writes of the same entries produce byte-identical archives.
 #[test]
 fn the_same_entries_write_the_same_bytes_twice() {
     // Protects: zip_store_bytes is deterministic for identical input -- the
@@ -169,6 +184,8 @@ fn the_same_entries_write_the_same_bytes_twice() {
     assert_eq!(go(), go(), "frozen timestamps are what make this hold");
 }
 
+/// Protects: zip_store_bytes with zero entries still produces a valid, re-openable archive rather
+/// than an error or malformed bytes.
 #[test]
 fn an_empty_entry_list_still_writes_a_readable_archive() {
     // Protects: zip_store_bytes with zero entries still produces a valid,

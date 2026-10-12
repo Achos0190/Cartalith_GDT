@@ -142,6 +142,10 @@ fn assert_places(
 
 // ---------- collapse, mixed character, 3 steps -- baseline-normB threading ----------
 
+/// Protects: `_civSimulateTimeline` (reference 24875-24892) in collapse mode, mixed character,
+/// severity 0.5, three 10-year steps: per-step survivors and died, migrated, unplaced and failed
+/// counts. The `baselineNormB` capture is step 0 only and is threaded unchanged into steps 1 and 2;
+/// a loop that re-captured it each step, or never, diverges from these numbers by step 2.
 #[test]
 fn simulate_timeline_collapse_mixed_three_steps_matches_the_reference() {
     // Protects: `_civSimulateTimeline` (reference 24875-24892) in collapse
@@ -228,6 +232,9 @@ fn simulate_timeline_collapse_mixed_three_steps_matches_the_reference() {
 
 // ---------- collapse, trade character, 2 steps, a different severity ----------
 
+/// Protects: an independent second collapse configuration (trade character, severity 0.8, two
+/// steps): survivors and stats per step, so a bug that only the mixed fixture hides, such as a
+/// character or severity not being passed through, is caught.
 #[test]
 fn simulate_timeline_collapse_trade_two_steps_matches_the_reference() {
     // Protects: an independent second collapse configuration (trade
@@ -297,6 +304,11 @@ fn simulate_timeline_collapse_trade_two_steps_matches_the_reference() {
 
 // ---------- recovery, 2 steps -- logistic growth compounded across the orchestrator's own chaining ----------
 
+/// Protects: the recovery branch of the orchestrator over two 50-year steps from a ruined,
+/// fortified Town: step 0 is 2424 and still Town with ruins set, step 1 is 6211 and City with ruins
+/// cleared. Step 1 equals the single 100-year step in `golden_parity_timeline_collapse.rs`, which
+/// shows the growth compounds step to step. Red means chaining restarted from the original places
+/// or a promotion was lost.
 #[test]
 fn simulate_timeline_recovery_two_steps_matches_the_reference() {
     // Protects: the recovery branch of the orchestrator over two 50-year
@@ -372,6 +384,9 @@ fn simulate_timeline_recovery_two_steps_matches_the_reference() {
 
 // ---------- opts.steps omitted (0) clamps to exactly 1 step ----------
 
+/// Protects: the `Math.max(1, opts.steps || 1)` clamp: `steps = 0` runs exactly one step, and its
+/// result equals the conflict case of `collapse_step_character_changes_which_settlements_fail` (527
+/// died, 473 unplaced, 2 failed). Red means zero steps returned nothing or ran a different count.
 #[test]
 fn simulate_timeline_clamps_zero_steps_to_one_and_matches_the_single_step_reference_number() {
     // Protects: the `Math.max(1, opts.steps || 1)` clamp: `steps = 0` runs

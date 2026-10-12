@@ -53,6 +53,10 @@ fn civ() -> GeoJsonDoc {
     parse_geojson(CIV_DOC).expect("the reference's own document must import")
 }
 
+/// Protects: the fixture files themselves have not drifted from the exporter's own golden byte
+/// length -- a truncated copy would still pass most assertions below, so this is the tripwire for
+/// that. Not decoration. A truncated copy is exactly how a fixture stops testing what it names, and
+/// every other assertion in this file would still pass on a document missing its tail.
 #[test]
 fn the_fixtures_are_the_lengths_the_exporters_golden_records() {
     // Protects: the fixture files themselves have not drifted from the
@@ -65,6 +69,11 @@ fn the_fixtures_are_the_lengths_the_exporters_golden_records() {
     assert_eq!(RIVER_DOC.len(), 924);
 }
 
+/// Protects: `cartalith_io::CRS_NOTE`'s duplicated copy matches the reference's own real wording
+/// exactly, both documents recognise it, and a one-word substitution (the negative control)
+/// genuinely flips the claim to Unstated rather than persisting. This is what pins
+/// `cartalith_io::CRS_NOTE` against the *reference's* own wording rather than against a copy of
+/// itself: the note it matches was written by `exportGeoJSON`, not by this crate.
 #[test]
 fn the_reference_document_is_recognised_as_planar_km() {
     // Protects: `cartalith_io::CRS_NOTE`'s duplicated copy matches the
@@ -84,6 +93,8 @@ fn the_reference_document_is_recognised_as_planar_km() {
     assert_eq!(parse_geojson(&stripped).unwrap().crs, CrsClaim::Unstated);
 }
 
+/// Protects: every feature's `layer` property and geometry type comes back in the exporter's own
+/// document order, across every layer kind it writes, and no position lost a third component.
 #[test]
 fn every_layer_the_exporter_writes_comes_back_in_order() {
     // Protects: every feature's `layer` property and geometry type comes
@@ -112,6 +123,8 @@ fn every_layer_the_exporter_writes_comes_back_in_order() {
     assert!(!doc.elevation_ignored, "the exporter writes two-element positions only");
 }
 
+/// Protects: every property a real settlement feature carries (name, kind, population, faction,
+/// faction name, and an ordered traits array) comes back exactly, from a genuine reference export.
 #[test]
 fn a_settlements_properties_survive_the_round_trip_intact() {
     // Protects: every property a real settlement feature carries (name,
@@ -135,6 +148,10 @@ fn a_settlements_properties_survive_the_round_trip_intact() {
     assert_eq!(traits, ["port", "trade_hub"]);
 }
 
+/// Protects: a POI's genuinely smaller property set stays smaller after import -- no property is
+/// invented to fill a gap the exporter left. `geojson.rs`'s own rule: the two branches emit
+/// *different property sets*, not the same set with blanks. An importer that filled the gap would
+/// be inventing a population of nought for a ruin.
 #[test]
 fn the_pois_shorter_property_set_stays_shorter() {
     // Protects: a POI's genuinely smaller property set stays smaller after
@@ -150,6 +167,8 @@ fn the_pois_shorter_property_set_stays_shorter() {
     }
 }
 
+/// Protects: a real territory polygon's exterior ring and its hole both survive with their correct
+/// position counts, and both rings close.
 #[test]
 fn a_territory_with_a_hole_keeps_its_hole() {
     // Protects: a real territory polygon's exterior ring and its hole both
@@ -166,6 +185,11 @@ fn a_territory_with_a_hole_keeps_its_hole() {
     }
 }
 
+/// Protects: both ways the exporter kept come back as drawable LineStrings, and their
+/// `toFixed(2)`-rounded km property survives exactly (including that 120 was never written as
+/// 120.00). `export_geojson` drops a one-point way rather than writing a broken LineString, and
+/// nothing in the document records that it did — so the check available here is that two ways came
+/// back and both are drawable.
 #[test]
 fn both_ways_come_back_drawable_with_their_rounded_lengths() {
     // Protects: both ways the exporter kept come back as drawable
@@ -185,6 +209,8 @@ fn both_ways_come_back_drawable_with_their_rounded_lengths() {
     assert_eq!(km, [38.46, 120.0], "toFixed(2) survives, and 120 was never written 120.00");
 }
 
+/// Protects: `bounds()` on two real documents matches the actual extent of their positions, not a
+/// guessed or world-sized box.
 #[test]
 fn the_documents_extent_is_measured_rather_than_assumed() {
     // Protects: `bounds()` on two real documents matches the actual extent
@@ -193,6 +219,10 @@ fn the_documents_extent_is_measured_rather_than_assumed() {
     assert_eq!(parse_geojson(RIVER_DOC).unwrap().bounds(), Some((62.5, 37.5, 562.5, 387.5)));
 }
 
+/// Protects: `grid_xy` is the exact inverse of `geo_xy` at a scale where both terms are exact (no
+/// rounding involved), on a real exported settlement's own position. Ardun left the engine at grid
+/// (2, 3) on a 12x9 world at cellKm 50, which `geo_xy` wrote as [100, 300]. Both terms are exact at
+/// this scale, so this is an equality; the lossy case has its own unit test in the module.
 #[test]
 fn a_position_converts_back_to_the_grid_cell_it_was_exported_from() {
     // Protects: `grid_xy` is the exact inverse of `geo_xy` at a scale where
@@ -206,6 +236,8 @@ fn a_position_converts_back_to_the_grid_cell_it_was_exported_from() {
     assert_eq!(cartalith_spatial::geo::geo_xy(gx, gy, CIV_GH, CIV_CELL_KM), [100.0, 300.0]);
 }
 
+/// Protects: the river document's real export carries only river features, each with its Strahler
+/// order and a LineString geometry.
 #[test]
 fn the_river_document_carries_only_rivers_and_their_orders() {
     // Protects: the river document's real export carries only river
@@ -219,6 +251,9 @@ fn the_river_document_carries_only_rivers_and_their_orders() {
     }
 }
 
+/// Protects: a real document truncated mid-file is refused as malformed JSON, not partially
+/// imported. The failure a fixture-only test cannot otherwise reach: a file that starts out
+/// perfectly well-formed and stops.
 #[test]
 fn truncating_the_reference_document_is_refused_rather_than_half_read() {
     // Protects: a real document truncated mid-file is refused as malformed
@@ -229,6 +264,10 @@ fn truncating_the_reference_document_is_refused_rather_than_half_read() {
     assert!(matches!(parse_geojson(half), Err(GeoJsonError::Json(_))));
 }
 
+/// Protects: a single-position corruption of a real document's hole ring is refused, named to the
+/// exact feature index and coordinate path, with both differing endpoints quoted in the reason.
+/// Open the territory's hole by moving its closing position, and nothing else, so the fault is
+/// genuinely the only difference from a document that imports.
 #[test]
 fn one_broken_ring_in_a_real_document_is_named_by_feature_and_path() {
     // Protects: a single-position corruption of a real document's hole

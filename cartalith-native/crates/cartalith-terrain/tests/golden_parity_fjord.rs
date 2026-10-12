@@ -70,6 +70,8 @@ fn fixture() -> Fx {
     Fx { v, gw, gh, sea, field, temp, lith, coast_d }
 }
 
+/// Protects: LITH_COMPETENCE against the reference's `LITH_COMPETENCE` (line 3208), entry for
+/// entry.
 #[test]
 fn the_lith_competence_table_matches_the_reference() {
     // Protects: LITH_COMPETENCE against the reference's `LITH_COMPETENCE`
@@ -79,6 +81,8 @@ fn the_lith_competence_table_matches_the_reference() {
     assert_eq!(LITH_COMPETENCE.to_vec(), expected);
 }
 
+/// Protects: build_fjord_mask() against the reference's `buildFjordMask` (line 3209) at the default
+/// opts, and that the fixture actually produces a non-empty mask.
 #[test]
 fn build_fjord_mask_matches_the_reference_at_the_defaults() {
     // Protects: build_fjord_mask() against the reference's
@@ -103,6 +107,8 @@ fn build_fjord_mask_matches_the_reference_at_the_defaults() {
     );
 }
 
+/// Protects: carve_fjords() against the reference's `carveFjords` (line 3229) at the default opts,
+/// and that the fixture actually carves something.
 #[test]
 fn carve_fjords_matches_the_reference_at_the_defaults() {
     // Protects: carve_fjords() against the reference's `carveFjords`
@@ -117,6 +123,9 @@ fn carve_fjords_matches_the_reference_at_the_defaults() {
     assert!(changed > 0, "the fixture must actually carve something");
 }
 
+/// Protects: every one of `FjordMaskOpts`'s and `CarveFjordsOpts`'s fields being read rather than
+/// any silently defaulting -- overriding all of them at once must change the answer, matched
+/// against the reference's own all-overrides capture.
 #[test]
 fn every_opts_override_is_read() {
     // Protects: every one of `FjordMaskOpts`'s and `CarveFjordsOpts`'s
@@ -160,6 +169,8 @@ fn the_paleoclimate_band_matches_on_a_second_world_twelve_degrees_colder() {
     assert_ne!(got, f32s(&f.v["real"]["mask"]), "a 12-degree shift must move the band");
 }
 
+/// Protects: all seven LITH_COMPETENCE entries actually being read via a lithology sweep, and that
+/// rewriting lithology changes the mask.
 #[test]
 fn all_seven_lithology_competences_are_applied() {
     // Protects: all seven LITH_COMPETENCE entries actually being read via

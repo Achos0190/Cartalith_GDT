@@ -130,6 +130,8 @@ fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
 const GW: usize = 48; // fixture grid width, this file's own synthetic_field
 const GH: usize = 32; // fixture grid height, this file's own synthetic_field
 
+/// Protects: every golden below is only evidence about the function under test if the input agrees
+/// exactly with the V8 harness's own fixture.
 #[test]
 fn the_fixture_field_is_bit_identical_to_the_harnesss_own() {
     // Protects: every golden below is only evidence about the function under
@@ -137,6 +139,8 @@ fn the_fixture_field_is_bit_identical_to_the_harnesss_own() {
     assert_eq!(fnv_f32(&synthetic_field(GW, GH, 5)), "e6a8f7dd46187082");
 }
 
+/// Protects: `amplify_region`'s output against the V8 reference, default fbm detail, re-derived
+/// under Ruling O's sea-level clamp.
 #[test]
 fn case0_default_fbm_detail() {
     // Protects: `amplify_region`'s output against the V8 reference, default
@@ -152,6 +156,9 @@ fn case0_default_fbm_detail() {
     assert!(o.iter().all(|v| (0.0..=1.0).contains(v)));
 }
 
+/// Protects: `amplify_region`'s ridged-detail output against the V8 reference, and that ridged
+/// really disagrees with fbm on the same inputs (a cross-check the golden alone could not catch a
+/// copy-paste on).
 #[test]
 fn case1_the_same_region_with_ridged_detail_differs() {
     // Protects: `amplify_region`'s ridged-detail output against the V8
@@ -170,6 +177,8 @@ fn case1_the_same_region_with_ridged_detail_differs() {
     assert_ne!(fnv_f32(&o), fnv_f32(&fbm));
 }
 
+/// Protects: `amplify_region`'s golden against the V8 reference under a downsample (out < src) with
+/// a raised detail frequency and amplitude.
 #[test]
 fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
     // Protects: `amplify_region`'s golden against the V8 reference under a
@@ -185,6 +194,9 @@ fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
     assert_eq!(fnv_f32(&o), "366f3f4f2e388349");
 }
 
+/// Protects: `amplify_region`'s golden against the V8 reference when the region abuts the far edge,
+/// so the relief gradient's `cx + e` sample must go through `samp`'s clamp rather than an interior
+/// cell.
 #[test]
 fn case3_a_region_hard_against_the_far_edge_exercises_the_clamped_sampler() {
     // Protects: `amplify_region`'s golden against the V8 reference when the
@@ -199,6 +211,8 @@ fn case3_a_region_hard_against_the_far_edge_exercises_the_clamped_sampler() {
     assert_eq!(fnv_f32(&o), "2b89b6f60add208a");
 }
 
+/// Protects: a 1x1 region's golden, and that its output is constant and finite rather than the
+/// `0/0` NaN case case5 pins.
 #[test]
 fn case4_a_collapsed_one_cell_region_is_constant_and_finite() {
     // Protects: a 1x1 region's golden, and that its output is constant and
@@ -210,6 +224,8 @@ fn case4_a_collapsed_one_cell_region_is_constant_and_finite() {
     assert!(o.iter().all(|v| v.to_bits() == o[0].to_bits() && v.is_finite()));
 }
 
+/// Protects: the real reference `0/0` division-by-zero case is ported as written, byte for byte,
+/// not silently fixed into a finite value.
 #[test]
 fn case5_a_one_pixel_output_is_all_nan_exactly_as_the_reference_computes_it() {
     // Protects: the real reference `0/0` division-by-zero case is ported as
@@ -224,6 +240,13 @@ fn case5_a_one_pixel_output_is_all_nan_exactly_as_the_reference_computes_it() {
     assert!(o[0].is_nan());
 }
 
+/// Protects: the `rh > 1.0`/`rw > 1.0` guard is strict (`>`, not `>=`) — a fully degenerate
+/// region+output pair must stay finite where case5's pattern with a non-degenerate region comes
+/// back NaN. Both the region AND the output collapse to one cell. Unlike case 5 this is *not* NaN,
+/// because `rh > 1.0` is false and the mapping takes its `: ry` branch instead of dividing. The
+/// pair of cases is what pins the guard as `> 1.0` rather than `>= 1.0` -- with `>=`, this one
+/// would evaluate `(0/0) * 0` and come back NaN. Added after mutation testing found the guard
+/// survived on the original fixture set.
 #[test]
 fn case7_a_fully_degenerate_region_and_output_stays_finite() {
     // Protects: the `rh > 1.0`/`rw > 1.0` guard is strict (`>`, not `>=`) —
@@ -243,6 +266,8 @@ fn case7_a_fully_degenerate_region_and_output_stays_finite() {
     assert_eq!(o[0], 0.326_875);
 }
 
+/// Protects: `amplify_region`'s golden with every `AmplifyOpts` field left at `Default::default()`
+/// — the path most shipped callers actually take.
 #[test]
 fn case6_every_option_left_at_its_default() {
     // Protects: `amplify_region`'s golden with every `AmplifyOpts` field left
@@ -253,6 +278,8 @@ fn case6_every_option_left_at_its_default() {
     assert_eq!(fnv_f32(&o), "2c1d56fb45ed3b2d");
 }
 
+/// Protects: `refine_tile`'s golden against the V8 reference for every tile of a 2x2 grid,
+/// re-derived where Ruling O moved them.
 #[test]
 fn refine_tile_matches_the_reference_tile_for_tile() {
     // Protects: `refine_tile`'s golden against the V8 reference for every
@@ -274,6 +301,8 @@ fn refine_tile_matches_the_reference_tile_for_tile() {
     }
 }
 
+/// Protects: the seam property, measured as the harness measured it — two horizontally adjacent
+/// tiles' shared edge delta is exactly 0.0, not just small.
 #[test]
 fn the_shared_tile_edge_delta_is_exactly_zero_as_the_harness_measured() {
     // Protects: the seam property, measured as the harness measured it — two

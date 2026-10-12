@@ -21,6 +21,10 @@
 
 use cartalith_spatial::{norm_region, tile_dims, Region};
 
+/// Protects: norm_region() against the reference's `normRegion` (line 11569) on every recorded drag
+/// shape -- reversed corners, overshoot in both directions, below-minimum and explicit-zero/one
+/// minimums, and the fractional case that separates floor from ceil. (x0, y0, x1, y1, W, H, minW,
+/// minH) -> (x, y, w, h)
 #[test]
 fn norm_region_matches_the_reference_on_every_recorded_drag() {
     // Protects: norm_region() against the reference's `normRegion`
@@ -60,6 +64,9 @@ fn norm_region_matches_the_reference_on_every_recorded_drag() {
     }
 }
 
+/// Protects: tile_dims() against the reference's `tileDims` (line 11536), including both the
+/// wide/tall long-edge branches and the 2px floor on the short edge in each direction. (w, h, cols,
+/// rows, ts) -> (tileW, tileH)
 #[test]
 fn tile_dims_matches_the_reference_including_both_extremes() {
     // Protects: tile_dims() against the reference's `tileDims`

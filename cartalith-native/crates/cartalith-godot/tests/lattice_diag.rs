@@ -64,6 +64,13 @@ fn lum(ctx: &render::RenderCtx, gw: usize, gh: usize) -> Vec<f64> {
     v
 }
 
+/// Scratch diagnosis, not a regression test (it is `#[ignore]` and asserts nothing; see the module
+/// header). For seed 483920 at 1024x768 / 1200 km it generates the world as the app does and prints
+/// how much of the 3x3 high-pass energy sits at the exact Nyquist checker, for the elevation field
+/// and for rendered luminance, over the region where the owner saw the 'diamond lattice' and over
+/// the whole map, to say whether the pattern is already in the height field or only appears in
+/// rendering. `LAT_GPU` switches the GPU path on and `LAT_OUT` dumps the region's pixels and
+/// heights. Intent read from the code; no recorded verdict.
 #[test]
 #[ignore]
 fn diag_lattice() {
@@ -160,6 +167,13 @@ fn dir_corr(f: &[f64], land: &[bool], gw: usize, gh: usize) -> [f64; 4] {
     out
 }
 
+/// Scratch diagnosis, not a regression test (it is `#[ignore]` and asserts nothing). It bisects the
+/// 'diamond lattice' by regenerating the same world under seven parameter variants (app defaults,
+/// rivers not carved, stream-power K and uplift zero, drainage not integrated, glacial pass off,
+/// geology model off, engine defaults) and printing high-frequency statistics of elevation and
+/// rendered luminance on land for each, so the variant that makes the lattice vanish names the
+/// stage that makes it. `LAT_OUT` dumps each variant's region. Intent read from the code; no
+/// recorded verdict.
 #[test]
 #[ignore]
 fn diag_variants() {

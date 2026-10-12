@@ -171,6 +171,8 @@ fn every_knob_reaches_the_formula() {
     assert!((peak - base_o.amp * 2.0).abs() < 1e-9);
 }
 
+/// Protects: refresh_geoid's derived rot_k and the field it builds, against the reference's own
+/// refreshGeoid output.
 #[test]
 fn refresh_geoid_derives_the_reference_s_own_rot_k_and_options() {
     // Protects: refresh_geoid's derived rot_k and the field it builds,

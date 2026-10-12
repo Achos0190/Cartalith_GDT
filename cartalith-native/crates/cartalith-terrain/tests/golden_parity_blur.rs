@@ -6,6 +6,8 @@
 
 use cartalith_terrain::gauss_blur;
 
+/// Protects: gauss_blur() matching the reference's three-pass box blur bit-for-bit, non-wrapping
+/// grid.
 #[test]
 fn gauss_blur_case_0() {
     // Protects: gauss_blur() matching the reference's three-pass box blur
@@ -16,6 +18,8 @@ fn gauss_blur_case_0() {
     assert_eq!(result, expected);
 }
 
+/// Protects: gauss_blur() matching the reference bit-for-bit with the same radius/dims as case 0
+/// but X-wrap enabled.
 #[test]
 fn gauss_blur_case_1() {
     // Protects: gauss_blur() matching the reference bit-for-bit with the
@@ -26,6 +30,8 @@ fn gauss_blur_case_1() {
     assert_eq!(result, expected);
 }
 
+/// Protects: gauss_blur() at a sub-pixel radius (0.5) producing a byte-identical no-op, matching
+/// the reference's own degenerate case.
 #[test]
 fn gauss_blur_case_2() {
     // Protects: gauss_blur() at a sub-pixel radius (0.5) producing a
@@ -36,6 +42,8 @@ fn gauss_blur_case_2() {
     assert_eq!(result, expected);
 }
 
+/// Protects: gauss_blur() matching the reference bit-for-bit at a large radius (6.0) on a bigger
+/// grid, wrap enabled.
 #[test]
 fn gauss_blur_case_3() {
     // Protects: gauss_blur() matching the reference bit-for-bit at a large

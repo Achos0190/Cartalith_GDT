@@ -5,6 +5,8 @@
 
 use cartalith_terrain::{assign_plates, Plate};
 
+/// Protects: assign_plates() matching the reference's JFA Voronoi bit-for-bit, non-wrapping grid,
+/// no warp fields.
 #[test]
 fn assign_plates_case_0() {
     // Protects: assign_plates() matching the reference's JFA Voronoi
@@ -15,6 +17,8 @@ fn assign_plates_case_0() {
     assert_eq!(plate_id, expected);
 }
 
+/// Protects: assign_plates() matching the reference bit-for-bit with the same plate layout as case
+/// 0 but X-wrap enabled, confirming wrap changes the assignment.
 #[test]
 fn assign_plates_case_1() {
     // Protects: assign_plates() matching the reference bit-for-bit with the
@@ -26,6 +30,8 @@ fn assign_plates_case_1() {
     assert_eq!(plate_id, expected);
 }
 
+/// Protects: assign_plates() matching the reference bit-for-bit when warp_x/warp_y perturb the
+/// plate distance field, non-wrapping grid.
 #[test]
 fn assign_plates_case_2() {
     // Protects: assign_plates() matching the reference bit-for-bit when
@@ -38,6 +44,8 @@ fn assign_plates_case_2() {
     assert_eq!(plate_id, expected);
 }
 
+/// Protects: assign_plates() matching the reference bit-for-bit with both warp fields and X-wrap
+/// enabled together.
 #[test]
 fn assign_plates_case_3() {
     // Protects: assign_plates() matching the reference bit-for-bit with

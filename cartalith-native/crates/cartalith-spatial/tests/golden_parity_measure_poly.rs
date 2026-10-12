@@ -220,6 +220,8 @@ fn the_fixture_table_is_non_empty_and_varied() {
     );
 }
 
+/// Protects: polygon_area() against the frozen reference's `polyArea` (line 28290) bit-for-bit,
+/// across every fixture ring.
 #[test]
 fn polygon_area_matches_the_reference_exactly() {
     // Protects: polygon_area() against the frozen reference's `polyArea`
@@ -229,6 +231,8 @@ fn polygon_area_matches_the_reference_exactly() {
     }
 }
 
+/// Protects: polygon_centroid() against the frozen reference's `polyCentroid` (line 28291)
+/// bit-for-bit, including its degenerate vertex-mean fallback.
 #[test]
 fn polygon_centroid_matches_the_reference_exactly() {
     // Protects: polygon_centroid() against the frozen reference's
@@ -241,6 +245,8 @@ fn polygon_centroid_matches_the_reference_exactly() {
     }
 }
 
+/// Protects: point_in_polygon() against the frozen reference's `pointInPoly` (line 28295) on all 84
+/// ring/probe combinations, not just the easy convex-fixture ones.
 #[test]
 fn point_in_polygon_matches_the_reference_on_every_probe() {
     // Protects: point_in_polygon() against the frozen reference's

@@ -118,6 +118,8 @@ fn base_tile(coarse: &[f32]) -> Vec<f32> {
     refine_tile(coarse, CW, CH, &region, 4, 4, 1, 1, W, H, &base_opts())
 }
 
+/// Protects: the synthetic field's own arithmetic staying bit-identical to the harness's `mkField`
+/// -- every golden below is worthless if the fixture itself has drifted.
 #[test]
 fn the_fixture_is_bit_identical_to_the_harnesss() {
     // Protects: the synthetic field's own arithmetic staying bit-identical
@@ -129,6 +131,9 @@ fn the_fixture_is_bit_identical_to_the_harnesss() {
     assert!(f.iter().all(|&v| (0.0..=1.0).contains(&v)), "the fixture escaped [0,1]");
 }
 
+/// Protects: refine_tile's own output (BASE_HASH), independently of add_zoom_detail -- see the
+/// comment below for why this stage is pinned on its own. Stage N-1 verified before stage N, per
+/// `PARITY_TESTING.md`: if this fails, nothing below it means anything.
 #[test]
 fn the_base_tile_is_bit_identical_before_any_zoom_detail() {
     // Protects: refine_tile's own output (BASE_HASH), independently of
@@ -142,6 +147,11 @@ fn the_base_tile_is_bit_identical_before_any_zoom_detail() {
     assert!(t.iter().any(|&v| v != t[0]), "the base tile is constant");
 }
 
+/// Protects: add_zoom_detail's byte-exact agreement with the reference across the shallow no-op
+/// cases and every octave depth up to the six-octave ceiling, post-Ruling-O (see the module doc's
+/// re-baseline section for why these hashes are the port's own, not v2.11's). (z, z_base,
+/// zoom_detail_k) -> hash after the pass. The harness built `b` as pyramidTileBounds(CW, CH, max(0,
+/// z-2), 1, 1) in every case.
 #[test]
 fn add_zoom_detail_matches_the_reference() {
     // Protects: add_zoom_detail's byte-exact agreement with the reference
@@ -173,6 +183,10 @@ fn add_zoom_detail_matches_the_reference() {
     }
 }
 
+/// Protects: `z <= z_base` being an exact no-op and `z > z_base` actually changing the tile --
+/// stated as a property, not just a hash table entry, since `pyramid_tile` calls this
+/// unconditionally at every level. Stated separately from the hash table because it is the
+/// property, not a value: `pyramid_tile` calls this unconditionally at every level.
 #[test]
 fn a_shallow_level_is_a_byte_identical_no_op_and_a_deep_one_is_not() {
     // Protects: `z <= z_base` being an exact no-op and `z > z_base` actually
@@ -193,6 +207,10 @@ fn a_shallow_level_is_a_byte_identical_no_op_and_a_deep_one_is_not() {
     assert_ne!(deep, base, "z > z_base must add detail");
 }
 
+/// Protects: the `Math.min(6, z - zBase)` octave ceiling -- a dropped min would pass every other
+/// test in this file and only show up as unbounded time at real depth. `Math.min(6, z - zBase)`: z
+/// = 8 and z = 40 must produce the *same* tile, because both cap at six octaves. A port that
+/// dropped the min would pass every other test here and then take unbounded time at depth.
 #[test]
 fn the_octave_ceiling_really_binds() {
     // Protects: the `Math.min(6, z - zBase)` octave ceiling -- a dropped min
@@ -210,6 +228,20 @@ fn the_octave_ceiling_really_binds() {
     assert_eq!(a, c, "the six-octave ceiling is not binding");
 }
 
+/// Protects: the write-back staying unclamped upward (a real reference property, not tidied away)
+/// while Ruling O's downward half-headroom guard actually binds -- both halves computed from the
+/// fixture, not read off a run. Added after mutation testing: inserting a `[0,1]` clamp on the
+/// write-back survived every other case in this file, because none of them pushes a value out of
+/// range. So the claim was checked against the reference directly rather than assumed -- a cliff
+/// fixture with a 9.0 detail amplitude, run through the real `addZoomDetail`, comes back spanning
+/// [-0.963, 2.825]. `amplifyRegion` clamps; this pass does not, and a port that "tidied" that would
+/// silently flatten every peak a deep bake touches. RULING O SPLIT THIS IN TWO, and the split is
+/// exactly the ruling's shape: * **Upward it is still unclamped**, and the max below is still the
+/// reference's own 2.825417 -- a `[0,1]` clamp would still be caught. * **Downward it now stops at
+/// half the sea-level headroom.** The reference's -0.963324 was this pass dragging a 0.999 cell
+/// 1.96 of normalised height *through* sea level; the guard caps that excursion at `(0.999 - 0.42)
+/// / 2`, so the floor is a number this test can compute from the fixture without asking the code
+/// what it did. 6 of 64 pixels moved and the hash went `89d0a40e18e0f704` -> `723a6826d627b855`.
 #[test]
 fn the_write_back_is_unclamped_upward_and_stops_at_half_the_sea_headroom_downward() {
     // Protects: the write-back staying unclamped upward (a real reference
@@ -271,6 +303,11 @@ fn the_write_back_is_unclamped_upward_and_stops_at_half_the_sea_headroom_downwar
     assert_eq!(data.iter().copied().fold(f32::INFINITY, f32::min), deepest);
 }
 
+/// Protects: the hard `if(base<sea) continue` gate, distinct from amplify_region's smooth
+/// underwater fade -- reusing that fade here would quietly roughen every seabed a deep bake
+/// touches. The reference's hard `if(base<sea) continue`, which is a *different* rule from
+/// `amplify_region`'s smooth `underwater` fade -- a port that reused the fade here would pass a
+/// "the tile changed" test and quietly roughen every seabed.
 #[test]
 fn nothing_below_sea_level_is_touched() {
     // Protects: the hard `if(base<sea) continue` gate, distinct from

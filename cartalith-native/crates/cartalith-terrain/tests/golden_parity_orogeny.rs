@@ -49,6 +49,8 @@ fn polyline(kind: u8) -> BoundaryPolyline {
     }
 }
 
+/// Protects: build_orogeny_field() and smooth_orogeny() matching the reference bit-for-bit for a
+/// collision boundary.
 #[test]
 fn build_orogeny_field_collision() {
     // Protects: build_orogeny_field() and smooth_orogeny() matching the
@@ -71,6 +73,8 @@ fn build_orogeny_field_collision() {
     assert_eq!(actual_smoothed, expected_smoothed);
 }
 
+/// Protects: build_orogeny_field() matching the reference bit-for-bit for an oceanic-subduction
+/// boundary.
 #[test]
 fn build_orogeny_field_subduction_oc() {
     // Protects: build_orogeny_field() matching the reference bit-for-bit
@@ -89,6 +93,8 @@ fn build_orogeny_field_subduction_oc() {
     assert_eq!(actual, expected);
 }
 
+/// Protects: build_orogeny_field() matching the reference bit-for-bit for an oceanic-oceanic arc
+/// boundary.
 #[test]
 fn build_orogeny_field_arc_oo() {
     // Protects: build_orogeny_field() matching the reference bit-for-bit
@@ -107,6 +113,8 @@ fn build_orogeny_field_arc_oo() {
     assert_eq!(actual, expected);
 }
 
+/// Protects: build_orogeny_field() and smooth_orogeny() matching the reference bit-for-bit for a
+/// rift boundary with fault_block_k != 0.
 #[test]
 fn build_orogeny_field_rift() {
     // Protects: build_orogeny_field() and smooth_orogeny() matching the
@@ -129,6 +137,8 @@ fn build_orogeny_field_rift() {
     assert_eq!(actual_smoothed, expected_smoothed);
 }
 
+/// Protects: build_orogeny_field() matching the reference bit-for-bit for a transform boundary, the
+/// one case that reads the shear field.
 #[test]
 fn build_orogeny_field_transform() {
     // Protects: build_orogeny_field() matching the reference bit-for-bit

@@ -159,6 +159,9 @@ fn check(g: &Golden, wb: Arc<[u8]>, radius: f64, taps: &[(i64, i64, u8)]) {
     }
 }
 
+/// Protects: apply()'s disc geometry over open land matching the reference's own `_paintAt` output
+/// exactly (count, fold, samples). Radius 6 -> 113 cells, the integer-lattice disc of pi*r^2 ~=
+/// 113.1.
 #[test]
 fn a_disc_on_open_land_matches_the_reference() {
     // Protects: apply()'s disc geometry over open land matching the
@@ -177,6 +180,7 @@ fn a_disc_on_open_land_matches_the_reference() {
     );
 }
 
+/// Protects: the mask gate excluding ocean cells (wb == 1) exactly as the reference does.
 #[test]
 fn the_ocean_gate_matches_the_reference() {
     // Protects: the mask gate excluding ocean cells (wb == 1) exactly as
@@ -194,6 +198,8 @@ fn the_ocean_gate_matches_the_reference() {
     );
 }
 
+/// Protects: the mask gate being `!= 0`, not `== 1` -- classification 2, not 1: a `== 1` gate would
+/// paint straight through this band and still pass every other case in this file.
 #[test]
 fn the_lake_gate_matches_the_reference() {
     // Protects: the mask gate being `!= 0`, not `== 1` -- classification 2,
@@ -212,6 +218,8 @@ fn the_lake_gate_matches_the_reference() {
     );
 }
 
+/// Protects: an erase tap (value 0) applied after a paint tap matching the reference's
+/// `_paintErase` output exactly.
 #[test]
 fn erasing_over_an_existing_disc_matches_the_reference() {
     // Protects: an erase tap (value 0) applied after a paint tap matching
@@ -229,6 +237,8 @@ fn erasing_over_an_existing_disc_matches_the_reference() {
     );
 }
 
+/// Protects: a disc centred near the grid edge clipping exactly as the reference's bounds-checked
+/// loop does, with no wraparound or panic.
 #[test]
 fn a_disc_clipped_by_the_grid_edge_matches_the_reference() {
     // Protects: a disc centred near the grid edge clipping exactly as the
@@ -246,6 +256,8 @@ fn a_disc_clipped_by_the_grid_edge_matches_the_reference() {
     );
 }
 
+/// Protects: two overlapping taps in sequence producing the reference's own last-write-wins result,
+/// not an average or an accumulation.
 #[test]
 fn overlapping_discs_let_the_last_one_win() {
     // Protects: two overlapping taps in sequence producing the reference's
@@ -263,6 +275,8 @@ fn overlapping_discs_let_the_last_one_win() {
     );
 }
 
+/// Protects: radius 1 matching the reference's own plus-shape output -- five cells, not nine:
+/// `hypot(1,1)` is 1.41, and the gate is `> R`.
 #[test]
 fn radius_one_matches_the_reference() {
     // Protects: radius 1 matching the reference's own plus-shape output --

@@ -37,6 +37,9 @@ fn raw_state(name: &str) -> serde_json::Value {
     v["state"].clone()
 }
 
+/// Protects: a real export with empty places/labels/mapIcons and null civ imports as truly empty --
+/// no fabricated settlement, faction or warning -- so Ruling AU's importer changes nothing for the
+/// repository's original, record-free fixture.
 #[test]
 fn an_export_with_no_records_reads_exactly_as_before() {
     // Protects: a real export with empty places/labels/mapIcons and null
@@ -58,6 +61,8 @@ fn an_export_with_no_records_reads_exactly_as_before() {
     assert!(data.documents.is_empty());
 }
 
+/// Protects: a real tree-layout project archive reads `Layout::Tree` with `legacy: None` -- the
+/// legacy block is a flat-layout-only concept, not populated (even empty) for a tree save.
 #[test]
 fn a_tree_archive_has_no_legacy_block() {
     // Protects: a real tree-layout project archive reads `Layout::Tree`
@@ -69,6 +74,10 @@ fn a_tree_archive_has_no_legacy_block() {
     assert!(data.legacy.is_none());
 }
 
+/// Protects: against a REAL v2.11-produced export (not a synthetic fixture), every
+/// settlement/faction/territory/label/icon field reads correctly, ids are unique, the Settlement
+/// tool's own literal drop record matches the reference function's literals, and the unmapped
+/// report names what did not import.
 #[test]
 fn the_records_export_imports_every_settlement_label_and_icon() {
     // Protects: against a REAL v2.11-produced export (not a synthetic

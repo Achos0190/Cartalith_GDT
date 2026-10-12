@@ -22,6 +22,8 @@
 
 use cartalith_terrain::{stamp_craters, stamp_volcanoes_provinces, stamp_volcanoes_simple};
 
+/// Protects: stamp_volcanoes_simple() matching the reference bit-for-bit for both the height field
+/// and the volcanic-age tracking field.
 #[test]
 fn stamp_volcanoes_simple_case_0() {
     // Protects: stamp_volcanoes_simple() matching the reference bit-for-bit
@@ -36,6 +38,8 @@ fn stamp_volcanoes_simple_case_0() {
     assert_eq!(volcanic_field, expected_volcanic, "volcanic_field");
 }
 
+/// Protects: stamp_volcanoes_simple() matching the reference bit-for-bit at a different
+/// grid/seed/spacing/strength than case 0.
 #[test]
 fn stamp_volcanoes_simple_case_1() {
     // Protects: stamp_volcanoes_simple() matching the reference bit-for-bit
@@ -50,6 +54,8 @@ fn stamp_volcanoes_simple_case_1() {
     assert_eq!(volcanic_field, expected_volcanic, "volcanic_field");
 }
 
+/// Protects: stamp_craters() matching the reference bit-for-bit for both the height field and the
+/// impact_field, physical=false (band scheme).
 #[test]
 fn stamp_craters_case_0() {
     // Protects: stamp_craters() matching the reference bit-for-bit for both
@@ -69,6 +75,8 @@ fn stamp_craters_case_0() {
     assert_eq!(impact_field, expected_impact, "impact_field");
 }
 
+/// Protects: stamp_craters() matching the reference bit-for-bit at a different
+/// grid/seed/impact-size/strength than case 0.
 #[test]
 fn stamp_craters_case_1() {
     // Protects: stamp_craters() matching the reference bit-for-bit at a

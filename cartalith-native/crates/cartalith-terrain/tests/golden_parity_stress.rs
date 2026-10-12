@@ -4,6 +4,7 @@
 
 use cartalith_terrain::{compute_stress, Plate};
 
+/// Protects: compute_stress() matching the reference bit-for-bit, non-wrapping grid.
 #[test]
 fn compute_stress_case_0() {
     // Protects: compute_stress() matching the reference bit-for-bit,
@@ -21,6 +22,8 @@ fn compute_stress_case_0() {
     assert_eq!(r.shear_field, expected_shear, "shear_field");
 }
 
+/// Protects: compute_stress() matching the reference bit-for-bit with the same plates/ids as case 0
+/// but X-wrap enabled.
 #[test]
 fn compute_stress_case_1() {
     // Protects: compute_stress() matching the reference bit-for-bit with
@@ -38,6 +41,8 @@ fn compute_stress_case_1() {
     assert_eq!(r.shear_field, expected_shear, "shear_field");
 }
 
+/// Protects: compute_stress() matching the reference bit-for-bit at a different grid size/plate
+/// count and a zero shear-scale parameter.
 #[test]
 fn compute_stress_case_2() {
     // Protects: compute_stress() matching the reference bit-for-bit at a

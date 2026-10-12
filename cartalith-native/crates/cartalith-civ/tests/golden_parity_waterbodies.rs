@@ -80,6 +80,14 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     }
 }
 
+/// Protects: `buildWaterBodies` (reference 5753) on a bounded 14 x 11 region: classification
+/// bit-exact (79 land, 75 ocean, no lakes) and the continuous `fill_level` raster. A case with no
+/// pooled lakes still pins that the priority flood runs and finds nothing to pool. Untouched by
+/// Rulings Q and T (module doc), so this one is the reference's own output. Red means the
+/// ocean/lake split or the fill moved. case 0: region: gw=14 gh=11 seed=24601 world=false. No
+/// above-sea pooled lakes form in this configuration -- classification is 0/1 only (79 land, 75
+/// ocean), which is itself a real, useful case: the priority-flood machinery runs and correctly
+/// finds nothing to pool.
 #[test]
 fn water_bodies_case_0_region() {
     // Protects: `buildWaterBodies` (reference 5753) on a bounded 14 x 11
@@ -140,6 +148,19 @@ fn water_bodies_case_0_region() {
     assert_close(&wb.fill_level, &expected_fill, "fill_level");
 }
 
+/// Protects: the classification (127 land, 13 ocean, 52 lake) and `fill_level` on a wrapped 16 x 12
+/// world. This pins Ruling T: a `world=true` map keeps the reference's size-primary ocean/lake
+/// rule, not Ruling Q's topology-primary one (module doc). Red means the wrapped-map branch of the
+/// water-body rule changed, which also moves the placement, biome, resource and road fixtures that
+/// read it. case 1: world_wrap: gw=16 gh=12 seed=314159 world=true. RE-BASELINED AGAIN 2026-09-21
+/// (Ruling T, see this file's own header) -- reverted to its PRE-Ruling-Q values: 127 land, 13
+/// ocean, 52 lake, matching this exact literal before commit cc834d2 (`git show
+/// c6de2a2:crates/cartalith-civ/tests/golden_parity_waterbodies.rs`). Ruling T special-cases
+/// `world=true` back to the reference's original size-primary rule (X has no real edge on a wrapped
+/// map, so Ruling Q's boundary-touching argument does not apply here), so this fixture's own
+/// `build_water_bodies` call now runs the identical pre-Ruling-Q code path again and reproduces its
+/// identical output -- re-run and confirmed against this crate's own actual current output, not
+/// pasted from memory of the old file.
 #[test]
 fn water_bodies_case_1_world_wrap() {
     // Protects: the classification (127 land, 13 ocean, 52 lake) and

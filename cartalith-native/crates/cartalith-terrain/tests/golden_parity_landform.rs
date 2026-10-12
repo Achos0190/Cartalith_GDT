@@ -97,6 +97,8 @@ fn fixture() -> Fx {
     }
 }
 
+/// Protects: LANDFORM_COLS/LANDFORM_NAMES against the reference's `LANDFORM_COLS` array (line
+/// 8082), class for class.
 #[test]
 fn the_palette_matches_the_reference() {
     // Protects: LANDFORM_COLS/LANDFORM_NAMES against the reference's
@@ -115,6 +117,8 @@ fn the_palette_matches_the_reference() {
     }
 }
 
+/// Protects: build_landform_field() against the reference's `buildLandformField` (line 8083) on a
+/// real world, raster and histogram both, and that every non-zero class actually occurs.
 #[test]
 fn build_landform_field_matches_the_reference_on_a_real_world() {
     // Protects: build_landform_field() against the reference's
@@ -140,6 +144,8 @@ fn build_landform_field_matches_the_reference_on_a_real_world() {
     }
 }
 
+/// Protects: the reference's `:15`/`:0.4`/`flow&&` no-climate fallbacks matching exactly, and that
+/// they can only ever reach cliff and mesa.
 #[test]
 fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
     // Protects: the reference's `:15`/`:0.4`/`flow&&` no-climate fallbacks
@@ -154,6 +160,9 @@ fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
     assert!(got.contains(&1) && got.contains(&2), "cliff and mesa must still be reachable");
 }
 
+/// Protects: the mutation test for the dune/badlands threshold constants -- a hotter, drier world
+/// must match the reference exactly and must move both the dune and badlands counts from the base
+/// world.
 #[test]
 fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
     // Protects: the mutation test for the dune/badlands threshold
@@ -171,6 +180,8 @@ fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
     assert_ne!(h[5], base[5], "aridity must move the badlands count");
 }
 
+/// Protects: the `T<2` cirque threshold pinned independently of the arid case -- a cold world
+/// matches the reference exactly, moves the cirque count and drops dune to zero.
 #[test]
 fn a_cold_world_matches_the_reference_and_moves_cirque_and_dune() {
     // Protects: the `T<2` cirque threshold pinned independently of the
