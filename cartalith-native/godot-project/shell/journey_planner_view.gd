@@ -4746,7 +4746,10 @@ class _RouteMapView extends Control:
 	## complexity here.
 	func _sync_lod() -> void:
 		_clear_lod_sprites()
-		if not _use_lod or _lod_bridge == null or pts.size() < 2 or map_texture == null:
+		## `_lod_bridge.generating`: `lod_level_for_zoom` / `lod_tiles_per_axis` below are
+		## ungated `#[func]`s (2026-10-12); a run's worker holds `WorldGen`, so the panel
+		## shows the plain route map (no deep-zoom tiles) until its next redraw after the run.
+		if not _use_lod or _lod_bridge == null or _lod_bridge.generating or pts.size() < 2 or map_texture == null:
 			return
 		var rect := Rect2(Vector2.ZERO, size)
 		var b := _bounds()

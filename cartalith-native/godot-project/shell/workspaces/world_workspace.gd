@@ -1392,6 +1392,12 @@ func _build_finalize(parent: Control) -> void:
 ## finalized. Synchronous on the main thread, under the busy overlay
 ## (`DccApp.busy_run`); never re-enter while baking (the button is disabled).
 func _on_bake_all() -> void:
+	## Mid-generation (2026-10-12): the worker holds `WorldGen`; `bake_all` would refuse anyway,
+	## but say why instead of flashing "Baking" first.
+	if bridge.generating:
+		if app != null:
+			app.set_status("hint", "Not done: Bake ALL levels -- the world is generating. Try again when it finishes.", "warn")
+		return
 	if bridge.is_finalized():
 		return
 	var est: Dictionary = bridge.bake_estimate(_bake_depth)

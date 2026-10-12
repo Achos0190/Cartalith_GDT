@@ -571,7 +571,10 @@ func _apply_river_paint() -> void:
 	var fld: Texture2D = _bridge.river_field_texture() if _bridge.has_method("river_field_texture") else null
 	var col: Texture2D = _bridge.river_color_texture() if fld != null else null
 	var params: Dictionary = _bridge.river_paint_params() if fld != null and _bridge.has_method("river_paint_params") else {}
-	var on := fld != null and col != null and not params.is_empty() 		and _bridge.rivers_in_map() and _debug_view == "off"
+	## `fld` is null while `generating` (the three river reads above are gated), so the
+	## `rivers_in_map()` `#[func]` is only reached with the engine readable -- short-circuit,
+	## made explicit by `_engine_readable()` rather than left to read-order (2026-10-12).
+	var on := fld != null and col != null and not params.is_empty() 		and _engine_readable() and _bridge.rivers_in_map() and _debug_view == "off"
 	mat.set_shader_parameter("river_field", fld)
 	mat.set_shader_parameter("river_color", col)
 	mat.set_shader_parameter("river_width", float(params.get("width", 1.0)))
@@ -3628,6 +3631,10 @@ func _lod_tile_rect(idx: Vector3i, tex: Texture2D, g: Vector2i, displayed_origin
 		return null
 	if tex.get_width() < 2 or tex.get_height() < 2:
 		return null
+	## Mid-generation (2026-10-12): `lod_tiles_per_axis` is an ungated `#[func]`; `null` is
+	## already this function's "place nothing".
+	if not _engine_readable():
+		return null
 	var n: int = _bridge.lod_tiles_per_axis(idx.x)
 	if n <= 0:
 		return null
@@ -4197,6 +4204,12 @@ func _lod_debug_dirty() -> void:
 ## button in. Returns `ok: false` with nothing else when there is no world, a
 ## degenerate grid, or the camera is off the map entirely.
 func visible_grid_rect() -> Dictionary:
+	## Mid-generation (2026-10-12): `lod_level_for_zoom` / `lod_max_level` below are `#[func]`s
+	## the worker's `WorldGen` borrow turns into a panic. `grid_size()` already answers a zero
+	## grid then (so the rect check below fails first), but that is an accident of ordering --
+	## refuse here, explicitly, with the same `ok: false` every caller reads as "nothing on screen".
+	if not _engine_readable():
+		return {"ok": false}
 	var disp := _map_display_rect()
 	if disp.size.x <= 0.0 or disp.size.y <= 0.0:
 		return {"ok": false}

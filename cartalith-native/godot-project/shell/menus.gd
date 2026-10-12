@@ -4559,6 +4559,8 @@ func _on_lod_levels(id: int) -> void:
 ## `Atlas cache ▸ Clear` sits directly below this row.
 func _refresh_tile_size_menu() -> void:
 	var st: Dictionary = _bridge.atlas_status()
+	## `st` is `{}` mid-generation (gated) and `atlas_tile_size()` then serves its last-seen value,
+	## so the tick stays on the real size rather than moving to a guessed one.
 	var cur := int(st.get("tile_size", _bridge.atlas_tile_size()))
 	var baked := int(st.get("chunks", 0))
 	for i in ATLAS_TILE_SIZES.size():
@@ -4573,6 +4575,9 @@ func _refresh_tile_size_menu() -> void:
 func _on_tile_size(id: int) -> void:
 	var i := id - ID_LOD_TILE_FIRST
 	if i < 0 or i >= ATLAS_TILE_SIZES.size():
+		return
+	## Mid-generation the worker holds `WorldGen`: refuse with the shared line, not silently.
+	if _host._engine_busy_for_history("Atlas tile size"):
 		return
 	_bridge.set_atlas_tile_size(ATLAS_TILE_SIZES[i])
 	_refresh_tile_size_menu()

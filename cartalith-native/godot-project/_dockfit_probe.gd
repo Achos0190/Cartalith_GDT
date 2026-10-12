@@ -32,7 +32,8 @@ extends Node
 ##
 ##   world/a               336 -> 330 -> 330   fixed by `dock_fit()`
 ##   civilization/planner  404 -> 371 -> 351   the nested scroller, dropped
-##   cartography/style     333 -> 333 -> 333   untouched: no dropdown drives it
+##   cartography/layers    333 -> 333 -> 333   untouched: no dropdown drives it (keyed `style` until
+##                                              2026-10-12; `style` itself measures 330)
 ##   cartography/labels    332 -> 332 -> 332   untouched
 ##   cartography/icons     338 -> 338 -> 338   untouched
 ##
@@ -71,7 +72,11 @@ const KNOWN_330 := {
 	## unknown reason is worth less than one that fails for a known one --
 	## so this note stands until someone bisects it.
 	"civilization/planner": 330.0,
-	"cartography/style": 333.0,
+	## **`cartography/layers`, not `cartography/style` (corrected 2026-10-12).** The 333 was keyed to
+	## `style`, but at 1366 x 768 `style` measures 330 (its body minimum is 304) and `layers` is the
+	## 333 panel (body minimum 318 + the 7 px of pad and 8 px of bar the header counts). The three
+	## figures below are the bar-UP measurements -- see `_dock_bar_up` for why they apply only then.
+	"cartography/layers": 333.0,
 	"cartography/labels": 332.0,
 	"cartography/icons": 338.0,
 }
@@ -108,6 +113,17 @@ func _probe_option(expand: bool) -> OptionButton:
 	else:
 		ob.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	return ob
+
+## Whether the `ScrollContainer` that holds `body` currently shows its vertical bar -- the 8 px
+## `--ldW:330` does not budget (header). Walks up from the dock body to the nearest scroller;
+## `false` if there is none, which then reads as "no bar, no pin".
+func _dock_bar_up(body: Control) -> bool:
+	var n: Node = body
+	while n != null:
+		if n is ScrollContainer:
+			return (n as ScrollContainer).get_v_scroll_bar().visible
+		n = n.get_parent()
+	return false
 
 func _ready() -> void:
 	await _frames(2)
@@ -237,7 +253,15 @@ func _ready() -> void:
 		app.call("_on_rail_node_pressed", String(n["domain"]), String(n["mode"]))
 		await _frames(12)
 		var cap := lw
-		var known := is_equal_approx(lw, 330.0) and KNOWN_330.has(id)
+		## Each `KNOWN_330` figure was measured WITH the dock's vertical scrollbar up (the header's
+		## "+8 px"). On a frame tall enough to hold the panel's whole content (1600 x 2560) no bar
+		## is raised, so the same panel measures 8 px less -- 325 for the three cartography
+		## panels, under the 330 budget -- and the dock sits at its `--ldW`. That is the shell
+		## being right and the pin being scoped to a bar it does not always have, so the pin
+		## applies only while the bar is visible (2026-10-12; see `_dock_bar_up`).
+		var bar_up := _dock_bar_up(body)
+		var known := is_equal_approx(lw, 330.0) and KNOWN_330.has(id) and bar_up
+		print("        %s: dock %.0f px, vertical bar %s" % [id, ld.size.x, "up" if bar_up else "down"])
 		if known:
 			cap = float(KNOWN_330[id])
 		_le("%s: the left dock is not forced open%s" % [id,

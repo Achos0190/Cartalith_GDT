@@ -13,6 +13,10 @@ extends Node
 ##   U  menus._on_undo_budget rung + Clear                         -> rung deferred and replayed; Clear refused
 ##   D  Edit > Redo (menus._on_edit(ID_REDO) -> app.redo_last)     -> refused with a hint
 ##   W  the bridge read wrappers (settlements, roads, label_*, paint_*, icon_*, civ year ...) -> empty default, 0 panics
+##   Y  callers of the deliberately-ungated reads (batch 2026-10-12 follow-up): viewport _apply_river_paint /
+##      visible_grid_rect / layer_visible("rivers") / _lod_tile_rect, the cartography label drag, the atlas tile-size
+##      menu, the Bake button, the ring's finalized flag and the vault info / backlink reads -> no panic, last-seen
+##      values (never invented ones) where the bridge caches
 ##   P  menus._paste_clipboard / _cut / _copy / _select_all        -> refused, clipboard kept, paste replays after
 ##   K  right_dock paint commit / discard                          -> refused; commit works after
 ## Panics are counted by an in-process Logger here AND by grepping stderr afterwards (the caller's job).
@@ -286,6 +290,72 @@ func _leg_reads(primed_tex: Texture2D, primed_tier: String) -> void:
 	_check(not bridge.set_quality_tier("quality"), "W: set_quality_tier is refused mid-run")
 
 
+## Values the bridge's last-seen caches must serve mid-run, read BEFORE the run (see `_leg_callers`).
+var _primed_vault_info: Dictionary = {}
+var _primed_vault_stats: Dictionary = {}
+
+
+func _carto_ws() -> Node:
+	for ws in app._workspaces:
+		if ws != null and ws is CartographyWorkspace:
+			return ws
+	return null
+
+
+func _world_ws() -> Node:
+	for ws in app._workspaces:
+		if ws != null and ws is WorldWorkspace:
+			return ws
+	return null
+
+
+## Leg Y: every caller of a `#[func]` read that has no honest empty default (so the bridge either serves a
+## last-seen value or the CALLER refuses). Protects `engine_bridge.gd`'s `_*_seen` caches, `bake_all` /
+## `set_atlas_tile_size` gates and the caller gates in viewport_host, cartography_workspace, menus and
+## world_workspace. Removing any of them reaches the borrowed `WorldGen` and counts a panic here. The
+## journey planner's `_sync_lod` (an inner class needing a route) is covered by reading only.
+func _leg_callers() -> void:
+	var vp = app.viewport
+	_fire("Y viewport._apply_river_paint", func(): vp._apply_river_paint())
+	_check(vp.visible_grid_rect().get("ok", true) == false, "Y: visible_grid_rect answers {ok:false} mid-run")
+	_fire("Y viewport.layer_visible(rivers)", func(): vp.layer_visible("rivers"))
+	var img := Image.create_empty(4, 4, false, Image.FORMAT_RGBA8)
+	var small := ImageTexture.create_from_image(img)
+	var holder: Array = ["unset"]
+	_fire("Y viewport._lod_tile_rect", func(): holder[0] = vp._lod_tile_rect(Vector3i(1, 0, 0), small, Vector2i(192, 124), Vector2.ZERO, Vector2(100, 100)))
+	_check(holder[0] == null, "Y: _lod_tile_rect places nothing mid-run")
+	var carto = _carto_ws()
+	_check(carto != null, "Y: cartography workspace found")
+	if carto != null:
+		for mode in [carto.DragMode.RESIZE, carto.DragMode.ROTATE, carto.DragMode.ARC]:
+			carto._label_drag_index = 0
+			carto._label_drag_mode = mode
+			_fire("Y label drag mode %d" % mode, func(): carto._on_label_drag(5.0, 5.0))
+		carto._label_drag_index = -1
+	var menus = app.menus
+	_fire("Y menus._refresh_tile_size_menu", func(): menus._refresh_tile_size_menu())
+	_check(bridge.atlas_tile_size() == 512, "Y: atlas_tile_size serves the last-seen 512, not the 1024 default (got %d)" % bridge.atlas_tile_size())
+	_fire("Y menus._on_tile_size", func(): menus._on_tile_size(DccMenus.ID_LOD_TILE_FIRST))
+	_check("Not done: Atlas tile size" in _hint(), "Y: tile-size change refused with the hint ('%s')" % _hint().substr(0, 40))
+	_check(bridge.atlas_tile_size() == 512, "Y: refused change left the size at 512")
+	var world = _world_ws()
+	_check(world != null, "Y: world workspace found")
+	if world != null:
+		_fire("Y world._on_bake_all", func(): world._on_bake_all())
+		_check("Not done: Bake ALL" in _hint(), "Y: Bake ALL refused with the hint")
+	_fire("Y bake_all", func(): holder[0] = bridge.bake_all(0))
+	_check(holder[0] is Dictionary and holder[0].get("ok", true) == false, "Y: bake_all answers {ok:false} mid-run")
+	_fire("Y context_broker.ring_domain_req", func(): holder[0] = app.context_broker.ring_domain_req())
+	_check(holder[0] is Dictionary and holder[0].has("finalized"), "Y: ring request still built mid-run")
+	_fire("Y is_finalized", func(): bridge.is_finalized())
+	_fire("Y vault_info", func(): holder[0] = bridge.vault_info())
+	_check(holder[0] == _primed_vault_info and not (holder[0] as Dictionary).is_empty(), "Y: vault_info serves the last-seen dictionary (%d keys)" % (holder[0] as Dictionary).size())
+	_fire("Y vault_backlink_stats", func(): holder[0] = bridge.vault_backlink_stats())
+	_check(holder[0] == _primed_vault_stats and not (holder[0] as Dictionary).is_empty(), "Y: vault_backlink_stats serves the last-seen dictionary")
+	_fire("Y vault_backlink_report", func(): holder[0] = bridge.vault_backlink_report(40))
+	_check(holder[0] is Dictionary and holder[0].get("built", true) == false, "Y: vault_backlink_report answers built:false")
+
+
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var ti := args.find("--tag")
@@ -333,6 +403,11 @@ func _ready() -> void:
 	## `generating`, so there must be one to answer.
 	var primed_tex: Texture2D = bridge.color_texture()
 	var primed_tier: String = bridge.quality_tier()
+	## Leg Y priming: a non-default tile size and the vault reads, so a cache is told apart from a default.
+	bridge.set_atlas_tile_size(512)
+	bridge.atlas_tile_size()
+	_primed_vault_info = bridge.vault_info()
+	_primed_vault_stats = bridge.vault_backlink_stats()
 	var hits_idle := _pl.hits
 	_check(hits_idle == 0, "setup: 0 panics before the run (got %d)" % hits_idle)
 
@@ -370,6 +445,7 @@ func _ready() -> void:
 	_fire("D Edit > Redo", func(): menus._on_edit(DccMenus.ID_REDO))
 	_check("Not done: Redo" in _hint(), "D: refused with the hint")
 	_leg_reads(primed_tex, primed_tier)
+	_leg_callers()
 	_fire("P menus._paste_clipboard", func(): menus._paste_clipboard())
 	_check("Not done: Paste" in _hint(), "P: paste refused with the hint")
 	_check(not menus._clipboard.is_empty(), "P: clipboard kept for after the run")

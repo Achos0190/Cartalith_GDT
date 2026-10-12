@@ -3342,6 +3342,10 @@ func bake_estimate(max_z: int) -> Dictionary:
 ## must show a busy state. Returns `ok`, `baked`, `skipped`, `failed`, `total`,
 ## `seconds`, `error`.
 func bake_all(max_z: int) -> Dictionary:
+	## Mid-generation (2026-10-12): the worker holds `WorldGen`; refuse with the error the
+	## Bake button already shows rather than panic on `atlas_ready()` / `bake_all`.
+	if generating:
+		return {"ok": false, "error": "the world is generating -- try again when it finishes"}
 	if not _has("bake_all"):
 		return {"ok": false, "error": "this build has no bake_all()"}
 	if not atlas_ready():
@@ -3520,18 +3524,41 @@ func atlas_tile_png(z: int, col: int, row: int) -> PackedByteArray:
 func atlas_tile_size() -> int:
 	if not _has("atlas_tile_size"):
 		return 1024
-	return int(world_gen.atlas_tile_size())
+	## Mid-generation (2026-10-12): the worker holds `WorldGen`. Serves the last size the engine
+	## gave -- the size is a setting no generate changes -- never an invented one; before any
+	## real read it is the same `1024` the no-binding fallback names.
+	if generating:
+		return _atlas_tile_size_seen
+	_atlas_tile_size_seen = int(world_gen.atlas_tile_size())
+	return _atlas_tile_size_seen
+
+## The last `atlas_tile_size()` the engine answered, served while `generating`.
+var _atlas_tile_size_seen := 1024
 
 ## Sets the baked tile size in pixels (`WorldGen.atlas_set_tile_size` -- the name
 ## differs). A no-op without the binding; it is part of the chunk key.
 func set_atlas_tile_size(px: int) -> void:
+	## Refused mid-generation (the worker holds `WorldGen`); `menus._on_tile_size` says so first.
+	if generating:
+		return
 	if _has("atlas_set_tile_size"):
 		world_gen.atlas_set_tile_size(px)
 
 ## `WorldGen.is_finalized`: whether the atlas bake has been finalized (the finalize
 ## lock `bake.finalized`). `false` also when the binding is missing.
 func is_finalized() -> bool:
-	return _has("is_finalized") and world_gen.is_finalized()
+	if not _has("is_finalized"):
+		return false
+	## Mid-generation (2026-10-12): serves the last answer the engine gave (a run cannot
+	## finalize the atlas; `set_finalized` is the only writer and is refused mid-run by
+	## its callers), never a guessed one. `false` before any read, which is also "no world".
+	if generating:
+		return _finalized_seen
+	_finalized_seen = bool(world_gen.is_finalized())
+	return _finalized_seen
+
+## The last `is_finalized()` the engine answered, served while `generating`.
+var _finalized_seen := false
 
 ## Finalizing needs a non-empty atlas; un-finalizing always succeeds.
 func set_finalized(on: bool) -> bool:
@@ -6274,7 +6301,17 @@ func vault_connect_saf(tree_uri: String, display_name: String, dispatch: Callabl
 func vault_info() -> Dictionary:
 	if not _has("vault_info"):
 		return {"bound": false, "root": "", "display_name": "", "vault_id": "", "link_count": 0}
-	return world_gen.vault_info()
+	## Mid-generation (2026-10-12): the worker holds `WorldGen`. Serves the last answer the
+	## engine gave -- the vault binding is not a thing a generate changes -- rather than a
+	## fabricated `bound: false`, which would tell the vault windows the user's vault vanished.
+	if generating:
+		return _vault_info_seen.duplicate()
+	_vault_info_seen = world_gen.vault_info()
+	return _vault_info_seen.duplicate()
+
+## The last `vault_info()` the engine answered, served while `generating`. Empty before any
+## read, which callers already read as "unbound" via `.get("bound", false)`.
+var _vault_info_seen: Dictionary = {}
 
 ## Markdown files in the bound vault, sorted, capped at `limit` (`WorldGen.vault_list_files`).
 ## Empty for an unbound vault or no API.
@@ -6634,7 +6671,15 @@ func vault_rebuild_backlinks() -> void:
 func vault_backlink_stats() -> Dictionary:
 	if not _has("vault_backlink_stats"):
 		return {"built": false}
-	return world_gen.vault_backlink_stats()
+	## Mid-generation (2026-10-12): serves the last stats the engine gave (see `vault_info`);
+	## `{"built": false}` before any read, the same "nothing indexed" the no-binding case says.
+	if generating:
+		return _vault_backlink_stats_seen.duplicate()
+	_vault_backlink_stats_seen = world_gen.vault_backlink_stats()
+	return _vault_backlink_stats_seen.duplicate()
+
+## The last `vault_backlink_stats()` the engine answered, served while `generating`.
+var _vault_backlink_stats_seen: Dictionary = {"built": false}
 
 ## Every note that references this entity -- `{rel, form, count}`, `form` one
 ## of `wiki`, `markdown`, `block`. A `block` row is a note carrying this
@@ -6682,7 +6727,9 @@ func vault_file_mentions(rel: String, max_rows: int = 12) -> Array:
 ## `{built, broken: [{source, target}], orphans: [rel]}` -- both halves of
 ## Data ▸ Missing & orphan notes report…, from the one index.
 func vault_backlink_report(limit: int = 200) -> Dictionary:
-	if not _has("vault_backlink_report"):
+	## Mid-generation (2026-10-12): `{built: false}` is this report's own "nothing indexed"
+	## answer, and the only caller (`vault_window`) shows it as such rather than as data.
+	if generating or not _has("vault_backlink_report"):
 		return {"built": false, "broken": [], "orphans": PackedStringArray()}
 	return world_gen.vault_backlink_report(limit)
 

@@ -1825,6 +1825,12 @@ func _label_side_from_handles(index: int) -> float:
 func _on_label_drag(gx: float, gy: float) -> void:
 	if _label_drag_index < 0:
 		return
+	## Mid-generation (2026-10-12): `label_resize_size` / `label_rotate_deg` / `label_arc_value`
+	## are `#[func]`s with no honest empty default (0.0 would shrink or spin the label), so the
+	## drag sample is dropped while the worker holds `WorldGen`; the next sample after the run
+	## resumes. `label_move` / `label_set` are gated by the bridge itself.
+	if bridge.generating:
+		return
 	match _label_drag_mode:
 		DragMode.MOVE:
 			bridge.label_move(_label_drag_index, gx, gy)
