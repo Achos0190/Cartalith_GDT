@@ -3999,6 +3999,122 @@ up it.**
    Default: **investigate as part of the GF-4…GF-9 measurements**, not
    here.
 
+
+### GF-4 measured, and what of it is built (2026-10-12)
+
+*Design and evidence, not status.* GF-4 was the first unbuilt milestone of
+Ruling BN's order after GF-13 (opened at its symbols: glacial and coastal
+called `glacial_kernel` / `coastal_process` with no rock input, after the
+trace; `params::defaults()` left `passes.coastal` off). Construction stays
+off (Ruling CG), so everything here is measured **without** it, on
+`params::defaults()` with `geology_processes` on, `relief_model` off, at
+800 km and 2048 × 1311, `c = tect.resist` = 0.5. Harness:
+`cartalith-godot/tests/gf4_glacial_coastal.rs` (`gf4_bars`, ignored; module
+doc gives the command).
+
+**What was built.**
+- **The rock kernels** (`cartalith_erosion::passes`): `glacial_kernel_rock`
+  (§4.4: `e·γ(exposed)^c` on the trunk, flank and cirque terms) and
+  `coastal_process_rock` (§4.5: wave cut, debris and estuary cut each ×
+  the cutting cell's `ρ(exposed)^c`; marsh unchanged), behind a shared core
+  that takes the reference arithmetic by control flow without rock.
+  Exposed rock is read per pass at the pass-start surface. The kernel
+  goldens (`golden_parity_passes.rs`) are unchanged.
+- **The coastal pass is wired** through `RockContext::coastal`: rock-reading
+  with `geology_processes` on, debris and marsh gain accounted as regolith
+  (§4.9); the legacy pass otherwise.
+- **The coastal pass runs ahead of the trace** (§3.2 item 2) whenever it is
+  on and `carve_rivers` is on, with or without the processes. Reason,
+  measured: after the trace it sank land the trace had already routed
+  through. B8's hard guard (ocean cells on river paths) read **199, 1 933,
+  645, 281, 154** on the five seeds with the pass on at its old position,
+  and **0 on all five** after the move, for both the app world and the
+  processes-on world. `geology_gf4.rs`'s carved-river-below-sea test reads
+  43 on seed 483920 at 256 × 164 on HEAD `e80ba61a` and 0 here. No world
+  that ships moves: the pass is off in the app and on the parity path, so
+  parity, app and processes-on worlds (seeds 483920 and 314159, 512 × 328,
+  13 arrays each) hash identical to `e80ba61a`.
+- **Glacial is not wired.** Wiring it moves every processes-on world (the
+  app runs glacial), and the GF-0 harness's
+  `replica_reproduces_generate_terrain` must change in the same commit; that
+  file belonged to a concurrent lane, so it was left alone. The kernel and
+  B6 are ready for it.
+
+**B6 — glacial reads jointing (kernels alone, on the pipeline's own
+post-trace inputs; control = `c = 0`, asserted equal to the legacy kernel,
+and the legacy chain replayed bit for bit against the generated world).**
+
+| Seed | control | treatment | bar (≥ 1.5 and ≥ 1.5 × control) |
+|---|---|---|---|
+| 483920 | 2.033 | 3.486 | PASS (3.050) |
+| 24601 | 15.965 | 26.953 | PASS (23.947) |
+| 71077345 | 1.689 | 2.698 | PASS (2.534) |
+| 12345 | — | — | not measurable: 62 weak-rock ice cells in the usable bands |
+| 314159 | — | — | not measurable: 63 weak-rock ice cells |
+
+Treatment ÷ control is 1.60-1.71: passing, with little margin.
+
+**B7 — coastal retreat reads rock: FAILS** on every measurable seed (same
+method, at the pass's pre-GF-4 inputs; the replay was asserted bit for bit
+before the move).
+
+| Seed | control | treatment | bar (≥ 3 and ≥ 2 × control) | marsh off: control → treatment |
+|---|---|---|---|---|
+| 483920 | 2.493 | 3.523 | FAIL (relative: 4.985) | 3.174 → 6.903 |
+| 24601 | 0.071 | 0.090 | FAIL | 0.083 → 0.155 |
+| 71077345 | 1.042 | 1.397 | FAIL | 0.919 → 1.488 |
+| 12345 | 1.715 | 2.549 | FAIL (relative: 3.429) | 1.607 → 3.418 |
+| 314159 | — | — | not measurable: 74 weak-rock coast cells | — |
+
+**Why, as far as measured.** Land is "lost" only when the cut takes a cell
+below sea, and at the default `wave_str` 0.5 over 4 passes the cut is at
+most about 0.004 (normalised) in total, so mostly cells already within a
+few metres of sea are lost, whatever their rock. The tidal marsh's
+value-noise bump (±0.55 · `marsh_band`, rock-blind under §4.5) also lowers
+cells below sea on its own: with the marsh off the treatment/control ratio
+roughly doubles (1.62-2.17), which is the bar's relative half on 2 of 4
+seeds. That the marsh is the main remaining cause is an inference from that
+diagnostic, not isolated further.
+
+**B8 with the pass on (moved):** ocean on paths 0 everywhere; lake share of
+path cells within +2 pp except 24601 (1.61 → 6.70 % app, 1.97 → 7.13 %
+processes-on); 1-3-cell lakes over 1.25 × on 24601 (68 → 205; 49 → 238)
+and 314159 (62 → 102; 37 → 62). **So B8 fails on 2 of 5 seeds.** On 24601
+the pass moves 335 000 cells and turns 44 000 land cells to water. Cause
+not isolated (the marsh noise is the suspect again).
+
+**B9 for the coastal pass on in the app:** off 4.81 s (3.94..6.60), on
+4.34 s (4.09..5.67), medians of 5 interleaved runs, seed 483920: the
+brackets overlap, so no difference established. The machine was not quiet
+(another lane was building), so this is not a cost disclosure for
+`GENERATION_PARAMETERS.md`.
+
+**Done-means against what exists.** B6: passes where measurable (3 of 5),
+not yet in the pipeline. B7: fails. B8 with the pass on: fails on 2 of 5.
+So the coastal default in `params::defaults()` (Ruling BJ, Q7) is **not
+flipped**: GF-4's own done-means pair it with B7 and B8 passing, and with
+the processes off in the app the pass would not read rock anyway. Ruling
+BJ's wording, "on in the app at GF-4, when cliff retreat starts reading
+rock", assumed rock-reading would be live in the app. It is not, because
+`geology_processes` stays off (§5.6-§5.8, Ruling CG).
+
+**Owner questions, each with a default.**
+8. **The coastal flip while the processes stay off?** In the app it would
+   be rock-blind cliff retreat, it fails B8 on 2 of 5 seeds, and it moves
+   every app world. Default: **wait** until `geology_processes` ships and
+   B7 and B8 pass.
+9. **B7 and the tidal marsh.** (a) Measure B7 on the wave and estuary cut
+   only (marsh off in the metric), (b) make the marsh read rock (no
+   physical basis found for that), or (c) keep the bar and accept that
+   GF-4's coastal half fails. Default: **(a), disclosed as a revision made
+   after seeing the result**. Even then the bar passes on 2 of 4 measurable
+   seeds, not all.
+10. **B8's small lakes with the pass on (24601, 314159).** Default:
+    **investigate the marsh-noise cause before any flip**, as its own row.
+11. **Wire glacial now** (rock kernel plus the move ahead of the trace,
+    updating the GF-0 replica in the same change)? Default: **yes**, once
+    the harness file is free. Its B6 passes where measurable.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry

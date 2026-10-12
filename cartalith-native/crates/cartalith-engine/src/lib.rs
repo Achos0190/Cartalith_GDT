@@ -464,10 +464,18 @@ pub struct StreamParams {
 /// Growing the reference's opt-in buttons on top of these is still open and
 /// costs nothing extra, since the run path now exists.
 ///
+/// **One exception since GF-4** (`GEOLOGY_FIRST_SCOPE.md` §3.2 item 2):
+/// with `carve_rivers` on, `coastal` runs ahead of the river trace, not
+/// here, because run after it the pass sank land the traced rivers already
+/// crossed (B8's ocean-on-paths guard, measured in
+/// `cartalith-godot/tests/gf4_glacial_coastal.rs`). The others keep this
+/// position.
+///
 /// ## Order
 ///
 /// Fixed and not user-orderable: `velocity → glacial → coastal →
-/// hillslope → evolve → sediment_fill → tidal_flats`. It is the reference's own panel
+/// hillslope → evolve → sediment_fill → tidal_flats` (coastal ahead of the
+/// trace when `carve_rivers` is on, above). It is the reference's own panel
 /// order, which is the only ordering evidence there is — the reference never
 /// composes two of these in one op, so there is no reference answer and
 /// therefore **no golden fixture for the composed result**. Each *kernel* is
@@ -1447,7 +1455,10 @@ pub(crate) fn compute_stress_gpu(
 /// Must never be `on` without a column (the constructor derives `on` from
 /// the column's presence), and must never make a process read rock that its
 /// milestone has not reached: glacial and the carve only *strip* regolith
-/// here; they read rock at GF-4 and GF-6.
+/// here. The coastal pass reads rock since GF-4 ([`RockContext::coastal`]);
+/// glacial's rock kernel (`cartalith_erosion::glacial_kernel_rock`) exists
+/// but is not called yet (`GEOLOGY_FIRST_SCOPE.md` §7, "GF-4 measured"), and
+/// the carve reads rock at GF-6.
 struct RockContext {
     on: bool,
     /// §4.1's rock contrast `c`: `tect.resist`, repurposed (§9 Q5's default).
@@ -1560,6 +1571,50 @@ impl RockContext {
             },
         );
         cartalith_erosion::account_regolith(column, &before, field, true);
+    }
+
+    /// GF-4 (`GEOLOGY_FIRST_SCOPE.md` §4.5, §4.9): the coastal pass. When on,
+    /// `coastal_process_rock` (wave cut, debris and estuary cut each times
+    /// the cutting cell's `ρ(exposed)^c`), then §4.9's caller-side rule on
+    /// the call's net change: the debris and the marsh's accretion become
+    /// regolith, and the cut strips regolith before bedrock. Off, the legacy
+    /// `coastal_process` verbatim, so a world with the processes off is the
+    /// pre-GF-4 pass by control flow.
+    ///
+    /// Must never be followed by `isostatic_rebound`: the reference's
+    /// `coastalProcess` has no `eroFinish` rebound (only glacial does), and
+    /// the debris it moves stays on the grid.
+    #[allow(clippy::too_many_arguments)]
+    fn coastal(
+        &self,
+        geology: &mut Geology,
+        field: &mut [f32],
+        flow: &[f32],
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        g: f64,
+        cp: &CoastalParams,
+    ) {
+        match geology.column_mut().filter(|_| self.on) {
+            Some(column) => {
+                let before = field.to_vec();
+                cartalith_erosion::coastal_process_rock(
+                    field,
+                    flow,
+                    gw,
+                    gh,
+                    sea_level,
+                    world,
+                    g,
+                    cp,
+                    &cartalith_erosion::PassRock { column: &*column, contrast: self.contrast, r_expose: self.r_expose },
+                );
+                cartalith_erosion::account_regolith(column, &before, field, true);
+            }
+            None => coastal_process(field, flow, gw, gh, sea_level, world, g, cp),
+        }
     }
 
     /// A lowering process that does not read rock yet: strip regolith first
@@ -2517,6 +2572,52 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // uses the function's built-in default of 6.0.
             recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
         }
+        // GF-4 (`GEOLOGY_FIRST_SCOPE.md` §3.2 item 2, §4.5): the coastal pass
+        // runs here, ahead of the trace, whenever it is on, so the channel
+        // network and the carve describe the surface it leaves. After the
+        // trace (where it ran until GF-4) it turned land the trace had
+        // already routed through into sea: measured on the app's own worlds
+        // with the pass on, 154 to 1 933 ocean cells on river paths per seed
+        // at 2048 x 1311 against B8's hard 0, and 0 on every seed after the
+        // move (`cartalith-godot/tests/gf4_glacial_coastal.rs`, `gf4_bars`;
+        // `GEOLOGY_FIRST_SCOPE.md` §7 "GF-4 measured"). Off -- the app and the parity path today --
+        // nothing here runs. With `carve_rivers` off there is no trace, and
+        // the pass stays in the passes block below.
+        //
+        // Its estuary cut reads a discharge; here that is the same quantity
+        // the passes block used to hand it (rain-weighted flow over the
+        // routing surface), taken on this pre-trace surface, so it costs one
+        // extra flow accumulation on worlds with the pass on.
+        if p.passes.coastal {
+            let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+            let coast_flow = match flow_on_gpu(&route, Some(&rainfall), true) {
+                Some(v) => {
+                    if !gpu_stages_used.iter().any(|s| s == "flow") {
+                        gpu_stages_used.push("flow".to_string());
+                    }
+                    v
+                }
+                None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
+            };
+            drop(route);
+            rock.coastal(
+                &mut geology,
+                &mut field,
+                &coast_flow,
+                gw,
+                gh,
+                sea_level,
+                world,
+                p.planet.g,
+                &CoastalParams {
+                    wave_str: p.passes.wave_str,
+                    estuary_depth: p.passes.estuary_depth,
+                    marsh_band: p.passes.marsh_band,
+                    // Saturating in τ when GF-7's clock acts (§4.12).
+                    passes: rock.clock.coastal_passes(p.passes.coastal_passes).n,
+                },
+            );
+        }
         // enforceRiverChannels(): always a no-op here -- see the module
         // doc comment.
         //
@@ -2750,7 +2851,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // ---- the reference's manual erosion ops, as generation-time passes ----
     // `ErosionPassParams`; `GUI_GAP_REGISTER.md` §19, WW-02/MS-04/MS-05.
     // Runs here, at the very end, because "the finished field" is what every
-    // one of these buttons operates on in the reference. Entirely skipped
+    // one of these buttons operates on in the reference -- except the coastal
+    // pass on a world with a trace, which GF-4 moved ahead of it (the carve
+    // block, `ErosionPassParams`' doc). Entirely skipped
     // when every toggle is off -- which is the default, so a default world is
     // bit-identical to one generated before this block existed.
     if p.passes.any() {
@@ -2798,7 +2901,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 },
             );
             // GF-2 (§4.9): glacial lowering strips regolith first. The kernel
-            // itself reads no rock until GF-4.
+            // called here reads no rock: GF-4's `glacial_kernel_rock` and the
+            // move ahead of the trace are not wired, because they change
+            // processes-on worlds that the GF-0 harness's replica
+            // (`replica_reproduces_generate_terrain`) must be changed with
+            // (`GEOLOGY_FIRST_SCOPE.md` §7, "GF-4 measured").
             rock.strip(&mut geology, Some(&pre), &field);
             // glacialErode()'s own `eroFinish(pre)` tail -- glacial is the one
             // of these the reference follows with an isostatic rebound.
@@ -2807,8 +2914,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
             }
         }
-        if q.coastal {
-            coastal_process(
+        // GF-4: with `carve_rivers` on the coastal pass already ran, ahead
+        // of the trace (the carve block above); only a world with no trace
+        // runs it here.
+        if q.coastal && !p.carve_rivers {
+            rock.coastal(
+                &mut geology,
                 &mut field,
                 &flow_discharge,
                 gw,
@@ -2820,9 +2931,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     wave_str: q.wave_str,
                     estuary_depth: q.estuary_depth,
                     marsh_band: q.marsh_band,
-                    // Saturating in τ when GF-7's clock acts (§4.12). The
-                    // pass reads no rock until GF-4; the count is scaled now
-                    // because cliff retreat's duration is independent of that.
+                    // Saturating in τ when GF-7's clock acts (§4.12).
                     passes: rock.clock.coastal_passes(q.coastal_passes).n,
                 },
             );
@@ -3175,6 +3284,76 @@ pub fn refresh_climate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GF-4's coastal fixture: a 10 x 6 coast, one bare single-layer rock
+    /// everywhere; the left four columns sea at 0.05 (sea 0.1), the rest
+    /// land at 0.15 + 0.02 per column.
+    fn gf4_coast(rock: cartalith_terrain::geology::Rock) -> (Geology, Vec<f32>) {
+        use cartalith_terrain::geology::{GeologyColumn, NO_LAYER};
+        let n = 60;
+        let col = GeologyColumn {
+            rock_top: vec![rock as u8; n],
+            rock_sub: vec![NO_LAYER; n],
+            contact: vec![f32::NAN; n],
+            regolith: vec![0.0; n],
+            volcanic_setting: vec![0; n],
+            construction: cartalith_terrain::geology::Construction::Off,
+        };
+        let f = (0..n).map(|i| if i % 10 < 4 { 0.05 } else { 0.15 + 0.02 * (i % 10 - 4) as f32 }).collect();
+        (Geology::Column(Box::new(col)), f)
+    }
+
+    /// Protects: GF-4's wiring of the coastal pass through `RockContext`
+    /// (`GEOLOGY_FIRST_SCOPE.md` §4.5, §4.9). On, it is
+    /// `coastal_process_rock` at the context's contrast, and every cell the
+    /// pass raised (the debris) gains exactly that rise as regolith while
+    /// the cut cells, bare to start with, stay at 0; off, it is the legacy
+    /// `coastal_process` bit for bit and the column is untouched.
+    #[test]
+    fn gf4_rock_context_coastal_reads_rock_and_accounts_debris_as_regolith() {
+        use cartalith_terrain::geology::Rock;
+        let (w, h) = (10usize, 6usize);
+        let cp = CoastalParams { wave_str: 10.0, estuary_depth: 0.08, marsh_band: 0.0, passes: 1 };
+        let flow = vec![0.0f32; w * h];
+        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0) };
+        let (mut geo, mut f) = gf4_coast(Rock::Tuff);
+        let before = f.clone();
+        ctx(true).coastal(&mut geo, &mut f, &flow, w, h, 0.1, false, 1.0, &cp);
+        let (tuff, _) = gf4_coast(Rock::Tuff);
+        let mut expect = before.clone();
+        cartalith_erosion::coastal_process_rock(
+            &mut expect,
+            &flow,
+            w,
+            h,
+            0.1,
+            false,
+            1.0,
+            &cp,
+            &cartalith_erosion::PassRock { column: tuff.column().unwrap(), contrast: 0.5, r_expose: 0.001 },
+        );
+        assert!(f.iter().zip(&expect).all(|(a, b)| a.to_bits() == b.to_bits()), "on: not the rock kernel at the context's contrast");
+        let mut legacy = before.clone();
+        coastal_process(&mut legacy, &flow, w, h, 0.1, false, 1.0, &cp);
+        assert!(f != legacy, "on: the pass must read the rock (tuff moves more than the legacy pass)");
+        let col = geo.column().unwrap();
+        let mut gained = 0;
+        for i in 0..w * h {
+            let dz = (f[i] as f64 - before[i] as f64) as f32;
+            if dz > 0.0 {
+                assert_eq!(col.regolith[i], dz, "cell {i}: the debris it received must become regolith");
+                gained += 1;
+            } else {
+                assert_eq!(col.regolith[i], 0.0, "cell {i}: a cut cell that started bare stays bare");
+            }
+        }
+        assert!(gained >= 6, "the fixture must deposit debris: {gained} cells");
+
+        let (mut geo_off, mut f_off) = gf4_coast(Rock::Tuff);
+        ctx(false).coastal(&mut geo_off, &mut f_off, &flow, w, h, 0.1, false, 1.0, &cp);
+        assert!(f_off.iter().zip(&legacy).all(|(a, b)| a.to_bits() == b.to_bits()), "off: not the legacy pass");
+        assert!(geo_off.column().unwrap().regolith.iter().all(|&r| r == 0.0), "off: the column must not move");
+    }
 
     /// A two-cell shale row with a 0.1 step at 800 km over 2048 cells (sea
     /// 0.42, peak 4000 m): steeper than shale's θc of 30°, so GF-3's stage

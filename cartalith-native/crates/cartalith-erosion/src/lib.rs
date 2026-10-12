@@ -23,9 +23,10 @@ pub mod tile;
 
 pub use construction::{construct_relief, ConstructionInputs, ConstructionReport};
 pub use passes::{
-    apply_tidal_sedimentation, centrifugal_shear, coastal_process, glacial_kernel,
-    hillslope_diffuse, hillslope_extent_scale, route_sediment, velocity_erode_kernel,
-    CoastalParams, GlacialParams, VelocityField, VelocityParams, HILLSLOPE_REF_CELL_KM,
+    apply_tidal_sedimentation, centrifugal_shear, coastal_process, coastal_process_rock,
+    gamma_multiplier, glacial_kernel, glacial_kernel_rock, hillslope_diffuse,
+    hillslope_extent_scale, rho_multiplier, route_sediment, velocity_erode_kernel,
+    CoastalParams, GlacialParams, PassRock, VelocityField, VelocityParams, HILLSLOPE_REF_CELL_KM,
     HILLSLOPE_STABLE_D,
 };
 

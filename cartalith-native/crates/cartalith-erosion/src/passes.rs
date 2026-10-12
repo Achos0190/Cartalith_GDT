@@ -610,6 +610,90 @@ pub struct GlacialParams {
 /// port — one seam column of a wrapped world gets trunk incision without
 /// flank widening.
 pub fn glacial_kernel(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams) {
+    glacial_core(fld, temp, w, h, p, None);
+}
+
+/// GF-4's rock input to the glacial and coastal passes
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.4, §4.5; owner Rulings BH and BJ): the GF-1
+/// column, read through §2.5's exposure rule, and the rock contrast `c`.
+///
+/// Read only. Neither pass writes the column: §4.9 has the **caller**
+/// account the call's net change (gains become regolith, losses strip it
+/// first, `crate::account_regolith`), as GF-2 does for stream power, so the
+/// regolith a call reads is the one it started with.
+pub struct PassRock<'a> {
+    /// The GF-1 column. Read: `rock_top`, `rock_sub`, `contact`, `regolith`.
+    pub column: &'a cartalith_terrain::geology::GeologyColumn,
+    /// §4.1's rock contrast `c` (0 = uniform rock); the engine passes
+    /// `tect.resist`, as for stream power (§9 Q5's default).
+    pub contrast: f64,
+    /// §2.5's `R_EXPOSE` in normalised height units
+    /// (`geology::m_to_norm(R_EXPOSE_M, sea, peak_m)`).
+    pub r_expose: f32,
+}
+
+impl PassRock<'_> {
+    /// A per-rock lookup table of `prop(rock)^c`, indexed by the rock's code,
+    /// so the per-cell cost is the exposure rule and one load (the same
+    /// shape as stream power's `kc` table).
+    fn table(&self, prop: impl Fn(&cartalith_terrain::geology::RockProps) -> f32) -> [f64; cartalith_terrain::geology::ROCK_COUNT] {
+        cartalith_terrain::geology::Rock::ALL.map(|r| (prop(r.props()) as f64).powf(self.contrast))
+    }
+
+    /// The exposed rock's code at cell `i` for surface height `z`. Panics,
+    /// as `stream_power_kernel_rock` does, on a column cell holding no rock:
+    /// a mismatched column describes a different world, and a fallback
+    /// factor would be a plausible number standing in for none.
+    fn exposed_code(&self, i: usize, z: f32) -> usize {
+        self.column
+            .exposed(i, z, self.r_expose)
+            .unwrap_or_else(|| panic!("GF-4: cell {i} of the rock column holds no valid rock (rock_top {})", self.column.rock_top[i]))
+            as usize
+    }
+}
+
+/// The glacial-erodibility multiplier of one rock at contrast `c`: `γ^c`
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.4). `γ` is `ROCK_PROPS`' judgement column
+/// (§2.3: "Judgement. GF-4 reads it"). Exactly `1.0` for every rock at
+/// `c = 0` (`powf(0) = 1`).
+pub fn gamma_multiplier(rock: cartalith_terrain::geology::Rock, contrast: f64) -> f64 {
+    (rock.props().gamma as f64).powf(contrast)
+}
+
+/// The cliff-retreat multiplier of one rock at contrast `c`: `ρ^c`
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.5). `ρ` is `ROCK_PROPS`' judgement column
+/// (§2.3: "Judgement. GF-4 reads it"). Exactly `1.0` at `c = 0`.
+pub fn rho_multiplier(rock: cartalith_terrain::geology::Rock, contrast: f64) -> f64 {
+    (rock.props().rho as f64).powf(contrast)
+}
+
+/// [`glacial_kernel`] reading the GF-1 rock column (`GEOLOGY_FIRST_SCOPE.md`
+/// §4.4, milestone GF-4): `e_i = kg·γ(exposed_i)^c·g·Q_i^mg·S_i·0.001`, and
+/// the trunk's flank (`u_factor`) and cirque (`0.6`) terms scale with the
+/// same `e_i`, as §4.4 says.
+///
+/// - **Exposed rock** is read per pass at the cell's height at the start of
+///   that pass (the kernel accumulates a pass into `delta` and applies it at
+///   the end, so every read inside a pass sees the same surface): a cap the
+///   ice cuts through in one pass is eroded as substrate from the next.
+/// - **Why a separate entry point**: the legacy body is a golden-verified
+///   port (`tests/golden_parity_passes.rs`); [`glacial_kernel`] passes no rock
+///   to the shared core, which then takes the legacy arithmetic by control
+///   flow, not by an identity of arithmetic (`MISTAKES.md`, "Change generated
+///   output").
+///
+/// Must never write the column (the caller accounts regolith, §4.9), and
+/// must never be called with a column shorter than the grid (it asserts).
+pub fn glacial_kernel_rock(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: &PassRock) {
+    assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
+    glacial_core(fld, temp, w, h, p, Some(rock));
+}
+
+/// The body of [`glacial_kernel`] and [`glacial_kernel_rock`]. With `rock`
+/// `None` every statement is the reference port's, unchanged.
+fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: Option<&PassRock>) {
+    // GF-4: `γ^c` per rock, built once per call; `None` without rock.
+    let gamma_c = rock.map(|r| r.table(|props| props.gamma));
     let n = w * h;
     let wrap = p.world;
     let snow_el = p.sea + (1.0 - p.sea) * p.snowline;
@@ -716,6 +800,13 @@ pub fn glacial_kernel(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &Gla
             let denom = if dd != 0.0 { dd } else { 1.0 };
             let slope = (fld[i] as f64 - fld[r] as f64).max(0.0) / denom;
             let e = p.kg * p.g * (flow[i] as f64).powf(p.mg) * slope * 0.001;
+            // GF-4 (§4.4): scale by the exposed rock's `γ^c`. `fld` is not
+            // written until this pass's `delta` is applied below, so this is
+            // the pass-start surface. Without rock, `e` is the reference's.
+            let e = match (rock, gamma_c.as_ref()) {
+                (Some(r), Some(t)) => e * t[r.exposed_code(i, fld[i])],
+                _ => e,
+            };
             delta[i] = (delta[i] as f64 - e) as f32;
             let x = (i % w) as i64;
             let y = (i / w) as i64;
@@ -819,6 +910,57 @@ pub fn coastal_process(
     g: f64,
     p: &CoastalParams,
 ) {
+    coastal_core(fld, flow, w, h, sea, world, g, p, None);
+}
+
+/// [`coastal_process`] reading the GF-1 rock column (`GEOLOGY_FIRST_SCOPE.md`
+/// §4.5, milestone GF-4): the wave cut, the debris each cut cell sends to its
+/// land neighbours, and the estuary cut are each multiplied by the cutting
+/// cell's `ρ(exposed)^c`, so soft rock retreats into bays and hard rock
+/// stands as headlands. The tidal marsh does not change.
+///
+/// - **Exposed rock** is read at the cell's height at the start of each pass
+///   (the pass accumulates into `delta` before applying it).
+/// - **Debris is regolith** (§4.5, §4.9) by the caller's accounting of the
+///   call's net change (`crate::account_regolith` with gains as deposit);
+///   this kernel never writes the column.
+/// - **Why a separate entry point**: as for [`glacial_kernel_rock`], the
+///   legacy body is golden-verified (`tests/golden_parity_passes.rs`) and
+///   takes the reference's arithmetic by control flow when no rock is given.
+///
+/// Must never be called with a column shorter than the grid (it asserts).
+#[allow(clippy::too_many_arguments)]
+pub fn coastal_process_rock(
+    fld: &mut [f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    g: f64,
+    p: &CoastalParams,
+    rock: &PassRock,
+) {
+    assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
+    coastal_core(fld, flow, w, h, sea, world, g, p, Some(rock));
+}
+
+/// The body of [`coastal_process`] and [`coastal_process_rock`]. With `rock`
+/// `None` every statement is the reference port's, unchanged.
+#[allow(clippy::too_many_arguments)]
+fn coastal_core(
+    fld: &mut [f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    g: f64,
+    p: &CoastalParams,
+    rock: Option<&PassRock>,
+) {
+    // GF-4: `ρ^c` per rock, built once per call; `None` without rock.
+    let rho_c = rock.map(|r| r.table(|props| props.rho));
     // The 4-connected (not 8-connected) neighbourhood the reference's own
     // coastal pass uses for counting sea-adjacency and spreading wave
     // erosion — orthogonal only, no diagonals.
@@ -847,9 +989,19 @@ pub fn coastal_process(
                         sea_nb += 1;
                     }
                 }
+                // GF-4 (§4.5): this cell's `ρ(exposed)^c` at the pass-start
+                // surface (`fld` is written only after the pass), or `None`
+                // without rock, where every statement below is the
+                // reference's own.
+                let rf = match (rock, rho_c.as_ref()) {
+                    (Some(r), Some(t)) => Some(t[r.exposed_code(i, fld[i])]),
+                    _ => None,
+                };
                 if sea_nb > 0 {
                     let exposure = sea_nb as f64 / 4.0;
-                    delta[i] = (delta[i] as f64 - wave_str * exposure * 0.002) as f32;
+                    let cut = wave_str * exposure * 0.002;
+                    let cut = rf.map_or(cut, |f| cut * f);
+                    delta[i] = (delta[i] as f64 - cut) as f32;
                     for (dx, dy) in OFFS {
                         let nx = x as i64 + dx;
                         let ny = y as i64 + dy;
@@ -858,7 +1010,11 @@ pub fn coastal_process(
                         }
                         let j = (ny * w as i64 + nx) as usize;
                         if fld[j] as f64 >= sea {
-                            delta[j] = (delta[j] as f64 + wave_str * exposure * 0.0005) as f32;
+                            // The debris is the cutting cell's, so it scales
+                            // with the cutting cell's rock (§4.5).
+                            let debris = wave_str * exposure * 0.0005;
+                            let debris = rf.map_or(debris, |f| debris * f);
+                            delta[j] = (delta[j] as f64 + debris) as f32;
                         }
                     }
                 }
@@ -866,6 +1022,7 @@ pub fn coastal_process(
                 if fl > river_thresh && hh < sea + p.estuary_depth {
                     let ff = (js_log(fl / river_thresh) / 5.0).min(1.0);
                     let cut = 0.003 * ff * (1.0 - (hh - sea) / p.estuary_depth) * wave_str;
+                    let cut = rf.map_or(cut, |f| cut * f);
                     delta[i] = (delta[i] as f64 - cut) as f32;
                 }
             }
@@ -1296,5 +1453,211 @@ mod hillslope_extent_tests {
         let moved_full: f32 = full.iter().zip(&base).map(|(a, b)| (a - b).abs()).sum();
         let moved_damped: f32 = damped.iter().zip(&base).map(|(a, b)| (a - b).abs()).sum();
         assert!(moved_full > moved_damped * 100.0, "{moved_full} vs {moved_damped}");
+    }
+}
+
+/// GF-4's rock-reading glacial and coastal passes (`GEOLOGY_FIRST_SCOPE.md`
+/// §4.4, §4.5). Every expected ratio is a literal worked out by hand from
+/// §2.3's table at `c = 0.5`, never the table read back.
+#[cfg(test)]
+mod gf4_rock_tests {
+    use super::*;
+    use cartalith_terrain::geology::{Construction, GeologyColumn, Rock, NO_LAYER};
+
+    /// A column of one rock everywhere, single-layer, bare.
+    fn uniform(rock: Rock, n: usize) -> GeologyColumn {
+        GeologyColumn {
+            rock_top: vec![rock as u8; n],
+            rock_sub: vec![NO_LAYER; n],
+            contact: vec![f32::NAN; n],
+            regolith: vec![0.0; n],
+            volcanic_setting: vec![0; n],
+            construction: Construction::Off,
+        }
+    }
+
+    /// A cold 8 x 12 ramp, every land cell above a snowline of 0 and below
+    /// freezing, so every cell with a receiver erodes.
+    fn glacial_fixture() -> (Vec<f32>, Vec<f32>, usize, usize, GlacialParams) {
+        let (w, h) = (8usize, 12usize);
+        let fld: Vec<f32> = (0..w * h).map(|i| 0.3 + 0.04 * (i / w) as f32 + 0.003 * (i % w) as f32).collect();
+        let temp = vec![-5.0f32; w * h];
+        let p = GlacialParams { kg: 5.0, mg: 0.4, snowline: 0.0, u_factor: 0.6, passes: 1, g: 1.0, sea: 0.1, world: false };
+        (fld, temp, w, h, p)
+    }
+
+    /// Per-cell lowering of one glacial run with `rock`, or the legacy run.
+    fn glacial_lowering(rock: Option<&PassRock>) -> Vec<f64> {
+        let (mut fld, temp, w, h, p) = glacial_fixture();
+        let before = fld.clone();
+        match rock {
+            Some(r) => glacial_kernel_rock(&mut fld, &temp, w, h, &p, r),
+            None => glacial_kernel(&mut fld, &temp, w, h, &p),
+        }
+        before.iter().zip(&fld).map(|(a, b)| *a as f64 - *b as f64).collect()
+    }
+
+    /// Ratios of `num` to `den` at every cell `den` lowers by more than 1e-4
+    /// (asserted non-empty, so the comparison cannot pass vacuously).
+    fn ratios(num: &[f64], den: &[f64]) -> Vec<f64> {
+        let r: Vec<f64> = num.iter().zip(den).filter(|(_, d)| **d > 1e-4).map(|(n, d)| n / d).collect();
+        assert!(r.len() >= 20, "the fixture must lower at least 20 cells, lowered {}", r.len());
+        r
+    }
+
+    /// Protects: GF-4's control arm. At `c = 0` the rock kernel is the legacy
+    /// glacial kernel bit for bit (`γ^0 = 1`), whatever the column holds, so
+    /// a `c = 0` control is the reference pass.
+    #[test]
+    fn glacial_rock_at_zero_contrast_is_the_legacy_kernel_bit_for_bit() {
+        let (_, _, w, h, _) = glacial_fixture();
+        let col = uniform(Rock::Shale, w * h);
+        let rock = PassRock { column: &col, contrast: 0.0, r_expose: 0.001 };
+        let a = glacial_lowering(Some(&rock));
+        let b = glacial_lowering(None);
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        assert!(b.iter().any(|&v| v > 1e-4), "the fixture must erode");
+    }
+
+    /// Protects: §4.4's `γ^c` reaches every term of the pass. Shale (γ 1.8)
+    /// against granite (γ 0.5) at `c = 0.5` lowers every cell by
+    /// `sqrt(1.8 / 0.5)` = sqrt(3.6) = 1.8974 times as much (arithmetic), and
+    /// granite against the legacy pass by sqrt(0.5) = 0.7071. Dropping the
+    /// factor reads 1, ignoring `c` reads 3.6, and reading `ρ` instead reads
+    /// sqrt(1.5 / 0.1) = 3.873.
+    #[test]
+    fn glacial_lowering_scales_by_gamma_to_the_contrast() {
+        let (_, _, w, h, _) = glacial_fixture();
+        let (shale, granite) = (uniform(Rock::Shale, w * h), uniform(Rock::Granite, w * h));
+        let ls = glacial_lowering(Some(&PassRock { column: &shale, contrast: 0.5, r_expose: 0.001 }));
+        let lg = glacial_lowering(Some(&PassRock { column: &granite, contrast: 0.5, r_expose: 0.001 }));
+        let legacy = glacial_lowering(None);
+        for r in ratios(&ls, &lg) {
+            assert!((r - 1.897_366_6).abs() < 2e-3, "shale/granite lowering ratio {r}, expected 1.8974");
+        }
+        for r in ratios(&lg, &legacy) {
+            assert!((r - 0.707_106_8).abs() < 2e-3, "granite/legacy lowering ratio {r}, expected 0.7071");
+        }
+    }
+
+    /// Protects: the pass reads the **exposed** rock (§2.5), not `rock_top`.
+    /// A granite cap over shale whose contact is above the surface exposes
+    /// shale, so it erodes exactly as all-shale; regolith thicker than
+    /// `R_EXPOSE` exposes unconsolidated material.
+    #[test]
+    fn glacial_reads_the_exposed_rock_through_the_column() {
+        let (fld, _, w, h, _) = glacial_fixture();
+        let n = w * h;
+        let mut capped = uniform(Rock::Granite, n);
+        capped.rock_sub = vec![Rock::Shale as u8; n];
+        capped.contact = fld.iter().map(|z| z + 0.5).collect();
+        let a = glacial_lowering(Some(&PassRock { column: &capped, contrast: 0.5, r_expose: 0.001 }));
+        let s = glacial_lowering(Some(&PassRock { column: &uniform(Rock::Shale, n), contrast: 0.5, r_expose: 0.001 }));
+        assert!(a.iter().zip(&s).all(|(x, y)| x.to_bits() == y.to_bits()), "cap breached: substrate (shale) must erode");
+        let mut mantled = uniform(Rock::Granite, n);
+        mantled.regolith = vec![0.01; n];
+        let m = glacial_lowering(Some(&PassRock { column: &mantled, contrast: 0.5, r_expose: 0.001 }));
+        let u = glacial_lowering(Some(&PassRock { column: &uniform(Rock::Unconsolidated, n), contrast: 0.5, r_expose: 0.001 }));
+        assert!(m.iter().zip(&u).all(|(x, y)| x.to_bits() == y.to_bits()), "regolith over R_EXPOSE must read as unconsolidated");
+    }
+
+    /// A 10 x 6 coast: the left four columns are sea at 0.05, the rest land
+    /// at 0.15 + 0.02 per column (sea 0.1), with discharge 10 on the first
+    /// land column's fourth row so the estuary cut fires there. `marsh_band`
+    /// is 0 unless a test sets it.
+    fn coastal_fixture() -> (Vec<f32>, Vec<f32>, usize, usize, CoastalParams) {
+        let (w, h) = (10usize, 6usize);
+        let fld: Vec<f32> = (0..w * h).map(|i| if i % w < 4 { 0.05 } else { 0.15 + 0.02 * (i % w - 4) as f32 }).collect();
+        let mut flow = vec![0.0f32; w * h];
+        flow[3 * w + 4] = 10.0;
+        let p = CoastalParams { wave_str: 10.0, estuary_depth: 0.08, marsh_band: 0.0, passes: 1 };
+        (fld, flow, w, h, p)
+    }
+
+    /// Per-cell field change (after minus before, signed) of one coastal run.
+    fn coastal_change(rock: Option<&PassRock>, marsh: f64) -> Vec<f64> {
+        let (mut fld, flow, w, h, mut p) = coastal_fixture();
+        p.marsh_band = marsh;
+        let before = fld.clone();
+        match rock {
+            Some(r) => coastal_process_rock(&mut fld, &flow, w, h, 0.1, false, 1.0, &p, r),
+            None => coastal_process(&mut fld, &flow, w, h, 0.1, false, 1.0, &p),
+        }
+        fld.iter().zip(&before).map(|(a, b)| *a as f64 - *b as f64).collect()
+    }
+
+    /// Protects: the coastal control arm. At `c = 0` the rock pass is the
+    /// legacy pass bit for bit, the marsh included.
+    #[test]
+    fn coastal_rock_at_zero_contrast_is_the_legacy_pass_bit_for_bit() {
+        let (_, _, w, h, _) = coastal_fixture();
+        let col = uniform(Rock::Tuff, w * h);
+        let a = coastal_change(Some(&PassRock { column: &col, contrast: 0.0, r_expose: 0.001 }), 0.1);
+        let b = coastal_change(None, 0.1);
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        assert!(b.iter().any(|&v| v.abs() > 1e-4), "the fixture must move");
+    }
+
+    /// Protects: §4.5's `ρ^c` on the wave cut, the debris and the estuary
+    /// cut. Tuff (ρ 3.0) against granite (ρ 0.10) at `c = 0.5` moves every
+    /// cell by sqrt(30) = 5.4772 times as much (arithmetic): the cut cells
+    /// lose it and their land neighbours gain the debris, both scaled by the
+    /// cutting cell's rock. Dropping the factor on any one term breaks the
+    /// ratio on the cells that term reaches; reading `γ` instead reads
+    /// sqrt(1.5 / 0.5) = 1.732.
+    #[test]
+    fn coastal_change_scales_by_rho_to_the_contrast() {
+        let (_, _, w, h, _) = coastal_fixture();
+        let (tuff, granite) = (uniform(Rock::Tuff, w * h), uniform(Rock::Granite, w * h));
+        let t = coastal_change(Some(&PassRock { column: &tuff, contrast: 0.5, r_expose: 0.001 }), 0.0);
+        let g = coastal_change(Some(&PassRock { column: &granite, contrast: 0.5, r_expose: 0.001 }), 0.0);
+        let legacy = coastal_change(None, 0.0);
+        let (mut cut, mut gained) = (0usize, 0usize);
+        for i in 0..w * h {
+            if legacy[i].abs() <= 1e-5 {
+                assert_eq!(t[i], 0.0, "cell {i}: rock must not move a cell the legacy pass leaves");
+                continue;
+            }
+            if legacy[i] < 0.0 {
+                cut += 1;
+            } else {
+                gained += 1;
+            }
+            let r = t[i] / g[i];
+            assert!((r - 5.477_225_6).abs() < 1e-2, "cell {i}: tuff/granite change ratio {r}, expected 5.4772");
+            let r = g[i] / legacy[i];
+            assert!((r - 0.316_227_8).abs() < 2e-3, "cell {i}: granite/legacy change ratio {r}, expected 0.3162");
+        }
+        assert!(cut >= 6 && gained >= 6, "the fixture must reach both the cut and the debris: {cut} cut, {gained} gained");
+        // The river mouth carries the wave cut and the estuary cut together,
+        // so it loses more than the plain coast cell above it.
+        assert!(legacy[3 * w + 4] < legacy[2 * w + 4], "the estuary cut must fire on the fixture's river mouth");
+    }
+
+    /// Protects: the coastal pass reads the exposed rock, as glacial does: a
+    /// granite cap breached to its tuff substrate retreats as tuff.
+    #[test]
+    fn coastal_reads_the_exposed_rock_through_the_column() {
+        let (fld, _, w, h, _) = coastal_fixture();
+        let n = w * h;
+        let mut capped = uniform(Rock::Granite, n);
+        capped.rock_sub = vec![Rock::Tuff as u8; n];
+        capped.contact = fld.iter().map(|z| z + 0.5).collect();
+        let a = coastal_change(Some(&PassRock { column: &capped, contrast: 0.5, r_expose: 0.001 }), 0.0);
+        let t = coastal_change(Some(&PassRock { column: &uniform(Rock::Tuff, n), contrast: 0.5, r_expose: 0.001 }), 0.0);
+        assert!(a.iter().zip(&t).all(|(x, y)| x.to_bits() == y.to_bits()));
+    }
+
+    /// Protects: the multiplier helpers against §2.3's table as literals
+    /// (shale γ 1.8, granite ρ 0.10) and their `c = 0` identity.
+    #[test]
+    fn multipliers_are_the_table_value_to_the_contrast() {
+        assert!((gamma_multiplier(Rock::Shale, 1.0) - 1.8).abs() < 1e-6);
+        assert!((rho_multiplier(Rock::Granite, 1.0) - 0.1).abs() < 1e-6);
+        assert!((gamma_multiplier(Rock::Shale, 0.5) - 1.341_640_8).abs() < 1e-6);
+        for r in Rock::ALL {
+            assert_eq!(gamma_multiplier(r, 0.0), 1.0);
+            assert_eq!(rho_multiplier(r, 0.0), 1.0);
+        }
     }
 }
