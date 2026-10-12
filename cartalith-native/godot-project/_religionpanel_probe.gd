@@ -98,12 +98,23 @@ func _ready() -> void:
 	_chk(not _joined(l1).contains("<bar:"), "and draws no bar over data it does not have")
 	_chk(_joined(l1).contains("Run diffusion"), "the run control is reachable in that state")
 
-	print("== state 'secular' (roster is all None, as generated) ==")
+	## Corrected 2026-10-12 (FH-R2 R2-0): this state used to be reached by the
+	## generated roster itself ("roster is all None, as generated"), true until
+	## 2026-09-23, when fresh factions started taking a real default religion
+	## (`civ_default_religion`). It is now set up by hand: every faction to None.
+	## The expected sentence is the shell's own (`_religion_state`), not the
+	## engine's, and it now names both causes.
+	print("== state 'secular' (every faction set to None by hand) ==")
+	var set_none := 0
+	for f in bridge.get_factions():
+		if bridge.civ_set_faction_field(int((f as Dictionary).get("id", 0)), "religion", "none"):
+			set_none += 1
+	_chk(set_none > 0, "the fixture set at least one faction's religion to None (%d)" % set_none)
 	ws._religion_run()
 	var l2 := _render(ws)
 	print("  ", _joined(l2))
-	_chk(_joined(l2).contains("every faction's religion is set to None"),
-		"the engine's own reason string is what the panel shows")
+	_chk(_joined(l2).contains("no settlement's faction holds a religion"),
+		"the secular state names its cause rather than showing an empty breakdown")
 	_chk(_joined(l2).contains("Faction Roster"), "with the action that fixes it")
 	_chk(_joined(l2).contains("Last run:"), "and the run is still reported as having happened")
 

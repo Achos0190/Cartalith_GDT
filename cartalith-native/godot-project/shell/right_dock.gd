@@ -3543,7 +3543,10 @@ func _build_faction(body: Control) -> void:
 		if roster.has("religion_name"):
 			_field(sec, "State religion", CivilizationWorkspace._faction_religion_label(roster))
 		else:
-			_field(sec, "State religion", rel.capitalize() if rel != "" else "—")
+			## `"none"` keeps its old "None" here; any other key takes the shared
+			## label (FH-R2 R2-1's appended religions do not capitalise to theirs).
+			var shown := "—" if rel == "" else ("None" if rel == "none" else CivilizationWorkspace._religion_label(rel))
+			_field(sec, "State religion", shown)
 	## FH-1 (`FACTION_HUB_DESIGN.md` §4): this card is now a thin entry point,
 	## and the one door from it into the Factions hub. It lands on
 	## **Identity**, or on **Relations** when the card was opened naming a pair

@@ -718,7 +718,7 @@ struct ReligionDto {
     id: u32,
     #[serde(default)]
     name: String,
-    /// One of the eight `CIV_RELIGIONS` keys -- the engine behaviour.
+    /// One of the `CIV_RELIGIONS` keys -- the engine behaviour.
     #[serde(default)]
     base_key: String,
     #[serde(default)]

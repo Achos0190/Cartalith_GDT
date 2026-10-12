@@ -2100,7 +2100,7 @@ func _ensure_custom_religions() -> void:
 	_custom_religions_ready = true
 
 
-## The faction's Religion picker: the eight built-ins first (their own
+## The faction's Religion picker: the built-ins first (their own
 ## vocabulary order), then the project's custom religions, each labelled with
 ## what it behaves as. It selects the STORED choice (`religion_choice`, which
 ## `get_factions()` carries only for a custom one), never the engine key in
@@ -2205,7 +2205,7 @@ func _fill_religion_library(box: VBoxContainer) -> void:
 	if not bridge.has_custom_religion_api():
 		DccWidgets.note(box, "This build's engine has no custom-religion binding. Rebuild the native library before treating it as a missing feature.").name = "ReligionsNoApi"
 		return
-	DccWidgets.note(box, "Custom religions are named variants of the eight built-ins. " + RELIGION_R1_LIMIT).name = "ReligionsLimitNote"
+	DccWidgets.note(box, "Custom religions are named variants of the built-in religions. " + RELIGION_R1_LIMIT).name = "ReligionsLimitNote"
 	_ensure_custom_religions()
 	if _custom_religions.is_empty():
 		DccWidgets.note(box, "No custom religions in this project yet.").name = "ReligionsEmpty"

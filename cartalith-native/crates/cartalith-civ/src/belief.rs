@@ -51,6 +51,7 @@
 //!
 //! So compatibility here is **derived from axes, not hand-typed as a 56-cell
 //! matrix**. A matrix of 8 religions × 7 cultures would be 56 magic numbers
+//! (105 since FH-R2 R2-1 appended seven religions on 2026-10-12)
 //! with no basis, no way to check one against another, and no answer when
 //! somebody adds a ninth religion. Deriving it from each side's own declared
 //! affinities means the values are reproducible, testable, and extend by
@@ -122,9 +123,12 @@
 //!
 //! ## Three disclosures a reader must have before using [`compat`]
 //!
-//! **1. 31 of the 56 pairs return the stated neutral.** Both unthemed
-//! cultures against every religion (10), and all three unthemed religions
-//! against every culture (21). So for a *majority* of pairs `βC·Compat` is a
+//! **1. 80 of the 105 pairs return the stated neutral** (31 of 56 until
+//! 2026-10-12, when FH-R2 R2-1 appended seven unthemed religions; the
+//! research document's own figure, checked by
+//! `compat_is_one_only_on_a_shared_domain`). Both unthemed cultures against
+//! the five themed religions (10), and all ten unthemed religions against
+//! every culture (70). So for a *majority* of pairs `βC·Compat` is a
 //! constant offset indistinguishable from moving `β0`. That is the honest
 //! state of the available data, not a modelling bug — milestone 3's authored
 //! culture-side data for `M`/`S`/`Q` is the named fix. A reader who assumes
@@ -143,7 +147,9 @@
 //! every settlement on every step, so a rendered `Compat` now does have a
 //! simulation behind it. What a surface must not assume is that the
 //! simulation is *running*: the layer is inert until a caller runs it, and
-//! inert again — all-secular — until a faction is given a religion by hand.
+//! inert again — all-secular — while every settlement's faction holds `none`
+//! (a roster edited to None, or Unclaimed settlements; a fresh roster has had
+//! real default religions since 2026-09-23, see milestone-1 disclosure 1 below).
 //! Both states are covered by [`belief_any_faith`] and by the milestone-1
 //! header's two measured disclosures below.
 //!
@@ -238,13 +244,23 @@ pub struct ReligionDomain {
 /// [`crate::CIV_CULTURE_TERRAIN_KEY`], in the same shape, over the same
 /// vocabulary, with the same deliberate omissions.
 ///
-/// **The evidence is the label.** [`crate::roster::CIV_RELIGIONS`] is eight
-/// names and nothing else — `RELIGION_DIFFUSION_SCOPE.md` §2 says so in as
-/// many words (*"`CIV_RELIGIONS` is eight names, nothing more"*). Reading
-/// "Sea Lords" as maritime is parsing authored content; inventing a
+/// **The evidence is the label.** [`crate::roster::CIV_RELIGIONS`] is names
+/// and nothing else — `RELIGION_DIFFUSION_SCOPE.md` §2 says so in as many
+/// words (*"`CIV_RELIGIONS` is eight names, nothing more"*; fifteen since
+/// FH-R2 R2-1 appended seven on 2026-10-12, still key and label only).
+/// Reading "Sea Lords" as maritime is parsing authored content; inventing a
 /// `C_ritual` for it is fabrication. That line is where this table stops.
 ///
-/// **Three religions are deliberately absent**, exactly as `common` and
+/// **The seven R2-1 religions are absent too**, on their own source's word:
+/// the research document's table gives every one of them the terrain verdict
+/// "None" (universalism, law and kinship, trade routes, politics; and for
+/// `spirit_ways` "bound to every place equally, so any one terrain key would
+/// be fabricated"). So `one_god`, `revealed_law`, `covenant_folk`,
+/// `the_path`, `mysteries`, `spirit_ways` and `god_king` take the stated
+/// neutral against every culture, as `none`, `ancestor_rites` and
+/// `flame_creed` do.
+///
+/// **Three reference religions are deliberately absent**, exactly as `common` and
 /// `imperial` are absent from the culture table and for the same stated
 /// reason — no thematic basis, so no verdict rather than a fabricated one:
 ///
@@ -342,7 +358,7 @@ pub enum CompatBasis {
 /// invented values.
 ///
 /// - `l` — **structurally `None`.** No religion in this port has a liturgical
-///   language; nothing in the eight labels implies one, so `L` is not a
+///   language; nothing in the labels implies one, so `L` is not a
 ///   function of `(R, C)` at all.
 /// - `k` — cosmological. The one evaluated component: `Some` iff both sides
 ///   declare a terrain domain.
@@ -491,15 +507,21 @@ pub fn compat_value(religion_key: &str, culture_key: &str) -> f64 {
 // Both were found by running this model, not predicted from it, and both
 // change what a Religion screen can honestly show:
 //
-// 1. **A freshly generated world has no religion in it at all.**
-//    `civ_roster_bridge::FactionEntry::default_for` sets `religion: "none"`
-//    for every faction and nothing but the player's own Faction Inspector
-//    edit ever changes that, so [`belief_seed`] seeds 100 % unaffiliated
-//    everywhere and the all-secular state is a fixed point. The layer does
-//    nothing until a faction is given a religion by hand. That is a
-//    *configuration* state with a fix the user can act on, and it is not the
-//    same thing as "the diffusion has not been run" — [`belief_any_faith`]
-//    exists so a surface can tell them apart.
+// 1. **An all-`none` roster has no religion in it at all.** Until
+//    2026-09-23 that was every freshly generated world:
+//    `civ_roster_bridge::FactionEntry::default_for` set `religion: "none"`
+//    for every faction. **Since 2026-09-23 it does not** — `default_for`
+//    calls `crate::roster::civ_default_religion` for every faction but
+//    Unclaimed (index 0), so a fresh world seeds real faith (pinned by
+//    `cartalith-godot`'s `the_shipped_roster_now_seeds_real_faith_from_its_wired_default`).
+//    The all-`none` case is now a roster the user has edited (every faction
+//    set to None by hand), or a world whose settlements are all Unclaimed:
+//    then [`belief_seed`] seeds 100 % unaffiliated everywhere and the
+//    all-secular state is a fixed point. That is a *configuration* state
+//    with a fix the user can act on, and it is not the same thing as "the
+//    diffusion has not been run" — [`belief_any_faith`] exists so a surface
+//    can tell them apart. (Corrected 2026-10-12, FH-R2 R2-0; the old text
+//    was routed by `FH_R2_PLAN.md` §3.)
 // 2. **There is no stable mixture.** §14's `p^k` with `k > 1` is a fixation
 //    dynamic, so every settlement converges to one religion holding
 //    essentially all of it — measured at >99 % even for a town placed
@@ -902,7 +924,7 @@ fn belief_exposure(
 /// **The leading `E_r` factor is the part that is not decoration.** §19's
 /// logistic never returns zero anywhere this model can reach — its whole
 /// domain is `σ ∈ [0.047, 0.953]` (see [`BELIEF_B0`]) — so a bare `σ(…)`
-/// gives every one of the eight religions a nonzero pull in every settlement
+/// gives every religion in the vocabulary a nonzero pull in every settlement
 /// on every step, and a sealed valley that has never met an outsider grows a
 /// Sea Lords congregation out of arithmetic. Multiplying by exposure is
 /// §17's own shape (`P_conv = 1 − e^{−kE}` is likewise zero at zero
@@ -918,8 +940,9 @@ fn belief_exposure(
 /// but is never specifically *hostile* to one, which is what §18's `w_Rq`
 /// would add.
 ///
-/// And [`compat_value`]'s own disclosure applies with full force: **31 of
-/// the 56 (religion, culture) pairs return the stated neutral**, so over the
+/// And [`compat_value`]'s own disclosure applies with full force: **80 of
+/// the 105 (religion, culture) pairs return the stated neutral** (31 of 56
+/// before FH-R2 R2-1's seven unthemed religions), so over the
 /// majority of the domain `βC·Compat` is a constant offset indistinguishable
 /// from moving `β0`. Anyone calibrating `βC` against this model is
 /// calibrating a term that is flat over half of it.
@@ -990,7 +1013,7 @@ pub fn belief_step(
             *slot = v;
             sum += v;
         }
-        // Renormalize. The algebra sums to exactly 1.0; eight f64 additions
+        // Renormalize. The algebra sums to exactly 1.0; CIV_RELIGION_COUNT f64 additions
         // of it do not, and the drift compounds over a century of steps.
         if sum > 0.0 {
             for r in 0..CIV_RELIGION_COUNT {
@@ -1007,24 +1030,27 @@ pub fn belief_step(
 /// `faction_religion` is one religion key per faction id, index-aligned with
 /// the roster, so `faction_religion[0]` is Unclaimed's.
 ///
-/// # This produces an all-`none` world by default, and that is the finding
+/// # What a fresh roster seeds (corrected 2026-10-12, FH-R2 R2-0)
 ///
-/// `civ_roster_bridge::FactionEntry::default_for` sets `religion: "none"` for
-/// **every** faction, generation included — the reference's own module-load
-/// default, and nothing in either codebase ever writes it except the
-/// player, through the Faction Inspector's Religion dropdown. So a freshly
-/// generated world seeds 100 % unaffiliated everywhere, and this model's
-/// correct behaviour on it is to sit still forever: every settlement's only
-/// exposure is to `none`, so `none` is the only religion with a nonzero
-/// pull, and the fixed point is the seed.
+/// This used to say that `civ_roster_bridge::FactionEntry::default_for` sets
+/// `religion: "none"` for **every** faction, so a freshly generated world
+/// seeds 100 % unaffiliated and the layer does nothing until a faction is
+/// given a religion by hand. **That stopped being true on 2026-09-23**:
+/// `default_for` now calls [`crate::roster::civ_default_religion`] for every
+/// faction but Unclaimed (index 0), so a fresh world seeds each faction's
+/// settlements into a real faith (pinned by `cartalith-godot`'s
+/// `the_shipped_roster_now_seeds_real_faith_from_its_wired_default`). That
+/// default is the culture's best `compat` fit, with ties cycled by faction
+/// index, not `CIV_RELIGIONS[i % 8]`; see its own doc for why that is not
+/// the fabrication [`CIV_RELIGION_DOMAIN`]'s doc refuses.
 ///
-/// That is not a bug in the seeding rule and it is not fixed by inventing a
-/// default religion per faction — `CIV_RELIGIONS[i % 8]` would be exactly
-/// the fabricated content [`CIV_RELIGION_DOMAIN`]'s doc refuses. It is a real
-/// consequence of `RELIGION_DIFFUSION_SCOPE.md` milestone 1 choosing the
-/// least invasive seed, and it means **the diffusion layer does nothing
-/// until a faction is given a religion by hand.** A surface built on this
-/// must say so in those words rather than render an empty breakdown.
+/// The all-`none` seed still happens, and this rule still handles it the
+/// same way: a settlement of Unclaimed (faction 0, always `"none"`), or of a
+/// faction the user set to None, seeds wholly unaffiliated. If every
+/// settlement is in that state the model sits still forever: every
+/// settlement's only exposure is to `none`, so `none` is the only religion
+/// with a nonzero pull, and the fixed point is the seed. A surface must say
+/// so rather than render an empty breakdown ([`belief_any_faith`]).
 pub fn belief_seed(faction_of: &[i32], faction_religion: &[&str]) -> Vec<SettlementReligionState> {
     faction_of
         .iter()
@@ -1064,7 +1090,8 @@ mod tests {
     use crate::{CIV_CULTURE_TERRAIN_KEY, CIV_CULTURES, CIV_TERRAIN_MIX_KEYS};
     use std::collections::BTreeSet;
 
-    /// Every `(religion, culture)` pair in the two live vocabularies: 8 × 7.
+    /// Every `(religion, culture)` pair in the two live vocabularies: 15 × 7
+    /// (8 × 7 until FH-R2 R2-1, 2026-10-12).
     fn all_pairs() -> Vec<(&'static str, &'static str)> {
         let mut v = Vec::new();
         for (r, _) in CIV_RELIGIONS.iter() {
@@ -1140,7 +1167,11 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let expect_unthemed: BTreeSet<&str> = ["none", "ancestor_rites", "flame_creed"]
+        // RE-BASELINED 2026-10-12 under Ruling CG: FH-R2 R2-1's seven appended
+        // religions join the unthemed set, each on the research document's own
+        // "Terrain verdict: None" (see CIV_RELIGION_DOMAIN's doc comment).
+        let expect_unthemed: BTreeSet<&str> = ["none", "ancestor_rites", "flame_creed", "one_god",
+            "revealed_law", "covenant_folk", "the_path", "mysteries", "spirit_ways", "god_king"]
             .into_iter()
             .collect();
 
@@ -1156,13 +1187,13 @@ mod tests {
         assert_eq!(
             unthemed, expect_unthemed,
             "DRIFT GUARD: the set of deliberately-unthemed religions changed. none, \
-             ancestor_rites and flame_creed are omitted for stated reasons (see \
+             ancestor_rites, flame_creed and R2-1's seven are omitted for stated reasons (see \
              CIV_RELIGION_DOMAIN's doc comment); a new member of this set needs its own"
         );
         assert_eq!(
             themed.len() + unthemed.len(),
             CIV_RELIGIONS.len(),
-            "the 5/3 split must account for all 8 religions"
+            "the 5/10 split must account for all 15 religions"
         );
     }
 
@@ -1259,7 +1290,7 @@ mod tests {
     }
 
     /// Protects: `compat`'s value stays in `[0, 1]` and finite over the full
-    /// 8x7 sweep, the ones/zeros/neutrals counts match the domain overlap
+    /// 15x7 sweep, the ones/zeros/neutrals counts match the domain overlap
     /// arithmetic, and five spot-checked pairs get the exact value and basis
     /// their case demands.
     #[test]
@@ -1267,8 +1298,10 @@ mod tests {
         let pairs = all_pairs();
         assert_eq!(
             pairs.len(),
-            56,
-            "8 religions x 7 cultures; this sweep must not be empty"
+            // RE-BASELINED 2026-10-12 under Ruling CG: 56 -> 105 (FH-R2 R2-1's
+            // seven appended religions).
+            105,
+            "15 religions x 7 cultures; this sweep must not be empty"
         );
 
         let (mut ones, mut zeros, mut neutrals) = (0usize, 0usize, 0usize);
@@ -1305,13 +1338,16 @@ mod tests {
             "5 themed religions x 5 themed cultures, minus the 5 matches"
         );
         assert_eq!(
-            neutrals, 31,
-            "10 (themed religion x unthemed culture) + 21 (unthemed religion x any culture) \
+            // RE-BASELINED 2026-10-12 under Ruling CG: 31 -> 80 (seven unthemed
+            // religions x seven cultures = 49 more neutrals).
+            neutrals, 80,
+            "10 (themed religion x unthemed culture) + 70 (unthemed religion x any culture) \
              -- this is the modal value the module doc discloses"
         );
         assert_eq!(
             ones + zeros + neutrals,
-            56,
+            // RE-BASELINED 2026-10-12 under Ruling CG: 56 -> 105.
+            105,
             "the three counts must partition the sweep"
         );
 
@@ -1343,7 +1379,7 @@ mod tests {
     /// other.
     ///
     /// Note the exact claim: a weight exists where a component *can* be
-    /// `Some`, not where it *is*. `k` is legitimately `None` for the 31
+    /// `Some`, not where it *is*. `k` is legitimately `None` for the 80
     /// unthemed pairs, so the per-pair direction is "a present component
     /// always has a weight" (nothing is silently dropped by the loop) and the
     /// over-the-sweep direction is "a present weight is used by at least one
@@ -1372,7 +1408,8 @@ mod tests {
 
         let mut weight_used = [false; COMPAT_COMPONENTS];
         let pairs = all_pairs();
-        assert_eq!(pairs.len(), 56, "this sweep must not be empty");
+        // RE-BASELINED 2026-10-12 under Ruling CG: 56 -> 105 (R2-1).
+        assert_eq!(pairs.len(), 105, "this sweep must not be empty");
         for &(r, c) in pairs.iter() {
             let v = compat(r, c);
             let components = [v.l, v.k, v.m, v.s, v.q];
@@ -1436,7 +1473,8 @@ mod tests {
         }
 
         let pairs = all_pairs();
-        assert_eq!(pairs.len(), 56, "this sweep must not be empty");
+        // RE-BASELINED 2026-10-12 under Ruling CG: 56 -> 105 (R2-1).
+        assert_eq!(pairs.len(), 105, "this sweep must not be empty");
         for &(r, c) in pairs.iter() {
             let v = compat_value(r, c);
             assert!(
@@ -1502,7 +1540,7 @@ mod tests {
     /// `0.5 -> 0.75` and all nine tests still passed, because assertions
     /// written as `v.value == NEUTRAL_COMPAT` move with the constant they
     /// are meant to pin -- and that constant is the **modal** output of the
-    /// whole module (31 of 56 pairs). Three of the five
+    /// whole module (31 of 56 pairs then; 80 of 105 since R2-1). Three of the five
     /// [`CIV_RELIGION_DOMAIN`] rows -- `earth_mother`, `sky_pantheon`,
     /// `old_gods`, which are exactly the three the module doc flags as
     /// judgement calls -- were likewise pinned by nothing: only `sun_cult`
@@ -1615,7 +1653,9 @@ mod diffusion_tests {
     /// changes with it and this is the test that says so first.
     #[test]
     fn the_religion_index_is_the_roster_order() {
-        assert_eq!(CIV_RELIGION_COUNT, 8, "eight religions, `none` included");
+        // RE-BASELINED 2026-10-12 under Ruling CG: 8 -> 15 (FH-R2 R2-1 appended
+        // seven religions; every share array grows with it).
+        assert_eq!(CIV_RELIGION_COUNT, 15, "fifteen religions, `none` included");
         assert_eq!(CIV_RELIGION_COUNT, CIV_RELIGIONS.len());
         assert_eq!(RELIGION_NONE, 0);
         assert_eq!(

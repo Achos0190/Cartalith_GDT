@@ -25,6 +25,10 @@ mod bake_bridge;
 // Found-bug sweep 2026-10-11, R8: an ignored measurement over the real pipeline.
 #[cfg(test)]
 mod bugsweep_seed707;
+// FH-R2 R2-0/R2-1 (Ruling CG item 3): the M0 baseline / M1 zero-bytes-moved
+// check, an ignored measurement over 20 generated worlds.
+#[cfg(test)]
+mod fh_r2_baseline;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
@@ -3193,8 +3197,8 @@ impl CivData {
 /// settlements are not a corner case here (see the probe measurement quoted
 /// on `get_settlements` itself).
 ///
-/// Returned as a `Vec` rather than an iterator borrowing `state`: eight
-/// entries at most, and the caller immediately drains it into a
+/// Returned as a `Vec` rather than an iterator borrowing `state`: one
+/// entry per `CIV_RELIGIONS` row at most (fifteen since FH-R2 R2-1), and the caller immediately drains it into a
 /// `VarDictionary`.
 fn religion_shares(
     state: &cartalith_civ::belief::SettlementReligionState,
@@ -12289,8 +12293,10 @@ impl WorldGen {
     /// - `years` (int) — steps actually taken.
     /// - `any_faith` (bool) — whether **any** settlement holds any share of
     ///   any religion. `false` is not an error and not an empty result: it
-    ///   means no faction has been given a religion, and the fix is in the
-    ///   Faction Inspector's Religion dropdown.
+    ///   means no settlement's faction holds a religion (each is None or
+    ///   Unclaimed; a fresh roster has had real defaults since 2026-09-23, so
+    ///   this is a hand-edited roster), and the fix is in the Faction
+    ///   Inspector's Religion dropdown.
     /// - `reason` (String) — **present only when `any_faith` is false**, and
     ///   carrying the sentence a surface should show instead of an empty
     ///   breakdown. Omitted, not blanked, on the normal path.
@@ -12320,8 +12326,15 @@ impl WorldGen {
                 if n == 0 {
                     "This world has no settlements to hold a religion."
                 } else {
-                    "Every faction's religion is set to None, so there is nothing to spread. \
-                     Set a faction's religion in the Faction Inspector, then run again."
+                    // Corrected 2026-10-12 (FH-R2 R2-0): this used to read "Every
+                    // faction's religion is set to None", true while every fresh
+                    // faction defaulted to None. Since 2026-09-23 a fresh faction
+                    // gets a real default (`civ_default_religion`), so this branch
+                    // now means every settlement's faction holds None: a roster
+                    // edited by hand, or settlements that are all Unclaimed.
+                    "No settlement's faction holds a religion (each is None or Unclaimed), so \
+                     there is nothing to spread. Set a faction's religion in the Faction \
+                     Inspector, then run again."
                 },
             );
         }

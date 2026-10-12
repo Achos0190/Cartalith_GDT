@@ -1571,15 +1571,27 @@ one written before the slot existed, and an older reader ignores it (§6.3). No
 |---|---|---|---|
 | `next_id` | integer ≥ 1 | MUST | The id the next created religion gets. Ids are **never reused**, so this can be above every id present (a deleted religion's id stays issued). A reader MUST raise it past every id present and never below `1`. |
 | `religions[].id` | integer ≥ 1 | MUST | Unique. A faction names the row as `custom:<id>` (§9.2). |
-| `religions[].name` | string | MUST | Trimmed, non-empty, at most 48 characters, no control characters, unique case-insensitively against the eight built-in religion labels and keys, the reserved display strings "No religion" and "Missing religion", and every other row. |
-| `religions[].base_key` | string | MUST | One of the eight built-in religion keys. **The engine behaviour of the religion is its base's**: every consumer (belief diffusion, the relations faith term, the religious power axis) reads `base_key` in place of `custom:<id>`. |
+| `religions[].name` | string | MUST | Trimmed, non-empty, at most 48 characters, no control characters, unique case-insensitively against the built-in religion labels and keys, the reserved display strings "No religion" and "Missing religion", and every other row. **On load**, a name is checked against the reference's eight built-ins only: the seven built-ins appended 2026-10-12 (below) did not exist when an older archive's names were chosen, so a row named e.g. "Spirit Ways" opens; creating or renaming to any built-in name is refused. |
+| `religions[].base_key` | string | MUST | One of the built-in religion keys (`cartalith_civ::roster::CIV_RELIGIONS`: the reference's eight, plus `one_god`, `revealed_law`, `covenant_folk`, `the_path`, `mysteries`, `spirit_ways`, `god_king` since 2026-10-12). **The engine behaviour of the religion is its base's**: every consumer (belief diffusion, the relations faith term, the religious power axis) reads `base_key` in place of `custom:<id>`. |
 | `religions[].colour` | array of 3 integers `[0,255]` | MUST | Display swatch only; nothing simulated reads it. |
 | `religions[].notes` | string | MAY | Free text, at most 4000 characters; omitted when empty. |
 
 A reader MUST treat an absent document as "no custom religions" and MUST NOT
 warn about it. A row with id `0`, a duplicate id, an unknown `base_key` or an
 invalid name is dropped and the rest open (§6.4a rung 3); this implementation
-warns with the count. An unknown member on a row is ignored. A document that
+warns with the count.
+
+**Built-in vocabulary grown, 2026-10-12 (FH-R2 R2-1, Ruling CG item 3).**
+Seven religion keys were appended to the built-in vocabulary (append only:
+the reference's eight keep their keys). No `format_version` change: nothing is
+written differently unless a user picks a new religion. **Forward
+compatibility, disclosed:** an older build opening an archive whose faction
+`religion` (§9.2) is one of the seven preserves the key (§9.2's MUST) and reads
+it as an unknown religion, which its belief model seeds as no faith; a
+`religions[]` row whose `base_key` is one of the seven is an unknown base to
+that build and is dropped on open, leaving its factions `Missing religion`.
+Fresh worlds never default to the seven (`civ_default_religion`), so neither
+happens without a user's pick. An unknown member on a row is ignored. A document that
 does not parse costs itself only, with a warning.
 
 **A dangling reference** — a faction whose `religion` is `custom:<id>` with no

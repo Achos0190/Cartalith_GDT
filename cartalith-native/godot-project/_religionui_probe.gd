@@ -50,6 +50,11 @@ func _init() -> void:
 	_chk(not _any_religion_key(wg),
 		"state 'not_run': no settlement carries a religion key before a run")
 
+	## Corrected 2026-10-12 (FH-R2 R2-0): a generated roster is no longer
+	## all-None (fresh factions take `civ_default_religion` since 2026-09-23),
+	## so the secular state is set up by hand before the first run.
+	for f in wg.get_factions():
+		wg.civ_set_faction_field(int((f as Dictionary).get("id", 0)), "religion", "none")
 	var st: Dictionary = wg.civ_belief_run(50)
 	print("  run over an all-None roster -> ", st)
 	_chk(not bool(st.get("any_faith", true)) and st.has("reason"),
@@ -168,6 +173,22 @@ func _init() -> void:
 	print("  population 0 card: ", zero_pop)
 	_chk(not String(zero_pop[0]).contains("%"),
 		"population 0 prints no percentage rather than 0%")
+	## FH-R2 R2-1 (2026-10-12): the shell derives labels from keys, and six of the
+	## seven appended religions do not capitalise to their engine label. Every
+	## built-in but `none` must print exactly the engine's label in both the
+	## hover card (`_faith_label`) and the panels (`_religion_label`). Fails on the
+	## pre-R2-1 shell for any appended key (e.g. "One God" for "The One God").
+	var vocab: Array = wg.civ_religion_vocabulary()
+	var label_miss := []
+	for e in vocab:
+		var k := String((e as Dictionary).get("key", ""))
+		var want := String((e as Dictionary).get("label", ""))
+		if k == "none":
+			continue
+		if ov._faith_label(k) != want or CivilizationWorkspace._religion_label(k) != want:
+			label_miss.append("%s -> %s / %s (want %s)" % [k, ov._faith_label(k), CivilizationWorkspace._religion_label(k), want])
+	_chk(vocab.size() == 15 and label_miss.is_empty(),
+		"every built-in religion label matches the engine's (%d entries; misses %s)" % [vocab.size(), label_miss])
 	var tiny: Array = ov._faith_lines({"population": 900, "religion": "none",
 		"adherents": {"none": 898, "old_gods": 2}})
 	print("  a two-person congregation: ", tiny)

@@ -7124,9 +7124,10 @@ func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
 ##
 ## Labels are derived from the key rather than pushed from
 ## `civ_religion_vocabulary()`: Godot's `String.capitalize()` reproduces
-## seven of the eight `CIV_RELIGIONS` labels exactly (`sun_cult` -> "Sun
-## Cult"), and the eighth is handled above by name, so a second push would
-## buy one string.
+## seven of the reference's eight `CIV_RELIGIONS` labels exactly (`sun_cult`
+## -> "Sun Cult"), and the eighth is handled in `_faith_label` by name. Of the
+## seven FH-R2 R2-1 appended (2026-10-12) only `spirit_ways` capitalises to its
+## label; the other six come from `CivilizationWorkspace.RELIGION_LABELS`.
 func _faith_lines(s: Dictionary) -> Array:
 	if not s.has("religion"):
 		return []
@@ -7190,7 +7191,9 @@ func _faith_lines(s: Dictionary) -> Array:
 func _faith_label(key: String) -> String:
 	## `CIV_RELIGIONS[0]`'s own label is "None / secular", which reads as a
 	## missing value in a tooltip; this says the thing it means instead.
-	return "no religion" if key == "none" else key.capitalize()
+	if key == "none":
+		return "no religion"
+	return CivilizationWorkspace._religion_label(key)
 
 ## ` 94%`, ` <1%`, or `""` when the count cannot be turned into a share at all.
 ##

@@ -38,10 +38,15 @@ func _init() -> void:
 			break
 	print("  before any run: religion key present = ", places[0].has("religion"))
 
-	# 2. The shipped roster is all-`none`, so a run reports no faith AND a
-	#    reason. This is the finding the engine half documents.
+	# 2. An all-`none` roster reports no faith AND a reason. Corrected
+	#    2026-10-12 (FH-R2 R2-0): this used to rely on the shipped roster being
+	#    all-`none`, true until 2026-09-23, when fresh factions started taking a
+	#    real default religion (`civ_default_religion`); the state is now set
+	#    up by hand, every faction to `none`, before the first run.
+	for f in wg.get_factions():
+		wg.civ_set_faction_field(int((f as Dictionary).get("id", 0)), "religion", "none")
 	var r: Dictionary = wg.civ_belief_run(50)
-	print("  run on the shipped roster -> ", r)
+	print("  run on an all-none roster -> ", r)
 	if bool(r.get("any_faith", true)):
 		print("  FAIL: a world whose factions are all `none` reported a faith")
 		fails += 1

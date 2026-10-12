@@ -115,7 +115,7 @@ impl WorldGen {
             .collect()
     }
 
-    /// Creates a custom religion behaving as `base_key` (one of the eight
+    /// Creates a custom religion behaving as `base_key` (one of the
     /// built-ins). `{ok: true, id, key}` or `{ok: false, error}`; the name is
     /// trimmed and must be unique (case-insensitive) against the built-ins and
     /// the other custom religions. Assigning it to a faction is a separate

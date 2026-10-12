@@ -3588,9 +3588,9 @@ func _religion_state(places: Array) -> Dictionary:
 			if String(k) != "none":
 				return {"state": "live", "reason": ""}
 	return {"state": "secular", "reason":
-		"The diffusion has run and there is nothing to spread: every faction's religion is set "
-		+ "to None. That is a setting, not an empty result -- give a faction a religion in the "
-		+ "Faction Roster and run again."}
+		"The diffusion has run and there is nothing to spread: no settlement's faction holds a "
+		+ "religion (each is None or Unclaimed). That is a setting, not an empty result -- give "
+		+ "a faction a religion in the Faction Roster and run again."}
 
 ## The category body, laid out to `design/proposed-2026-09-05/Religion.dc.html`.
 ##
@@ -4059,8 +4059,10 @@ func _religion_strip_cell(parent: Control, value: String, caption: String,
 ## # Two of its five columns have no source in this engine, and are dashed
 ##
 ## - **TYPE** (organized / folk / cult / heresy). There is no such field.
-##   `cartalith_civ::roster::CIV_RELIGIONS` is `[(&str, &str); 8]` -- a key and
-##   a label, nothing else -- and `belief.rs`'s own module doc says so in as
+##   `cartalith_civ::roster::CIV_RELIGIONS` is `[(&str, &str); 15]` -- a key and
+##   a label, nothing else (the reference's eight plus FH-R2 R2-1's seven,
+##   2026-10-12; the research document's TYPE column for them is owner question
+##   Q1 of `FH_R2_PLAN.md`, not approved, so it is still not carried) -- and `belief.rs`'s own module doc says so in as
 ##   many words (*"`CIV_RELIGIONS` is eight names and nothing else"*), in the
 ##   passage that refuses to read "Sea Lords" as maritime because *"reading the
 ##   label is parsing authored content; inventing a `C_ritual` for it is
@@ -4743,7 +4745,26 @@ static func _religion_sorted(counts: Dictionary) -> Array:
 ## is *"the unaffiliated share of the population, not an absent value"* --
 ## that constant's own doc comment.
 static func _religion_label(key: String) -> String:
-	return "No religion" if key == "none" else key.capitalize()
+	if key == "none":
+		return "No religion"
+	return String(RELIGION_LABELS.get(key, key.capitalize()))
+
+## The `CIV_RELIGIONS` labels `String.capitalize()` does not reproduce: six of
+## the seven FH-R2 R2-1 appended on 2026-10-12, copied from
+## `cartalith_civ::roster::CIV_RELIGIONS` (`one_god` would otherwise read "One
+## God" for "The One God"; `spirit_ways` capitalises to its label and is not
+## here). Every reference key capitalises to its own label. Must match the
+## engine's labels; a key missing here still renders, capitalised. Read by
+## `_religion_label` here, `map_overlay.gd::_faith_label` and
+## `right_dock.gd`'s State religion field.
+const RELIGION_LABELS := {
+	"one_god": "The One God",
+	"revealed_law": "The Revealed Law",
+	"covenant_folk": "The Covenant",
+	"the_path": "The Middle Path",
+	"mysteries": "The Mysteries",
+	"god_king": "The Divine Throne",
+}
 
 ## FH-R1 (`FACTION_HUB_DESIGN.md` §6 R1): a faction row's STATE religion as a
 ## person reads it. `get_factions()` keeps `religion` as the ENGINE key (a
@@ -4820,8 +4841,13 @@ static func _religion_color(key: String) -> Color:
 ## authority and a key this list does not carry still renders -- it just takes
 ## slot 0's hue. Kept local so a colour lookup does not have to call the
 ## engine once per settlement row.
+##
+## FH-R2 R2-1 (2026-10-12) appended seven religions to `CIV_RELIGIONS`; they are
+## appended here in the same order, so every reference religion keeps its hue
+## and a hand-picked new religion gets its own rather than slot 0's.
 const RELIGION_KEYS := ["none", "sun_cult", "earth_mother", "sea_lords", "sky_pantheon",
-	"ancestor_rites", "flame_creed", "old_gods"]
+	"ancestor_rites", "flame_creed", "old_gods",
+	"one_god", "revealed_law", "covenant_folk", "the_path", "mysteries", "spirit_ways", "god_king"]
 
 ## The Religion table's column widths, from `Religion.dc.html`'s own inline
 ## `width:` values -- swatch 12, TYPE 56, SHARE 44, TREND 40.

@@ -4,6 +4,10 @@
 No code has been written for it.** This document carries no status column; whether any of it is built is
 `cartalith-native/docs/STATUS.md`'s answer, never this file's (`CLAUDE.md`, "One place holds state").
 
+**Built so far (pointer added 2026-10-12, Ruling CG item 3 approved Q0 and Q2):** R2-0 and the vocabulary half
+of R2-1 were built on 2026-10-12; read `cartalith-native/docs/STATUS.md` (its 2026-10-12 FH-R2 entry) for what
+was built, measured and left out. Not a status column; the rest of this document is the plan as written.
+
 Every number below names its source: a symbol opened on 2026-10-12, the research document, or a **labelled
 judgement** (Ruling BK). Every code citation names a symbol; line numbers are given only as a search aid and
 drift (`MISTAKES.md`, "Re-resolve a citation late in a long pass").

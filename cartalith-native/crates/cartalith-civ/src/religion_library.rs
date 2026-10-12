@@ -1,11 +1,12 @@
-//! Custom religions as **named variants** of the eight built-ins --
+//! Custom religions as **named variants** of the built-ins --
 //! `FACTION_HUB_DESIGN.md` §6, phase **R1**.
 //!
 //! # What it is
 //!
 //! A custom religion is a record `{id, name, base_key, colour, notes}`
 //! ([`ReligionDef`]) whose engine behaviour **is its `base_key`'s**: one of
-//! the eight keys in [`crate::roster::CIV_RELIGIONS`]. A faction's stored
+//! the keys in [`crate::roster::CIV_RELIGIONS`] (the reference's eight, plus
+//! the seven FH-R2 R2-1 appended on 2026-10-12). A faction's stored
 //! religion may then be `custom:<id>` ([`custom_religion_key`]) instead of a
 //! built-in key. The user sees the custom name; the engine keeps reading the
 //! base key.
@@ -14,7 +15,7 @@
 //!
 //! **No engine consumer ever sees a raw `custom:` key.** `belief.rs`
 //! (`belief_seed`, `compat`), the relations faith term and the religious
-//! power axis (`faction_has_religion`) are all keyed by the eight built-ins,
+//! power axis (`faction_has_religion`) are all keyed by the built-ins,
 //! and a `custom:3` reaching any of them would not fail loudly -- it would
 //! quietly read as "an unknown religion", which those functions treat as no
 //! faith at all. So every consumer resolves through
@@ -51,7 +52,7 @@
 //! [`crate::conflict::ConflictStore`]: the library lives on
 //! `cartalith-godot`'s `CivData`, beside the roster that references it.
 
-use crate::roster::{has_key, CIV_RELIGIONS};
+use crate::roster::{has_key, CIV_RELIGIONS, CIV_RELIGIONS_REFERENCE_LEN};
 
 /// The prefix a faction's stored religion carries when it names a custom
 /// religion: `custom:<id>`. Chosen so it cannot collide with a built-in key
@@ -68,7 +69,7 @@ pub const RELIGION_NAME_MAX_CHARS: usize = 48;
 /// `entities/religions.json` unnoticed.
 pub const RELIGION_NOTES_MAX_CHARS: usize = 4000;
 
-/// Names a custom religion may not take besides the eight built-ins' own
+/// Names a custom religion may not take besides the built-ins' own
 /// labels and keys: the two the shell itself prints for a faction's
 /// religion (`civilization_workspace.gd::_religion_label` reads `"none"` as
 /// "No religion"; a dangling reference reads "Missing religion"). A custom
@@ -85,7 +86,7 @@ pub struct ReligionDef {
     /// characters, unique case-insensitively against the built-ins and the
     /// other custom religions.
     pub name: String,
-    /// One of the eight `CIV_RELIGIONS` keys. What the engine reads.
+    /// One of the `CIV_RELIGIONS` keys. What the engine reads.
     pub base_key: String,
     /// The swatch the shell draws it with. Display only: no engine reader.
     pub colour: (u8, u8, u8),
@@ -105,7 +106,7 @@ pub enum ReligionError {
     /// The name equals (case-insensitively) a built-in religion, a reserved
     /// display string, or another custom religion -- named here.
     NameTaken(String),
-    /// `base_key` is not one of the eight built-ins.
+    /// `base_key` is not one of the built-ins.
     BaseUnknown(String),
     /// The notes are longer than [`RELIGION_NOTES_MAX_CHARS`].
     NotesTooLong,
@@ -129,7 +130,7 @@ impl std::fmt::Display for ReligionError {
             }
             Self::NameControlChar => write!(f, "A name cannot contain line breaks or tabs."),
             Self::NameTaken(other) => write!(f, "\"{other}\" already uses that name."),
-            Self::BaseUnknown(k) => write!(f, "\"{k}\" is not one of the eight built-in religions."),
+            Self::BaseUnknown(k) => write!(f, "\"{k}\" is not a built-in religion."),
             Self::NotesTooLong => {
                 write!(f, "Notes are longer than {RELIGION_NOTES_MAX_CHARS} characters.")
             }
@@ -150,7 +151,7 @@ impl std::fmt::Display for ReligionError {
 /// What a faction's stored religion string means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReligionChoice<'a> {
-    /// Not a `custom:` key: one of the eight built-ins, or -- from an old or
+    /// Not a `custom:` key: one of the built-ins, or -- from an old or
     /// hand-edited archive -- an unknown key, which is passed through exactly
     /// as it was before custom religions existed.
     Builtin(&'a str),
@@ -216,13 +217,23 @@ impl ReligionLibrary {
     /// A faction that held a dropped row's id then reads as `Missing` --
     /// honest, and visible in the shell -- rather than being re-pointed at a
     /// guess.
+    ///
+    /// **A saved name is checked against the reference's eight built-ins
+    /// only** (`CIV_RELIGIONS[..CIV_RELIGIONS_REFERENCE_LEN]`), not against the
+    /// seven FH-R2 R2-1 appended on 2026-10-12. A project saved before then
+    /// could legally hold a custom religion named "Spirit Ways" or "The
+    /// Mysteries"; checking it against the grown vocabulary would drop the row
+    /// on open and leave its factions `Missing` -- data loss caused by a
+    /// vocabulary change, not by the archive. Create and rename still refuse
+    /// every built-in name ([`Self::validate_name`]). Tested by
+    /// `a_saved_name_that_clashes_only_with_an_appended_builtin_still_opens`.
     pub fn from_saved(next_id: u32, rows: Vec<ReligionDef>) -> (Self, usize) {
         let mut lib = Self::new();
         let mut dropped = 0;
         for mut row in rows {
             let ok_id = row.id != 0 && lib.get(row.id).is_none();
             let ok_base = has_key(&CIV_RELIGIONS, &row.base_key);
-            let name = lib.validate_name(&row.name, None);
+            let name = lib.validate_name_against(&row.name, None, &CIV_RELIGIONS[..CIV_RELIGIONS_REFERENCE_LEN]);
             match (ok_id, ok_base, name) {
                 (true, true, Ok(name)) => {
                     row.name = name;
@@ -309,6 +320,20 @@ impl ReligionLibrary {
     /// read with spaces for underscores, [`RESERVED_NAMES`], anything that
     /// looks like a `custom:` key, and every other custom religion.
     pub fn validate_name(&self, name: &str, except: Option<u32>) -> Result<String, ReligionError> {
+        self.validate_name_against(name, except, &CIV_RELIGIONS)
+    }
+
+    /// [`Self::validate_name`] with the built-in `(key, label)` rows to check
+    /// against passed in. Every rule but that one list is identical. Exists
+    /// for one caller, [`Self::from_saved`], which passes the reference's
+    /// eight only (see its doc); must never be used to let a *new* name take a
+    /// built-in's.
+    fn validate_name_against(
+        &self,
+        name: &str,
+        except: Option<u32>,
+        builtins: &[(&str, &str)],
+    ) -> Result<String, ReligionError> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             return Err(ReligionError::NameEmpty);
@@ -323,7 +348,7 @@ impl ReligionLibrary {
         if folded.starts_with(CUSTOM_RELIGION_PREFIX) {
             return Err(ReligionError::NameTaken(trimmed.to_string()));
         }
-        for (key, label) in CIV_RELIGIONS.iter() {
+        for (key, label) in builtins.iter() {
             if folded == fold_name(label) || folded == fold_name(&key.replace('_', " ")) {
                 return Err(ReligionError::NameTaken((*label).to_string()));
             }
@@ -591,5 +616,41 @@ mod tests {
         assert_eq!(lib.next_id(), 20, "a saved next_id past deleted ids is kept");
         let (empty, _) = ReligionLibrary::from_saved(0, vec![]);
         assert!(empty.is_pristine());
+    }
+
+    /// Protects: FH-R2 R2-1's append did not turn a valid saved project into a
+    /// damaged one. A custom religion named after an appended built-in
+    /// ("Spirit Ways", "the mysteries" by its folded label, "god king" by its
+    /// key) was legal before 2026-10-12 and still opens; a reference built-in's
+    /// name is still refused on load; and creating or renaming to an appended
+    /// name is refused, because a new name must not shadow any built-in. If
+    /// `from_saved` used the full vocabulary, `dropped` would be 3 here.
+    #[test]
+    fn a_saved_name_that_clashes_only_with_an_appended_builtin_still_opens() {
+        let row = |id, name: &str| ReligionDef {
+            id,
+            name: name.into(),
+            base_key: "old_gods".into(),
+            colour: (1, 1, 1),
+            notes: String::new(),
+        };
+        let (mut lib, dropped) = ReligionLibrary::from_saved(
+            0,
+            vec![row(1, "Spirit Ways"), row(2, "the mysteries"), row(3, "god king"), row(4, "Old Gods")],
+        );
+        assert_eq!(dropped, 1, "only the reference built-in's name is a clash on load");
+        assert_eq!(lib.defs().iter().map(|d| d.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert!(matches!(lib.create("The One God", "none", (0, 0, 0), ""), Err(ReligionError::NameTaken(_))));
+        assert!(matches!(lib.create("spirit ways", "none", (0, 0, 0), ""), Err(ReligionError::NameTaken(_))));
+        assert!(matches!(lib.edit(1, Some("The Middle Path"), None, None, None), Err(ReligionError::NameTaken(_))));
+    }
+
+    /// Protects: an appended religion is a legal base for a custom variant (the
+    /// base check reads the whole vocabulary), and its engine key is the base.
+    #[test]
+    fn an_appended_religion_can_be_a_base() {
+        let mut lib = ReligionLibrary::new();
+        let id = lib.create("Hall of Tablets", "revealed_law", (0, 0, 0), "").unwrap();
+        assert_eq!(lib.engine_key(&custom_religion_key(id)), "revealed_law");
     }
 }

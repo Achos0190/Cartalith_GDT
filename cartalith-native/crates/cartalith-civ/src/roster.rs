@@ -180,10 +180,26 @@ pub const CIV_SPECIALISATIONS: [(&str, &str); 10] = [
 /// categorical "state religion" attribute; the reference scoped FMG's full
 /// spatial religion-spread model down to exactly this list, on purpose.
 ///
-/// Order, keys and labels are the reference's list, transcribed unchanged. Keys
-/// are written into saves and are what `belief::compat` is looked up with, so
-/// never rename or reorder one without a save-compat disclosure.
-pub const CIV_RELIGIONS: [(&str, &str); 8] = [
+/// The first [`CIV_RELIGIONS_REFERENCE_LEN`] entries are the reference's
+/// list, order, keys and labels transcribed unchanged. Keys are written into
+/// saves and are what `belief::compat` is looked up with, so never rename or
+/// reorder one without a save-compat disclosure.
+///
+/// **Appended 2026-10-12 (FH-R2 milestone R2-1, Ruling CG item 3):** the seven
+/// archetypes of the owner-requested research document
+/// `RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md` ("7 new entries (appended, never
+/// reordered -- saves store keys by string)"), with that table's keys and
+/// labels verbatim and in its order. **Append only**: indices 0-7 are
+/// unchanged, so every `share` array position and every saved key keeps its
+/// meaning. These are vocabulary and nothing more today -- a key and a label.
+/// The research document's axis profile for them (exclusivity, membership,
+/// locus, institution, TYPE) is **not** carried here: that is `FH_R2_PLAN.md`
+/// question Q1, not approved by Ruling CG. They are never a fresh faction's
+/// default ([`civ_default_religion`]); a user reaches them only by picking
+/// one. In the belief model they are unthemed (no terrain verdict, as the
+/// research document's own "Terrain verdict: None" column says), so
+/// `belief::compat` returns its stated neutral for each.
+pub const CIV_RELIGIONS: [(&str, &str); 15] = [
     ("none", "None / secular"),
     ("sun_cult", "Sun Cult"),
     ("earth_mother", "Earth Mother"),
@@ -192,7 +208,34 @@ pub const CIV_RELIGIONS: [(&str, &str); 8] = [
     ("ancestor_rites", "Ancestor Rites"),
     ("flame_creed", "Flame Creed"),
     ("old_gods", "Old Gods"),
+    // R2-1 (2026-10-12), appended; never reorder above this line.
+    ("one_god", "The One God"),
+    ("revealed_law", "The Revealed Law"),
+    ("covenant_folk", "The Covenant"),
+    ("the_path", "The Middle Path"),
+    ("mysteries", "The Mysteries"),
+    ("spirit_ways", "Spirit Ways"),
+    ("god_king", "The Divine Throne"),
 ];
+
+/// How many leading [`CIV_RELIGIONS`] entries are the reference's own list:
+/// `8`, `none` included (`CIV_RELIGIONS`, reference line ~14780). Entries at
+/// and past this index were appended by FH-R2 R2-1 on 2026-10-12.
+///
+/// Two readers, both holding the line Ruling CG item 3 drew ("keep the new
+/// religion archetypes out of the default pick so S1 moves nothing"):
+///
+/// - [`civ_default_religion`] picks only among the first this-many entries, so
+///   appending changes no fresh world (proved by
+///   `cartalith-godot`'s `fh_r2_baseline` M1 check: 0 of 20 worlds moved).
+/// - `religion_library::ReligionLibrary::from_saved` checks a **saved** custom
+///   religion's name only against these entries, so a custom religion named
+///   e.g. "Spirit Ways" before R2-1 still opens rather than being dropped as a
+///   clash with a built-in that did not exist when it was named.
+///
+/// Must never be raised to include an appended entry without a separately
+/// ruled pass (`FH_R2_PLAN.md` Q2): doing so changes generated output.
+pub const CIV_RELIGIONS_REFERENCE_LEN: usize = 8;
 
 /// `CIV_GOVERNMENTS` (reference line 14794) -- `(key, label)`.
 ///
@@ -342,13 +385,24 @@ pub fn has_key(table: &[(&str, &str)], key: &str) -> bool {
 /// which spreads successive same-culture factions across different
 /// religions instead of collapsing them onto one.
 ///
+/// **Candidates are the reference's eight only** (`CIV_RELIGIONS[..
+/// CIV_RELIGIONS_REFERENCE_LEN]`, minus `"none"`): the seven religions FH-R2
+/// R2-1 appended on 2026-10-12 are never a default (Ruling CG item 3,
+/// `FH_R2_PLAN.md` Q2). Without this bound the unthemed tie would grow from
+/// 7 to 14 and every unthemed faction at index >= 7 would change religion
+/// (`FH_R2_PLAN.md` §4.1) -- tested by
+/// `default_religion_never_picks_an_appended_religion`.
+///
 /// Float discipline: every `Compat::value` this module produces is one of
 /// the exact literals `0.0`/`0.5`/`1.0` (`belief::compat`'s own doc states
 /// this), so comparing them with `==` after a `fold` is exact, not an
 /// epsilon question.
 pub fn civ_default_religion(culture_key: &str, faction_index: usize) -> &'static str {
-    let candidates: Vec<&'static str> =
-        CIV_RELIGIONS.iter().filter(|&&(k, _)| k != "none").map(|&(k, _)| k).collect();
+    let candidates: Vec<&'static str> = CIV_RELIGIONS[..CIV_RELIGIONS_REFERENCE_LEN]
+        .iter()
+        .filter(|&&(k, _)| k != "none")
+        .map(|&(k, _)| k)
+        .collect();
     let best = candidates
         .iter()
         .map(|&k| crate::belief::compat(k, culture_key).value)
@@ -444,7 +498,11 @@ mod tests {
     fn vocabularies_are_the_reference_lengths() {
         assert_eq!(CIV_TRAITS.len(), 7);
         assert_eq!(CIV_SPECIALISATIONS.len(), 10);
-        assert_eq!(CIV_RELIGIONS.len(), 8);
+        // RE-BASELINED 2026-10-12 under Ruling CG: 8 -> 15 (FH-R2 R2-1 appended
+        // seven archetypes). The reference's own length is still pinned, as a
+        // literal, through `CIV_RELIGIONS_REFERENCE_LEN` below.
+        assert_eq!(CIV_RELIGIONS.len(), 15);
+        assert_eq!(CIV_RELIGIONS_REFERENCE_LEN, 8, "the reference's eight, `none` included");
         assert_eq!(CIV_GOVERNMENTS.len(), 9);
         assert_eq!(AG_TECH_LEVELS.len(), 6);
         assert_eq!(CIV_FACTION_BASE.len(), 7);
@@ -523,6 +581,54 @@ mod tests {
         // Protects: an unrecognised culture key behaves exactly like the unthemed
         // "common" culture rather than panicking or inventing a verdict.
         assert_eq!(civ_default_religion("nonsense", 1), civ_default_religion("common", 1));
+    }
+
+    /// Protects: R2-1 is append-only. The reference's eight keep their index,
+    /// key and label (a save stores the key; `share` arrays index by
+    /// position), and the seven appended entries are the research document's
+    /// table (`RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md`, "7 new entries"),
+    /// keys and labels verbatim and in its order -- literals, not a
+    /// re-reading of the table under test.
+    #[test]
+    fn religions_are_appended_never_reordered() {
+        let reference = [
+            ("none", "None / secular"),
+            ("sun_cult", "Sun Cult"),
+            ("earth_mother", "Earth Mother"),
+            ("sea_lords", "Sea Lords"),
+            ("sky_pantheon", "Sky Pantheon"),
+            ("ancestor_rites", "Ancestor Rites"),
+            ("flame_creed", "Flame Creed"),
+            ("old_gods", "Old Gods"),
+        ];
+        let appended = [
+            ("one_god", "The One God"),
+            ("revealed_law", "The Revealed Law"),
+            ("covenant_folk", "The Covenant"),
+            ("the_path", "The Middle Path"),
+            ("mysteries", "The Mysteries"),
+            ("spirit_ways", "Spirit Ways"),
+            ("god_king", "The Divine Throne"),
+        ];
+        assert_eq!(CIV_RELIGIONS[..8], reference);
+        assert_eq!(CIV_RELIGIONS[8..], appended);
+    }
+
+    /// Protects: Ruling CG item 3's line -- no culture, at any faction index,
+    /// ever defaults to an R2-1-appended religion. Without the
+    /// `CIV_RELIGIONS_REFERENCE_LEN` bound in `civ_default_religion` the
+    /// unthemed tie grows to fourteen and index 8 of `common` lands on
+    /// `one_god`, so this fails (and so does the `("common", 0) == ("common",
+    /// 7)` period check above).
+    #[test]
+    fn default_religion_never_picks_an_appended_religion() {
+        for culture in ["common", "imperial", "highland", "desert", "riverlands", "sylvan", "maritime", "nonsense"] {
+            for i in 0..64 {
+                let k = civ_default_religion(culture, i);
+                let pos = CIV_RELIGIONS.iter().position(|&(rk, _)| rk == k).expect("a roster key");
+                assert!(pos < 8, "culture={culture} i={i} picked appended {k:?}");
+            }
+        }
     }
 
     /// `CIV_GOVERNMENTS` minus `"none"` is eight forms; the cycle must walk
