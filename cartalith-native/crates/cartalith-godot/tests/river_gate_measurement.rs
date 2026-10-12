@@ -52,6 +52,17 @@
 //! `RG_SEEDS` (comma list) overrides the twelve seeds; `RG_OWNER=1` adds the
 //! owner's world (seed 246371, 2048x1311, 40 075 km, density 1.55). An
 //! unparsable value panics rather than falling back.
+//!
+//! **A second ignored test, `river_chain_breaks`**, diagnoses the finding the
+//! first one made outside its question (the navigable network breaks into
+//! pieces): it sorts every place an order >= 3 chain hands its water to a
+//! lower-order land cell into a cause, prints examples, and sizes candidate
+//! fixes by simulating them on a copy of the receiver tree. Same matrix, same
+//! rule: it reads and changes nothing.
+//!
+//! ```text
+//! RG_OWNER=1 cargo test --release -p cartalith-godot --test river_gate_measurement river_chain_breaks -- --ignored --nocapture --test-threads=1
+//! ```
 #![allow(dead_code)]
 
 #[path = "../src/params.rs"]
@@ -514,7 +525,8 @@ fn gate2(ws: &WorldState, wrap: bool, gw: usize, gh: usize, km: f64, density: f6
         // because the to-water share came out low (25-31 %); it shows the
         // navigable chain breaking where a receiver carries a LOWER order
         // (0-2) on this network, which no gate choice repairs. A finding, not
-        // a cause: why the order drops is not investigated here.
+        // a cause: why the order drops is measured by `river_chain_breaks`
+        // below (`RIVER_GATE_MEASUREMENTS.md` "Chain breaks").
         let mut h: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for i in 0..n {
             if !base[i] {
@@ -709,4 +721,448 @@ fn river_gate_measurement() {
         assert!(pool1.both.n > 0 || pool1.order_only.n > 0, "{gw}x{gh}: no order>=3 mouth on any world");
     }
     println!("\ntotal wall {:.0}s", t_all.elapsed().as_secs_f64());
+}
+
+// ---------------------------------------------------------------------------
+// Chain breaks: why the navigable (order >= 3) network falls into pieces.
+// ---------------------------------------------------------------------------
+
+/// Strahler order over the same channel tree as
+/// `cartalith_hydrology::strahler_from_receivers`, with the same per-cell rule
+/// (`1` at a source; `max_in + 1` when two or more tributaries of the highest
+/// incoming order meet; else `max_in`), but visiting cells in **topological
+/// order of `recv`** (every donor before its receiver, Kahn's algorithm)
+/// instead of ascending `flow`.
+///
+/// Why it exists: the shipped function (and the reference's
+/// `strahlerFromReceivers`, v2.11 line 4480, which it ports exactly) assumes
+/// that ascending discharge is a topological order of the channel tree. That
+/// holds on the tree discharge was accumulated on, not on the aspect-steered
+/// channel tree, where a receiver can carry LESS discharge than its donor; it
+/// is then finalised before the donor reports in, and the donor's order is
+/// lost downstream. This is the measured alternative, used only here to size
+/// a candidate fix. Must never be called from generation or the planner: it is
+/// a measurement, not a ported function.
+fn strahler_topological(recv: &[i32], chan: &[u8]) -> Vec<i16> {
+    let n = chan.len();
+    let mut indeg = vec![0u32; n];
+    for i in 0..n {
+        let r = recv[i];
+        if chan[i] != 0 && r >= 0 && chan[r as usize] != 0 {
+            indeg[r as usize] += 1;
+        }
+    }
+    let mut order = vec![0i16; n];
+    let (mut max_in, mut max_cnt) = (vec![0i16; n], vec![0i16; n]);
+    let mut stack: Vec<usize> = (0..n).filter(|&i| chan[i] != 0 && indeg[i] == 0).collect();
+    while let Some(i) = stack.pop() {
+        let o = if max_in[i] == 0 {
+            1
+        } else if max_cnt[i] >= 2 {
+            max_in[i] + 1
+        } else {
+            max_in[i]
+        };
+        order[i] = o;
+        let r = recv[i];
+        if r >= 0 && chan[r as usize] != 0 {
+            let r = r as usize;
+            if o > max_in[r] {
+                max_in[r] = o;
+                max_cnt[r] = 1;
+            } else if o == max_in[r] {
+                max_cnt[r] += 1;
+            }
+            indeg[r] -= 1;
+            if indeg[r] == 0 {
+                stack.push(r);
+            }
+        }
+    }
+    order
+}
+
+/// The cause classes a chain break is sorted into. A *break* is an order >= 3
+/// land cell whose `recv` is a land cell of order 0-2 (the `RG_DIAG` count
+/// the gate-2 section of `RIVER_GATE_MEASUREMENTS.md` reports). The first five
+/// partition the breaks; the sixth (seam) overlaps them.
+const BREAK_CLASSES: [&str; 6] = [
+    "A1 on-network, receiver Q < donor Q (finalised before its donor)",
+    "A2 on-network, receiver Q == donor Q (tie, receiver index first)",
+    "A3 on-network, receiver Q > donor Q (should be impossible)",
+    "B1 off-network receiver, below sea level but land in build_water_bodies",
+    "B2 off-network receiver, above sea level",
+    "C  receiver across the wrap seam (counted inside A/B too)",
+];
+
+/// Per-world chain-break tally.
+#[derive(Default, Clone, Debug)]
+struct Breaks {
+    o3_cells: usize,
+    breaks: usize,
+    class: [usize; 6],
+    /// Of the breaks, how many have the donor's channel receiver equal to its
+    /// plain D8 receiver on the routing surface (the tree discharge was
+    /// accumulated on). A1 with `recv != d8` is aspect steering off the
+    /// accumulation path.
+    recv_is_d8: usize,
+    /// Of the breaks, how many have a donor raised by the depression fill.
+    donor_filled: usize,
+    /// Downstream of each break, walking on from the receiver: the chain is
+    /// order >= 3 land again at step 2 / 3-4 / 5-11 / later (the receiver is
+    /// step 1), reaches water first, or ends.
+    rejoin: [usize; 6],
+    /// Every downstream order drop on the network (order[recv] < order[i]
+    /// on land), whether or not it crosses the navigable gate.
+    drops_any: usize,
+    /// Breaks under the topologically ordered Strahler on the SAME tree.
+    topo_breaks: usize,
+    topo_o3_cells: usize,
+    /// The generation network (`ws.channels`, `ws.stream_order`, the one the
+    /// map draws): breaks by the same definition, and how many of them hand
+    /// to an off-network cell.
+    gen_breaks: usize,
+    gen_breaks_off: usize,
+    gen_o3_cells: usize,
+    /// Breaks whose donor lies in the top or bottom 5 % of rows, against the
+    /// order >= 3 cells there (an edge-gradient artefact would concentrate
+    /// breaks at the map's north and south border).
+    edge_breaks: usize,
+    edge_o3: usize,
+    /// The receiver-guard candidate fix: channel cells whose receiver it
+    /// changes, all channel cells, and the breaks and off-network breaks left.
+    guard_changed: usize,
+    chan_cells: usize,
+    guard_breaks: usize,
+    guard_breaks_off: usize,
+    /// Under the receiver guard, navigable cells with no receiver: touching
+    /// water / on the map border / neither (an inland dead end).
+    guard_ends: [usize; 3],
+}
+
+/// Classifies every chain break on one world's planner network and appends
+/// up to two example lines to `ex` (the largest-discharge class-A and
+/// class-B break). Reads only; changes nothing. Returns the tally and four
+/// [`Nav`]s: today's order >= 3 set; the topological-Strahler set on the same
+/// tree; the topological set on a tree whose off-network receivers fall back
+/// to the D8 receiver; and the receiver-guard candidate fix.
+#[allow(clippy::too_many_arguments)]
+fn chain_breaks(ws: &WorldState, wrap: bool, gw: usize, gh: usize, km: f64, density: f64, seed: i32, ex: &mut Vec<String>) -> (Breaks, Vec<Nav>) {
+    let n = gw * gh;
+    let (order, recv) = cartalith_civ::fresh_river_channels(
+        &ws.field,
+        &ws.flow_discharge,
+        gw,
+        gh,
+        ws.sea_level,
+        wrap,
+        density,
+        km,
+        ws.integrated_drainage,
+    );
+    // `strahler_from_receivers` gives every channel cell order >= 1 and every
+    // other cell 0, so the channel mask is recoverable from the order raster.
+    let chan: Vec<u8> = order.iter().map(|&o| (o > 0) as u8).collect();
+    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, wrap, Some(&ws.rainfall)).classification;
+    let route = cartalith_hydrology::routing_view(&ws.field, gw, gh, ws.sea_level, wrap, ws.integrated_drainage);
+    let d8 = cartalith_hydrology::flow_receivers(&route, gw, gh, wrap);
+    let q = &ws.flow_discharge;
+    let thresh = river_flow_thresh(gw, gh, gw, km);
+    let land = |i: usize| wb[i] == 0;
+    let mut b = Breaks::default();
+    let mut best_ex: [Option<(f64, String)>; 2] = [None, None];
+    for i in 0..n {
+        if !(land(i) && order[i] >= 3) {
+            continue;
+        }
+        b.o3_cells += 1;
+        let edge = (i / gw) * 20 < gh || (i / gw) * 20 >= gh * 19;
+        b.edge_o3 += edge as usize;
+        let r = recv[i];
+        if r < 0 || !land(r as usize) {
+            continue;
+        }
+        let r = r as usize;
+        if order[r] < order[i] {
+            b.drops_any += 1;
+        }
+        if order[r] >= 3 {
+            continue;
+        }
+        b.breaks += 1;
+        b.edge_breaks += edge as usize;
+        let k = if chan[r] != 0 {
+            if q[r] < q[i] {
+                0
+            } else if q[r] == q[i] {
+                1
+            } else {
+                2
+            }
+        } else if (ws.field[r] as f64) < ws.sea_level {
+            3
+        } else {
+            4
+        };
+        b.class[k] += 1;
+        let dx = ((i % gw) as i64 - (r % gw) as i64).abs();
+        if wrap && dx > 1 {
+            b.class[5] += 1;
+        }
+        b.recv_is_d8 += (d8[i] == r as i32) as usize;
+        b.donor_filled += (route[i] > ws.field[i]) as usize;
+        // Walk on from the receiver (step 1) down `recv`.
+        let mut c = r;
+        let mut steps = 0usize;
+        let outcome = loop {
+            steps += 1;
+            if !land(c) {
+                break 4;
+            }
+            if order[c] >= 3 {
+                break match steps {
+                    2 => 0,
+                    3..=4 => 1,
+                    5..=11 => 2,
+                    _ => 3,
+                };
+            }
+            let nr = recv[c];
+            if nr < 0 || steps > n {
+                break 5;
+            }
+            c = nr as usize;
+        };
+        b.rejoin[outcome] += 1;
+        // Examples: per world, the largest-discharge break of class A and of
+        // class B (chosen by donor discharge, an input, not by anything the
+        // classification measures).
+        let slot = if k < 3 { 0 } else { 1 };
+        if best_ex[slot].as_ref().is_none_or(|(bq, _)| q[i] as f64 > *bq) {
+            let rr = recv[r];
+            let after = if rr >= 0 {
+                format!("receiver's receiver ({},{}) order {} chan {}", rr as usize % gw, rr as usize / gw, order[rr as usize], chan[rr as usize])
+            } else {
+                "receiver has no receiver".into()
+            };
+            let dd = d8[i];
+            let d8s = if dd >= 0 {
+                let dd = dd as usize;
+                format!("D8 receiver ({},{}) order {} Q/T {:.1}", dd % gw, dd / gw, order[dd], q[dd] as f64 / thresh)
+            } else {
+                "no D8 receiver".into()
+            };
+            best_ex[slot] = Some((
+                q[i] as f64,
+                format!(
+                    "seed {seed} {gw}x{gh}: donor ({},{}) order {} Q/T {:.1} -> receiver ({},{}) order {} chan {} Q/T {:.1} | class {} | {} | donor filled {} | outcome {} at step {} | {}",
+                    i % gw,
+                    i / gw,
+                    order[i],
+                    q[i] as f64 / thresh,
+                    r % gw,
+                    r / gw,
+                    order[r],
+                    chan[r],
+                    q[r] as f64 / thresh,
+                    &BREAK_CLASSES[k][..2],
+                    d8s,
+                    route[i] > ws.field[i],
+                    outcome,
+                    steps,
+                    after
+                ),
+            ));
+        }
+    }
+    ex.extend(best_ex.into_iter().flatten().map(|(_, s)| s));
+    // The candidate fix for class A: the same tree, ordered topologically.
+    let topo = strahler_topological(&recv, &chan);
+    for i in 0..n {
+        if land(i) && topo[i] >= 3 {
+            b.topo_o3_cells += 1;
+            let r = recv[i];
+            if r >= 0 && land(r as usize) && topo[r as usize] < 3 {
+                b.topo_breaks += 1;
+            }
+        }
+    }
+    // The generation network the map draws.
+    if let (Some(ch), Some(go)) = (ws.channels.as_ref(), ws.stream_order.as_ref()) {
+        for i in 0..n {
+            if !(land(i) && go[i] >= 3) {
+                continue;
+            }
+            b.gen_o3_cells += 1;
+            let r = ch.recv[i];
+            if r >= 0 && land(r as usize) && go[r as usize] < 3 {
+                b.gen_breaks += 1;
+                b.gen_breaks_off += (ch.chan[r as usize] == 0) as usize;
+            }
+        }
+    }
+    // The candidate fix for class B, on top of A's: an off-network receiver
+    // is replaced by the D8 receiver when that one is a channel cell.
+    let base: Vec<bool> = (0..n).map(|i| land(i) && order[i] >= 3).collect();
+    let topo_mask: Vec<bool> = (0..n).map(|i| land(i) && topo[i] >= 3).collect();
+    let mut recv2 = recv.clone();
+    for i in 0..n {
+        let r = recv[i];
+        if chan[i] != 0 && r >= 0 && chan[r as usize] == 0 && d8[i] >= 0 && chan[d8[i] as usize] != 0 {
+            recv2[i] = d8[i];
+        }
+    }
+    let topo2 = strahler_topological(&recv2, &chan);
+    let topo2_mask: Vec<bool> = (0..n).map(|i| land(i) && topo2[i] >= 3).collect();
+    // The single-point candidate fix for both classes ("receiver guard"): a
+    // channel cell whose steered receiver carries LESS discharge than itself
+    // (an off-network cell always does) takes its plain D8 receiver instead --
+    // the rule `build_channels_routed` already applies inside a filled
+    // depression, for the reason its doc gives ("the receiver's discharge is
+    // at least the donor's"). Ordered by the SHIPPED flow-sorted Strahler,
+    // since on the guarded tree ascending discharge is a topological order
+    // wherever the D8 receiver gains discharge.
+    let mut recv3 = recv.clone();
+    for i in 0..n {
+        let r = recv[i];
+        if chan[i] != 0 && r >= 0 && (chan[r as usize] == 0 || q[r as usize] < q[i]) && d8[i] >= 0 {
+            recv3[i] = d8[i];
+            b.guard_changed += 1;
+        }
+        b.chan_cells += (chan[i] != 0) as usize;
+    }
+    let guard = cartalith_hydrology::strahler_from_receivers(&recv3, q, &chan);
+    let guard_mask: Vec<bool> = (0..n).map(|i| land(i) && guard[i] >= 3).collect();
+    for i in 0..n {
+        if guard_mask[i] {
+            let r = recv3[i];
+            if r >= 0 && land(r as usize) && guard[r as usize] < 3 {
+                b.guard_breaks += 1;
+                b.guard_breaks_off += (chan[r as usize] == 0) as usize;
+            }
+            if r < 0 {
+                // A navigable chain that ends on land with no receiver: on the
+                // map's top or bottom row (nowhere lower to go), touching
+                // water (counted as reaching it), or neither.
+                let (x, y) = ((i % gw) as i64, (i / gw) as i64);
+                let touches = (-1..=1).any(|dy| {
+                    (-1..=1).any(|dx| {
+                        let (mut nx, ny) = (x + dx, y + dy);
+                        if wrap {
+                            nx = nx.rem_euclid(gw as i64);
+                        }
+                        nx >= 0 && ny >= 0 && nx < gw as i64 && ny < gh as i64 && wb[ny as usize * gw + nx as usize] != 0
+                    })
+                });
+                let k = if touches {
+                    0
+                } else if y == 0 || y == gh as i64 - 1 || (!wrap && (x == 0 || x == gw as i64 - 1)) {
+                    1
+                } else {
+                    2
+                };
+                b.guard_ends[k] += 1;
+            }
+        }
+    }
+    let km_cell = km / gw as f64;
+    let navs = vec![
+        nav_stats(&base, &base, &recv, &wb, gw, wrap, km_cell),
+        nav_stats(&topo_mask, &base, &recv, &wb, gw, wrap, km_cell),
+        nav_stats(&topo2_mask, &base, &recv2, &wb, gw, wrap, km_cell),
+        nav_stats(&guard_mask, &base, &recv3, &wb, gw, wrap, km_cell),
+    ];
+    (b, navs)
+}
+
+/// **Chain breaks** (`RIVER_GATE_MEASUREMENTS.md` "Chain breaks"): sorts every
+/// place the planner's navigable chain drops below order 3 into a cause, over
+/// the same seed matrix as [`river_gate_measurement`], prints examples, and
+/// sizes two candidate fixes (topological Strahler; topological Strahler plus
+/// a D8 fallback for an off-network receiver) by the to-water share. Protects
+/// nothing by assertion beyond "the fixture reached the code" (breaks were
+/// found, and the five partitioning classes add up to the break count).
+/// Changes nothing.
+#[test]
+#[ignore = "Chain-break diagnosis: 36 generated worlds; run alone in release (see the module doc)"]
+fn river_chain_breaks() {
+    let seeds = env_list::<i32>("RG_SEEDS", &SEEDS);
+    let owner = std::env::var("RG_OWNER").is_ok_and(|v| v == "1");
+    let mut shapes: Vec<(usize, usize, f64, f64, Vec<i32>)> =
+        SHAPES.iter().map(|&(w, h, k)| (w, h, k, params::defaults().river_density, seeds.clone())).collect();
+    if owner {
+        shapes.push((2048, 1311, 40_075.0, 1.55, vec![246_371]));
+    }
+    let mut ex: Vec<String> = Vec::new();
+    let mut total_breaks = 0usize;
+    for (gw, gh, km, density, seeds) in shapes {
+        println!("\n=== chain breaks {gw}x{gh}, {km} km, density {density}, {} seeds ===", seeds.len());
+        let mut pool = Breaks::default();
+        let mut tw = [0.0f64; 4];
+        let mut pc = [0usize; 4];
+        let mut cells = [0usize; 4];
+        for &seed in &seeds {
+            let (ws, wrap, _, _) = world(seed, gw, gh, km, density);
+            let (b, navs) = chain_breaks(&ws, wrap, gw, gh, km, density, seed, &mut ex);
+            assert_eq!(b.class[..5].iter().sum::<usize>(), b.breaks, "seed {seed}: every break is classified exactly once");
+            println!(
+                "seed {seed:>9}: o3 {:>6} breaks {:>4} [A1 {} A2 {} A3 {} B1 {} B2 {} seam {}] recv==d8 {} donorFilled {} edge {}/{} | rejoin {:?} | anyDrop {} | topo breaks {} | guard: changed {}/{} breaks {} (off {}) | gen net: o3 {} breaks {} (off-net {}) | to-water today/topo/topo+d8/guard {:.0}/{:.0}/{:.0}/{:.0}% pieces {}/{}/{}/{}",
+                b.o3_cells, b.breaks, b.class[0], b.class[1], b.class[2], b.class[3], b.class[4], b.class[5], b.recv_is_d8, b.donor_filled, b.edge_breaks, b.edge_o3, b.rejoin, b.drops_any,
+                b.topo_breaks, b.guard_changed, b.chan_cells, b.guard_breaks, b.guard_breaks_off, b.gen_o3_cells, b.gen_breaks, b.gen_breaks_off,
+                100.0 * navs[0].to_water_share, 100.0 * navs[1].to_water_share, 100.0 * navs[2].to_water_share, 100.0 * navs[3].to_water_share,
+                navs[0].comps, navs[1].comps, navs[2].comps, navs[3].comps
+            );
+            pool.o3_cells += b.o3_cells;
+            pool.breaks += b.breaks;
+            for k in 0..6 {
+                pool.class[k] += b.class[k];
+                pool.rejoin[k] += b.rejoin[k];
+            }
+            pool.recv_is_d8 += b.recv_is_d8;
+            pool.donor_filled += b.donor_filled;
+            pool.drops_any += b.drops_any;
+            pool.topo_breaks += b.topo_breaks;
+            pool.topo_o3_cells += b.topo_o3_cells;
+            pool.gen_breaks += b.gen_breaks;
+            pool.gen_breaks_off += b.gen_breaks_off;
+            pool.gen_o3_cells += b.gen_o3_cells;
+            pool.edge_breaks += b.edge_breaks;
+            pool.edge_o3 += b.edge_o3;
+            pool.guard_changed += b.guard_changed;
+            pool.chan_cells += b.chan_cells;
+            pool.guard_breaks += b.guard_breaks;
+            pool.guard_breaks_off += b.guard_breaks_off;
+            for k in 0..3 {
+                pool.guard_ends[k] += b.guard_ends[k];
+            }
+            for k in 0..4 {
+                tw[k] += navs[k].to_water_share;
+                pc[k] += navs[k].comps;
+                cells[k] += navs[k].cells;
+            }
+        }
+        let ns = seeds.len() as f64;
+        println!("--- pooled: o3 cells {} breaks {} anyDrop {}", pool.o3_cells, pool.breaks, pool.drops_any);
+        for (k, name) in BREAK_CLASSES.iter().enumerate() {
+            println!("    {name}: {}", pool.class[k]);
+        }
+        println!("    recv == D8 receiver: {}; donor raised by the fill: {}", pool.recv_is_d8, pool.donor_filled);
+        println!("    donor in the top/bottom 5% of rows: {} of {} breaks; {} of {} order>=3 cells", pool.edge_breaks, pool.breaks, pool.edge_o3, pool.o3_cells);
+        println!("    navigable again at step 2 / 3-4 / 5-11 / later / water first / chain ends: {:?}", pool.rejoin);
+        println!("    topological Strahler on the same tree: o3 cells {} breaks {}", pool.topo_o3_cells, pool.topo_breaks);
+        println!("    receiver guard: {} of {} channel cells re-pointed; breaks left {} (off-network {})", pool.guard_changed, pool.chan_cells, pool.guard_breaks, pool.guard_breaks_off);
+        println!("    receiver guard, navigable chain ends with no receiver: touching water {} / map border {} / inland {}", pool.guard_ends[0], pool.guard_ends[1], pool.guard_ends[2]);
+        println!("    generation network (drawn): o3 cells {} breaks {} of which off-network {}", pool.gen_o3_cells, pool.gen_breaks, pool.gen_breaks_off);
+        println!(
+            "    navigable today/topo/topo+d8/guard: cells {}/{}/{}/{}; pieces {}/{}/{}/{}; mean to-water {:.0}/{:.0}/{:.0}/{:.0}%",
+            cells[0], cells[1], cells[2], cells[3], pc[0], pc[1], pc[2], pc[3],
+            100.0 * tw[0] / ns, 100.0 * tw[1] / ns, 100.0 * tw[2] / ns, 100.0 * tw[3] / ns
+        );
+        total_breaks += pool.breaks;
+    }
+    println!("\n--- examples (per world, the largest-discharge class-A and class-B break):");
+    for e in &ex {
+        println!("  {e}");
+    }
+    assert!(total_breaks > 0, "no chain break anywhere -- the fixture measured nothing");
 }

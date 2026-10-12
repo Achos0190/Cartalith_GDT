@@ -217,8 +217,8 @@ to water, 20 end with no receiver, and **167 hand on to a land cell of order
 downstream breaks the navigable run, and the planner then portages. This is
 a property of the network `fresh_river_channels` builds, not of the gate: no
 gate in the table raises the to-water share by more than about 8 points. Why
-the order drops downstream was **not** investigated (a suspicion only: the
-channel mask ends, or the receiver tree and the order raster disagree).
+the order drops downstream is measured in **Chain breaks** at the end of this
+file: the channel tree's receiver is never the cell the water flows to.
 
 ### Timing
 
@@ -301,3 +301,192 @@ re-baseline; gate 1 has no reference ancestor.
 6. **If a discharge gate is wanted later, planner only or planner and
    router?** Default: **both**, so one definition of navigable stands (Ruling
    CD), with the router goldens re-baselined and disclosed.
+
+## Chain breaks
+
+Owner question 5 above, answered as a measurement (2026-10-12). **Nothing in
+generation, drawing or planning was changed and no golden moved**: the only
+code added is a second `#[ignore]`d test in the same harness. Command, run
+alone in release, twice in separate processes with identical output (about
+22 s each):
+
+```text
+cd cartalith-native
+RG_OWNER=1 cargo test --release -j 2 -p cartalith-godot --test river_gate_measurement river_chain_breaks -- --ignored --nocapture --test-threads=1
+```
+
+Same worlds as above (twelve seeds x three shapes, plus the owner's world).
+A **break** is what the `RG_DIAG` count above counted: an order >= 3 land
+cell of the planner network (`fresh_river_channels`) whose receiver is a land
+cell of order 0, 1 or 2. The per-world counts reproduce that count exactly
+(seed 246371 at 512x328: 167; seed 404: 126).
+
+### The mechanism, read at its symbols
+
+The planner network is two steps, both the reference's own code
+(`buildRiverNetwork` and `strahlerFromReceivers`, v2.11 line 4480, ported
+exactly):
+
+1. `cartalith_hydrology::build_channels_routed` (`build_channels_core`) marks
+   a cell as channel when its discharge clears the threshold, then picks its
+   **one receiver by aspect steering**: among neighbours lower on the routing
+   surface, the best of drop x alignment with the real ground's gradient
+   direction. It is **not** the steepest-descent (D8) receiver that
+   `compute_flow` accumulated the discharge along, except inside a filled
+   depression, where the doc of `build_channels_routed` already records the
+   same failure and takes the D8 receiver instead.
+2. `strahler_from_receivers` visits channel cells in **ascending discharge**,
+   which is a valid upstream-before-downstream order only if a receiver always
+   carries at least its donor's discharge. On the steered tree it does not, so
+   a low-discharge receiver is finalised before its large donor reports in.
+
+### The breaks, by cause
+
+Classes partition the breaks. *A*: the receiver is a channel cell
+(order 1-2). *B*: the receiver is not a channel cell (order 0), so it also has
+no receiver and the chain stops there. Every other class tested was **zero on
+every world**: a receiver with equal discharge (tie), a receiver with *more*
+discharge than its donor (would be a Strahler bug), an off-network receiver
+below sea level, and a receiver across the wrap seam.
+
+| Shape | Order >= 3 cells | Breaks (per world) | A: channel receiver with less discharge | B: off-network receiver | Receiver = the D8 receiver | Donor in a filled depression |
+|---|---:|---:|---:|---:|---:|---:|
+| 512x328, 40 075 km | 49 371 | 1 467 (97 to 167) | 652 (44 %) | 815 (56 %) | **0** | 0 |
+| 384x246, 800 km | 3 980 | 193 (9 to 26) | 42 (22 %) | 151 (78 %) | **0** | 0 |
+| 1024x656, 40 075 km | 112 657 | 1 867 (117 to 219) | 474 (25 %) | 1 393 (75 %) | **0** | 0 |
+| owner, 2048x1311 | 30 745 | 232 | 43 (19 %) | 189 (81 %) | **0** | 0 |
+
+- **In all 3 759 breaks the receiver is not the D8 receiver**, and no donor
+  is in a filled depression. Both classes are one cause: aspect steering sends
+  the river's channel to a neighbour the water does not go to. Class A is
+  where that neighbour happens to be a small channel; class B where it is
+  not a channel at all.
+- **Not an edge effect**: 9 to 12 % of breaks lie in the top or bottom 5 % of
+  rows, against 10.6 to 10.8 % of order >= 3 cells.
+- **What follows a break** (walking on from the receiver), pooled
+  512x328 / 384x246 / 1024x656 / owner: navigable again at the next step
+  58 / 0 / 34 / 3; within 2-3 more steps 137 / 5 / 68 / 3; within 4-10 more
+  232 / 13 / 150 / 9; later 58 / 5 / 111 / 17; reaches water first
+  97 / 4 / 42 / 5; **the chain stops** 885 / 166 / 1 462 / 195 (every class B
+  break, plus a few class A chains that end).
+- **Topological ordering alone is a small part of it.** Re-running the same
+  per-cell Strahler rule in true upstream-before-downstream order on the same
+  tree (`strahler_topological`, harness-only) leaves 927 / 171 / 1 507 / 199
+  breaks: it removes 37 / 11 / 19 / 14 % of them.
+- **The drawn network has the same breaks.** Counted the same way on
+  `ws.channels` / `ws.stream_order` (generation's network, the one the map
+  draws, built mid-carve by the same two functions): 1 624 / 168 / 2 844 / 519
+  breaks, 934 / 143 / 2 053 / 427 of them to an off-network cell. On screen,
+  `river_draw_plan`'s downhill extension (2026-10-05, `STATUS.md` "Rivers that
+  stopped on dry land now run on") already bridges most class-B ends; the
+  planner network gets no such bridge.
+
+### Five examples
+
+*Q/T* is discharge in multiples of the world's river threshold. Coordinates
+are (x, y) cells. Chosen as each world's largest-discharge break of each
+class (an input, not the result), then five picked across seeds and shapes.
+
+| World | Donor | Receiver it is given | The D8 receiver, where the water goes | What follows |
+|---|---|---|---|---|
+| seed 404, 512x328 | (366,324), order 6, Q/T 7 896 | (366,325), channel order 2, Q/T 12.3 (class A) | (365,325), order 3, Q/T 8 228 | navigable again one step on |
+| seed 912345, 512x328 | (480,311), order 4, Q/T 8 195 | (480,312), channel order 2, Q/T 10.9 (class A) | (481,312), order 2, Q/T 8 210 | navigable again 5 steps on |
+| seed 483920, 512x328 | (346,304), order 4, Q/T 1 694 | (347,304), not a channel, Q/T 0.8 (class B) | (347,303), order 1, Q/T 1 696 | the chain stops |
+| seed 24601, 1024x656 | (418,318), order 3, Q/T 2 816 | (419,318), not a channel, Q/T 0.3 (class B) | (419,319), order 1, Q/T 2 816 | the chain stops |
+| owner seed 246371, 2048x1311 | (1592,712), order 6, Q/T 2 493 | (1591,711), not a channel, Q/T 0.0 (class B) | (1593,711), order 0, Q/T 2 493: water (inferred: the guard below re-points this donor there and leaves no break, which needs a non-land cell) | the chain stops one cell short of water |
+
+The pattern in every example: the D8 receiver carries the donor's discharge
+plus a little, the given receiver carries almost none, and the D8 receiver's
+own order is low because the river's order was accumulated along the steered
+path, not along the water's.
+
+### Judgement: a defect, not hydrology
+
+- **Not distributaries.** The tree has one receiver per cell and discharge
+  never splits. In the 74 printed examples (two per world) the given receiver
+  carries 0.0 to 99.6 x T against donors of 12.6 to 9 868 x T, and the D8
+  receiver carries at least the donor's discharge in every one. The water
+  does not go where the channel goes.
+- **Not a Strahler artefact in the first place.** Ordering accounts for 11 to
+  37 % of breaks; the rest survive a correct topological ordering.
+- **Not seams, sea level or the fill**: zero breaks in each. Nor
+  rasterisation: the planner reads the cell tree directly, and nothing is
+  traced or drawn between it and the order raster.
+- **The consequence is the reported one**: River Transport portages on rivers
+  the map draws continuous, because the drawn network is bridged after the
+  fact and the planner's is not. Whether the order drop also shows on screen
+  (a big river drawn as order 1-2 past a break, so thinner or thinned by the
+  comb rule) was **not** checked by eye.
+
+Not measured: whether the reference path (integrated drainage off, where the
+reference-verified goldens run) breaks as often. The two functions are the
+reference's, so it is expected to; that would make this an inherited defect
+that the port's routing did not cause.
+
+### Candidate fixes, sized on a copy of the tree (nothing shipped)
+
+The **receiver guard**: a channel cell whose steered receiver carries *less*
+discharge than itself (an off-network cell always does) takes its D8 receiver
+instead, the rule `build_channels_routed` already applies inside a filled
+depression and for the reason its doc gives. Ordered with the shipped
+flow-sorted `strahler_from_receivers`, unchanged. Also sized: topological
+Strahler alone, and topological Strahler with a D8 fallback for class B only.
+
+| Shape | Today: cells / pieces / to-water | Topological Strahler | Topo + D8 for class B | **Receiver guard** | Cells the guard re-points |
+|---|---|---|---|---|---:|
+| 512x328 | 49 371 / 2 736 / 31 % | 56 086 / 2 376 / 44 % | 74 645 / 1 846 / 65 % | **74 250 / 1 844 / 66 %, 0 breaks** | 28 111 of 524 922 channel cells (5.4 %) |
+| 384x246 | 3 980 / 312 / 27 % | 4 648 / 309 / 30 % | 8 181 / 245 / 59 % | **8 016 / 242 / 59 %, 0 breaks** | 5 542 of 78 342 (7.1 %) |
+| 1024x656 | 112 657 / 3 221 / 25 % | 119 943 / 2 974 / 28 % | 159 266 / 2 165 / 61 % | **158 559 / 2 140 / 61 %, 0 breaks** | 39 752 of 1 088 328 (3.7 %) |
+| owner | 30 745 / 397 / 12 % | 31 895 / 378 / 13 % | 38 631 / 259 / 45 % | **38 449 / 257 / 50 %, 0 breaks** | 5 008 of 265 819 (1.9 %) |
+
+Under the guard **no break is left on any world, and no navigable chain ends
+inland**: every chain that does not reach water ends on the map's border
+(248 / 70 / 322 / 49 chain ends, all on the top or bottom row or a non-wrapping
+side). So the remaining 34 to 50 % of navigable length is rivers running off
+the map edge, which "to-water" counts as not reaching water; it is a property
+of the world's shape, not of the network. The navigable set grows by 25 to
+101 % because orders that the steered tree lost are kept.
+
+### Fixes per cause, and what each would move
+
+| Fix | Cures | Moves | Does not move |
+|---|---|---|---|
+| **F1. Receiver guard in `build_channels_core`, integrated-drainage path only** (gated like the slope-ease divergence, so the reference path is identical by control flow) | A and B: every break on every world | every app world's channel network, hence generation's carve, `river_mask`, `stream_order`, the drawn rivers, and everything that reads them (settlements, roads, territory, landmarks, fans, the Route tool's river discount, the planner); every app-parameter figure in `STATUS.md` and the river harnesses (gap, comb, RIM-4 fans, this file's gate tables); any app-parameter test that pins a count or hash, to be enumerated by a workspace run with the change | `golden_parity_river` (3 cases), `tile_hydrology`, `golden_parity_civ_tools` and the other reference-path goldens, which run with integrated drainage off |
+| **F1b. The same guard as a post-pass inside `fresh_river_channels` / `fresh_river_network` only** | A and B on the planner network | every `fresh_river_order` consumer (suitability, roads, territory, the Route tool's discount, the planner) and their app-parameter tests; `cartalith-civ/tests/ruling_cd_rivers.rs` fixtures if any cell's receiver changes | generation and the drawn map. But it leaves the drawn and the planned network built by two different rules, which DECISIONS §7p (scrub the superseded approach, do not keep it alongside) argues against |
+| F2. Topological Strahler | 11 to 37 % of breaks | `strahler_from_receivers`, a reference-ported function pinned cell for cell by `golden_parity_river` if the order differs on those fixtures | not needed once F1 holds: with the guard, ascending discharge is already an upstream-first order and the shipped function leaves 0 breaks |
+
+Either F1 change is a deliberate divergence from the reference's
+`buildRiverNetwork`, disclosed per DECISIONS §7p, and changes generated output,
+so it needs an owner ruling (Ruling BV covers density and threshold; this
+changes neither, but it does change the rivers). F1 also changes what the map
+draws, so frames at every zoom touched must be looked at before it ships: the
+D8 receiver is a steeper, more grid-aligned step than the steered one, and a
+staircase look is the risk to check.
+
+### Recommendation
+
+**F1, on the integrated path only, measured and looked at before it ships.**
+One network definition for generation, drawing and planning (Ruling CD's point
+and §6g's "both trees need the same surface"); it removes every break on these
+37 worlds by re-pointing 2 to 7 % of channel cells, and it needs no change to
+the reference-ported Strahler. F1b is the smaller fallback if the owner does
+not want the drawn rivers to move. Gate 2's discharge question (owner question
+4) should be re-measured after either, because the navigable set it was
+measured against grows by a quarter to a double.
+
+### Owner questions, with defaults
+
+7. **Fix the chain breaks at all?** Default: **yes**; they are a defect (the
+   channel goes where the water does not), and they are the larger cause of
+   River Transport portages.
+8. **F1 (generation and planner, one network) or F1b (planner only)?**
+   Default: **F1**, gated to the integrated-drainage path, with the
+   re-baseline disclosed and frames reviewed before commit.
+9. **After the fix, keep `river_draw_plan`'s downhill extension?** Default:
+   **keep**, and re-measure its loose ends with `river_gap_harness.rs`; it
+   still bridges ends the guard does not touch (map-border and lake cases).
+10. **Re-run gate 2 (and gate 1's fan counts) after the fix before deciding
+    the discharge gate?** Default: **yes**.
+11. **Should "to-water" count a river that runs off the map border as
+    reaching an outlet?** Default: **yes, in the measurement only**; it does
+    not change what the planner does.
