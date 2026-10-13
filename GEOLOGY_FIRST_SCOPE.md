@@ -4335,8 +4335,18 @@ below. A cell lower than all eight is not cut.
 - **Tests:** `the_estuary_cut_never_digs_below_the_lowest_neighbour`
   (both kernels, literal heights); 2 mutants (cap dropped, floor dropped),
   both killed.
-- **Frames were not taken.** The owner asked to finish quickly near the
-  usage limit, and no shipped world draws the pass. That remains open.
+- **Frames (taken 2026-10-13, ~~not taken~~).** The comparison is the capped
+  build with coastal forced on against the coastal-off control (no pre-cap
+  DLL existed), seeds 24601 (app and processes-on worlds) and 314159, fit and
+  three crops, all opened:
+  `cartalith-native/docs/evidence/gf4-estuary-2026-10-13/`. No closed hollow
+  or new artefact at the river mouths (314159's mouth crop is identical on
+  and off; 24601's differs by a few bank cells). 314159 at fit is nearly
+  unchanged. On 24601 the coastal pass itself (not the cap) fragments the
+  central island's coast and ragged-edges the large south-east inland
+  lake. One thing looked off and is reported, not diagnosed: the inland
+  lake crop shows small round dimples on the land beside the lake when
+  coastal is on, absent in the control.
 
 ---
 
