@@ -354,21 +354,56 @@ func _ready() -> void:
 ## reading taken after `frame_post_draw` -- the idiom `_dashbatch_probe.gd`'s
 ## phase 2 established for exactly this monitor.
 ##
-## Two camera states, because the interesting number is the difference between
-## them and not either one alone:
+## Three camera states, because the interesting number is the difference between
+## them and not any one alone:
 ##
-##   all-visible   zoom 1, origin      -- culling may reject nothing here, so
-##                                        the arms are allowed to be equal.
+##   all-visible   zoom 0.5, fitted    -- the whole network's bounding box is
+##                                        inside the window (asserted, not
+##                                        assumed), so culling has nothing to
+##                                        reject and the arms must draw EXACTLY
+##                                        the same number of objects.
+##   re-entry      zoom 1, origin      -- informational, not asserted. See below.
 ##   deep pan      zoom 8, (-1600,-900) -- the whole network is outside the
 ##                                        window. If the culled arm does not
 ##                                        draw STRICTLY fewer objects here then
 ##                                        `_run_offscreen()` is not running, and
 ##                                        the pixel-identity above is identity
 ##                                        between two arms doing the same work.
+##
+## **Why zoom 1 / origin is no longer the all-visible state (2026-10-13).** This
+## phase was written for whole-run culling (2026-08-25), which never splits a
+## run, so "nothing on screen is rejected" was enough for `on <= off`. It is not
+## all-visible: `_roads()` walks up to 30 x 34 px from x <= 200, so the network
+## spans x 0.8 .. 849.5 but y -82.6 .. 802.5 against a 600 px window, and 73 of
+## its points lie outside it, with 5 places where a way leaves and comes back
+## (scratch `_culldiag` probe, seed 20260825, windowed). Per-segment culling
+## (`map_overlay.gd::_segment_chains`, added later) draws each such way as two
+## polylines instead of one -- one more draw object per re-entry, the cost of
+## skipping the segments between -- so the culled arm read 175 876 objects
+## against 175 870 with culling off, and failed `on > off`. The same diagnostic
+## showed it is exactly the chaining: with `_segment_chains` forced to one
+## whole-run chain the count equals the un-culled arm (175 869 = 175 869 in
+## that run), and at the fitted state below both arms draw 33 999. So the
+## failure was a stale premise in this probe, not a culling defect, and the
+## shipped trade (`CHAIN_PAD_*`'s doc comment) is unchanged.
 func _object_counts() -> void:
 	_p("---- phase 2: drawn objects per arm")
-	for state in [{"z": 1.0, "pan": Vector2.ZERO, "tag": "all-visible", "strict": false},
-			{"z": 8.0, "pan": Vector2(-1600, -900), "tag": "deep pan", "strict": true}]:
+	## The fitted camera: zoom 0.5 with the network's bounding box 10 px in from
+	## the window's top-left corner. The premise is checked below, not assumed.
+	var box := Rect2()
+	var first := true
+	for r in _roads():
+		for p: Vector2 in r["points"]:
+			box = Rect2(p, Vector2.ZERO) if first else box.expand(p)
+			first = false
+	var fit_pan := -box.position * 0.5 + Vector2(10, 10)
+	var on_screen := Rect2(box.position * 0.5 + fit_pan, box.size * 0.5)
+	if not Rect2(0, 0, W, H).encloses(on_screen):
+		_bad("all-visible: the fitted camera does not hold the whole network (%s in a %dx%d window)"
+			% [on_screen, W, H])
+	for state in [{"z": 0.5, "pan": fit_pan, "tag": "all-visible", "mode": "equal"},
+			{"z": 1.0, "pan": Vector2.ZERO, "tag": "re-entry", "mode": "report"},
+			{"z": 8.0, "pan": Vector2(-1600, -900), "tag": "deep pan", "mode": "strict"}]:
 		var got := []
 		for i in 2:
 			_cams[i].scale = Vector2(state["z"], state["z"])
@@ -390,10 +425,19 @@ func _object_counts() -> void:
 		if got[0] == 0 or got[1] == 0:
 			_bad("%s: an arm drew 0 objects; the counter measured nothing" % state["tag"])
 			continue
+		if state["mode"] == "report":
+			## Re-entering ways draw as two polylines each when culled (see the
+			## header above); the difference is printed, not graded.
+			_p("   %-12s %+d objects with culling on (ways that leave and re-enter are split)"
+				% [state["tag"], got[0] - got[1]])
+			continue
+		if state["mode"] == "equal" and got[0] != got[1]:
+			_bad("%s: with nothing off screen the arms must draw the same objects (%d vs %d)"
+				% [state["tag"], got[0], got[1]])
 		if got[0] > got[1]:
 			_bad("%s: culling DREW MORE (%d > %d) -- the reject test costs more "
 				% [state["tag"], got[0], got[1]] + "than the work it saves")
-		if state["strict"] and got[0] >= got[1]:
+		if state["mode"] == "strict" and got[0] >= got[1]:
 			_bad("%s: culling saved nothing (%d vs %d) with the whole network "
 				% [state["tag"], got[0], got[1]]
 				+ "off screen -- `_run_offscreen()` is not rejecting anything")
@@ -445,7 +489,8 @@ func _capture_arm(script, roads: Array, routes: Array, z: float, pan: Vector2) -
 ## it stands in for. Two mutants (`_InvertedRunOffscreen`, `_DropLastChain`,
 ## both defined above via `super` so neither can drift from what it mutates),
 ## each measured against a fresh shipping capture at two cases already proven
-## to carry real ink: the all-visible baseline (zoom 1, pan 0) and one of the
+## to carry real ink: the zoom-1 origin baseline (zoom 1, pan 0 -- mostly, not
+## wholly, on screen; see `_object_counts`) and one of the
 ## main matrix's own AA-noise cases (zoom 2, pan -400,-260) -- so a mutant's
 ## divergence is checked against a background that already carries some
 ## legitimate AA noise of its own, not a clean case that would flatter the

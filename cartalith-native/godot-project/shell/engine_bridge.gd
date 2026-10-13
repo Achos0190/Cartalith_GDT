@@ -3739,6 +3739,55 @@ func export_raster_png(path: String, width: int, tiled: bool, color_space: Strin
 		return {"ok": false, "error": "this build of the engine cannot embed a %s profile -- rebuild cartalith-godot" % color_space}
 	return world_gen.export_raster_png(path, width, tiled)
 
+## ── The export overlay session (`EXPORT_SCOPE.md` §7 E4) ─────────────────────
+##
+## Thin, gated forwards to `WorldGen.export_session_*` for `ExportOverlay.run`
+## (`shell/export_overlay.gd`), which is their only shell caller. Each:
+##   * refuses while `generating` with `{"ok": false, "error": _BUSY_TEXT,
+##     "busy": true}` -- the worker holds `world_gen` and a call from here would
+##     panic -- and the driver waits and retries on `busy` rather than failing,
+##     because the session itself renders from its own snapshot and is unharmed
+##     by a run in between;
+##   * refuses with a sentence when the loaded binary lacks the binding, and
+##   * calls through `callv`, so this file still compiles against a binary built
+##     before a binding existed (`export_raster_png` above says why).
+## Return shapes are the `#[func]`s' own (`export_raster.rs`).
+
+## `{ok:false, error, busy:true}` while generating, a missing-binding refusal for
+## a binary without `method`, else `{}` (go ahead).
+func _export_session_gate(method: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "busy": true}
+	if not _has(method):
+		return {"ok": false, "error": "this build of the engine has no %s -- rebuild cartalith-godot" % method}
+	return {}
+
+## `WorldGen.export_session_begin(path, opts)`: snapshot the world and open the file.
+func export_session_begin(path: String, opts: Dictionary) -> Dictionary:
+	var g := _export_session_gate("export_session_begin")
+	return g if not g.is_empty() else world_gen.callv("export_session_begin", [path, opts])
+
+## `WorldGen.export_session_poll()`: `{ok, next_band, bands, band_ready}`, never blocking.
+func export_session_poll() -> Dictionary:
+	var g := _export_session_gate("export_session_poll")
+	return g if not g.is_empty() else world_gen.callv("export_session_poll", [])
+
+## `WorldGen.export_session_submit_tile(...)`: one premultiplied RGBA8 tile.
+func export_session_submit_tile(band: int, x: int, y: int, w: int, h: int, rgba: PackedByteArray) -> Dictionary:
+	var g := _export_session_gate("export_session_submit_tile")
+	return g if not g.is_empty() else world_gen.callv("export_session_submit_tile", [band, x, y, w, h, rgba])
+
+## `WorldGen.export_session_close()`: close the file without waiting -- `{ok: true,
+## pending: true}` until it is complete, then the finished session's dictionary.
+func export_session_close() -> Dictionary:
+	var g := _export_session_gate("export_session_close")
+	return g if not g.is_empty() else world_gen.callv("export_session_close", [])
+
+## `WorldGen.export_session_abort()`: drop the session and remove its partial file.
+func export_session_abort() -> Dictionary:
+	var g := _export_session_gate("export_session_abort")
+	return g if not g.is_empty() else world_gen.callv("export_session_abort", [])
+
 ## Is chunk `(z, col, row)`, or any ancestor, baked (`WorldGen.atlas_is_covered`)?
 ## `false` also means "no binding". Calls `atlas_ready()` first.
 func atlas_is_covered(z: int, col: int, row: int) -> bool:

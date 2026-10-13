@@ -526,7 +526,97 @@ engine texture, not this overlay, so it needs its own export path; the
 landmark glyph textures top out at `LANDMARK_GLYPH_RASTERS`' largest size;
 `TILE_MAX = 4096` is a judgement still to be measured; and the Rust parser's
 default tier for `settlements: true` is `"all"` where Ruling AZ's dialog
-default is towns (E5's to pass).
+default is towns (E5's to pass). *(2026-10-13, batches C and D below: the
+seam check, the town layouts, the borders path and the `TILE_MAX` measurement
+are done; the glyph cap and the parser default are not.)*
+
+### E4 batches C and D as built, 2026-10-13
+
+Where it stands is `STATUS.md`'s; this records the design and what was
+measured. All figures are one run on the dev desktop (RX 7800 XT,
+gl_compatibility, windowed) unless a count is given.
+
+- **The driver.** `ExportOverlay.run(bridge, path, opts, live, borders,
+  tile_max)` (`shell/export_overlay.gd`) takes one export through the session:
+  begin, build the overlay copy, fetch the town plans, then per band poll until
+  its terrain is ready, draw and submit its tiles (`band_tiles`, at most
+  `tile_max` a side), and close the file. It emits `progress(fraction, text)`,
+  `cancel()` aborts it and removes the file, and every engine call goes through
+  new gated `EngineBridge.export_session_*` wrappers, which answer `busy`
+  while a generation holds the engine; the driver waits that out (the session
+  and the copy own their state). Nothing in the shell calls `run` yet: the
+  dialog is E5.
+- **Off the main thread (Ruling AZ).** Three things moved in `export_session.rs`:
+  the band terrain renders on a feed thread from `begin` (`BandFeed`, a
+  rendezvous channel, so at most one finished band waits), polled by the new
+  `export_session_poll`; the snapshot build itself runs first on that thread
+  (it was **695 ms** of main-thread time inside `export_session_begin` on a 2048
+  x 1311 world; after, 7.4 and 12.6 ms); and the file is closed by a closer thread
+  through the new `export_session_close` (`export_session_finish` waited
+  **~270 ms** for the writer's last band at 4096 px; it stays, blocking, for
+  callers off the main thread). `begin` refuses while a previous session's
+  feed or closer is still running (`STOPPING`, `CLOSING`), and the session's
+  `Drop` joins its threads: an export cancelled a few seconds before quitting
+  crashed Godot at exit (2 of 2 runs), because the feed thread was still running
+  library code as the library unloaded; with the join, 0 of 2.
+- **Tile seams.** Two view-dependent behaviours of the copy were removed. (1)
+  The borders: a magnified `TextureRect` decides a pixel on a texel edge by
+  interpolated UVs, so one tile and twelve tiles of the same 4096 px export
+  disagreed on two columns (35 px, up to 103 levels); the export draws them
+  with `BORDER_SHADER`, which picks the cell from the pixel's global integer
+  coordinate, and measures **0 of 262 144 pixels** off the grid. (2) The
+  neatline clip: the overlay's own scissor sits at a fractional pixel the
+  renderer rounds per tile (a 13 px column, up to 83 levels); the copy is
+  clipped by a parent `Control` at whole export pixels (`clip_pixels`, within
+  half a pixel of the live edge). Town plans in an export reveal by tier, not
+  by view, and draw within a whole site box of a tile, not half
+  (`_urban_plan_export`; not mutation-tested).
+- **What a seam measures now** (`_exportoverlay_probe.gd` §7-§8, seed 9137,
+  384 x 288): a 1024 px region at 8192 with every overlay and the borders,
+  one tile against six stitched: **130 px differ, by at most 1 level** (8 652
+  inked px lie on the seams). The same region with the tile origin moved by
+  (37, 23) and no seam at all: 1 088 px, at most 1 level -- the same
+  antialiasing class, so it is not a seam property. Town plans cut through a
+  town's centre: **1 pixel differs** (137 levels, 11 px from the seam, no
+  neighbour) -- suspected a polygon edge on a pixel centre, but the origin
+  control showed 0, so that cause is not demonstrated.
+  Whole files, one 4096 px tile against twelve 1000 px tiles: **926 of
+  12.6 M px differ, by at most 2 levels.** The probe's bar: AA-class pixels
+  inside `_segcull_probe`'s tolerance, and at most `MAX_ISOLATED_TIES` (4,
+  labelled judgement) larger ones, each alone.
+- **Full size** (`_exportfull_probe.gd`, seed 20260906, 2048 x 1311, towns,
+  ways, labels, icons, borders; peak polled from the host):
+
+  | width | bands | wall | file | frames | median | longest | > 50 ms | peak resident (at start) |
+  |---|---|---|---|---|---|---|---|---|
+  | 16 384 | 5 | 17.4 s | 68.6 MB | 900 | 17.5 ms | 110.7 ms | 17 | 2 453 MB (1 516) |
+  | 32 768 | 33 | 112.2 s | 170.1 MB | 5 803 | 18.5 ms | 110.7 ms | 14 | 2 430 MB (1 514) |
+
+  The estimate's band peak is 942 MB at both widths; the measured rise above
+  the start is ~916-937 MB. No frame reached 111 ms; the 50-110 ms ones are
+  the tile composite (up to 53 ms for a 9.4 MP tile at 16K) and tile draws --
+  hitches, not a freeze, and unmeasured on a phone. In the 32K file the rows
+  at the 32 band boundaries step by a mean 0.25 levels against 0.29 for all
+  other rows (p99 3.15), and the columns at the 4096 px tile seams by 0.27
+  against 0.30: no seam step. Read by eye: the downscaled 32K and two 1:1
+  crops, one across a tile seam through a label and one across a band
+  boundary through a pin.
+- **`TILE_MAX`** stays 4096: 8192 px square tiles read back in 84-123 ms and a
+  16384 px one in 276-282 ms on this machine, so 4096 is below the desktop
+  ceiling; Android's is unmeasured.
+- **Town plans: owner question, default chosen.** The export draws a town as
+  its plan from a 75 px site box (`EXPORT_URBAN_MIN_BOX_PX`: the box at which
+  the live crossfade has finished, measured 31-75 px; the live floor of 16 px
+  was recorded as a smudge). On these 1 200-2 400 km worlds no width reaches
+  it -- the box is 46 px at 32K on 1 200 km -- so every town stays a pin and a
+  name. A smaller world, or a lower threshold, would show plans; the probe
+  checks the plan path by narrowing the copy's map width.
+
+**Still not built:** the E5 dialog and its menu entry; the Rust parser's
+`settlements: true` default (`"all"`) against Ruling AZ's towns; the landmark
+glyph raster cap (unmeasured at export scale); the borders are nearest-cell
+blocks at export scale, as on screen at zoom; Android tile and frame
+measurements.
 
 ---
 

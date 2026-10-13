@@ -17,10 +17,29 @@
 //! the way `lod_worker::LodSnapshot` does), so the export is of the world as
 //! it was when the user pressed the button, whatever happens afterwards. That
 //! is simpler than noticing staleness and cannot half-mix two worlds.
+//!
+//! # Why the terrain renders on its own thread (E4 batch D, Ruling AZ)
+//!
+//! Ruling AZ (2026-09-28): *no UI freeze -- render off the main thread with
+//! progress.* A band's terrain is the session's one long computation (a 32K
+//! band is seconds of `bake_export_band`), and batch A rendered it inside the
+//! first `submit_tile` of each band, on whatever thread called it -- the main
+//! thread, since the tiles come from a `SubViewport`. So [`BandFeed`] renders
+//! the bands, in order, on a thread of its own from `begin`; the caller asks
+//! [`ExportSessionCore::poll`] each frame whether the next band is ready and
+//! submits that band's tiles only once it is. The compositing and the hand-off
+//! to [`BandSink`] (whose encoder already runs on its own thread) stay on the
+//! caller's thread: both are a pass over one band's bytes, not a render.
+//!
+//! The pixels cannot change: the worker calls the same
+//! [`ExportSnapshot::render_band`] the main thread called, on the same owned
+//! snapshot, band by band in plan order -- only the thread differs.
 #![allow(dead_code)]
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use crate::export_stream::{BandSink, StreamFormat};
 use crate::river_stroke::RiverGeometry;
@@ -123,7 +142,7 @@ struct Parts {
     /// `None` with no network, the switch off, or a look or world with none.
     fans: Option<Arc<RiverGeometry>>,
     /// RIM-7, the painted river (`SnapshotInputs::river_paint`, set by
-    /// `WorldGen::export_snapshot` under the export's look): when present
+    /// `WorldGen::export_snapshot_inputs` under the export's look): when present
     /// every band paints the river with it instead of stroking `rivers`.
     paint: Option<Arc<crate::river_field::PaintSource>>,
     splat: Option<OwnedSplat>,
@@ -135,8 +154,8 @@ struct Parts {
     paint_splat: Option<Vec<u8>>,
 }
 
-/// `lod_worker`'s compile-time check, for the same reason: a later batch
-/// renders bands off the main thread, and a field that stops being
+/// `lod_worker`'s compile-time check, for the same reason: [`BandFeed`]
+/// (batch D) renders bands off the main thread, and a field that stops being
 /// `Send + Sync` must fail here rather than on a device.
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
@@ -261,6 +280,8 @@ impl ExportSnapshot {
     /// this snapshot instead of the live world, encoded in the export's
     /// colour space `space` (ET-E1; the session's, fixed at `begin`).
     pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand, space: ColorSpace) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        tests::BANDS_RENDERED_HERE.with(|n| n.set(n.get() + 1));
         let ctx = self.parts.ctx()?;
         let flag = self.parts.ink.as_deref();
         Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), self.parts.paint.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells, space)))
@@ -270,6 +291,129 @@ impl ExportSnapshot {
     /// Read-only: the snapshot owns it so the export keeps the look it began with.
     pub fn appearance(&self) -> &TerrainAppearance {
         &self.parts.appearance
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The terrain feed (E4 batch D)
+// ---------------------------------------------------------------------------
+
+/// One band from the feed: its index in the plan, and its RGB8 terrain or why
+/// it could not be rendered.
+type FedBand = (usize, Result<Vec<u8>, String>);
+
+/// What a session renders from, as the feed thread receives it: a closure that
+/// builds the snapshot there (the live export's path, `WorldGen::
+/// export_session_begin`), or one that hands over a snapshot already built
+/// (`ExportSessionCore::begin`, the tests'). `None` = the world could not be
+/// snapshotted.
+pub type SnapshotBuild = Box<dyn FnOnce() -> Option<Arc<ExportSnapshot>> + Send>;
+
+/// The thread that renders a session's terrain bands ahead of its tiles (module
+/// doc, "Why the terrain renders on its own thread").
+///
+/// **A rendezvous channel (`sync_channel(0)`), deliberately.** The worker
+/// renders band `n + 1` while the caller composites band `n`, then blocks in
+/// `send` holding it until the caller takes it, so at most one finished band
+/// waits beside the one being composited and the one being rendered. A
+/// deeper queue would only hold more 3-bytes-per-pixel bands in memory: the
+/// tiles of a band cannot be submitted faster than the `SubViewport` draws them.
+///
+/// Must never render a band out of plan order, and must never outlive its
+/// session by more than the band it is rendering: a dropped feed drops the
+/// receiver, so the worker's next `send` fails and it returns. (No separate
+/// cancel flag: with a rendezvous channel the worker is either inside a
+/// render, which nothing can interrupt, or blocked in `send`, which the drop
+/// ends -- a flag checked between bands would save nothing.)
+/// It never touches the output file -- the sink does, on the caller's thread --
+/// so a worker still finishing a band cannot race a new session for the path.
+pub(crate) struct BandFeed {
+    rx: Option<Receiver<FedBand>>,
+    handle: Option<JoinHandle<()>>,
+    /// The name of the thread that rendered this feed's bands, written once by
+    /// the worker -- how a test tells the feed apart from a render on the
+    /// caller's own thread (`bands_render_on_the_feed_thread_before_any_tile`).
+    rendered_on: Arc<Mutex<Option<String>>>,
+}
+
+/// The feed thread's name: what `rendered_on` reads back, and what a debugger
+/// or a profiler shows.
+pub(crate) const FEED_THREAD_NAME: &str = "cartalith-export-terrain";
+
+impl BandFeed {
+    /// Start rendering every band of `plan`, in order, encoded in `space`, from
+    /// the snapshot `build` returns -- called first, ON the feed thread: building
+    /// a snapshot is the grid-wide precompute (`ExportSnapshot::build`), measured
+    /// at 695 ms of main-thread time inside `export_session_begin` on a 2048 x
+    /// 1311 world before it moved here (`_exportfull_probe.gd`, 2026-10-13). A
+    /// `None` from `build` is sent as band 0's error. `Err` only when the OS
+    /// refuses a thread.
+    fn start(build: SnapshotBuild, plan: ExportBandPlan, space: ColorSpace) -> Result<BandFeed, String> {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<FedBand>(0);
+        let rendered_on = Arc::new(Mutex::new(None));
+        let seen = Arc::clone(&rendered_on);
+        let handle = std::thread::Builder::new()
+            .name(FEED_THREAD_NAME.into())
+            .spawn(move || {
+                if let Ok(mut s) = seen.lock() {
+                    *s = std::thread::current().name().map(str::to_owned);
+                }
+                let Some(snapshot) = build() else {
+                    let _ = tx.send((0, Err("could not snapshot the world for export".into())));
+                    return;
+                };
+                for (i, band) in plan.bands().enumerate() {
+                    let r = snapshot.render_band(&plan, band, space).ok_or_else(|| format!("could not render band {i}"));
+                    if tx.send((i, r)).is_err() {
+                        return;
+                    }
+                }
+            })
+            .map_err(|e| format!("could not start the export's terrain thread: {e}"))?;
+        Ok(BandFeed { rx: Some(rx), handle: Some(handle), rendered_on })
+    }
+
+    /// Band `want` without waiting: `Ok(None)` while it is still rendering.
+    /// `Err` when the worker stopped, failed, or sent another band.
+    fn try_take(&self, want: usize) -> Result<Option<Vec<u8>>, String> {
+        let rx = self.rx.as_ref().ok_or("the terrain feed is closed")?;
+        match rx.try_recv() {
+            Ok(b) => Self::check(b, want).map(Some),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(format!("the terrain thread stopped before band {want}")),
+        }
+    }
+
+    /// Band `want`, waiting for it. Only reached when a caller submits a band's
+    /// tiles before [`ExportSessionCore::poll`] reported the band ready; the
+    /// shell's driver never does, so this wait is a fallback, not the path.
+    fn take(&self, want: usize) -> Result<Vec<u8>, String> {
+        let rx = self.rx.as_ref().ok_or("the terrain feed is closed")?;
+        rx.recv().map_err(|_| format!("the terrain thread stopped before band {want}")).and_then(|b| Self::check(b, want))
+    }
+
+    /// A received band, accepted only if it is the one asked for.
+    fn check((i, r): FedBand, want: usize) -> Result<Vec<u8>, String> {
+        if i != want {
+            return Err(format!("the terrain thread sent band {i} where band {want} was due"));
+        }
+        r
+    }
+
+    /// Drop the receiver, which stops the worker at its next `send`; returns the
+    /// worker's handle without joining it (it ends after the band it is
+    /// rendering, at most).
+    fn stop(&mut self) -> Option<JoinHandle<()>> {
+        self.rx = None;
+        self.handle.take()
+    }
+}
+
+impl Drop for BandFeed {
+    /// A session dropped mid-export (a closed world, an aborted session) must not
+    /// leave its worker rendering bands nobody will take.
+    fn drop(&mut self) {
+        let _ = self.stop();
     }
 }
 
@@ -286,20 +430,25 @@ pub enum SessionState {
     Idle,
     /// A session is accepting tiles. Boxed to keep the enum small.
     Open(Box<OpenSession>),
+    /// Every band is in; the writer is finishing the file on the closer thread
+    /// ([`ExportSessionCore::close`]). Neither a tile nor a new `begin` is
+    /// accepted until it has.
+    Closing(Box<ClosingSession>),
     /// The file was closed and verified complete; terminal.
     Finished,
     /// Abandoned or refused; the partial file is removed; terminal.
     Aborted,
 }
 
-/// The live half of a session while it is [`SessionState::Open`]: the snapshot
-/// being rendered, the band plan, the open [`BandSink`], and the assembly
+/// The live half of a session while it is [`SessionState::Open`]: the band
+/// plan, the terrain feed (which owns the snapshot), the open [`BandSink`], and the assembly
 /// state of the band currently receiving tiles. Its fields are module-private:
 /// only [`ExportSessionCore`] moves it between states, and dropping it drops
 /// the sink, which removes the partial file.
 pub struct OpenSession {
-    snapshot: Arc<ExportSnapshot>,
     plan: ExportBandPlan,
+    /// The bands' terrain, rendered ahead on its own thread (batch D).
+    feed: BandFeed,
     sink: BandSink,
     path: std::path::PathBuf,
     format: StreamFormat,
@@ -314,6 +463,28 @@ pub struct OpenSession {
     /// Tiles accepted into that band, as `(x, y, w, h)` in image pixels.
     covered: Vec<(usize, usize, usize, usize)>,
     covered_px: u64,
+}
+
+/// A session whose bands are all written, while its file is being finished on
+/// the closer thread: the thread, and what [`SessionDone`] reports once it has.
+pub struct ClosingSession {
+    /// Runs [`BandSink::finish`]: the encoder's last band, the flush, the size.
+    closer: JoinHandle<Result<u64, String>>,
+    path: std::path::PathBuf,
+    width: usize,
+    height: usize,
+    format: StreamFormat,
+    space: ColorSpace,
+    bands: usize,
+    started: std::time::Instant,
+}
+
+impl ClosingSession {
+    /// Wait for the closer and turn its answer into the session's result.
+    fn join(self) -> Result<SessionDone, String> {
+        let bytes = self.closer.join().unwrap_or_else(|_| Err("the export closer panicked".into()))?;
+        Ok(SessionDone { path: self.path, bytes, width: self.width, height: self.height, format: self.format, color_space: self.space, bands: self.bands, ms: self.started.elapsed().as_secs_f64() * 1000.0 })
+    }
 }
 
 /// What [`ExportSessionCore::submit_tile`] did with an accepted tile.
@@ -358,7 +529,63 @@ pub struct SessionDone {
 #[derive(Default)]
 pub struct ExportSessionCore {
     state: SessionState,
+    /// The terrain thread of the last session that ended early, still finishing
+    /// the band it had started. `begin` refuses until it has (`STOPPING`), so a
+    /// cancel-and-retry never runs two band renders at once -- the memory the
+    /// band plan budgets for is one.
+    stopping: Option<JoinHandle<()>>,
 }
+
+impl Drop for ExportSessionCore {
+    /// **Waits for every thread this session started** -- the terrain feed (an
+    /// open session's or a stopped one's) and the closer -- after removing an
+    /// open session's partial file (a closing one's file is completed). Why
+    /// wait, when an abort deliberately does not: the threads run this
+    /// library's code, and a `WorldGen` dropped at application exit is followed
+    /// by the library being unloaded. Measured 2026-10-13: a probe that
+    /// cancelled an export a few seconds before quitting crashed Godot with a
+    /// segmentation fault after its last line (`_exportoverlay_probe.gd` §8's
+    /// cancel leg: crashed 2 of 2 with it, 0 of 1 without it, 0 of 1 waiting
+    /// 15 s first). The wait is at most one band's render.
+    fn drop(&mut self) {
+        match std::mem::take(&mut self.state) {
+            SessionState::Open(s) => {
+                let OpenSession { mut feed, sink, .. } = *s;
+                sink.abort();
+                if let Some(h) = feed.stop() {
+                    let _ = h.join();
+                }
+            }
+            SessionState::Closing(c) => {
+                let _ = c.join();
+            }
+            _ => {}
+        }
+        if let Some(h) = self.stopping.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+/// What [`ExportSessionCore::poll`] reports about an open session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionProgress {
+    /// The band whose tiles are due next (`bands` once every band is written).
+    pub next_band: usize,
+    /// How many bands the plan has.
+    pub bands: usize,
+    /// `true` when band `next_band`'s terrain is rendered, so its tiles can be
+    /// submitted without waiting; also `true` once every band is written.
+    pub band_ready: bool,
+}
+
+/// `begin`'s refusal while the previous session's file is still being closed:
+/// a new session at the same path would truncate it under the closer.
+pub const CLOSING: &str = "the previous export is still writing its file -- try again in a moment";
+
+/// `begin`'s refusal while the previous session's terrain thread is still
+/// finishing its band. A caller may retry; the wait is at most one band render.
+pub const STOPPING: &str = "the previous export is still stopping its terrain render -- try again in a moment";
 
 impl ExportSessionCore {
     /// `true` only while a session is [`SessionState::Open`]; `Finished`, `Aborted`
@@ -374,6 +601,7 @@ impl ExportSessionCore {
         match self.state {
             SessionState::Idle => "idle",
             SessionState::Open(_) => "open",
+            SessionState::Closing(_) => "closing",
             SessionState::Finished => "finished",
             SessionState::Aborted => "aborted",
         }
@@ -383,16 +611,36 @@ impl ExportSessionCore {
     /// encoded and labelled in `space` (ET-E1). A format that cannot carry
     /// `space`'s label is refused before any file is opened.
     pub fn begin(&mut self, snapshot: Arc<ExportSnapshot>, plan: ExportBandPlan, format: StreamFormat, space: ColorSpace, path: &Path) -> Result<(), String> {
+        self.begin_with(Box::new(move || Some(snapshot)), plan, format, space, path)
+    }
+
+    /// [`Self::begin`] with the snapshot built on the feed thread by `build`
+    /// (`SnapshotBuild`). The same refusals; a `build` that returns `None`
+    /// surfaces as band 0's error at the first [`Self::poll`] or tile.
+    pub fn begin_with(&mut self, build: SnapshotBuild, plan: ExportBandPlan, format: StreamFormat, space: ColorSpace, path: &Path) -> Result<(), String> {
         if self.is_open() {
             return Err("an export session is already open -- finish or abort it first".into());
+        }
+        if matches!(self.state, SessionState::Closing(_)) {
+            return Err(CLOSING.into());
         }
         if plan.w == 0 || plan.h == 0 || plan.rows_per_band == 0 {
             return Err(format!("degenerate export plan {}x{}", plan.w, plan.h));
         }
+        if self.stopping.as_ref().is_some_and(|h| !h.is_finished()) {
+            return Err(STOPPING.into());
+        }
+        // Finished, so this join returns at once.
+        if let Some(h) = self.stopping.take() {
+            let _ = h.join();
+        }
         let sink = BandSink::open(path, format, space, plan.w, plan.h)?;
+        // After the sink: a format refused by `BandSink::open` starts no thread.
+        // A thread the OS refuses drops `sink` here, which removes the file.
+        let feed = BandFeed::start(build, plan, space)?;
         self.state = SessionState::Open(Box::new(OpenSession {
-            snapshot,
             plan,
+            feed,
             sink,
             path: path.to_path_buf(),
             format,
@@ -408,16 +656,60 @@ impl ExportSessionCore {
 
     /// Abort the open session (removing its file) and return `msg` as the error.
     fn refuse<T>(&mut self, msg: String) -> Result<T, String> {
-        if let SessionState::Open(s) = std::mem::replace(&mut self.state, SessionState::Aborted) {
-            s.sink.abort();
-        }
+        self.end_open();
         Err(format!("{msg} -- the export was aborted and its partial file removed"))
+    }
+
+    /// Move an open session to `Aborted`: remove its partial file and stop its
+    /// terrain thread without waiting for it (kept in `stopping` for `begin`).
+    /// No-op in any other state.
+    fn end_open(&mut self) {
+        if let SessionState::Open(s) = std::mem::replace(&mut self.state, SessionState::Aborted) {
+            let OpenSession { mut feed, sink, .. } = *s;
+            sink.abort();
+            self.stopping = feed.stop();
+        }
+    }
+
+    /// Where an open session is, without blocking: takes band `next_band`'s
+    /// terrain from the feed if it has finished rendering. The shell calls this
+    /// once a frame and submits a band's tiles only once `band_ready` is true,
+    /// so no `submit_tile` waits on a render (Ruling AZ). `Err` -- and the
+    /// session aborted, its file removed -- when the terrain thread failed or
+    /// stopped; `Err` with no side effect when no session is open.
+    pub fn poll(&mut self) -> Result<SessionProgress, String> {
+        let SessionState::Open(s) = &mut self.state else {
+            return Err(format!("no export session is open (state: {})", self.state_name()));
+        };
+        let bands = s.plan.band_count();
+        if s.next_band >= bands || s.band_rgb.is_some() {
+            return Ok(SessionProgress { next_band: s.next_band, bands, band_ready: true });
+        }
+        match s.feed.try_take(s.next_band) {
+            Ok(Some(px)) => {
+                s.band_rgb = Some(px);
+                Ok(SessionProgress { next_band: s.next_band, bands, band_ready: true })
+            }
+            Ok(None) => Ok(SessionProgress { next_band: s.next_band, bands, band_ready: false }),
+            Err(e) => self.refuse(e),
+        }
+    }
+
+    /// The name of the thread that rendered the open session's terrain, once it
+    /// has started; `None` before that or with no open session. For tests.
+    pub(crate) fn terrain_thread_name(&self) -> Option<String> {
+        match &self.state {
+            SessionState::Open(s) => s.feed.rendered_on.lock().ok().and_then(|n| n.clone()),
+            _ => None,
+        }
     }
 
     /// Composite one premultiplied-RGBA8 overlay tile, `w × h` at image pixel
     /// `(x, y)`, into band `band`. The tiles of a band must lie inside it,
-    /// must not overlap, and must cover it exactly; a band's first tile
-    /// renders its terrain, and the tile that completes it sends it to disk.
+    /// must not overlap, and must cover it exactly; a band's first tile takes
+    /// its terrain from the feed thread (waiting for it only if [`Self::poll`]
+    /// had not yet reported it ready), and the tile that completes it sends it
+    /// to disk.
     pub fn submit_tile(&mut self, band: i64, x: i64, y: i64, w: i64, h: i64, rgba: &[u8]) -> Result<TileAccepted, String> {
         let SessionState::Open(s) = &mut self.state else {
             return Err(format!("no export session is open (state: {}) -- call export_session_begin first", self.state_name()));
@@ -430,31 +722,75 @@ impl ExportSessionCore {
 
     /// Close the file. `Err` (and the file removed) unless every band was
     /// covered and written.
+    /// The blocking form of [`Self::close`]: start closing if open, then wait
+    /// for the file. For tests and callers off the main thread; the shell's
+    /// driver uses `close`, since the wait is the writer's last band (measured
+    /// ~270 ms on the main thread at 4096 px, `_exportoverlay_probe.gd` §8).
     pub fn finish(&mut self) -> Result<SessionDone, String> {
-        let SessionState::Open(s) = &self.state else {
-            return Err(format!("no export session is open (state: {})", self.state_name()));
+        if let Some(done) = self.close()? {
+            return Ok(done);
+        }
+        let SessionState::Closing(c) = std::mem::replace(&mut self.state, SessionState::Aborted) else {
+            return Err("the export session is not closing".into());
         };
-        if let Some(gap) = coverage_gap(s) {
-            return self.refuse(gap);
+        // On `Err` the sink has removed the file and the state stays `Aborted`.
+        let done = c.join()?;
+        self.state = SessionState::Finished;
+        Ok(done)
+    }
+
+    /// **Close the file without waiting** (E4 batch D, Ruling AZ). From an open
+    /// session: refused -- aborted, file removed -- unless every band is
+    /// written; otherwise the file is handed to a closer thread and this
+    /// returns `Ok(None)`. From a closing session: `Ok(None)` while the closer
+    /// works, then `Ok(Some(done))` (or its `Err`, the file removed) exactly
+    /// once. Never blocks the caller. Any other state is refused with no side
+    /// effect.
+    pub fn close(&mut self) -> Result<Option<SessionDone>, String> {
+        match &self.state {
+            SessionState::Open(s) => {
+                if let Some(gap) = coverage_gap(s) {
+                    return self.refuse(gap);
+                }
+            }
+            SessionState::Closing(c) => {
+                if !c.closer.is_finished() {
+                    return Ok(None);
+                }
+                let SessionState::Closing(c) = std::mem::replace(&mut self.state, SessionState::Aborted) else {
+                    return Err("the export session is not closing".into());
+                };
+                let done = c.join()?;
+                self.state = SessionState::Finished;
+                return Ok(Some(done));
+            }
+            _ => return Err(format!("no export session is open (state: {})", self.state_name())),
         }
         let SessionState::Open(s) = std::mem::replace(&mut self.state, SessionState::Aborted) else {
             return Err("no export session is open".into());
         };
-        let OpenSession { plan, sink, path, format, space, started, .. } = *s;
-        // On `Err` the sink has removed the file and the state stays `Aborted`.
-        let bytes = sink.finish()?;
-        self.state = SessionState::Finished;
-        Ok(SessionDone { path, bytes, width: plan.w, height: plan.h, format, color_space: space, bands: plan.band_count(), ms: started.elapsed().as_secs_f64() * 1000.0 })
+        let OpenSession { plan, sink, path, format, space, started, mut feed, .. } = *s;
+        // Every band was taken, so the worker has returned (or is returning
+        // from its last `send`): its handle is kept like an abort's, never joined here.
+        self.stopping = feed.stop();
+        // `sink` moves into the closer; if the OS refuses the thread, the
+        // closure (and the sink in it) is dropped, which removes the file.
+        let closer = std::thread::Builder::new()
+            .name("cartalith-export-close".into())
+            .spawn(move || sink.finish())
+            .map_err(|e| format!("could not start the export closer: {e} -- the export was aborted and its partial file removed"))?;
+        self.state = SessionState::Closing(Box::new(ClosingSession { closer, path, width: plan.w, height: plan.h, format, space, bands: plan.band_count(), started }));
+        Ok(None)
     }
 
-    /// Abandon the open session and remove its file.
+    /// Abandon the open session and remove its file. Refused for a closing
+    /// session: every band is already in the file and the closer cannot be
+    /// interrupted mid-write; [`Self::close`] it instead.
     pub fn abort(&mut self) -> Result<(), String> {
         if !self.is_open() {
             return Err(format!("no export session is open (state: {})", self.state_name()));
         }
-        if let SessionState::Open(s) = std::mem::replace(&mut self.state, SessionState::Aborted) {
-            s.sink.abort();
-        }
+        self.end_open();
         Ok(())
     }
 
@@ -509,8 +845,10 @@ fn accept_tile(s: &mut OpenSession, band: i64, x: i64, y: i64, w: i64, h: i64, r
     if let Some(&(ox, oy, ow, oh)) = s.covered.iter().find(|&&(ox, oy, ow, oh)| x < ox + ow && ox < x + w && y < oy + oh && oy < y + h) {
         return Err(format!("tile ({x}, {y}) {w}x{h} overlaps the tile at ({ox}, {oy}) {ow}x{oh} in band {expected}"));
     }
+    // Rendered on the feed thread (batch D). `poll` has normally taken it
+    // already; a caller that skipped `poll` waits here for it.
     if s.band_rgb.is_none() {
-        s.band_rgb = Some(s.snapshot.render_band(&s.plan, b, s.space).ok_or_else(|| format!("could not render band {expected}"))?);
+        s.band_rgb = Some(s.feed.take(expected)?);
     }
     let row = s.plan.w * 3;
     let dst = s.band_rgb.as_mut().ok_or("band buffer missing")?;
@@ -625,7 +963,7 @@ mod tests {
     }
 
     /// The `SnapshotInputs` `lod_snapshot_inputs` would assemble for `w`, with
-    /// the two fields `WorldGen::export_snapshot` replaces already replaced.
+    /// the two fields `WorldGen::export_snapshot_inputs` replaces already replaced.
     fn inputs(w: &World, km: f64, litho: bool) -> SnapshotInputs {
         SnapshotInputs {
             key: String::new(),
@@ -800,7 +1138,7 @@ mod tests {
     }
 
     /// Protects: RIM-7 in the overlay session's snapshot: the delta fans handed
-    /// to `ExportSnapshot::build` (what `WorldGen::export_snapshot` passes from
+    /// to `ExportSnapshot::build` (what `WorldGen::export_snapshot_inputs` passes from
     /// `export_river_fans`) reach every band -- stroked before the network,
     /// byte for byte as the direct render with the same fans strokes them --
     /// and move pixels: a snapshot that dropped them would equal a direct
@@ -1301,6 +1639,272 @@ mod tests {
         assert!(core.finish().is_err(), "finish twice");
         assert!(path.exists(), "a refusal after finish must not touch the finished file");
         let _ = std::fs::remove_file(&path);
+    }
+
+    // -- property 4: the terrain renders on the feed thread (batch D) -----
+
+    thread_local! {
+        /// How many bands `ExportSnapshot::render_band` rendered on the current
+        /// thread (test builds only). Per thread, so tests running in parallel
+        /// cannot disturb each other's count.
+        pub(super) static BANDS_RENDERED_HERE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Poll until band `next_band` is ready, for at most 60 s (the fixture's
+    /// bands render in milliseconds; the bound only turns a hang into a failure).
+    fn poll_ready(core: &mut ExportSessionCore) -> SessionProgress {
+        let t0 = std::time::Instant::now();
+        loop {
+            let p = core.poll().expect("poll");
+            if p.band_ready {
+                return p;
+            }
+            assert!(t0.elapsed().as_secs() < 60, "band {} never became ready", p.next_band);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// Protects: Ruling AZ's "no UI freeze" at its root -- every band's terrain
+    /// is rendered by the feed thread, before any tile of it is submitted, the
+    /// caller's thread renders none (`BANDS_RENDERED_HERE` stays put), and the
+    /// file is still exactly `export_banded`'s. A render moved back onto the
+    /// caller, inside `poll` or `submit_tile`, moves that count.
+    #[test]
+    fn bands_render_on_the_feed_thread_before_any_tile() {
+        let w = world();
+        let p = plan(150, 7);
+        let (a, b) = (scratch("feed_banded"), scratch("feed_session"));
+        direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, StreamFormat::Png, ColorSpace::Srgb, &a)).expect("export_banded");
+        let mut core = ExportSessionCore::default();
+        let before = BANDS_RENDERED_HERE.with(|n| n.get());
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &b).expect("begin");
+        for (bi, band) in p.bands().enumerate() {
+            let pr = poll_ready(&mut core);
+            assert_eq!((pr.next_band, pr.bands), (bi, p.band_count()));
+            if bi == 0 {
+                let name = core.terrain_thread_name();
+                assert_eq!(name.as_deref(), Some(FEED_THREAD_NAME), "band 0 was not rendered by the feed thread");
+                assert_ne!(name.as_deref(), std::thread::current().name(), "premise: the test thread is not the feed thread");
+            }
+            let t = core.submit_tile(bi as i64, 0, band.y0 as i64, p.w as i64, band.rows as i64, &vec![0u8; p.w * band.rows * 4]).expect("tile");
+            assert!(t.band_complete);
+        }
+        let done = core.poll().expect("poll after the last band");
+        assert_eq!(done, SessionProgress { next_band: p.band_count(), bands: p.band_count(), band_ready: true });
+        assert_eq!(BANDS_RENDERED_HERE.with(|n| n.get()) - before, 0, "the caller's thread rendered a band");
+        core.finish().expect("finish");
+        let (fa, fb) = (std::fs::read(&a).expect("read a"), std::fs::read(&b).expect("read b"));
+        let _ = (std::fs::remove_file(&a), std::fs::remove_file(&b));
+        assert!(p.band_count() > 2, "premise: several bands");
+        assert!(fa == fb, "the fed session's file differs from export_banded's");
+    }
+
+    /// Protects: the feed refusing a band out of order (`BandFeed::check`) -- the
+    /// one guard that would notice a worker sending bands in another order.
+    #[test]
+    fn the_feed_refuses_a_band_out_of_order() {
+        assert!(BandFeed::check((2, Ok(vec![1, 2, 3])), 1).is_err(), "band 2 accepted where band 1 was due");
+        assert_eq!(BandFeed::check((1, Ok(vec![1, 2, 3])), 1), Ok(vec![1, 2, 3]));
+        assert!(BandFeed::check((1, Err("x".into())), 1).is_err(), "a failed render passed as a band");
+    }
+
+    /// Protects: a terrain thread that stopped is reported by `poll` -- the
+    /// session aborts and its partial file goes -- rather than read as "not
+    /// ready yet" forever, which would hang the shell's driver.
+    #[test]
+    fn poll_reports_a_stopped_terrain_thread_and_aborts() {
+        let w = world();
+        let p = plan(150, 7);
+        let path = scratch("feed_stopped");
+        let mut core = ExportSessionCore::default();
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin");
+        // A feed whose worker has gone -- returned or panicked -- is a
+        // disconnected channel: stand one in for the session's real feed.
+        let (tx, rx) = std::sync::mpsc::sync_channel::<FedBand>(0);
+        drop(tx);
+        if let SessionState::Open(s) = &mut core.state {
+            s.feed = BandFeed { rx: Some(rx), handle: None, rendered_on: Arc::new(Mutex::new(None)) };
+        }
+        assert_refused_and_gone(core.poll(), &core, &path, "poll over a stopped feed");
+    }
+
+    /// Protects: `begin` refusing while the previous session's terrain thread is
+    /// still finishing (`STOPPING`), opening no file, and succeeding once it has
+    /// -- so cancel-and-retry never runs two band renders at once. The stand-in
+    /// thread is held on a channel the test releases, so the order is fixed,
+    /// not raced.
+    #[test]
+    fn begin_waits_for_the_previous_terrain_thread() {
+        let w = world();
+        let p = plan(150, 1000);
+        let path = scratch("feed_stopping");
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let mut core = ExportSessionCore::default();
+        core.stopping = Some(std::thread::spawn(move || {
+            let _ = wait.recv();
+        }));
+        let e = core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect_err("begin while the old thread runs");
+        assert_eq!(e, STOPPING);
+        assert!(!path.exists(), "a refused begin opened the file");
+        assert_eq!(core.state_name(), "idle");
+        release.send(()).expect("release");
+        let t0 = std::time::Instant::now();
+        while core.stopping.as_ref().is_some_and(|h| !h.is_finished()) {
+            assert!(t0.elapsed().as_secs() < 60);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin once it has stopped");
+        assert!(core.stopping.is_none(), "the finished thread was not collected");
+        core.abort().expect("abort");
+        assert!(!path.exists());
+    }
+
+    /// Protects: `abort` not waiting for the band being rendered, and a later
+    /// session at the same path still writing the right file -- the cancel path
+    /// a user takes, end to end.
+    #[test]
+    fn an_abort_mid_render_then_a_new_session_writes_the_right_file() {
+        let w = world();
+        let p = plan(150, 7);
+        let (a, b) = (scratch("feed_abort_banded"), scratch("feed_abort_session"));
+        direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, StreamFormat::Png, ColorSpace::Srgb, &a)).expect("export_banded");
+        let mut core = ExportSessionCore::default();
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &b).expect("begin");
+        core.abort().expect("abort");
+        assert!(!b.exists(), "abort left the file");
+        let t0 = std::time::Instant::now();
+        loop {
+            match core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &b) {
+                Ok(()) => break,
+                Err(e) => assert_eq!(e, STOPPING),
+            }
+            assert!(t0.elapsed().as_secs() < 60, "the aborted session's terrain thread never stopped");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        run_session(&mut core, &p, 64, 3, &|_, _| [0u8; 4]).expect("tiles");
+        core.finish().expect("finish");
+        let (fa, fb) = (std::fs::read(&a).expect("read a"), std::fs::read(&b).expect("read b"));
+        let _ = (std::fs::remove_file(&a), std::fs::remove_file(&b));
+        assert!(fa == fb, "the session after an abort wrote a different file");
+    }
+
+    /// Protects: a snapshot built on the feed thread (`begin_with`, the live
+    /// path) that fails -- reported at a poll as band 0's error, the session
+    /// aborted and its file removed -- rather than a poll that waits forever.
+    #[test]
+    fn a_snapshot_that_cannot_be_built_aborts_at_a_poll() {
+        let p = plan(150, 7);
+        let path = scratch("feed_nobuild");
+        let mut core = ExportSessionCore::default();
+        core.begin_with(Box::new(|| None), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin");
+        assert!(path.exists(), "begin opens the file");
+        let t0 = std::time::Instant::now();
+        let e = loop {
+            match core.poll() {
+                Ok(pr) => assert!(!pr.band_ready, "a band from a snapshot that does not exist"),
+                Err(e) => break e,
+            }
+            assert!(t0.elapsed().as_secs() < 60, "the failed build was never reported");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        assert!(e.contains("could not snapshot"), "{e}");
+        assert!(!path.exists(), "the partial file survived a failed snapshot");
+        assert_eq!(core.state_name(), "aborted");
+    }
+
+    /// Protects: dropping a session core waiting for the terrain thread of a
+    /// session it aborted (its `Drop`), so no thread runs this library's code
+    /// after the owning `WorldGen` is gone. The stand-in build sleeps, then
+    /// marks itself done; without the wait the mark is still unset at the drop.
+    #[test]
+    fn dropping_the_core_waits_for_a_stopping_terrain_thread() {
+        let path = scratch("feed_drop_wait");
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mark = Arc::clone(&done);
+        let mut core = ExportSessionCore::default();
+        core.begin_with(
+            Box::new(move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                mark.store(true, std::sync::atomic::Ordering::SeqCst);
+                None
+            }),
+            plan(150, 7),
+            StreamFormat::Png,
+            ColorSpace::Srgb,
+            &path,
+        )
+        .expect("begin");
+        core.abort().expect("abort");
+        assert!(!done.load(std::sync::atomic::Ordering::SeqCst), "premise: the build is still running at the abort");
+        drop(core);
+        assert!(done.load(std::sync::atomic::Ordering::SeqCst), "the drop returned before the terrain thread finished");
+        assert!(!path.exists());
+    }
+
+    /// Protects: `close` never waiting for the writer and the file it finishes
+    /// being exactly `export_banded`'s -- pending (`None`) while the closer
+    /// runs, the result exactly once, then refused. The closer is the real one.
+    #[test]
+    fn close_hands_the_file_to_the_closer_and_reports_it_once() {
+        let w = world();
+        let p = plan(150, 7);
+        let (a, b) = (scratch("close_banded"), scratch("close_session"));
+        direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, StreamFormat::Png, ColorSpace::Srgb, &a)).expect("export_banded");
+        let mut core = ExportSessionCore::default();
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &b).expect("begin");
+        run_session(&mut core, &p, 64, 3, &|_, _| [0u8; 4]).expect("tiles");
+        let t0 = std::time::Instant::now();
+        let done = loop {
+            if let Some(d) = core.close().expect("close") {
+                break d;
+            }
+            assert_eq!(core.state_name(), "closing");
+            assert!(t0.elapsed().as_secs() < 60, "the closer never finished");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        assert_eq!(core.state_name(), "finished");
+        assert!(core.close().is_err(), "a second result from one close");
+        let (fa, fb) = (std::fs::read(&a).expect("read a"), std::fs::read(&b).expect("read b"));
+        let _ = (std::fs::remove_file(&a), std::fs::remove_file(&b));
+        assert_eq!(done.bytes as usize, fb.len());
+        assert!(fa == fb, "the closed file differs from export_banded's");
+    }
+
+    /// Protects: a closing session refusing `begin` (`CLOSING`: a new file at
+    /// the same path would be truncated under the closer) and `abort`, and
+    /// answering pending without waiting while its closer runs. The stand-in
+    /// closer is held on a channel the test releases, so `close` is checked
+    /// against a closer that has certainly not finished.
+    #[test]
+    fn a_closing_session_waits_without_blocking_and_refuses_begin() {
+        let w = world();
+        let path = scratch("closing_hold");
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let closer = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(42u64)
+        });
+        let mut core = ExportSessionCore::default();
+        core.state = SessionState::Closing(Box::new(ClosingSession {
+            closer, path: path.clone(), width: 2, height: 2, format: StreamFormat::Png, space: ColorSpace::Srgb, bands: 1, started: std::time::Instant::now(),
+        }));
+        assert_eq!(core.close().expect("close while the closer runs"), None);
+        assert_eq!(core.state_name(), "closing");
+        let e = core.begin(snapshot(&w), plan(150, 1000), StreamFormat::Png, ColorSpace::Srgb, &path).expect_err("begin while closing");
+        assert_eq!(e, CLOSING);
+        assert!(!path.exists(), "a refused begin opened the file");
+        assert!(core.abort().is_err(), "a closing session cannot be aborted");
+        release.send(()).expect("release");
+        let t0 = std::time::Instant::now();
+        let done = loop {
+            if let Some(d) = core.close().expect("close") {
+                break d;
+            }
+            assert!(t0.elapsed().as_secs() < 60);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        assert_eq!(done.bytes, 42, "the closer's own answer");
+        assert_eq!(core.state_name(), "finished");
     }
 
     // -- BandSink on its own ----------------------------------------------

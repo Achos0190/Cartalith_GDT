@@ -4111,7 +4111,16 @@ func _draw() -> void:
 	# own child item has relied on since RV-2 and what every layer item relies
 	# on now. A camera move does not come through here and does not need to --
 	# the clip rect is in this control's local space, which the camera carries.
-	if rect.size.x > 0.0 and _border_frac > 0.0:
+	## **Not on an export copy** (E4 batch C): there the clip is a parent
+	## `Control` at whole export pixels (`ExportOverlay`'s `_clip`, from
+	## `export_clip_rect`). This scissor's edge sits at a fractional pixel that
+	## the renderer rounds per tile, so twelve tiles and one tile of the same
+	## export disagreed by a 13 px column of neatline (`_exportoverlay_probe.gd`
+	## §8); an integer clip rect has nothing to round. Skipping this one is
+	## belt and braces, not the fix: with it left on, the parent clip is the
+	## tighter edge in that probe and the comparison still passed (mutation
+	## run, 2026-10-13), so it is the parent clip that is load-bearing.
+	if rect.size.x > 0.0 and _border_frac > 0.0 and not _export_mode:
 		var ci := get_canvas_item()
 		RenderingServer.canvas_item_set_custom_rect(ci, true, _interior_rect(rect))
 		RenderingServer.canvas_item_set_clip(ci, true)
@@ -7883,6 +7892,16 @@ const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
 const UM_FADE_FAR_KM := 24.0
 const UM_FADE_NEAR_KM := 10.0
 const URBAN_MIN_BOX_PX := 16.0
+## E4 export copy only: the site-box width, in export pixels, from which an
+## export draws a town as its plan instead of its pin (Ruling AZ: "town plans
+## above a size readable at the export's resolution"; `_urban_layout_alpha`).
+## **Not `URBAN_MIN_BOX_PX`**: the block above records that 16 px swapped a
+## legible pin for a 16 px smudge, and that the reference's own crossfade
+## completes at a 75 px box on its measured case (`_umreveal_shot.gd`, 800 km
+## world, 440 px map area: 31 px -> 75 px). An export has no crossfade, so it
+## takes the handover's END: below 75 px the export keeps the pin and its name.
+## A labelled judgement resting on that one measurement.
+const EXPORT_URBAN_MIN_BOX_PX := 75.0
 ## Above this on-screen box width, a town is drawn with its per-roof ink
 ## outline, ridge and drop shadow; below it the roofs are flat fills. 620 px
 ## across the 1.7 km box puts a ~11 m lot at ~4 px, which is about where an
@@ -8003,6 +8022,14 @@ func _urban_span_km(rect: Rect2) -> float:
 func _urban_layout_alpha(rect: Rect2) -> float:
 	if not _show_urban_layouts:
 		return 0.0
+	## E4 export copy: a flat image has no zoom to crossfade over, and its span
+	## is the whole map (far past `UM_FADE_FAR_KM`), so the live rule would draw
+	## no town at any export width. Ruling AZ (2026-09-28): town plans draw above
+	## a size readable at the export's resolution -- so the export is all
+	## layouts, and `_urban_plan_update`'s box gate at `EXPORT_URBAN_MIN_BOX_PX`
+	## decides which export widths show them. A branch the live overlay never takes.
+	if _export_mode:
+		return 1.0
 	var span := _urban_span_km(rect)
 	if span <= 0.0 or span >= UM_FADE_FAR_KM:
 		return 0.0
@@ -8039,7 +8066,10 @@ func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
 	## The camera scales this whole control, so a box that measures
 	## `box_px` here lands `box_px * _camera_zoom` wide on screen.
 	var box_px := URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom
-	if box_px < URBAN_MIN_BOX_PX:
+	if box_px < (EXPORT_URBAN_MIN_BOX_PX if _export_mode else URBAN_MIN_BOX_PX):
+		return
+	if _export_mode:
+		_urban_plan_export(rect, interior, box_px)
 		return
 
 	## The camera scales and offsets this whole control, so `interior` alone is
@@ -8084,6 +8114,77 @@ func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
 	if need.size() > 0 and not _urban_pending:
 		_urban_pending = true
 		urban_layouts_needed.emit.call_deferred(need)
+
+
+## `_urban_plan_update`'s export-copy half (E4 batch C). Two differences from the
+## live rule, both for **tile seams**: an export is drawn tile by tile, each tile
+## its own view, and a tile must draw exactly what the same pixels show in its
+## neighbour.
+##
+## 1. **The revealed set does not depend on the view.** Every settlement the
+##    export keeps (`_settlement_hidden`, the tier) that has a layout is revealed,
+##    whichever tile is drawing. The settlement layer's label placement plan
+##    reads this set (`_settlement_plan_begin`): a set that differed per tile
+##    would place a name differently on each side of a seam.
+## 2. **The draw list is the tile grown by a whole site box**, not half: a
+##    layout is rotated by its terrain orientation, so its corner reaches
+##    `sqrt(2)/2` of a box from its centre, past the live rule's half-box
+##    slack, and a town just outside that slack would be cut at the seam. One
+##    box is that plus margin for strokes (labelled judgement); a town drawn
+##    in a tile that shows none of it costs time, not pixels.
+##
+## Requests nothing: the export driver fetches every layout the export needs
+## before the first tile (`export_urban_needs`). Must never draw.
+func _urban_plan_export(rect: Rect2, interior: Rect2, box_px: float) -> void:
+	var visible_area := get_global_transform().affine_inverse() * get_viewport_rect()
+	visible_area = visible_area.intersection(interior).grow(box_px / maxf(0.001, _camera_zoom))
+	var any_view := visible_area.size.x > 0.0 and visible_area.size.y > 0.0
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		if _hidden_settlement_kinds.has(s["kind"]) or _settlement_hidden(s):
+			continue
+		if _urban_layouts.get(i) == null:
+			continue
+		_urban_revealed[i] = true
+		if any_view and visible_area.has_point(_cell_to_screen(Vector2(s["x"], s["y"]), rect)):
+			_urban_draw_list.append(i)
+
+
+## E4 batch C: the rect, in this control's local space, that the live overlay
+## clips itself to (`_draw`'s neatline scissor: the plate's interior), or
+## `Rect2()` when the map has no frame and nothing is clipped. The export copy
+## does not clip itself (`_draw`); `ExportOverlay` clips it to this rect,
+## rounded to whole export pixels.
+func export_clip_rect() -> Rect2:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0 or _border_frac <= 0.0:
+		return Rect2()
+	return _interior_rect(rect)
+
+
+## E4 batch C: the settlement indices an export copy will draw as town plans but
+## has no layout for -- every settlement its tier keeps, view-independent, when
+## the export is wide enough for a plan to be readable (`EXPORT_URBAN_MIN_BOX_PX`
+## at the copy's own size; see `_urban_layout_alpha`). Empty on the live overlay
+## (`_export_mode` false), with town plans off, or below that width. The export
+## driver fetches these from the engine (`EngineBridge.urban_layouts`) and hands
+## them back through `set_urban_layouts` before the first tile; an index the
+## engine refuses is recorded as `null` there, so it is not asked for twice.
+func export_urban_needs() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if not _export_mode or not _show_urban_layouts:
+		return out
+	var rect := _displayed_rect()
+	var m_scale := _urban_m_scale(rect)
+	if m_scale <= 0.0 or URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom < EXPORT_URBAN_MIN_BOX_PX:
+		return out
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		if _hidden_settlement_kinds.has(s["kind"]) or _settlement_hidden(s):
+			continue
+		if not _urban_layouts.has(i):
+			out.append(i)
+	return out
 
 
 ## Draws the towns `_urban_plan_update` chose, in its order, into the mid layer.
@@ -8263,6 +8364,9 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 	var tier := String(content.get("settlement_tier", ""))
 	_show_settlements = tier != ""
 	_export_show_addons = tier == "all"
+	## Town plans go with the settlements (Ruling AZ: drawn above a readable
+	## size), whatever the live layer toggle says -- see `_urban_layout_alpha`.
+	_show_urban_layouts = tier != ""
 	var last := EXPORT_TIERS.size() - 1 if tier == "all" else EXPORT_TIERS.find(tier)
 	_hidden_settlement_kinds = {}
 	for i in EXPORT_TIERS.size():

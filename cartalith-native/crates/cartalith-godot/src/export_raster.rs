@@ -633,7 +633,7 @@ pub(crate) struct ExportRiverInputs {
 /// test with two different looks can see it.
 ///
 /// Used by `export_render_with` (the whole and banded exports) and
-/// `export_snapshot` (the overlay session). It takes no session look, by
+/// `export_snapshot_inputs` (the overlay session). It takes no session look, by
 /// construction: there is nothing here to mistake for `own`. Must never read
 /// the session's look, must never ask for fans or paint without a network.
 pub(crate) fn export_river_inputs(src: &impl ExportRiverSource, own: &TerrainAppearance, rivers: bool) -> ExportRiverInputs {
@@ -753,6 +753,21 @@ fn fail(msg: impl Into<String>) -> VarDictionary {
     let msg: String = msg.into();
     godot_print!("cartalith-godot: export raster failed -- {msg}");
     dict! { "ok" => false, "error" => msg.as_str() }
+}
+
+/// `export_session_finish` / `export_session_close`'s success dictionary.
+fn session_done_dict(d: &export_session::SessionDone) -> VarDictionary {
+    dict! {
+        "ok" => true,
+        "path" => d.path.display().to_string().as_str(),
+        "width" => d.width as i64,
+        "height" => d.height as i64,
+        "format" => export_options::format_name(d.format),
+        "color_space" => d.color_space.name(),
+        "bytes" => d.bytes as i64,
+        "bands" => d.bands as i64,
+        "ms" => d.ms,
+    }
 }
 
 /// Write one file, creating its parent directory. `FileAccess` is not used
@@ -899,7 +914,7 @@ impl WorldGen {
         let pending = o.content.overlays();
         if !overlays_allowed && !pending.is_empty() {
             return Err(format!(
-                "export_image cannot draw {} -- overlays go through the overlay session (export_session_begin, EXPORT_SCOPE.md §7 E4), whose tile renderer is not built yet",
+                "export_image cannot draw {} -- overlays go through the overlay session (export_session_begin, EXPORT_SCOPE.md §7 E4), which the shell's ExportOverlay drives",
                 pending.join(", ")
             ));
         }
@@ -939,13 +954,18 @@ impl WorldGen {
         Ok(PreparedExport { o, path, w, h, a, plan })
     }
 
-    /// The overlay session's terrain snapshot: `lod_snapshot_inputs`' own
-    /// assembly of this world, with the export's appearance in place of the
-    /// tiles'. RV-5: its rivers are the export's -- the vector network
-    /// ([`Self::export_river_geometry`]) for a generated world, the save's
-    /// flag (already `i.ink`, [`Self::save_river_flag`]) for a loaded one --
-    /// and none at all with `rivers` false. `None` before a world exists.
-    fn export_snapshot(&self, a: TerrainAppearance, rivers: bool) -> Option<export_session::ExportSnapshot> {
+    /// What the overlay session's terrain snapshot (`ExportSnapshot::build`)
+    /// is built from: `lod_snapshot_inputs`' own assembly of this world, with
+    /// the export's appearance in place of the tiles'. RV-5: its rivers are the
+    /// export's -- the vector network ([`Self::export_river_geometry`]) for a
+    /// generated world, the save's flag (already `i.ink`,
+    /// [`Self::save_river_flag`]) for a loaded one -- and none at all with
+    /// `rivers` false. Owned or `Arc`-shared, so it can cross to a thread: the
+    /// build itself is the expensive half, and `export_session_begin` runs it
+    /// on the session's feed thread (E4 batch D; until then this was one
+    /// `export_snapshot` that built it here, on the main thread). `None`
+    /// before a world exists.
+    fn export_snapshot_inputs(&self, a: TerrainAppearance, rivers: bool) -> Option<(crate::lod_worker::SnapshotInputs, Option<std::sync::Arc<river_stroke::RiverGeometry>>, Option<std::sync::Arc<river_stroke::RiverGeometry>>)> {
         let mut i = self.lod_snapshot_inputs("")?;
         // RV-3: the shaded height under THIS look, which may differ from the
         // tiles' (`lod_snapshot_inputs` shades under the session's): a style
@@ -961,7 +981,7 @@ impl WorldGen {
         // `lod_snapshot_inputs` filled `river_paint` in for.
         let ExportRiverInputs { geom, fans, paint } = export_river_inputs(self, &i.appearance, rivers);
         i.river_paint = paint;
-        export_session::ExportSnapshot::build(i, geom, fans)
+        Some((i, geom, fans))
     }
 }
 
@@ -1125,10 +1145,14 @@ impl WorldGen {
             Ok(p) => p,
             Err(e) => return fail(e),
         };
-        let Some(snap) = self.export_snapshot(p.a, p.o.content.rivers) else {
+        let Some((inputs, geom, fans)) = self.export_snapshot_inputs(p.a, p.o.content.rivers) else {
             return fail("could not snapshot the world for export");
         };
-        if let Err(e) = self.export_session.begin(std::sync::Arc::new(snap), p.plan, p.o.format, p.o.color_space, &p.path) {
+        // The build runs on the session's feed thread (E4 batch D, Ruling AZ:
+        // it was 695 ms of main-thread time here on a 2048 x 1311 world); a
+        // build that fails surfaces as band 0's error at the first poll.
+        let build: export_session::SnapshotBuild = Box::new(move || export_session::ExportSnapshot::build(inputs, geom, fans).map(std::sync::Arc::new));
+        if let Err(e) = self.export_session.begin_with(build, p.plan, p.o.format, p.o.color_space, &p.path) {
             return fail(e);
         }
         dict! {
@@ -1152,6 +1176,10 @@ impl WorldGen {
     /// Refused — and the session aborted, its partial file removed — for a
     /// band out of order, a tile outside its band, a wrong byte count or an
     /// overlap. Returns `{ok, band_complete, next_band}`.
+    ///
+    /// A band's first tile takes its terrain from the session's terrain thread;
+    /// submitted before [`Self::export_session_poll`] reported `band_ready`, it
+    /// waits on the main thread for that band's render (correct, but a freeze).
     #[func]
     fn export_session_submit_tile(&mut self, band: i64, x: i64, y: i64, w: i64, h: i64, rgba: PackedByteArray) -> VarDictionary {
         match self.export_session.submit_tile(band, x, y, w, h, rgba.as_slice()) {
@@ -1160,23 +1188,32 @@ impl WorldGen {
         }
     }
 
-    /// Close the open session's file. Refused (session aborted, file
-    /// removed) if any band is not fully covered. Returns `{ok, path, width,
-    /// height, format, color_space, bytes, bands, ms}`, as `export_image` does.
+    /// Close the open session's file, **waiting** for the writer. Refused
+    /// (session aborted, file removed) if any band is not fully covered.
+    /// Returns `{ok, path, width, height, format, color_space, bytes, bands,
+    /// ms}`, as `export_image` does. The wait is the encoder's last band --
+    /// ~270 ms at 4096 px on the dev desktop (`_exportoverlay_probe.gd` §8) --
+    /// so the shell's driver uses [`Self::export_session_close`] instead.
     #[func]
     fn export_session_finish(&mut self) -> VarDictionary {
         match self.export_session.finish() {
-            Ok(d) => dict! {
-                "ok" => true,
-                "path" => d.path.display().to_string().as_str(),
-                "width" => d.width as i64,
-                "height" => d.height as i64,
-                "format" => export_options::format_name(d.format),
-                "color_space" => d.color_space.name(),
-                "bytes" => d.bytes as i64,
-                "bands" => d.bands as i64,
-                "ms" => d.ms,
-            },
+            Ok(d) => session_done_dict(&d),
+            Err(e) => fail(e),
+        }
+    }
+
+    /// Close the session's file **without waiting** (E4 batch D, Ruling AZ):
+    /// the first call hands the file to a closer thread, and every call answers
+    /// `{ok: true, pending: true}` until the file is complete, then once with
+    /// [`Self::export_session_finish`]'s dictionary. `{ok: false, error}` --
+    /// the file removed -- when a band is missing or the write failed; with no
+    /// session open or closing, `{ok: false, error}` and no side effect. Call
+    /// it once a frame until `pending` is gone.
+    #[func]
+    fn export_session_close(&mut self) -> VarDictionary {
+        match self.export_session.close() {
+            Ok(Some(d)) => session_done_dict(&d),
+            Ok(None) => dict! { "ok" => true, "pending" => true },
             Err(e) => fail(e),
         }
     }
@@ -1195,6 +1232,27 @@ impl WorldGen {
     #[func]
     fn export_session_state(&self) -> GString {
         GString::from(self.export_session.state_name())
+    }
+
+    /// The open session's progress, without blocking (E4 batch D, Ruling AZ:
+    /// no UI freeze): `{ok, next_band, bands, band_ready}`. The terrain of
+    /// every band is rendered ahead on its own thread from `begin`
+    /// (`export_session::BandFeed`); `band_ready` says band `next_band`'s has
+    /// arrived, so its tiles can be submitted without the submit waiting on a
+    /// render. Call it once a frame and submit a band's tiles only when it is
+    /// true. `{ok: false, error}` with no session open, or -- the session then
+    /// aborted and its file removed -- when the terrain thread failed.
+    #[func]
+    fn export_session_poll(&mut self) -> VarDictionary {
+        match self.export_session.poll() {
+            Ok(p) => dict! {
+                "ok" => true,
+                "next_band" => p.next_band as i64,
+                "bands" => p.bands as i64,
+                "band_ready" => p.band_ready,
+            },
+            Err(e) => fail(e),
+        }
     }
 
     /// `bakeSingle(W)` / `bakeTiled(W)` (reference lines 11975 / 11982) —
@@ -2895,7 +2953,7 @@ mod own_look_tests {
 
     /// Protects: **a structural guard, not a behavioural test.** The two
     /// methods that take an export's own look as a parameter
-    /// (`export_render_with`, `export_snapshot`) and the `WorldGen`
+    /// (`export_render_with`, `export_snapshot_inputs`) and the `WorldGen`
     /// delegation impl of `ExportRiverSource` (which must forward the look it
     /// is handed) must never re-read the
     /// session's look inside their bodies: the fake-world tests above cannot
@@ -2909,7 +2967,7 @@ mod own_look_tests {
         let needle = ["self", ".appearance", "()"].concat();
         for (name, body) in [
             ("export_render_with", region("fn export_render_with<T>(", "fn export_appearance(")),
-            ("export_snapshot", region("fn export_snapshot(&self", "#[godot_api(secondary)]")),
+            ("export_snapshot_inputs", region("fn export_snapshot_inputs(&self", "#[godot_api(secondary)]")),
             ("the WorldGen ExportRiverSource impl", region("impl ExportRiverSource for WorldGen {", "pub(crate) struct ExportRiverInputs")),
         ] {
             assert!(body.len() > 150, "{name}: the region is suspiciously short ({} bytes)", body.len());
