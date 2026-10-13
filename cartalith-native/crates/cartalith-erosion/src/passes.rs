@@ -875,6 +875,34 @@ fn slope_at(fld: &[f32], w: usize, h: usize, world: bool, x: usize, y: usize) ->
     js_hypot((r - l) * 0.5, (d - u) * 0.5)
 }
 
+/// The lowest of a cell's eight neighbours' heights (x wrapped when
+/// `world`; rows never wrap; off-grid neighbours skipped): the cell's
+/// steepest-descent ("downstream") neighbour's height, which the estuary
+/// cut may not go below (Ruling CH addendum 2). `+inf` only for a 1 x 1
+/// grid, which has no neighbour, so the cap is 0 and it gets no estuary cut.
+fn lowest_neighbour(fld: &[f32], w: usize, h: usize, world: bool, x: usize, y: usize) -> f64 {
+    let mut lo = f64::INFINITY;
+    for dy in -1i64..=1 {
+        for dx in -1i64..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let ny = y as i64 + dy;
+            if ny < 0 || ny >= h as i64 {
+                continue;
+            }
+            let mut nx = x as i64 + dx;
+            if world {
+                nx = nx.rem_euclid(w as i64);
+            } else if nx < 0 || nx >= w as i64 {
+                continue;
+            }
+            lo = lo.min(fld[ny as usize * w + nx as usize] as f64);
+        }
+    }
+    lo
+}
+
 /// `coastalProcess()` + `coastalProcessCPU()` (reference HTML lines
 /// 4388-4424) — sea-cliff retreat, estuary widening and tidal-marsh
 /// deposition, as one pass over a finished surface.
@@ -1023,6 +1051,24 @@ fn coastal_core(
                     let ff = (js_log(fl / river_thresh) / 5.0).min(1.0);
                     let cut = 0.003 * ff * (1.0 - (hh - sea) / p.estuary_depth) * wave_str;
                     let cut = rf.map_or(cut, |f| cut * f);
+                    // Capped at the drop to the cell's downstream neighbour
+                    // (Ruling CH addendum 2, 2026-10-13; a DEVIATION from
+                    // the reference, which cuts by `cut` whatever the
+                    // neighbours). The cut reaches `estuary_depth` above
+                    // sea (about 552 m at the default, far up every large
+                    // river) and scales with `ln(flow)`, so neighbouring
+                    // channel cells were lowered by different amounts and
+                    // some ended below every neighbour: closed hollows the
+                    // lake classifier counts as lakes (seed 24601,
+                    // processes on: 169 one- to three-cell lakes with the
+                    // cut against 53 without it, control 49;
+                    // `GEOLOGY_FIRST_SCOPE.md` §7 "GF-4: accretion-only
+                    // marsh and the second lake cause"). The downstream
+                    // neighbour is the lowest of the eight, read on the
+                    // pass-start surface (`fld` is written only after the
+                    // pass), x wrapped on a world map; a cell already lower
+                    // than all eight is not cut at all.
+                    let cut = cut.min((hh - lowest_neighbour(fld, w, h, world, x, y)).max(0.0));
                     delta[i] = (delta[i] as f64 - cut) as f32;
                 }
             }
@@ -1683,6 +1729,32 @@ mod gf4_rock_tests {
             assert!(f.iter().zip(&before).all(|(a, b)| a >= b), "a marsh cell was lowered");
             let raised = f.iter().zip(&before).filter(|(a, b)| a > b).count();
             assert!(raised >= 20, "the marsh must accrete somewhere: {raised} cells");
+        }
+    }
+
+    /// Protects: the estuary cut's cap (Ruling CH addendum 2). A river cell
+    /// 0.0001 above its flat land neighbours, with a cut the reference would
+    /// make 0.015 deep (`0.003·1·(1 − 0.1/0.2)·10`, arithmetic), may only
+    /// come down to them, never below, in both kernels; and a cell lower
+    /// than all eight is not cut at all.
+    #[test]
+    fn the_estuary_cut_never_digs_below_the_lowest_neighbour() {
+        let (w, h) = (5usize, 5usize);
+        let p = CoastalParams { wave_str: 10.0, estuary_depth: 0.2, marsh_band: 0.0, passes: 1 };
+        let col = uniform(Rock::Shale, w * h);
+        for (centre, expect) in [(0.2001f32, 0.2f32), (0.199f32, 0.199f32)] {
+            let mut before = vec![0.2f32; w * h];
+            before[12] = centre;
+            let mut flow = vec![0.0f32; w * h];
+            flow[12] = 1.0e6;
+            for rock in [None, Some(PassRock { column: &col, contrast: 0.0, r_expose: 0.001 })] {
+                let mut f = before.clone();
+                match &rock {
+                    Some(r) => coastal_process_rock(&mut f, &flow, w, h, 0.1, false, 1.0, &p, r),
+                    None => coastal_process(&mut f, &flow, w, h, 0.1, false, 1.0, &p),
+                }
+                assert!((f[12] - expect).abs() < 1e-6, "centre {centre}: got {}, expected {expect}", f[12]);
+            }
         }
     }
 

@@ -4297,6 +4297,47 @@ a control of 49:
     **leave B7 failing and the flip off**; with 2 of 4 seeds the rock
     signal is real but weak at the default `wave_str`.
 
+### GF-4: the estuary cut capped (2026-10-13, Ruling CH addendum 2)
+
+*Design and evidence, not status.* Q14 took its default and Q15 was
+accepted (B7 may fail on 24601 and 71077345; the coastal flip stays off).
+**Built** in both kernels: the estuary cut is capped at the cell's drop to
+its lowest of eight neighbours on the pass-start surface (x wrapped on a
+world map), so it can lower a cell to its downstream neighbour but never
+below. A cell lower than all eight is not cut.
+
+**Measured first** (`gf4_bars` with the cap removed and with it; 2048 ×
+1311, 800 km, coastal on; 1-3-cell lakes, control → as built → capped):
+
+| Seed | app world | processes-on world |
+|---|---|---|
+| 483920 | 34 → 32 → 33 | 43 → 41 → 40 |
+| 24601 | 68 → 112 → **65** | 49 → 169 → **59** |
+| 71077345 | 30 → 24 → 22 | 27 → 26 → 21 |
+| 12345 | 89 → 75 → 74 | 87 → 76 → 74 |
+| 314159 | 62 → 71 → 62 | 37 → 39 → 38 |
+
+- **B8 now passes on all five seeds**, on both worlds. Ocean on paths
+  stays 0 and lake share stays within +2 pp (the largest is 24601's app
+  world, 1.61 → 2.18 %).
+- **B7 (revised), capped:** 483920 1.027 → 3.234 (PASS), 71077345
+  1.486 → 5.614 (PASS; it failed before the cap), 12345 1.104 → 3.231
+  (PASS), 24601 0.104 → 0.230 (FAIL, as Q15 accepts). 314159 is not
+  measurable. **3 of 4.** The controls fell because the cap removes rock-blind
+  loss along rivers, which sharpens the weak/strong contrast.
+- **B9** was not re-run: the cap adds an eight-cell minimum on estuary
+  cells only, and the coastal pass is off in the app.
+- **Goldens:** `golden_parity_passes.rs` `coastal_process_case_0` (2 of 80
+  cells) and `case_2` (36 of 108; 12 higher and 24 lower, since over 4
+  passes a smaller cut changes what the later passes see) were
+  re-recorded. Cases 1 and 3 are unmoved. Parity, app and processes-on
+  worlds hash identical to `e7948205`.
+- **Tests:** `the_estuary_cut_never_digs_below_the_lowest_neighbour`
+  (both kernels, literal heights); 2 mutants (cap dropped, floor dropped),
+  both killed.
+- **Frames were not taken.** The owner asked to finish quickly near the
+  usage limit, and no shipped world draws the pass. That remains open.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry
