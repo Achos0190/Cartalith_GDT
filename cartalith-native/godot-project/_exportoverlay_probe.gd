@@ -539,10 +539,10 @@ func _ready() -> void:
 	_ok(worst < 1e-3, "a cell centre lands on bake_rect's sample pixel, first and last cell included (worst %s px)" % str(worst))
 	_ok(EXPORT_OVERLAY.layout(1, 1, gw, gh).is_empty() and EXPORT_OVERLAY.layout(W, H, 1, gh).is_empty(),
 		"a degenerate image or grid has no layout")
-	_ok(EXPORT_OVERLAY.overlay_content({"settlements": true})["settlement_tier"] == "all"
-		and EXPORT_OVERLAY.overlay_content({"settlement_tier": "town"})["settlement_tier"] == "town"
+	_ok(EXPORT_OVERLAY.overlay_content({"settlements": true})["settlement_tier"] == "town"
+		and EXPORT_OVERLAY.overlay_content({"settlement_tier": "city"})["settlement_tier"] == "city"
 		and EXPORT_OVERLAY.overlay_content({})["settlement_tier"] == "",
-		"content: settlements with no tier is every tier; no settlements key is none")
+		"content: settlements with no tier is towns (Ruling AZ; was all before 2026-10-13); no settlements key is none")
 
 	print("\n== 3. registration at %dx%d ==" % [W, H])
 	var setts: Array = ov.get("_settlements")

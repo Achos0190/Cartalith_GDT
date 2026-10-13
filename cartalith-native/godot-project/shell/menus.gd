@@ -159,6 +159,15 @@ const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
 ## the same whole-file check every neighbouring block records (an id must be
 ## free everywhere, not just in its own popup: `78` was once issued twice).
 const ID_FACTIONS := 719
+## `Data ▸ Export ▸ Export map image…` (`EXPORT_SCOPE.md` §7 E5): opens
+## `shell/export_dialog.gd`. 720 is the next id after 719; grepped this whole
+## file for `720` before taking it (2026-10-13), as the block above records.
+const ID_EXPORT_MAP_IMAGE := 720
+## Disabled-row reasons for `Export map image…`, refreshed on `about_to_popup`.
+const EXPORT_MAP_IMAGE_TIP := "One flat PNG of the whole map, 2K to 32K, with the overlays you pick (settlements down to towns by default), written off the main thread with progress and cancel."
+const EXPORT_MAP_IMAGE_NO_WORLD := "No world yet. Generate or open one, then export it."
+const EXPORT_MAP_IMAGE_BUSY := "A generation is running. The export snapshots a finished world; wait for it to finish."
+const EXPORT_MAP_IMAGE_NO_API := "This version of the app can't do that yet -- an update is needed to add it (the engine has no export_session_begin)."
 
 const ID_WIN_LEFT := 60  ## Window region toggle: Left dock.
 const ID_WIN_RIGHT := 61  ## Window region toggle: Right dock.
@@ -617,6 +626,20 @@ func _signpost(p: PopupMenu, text: String) -> int:
 ## `app.gd` reaches the same way (`bridge.world_gen.has_method(...)`).
 func _engine_has(method: String) -> bool:
 	return _bridge != null and _bridge.world_gen != null and _bridge.world_gen.has_method(method)
+
+## Why `Data ▸ Export map image…` cannot open right now, or `""` when it can:
+## the binary lacks the E4 session, a generation holds the engine, or no world
+## exists. Busy before no-world: the first generation of a session has both,
+## and "wait for it" is the answer that is about to come true. Never opens anything; the dialog re-checks the busy case itself
+## (a generation can start while it is open).
+func export_map_image_refusal() -> String:
+	if not _engine_has("export_session_begin"):
+		return EXPORT_MAP_IMAGE_NO_API
+	if bool(_bridge.generating):
+		return EXPORT_MAP_IMAGE_BUSY
+	if not bool(_bridge.has_world):
+		return EXPORT_MAP_IMAGE_NO_WORLD
+	return ""
 
 ## Add an ENABLED command row, optionally bound to an accelerator through
 ## `_bind_accelerator`. This is the helper for a row that really does something;
@@ -2917,6 +2940,21 @@ func _data(p: PopupMenu) -> void:
 				ID_DATA_ROUTE_FIRST + _data_route_ids.size())
 			p.set_item_tooltip(p.item_count - 1, String(route.get("sub", "")))
 			_data_route_ids.append(String(route["id"]))
+		## E5: the 16K/32K single-image export's own row, last in the EXPORT
+		## band beside `Maps` (whose route writes the shipped 2K-8K/tiled
+		## raster). Its own id, not a route: it opens a dialog, not the data
+		## manager. Enabled state and reason refreshed on every popup below;
+		## the build-time tooltip is set so `CommandIndex`, which reads the
+		## built state, indexes it with a description (`ID_NEW_WORLD_FROM_
+		## SELECTION`'s comment gives that reason).
+		if group == "Export":
+			_live(p, "Export map image…", ID_EXPORT_MAP_IMAGE)
+			var export_idx := p.item_count - 1
+			p.set_item_tooltip(export_idx, EXPORT_MAP_IMAGE_TIP)
+			p.about_to_popup.connect(func():
+				var why := export_map_image_refusal()
+				p.set_item_disabled(export_idx, why != "")
+				p.set_item_tooltip(export_idx, why if why != "" else EXPORT_MAP_IMAGE_TIP))
 
 	_build_vault_rows(p)
 	p.id_pressed.connect(func(id: int) -> void:
@@ -2935,6 +2973,7 @@ func _data(p: PopupMenu) -> void:
 			ID_WORLD_DATA: _host.open_world_data()
 			ID_FACTIONS: _host.open_faction_roster()
 			ID_TRAVEL_LIBRARY: _host.open_travel_library()
+			ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
 			ID_VAULT: _host.open_vault_overview()
 			ID_VAULT_BROWSE: _host.open_vault_browse()
 	)

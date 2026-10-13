@@ -4762,6 +4762,25 @@ func open_asset_library(family_key: String = "", open_slicer: bool = false) -> v
 func open_travel_library(kind: String = "") -> void:
 	travel_library_window.open(kind)
 
+## `shell/export_dialog.gd`, preloaded rather than a `class_name` so adding it
+## needs no `--headless --import` pass (which strips `project.godot`'s `;`
+## comments, CLAUDE.md).
+const EXPORT_DIALOG := preload("res://shell/export_dialog.gd")
+## The one export dialog, built on first open and kept: a running export lives
+## in it, so a second instance would be a second session the engine refuses.
+var export_dialog: AcceptDialog = null
+
+## Data ▸ Export map image… (`EXPORT_SCOPE.md` §7 E5): opens the single-image
+## export dialog, re-pricing its sizes against the world as it is now. Returns
+## the dialog (the probes drive it). Never starts an export by itself.
+func open_export_dialog() -> AcceptDialog:
+	if export_dialog == null or not is_instance_valid(export_dialog):
+		export_dialog = EXPORT_DIALOG.new()
+		export_dialog.setup(self)
+		add_child(export_dialog)
+	export_dialog.present()
+	return export_dialog
+
 # -- Storage locations (`DCC_SHELL_SPEC.md` §2.1, §2.5's "Same modal as File") --
 
 ## File ▸ Storage locations and Preferences ▸ Application ▸ Storage

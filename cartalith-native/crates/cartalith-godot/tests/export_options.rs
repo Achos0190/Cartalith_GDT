@@ -232,6 +232,24 @@ fn a_settlement_tier_includes_everything_above_it() {
     assert_eq!(SettlementTier::from_name("all").map(SettlementTier::name), Some("all"));
 }
 
+/// Protects: Ruling AZ's default -- `settlements: true` with no tier draws
+/// **towns** (the literal name `"town"`, not read back from `DEFAULT`), a tier
+/// alone switches settlements on at that tier, absent keys draw none, and a
+/// tier with settlements off is refused rather than resolved.
+///
+/// Re-baselined deliberately 2026-10-13: the parser's answer for
+/// `(Some(true), None)` moved from `"all"` to `"town"` (Ruling AZ).
+#[test]
+fn settlements_true_without_a_tier_draws_towns() {
+    use export_options::settlements_from;
+    assert_eq!(settlements_from(Some(true), None).unwrap().map(SettlementTier::name), Some("town"));
+    assert_eq!(settlements_from(Some(true), Some(SettlementTier::All)).unwrap(), Some(SettlementTier::All));
+    assert_eq!(settlements_from(None, Some(SettlementTier::City)).unwrap(), Some(SettlementTier::City));
+    assert_eq!(settlements_from(None, None).unwrap(), None);
+    assert_eq!(settlements_from(Some(false), None).unwrap(), None);
+    assert!(settlements_from(Some(false), Some(SettlementTier::Town)).is_err());
+}
+
 /// Protects: the default content is terrain plus rivers with no overlays, and every requested overlay (settlements, routes, ways, labels, territory, icons) is reported by name, with `rivers` rejected as a non-overlay.
 ///
 /// The default content is what `export_raster_png` draws — terrain and

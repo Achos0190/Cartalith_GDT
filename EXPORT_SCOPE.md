@@ -612,11 +612,43 @@ gl_compatibility, windowed) unless a count is given.
   name. A smaller world, or a lower threshold, would show plans; the probe
   checks the plan path by narrowing the copy's map width.
 
-**Still not built:** the E5 dialog and its menu entry; the Rust parser's
+**Still not built** *(as of batch D; see "E5 first slice" below for what has
+since landed)*: the E5 dialog and its menu entry; the Rust parser's
 `settlements: true` default (`"all"`) against Ruling AZ's towns; the landmark
 glyph raster cap (unmeasured at export scale); the borders are nearest-cell
 blocks at export scale, as on screen at zoom; Android tile and frame
 measurements.
+
+### E5 first slice as built, 2026-10-13
+
+Where it stands is `STATUS.md`'s; this records the design the slice chose.
+
+- **The parser default, fixed at its cause.** `export_options.rs::
+  settlements_from` (new, pure, the dictionary reader's one call) maps
+  `settlements: true` with no tier to `SettlementTier::DEFAULT` = `Town`
+  (Ruling AZ), not `All`; `export_overlay.gd::overlay_content` mirrors it.
+  Re-baselined deliberately: `(settlements: true, no tier)` moved `"all"` ->
+  `"town"`; `tests/export_options.rs::settlements_true_without_a_tier_draws_towns`
+  asserts the literal name, and mutating `DEFAULT` back to `All` turns it red.
+- **The dialog.** `shell/export_dialog.gd`, one script with inline phone and
+  desktop branches, opened by `Data ▸ Export ▸ Export map image…`
+  (`menus.gd::ID_EXPORT_MAP_IMAGE`, `DccApp.open_export_dialog`). Sizes are
+  the engine's ladder (`export_raster_widths`), each priced by
+  `export_image_estimate`: dimensions and the fitted PNG size; a size whose
+  largest band (`band_peak_bytes`, 23 B/px) exceeds reported free memory is
+  disabled with both figures, and nothing is refused where the platform
+  reports none. The 16K and 32K wall times and file sizes above are shown as
+  "measured once on a desktop", never as a prediction. Content: settlements
+  on at towns, rivers, ways, labels, icons and borders on, journey routes off
+  (labelled judgement: AZ's v1 list on). Colour space sRGB by default, Display
+  P3 as the explicit option (Ruling CB item 1). The destination is the shell's
+  save picker under the `exports` root. Export runs `ExportOverlay.run` with a
+  progress bar and Cancel; closing the window cancels; everything is disabled,
+  with the reason, while a generation runs.
+- **Not in this slice:** JPEG (Ruling AZ; the streaming writer has PNG and
+  BigTIFF only), a style or look override control (E3 carries `style`), a
+  file-exists confirmation, and the menu row's phone/command-index check
+  beyond the Data popup it lives in.
 
 ---
 

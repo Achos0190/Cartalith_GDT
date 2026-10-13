@@ -75,6 +75,16 @@ pub enum SettlementTier {
 }
 
 impl SettlementTier {
+    /// The tier `settlements: true` draws when no `settlement_tier` is given:
+    /// **towns** (owner, Ruling AZ, 2026-09-28, `LARGE_ITEM_RULINGS.md`: "the
+    /// user picks a minimum settlement tier (default towns)"). Until
+    /// 2026-10-13 the parser defaulted to `All` (§5's "or simply all of
+    /// them"), which disagreed with the ruling; this constant is the fix at
+    /// its cause, and `shell/export_overlay.gd::overlay_content` mirrors it.
+    /// Must never become `All` again without a new ruling: `All` also draws
+    /// the additive villages, the densest layer the overlay has.
+    pub const DEFAULT: SettlementTier = SettlementTier::Town;
+
     /// `map_overlay.gd`'s `SETTLEMENT_LOD` keys, in its order, plus `"all"`.
     pub const ALL: [(&'static str, SettlementTier); 7] = [
         ("metropolis", SettlementTier::Metropolis),
@@ -103,6 +113,27 @@ impl SettlementTier {
             return self == SettlementTier::All;
         }
         Self::from_name(kind).is_some_and(|k| k != SettlementTier::All && k <= self)
+    }
+}
+
+/// The content set's settlement tier from the options dictionary's
+/// `settlements` flag and `settlement_tier` name (already parsed): `Ok(None)`
+/// draws no settlements, `Ok(Some(t))` draws down to `t`.
+///
+/// - `settlements: true` with no tier is [`SettlementTier::DEFAULT`] (towns,
+///   Ruling AZ) -- not `All`, which this parser returned before 2026-10-13.
+/// - A tier alone turns settlements on at that tier.
+/// - A tier with `settlements: false` is a contradiction, refused rather than
+///   resolved either way, so the dialog cannot silently lose a choice.
+///
+/// Pure so `tests/export_options.rs` can reach it; `export_raster.rs`'s
+/// dictionary reader is its one caller.
+pub fn settlements_from(flag: Option<bool>, tier: Option<SettlementTier>) -> Result<Option<SettlementTier>, String> {
+    match (flag, tier) {
+        (Some(false), Some(_)) => Err("settlement_tier given with settlements off".into()),
+        (Some(true), t) => Ok(Some(t.unwrap_or(SettlementTier::DEFAULT))),
+        (None, t) => Ok(t),
+        (Some(false), None) => Ok(None),
     }
 }
 

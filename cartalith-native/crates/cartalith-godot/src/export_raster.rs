@@ -872,14 +872,8 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
             None => None,
             Some(t) => Some(SettlementTier::from_name(&t).ok_or_else(|| format!("unknown settlement_tier {t:?}"))?),
         };
-        match (opt_of::<bool>(&c, "settlements", "a bool")?, tier) {
-            // A tier with settlements off is a contradiction, not a default.
-            (Some(false), Some(_)) => return Err("settlement_tier given with settlements off".into()),
-            // §5: "down to this tier, or simply all of them" -- all, unless stated.
-            (Some(true), t) => content.settlements = Some(t.unwrap_or(SettlementTier::All)),
-            (None, t) => content.settlements = t,
-            (Some(false), None) => {}
-        }
+        // Towns unless stated (Ruling AZ); a tier with settlements off is refused.
+        content.settlements = export_options::settlements_from(opt_of::<bool>(&c, "settlements", "a bool")?, tier)?;
         for key in ExportContent::OVERLAY_KEYS {
             if let Some(on) = opt_of::<bool>(&c, key, "a bool")? {
                 content.set_overlay(key, on);

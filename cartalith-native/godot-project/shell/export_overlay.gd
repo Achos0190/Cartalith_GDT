@@ -132,13 +132,15 @@ static func symbol_gain(lay: Dictionary, live_rect_w: float) -> float:
 	return (lay["size"] as Vector2).x / live_rect_w
 
 ## `export_options.rs`'s `content` dictionary as `map_overlay.gd::prepare_export`
-## reads it. The one translation: `settlements: true` with no tier means every
-## settlement, `"all"` (the Rust parser's own default, `export_raster.rs`).
+## reads it. The one translation: `settlements: true` with no tier means towns,
+## `"town"` -- the Rust parser's own default (`export_options.rs::
+## SettlementTier::DEFAULT`, Ruling AZ); it was `"all"` before 2026-10-13, and
+## the two must move together.
 static func overlay_content(content: Dictionary) -> Dictionary:
 	var out := content.duplicate()
 	var tier := String(content.get("settlement_tier", ""))
 	if tier == "" and bool(content.get("settlements", false)):
-		tier = "all"
+		tier = "town"
 	if content.has("settlements") and not bool(content["settlements"]):
 		tier = ""
 	out["settlement_tier"] = tier
