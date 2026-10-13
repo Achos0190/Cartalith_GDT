@@ -3913,6 +3913,8 @@ defends. The full correction is in §2.1.
 
 ---
 
+**Probe adoption, 2026-10-13:** nine long-untracked probes (`_genrules`, `_gridgesture`, `_lodsavepyramid`, `_mapdetent`, `_markettown`, `_previewpng`, `_settlementtypes`, `_vaultshow`, `_vfy_navbar`) were run, annotated and committed; all passed and all protect live features, so there is no candidate for removal. Open: `_mapdetent_shot.gd/.tscn` (a screenshot sibling) is still untracked and was not run; rerun `_gridgesture_probe` after the next DLL rebuild to confirm its `geo_clock_readout` SCRIPT ERROR was a stale DLL.
+
 ## 7. What this document does not cover
 
 - **Test status.** No surveyor ran `cargo test`. Every "done" and every
