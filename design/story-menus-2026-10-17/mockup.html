@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story Menus Mockup</title>
+<!--
+  Mockup for STORY_MENUS_PROPOSAL.md (repository root), 2026-10-17.
+  Self-contained: no external scripts, fonts or images (the same rule as
+  design/new-world-preview-2026-10-11/mockup.html). The fonts named are the app's own
+  (Fira Sans / Helvetica Neue for UI, IBM Plex Mono for codes, shortcuts and section
+  labels); without them installed the browser falls back to system stacks.
+  Colour tokens are DccTheme.DARK and DccTheme.LIGHT (godot-project/shell/dcc_theme.gd),
+  copied by value. Frame sizes are dcc_theme.gd's H_* / W_* / ROLE figures.
+  Every row carries an audit mark: B = built (the symbol named in its tooltip exists today),
+  P = partly (some backing exists; the gap is named), N = new (no backing; drawn disabled
+  with its reason, the shell's _todo() convention). A "derived" tag marks an element with
+  no precedent in the design canvases, derived from the DCC vocabulary.
+  The map, names and counts are PLACEHOLDERS, not a real world.
+  URL hash: #theme=light|dark  &only=<artboard id>  (used for the headless captures).
+-->
+<style>
+:root{
+  --bg:#0d0e0f; --panel:#121314; --panel-alt:#111210; --raised:#17191a; --sunken:#191c1e;
+  --line:rgba(255,255,255,.10); --line-soft:rgba(255,255,255,.07); --border:rgba(255,255,255,.16);
+  --bright:#e8ebec; --text:#c8cbcd; --sec:#a9adb0; --dim:#8d9296; --faint:#6f7478; --ghost:#5f6468;
+  --acc:#e0a34a; --acc-h:#f0bd72; --acc-dim:#a4650f; --acc-ink:#141005;
+  --acc-wash:rgba(224,163,74,.09); --acc-wash2:rgba(224,163,74,.16);
+  --stale:#b9a878; --good:#6fae7d; --block:#c96a5a; --water:#6a9bc4; --warn:#e0a840;
+  --reason:#ebc080; --map-land:#3b3f36; --map-land2:#4a4e3f; --map-sea:#1d2f40;
+  --sans:"Fira Sans","Helvetica Neue",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+:root[data-theme="light"]{
+  --bg:#f4f2ee; --panel:#fbfaf7; --panel-alt:#eeece7; --raised:#fbfaf7; --sunken:#eceae4;
+  --line:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.08); --border:rgba(0,0,0,.20);
+  --bright:#111210; --text:#23241f; --sec:#3d3f39; --dim:#6b6f6a; --faint:#8d9088; --ghost:#9a9d95;
+  --acc:#a4650f; --acc-h:#8a5309; --acc-dim:#7a6a4a; --acc-ink:#f7f4ee;
+  --acc-wash:rgba(164,101,15,.09); --acc-wash2:rgba(164,101,15,.16);
+  --stale:#7a6a4a; --good:#2c7a44; --block:#a03d2e; --water:#2e6a9e; --warn:#9a6a12;
+  --reason:#8a5309; --map-land:#d9d4c3; --map-land2:#cbc5b0; --map-sea:#b9cbd8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:12px/1.45 var(--sans);overflow-x:hidden}
+body{padding:16px}
+h1{font:500 13px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--acc);margin:0 0 4px}
+.lede{color:var(--sec);max-width:980px;margin:0 0 10px}
+.warn{display:inline-block;border:1px solid var(--stale);color:var(--stale);font:500 10px var(--mono);letter-spacing:.12em;padding:3px 8px;text-transform:uppercase;margin:0 8px 6px 0}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 14px}
+.seg{display:inline-flex;border:1px solid var(--border)}
+.seg button{background:transparent;color:var(--sec);border:0;border-right:1px solid var(--border);font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:7px 12px;cursor:pointer;min-height:32px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--acc-wash2);color:var(--acc)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font:10px var(--mono);color:var(--dim)}
+.ab{margin:0 0 28px;max-width:100%;overflow-x:auto}
+.ab>.cap{font:500 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 6px}
+.ab>.cap b{color:var(--acc);font-weight:500}
+.board{position:relative;background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.hide{display:none!important}
+
+/* audit marks */
+.mk{display:inline-block;min-width:16px;text-align:center;font:600 8.5px/14px var(--mono);letter-spacing:.06em;border:1px solid;padding:0 3px;margin-left:8px;flex:0 0 auto}
+.mk.B{color:var(--good);border-color:var(--good)}
+.mk.P{color:var(--warn);border-color:var(--warn)}
+.mk.N{color:var(--block);border-color:var(--block)}
+.drv{font:500 8.5px var(--mono);letter-spacing:.1em;color:var(--acc);border:1px dashed var(--acc);padding:0 4px;margin-left:6px;text-transform:uppercase;flex:0 0 auto}
+
+/* menu bar (desktop 36) */
+.mbar{height:36px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 6px 0 0}
+.mbar .wm{font:500 11px var(--mono);letter-spacing:.26em;color:var(--bright);padding:0 16px 0 14px;border-right:1px solid var(--line);height:100%;display:flex;align-items:center}
+.mbar .t{font:12px var(--sans);color:var(--sec);padding:0 11px;height:100%;display:flex;align-items:center;position:relative}
+.mbar .t.open{background:var(--sunken);color:var(--bright)}
+.mbar .t.new::after{content:"";position:absolute;left:8px;right:8px;bottom:5px;border-bottom:1px dashed var(--acc)}
+.mbar .t.ren::after{content:"";position:absolute;left:8px;right:8px;bottom:5px;border-bottom:1px solid var(--acc)}
+/* popup */
+.pop{position:absolute;background:var(--raised);border:1px solid var(--border);box-shadow:0 10px 26px rgba(0,0,0,.45);padding:4px 0;min-width:250px}
+.row{display:flex;align-items:center;height:24px;padding:0 10px 0 14px;font:11px var(--sans);color:var(--text);white-space:nowrap;cursor:default;position:relative}
+.row:hover{background:var(--acc-wash);color:var(--bright)}
+.row .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row .sc{font:10px var(--mono);color:var(--faint);letter-spacing:.06em;margin-left:18px}
+.row .sc.new{color:var(--acc)}
+.row.dis{color:var(--ghost)}
+.row.dis:hover{background:transparent;color:var(--ghost)}
+.row.chk .l::before{content:"✓";display:inline-block;width:14px;color:var(--acc)}
+.row.unchk .l::before{content:"";display:inline-block;width:14px}
+.row.subm::after{content:"▸";color:var(--dim);margin-left:10px;font-size:10px}
+.row.danger .l{color:var(--block)}
+.row.moved .l{color:var(--dim);font-style:italic}
+.row.hl{background:var(--acc-wash);color:var(--bright)}
+.sep{height:1px;background:var(--line-soft);margin:4px 0}
+.sepl{display:flex;align-items:center;gap:8px;font:500 9px var(--mono);letter-spacing:.2em;color:var(--faint);padding:7px 14px 3px;text-transform:uppercase}
+.sepl::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+.tip{position:absolute;z-index:5;max-width:330px;white-space:normal;background:var(--panel);border:1px solid var(--border);color:var(--text);font:10.5px/1.45 var(--sans);padding:6px 8px;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.tip .why{color:var(--reason)}
+.tip .sym{display:block;margin-top:4px;font:9.5px var(--mono);color:var(--dim)}
+#hovertip{position:fixed;pointer-events:none}
+
+/* annotations */
+.anno{position:absolute;font:10px/1.45 var(--mono);color:var(--dim);max-width:250px}
+.anno b{color:var(--acc);font-weight:500}
+.colhead{position:absolute;font:500 9px var(--mono);letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
+
+/* rail */
+.rail{position:absolute;top:36px;bottom:26px;width:40px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:4px}
+.rail .dm{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--dim);position:relative}
+.rail .dm.on{color:var(--acc)}
+.rail .dm.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--acc)}
+.rail svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
+.nodes{position:absolute;top:36px;bottom:26px;width:200px;background:var(--panel);border-right:1px solid var(--line);padding:8px 0}
+.nodes .hd{font:500 9px var(--mono);letter-spacing:.22em;color:var(--faint);padding:10px 14px 4px;display:flex;align-items:center}
+.nodes .hd.new{color:var(--acc)}
+.nodes .nd{height:28px;display:flex;align-items:center;padding:0 10px 0 22px;font:11.5px var(--sans);color:var(--text);position:relative}
+.nodes .nd.on{background:var(--acc-wash2);color:var(--acc)}
+.nodes .nd.on::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:2px;background:var(--acc)}
+.nodes .nd.prop{color:var(--sec)}
+.nodes .nd .l{flex:1}
+.nodes .nd .tg{font:9px var(--mono);color:var(--faint);margin-left:6px}
+.dock{position:absolute;top:36px;bottom:26px;background:var(--panel);border-right:1px solid var(--line)}
+.status{position:absolute;left:0;right:0;bottom:0;height:26px;background:var(--panel);border-top:1px solid var(--line);font:10px var(--mono);color:var(--faint);display:flex;align-items:center;padding:0 12px;gap:18px}
+.toolopts{position:absolute;top:36px;height:40px;right:0;background:var(--panel);border-bottom:1px solid var(--line)}
+.map{position:absolute;overflow:hidden;background:var(--map-sea)}
+.map svg{position:absolute;inset:0;width:100%;height:100%}
+
+/* context card */
+.card{position:absolute;width:300px;background:var(--raised);border:1px solid var(--border);box-shadow:0 12px 30px rgba(0,0,0,.5);padding:0 0 6px}
+.card .hd{padding:9px 12px 8px;border-bottom:1px solid var(--line)}
+.card .hd b{display:block;font:500 12px var(--sans);color:var(--bright)}
+.card .hd i{font:normal 10px var(--mono);color:var(--dim)}
+.card .band{font:500 9px var(--mono);letter-spacing:.2em;color:var(--sec);padding:8px 12px 3px;text-transform:uppercase}
+.card .row{height:26px;padding:0 10px 0 12px}
+.card .row .hint{font:10px var(--mono);color:var(--faint);margin-left:10px}
+.card .reason{font:10px/1.4 var(--sans);color:var(--reason);padding:0 12px 4px 26px;white-space:normal}
+.card .rule{height:1px;background:var(--line-soft);margin:4px 0}
+
+/* windows */
+.win{position:absolute;background:var(--panel);border:1px solid var(--border);box-shadow:0 14px 34px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.win .tb{height:34px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--bright);font-size:13px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.win .tb .x{position:absolute;right:10px;top:7px;color:var(--sec);font-size:15px}
+.sec{font:500 9px var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin:14px 0 8px}
+.note{color:var(--faint);font-size:10.5px;line-height:1.5;margin:0 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--border);color:var(--sec);font:500 9.5px var(--mono);letter-spacing:.12em;padding:4px 9px;text-transform:uppercase;background:transparent}
+.chip.on{border-color:var(--acc);color:var(--acc);background:var(--acc-wash2)}
+.btn{background:transparent;border:1px solid var(--border);color:var(--text);font:11px var(--sans);padding:4px 10px;border-radius:8px;min-height:24px}
+.btn.primary{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.lrow{display:flex;align-items:center;gap:10px;height:30px;border-bottom:1px solid var(--line-soft);padding:0 6px;font-size:11.5px}
+.lrow:hover{background:var(--acc-wash)}
+.lrow .n{flex:1;color:var(--bright)}
+.lrow .k{font:10px var(--mono);color:var(--dim);width:72px}
+.lrow .f{font:10px var(--mono);color:var(--faint);width:84px}
+.readout{font:11px var(--mono);color:var(--sec)}
+.readout b{color:var(--acc);font-weight:500}
+.empty{border:1px dashed var(--border);padding:18px 16px;text-align:center;color:var(--dim)}
+.empty b{display:block;color:var(--bright);font:500 12px var(--sans);margin-bottom:6px}
+
+/* workflow */
+.flow{display:grid;grid-template-columns:repeat(8,1fr);gap:0;border:1px solid var(--line);background:var(--panel)}
+.step{border-right:1px solid var(--line);padding:12px 10px 12px;min-height:260px}
+.step:last-child{border-right:0}
+.step .no{font:500 9px var(--mono);letter-spacing:.2em;color:var(--faint)}
+.step .nm{font:500 13px var(--sans);color:var(--bright);margin:4px 0 2px}
+.step .q{font-size:10.5px;color:var(--dim);margin:0 0 10px;min-height:44px}
+.step .en{display:flex;align-items:flex-start;gap:4px;font:10px/1.35 var(--mono);color:var(--sec);margin:0 0 6px}
+.step .en .mk{margin:0 4px 0 0}
+.step .gap{font-size:10px;color:var(--reason);border-top:1px solid var(--line-soft);padding-top:6px;margin-top:8px}
+
+/* tablet & phone */
+.tbar{height:52px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center}
+.tbar .t{font:14px var(--sans);color:var(--sec);padding:0 18px;height:100%;display:flex;align-items:center;position:relative}
+.tbar .t.open{background:var(--sunken);color:var(--bright)}
+.tbar .t.ren::after{content:"";position:absolute;left:14px;right:14px;bottom:9px;border-bottom:1px solid var(--acc)}
+.tbar .t.new::after{content:"";position:absolute;left:14px;right:14px;bottom:9px;border-bottom:1px dashed var(--acc)}
+.tpop .row{height:44px;font-size:13px;padding:0 14px 0 18px}
+.tpop .row .sc{font-size:11px}
+.tpop .sepl{font-size:9.5px;padding:10px 18px 4px}
+.phone{position:relative;width:412px;height:892px;background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.ph-app{position:absolute;top:28px;left:0;right:0;height:56px;display:flex;align-items:center;padding:0 12px;gap:14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.ph-app b{font:500 13px var(--mono);letter-spacing:.24em;color:var(--bright)}
+.ph-app i{font:normal 10.5px var(--mono);color:var(--faint)}
+.ph-nav{position:absolute;left:0;right:0;bottom:20px;height:64px;display:grid;grid-template-columns:repeat(4,1fr);background:var(--panel);border-top:1px solid var(--line)}
+.ph-nav div{display:flex;flex-direction:column;align-items:center;justify-content:center;font:500 9.5px var(--mono);letter-spacing:.14em;color:var(--dim);gap:4px}
+.ph-nav div span{font-size:15px;letter-spacing:0}
+.ph-nav div.on{color:var(--acc)}
+.ph-gest{position:absolute;left:0;right:0;bottom:0;height:20px;background:var(--panel)}
+.ph-gest::after{content:"";position:absolute;left:50%;top:8px;width:112px;height:4px;margin-left:-56px;border-radius:2px;background:var(--faint)}
+.ph-row{display:flex;align-items:center;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line-soft);gap:12px;font-size:13px;color:var(--text)}
+.ph-row .g{width:22px;text-align:center;color:var(--dim);font-size:14px}
+.ph-row .l{flex:1}
+.ph-row .l small{display:block;font:10.5px var(--mono);color:var(--faint)}
+.ph-row.dis{color:var(--ghost)}
+.ph-row::after{content:"›";color:var(--dim);font-size:16px}
+.ph-sec{font:500 9.5px var(--mono);letter-spacing:.22em;color:var(--faint);padding:16px 16px 6px}
+.ph-sheet{position:absolute;left:0;right:0;background:var(--raised);border-top:1px solid var(--border);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.45)}
+.ph-sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--faint);margin:8px auto 6px}
+.pchips{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 16px 12px}
+.pchip{min-height:48px;border-radius:24px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:6px;font:500 10.5px var(--mono);letter-spacing:.12em;color:var(--sec);text-transform:uppercase}
+.pchip.dis{color:var(--ghost)}
+
+table.inv{border-collapse:collapse;font-size:11px;width:100%;max-width:1280px}
+table.inv th,table.inv td{border-bottom:1px solid var(--line-soft);padding:5px 8px;text-align:left;vertical-align:top}
+table.inv th{font:500 9px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+table.inv td.sym{font:10px var(--mono);color:var(--dim)}
+.foot{color:var(--faint);font-size:10.5px;max-width:980px;margin-top:10px}
+@media (max-width:700px){ body{padding:16px} }
+</style>
+</head>
+<body>
+<h1>Story menus · menu &amp; workflow reorganisation</h1>
+<p class="lede">Mockup for <code>STORY_MENUS_PROPOSAL.md</code>. It redraws the shipped DCC shell's menus, domain rail and map context card
+with a proposed regrouping for worldbuilders, writers and dungeon masters: <b>Data</b> becomes <b>World</b>, a new <b>Story</b> menu gathers
+time, journeys, conflicts and notes, <b>File ▸ Export</b> splits by audience, and <b>Window ▸ Session mode</b> hides the generator at the table.
+Hover any row for its tooltip, or its disabled reason, and the symbol it was checked against.</p>
+<span class="warn">Proposal: nothing here is built as drawn</span><span class="warn">Map, names and counts are placeholders</span>
+
+<div class="bar">
+  <div class="seg" id="themeSeg"><button data-t="dark" class="on">Dark</button><button data-t="light">Light</button></div>
+  <div class="legend">
+    <span><span class="mk B">B</span> built: the binding exists today (symbol in the tooltip)</span>
+    <span><span class="mk P">P</span> partly: some backing exists, the gap is named</span>
+    <span><span class="mk N">N</span> new: no backing; drawn disabled with its reason</span>
+    <span><span class="drv">derived</span> no canvas precedent; derived from the DCC vocabulary</span>
+  </div>
+</div>
+
+<!-- A1 ============================================================ -->
+<div class="ab" id="a1"><div class="cap"><b>A1</b> · Desktop 1920 class · menus: current (shipped, read from menus.gd 2026-10-17)</div>
+<div class="board" style="width:1280px;height:760px" id="b1"></div></div>
+
+<!-- A2 ============================================================ -->
+<div class="ab" id="a2"><div class="cap"><b>A2</b> · Desktop · menus: proposed (World · Story · File ▸ Export · Window ▸ Session mode)</div>
+<div class="board" style="width:1280px;height:860px" id="b2"></div></div>
+
+<!-- A3 ============================================================ -->
+<div class="ab" id="a3"><div class="cap"><b>A3</b> · Desktop · domain rail node list: current vs proposed (STORY section, CIVIL ▸ Settlements)</div>
+<div class="board" style="width:1280px;height:640px" id="b3"></div></div>
+
+<!-- A4 ============================================================ -->
+<div class="ab" id="a4"><div class="cap"><b>A4</b> · Desktop · map context card (CIVIL, a settlement hit): current vs proposed rows</div>
+<div class="board" style="width:1280px;height:700px" id="b4"></div></div>
+
+<!-- A5 ============================================================ -->
+<div class="ab" id="a5"><div class="cap"><b>A5</b> · Desktop · Markdown vault ▸ Places without notes: list, and the three empty states</div>
+<div class="board" style="width:1280px;height:700px" id="b5"></div></div>
+
+<!-- A6 ============================================================ -->
+<div class="ab" id="a6"><div class="cap"><b>A6</b> · Workflow strip: eight stages, each mapped to the menu / rail entries that serve it</div>
+<div class="board" style="width:1280px;height:470px;padding:16px" id="b6"></div></div>
+
+<!-- A7 ============================================================ -->
+<div class="ab" id="a7"><div class="cap"><b>A7</b> · Tablet landscape (52 menu bar, 44 rows) · ☰ · File · World · Story, and the context card's touch form</div>
+<div class="board" style="width:1280px;height:800px" id="b7"></div></div>
+
+<!-- A8 ============================================================ -->
+<div class="ab" id="a8"><div class="cap"><b>A8</b> · Phone 412 dp · MORE ▸ Story, and the long-press peek sheet</div>
+<div class="board" style="width:880px;height:900px;background:transparent;border:0" id="b8"></div></div>
+
+<!-- Inventory ======================================================= -->
+<div class="ab" id="inv"><div class="cap"><b>Inventory</b> · every proposed row, its mark and what it was checked against (generated from the same data as the artboards)</div>
+<div id="invbody"></div>
+<p class="foot">Shortcuts: the four new accelerators (Ctrl+Shift+T, Ctrl+Shift+N, Ctrl+Shift+E, Ctrl+Shift+M) were checked against every
+<code>KEY_MASK</code> accelerator in <code>menus.gd</code>, the <code>_unhandled_input</code> keys in <code>app.gd</code> (Ctrl+Y, Shift+J, Menu, Shift+F10),
+<code>shortcuts_dialog.gd</code>'s <code>UNLISTED</code> rows and <code>markdown_editor.gd</code>'s local Ctrl+E. None collides today.
+Shift+J (Journey planner) is drawn as it is now: an <code>app.gd</code> key, not a rebindable menu accelerator.</p>
+</div>
+
+<div class="tip hide" id="hovertip"></div>
+
+<script>
+(function(){
+"use strict";
+/* ------------------------------------------------------------------ data
+   Row: [kind, label, shortcut, mark, tooltip, symbol, flags]
+   kind: "i" item, "s" separator, "l" labelled separator, "sub" submenu, "c" check (on), "u" check (off),
+         "d" disabled (tooltip = reason), "m" moved signpost, "x" danger.
+   mark: "B" | "P" | "N" | "" (no mark: unchanged row shown for context). flags: "drv" derived, "new" new shortcut. */
+var CUR_FILE = [
+ ["i","New world…","Ctrl+N","","Opens the New world dialog.","menus.gd _file · ID_NEW_WORLD"],
+ ["i","Open project…","Ctrl+O","","",""],["sub","Recent worlds","","","",""],["i","New world from selection…","","","",""],["s"],
+ ["i","Save project","Ctrl+S","","",""],["i","Save as…","Ctrl+Shift+S","","",""],["c","Autosave","","","",""],["sub","Autosave interval","","","",""],
+ ["i","Revert to last save","","","",""],["i","Close project","Ctrl+W","","",""],["l","Storage locations"],["d","projects  …/Cartalith/Worlds","","","readout",""],
+ ["i","Change locations…","","","",""],["i","Show project on disk","","","",""]];
+var CUR_DATA = [
+ ["i","⧉ Data manager","","","","menus.gd _data · ID_DATA_MANAGER"],["i","World data tables…","","","","ID_WORLD_DATA"],
+ ["i","Factions…","","","Open the Factions window: each faction's identity, territory, settlements, economy and military in one place.","ID_FACTIONS"],
+ ["i","Travel library…","Shift+L","","","ID_TRAVEL_LIBRARY"],
+ ["l","Import"],["i","Maps   tiles","","","",""],["i","Heightmaps   PNG","","","",""],["i","GIS / GeoJSON","","","",""],["i","World Data   .ctl","","","",""],["i","Assets   → Assets","","","",""],
+ ["l","Export"],["i","Maps   tiles","","","",""],["i","GIS / GeoJSON   .geojson","","","",""],["i","World Data   map + atlas","","","",""],["i","Assets   .zip","","","",""],
+ ["i","Export map image…","","","One flat PNG of the whole map, 2K to 32K, with the overlays you pick (settlements down to towns by default), written off the main thread with progress and cancel.","ID_EXPORT_MAP_IMAGE"],
+ ["l","Sources"],["i","External Sources","","","",""],["i","Connected Sources","","","",""],["i","Source Registry","","","",""],
+ ["l","Validation"],["i","Definitions","","","",""],["i","Check Data","","","",""],["i","Repair / Normalize","","","",""],["s"],
+ ["i","Markdown vault…","","","",""],["i","Browse & edit a note…","","","",""]];
+var CUR_WIN = [
+ ["c","Left dock"],["c","Right dock"],["c","Timeline"],["c","Status bar"],["c","Domain rail"],["s"],
+ ["u","Diagnostics overlay","Shift+D"],["s"],["sub","Workspace"],["sub","Open windows"],["s"],["i","Reset layout"],["sub","Layouts"]];
+
+var P_FILE = [
+ ["i","New world…","Ctrl+N","","Unchanged.","menus.gd _file"],["i","Open project…","Ctrl+O","","Unchanged.",""],["sub","Recent worlds","","","Unchanged.",""],["i","New world from selection…","","","Unchanged.",""],["s"],
+ ["i","Save project","Ctrl+S","","Unchanged.",""],["i","Save as…","Ctrl+Shift+S","","Unchanged.",""],["c","Autosave","","","Unchanged.",""],["sub","Autosave interval","","","Unchanged.",""],
+ ["i","Revert to last save","","","Unchanged.",""],["i","Close project","Ctrl+W","","Unchanged.",""],["s"],
+ ["sub","Export","","P","New submenu. Gathers the Data menu's EXPORT band by audience. The rows inside are the existing dialog and routes, plus two presets.","menus.gd _data EXPORT band (moved); export_dialog.gd","drv"],
+ ["l","Storage locations"],["d","projects  …/Cartalith/Worlds","","","readout",""],["i","Change locations…","","","Unchanged.",""],["i","Show project on disk","","","Unchanged.",""]];
+var P_EXPORT = [
+ ["l","For the table"],
+ ["i","Player map…","Ctrl+Shift+E","P","Opens Export map image… preset for players: journey routes, conflicts and diagnostic layers off; labels, icons, borders and roads on. The dialog and its overlay switches exist. What does not: a per-item 'DM only' mark on labels, icons, settlements or notes, so a secret place still exports if its layer is on.","export_dialog.gd LAYERS (rivers, ways, labels, icons, territory, routes) · no dm_only field anywhere in shell or crates","new"],
+ ["i","DM / full map…","","P","Export map image… with every overlay switch on, journey routes included. A preset over the built dialog; the preset store is new.","export_dialog.gd LAYERS; ExportStyle look override"],
+ ["l","Share"],
+ ["i","Export map image…","","B","One flat PNG of the whole map, 2K to 32K, with the overlays you pick, written off the main thread with progress and cancel. Moved here from Data ▸ Export, same id.","menus.gd ID_EXPORT_MAP_IMAGE → app.open_export_dialog()"],
+ ["d","Print sheet (PDF)…","","N","No print or PDF writer exists. The streaming writer has PNG and BigTIFF only (export_options.rs FORMAT_NAMES).","export_options.rs FORMAT_NAMES = [png, bigtiff]"],
+ ["d","VTT battle map (grid + walls)…","","N","No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written.","no uvtt / dd2vtt symbol in shell or crates"],
+ ["l","Data"],
+ ["i","Maps (tile pyramid)","","B","Data manager ▸ Export ▸ Maps, unchanged route.","DataManagerWindow.ROUTES export_maps"],
+ ["i","GIS / GeoJSON","","B","Data manager ▸ Export ▸ GIS, unchanged route.","ROUTES export_gis"],
+ ["i","World data (map + atlas)","","B","Unchanged route.","ROUTES export_world"],
+ ["i","Asset pack .zip","","B","Unchanged route (Assets ▸ Asset pack ▸ Export).","ROUTES export_assets"]];
+var P_WORLD = [
+ ["i","⧉ Data manager","","B","Unchanged; the window this menu is a shortcut into.","ID_DATA_MANAGER → app.open_data_manager()"],
+ ["l","Records"],
+ ["i","Factions…","","B","Unchanged row, moved into Records.","ID_FACTIONS → app.open_faction_roster()"],
+ ["i","Places…","","B","Opens CIVIL ▸ Settlements, the place list. A new row over a built target.","DccShell.select_domain_category(\"civilization\", \"Settlements\")"],
+ ["i","Markdown vault…","","B","Unchanged row.","ID_VAULT → app.open_vault_overview()"],
+ ["i","Browse & edit a note…","","B","Unchanged row.","ID_VAULT_BROWSE → app.open_vault_browse()"],
+ ["i","Places without notes…","","P","Opens the vault panel on a new 'Places without notes' list (A5). Per-entity link counts exist; the list view and its filters do not.","bridge.vault_entity_summary(kind, tid).link_count · new view in vault_window.gd","drv"],
+ ["i","Timeline","","B","Opens CIVIL ▸ Timeline, the year snapshots. Also in Story ▸ Time.","select_domain_category(\"civilization\", \"Timeline\")"],
+ ["l","Technical"],
+ ["i","World data tables…","","B","Unchanged row.","ID_WORLD_DATA → app.open_world_data()"],
+ ["sub","Import","","B","The IMPORT band as a submenu: Maps (gap), Heightmaps, GIS / GeoJSON, World Data, Assets. Same routes.","DataManagerWindow.ROUTES group Import"],
+ ["sub","Sources & validation","","B","The SOURCES and VALIDATION bands as a submenu. Five of their six routes open on a gap page with its reason, as today.","ROUTES groups Sources, Validation"],
+ ["m","Export is in File ▸ Export","","","Signpost row (menus.gd _signpost), the same way File says imports live under Data.","menus.gd _signpost"]];
+var P_STORY = [
+ ["l","Time"],
+ ["i","Timeline","Ctrl+Shift+T","B","Opens CIVIL ▸ Timeline (year snapshots: add, go to, compare) and shows the timeline bar if it is hidden.","select_domain_category(\"civilization\",\"Timeline\"); bridge.get_civ_timeline_years(); Window ▸ Timeline region","new"],
+ ["d","Political history of this place…","","P","Select a settlement first: political history is per place (Place editor ▸ Political history). It opens for the right dock's current settlement.","place_editor_window.gd _build_timeline_strip (SP-3); right_dock.gd _settlement_index"],
+ ["i","Faction history…","","B","Factions window on the History tab: ownership periods rolled up across the faction's settlements.","app.open_faction_roster(-1, \"history\") (FH-8)"],
+ ["l","Journeys"],
+ ["i","Journey planner","Shift+J","B","Opens the planner (CIVIL ▸ Journey planner). Shift+J stays an app.gd key: not rebindable.","app.open_journey_planner(); app.gd KEY_J branch"],
+ ["i","Saved journeys…","","P","A list of saved journeys (party, route, start year). The store is built and saved with the project; no window lists it today.","bridge.journey_list() / journey_get() / journey_delete()","drv"],
+ ["i","Travel library…","Shift+L","B","Moved from Data. Travel classifications and constraints that feed the planner.","ID_TRAVEL_LIBRARY → app.open_travel_library()"],
+ ["l","Conflicts & campaigns"],
+ ["i","Conflicts…","","P","Every war, siege, battle, front and arrow in one list, filterable by year. The store is built (conflict_list); today it is reached per faction (Factions ▸ Military) or by clicking one on the map.","bridge.conflict_list(); app.open_conflict(id); faction_roster_window.gd Conflicts section","drv"],
+ ["i","Draw a conflict","","B","Arms CIVIL's Conflict tool (front, arrow, siege, battle).","civilization_workspace.gd _active_civ_tool == \"conflict\"; conflict_add at commit"],
+ ["i","Campaigns this year","","B","Right dock readout of the campaigns active at the timeline cursor.","bridge.conflict_campaigns(year); right_dock.gd"],
+ ["l","Notes"],
+ ["d","Notes for this place","Ctrl+Shift+N","B","Nothing selected. Select a settlement (right dock) or right-click one ▸ Open note. Opens the linked vault note, or attaches one.","app.open_vault(\"settlement\", tid, name) (as context_card civ.vault_note)","new"],
+ ["i","Places without notes…","","P","Same row as World ▸ Records.","see World ▸ Places without notes…"]];
+var P_WIN = [
+ ["c","Left dock","","","Unchanged.",""],["c","Right dock","","","Unchanged.",""],["c","Timeline","","","Unchanged.",""],["c","Status bar","","","Unchanged.",""],["c","Domain rail","","","Unchanged.",""],["s"],
+ ["u","Session mode","Ctrl+Shift+M","P","For running a game or a writing session: hides WORLD generation and sculpt controls and the right dock's pipeline readouts, keeps the map, notes, timeline bar and Journey planner. Layouts already snapshot region toggles and the active domain; hiding controls inside a dock is new.","menus.gd _build_layouts_menu (Layouts, the seeded 'Journey' layout); no dock-content gate exists","new"],
+ ["u","Diagnostics overlay","Shift+D","","Unchanged.",""],["s"],
+ ["sub","Workspace","","","Unchanged: WORLD, CIVIL, CARTO (STORY is a rail section, not a domain; A3).",""],["sub","Open windows","","","Unchanged.",""],["s"],["i","Reset layout","","","Unchanged.",""],["sub","Layouts","","","Unchanged.",""]];
+
+/* ------------------------------------------------------------------ helpers */
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function mark(m){return m?'<span class="mk '+m+'">'+m+'</span>':"";}
+function rowHtml(r, extra){
+  var k=r[0];
+  if(k==="s") return '<div class="sep"></div>';
+  if(k==="l") return '<div class="sepl">'+esc(r[1])+'</div>';
+  var cls="row";
+  if(k==="sub") cls+=" subm"; if(k==="c") cls+=" chk"; if(k==="u") cls+=" unchk";
+  if(k==="d") cls+=" dis"; if(k==="m") cls+=" moved"; if(k==="x") cls+=" danger";
+  if(extra) cls+=" "+extra;
+  var tip=r[4]||"", sym=r[5]||"";
+  var sc=r[2]?'<span class="sc'+((r[6]==="new")?" new":"")+'">'+esc(r[2])+'</span>':"";
+  var drv=(r[6]==="drv")?'<span class="drv">derived</span>':"";
+  return '<div class="'+cls+'" data-tip="'+esc(tip)+'" data-sym="'+esc(sym)+'" data-dis="'+(k==="d"?1:0)+'"><span class="l">'+esc(r[1])+'</span>'+drv+sc+mark(r[3])+'</div>';
+}
+function pop(rows, x, y, w, cls){
+  return '<div class="pop '+(cls||"")+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px">'+rows.map(function(r){return rowHtml(r);}).join("")+'</div>';
+}
+function mbar(titles, open, marks){
+  var h='<div class="mbar"><div class="wm">CARTALITH</div>';
+  titles.forEach(function(t){var c="t"; if(open.indexOf(t)>=0)c+=" open"; if(marks&&marks[t])c+=" "+marks[t]; h+='<div class="'+c+'">'+t+'</div>';});
+  return h+'</div>';
+}
+function pinTip(x,y,w,text,why,sym){
+  return '<div class="tip" style="left:'+x+'px;top:'+y+'px;width:'+w+'px">'+(why?'<span class="why">'+esc(text)+'</span>':esc(text))+(sym?'<span class="sym">'+esc(sym)+'</span>':"")+'</div>';
+}
+var ICON = {
+  world:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c1.8 1.6 1.8 9.6 0 11.2M8 2.4c-1.8 1.6-1.8 9.6 0 11.2"/></svg>',
+  civil:'<svg viewBox="0 0 16 16"><path d="M3 13V7l3-2.5L9 7v6M9 13V9.5l2.5-2 2 2V13M2 13h12"/></svg>',
+  carto:'<svg viewBox="0 0 16 16"><path d="M2.5 4l3.5-1.5 4 1.5 3.5-1.5v9.5L10 13.5 6 12l-3.5 1.5z M6 2.5v9.5M10 4v9.5"/></svg>',
+  story:'<svg viewBox="0 0 16 16"><path d="M3 3.5h4.2c.5 0 .8.3.8.8v9c0-.6-.4-1-1-1H3zM13 3.5H8.8c-.5 0-.8.3-.8.8v9c0-.6.4-1 1-1H13z"/></svg>'
+};
+function mapSvg(){
+  return '<svg viewBox="0 0 800 520" preserveAspectRatio="xMidYMid slice"><path d="M60 300 C 90 180 220 120 330 150 C 420 90 560 110 640 190 C 720 250 700 380 600 420 C 500 470 380 430 300 460 C 190 490 70 420 60 300 Z" fill="var(--map-land)"/><path d="M250 260 C 300 220 380 230 420 270 C 460 320 400 360 340 350 C 280 340 230 310 250 260Z" fill="var(--map-land2)"/><path d="M180 200 C 240 260 300 300 360 300 C 420 300 470 330 520 380" fill="none" stroke="var(--water)" stroke-width="2" opacity=".8"/><path d="M200 330 L 300 300 L 420 320 L 520 290" fill="none" stroke="var(--acc-dim)" stroke-width="1.4" stroke-dasharray="4 3"/><circle cx="420" cy="320" r="5" fill="var(--bright)"/><text x="432" y="316" font-family="Fira Sans,Helvetica Neue,sans-serif" font-size="13" fill="var(--bright)">Vhal Serai</text><circle cx="300" cy="300" r="3.5" fill="var(--sec)"/><text x="262" y="292" font-family="Fira Sans,sans-serif" font-size="11" fill="var(--sec)">Ostmere</text><circle cx="520" cy="290" r="3.5" fill="var(--sec)"/><text x="530" y="286" font-family="Fira Sans,sans-serif" font-size="11" fill="var(--sec)">Kethar Ford</text></svg>';
+}
+
+/* ------------------------------------------------------------------ A1 current menus */
+var b1=document.getElementById("b1");
+b1.innerHTML = mbar(["File","Edit","Assets","Data","Preferences","Window","Help"],["File","Data","Window"]) +
+  '<div class="colhead" style="left:20px;top:46px">File ▾</div>'+pop(CUR_FILE,20,62,300)+
+  '<div class="colhead" style="left:360px;top:46px">Data ▾</div>'+pop(CUR_DATA,360,62,300)+
+  '<div class="colhead" style="left:700px;top:46px">Window ▾</div>'+pop(CUR_WIN,700,62,260)+
+  '<div class="anno" style="left:1000px;top:66px;max-width:260px"><b>What a story user meets today</b><br>Factions, the vault and the Travel library are in <b>Data</b>, between tile pyramids and GeoJSON.<br><br>Timeline has no menu row: it is a Window region and a CIVIL dock category.<br><br>Conflicts have no menu row: they are a CIVIL tool, a map layer and a Factions-window section.<br><br>The Journey planner has no menu row since 2026-09-05 (Ruling 4): rail node plus Shift+J.<br><br>Export lives in <b>Data ▸ Export</b>; there is no File ▸ Export today.</div>'+
+  '<div class="status" style="top:734px"><span>read from menus.gd · _file / _data / _window · DataManagerWindow.ROUTES</span></div>';
+
+/* ------------------------------------------------------------------ A2 proposed menus */
+var b2=document.getElementById("b2");
+var _b2 = mbar(["File","Edit","Assets","World","Story","Preferences","Window","Help"],["File","World","Story","Window"],{World:"ren",Story:"new"}) +
+  '<div class="colhead" style="left:14px;top:46px">File ▾ · Export ▸ open</div>'+pop(P_FILE,14,62,250)+
+  pop(P_EXPORT,262,322,262)+
+  '<div class="colhead" style="left:540px;top:46px">World ▾ (was Data)</div>'+pop(P_WORLD,540,62,262)+
+  '<div class="colhead" style="left:818px;top:46px">Story ▾ (new, eighth menu)</div>'+pop(P_STORY,818,62,270)+
+  '<div class="colhead" style="left:540px;top:440px">Window ▾</div>'+pop(P_WIN,540,456,262)+
+  pinTip(818,446,270,"▲ Notes for this place, disabled. Nothing selected. Select a settlement (right dock) or right-click one ▸ Open note. Opens the linked vault note, or attaches one.",true,"disabled-reason tooltip · menus.gd _todo() convention")+
+  '<div class="anno" style="left:1104px;top:66px;max-width:166px"><b>Underlines</b><br>solid = renamed<br>dashed = new<br><br><b>Eight menus.</b> DCC_SHELL_SPEC §2 says seven, program scope only. Story is the one deliberate exception; owner question Q1.<br><br><b>Tablet collision.</b> The tablet bar already has a <i>World</i> menu (Run pipeline, Seed &amp; size). See A7 and Q2.</div>'+
+  '<div class="status" style="top:834px"><span>B/P/N on every changed row · unchanged rows carry no mark</span></div>';
+b2.innerHTML=_b2;
+Array.prototype.forEach.call(b2.querySelectorAll(".pop .row .l"),function(l){if(l.textContent==="Export")l.parentNode.classList.add("hl");});
+
+/* ------------------------------------------------------------------ A3 rail */
+var CUR_NODES=[["hd","WORLD"],["nd","Generate"],["nd","Sculpt"],["hd","CIVIL"],["nd","Landmarks"],["nd","Factions",1],["nd","Routes & ways"],["nd","Journey planner"],["hd","CARTO"],["nd","Style"],["nd","Layers"],["nd","Labels"],["nd","Icons"]];
+var PRO_NODES=[["hd","WORLD"],["nd","Generate"],["nd","Sculpt"],["hd","CIVIL"],
+ ["nd","Settlements",0,"N","Ruling L lists it first; not built: it needs a fifth CIVIL mode id (dcc_shell.gd RAIL_NODES comment). Target CIVIL ▸ Settlements exists.","proposal"],
+ ["nd","Landmarks"],["nd","Factions",1],["nd","Routes & ways"],["nd","Journey planner"],
+ ["hdn","STORY"],
+ ["nd","Timeline",0,"P","Shortcut to CIVIL ▸ Timeline (built) and shows the timeline bar. A node in a second section pointing into CIVIL is new.","→ CIVIL"],
+ ["nd","Journeys",0,"P","Opens the planner (built) with the Saved journeys list (new view over journey_list).","→ CIVIL"],
+ ["nd","Notes",0,"P","Opens the vault window (built). Ruling L item 4: notes stay per entity under CIVIL, never a dock category, so this node opens the window, not a category.","window"],
+ ["hd","CARTO"],["nd","Style"],["nd","Layers"],["nd","Labels"],["nd","Icons"]];
+function nodesHtml(list,left){
+  var h='<div class="nodes" style="left:'+left+'px">';
+  list.forEach(function(n){
+    if(n[0]==="hd") h+='<div class="hd">'+n[1]+'</div>';
+    else if(n[0]==="hdn") h+='<div class="hd new">'+n[1]+'<span class="mk P" style="margin-left:8px">P</span><span class="drv">derived</span></div>';
+    else h+='<div class="nd'+(n[2]?" on":"")+(n[3]?" prop":"")+'" data-tip="'+esc(n[4]||"")+'" data-sym="'+esc(n[5]||"")+'"><span class="l">'+esc(n[1])+'</span>'+(n[5]?'<span class="tg">'+esc(n[5])+'</span>':"")+mark(n[3]||"")+'</div>';
+  });
+  return h+'</div>';
+}
+function railHtml(left,story){
+  return '<div class="rail" style="left:'+left+'px"><div class="dm">'+ICON.world+'</div><div class="dm on">'+ICON.civil+'</div><div class="dm">'+ICON.carto+'</div>'+(story?'<div class="dm" style="color:var(--acc)" title="STORY marks the node-list section only; it is not a fourth domain tab">'+ICON.story+'</div>':"")+'</div>';
+}
+var b3=document.getElementById("b3");
+b3.innerHTML = '<div class="mbar"><div class="wm">CARTALITH</div><div class="t">File</div><div class="t">Edit</div><div class="t">Assets</div><div class="t">World</div><div class="t">Story</div><div class="t">Preferences</div><div class="t">Window</div><div class="t">Help</div></div>'+
+  
+  railHtml(0,false)+nodesHtml(CUR_NODES,40)+
+  '<div class="map" style="left:240px;top:36px;width:360px;bottom:26px">'+mapSvg()+'</div>'+
+  
+  railHtml(620,false)+nodesHtml(PRO_NODES,660)+
+  '<div class="map" style="left:860px;top:36px;right:0;bottom:26px">'+mapSvg()+'</div>'+
+  '<div class="anno" style="left:880px;top:60px;max-width:380px;background:var(--panel);border:1px solid var(--line);padding:10px;color:var(--sec)"><b>STORY is a section of the node list, not a fourth domain.</b> The node list is Ruling L\'s "shortcut layer; every target also exists in the dock". Timeline and Journeys point into CIVIL; Notes opens the vault window. The three domain tabs, their docks and workspaces stay as they are, so nothing is re-parented.<br><br>The 40 px domain rail keeps its three marks: STORY gets no domain glyph, because it is not a domain. The section head is the only new chrome, so it is marked derived.<br><br><b>Settlements</b> is drawn as Ruling L placed it. It is not built: a fifth CIVIL mode id is the owner\'s call (plan C1).</div>'+
+  '<div class="status"><span>left: current · RAIL_NODES (dcc_shell.gd)</span><span>right: proposed</span><span>rail 40 · node list 200 (ROLE w_rail_expanded)</span></div>';
+
+/* ------------------------------------------------------------------ A4 context card */
+function cardHtml(x,y,rows,title,sub){
+  var h='<div class="card" style="left:'+x+'px;top:'+y+'px"><div class="hd"><b>'+title+'</b><i>'+sub+'</i></div>';
+  rows.forEach(function(r){
+    if(r[0]==="band"){h+='<div class="band">'+r[1]+'</div>';return;}
+    if(r[0]==="rule"){h+='<div class="rule"></div>';return;}
+    var cls="row"+(r[0]==="x"?" danger":"")+(r[0]==="d"?" dis":"")+(r[0]==="sub"?" subm":"");
+    h+='<div class="'+cls+'" data-tip="'+esc(r[3]||"")+'" data-sym="'+esc(r[4]||"")+'" data-dis="'+(r[0]==="d"?1:0)+'"><span class="l">'+esc(r[1])+'</span>'+(r[5]?'<span class="drv">'+r[5]+'</span>':"")+mark(r[2]||"")+'</div>';
+    if(r[0]==="d"&&r[6]) h+='<div class="reason">'+esc(r[3])+'</div>';
+  });
+  return h+'</div>';
+}
+var CARD_CUR=[["band","Object"],["i","Edit Vhal Serai"],["i","Move viewer to Vhal Serai"],["i","Open city layout for Vhal Serai…"],["x","Delete Vhal Serai"],["i","Open Kethar…"],["i","Claim for Kethar"],
+ ["band","Place here"],["i","Drop settlement here"],["i","Start way here"],["i","Start route here"],
+ ["band","Go / measure"],["i","Centre view here"],["i","Measure from here"],
+ ["band","Info"],["i","Attach vault note to Vhal Serai…"],["i","Info here (settlement & ecology)"]];
+var CARD_PRO=[["band","Object"],["i","Edit Vhal Serai","","Unchanged.","civ.edit"],["i","Move viewer to Vhal Serai","","Unchanged.","civ.move_viewer"],
+ ["i","Open in city viewer…","B","Renamed from 'Open city layout for Vhal Serai…'; same call.","civ.open_city_layout → app.open_city_viewer(index)"],
+ ["x","Delete Vhal Serai","","Unchanged.","civ.delete"],["i","Open Kethar…","","Unchanged.","civ.faction_open"],["i","Claim for Kethar","","Unchanged.","civ.faction_claim"],
+ ["band","Place here"],["i","Drop settlement here","","Unchanged.",""],["i","Start way here","","Unchanged.",""],["i","Start route here","","Unchanged.",""],
+ ["sub","Add event to timeline here","P","Opens a one-level submenu: Battle · Siege · Front · Arrow, at the timeline cursor's year. Conflicts are the only storable event; a founding, plague or coronation has no store.","bridge.conflict_add({kind, start_year, points, anchor}); ConflictKind::ALL",""],
+ ["band","Go / measure"],["i","Centre view here","","Unchanged.","global.centre"],["i","Measure from here","","Unchanged.","global.measure_from"],
+ ["i","Plan journey from here","P","Starts a route at this cell and opens the Journey planner on it. MAP_CONTEXT_SCOPE §4.3 'Journey from here': shell-only over built calls; not yet written.","route_begin + app.open_journey_planner_with_route(i); jp_default_plan"],
+ ["d","Journey to here","P","Pick a start first: Plan journey from here, or a route in the planner.","same as above; needs a pending origin","",1],
+ ["band","Info"],["i","Open note for Vhal Serai","B","Shorter label; the same row. Reads 'Attach note to Vhal Serai…' when no note is linked.","civ.vault_note → app.open_vault(\"settlement\", tid, name)"],
+ ["i","Info here (settlement & ecology)","","Unchanged.","civ.info_here"]];
+var b4=document.getElementById("b4");
+b4.innerHTML = '<div class="mbar"><div class="wm">CARTALITH</div><div class="t">File</div><div class="t">Edit</div><div class="t">Assets</div><div class="t">World</div><div class="t">Story</div><div class="t">Preferences</div><div class="t">Window</div><div class="t">Help</div></div>'+
+ '<div class="map" style="left:0;top:36px;right:0;bottom:26px">'+mapSvg()+'</div>'+
+ '<div class="colhead" style="left:60px;top:52px;color:var(--bright)">current (civilization_workspace.gd context_actions)</div>'+
+ cardHtml(60,72,CARD_CUR,"Vhal Serai · town","412 m · temperate forest · 18.2, 44.7 km")+
+ '<div class="colhead" style="left:440px;top:52px;color:var(--bright)">proposed</div>'+
+ cardHtml(440,72,CARD_PRO,"Vhal Serai · town","412 m · temperate forest · 18.2, 44.7 km")+
+ '<div class="anno" style="left:800px;top:76px;max-width:440px;background:var(--panel);border:1px solid var(--line);padding:10px;color:var(--sec)"><b>Four story verbs, no new section.</b> MAP_CONTEXT_SCOPE §4.1 fixes the section order (Draft, Tool, Object, Place here, Go, Info), so each verb goes where its grammar puts it. <i>Add event</i> creates something, so it goes in Place here. <i>Plan journey</i> needs only a point, so it goes in Go. <i>Open note</i> stays last, in Info.<br><br><b>Two of the four already ship.</b> Open city layout and Open / Attach vault note are live rows today. The proposal renames them; it does not add them.<br><br><b>One submenu, never two</b> (§4.2): Add event opens the four conflict kinds and stops there.<br><br>Journey to here is drawn disabled with its reason on the row, the card\'s own rule for a verb that cannot run (§4.2).</div>'+
+ '<div class="status"><span>right-click · CIVIL · hits: settlement, way</span></div>';
+
+/* ------------------------------------------------------------------ A5 places without notes */
+var PLACES=[["Vhal Serai","town","Kethar"],["Ostmere","city","Aunel"],["Kethar Ford","village","Kethar"],["Saltreach","town","Aunel"],["Imbre","capital","Imbre Crown"],["Dunlow","village","—  unclaimed"],["Corvane","city","Imbre Crown"],["Holt of Ash","hamlet","Kethar"]];
+var b5=document.getElementById("b5");
+var lst=PLACES.map(function(p){return '<div class="lrow"><span class="n">'+p[0]+'</span><span class="k">'+p[1]+'</span><span class="f">'+p[2]+'</span><button class="btn">New from template…</button><button class="btn">Attach existing…</button></div>';}).join("");
+b5.innerHTML =
+ '<div class="win" style="left:20px;top:20px;width:720px;height:660px"><div class="tb">Markdown vault<span class="x">✕</span></div>'+
+ '<div style="padding:4px 16px 12px;overflow:hidden;flex:1">'+
+ '<div class="sec">§ Search</div><div style="background:var(--sunken);height:24px;padding:0 8px;display:flex;align-items:center;color:var(--faint);font-size:11px">Search notes…</div>'+
+ '<div class="sec" style="display:flex;align-items:center">§ Places without notes <span class="mk P">P</span><span class="drv">derived</span></div>'+
+ '<div class="readout" style="margin-bottom:8px"><b>37</b> of <b>52</b> places have no linked note <span style="color:var(--faint)">· placeholder figures</span></div>'+
+ '<div class="chips" style="margin-bottom:6px"><span class="chip on">All</span><span class="chip">Capitals</span><span class="chip">Cities</span><span class="chip">Towns</span><span class="chip">Villages</span><span class="chip">Hamlets</span></div>'+
+ '<div class="chips" style="margin-bottom:10px"><span class="chip on">Settlements</span><span class="chip">Provinces</span><span class="chip">Continents</span><span class="chip">Factions</span><span class="chip">On a journey</span><span class="chip">In a conflict</span></div>'+
+ '<div style="font:500 9px var(--mono);letter-spacing:.18em;color:var(--faint);display:flex;gap:10px;padding:0 6px 4px"><span style="flex:1">PLACE</span><span style="width:72px">CLASS</span><span style="width:84px">FACTION</span><span style="width:228px">LINK</span></div>'+lst+
+ '<p class="note" style="margin-top:10px">Sorted by class, then population. <i>New from template</i> writes Settlements/{name}.md from one of your templates (the existing VA-02 flow). <i>Attach existing</i> opens the file picker on the vault. A row leaves the list once a link exists. Missing &amp; orphan notes (VA-01, links that point at no note, notes nothing points at) stays its own group above.</p>'+
+ '</div></div>'+
+ '<div class="colhead" style="left:770px;top:24px">empty states, drawn as the same group</div>'+
+ '<div style="position:absolute;left:770px;top:44px;width:480px">'+
+ '<div class="empty" style="margin-bottom:12px"><b>No vault connected</b>Connect a folder of .md files in Markdown vault… first. Any folder works; Obsidian is one. Until then every place is "without a note", and the list would be the whole world.<div style="margin-top:10px"><button class="btn primary">Connect a vault folder…</button></div></div>'+
+ '<div class="empty" style="margin-bottom:12px"><b>Every place has a note</b>52 of 52 settlements are linked. Provinces and continents are counted separately; switch the filter above to see them.</div>'+
+ '<div class="empty" style="margin-bottom:12px"><b>No world yet</b>Generate or open one. Places come from Populate (CIVIL ▸ Factions ▸ Populate).</div>'+
+ '<div class="empty" style="text-align:left"><b style="text-align:left">While a generation runs</b>The list is dashed, not emptied: the engine object belongs to the worker until it finishes (the bridge read gate of 2026-10-12).</div>'+
+ '<p class="note" style="margin-top:14px"><b style="color:var(--sec)">Backing.</b> Each row is one <code>bridge.vault_entity_summary(kind, tid)</code> per entity: built and gated. The list, its filters and the "on a journey" / "in a conflict" chips (<code>civ_settlement_journey_passes</code>, <code>conflicts_touching_settlement</code>) are new GDScript over built calls. Cost: one summary call per settlement on open, so the build should measure it on the largest world before choosing between a live list and a cached one.</p>'+
+ '</div>';
+
+/* ------------------------------------------------------------------ A6 workflow */
+var FLOW=[
+ ["01","Premise","What kind of world, at what scale?",[["B","File ▸ New world…"],["B","WORLD ▸ Generate"],["B","Help ▸ Generation info…"]],"No premise or pitch note: the vault is per entity (Ruling L item 4)."],
+ ["02","Land","Where are the coasts, mountains, rivers?",[["B","WORLD ▸ Generate · Sculpt"],["B","World ▸ World data tables…"],["B","World ▸ Import ▸ Heightmaps"]],""],
+ ["03","Peoples","Who lives here, and who rules?",[["B","CIVIL ▸ Factions (Populate)"],["B","World ▸ Records ▸ Factions…"],["N","CIVIL ▸ Settlements node (proposal)"]],""],
+ ["04","Places that matter","Which places carry the story?",[["B","World ▸ Records ▸ Places…"],["B","card ▸ Open note"],["P","Places without notes…"],["B","card ▸ Open in city viewer…"]],"Gap: nothing lists the places that have no note."],
+ ["05","Time","What happened, and when?",[["B","Story ▸ Timeline"],["P","Political history of this place…"],["B","Faction history…"],["P","card ▸ Add event to timeline"]],"Gap: the timeline holds year snapshots and conflicts only, not free events."],
+ ["06","Movement","Who travels where, and how long does it take?",[["B","Story ▸ Journey planner"],["P","Saved journeys…"],["B","Travel library…"],["P","card ▸ Plan journey from here"]],""],
+ ["07","Presentation","What do players or readers see?",[["P","File ▸ Export ▸ Player map…"],["P","DM / full map…"],["B","Export map image…"],["N","Print · VTT"]],"Gap: no item-level 'DM only' mark exists."],
+ ["08","Run & revise","At the table, or at the desk, mid-draft.",[["P","Window ▸ Session mode"],["P","Story ▸ Conflicts…"],["B","Draw a conflict"],["B","Edit ▸ Undo history…"]],"Gap: conflicts are not presented as a story tool."]];
+var b6=document.getElementById("b6");
+b6.innerHTML='<div class="flow">'+FLOW.map(function(s){
+  return '<div class="step"><div class="no">'+s[0]+'</div><div class="nm">'+s[1]+'</div><p class="q">'+s[2]+'</p>'+
+   s[3].map(function(e){return '<div class="en">'+mark(e[0])+'<span>'+esc(e[1])+'</span></div>';}).join("")+
+   (s[4]?'<div class="gap">'+esc(s[4])+'</div>':"")+'</div>';
+}).join("")+'</div><p class="note" style="margin-top:10px">Read left to right on a first session; any stage can be revisited. Each entry names the proposed menu or rail path that serves the stage. "card ▸" is the map context card (A4).</p>';
+
+/* ------------------------------------------------------------------ A7 tablet */
+function tpop(rows,x,y,w){return pop(rows,x,y,w,"tpop");}
+var T_STORY=P_STORY.filter(function(r){return r[1]!=="Places without notes…";});
+var b7=document.getElementById("b7");
+b7.innerHTML =
+ '<div class="tbar"><div class="t" style="padding:0 20px;font-size:16px">☰</div><div class="t">File</div><div class="t ren">World</div><div class="t new open">Story</div></div>'+
+ '<div class="map" style="left:0;top:52px;right:0;bottom:36px">'+mapSvg()+'</div>'+
+ tpop(T_STORY,214,52,360)+
+ cardHtml(640,90,[["band","Object"],["i","Edit Vhal Serai"],["i","Open in city viewer…","B","Same as desktop.","civ.open_city_layout"],
+   ["band","Place here"],["sub","Add event to timeline here","P","Same as desktop.","conflict_add"],["band","Go / measure"],["i","Plan journey from here","P","Same as desktop.","route_begin + planner"],["band","Info"],["i","Open note for Vhal Serai","B","Same as desktop.","civ.vault_note"]],"Vhal Serai · town","hold 0.5 s · 412 m · temperate forest")+
+ '<div class="anno" style="left:960px;top:96px;max-width:300px;background:var(--panel);border:1px solid var(--line);padding:10px;color:var(--sec)"><b>Tablet bar.</b> The tablet canvas draws ☰ · File · World · Data (DS-03). Its <i>World</i> is already a menu: Run pipeline (Ctrl+R), Seed &amp; size…, the mode rows.<br><br><b>Proposed:</b> ☰ · File · World · Story. The renamed World takes Data\'s rows <i>below</i> the existing pipeline rows, under a RECORDS / TECHNICAL band, so nothing the tablet World menu has moves. Q2 asks the owner, because DS-03 ruled "match the canvas 100%".<br><br>Rows are 44 px tall (the touch floor; the tablet canvas draws 44). Type is 13–14. The context card scales its rows the same way (context_card.gd _touch()).<br><br>_tabletparity_probe.gd must still find every desktop title on tablet: Story\'s rows are new titles on both, so the probe gains rows rather than losing them.</div>'+
+ '<div class="status" style="height:36px"><span>tablet · status 36</span></div>';
+b7.querySelector(".card").style.width="300px";
+Array.prototype.forEach.call(b7.querySelectorAll(".card .row"),function(r){r.style.height="44px";r.style.fontSize="13px";});
+
+/* ------------------------------------------------------------------ A8 phone */
+var b8=document.getElementById("b8");
+var phoneMore=
+ '<div class="phone" style="position:absolute;left:0;top:0">'+
+ '<div style="position:absolute;top:0;left:0;right:0;height:28px;background:var(--panel)"></div>'+
+ '<div class="ph-app"><b>MORE</b><i>program · data · preferences</i></div>'+
+ '<div style="position:absolute;top:84px;left:0;right:0;bottom:84px;overflow:hidden">'+
+ '<div class="ph-sec">PROJECT</div>'+
+ '<div class="ph-row"><span class="g">⧉</span><span class="l">Project<small>files · autosave · storage</small></span></div>'+
+ '<div class="ph-row"><span class="g">◍</span><span class="l">Civilization<small>settlement · POI · way tools</small></span></div>'+
+ '<div class="ph-sec" style="color:var(--acc)">STORY <span class="mk P">P</span><span class="drv">derived</span></div>'+
+ '<div class="ph-row"><span class="g">◷</span><span class="l">Timeline<small>year snapshots · history</small></span><span class="mk B">B</span></div>'+
+ '<div class="ph-row"><span class="g">➔</span><span class="l">Journeys<small>planner · saved journeys · travel library</small></span><span class="mk P">P</span></div>'+
+ '<div class="ph-row"><span class="g">◇</span><span class="l">Conflicts &amp; campaigns<small>list · draw · this year</small></span><span class="mk P">P</span></div>'+
+ '<div class="ph-row"><span class="g">▤</span><span class="l">Notes<small>vault · places without notes</small></span><span class="mk P">P</span></div>'+
+ '<div class="ph-sec">WORLD (was DATA)</div>'+
+ '<div class="ph-row"><span class="g">⇅</span><span class="l">Data manager<small>import · export · sources · validation</small></span></div>'+
+ '<div class="ph-row"><span class="g">▦</span><span class="l">Asset library<small>families · slots · fill</small></span></div>'+
+ '<div class="ph-row"><span class="g">⚙</span><span class="l">Preferences<small>application · performance · graphics</small></span></div>'+
+ '</div>'+
+ '<div class="ph-nav" style="bottom:20px"><div><span>▤</span>MAP</div><div><span>⌗</span>GENERATE</div><div><span>➔</span>PLAN</div><div class="on"><span>⋯</span>MORE</div></div><div class="ph-gest"></div></div>';
+var phonePeek=
+ '<div class="phone" style="position:absolute;left:452px;top:0">'+
+ '<div style="position:absolute;top:0;left:0;right:0;height:28px;background:var(--panel)"></div>'+
+ '<div class="map" style="left:0;top:28px;right:0;bottom:84px">'+mapSvg()+'</div>'+
+ '<div class="ph-sheet" style="bottom:84px;height:300px">'+
+ '<div class="grab"></div>'+
+ '<div style="padding:4px 16px 8px"><div style="font:500 14px var(--sans);color:var(--bright)">Vhal Serai · town</div><div style="font:10.5px var(--mono);color:var(--dim)">412 m · temperate forest · sample pin</div></div>'+
+ '<div class="pchips">'+
+ '<div class="pchip">Open note<span class="mk B">B</span></div>'+
+ '<div class="pchip">Add event<span class="mk P">P</span></div>'+
+ '<div class="pchip">Journey from here<span class="mk P">P</span></div>'+
+ '<div class="pchip">City viewer<span class="mk B">B</span></div></div>'+
+ '<div style="padding:0 16px;font-size:11px;color:var(--faint)">Drag up for the full card (every row of A4, 52 dp rows). Long-press is 480 ms and drops the pin and opens the verbs (MAP_CONTEXT_SCOPE fork F1, recommended (a)).</div>'+
+ '</div>'+
+ '<div class="ph-nav" style="bottom:20px"><div class="on"><span>▤</span>MAP</div><div><span>⌗</span>GENERATE</div><div><span>➔</span>PLAN</div><div><span>⋯</span>MORE</div></div><div class="ph-gest"></div></div>';
+b8.innerHTML=phoneMore+phonePeek;
+
+/* ------------------------------------------------------------------ inventory */
+var invRows=[];
+function collect(menu,rows){rows.forEach(function(r){if(r[3]) invRows.push([menu,r[1],r[2]||"",r[3],r[4]||"",r[5]||""]);});}
+collect("File",P_FILE);collect("File ▸ Export",P_EXPORT);collect("World",P_WORLD);collect("Story",P_STORY);collect("Window",P_WIN);
+PRO_NODES.forEach(function(n){if(n[3]) invRows.push(["Rail",n[1],"",n[3],n[4],n[5]]);});
+CARD_PRO.forEach(function(r){if(r[2]) invRows.push(["Context card",r[1],"",r[2],r[3]||"",r[4]||""]);});
+var t='<table class="inv"><tr><th>Where</th><th>Row</th><th>Key</th><th>Mark</th><th>Tooltip / reason</th><th>Checked against</th></tr>';
+invRows.forEach(function(r){t+='<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td class="sym">'+esc(r[2])+'</td><td>'+mark(r[3])+'</td><td>'+esc(r[4])+'</td><td class="sym">'+esc(r[5])+'</td></tr>';});
+document.getElementById("invbody").innerHTML=t+'</table>';
+
+/* ------------------------------------------------------------------ hover tooltips */
+var ht=document.getElementById("hovertip");
+document.addEventListener("mouseover",function(e){
+  var el=e.target.closest("[data-tip]"); if(!el||!el.dataset.tip){ht.classList.add("hide");return;}
+  ht.innerHTML=(el.dataset.dis==="1"?'<span class="why">'+esc(el.dataset.tip)+'</span>':esc(el.dataset.tip))+(el.dataset.sym?'<span class="sym">'+esc(el.dataset.sym)+'</span>':"");
+  ht.classList.remove("hide");
+  var r=el.getBoundingClientRect(); var x=Math.min(r.right+8, window.innerWidth-340); var y=r.top;
+  if(x<r.right) y=r.bottom+4;
+  ht.style.left=x+"px"; ht.style.top=Math.min(y, window.innerHeight-90)+"px";
+});
+
+/* ------------------------------------------------------------------ theme + capture hash */
+function setTheme(t){document.documentElement.setAttribute("data-theme",t);
+  Array.prototype.forEach.call(document.querySelectorAll("#themeSeg button"),function(b){b.classList.toggle("on",b.dataset.t===t);});}
+Array.prototype.forEach.call(document.querySelectorAll("#themeSeg button"),function(b){b.onclick=function(){setTheme(b.dataset.t);};});
+var ht2=/theme=(light|dark)/.exec(location.hash); setTheme(ht2?ht2[1]:"dark");
+var only=/only=([a-z0-9]+)/.exec(location.hash);
+if(only){
+  Array.prototype.forEach.call(document.querySelectorAll("body > *"),function(el){if(el.id!==only[1]&&el.tagName!=="SCRIPT"&&el.id!=="hovertip")el.classList.add("hide");});
+  document.body.style.padding="8px";
+}
+})();
+</script>
+</body>
+</html>
