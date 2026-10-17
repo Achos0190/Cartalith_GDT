@@ -1039,6 +1039,69 @@ budget, 3x3 windows of 16x16 tiles, z5..z10).
   included), and conform the parent fallback too or the edge fades back during a
   morph. The implementation landed in `elevation.rs`, not `bake.rs`/`lod_bridge.rs`.
 
+**EF-9.4 built (2026-10-17): wired behind a toggle that stays OFF -- it does not
+pass every bar.** No settlement, river or civ golden is touched (EF-9.4 is a
+display path; Ruling N's siting gate does not arise).
+
+- **Wiring.** `cartalith-godot/src/ef9_bridge.rs`: `lod_ef9_select` (the view's
+  `select_tiles` with `FITTED_WEIGHTS`, Q2 policy ranks from the civ layer's
+  settlements and visible ways, unbounded promotion budget so `PROMOTE_PERCENT`
+  is the cap) plus `lod_request_tile_conformed` / `lod_synthesize_tile_conformed`.
+  Importance rasters, policy inputs and tile scores are cached per world
+  (`Ef9Cache`, keyed on world epoch, Height and Civ stage versions, grid, sea level,
+  wrap, map width; a key change rebuilds whole -- incremental refresh is EF-9.5).
+  Engine: `elevation::conform_tile_in_place` (EF-9.3's rule over a padded tile,
+  the body `world_elevation_tile_conformed` now calls), `subdivision::conform_plan`
+  and `neighbour_rects` (an 8-neighbour mask per tile at its own level; same-level
+  rects conform bit-identically to the coarse rect, tested), and
+  `importance::PolicyField` (EF-9.0's settlement/way aggregation; the harness keeps
+  its own copy). The tile path conforms the padded shading tile and the water tile;
+  a conformed tile is keyed `z,c,r~mask` everywhere (worker in-flight set, ready
+  queue, shell cache).
+- **Display model.** A promoted region is drawn as if one level deeper: its four
+  `z0+1` children fade in by `z0`'s morph over the promoted `z0` tile drawn whole,
+  that fallback conformed toward `z0-1` along unpromoted edges, so in elevation the
+  shared edge shows the same blend on both sides. In the entry band (no parent level
+  yet) the fallback is the plain `z0` tile in its ordinary role, so the layer still
+  fades in against the base map. A live conformed tile stands in for a wanted plain
+  tile at the same address until the plain one lands (without it, zoom-while-pan
+  showed 1-7 holey frames per world, up to 180 411 px, against none off).
+- **Toggle.** `LodBudget::ef9_refine`, `false` on every tier (Q5); session override
+  `viewport_host.gd::set_ef9_refine`. Off, `_ef9_roles` is empty and every branch is
+  today's by control flow.
+
+Measured windowed, scratch `git archive` copy, debug DLL built from HEAD 6f6589fa
+plus this change; `_lodsweep_probe.gd --no-sheet --ef9 off|on`, three seeds x two
+grids x sweep/pan/zoompan, each run alone:
+
+| Bar | Off | On |
+|---|---|---|
+| Toggle off bit-identical (`--frames`, 24 settled captures, zoom 4/8/16/40, vs a HEAD build) | 24/24 byte-identical (`--ef9 off` and tier default) | -- |
+| Positive control (pixels move) | -- | 36/36 payoff views; `--frames` 24/24 differ |
+| Pops | 2 (24601/512 pan) | 0 |
+| I3: tile deeper than the cap | -- | 0 frames (deepest 10 at cap 10) |
+| I4: seam ratio median <= 1.5, mixed levels on screen (37-174 mixed frames per run) | 18/18 (max 1.498) | **17/18**: 24601/512 zoompan **1.616** |
+| Holes after the first built frame | 195 holey frames (fails already) | 155 holey frames (fails); pan runs rise on 4 of 6 |
+| D3 level-boundary ratio <= 1.5 | 10/12 | 10/12; 24601/512 zoompan **2.05** (off 1.24) |
+| Payoff: detail per screen px over promoted tiles, on/off | -- | median ratio >= 1 in 36/36 views (1.009..2.614, median 1.48) |
+| Frame time, median of run medians (min..max) | 1.42 ms (1.15..1.84) | 2.29 ms (1.32..3.40) |
+| Camera-step cost, median of run medians (min..max) | 33.0 ms (32.5..33.1) | 37.2 ms (32.7..42.0) |
+| Worst frame / worst step | 19.7 ms / 59.8 ms | 18.1 ms / 58.6 ms |
+| Tile synthesis, plain vs mask 255, median (n=8) | z4 6.8 / z10 10.1 ms | z4 7.0 / z10 12.2 ms |
+
+**Why it stays off.** I4 fails on one configuration and the level-boundary ratio
+on the same one; the screenshots show the reason the seam ratio rises everywhere
+(+0.03 to +0.2): a promoted tile's edge is bit-equal in **elevation** but the two
+levels **shade** at different texel spacings, so texture density changes along a
+straight tile edge (seed 24601, 512x384, zoom 16: a visible vertical line where
+the detailed promoted ground meets the smoother neighbour). `lod_bridge`'s
+`a_conformed_tile_meets_its_coarser_neighbour_in_colour` measures the same thing
+in colour: conformed 3.21 vs plain 4.63 levels at the coincident texels, so
+conforming removes about a third of the colour jump, not all of it. Closing it
+needs a colour/shading-side blend across the band (not only heights), which is
+new design work, not a tuning of this one. Also open: the first EF-9 call per
+world builds the importance rasters on the main thread (not timed separately).
+
 ### 8.5 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below

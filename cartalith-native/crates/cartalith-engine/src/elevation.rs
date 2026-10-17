@@ -422,36 +422,91 @@ fn conformed_with_band(
         .iter()
         .map(|c| pyramid_tile_bounds(p.gw, p.gh, zc as i32, c.col, c.row))
         .collect();
-    let b = pyramid_tile_bounds(p.gw, p.gh, id.z as i32, id.col, id.row);
     let (w, h) = (tile.w, tile.h);
-    // Texels per coordinate unit on each axis; `w, h >= 2` (MIN_TILE_PX, and
-    // `tile_dims` floors the derived axis at 2), so no divide by zero.
+    conform_tile_in_place(field, p.gw, p.gh, id, w, h, 0, &mut tile.data, &rects, &opts, band_texels);
+    Some(tile)
+}
+
+/// **EF-9.3's geomorph, applied to a tile already in hand** -- the body of
+/// [`world_elevation_tile_conformed`], lifted out for EF-9.4 so the live
+/// deep-zoom tile (`cartalith-godot`'s `lod_bridge`, which amplifies its own
+/// padded tile from the shaded field) runs the *same* rule rather than a copy.
+///
+/// `data` is a `(w + 2·pad) × (h + 2·pad)` tile of level `id.z` over
+/// `coarse` (`cw × ch`), laid out as
+/// [`crate::bake::pyramid_tile_padded`] lays it out: texel `(i, j)` of the
+/// padded grid sits at coarse coordinate `b.x + ((i - pad) / (w - 1)) * b.w`
+/// (and likewise in `y`), `b = pyramid_tile_bounds(cw, ch, id.z, ...)` --
+/// the expression `add_zoom_detail_padded` evaluates, so a texel is pulled at
+/// exactly the position it was built at. `pad == 0` is the unpadded tile.
+///
+/// Every texel within `band_texels` (in this tile's texels) of any rect in
+/// `near` is pulled toward the level-`(id.z - 1)` field `F_{z-1}`:
+/// `out = F_z (1 - m) + F_{z-1} m`, `m = conform_weight(dist, band)` with
+/// `dist` the distance to the nearest rect. `near` holds the ground that is
+/// drawn one level coarser beside this tile: for a promoted child it is the
+/// unpromoted neighbours' rects, for EF-9.4's parent fallback the unpromoted
+/// same-level neighbours' rects -- the rule only needs the ground, not the
+/// level it was named at. Rects that are not near the tile contribute `0`.
+///
+/// Returns whether anything could have changed: `false` (and `data`
+/// untouched) when `near` is empty, `id.z == 0` (there is no coarser level),
+/// `w` or `h` is below 2, the grid is degenerate, or `data`/`coarse` is too
+/// short. Never panics on those, because its live caller is on the far side
+/// of the gdext boundary.
+///
+/// Row-parallel (rayon): each texel reads only the frozen `coarse` and its own
+/// `data[i]`, so the result is bit-identical to the serial loop EF-9.3 shipped
+/// (`world_elevation_tile_conformed`'s tests pin that loop's output and now
+/// run through this function).
+#[allow(clippy::too_many_arguments)]
+pub fn conform_tile_in_place(
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    id: ChunkId,
+    w: usize,
+    h: usize,
+    pad: usize,
+    data: &mut [f32],
+    near: &[cartalith_spatial::FloatRegion],
+    opts: &AmplifyOpts,
+    band_texels: f64,
+) -> bool {
+    use rayon::prelude::*;
+    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    if near.is_empty() || id.z == 0 || w < 2 || h < 2 || cw < 2 || ch < 2 || data.len() < pw * ph || coarse.len() < cw * ch {
+        return false;
+    }
+    let zc = id.z as i32 - 1;
+    let b = pyramid_tile_bounds(cw, ch, id.z as i32, id.col, id.row);
+    // Texels per coordinate unit on each axis; `w, h >= 2` above, and a
+    // pyramid step is positive on a `cw, ch >= 2` grid, so no divide by zero.
     let sx = (w as f64 - 1.0) / b.w;
     let sy = (h as f64 - 1.0) / b.h;
-    for j in 0..h {
-        // The same coordinate expression `amplify_region` uses, so a texel's
-        // position here is bit-identical to the one its tile was built at.
-        let cy = b.y + (j as f64 / (h as f64 - 1.0)) * b.h;
-        for i in 0..w {
-            let cx = b.x + (i as f64 / (w as f64 - 1.0)) * b.w;
+    let padf = pad as f64;
+    data[..pw * ph].par_chunks_mut(pw).enumerate().for_each(|(j, row)| {
+        // The same coordinate expression `amplify_region` / `add_zoom_detail_padded`
+        // use, so a texel's position here is bit-identical to the one its tile
+        // was built at (`j - pad` is exactly `j` at `pad == 0`).
+        let jj = j as f64 - padf;
+        let cy = b.y + (jj / (h as f64 - 1.0)) * b.h;
+        for (i, cell) in row.iter_mut().enumerate() {
+            let ii = i as f64 - padf;
+            let cx = b.x + (ii / (w as f64 - 1.0)) * b.w;
             let mut dist = f64::INFINITY;
-            for r in &rects {
+            for r in near {
                 dist = f64::min(dist, rect_distance_texels(cx, cy, r, sx, sy));
             }
             let m = conform_weight(dist, band_texels);
             if m <= 0.0 {
                 continue;
             }
-            let c = sample_elevation(field, p.gw, p.gh, cx, cy, zc as i32, &opts);
-            let at = j * w + i;
-            tile.data[at] = if m >= 1.0 {
-                c
-            } else {
-                (f64::from(tile.data[at]) * (1.0 - m) + f64::from(c) * m) as f32
-            };
+            let c = sample_elevation(coarse, cw, ch, cx, cy, zc, opts);
+            *cell = if m >= 1.0 { c } else { (f64::from(*cell) * (1.0 - m) + f64::from(c) * m) as f32 };
         }
-    }
-    Some(tile)
+    });
+    true
 }
 
 /// Sum of squared discrete Laplacians over the interior of a `w x h` patch:
@@ -1010,6 +1065,125 @@ mod tests {
         assert!(world_elevation_tile_conformed(&ws, &p, ChunkId::new(0, 0, 0), MIX_TS, &[]).is_some());
         assert!(world_elevation_tile_conformed(&ws, &p, ChunkId::new(5, 32, 0), MIX_TS, &[ok]).is_none(), "tile outside its level");
         assert!(world_elevation_tile_conformed(&ws, &p, fid, 1, &[ok]).is_none(), "tile size below the NaN floor");
+    }
+
+    // -- EF-9.4: the in-place form the live tile runs ---------------------
+
+    /// A padded tile conformed in place has, in its core, exactly the texels of
+    /// [`world_elevation_tile_conformed`] -- so the live deep-zoom tile (which
+    /// carries a shading halo) runs EF-9.3's rule, not a copy of it.
+    #[test]
+    fn a_padded_tile_conformed_in_place_has_the_conformed_tile_as_its_core() {
+        // Protects: `conform_tile_in_place`'s `pad` handling -- the `j - pad` /
+        // `i - pad` coordinate shift. A mutant that drops the shift (or adds it
+        // twice) moves every core texel inside the band by a halo's width of
+        // ground and fails the bit comparison; the `moved` count proves the
+        // band actually reached the core (a comparison of two plain tiles
+        // would pass vacuously).
+        let (ws, p) = seeded(4242);
+        let fid = ChunkId::new(5, 12, 8);
+        let coarse_n = ChunkId::new(4, 5, 4); // west of fid's parent (6, 4)
+        let want = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[coarse_n]).expect("conformed");
+        let plain = world_elevation_tile(&ws, &p, fid, MIX_TS).expect("plain");
+        let opts = world_amplify_opts(&ws, &p, MIX_TS);
+        let pad = 3usize;
+        let (w, h, mut data) = crate::bake::pyramid_tile_padded(&ws.field, GW, GH, fid, MIX_TS, pad, &opts);
+        assert_eq!((w, h), (want.w, want.h));
+        let rect = pyramid_tile_bounds(GW, GH, 4, coarse_n.col, coarse_n.row);
+        assert!(conform_tile_in_place(&ws.field, GW, GH, fid, w, h, pad, &mut data, &[rect], &opts, CONFORM_BAND_TEXELS));
+        let pw = w + 2 * pad;
+        let mut moved = 0usize;
+        for j in 0..h {
+            for i in 0..w {
+                let got = data[(j + pad) * pw + i + pad];
+                assert_eq!(got.to_bits(), want.data[j * w + i].to_bits(), "core texel ({i},{j})");
+                moved += usize::from(got.to_bits() != plain.data[j * w + i].to_bits());
+            }
+        }
+        assert!(moved > 100, "only {moved} core texels were pulled; the band never reached the core");
+    }
+
+    /// The halo is conformed at its own ground position: a halo texel equals the
+    /// hand-computed blend of the two levels there.
+    #[test]
+    fn a_halo_texel_is_pulled_at_its_own_ground_position() {
+        // Protects: the halo half of the coordinate mapping -- a texel left of
+        // the core (`i < pad`) sits at a NEGATIVE offset from `b.x`, inside the
+        // coarse neighbour, so it must carry F_{z-1} exactly (distance 0, m=1).
+        // A mapping that clamped `i - pad` at 0, or skipped the halo, leaves it
+        // at the plain value.
+        let (ws, p) = seeded(4242);
+        let fid = ChunkId::new(5, 12, 8);
+        let zc = 4u32;
+        let coarse_n = ChunkId::new(zc, 5, 4);
+        let opts = world_amplify_opts(&ws, &p, MIX_TS);
+        let pad = 3usize;
+        let (w, h, mut data) = crate::bake::pyramid_tile_padded(&ws.field, GW, GH, fid, MIX_TS, pad, &opts);
+        let before = data.clone();
+        let rect = pyramid_tile_bounds(GW, GH, zc as i32, coarse_n.col, coarse_n.row);
+        conform_tile_in_place(&ws.field, GW, GH, fid, w, h, pad, &mut data, &[rect], &opts, CONFORM_BAND_TEXELS);
+        let b = pyramid_tile_bounds(GW, GH, fid.z as i32, fid.col, fid.row);
+        let pw = w + 2 * pad;
+        let mut differed = 0usize;
+        for j in (pad..pad + h).step_by(17) {
+            let i = 0usize; // the outermost halo column, three texels west of the core
+            let cx = b.x + ((i as f64 - pad as f64) / (w as f64 - 1.0)) * b.w;
+            let cy = b.y + ((j as f64 - pad as f64) / (h as f64 - 1.0)) * b.h;
+            let c = sample_elevation(&ws.field, GW, GH, cx, cy, zc as i32, &opts);
+            assert_eq!(data[j * pw + i].to_bits(), c.to_bits(), "halo texel ({i},{j}) is not F_z-1 at its position");
+            differed += usize::from(c.to_bits() != before[j * pw + i].to_bits());
+        }
+        assert!(differed > 3, "the two levels agreed at {differed} sampled halo texels; the check had no teeth");
+    }
+
+    /// The rule needs the ground, not the level it was named at: the two
+    /// level-`z` neighbours that make up a coarse neighbour's adjacent column
+    /// conform a tile exactly as the coarse tile itself does.
+    #[test]
+    fn same_level_neighbour_rects_conform_exactly_as_the_coarse_tile_does() {
+        // Protects: EF-9.4's encoding of a promoted child's coarse ground as an
+        // 8-neighbour mask AT THE CHILD'S OWN LEVEL (`cartalith_engine::subdivision::conform_plan`
+        // and `cartalith_godot`'s `lod_bridge` resolve the bits to same-level
+        // rects). Within the 16-texel band the distance to the union of the
+        // adjacent sub-rects is the distance to the coarse rect, so the tiles
+        // must agree bit for bit; if they did not, every live conformed tile
+        // would differ from EF-9.3's measured one.
+        let (ws, p) = seeded(4242);
+        let opts = world_amplify_opts(&ws, &p, MIX_TS);
+        // fid (5, 12, 8) is the NW child of (4, 6, 4); its west coarse
+        // neighbour (4, 5, 4) contributes the level-5 tiles (11, 8) [W] and
+        // (11, 9) [SW] to fid's 8-neighbourhood.
+        let fid = ChunkId::new(5, 12, 8);
+        let coarse = pyramid_tile_bounds(GW, GH, 4, 5, 4);
+        let subs = [pyramid_tile_bounds(GW, GH, 5, 11, 8), pyramid_tile_bounds(GW, GH, 5, 11, 9)];
+        let (w, h, a0) = crate::bake::pyramid_tile_padded(&ws.field, GW, GH, fid, MIX_TS, 2, &opts);
+        let (mut a, mut bb) = (a0.clone(), a0.clone());
+        conform_tile_in_place(&ws.field, GW, GH, fid, w, h, 2, &mut a, &[coarse], &opts, CONFORM_BAND_TEXELS);
+        conform_tile_in_place(&ws.field, GW, GH, fid, w, h, 2, &mut bb, &subs, &opts, CONFORM_BAND_TEXELS);
+        assert_eq!(a.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), bb.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        assert_ne!(a, a0, "the coarse neighbour must actually pull something");
+    }
+
+    /// Every refusal leaves the tile untouched and says so.
+    #[test]
+    fn the_in_place_form_refuses_without_touching_the_tile() {
+        // Protects: the guards that keep a viewport caller from panicking --
+        // an empty `near`, level 0, a too-short buffer and a degenerate grid
+        // each return `false` with the data bit-identical, never an index past
+        // the end.
+        let (ws, p) = seeded(9);
+        let opts = world_amplify_opts(&ws, &p, MIX_TS);
+        let fid = ChunkId::new(5, 12, 8);
+        let r = pyramid_tile_bounds(GW, GH, 4, 5, 4);
+        let (w, h, d0) = crate::bake::pyramid_tile_padded(&ws.field, GW, GH, fid, MIX_TS, 1, &opts);
+        let mut d = d0.clone();
+        assert!(!conform_tile_in_place(&ws.field, GW, GH, fid, w, h, 1, &mut d, &[], &opts, CONFORM_BAND_TEXELS), "empty near");
+        assert!(!conform_tile_in_place(&ws.field, GW, GH, ChunkId::new(0, 0, 0), w, h, 1, &mut d, &[r], &opts, CONFORM_BAND_TEXELS), "level 0");
+        let mut short = d0[..d0.len() - 1].to_vec();
+        assert!(!conform_tile_in_place(&ws.field, GW, GH, fid, w, h, 1, &mut short, &[r], &opts, CONFORM_BAND_TEXELS), "short data");
+        assert!(!conform_tile_in_place(&ws.field, 1, GH, fid, w, h, 1, &mut d, &[r], &opts, CONFORM_BAND_TEXELS), "degenerate grid");
+        assert_eq!(d, d0);
+        assert!(conform_tile_in_place(&ws.field, GW, GH, fid, w, h, 1, &mut d, &[r], &opts, CONFORM_BAND_TEXELS), "the control must run");
     }
 
     // -- determinism --------------------------------------------------------

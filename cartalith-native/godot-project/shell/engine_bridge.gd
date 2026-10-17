@@ -8161,6 +8161,32 @@ func lod_request_tile(z: int, col: int, row: int) -> bool:
 		return false
 	return world_gen.lod_request_tile(z, col, row)
 
+## **EF-9.4.** `lod_request_tile` for a tile drawn beside coarser ground:
+## `conform` is its 8-neighbour mask from `lod_ef9_select()` (`WorldGen`'s
+## `ef9_bridge.rs`). `false` against a `.dll` without it -- the caller then
+## asks again next frame, as for any refusal, and never draws a conformed key
+## from a plain request.
+func lod_request_tile_conformed(z: int, col: int, row: int, conform: int) -> bool:
+	if not _has("lod_request_tile_conformed"):
+		return false
+	return world_gen.lod_request_tile_conformed(z, col, row, conform)
+
+## **EF-9.4.** The synchronous `lod_synthesize_tile` for a conformed tile;
+## `null` against a `.dll` without it, which `_build_lod_tile` reads as "no tile".
+func lod_synthesize_tile_conformed(z: int, col: int, row: int, conform: int) -> Texture2D:
+	if not _has("lod_synthesize_tile_conformed"):
+		return null
+	return world_gen.lod_synthesize_tile_conformed(z, col, row, conform)
+
+## **EF-9.4.** EF-9.2's tile selection for the view the viewport is drawing --
+## `{basis, promoted, tiles, order, fallbacks, terms_missing, policy}`, see
+## `WorldGen::lod_ef9_select`. `{}` against a `.dll` without it, which the
+## viewport reads as "draw today's way".
+func lod_ef9_select(z0: int, z_cap: int, c0: int, c1: int, r0: int, r1: int) -> Dictionary:
+	if not _has("lod_ef9_select"):
+		return {}
+	return world_gen.lod_ef9_select(z0, z_cap, c0, c1, r0, r1)
+
 ## Collect up to `max` finished tiles as `{z, col, row, tex}`. The textures
 ## are created inside the engine call, on the calling (main) thread -- the
 ## scope's *"the main thread uploads the texture"*.

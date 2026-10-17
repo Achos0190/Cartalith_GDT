@@ -146,7 +146,8 @@ impl TileImportanceInputs {
 }
 
 /// A world's rasters, prepared once so any number of tiles can be aggregated
-/// cheaply. EF-9.4 will cache one of these per world.
+/// cheaply. EF-9.4 caches one per world (`cartalith_godot`'s `ef9_bridge.rs`,
+/// `Ef9Cache`), rebuilt whole when the world's height or sea level moves.
 ///
 /// Holds the coarse-grid derivatives (slope, `|curvature|`, `|tpi|`) and a land
 /// mask computed from the field at construction, plus the three optional
@@ -494,6 +495,93 @@ pub fn policy_rank(p: &PolicyInputs) -> Option<u8> {
     any.then_some(0)
 }
 
+/// **The Q2 policy inputs of a world, prepared once** (EF-9.4): settlement
+/// cells and way segments as plain numbers, because `cartalith-civ`'s types
+/// cannot be named here (`cartalith-civ` depends on this crate).
+///
+/// [`Self::inputs`] aggregates them over a tile's [`footprint_cells`] with
+/// EF-9.0's own definitions (`crates/cartalith-civ/tests/ef9_refinement_gain.rs`,
+/// `WorldInputs::features`): the settlement count is the settlements whose cell
+/// lies in the inclusive footprint, and the way length is the summed length of
+/// every segment clipped to the footprint's box `[x0, x1 + 1] x [y0, y1 + 1]`
+/// in cell units ([`clipped_length`]). **That harness still carries its own
+/// copy** of the aggregation (with a spatial bin index this does not need: the
+/// live caller scores a view's few dozen tiles once each and caches them); the
+/// unit tests below pin this one against hand-computed values.
+///
+/// A world without a civ layer has no `PolicyField` at all (`None` at the
+/// caller), which [`policy_rank`] reads as "no information" -- never as a
+/// count of zero.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PolicyField {
+    gw: usize,
+    gh: usize,
+    settlements: Vec<(usize, usize)>,
+    segs: Vec<[f64; 4]>,
+}
+
+impl PolicyField {
+    /// From settlement cells and way polylines (cell coordinates). Hidden ways
+    /// are the caller's to drop, as EF-9.0 did (`!w.hidden`). `None` for a grid
+    /// smaller than 1 in an axis.
+    #[must_use]
+    pub fn new(gw: usize, gh: usize, settlements: Vec<(usize, usize)>, ways: &[Vec<(f64, f64)>]) -> Option<Self> {
+        if gw == 0 || gh == 0 {
+            return None;
+        }
+        let segs = ways.iter().flat_map(|pts| pts.windows(2).map(|s| [s[0].0, s[0].1, s[1].0, s[1].1])).collect();
+        Some(Self { gw, gh, settlements, segs })
+    }
+
+    /// The tile's policy inputs over its footprint. Both terms are present
+    /// (`Some`) -- a world with a civ layer and no road in a tile has way length
+    /// `0.0`, which is a real zero.
+    #[must_use]
+    pub fn inputs(&self, bounds: &FloatRegion) -> PolicyInputs {
+        let (x0, x1, y0, y1) = footprint_cells(bounds, self.gw, self.gh);
+        let count = self.settlements.iter().filter(|&&(sx, sy)| sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1).count();
+        let (bx0, bx1, by0, by1) = (x0 as f64, (x1 + 1) as f64, y0 as f64, (y1 + 1) as f64);
+        let way = self.segs.iter().map(|s| clipped_length((s[0], s[1]), (s[2], s[3]), bx0, bx1, by0, by1)).sum();
+        PolicyInputs { settlement_count: Some(count as f64), way_length: Some(way) }
+    }
+}
+
+/// Length of segment `p -> q` inside the axis-aligned box `[x0, x1] x [y0, y1]`
+/// (Liang-Barsky); `0` when outside or degenerate. Copied verbatim from EF-9.0's
+/// harness (`crates/cartalith-civ/tests/ef9_refinement_gain.rs`,
+/// `clipped_length`) so the live policy term measures roads exactly as the
+/// measurement did. `f64::hypot` as there: this is an order key, not a value
+/// compared against the JS reference, so `js_hypot` is not required.
+#[must_use]
+pub fn clipped_length(p: (f64, f64), q: (f64, f64), x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
+    let (dx, dy) = (q.0 - p.0, q.1 - p.1);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (pp, qq) in [(-dx, p.0 - x0), (dx, x1 - p.0), (-dy, p.1 - y0), (dy, y1 - p.1)] {
+        if pp == 0.0 {
+            if qq < 0.0 {
+                return 0.0;
+            }
+        } else {
+            let r = qq / pp;
+            if pp < 0.0 {
+                if r > t1 {
+                    return 0.0;
+                }
+                t0 = t0.max(r);
+            } else {
+                if r < t0 {
+                    return 0.0;
+                }
+                t1 = t1.min(r);
+            }
+        }
+    }
+    if t1 <= t0 {
+        return 0.0;
+    }
+    (t1 - t0) * dx.hypot(dy)
+}
+
 /// **Synthesis order within one level** (Q2): indices sorted by policy rank
 /// first (rank 1 before rank 0 or `None`), then by importance score
 /// descending (a `None` score last), then by index so the result is total and
@@ -614,6 +702,39 @@ mod tests {
     /// The footprint `[0, 4) x [0, 4)`: coarse cells `0..=3` on both axes.
     fn quad() -> FloatRegion {
         FloatRegion { x: 0.0, y: 0.0, w: 4.0, h: 4.0 }
+    }
+
+    /// Protects: `PolicyField::inputs` on hand-counted values -- settlements
+    /// counted by inclusive footprint cell (the one at (3, 3) is in `quad()`'s
+    /// cells 0..=3, the one at (4, 0) is not), and way length clipped to the
+    /// footprint's box `[0, 4] x [0, 4]`: a segment from (2, 1) to (6, 1) has
+    /// 2.0 of its 4.0 inside, a diagonal (0, 0)-(4, 4) all of its 4 sqrt 2, one
+    /// at y = 6 none. Both terms present (`Some`), and an empty civ layer gives
+    /// real zeros, which `policy_rank` reads as rank 0 (present, not raised).
+    #[test]
+    fn policy_inputs_count_settlements_and_clip_ways_to_the_footprint() {
+        let ways = vec![vec![(2.0, 1.0), (6.0, 1.0)], vec![(0.0, 0.0), (4.0, 4.0)], vec![(0.0, 6.0), (7.0, 6.0)]];
+        let pf = PolicyField::new(N, N, vec![(3, 3), (4, 0), (1, 2)], &ways).expect("grid");
+        let got = pf.inputs(&quad());
+        assert_eq!(got.settlement_count, Some(2.0));
+        let want = 2.0 + 4.0 * 2.0f64.sqrt();
+        assert!((got.way_length.unwrap() - want).abs() < 1e-12, "{:?} vs {want}", got.way_length);
+        let empty = PolicyField::new(N, N, Vec::new(), &[]).unwrap().inputs(&quad());
+        assert_eq!(empty, PolicyInputs { settlement_count: Some(0.0), way_length: Some(0.0) });
+        assert_eq!(policy_rank(&empty), Some(0));
+        assert_eq!(policy_rank(&got), Some(1));
+        assert!(PolicyField::new(0, N, Vec::new(), &[]).is_none());
+    }
+
+    /// Protects: `clipped_length`'s parallel-outside and fully-outside early
+    /// returns and its interior case, on literals (it was copied from the
+    /// EF-9.0 harness, whose own test pins the same three cases).
+    #[test]
+    fn clipped_length_is_the_length_inside_the_box() {
+        assert_eq!(clipped_length((0.0, 5.0), (3.0, 5.0), 0.0, 4.0, 0.0, 4.0), 0.0, "parallel and outside");
+        assert_eq!(clipped_length((5.0, 5.0), (9.0, 9.0), 0.0, 4.0, 0.0, 4.0), 0.0, "outside");
+        assert_eq!(clipped_length((1.0, 1.0), (3.0, 1.0), 0.0, 4.0, 0.0, 4.0), 2.0, "inside");
+        assert_eq!(clipped_length((-2.0, 2.0), (6.0, 2.0), 0.0, 4.0, 0.0, 4.0), 4.0, "crossing");
     }
 
     /// A `WorldState` carrying only the grids this module reads; the rest are

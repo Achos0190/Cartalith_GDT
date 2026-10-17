@@ -101,6 +101,15 @@ pub struct LodBudget {
     /// `256*256*4` = 262 kB of output) and how long a stale generation takes
     /// to drain after a world change.
     pub max_in_flight: usize,
+    /// **EF-9.4's toggle**, beside the budget values it spends: whether the
+    /// viewport draws importance-driven refinement
+    /// (`cartalith_engine::subdivision::select_tiles`) instead of one level for
+    /// the whole view. **`false` on every tier**: Q5's default
+    /// (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5) is *"off until EF-9.4
+    /// passes every bar"*, and the bars are recorded in §8.4 rather than here.
+    /// The shell may override it per session (`viewport_host.gd`'s
+    /// `set_ef9_refine`), which is how the D0 harness measures both states.
+    pub ef9_refine: bool,
 }
 
 /// The budget for one quality tier.
@@ -161,10 +170,10 @@ pub struct LodBudget {
 /// re-deriving.
 pub fn budget_for_tier(tier: QualityTier) -> LodBudget {
     match tier {
-        QualityTier::Performance => LodBudget { tiles_per_update: 16, tiles_per_catchup: 3, max_level: lod_bridge::MAX_LEVEL - 1, cache_tiles: 32, max_in_flight: 2 },
-        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 32, max_in_flight: 3 },
-        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 4 },
-        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 6 },
+        QualityTier::Performance => LodBudget { tiles_per_update: 16, tiles_per_catchup: 3, max_level: lod_bridge::MAX_LEVEL - 1, cache_tiles: 32, max_in_flight: 2, ef9_refine: false },
+        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 32, max_in_flight: 3, ef9_refine: false },
+        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 4, ef9_refine: false },
+        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 6, ef9_refine: false },
     }
 }
 
@@ -897,6 +906,16 @@ impl LodSnapshot {
     /// again would recompute two full-grid distance transforms per tile and
     /// overwrite them with identical values.
     pub fn render_tile(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
+        self.render_tile_conformed(z, col, row, 0)
+    }
+
+    /// **EF-9.4** -- [`Self::render_tile`] for a tile drawn beside ground one
+    /// level coarser, `conform` being its 8-neighbour mask
+    /// (`lod_bridge::synthesize_tile_rgba_rivers_conformed`). `0` is
+    /// `render_tile`; the attachments, their order and the coloriser are the
+    /// same call for both, so a conformed tile differs from a plain one only by
+    /// its heights.
+    pub fn render_tile_conformed(&self, z: i32, col: i32, row: i32, conform: u8) -> Option<(Vec<u8>, usize, usize)> {
         // RV-3: shaded from `shade` when there is one, water from `field`,
         // exactly as `build` built the precompute.
         let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
@@ -917,7 +936,7 @@ impl LodSnapshot {
             tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref())
+        lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref(), conform)
     }
 
     /// The borrowed inputs an info tile reads (LOD-D7). One constructor, so the
@@ -1211,6 +1230,10 @@ pub struct ReadyTile {
     pub z: i32,
     pub col: i32,
     pub row: i32,
+    /// EF-9.4's conform mask the tile was drawn with (`0` = the plain tile).
+    /// Part of the tile's identity: the shell keys a conformed tile apart from
+    /// the plain one at the same `(z, col, row)`.
+    pub conform: u8,
     pub w: usize,
     pub h: usize,
     pub rgba: Vec<u8>,
@@ -1252,7 +1275,9 @@ struct WorkerState {
     key: String,
     snapshot: Option<Arc<LodSnapshot>>,
     building: bool,
-    in_flight: HashSet<(i32, i32, i32)>,
+    /// `(z, col, row, conform)`: EF-9.4's mask is part of a tile's identity, so a
+    /// conformed and a plain request for one chunk are two jobs, not a duplicate.
+    in_flight: HashSet<(i32, i32, i32, u8)>,
     ready: Vec<ReadyTile>,
     /// LOD-D7: info tiles in flight / finished, keyed by view as well as
     /// `(z, col, row)` so two views of one tile never collide. Cleared with
@@ -1428,21 +1453,31 @@ impl LodWorker {
     /// in flight, already waiting in `ready`, or the tier's `max_in_flight`
     /// cap is full — and the caller simply asks again next frame.
     pub fn request(self: &Arc<Self>, z: i32, col: i32, row: i32, max_in_flight: usize) -> bool {
+        self.request_conformed(z, col, row, 0, max_in_flight)
+    }
+
+    /// [`Self::request`] for EF-9.4's conformed tile (`conform` != 0 is never
+    /// served from a stored pyramid, which holds plain tiles only). Same
+    /// refusals, same shared in-flight cap, same generation rule.
+    pub fn request_conformed(self: &Arc<Self>, z: i32, col: i32, row: i32, conform: u8, max_in_flight: usize) -> bool {
         let Some(pool) = pool() else { return false };
         let (snap, generation) = {
             let Ok(mut st) = self.state.lock() else { return false };
             let Some(snap) = st.snapshot.clone() else { return false };
-            let id = (z, col, row);
-            if st.in_flight.contains(&id) || st.ready.iter().any(|t| (t.z, t.col, t.row) == id) {
+            let id = (z, col, row, conform);
+            if st.in_flight.contains(&id) || st.ready.iter().any(|t| (t.z, t.col, t.row, t.conform) == id) {
                 return false;
             }
             // A seeded tile needs no job: it is already coloured. Handed
             // straight to `ready`, ahead of the in-flight cap, which exists
-            // to bound work and there is none.
-            if let Some((rgba, w, h)) = self.seeded_tile(&snap, z, col, row) {
-                self.seeded_served.fetch_add(1, Ordering::SeqCst);
-                st.ready.push(ReadyTile { z, col, row, w, h, rgba });
-                return true;
+            // to bound work and there is none. Plain tiles only: a stored
+            // pyramid holds no conformed variant.
+            if conform == 0 {
+                if let Some((rgba, w, h)) = self.seeded_tile(&snap, z, col, row) {
+                    self.seeded_served.fetch_add(1, Ordering::SeqCst);
+                    st.ready.push(ReadyTile { z, col, row, conform, w, h, rgba });
+                    return true;
+                }
             }
             if st.in_flight.len() >= max_in_flight.max(1) {
                 return false;
@@ -1453,16 +1488,16 @@ impl LodWorker {
         let me = Arc::clone(self);
         pool.spawn(move || {
             me.synthesized.fetch_add(1, Ordering::SeqCst);
-            let out = snap.render_tile(z, col, row);
+            let out = snap.render_tile_conformed(z, col, row, conform);
             let Ok(mut st) = me.state.lock() else { return };
-            st.in_flight.remove(&(z, col, row));
+            st.in_flight.remove(&(z, col, row, conform));
             if me.generation.load(Ordering::SeqCst) != generation {
                 st.dropped += 1;
                 return;
             }
             match out {
                 Some((rgba, w, h)) => {
-                    st.ready.push(ReadyTile { z, col, row, w, h, rgba });
+                    st.ready.push(ReadyTile { z, col, row, conform, w, h, rgba });
                     st.built += 1;
                 }
                 None => st.dropped += 1,
@@ -1625,12 +1660,21 @@ impl LodWorker {
     /// The synchronous path's entry point; [`Self::request`] applies the
     /// same rule before it spawns a job.
     pub fn tile(&self, snap: &LodSnapshot, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
-        if let Some(t) = self.seeded_tile(snap, z, col, row) {
-            self.seeded_served.fetch_add(1, Ordering::SeqCst);
-            return Some(t);
+        self.tile_conformed(snap, z, col, row, 0)
+    }
+
+    /// [`Self::tile`] for EF-9.4's conformed tile -- the synchronous path's
+    /// counterpart of [`Self::request_conformed`]; a stored pyramid serves only
+    /// `conform == 0`.
+    pub fn tile_conformed(&self, snap: &LodSnapshot, z: i32, col: i32, row: i32, conform: u8) -> Option<(Vec<u8>, usize, usize)> {
+        if conform == 0 {
+            if let Some(t) = self.seeded_tile(snap, z, col, row) {
+                self.seeded_served.fetch_add(1, Ordering::SeqCst);
+                return Some(t);
+            }
         }
         self.synthesized.fetch_add(1, Ordering::SeqCst);
-        snap.render_tile(z, col, row)
+        snap.render_tile_conformed(z, col, row, conform)
     }
 
     /// Take up to `max` finished tiles. Called on the main thread, which then
@@ -1788,6 +1832,48 @@ mod tests {
             assert_eq!((t.w, t.h), (direct[i].1, direct[i].2), "tile {:?} size", asked[i]);
             assert_eq!(t.rgba, direct[i].0, "tile {:?} bytes differ between the worker and the main thread", asked[i]);
         }
+    }
+
+    /// Protects: EF-9.4's conform mask as part of a tile's identity on the
+    /// worker. A plain and a conformed request for ONE chunk are two jobs (the
+    /// second is not refused as "already in flight"), each lands carrying its
+    /// own mask, each matches the main thread's `render_tile_conformed` byte for
+    /// byte, and the two differ (the mask reached the heights) -- while
+    /// `render_tile_conformed(.., 0)` is `render_tile` and the synchronous
+    /// `tile_conformed` agrees with both paths.
+    #[test]
+    fn a_conformed_and_a_plain_request_for_one_chunk_are_two_tiles() {
+        let snap = Arc::new(LodSnapshot::build(inputs(96, 72)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        // Tile (z5, col 14, row 10) sits on the fixture dome's flank, so its W,
+        // NW and SW neighbours (bits 3, 0, 5) are land with relief to pull
+        // toward. Level 5, not shallower: at or below `lod_bridge::z_base()` (4)
+        // `add_zoom_detail` adds nothing, so a level and its parent are the same
+        // field and conforming is a no-op (measured: a z3 tile came back
+        // byte-identical).
+        let (z, c, r, mask) = (5, 14, 10, 0b0010_1001u8);
+        let plain = snap.render_tile(z, c, r).expect("plain");
+        assert_eq!(snap.render_tile_conformed(z, c, r, 0), Some(plain.clone()), "mask 0 is the plain tile");
+        let conf = snap.render_tile_conformed(z, c, r, mask).expect("conformed");
+        assert!(conf.0 != plain.0, "the mask must move the tile, or this test proves nothing");
+        assert_eq!(worker.tile_conformed(&snap, z, c, r, mask), Some(conf.clone()), "synchronous path");
+        assert!(worker.request_conformed(z, c, r, 0, 8));
+        assert!(worker.request_conformed(z, c, r, mask, 8), "a conformed request is not a duplicate of the plain one");
+        assert!(!worker.request_conformed(z, c, r, mask, 8), "but a second conformed request is");
+        let mut got: Vec<ReadyTile> = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while got.len() < 2 && std::time::Instant::now() < deadline {
+            got.extend(worker.take_ready(4));
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(got.len(), 2, "both tiles must land");
+        for t in &got {
+            let want = if t.conform == 0 { &plain.0 } else { &conf.0 };
+            assert!(t.conform == 0 || t.conform == mask, "unexpected mask {}", t.conform);
+            assert!(&t.rgba == want, "worker tile with mask {} differs from the main thread", t.conform);
+        }
+        assert_ne!(got[0].conform, got[1].conform);
     }
 
     // -----------------------------------------------------------------
@@ -2047,6 +2133,10 @@ mod tests {
         assert_eq!((q.tiles_per_update, q.tiles_per_catchup, q.cache_tiles, q.max_in_flight, q.max_level), (48, 6, 35, 4, 10));
         let u = budget_for_tier(QualityTier::Ultra);
         assert_eq!((u.tiles_per_update, u.tiles_per_catchup, u.cache_tiles, u.max_in_flight, u.max_level), (48, 8, 35, 6, 10));
+        // EF-9.4's toggle ships off on every tier (Q5's default, "off until
+        // EF-9.4 passes every bar") -- a literal per tier, so turning one on is
+        // a deliberate, test-visible edit.
+        assert_eq!([p.ef9_refine, b.ef9_refine, q.ef9_refine, u.ef9_refine], [false; 4]);
         // **The memory bar, as a test rather than as a comment.** 60 MiB is
         // 62 914 560 B; the snapshot at 2048x1311 measured 53 698 560 B
         // (`_d6async_probe.gd` section 9, 2026-09-21) and a parked tile is

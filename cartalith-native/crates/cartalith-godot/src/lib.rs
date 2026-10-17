@@ -37,6 +37,7 @@ mod civ_tools_bridge;
 mod conflict_bridge;
 mod civ_trade_bridge;
 mod context_pick_bridge;
+mod ef9_bridge;
 mod erode_bridge;
 mod export_options;
 mod export_raster;
@@ -6927,6 +6928,12 @@ struct WorldGen {
     /// nothing Godot knows about. See `lod_worker`'s own module doc for why
     /// this is a Rust-side pool and not Godot's `WorkerThreadPool`.
     lod_worker: std::sync::Arc<lod_worker::LodWorker>,
+    /// **EF-9.4's per-world importance cache** (`ef9_bridge::Ef9Cache`): the
+    /// prepared rasters, Q2 policy inputs and tile scores
+    /// `lod_ef9_select` reads. A `RefCell` for the same reason [`Self::lod`]
+    /// is one: memoisation of a pure function of the world inside `&self`
+    /// `#[func]`s, borrowed and released within one call.
+    ef9: std::cell::RefCell<ef9_bridge::Ef9Cache>,
     /// The Generation rules window's world-level "active rules"
     /// (`URBAN_MORPHOLOGY_SCOPE.md`/design canvas artboard `1h`) —
     /// `cartalith_civ::urban_adapter::Rules` (re-exported from
@@ -7008,6 +7015,7 @@ impl IRefCounted for WorldGen {
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
             lod_worker: std::sync::Arc::new(lod_worker::LodWorker::default()),
+            ef9: std::cell::RefCell::new(ef9_bridge::Ef9Cache::default()),
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
@@ -18623,7 +18631,9 @@ impl WorldGen {
             let Some(tex) = ImageTexture::create_from_image(&image) else {
                 continue;
             };
-            out.push(&dict! { "z" => t.z, "col" => t.col, "row" => t.row, "tex" => &tex });
+            // `conform`: EF-9.4's mask the tile was drawn with (`0` = plain);
+            // the shell's key for the tile includes it.
+            out.push(&dict! { "z" => t.z, "col" => t.col, "row" => t.row, "conform" => i64::from(t.conform), "tex" => &tex });
         }
         out
     }
@@ -18684,6 +18694,7 @@ impl WorldGen {
             "max_level" => b.max_level,
             "cache_tiles" => b.cache_tiles as i64,
             "max_in_flight" => b.max_in_flight as i64,
+            "ef9_refine" => b.ef9_refine,
         }
     }
 

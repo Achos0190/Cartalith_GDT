@@ -46,6 +46,20 @@ extends Node
 ##                      they are tile content, not an overlay, and this is how
 ##                      the seam bar is measured with them in.  Default off, so
 ##                      a run without the flag reads what every earlier run read.
+##   --ef9 on|off       EF-9.4 (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3):
+##                      force importance-driven refinement on or off for the
+##                      session (`viewport_host.gd::set_ef9_refine`).  Default:
+##                      neither -- the quality tier's own `ef9_refine`, which is
+##                      off on every tier.  Every run also records the deepest
+##                      live tile against the I3 cap and, with `on`, the frames
+##                      that had mixed levels on screen and their seam ratios;
+##                      `on` adds the payoff test (`_ef9_payoff`) and times the
+##                      conformed synthesis beside the plain one.  A shell
+##                      without `set_ef9_refine` makes the flag ABORT (exit 2).
+##   --frames DIR       instead of the baseline sweep, write one SETTLED capture
+##                      per (world, zoom) to DIR as PNG and stop -- the
+##                      toggle-off identity check runs this on two builds and
+##                      compares the two DIRs byte for byte.
 ##
 ## ## Exit status (this project's convention)
 ##   0  every assertion held
@@ -125,6 +139,10 @@ var _want_dark := true
 var _plant := false
 var _sheet := true
 var _rivers_on := false
+## `--ef9`: `-1` not given (the tier's default), `0` off, `1` on.
+var _ef9 := -1
+## `--frames`: where the settled identity captures go; `""` = the normal run.
+var _frames_dir := ""
 var _report: Dictionary = {}
 
 
@@ -182,7 +200,18 @@ func _ready() -> void:
 	print("out: ", _out)
 	print("palette forced: %s   window: %dx%d" % ["dark" if _want_dark else "light", _vp.x, _vp.y])
 
-	if _plant:
+	## EF-9.4: set once for the session; the override survives every world load.
+	if _ef9 >= 0:
+		if not _vh.has_method("set_ef9_refine"):
+			printerr("PROBE-CANNOT-RUN: --ef9 given but this shell has no `set_ef9_refine` (pre-EF-9.4).")
+			get_tree().quit(2)
+			return
+		_vh.set_ef9_refine(_ef9)
+		print("EF-9.4 forced %s" % ("ON" if _ef9 == 1 else "OFF"))
+
+	if _frames_dir != "":
+		await _dump_frames()
+	elif _plant:
 		await _run_plants()
 	else:
 		await _run_baseline()
@@ -247,6 +276,16 @@ func _parse_args() -> bool:
 			"--plant": _plant = true
 			"--no-sheet": _sheet = false
 			"--rivers-on": _rivers_on = true
+			"--ef9":
+				if not has_next: return _argfail(a)
+				if args[i + 1] not in ["on", "off"]: return _argfail(a)
+				_ef9 = 1 if args[i + 1] == "on" else 0
+				i += 1
+			"--frames":
+				if not has_next: return _argfail(a)
+				_frames_dir = args[i + 1]
+				if not _frames_dir.ends_with("/"): _frames_dir += "/"
+				i += 1
 			_:
 				printerr("PROBE-CANNOT-RUN: unknown argument '%s'. See this file's header." % a)
 				return false
@@ -325,6 +364,8 @@ func _run_baseline() -> void:
 				var r: Dictionary = await _run_test(t, seed_v, grid, pivot)
 				runs.append(r)
 				_print_run(r)
+			if _ef9 == 1:
+				runs.append(await _ef9_payoff(seed_v, grid, pivot))
 			if _sheet:
 				var sheet: Dictionary = await _aletsch_sheet(seed_v, grid)
 				runs.append({"test": "aletsch", "seed": seed_v, "grid": "%dx%d" % [grid.x, grid.y], "sheet": sheet})
@@ -594,6 +635,13 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 	var was_active: bool = _vh.lod_active()
 
 	var levels: PackedInt32Array = []
+	## EF-9.4 (I3, I4): the deepest live tile per frame against the cap, and the
+	## seam ratio of the frames that had mixed levels on screen.
+	var cap_level := _level_cap()
+	var deepest := -1
+	var cap_violations := 0
+	var frames_mixed := 0
+	var seam_mixed: PackedFloat64Array = []
 	var g0: Vector2i = _br.grid_size()
 	var native0 := minf(_vh.size.x / float(g0.x), _vh.size.y / float(g0.y))
 	var prev_cap: Dictionary = {}
@@ -662,6 +710,14 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 			var sr: Dictionary = _m.call("seam", cap["data"], cap["w"], cap["h"], tiles["cols"])
 			if sr.get("ok", false):
 				seam_max.append(sr["max"])
+			var lv := _live_level_span()
+			deepest = maxi(deepest, lv.y)
+			if lv.y > cap_level:
+				cap_violations += 1
+			if _vh.has_method("ef9_state") and int(_vh.ef9_state().get("live_promoted", 0)) > 0:
+				frames_mixed += 1
+				if sr.get("ok", false):
+					seam_mixed.append(sr["max"])
 
 		prev_cap = cap
 		step_us.append(float(Time.get_ticks_usec() - t_step))
@@ -697,6 +753,14 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 	if entry_frame >= 0:
 		out["lod_entry_frame"] = entry_frame
 		out["lod_entry_step_us"] = entry_step_us
+	## I3 -- absent (not 0) when the pyramid never came up.
+	if deepest >= 0:
+		out["deepest_tile_level"] = deepest
+		out["level_cap"] = cap_level
+		out["cap_violations"] = cap_violations
+	out["frames_mixed"] = frames_mixed
+	if seam_mixed.size() > 0:
+		out["seam_max_mixed"] = _m.call("stats", seam_mixed)
 	var lb := _level_boundary_ratio(ti, levels)
 	if not lb.is_empty():
 		out["level_boundary"] = lb
@@ -781,6 +845,11 @@ func _print_run(r: Dictionary) -> void:
 				str(r.get("holey_first", "--")), str(r.get("holey_last", "--"))])
 	print("     frame time us: %s" % _fmt(r["frame_us"]))
 	print("     camera-step cost us (this is where a synthesis stall lands): %s" % _fmt(r["step_us"]))
+	if r.has("deepest_tile_level"):
+		print("     deepest live tile: level %d against the cap %d; frames over the cap: %d   (I3 bar: 0)"
+			% [r["deepest_tile_level"], r["level_cap"], r["cap_violations"]])
+	print("     frames with mixed levels (EF-9.4 promotions live): %d%s" % [r["frames_mixed"],
+		("   seam ratio over them: %s   (I4 bar: <= 1.5)" % _fmt(r["seam_max_mixed"])) if r.has("seam_max_mixed") else ""])
 	if r.has("lod_entry_frame"):
 		print("     LOD entry at frame %d; that step cost %.0f us" % [r["lod_entry_frame"], r["lod_entry_step_us"]])
 	else:
@@ -894,6 +963,179 @@ func _settle() -> void:
 		await RenderingServer.frame_post_draw
 
 
+## Waits until the pyramid has caught up with the camera (`lod_pending() == 0`
+## for 5 frames running), then 3 more frames; gives up after 20 s and says so.
+## A frame count would be a claim about this machine's speed (`MISTAKES.md`).
+func _settle_full() -> bool:
+	var quiet := 0
+	var t0 := Time.get_ticks_msec()
+	while quiet < 5:
+		await RenderingServer.frame_post_draw
+		quiet = quiet + 1 if _vh.lod_pending() == 0 else 0
+		if Time.get_ticks_msec() - t0 > 20000:
+			print("     (settle timed out with %d tiles pending)" % _vh.lod_pending())
+			return false
+	await _settle()
+	return true
+
+
+## The I3 cap the shell draws under: `min(lod_max_level, tier max_level)`,
+## the same two clamps `_update_lod()` applies (`0` from either = not set).
+func _level_cap() -> int:
+	var cap: int = _br.lod_max_level()
+	var tier: int = int(_br.lod_budget().get("max_level", 0))
+	if tier > 0:
+		cap = mini(cap, tier) if cap > 0 else tier
+	return cap
+
+
+## `(shallowest, deepest)` pyramid level among the live tiles; `(-1, -1)` when
+## none is live.
+func _live_level_span() -> Vector2i:
+	var lo := 1 << 20
+	var hi := -1
+	for key in (_vh._lod_tiles as Dictionary).keys():
+		var s: Sprite2D = _vh._lod_tiles[key]
+		if s == null:
+			continue
+		var idx: Vector3i = s.get_meta("lod_idx", Vector3i(-1, 0, 0))
+		if idx.x < 0:
+			continue
+		lo = mini(lo, idx.x)
+		hi = maxi(hi, idx.x)
+	return Vector2i(lo if hi >= 0 else -1, hi)
+
+
+## The capture-space rects of the live EF-9.4 promoted children (role 1).
+func _promoted_rects(cap: Dictionary) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for key in (_vh._ef9_roles as Dictionary).keys():
+		if int(_vh._ef9_roles[key]) != 1 or not _vh._lod_tiles.has(key):
+			continue
+		var s: Sprite2D = _vh._lod_tiles[key]
+		if s == null or s.texture == null:
+			continue
+		out.append(_to_crop(Rect2(s.position, s.texture.get_size() * s.scale), cap))
+	return out
+
+
+## A river-corridor cell: the middle point of the highest-order traced river
+## run (`EngineBridge.rivers(3)`). `(-1, -1)` when the world traced none.
+func _river_pivot() -> Vector2i:
+	var best := -1
+	var at := Vector2i(-1, -1)
+	for r in _br.rivers(3):
+		var d: Dictionary = r
+		var pts = d.get("points", PackedVector2Array())
+		var o := int(d.get("order", 0))
+		if o > best and pts is PackedVector2Array and (pts as PackedVector2Array).size() > 2:
+			best = o
+			var mid: Vector2 = (pts as PackedVector2Array)[(pts as PackedVector2Array).size() / 2]
+			at = Vector2i(int(mid.x), int(mid.y))
+	if at.x >= 0:
+		print("  river-corridor cell %d,%d (order %d)" % [at.x, at.y, best])
+	return at
+
+
+## **EF-9.4's payoff and positive control**, at fixed cameras.
+##
+## For each view (the relief pivot, and a river corridor) and zoom 8 / 16 / 40:
+## settle with EF-9 on, capture, and note the promoted children's screen rects;
+## switch it off, settle, capture the same camera; switch back. Records
+##
+##   - `dluma_on_off` -- mean |dluma| between the two frames: the **positive
+##     control** (toggle on must move pixels wherever something was promoted);
+##   - per promoted rect, metric 4's detail per screen pixel on vs off, and
+##     their ratio -- **the payoff**, the plan's *"detail per screen pixel over
+##     high-importance tiles >= the toggle-off value at the same budget"*.
+##
+## Both captures are of the same camera, so no warp is needed; both are settled
+## (`_settle_full`), so neither is a half-built view.
+func _ef9_payoff(seed_v: int, grid: Vector2i, pivot: Vector2i) -> Dictionary:
+	print("\n  -- EF-9.4 payoff (on vs off, same camera, settled) --")
+	var rows: Array = []
+	var views := {"relief": pivot, "river": _river_pivot()}
+	for vname in views.keys():
+		var cell: Vector2i = views[vname]
+		if cell.x < 0:
+			print("     %s view: no cell -- skipped, not zeroed" % vname)
+			continue
+		for target: float in [8.0, 16.0, 40.0]:
+			if target > _vh._zoom_max:
+				continue
+			_vh.reset_view()
+			_vh.move_view_to(float(cell.x), float(cell.y))
+			await _zoom_to(target)
+			_vh.set_ef9_refine(1)
+			await _settle_full()
+			var st: Dictionary = _vh.ef9_state()
+			var on := await _capture()
+			var rects := _promoted_rects(on)
+			_vh.set_ef9_refine(0)
+			await _settle_full()
+			var off := await _capture()
+			_vh.set_ef9_refine(1)
+			await _settle_full()
+			if not on.get("ok", false) or not off.get("ok", false):
+				continue
+			var l: Dictionary = _m.call("luma_diff", on["data"], off["data"], on["w"], on["h"])
+			var ratios := PackedFloat64Array()
+			var bounds := Rect2(0, 0, int(on["w"]), int(on["h"]))
+			for r: Rect2 in rects:
+				var ri := Rect2i(r.intersection(bounds))
+				if ri.size.x < 16 or ri.size.y < 16:
+					continue
+				var a: Image = (on["img"] as Image).get_region(ri)
+				var b: Image = (off["img"] as Image).get_region(ri)
+				var da: Dictionary = _m.call("detail", a.get_data(), a.get_width(), a.get_height())
+				var db: Dictionary = _m.call("detail", b.get_data(), b.get_width(), b.get_height())
+				if da.get("ok", false) and db.get("ok", false) and float(db["detail"]) > 0.0:
+					ratios.append(float(da["detail"]) / float(db["detail"]))
+			var row := {"view": vname, "zoom": _vh.zoom(), "basis": st.get("basis", "--"),
+				"promoted": int(st.get("promoted", 0)), "live_promoted": int(st.get("live_promoted", 0)),
+				"dluma_on_off": l.get("mean_dluma", null), "rects_scored": ratios.size()}
+			if ratios.size() > 0:
+				row["detail_ratio_on_off"] = _m.call("stats", ratios)
+			rows.append(row)
+			print("     %-6s zoom %5.1f  basis %-6s promoted %2d (live %2d)  |dluma| on/off %s  detail on/off over promoted tiles %s"
+				% [vname, row["zoom"], row["basis"], row["promoted"], row["live_promoted"],
+					_fnum(row["dluma_on_off"]), _fmt(row.get("detail_ratio_on_off"))])
+			if row["promoted"] > 0:
+				_expect(row["dluma_on_off"] != null and float(row["dluma_on_off"]) > 0.0,
+					"EF-9.4 positive control: toggle on moves pixels (%s, zoom %.0f)" % [vname, target])
+	return {"test": "ef9_payoff", "seed": seed_v, "grid": "%dx%d" % [grid.x, grid.y], "rows": rows}
+
+
+## `--frames DIR`: one settled capture per (world, zoom) at the relief pivot,
+## written as PNG -- nothing measured, nothing asserted beyond "it was written".
+## Run on two builds; identical PNGs are the toggle-off identity.
+func _dump_frames() -> void:
+	DirAccess.make_dir_recursive_absolute(_frames_dir)
+	var written := 0
+	for grid in _grids:
+		for seed_v in _seeds:
+			if not await _load_world(seed_v, grid):
+				continue
+			var pivot := await _pick_pivot()
+			for target: float in [4.0, 8.0, 16.0, 40.0]:
+				if target > _vh._zoom_max:
+					continue
+				_vh.reset_view()
+				if pivot.x >= 0:
+					_vh.move_view_to(float(pivot.x), float(pivot.y))
+				await _zoom_to(target)
+				var ok := await _settle_full()
+				var cap := await _capture()
+				if not cap.get("ok", false):
+					_fail.append("--frames: no capture at seed %d %dx%d zoom %.0f" % [seed_v, grid.x, grid.y, target])
+					continue
+				var path := "%s%d_%dx%d_z%d.png" % [_frames_dir, seed_v, grid.x, grid.y, int(target)]
+				(cap["img"] as Image).save_png(path)
+				written += 1
+				print("  wrote %s  (zoom %.2f, %d live tiles, settled %s)" % [path, _vh.zoom(), (_vh._lod_tiles as Dictionary).size(), ok])
+	_expect(written > 0, "--frames wrote at least one capture")
+
+
 func _lum(c: Color) -> float:
 	return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
 
@@ -932,6 +1174,22 @@ func _time_synthesis() -> Dictionary:
 			print("  z%-2d (%d tiles/axis): %s us" % [z, n, _fmt(s)])
 		else:
 			print("  z%-2d: no tile synthesised -- not timed" % z)
+		## EF-9.4: the same tiles conformed on all eight sides -- the most band
+		## a tile can carry, so an upper bound on what conforming costs.
+		if _ef9 == 1 and _br.has_method("lod_synthesize_tile_conformed"):
+			var cs := PackedFloat64Array()
+			for i in 8:
+				var col: int = (n * (2 * i + 1)) / 16
+				var row: int = (n * (2 * ((i + 3) % 8) + 1)) / 16
+				var t1 := Time.get_ticks_usec()
+				var tc: Texture2D = _br.lod_synthesize_tile_conformed(z, col, row, 255)
+				var dc := float(Time.get_ticks_usec() - t1)
+				if tc != null:
+					cs.append(dc)
+			if cs.size() > 0:
+				var sc: Dictionary = _m.call("stats", cs)
+				out["z%d_conformed" % z] = sc
+				print("  z%-2d conformed (mask 255): %s us" % [z, _fmt(sc)])
 	if out.is_empty():
 		_fail.append("metric 5 measured no synthesis at all (teeth check)")
 	return out
@@ -1419,6 +1677,16 @@ func _summarise(runs: Array) -> void:
 	_expect(judged > 0, "the sweep judged at least one frame for pops (teeth check)")
 	_expect(any_seam, "at least one run had a scorable tile boundary (teeth check on metric 2)")
 	_expect(any_hole, "at least one run had the pyramid up, so coverage was measurable (teeth check on metric 3)")
+	## EF-9.4's I3, over every run: no live tile deeper than the cap, ever.
+	var over := 0
+	var mixed := 0
+	for r: Dictionary in runs:
+		over += int(r.get("cap_violations", 0))
+		mixed += int(r.get("frames_mixed", 0))
+	print("  frames with a tile deeper than the I3 cap: %d   frames with EF-9.4 mixed levels: %d" % [over, mixed])
+	_expect(over == 0, "no live tile was ever deeper than the I3 cap")
+	if _ef9 == 1:
+		_expect(mixed > 0, "EF-9.4 on: mixed levels were on screen in at least one frame (teeth check on I4)")
 
 
 func _write_json() -> void:
@@ -1432,6 +1700,7 @@ func _write_json() -> void:
 		"vp": [_vp.x, _vp.y], "width_km": _width_km, "zoom_step": _zoom_step,
 		"theme": "dark" if _want_dark else "light",
 		"seeds": _seeds, "tests": _tests, "plant": _plant,
+		"ef9": ["tier default", "off", "on"][_ef9 + 1],
 	}
 	f.store_string(JSON.stringify(_report, "  "))
 	f.close()

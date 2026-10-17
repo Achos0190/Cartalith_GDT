@@ -2,10 +2,12 @@
 //! and in what order to synthesise them, given per-tile *importance*
 //! (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3, milestone EF-9.2).
 //!
-//! This is the *engine-side* rule only. **Nothing calls it**: no viewport, no
-//! bridge `#[func]`, no generation code (EF-9.4 wires it). It reads scores
-//! (`crate::importance`, EF-9.1) and returns a [`Selection`]; it synthesises no
-//! texel and moves no golden.
+//! This is the *engine-side* rule. Since **EF-9.4** (2026-10-17) the viewport
+//! calls it through `cartalith_godot`'s `ef9_bridge.rs`
+//! (`WorldGen::lod_ef9_select`), behind a toggle that ships off, together with
+//! [`conform_plan`] (which edges of a mixed-level selection are conformed); no
+//! generation code calls it. It reads scores (`crate::importance`, EF-9.1) and
+//! returns a [`Selection`]; it synthesises no texel and moves no golden.
 //!
 //! # What it replaces, and what "today" is
 //!
@@ -484,6 +486,144 @@ pub fn select_with(
 
     let n_promoted = promoted.iter().filter(|&&p| p).count();
     Selection { tiles, order, basis: Basis::Ranked, promoted: n_promoted }
+}
+
+// ------------------------------------------------- EF-9.4: which edges conform
+
+/// The eight neighbours of a tile at its own level, `(dcol, drow)`; **bit `k`
+/// of a conform mask is `NEIGHBOUR_OFFSETS[k]`**. Row-major from the
+/// north-west: NW, N, NE, W, E, SW, S, SE.
+///
+/// The encoding EF-9.4 sends across the gdext boundary: a mask names which of
+/// a tile's same-level neighbours lie on ground drawn **one level coarser**,
+/// and `cartalith_godot`'s tile path resolves each set bit to that
+/// neighbour's rect with [`neighbour_rects`]. Same-level rects are enough --
+/// `cartalith_engine::elevation`'s
+/// `same_level_neighbour_rects_conform_exactly_as_the_coarse_tile_does` shows
+/// the union of a coarse tile's adjacent sub-rects pulls a tile exactly as the
+/// coarse rect does, within the band. A `u8` rather than a list so a tile's
+/// cache key is `(z, col, row, mask)` and two requests for the same conformed
+/// tile cannot differ by list order.
+pub const NEIGHBOUR_OFFSETS: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+/// What EF-9.4 draws a [`Selection`] with, beyond the tiles themselves: per
+/// tile the conform mask its synthesis needs, and per promoted `z0` tile the
+/// **parent fallback** drawn under its four children.
+///
+/// # Why a promoted tile needs a fallback, and why it is conformed too
+///
+/// EF-9.4 draws a promoted region as if the camera were one level deeper there:
+/// the four `z0 + 1` children fade in by `z0`'s own morph `m` over their
+/// parent, the `z0` tile, drawn whole -- exactly the pair the rest of the view
+/// draws one level up (`z0` at `m` over `z0 - 1`). So the picture is continuous
+/// across a level change wherever the promotion persists (`m` reaches 1 as the
+/// level changes and the children become the new level's parents), which
+/// drawing the children over the plain `z0` composite would not be.
+///
+/// Along an edge between a promoted and an unpromoted tile, the unpromoted side
+/// shows `m F_z0 + (1 - m) F_{z0-1}`. The children are conformed to `F_z0`
+/// there (EF-9.3), and the fallback is conformed to `F_{z0-1}` there, so the
+/// promoted side shows the same blend of the same two fields on the edge: that
+/// is the EF-9.3 note *"conform the parent fallback too or the edge fades back
+/// during a morph"*, made exact in elevation terms (colour is a non-linear
+/// function of height, so it is exact only to that).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConformPlan {
+    /// One mask per [`Selection::tiles`] entry, parallel to it: `0` for every
+    /// unpromoted `z0` tile (drawn plain, exactly as today), and for a promoted
+    /// child the neighbours whose `z0` parent is neither its own parent nor
+    /// promoted.
+    pub masks: Vec<u8>,
+    /// Each promoted `z0` tile, row-major over the view, with the neighbours
+    /// (at `z0`) that are not promoted.
+    pub fallbacks: Vec<(ChunkId, u8)>,
+}
+
+/// **EF-9.4's conform plan** for `sel`, a selection of `view` at `z0`.
+///
+/// "Not promoted" includes a neighbour outside the view: it is not drawn this
+/// frame, and when a pan brings it in it is drawn at `z0` unless the new
+/// selection promotes it -- the common case, so this keeps the conformed tiles
+/// stable under a pan instead of re-synthesising them. A neighbour outside the
+/// level's own `2^z x 2^z` grid (past the map edge) is never a bit: there is no
+/// ground there to agree with.
+///
+/// Pure and deterministic; never panics (indices are computed in `i64`). A
+/// selection with nothing promoted gives all-zero masks and no fallbacks -- the
+/// plan of today's display.
+#[must_use]
+pub fn conform_plan(view: ViewRange, z0: u32, sel: &Selection) -> ConformPlan {
+    use std::collections::HashSet;
+    let fine = z0 + 1;
+    let promoted: HashSet<(u32, u32)> =
+        sel.tiles.iter().filter(|t| t.z == fine).map(|t| (t.col >> 1, t.row >> 1)).collect();
+    // Tiles per axis at a level, as `i64`, saturating at the 31-level clamp
+    // `pyramid_dims` applies (a level past it is refused by `select_tiles`).
+    let n_at = |z: u32| -> i64 { 1i64 << z.min(31) };
+    let masks = sel
+        .tiles
+        .iter()
+        .map(|t| {
+            if t.z != fine {
+                return 0u8;
+            }
+            let own = (t.col >> 1, t.row >> 1);
+            let n = n_at(fine);
+            let mut m = 0u8;
+            for (k, (dx, dy)) in NEIGHBOUR_OFFSETS.iter().enumerate() {
+                let (c, r) = (i64::from(t.col) + i64::from(*dx), i64::from(t.row) + i64::from(*dy));
+                if c < 0 || r < 0 || c >= n || r >= n {
+                    continue;
+                }
+                let parent = ((c >> 1) as u32, (r >> 1) as u32);
+                if parent != own && !promoted.contains(&parent) {
+                    m |= 1 << k;
+                }
+            }
+            m
+        })
+        .collect();
+    let mut fallbacks = Vec::new();
+    if !view.is_empty() {
+        let n = n_at(z0);
+        for row in view.r0..=view.r1 {
+            for col in view.c0..=view.c1 {
+                if !promoted.contains(&(col, row)) {
+                    continue;
+                }
+                let mut m = 0u8;
+                for (k, (dx, dy)) in NEIGHBOUR_OFFSETS.iter().enumerate() {
+                    let (c, r) = (i64::from(col) + i64::from(*dx), i64::from(row) + i64::from(*dy));
+                    if c < 0 || r < 0 || c >= n || r >= n {
+                        continue;
+                    }
+                    if !promoted.contains(&(c as u32, r as u32)) {
+                        m |= 1 << k;
+                    }
+                }
+                fallbacks.push((ChunkId::new(z0, col, row), m));
+            }
+        }
+    }
+    ConformPlan { masks, fallbacks }
+}
+
+/// The rects of the neighbours `mask` names (see [`NEIGHBOUR_OFFSETS`]), in
+/// coarse sample coordinates on a `gw x gh` grid
+/// ([`pyramid_tile_bounds`] at `id.z`). A bit whose neighbour lies outside the
+/// level is skipped, never clamped onto the map edge. Empty for `mask == 0`.
+#[must_use]
+pub fn neighbour_rects(gw: usize, gh: usize, id: ChunkId, mask: u8) -> Vec<cartalith_spatial::FloatRegion> {
+    let n = 1i64 << id.z.min(31);
+    NEIGHBOUR_OFFSETS
+        .iter()
+        .enumerate()
+        .filter(|&(k, _)| mask & (1 << k) != 0)
+        .filter_map(|(_, (dx, dy))| {
+            let (c, r) = (i64::from(id.col) + i64::from(*dx), i64::from(id.row) + i64::from(*dy));
+            (c >= 0 && r >= 0 && c < n && r < n).then(|| pyramid_tile_bounds(gw, gh, id.z as i32, c as u32, r as u32))
+        })
+        .collect()
 }
 
 /// Unit tests of the EF-9.2 subdivision rule: the disabled/uniform paths equal
@@ -1023,6 +1163,115 @@ mod tests {
         let imp = ViewImportance::new(v, Vec::new(), None).unwrap();
         let s = select_tiles(v, 3, 9, 10, Some(&imp));
         assert!(s.tiles.is_empty() && s.order.is_empty() && s.promoted == 0);
+    }
+
+    /// A selection of `v` at `z0` promoting exactly the tiles in `which`
+    /// (score 5 there, -1 elsewhere: only they clear the floor).
+    fn promoting(v: ViewRange, z0: u32, which: &[(u32, u32)]) -> Selection {
+        let imp = scored(v, |c, r| Some(if which.contains(&(c, r)) { 5.0 } else { -1.0 }));
+        let s = select_tiles(v, z0, z0 + 1, 1000, Some(&imp));
+        assert_eq!(s.promoted, which.len(), "fixture must promote exactly {which:?}");
+        s
+    }
+
+    /// The mask of the tile `id` in `s`'s plan.
+    fn mask_of(s: &Selection, plan: &ConformPlan, id: ChunkId) -> u8 {
+        plan.masks[s.tiles.iter().position(|&t| t == id).expect("tile in selection")]
+    }
+
+    /// Protects: `NEIGHBOUR_OFFSETS`' bit order as literals -- the encoding the
+    /// shell and the tile path must share (bit k = offset k). A reordering
+    /// would silently conform the wrong edges of every tile.
+    #[test]
+    fn the_neighbour_bit_order_is_the_recorded_literals() {
+        assert_eq!(NEIGHBOUR_OFFSETS, [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]);
+    }
+
+    /// Protects: EF-9.4's conform plan on a hand-worked case. One promoted tile
+    /// (2, 2) in a 5x5 view at z3: its NW child (4, 4) at z4 borders coarse
+    /// ground to the NW, N, NE, W and SW (bits 0, 1, 2, 3, 5 = 47) and its own
+    /// siblings elsewhere; the SE child (5, 5) mirrors it (bits 2, 4, 5, 6, 7 =
+    /// 244); the fallback borders coarse ground on all eight sides (255); every
+    /// unpromoted tile has mask 0 and the plan is parallel to the selection.
+    #[test]
+    fn a_lone_promoted_tile_conforms_every_outer_edge() {
+        let v = view(0, 0, 5, 5);
+        let s = promoting(v, 3, &[(2, 2)]);
+        let plan = conform_plan(v, 3, &s);
+        assert_eq!(plan.masks.len(), s.tiles.len());
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(4, 4, 4)), 0b0010_1111);
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(4, 5, 5)), 0b1111_0100);
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(4, 5, 4)), 0b1001_0111, "NE child: NW N NE E SE");
+        assert_eq!(plan.fallbacks, vec![(ChunkId::new(3, 2, 2), 0xFF)]);
+        for (t, m) in s.tiles.iter().zip(&plan.masks) {
+            if t.z == 3 {
+                assert_eq!(*m, 0, "unpromoted {t:?} is drawn plain");
+            }
+        }
+    }
+
+    /// Protects: a promoted neighbour is fine ground, not coarse. Two promoted
+    /// tiles side by side: the edge between them conforms on neither the
+    /// children (the NE child of (2, 2) loses its E and SE bits, both of which
+    /// lie in the promoted (3, 2)) nor the fallbacks ((2, 2) loses E, (3, 2)
+    /// loses W).
+    #[test]
+    fn the_edge_between_two_promoted_tiles_is_not_conformed() {
+        let v = view(0, 0, 5, 5);
+        let s = promoting(v, 3, &[(2, 2), (3, 2)]);
+        let plan = conform_plan(v, 3, &s);
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(4, 5, 4)) & (1 << 4), 0, "E of the NE child is promoted");
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(4, 5, 4)), 0b0000_0111, "NW N NE only");
+        assert_eq!(plan.fallbacks, vec![(ChunkId::new(3, 2, 2), 0xFF & !(1 << 4)), (ChunkId::new(3, 3, 2), 0xFF & !(1 << 3))]);
+    }
+
+    /// Protects: the two boundary rules. Past the map edge is never a bit
+    /// (promoted (0, 0) of a 2x2 level: its NW child has no coarse ground at
+    /// all, its fallback only E, S and SE = 208); outside the VIEW but inside
+    /// the level is coarse (a view starting at column 1 still conforms the W
+    /// edge of its promoted (1, 1)).
+    #[test]
+    fn the_map_edge_is_never_conformed_and_the_view_edge_always_is() {
+        let v = view(0, 0, 2, 2);
+        let s = promoting(v, 1, &[(0, 0)]);
+        let plan = conform_plan(v, 1, &s);
+        assert_eq!(mask_of(&s, &plan, ChunkId::new(2, 0, 0)), 0);
+        assert_eq!(plan.fallbacks, vec![(ChunkId::new(1, 0, 0), 0b1101_0000)]);
+        let v2 = view(1, 1, 3, 3);
+        let s2 = promoting(v2, 3, &[(1, 1)]);
+        let plan2 = conform_plan(v2, 3, &s2);
+        assert_ne!(plan2.fallbacks[0].1 & (1 << 3), 0, "W of (1,1) is (0,1): outside the view, drawn coarse");
+        assert_ne!(mask_of(&s2, &plan2, ChunkId::new(4, 2, 2)) & (1 << 3), 0, "the NW child conforms its W edge too");
+    }
+
+    /// Protects: nothing promoted means nothing conformed -- today's display
+    /// has an all-zero plan with no fallbacks, on the identity branches and on
+    /// a ranked selection that promoted nothing.
+    #[test]
+    fn a_selection_without_promotions_conforms_nothing() {
+        let v = view(0, 0, 4, 3);
+        for s in [select_tiles(v, 3, 9, 1000, None), select_tiles(v, 3, 3, 1000, Some(&ramp(v)))] {
+            let plan = conform_plan(v, 3, &s);
+            assert_eq!(plan.masks, vec![0u8; s.tiles.len()]);
+            assert!(plan.fallbacks.is_empty());
+        }
+    }
+
+    /// Protects: `neighbour_rects` resolving each set bit to that neighbour's
+    /// own `pyramid_tile_bounds`, in bit order, and skipping a bit past the
+    /// level's edge instead of clamping it onto the map.
+    #[test]
+    fn neighbour_rects_are_the_named_neighbours_bounds() {
+        let (gw, gh) = (48usize, 32usize);
+        let id = ChunkId::new(4, 4, 4);
+        let got = neighbour_rects(gw, gh, id, 0b0010_1111);
+        let want: Vec<_> = [(3u32, 3u32), (4, 3), (5, 3), (3, 4), (3, 5)].iter().map(|&(c, r)| pyramid_tile_bounds(gw, gh, 4, c, r)).collect();
+        assert_eq!(got, want);
+        assert!(neighbour_rects(gw, gh, id, 0).is_empty());
+        // the NW corner tile of a level: only E, S, SE exist
+        let corner = neighbour_rects(gw, gh, ChunkId::new(2, 0, 0), 0xFF);
+        let want_c: Vec<_> = [(1u32, 0u32), (0, 1), (1, 1)].iter().map(|&(c, r)| pyramid_tile_bounds(gw, gh, 2, c, r)).collect();
+        assert_eq!(corner, want_c);
     }
 
     /// Protects: the end-to-end path from a world's rasters to a promotion, with

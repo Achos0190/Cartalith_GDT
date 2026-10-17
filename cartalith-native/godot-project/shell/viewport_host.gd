@@ -483,6 +483,36 @@ var _lod_parent_level := -1
 ## right when the camera jumps more than one level in a notch, which
 ## comparing adjacent levels is not.
 var _lod_parents_due := false
+
+## **EF-9.4's toggle** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3): `-1`
+## follows the quality tier's `ef9_refine` budget value (`lod_budget()`, `false`
+## on every tier -- Q5's "off until EF-9.4 passes every bar"), `0` forces it off
+## and `1` on for this session. Set by `set_ef9_refine()`; the D0 harness
+## (`_lodsweep_probe.gd --ef9 on|off`) is its caller today -- no menu row draws
+## it yet, deliberately, while the default is off.
+var _ef9_override := -1
+## Per-call EF-9.4 roles, `key -> EF9_ROLE_*`, rebuilt by every `_update_lod()`.
+## **Empty means today's display**: `_refresh_lod_blend()`, the drain filter and
+## the build trim all take today's branch on an empty dictionary, which is how
+## the toggle-off display stays today's by control flow rather than by a
+## computation that happens to agree.
+var _ef9_roles: Dictionary = {}
+## Promoted child key -> the key of the tile drawn under it (its parent
+## fallback), for `_refresh_lod_blend()`'s all-or-none readiness rule.
+var _ef9_fallback_of: Dictionary = {}
+## Plain key -> the live conformed key standing in for it this call
+## (`_ef9_keep_standins()`); `_refresh_lod_blend()` counts a stand-in as the
+## parent being live. Empty whenever EF-9 is off.
+var _ef9_standin_of: Dictionary = {}
+## The last `lod_ef9_select()` answer, kept for `ef9_state()` (probes); `{}` when
+## EF-9 did not run.
+var _ef9_last: Dictionary = {}
+## A promoted region's `z0 + 1` tile: fades in by `z0`'s morph over its fallback.
+const EF9_ROLE_PROMOTED := 1
+## A promoted `z0` tile drawn whole (morph 1, opaque) under its children,
+## conformed toward `z0 - 1` along its unpromoted edges -- see
+## `cartalith_engine::subdivision::ConformPlan` for why both halves are needed.
+const EF9_ROLE_FALLBACK := 2
 ## Whether LOD tile mode is on; written only by `_set_lod_active` (the single authority), read by
 ## `_update_lod`, `_sync_info_tiles` and `visible_grid_rect`.
 var _lod_active := false
@@ -3297,6 +3327,12 @@ func _update_lod() -> void:
 	var tier_max: int = _lod_budget_value("max_level", 0)
 	if tier_max > 0:
 		z = mini(z, tier_max)
+	## **EF-9.4's I3 cap**: the deepest level the engine and this tier allow --
+	## the two clamps just applied to `z`, as a ceiling a promotion may reach and
+	## never pass. Read only on the EF-9 path below.
+	var z_cap := max_z if max_z > 0 else z
+	if tier_max > 0:
+		z_cap = mini(z_cap, tier_max)
 	var n: int = _bridge.lod_tiles_per_axis(z)
 	if n <= 0:
 		_set_lod_active(false)
@@ -3439,6 +3475,26 @@ func _update_lod() -> void:
 			for col in range(c0 >> 1, (c1 >> 1) + 1):
 				wanted["%d,%d,%d" % [pz, col, row]] = Vector3i(pz, col, row)
 
+	## **EF-9.4 -- importance-driven refinement**, behind `_ef9_enabled()`.
+	## Off (the shipped default), nothing below runs and `_ef9_roles` stays
+	## empty, so every later step takes today's branch. On, the engine's
+	## selection (`cartalith_engine::subdivision::select_tiles` over this exact
+	## view) replaces each promoted `z` tile by its four `z + 1` children, adds
+	## the promoted tile back as their fallback, and supplies the build order.
+	## An answer that is not `"ranked"` (no world, a loaded save whose scores
+	## are all equal, an old `.dll`) also leaves today's display untouched.
+	_ef9_roles.clear()
+	_ef9_fallback_of.clear()
+	_ef9_standin_of.clear()
+	_ef9_last = {}
+	var ef9_rank: Dictionary = {}
+	if _ef9_enabled():
+		var sel: Dictionary = _bridge.lod_ef9_select(z, z_cap, c0, c1, r0, r1)
+		_ef9_last = sel
+		if String(sel.get("basis", "")) == "ranked":
+			_ef9_apply(sel, z, pz, wanted, ef9_rank)
+		_ef9_keep_standins(wanted)
+
 	## The morph table for the levels now on screen (`_lod_morph`'s own doc
 	## comment): asked of the engine, once per level, never per tile.
 	##
@@ -3488,7 +3544,12 @@ func _update_lod() -> void:
 		var prefer := z
 		if pz >= 0 and float(_lod_morph[z]) < 0.5:
 			prefer = pz
-		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5), z, prefer, _lod_budget_value("tiles_per_update", MAX_LOD_TILES_PER_UPDATE))
+		if ef9_rank.is_empty():
+			build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5), z, prefer, _lod_budget_value("tiles_per_update", MAX_LOD_TILES_PER_UPDATE))
+		else:
+			## EF-9.4: the same level-group rule, with the engine's order inside
+			## each group in place of distance to the centre.
+			build_keys = _ef9_nearest(missing, ef9_rank, z, prefer == pz, _lod_budget_value("tiles_per_update", MAX_LOD_TILES_PER_UPDATE))
 		trimmed = true
 
 	## Whatever didn't make this call's budget -- replaces the previous
@@ -3553,6 +3614,188 @@ func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefe
 	var trimmed: Dictionary = {}
 	for i in range(mini(budget, keys.size())):
 		trimmed[keys[i]] = wanted[keys[i]]
+	return trimmed
+
+# -- EF-9.4: importance-driven refinement ------------------------------------
+
+## A live tile's key: `"z,col,row"` for the plain tile -- today's key, so every
+## tile today's display builds keeps its key -- and `"z,col,row~mask"` for
+## EF-9.4's conformed tile, which is different content at the same address
+## (`lod_bridge::synthesize_tile_rgba_rivers_conformed`) and must never be
+## served from, or parked as, the plain one.
+static func _lod_key(z: int, col: int, row: int, mask: int) -> String:
+	if mask == 0:
+		return "%d,%d,%d" % [z, col, row]
+	return "%d,%d,%d~%d" % [z, col, row, mask]
+
+## The conform mask a `_lod_key()` carries; `0` for a plain key.
+static func _lod_key_mask(key: String) -> int:
+	var at := key.find("~")
+	return 0 if at < 0 else int(key.substr(at + 1))
+
+## Whether EF-9.4 drives this view: the session override when set, else the
+## quality tier's `ef9_refine` (absent against an older `.dll`, which reads as
+## off).
+func _ef9_enabled() -> bool:
+	if _ef9_override >= 0:
+		return _ef9_override == 1
+	return bool(_lod_budget.get("ef9_refine", false))
+
+## Turn EF-9.4 on (`1`), off (`0`) or back to the tier default (`-1`) for this
+## session, and redraw the view under the new setting. Live tiles of the other
+## mode are parked by the next reconciliation, not cleared: a plain tile is the
+## same tile in both modes.
+func set_ef9_refine(mode: int) -> void:
+	_ef9_override = clampi(mode, -1, 1)
+	_update_lod()
+
+## EF-9.4's state for probes: whether it is enabled, the last selection's
+## `basis` and `promoted` count (absent when it did not run this call), and how
+## many live tiles hold each role.
+func ef9_state() -> Dictionary:
+	var out := {"enabled": _ef9_enabled(), "roles": _ef9_roles.size()}
+	if _ef9_last.has("basis"):
+		out["basis"] = _ef9_last["basis"]
+		out["promoted"] = int(_ef9_last.get("promoted", 0))
+		out["terms_missing"] = _ef9_last.get("terms_missing", PackedStringArray())
+		out["policy"] = bool(_ef9_last.get("policy", false))
+	var counts := {EF9_ROLE_PROMOTED: 0, EF9_ROLE_FALLBACK: 0}
+	for key in _ef9_roles.keys():
+		if _lod_tiles.has(key):
+			counts[_ef9_roles[key]] += 1
+	out["live_promoted"] = counts[EF9_ROLE_PROMOTED]
+	out["live_fallback"] = counts[EF9_ROLE_FALLBACK]
+	return out
+
+## Applies a `"ranked"` `lod_ef9_select()` answer to `wanted` (today's set for
+## level `z`, plus its `pz` parents) and fills `rank` (key -> build priority,
+## lower first) and the role tables.
+##
+## For each promoted `z` tile: its plain key leaves `wanted`; its four children
+## (each with its own conform mask) join it as `EF9_ROLE_PROMOTED`; and the tile
+## itself comes back as the children's fallback. **Once the parent level is due**
+## the fallback is the conformed `"z,c,r~mask"` tile drawn whole
+## (`EF9_ROLE_FALLBACK`) -- the region drawn as if one level deeper, see
+## `cartalith_engine::subdivision::ConformPlan`. **In the entry band** (no parent
+## level yet) it is the plain `z` tile in its ordinary role, so the whole layer
+## still fades in against the base map as LOD-D3's entry rule requires; a
+## fallback drawn whole there would arrive opaque over a quarter of the view.
+##
+## Ranks: a selection tile's is its position in the engine's `order`; a fallback's
+## and a `pz` parent's is the best rank of the selection tiles it lies under, so
+## a parent is built in step with the ground it backs.
+func _ef9_apply(sel: Dictionary, z: int, pz: int, wanted: Dictionary, rank: Dictionary) -> void:
+	var tiles: PackedInt32Array = sel.get("tiles", PackedInt32Array())
+	var order: PackedInt32Array = sel.get("order", PackedInt32Array())
+	var falls: PackedInt32Array = sel.get("fallbacks", PackedInt32Array())
+	var fb_key_of: Dictionary = {}   ## "c,r" of a promoted z tile -> its fallback key
+	var standin_for: Dictionary = {}   ## live plain stand-in key -> the conformed key it covers for
+	for k in range(0, falls.size() - 2, 3):
+		var c := falls[k]
+		var r := falls[k + 1]
+		var plain := _lod_key(z, c, r, 0)
+		wanted.erase(plain)
+		var fb := _lod_key(z, c, r, falls[k + 2]) if _lod_parents_due else plain
+		wanted[fb] = Vector3i(z, c, r)
+		if _lod_parents_due:
+			_ef9_roles[fb] = EF9_ROLE_FALLBACK
+			## **Keep the plain tile standing in until the conformed one lands.**
+			## A conformed fallback is a fresh synthesis (its key is new), and
+			## zooming OUT the plain `z` tile is exactly what was live a moment
+			## ago as the parent level: dropping it left the promoted region with
+			## nothing under its children. Measured before this (D0 zoom-while-
+			## pan, `--ef9 on`): 2-8 frames with holes, up to 180 411 px, on five
+			## of six worlds, against none with EF-9 off. Only an already-live
+			## plain tile is kept -- this never asks for a synthesis -- and it is
+			## different content from the conformed tile only inside the band.
+			if fb != plain and not _lod_tiles.has(fb) and _lod_tiles.has(plain):
+				wanted[plain] = Vector3i(z, c, r)
+				_ef9_roles[plain] = EF9_ROLE_FALLBACK
+				standin_for[plain] = fb
+				fb = plain
+		fb_key_of["%d,%d" % [c, r]] = fb
+	var pos: Dictionary = {}   ## tile index -> position in `order`
+	for k in range(order.size()):
+		pos[order[k]] = k
+	for i in range(tiles.size() / 4):
+		var tz := tiles[4 * i]
+		var tc := tiles[4 * i + 1]
+		var tr := tiles[4 * i + 2]
+		var key := _lod_key(tz, tc, tr, tiles[4 * i + 3])
+		var p: int = pos.get(i, order.size())
+		rank[key] = p
+		if tz == z + 1:
+			wanted[key] = Vector3i(tz, tc, tr)
+			_ef9_roles[key] = EF9_ROLE_PROMOTED
+			var fb: String = fb_key_of.get("%d,%d" % [tc >> 1, tr >> 1], "")
+			_ef9_fallback_of[key] = fb
+			if fb != "":
+				rank[fb] = mini(int(rank.get(fb, p)), p)
+		if pz >= 0:
+			var sh: int = tz - pz
+			var pk := _lod_key(pz, tc >> sh, tr >> sh, 0)
+			if wanted.has(pk):
+				rank[pk] = mini(int(rank.get(pk, p)), p)
+	## A conformed fallback behind a stand-in builds at the stand-in's priority.
+	for plain_key in standin_for.keys():
+		if rank.has(plain_key):
+			rank[standin_for[plain_key]] = rank[plain_key]
+
+## **Covers a wanted plain tile with a live conformed one at the same address**,
+## until the plain one lands. Called on the EF-9 path only.
+##
+## A level change moves which tiles are promoted, so ground drawn a moment ago
+## by a conformed tile (`"z,c,r~mask"`) can be wanted now as the plain
+## `"z,c,r"` -- zooming in, the promoted children become the new level's plain
+## tiles, and a promoted fallback becomes a plain parent. The reconciliation
+## would park the live conformed tile and leave the ground empty until the
+## plain one is synthesised. Measured before this (D0 zoom-while-pan,
+## `--ef9 on`): 1-7 frames with holes on five of six worlds, up to 180 411 px,
+## against none with EF-9 off. The stand-in is the same level over the same
+## ground and differs from the plain tile only inside the conform band; it is
+## kept only while the plain key is missing, never synthesised for this, and is
+## blended by its level exactly as the plain tile would be.
+func _ef9_keep_standins(wanted: Dictionary) -> void:
+	var live_conformed: Dictionary = {}   ## "z,c,r" -> a live "z,c,r~mask" key
+	for key in _lod_tiles.keys():
+		var at := String(key).find("~")
+		if at > 0:
+			live_conformed[String(key).substr(0, at)] = key
+	if live_conformed.is_empty():
+		return
+	for key in wanted.keys().duplicate():
+		if _lod_tiles.has(key) or String(key).find("~") >= 0:
+			continue
+		var standin = live_conformed.get(key, null)
+		if standin != null and not wanted.has(standin):
+			wanted[standin] = wanted[key]
+			_ef9_standin_of[key] = standin
+
+## `_nearest_tiles()` for the EF-9.4 path: the same level-group rule (the parent
+## group -- the `pz` level and every fallback -- first when `parents_first`, else
+## the drawn group first), then the engine's `rank`, then the key so the cut is
+## deterministic. Keys without a rank (none are expected) sort last in their
+## group.
+func _ef9_nearest(missing: Dictionary, rank: Dictionary, z: int, parents_first: bool, budget: int) -> Dictionary:
+	var big := 1 << 30
+	var group := func(key: String) -> int:
+		var idx: Vector3i = missing[key]
+		var is_parent: bool = idx.x < z or int(_ef9_roles.get(key, 0)) == EF9_ROLE_FALLBACK
+		return 0 if is_parent == parents_first else 1
+	var keys: Array = missing.keys()
+	keys.sort_custom(func(a, b) -> bool:
+		var ga: int = group.call(a)
+		var gb: int = group.call(b)
+		if ga != gb:
+			return ga < gb
+		var ra: int = int(rank.get(a, big))
+		var rb: int = int(rank.get(b, big))
+		if ra != rb:
+			return ra < rb
+		return String(a) < String(b))
+	var trimmed: Dictionary = {}
+	for i in range(mini(budget, keys.size())):
+		trimmed[keys[i]] = missing[keys[i]]
 	return trimmed
 
 ## Reconciles `_lod_tiles` against `wanted` (key -> `Vector3i` chunk id):
@@ -3621,11 +3864,21 @@ func _refresh_lod_blend() -> void:
 	var parents_ready := _lod_parent_level >= 0 and _lod_child_level == _lod_parent_level + 1
 	if parents_ready:
 		for key in _lod_tiles.keys():
+			## EF-9.4: a fallback is drawn whole and needs no parent of its own.
+			## (`_ef9_roles` is empty on today's path, so this skips nothing there.)
+			if _ef9_roles.has(key):
+				continue
 			var idx: Vector3i = (_lod_tiles[key] as Sprite2D).get_meta("lod_idx", Vector3i(-1, 0, 0))
-			if idx.x == _lod_child_level \
-					and not _lod_tiles.has("%d,%d,%d" % [_lod_parent_level, idx.y >> 1, idx.z >> 1]):
+			var pk := "%d,%d,%d" % [_lod_parent_level, idx.y >> 1, idx.z >> 1]
+			## EF-9.4: a live conformed stand-in counts as the parent
+			## (`_ef9_standin_of` is empty on today's path).
+			if idx.x == _lod_child_level and not _lod_tiles.has(pk) \
+					and not _lod_tiles.has(_ef9_standin_of.get(pk, "")):
 				parents_ready = false
 				break
+	if not _ef9_roles.is_empty():
+		_refresh_ef9_blend(parents_ready)
+		return
 	for key in _lod_tiles.keys():
 		var s := _lod_tiles[key] as Sprite2D
 		var mat := s.material as ShaderMaterial
@@ -3634,6 +3887,46 @@ func _refresh_lod_blend() -> void:
 		var idx: Vector3i = s.get_meta("lod_idx", Vector3i(-1, 0, 0))
 		mat.set_shader_parameter("morph", float(_lod_morph.get(idx.x, 1.0)))
 		mat.set_shader_parameter("under_parent", parents_ready and idx.x == _lod_child_level)
+
+## **EF-9.4's half of `_refresh_lod_blend()`**, reached only while
+## `_ef9_roles` is non-empty. A tile with no role is blended exactly as
+## today's pass blends it. A promoted child fades in by the DRAWN level's morph
+## (`_lod_morph[_lod_child_level]`, not its own level's, which is ~0 at this
+## zoom) over its fallback -- the alpha blend only once every promoted child's
+## fallback is live, by the same all-or-none seam rule today's children follow.
+## A fallback draws whole and opaque (morph 1, no parent), as a parent level
+## does. Then every promoted child is moved to the end of `_lod_layer` so it
+## draws over the `z` tiles that may have landed after it; the debug layer keeps
+## its `z_index` and stays on top.
+func _refresh_ef9_blend(parents_ready: bool) -> void:
+	var promoted_ready := true
+	for key in _ef9_fallback_of.keys():
+		var fb: String = _ef9_fallback_of[key]
+		if fb == "" or not _lod_tiles.has(fb):
+			promoted_ready = false
+			break
+	var m_child := float(_lod_morph.get(_lod_child_level, 1.0))
+	var front: Array[Sprite2D] = []
+	for key in _lod_tiles.keys():
+		var s := _lod_tiles[key] as Sprite2D
+		var mat := s.material as ShaderMaterial
+		if mat == null:
+			continue
+		var role := int(_ef9_roles.get(key, 0))
+		var idx: Vector3i = s.get_meta("lod_idx", Vector3i(-1, 0, 0))
+		match role:
+			EF9_ROLE_PROMOTED:
+				mat.set_shader_parameter("morph", m_child)
+				mat.set_shader_parameter("under_parent", promoted_ready)
+				front.append(s)
+			EF9_ROLE_FALLBACK:
+				mat.set_shader_parameter("morph", 1.0)
+				mat.set_shader_parameter("under_parent", false)
+			_:
+				mat.set_shader_parameter("morph", float(_lod_morph.get(idx.x, 1.0)))
+				mat.set_shader_parameter("under_parent", parents_ready and idx.x == _lod_child_level)
+	for s in front:
+		_lod_layer.move_child(s, -1)
 
 ## Pushes every tile shallower than `_lod_child_level` to the back of
 ## `_lod_layer`, so a parent draws *under* its children.
@@ -3752,10 +4045,16 @@ func _build_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: 
 	## loaded `.dll`. A `.dll` built before this milestone falls back to the
 	## synchronous path below -- the same bytes through the same coloriser,
 	## only on this thread.
+	## EF-9.4: a `"~mask"` key is a conformed tile and goes through its own
+	## request; every key today's display builds has mask 0 and takes the
+	## unchanged call.
+	var mask := _lod_key_mask(key)
 	if not _lod_sync and _bridge.lod_async_available():
 		if _lod_pending.has(key):
 			return
-		if _bridge.lod_request_tile(idx.x, idx.y, idx.z):
+		var asked: bool = _bridge.lod_request_tile(idx.x, idx.y, idx.z) if mask == 0 \
+			else _bridge.lod_request_tile_conformed(idx.x, idx.y, idx.z, mask)
+		if asked:
 			_lod_pending[key] = idx
 		else:
 			## Refused. Not an error and not a drop: the tier's in-flight cap
@@ -3766,7 +4065,8 @@ func _build_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: 
 			_lod_backlog[key] = idx
 		set_process(true)
 		return
-	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, idx.z)
+	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, idx.z) if mask == 0 \
+		else _bridge.lod_synthesize_tile_conformed(idx.x, idx.y, idx.z, mask)
 	if tex == null:
 		return
 	_install_lod_tile(key, idx, tex, g, displayed_origin, displayed_size)
@@ -3945,11 +4245,15 @@ func _drain_lod_tiles() -> bool:
 	for entry in ready:
 		var d: Dictionary = entry
 		var idx := Vector3i(int(d.get("z", -1)), int(d.get("col", 0)), int(d.get("row", 0)))
-		var key := "%d,%d,%d" % [idx.x, idx.y, idx.z]
+		## `conform` is absent against a `.dll` older than EF-9.4, which only
+		## ever builds plain tiles -- the plain key, as before.
+		var key := _lod_key(idx.x, idx.y, idx.z, int(d.get("conform", 0)))
 		_lod_pending.erase(key)
 		if _lod_tiles.has(key):
 			continue
-		if idx.x != _lod_child_level and idx.x != _lod_parent_level:
+		## EF-9.4's promoted children sit one level below the drawn one and are
+		## wanted by role, not by level.
+		if idx.x != _lod_child_level and idx.x != _lod_parent_level and not _ef9_roles.has(key):
 			continue
 		if _lod_backlog_grid.x <= 1 or _lod_backlog_size.x <= 0.0:
 			continue
@@ -4581,12 +4885,15 @@ func _draw_lod_debug() -> void:
 		var sprite := _lod_tiles[key] as Sprite2D
 		if sprite == null or not is_instance_valid(sprite):
 			continue
-		var parts := String(key).split(",")
-		if parts.size() != 3:
+		## The chunk address from the sprite itself rather than from parsing
+		## the key: since EF-9.4 a conformed tile's key ends `~mask`, which a
+		## `split(",")` would read into the row.
+		var lod_idx: Vector3i = sprite.get_meta("lod_idx", Vector3i(-1, 0, 0))
+		if lod_idx.x < 0:
 			continue
-		var z := int(parts[0])
-		var col := int(parts[1])
-		var row := int(parts[2])
+		var z := lod_idx.x
+		var col := lod_idx.y
+		var row := lod_idx.z
 		var r := _lod_sprite_rect(sprite)
 		var lc: Color = LOD_LEVEL_COLS[z % LOD_LEVEL_COLS.size()]
 
