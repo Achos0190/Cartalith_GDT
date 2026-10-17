@@ -645,9 +645,14 @@ Where it stands is `STATUS.md`'s; this records the design the slice chose.
   save picker under the `exports` root. Export runs `ExportOverlay.run` with a
   progress bar and Cancel; closing the window cancels; everything is disabled,
   with the reason, while a generation runs.
+- **Added 2026-10-17:** an overwrite confirmation (an existing destination
+  asks "Replace file?" through `DccWidgets.confirm`; Cancel writes nothing) and
+  a STYLE picker: `Current look` (default, no `style` key) or one of
+  `EngineBridge.looks()`, sent as `style: {look}`; the Render workspace's
+  `STYLE_PRESETS` are not offered because they also set Painter state that
+  `ExportStyle` cannot carry. Picking a look never changes the live map.
 - **Not in this slice:** JPEG (Ruling AZ; the streaming writer has PNG and
-  BigTIFF only), a style or look override control (E3 carries `style`), a
-  file-exists confirmation, and the menu row's phone/command-index check
+  BigTIFF only), and the menu row's phone/command-index check
   beyond the Data popup it lives in.
 
 ---

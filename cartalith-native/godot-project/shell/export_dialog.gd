@@ -27,10 +27,23 @@ extends AcceptDialog
 ## `DccWidgets.phone_window` decides, a phone gets a titled header and a
 ## scrolling body, and `DccWidgets.phone_present` opens it full-screen.
 ##
-## **Not in this first slice** (E5 remainder, `OUTSTANDING_WORK.md`): JPEG
+## **Not in this slice** (E5 remainder, `OUTSTANDING_WORK.md`): JPEG
 ## (Ruling AZ amended ruling 26 to offer it; the streaming writer has PNG and
-## BigTIFF only, `export_options.rs::FORMAT_NAMES`), a style/look override (E3
-## carries `style`; no control here yet), and a file-exists confirmation.
+## BigTIFF only, `export_options.rs::FORMAT_NAMES`).
+##
+## **Look override (2026-10-13).** The STYLE picker lists `Current look` plus
+## `EngineBridge.looks()` (`WorldGen::list_looks`, the engine's own names,
+## none invented). `Current look` sends no `style` key (the export reproduces
+## the screen); a named look sends `style: {look: name}` (`export_options.rs::
+## ExportStyle`), which the engine layers on a COPY of the appearance
+## (`appearance_rebased`) and never writes to the session. The Render
+## workspace's `STYLE_PRESETS` are NOT offered: they also set Painter (NPR)
+## state, which `ExportStyle` (look/preset/ramp/tunables) cannot carry.
+##
+## **Overwrite confirmation (2026-10-13).** Export on an existing destination
+## asks first through `DccWidgets.confirm` (the shell's text confirmation, which
+## has a phone body); Cancel returns here with nothing written. The partial-file
+## cleanup in `ExportOverlay` never sees a declined export because none starts.
 
 ## Emitted when an export started from this dialog ends, with
 ## `ExportOverlay.run`'s dictionary (`ok`, `path`, ..., or `error` and
@@ -96,6 +109,12 @@ var _settle: CheckBox
 var _tier: OptionButton
 var _layer_boxes: Dictionary = {}
 var _space: OptionButton
+var _look: OptionButton
+## The names behind `_look`'s rows after the first ("Current look"), from
+## `EngineBridge.looks()` at build time.
+var _look_names: Array = []
+## The overwrite prompt while one is open (the probe answers it).
+var _overwrite_dlg: ConfirmationDialog = null
 var _path_label: Label
 var _path := ""
 var _go: Button
@@ -166,6 +185,17 @@ func setup(app: Node) -> void:
 		grid.add_child(cb)
 		_layer_boxes[String(l[0])] = cb
 	body.add_child(grid)
+
+	body.add_child(_heading("STYLE"))
+	_look = OptionButton.new()
+	_look.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_look.add_item("Current look")
+	_look_names = _bridge.looks() if _bridge.has_method("looks") else []
+	for n in _look_names:
+		_look.add_item(String(n))
+	_look.select(0)
+	body.add_child(_look)
+	body.add_child(_note("Current look exports what the map shows now. A named look is applied to the export only; the map on screen does not change."))
 
 	body.add_child(_heading("COLOUR SPACE"))
 	_space = OptionButton.new()
@@ -340,8 +370,12 @@ func options() -> Dictionary:
 	content["settlements"] = _settle.button_pressed
 	if _settle.button_pressed:
 		content["settlement_tier"] = String(TIERS[_tier.selected][0])
-	return {"width": _selected_width(), "color_space": _space.get_item_text(_space.selected),
+	var o := {"width": _selected_width(), "color_space": _space.get_item_text(_space.selected),
 		"content": content}
+	## Omit the key for "Current look" (MISTAKES.md: absent is not a value).
+	if _look.selected > 0 and _look.selected - 1 < _look_names.size():
+		o["style"] = {"look": String(_look_names[_look.selected - 1])}
+	return o
 
 ## Why Export cannot be pressed now, or `""`. In order: running, generating,
 ## no world, no affordable size, no destination.
@@ -370,7 +404,7 @@ func _redraw_state() -> void:
 	_go.disabled = why != ""
 	_go.tooltip_text = why
 	_stop.disabled = not _running
-	for c in [_sizes, _settle, _space]:
+	for c in [_sizes, _settle, _space, _look]:
 		c.disabled = _running
 	_tier.disabled = _running or not _settle.button_pressed
 	for k in _layer_boxes:
@@ -406,7 +440,7 @@ func _choose_path() -> void:
 	var fname := "map_%d.png" % _selected_width()
 	DccBrowseDialog.choose_save_path(_app, "Export map image", "png",
 		DccSettings.storage_root("exports"),
-		"One PNG of the whole map. An existing file of the same name is replaced.",
+		"One PNG of the whole map. You are asked before an existing file is replaced.",
 		fname, func(p: String): set_destination(p))
 
 ## Sets the file the export writes (an absolute OS path ending `.png`).
@@ -420,6 +454,44 @@ func set_destination(p: String) -> void:
 ## arrives on `export_finished`. Does nothing while `export_refusal()` says why.
 func start_export() -> void:
 	if export_refusal() != "":
+		return
+	if FileAccess.file_exists(_path):
+		if _overwrite_dlg != null and is_instance_valid(_overwrite_dlg):
+			return
+		## This dialog is an exclusive child of the root; Godot allows one, so the
+		## prompt (a root child too) would be refused ("parent window already has
+		## another exclusive child"). Drop exclusivity while the prompt, itself
+		## exclusive, is up; both callbacks restore it.
+		exclusive = false
+		_overwrite_dlg = DccWidgets.confirm(_app, "Replace file?",
+			"%s already exists. Exporting will replace it." % _path.get_file(), "Replace",
+			_on_overwrite_yes, _on_overwrite_no)
+		return
+	_begin_export()
+
+func _on_overwrite_yes() -> void:
+	_overwrite_dlg = null
+	_restore_exclusive()
+	_begin_export()
+
+func _on_overwrite_no() -> void:
+	_overwrite_dlg = null
+	_restore_exclusive()
+	_status.text = "Not replaced. Choose another file or press Export again."
+
+## Puts exclusivity back one frame later: `DccWidgets.confirm` runs its callback
+## before the prompt is freed, and Godot refuses a second exclusive child while
+## the first still exists (the 2026-10-17 probe run printed exactly that error).
+func _restore_exclusive() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(self):
+		exclusive = true
+
+## The export proper, after any overwrite confirmation. Never called for a
+## declined prompt, so a declined overwrite writes nothing.
+func _begin_export() -> void:
+	if _running or export_refusal() != "":
 		return
 	_running = true
 	_bar.value = 0.0

@@ -25,6 +25,11 @@ extends Node
 ##   5. a SMALL real export (2048 px) end to end through `ExportOverlay.run`,
 ##      producing a PNG that decodes at 2048 px wide; and a cancel that reports
 ##      `cancelled` and leaves no file. **Never 32K.**
+##   6. an existing destination asks before replacing: declined leaves the file
+##      byte-identical and starts nothing; confirmed replaces it;
+##   7. the STYLE picker: Current look (default) sends no `style` key; a named
+##      engine look sends `style.look`, changes the exported pixels, and leaves
+##      the live map's look unchanged.
 ## Writes a screenshot `user://_exportdialog_<mode>.png` and prints its path.
 
 var _fails := 0
@@ -167,6 +172,74 @@ func _ready() -> void:
 	var cr: Dictionary = await d.export_finished
 	_ok(bool(cr.get("cancelled", false)), "cancel reports cancelled: %s" % cr)
 	_ok(not FileAccess.file_exists(cpath), "a cancelled export leaves no file")
+
+	## The engine refuses a new raster export while a cancelled one is still
+	## stopping its terrain render (`export_session.rs::STOPPING`); give it time.
+	await get_tree().create_timer(2.5).timeout
+
+	print("== 6. overwrite confirmation ==")
+	var sentinel := PackedByteArray([1, 2, 3, 4, 5])
+	var wf := FileAccess.open(path, FileAccess.WRITE)
+	wf.store_buffer(sentinel)
+	wf.close()
+	d.set_destination(path)
+	d.start_export()
+	for _f in 3:
+		await get_tree().process_frame
+	var ow: ConfirmationDialog = d.get("_overwrite_dlg")
+	_ok(ow != null and is_instance_valid(ow) and ow.visible, "an existing destination opens the replace prompt")
+	_ok(not bool(d.get("_running")), "nothing runs while the prompt is open")
+	var oshot := "user://_exportdialog_overwrite_%s.png" % mode
+	get_viewport().get_texture().get_image().save_png(oshot)
+	print("SHOT %s" % ProjectSettings.globalize_path(oshot))
+	if ow != null and is_instance_valid(ow):
+		ow.canceled.emit()
+	for _f in 3:
+		await get_tree().process_frame
+	_ok(FileAccess.get_file_as_bytes(path) == sentinel, "declined: the existing file is untouched")
+	_ok(not bool(d.get("_running")) and d.get("_overwrite_dlg") == null, "declined: no export started")
+	d.start_export()
+	for _f in 3:
+		await get_tree().process_frame
+	ow = d.get("_overwrite_dlg")
+	_ok(ow != null and is_instance_valid(ow), "asked again on a second Export")
+	if ow != null and is_instance_valid(ow):
+		ow.confirmed.emit()
+	var rw: Dictionary = await d.export_finished
+	_ok(bool(rw.get("ok", false)) and FileAccess.get_file_as_bytes(path) != sentinel, "confirmed: the file is replaced by the export")
+
+	print("== 7. look override ==")
+	var lk: OptionButton = d.get("_look")
+	var names: Array = bridge.looks()
+	_ok(lk.item_count == names.size() + 1 and lk.get_item_text(0) == "Current look" and lk.selected == 0,
+		"picker: Current look + the engine's %d looks, default Current look" % names.size())
+	_ok(not d.options().has("style"), "Current look sends no style key")
+	var look_before: String = bridge.world_gen.get_look()
+	var pick := 1
+	for i in names.size():
+		if String(names[i]) != look_before:
+			pick = i + 1
+			break
+	lk.select(pick)
+	_ok(d.options().get("style", {}).get("look") == String(names[pick - 1]), "a named look sends style.look: %s" % d.options().get("style"))
+	var spath := dir.path_join("dlg_%s_look.png" % mode)
+	if FileAccess.file_exists(spath):
+		DirAccess.remove_absolute(spath)
+	d.set_destination(spath)
+	d.start_export()
+	var rs: Dictionary = await d.export_finished
+	_ok(bool(rs.get("ok", false)), "export with a named look ok: %s" % rs)
+	var simg := Image.load_from_file(spath)
+	var cimg := Image.load_from_file(path)
+	_ok(simg != null and cimg != null and simg.get_data() != cimg.get_data(), "the named look changed the exported pixels")
+	_ok(bridge.world_gen.get_look() == look_before, "the live map's look is unchanged (%s)" % look_before)
+	await get_tree().create_timer(0.4).timeout
+	var lshot := "user://_exportdialog_look_%s.png" % mode
+	get_viewport().get_texture().get_image().save_png(lshot)
+	print("SHOT %s" % ProjectSettings.globalize_path(lshot))
+	for p2 in [path, cpath, spath]:
+		if FileAccess.file_exists(p2):
+			DirAccess.remove_absolute(p2)
 
 	print("RESULT: %s (%d failed)" % ["PASS" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)
