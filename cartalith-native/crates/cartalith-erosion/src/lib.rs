@@ -20,6 +20,10 @@ pub mod construction;
 /// Tile-bounded re-runs of the whole-world kernels (stream power, thermal)
 /// for interactive local re-erosion, seamed against the world's own edges.
 pub mod tile;
+/// GF-5's karst dissolution, permeability-reduced runoff and spring line
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.6): run by the engine only with
+/// `geology_karst` on. See the module's own header.
+pub mod karst;
 
 pub use construction::{construct_relief, ConstructionInputs, ConstructionReport};
 pub use passes::{

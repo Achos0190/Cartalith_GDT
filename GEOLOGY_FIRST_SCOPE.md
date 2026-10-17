@@ -4348,6 +4348,116 @@ below. A cell lower than all eight is not cut.
   lake crop shows small round dimples on the land beside the lake when
   coastal is on, absent in the control.
 
+### GF-5 measured and built (2026-10-17)
+
+*Design and evidence, not status.* Opened at the symbols first: before this
+change no dissolution pass and no permeability term existed
+(`ROCK_PROPS` carried `soluble` and `permeability` and nothing read them),
+GF-4's last change was `a8a8b1ce`, and `relief_model`, `geology_processes`
+and the coastal pass were all off in `params::defaults()`. GF-5 has no owner
+question of its own in §9, so nothing blocked it. Measured without
+construction (Ruling CG), as GF-4 was.
+
+**Built** (`cartalith_erosion::karst`), behind a new switch,
+`WorldParams::geology_karst`, off at both boundaries, acting only with the
+rock gate (`geology_model` and `geology_processes`) and on the light pass's
+path (`carve_rivers`), where §3.1 puts it. Its own switch so that a
+processes-on world without it stays the pre-GF-5 world. It has `PARAMS` and
+`JS_PATHS` rows (port-only, no reference path), no GUI control, and a save
+without the key reloads with it off.
+
+- **Dissolution** (`karst_dissolution`), after the threshold hillslope and
+  before glacial: on land whose exposed rock is soluble (limestone),
+  `Δz = −min(k_k·rain·τ, soluble thickness)`, §4.12's budget. Soluble
+  thickness is the surface's height above an insoluble contact when the
+  limestone is the cap; otherwise unbounded. Two judgements are added:
+  the pass never takes a cell to or below sea (the water table is the base
+  level for solution, and it keeps the pass from making sea, which B8's hard
+  guard forbids), and nothing rebounds after it. τ is
+  `GeoClock::karst_budget_factor`, exactly 1 at τ = 1 or with the clock
+  off. The lowering strips regolith first (§4.9).
+- **Runoff** (`effective_runoff`): the channel network's flow accumulation
+  is seeded with `rain·(1 − φ·P(exposed))`. Only that accumulation reads it:
+  the light pass, the coastal pass and the post-carve climate refresh still
+  read the rain.
+- **`P`** (`permeability_fraction`), a judgement: §2.3's ordinal classes
+  spaced evenly, very low 0, low 0.25, moderate 0.5, high 1. `Variable`
+  (unconsolidated) is 0: the model does not know whether it is sand or clay,
+  so it claims no loss there.
+- **`k_k` = 15 m** at unit rain (`KARST_DEPTH_M`) and **`φ` = 0.5**
+  (`PERMEABLE_RUNOFF_LOSS`). Both are judgements, chosen by B5 and B8 as
+  §4.6 says, **after** seeing the results below. 20 m failed B8 on 71077345
+  (1-3-cell lakes 27 -> 34 against a bar of 33.75). 10 m passed B8, but B5's
+  depression half had fewer than 100 cells on two seeds, so it could not be
+  read there. φ was tried at 0 and 0.5 only. The runoff term alone (k_k = 0,
+  φ = 0.5) kept B8 on the three seeds tried (24601, 71077345, 12345); the
+  small-lake rise at 20 m came from the dissolution term.
+- **Spring line** (`spring_line_potential`, `is_spring_pair`): a land cell
+  of a two-layer column whose cap is permeable (`P ≥ 0.5`) over an
+  impermeable substrate (`P ≤ 0.25`), which exposes its cap and has a
+  4-neighbour exposing its substrate. That is B4's breach-line definition
+  limited to these pairs. It is **derived on demand, not stored**, so it
+  cannot disagree with the column. No landmark reads it yet: GF-6's
+  *spring* is the reader.
+
+**Measured** (`cartalith-godot/tests/gf5_karst.rs`, `gf5_bars`; 2048 × 1311,
+800 km, processes on, relief off; control is the switch off, treatment the
+switch on). B5 is the pass replayed alone on the control world's final
+surface, column and rain, because its input inside `generate_terrain` is
+not observable from a `WorldState`, as with GF-4's B6 and B7:
+
+| Seed | B5 lowered (all soluble) | B5 new depressions > 0.004, % soluble | B8 ocean · lake % · 1-3-cell lakes, off → on | Spring-line cells |
+|---|---|---|---|---|
+| 483920 | 28 860 (mean 4.05 m) | 1 cell: not measurable | 0 → 0 · 0.977 → 0.956 · 43 → 45 | 4 749 |
+| 24601 | 56 106 (2.96 m) | 139, 100 % | 0 → 0 · 1.966 → 1.904 · 49 → 50 | 6 645 |
+| 71077345 | 37 112 (10.81 m) | 1 202, 100 % | 0 → 0 · 0.660 → 0.920 · 27 → 27 | 6 287 |
+| 12345 | 58 192 (6.02 m) | 662, 100 % | 0 → 0 · 3.855 → 3.934 · 87 → 97 | 4 520 |
+| 314159 | 56 327 (4.60 m) | 370, 100 % | 0 → 0 · 10.049 → 8.261 · 37 → 39 | 5 557 |
+
+- **B5's exact half passes on all five**: every lowered cell exposes
+  soluble rock (asserted in the harness, and pinned by literal in
+  `karst::tests`, where the σ-drop mutant is killed). **B5's depression half
+  passes on the 4 seeds where it can be read**; on 483920 the pass makes 1
+  such cell, under §5.1's population of 100, so that seed is "not
+  measurable", **not a pass**. The 100 % is partly by construction: lowering
+  only soluble cells can only lower a fill level, so no insoluble cell can
+  become newly flooded.
+- **B8 passes on all five.** The largest small-lake rise is 12345's 1.11 ×;
+  the largest lake-share rise is 71077345's +0.26 pp.
+- **River cells per exposed rock** (`river_mask`, off → on) fall on the
+  high-permeability rocks: oceanic basalt by 9 to 42 % on the four seeds
+  where it carries rivers, limestone by 16 % (483920) and 30 % (71077345),
+  but up 0.7-2.1 % on the other three. Granite gains on four seeds (−4.0 to
+  +11.1 %), shale on three (−13.3 to +10.9 %). Why low-permeability rock
+  gains river cells is **not established**: `river_flow_thresh` depends
+  only on the grid and the extent, so it is not a relative threshold.
+- **The spring line is non-empty on all five seeds** (4 520 to 6 645 cells).
+- **B9 was not measured.** The pass is off in the app, and GF-5's done-means
+  does not name B9.
+
+**Identity.** Parity, app and processes-on worlds (seeds 483920 and 314159,
+512 × 328, 13 arrays: field, rainfall, temperature, flow discharge, stream
+order, river mask, river floor, channel `chan`, `recv` and intensity,
+regolith, contact, rock top) hash identical between HEAD `03ab5caa` and
+this change (`gf5_identity_hashes`, printed by both builds and diffed). No
+golden moved, so nothing is re-baselined.
+
+**Tests.** `karst::tests` (6, literal heights and runoffs) and
+`cartalith-engine/tests/geology_gf5.rs` (4: the switch is inert with the
+processes off at 256 × 164 and 512 × 328, and with the model off; it moves a
+processes-on world deterministically; dissolution lowers off-river limestone
+and permeable rock loses channel cells; τ in the budget, by literal), plus
+`params_mapping.rs`'s save-key test. **Mutants: 12 run, 12 killed.** The
+first run had one survivor, the dissolution gate made to ignore the rock
+gate: the 256 × 164 fixture exposes no limestone, so a leaking gate had
+nothing to dissolve. That was a real test gap. The processes-off test now
+also runs at 512 × 328 and kills it.
+
+**Not done.** Nothing moves in the app, and the processes stay off. GF-6
+reads the spring line and the karst-lowered cells (*spring*, *cave*). The
+interactive re-erode (`erode_bridge`, §4.13's painting chain) does not run
+karst yet; §4.13 puts it in GF-8's chain.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry

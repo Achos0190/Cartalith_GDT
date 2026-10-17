@@ -844,6 +844,20 @@ pub struct WorldParams {
     /// this switch, not turning it on. A save without the key reloads with it
     /// off (`params::apply_saved_state`). No GUI control.
     pub relief_model: bool,
+    /// GF-5's karst switch (`GEOLOGY_FIRST_SCOPE.md` §4.6, §7 GF-5; owner
+    /// Rulings BH and BJ): karst dissolution on exposed soluble rock after
+    /// the threshold hillslope, and permeability-reduced runoff seeding the
+    /// channel network's flow (`cartalith_erosion::karst`). Acts only with
+    /// [`Self::geology_model`] and [`Self::geology_processes`] on as well,
+    /// and only on the light pass's path (`carve_rivers`), where §3.1 places
+    /// both; otherwise every statement is today's, by control flow.
+    ///
+    /// **`false` here and `false` in the shipped app**: the app's processes
+    /// are off, so it would be inert there anyway. Its own switch so that a
+    /// processes-on world without it stays the pre-GF-5 world, and GF-5's
+    /// bars compare the two on one binary. A save without the key reloads
+    /// with it off (`params::apply_saved_state`). No GUI control.
+    pub geology_karst: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -903,6 +917,8 @@ impl WorldParams {
             // GF-11 (§4.16): off at both boundaries until GF-13; see the
             // field's doc comment.
             relief_model: false,
+            // GF-5 (§4.6): off at both boundaries; see the field's doc comment.
+            geology_karst: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -1669,6 +1685,56 @@ impl RockContext {
         self.rebound(geology, field, &pre, gw, gh, p.tect.blur_r, world);
         if p.tect.dynamic_lithology {
             recompute_resistance_after_erosion(resistance, &pre, field, 6.0);
+        }
+    }
+
+    /// GF-5 (`GEOLOGY_FIRST_SCOPE.md` §4.6, §4.12's karst row): the karst
+    /// dissolution pass, `cartalith_erosion::karst::karst_dissolution` with
+    /// `k_k = KARST_DEPTH_M` in this world's normalised units times GF-7's
+    /// τ (`GeoClock::karst_budget_factor`, exactly 1 at τ = 1), then §4.9's
+    /// caller-side rule (the lowering strips regolith before bedrock).
+    ///
+    /// `karst` is GF-5's switch, [`WorldParams::geology_karst`], and it acts
+    /// only with this context `on` as well. Off it returns without touching
+    /// `field`, so every world without the switch is the pre-GF-5 world by
+    /// control flow. `sea` is the world's sea level (land is `field > sea`).
+    ///
+    /// Must never be followed by `isostatic_rebound`: no source here says
+    /// solution loss should rebound, and the reference's `eroFinish` rebound
+    /// belongs to glacial alone (a labelled judgement, as GF-3 made for the
+    /// threshold hillslope).
+    #[allow(clippy::too_many_arguments)]
+    fn karst(&self, karst: bool, geology: &mut Geology, field: &mut [f32], rain: &[f32], sea: f64, peak_m: f64) {
+        let Some(column) = geology.column_mut().filter(|_| self.on && karst) else {
+            return;
+        };
+        let before = field.to_vec();
+        let depth = cartalith_terrain::geology::m_to_norm(cartalith_erosion::karst::KARST_DEPTH_M, sea, peak_m)
+            * self.clock.karst_budget_factor();
+        cartalith_erosion::karst::karst_dissolution(
+            field,
+            rain,
+            depth,
+            &cartalith_erosion::karst::KarstRock { column: &*column, r_expose: self.r_expose, sea },
+        );
+        cartalith_erosion::account_regolith(column, &before, field, false);
+    }
+
+    /// GF-5 (§4.6): the rain the channel network's flow accumulation seeds
+    /// with. With `karst` (GF-5's switch) and this context on,
+    /// `rain·(1 − φ·P(exposed))` (`cartalith_erosion::karst::effective_runoff`,
+    /// φ = `PERMEABLE_RUNOFF_LOSS`) on this surface; otherwise `rain`
+    /// itself, borrowed, so the off path costs nothing and seeds exactly as
+    /// before.
+    fn runoff<'a>(&self, karst: bool, geology: &Geology, field: &[f32], rain: &'a [f32], sea: f64) -> std::borrow::Cow<'a, [f32]> {
+        match geology.column().filter(|_| self.on && karst) {
+            Some(column) => std::borrow::Cow::Owned(cartalith_erosion::karst::effective_runoff(
+                field,
+                rain,
+                cartalith_erosion::karst::PERMEABLE_RUNOFF_LOSS,
+                &cartalith_erosion::karst::KarstRock { column, r_expose: self.r_expose, sea },
+            )),
+            None => std::borrow::Cow::Borrowed(rain),
         }
     }
 
@@ -2621,6 +2687,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // with `geology_processes` on, and only here: §3.1 places it once, in
         // the light pass that `carve_rivers` already gates (§3.2 item 2).
         rock.threshold_hillslope(&mut geology, &mut field, gw, gh, world, p.map_width_km, sea_level, p.peak_m);
+        // GF-5 (§4.6, §3.1's order: after the threshold hillslope, before
+        // glacial): karst dissolution on exposed soluble rock, reading the
+        // priming climate's `rainfall` (the post-carve refresh is below).
+        // Only with `geology_karst` on; otherwise no statement runs.
+        rock.karst(p.geology_karst, &mut geology, &mut field, &rainfall, sea_level, p.peak_m);
         if p.tect.dynamic_lithology {
             // recomputeResistanceAfterErosion(reference HTML line 3144):
             // JS's own call site (`eroFinish`) passes no `opts`, so `k`
@@ -2699,15 +2770,21 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // two different objects). Slope stays on the real field inside
         // `build_channels_routed`.
         let route = routing_view(&field, gw, gh, sea_level, world, integrate);
-        let flow_for_network = match flow_on_gpu(&route, Some(&rainfall), true) {
+        // GF-5 (§4.6, §3.1: "flow uses permeability-reduced runoff"): with
+        // `geology_karst` on, the network's accumulation seeds with the
+        // runoff permeable outcrops leave at the surface; off, `rainfall`
+        // itself (borrowed: the same call as before).
+        let runoff = rock.runoff(p.geology_karst, &geology, &field, &rainfall, sea_level);
+        let flow_for_network = match flow_on_gpu(&route, Some(&runoff), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
                     gpu_stages_used.push("flow".to_string());
                 }
                 v
             }
-            None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
+            None => compute_flow(gw, gh, &route, Some(&runoff), true, world),
         };
+        drop(runoff);
 
         // (2) vector network -> distance-field channel carve + lock
         let mut ch = build_channels_routed(

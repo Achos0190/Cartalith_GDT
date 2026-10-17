@@ -209,6 +209,19 @@ impl GeoClock {
         }
         scaled(n as f64, f_saturating(self.age), PASS_FLOOR)
     }
+
+    /// GF-5's karst budget factor: the τ in §4.12's
+    /// `Δz = −min(k_k·σ·rain·τ, soluble thickness)`. Linear, and bounded by
+    /// the column rather than by any saturation (§4.12 table: once a cap is
+    /// consumed the substrate is exposed and σ = 0). Exactly `1.0` whenever
+    /// the clock does not scale (τ = 1, or the gate off), so the dissolution
+    /// pass at τ = 1 is its own unscaled expression.
+    pub fn karst_budget_factor(&self) -> f64 {
+        if !self.is_scaling() {
+            return 1.0;
+        }
+        f_linear(self.age)
+    }
 }
 
 /// Every count the clock sets, for one set of parameters at one τ -- the
