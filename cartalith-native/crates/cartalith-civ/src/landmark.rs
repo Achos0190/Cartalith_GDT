@@ -104,6 +104,12 @@ pub use refined_view::{
     RefineError, RefineStatus, RefinedViewshed, ViewRect, REFINE_MAX_CELLS,
 };
 
+/// GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.11): GF-5's dissolution and spring line,
+/// derived from a generated world for *cave* and *spring*. Must never produce
+/// a view for a world the karst model did not run on.
+pub mod karst_view;
+pub use karst_view::{KarstAbsent, KarstView};
+
 // ===========================================================================
 // §23 — hierarchical landmark classes
 // ===========================================================================
@@ -318,9 +324,13 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "A saddle that links two valleys is a mountain pass, and Mountain pass already places those; a saddle that links nothing is a shape, not a landmark. Placing both would put two landmarks on one spot." },
         LandmarkKindSpec { key: "cliff", label: "Cliff", family: F::Physical, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "gorge", label: "Gorge", family: F::Physical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "cave", label: "Cave", family: F::Physical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            // Lithology (`build_lithology`) classifies rock; no karst/void model exists.
-            not_built: "Caves need a model of rock dissolving underground. The generator knows where limestone is, but nothing in it carves hollows, so a cave could only be placed at random on limestone." },
+        // GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.11): built on the soluble rock
+        // GF-5's karst model dissolves (`pool_cave`). Its old `not_built`
+        // reason ("nothing in it carves hollows, so a cave could only be
+        // placed at random on limestone") is removed in the same change, as
+        // §4.11 says; on a world without the karst model the detector reads
+        // no `LandmarkInputs::karst` and reports `NoTerrain`, placing nothing.
+        LandmarkKindSpec { key: "cave", label: "Cave", family: F::Physical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "waterfall", label: "Waterfall", family: F::Physical, class: C::Regional, default_cap: 40, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "spring", label: "Spring", family: F::Physical, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "lake", label: "Lake", family: F::Physical, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
@@ -1516,6 +1526,15 @@ pub struct LandmarkInputs<'a> {
     /// caller predating the ruling, and then nothing moves: the coarse pass is
     /// byte-identical.
     pub refined_view: Option<&'a RefinedViewshed>,
+    /// **GF-5's karst facts** ([`KarstView`], GF-6), `Some` only for a world
+    /// generated with the karst model on ([`KarstView::for_world`] refuses
+    /// otherwise, with the reason). *Cave*'s whole domain, and *spring*'s
+    /// second one (the spring line). `None` is every caller and test
+    /// predating GF-6 and every app world today (`geology_karst` ships off):
+    /// cave then reports `NoTerrain` and spring is exactly its hydrology-only
+    /// self, by control flow. A view whose grid is not `gw * gh` reads as
+    /// `None`, like every raster here.
+    pub karst: Option<&'a KarstView>,
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -1585,6 +1604,7 @@ impl<'a> LandmarkInputs<'a> {
             battles: &[],
             history: None,
             refined_view: None,
+            karst: None,
         }
     }
 
@@ -1716,6 +1736,9 @@ impl Needs {
             "rock_formation" => (false, false, true, true, false),
             "waterfall" => (true, false, false, true, false),
             "spring" => (false, false, false, true, false),
+            // Cave (GF-6): the steepest cell of a dissolving face, so slope;
+            // local relief, so extrema. Its rock fact is `LandmarkInputs::karst`.
+            "cave" => (true, false, false, true, false),
             "river_confluence" => (false, false, false, true, false),
             "lake" => (false, false, false, true, false),
             "mountain_pass" => (true, false, false, true, false),
@@ -2646,6 +2669,13 @@ fn fmt_pct(v: f64) -> String {
     format!("{:.0} %", v * 100.0)
 }
 
+/// A dissolution depth in metres to one decimal, `"4.1 m"`: GF-5's depths
+/// are a few metres (`GEOLOGY_FIRST_SCOPE.md` §7 "GF-5 measured": means of
+/// 3 to 11 m), so [`fmt_m`]'s whole metres would print most as 3 or 4.
+fn fmt_dm(v: f64) -> String {
+    format!("{:.1} m", v)
+}
+
 /// Only ever asked of a distance to a settlement that exists — every caller
 /// is behind a non-empty-settlements test — so there is no infinity to handle.
 fn fmt_km(v: f64) -> String {
@@ -2758,6 +2788,33 @@ const SPRING_MIN_RELIEF_M: f64 = 60.0;
 /// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const SPRING_TERMS: [(&str, f64); 3] =
     [("local relief", 0.40), ("emergence slope", 0.30), ("headwater flow", 0.30)];
+/// GF-6: spring scoring with GF-5's spring line present
+/// ([`LandmarkInputs::karst`]): the three [`SPRING_TERMS`] scaled to 0.70 and
+/// a fourth, the permeable-over-impermeable contact (1 on a spring-line cell,
+/// 0 off it), at 0.30, so a channel head that is also a contact spring ranks
+/// above one that is not. Weights sum to 1.0. Category C: a judgement, source
+/// not recorded. That water emerges where a permeable unit sits on an
+/// impermeable one is the textbook contact spring; no source was verified
+/// here for the weight.
+const SPRING_TERMS_KARST: [(&str, f64); 4] = [
+    ("local relief", 0.28),
+    ("emergence slope", 0.21),
+    ("headwater flow", 0.21),
+    ("permeable-over-impermeable contact", 0.30),
+];
+
+/// GF-6, **Category C**: a cave opens in a face, and a face needs relief to
+/// be one. Below [`SPRING_MIN_RELIEF_M`] because a cave mouth in a limestone
+/// valley side is a smaller feature than a headwater's catchment relief; a
+/// judgement, source not recorded.
+const CAVE_MIN_RELIEF_M: f64 = 40.0;
+/// GF-6: cave scoring weights: dissolution 0.45 (GF-5's rate is proportional
+/// to runoff, the control on carbonate solution Ford & Williams 2007 is cited
+/// for in `cartalith_erosion::karst::KARST_DEPTH_M`, not verified at the
+/// source here), face slope 0.30, local relief 0.25. Weights sum to 1.0.
+/// Category C: a judgement, source not recorded.
+const CAVE_TERMS: [(&str, f64); 3] =
+    [("dissolution", 0.45), ("face slope", 0.30), ("local relief", 0.25)];
 
 /// The **second** largest tributary must itself be a real channel, or this is a
 /// rill joining a river rather than two rivers meeting.
@@ -3334,6 +3391,8 @@ struct Ctx<'a> {
     lithology: Option<&'a [u8]>,
     resistance: Option<&'a [f32]>,
     territory: Option<&'a [i32]>,
+    /// [`LandmarkInputs::karst`], `None` unless it fits the grid.
+    karst: Option<&'a KarstView>,
     up: Option<Upstream>,
     /// `None` when nothing armed reads the way network, or when the caller
     /// passed no ways at all — the same "absent input, honest `NoTerrain`"
@@ -3405,6 +3464,7 @@ impl<'a> Ctx<'a> {
             lithology: inp.grid(inp.lithology),
             resistance: inp.grid(inp.resistance),
             territory: inp.grid(inp.territory),
+            karst: inp.karst.filter(|k| k.fits(n)),
             up,
             ways: if need.ways && !inp.ways.is_empty() {
                 Some(WayGrid::build(inp.ways, inp.gw, inp.gh, inp.world))
@@ -3636,14 +3696,33 @@ fn pool_waterfall(c: &Ctx<'_>) -> Option<Pool> {
 }
 
 /// A spring is where a channel *starts*: a channel cell nothing upstream feeds.
+///
+/// **GF-6** (`GEOLOGY_FIRST_SCOPE.md` §4.11, "Spring: reads the spring
+/// line"): with [`LandmarkInputs::karst`] present, GF-5's spring line is a
+/// second domain. A spring-line cell is where a permeable cap over an
+/// impermeable substrate has its contact at the surface, so water moving
+/// down through the cap comes out there. It is a candidate unless a channel
+/// with something upstream runs through it (that is the river crossing the
+/// contact, not a spring), and a fourth term ([`SPRING_TERMS_KARST`]) scores
+/// the contact. The relief minimum applies to both domains. **Without the
+/// view, nothing here differs from before GF-6** by control flow: the domain
+/// test is the old one, the facts are the old facts, and the terms are
+/// [`SPRING_TERMS`].
 fn pool_spring(c: &Ctx<'_>) -> Option<Pool> {
     let chan = c.chan?;
     let flow = c.flow?;
     let up = c.up.as_ref()?;
     let mut p = Pool::new();
-    let (mut t_r, mut t_s, mut t_q) = (vec![], vec![], vec![]);
+    let (mut t_r, mut t_s, mut t_q, mut t_k) = (vec![], vec![], vec![], vec![]);
     for i in 0..c.n {
-        if chan[i] == 0 || !c.is_land(i) || up.count[i] != 0 {
+        let head = chan[i] != 0 && up.count[i] == 0;
+        let contact = c.karst.is_some_and(|k| k.spring_line[i]);
+        if !c.is_land(i) || !(head || contact) {
+            continue;
+        }
+        if !head && chan[i] != 0 {
+            // A spring-line cell a fed channel runs through: the river
+            // crossing the contact. Not a candidate, so not counted.
             continue;
         }
         let relief = c.relief_m(i);
@@ -3653,24 +3732,95 @@ fn pool_spring(c: &Ctx<'_>) -> Option<Pool> {
         }
         let (x, y) = (i % c.inp.gw, i / c.inp.gw);
         let q = flow[i] as f64;
+        let mut facts = Vec::with_capacity(4);
+        if head {
+            facts.push("the head of a channel, with nothing upstream of it".to_string());
+        }
+        if contact {
+            // `contact` implies the view is present.
+            let k = c.karst.expect("a spring-line cell implies the karst view");
+            facts.push(match k.substrate_name(i) {
+                Some(sub) => format!("where permeable {} meets impermeable {} at the surface", k.exposed_name(i), sub),
+                None => format!("where permeable {} meets an impermeable layer at the surface", k.exposed_name(i)),
+            });
+        }
+        facts.push(format!("local relief {}", fmt_m(relief)));
+        facts.push(format!("emerges at {}", fmt_m(c.elev_m(i))));
+        p.cands.push(Cand { i, x, y, facts });
+        t_r.push(relief as f32);
+        t_s.push(c.gradient(i) as f32);
+        t_q.push(q as f32);
+        t_k.push(if contact { 1.0 } else { 0.0 });
+    }
+    p.terms = if c.karst.is_some() {
+        vec![
+            (SPRING_TERMS_KARST[0].0, SPRING_TERMS_KARST[0].1, t_r),
+            (SPRING_TERMS_KARST[1].0, SPRING_TERMS_KARST[1].1, t_s),
+            (SPRING_TERMS_KARST[2].0, SPRING_TERMS_KARST[2].1, t_q),
+            (SPRING_TERMS_KARST[3].0, SPRING_TERMS_KARST[3].1, t_k),
+        ]
+    } else {
+        vec![
+            (SPRING_TERMS[0].0, SPRING_TERMS[0].1, t_r),
+            (SPRING_TERMS[1].0, SPRING_TERMS[1].1, t_s),
+            (SPRING_TERMS[2].0, SPRING_TERMS[2].1, t_q),
+        ]
+    };
+    Some(p)
+}
+
+/// **GF-6's cave** (`GEOLOGY_FIRST_SCOPE.md` §4.11: "buildable on soluble
+/// rock that karst has lowered"). Domain: a land cell GF-5's dissolution
+/// acts on ([`KarstView::dissolution_m`] above zero, so soluble rock the
+/// karst model dissolves) that is the steepest cell of its face within the
+/// fine window, the way [`pool_cliff`] picks one cell per face. A cave mouth
+/// opens where a valley side or scarp cuts the dissolving rock. Constraint:
+/// local relief of at least [`CAVE_MIN_RELIEF_M`]. Scored on the dissolution
+/// depth, the face's slope and the relief ([`CAVE_TERMS`]).
+///
+/// `None` (`NoTerrain`, nothing placed) without [`LandmarkInputs::karst`]:
+/// with no karst model there is no dissolution to read, and placing caves on
+/// limestone anyway is the "at random" placement the kind's old `not_built`
+/// reason refused. Must never place a cave where the pass does not dissolve.
+fn pool_cave(c: &Ctx<'_>) -> Option<Pool> {
+    let k = c.karst?;
+    if c.d.slope.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let (_, smax) = sep_min_max(&c.d.slope, gw, c.inp.gh, c.d.r_fine, c.inp.world);
+    let mut p = Pool::new();
+    let (mut t_d, mut t_g, mut t_r) = (vec![], vec![], vec![]);
+    for i in 0..c.n {
+        let dissolved = k.dissolution_m[i] as f64;
+        if !(dissolved > 0.0) || !c.is_land(i) || c.d.slope[i] < smax[i] {
+            continue;
+        }
+        let relief = c.relief_m(i);
+        if relief < CAVE_MIN_RELIEF_M {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let grad = c.gradient(i);
         p.cands.push(Cand {
             i,
             x,
             y,
             facts: vec![
-                "the head of a channel, with nothing upstream of it".to_string(),
+                format!("{} the karst model dissolves, {} at this cell", k.exposed_name(i), fmt_dm(dissolved)),
+                format!("face slope {}", fmt_pct(grad)),
                 format!("local relief {}", fmt_m(relief)),
-                format!("emerges at {}", fmt_m(c.elev_m(i))),
             ],
         });
+        t_d.push(dissolved as f32);
+        t_g.push(grad as f32);
         t_r.push(relief as f32);
-        t_s.push(c.gradient(i) as f32);
-        t_q.push(q as f32);
     }
     p.terms = vec![
-        (SPRING_TERMS[0].0, SPRING_TERMS[0].1, t_r),
-        (SPRING_TERMS[1].0, SPRING_TERMS[1].1, t_s),
-        (SPRING_TERMS[2].0, SPRING_TERMS[2].1, t_q),
+        (CAVE_TERMS[0].0, CAVE_TERMS[0].1, t_d),
+        (CAVE_TERMS[1].0, CAVE_TERMS[1].1, t_g),
+        (CAVE_TERMS[2].0, CAVE_TERMS[2].1, t_r),
     ];
     Some(p)
 }
@@ -5371,6 +5521,7 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
     match key {
         "waterfall" => pool_waterfall(c),
         "spring" => pool_spring(c),
+        "cave" => pool_cave(c),
         "river_confluence" => pool_confluence(c),
         "lake" => pool_lake(c),
         "mountain_pass" => pool_pass(c),
@@ -6517,7 +6668,7 @@ mod tests {
     fn the_kind_table_matches_the_research_and_the_design() {
         // Protects: the kind table: 49 unique keys with labels, a `not_built` reason on exactly the
         // unbuilt kinds, the per-family counts, the seven viewshed-reading kinds agreeing
-        // with `Needs::of`, the 30 buildable kinds, and `buildable` agreeing with the
+        // with `Needs::of`, the 31 buildable kinds (cave since GF-6), and `buildable` agreeing with the
         // detector arms.
         let ks = kinds();
         assert_eq!(ks.len(), 49, "§29 lists 49 types");
@@ -6586,6 +6737,7 @@ mod tests {
                 "border_marker",
                 "bridge_site",
                 "caravan_station",
+                "cave",
                 "cliff",
                 "ford",
                 "fort",
@@ -6611,7 +6763,7 @@ mod tests {
                 "watchtower",
                 "waterfall",
             ],
-            "the thirty kinds this engine actually generates"
+            "the thirty-one kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -6623,6 +6775,7 @@ mod tests {
                     k.key,
                     "waterfall"
                         | "spring"
+                        | "cave"
                         | "river_confluence"
                         | "lake"
                         | "mountain_pass"
@@ -6887,9 +7040,14 @@ mod tests {
                 last_year: 90,
             }],
         };
+        // Cave's only input (GF-6), which the fixture has no rock column to
+        // derive: limestone dissolving 5 m everywhere, no spring line. Spring
+        // then scores on four terms with the contact zero everywhere.
+        let karst = karst_fixture(w.gw, w.gh, |_| 5.0);
         let mut inp = inputs(&w, &res);
         inp.battles = &battles;
         inp.history = Some(&hist);
+        inp.karst = Some(&karst);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
         for k in kinds().iter().filter(|k| k.buildable) {
@@ -9885,6 +10043,93 @@ mod tests {
         for key in ["ancient_road", "abandoned_settlement"] {
             let f = r.funnel(key).unwrap();
             assert_eq!((f.candidates, f.limit), (0, LandmarkLimit::NoTerrain), "{key}: {f:?}");
+        }
+    }
+
+    // -- GF-6: cave and spring read GF-5 (`GEOLOGY_FIRST_SCOPE.md` §4.11) --
+
+    /// A hand-built [`KarstView`]: limestone exposed everywhere, no spring
+    /// line, single-layer columns, and `diss(i)` metres of dissolution.
+    fn karst_fixture(gw: usize, gh: usize, diss: impl Fn(usize) -> f32) -> KarstView {
+        let n = gw * gh;
+        KarstView {
+            gw,
+            gh,
+            dissolution_m: (0..n).map(diss).collect(),
+            spring_line: vec![false; n],
+            exposed: vec![cartalith_terrain::geology::Rock::Limestone as u8; n],
+            substrate: vec![cartalith_terrain::geology::NO_LAYER; n],
+        }
+    }
+
+    /// 128 x 64 at 512 km with one round hill (0.05 normalised high, about
+    /// 345 m at the default 4000 m peak and sea 0.42) centred at (32, 32), the
+    /// rest flat at 0.60.
+    fn hill(gw: usize, gh: usize) -> Vec<f32> {
+        (0..gw * gh)
+            .map(|i| {
+                let (dx, dy) = ((i % gw) as f64 - 32.0, (i / gw) as f64 - 32.0);
+                (0.60 + 0.05 * (-(dx * dx + dy * dy) / 50.0).exp()) as f32
+            })
+            .collect()
+    }
+
+    /// Protects cave's three rules: (1) without the view it reports
+    /// `NoTerrain` with no candidates; (2) on flat dissolving ground every
+    /// candidate fails the 40 m relief minimum (mutating
+    /// `CAVE_MIN_RELIEF_M` to 0 places caves there and turns this red); (3)
+    /// on a hill whose east half alone dissolves, caves are placed and every
+    /// one is on the dissolving half (dropping the dissolution test from the
+    /// domain turns this red).
+    #[test]
+    fn a_cave_needs_dissolving_rock_and_a_face_with_relief() {
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let bare = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        let f = generate(&bare, &only("cave"), 1).funnel("cave").unwrap().clone();
+        assert_eq!((f.candidates, f.placed, f.limit), (0, 0, LandmarkLimit::NoTerrain), "{f:?}");
+
+        let all = karst_fixture(gw, gh, |_| 5.0);
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.karst = Some(&all);
+        let f = generate(&inp, &only("cave"), 1).funnel("cave").unwrap().clone();
+        assert!(f.candidates > 0, "{f:?}");
+        assert_eq!((f.rejected_constraint, f.placed, f.limit), (f.candidates, 0, LandmarkLimit::NoTerrain), "{f:?}");
+
+        let field = hill(gw, gh);
+        let east = karst_fixture(gw, gh, |i| if i % gw >= 32 { 5.0 } else { 0.0 });
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.karst = Some(&east);
+        let r = generate(&inp, &only("cave"), 1);
+        let caves: Vec<_> = r.landmarks.iter().filter(|l| l.kind == "cave").collect();
+        assert!(!caves.is_empty(), "{:?}", r.funnel("cave"));
+        for l in caves {
+            assert!(l.x >= 32, "a cave at x {} where nothing dissolves", l.x);
+            assert_eq!(l.causal[0], "Limestone the karst model dissolves, 5.0 m at this cell");
+        }
+        // A view for another grid reads as absent.
+        let wrong = karst_fixture(gw / 2, gh, |_| 5.0);
+        inp.karst = Some(&wrong);
+        let f = generate(&inp, &only("cave"), 1).funnel("cave").unwrap().clone();
+        assert_eq!((f.candidates, f.limit), (0, LandmarkLimit::NoTerrain), "{f:?}");
+    }
+
+    /// Pins GF-6's scoring weights by literal, so a changed judgement is a
+    /// visible change: spring with the spring line scales the old three by
+    /// 0.70 and gives the contact 0.30; cave is 0.45 / 0.30 / 0.25; the
+    /// relief minimum is 40 m. Each sums to 1.
+    #[test]
+    fn the_gf6_weights_are_the_recorded_judgements() {
+        let w = |t: &[(&str, f64)]| t.iter().map(|(_, w)| *w).collect::<Vec<_>>();
+        assert_eq!(w(&SPRING_TERMS_KARST), vec![0.28, 0.21, 0.21, 0.30]);
+        assert_eq!(w(&CAVE_TERMS), vec![0.45, 0.30, 0.25]);
+        assert_eq!(CAVE_MIN_RELIEF_M, 40.0);
+        for (old, new) in SPRING_TERMS.iter().zip(&SPRING_TERMS_KARST) {
+            assert_eq!(old.0, new.0);
+            assert!((old.1 * 0.70 - new.1).abs() < 1e-12, "{} not scaled by 0.70", old.0);
+        }
+        for t in [&SPRING_TERMS_KARST[..], &CAVE_TERMS[..]] {
+            assert!((w(t).iter().sum::<f64>() - 1.0).abs() < 1e-12);
         }
     }
 }

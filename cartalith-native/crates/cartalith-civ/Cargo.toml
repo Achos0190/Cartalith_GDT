@@ -15,6 +15,11 @@ cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-rng = { path = "../cartalith-rng" }
 cartalith-terrain = { path = "../cartalith-terrain" }
+# GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.11): `landmark/karst_view.rs` reads GF-5's
+# dissolution and spring line through their own functions in
+# `cartalith_erosion::karst`, so there is one copy of each rule. Already in
+# this crate's tree via `cartalith-engine`; a new edge, not a new crate.
+cartalith-erosion = { path = "../cartalith-erosion" }
 # `urban_adapter.rs` (`URBAN_MORPHOLOGY_SCOPE.md` milestone 17): the town
 # generator itself. The scope document names this crate as the adapter's home
 # precisely so `cartalith-urban` -- whose only dependencies are `cartalith-rng`

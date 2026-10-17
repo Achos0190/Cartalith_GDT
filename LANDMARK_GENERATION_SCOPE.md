@@ -384,6 +384,15 @@ input that does not exist; the six Cultural kinds, Tomb and Monument want
 §26's civilisation traits or an event to commemorate; Historic battlefield and
 Destroyed fortress are M9's (below).
 
+**Cave, built 2026-10-17 by GEOLOGY_FIRST_SCOPE.md's GF-6** (`pool_cave`,
+`landmark/karst_view.rs`). This kind is no longer one of the sixteen above:
+GF-5's karst model is the input its old reason wanted. It places only on
+soluble rock GF-5's dissolution acts on, and only for a world generated with
+`geology_karst` on. Every app world today is generated with it off, so there
+cave reports `no_terrain` with no candidates. *Spring* also reads GF-5's
+spring line on such a world. The design, the measurement and the app wiring
+are in `GEOLOGY_FIRST_SCOPE.md` §7 "GF-6 measured".
+
 ### M9 — Cultural interpretation and temporal state (research §24-26)
 
 One physical feature, several civilisations' readings of it (research §26);

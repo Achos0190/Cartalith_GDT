@@ -25165,6 +25165,19 @@ impl WorldGen {
         inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
         inputs.battles = &battles;
         inputs.history = history.as_ref();
+        // GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.11): cave's whole input and
+        // spring's second (GF-5's dissolution and spring line). `for_world`
+        // refuses, before computing anything, unless the world was generated
+        // with the karst model on (the app ships `geology_karst` off). A
+        // refusal leaves `karst` absent: cave reports `no_terrain` with no
+        // candidates and spring is its hydrology-only self. It reads
+        // `recompute_params()` (the dial state with this world's grid, seed
+        // and width filled back in; `self.params` alone carries no grid, so
+        // the view would refuse as a mismatch) as the parameters `ws` was
+        // generated with; a dial edited since and not regenerated is read as
+        // if it had been.
+        let karst = cartalith_civ::landmark::KarstView::for_world(ws, &self.recompute_params()).ok();
+        inputs.karst = karst.as_ref();
         // The stored refined viewshed (Ruling AT) is deliberately NOT set here:
         // `LandmarkStore::run` lends it itself, and `compute` must see the
         // coarse inputs only.

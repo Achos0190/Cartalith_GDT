@@ -4397,8 +4397,8 @@ without the key reloads with it off.
   impermeable substrate (`P ≤ 0.25`), which exposes its cap and has a
   4-neighbour exposing its substrate. That is B4's breach-line definition
   limited to these pairs. It is **derived on demand, not stored**, so it
-  cannot disagree with the column. No landmark reads it yet: GF-6's
-  *spring* is the reader.
+  cannot disagree with the column. No landmark read it when GF-5
+  landed; GF-6's *spring* reads it (see "GF-6 measured" below).
 
 **Measured** (`cartalith-godot/tests/gf5_karst.rs`, `gf5_bars`; 2048 × 1311,
 800 km, processes on, relief off; control is the switch off, treatment the
@@ -4454,9 +4454,112 @@ nothing to dissolve. That was a real test gap. The processes-off test now
 also runs at 512 × 328 and kills it.
 
 **Not done.** Nothing moves in the app, and the processes stay off. GF-6
-reads the spring line and the karst-lowered cells (*spring*, *cave*). The
+reads the spring line and the karst-lowered cells (*spring*, *cave*; see
+"GF-6 measured" below). The
 interactive re-erode (`erode_bridge`, §4.13's painting chain) does not run
 karst yet; §4.13 puts it in GF-8's chain.
+
+---
+
+### GF-6 measured, and what of it is built (2026-10-17): the landmark half
+
+*Design and evidence, not status.* Opened at the symbols first: before this
+change `kinds()` shipped *cave* `buildable: false` ("nothing in it carves
+hollows"), `pool_spring` read only the channel tree, `pool_rock_formation`
+read `resistance_field`, `pool_waterfall` read no knickpoint, the river carve
+(`carve_channel_network`) had no `ω`, and the LOD amplifier had no rock
+style. So GF-6 was unbuilt in all three parts (§4.7, §4.10, §4.11). GF-6 has
+no owner question of its own in §9, and its done-means names no numeric
+measurement gate for the landmarks, so nothing blocked the landmark half.
+Landmarks are exempt from parity (`DECISIONS.md` §7q).
+
+**Built: cave and spring read GF-5** (`cartalith-civ/src/landmark/karst_view.rs`,
+`landmark.rs` `pool_cave`, `pool_spring`).
+
+- **`KarstView::for_world(ws, p)`** derives GF-5's facts on demand, through
+  GF-5's own functions (`karst_dissolution`, `spring_line_potential`), so
+  there is one copy of each rule. The dissolution is the pass **replayed on
+  the finished surface and rain** with the engine's `k_k` and τ, as GF-5's
+  B5 replayed it, because the pass's own input surface is not observable
+  from a `WorldState`. So it reads where the pass acts on the world as
+  finished. It is not a record of what the pass did. It **refuses**, with
+  a reason, unless the world has a column and was generated with
+  `geology_processes` and `geology_karst` both on, which is the engine's own
+  gate. The app ships `geology_karst` off, so every app world refuses.
+  The refusal is `NoTerrain` with zero candidates for cave, and the
+  unchanged hydrology spring.
+- **Cave** (now `buildable: true`; its `not_built` reason is removed, as
+  §4.11 says): the steepest cell of its face within the fine window, on
+  land the pass dissolves (`dissolution_m > 0`), with local relief of at
+  least 40 m. It is scored on dissolution depth 0.45, face slope 0.30 and
+  relief 0.25. The 40 m and the weights are judgements (Category C, no
+  source).
+- **Spring** with the view gains GF-5's spring line as a second domain. A
+  spring-line cell that a fed channel runs through is excluded, because that
+  is the river crossing the contact. A fourth term, the contact, takes 0.30;
+  the old three are scaled by 0.70. That is a judgement. Without the view
+  the domain, the facts and the terms are the old ones, by control flow.
+
+**Measured** (`cartalith-civ/tests/gf6_karst_landmarks.rs`, `gf6_measure`;
+the app's parameters at 2048 × 1311, 800 km, processes on, relief off,
+karst on; default landmark settings):
+
+| Seed | Dissolving cells (mean m) | Limestone-exposed land | Spring line | Cave cand / constraint / placed | Spring cand off → on (placed 30 both), on the line | Other kinds: placed off, lost with the view |
+|---|---|---|---|---|---|---|
+| 483920 | 28 606 (3.61) | 46 671 | 4 749 | 35 / 0 / 12 (at cap) | 495 → 5 110, 30 of 30 | 144, 5 |
+| 24601 | 55 443 (2.61) | 68 345 | 6 645 | 53 / 0 / 12 | 603 → 7 107, 30 | 160, 3 |
+| 71077345 | 38 158 (9.00) | 55 843 | 6 287 | 27 / 0 / 12 | 507 → 6 653, 30 | 138, 7 |
+| 12345 | 59 483 (6.21) | 74 956 | 4 520 | 59 / 0 / 12 | 501 → 4 900, 30 | 142, 10 |
+| 314159 | 56 688 (4.37) | 55 577 | 5 557 | 43 / 0 / 12 | 565 → 5 923, 30 | 152, 3 |
+
+- **Why limestone shows more cells than dissolve:** checked on 483920 and
+  24601. On 483920, 7 191 cells have no rain. Another 10 907 have rain above
+  zero but lower by less than f32 resolution; the five sampled had rain
+  under 1e-6. One is a cap already dissolved to its contact. On 24601,
+  14 593 have no rain and 209 are caps at their contact. None is at the sea
+  floor.
+- **Every placed spring moves onto the spring line on all five seeds.**
+  Contact cells outnumber channel heads about ten to one, and the contact
+  term ranks them first. That follows from the judgement weight, and **it
+  is the thing to look at when a karst world is first shown.** A lower
+  contact weight, or limiting the contact domain to channel heads, would
+  keep more channel-head springs.
+- The cave relief minimum rejected nothing at 2048. The fixture test
+  `a_cave_needs_dissolving_rock_and_a_face_with_relief` is what proves it
+  is live.
+- Placing caves and moving springs costs other kinds 3 to 10 placements per
+  seed, through the cross-kind spacing.
+
+**Identity.** `cartalith-civ/tests/gf6_identity_hashes.rs` runs app worlds
+(seeds 483920 and 314159, 512 × 328, karst off) through the full default
+landmark pass. It printed the same hash for every placement and every funnel
+row except cave's, at `d718d052` and with this change (`603d785fc1edf96e`,
+`936d88e055902d42`; 170 and 168 landmarks). Cave's row is `not_buildable` →
+`no_terrain`, 0 candidates. No terrain code changed, so no golden can move.
+
+**Tests:** 3 in `gf6_karst_landmarks.rs` (the refusals by gate; cave and
+spring on a real karst world; the k_k and τ scaling), and 2 in
+`landmark::tests` (the cave fixture; the weights by literal). The kind
+table now counts 31 buildable kinds. **Mutants: 12 run, 12 killed.** They
+were the dissolution domain test, the relief minimum, the fed-channel
+exclusion, the contact weight, the contact read, the grid check, the
+`detect` arm, the terms branch, both gates, the clock factor and `k_k`.
+
+**App wiring.** `cartalith-godot`'s `with_landmark_inputs` passes
+`KarstView::for_world(ws, &self.recompute_params())`. It refuses before it
+computes anything, so app worlds pay nothing. `_gf6cave_probe.tscn`
+(windowed, seed 483920, 512 × 328, 800 km) passed. With the app's
+parameters, cave is `no_terrain` with 0 candidates. After `set_params`
+turns `geology_processes` and `geology_karst` on, the same world gives 16
+cave candidates and places 7 (limited by spacing), each chain naming
+limestone the karst model dissolves. The shell's `no_terrain` tooltip
+(`LM_LIMIT_WHY`) now also covers the absent-input case, which is what an
+app world's cave always reports.
+
+**Not done in GF-6:**
+- §4.7 (the carve's `ω`, and knickpoints for *waterfall*), §4.10 (rock-styled
+  LOD detail, and its windowed probe) and §4.11's *rock formation* reading
+  `s`. None is built.
 
 ---
 

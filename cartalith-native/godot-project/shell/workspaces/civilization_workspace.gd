@@ -5174,7 +5174,11 @@ const LM_LIMIT_WHY := {
 	## This string is the note printed directly above §5's chips, so it and the
 	## chip would have instructed opposite directions.
 	"spacing": "The exclusion radius rejected the rest. Raising the cap changes nothing -- raise Crowding, or lower this class's radius.",
-	"no_terrain": "Every remaining candidate failed this type's own constraints. The cap is not what is limiting you.",
+	## `LandmarkLimit::NoTerrain` also means "the input this type reads is not
+	## present at all" (its own doc in `landmark.rs`), and since GF-6 (2026-10-17)
+	## Cave is the case an app world always hits: it reads GF-5's karst model,
+	## which ships off. The line said only the first half until then.
+	"no_terrain": "Every candidate failed this type's own constraints, or the input it reads is absent from this world (Cave reads the karst model, which is off in this app). The cap is not what is limiting you.",
 	"candidates": "The candidate pool ran out before the cap or the spacing did. The world is too small or too coarse for more of these.",
 	"disarmed": "Disarmed. The cap is retained and the row says what it was.",
 	## The per-type reason is the engine's own `not_built` string, which the row

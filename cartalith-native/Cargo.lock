@@ -171,6 +171,7 @@ name = "cartalith-civ"
 version = "0.1.0"
 dependencies = [
  "cartalith-engine",
+ "cartalith-erosion",
  "cartalith-hydrology",
  "cartalith-jsmath",
  "cartalith-noise",
