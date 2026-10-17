@@ -16,6 +16,13 @@ extends Node
 ## Headless is correct and stated rather than assumed (`MISTAKES.md`): every
 ## assertion is a layout integer off `get_combined_minimum_size()` / `size` /
 ## `ScrollBar`, none of it rasterises and none of it is timed.
+## Result: an assertion with per-node diagnostics, run headless as the header shows (`--headless --path .
+## _jpdock_probe.tscn -- --vp 1920x1080`, then `--vp 1366x768`). `--vp WxH` is the only flag; an unrecognised argument
+## prints `[FATAL] unrecognised argument: <a>` and exits 2. Prints `  ok  |FAIL  <name>   got= want=` rows, `[VP] <w>x<h>
+## _left_width=... laptop=... tablet=...`, `-- A1. ... --` / `-- A2. ... --` / `-- B. ... --` sections with indented
+## node-tree lines, and `[RESULT] _jpdock_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise
+## (including `[FATAL] extension did not load` and an early `[RESULT] failures=<n>` when the planner's party body was not
+## built), 2 from the watchdog (`[RESULT] WATCHDOG after <s>s`).
 
 ## **The number this lane moved, pinned as a literal, not as a relationship.**
 ## `left_dock_body`'s content minimum with `civilization/planner` open. It was

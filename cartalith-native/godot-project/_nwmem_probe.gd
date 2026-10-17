@@ -39,6 +39,10 @@ extends Node
 ##   `--force-touch` NOT read here -- `dcc_shell.gd` reads it; it is what makes
 ##                   the run a phone.
 ## Any other `--flag` aborts rather than being silently ignored.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _nwmem_probe.tscn -- --force-touch
+## --tag phone`, and `-- --tag desktop`; logic and layout only). Flags: `--vp WxH` (default 1080x2340), `--tag NAME`
+## (default `nwm`), `--force-touch`; any other `--flag` aborts. Every line is prefixed `[<tag>] `, ending `RESULT <tag>
+## fail=<n>`; it may save a PNG. Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag or a malformed `--vp`.
 
 class RecBridge extends EngineBridge:
 	var calls: Array = []

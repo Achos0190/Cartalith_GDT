@@ -23,6 +23,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion. Header command: `--path . _military_probe.tscn` (no headless/windowed requirement named). Prints
+## `MIL world <w>x<h>, <n> settlements, <n> factions`, per-faction `MIL   <name> military ...` rows, `REL <n> pairs
+## (expected <n> ...)` and per-pair `REL   <a> <-> <b> ...` rows, `MIL !! <message>` / `REL !! <message>` for each broken
+## invariant, and `MIL RESULT PASS|FAIL`. Exit 0 on PASS, 1 on FAIL (and on `MIL !! empty readout -- nothing to verify`).
 
 const SEED := 483920
 

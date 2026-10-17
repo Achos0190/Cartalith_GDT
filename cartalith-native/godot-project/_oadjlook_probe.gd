@@ -20,6 +20,11 @@ extends Node
 ## MUST run WINDOWED from a scratch copy with its own config/name (it writes looks):
 ##   Godot_v4.7.x_win64_console.exe --path <copy> res://_oadjlook_probe.tscn -- --out DIR
 ## Exit 0 = every check held; 1 = a check failed; 2 = could not run.
+## Result: an assertion, windowed only. Command per the header: `res://_oadjlook_probe.tscn -- --out DIR` (the code reads
+## `--out` only as the first two user arguments). Prints `OADJ  ok|FAIL <what>`, `OADJ  MISMATCH ...` / `OADJ  SAID-WRONG
+## ...` detail lines, `OADJ  faction modes seen: ...` and `OADJ  RESULT checks=<n> fail=<n>`; stderr carries
+## `PROBE-CANNOT-RUN: ...` (headless, 1500 s watchdog, no world, no render workspace or adjust/preset API). It writes a
+## sidecar file under `--out`. Exit 0 = every check held, 1 = a check failed, 2 = could not run.
 
 const AP := preload("res://shell/adjust_panel.gd")
 const OA := preload("res://shell/overlay_adjust.gd")

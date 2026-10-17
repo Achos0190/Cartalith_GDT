@@ -12,6 +12,12 @@ extends Node
 ## rather than silently defaulting, so the header cannot drift from the body.
 ## The window's own `--resolution` is irrelevant here: the shell is built into
 ## a `SubViewport` of the size given above, exactly as `_ds03fit_probe` does.
+## Result: a diagnostic report, not an assertion; run headless as the header shows (`--headless --path .
+## _ldwidth_probe.tscn -- --vp 1920x1080`, then `--vp 1366x768`). `--vp WxH` is the only flag; an unrecognised argument
+## prints `[FATAL] unrecognised argument: <a>` and exits 2. Prints `[VP] <w>x<h> ...`, `-- headroom, every rail node --`
+## rows (`dock.size dock.min body.min headroom`), `-- the planner chain, ... --`, `-- experiment 1:` to `-- experiment 4:
+## ... --` sections, and a final `controls below their longest item or under 50 px: <list>`. It exits 0 whatever it
+## measured (1 only for `[FATAL] extension did not load`).
 
 var _vp: SubViewport
 

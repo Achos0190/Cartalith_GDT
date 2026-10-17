@@ -20,6 +20,12 @@ extends Node
 ##   1  an assertion failed
 ##   2  could not run
 ##   3  every assertion held and the surface still fails
+## Result: a measurement with assertions, windowed only; reads no command-line argument (`--path .
+## _mapsharp_probe.tscn`). Prints `world: <n> settlements, <n> ways, grid <w>x<h>`, `== R4: ... ==` / `== R3: ... ==`
+## sections with per-zoom rows, `  ok   <what>` rows, `ASSERT-FAILED: <what>` to stderr, `PROBE-RESULT: PASS|FAIL` and
+## `images: <user dir>`; it saves `user://mapsharp_<name>.png`. Exit 0 or 1 by whether an assertion failed, 2 could not
+## run (headless, watchdog, no bridge, generation never finished, no settlements). The header also documents an exit 3
+## ("every assertion held and the surface still fails") which no code path produces.
 
 const VP := Vector2i(1600, 1000)
 const SEED := 483920

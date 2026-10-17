@@ -23,6 +23,11 @@ extends Node
 ##   5. the hotkey property: digits 1-8 mean the same view before and after a
 ##      filter, INCLUDING a digit whose row the filter dropped
 ##   6. a focused field keeps its own digits
+## Result: an assertion, windowed (header: "Run WINDOWED, not --headless"; command `--path . _layersearch_probe.tscn`).
+## Prints `LAYERSEARCH  <text>` lines, `LAYERSEARCH  FAIL  <text>` per miss, `--- <section> ---` banners and `LAYERSEARCH
+## FAILURES: <n>`. Exit 0 when no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`). Under `--headless` it does
+## not abort: it prints `headless=true` on the density line and records a failed check (`run WINDOWED -- see this probe's
+## header`), so the run exits 1 after continuing.
 
 var _app: Node
 var _bridge

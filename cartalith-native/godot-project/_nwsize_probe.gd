@@ -35,6 +35,11 @@ extends Node
 ## **Run it windowed.** Nothing here samples a pixel, but the GUI hit-test that
 ## every act depends on wants a real frame loop, and `MISTAKES.md`'s headless
 ## row is scoped to rasterising and timing rather than to layout.
+## Result: an assertion, windowed only (the header says "Run it windowed"; under `--headless` it logs `Run this probe
+## WINDOWED. RESULT <tag> fail=abort` and exits 2). Command: `godot --path . _nwsize_probe.tscn -- --force-touch --vp
+## 1080x2340 --tag p1080`. Flags: `--vp WxH` (default 1080x2340), `--tag NAME` (default `nw`), `--force-touch`; any other
+## `--flag` aborts (exit 2). Every line is prefixed `[<tag>] `, with `-- New World card` and `-- GENERATE sheet gesture
+## arbitration` section lines, ending `RESULT <tag> fail=<n>`. Exit 0 when no check failed, 1 otherwise.
 
 var app: Node
 var _vp: SubViewport

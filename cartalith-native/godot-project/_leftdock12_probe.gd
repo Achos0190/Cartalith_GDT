@@ -24,6 +24,11 @@ extends Node
 ## `_railfold_probe.gd` is the sibling that asserts the 5→3 *fold*; this one
 ## asserts the *gate* laid over it. The two overlap deliberately on the category
 ## name list, which is the property both are protecting.
+## Result: an assertion, run headless as the header shows, twice: `--headless --path . _leftdock12_probe.tscn` and `...
+## -- --force-touch` (`_touch` is decided once per process). Prints `  ok  |FAIL  <name>   got= want=` rows, `##########
+## <label> ##########` per composition (the last is `PHONE 1080x2340 (sheet)`), `=== 1: ... ===` to `=== 8: ... ===`
+## banners with indented measurements, and `_leftdock12_probe: <n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise
+## (and on `[FATAL] extension did not load`).
 
 var _fail := 0
 

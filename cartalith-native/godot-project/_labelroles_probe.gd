@@ -32,6 +32,12 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+## Result: an assertion, windowed by the header's prescription. Commands: `--path . --resolution 1080x2400
+## _labelroles_probe.tscn -- --force-touch`, the same at 1600x1000, and `--resolution 1600x900 _labelroles_probe.tscn`
+## for the pointer density (the density is read, not assumed from the flag). Prints `  PASS  |  FAIL  <what>` rows, `LR
+## shell build <id>`, `LR density=... viewport=... is_touch=...`, per seed `LR ================ seed <n> (<density>)
+## ================`, `LR ---- laid-size spans across <n> seeds ----` and `LR DONE <density> fails=<n>`. Exit 0 when no
+## failure was counted, 1 otherwise or when no `CartographyWorkspace` is under `left_dock_body` (`LR FATAL`).
 
 const SEEDS := [483920, 77021, 4242]
 

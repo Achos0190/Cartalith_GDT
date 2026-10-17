@@ -12,6 +12,11 @@ extends Node
 ## Windowed (reads real drawn Label text):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _pechronos_add_probe.tscn
 ## Exit 0 pass, 1 real failure, 2 could not run.
+## Result: an assertion, windowed (`Windowed (reads real drawn Label text)`; header command `--path .
+## _pechronos_add_probe.tscn`). Prints `PEADD  <text>` lines, ending `PEADD  DONE fail=<n>`; it writes and then removes a
+## vault note and saves `user://_pechronos_add_after.png`. Exit 0 pass, 1 real failure, 2 could not run (`ABORT: no
+## vault_add_chronos_event on this binary -- stale .dll?`, `ABORT: no settlement with a tid`), plus 3 from the watchdog
+## (`WATCHDOG`).
 
 const VAULT_DIR := "user://_pechronos_add_vault"
 const NOTE := VAULT_DIR + "/Settlements/Note.md"

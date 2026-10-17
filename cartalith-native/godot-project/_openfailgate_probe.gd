@@ -95,6 +95,14 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _openfailgate_probe.tscn -- --corrupt <path-to-a-non-zip-file>
 ## Run phone:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _openfailgate_probe.tscn -- --force-touch --corrupt <path-to-a-non-zip-file>
+## Result: an assertion, run headless as the header shows (`--headless --path . _openfailgate_probe.tscn -- --corrupt
+## <path-to-a-non-zip-file>`, and with `--force-touch` for the phone composition). `--corrupt <path>` is required (a
+## missing or nonexistent path prints `[FATAL] --corrupt <path> not given or does not exist` and exits 1). Prints `  OK
+## |  FAIL  <msg>` rows, `[settings]` backup and restore lines (it restores `user://cartalith_settings.cfg` byte for
+## byte), `[fixture]`, `[BOOT] composition=<phone|desktop>`, `=== desktop welcome recent ===`-style banners with `---
+## success control (Gate B1) ---` / `--- corrupt zip (the fix) ---` legs and `_openfailgate_probe (<phone|desktop>): <n>
+## failure(s)`. Exit 0 when no check failed, 1 otherwise (including `[FATAL]` lines for an unloaded extension, a
+## non-phone boot under `--force-touch`, or failed fixtures).
 
 var _fail := 0
 var _settings_path := "user://cartalith_settings.cfg"

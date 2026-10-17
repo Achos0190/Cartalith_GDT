@@ -49,6 +49,13 @@ extends Node
 ## one that put 357 px of the panel off the right edge.
 ##
 ## Run NOT --headless: a headless dummy render returns a null texture.
+## Result: a measurement with three fatal preconditions, windowed only ("Run NOT --headless"). Command per the header:
+## `godot --path . _ph16band_probe.tscn -- --force-touch --nowelcome [flag]` with flag `--nojp`, `--withworld` or
+## `--withroute` (none = planner open, no world). Prints `dark=... panel=... bg=...`, `=== phone=... scale=... screen=...
+## ===`, `committed route #...`, `blank_rows=<n> of <h>`, `uniform_rows=<n> of <h>`, `min-width > screen (<w>): <n>
+## nodes`, `saved <path>` and `=== done ===`. A completed run exits 0 whatever it measured; it exits 1 when the palette
+## is not dark (`NOT DARK`), the window is not a phone (`NOT PHONE`) or fewer than two settlements exist, 3 from the
+## watchdog.
 
 const THRESH := 23
 

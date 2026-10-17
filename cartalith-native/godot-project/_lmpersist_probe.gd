@@ -16,6 +16,12 @@ extends SceneTree
 ## invalidated it, using `self.seed` and `self.gw` that `load_save` set a few
 ## dozen lines earlier — an ordering nothing in `cargo test` exercises,
 ## because `WorldGen` is a cdylib `GodotClass` and cannot be constructed there.
+## Result: an assertion (`extends SceneTree`, no `.tscn`; run `--headless --path . --script res://_lmpersist_probe.gd` as
+## the header shows). Prints indented info lines (`placed before save`, `document: <n> bytes, members ...`,
+## `restored=...`, `placed after reopen`), `  FAIL: <reason>` per miss and a final `PASS: <n> landmarks and <n> funnels
+## survive save, reopen and a second cycle` or `FAIL: <n> checks failed`. Exit 0 when no check failed, 1 otherwise or at
+## the first unrecoverable step (a missing binding, a refused landmark run, a refused save, an archive that did not open,
+## a missing or malformed `entities/landmarks.json`).
 
 func _init() -> void:
 	var fails := 0

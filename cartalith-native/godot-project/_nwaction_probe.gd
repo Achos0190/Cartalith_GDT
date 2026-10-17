@@ -31,6 +31,12 @@ extends Node
 ##   `--force-touch` NOT read here -- `dcc_shell.gd` reads it out of
 ##                   `OS.get_cmdline_user_args()`.
 ## Any other `--flag` aborts rather than being silently ignored.
+## Result: an assertion, phone form only. Command per the header: `godot --path . _nwaction_probe.tscn -- --force-touch
+## --vp 1080x2340 --tag p1080` (also 1440x3168 and 720x1600; the header names no headless/windowed requirement). Flags:
+## `--vp WxH` (default 1080x2340), `--tag NAME` (default `nwa`), `--force-touch`; any other `--flag` aborts with exit 2.
+## Every line is prefixed `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit 0 when no check failed, 1 otherwise; a boot
+## that is not a phone prints `RESULT <tag> fail=0 (not a phone: §6.7's card is not built here)` and exits 0, asserting
+## nothing.
 
 const CANVAS_H := 46.0
 const CANVAS_RADIUS := 23.0

@@ -39,6 +39,13 @@ extends Node
 ## --repeat 2`: 168 before `viewport_host.gd::_generating()`, 0 after.
 ## Run WINDOWED: `frame_post_draw` never fires headless, so the welcome
 ## dialog would never be presented.
+## Result: an assertion with a stability gate, windowed only (CRLF file). Command per the header: `godot --path .
+## _newproj_probe.tscn -- --out DIR [flags]`; flags `--out DIR` (default `user://`), `--settle-frames N` (600), `--res
+## N`, `--repeat N`, `--hover 1`, `--click 1`, `--zoom 1`, `--real-click 1`, `--trace-size 1`, `--touch-engine 1` (a
+## negative control). Every line is prefixed `[np <seconds>s] `; it saves `dialog.png` and later screenshots into `--out`
+## and ends `RESULT PASS|FAIL`. A crash shows as a missing `RESULT` line and a non-zero exit. Exit 0 on PASS, 1 on FAIL
+## (welcome dialog never appeared, no `New world` button, generation unfinished after 1200 s), 2 under `--headless`
+## (`ABORT run windowed`).
 
 var app: Node
 var _t0 := 0

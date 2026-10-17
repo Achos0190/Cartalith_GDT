@@ -30,6 +30,11 @@ extends Node
 ##
 ## No palette is assumed: every pixel assertion compares rasters against each
 ## other or against themselves, never against a colour written for one theme.
+## Result: an assertion on pixels, windowed only (CRLF file). Commands per the header: `godot --path .
+## _paintorig_probe.tscn -- --tag desktop --shotdir DIR` and `-- --force-touch --vp 1080x2340 --tag phone --shotdir DIR`.
+## Flags: `--vp WxH` (default 1600x1000), `--tag NAME` (default `porig`), `--shotdir DIR`, `--force-touch`; any other
+## `--flag` aborts. Every line is prefixed `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit 0 when no check failed, 1
+## otherwise, 2 for an unknown flag, a malformed `--vp`, or `--headless` (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: EngineBridge

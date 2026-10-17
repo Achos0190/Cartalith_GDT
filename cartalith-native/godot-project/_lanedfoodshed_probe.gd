@@ -46,6 +46,10 @@ extends Node
 ##   godot --headless --path . _lanedfoodshed_probe.tscn
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _lanedfoodshed_probe.tscn`). Prints
+## `  ok: <what>` / `  FAIL: <what>` rows, `--- T0. ... ---` to `--- T6. ... ---` section banners, `  row 0 = ...` / `
+## drawn = ...` info lines and `=== PASS|<n> FAILURES ===`. Exit 0 when no check failed, 1 otherwise or when a
+## precondition is missing (no settlements, no food-shed pass: `Aborting.`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 ## Transcribed from `civ_trade_bridge.rs`'s `fn civ_food_shed` `dict!` block.
 ## Three come from the binding (`index`, `name`, `pop`, built off

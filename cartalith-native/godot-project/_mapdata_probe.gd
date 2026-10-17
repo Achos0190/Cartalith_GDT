@@ -40,6 +40,12 @@ extends Node
 ##   --grid WxH    world size (default 512x384)
 ##
 ## Exit status: 0 every check held, 1 one failed, 2 could not run.
+## Result: an assertion with PNG captures, windowed only. Command per the header: `_mapdata_probe.tscn -- --out DIR`
+## (`--out` required; `--seed N` default 483920, `--grid WxH` default 512x384; an unknown argument aborts). Prints
+## `MAPDATA  ok    <what>  -- <detail>`, `MAPDATA  FAIL  <what>`, `MAPDATA  <text>` lines and `MAPDATA  ---- <n> checks,
+## PASS|<n> FAILED ----`; stderr carries `PROBE-CANNOT-RUN: ...` (headless, bad argument, 1500 s watchdog, no drawn-water
+## mask of the grid's size). It writes PNG crops and a saved project into `--out`. Exit 0 every check held, 1 one failed,
+## 2 could not run.
 
 ## Overlays hidden for the pixel legs, so a pixel is the map's own.
 const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",

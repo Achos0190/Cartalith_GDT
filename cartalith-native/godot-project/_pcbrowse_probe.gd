@@ -18,6 +18,10 @@ extends Node
 ##
 ## Windowed on purpose: `AcceptDialog.popup_centered()` clamps against the
 ## real screen, and the dummy driver's screen is not this machine's.
+## Result: a diagnosis harness with a failure count; windowed on purpose (header command `--path . _pcbrowse_probe.tscn`;
+## it also reads `--vp WxH`). Prints `PCB ok  |FAIL  <label>` rows, `PCB --- Storage locations ---` / `--- Data
+## management ---` / `--- Volume reach ---` sections with `own=... vis=... shown=...` rect rows, `PCB density ...`, `PCB
+## tap route ...` and `PCB DONE fails=<n>`. Exit 0 when no failure was counted, 1 otherwise.
 
 var app: Node
 var _fail := 0

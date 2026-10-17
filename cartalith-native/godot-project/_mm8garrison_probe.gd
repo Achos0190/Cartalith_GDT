@@ -29,6 +29,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _mm8garrison_probe.tscn
 ##
 ## Exit 0 = all passed, 1 = a real failure, 2 = could not run.
+## Result: an assertion, windowed (`Windowed (the shell path)`; header command `--path . _mm8garrison_probe.tscn`). Every
+## line is prefixed `MM  `, with `MM  display: <driver>` and a closing `MM  RESULT PASS|FAIL (<n> failed)`. Exit 0 = all
+## passed, 1 = a real failure, 2 = could not run (a missing `#[func]`: `ABORT: this binary has no <name> #[func] -- cargo
+## build -p cartalith-godot`), plus 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

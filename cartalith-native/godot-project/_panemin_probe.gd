@@ -66,6 +66,13 @@ extends Node
 ## The remaining reason to stay windowed is unchanged: an embedded `Window`
 ## clamps against the real screen, and the dummy driver's screen is not this
 ## machine's.
+## Result: an assertion with a per-route measurement, windowed only; `--headless` is refused. Commands per the header:
+## `_panemin_probe.tscn -- --vp 1152x648` (also 1680x1010, 1024x640, `--force-touch --vp 1600x1000` for the tablet and
+## `--force-touch --vp 500x1080` for the narrowest handset). Flags: `--vp WxH` (default 1152x648), `--tag NAME` (default
+## `panemin`), `--route ID`, `--verbose`, `--force-touch`; any other `--flag` aborts. Every line is prefixed `[<tag>] `,
+## ending `RESULT <tag> fail=<n> skipped=<n>`. Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag, a
+## malformed `--vp`, or headless (`Exit 2 = could not run`). The header records a windowed run at `--vp 1152x648` as 143
+## `OK`, 0 `FAIL`, 15 `SKIP`; that count is the header's, not re-run here.
 
 var app: Node
 var _tag := "panemin"

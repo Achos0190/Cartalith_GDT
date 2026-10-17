@@ -12,6 +12,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a measurement with `FAIL` lines that do not reach the exit code. Header command: `godot4 --path . --resolution
+## 393x852 _navpad_probe.tscn -- --force-touch --nowelcome` (no headless/windowed requirement named). Prints tagged info
+## lines (`[pad]`, `[cover]`, `[zoom]`, `[dbg]`, `[hover]`, `[pan]`), `  FAIL: pill <i> ...` lines and `[hover] fails=<n>
+## over <n> pills`, saves `user://navpad.png` and `user://navpad_latched.png`, and ends `shot <path>` then `=== done
+## ===`. It exits 0 whatever it printed (only a missing navpad exits 1).
 
 var app: Node
 var vp: Control

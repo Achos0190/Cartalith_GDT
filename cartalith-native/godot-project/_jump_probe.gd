@@ -13,6 +13,9 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion. Header command: `--path . _jump_probe.tscn` (no headless/windowed requirement named). Prints
+## `JUMP  <text>` lines, `JUMP  FAIL  <text>` per miss and `JUMP  DONE fail=<n>`. Exit 0 when no check failed, 1
+## otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

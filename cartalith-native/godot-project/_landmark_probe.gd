@@ -25,6 +25,12 @@ extends Node
 ##
 ## Half B is a real exercise of this file's code against the contract, not a
 ## substitute for the live bridge. Which of the two ran is printed, loudly.
+## Result: an assertion, windowed only (header command `Godot_v4.7.1 --path . --resolution 1600x900 --rendering-driver
+## opengl3 _landmark_probe.tscn`). Prints `  ok  |FAIL  <name>   got= want=` rows, `[BOOT] shell up`, a banner saying
+## whether a live landmark bridge was present, `=== A1: ... ===` onward section banners, `  info` lines and
+## `_landmark_probe: PASS|<n> FAILURE(S)`; when the live bridge is absent it adds a NOTE that halves B and C ran against
+## `StubBridge` and the real engine was not exercised. Exit 0 when no check failed, 1 otherwise (and on `[FATAL]
+## extension did not load` or no CIVIL workspace).
 
 var _vp: SubViewport
 var _fail := 0

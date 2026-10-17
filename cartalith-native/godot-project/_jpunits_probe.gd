@@ -25,6 +25,11 @@ extends Node
 ## **It restores `DccSettings.units_mode()` to whatever it found.** The setting
 ## is persisted to `cartalith_settings.cfg` on every write, so a probe that
 ## exits in miles leaves the app in miles.
+## Result: an assertion that does not carry its verdict in the exit code. Windowed by design (header command `--path .
+## _jpunits_probe.tscn`; it reads no argument). Prints `UNITS   ok    <what>` / `UNITS   FAIL  <what>` rows, per seed
+## `UNITS ##### seed <n> route=<n> stages=<n> ... #####`, `UNITS      first divergence [...]`, `UNITS      NEW straggler:
+## ...` and a closing `UNITS === restored units_mode=<mode>  checks=<n> fails=<n> ===`. It restores the entry units mode
+## and exits 0 whatever `fails` holds.
 
 const SEEDS := [483920, 77021, 4242]
 const MODES := ["km", "mi", "nmi"]

@@ -45,6 +45,12 @@ extends Node
 ##   0  every assertion held
 ##   1  an assertion failed
 ##   2  could not run (headless, no ink, or a capture that cannot vary)
+## Result: an assertion on pixels, windowed only; reads no command-line argument (`--path . _labelblur_probe.tscn`; the
+## window size is set in code). Prints `  ok   <what>` rows, per-capture `<tag> max|dL|=... top16=... ink=... box=...`
+## measurement lines, `edge contrast retained at <z>x zoom ...`, `ASSERT-FAILED: <what>` to stderr per miss,
+## `PROBE-RESULT: PASS|FAIL` and `images: <user dir>`; it saves `user://labelblur_<which>_z<zoom>.png` captures. Exit 0
+## pass, 1 an assertion failed, 2 could not run (headless, no ink, or captures that do not vary with zoom), as the header
+## states.
 
 const OVERLAY := preload("res://map_overlay.gd")
 

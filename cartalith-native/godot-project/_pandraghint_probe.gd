@@ -48,6 +48,10 @@ extends Node
 ## z_index removed) from silently making any of the three toasts illegible
 ## again, for any of the three marks, without a screenshot being read to
 ## notice it.
+## Result: an assertion on pixels, windowed on purpose and phone form only. Command per the header: `--path .
+## _pandraghint_probe.tscn -- --force-touch`. Every line is prefixed `[pandraghint] `, ending `[pandraghint] RESULT
+## PASS|FAIL failures=<n>`; it writes screenshot files into an output directory it builds. Exit 0 on PASS, 1 on FAIL, 2
+## when the boot is not a phone (`ABORT not phone -- pass --force-touch`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 func _frames(n: int) -> void:
 	for i in n:

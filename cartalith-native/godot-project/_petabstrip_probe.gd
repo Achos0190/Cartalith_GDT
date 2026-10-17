@@ -24,6 +24,9 @@ extends Node
 ## itself could not run (a control precondition failed, e.g. no settlement
 ## generated) -- distinct from a real finding, same convention `_focusbug_probe.gd`
 ## and `_vaultprefs_probe.gd` use.
+## Result: an assertion, windowed, not `--headless` (CRLF file; header command `--path . _petabstrip_probe.tscn`). Prints
+## `PETABSTRIP  <text>` lines and `PETABSTRIP  DONE fail=<n>`. Exit 0 = every check passed, 1 = a real failure, 2 = could
+## not run (`ABORT: no settlement generated -- nothing here can run`), plus 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

@@ -15,6 +15,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _navcut_probe.tscn -- --force-touch
 ##
 ## Not headless. Real window, real render, real `get_viewport().get_texture()`.
+## Result: a measurement, not an assertion; windowed only (`Not headless`; header command `--path . _navcut_probe.tscn --
+## --force-touch`). Every line is prefixed `[navcut] `, ending `[navcut] === done ===`. It exits 0 after the measurement
+## whatever it found; 2 when the boot is not a phone (`ABORT not phone -- pass --force-touch`), 3 from the watchdog
+## (`WATCHDOG TIMEOUT`).
 
 func _frames(n: int) -> void:
 	for i in n:

@@ -28,6 +28,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a dump, not an assertion: it reports nothing as pass or fail and exits 0 when it finishes. Command per the
+## header: `--path . _menuconf_probe.tscn -- --vp 1600x900 --tag desktop` (`--vp WxH` default 1600x900, `--tag NAME`, and
+## `--force-touch` for the tablet and phone forms; the header names no headless/windowed requirement). It writes per-menu
+## dumps and PNG captures into `user://menuconf/`, including `log_<tag>.txt`, echoes the same lines to stdout, and ends
+## `### DONE <tag> -> <absolute dir> ###`.
 
 const SEED := 483920
 

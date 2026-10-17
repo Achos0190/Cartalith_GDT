@@ -18,6 +18,10 @@ extends Node
 ##      derivable state per kind?
 ##
 ##   Godot_v4.7.1 --headless --path . _lmfitchip_probe.tscn
+## Result: an assertion, run headless per the header (`Godot_v4.7.1 --headless --path . _lmfitchip_probe.tscn`). Prints `
+## ok   |  FAIL <what>` rows, section lines `B. _lm_radius_in_force ...`, `C. _lm_fit_plan ...`, `A/D. a real pass`, `E.
+## the real popover body, and a real press` with info lines, and ends `_lmfitchip_probe: ALL PASS` or `_lmfitchip_probe:
+## <n> FAILED`. Exit 0 when no check failed, 1 otherwise.
 
 const CW = preload("res://shell/workspaces/civilization_workspace.gd")
 

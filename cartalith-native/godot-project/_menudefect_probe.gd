@@ -18,6 +18,11 @@ extends Node
 ## 3 live; both are pure reads. The index is built TWICE, before and after, so
 ## the report shows what a cold search sees and what a search after the menu
 ## has been opened sees.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _menudefect_probe.tscn`; nothing
+## rasterises). Prints `  [PASS|FAIL] <label>` rows, `[BOOT] shell up`, `[MENUS]`, `[COLD]` / `[FIRE]` / `[WARM]` index
+## lines, `--- File popup, every disabled row ---`, `--- SWEEP: every disabled row, all seven menus (post-fire) ---`
+## rows, `SWEEP TOTALS rows=... disabled=...` and `RESULT PASS|FAIL failures=<n>`. Exit 0 when no check failed, 1
+## otherwise (and on `[FATAL] extension did not load`).
 
 var _vp: SubViewport
 var _fail := 0

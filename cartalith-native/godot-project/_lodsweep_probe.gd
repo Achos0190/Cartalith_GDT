@@ -65,6 +65,14 @@ extends Node
 ##   0  every assertion held
 ##   1  an assertion failed
 ##   2  could not run
+## Result: a measurement harness with assertions, windowed only. Command per the header: `_lodsweep_probe.tscn -- --out
+## C:/some/scratch/dir`. Flags (an unknown one aborts): `--out DIR`, `--seeds a,b,c` (default 483920,24601,71077345),
+## `--grids WxH,...` (default 2048x1311,512x384), `--vp WxH` (default 1600x1000), `--width-km F`, `--zoom-step F`
+## (default 1.02), `--tests sweep|pan|zoompan`, `--theme dark|light`, `--plant`, `--no-sheet`, `--rivers-on`, `--ef9
+## on|off`, `--frames DIR`. Prints `out: <dir>`, `palette forced: ...`, per world `================ seed <n>   grid
+## <w>x<h> ================`, the zoom-ladder readings, `wrote <path>` for its JSON report and `PROBE-RESULT: PASS|FAIL`;
+## failures go to stderr as `ASSERT-FAILED: <what>` and setup failures as `PROBE-CANNOT-RUN: ...`. Exit status as the
+## header states: 0 every assertion held, 1 an assertion failed, 2 could not run.
 
 const DEF_SEEDS: PackedInt64Array = [483920, 24601, 71077345]
 const DEF_GRIDS := "2048x1311,512x384"

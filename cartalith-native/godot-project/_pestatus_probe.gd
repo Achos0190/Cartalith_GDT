@@ -14,6 +14,10 @@ extends Node
 ## Exit 0 = every check passed. Exit 1 = a real failure. Exit 2 = the probe
 ## could not run (no settlement, no binding, or the run demoted nothing, so
 ## there is no status change to check) -- distinct from a finding.
+## Result: an assertion, windowed, not `--headless` (header command `--path . _pestatus_probe.tscn`). Prints `PESTATUS
+## <text>` lines and `PESTATUS  DONE fail=<n>`. Exit 0 = every check passed, 1 = a real failure, 2 = could not run (no
+## settlement generated, no settlement went standing to ruins in the run, the Political history tab unreachable; when the
+## no-ruins abort follows an earlier failure it exits 1), plus 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

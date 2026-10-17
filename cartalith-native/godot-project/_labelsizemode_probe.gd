@@ -38,6 +38,11 @@ extends Node
 ##   0  every assertion held
 ##   1  an assertion failed
 ##   2  could not run (headless, no ink, or a capture that cannot vary)
+## Result: an assertion on pixels, windowed only; reads no command-line argument (header command `--path .
+## _labelsizemode_probe.tscn`). Prints `  ok   <what>` rows, `live camera zoom x<z>: "fixed" box-width ratio ..., "zoom"
+## box-width ratio ...`, `grid-fit (_gw doubled at fixed camera zoom): ...`, `ASSERT-FAILED: <what>` to stderr per miss
+## and `PROBE-RESULT: PASS|FAIL`. Exit 0 pass, 1 an assertion failed, 2 could not run (headless, or a leg that drew
+## nothing to measure), as the header states.
 
 const OVERLAY := preload("res://map_overlay.gd")
 ## `DccTheme` is `class_name`-global (`shell/dcc_theme.gd`); no preload needed.

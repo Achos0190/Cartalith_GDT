@@ -18,6 +18,13 @@ extends Node
 ##
 ## Screenshots land in `user://jpresupply_<mode>_<step>.png`; each path is
 ## printed.
+## Result: an end-to-end run with failure lines, not a counted assertion; windowed (`--vp WxH` sets the window after
+## boot). Commands per the header: `--path . _jpresupply_probe.tscn` (desktop) and `-- --vp 1080x2340 --force-touch`
+## (phone); any other user argument prints `JPRS FAIL: unknown argument <a>` and exits 2. Prints `JPRS === mode=...
+## phone=... touch=... screen=... ===`, per seed `JPRS seed <n>: ...` rows, `JPRS     stop: ...` rows, `JPRS RESULT:
+## FEASIBLE (verdict ..., <d> calendar days)` or the infeasible variant, a `JPRS control (no resupply group): ...` line
+## and `JPRS shot <path>`. Exit 0 after the control line, whatever verdict was printed; 1 on a `JPRS FAIL: ...` line
+## (phone mode not produced, no accept button drawn, or no seed produced a route needing resupply stops).
 
 const SEEDS := [483920, 77021, 4242, 1234, 98765, 55555]
 const DESKTOP := Vector2i(1600, 1000)

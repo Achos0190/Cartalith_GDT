@@ -44,6 +44,12 @@ extends Node
 ## palette shows through is the `text_bright` check, and it resolves its
 ## expectation through `DccTheme.c()` in the same run, so it is correct on
 ## either palette (this machine boots light: the check prints `111210`).
+## Result: an assertion, run headless as the header shows (`--headless --path . _lanea_probe.tscn -- --vp 1920x1080`;
+## also 1600x900, and 2560x1600 or 1080x2400 with `--force-touch`; no pixels are read). `--vp WxH` is parsed in
+## `_ready()` and `--force-touch` is the only other flag; anything else exits 2 (`LANEA  !! unknown argument`, also for a
+## malformed `--vp`). Prints `  ok  |FAIL  <name>`, `  --   <name>   <value>` info rows, `[<tag>]` section lines, `LANEA
+## viewport=...`, `LANEA world generated: ...` and `LANEA PASS|FAIL  (<n> failed)`. Exit 0 when no check failed, 1
+## otherwise or when generation failed (`LANEA  !! generate failed`).
 
 var _fail := 0
 var _vp: SubViewport

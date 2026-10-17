@@ -17,6 +17,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion on pixels (the Layers popover entries are measured in pixels). Header command: `--path .
+## _newsurf_probe.tscn`; the header names no explicit headless/windowed requirement. Prints `NEWSURF  <text>` lines,
+## `NEWSURF  FAIL  <text>` per miss and `NEWSURF  DONE fail=<n>`. Exit 0 when no check failed, 1 otherwise, 3 from the
+## watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

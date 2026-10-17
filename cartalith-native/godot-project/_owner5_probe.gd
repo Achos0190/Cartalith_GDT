@@ -13,6 +13,12 @@ extends Node
 ##   --lake     fixed-ground crops of one lake shore across 2x..12x (flicker)
 ##   --town     largest interior town at 8..200x: urban-layout alpha/cache/reveal
 ##   --checker  zero each appearance tunable in turn; lattice energy in a crop
+## Result: a reproduction harness that reports and asserts nothing; windowed only. Command per the header: `--path .
+## [--resolution 1680x1000] _owner5_probe.tscn -- --out DIR [--tag T] [MODE]` with a mode of `--presets`, `--lake`,
+## `--town` or `--checker`. Prints `SHOT <name>`, `LAKE z=... lod=... focus_px=... crop=...`, `TOWN zoom=... span_km=...
+## alpha=... layouts_cached=... revealed=...`, `CHECK baseline hf=...` / `CHECK <key> <v>->0 hf=... (<pct>%)` rows and
+## `appearance after Default: ...`; it writes `<tag>_<name>.png` captures into `--out`. It exits 0 (`get_tree().quit()`)
+## when the chosen mode finishes, whatever it measured.
 
 var app
 var bridge

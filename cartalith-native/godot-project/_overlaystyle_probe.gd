@@ -50,6 +50,13 @@ extends Node
 ##   --grid WxH  world size (default 1024x656)
 ##   --before    only capture the Default screenshot (for a build that has no
 ##               treatment API yet); every API assertion is skipped
+## Result: an assertion on pixels, windowed only. Command per the header: `--path . _overlaystyle_probe.tscn -- --out
+## DIR` (`--out` required; `--seed N` default 483920, `--grid WxH` default 1024x656, `--before` captures only the Default
+## screenshot and skips the API assertions). Prints `OVERLAYSTYLE  ok    <what>`, `PROBE-FAIL OVERLAYSTYLE  <what>` per
+## miss, `OVERLAYSTYLE  world: ...`, `view centre ...`, `differing pixels vs the first Default screenshot: ...` and
+## `OVERLAYSTYLE  RESULT <n> checks, <n> failed`; stderr carries `PROBE-CANNOT-RUN: ...` (headless, bad argument, 900 s
+## watchdog). It writes `overlaystyle_<preset>.png` captures into `--out`. The header's sentence "probes exit 0 even on
+## failure" is stale for this file: the code exits 0 when no check failed and 1 otherwise; 2 means could not run.
 
 const PRESETS_ALL := ["Natural Vibrant", "Default", "Antique", "Ink", "Watercolor", "Print",
 	"Village", "Atlas", "Imhof relief", "Blueprint", "Ink wash", "Woodcut",

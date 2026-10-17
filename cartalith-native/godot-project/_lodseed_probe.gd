@@ -27,6 +27,11 @@ extends SceneTree
 ##     is synthesised, and a no-seed session over the same reopened world
 ##     draws exactly the stored pixels.
 ##  E. A different colour space refuses the seed.
+## Result: an assertion on pixels (CRLF file). `extends SceneTree` with no `.tscn`, so it runs with `--script
+## res://_lodseed_probe.gd`; the header says to run windowed, not `--headless` (section C reads tile pixels), and gives
+## no command line. Prints sections `A.` to `F.` as indented `  A. held <n> stored tiles; asking for <n> ...` lines, `
+## FAIL: <msg>` per miss, `  E. skipped: no set_color_space binding` when that binding is absent and a closing `lod-seed
+## probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and when saving the fixture projects fails).
 
 const LEVEL_MAX := 4  # lod_bridge::SAVE_PYRAMID_MAX_LEVEL
 

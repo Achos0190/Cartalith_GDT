@@ -13,6 +13,10 @@ extends Node
 ## **Every `want` is a literal from `design/mcp-2026-09-07/`, never a
 ## `DccTheme` symbol.** An assertion whose want side is `role_px("btn_radius")`
 ## passes against any value including the 0 this batch exists to remove.
+## Result: an assertion, run headless as the header shows (`--headless --path . _inputfill_probe.tscn`, and `--
+## --force-touch` for the tablet density; the two densities cannot share a run). Prints `=== _inputfill_probe
+## density=POINTER|TABLET ===`, `  <ctx> min: dropdown=... switch=... spin=...`, `checks=<n> fails=<n>` and `  FAIL
+## <message>` per failure. Exit 0 when no check failed, 1 otherwise.
 
 const ACC := {"dark": "e0a34a", "light": "a4650f"}    ## --acc
 const AINK := {"dark": "141005", "light": "f7f4ee"}   ## --accInk

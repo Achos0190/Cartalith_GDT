@@ -76,6 +76,12 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+## Result: an assertion, run headless as the header shows; exactly one leg flag per run: `-- --pointer`, `-- --tablet
+## --force-touch`, `-- --phone --force-touch`, `-- --phone-1440 --force-touch` (`--resolution` is not read). Prints
+## `[BOOT] leg=... viewport=... density=... phone_scale=...`, `--- <branch> branch, <density> density ---` banners,
+## per-label `fs=` rows, `  FAIL ...` lines and `_jptlfs_probe (<density>): clean|<n> FAILURE(S)`. Exit 0 when no check
+## failed, 1 otherwise and for each `[FATAL] ...` (extension not loaded, unrecognised argument, not exactly one leg flag,
+## a leg needing `--force-touch` without it, a boot into the wrong density, no journey planner view).
 
 const FLOOR := 11.0            ## `_phonesweep_probe.gd`'s own FONT_FLOOR, so the two agree.
 

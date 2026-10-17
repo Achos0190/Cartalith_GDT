@@ -23,6 +23,12 @@ extends Node
 ##
 ## Density is named beside every number: `phone=true`, `scale=` is
 ## `DccApp.phone_scale()`, and the screen is 1 080 x 2 400 physical px.
+## Result: a report with two fatal checks, run headless as the header shows (`--path . --headless _jpinsw_probe.tscn --
+## --force-touch`). Every line is prefixed `INSW `: `INSW === phone=... scale=... screen=... ===`, per seed `INSW #####
+## seed <n> route=<n> stages=<n> selected=<n> #####`, the chain from `_inspector_body` upward, `rows by min.x`, `rows
+## wider than the screen: <n> of <n>`, `TAP UNDER FLOOR` lines and `INSW === done ===`. It exits 1 only when
+## `--force-touch` did not give phone mode or the desktop pass came up in phone mode (`INSW FAIL: ...`); a completed run
+## exits 0 whatever it measured.
 
 const SEEDS := [483920, 77021, 4242]
 ## Phone unless `--force-touch` is absent, in which case this is the desktop

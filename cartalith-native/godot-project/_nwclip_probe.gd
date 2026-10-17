@@ -49,6 +49,11 @@ extends Node
 ## Exit codes: `0` every leg passed, `1` a leg failed, `2` the probe could not
 ## run and asserted nothing -- an unknown flag, a malformed `--vp`, or a
 ## composition that is not the phone.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _nwclip_probe.tscn -- --force-touch
+## --vp 1080x2340 --tag p1080`). `--force-touch` is required: without it nothing is built and the run exits 2. Flags:
+## `--vp WxH` (default 1080x2340), `--tag NAME` (default `nwclip`); any other `--flag` aborts. Every line is prefixed
+## `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit codes per the header: 0 every leg passed, 1 a leg failed, 2 the probe
+## could not run and asserted nothing (unknown flag, malformed `--vp`, not a phone).
 
 var app: Node
 var _vp: SubViewport

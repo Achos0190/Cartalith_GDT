@@ -45,6 +45,10 @@ extends Node
 ## needs a threshold between 0.639 and 0.894 is a classifier that can be wrong.
 ## `ICON_OUTLINE` and `LANDMARK_OUTLINE` are both near-black and fall under the
 ## brightness floor, so an outline never scores as a mark.
+## Result: an assertion on pixels, windowed only (header command `--path . _iconmerge_probe.tscn`). Every line is
+## prefixed `ICONMERGE  `, ending `ICONMERGE  ---- PASS|<n> FAILED ----`. Under `--headless` it prints an `ABORT: ...
+## cannot run headless` message with the windowed command and exits 2; the watchdog (`WATCHDOG -- probe did not finish`)
+## exits 2 too. Exit 0 when no check failed, 1 otherwise.
 
 const W := 900
 const H := 600

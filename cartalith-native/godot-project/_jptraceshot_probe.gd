@@ -34,6 +34,12 @@ extends Node
 ## Three seeds, because a residual and a panel width are both content-dependent
 ## and one world is one sample of either (`MISTAKES.md`: "Report a layout
 ## measurement").
+## Result: a report with two fatal checks. The header gives a windowed desktop pass (`--path . --resolution 1600x1000
+## _jptraceshot_probe.tscn`, "the load-bearing one") and a headless tablet pass (`--path . --headless
+## _jptraceshot_probe.tscn -- --force-touch`). Every line is prefixed `TSHOT `: per seed `TSHOT ##### seed <n> route=<n>
+## stages=<n> ... #####`, per leg `cat=... terms=... rows=... km=... days=... RESID=...`, `UNSOURCED ROW`, `POSITIVE
+## CONTROL` lines and `TSHOT === legs=<n> rows=<n> unsourced=<n> worst |residual|=<d> d ===`. It exits 1 only when the
+## density is wrong (`TSHOT FAIL: ...`); a completed run exits 0 whatever the residuals or unsourced rows were.
 
 const SEEDS := [483920, 77021, 4242]
 ## What `_tabletparity_probe.gd` boots its tablet leg at, and the only shape

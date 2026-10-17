@@ -33,6 +33,12 @@ extends Node
 ## The desktop control run asserts the opposite -- no card, no chips -- because
 ## a phone-only branch that leaks onto the desktop is the failure this pair
 ## exists to catch.
+## Result: an assertion. Commands per the header: `godot --path . _nwcard_probe.tscn -- --force-touch --nowelcome --size
+## 1080x2400` (phone) and `-- --nowelcome --size 1920x1080` (desktop control, which asserts there is no card); `--size
+## WxH` picks the density; the header names no headless/windowed requirement. Prints `  ok   |  FAIL  <name>  --
+## <detail>` rows, `=== size=... screen=... phone=... scale=... ===`, indented measurement lines (`card min_w`, `after
+## REGION`, `a11y names`, `8K warning`) and `=== failures=<n> ===`. Exit 0 when no check failed, 1 otherwise, 3 from the
+## watchdog (`WATCHDOG TIMEOUT`).
 
 var _fails := 0
 

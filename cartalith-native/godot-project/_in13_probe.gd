@@ -21,6 +21,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with memory measurements, windowed per the header (`Drives, windowed`; command `--path .
+## _in13_probe.tscn`). Prints `IN13  <text>` lines, `IN13  ok    <text>` and `IN13  FAIL  <text>` rows (it reads process
+## RSS through `powershell` via `OS.execute`, so it needs Windows) and a closing `IN13  === PASS ===` or `=== <n>
+## FAILURES ===`. It writes `user://in13_trade_load.png` and `user://in13_history.png` and a file at an absolute path it
+## builds. Exit 0 when no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

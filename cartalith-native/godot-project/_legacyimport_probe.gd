@@ -23,6 +23,11 @@ extends Node
 ## `real_export_seed24601.zip` carries no records (the "opens as before"
 ## case); `legacy_records_seed24601.zip` carries 24 places, 2 labels and 3
 ## icons (`tools/legacy_records_capture.js`).
+## Result: an assertion on pixels, windowed only (CRLF file; header command `--path . _legacyimport_probe.tscn`). Every
+## line is prefixed `LEGACYIMPORT `, ending `LEGACYIMPORT ---- PASS|<n> FAILED ----`. It reads legacy export fixtures
+## and, with the optional `--shots` argument, writes `res://_legacyimport_shown.png` and `res://_legacyimport_hidden.png`
+## into the project folder. Exit 0 when no check failed, 1 otherwise, 2 under `--headless` (`ABORT: pixel probe, run
+## windowed`) or when a fixture file is missing (`ABORT: fixture missing: ...`), 3 from the watchdog (`WATCHDOG`).
 
 var app: Node
 var _fails := 0

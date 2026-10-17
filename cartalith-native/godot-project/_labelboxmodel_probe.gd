@@ -46,6 +46,11 @@ extends Node
 ## symbol a user's pointer actually hits.
 ##
 ## Exit status: 0 pass, 1 assertion failed, 2 could not run.
+## Result: an assertion on pixels, windowed only (header command `--path . _labelboxmodel_probe.tscn`). Prints `  PASS  |
+## FAIL  <what>` rows, `displayed_rect=...`, `NEW resize ...` / `OLD resize ...` positions, `measured glyph ink box=...`,
+## `distance to glyph centre -- NEW=... OLD=...`, per-zoom `z=<z> ink=... ratio ...` rows, `image:` / `annotated image:`
+## paths under `user://` and `PROBE-RESULT: PASS|FAIL`. Exit status 0 pass, 1 assertion failed, 2 could not run
+## (headless: `PROBE-CANNOT-RUN: headless server; the canvas is never composited.`), as the header states.
 
 const OVERLAY := preload("res://map_overlay.gd")
 

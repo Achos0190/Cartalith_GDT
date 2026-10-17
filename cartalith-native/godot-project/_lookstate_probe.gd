@@ -14,6 +14,10 @@ extends Node
 ## dir, so the live cartalith_settings.cfg is never written):
 ##   Godot_v4.7.x_win64_console.exe --path <copy> res://_lookstate_probe.tscn -- --out DIR
 ## Exit 0 = every check held; 1 = a check failed; 2 = could not run.
+## Result: an assertion, windowed only. Command per the header: `res://_lookstate_probe.tscn -- --out DIR` (`--out`
+## required). Prints `LKST  ok    <what>`, `PROBE-FAIL LKST  <what>` per miss and `LKST  done  <n> checks, <n> failed`;
+## stderr carries `PROBE-CANNOT-RUN: ...` (headless, missing `--out`, no world, no RenderWorkspace, 900 s watchdog). Exit
+## 0 = every check held, 1 = a check failed, 2 = could not run.
 
 const RW := preload("res://shell/workspaces/render_workspace.gd")
 

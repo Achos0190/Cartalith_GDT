@@ -97,6 +97,11 @@ extends Node
 ## `generation_finished` clause makes D2 the only failure; the same on the
 ## `world_loaded` clause makes E2 the only failure. All three restored and the
 ## file re-hashed afterwards.
+## Result: an assertion, run headless as the header shows (`--headless --path . _pesibling_probe.tscn`; no flags; it
+## reads `Label.text`, not pixels). Prints `PES ok  |FAIL  <name>` rows, `PES world generated: has_world=<b> (<n>
+## frames)` and `PES <n> failure(s)`. The header records that it was written red on purpose, so a non-zero exit is a
+## regression. Exit 0 when no check failed, 1 otherwise or when generation failed or there is no settlement (`PES  !!
+## ...`).
 
 var app: Node
 var _fail := 0

@@ -32,6 +32,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _manpower_probe.tscn` (no
+## headless/windowed requirement named). Prints `MP world <w>x<h>, <n> settlements, <n> factions`, per-faction rows and
+## driver lines, `MP !! <message>` for each broken invariant, `MP ag-tech ...` / `MP government ...` knob readings and
+## `MP RESULT PASS|FAIL`. Exit 0 on PASS, 1 on FAIL (and on `MP !! empty readout`).
 
 const SEED := 483920
 
