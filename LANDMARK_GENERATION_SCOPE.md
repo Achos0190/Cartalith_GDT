@@ -315,6 +315,75 @@ silently-empty golden output" rule — is exercised against at least one
 edge-case world (all-ocean, single-cell landmass) without panicking across
 the gdext boundary or silently returning nothing when something was expected.
 
+**The kind-table residual, re-opened at `landmark.rs::kinds()` on 2026-10-17.**
+M8's own bar is the object model and the synthesis; the declared kinds that
+ship `buildable: false` are the residual, each with its reason in source. The
+re-opening read every one of the 22 at its reason and asked whether the input
+it names now exists. Three were buildable without an owner decision, one was
+measured and stays refused, and the reasons of three more were rewritten
+because a new input made them false. How far each has got is `STATUS.md`'s.
+
+- **Portage** — research §29 names it without a formula; its Phase 4 list
+  ("fords, bridges, road junctions, portages, harbours") places it. The
+  missing input was a drainage-basin map, and it is Category A: every cell
+  drains along the D8 receiver tree to one outlet, and the cells sharing an
+  outlet are one basin (`drainage_basins`, walked from navigable cells only;
+  the walk stops at the coast so the sea cannot merge two rivers). The
+  detector is a head of navigation (a channel at Strahler order
+  `river_class::NAVIGABLE_ORDER` = 3, the reference's own barge gate that the
+  router and the Journey planner read, with no navigable channel feeding it)
+  with navigable water of another basin within a 20 km carry, an ocean-free
+  straight carry, and land at the carry's midpoint, where the landmark goes.
+  The carry must save its cost: the water way round (each landing's run to
+  its own outlet, a lower bound) must be at least 28 / 4.9 ≈ 5.7 times the
+  carry, the land-to-river cost ratio of Duncan-Jones's reading of
+  Diocletian's Price Edict (sea : river : land ≈ 1 : 4.9 : 28–56), taken at
+  its cheap-land end. **Measured before that number was chosen**: on three
+  256 × 192 worlds (seeds 24601, 483920, 71077345; 87 heads of navigation)
+  the best carries saved 3–8 times their length, so an unsourced 10 placed
+  nothing and was replaced by the sourced ratio; seed 24601 then places 2
+  and the other two none.
+- **Abandoned settlement** and **Ancient road** — both reasons said the pass
+  "does not read the Timeline yet". It now does, through one input,
+  `LandmarkInputs::history` (`LandmarkHistory::from_timeline`): every
+  settlement or way a recorded year **before the live year** holds and the
+  live world does not, by stable `tid` — the identity the Timeline's own year
+  diff and *Ghost removed* overlay use. A year recorded after the cursor is
+  not history at the cursor. Abandoned settlement places on a former site
+  that is land and has no live settlement within 5 km (reoccupied ground is
+  not abandoned); Ancient road places on the former course's land cell
+  nearest its half-way point that no live way crosses, and refuses a course
+  wholly under live road.
+- **Glacial feature stays refused, on a measurement.** Its reason said the
+  pass "reads neither" the glacial kernel nor the Landform layer's cirques,
+  which read as an unwired input. Reading the cirque class would not be
+  honest: with `passes.glacial` off and on for the same seed, the class
+  marks 1303/1303, 641/640 and 289/289 cells at 256 × 192 and 5283/5288,
+  2425/2431 and 182/183 at 512 × 384 (seeds 24601, 483920, 71077345), over
+  99 % the same cells. It is a cold-concave-hollow shape test the glacial
+  kernel barely moves, which is the 2026-08-30 judgement ("a shape test, not
+  a history of ice") confirmed by measurement. The missing input is a
+  per-cell record of where `glacial_kernel` carved, which is erosion work.
+- **Ruin stays refused, for a save-format reason.** The ruins mark it would
+  read, `TimelineSnapshot::collapse_flags`, is in memory only
+  (`TimelineYearDto` does not carry it; `SAVEFILE_COMPAT.md` §10.1's change
+  was deliberately not made), so a Ruin read from it would place before a
+  save and not after a reload. Persisting the flags is the missing piece.
+- **Historic crossing stays refused, for want of a definition.** Former ways
+  now reach the pass, but neither research §29 nor this scope says what makes
+  one crossing historic rather than another, and choosing a measure (years in
+  use, road class, battles nearby) would be the guessing §2 forbids.
+
+The other sixteen were re-read against this pass's new inputs, and none of
+those inputs answers them; their own symbols were not re-opened this time (the
+last pass that opened every one was 2026-09-21, with several reasons corrected
+2026-09-24): Saddle and River crossing are declined as duplicates of Mountain pass and of
+Ford/Bridge site; Cave (no karst model), Delta (no per-cell deposition record),
+Ancient forest (no forest age) and Salt works (no coastal salt) want a terrain
+input that does not exist; the six Cultural kinds, Tomb and Monument want
+§26's civilisation traits or an event to commemorate; Historic battlefield and
+Destroyed fortress are M9's (below).
+
 ### M9 — Cultural interpretation and temporal state (research §24-26)
 
 One physical feature, several civilisations' readings of it (research §26);
@@ -358,6 +427,10 @@ false:
   exist.
 - `ancient_road` says way history is not retained. Each `TimelineSnapshot`
   keeps that year's `ways`.
+
+*2026-10-17:* `abandoned_settlement` and `ancient_road` are now generated from
+the Timeline (the M8 residual note above), and `ruin`'s and
+`historic_crossing`'s reasons were rewritten to the blockers that remain.
 
 The strings are also **not shown to the user**. `landmark_kinds` in
 `cartalith-godot/src/lib.rs` emits a `not_built` key, and no `.gd` file reads

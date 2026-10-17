@@ -30,6 +30,11 @@
 //! **Twenty-seven since M9's conflict wiring (2026-09-23):** Battlefield reads
 //! the drawn battles of `STORY_PLANNING_SCOPE.md` SP-4 through
 //! [`LandmarkInputs::battles`].
+//! **Thirty since 2026-10-17:** Portage reads the channel network's
+//! receiver tree and Strahler order, labelling drainage basins itself
+//! (`drainage_basins`), the map its old reason said the generator lacked;
+//! Abandoned settlement and Ancient road read what the Timeline remembers
+//! that the live world has lost, through [`LandmarkInputs::history`].
 //! `sacred_mountain` is the one §9.3 kind still blocked — not on the
 //! viewshed, but on §26's cultural-meaning input, which nothing here
 //! provides. See [`EXTRACTION_RESOURCES`] for why Resource extraction site
@@ -281,8 +286,10 @@ pub struct LandmarkKindSpec {
     /// site; 29 once the way graph closed the five that named it; 24 once
     /// M7's viewshed closed five more; 23 once border marker threaded
     /// territory in behind it, 2026-09-21; 22 once Battlefield read the
-    /// battles the user draws). A dated count, not maintained here: the kind
-    /// table's own test pins the buildable count (27 of 49). Purely additive.
+    /// battles the user draws; 19 once Portage labelled drainage basins and
+    /// the Timeline's history gave Abandoned settlement and Ancient road their
+    /// input, 2026-10-17). A dated count, not maintained here: the kind
+    /// table's own test pins the buildable list (30 of 49). Purely additive.
     pub not_built: &'static str,
 }
 
@@ -327,12 +334,17 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
-            // `cartalith-erosion::passes::glacial_kernel` runs during generation and
-            // `cartalith-terrain::landform::build_landform_field` classes cirques
-            // (the Landform layer), but `LandmarkInputs` takes neither; the fjord
-            // module is coastal only. (This reason used to say "no general
-            // glaciation model" and "not a cirque", both false.)
-            not_built: "Glaciers carve the terrain during erosion, and the Landform map layer marks cirques, but the landmark generator reads neither of them yet, and nothing models moraines or eskers. Fjords are reconstructed on coasts only. So no glacial landmark is placed." },
+            // Measured 2026-10-17 (LANDMARK_GENERATION_SCOPE.md M8 residual):
+            // `build_landform_field`'s cirque class with
+            // `passes.glacial` off vs on, same seed, finds 1303/1303, 641/640,
+            // 289/289 cells at 256x192 and 5283/5288, 2425/2431, 182/183 at
+            // 512x384 (seeds 24601, 483920, 71077345), over 99 % the same
+            // cells. The class is a cold-concave-hollow shape test the glacial
+            // kernel barely moves, so reading it would place a glacial
+            // landmark where no ice ever worked. `glacial_kernel` keeps no
+            // per-cell record of where it carved; that record is the missing
+            // input. The fjord module is coastal only.
+            not_built: "The Landform map layer marks cirques by shape and cold alone: switching glacial erosion off barely changes which cells it marks, so a cirque there is not evidence that ice carved it. Erosion does not record where its glaciers worked, and nothing models moraines or eskers, so no glacial landmark is placed." },
         LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Continental, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "The biome map says where forest is; nothing says how old it is, and age is what makes a forest a landmark." },
         // ---------------- Transportation (8) ----------------
@@ -348,9 +360,10 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "bridge_site", label: "Bridge site", family: F::Transport, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "road_junction", label: "Road junction", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "caravan_station", label: "Caravan station", family: F::Transport, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "portage", label: "Portage", family: F::Transport, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            // LANDMARK_GENERATION_SCOPE.md's inventory: no drainage-basin entity.
-            not_built: "A portage links two navigable waters in different river basins, and the generator has no map of which basin each river belongs to." },
+        // Built 2026-10-17 by `pool_portage` over `drainage_basins`, the
+        // basin labelling the old reason ("no map of which basin each river
+        // belongs to") named as missing.
+        LandmarkKindSpec { key: "portage", label: "Portage", family: F::Transport, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "harbour", label: "Harbour", family: F::Transport, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
         // ---------------- Economic (6) ----------------
         LandmarkKindSpec { key: "mine", label: "Mine", family: F::Economic, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
@@ -402,19 +415,19 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
         // ---------------- Historical (6) ----------------
         LandmarkKindSpec { key: "ruin", label: "Ruin", family: F::Historical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: false,
-            // Research §20/§25. `TimelineSnapshot` keeps each recorded year's
-            // settlements (with coordinates) and, in memory, `collapse_flags`
-            // (ruins/fortified) from the collapse run; `LandmarkInputs` reads no
-            // Timeline data. The old text said the site's coordinates were not
-            // retained and named SP-4 as pending — both false.
-            not_built: "A ruin should come from a settlement's own decline. The Timeline records each year's settlements, and a collapse run marks which of them lie in ruins, but the landmark generator does not read the Timeline yet, so it has no ruined site to place." },
-        LandmarkKindSpec { key: "abandoned_settlement", label: "Abandoned settlement", family: F::Historical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Not placed, for the same reason as Ruin: the Timeline records where settlements stood in earlier years, but the landmark generator does not read the Timeline yet." },
-        LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            // `TimelineSnapshot::ways` keeps each recorded year's roads and is
-            // saved with the project; `LandmarkInputs::ways` is today's only.
-            // The old text said way history was not retained, which was false.
-            not_built: "An ancient road is a route that fell out of use. The Timeline keeps each recorded year's roads, but the landmark generator reads only today's, so it cannot tell an abandoned road from a travelled one." },
+            // Research §20/§25. Since 2026-10-17 the pass reads the Timeline
+            // (`LandmarkInputs::history`), but only which settlements are gone.
+            // The ruins mark is `TimelineSnapshot::collapse_flags`, which is in
+            // memory only: `project_bridge`'s `TimelineYearDto` does not carry
+            // it (a `SAVEFILE_COMPAT.md` §10.1 change deliberately not made),
+            // so a Ruin read from it would place before a save and not after
+            // a reload. Persisting the flags is the missing piece.
+            not_built: "A ruin should come from a settlement's own decline. A collapse run marks which settlements lie in ruins, but that mark is not saved with the project, so ruins placed from it would disappear the next time the project is opened. Abandoned settlement already marks the places that are gone altogether." },
+        // Built 2026-10-17: both read `LandmarkInputs::history`
+        // (`LandmarkHistory::from_timeline`), the Timeline read their old
+        // reasons said the generator lacked.
+        LandmarkKindSpec { key: "abandoned_settlement", label: "Abandoned settlement", family: F::Historical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
             // Research §29 lists Battlefield under both Military and Historical;
             // keyed apart so the table has 49 unique rows. Year-dependent landmark
@@ -426,9 +439,12 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             // by design (SP-4 §5).
             not_built: "A destroyed fortress needs a conflict that destroyed it. Conflicts can be recorded, but their outcome is written as free text, deliberately, so there is no destruction the generator could read." },
         LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            // `TimelineSnapshot::ways` keeps road history; `LandmarkInputs` does
-            // not read it. The old text said route history was not retained.
-            not_built: "A crossing that mattered. Ford already places the crossings themselves; what made one matter is the history of the roads through it, which the Timeline keeps but the landmark generator does not read yet." },
+            // Since 2026-10-17 the pass reads former ways
+            // (`LandmarkHistory::ways`, which Ancient road places), but no
+            // measure of a crossing's historical weight is defined: neither
+            // research §29 nor this scope gives one, and inventing it (years
+            // in use? road class? battles nearby?) would be a guess.
+            not_built: "A crossing that mattered. Ford already places the crossings themselves, and Ancient road the roads that fell out of use; what would make one crossing historic rather than another has not been defined, so none is placed." },
     ]
 }
 
@@ -1213,6 +1229,118 @@ impl BattleMark {
     }
 }
 
+/// A settlement the Timeline recorded in an earlier year that the live world
+/// no longer has — Abandoned settlement's domain, as
+/// [`LandmarkHistory::from_timeline`] reads it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormerSettlement {
+    /// The settlement's stable id (`NamedSettlement::tid`), never `0`.
+    pub tid: u64,
+    /// Whole-grid cell, as the latest recording before the live year held it.
+    pub x: usize,
+    pub y: usize,
+    pub name: String,
+    /// The latest recorded year, before the live one, that still had it.
+    pub last_year: i64,
+    /// Its population at that recording.
+    pub population: f64,
+}
+
+/// A way the Timeline recorded in an earlier year that the live network no
+/// longer carries — Ancient road's domain. The whole recorded [`crate::Way`],
+/// as the latest recording before the live year held it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormerWay {
+    pub way: crate::Way,
+    /// The latest recorded year, before the live one, that still had it.
+    pub last_year: i64,
+}
+
+/// **What the Timeline remembers that the live world has lost** — the input
+/// the Historical kinds' old reasons named ("the landmark generator does not
+/// read the Timeline yet"). Built once per run by [`Self::from_timeline`]
+/// from the recorded years and the live state; the pass itself reads only
+/// these two lists and never the Timeline.
+///
+/// **"Earlier" means before the live year, and nothing else.** A year
+/// recorded after the cursor (the owner scrubbed back) is not history at the
+/// cursor and is ignored, so a run at year 100 never calls a settlement
+/// abandoned because a year-200 recording lacks it. The result describes the
+/// world at the year the run was made, like every other landmark: moving the
+/// cursor does not re-run the pass.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LandmarkHistory {
+    /// The live year the lists were read against (`CivData::year`).
+    pub now_year: i64,
+    pub settlements: Vec<FormerSettlement>,
+    pub ways: Vec<FormerWay>,
+}
+
+impl LandmarkHistory {
+    /// Reads `timeline` against the live year and the live settlements and
+    /// ways, by stable id — the same `tid` identity the Timeline's own year
+    /// diff (`timeline::civ_year_diff`) and its *Ghost removed* overlay use,
+    /// so a renamed or moved settlement is still the same settlement.
+    ///
+    /// A settlement or way is **former** when some recorded year before
+    /// `now_year` holds its `tid` and the live list does not; the latest such
+    /// recording supplies its position and year. `tid` `0` (unassigned, see
+    /// `NamedSettlement::tid`) is skipped, since it cannot tell one
+    /// settlement from another. A recorded way that was `hidden` (folded into
+    /// a busier neighbour by consolidation, never drawn) is skipped, the rule
+    /// `timeline_bridge::civ_year_diff_removed_ways` states; a live way
+    /// counts as present whether hidden or not, since its `tid` is still in
+    /// the network. Output is in `tid` order, so a run is deterministic
+    /// whatever order the years were recorded in.
+    pub fn from_timeline(
+        timeline: &[crate::timeline::TimelineSnapshot],
+        now_year: i64,
+        live_settlements: &[crate::NamedSettlement],
+        live_ways: &[crate::Way],
+    ) -> LandmarkHistory {
+        let live_s: std::collections::HashSet<u64> =
+            live_settlements.iter().map(|s| s.tid).collect();
+        let live_w: std::collections::HashSet<u64> = live_ways.iter().map(|w| w.tid).collect();
+        let mut s_best: BTreeMap<u64, FormerSettlement> = BTreeMap::new();
+        let mut w_best: BTreeMap<u64, FormerWay> = BTreeMap::new();
+        for snap in timeline.iter().filter(|t| t.year < now_year) {
+            for s in &snap.settlements {
+                if s.tid == 0 || live_s.contains(&s.tid) {
+                    continue;
+                }
+                if s_best.get(&s.tid).is_some_and(|b| b.last_year >= snap.year) {
+                    continue;
+                }
+                s_best.insert(
+                    s.tid,
+                    FormerSettlement {
+                        tid: s.tid,
+                        x: s.placement.x,
+                        y: s.placement.y,
+                        name: s.name.clone(),
+                        last_year: snap.year,
+                        population: s.pop as f64,
+                    },
+                );
+            }
+            for w in &snap.ways {
+                if w.tid == 0 || w.hidden || live_w.contains(&w.tid) {
+                    continue;
+                }
+                if w_best.get(&w.tid).is_some_and(|b| b.last_year >= snap.year) {
+                    continue;
+                }
+                w_best.insert(w.tid, FormerWay { way: w.clone(), last_year: snap.year });
+            }
+        }
+        LandmarkHistory {
+            now_year,
+            settlements: s_best.into_values().collect(),
+            ways: w_best.into_values().collect(),
+        }
+    }
+}
+
 /// **Category C**, and the reason it is a separate number rather than a class
 /// radius is the whole of [`LandmarkInputs::manual_icons`]' design.
 ///
@@ -1373,6 +1501,12 @@ pub struct LandmarkInputs<'a> {
     /// separate Historic battlefield from this, and that kind's own
     /// `not_built` reason says why it is not drawn.
     pub battles: &'a [BattleMark],
+    /// **What the Timeline remembers that the live world has lost**
+    /// ([`LandmarkHistory`]) — Abandoned settlement's and Ancient road's
+    /// whole domain. `None` is every caller and test predating it, and a
+    /// world with no earlier recorded year gives empty lists; either way
+    /// those two kinds report `NoTerrain` and nothing else moves.
+    pub history: Option<&'a LandmarkHistory>,
     /// **Ruling AT's refined viewshed** (2026-09-24), `None` unless the owner ran
     /// the manual "refine viewshed for the current view" action and the store
     /// still holds the result. [`Derived::build`] overlays it on the coarse
@@ -1449,6 +1583,7 @@ impl<'a> LandmarkInputs<'a> {
             manual_icons: &[],
             ways: &[],
             battles: &[],
+            history: None,
             refined_view: None,
         }
     }
@@ -1602,6 +1737,16 @@ impl Needs {
             // Battlefield reads `LandmarkInputs::battles` and the settlement
             // list — no raster at all.
             "battlefield" => (false, false, false, false, false),
+            // Portage reads channel, receiver and Strahler order directly —
+            // its basin labelling is its own (`drainage_basins`), not a
+            // derived raster.
+            "portage" => (false, false, false, false, false),
+            // Abandoned settlement reads `LandmarkInputs::history` and the
+            // live settlement list — no raster.
+            "abandoned_settlement" => (false, false, false, false, false),
+            // Ancient road reads `history` and the LIVE way graph, to keep
+            // its mark off any road still travelled.
+            "ancient_road" => (false, false, false, false, true),
             "ford" => (true, false, false, false, false),
             "harbour" => (true, false, false, false, false),
             "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
@@ -1614,7 +1759,7 @@ impl Needs {
             _ => (false, false, false, false, false),
         };
         // A list rather than two more tuple columns: seven keys set these
-        // and every one of the sixteen arms above would otherwise grow two
+        // and every arm above would otherwise grow two
         // `false`s to say nothing.
         let viewshed = matches!(
             key,
@@ -2869,6 +3014,62 @@ const DEPOT_NAVIGABLE_FLOW_MULT: f64 = 20.0;
 /// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const DEPOT_TERMS: [(&str, f64); 3] =
     [("road class", 0.40), ("settlement access", 0.35), ("workable ground", 0.25)];
+
+/// **Category C.** The longest overland carry a Portage may bridge, in km.
+/// A judgement, not a measured law: for scale, the Grand Portage trail
+/// (Minnesota, the fur trade's best-known long carry) is about 13.7 km
+/// (8.5 miles), and 20 km leaves room above it without admitting a carry
+/// nobody would shoulder a boat over. Converted to cells with
+/// [`Ctx::cells`] and capped at [`PORTAGE_MAX_CELLS`].
+const PORTAGE_MAX_CARRY_KM: f64 = 20.0;
+/// The search window's cap in cells, for the same compute reason as
+/// [`SCALE_MAX_CELLS`] (the same number): every head of navigation scans a
+/// `(2r+1)²` window, and on a coarse-celled map an uncapped 20 km would not
+/// grow the honest answer, only the cost.
+const PORTAGE_MAX_CELLS: i64 = 40;
+/// **Category B.** How many times its own length the water way round must be
+/// before a carry is worth making: the ratio of overland to river transport
+/// cost, so the carry pays when `round × river cost > carry × land cost`.
+/// Source: Duncan-Jones's reading of Diocletian's Price Edict (AD 301), sea :
+/// river : land ≈ 1 : 4.9 : 28–56 per unit of goods and distance (R. Duncan-
+/// Jones, *The Economy of the Roman Empire*, 1974) — the ratio here is the
+/// cheap-land end, 28 / 4.9 ≈ 5.7. An ancient-world figure applied to a
+/// fictional one, which is what makes it B rather than A.
+///
+/// The water way round is measured from below — each landing's path down its
+/// own river to that river's outlet, summed, with the leg between the two
+/// outlets left out — so a candidate that passes passes on an underestimate.
+/// It is what refuses the near-coast case, two river mouths a few km apart,
+/// where nobody carries a boat because sailing round is shorter.
+///
+/// *Disclosed: this replaced an unsourced 10.0 the same day, after the
+/// measurement in `portages_place_on_a_world_generate_terrain_really_made`
+/// (three 256 × 192 worlds, 87 heads of navigation) found the best carries
+/// saving 3–8 × their length and 10.0 placing none. The sourced ratio is the
+/// reason for the number, not the count it produces.*
+const PORTAGE_MIN_DETOUR_RATIO: f64 = 28.0 / 4.9;
+/// Portage scoring weights: water route saved 0.45, short carry 0.30, low
+/// climb 0.25. Weights sum to 1.0. Category C (see the block header above): a
+/// judgement, source not recorded. "Saved" leads because saving distance is
+/// what a portage is for; the carry's length and its climb are what it costs.
+const PORTAGE_TERMS: [(&str, f64); 3] =
+    [("water route saved", 0.45), ("short carry", 0.30), ("low climb", 0.25)];
+
+/// **Category C.** A former site with a live settlement this close has been
+/// reoccupied or absorbed, not abandoned: its ground is still lived on. A
+/// judgement, source not recorded. In km, like every separation here, so it
+/// means the same at 512 and at 8192 (§28).
+const ABANDONED_CLEAR_KM: f64 = 5.0;
+/// Abandoned-settlement scoring: the place's population at its last record,
+/// weight 1.0 — a larger place leaves the larger mark. One term, so the
+/// weight only says the term is in the sum. Category C (see the block header
+/// above): a judgement, source not recorded.
+const ABANDONED_TERMS: [(&str, f64); 1] = [("former size", 1.0)];
+/// Ancient-road scoring weights: former class 0.50, length 0.50 — a highway
+/// fallen out of use outranks a track, a long road a short one. Weights sum to
+/// 1.0. Category C (see the block header above): a judgement, source not
+/// recorded.
+const ANCIENT_ROAD_TERMS: [(&str, f64); 2] = [("former class", 0.50), ("length", 0.50)];
 
 /// §12's own worked example: "a bridge located at a major river bottleneck can
 /// score highly because it reduces travel cost between otherwise separated
@@ -4377,6 +4578,230 @@ fn pool_depot(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// One cell's drainage basin, as [`drainage_basins`] labels it.
+#[derive(Clone, Copy, Debug)]
+struct BasinCell {
+    /// The basin's outlet: the last cell on the receiver path before the sea,
+    /// or the cell the path ends at (a sink, the map edge, a broken link).
+    /// Two cells are in one basin exactly when their outlets are one cell.
+    outlet: usize,
+    /// Km along the receiver path from this cell to `outlet`, diagonal steps
+    /// counted at √2 cells and the X seam wrapped on a world map.
+    down_km: f64,
+}
+
+/// **Category A — drainage-basin labelling over the D8 receiver tree.** Every
+/// cell drains along `recv` to exactly one outlet, and the cells sharing an
+/// outlet are one basin: the textbook definition of a catchment on a
+/// single-flow-direction grid (O'Callaghan & Mark 1984 introduced the D8
+/// direction tree this walks; labelling by outlet is the standard watershed
+/// delineation on it). The portage row's old reason named exactly this as the
+/// missing piece: "the generator has no map of which basin each river belongs
+/// to".
+///
+/// **Only the cells walked from `starts` are labelled**, in a map rather than
+/// a `gw * gh` raster, because Portage asks this of navigable channel cells
+/// alone and a receiver path from one stays on the channel network to the
+/// sea, so the walked set is about the size of the navigable network. Each
+/// cell is walked once (a path stops at the first cell already labelled).
+///
+/// **The walk stops at the coast**: a path ends on the last cell before an
+/// ocean cell, so the sea's own receivers (if the tree carries any) cannot
+/// merge every river on a coast into one basin. Lakes do not stop it — a river
+/// through a lake stays one basin. A receiver of `-1`, out of range, or one
+/// that closes a cycle ends the path there: the tree is supposed to be
+/// acyclic, and a broken link is an outlet rather than a panic or a hang.
+fn drainage_basins(
+    c: &Ctx<'_>,
+    recv: &[i32],
+    starts: impl Iterator<Item = usize>,
+) -> std::collections::HashMap<usize, BasinCell> {
+    let gw = c.inp.gw;
+    let cell = if c.cell_km > 0.0 { c.cell_km } else { 1.0 };
+    let step_km = |a: usize, b: usize| -> f64 {
+        let mut dx = (b % gw) as f64 - (a % gw) as f64;
+        if c.inp.world && dx.abs() > gw as f64 * 0.5 {
+            dx = gw as f64 - dx.abs();
+        }
+        let dy = (b / gw) as f64 - (a / gw) as f64;
+        (dx * dx + dy * dy).sqrt() * cell
+    };
+    let mut out: std::collections::HashMap<usize, BasinCell> = std::collections::HashMap::new();
+    let mut path: Vec<usize> = Vec::new();
+    let mut on_path: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for s in starts {
+        if out.contains_key(&s) {
+            continue;
+        }
+        path.clear();
+        on_path.clear();
+        let mut cur = s;
+        // What the last cell on `path` hands down: its own outlet (a terminal)
+        // or the labelled cell it drains into.
+        let last: BasinCell = loop {
+            path.push(cur);
+            on_path.insert(cur);
+            let r = recv[cur];
+            if r < 0 || r as usize >= c.n {
+                break BasinCell { outlet: cur, down_km: 0.0 };
+            }
+            let r = r as usize;
+            if c.is_ocean(r) || on_path.contains(&r) {
+                break BasinCell { outlet: cur, down_km: 0.0 };
+            }
+            if let Some(b) = out.get(&r) {
+                break BasinCell { outlet: b.outlet, down_km: b.down_km + step_km(cur, r) };
+            }
+            cur = r;
+        };
+        let mut below = last;
+        out.insert(*path.last().expect("path holds at least the start"), below);
+        for k in (0..path.len() - 1).rev() {
+            below = BasinCell {
+                outlet: below.outlet,
+                down_km: below.down_km + step_km(path[k], path[k + 1]),
+            };
+            out.insert(path[k], below);
+        }
+    }
+    out
+}
+
+/// §29's **Portage** (Transportation family, Local class) — the overland
+/// carry between two navigable waters in different river basins. §29 names
+/// the type and gives no formula; research "Implementation Priority" Phase 4
+/// lists portages beside fords, bridges and harbours. The test below is this
+/// port's, and each of its parts is labelled.
+///
+/// **Domain: heads of navigation.** A cell is navigable when a channel runs
+/// there at Strahler order [`crate::river_class::NAVIGABLE_ORDER`] or above:
+/// the reference's own "barge/raft-navigable" gate, the one the Route tool
+/// and the Journey planner read (Ruling CD item 1), so a portage joins waters
+/// the planner itself would call river. A head of navigation is a navigable
+/// cell no navigable channel feeds — where boats must stop going upstream,
+/// which is where a carry starts. (Trade depot's `DEPOT_NAVIGABLE_FLOW_MULT`
+/// is a different, stricter test of a different question — water a road
+/// trans-ships onto — and is not reused here.) Lakes are not treated as
+/// navigable water in their own right; a river running through one is.
+///
+/// **Hard constraints**, each counted as a constraint reject in the funnel:
+/// navigable water of **another** basin ([`drainage_basins`]) within
+/// [`PORTAGE_MAX_CARRY_KM`], the nearest such cell taken; the straight carry
+/// crossing no ocean cell; the water way round at least
+/// [`PORTAGE_MIN_DETOUR_RATIO`] times the carry; and land at the carry's
+/// midpoint, which is where the landmark is placed — the carry itself, not
+/// either landing, which Bridge site and Ford may already mark.
+///
+/// Needs `channel`, `recv` and `order`; without any of them it returns `None`
+/// (`NoTerrain`) rather than guessing navigability from flow alone.
+fn pool_portage(c: &Ctx<'_>) -> Option<Pool> {
+    let chan = c.chan?;
+    let recv = c.recv?;
+    let order = c.order?;
+    let gw = c.inp.gw;
+    let nav: Vec<bool> = (0..c.n)
+        .map(|i| chan[i] != 0 && order[i] >= crate::river_class::NAVIGABLE_ORDER && c.is_land(i))
+        .collect();
+    // A navigable cell fed by a navigable cell is not a head.
+    let mut fed = vec![false; c.n];
+    for j in 0..c.n {
+        if nav[j] {
+            let r = recv[j];
+            if r >= 0 && (r as usize) < c.n {
+                fed[r as usize] = true;
+            }
+        }
+    }
+    let basins = drainage_basins(c, recv, (0..c.n).filter(|&i| nav[i]));
+    let rad = c.cells(PORTAGE_MAX_CARRY_KM, PORTAGE_MAX_CELLS);
+    let cell = if c.cell_km > 0.0 { c.cell_km } else { 1.0 };
+    let mut p = Pool::new();
+    let (mut t_saved, mut t_carry, mut t_climb) = (vec![], vec![], vec![]);
+    for a in 0..c.n {
+        if !nav[a] || fed[a] {
+            continue;
+        }
+        // Every navigable cell was a start, so this is always present; `get`
+        // rather than an index all the same, since a panic here crosses gdext.
+        let Some(&ba) = basins.get(&a) else { continue };
+        let (ax, ay) = (a % gw, a / gw);
+        // The straight carry from `a` along (dx, dy): every cell it crosses,
+        // landing excluded, or `None` if one of them is ocean.
+        let carry_cells = |dx: i64, dy: i64| -> Option<Vec<usize>> {
+            let steps = dx.abs().max(dy.abs());
+            let mut v = Vec::with_capacity(steps as usize);
+            for k in 1..steps {
+                let ox = (dx as f64 * k as f64 / steps as f64).round() as i64;
+                let oy = (dy as f64 * k as f64 / steps as f64).round() as i64;
+                let j = c.nb(ax, ay, ox, oy)?;
+                if c.is_ocean(j) {
+                    return None;
+                }
+                v.push(j);
+            }
+            Some(v)
+        };
+        // The nearest other-basin navigable cell with an ocean-free carry;
+        // ties go to the first in scan order, which is deterministic.
+        let mut best: Option<(i64, i64, i64, usize, Vec<usize>)> = None;
+        for dy in -rad..=rad {
+            for dx in -rad..=rad {
+                let d2 = dx * dx + dy * dy;
+                if d2 == 0 || d2 > rad * rad {
+                    continue;
+                }
+                if best.as_ref().is_some_and(|b| d2 >= b.0) {
+                    continue;
+                }
+                let Some(b) = c.nb(ax, ay, dx, dy) else { continue };
+                if !nav[b] || basins.get(&b).is_none_or(|bb| bb.outlet == ba.outlet) {
+                    continue;
+                }
+                if let Some(cells) = carry_cells(dx, dy) {
+                    best = Some((d2, dx, dy, b, cells));
+                }
+            }
+        }
+        let Some((d2, dx, dy, b, cells)) = best else {
+                p.rejected_constraint += 1;
+            continue;
+        };
+        let carry_km = (d2 as f64).sqrt() * cell;
+        let round_km = ba.down_km + basins.get(&b).map_or(0.0, |bb| bb.down_km);
+        let Some(m) = c.nb(ax, ay, dx / 2, dy / 2) else {
+            p.rejected_constraint += 1;
+            continue;
+        };
+        if !(round_km >= PORTAGE_MIN_DETOUR_RATIO * carry_km) || !c.is_land(m) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let ends = c.inp.field[a].max(c.inp.field[b]) as f64;
+        let top = cells.iter().map(|&j| c.inp.field[j] as f64).fold(ends, f64::max);
+        let climb_m = c.inp.dh_m(top - ends).max(0.0);
+        let (x, y) = (m % gw, m / gw);
+        p.cands.push(Cand {
+            i: m,
+            x,
+            y,
+            facts: vec![
+                format!("a carry of {} between two river basins", fmt_km(carry_km)),
+                format!("at least {} round by water", fmt_km(round_km)),
+                format!("a climb of {} over the divide", fmt_m(climb_m)),
+            ],
+        });
+        t_saved.push((round_km / carry_km.max(cell)) as f32);
+        t_carry.push(-carry_km as f32);
+        t_climb.push(-climb_m as f32);
+    }
+    p.terms = vec![
+        (PORTAGE_TERMS[0].0, PORTAGE_TERMS[0].1, t_saved),
+        (PORTAGE_TERMS[1].0, PORTAGE_TERMS[1].1, t_carry),
+        (PORTAGE_TERMS[2].0, PORTAGE_TERMS[2].1, t_climb),
+    ];
+    Some(p)
+}
+
 /// Which of the four things a fortified hilltop is. The roles **partition**
 /// one candidate set; see [`pool_military`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -4789,6 +5214,157 @@ fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// §29's **Abandoned settlement** (Historical family, Local class) — research
+/// §20's chain *settlement → … → abandonment*, read from the Timeline rather
+/// than invented: a settlement a recorded year before the live one had and
+/// the live world does not ([`LandmarkHistory::settlements`]).
+///
+/// **Domain: those former sites.** Hard constraints, each a constraint
+/// reject: the cell is on the grid and land (a site the sea has since taken
+/// is gone, not abandoned), and no live settlement stands within
+/// [`ABANDONED_CLEAR_KM`] (reoccupied ground is not abandoned). The chain
+/// names the place and the last year it was recorded.
+///
+/// **Not a Ruin.** A ruin is research §20's *ruination* stage, which the
+/// collapse run records per year as a flag on a settlement it left standing
+/// (`CollapseFlags::ruins`, in memory only); this kind reads only absence.
+/// `None` (`NoTerrain`) without a history or with no former settlement.
+fn pool_abandoned(c: &Ctx<'_>) -> Option<Pool> {
+    let h = c.inp.history?;
+    if h.settlements.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let mut p = Pool::new();
+    let mut t_pop: Vec<f32> = Vec::new();
+    for s in &h.settlements {
+        if s.x >= gw || s.y >= c.inp.gh {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let i = s.y * gw + s.x;
+        let near = c.nearest_settlement_km(s.x, s.y);
+        if !c.is_land(i) || near < ABANDONED_CLEAR_KM {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let name = if s.name.trim().is_empty() { "an unnamed settlement" } else { s.name.as_str() };
+        let mut facts = vec![
+            format!("{} stood here until {}", name, s.last_year),
+            format!("population {} at its last record", thousands(s.population)),
+        ];
+        if near.is_finite() {
+            facts.push(format!("nearest settlement now {}", fmt_km(near)));
+        }
+        p.cands.push(Cand { i, x: s.x, y: s.y, facts });
+        t_pop.push(s.population as f32);
+    }
+    p.terms.push((ABANDONED_TERMS[0].0, ABANDONED_TERMS[0].1, t_pop));
+    Some(p)
+}
+
+/// §29's **Ancient road** (Historical family, Regional class) — a recorded
+/// way the live network no longer carries ([`LandmarkHistory::ways`]).
+///
+/// **One candidate per former way, placed on the old course and off every
+/// live way.** The way's control polyline is walked at [`WAY_STEP_CELLS`],
+/// the same sampling [`WayGrid::build`] uses, and the landmark goes on the
+/// sampled land cell nearest the course's half-way point that no live way
+/// crosses. A former way whose whole course is still under live road — the
+/// network re-used its line under a new id — has nothing abandoned to mark
+/// and is a constraint reject; so is one with no point on the grid. The
+/// chain names its class and the last year it was recorded.
+///
+/// `None` (`NoTerrain`) without a history or with no former way.
+fn pool_ancient_road(c: &Ctx<'_>) -> Option<Pool> {
+    let h = c.inp.history?;
+    if h.ways.is_empty() {
+        return None;
+    }
+    let (gw, gh) = (c.inp.gw, c.inp.gh);
+    let mut p = Pool::new();
+    let (mut t_rank, mut t_len) = (vec![], vec![]);
+    for fw in &h.ways {
+        let w = &fw.way;
+        let Some(rank) = way_rank(crate::way_class::WayClass::from(w.way_type)) else {
+            p.rejected_constraint += 1;
+            continue;
+        };
+        // Walk the course: (cell, distance along it in cells).
+        let mut samples: Vec<(usize, f64)> = Vec::new();
+        let mut along = 0f64;
+        for pair in w.pts.windows(2) {
+            let (ax, ay) = pair[0];
+            let (bx, by) = pair[1];
+            let mut dx = bx - ax;
+            let dy = by - ay;
+            // The seam rule `WayGrid::build` uses: on a wrapping world the
+            // short way round the cylinder is the real segment.
+            if c.inp.world {
+                let gwf = gw as f64;
+                if dx > gwf * 0.5 {
+                    dx -= gwf;
+                } else if dx < -gwf * 0.5 {
+                    dx += gwf;
+                }
+            }
+            let len = (dx * dx + dy * dy).sqrt();
+            if !len.is_finite() {
+                continue;
+            }
+            let steps = ((len / WAY_STEP_CELLS).ceil() as i64).clamp(1, WAY_MAX_STEPS);
+            for k in 0..=steps {
+                let t = k as f64 / steps as f64;
+                let (x, y) = (ax + dx * t, ay + dy * t);
+                if !x.is_finite() || !(y >= 0.0) || y.floor() >= gh as f64 {
+                    continue;
+                }
+                let mut xx = x.floor() as i64;
+                if c.inp.world {
+                    xx = xx.rem_euclid(gw as i64);
+                } else if xx < 0 || xx >= gw as i64 {
+                    continue;
+                }
+                samples.push((y.floor() as usize * gw + xx as usize, along + len * t));
+            }
+            along += len;
+        }
+        let half = along * 0.5;
+        let on_live = |i: usize| c.ways.as_ref().is_some_and(|g| g.ways_here[i] > 0);
+        // Nearest the half-way point; `min_by` keeps the first of equals, so
+        // the earlier sample along the course wins a tie, deterministically.
+        let best = samples
+            .iter()
+            .filter(|(i, _)| c.is_land(*i) && !on_live(*i))
+            .min_by(|a, b| (a.1 - half).abs().total_cmp(&(b.1 - half).abs()));
+        let Some(&(i, _)) = best else {
+            p.rejected_constraint += 1;
+            continue;
+        };
+        let (x, y) = (i % gw, i / gw);
+        let name = if w.name.trim().is_empty() { String::new() } else { format!(" ({})", w.name) };
+        // `Way::km` is the network pass's own length; the walked control
+        // polyline stands in only where that is absent or not a length.
+        let km = if w.km.is_finite() && w.km > 0.0 { w.km } else { along * c.cell_km };
+        p.cands.push(Cand {
+            i,
+            x,
+            y,
+            facts: vec![
+                format!("a {}{} last recorded in {}", rank_label(rank), name, fw.last_year),
+                format!("{} of road no longer travelled", fmt_km(km)),
+            ],
+        });
+        t_rank.push(rank as f32);
+        t_len.push(km as f32);
+    }
+    p.terms = vec![
+        (ANCIENT_ROAD_TERMS[0].0, ANCIENT_ROAD_TERMS[0].1, t_rank),
+        (ANCIENT_ROAD_TERMS[1].0, ANCIENT_ROAD_TERMS[1].1, t_len),
+    ];
+    Some(p)
+}
+
 /// The one place a key becomes a detector. A key with no arm here is not
 /// buildable, and [`kinds`] must say so.
 fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
@@ -4821,6 +5397,9 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
             pool_trade_road(c, false, CARAVAN_MIN_SETTLEMENT_KM, &CARAVAN_TERMS)
         }
         "trade_depot" => pool_depot(c),
+        "portage" => pool_portage(c),
+        "abandoned_settlement" => pool_abandoned(c),
+        "ancient_road" => pool_ancient_road(c),
         "fort" => pool_military(c, Garrison::Fort),
         "watchtower" => pool_military(c, Garrison::Watch),
         "fortified_pass" => pool_military(c, Garrison::Pass),
@@ -5938,7 +6517,7 @@ mod tests {
     fn the_kind_table_matches_the_research_and_the_design() {
         // Protects: the kind table: 49 unique keys with labels, a `not_built` reason on exactly the
         // unbuilt kinds, the per-family counts, the seven viewshed-reading kinds agreeing
-        // with `Needs::of`, the 27 buildable kinds, and `buildable` agreeing with the
+        // with `Needs::of`, the 30 buildable kinds, and `buildable` agreeing with the
         // detector arms.
         let ks = kinds();
         assert_eq!(ks.len(), 49, "§29 lists 49 types");
@@ -6001,6 +6580,8 @@ mod tests {
         assert_eq!(
             built,
             vec![
+                "abandoned_settlement",
+                "ancient_road",
                 "battlefield",
                 "border_marker",
                 "bridge_site",
@@ -6017,6 +6598,7 @@ mod tests {
                 "mine",
                 "mountain_pass",
                 "peak",
+                "portage",
                 "quarry",
                 "resource_extraction_site",
                 "ridge",
@@ -6029,7 +6611,7 @@ mod tests {
                 "watchtower",
                 "waterfall",
             ],
-            "the twenty-seven kinds this engine actually generates"
+            "the thirty kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -6066,6 +6648,9 @@ mod tests {
                         | "volcanic_feature"
                         | "border_marker"
                         | "battlefield"
+                        | "portage"
+                        | "abandoned_settlement"
+                        | "ancient_road"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -6243,15 +6828,19 @@ mod tests {
         assert!(r.seconds >= 0.0);
     }
 
-    /// The two kinds this file's hand-shaped fixture **cannot** reach, stated
-    /// as a constant so no third can join them silently.
+    /// The three kinds this file's hand-shaped fixture **cannot** reach, stated
+    /// as a constant so no fourth can join them silently.
     ///
-    /// Both want a trunk river, and `test_field` has none: measured on it, the
-    /// largest channel anywhere carries 18.5x the channel-initiation threshold
-    /// and the largest a routed way crosses carries 4.6x. Bridge site needs
-    /// more than [`FORD_MAX_FLOW_MULT`] (8x) at a crossing and Trade depot
-    /// needs [`DEPOT_NAVIGABLE_FLOW_MULT`] (20x) beside one, so neither can
-    /// fire there.
+    /// All three want a trunk river, and `test_field` has none: measured on it,
+    /// the largest channel anywhere carries 18.5x the channel-initiation
+    /// threshold and the largest a routed way crosses carries 4.6x. Bridge
+    /// site needs more than [`FORD_MAX_FLOW_MULT`] (8x) at a crossing and
+    /// Trade depot needs [`DEPOT_NAVIGABLE_FLOW_MULT`] (20x) beside one, so
+    /// neither can fire there. Portage (added 2026-10-17) needs a channel at
+    /// Strahler order `river_class::NAVIGABLE_ORDER` (3), and its funnel on
+    /// this fixture reports 0 candidates — no head of navigation, so no
+    /// navigable cell at all. Its own hand-built two-basin fixture
+    /// (`two_basins`) tests it instead.
     ///
     /// **Bending the fixture or the constants until they did would be
     /// backwards.** Both are verified instead where the shell will really run
@@ -6259,7 +6848,7 @@ mod tests {
     /// `every_way_graph_kind_places_on_a_world_generate_terrain_really_made`,
     /// and that test asserts exactly this list — so a kind cannot be exempted
     /// here and left unverified there.
-    const FIXTURE_HAS_NO_TRUNK_RIVER: [&str; 2] = ["bridge_site", "trade_depot"];
+    const FIXTURE_HAS_NO_TRUNK_RIVER: [&str; 3] = ["bridge_site", "trade_depot", "portage"];
 
     /// **Every detector must be able to place something.** Run with cross-type
     /// competition off, because with it on a gorge and a waterfall at the same
@@ -6279,8 +6868,28 @@ mod tests {
         // Battlefield's only input, which nothing in the fixture can derive:
         // a battle has to be drawn. On the first town, which is land.
         let battles = [battle_at(w.gw / 4, w.gh / 3, "Fixture Field")];
+        // Abandoned settlement's and Ancient road's only input, which the
+        // fixture has no Timeline to derive: one former site three cells
+        // (11.7 km) east of that town, outside the 5 km clearance, and one
+        // former road beside it.
+        let hist = LandmarkHistory {
+            now_year: 100,
+            settlements: vec![FormerSettlement {
+                tid: 1,
+                x: w.gw / 4 + 3,
+                y: w.gh / 3,
+                name: "Fixture Ghost".into(),
+                last_year: 90,
+                population: 500.0,
+            }],
+            ways: vec![FormerWay {
+                way: straight((w.gw / 4 + 3, w.gh / 3 + 6), (w.gw / 4 + 12, w.gh / 3 + 6), crate::WayType::Road),
+                last_year: 90,
+            }],
+        };
         let mut inp = inputs(&w, &res);
         inp.battles = &battles;
+        inp.history = Some(&hist);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
         for k in kinds().iter().filter(|k| k.buildable) {
@@ -8852,5 +9461,430 @@ mod tests {
         store.invalidate();
         assert!(store.last.is_none());
         assert!(!store.icon_placed_since_run, "nothing left to predate once `last` is gone");
+    }
+
+    // -- Portage (M8 residual, 2026-10-17) -----------------------------------
+
+    /// Two rivers either side of one divide, each running `len` cells to its
+    /// own sea, their heads `gap` cells apart across the divide. 1 km cells
+    /// (`width_km == gw`), so a cell count is a km figure. Built by hand —
+    /// channel, receiver and order written directly — so every portage
+    /// constraint can be reached one at a time: `ord` below
+    /// `NAVIGABLE_ORDER` empties the domain, a short `len` fails the detour,
+    /// a wide `gap` exceeds the carry, `sea_in_gap` floods the carry.
+    ///
+    /// Returns `(field, chan, recv, order, gw, gh)`. The heads sit on row
+    /// `gh / 2`; west of the gap the river flows west, east of it east.
+    fn two_basins(
+        gap: usize,
+        len: usize,
+        ord: i16,
+        sea_in_gap: bool,
+    ) -> (Vec<f32>, Vec<u8>, Vec<i32>, Vec<i16>, usize, usize) {
+        let gw = 2 * len + gap + 1;
+        let gh = 9usize;
+        let row = gh / 2;
+        let (west_head, east_head) = (len, len + gap);
+        let mut field = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                // Ocean in the first and last columns; land rising to the
+                // divide between the two heads.
+                let to_sea = x.min(gw - 1 - x) as f64;
+                field[y * gw + x] =
+                    if x == 0 || x == gw - 1 { 0.10 } else { (0.46 + 0.003 * to_sea) as f32 };
+            }
+        }
+        if sea_in_gap {
+            field[row * gw + (west_head + east_head) / 2] = 0.10;
+        }
+        let mut chan = vec![0u8; gw * gh];
+        let mut recv = vec![-1i32; gw * gh];
+        let mut order = vec![0i16; gw * gh];
+        for x in 1..=west_head {
+            let i = row * gw + x;
+            chan[i] = 1;
+            order[i] = ord;
+            recv[i] = (i - 1) as i32;
+        }
+        for x in east_head..gw - 1 {
+            let i = row * gw + x;
+            chan[i] = 1;
+            order[i] = ord;
+            recv[i] = (i + 1) as i32;
+        }
+        (field, chan, recv, order, gw, gh)
+    }
+
+    /// Test settings: only `portage` armed, at its default cap.
+    fn only_portages() -> LandmarkSettings {
+        let mut s = LandmarkSettings::default();
+        for k in kinds() {
+            s.set_armed(k.key, k.key == "portage");
+        }
+        s
+    }
+
+    /// Runs the portage pass over `two_basins(..)` and returns the result.
+    fn run_two_basins(gap: usize, len: usize, ord: i16, sea_in_gap: bool) -> LandmarkResult {
+        let (field, chan, recv, order, gw, gh) = two_basins(gap, len, ord, sea_in_gap);
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, gw as f64);
+        inp.peak_m = PEAK_M;
+        inp.channel = Some(&chan);
+        inp.recv = Some(&recv);
+        inp.order = Some(&order);
+        generate(&inp, &only_portages(), 1)
+    }
+
+    #[test]
+    fn a_portage_carries_between_two_basins_at_the_divide() {
+        // Protects: the positive case — two navigable heads 4 km apart in
+        // different basins, 29 km each from the sea, place exactly one
+        // portage, on the carry's midpoint (the divide), with the measured
+        // carry and round-by-water figures in its causal chain. Both heads
+        // are candidates; the second lands on the same midpoint and loses on
+        // spacing, so one landmark marks one carry.
+        let r = run_two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
+        let f = r.funnel("portage").expect("portage has a funnel");
+        assert_eq!(f.candidates, 2, "both heads of navigation are candidates: {f:?}");
+        assert_eq!(f.placed, 1, "one carry, one portage: {f:?}");
+        let l = r.landmarks.iter().find(|l| l.kind == "portage").expect("a portage");
+        assert_eq!((l.x, l.y), (32, 4), "the landmark sits on the carry, not a landing");
+        let chain = l.causal.join(" | ");
+        assert!(chain.contains("a carry of 4 km between two river basins"), "{chain}");
+        // 29 km down each river to its last cell before the sea.
+        assert!(chain.contains("at least 58 km round by water"), "{chain}");
+    }
+
+    #[test]
+    fn one_basin_is_not_a_portage() {
+        // Protects: the basin test is load-bearing. Re-routing the east river
+        // to drain west through the gap into the west river's outlet leaves
+        // navigable channel on both sides of the old divide, all in one
+        // basin, and nothing is placed.
+        let (field, mut chan, mut recv, mut order, gw, gh) =
+            two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
+        let row = gh / 2;
+        for x in 31..gw - 1 {
+            let i = row * gw + x;
+            recv[i] = (i - 1) as i32;
+            chan[i] = 1;
+            order[i] = crate::river_class::NAVIGABLE_ORDER;
+        }
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, gw as f64);
+        inp.peak_m = PEAK_M;
+        inp.channel = Some(&chan);
+        inp.recv = Some(&recv);
+        inp.order = Some(&order);
+        let r = generate(&inp, &only_portages(), 1);
+        assert_eq!(r.placed("portage"), 0, "{:?}", r.funnel("portage"));
+    }
+
+    #[test]
+    fn each_portage_constraint_is_load_bearing() {
+        // Protects: each hard constraint, one at a time, against the positive
+        // fixture, and each numeric bound from both sides. Water below
+        // navigable order is no domain at all (0 candidates). Sea in the gap
+        // floods the carry. Then the two numbers, as literals rather than
+        // against their constants: a 20 km carry places and a 21 km one does
+        // not (`PORTAGE_MAX_CARRY_KM`), and over a 20 km carry 116 km round
+        // places while 114 km does not, the 28 / 4.9 ≈ 5.714 ratio landing at
+        // 114.3 km between them (`PORTAGE_MIN_DETOUR_RATIO`). Every reject
+        // still counts both heads as candidates lost to a constraint.
+        let nav = crate::river_class::NAVIGABLE_ORDER;
+        let low = run_two_basins(4, 30, nav - 1, false);
+        let f = low.funnel("portage").unwrap();
+        assert_eq!((f.candidates, f.placed), (0, 0), "below navigable order: {f:?}");
+        // `len` cells of river is `len - 1` km down to the last cell before
+        // the sea, so round = 2 (len - 1).
+        for (what, r) in [
+            ("sea in the gap", run_two_basins(4, 30, nav, true)),
+            ("21 km carry", run_two_basins(21, 70, nav, false)),
+            ("114 km round over 20 km", run_two_basins(20, 58, nav, false)),
+            ("22 km round over 4 km", run_two_basins(4, 12, nav, false)),
+        ] {
+            let f = r.funnel("portage").unwrap();
+            assert_eq!(f.placed, 0, "{what}: {f:?}");
+            assert_eq!(f.candidates, 2, "{what}: both heads still enter the funnel: {f:?}");
+            assert_eq!(f.rejected_constraint, 2, "{what}: {f:?}");
+        }
+        for (what, r) in [
+            ("20 km carry, 138 km round", run_two_basins(20, 70, nav, false)),
+            ("116 km round over 20 km", run_two_basins(20, 59, nav, false)),
+            ("24 km round over 4 km", run_two_basins(4, 13, nav, false)),
+        ] {
+            assert_eq!(r.placed("portage"), 1, "{what}: {:?}", r.funnel("portage"));
+        }
+    }
+
+    #[test]
+    fn the_ocean_test_and_the_midpoint_test_each_refuse_on_their_own() {
+        // Protects: the two carry constraints separately, each on a fixture
+        // the other passes (a mutation run found the shared "sea in the gap"
+        // case killed neither alone). A 6 km carry with one ocean cell beside
+        // the west landing, not at the midpoint: refused by the ocean test.
+        // The same carry with no ocean but a lake at the midpoint (water mask
+        // 2, neither land nor ocean): refused by the midpoint test only.
+        let nav = crate::river_class::NAVIGABLE_ORDER;
+        let (len, gap) = (40usize, 6usize);
+        let run = |field: &[f32], water: Option<&[u8]>, chan: &[u8], recv: &[i32], order: &[i16], gw: usize, gh: usize| {
+            let mut inp = LandmarkInputs::new(field, gw, gh, SEA, false, gw as f64);
+            inp.peak_m = PEAK_M;
+            inp.channel = Some(chan);
+            inp.recv = Some(recv);
+            inp.order = Some(order);
+            inp.water = water;
+            generate(&inp, &only_portages(), 1).placed("portage")
+        };
+        let (field, chan, recv, order, gw, gh) = two_basins(gap, len, nav, false);
+        let row = gh / 2;
+        assert_eq!(run(&field, None, &chan, &recv, &order, gw, gh), 1, "the control places");
+        let mut sea = field.clone();
+        sea[row * gw + len + 1] = 0.10;
+        assert_eq!(run(&sea, None, &chan, &recv, &order, gw, gh), 0, "an ocean cell in the carry");
+        let mut water: Vec<u8> = field.iter().map(|h| if (*h as f64) < SEA { 1 } else { 0 }).collect();
+        water[row * gw + len + gap / 2] = 2;
+        assert_eq!(run(&field, Some(&water), &chan, &recv, &order, gw, gh), 0, "a lake at the midpoint");
+    }
+
+    #[test]
+    fn portage_degrades_without_strahler_order() {
+        // Protects: navigability is never guessed from flow — with no order
+        // raster the kind is `NoTerrain` with zero candidates, not a run over
+        // every channel.
+        let (field, chan, recv, _order, gw, gh) =
+            two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, gw as f64);
+        inp.channel = Some(&chan);
+        inp.recv = Some(&recv);
+        let r = generate(&inp, &only_portages(), 1);
+        let f = r.funnel("portage").unwrap();
+        assert_eq!(f.candidates, 0);
+        assert_eq!(f.limit, LandmarkLimit::NoTerrain);
+    }
+
+    #[test]
+    fn a_receiver_cycle_ends_a_basin_walk_instead_of_hanging() {
+        // Protects: `drainage_basins` on a broken tree — a two-cell receiver
+        // cycle on the west river — terminates rather than looping forever (a
+        // hang on Godot's worker thread), and the run still completes.
+        let (field, chan, mut recv, order, gw, gh) =
+            two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
+        let row = gh / 2;
+        let (a, b) = (row * gw + 10, row * gw + 11);
+        recv[a] = b as i32;
+        recv[b] = a as i32;
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, gw as f64);
+        inp.channel = Some(&chan);
+        inp.recv = Some(&recv);
+        inp.order = Some(&order);
+        let r = generate(&inp, &only_portages(), 1);
+        assert!(r.funnel("portage").is_some());
+    }
+
+    #[test]
+    fn portages_place_on_a_world_generate_terrain_really_made() {
+        // Protects: Portage places on real generated worlds, not only on the
+        // hand-built fixture — the `UNWIRED_FUNCTIONS.md` failure of a flag
+        // flipped to buildable on a kind that never fires. Prints each seed's
+        // funnel, the measurement behind the constants.
+        let mut total = 0;
+        for seed in [24601, 483920, 71077345] {
+            let r = real_world(256, 192, seed);
+            let pairs = real_resource_pairs(&r.resources);
+            let inp = real_inputs(&r, &pairs);
+            let out = generate(&inp, &only_portages(), 7);
+            let f = out.funnel("portage").unwrap();
+            println!("seed {seed}: portage {f:?}");
+            for l in out.landmarks.iter().filter(|l| l.kind == "portage") {
+                println!("  ({}, {}) {}", l.x, l.y, l.causal.join(" | "));
+                assert!(r.ws.field[l.y * r.gw + l.x] as f64 >= r.sea, "a portage on the sea");
+            }
+            total += f.placed;
+        }
+        assert!(total > 0, "no portage on three real worlds");
+    }
+
+    // -- Abandoned settlement and Ancient road (2026-10-17) -------------------
+
+    /// A settlement record with a stable id, for the history tests: whole-cell
+    /// position, population, name. The fields the history read and the two
+    /// pools touch; the rest are the neutral placement values.
+    fn named(tid: u64, x: usize, y: usize, pop: u32, name: &str) -> crate::NamedSettlement {
+        crate::NamedSettlement {
+            tid,
+            placement: crate::SettlementPlacement {
+                x,
+                y,
+                suit: 0.0,
+                faction: 1,
+                capital: false,
+                kind: crate::SettlementKind::Town,
+                coastal: false,
+            },
+            name: name.into(),
+            pop,
+        }
+    }
+
+    /// One recorded year holding `settlements` and `ways`, with an empty
+    /// territory key frame (the history read never looks at territory).
+    fn year(
+        y: i64,
+        settlements: Vec<crate::NamedSettlement>,
+        ways: Vec<crate::Way>,
+    ) -> crate::timeline::TimelineSnapshot {
+        crate::timeline::TimelineSnapshot {
+            year: y,
+            territory: crate::timeline::TerritoryFrame::Key(Vec::new()),
+            settlements,
+            ways,
+            collapse_flags: BTreeMap::new(),
+            record: Default::default(),
+        }
+    }
+
+    /// `straight`, with a stable id and a hidden flag.
+    fn way_tid(tid: u64, a: (usize, usize), b: (usize, usize), hidden: bool) -> crate::Way {
+        let mut w = straight(a, b, crate::WayType::Road);
+        w.tid = tid;
+        w.hidden = hidden;
+        w
+    }
+
+    #[test]
+    fn history_is_what_an_earlier_year_had_and_the_live_world_lacks() {
+        // Protects: `LandmarkHistory::from_timeline`'s whole contract, each
+        // clause by its own record. Live year 25. tid 5 was recorded in 10 and
+        // 20 (moved between them) and is gone: former, at its year-20 place.
+        // tid 6 appears only in year 30, after the cursor: not history. tid 7
+        // is live: not former. tid 0 is unassigned: skipped. Way 50 is gone:
+        // former. Way 51 was hidden when recorded: skipped. Way 52 is live
+        // only as a hidden way: still present. Output in tid order.
+        let timeline = vec![
+            year(30, vec![named(6, 9, 9, 50, "Later")], vec![]),
+            year(
+                10,
+                vec![named(5, 1, 1, 100, "Old"), named(7, 3, 3, 10, "Kept"), named(0, 4, 4, 10, "")],
+                vec![way_tid(50, (0, 0), (5, 0), false), way_tid(52, (0, 1), (5, 1), false)],
+            ),
+            year(
+                20,
+                vec![named(5, 2, 2, 80, "Old"), named(7, 3, 3, 10, "Kept")],
+                vec![way_tid(50, (0, 0), (6, 0), false), way_tid(51, (0, 2), (5, 2), true)],
+            ),
+        ];
+        let live_s = vec![named(7, 3, 3, 10, "Kept")];
+        let live_w = vec![way_tid(52, (0, 1), (5, 1), true)];
+        let h = LandmarkHistory::from_timeline(&timeline, 25, &live_s, &live_w);
+        assert_eq!(h.now_year, 25);
+        assert_eq!(
+            h.settlements,
+            vec![FormerSettlement {
+                tid: 5,
+                x: 2,
+                y: 2,
+                name: "Old".into(),
+                last_year: 20,
+                population: 80.0
+            }]
+        );
+        assert_eq!(h.ways.len(), 1, "{:?}", h.ways);
+        assert_eq!((h.ways[0].way.tid, h.ways[0].last_year), (50, 20));
+        assert_eq!(h.ways[0].way.pts[1], (6.0, 0.0), "the latest recording's course");
+        // The live year's own recording is the present, not history: at year
+        // 30 tid 6 is not former. At 31 it is.
+        let at_30 = LandmarkHistory::from_timeline(&timeline, 30, &live_s, &live_w);
+        assert_eq!(at_30.settlements.iter().map(|s| s.tid).collect::<Vec<_>>(), vec![5]);
+        let later = LandmarkHistory::from_timeline(&timeline, 31, &live_s, &live_w);
+        let tids: Vec<u64> = later.settlements.iter().map(|s| s.tid).collect();
+        assert_eq!(tids, vec![5, 6]);
+    }
+
+    /// Settings with only `key` armed, at its default cap.
+    fn only(key: &str) -> LandmarkSettings {
+        let mut s = LandmarkSettings::default();
+        for k in kinds() {
+            s.set_armed(k.key, k.key == key);
+        }
+        s
+    }
+
+    #[test]
+    fn an_abandoned_settlement_is_a_former_site_nobody_lives_near() {
+        // Protects: Abandoned settlement's domain and both constraints, at
+        // their bounds. On the 4 km-cell flat world with one live town at
+        // (64, 32): a former site 2 cells (8 km) away places; one 1 cell
+        // (4 km) away is inside the 5 km clearance and is refused; one off
+        // the grid and one whose cell is now sea are refused. The chain names
+        // the place and its last year.
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let sites = [LandmarkSite { x: 64, y: 32, population: 1000.0 }];
+        let hist = LandmarkHistory {
+            now_year: 100,
+            settlements: vec![
+                FormerSettlement { tid: 1, x: 66, y: 32, name: "Gone".into(), last_year: 90, population: 400.0 },
+                FormerSettlement { tid: 2, x: 64, y: 33, name: "Absorbed".into(), last_year: 90, population: 900.0 },
+                FormerSettlement { tid: 3, x: 999, y: 32, name: "Nowhere".into(), last_year: 90, population: 900.0 },
+                FormerSettlement { tid: 4, x: 100, y: 10, name: "Drowned".into(), last_year: 90, population: 900.0 },
+            ],
+            ways: vec![],
+        };
+        // The drowned site's cell is sea now.
+        let mut field = field;
+        field[10 * gw + 100] = 0.10;
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.settlements = &sites;
+        inp.history = Some(&hist);
+        let r = generate(&inp, &only("abandoned_settlement"), 1);
+        let f = r.funnel("abandoned_settlement").unwrap();
+        assert_eq!((f.candidates, f.rejected_constraint, f.placed), (4, 3, 1), "{f:?}");
+        let l = r.landmarks.iter().find(|l| l.kind == "abandoned_settlement").unwrap();
+        assert_eq!((l.x, l.y), (66, 32));
+        let chain = l.causal.join(" | ");
+        assert!(chain.contains("Gone stood here until 90"), "{chain}");
+        assert!(chain.contains("nearest settlement now 8 km"), "{chain}");
+    }
+
+    #[test]
+    fn an_ancient_road_is_marked_on_its_old_course_off_every_live_road() {
+        // Protects: Ancient road's placement rule and its one constraint. A
+        // former road (20, 10) -> (60, 10) whose middle third is under a live
+        // road gets its mark on the old course, off the live road, at the
+        // abandoned cell nearest its half-way point (x = 40 is live, so the
+        // nearest free cell is where the live stretch ends). A former road
+        // entirely under a live one is refused. Without a history both
+        // ancient-road and abandoned-settlement are `NoTerrain`.
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let live = [straight((33, 10), (47, 10), crate::WayType::Road), straight((10, 40), (60, 40), crate::WayType::Road)];
+        let hist = LandmarkHistory {
+            now_year: 100,
+            settlements: vec![],
+            ways: vec![
+                FormerWay { way: way_tid(9, (20, 10), (60, 10), false), last_year: 80 },
+                FormerWay { way: way_tid(10, (20, 40), (50, 40), false), last_year: 80 },
+            ],
+        };
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.ways = &live;
+        inp.history = Some(&hist);
+        let r = generate(&inp, &only("ancient_road"), 1);
+        let f = r.funnel("ancient_road").unwrap();
+        assert_eq!((f.candidates, f.rejected_constraint, f.placed), (2, 1, 1), "{f:?}");
+        let l = r.landmarks.iter().find(|l| l.kind == "ancient_road").unwrap();
+        assert_eq!(l.y, 10);
+        assert!(!(33..=47).contains(&l.x), "marked on a road still travelled: {}", l.x);
+        assert!(l.x == 32 || l.x == 48, "not the free cell nearest half-way: {}", l.x);
+        assert!(l.causal.join(" | ").contains("a road last recorded in 80"), "{:?}", l.causal);
+
+        let bare = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        let s = LandmarkSettings::default();
+        let r = generate(&bare, &s, 1);
+        for key in ["ancient_road", "abandoned_settlement"] {
+            let f = r.funnel(key).unwrap();
+            assert_eq!((f.candidates, f.limit), (0, LandmarkLimit::NoTerrain), "{key}: {f:?}");
+        }
     }
 }

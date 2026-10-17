@@ -3568,9 +3568,36 @@ flag (`_landmark_probe` reads 7 live).
 | LM-9 | M9 — cultural interpretation and temporal state (research §24-26) | partial | **The wiring itself is built 2026-09-23**: `LandmarkInputs::battles` takes every drawn `ConflictKind::Battle` (SP-4), anchor-resolved to its position now, and `battlefield` is buildable — the engine's 27th kind, checked (not assumed) to be reachable at the placement pass, probe `_lm9battle_probe.gd`. Checked, and still blocked for a different reason each: `battlefield_historic` would double-record a cell `battlefield` already covers unless a present-year read separates past from current battles (open question 1, persistence); `destroyed_fortress` still has no "destruction" to read, since `Conflict::outcome` stays free text by SP-4 §5's own deliberate no-resolution-model rule. **No owner decision gates the rest of M9 any more** (corrected 2026-09-23). Ruling AP re-affirmed three questions that had already been ruled on 2026-09-06 and partly built. Persistence is ruling 10: `entities/landmarks.json` has carried the settings and the last run's results since then (`project_bridge.rs::LandmarksDoc`). Vault linking is ruling 13: `cartalith_vault::EntityKind::Landmark`, addressed by `landmark_entity_id` over `Landmark::key()`, `45630cc`. The parity exemption is ruling 12 — *which also required a `DECISIONS.md` §7-series note; there is none (`DECISIONS.md` has no occurrence of "landmark", checked 2026-09-24)*. This cell used to say `EntityKind` had no `Landmark` variant, and it has had one since 2026-09-06. **What remains is build work**: per-landmark authored/temporal state (at minimum a name the player gave it, with research §25's discovered/named/monumentalized as the fuller shape — neither `Landmark` nor `LandmarkDto` has such a field), a present-year read for `battlefield_historic`, the civilisation-traits input §26 requires for the other Cultural-family kinds (`shrine`'s `not_built`: *"That needs the civilisation's own traits as an input, which this pass does not take"*), and a shell entry point for linking a landmark to a note (`vault_landmark_entity_id` has no shell caller; the right dock's `CTX_LANDMARK` context, added under Ruling AL, is now the surface it can hang off) |
 
 **Group total: 9 — 7 done, 2 partial (LM-5, LM-9).** LM-9 moved from blocked to partial 2026-09-23 (its conflict wiring is built). LM-7 corrected from blocked to done the same day (it landed 2026-09-21).
-**Residual inside M8:** 22 of 49 declared kinds still ship `buildable: false`
-(was 35 at the 2026-09-01 count this paragraph continues with), each with its
-reason in source. `resource_extraction_site` went
+**Residual inside M8:** **19 of 49** declared kinds still ship `buildable: false`
+(2026-10-17, read at `landmark.rs::kinds()`; the kind-table test
+`the_kind_table_matches_the_research_and_the_design` pins the 30 buildable
+keys), each with its reason in source. **2026-10-17, three built:** `portage`
+(`pool_portage` over `drainage_basins`, D8 basin labelling; heads of
+navigation at Strahler order 3, a 20 km carry cap, and a water-way-round of at
+least 28 / 4.9 times the carry from Duncan-Jones's Price-Edict cost ratios),
+`abandoned_settlement` and `ancient_road` (both through the new
+`LandmarkInputs::history`, `LandmarkHistory::from_timeline`: what a recorded
+year before the live `CivData::year` holds that the live settlements and ways
+do not, by `tid`). Verified: 10 new `cartalith-civ` tests (fixtures
+`two_basins`, history and pool tests; all 97 `landmark` tests green), 14 of 14
+mutations killed (three survived the first run and were killed by two added
+fixtures), seed 24601 at 256 × 192 places 2 portages and seeds 483920 /
+71077345 none; new probe `_lmhistory_probe.gd` (windowed, scratch copy, DLL
+built after the edits): a deleted settlement is the one abandoned candidate at
+year 200, placed on its cell when armed alone, and gone again at year 100 —
+PASS; `_lm9battle`, `_landmark`, `_lmstale`, `_lmrunab`, `_lmreject` and
+`_gsw` (339 checks) also pass on that DLL. `cargo test --workspace -j 2
+--no-fail-fast` (a clean worktree at `27f74147` plus this change): 5912
+passed, 0 failed, 97 ignored — the 5902 before plus the 10 new; no golden
+moved. **Measured and kept refused:** `glacial_feature` (the Landform cirque
+class barely moves with the glacial pass off/on: 1303/1303, 641/640, 289/289
+at 256 × 192; 5283/5288, 2425/2431, 182/183 at 512 × 384 — a shape test, not
+evidence of ice; the missing input is a per-cell record of where
+`glacial_kernel` carved). **Reasons rewritten, still refused:** `ruin` (its
+ruins flag, `collapse_flags`, is not saved with the project), `historic_crossing`
+(no defined measure of a crossing's historical weight). The design is in
+`LANDMARK_GENERATION_SCOPE.md` M8. The paragraph below is the 2026-09-01
+record. `resource_extraction_site` went
 buildable 2026-09-01 — it reads the three resource-potential fields (`timber`,
 `sulfur`, `alum`) that Mine's and Quarry's own resource lists don't, through
 their identical, already-validated detector, so it claims no cell either of

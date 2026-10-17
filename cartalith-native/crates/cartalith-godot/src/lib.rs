@@ -25081,6 +25081,19 @@ impl WorldGen {
                 cartalith_civ::landmark::BattleMark::from_conflict(c, now)
             })
             .collect();
+        // Abandoned settlement's and Ancient road's input (2026-10-17): what
+        // the Timeline's recorded years before the live one (`CivData::year`)
+        // hold that the live settlements and ways do not, by stable `tid`.
+        // `None` with no civ layer, the same degradation every `self.civ`
+        // input here has; a world with one recorded year gives empty lists.
+        let history: Option<cartalith_civ::landmark::LandmarkHistory> = self.civ.as_ref().map(|civ| {
+            cartalith_civ::landmark::LandmarkHistory::from_timeline(
+                &civ.timeline,
+                civ.year,
+                &civ.settlements,
+                &civ.ways,
+            )
+        });
 
         let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
             &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
@@ -25140,6 +25153,7 @@ impl WorldGen {
         // condition every other `self.civ` input above degrades on.
         inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
         inputs.battles = &battles;
+        inputs.history = history.as_ref();
         // The stored refined viewshed (Ruling AT) is deliberately NOT set here:
         // `LandmarkStore::run` lends it itself, and `compute` must see the
         // coarse inputs only.
