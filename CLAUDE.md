@@ -169,7 +169,7 @@ got. Status for everything below is in `STATUS.md`.
 | `LARGE_ITEM_RULINGS.md` | every owner ruling, dated — decisions, never status. Cite a ruling rather than re-asking the owner |
 | `DECISIONS.md` | every architectural choice, what it beat, and why |
 | `ARCHITECTURE.md` | the Rust↔Godot split and crate layout |
-| `ROADMAP.md` | the phases (0-5) |
+| `ROADMAP.md` | the phases (0-6; Phase 6 is the story and tracking layer) and the render-target section |
 | **Porting method and references** | |
 | `PARITY_TESTING.md` | golden-value testing against the JS engine |
 | `JS_SEMANTICS_AUDIT.md` | **read before porting** — every place V8 and Rust disagree about a floating-point operation, and the `cartalith-jsmath` helper that answers each |
@@ -236,6 +236,8 @@ got. Status for everything below is in `STATUS.md`.
 | `PORT_ONLY_FEATURES.md` | the reverse: features and refinements this port has that the legacy v2.11 HTML does not, each checked at its symbol and against the reference (2026-09-13). A list, not a status |
 | `RC_ENGINE_CHANGES.md` | **the source engine's simulation/generation changes after the freeze, from v2.11 on, as a porting spec** — the function and constant each change lives in, why each number is that number, which harness verified it. Claims nothing about port status. Read first: its fork note; §7's cross-cutting calibration rules; and §8's heading before appending to it (§8.1 moves generated output, §8.2 is adjacent). It names **defects a faithful port inherits** — among them §6s.4's corner-only water test, §6r.5's unbounded retry loop, and v2.68's never-drawn `field`/`pasture` details — and **builds a port should not make**, such as §6m.4's reverted digging pass and v2.68's furrow hatching. Read those sections whatever you decide about the feature |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
+| `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` | the second target (a photoreal map render, 2026-10-17) measured against the shipped renderer at several zoom levels: gaps, root causes, ten ranked gaps and owner questions. Findings only; carries the standing requirement that zoom gains detail at every level |
+| `STORY_MENUS_PROPOSAL.md` | **a proposal of 2026-10-17** (mock in `design/story-menus-2026-10-17/`): the menu and rail restructure for story plotting and world tracking (Data → World, a Story menu, Export presets, Session mode), audited against what the engine really backs; milestones SM-1…SM-7 and owner questions. Routed from `ROADMAP.md` Phase 6; no status column |
 | `MARKDOWN_VAULT_INTEGRATION.md` | owner-supplied V1 design; scheduled by the owner 2026-08-24 — the milestones are in `MARKDOWN_VAULT_SCOPE.md` |
 | `HARDWARE_ACCELERATION.md` | owner-supplied GPU architecture, annotated with a major scope correction |
 | `TERRAIN_ARCHITECTURE_RESEARCH.md` | owner-supplied; tiling/LOD/clipmaps, mostly Phase-3-or-later |
