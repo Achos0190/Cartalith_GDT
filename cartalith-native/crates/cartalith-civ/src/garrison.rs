@@ -361,10 +361,10 @@ mod tests {
         .collect()
     }
 
-    // Protects: three literal fixtures' exact per-place headcounts (a
-    // round standing army, a fractional one that rounds first, and two
-    // factions split independently), and that every fixture's parts sum
-    // to the rounded standing army exactly.
+    /// Protects: the exact per-place headcounts of three literal fixtures (a round standing army of
+    /// 1000; a fractional 733.6 that rounds to 734 first; two factions split independently, 7/3 and
+    /// 5/2). The first two also assert the parts sum to the rounded standing army exactly; the
+    /// third asserts only the per-place values.
     #[test]
     fn the_sum_is_exact_on_literal_fixtures() {
         let t = two_halves();
@@ -403,9 +403,10 @@ mod tests {
     /// -- fixture 1 above ([`the_sum_is_exact_on_literal_fixtures`]) is this
     /// same faction at `scale = 1.0` (`895/84/21`), kept as the middle point
     /// a reader can cross-check against.
-    // Protects: `exposure_scale` reaches `civ_garrisons` and changes the
-    // split (0.0, 0.6, 1.0 default, 2.5 all give different results), while
-    // the parts still sum to the standing army exactly at every scale.
+    /// Protects: `exposure_scale` reaches `civ_garrisons` and changes the split: scales 0.0, 0.6
+    /// and 2.5 are pinned here to three different literal splits of the same faction (the default
+    /// 1.0 is pinned by the sibling test), and the parts sum to the standing army (1000) exactly at
+    /// each.
     #[test]
     fn the_split_still_sums_exactly_at_several_exposure_scales() {
         let t = two_halves();
@@ -437,9 +438,9 @@ mod tests {
     /// no such settlement -- its seat lost to conquest, or simply never
     /// marked -- gets no capital weight anywhere, not even on the place a
     /// "best guess" (highest population) would have picked.
-    // Protects: `is_capital == false` on every place of a faction leaves
-    // `standing_multiplier` at exactly 1.0 even for its largest settlement,
-    // so the split falls back to population alone.
+    /// Protects: with `is_capital` false on every place, `standing_multiplier` is exactly 1.0 even
+    /// for the largest settlement (a `Metropolis`) and for the smallest, so the 910 men split by
+    /// population alone, 900 and 10.
     #[test]
     fn no_marked_capital_gives_no_settlement_the_capital_weight() {
         let biggest = place(1, 9000.0, false, false, SettlementKind::Metropolis, 0.5, 1.5);
@@ -452,10 +453,10 @@ mod tests {
         assert_eq!(g, vec![Some(900), Some(10)]);
     }
 
-    // Protects: `largest_remainder`'s Hamilton apportionment -- equal
-    // weights split the remainder to the lowest index on a tie, and an
-    // unequal pair gives the extra unit to the larger remainder rather
-    // than the larger weight.
+    /// Protects: `largest_remainder`'s apportionment on three literal cases: equal weights give the
+    /// leftover unit(s) to the lowest indices ([4,3,3] and [3,3,2,2]), and weights [1,2] give
+    /// [3,7]. In that last case the larger remainder and the larger weight are the same cell, so it
+    /// does not separate the two rules.
     #[test]
     fn a_remainder_tie_goes_to_the_lower_index() {
         // Three equal weights and 10 men: quotas 3.333 each, one leftover.
@@ -466,10 +467,9 @@ mod tests {
         assert_eq!(largest_remainder(10, &[1.0, 2.0]), Some(vec![3, 7]));
     }
 
-    // Protects: at equal population, a walled border capital (higher
-    // standing_multiplier and exposure 1.0) outranks an unwalled interior
-    // village (exposure 0.0) in both garrison size and the exposure fields
-    // reported on each.
+    /// Protects: at equal population (800), a walled border capital outranks an unwalled interior
+    /// village in garrison size (405 against 95 of 500 men) and in the reported `exposure` (1.0
+    /// against 0.0).
     #[test]
     fn a_walled_border_capital_outranks_an_interior_village() {
         let t = two_halves();
@@ -488,8 +488,8 @@ mod tests {
         assert!(c.garrison > v.garrison);
     }
 
-    // Protects: a faction with exactly one settlement gets the whole
-    // (rounded) standing army in that one place.
+    /// Protects: a faction with exactly one settlement gets the whole
+    /// (rounded) standing army in that one place.
     #[test]
     fn a_faction_with_one_settlement_puts_everything_there() {
         let t = two_halves();
@@ -498,12 +498,12 @@ mod tests {
         assert_eq!(g, vec![Some(4321)]);
     }
 
-    // Protects: the no-value discipline the module doc states -- an
-    // unclaimed place, a faction with no standing figure, and a faction
-    // with men but no weight to place them by are all `None`; a
-    // non-finite standing army is `None`; a wrong-sized territory raster
-    // makes every place `None`; but a standing army of exactly `0.0` is a
-    // real `Some(0)`, not absent.
+    /// Protects: the no-value discipline the module doc states -- an
+    /// unclaimed place, a faction with no standing figure, and a faction
+    /// with men but no weight to place them by are all `None`; a
+    /// non-finite standing army is `None`; a wrong-sized territory raster
+    /// makes every place `None`; but a standing army of exactly `0.0` is a
+    /// real `Some(0)`, not absent.
     #[test]
     fn no_reading_is_absent_never_zero() {
         let t = two_halves();
@@ -527,10 +527,11 @@ mod tests {
         assert_eq!(garrisons(&p, &t, &[None, Some(0.0), None])[1], Some(0));
     }
 
-    // Protects: `border_exposure` assigns each frontier cell to its
-    // faction's nearest place by squared distance, unclaimed neighbours
-    // are never a frontier, and on a wrapping map the seam is a real
-    // border whose cells are measured the short way round.
+    /// Protects: `border_exposure` gives each of a faction's frontier cells to its nearest place
+    /// (rows 0-1 to the first town, rows 2-3 to the second, the far western town gets 0.0);
+    /// unclaimed neighbours are never a frontier (all zeros); and on a wrapping map the seam is a
+    /// border too, so the western town takes all four seam cells and the shares become [0.5, 0.5,
+    /// 1.0].
     #[test]
     fn exposure_is_the_nearest_share_of_the_foreign_frontier() {
         let t = two_halves();

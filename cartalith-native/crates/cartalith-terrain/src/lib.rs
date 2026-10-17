@@ -3927,13 +3927,6 @@ pub fn smooth_orogeny(u: &[f32], w: usize, h: usize, blur_r: f64, wrap: bool) ->
 mod tests {
     use super::*;
 
-    /// Protects nothing beyond the harness: it asserts `2 + 2 == 4`, so it fails only if the
-    /// test binary cannot be built or run.
-    #[test]
-    fn crate_compiles_and_tests_run() {
-        assert_eq!(2 + 2, 4);
-    }
-
     /// Protects: compute_warp's `amp < 0.5` early-out returns None
     /// rather than a negligible field.
     #[test]

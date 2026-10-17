@@ -75,9 +75,8 @@ fn fixture() -> (Vec<f32>, Vec<f32>) {
     (field, dens)
 }
 
-// Protects: `civ_faction_color` matches `_civFactionColor` exactly at 13
-// indices spanning every hue sector, and no two consecutive indices in
-// 0..40 collide (the golden-angle spread's whole purpose).
+/// Protects: `civ_faction_color` equals 13 literal colours extracted from `_civFactionColor`
+/// (indices 0-8, 12, 13, 40 and 63), and consecutive indices 0..=40 never give the same colour.
 #[test]
 fn faction_color_matches_the_reference_at_every_hue_sector() {
     // Node `vm.runInContext` over reference lines 14577-14586.
@@ -110,10 +109,10 @@ fn faction_color_matches_the_reference_at_every_hue_sector() {
     }
 }
 
-// Protects: `civ_agrarian_regional_total` matches `_civAgrarianRegionalTotal`
-// exactly on two cases differing only in `mapWidthKm`, both non-empty, and
-// the two totals' ratio is `(1250/800)^2` -- pinning that `cellKm2` is
-// squared, not just `cellKm` scaled.
+/// Protects: `civ_agrarian_regional_total` matches `_civAgrarianRegionalTotal`
+/// exactly on two cases differing only in `mapWidthKm`, both non-empty, and
+/// the two totals' ratio is `(1250/800)^2` -- pinning that `cellKm2` is
+/// squared, not just `cellKm` scaled.
 #[test]
 fn agrarian_regional_total_matches_the_reference() {
     let (field, dens) = fixture();
@@ -144,9 +143,9 @@ fn agrarian_regional_total_matches_the_reference() {
     );
 }
 
-// Protects: the sea-level gate is a real gate -- raising `sea` above every
-// cell zeroes both `total` and `land_km2`, and lowering it below every cell
-// includes all 24 cells' area and a larger total than the mid-sea case.
+/// Protects: the sea-level gate is a real gate -- raising `sea` above every
+/// cell zeroes both `total` and `land_km2`, and lowering it below every cell
+/// includes all 24 cells' area and a larger total than the mid-sea case.
 #[test]
 fn agrarian_regional_total_skips_sub_sea_cells() {
     let (field, dens) = fixture();

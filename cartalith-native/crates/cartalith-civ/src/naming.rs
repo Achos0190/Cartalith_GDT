@@ -260,9 +260,9 @@ mod tests {
     // Only the tests read the culture table; the module body does not.
     use crate::CIV_CULTURES;
 
-    // Protects: every real culture's `mean(name) > 0` and its derived
-    // limit stays in a sane 8..40 character band -- a guard against a pool
-    // edit producing a degenerate (empty or absurd) limit.
+    /// Protects: every real culture's `mean(name) > 0` and its derived
+    /// limit stays in a sane 8..40 character band -- a guard against a pool
+    /// edit producing a degenerate (empty or absurd) limit.
     #[test]
     fn every_culture_has_a_workable_length_limit() {
         for cul in CIV_CULTURES.iter() {
@@ -288,9 +288,9 @@ mod tests {
     /// `maritime`'s syllables are genuinely longer (mean 16.6 against
     /// `common`'s 12.1), so a longer name there is in character -- that the
     /// limit rises with the pool is the self-tuning working, not a hole.
-    // Protects: the golden fixture's 21-char and 19-char over-long names
-    // exceed the imperial/common cultures' own derived limits, the actual
-    // defect this rule exists to catch.
+    /// Protects: the golden fixture's 21-char and 19-char over-long names
+    /// exceed the imperial/common cultures' own derived limits, the actual
+    /// defect this rule exists to catch.
     #[test]
     fn the_golden_fixtures_own_overlong_name_is_rejected() {
         let imperial = civ_default_culture(1);
@@ -308,10 +308,10 @@ mod tests {
         );
     }
 
-    // Protects: 200 draws from `civ_settle_name_bounded` are all
-    // non-empty and all distinct (`seen` grows to exactly 200), and only a
-    // small minority (< 10%) exceed the culture's length limit -- the rare,
-    // deliberate post-retry fallback, not the common case.
+    /// Protects: 200 draws from `civ_settle_name_bounded` are all
+    /// non-empty and all distinct (`seen` grows to exactly 200), and only a
+    /// small minority (< 10%) exceed the culture's length limit -- the rare,
+    /// deliberate post-retry fallback, not the common case.
     #[test]
     fn bounded_names_respect_the_limit_and_never_repeat() {
         let mut rng = cartalith_rng::Mulberry32::new(24601);
@@ -331,10 +331,9 @@ mod tests {
         assert!(over < 20, "{over}/200 exceeded the limit -- the retry is not working");
     }
 
-    // Protects: even after 500 draws against one culture's finite pool
-    // (far more than the pool can plausibly produce unaided), the
-    // numeric-discriminator fallback keeps every result distinct rather
-    // than silently repeating a name.
+    /// Protects: 500 draws of `civ_settle_name_bounded` for culture 3 from one seeded stream all
+    /// land in `seen` as distinct names (`seen.len() == 500`), so the uniqueness fallback holds
+    /// under repeated draws.
     #[test]
     fn uniqueness_survives_a_pool_too_small_to_satisfy_it() {
         // Force collisions by asking for far more names than a single culture
@@ -348,10 +347,10 @@ mod tests {
         assert_eq!(seen.len(), 500, "uniqueness must hold even under pressure");
     }
 
-    // Protects: `decorate` draws exactly one RNG value regardless of
-    // which template branch it takes, for every kind but `Lake` -- checked
-    // by comparing against a twin RNG that draws once and discards, which
-    // must then agree on its very next value.
+    /// Protects: `decorate` consumes exactly one RNG value for the kinds Continent, Province, Bay
+    /// and MountainRange: after one `decorate` call on a seeded stream (seed 99, stem "Sevjunia"),
+    /// the stream's next value equals that of a twin stream that drew once and discarded. One seed
+    /// is used, so only the branch that seed takes is exercised per kind; `Lake` is not covered.
     #[test]
     fn decorate_consumes_exactly_one_rng_value_whatever_the_branch() {
         for kind in [
@@ -372,10 +371,10 @@ mod tests {
         }
     }
 
-    // Protects: every `decorate` output for `Continent` contains the
-    // original stem verbatim, and over 200 draws a genuine mix of
-    // decorated and bare-stem results appears (neither branch is
-    // unreachable or dominant to the point of certainty).
+    /// Protects: every `decorate` output for `Continent` contains the
+    /// original stem verbatim, and over 200 draws a genuine mix of
+    /// decorated and bare-stem results appears (neither branch is
+    /// unreachable or dominant to the point of certainty).
     #[test]
     fn decorate_always_contains_its_stem_and_changes_something() {
         let mut rng = cartalith_rng::Mulberry32::new(5);
@@ -393,10 +392,10 @@ mod tests {
         );
     }
 
-    // Protects: `"<name> Province"` -- the port's pre-existing template --
-    // is still the dominant outcome for `FeatureKind::Province` (over half
-    // of 300 draws), so provinces did not all change name the day this
-    // module landed.
+    /// Protects: `"<name> Province"` -- the port's pre-existing template --
+    /// is still the dominant outcome for `FeatureKind::Province` (over half
+    /// of 300 draws), so provinces did not all change name the day this
+    /// module landed.
     #[test]
     fn province_keeps_its_existing_form_as_the_common_case() {
         let mut rng = cartalith_rng::Mulberry32::new(11);
@@ -412,9 +411,9 @@ mod tests {
         );
     }
 
-    // Protects: `world_name` is a pure function of its seed -- calling it
-    // twice with the same seed gives the same name, across several seeds
-    // including the extremes 0 and `u32::MAX`.
+    /// Protects: `world_name` is a pure function of its seed -- calling it
+    /// twice with the same seed gives the same name, across several seeds
+    /// including the extremes 0 and `u32::MAX`.
     #[test]
     fn world_name_is_deterministic_in_the_seed() {
         for seed in [0u32, 1, 24601, 483_920, u32::MAX] {
@@ -426,9 +425,9 @@ mod tests {
         }
     }
 
-    // Protects: 50 consecutive seeds produce more than 40 distinct world
-    // names -- the seed genuinely varies the draw rather than collapsing
-    // onto a handful of outputs.
+    /// Protects: 50 consecutive seeds produce more than 40 distinct world
+    /// names -- the seed genuinely varies the draw rather than collapsing
+    /// onto a handful of outputs.
     #[test]
     fn world_name_varies_with_the_seed() {
         let names: BTreeSet<String> =
@@ -440,9 +439,9 @@ mod tests {
         );
     }
 
-    // Protects: `world_name` never returns an empty string for any tested
-    // seed, including 0 (where `raw == 0` would otherwise seed the RNG
-    // with zero).
+    /// Protects: `world_name` returns a non-empty string for seeds 0, 1, 24601 and `u32::MAX`. Seed
+    /// 0 does not reach the `raw == 0` guard (its `raw` is 0x517C_C1B7), so that guard is not
+    /// exercised here.
     #[test]
     fn world_name_is_never_empty() {
         for seed in [0u32, 1, 24601, u32::MAX] {

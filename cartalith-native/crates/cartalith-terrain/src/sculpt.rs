@@ -2709,19 +2709,21 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// Protects: nothing beyond arithmetic the test performs itself: it evaluates
-    /// `seed ^ ((index + 1) * 1013)` for Hills and Basin and asserts the two results differ.
-    /// It never calls `apply` or reads the stamp's own derivation, so it shows only that the
-    /// two feature indexes differ; that `apply` uses this term is not asserted here.
+    /// Protects: the stamp's real noise-seed derivation (`SculptStamp::cover_ctx().seed`,
+    /// the reference's `(seed ^ ((feature_index + 1) * 1013)) >>> 0`) folds the feature's
+    /// `FEATURE_KEYS` index in. Two stamps with the same user seed (1234) but different
+    /// features must derive the literal seeds `1234 ^ 2026 = 824` (Hills, index 1) and
+    /// `1234 ^ 10130 = 9024` (Basin, index 9); the literals are independent of the code, so
+    /// dropping the index term (both would be 1234) or reordering `FEATURE_KEYS` fails here.
     #[test]
     fn the_feature_index_really_participates_in_the_seed() {
-        let (w, h) = (64usize, 64usize);
         let mut hills = stamp(Feature::Hills);
         hills.globals.edge_noise = 0.0;
-        let a_seed = hills.seed ^ ((Feature::Hills.index() as u32 + 1) * 1013);
-        let b_seed = hills.seed ^ ((Feature::Basin.index() as u32 + 1) * 1013);
-        assert_ne!(a_seed, b_seed);
-        let _ = (w, h);
+        let basin = stamp(Feature::Basin);
+        assert_eq!(hills.seed, 1234);
+        assert_eq!(basin.seed, 1234);
+        assert_eq!(hills.cover_ctx().seed, 824);
+        assert_eq!(basin.cover_ctx().seed, 9024);
     }
 
     // ---- integration with milestone A's PassBuffer ----
@@ -2755,24 +2757,40 @@ mod tests {
         assert!(buf.is_empty());
     }
 
-    /// Protects: very little as written. `field` is a local that is never passed to the
-    /// buffer, so the final comparison of its bits against a snapshot cannot fail; the test
-    /// shows only that pushing two stamps and calling `PassBuffer::discard` does not panic.
-    /// The claim that a draft never touches the real field before commit is exercised by
-    /// `sculpt_stamps_drive_milestone_a_s_pass_buffer_end_to_end` (preview leaves the source
-    /// field untouched).
+    /// Protects: a sculpt draft never writes to the real field, so discarding it leaves the
+    /// field bit-identical. Two stamps are pushed on a `PassBuffer`; a preview over the field
+    /// proves they genuinely change cells (into a separate scratch buffer, so the draft is
+    /// non-trivial); `discard` reports 2 dropped and empties the buffer; the field's bits
+    /// equal the pre-draft snapshot; and a later `commit` on the same field applies nothing
+    /// and still leaves it bit-identical (a discard that left stamps behind would paint here).
     #[test]
     fn discarding_a_sculpt_draft_leaves_the_field_bit_identical() {
         let (w, h) = (64usize, 64usize);
         let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
-        let field = flat(w, h, 0.4);
+        let mut field = flat(w, h, 0.4);
         let before: Vec<u32> = field.iter().map(|v| v.to_bits()).collect();
         buf.push(stamp(Feature::Volcano));
         buf.push(stamp(Feature::Canyon));
-        buf.discard();
+
+        let mut scratch = vec![0.0f32; w * h];
+        buf.preview_into(&field, &mut scratch);
+        assert_ne!(scratch, field, "the draft must visibly change the preview");
+
+        assert_eq!(buf.discard(), 2);
+        assert!(buf.is_empty(), "discard must empty the stack");
         assert_eq!(
             field.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            before
+            before,
+            "discard touched the field"
+        );
+
+        let mut tracker = DirtyTracker::new(buf.tile_count());
+        let summary = buf.commit(&mut field, &mut tracker, "height_edited");
+        assert_eq!(summary.stamps_applied, 0, "a discarded draft must not commit");
+        assert_eq!(
+            field.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            before,
+            "commit after discard changed the field"
         );
     }
 

@@ -310,10 +310,11 @@ mod tests {
         }
     }
 
-    // Protects: `add` runs every `validate` rule (too-few-points,
-    // end-before-start, a one-year span being legal at equal start/end, an
-    // unclaimed side, a non-finite point) and issues ids starting at 1 in
-    // sequence; a removed id is never reissued to the next `add`.
+    /// Protects: `ConflictStore::add` applies the validation rules the body drives: too few points,
+    /// an end year before the start, a one-year span (end equal to start) being legal, an unclaimed
+    /// side (0) and a non-finite point. It issues ids 1, 2, ... in sequence, a rejected `add`
+    /// consumes none, and after `remove(2)` (a second `remove(2)` returns false) the next id is 4,
+    /// so a removed id is never reissued.
     #[test]
     fn construction_validates_and_issues_fresh_ids() {
         let mut s = ConflictStore::new();
@@ -343,9 +344,9 @@ mod tests {
         assert_eq!(s.add(front(vec![(1.0, 1.0), (5.0, 2.0)])), Ok(4));
     }
 
-    // Protects: `normalise` truncates a marker kind's points to just the
-    // first, and collapses a repeated side to one entry keeping the first
-    // mention's order.
+    /// Protects: `normalise` truncates a marker kind's points to just the
+    /// first, and collapses a repeated side to one entry keeping the first
+    /// mention's order.
     #[test]
     fn a_marker_keeps_one_point_and_a_repeated_side_is_one_side() {
         let mut s = ConflictStore::new();
@@ -357,10 +358,10 @@ mod tests {
         assert_eq!(s.get(id).unwrap().sides, vec![2, 1]);
     }
 
-    // Protects: `active_in` is inclusive at both `start_year` and
-    // `end_year`, false just outside either end, and an open (`None`)
-    // end stays active arbitrarily far into the future but not before its
-    // start.
+    /// Protects: `active_in` is inclusive at both `start_year` and
+    /// `end_year`, false just outside either end, and an open (`None`)
+    /// end stays active arbitrarily far into the future but not before its
+    /// start.
     #[test]
     fn active_range_is_inclusive_and_open_ended() {
         let c = front(vec![(0.0, 0.0), (1.0, 1.0)]);
@@ -373,11 +374,11 @@ mod tests {
         assert!(!open.active_in(99));
     }
 
-    // Protects: `resolved_points` translates the shape by however far the
-    // anchor moved since `anchor_at`; when the anchor no longer resolves
-    // the shape draws where it was originally drawn and the anchor field
-    // itself is kept, not cleared; `set_anchor(None, ...)` bakes the
-    // current drawn position in as the new baseline.
+    /// Protects: `resolved_points` translates the shape by however far the
+    /// anchor moved since `anchor_at`; when the anchor no longer resolves
+    /// the shape draws where it was originally drawn and the anchor field
+    /// itself is kept, not cleared; `set_anchor(None, ...)` bakes the
+    /// current drawn position in as the new baseline.
     #[test]
     fn moving_the_anchor_moves_the_shape_and_a_missing_one_leaves_it() {
         let mut c = front(vec![(10.0, 10.0), (14.0, 12.0)]);
@@ -393,9 +394,9 @@ mod tests {
         assert_eq!(c.resolved_points(Some((99.0, 99.0))), vec![(20.0, 7.0), (24.0, 9.0)]);
     }
 
-    // Protects: `attached_to` matches on the whole `ConflictAnchor`
-    // (variant and id together), so `Settlement(3)` and `Province(3)` are
-    // different anchors even though the numeric id is the same.
+    /// Protects: `attached_to` matches on the whole `ConflictAnchor`
+    /// (variant and id together), so `Settlement(3)` and `Province(3)` are
+    /// different anchors even though the numeric id is the same.
     #[test]
     fn attached_to_answers_what_happened_here_by_id_not_name() {
         let mut s = ConflictStore::new();
@@ -414,10 +415,10 @@ mod tests {
         assert_eq!(s.attached_to(ConflictAnchor::Province(3)), vec![ib]);
     }
 
-    // Protects: `detach_all` resolves every anchored conflict's shape at
-    // its current position, then clears the anchor, so the geometry is
-    // frozen exactly where it was drawn rather than snapping back to the
-    // pre-move points.
+    /// Protects: `detach_all` resolves every anchored conflict's shape at
+    /// its current position, then clears the anchor, so the geometry is
+    /// frozen exactly where it was drawn rather than snapping back to the
+    /// pre-move points.
     #[test]
     fn detach_all_keeps_every_shape_where_it_is_drawn() {
         let mut s = ConflictStore::new();
@@ -434,10 +435,11 @@ mod tests {
     /// that row is the model's answer for that faction's inputs -- checked
     /// against an independent single-faction call, not against the world
     /// vector it was indexed from.
-    // Protects: `side_manpower` indexes `by_faction` at `faction - 1`, its
-    // reading for a real faction matches an independent single-faction
-    // call, and factions 9, 0 and -3 (no row / Unclaimed / negative) all
-    // read `None` rather than a zero-valued row.
+    /// Protects: `side_manpower` indexes `by_faction` at `faction - 1`. For a real faction (2) the
+    /// `standing_army` and `field_army` match, within 1e-6, an independent single-faction
+    /// `civ_military_manpower` call (the other fields are not compared); the stronger faction's
+    /// standing army exceeds the weaker's; the two sides are different rows; and factions 9, 0 and
+    /// -3 (no row, Unclaimed, negative) all read `None` rather than a zero-valued row.
     #[test]
     fn sides_read_their_own_faction_from_the_real_manpower_model() {
         let base = ManpowerInput {
@@ -479,8 +481,8 @@ mod tests {
         assert_ne!(read[0].manpower, read[1].manpower);
     }
 
-    // Protects: every `ConflictKind`'s `key()` round-trips through
-    // `from_key`, and an unrecognised string returns `None`.
+    /// Protects: every `ConflictKind`'s `key()` round-trips through
+    /// `from_key`, and an unrecognised string returns `None`.
     #[test]
     fn kind_keys_round_trip() {
         for k in ConflictKind::ALL {

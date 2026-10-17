@@ -1088,23 +1088,54 @@ mod tests {
         assert!(band.iter().all(|&v| v as f64 >= SEA), "the band crossed the shelf");
     }
 
-    /// Protects: `refine_tile` over a 3 x 3 grid returns a buffer of exactly the requested
-    /// 8 x 8 size for the last tile (2, 2). The coverage claim the comment makes -- that the
-    /// last tile's sub-bounds reach `region.x + region.w` plus the one-cell overlap -- is
-    /// checked by arithmetic the test performs itself on `step_x`, not by reading anything
-    /// back from `refine_tile`, so the output is checked only for its length.
+    /// Protects: the 3 x 3 grid of `refine_tile` calls covers the whole region. Every tile's
+    /// samples must equal, bit for bit, `amplify_region` over the sub-region written out here
+    /// by hand (origin `region + index * step`, extent `step + 1` -- the one-cell overlap), so
+    /// a wrong tile origin or extent changes real output and fails. The hand-written
+    /// sub-regions are asserted to start at the region's near edge, to reach (at least) its far
+    /// edge on both axes, and to join without a gap; and the tiles are asserted pairwise
+    /// distinct, so a `refine_tile` that ignored `col`/`row` cannot pass.
     #[test]
     fn refine_tile_covers_the_whole_region_across_its_grid() {
         let src = synthetic_field(48, 32, 5);
         let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
         let o = AmplifyOpts::default();
-        // The last tile's sub-bounds must end one coarse cell past the region's
-        // own far edge minus the overlap -- i.e. reach region.x + region.w.
-        let step_x = reg.w / 3.0;
-        let last_x = reg.x + 2.0 * step_x + (step_x + 1.0);
-        assert_eq!(last_x, reg.x + reg.w + 1.0);
-        let t = refine_tile(&src, 48, 32, &reg, 3, 3, 2, 2, 8, 8, &o);
-        assert_eq!(t.len(), 64);
+        let (cols, rows) = (3usize, 3usize);
+        let (step_x, step_y) = (reg.w / cols as f64, reg.h / rows as f64);
+        let mut tiles: Vec<Vec<f32>> = Vec::new();
+        let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+        for row in 0..rows {
+            for col in 0..cols {
+                let sub = FloatRegion {
+                    x: reg.x + col as f64 * step_x,
+                    y: reg.y + row as f64 * step_y,
+                    w: step_x + 1.0,
+                    h: step_y + 1.0,
+                };
+                min_x = min_x.min(sub.x);
+                max_x = max_x.max(sub.x + sub.w);
+                min_y = min_y.min(sub.y);
+                max_y = max_y.max(sub.y + sub.h);
+                let expect = amplify_region(&src, 48, 32, &sub, 8, 8, &o);
+                let t = refine_tile(&src, 48, 32, &reg, cols, rows, col, row, 8, 8, &o);
+                assert_eq!(t.len(), 64);
+                assert!(
+                    t.iter().zip(&expect).all(|(a, b)| a.to_bits() == b.to_bits()),
+                    "tile ({col},{row}) is not the amplified hand-computed sub-region"
+                );
+                tiles.push(t);
+            }
+        }
+        assert_eq!(min_x, reg.x, "tiles must start at the region's near x edge");
+        assert_eq!(min_y, reg.y, "tiles must start at the region's near y edge");
+        assert_eq!(max_x, reg.x + reg.w + 1.0, "tiles must reach the far x edge plus the overlap");
+        assert_eq!(max_y, reg.y + reg.h + 1.0, "tiles must reach the far y edge plus the overlap");
+        for i in 0..tiles.len() {
+            for j in i + 1..tiles.len() {
+                assert_ne!(tiles[i], tiles[j], "tiles {i} and {j} are identical");
+            }
+        }
     }
 
     /// Protects: an empty/zero-dimension source panics with a named

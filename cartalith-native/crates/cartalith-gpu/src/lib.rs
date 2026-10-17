@@ -3833,6 +3833,8 @@ mod tests {
 
             assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
+            // The timed output must also be right: parity with the CPU twin on the same input.
+            assert_matches_cpu(&gpu, &cpu, GPU_SAFE_NOISE_TOLERANCE, &format!("gpu-safe noise {w}x{h}"));
 
             if quote {
                 eprintln!(
@@ -3932,6 +3934,31 @@ mod tests {
             assert!(v.is_finite(), "{what}: found non-finite value {v}");
             assert!((lo..=hi).contains(&v), "{what}: value {v} out of expected range [{lo},{hi}]");
         }
+    }
+
+    /// Parity assertion shared by the timing tests, so a timed GPU dispatch is also checked
+    /// for correctness: `gpu` and `cpu` (the same inputs through the GPU kernel and its CPU
+    /// twin) must have equal length and agree in every cell within `tol`. Panics naming
+    /// `what`, the worst difference and the mismatch count. It never inspects timing.
+    fn assert_matches_cpu(gpu: &[f32], cpu: &[f32], tol: f64, what: &str) {
+        assert_eq!(gpu.len(), cpu.len(), "{what}: GPU and CPU fields differ in length");
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gpu.iter().zip(cpu.iter()) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            // `!(d <= tol)` rather than `d > tol` so a NaN on either side counts as a mismatch.
+            if !(d <= tol) {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        assert_eq!(
+            mismatches, 0,
+            "{what}: {mismatches}/{} cells exceed tol={tol}, max_abs_diff={max_abs_diff}",
+            gpu.len()
+        );
     }
 
     /// Protects: milestone 2's correctness gate for `gpu_warp.wgsl` -- GPU
@@ -4214,6 +4241,9 @@ mod tests {
 
             assert_eq!((gpu.0.len(), gpu.1.len()), (n, n), "GPU warp field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!((cpu.0.len(), cpu.1.len()), (n, n), "CPU warp field is the wrong length -- the call that was timed produced nothing usable");
+            // The timed output must also be right: parity with the CPU twin on the same input.
+            assert_matches_cpu(&gpu.0, &cpu.0, WARP_TOLERANCE, &format!("gpu_warp x {w}x{h}"));
+            assert_matches_cpu(&gpu.1, &cpu.1, WARP_TOLERANCE, &format!("gpu_warp y {w}x{h}"));
 
             if quote {
                 eprintln!(
@@ -4225,8 +4255,9 @@ mod tests {
     }
 
     /// Measures, does not gate: dispatch plus readback time for `gpu_heterogeneity` against
-    /// its single-threaded CPU twin at four field sizes. The only assertions are that each
-    /// timed dispatch and each timed CPU call returned a field of the expected length; the
+    /// its single-threaded CPU twin at four field sizes. Timing is never asserted. The only assertions are that each
+    /// timed dispatch and each timed CPU call returned a field of the expected length and that
+    /// the two agree within `GPU_SAFE_NOISE_TOLERANCE` after max-abs normalisation; the
     /// figures print only when `timings_quotable` allows (`--test-threads=1`).
     #[test]
     fn measured_gpu_heterogeneity_vs_cpu_timing() {
@@ -4247,11 +4278,13 @@ mod tests {
             let n = (w * h) as usize;
             let hetero_seed = 24601 ^ 0x44bb;
             let scale = 1.5 * 12.0 / w as f32;
-            let age = vec![0.6f32; n];
+            // A varying age field, not a constant: both outputs are max-abs normalised, which
+            // cancels any constant age factor, so a uniform age would hide a wrong age term.
+            let age: Vec<f32> = (0..n).map(|i| ((i * 2654435761u32 as usize) % 1000) as f32 / 1000.0).collect();
             let warp_x = vec![0.0f32; n];
             let warp_y = vec![0.0f32; n];
 
-            let (gpu_t, gpu) = timed_for(quote, || {
+            let (gpu_t, mut gpu) = timed_for(quote, || {
                 dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, false, 0, &age, &warp_x, &warp_y)
             });
             let (cpu_t, cpu) =
@@ -4259,6 +4292,10 @@ mod tests {
 
             assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
+            // The timed output must also be right: the CPU twin is already max-abs normalised,
+            // so the raw GPU field is normalised the same way (as the parity test does) first.
+            normalize_by_max_abs(&mut gpu);
+            assert_matches_cpu(&gpu, &cpu, GPU_SAFE_NOISE_TOLERANCE, &format!("gpu_heterogeneity {w}x{h}"));
 
             if quote {
                 eprintln!(
@@ -4584,7 +4621,8 @@ mod tests {
     /// Measures, does not gate: dispatch plus readback time for `gpu_height` at four field
     /// sizes against its single-threaded f32 CPU twin (see `dispatch_gpu_height`'s own doc for
     /// why that is the wrong baseline to compare against `generate_terrain`'s multi-threaded
-    /// f64 `compute_height`). The only assertions are the output lengths; figures print only
+    /// f64 `compute_height`). Timing is never asserted. The only assertions are the output lengths and GPU/CPU
+    /// agreement within `HEIGHT_TOLERANCE`; figures print only
     /// when `timings_quotable` allows.
     #[test]
     fn measured_gpu_height_vs_cpu_timing() {
@@ -4624,6 +4662,8 @@ mod tests {
 
             assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
+            // The timed output must also be right: parity with the CPU twin on the same input.
+            assert_matches_cpu(&gpu, &cpu, HEIGHT_TOLERANCE, &format!("gpu_height {w}x{h}"));
 
             if quote {
                 eprintln!(
@@ -5371,6 +5411,18 @@ mod tests {
             assert_eq!(gpu.len(), n, "GPU plate map is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu.len(), n, "CPU plate map is the wrong length -- the call that was timed produced nothing usable");
 
+            // The timed GPU plate map must also be right: JFA is an approximation, so (as in
+            // `gpu_jfa_plates_vs_cpu_jfa_vs_brute_force_ground_truth`) it is held to the same
+            // generous 5% ceiling against brute-force exact-nearest, which a mis-wired or
+            // empty dispatch exceeds by far. The two JFA variants are not expected to agree
+            // cell for cell, so GPU-vs-CPU exactness is not asserted.
+            let truth = brute_force_nearest_plate(w, h, &px, &py, None, None, false);
+            let wrong = gpu.iter().zip(&truth).filter(|(g, t)| g != t).count();
+            assert!(
+                (wrong as f64 / n as f64) < 0.05,
+                "GPU JFA plate map at {w}x{h} disagrees with brute-force nearest on {wrong}/{n} cells"
+            );
+
             let max_dim = w.max(h) as f64;
             let passes = max_dim.log2().ceil() as u32;
             if quote {
@@ -5401,8 +5453,9 @@ mod tests {
 
     /// Measures, does not gate: dispatch plus readback time for `gpu_gauss_blur` and
     /// `gpu_compute_resistance` against their real CPU counterparts at four field sizes. The
-    /// only assertions are the four output lengths; figures print only when `timings_quotable`
-    /// allows. The comment this replaces cited figures (0.38x, 0.24x, 0.13x) to root
+    /// only assertions are the four output lengths and GPU/CPU agreement (`BLUR_TOLERANCE`,
+    /// `RESISTANCE_TOLERANCE`); timing is never asserted and figures print only when
+    /// `timings_quotable` allows. The comment this replaces cited figures (0.38x, 0.24x, 0.13x) to root
     /// `CLAUDE.md`'s preflight table; no source found at this line (that file carries no such
     /// table or figures), so they are not repeated here.
     #[test]
@@ -5428,6 +5481,7 @@ mod tests {
                 timed_for(quote, || cartalith_terrain::gauss_blur(&src, 12.0, w as usize, h as usize, false));
             assert_eq!(gpu_blur.len(), n, "GPU blur is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu_blur.len(), n, "CPU blur is the wrong length -- the call that was timed produced nothing usable");
+            assert_matches_cpu(&gpu_blur, &cpu_blur, BLUR_TOLERANCE, &format!("gpu_gauss_blur {w}x{h}"));
             if quote {
                 eprintln!(
                     "gpu_gauss_blur {w}x{h}: GPU = {gpu_blur_t}, CPU (real, running-sum) = {cpu_blur_t}, ratio (CPU/GPU) = {}",
@@ -5451,6 +5505,7 @@ mod tests {
             });
             assert_eq!(gpu_res.len(), n, "GPU resistance is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu_res.len(), n, "CPU resistance is the wrong length -- the call that was timed produced nothing usable");
+            assert_matches_cpu(&gpu_res, &cpu_res, RESISTANCE_TOLERANCE, &format!("gpu_compute_resistance {w}x{h}"));
             if quote {
                 eprintln!(
                     "gpu_compute_resistance {w}x{h}: GPU = {gpu_res_t}, CPU (real, rayon) = {cpu_res_t}, ratio (CPU/GPU) = {}",
