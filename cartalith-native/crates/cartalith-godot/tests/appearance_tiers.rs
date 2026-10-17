@@ -462,7 +462,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 #[test]
 fn every_tunable_is_load_bearing() {
     /// Controls the pixel sweep in `every_tunable_is_load_bearing` skips, each
-    /// with its replacement proof stated in the comments above it. Sixteen
+    /// with its replacement proof stated in the comments above it. Seventeen
     /// entries; the array length is part of the type, so the count cannot drift
     /// silently.
     // Every exemption here owes a replacement proof at the bottom of this
@@ -504,7 +504,13 @@ fn every_tunable_is_load_bearing() {
     // RIM-7's). It is proved where it lives: `river_field.rs`'s
     // `bank_coverage` tests and the shader-constant mirror, and the default
     // render matching HEAD (exact on 27 of 32 frames, 1 pixel off by 1 LSB on the other 5) is `_riverzoom_probe.gd --rim2`'s.
-    const EXEMPT: [&str; 16] = [
+    //
+    // `zoom_detail_km` (Ruling CI, 2026-10-17) is the seventeenth, for
+    // `detail_scale_strength`'s reason: it steers `add_zoom_detail`, which
+    // only the deep-zoom tiles run -- the grid path never amplifies. Its
+    // replacement proof is at the bottom of this function, through
+    // `render::tile_amplify_opts` and the amplifier itself.
+    const EXEMPT: [&str; 17] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -521,6 +527,7 @@ fn every_tunable_is_load_bearing() {
         "river_ink_b",
         "river_through",
         "river_bank",
+        "zoom_detail_km",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
@@ -714,6 +721,38 @@ fn every_tunable_is_load_bearing() {
             "detail_scale_strength moved {moved_px} of {} tile pixels; it does not reach the tile colour path",
             tw * th
         );
+    }
+
+    // `zoom_detail_km`, through the function every tile path takes its
+    // amplify options from: the shipped look with a map width selects the
+    // kilometre law, `0.0` and a missing width keep the reference schedule
+    // (`km: None`, by control flow), and the selected law moves amplified
+    // heights where `0.0` does not.
+    {
+        let on = ctx(&s, TerrainAppearance::default());
+        let off = ctx(&s, TerrainAppearance { zoom_detail_km: 0.0, ..TerrainAppearance::default() });
+        let o_on = render::tile_amplify_opts(&on, 7, 4);
+        assert!(o_on.km.is_some(), "the shipped look must select the kilometre law");
+        assert_eq!(o_on.km.unwrap().strength, 2.0);
+        assert!(render::tile_amplify_opts(&off, 7, 4).km.is_none(), "0.0 must be the reference schedule");
+        let bare = RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, None, GW, GH, 0.42, false, 60.0, -60.0, TerrainAppearance::default());
+        assert!(render::tile_amplify_opts(&bare, 7, 4).km.is_none(), "no map width must not guess one");
+        // The first 6x6-cell block that is land well clear of the shore band
+        // (the amplifier never gives water octaves, and fades them at the
+        // shore), found from the field rather than assumed.
+        let (bx, by) = (1..GH - 7)
+            .flat_map(|y| (1..GW - 7).map(move |x| (x, y)))
+            .find(|&(x, y)| (0..6).all(|dy| (0..6).all(|dx| s.field[(y + dy) * GW + x + dx] as f64 >= 0.5)))
+            .expect("premise: the fixture has an inland block");
+        let b = cartalith_spatial::FloatRegion { x: bx as f64, y: by as f64, w: 4.0, h: 4.0 };
+        let amp = |o: &cartalith_terrain::amplify::AmplifyOpts| -> Vec<f32> {
+            let mut t: Vec<f32> = (0..64 * 64).map(|i| s.field[(by + (i / 64) / 16) * GW + bx + (i % 64) / 16]).collect();
+            cartalith_terrain::amplify::add_zoom_detail(&mut t, 64, 64, &s.field, GW, GH, &b, 9, o);
+            t
+        };
+        let (a, z) = (amp(&o_on), amp(&render::tile_amplify_opts(&off, 7, 4)));
+        let moved = a.iter().zip(&z).filter(|(p, q)| p != q).count();
+        assert!(moved * 4 > a.len(), "zoom_detail_km moved {moved} of {} amplified texels", a.len());
     }
 }
 

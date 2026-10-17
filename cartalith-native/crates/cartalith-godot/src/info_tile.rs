@@ -164,6 +164,11 @@ pub struct InfoSource<'a> {
     /// `sample_bridge::flow_log_max` of the whole flow field, computed once per
     /// snapshot (see the module doc: no per-tile normalisation).
     pub flow_log_max: f64,
+    /// The look's `TerrainAppearance::zoom_detail_km` (Ruling CI): the
+    /// amplified height the elevation/slope/aspect views read runs the same
+    /// kilometre law as the terrain tile at this strength; `0.0` is the
+    /// reference schedule.
+    pub zoom_detail_km: f64,
 }
 
 impl InfoSource<'_> {
@@ -214,7 +219,11 @@ pub fn synthesize_info_tile(src: &InfoSource, view: InfoView, z: i32, col: i32, 
     let pad = view.pad();
     let stride = w + 2 * pad;
     let height: Option<Vec<f32>> = if view.needs_height() {
-        let opts = AmplifyOpts { seed: src.seed, sea: src.sea, z_base: lod_bridge::z_base(), ..AmplifyOpts::default() };
+        // Ruling CI: the terrain tile's own law (`render::zoom_detail_km_law`),
+        // so an elevation, slope or aspect view at depth reads the relief the
+        // terrain tile under it draws.
+        let km = crate::render::zoom_detail_km_law(Some(src.map_width_km), gw, src.zoom_detail_km);
+        let opts = AmplifyOpts { seed: src.seed, sea: src.sea, z_base: lod_bridge::z_base(), km, ..AmplifyOpts::default() };
         let id = ChunkId::new(z as u32, col as u32, row as u32);
         let (tw, th, t) = pyramid_tile_padded(src.field, gw, gh, id, lod_bridge::TILE_PX, pad, &opts);
         if (tw, th) != (w, h) || t.len() != stride * (h + 2 * pad) {
@@ -320,6 +329,9 @@ mod tests {
             age: Some(&w.age),
             resistance: Some(&w.res),
             flow_log_max: sb::flow_log_max(&w.flow),
+            // The reference schedule: these fixtures pin the pre-Ruling-CI
+            // tiles, and the law itself is pinned in `cartalith-terrain`.
+            zoom_detail_km: 0.0,
         }
     }
 

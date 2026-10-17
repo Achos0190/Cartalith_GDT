@@ -601,6 +601,13 @@ four stages and is the identity at `0.0`; `cartalith-terrain/src/amplify.rs`,
   "non-decreasing from zoom 4 to 40" bar is **unattainable without changing that
   schedule** — a golden re-baseline of every pyramid tile.
 
+**2026-10-17, Ruling CI:** the open question above is decided. The app's deep-zoom
+tiles key the zoom detail to kilometres and change its decay (`KmZoomDetail`,
+`TerrainAppearance::zoom_detail_km`), with the relief taper moved into ground
+units and given an elevation term (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`
+§2.2). `js_reference()` keeps the reference schedule. The law and the measured
+ladder are in `DECISIONS.md` §7p's 2026-10-17 entry; status is `STATUS.md`'s.
+
 ### LOD-D6 · Tile synthesis off the main thread, profiled per device
 
 **Goal:** research §22–24 and Tests F–G — phone viability.

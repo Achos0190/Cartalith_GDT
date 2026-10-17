@@ -155,6 +155,12 @@ It matches what the project already recorded:
 
 `STATUS.md`'s LOD rows give those counts; I did not re-run their harnesses.
 
+**After (2026-10-17, Ruling CI item 1):** the kilometre-keyed zoom detail re-measured
+this ladder on four worlds through the shell (`DECISIONS.md` §7p's 2026-10-17 entry;
+frames in `cartalith-native/docs/evidence/zoom-detail-2026-10-17/`). Median gradient
+×4 → ×64 now 1.58 → 2.89 (1.58 → 0.41 on the same crops before); sub-cell share at
+×64 9.45 %. The numbers above are left as they were measured.
+
 ## 5. Root causes, as far as I verified them
 
 | Gap | Verified cause | Evidence quality |

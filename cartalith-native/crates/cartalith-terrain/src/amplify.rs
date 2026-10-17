@@ -80,12 +80,22 @@ pub struct AmplifyOpts {
     /// `opts.zoomDetailK` — the user's "zoom detail" amount. Default 1, which
     /// the reference documents as *"legacy, bit-identical"*.
     pub zoom_detail_k: f64,
+    /// **Ruling CI item 1** (owner, 2026-10-17): the kilometre-keyed zoom
+    /// detail law, which replaces [`add_zoom_detail`]'s per-coarse-cell
+    /// octave schedule when `Some`. **`None` — the default — is the
+    /// reference's own schedule by control flow**: the per-pixel body never
+    /// reads this field on that branch, so every golden that builds its opts
+    /// from [`AmplifyOpts::default`] is untouched. Only the app's on-screen
+    /// deep-zoom tiles set it (`cartalith-godot`'s `render::tile_amplify_opts`,
+    /// gated on `TerrainAppearance::zoom_detail_km`). See [`KmZoomDetail`].
+    pub km: Option<KmZoomDetail>,
 }
 
 impl Default for AmplifyOpts {
     /// The reference's own hard-coded defaults for `amplifyRegion`/`refineTile`
     /// (reference lines 10265/10305) — pinned by
-    /// `the_defaults_are_the_references_own` below.
+    /// `the_defaults_are_the_references_own` below. `km: None` is the
+    /// reference's octave schedule (Ruling CI's law is app-side only).
     fn default() -> Self {
         AmplifyOpts {
             seed: 1234,
@@ -95,8 +105,300 @@ impl Default for AmplifyOpts {
             ridged: false,
             z_base: 2,
             zoom_detail_k: 1.0,
+            km: None,
         }
     }
+}
+
+/// The cell size the kilometre law is **anchored** at: `800 km / 2048` cells,
+/// the New World dialog's default width over the app's default grid.
+///
+/// Source: the HTML project's own `terrainDetailK` (`docs/research/
+/// scale-invariant-terrain.md` §3, Stage B: *"`REF_CELLKM = 800/2048` — the
+/// app's own literal untouched default"*), which re-keyed the generator's
+/// relief frequency to kilometres by the same anchor-at-the-default rule. At
+/// this cell size [`KmZoomDetail`]'s octave lattice lands exactly on the
+/// reference's per-cell octaves (wavelength `2^-(o+1)` cells) and its relief
+/// taper is the reference's own, so the two laws differ there only in the
+/// octave decay and the noise basis — the parts Ruling CI changes on purpose.
+pub const ZOOM_DETAIL_REF_CELL_KM: f64 = 800.0 / 2048.0;
+
+/// **Ruling CI item 1**: zoom detail keyed to **ground distance**, not to the
+/// coarse grid — the law [`add_zoom_detail`] runs when [`AmplifyOpts::km`] is
+/// `Some`.
+///
+/// # Why
+///
+/// `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §4 measured detail per screen
+/// pixel falling at every zoom step past about x4, and `LOD_DETAIL_SCOPE.md`
+/// LOD-D5 traced the schedule's share of it here: frequency per coarse cell
+/// (so a 3000 km world gets detail at 3.75x the wavelength of an 800 km one on
+/// the same grid), octave count per pyramid level, amplitude `0.6` per octave
+/// with a full six-octave `fbm` per step. The owner approved re-keying the
+/// frequency to kilometres and changing the octave decay as an app-side
+/// re-baseline (Ruling CI; `DECISIONS.md` §7p).
+///
+/// # The spectral model, and what it is sourced from
+///
+/// Fractional Brownian motion as a sum of octaves of band-limited noise
+/// (Mandelbrot & Van Ness 1968; the terrain-synthesis practice of Musgrave,
+/// Kolb & Mace 1989, which `docs/research/scale-invariant-terrain.md` cites
+/// for pegging octaves to real wavelengths). Octave `j` has wavelength
+///
+/// ```text
+/// λ_j = (ZOOM_DETAIL_REF_CELL_KM / 2) · 2^-j  km,   j ∈ ℤ
+/// a_j = A0 · octave_gain^j                         (A0 = detail_amp · 0.6)
+/// ```
+///
+/// on a lattice fixed **in kilometres**, so one place on the ground gets the
+/// same octaves whatever grid it was generated on. `octave_gain = 2^-H` with
+/// `H` the Hurst exponent. **`H = 1` (`octave_gain = 0.5`) is the
+/// self-similar case**: every octave adds the same slope amplitude, so the
+/// hillshade — which reads slope (`render::tile_shade_exag` scales the
+/// exaggeration by pixels per cell) — gains detail at the same rate at every
+/// level. That is the owner's requirement stated as a spectrum, and it is the
+/// shipped value ([`ZOOM_DETAIL_KM_OCTAVE_GAIN`]). It is a **labelled
+/// judgement**, not a measured property of real terrain: published estimates
+/// of topographic `H` cluster between about 0.5 and 0.9 depending on scale and
+/// region (the fractal-dimension literature summarised by Turcotte, *Fractals
+/// and Chaos in Geology and Geophysics*, 1997 — cited from memory, not opened
+/// in this pass), and `H < 1` makes slopes grow without bound as you zoom,
+/// which on a bounded octave count reads as noise arriving, not detail.
+///
+/// # Which octaves a pixel gets
+///
+/// Two smooth cut-offs in `log2` wavelength, so nothing switches on at a
+/// threshold:
+///
+/// - **Top**, `L/2 ..= L` (`L` = km per coarse cell): weight `1` at half a
+///   cell, `0` at one cell. Wavelengths the grid itself carries are left to
+///   the grid; this is the reference's own first octave (half a cell).
+/// - **Bottom**, `λ_min/2 ..= λ_min` with `λ_min = L · 2^(z_base − z) ·
+///   2^nyquist_margin`. `L · 2^(z_base − z)` is the finest octave the
+///   reference's schedule admits at level `z` (its last octave's wavelength —
+///   about two tile pixels at the tile size `z_base` was derived for,
+///   `z_base_for_tile_size`); the shipped margin of one octave keeps the
+///   finest full-weight octave at four pixels
+///   ([`ZOOM_DETAIL_KM_NYQUIST_MARGIN`]).
+///
+/// At the anchor both cut-offs fall exactly on lattice points, so the octave
+/// set is the reference's `min(6, z − z_base)` less its finest octave (the
+/// margin fades that one to zero), and the amplitudes and noise differ.
+///
+/// # The relief taper, in ground units
+///
+/// The reference scales detail by `min(1, 8·|∇h|)` with `∇h` per coarse cell.
+/// A cell is `L` km wide, so the same physical slope reads as a smaller
+/// per-cell gradient on a finer grid, and on the shipped 2048-wide grid that
+/// term **collapses on mountains**: `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`
+/// §2.2 measured its median on top-decile land at 0.003-0.023 on nine worlds
+/// (0 % of cells reaching 1), so a ~1 km amplitude arrived as 3-24 m. The law
+/// therefore takes the larger of three terms, then the shore fade:
+///
+/// ```text
+/// slope = min(1, 8·|∇h|·ZOOM_DETAIL_KM_TAPER_CELL_KM / L)   // ×8 per 1.5625 km cell
+/// elev  = elevation_gain · clamp((base − sea) / (1 − sea), 0, 1)
+/// taper = max(relief_floor, slope, elev) · smoothstep((base − sea) / SHORE_BAND)
+/// ```
+///
+/// - `slope` reads the gradient in **ground units**, with the reference's `×8`
+///   applied at a 1.5625 km cell ([`ZOOM_DETAIL_KM_TAPER_CELL_KM`]) instead of
+///   at whatever grid the world was generated on.
+/// - `elev` keeps amplitude from collapsing where the coarse gradient is small
+///   but the relief is high (a broad orogenic swell's flanks and plateau):
+///   roughness scales with height above sea level, the coarse grid's own proxy
+///   for local relief in an orogen. A **labelled judgement**, its gain set on
+///   the zoom ladder ([`ZOOM_DETAIL_KM_ELEVATION_GAIN`]).
+/// - `relief_floor` keeps low flat land from being glass.
+///
+/// The noise is still smooth value noise, not ridged: ridged detail on
+/// orogens is the investigation's documented follow-up (its row S1), not built
+/// here.
+/// Last, it fades to zero over [`ZOOM_DETAIL_KM_SHORE_BAND`] above sea level,
+/// so beaches and coastal flats stay smooth and their colour bands do not
+/// flicker.
+///
+/// # Cost
+///
+/// One `vnoise` per octave, at most [`KmZoomDetail::max_octaves`] octaves,
+/// against the reference's six `vnoise` per octave (one `fbm`) — the law is
+/// cheaper per octave, and the cap bounds an absurd level.
+///
+/// # What this must never do
+///
+/// - Run on the parity path: [`AmplifyOpts::default`] has `km: None`, and so
+///   does every opts the engine's bake, export and EF-0 point query builds.
+/// - Move the coastline: the write-back keeps [`clamp_toward_sea`] and the
+///   hard `base < sea` skip, exactly as the reference branch does.
+/// - Depend on anything but `(cx, cy, z)` and the frozen coarse field, which is
+///   what keeps two tiles seam-exact (`sample_elevation` asserts it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KmZoomDetail {
+    /// Kilometres per coarse cell (`cartalith_spatial::cell_km`). Must be
+    /// finite and positive; anything else makes the law add nothing.
+    pub km_per_cell: f64,
+    /// Amplitude ratio between octave `j + 1` and octave `j` — `2^-H`.
+    /// Shipped at [`ZOOM_DETAIL_KM_OCTAVE_GAIN`].
+    pub octave_gain: f64,
+    /// Multiplies the whole law (`TerrainAppearance::zoom_detail_km`). `1.0`
+    /// puts octave 0 at the reference's own first-octave coefficient
+    /// (`detail_amp · 0.6`); the app ships `2.0` (that field's doc says why);
+    /// `0.0` adds nothing.
+    pub strength: f64,
+    /// The relief taper's floor, as a fraction of a full-relief taper.
+    /// Shipped at [`ZOOM_DETAIL_KM_RELIEF_FLOOR`].
+    pub relief_floor: f64,
+    /// The cost cap: at most this many octaves per pixel. Shipped at
+    /// [`ZOOM_DETAIL_KM_MAX_OCTAVES`].
+    pub max_octaves: u32,
+    /// How many octaves **above** the reference's finest wavelength
+    /// (`λ_min`, about two tile pixels) the bottom fade sits: the fade runs
+    /// over `[λ_min·2^(m−1), λ_min·2^m]`. `0` is the reference's own floor;
+    /// `1` keeps every octave at four tile pixels or coarser at full weight
+    /// and fades the one between two and four. Shipped at
+    /// [`ZOOM_DETAIL_KM_NYQUIST_MARGIN`].
+    pub nyquist_margin: f64,
+    /// The relief taper's elevation term: full height above sea level gives
+    /// a taper of this much. Shipped at [`ZOOM_DETAIL_KM_ELEVATION_GAIN`].
+    pub elevation_gain: f64,
+}
+
+/// [`KmZoomDetail::octave_gain`]'s shipped value — `H = 1`, the self-similar
+/// spectrum (see [`KmZoomDetail`], "The spectral model": a labelled
+/// judgement, chosen because it makes every level add the same slope).
+pub const ZOOM_DETAIL_KM_OCTAVE_GAIN: f64 = 0.5;
+
+/// [`KmZoomDetail::relief_floor`]'s shipped value. **A labelled judgement**,
+/// chosen on the Ruling CI zoom ladder (`tests/zoom_detail_ladder.rs` in
+/// `cartalith-godot`; the frames and numbers are in `DECISIONS.md` §7p's
+/// Ruling CI entry). Mean luminance gradient of a flat forest crop at x4 →
+/// x64 (seed 314159, 800 km): `0.0` falls 1.31 → 0.45, worse than the
+/// reference's own 1.31 → 0.64; `0.05` holds it (1.31 → 1.21); `0.15` lifts
+/// it to 3.50 but every lowland then reads as one uniform crinkled texture
+/// and coastal plains speckle with beach colour where the bumps cross the
+/// beach band. Flat land gets one twentieth of a full-relief slope's
+/// amplitude. (Measured with the slope term anchored at 0.39 km and no
+/// elevation term, i.e. before the taper law in [`KmZoomDetail`]'s doc; since
+/// then the floor governs only low, flat land, which is the ground it was
+/// chosen for.)
+pub const ZOOM_DETAIL_KM_RELIEF_FLOOR: f64 = 0.05;
+
+/// [`KmZoomDetail::max_octaves`]'s shipped value: `8`, two more than the
+/// reference's `min(6, …)` because the law's cut-offs are soft (a partially
+/// weighted octave at each end), so the full-weight count matches the
+/// reference's six at the deepest level `lod_bridge::MAX_LEVEL` reaches.
+pub const ZOOM_DETAIL_KM_MAX_OCTAVES: u32 = 8;
+
+/// [`KmZoomDetail::nyquist_margin`]'s shipped value: `1`, so every octave
+/// finer than four tile pixels is faded and nothing finer than two is drawn.
+/// **A labelled judgement** from the Ruling CI frames: at `0` (the
+/// reference's own two-pixel floor) the finest octave read as a pixel-scale
+/// grain over every surface — the law's slopes are equal per octave, so the
+/// finest one is as strong as any and the eye takes it for noise.
+pub const ZOOM_DETAIL_KM_NYQUIST_MARGIN: f64 = 1.0;
+
+/// Per-octave rotation of the noise lattice, in radians: `2π / φ²`
+/// (≈ 137.5°, the golden angle). Value noise is built on an axis-aligned
+/// lattice, and stacking octaves on aligned lattices reinforces the
+/// axis-aligned squares the gap assessment already reports elsewhere
+/// (`render.rs::bio_jitter`'s mottle, §5). Rotating each octave by an angle
+/// whose multiples never repeat keeps the lattices from lining up. A labelled
+/// judgement; the golden angle is the standard choice for "never aligns".
+const KM_OCTAVE_ROTATION: f64 = 2.399_963_229_728_653;
+
+/// `GLSL smoothstep(0, 1, t)` on a clamped argument.
+#[inline]
+fn smooth01(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// [`KmZoomDetail`]'s per-pixel sum, **before** the relief taper: the
+/// octaves at coarse coordinate `(cx, cy)` for pyramid level `z`.
+///
+/// Shared by [`add_zoom_detail_padded`] and [`sample_elevation`] so the point
+/// query and the tile cannot disagree (the EF-0 identity test pins it).
+/// Returns `0.0` for a non-finite or non-positive cell size and for a level
+/// with no octave inside both cut-offs.
+pub fn km_zoom_detail_sum(cx: f64, cy: f64, z: i32, opts: &AmplifyOpts, km: &KmZoomDetail) -> f64 {
+    let l = km.km_per_cell;
+    if !(l.is_finite() && l > 0.0) || km.max_octaves == 0 {
+        return 0.0;
+    }
+    // Ground position, km. The lattice is fixed in km, so this is the only
+    // place the grid's own resolution enters the noise.
+    let (gx, gy) = (cx * l, cy * l);
+    let lam_ref = ZOOM_DETAIL_REF_CELL_KM * 0.5;
+    // The bottom fade's full-weight wavelength: the reference's finest octave
+    // (`2^(z_base − z)` cells), raised by the margin.
+    let lam_min = l * f64::powi(2.0, opts.z_base - z) * km.nyquist_margin.exp2();
+    // Lattice indices whose wavelength lies strictly inside (λ_min/2, L):
+    // λ_j < L  ⇔ j > log2(λ_ref/L);  λ_j > λ_min/2 ⇔ j < log2(2·λ_ref/λ_min).
+    let j_lo = (lam_ref / l).log2().floor() as i32 + 1;
+    let j_hi = (2.0 * lam_ref / lam_min).log2().ceil() as i32 - 1;
+    if j_hi < j_lo {
+        return 0.0;
+    }
+    let j_hi = j_hi.min(j_lo + km.max_octaves as i32 - 1);
+    let a0 = opts.detail_amp * 0.6 * opts.zoom_detail_k * km.strength;
+    let mut sum = 0.0;
+    for j in j_lo..=j_hi {
+        let lam = lam_ref * f64::powi(2.0, -j);
+        // Top fade: 1 at λ <= L/2, 0 at λ >= L. Bottom fade: 1 at λ >= λ_min,
+        // 0 at λ <= λ_min/2. Both in log2 wavelength, both exactly 0 or 1 on
+        // the anchor's lattice points.
+        let w = smooth01((l / lam).log2()) * smooth01((lam / lam_min).log2() + 1.0);
+        if w <= 0.0 {
+            continue;
+        }
+        // `j + 1`, not `j`: octave 0 must not keep the axis-aligned lattice
+        // (measured: it did, and coastal flats showed a square checker).
+        let (s, c) = ((j + 1) as f64 * KM_OCTAVE_ROTATION).sin_cos();
+        let (u, v) = ((gx * c - gy * s) / lam, (gx * s + gy * c) / lam);
+        // A seed per octave, offset from the reference branch's `seed + 1 + o`
+        // so the two laws never draw the same lattice by accident.
+        let n = cartalith_noise::vnoise(u, v, opts.seed.wrapping_add(7919).wrapping_add(j.wrapping_mul(131))) - 0.5;
+        sum += n * a0 * f64::powi(km.octave_gain, j) * w;
+    }
+    sum
+}
+
+/// The height band above sea level, in normalised height, over which the
+/// kilometre law fades in from nothing at the shoreline. **A labelled
+/// judgement**, twice the renderer's beach band (`land_color`'s
+/// `smoothstep(0.03, 0, r)` on `r = (h − sea)/(1 − sea)`, i.e. `0.0174` at the
+/// default sea level of `0.42`). Why: on flat coastal land the floor's bumps
+/// crossed the beach band and the slope thresholds, and the Ruling CI frames
+/// showed sand and grass flipping pixel by pixel along every low coast. Beaches,
+/// deltas and marsh are the flattest ground there is, so the law leaves them
+/// to the grid.
+pub const ZOOM_DETAIL_KM_SHORE_BAND: f64 = 0.035;
+
+/// The cell size at which the reference's `min(1, 8·|∇h|)` slope taper is
+/// applied in the kilometre law: `800 km / 512` cells = 1.5625 km. **A
+/// labelled judgement with a measured motive**: `render.rs` measured the same
+/// mountains about 6x steeper per cell at 512² than at 2048² (median land
+/// slope 0.00354 vs 0.00054, `TerrainAppearance::rock_slope`'s note), and
+/// `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` §2.2 found the `×8` never
+/// reaching its cap on the 2048 grid. Keying it to a 512-wide 800 km map
+/// multiplies the per-cell term by 4 at the app's default grid (geometry, not
+/// the measured 6.6x, so it errs low).
+pub const ZOOM_DETAIL_KM_TAPER_CELL_KM: f64 = 800.0 / 512.0;
+
+/// [`KmZoomDetail::elevation_gain`]'s shipped value. **A labelled
+/// judgement**, set on the Ruling CI zoom ladder (`DECISIONS.md` §7p).
+pub const ZOOM_DETAIL_KM_ELEVATION_GAIN: f64 = 0.3;
+
+/// [`KmZoomDetail`]'s relief taper at one pixel -- the law is written out in
+/// [`KmZoomDetail`]'s doc, "The relief taper". `gx`/`gy` are the reference's
+/// own half-differences of the coarse field; `base` is the refined height.
+#[inline]
+pub fn km_relief_taper(gx: f64, gy: f64, base: f64, sea: f64, km: &KmZoomDetail) -> f64 {
+    let scale = if km.km_per_cell.is_finite() && km.km_per_cell > 0.0 { ZOOM_DETAIL_KM_TAPER_CELL_KM / km.km_per_cell } else { 1.0 };
+    let slope = js_min(1.0, js_hypot(gx, gy) * scale * 8.0);
+    let land = if sea < 1.0 { ((base - sea) / (1.0 - sea)).clamp(0.0, 1.0) } else { 0.0 };
+    let shore = smooth01((base - sea) / ZOOM_DETAIL_KM_SHORE_BAND);
+    js_max(km.relief_floor, js_max(slope, km.elevation_gain * land)) * shore
 }
 
 // `Math.min`/`Math.max`, which propagate NaN where Rust's absorb it.
@@ -408,7 +710,13 @@ pub fn refine_tile_padded(
 /// is the whole reason two neighbouring tiles agree on their shared edge.
 ///
 /// # Two scale properties, checked 2026-09-21 for `LOD_DETAIL_SCOPE.md`
-/// LOD-D5 and recorded here rather than changed
+/// LOD-D5 -- and the owner ruling they waited for
+///
+/// **2026-10-17: Ruling CI decided them.** This branch (`opts.km == None`) is
+/// unchanged and is still every golden's and every engine data product's; the
+/// app's deep-zoom tiles now run [`KmZoomDetail`] instead, which re-keys all
+/// three properties below to kilometres. The text below describes this
+/// reference branch.
 ///
 /// LOD-D5's last scope bullet is *"check at the symbols whether
 /// `add_zoom_detail`'s frequency ignores cell size. If it does, record it for
@@ -512,6 +820,33 @@ pub fn add_zoom_detail_padded(
     let padf = pad as f64;
     assert!(data.len() >= pw * ph, "add_zoom_detail data is too short");
     assert!(cw > 0 && ch > 0 && coarse.len() >= cw * ch, "add_zoom_detail coarse is too short");
+    // Ruling CI: the kilometre law, a separate branch so the reference
+    // schedule below is untouched by control flow (`km: None`).
+    if let Some(km) = opts.km {
+        let sea = opts.sea;
+        data[..pw * ph].par_chunks_mut(pw).enumerate().for_each(|(oy, row)| {
+            let oy = oy as f64 - padf;
+            let cy = b.y + if h > 1 { oy / (h as f64 - 1.0) * b.h } else { 0.0 };
+            for (ox, cell) in row.iter_mut().enumerate() {
+                let base = *cell as f64;
+                // The reference's hard cut, kept: water is never given octaves.
+                if base < sea {
+                    continue;
+                }
+                let ox = ox as f64 - padf;
+                let cx = b.x + if w > 1 { ox / (w as f64 - 1.0) * b.w } else { 0.0 };
+                let gx = (samp(coarse, cw, ch, cx + 1.0, cy) - samp(coarse, cw, ch, cx - 1.0, cy)) * 0.5;
+                let gy = (samp(coarse, cw, ch, cx, cy + 1.0) - samp(coarse, cw, ch, cx, cy - 1.0)) * 0.5;
+                let sum = km_zoom_detail_sum(cx, cy, z, opts, &km);
+                if sum == 0.0 {
+                    continue;
+                }
+                let taper = km_relief_taper(gx, gy, base, sea, &km);
+                *cell = (base + clamp_toward_sea(base, sum * taper, sea)) as f32;
+            }
+        });
+        return;
+    }
     let extra = i32::min(6, z - opts.z_base);
     if extra <= 0 {
         return;
@@ -701,8 +1036,22 @@ pub fn sample_elevation(
         (base + clamp_toward_sea(base, d * opts.detail_amp * taper, opts.sea)).clamp(0.0, 1.0) as f32;
 
     // ---- `add_zoom_detail`'s per-pixel body, at the same coordinate --------
-    let extra = i32::min(6, z - opts.z_base);
     let b = refined as f64;
+    // Ruling CI's kilometre branch, exactly as `add_zoom_detail_padded` runs
+    // it: the hard sea cut, the shared octave sum, the ground-unit taper, the
+    // same guard. `gx`/`gy` are the same half-differences that function takes.
+    if let Some(km) = opts.km {
+        if b < opts.sea {
+            return refined;
+        }
+        let sum = km_zoom_detail_sum(cx, cy, z, opts, &km);
+        if sum == 0.0 {
+            return refined;
+        }
+        let taper = km_relief_taper(gx, gy, b, opts.sea, &km);
+        return (b + clamp_toward_sea(b, sum * taper, opts.sea)) as f32;
+    }
+    let extra = i32::min(6, z - opts.z_base);
     // Three separate skips, in `add_zoom_detail`'s own order and with its own
     // semantics: `extra <= 0` is the documented shallow-level no-op,
     // `base < sea` is its **hard** cut (not `amplify_region`'s smooth
@@ -1423,5 +1772,186 @@ mod tests {
                 "tile ({col},{row}) deviates from the upsample by only {max_dev:.6}"
             );
         }
+    }
+
+    // ---- Ruling CI: the kilometre-keyed zoom-detail law ------------------
+
+    /// The shipped law at one cell size, every other field literal.
+    fn km_at(km_per_cell: f64) -> KmZoomDetail {
+        KmZoomDetail { km_per_cell, octave_gain: 0.5, strength: 1.0, relief_floor: 0.05, max_octaves: 8, nyquist_margin: 1.0, elevation_gain: 0.3 }
+    }
+
+    /// Octave `j` of the law, written out independently of
+    /// `km_zoom_detail_sum`: wavelength `(800/2048/2)·2^-j` km, rotation
+    /// `(j+1)·2.399963229728653` rad, seed `seed + 7919 + 131·j`, amplitude
+    /// `0.14·0.6·0.5^j` (the reference's `detail_amp`, its `0.6`, `H = 1`).
+    fn octave_by_hand(gx_km: f64, gy_km: f64, j: i32, seed: i32) -> f64 {
+        let lam = 800.0 / 2048.0 / 2.0 * 2f64.powi(-j);
+        let (s, c) = (((j + 1) as f64) * 2.399963229728653).sin_cos();
+        let (u, v) = ((gx_km * c - gy_km * s) / lam, (gx_km * s + gy_km * c) / lam);
+        (cartalith_noise::vnoise(u, v, seed + 7919 + 131 * j) - 0.5) * 0.14 * 0.6 * 0.5f64.powi(j)
+    }
+
+    /// Protects: the shipped constants, as literals (`MISTAKES.md`: assert a
+    /// literal, never the constant against itself) -- changing one is a
+    /// re-baseline of every app deep-zoom tile and must fail here first.
+    #[test]
+    fn the_km_law_ships_these_constants() {
+        assert_eq!(ZOOM_DETAIL_REF_CELL_KM, 0.390625);
+        assert_eq!(ZOOM_DETAIL_KM_OCTAVE_GAIN, 0.5);
+        assert_eq!(ZOOM_DETAIL_KM_RELIEF_FLOOR, 0.05);
+        assert_eq!(ZOOM_DETAIL_KM_MAX_OCTAVES, 8);
+        assert_eq!(ZOOM_DETAIL_KM_NYQUIST_MARGIN, 1.0);
+        assert_eq!(ZOOM_DETAIL_KM_SHORE_BAND, 0.035);
+        assert_eq!(KM_OCTAVE_ROTATION, 2.399963229728653);
+        assert_eq!(ZOOM_DETAIL_KM_TAPER_CELL_KM, 1.5625);
+        assert_eq!(ZOOM_DETAIL_KM_ELEVATION_GAIN, 0.3);
+        assert!(AmplifyOpts::default().km.is_none(), "the parity default must stay the reference schedule");
+    }
+
+    /// Protects: the amplitude law. At the anchor cell size and level `z =
+    /// z_base + 4`, the octaves at full weight are exactly `j = 0..=2` (top
+    /// fade `1` at half a cell; bottom fade, with the one-octave margin, `1`
+    /// down to `L·2^(z_base−z)·2 = L/8`, i.e. `j = 2`, and `0` at `j = 3`), so
+    /// the sum must equal the three hand-written octaves -- each at
+    /// `0.14·0.6·0.5^j` -- to rounding. Mutating the gain, the amplitude, the
+    /// rotation, the seed offset or either fade breaks it.
+    #[test]
+    fn the_km_sum_is_the_specified_octaves_at_the_anchor() {
+        let opts = AmplifyOpts { seed: 4242, z_base: 2, ..Default::default() };
+        let km = km_at(ZOOM_DETAIL_REF_CELL_KM);
+        let mut checked = 0;
+        for k in 0..64 {
+            let (cx, cy) = (3.0 + k as f64 * 0.731, 5.0 + k as f64 * 0.377);
+            let got = km_zoom_detail_sum(cx, cy, 6, &opts, &km);
+            let (gx, gy) = (cx * ZOOM_DETAIL_REF_CELL_KM, cy * ZOOM_DETAIL_REF_CELL_KM);
+            let want: f64 = (0..=2).map(|j| octave_by_hand(gx, gy, j, 4242)).sum();
+            assert!((got - want).abs() < 1e-12, "k={k}: {got} vs {want}");
+            assert!(got != 0.0);
+            checked += 1;
+        }
+        assert_eq!(checked, 64);
+    }
+
+    /// Protects: the kilometre keying. The same ground (same km position) on
+    /// a grid half as fine (cells twice as wide), one level **deeper** so the
+    /// finest octave is the same wavelength in km (`λ_min = L·2^(z_base−z)`:
+    /// doubling `L` is undone by one more level), gets **the same octaves**
+    /// -- the only difference is octave `j = −1` (one anchor cell), which the
+    /// finer grid carries itself (top fade `0`) and the coarser one lacks
+    /// below its own cell (top fade `1`). Under the reference schedule, keyed
+    /// to cells, the two would share nothing.
+    #[test]
+    fn the_same_km_gets_the_same_octaves_whatever_the_grid() {
+        let opts = AmplifyOpts { seed: 99, z_base: 2, ..Default::default() };
+        let (fine, coarse) = (km_at(ZOOM_DETAIL_REF_CELL_KM), km_at(2.0 * ZOOM_DETAIL_REF_CELL_KM));
+        for k in 0..40 {
+            let (gx, gy) = (7.3 + k as f64 * 0.91, 2.1 + k as f64 * 0.53);
+            let a = km_zoom_detail_sum(gx / fine.km_per_cell, gy / fine.km_per_cell, 6, &opts, &fine);
+            let b = km_zoom_detail_sum(gx / coarse.km_per_cell, gy / coarse.km_per_cell, 7, &opts, &coarse);
+            let only_coarse = octave_by_hand(gx, gy, -1, 99);
+            assert!((b - a - only_coarse).abs() < 1e-12, "k={k}: {b} - {a} != {only_coarse}");
+        }
+    }
+
+    /// Protects: the taper law -- the slope term in ground units with the
+    /// `×8` at a 1.5625 km cell (×4 per cell at the 800 km / 2048 anchor; the
+    /// same ground on a grid half as fine reads the same), the elevation term
+    /// that keeps mountains from collapsing to the floor, the floor on low flat
+    /// ground, and the shore fade to exactly zero at sea level. Literals.
+    #[test]
+    fn the_km_taper_is_ground_scaled_floored_and_fades_at_the_shore() {
+        let a = km_at(ZOOM_DETAIL_REF_CELL_KM);
+        let b = km_at(2.0 * ZOOM_DETAIL_REF_CELL_KM);
+        let low = 0.42 + 0.058; // 10 % of the land range: elev term 0.03
+        let close = |x: f64, y: f64| (x - y).abs() < 1e-9;
+        assert!(close(km_relief_taper(0.003, 0.004, low, 0.42, &a), 0.16)); // min(1, 8·0.005·4)
+        assert!(close(km_relief_taper(0.006, 0.008, low, 0.42, &b), 0.16)); // ground units
+        assert!(close(km_relief_taper(0.0, 0.0, low, 0.42, &a), 0.05)); // the floor
+        assert!(close(km_relief_taper(0.0, 0.0, 1.0, 0.42, &a), 0.3)); // a summit on a flat swell
+        assert!(close(km_relief_taper(0.0, 0.0, 0.42 + 0.29, 0.42, &a), 0.15)); // half the land range
+        assert_eq!(km_relief_taper(0.03, 0.04, 0.42, 0.42, &a), 0.0); // the shore
+        let mid = km_relief_taper(0.003, 0.004, 0.42 + 0.0175, 0.42, &a);
+        assert!(close(mid, 0.08), "half the band is smoothstep(0.5) = 0.5 of 0.16: {mid}");
+    }
+
+    /// Protects: what the law must never do -- move the coastline (no cell
+    /// crosses sea level in either direction, the Ruling O guard kept) or
+    /// touch water -- and that it does change land (so the identity is not
+    /// between two nothings).
+    #[test]
+    fn the_km_law_never_moves_the_coast_and_does_move_land() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 5);
+        let base = AmplifyOpts { seed: 4242, sea: 0.42, ..Default::default() };
+        let km = AmplifyOpts { km: Some(KmZoomDetail { strength: 6.0, ..km_at(ZOOM_DETAIL_REF_CELL_KM) }), ..base };
+        let (mut moved, mut total) = (0usize, 0usize);
+        for z in [5i32, 7, 9] {
+            let n = pyramid_dims(z).cols;
+            for (col, row) in [(0, 0), (n / 2, n / 2), (n - 1, n - 1)] {
+                let id = ChunkId::new(z as u32, col, row);
+                let (r, _) = tile_path(&src, (cw, ch), id, (32, 32), &AmplifyOpts { z_base: z, ..base });
+                let (k, _) = tile_path(&src, (cw, ch), id, (32, 32), &km);
+                for (a, b) in r.iter().zip(&k) {
+                    assert_eq!((*a as f64) < 0.42, (*b as f64) < 0.42, "a cell crossed sea level");
+                    if (*a as f64) < 0.42 {
+                        assert_eq!(a.to_bits(), b.to_bits(), "water was given octaves");
+                    }
+                    moved += (a != b) as usize;
+                    total += 1;
+                }
+            }
+        }
+        assert!(moved * 4 > total, "the law moved only {moved} of {total} texels");
+    }
+
+    /// Protects: seam continuity under the km law, numerically -- two
+    /// horizontally and two vertically adjacent tiles at the same level agree
+    /// **bit for bit** on their shared edge, and the point query is the tile
+    /// texel for texel (EF-0's identity, now with `km` set).
+    #[test]
+    fn the_km_law_is_seam_exact_and_matches_the_point_query() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 3);
+        let opts = AmplifyOpts { seed: 7, sea: 0.42, km: Some(km_at(0.9)), ..Default::default() };
+        let (tw, th) = (24usize, 18usize);
+        let mut edges = 0;
+        for z in [3i32, 6] {
+            let (l, bl) = tile_path(&src, (cw, ch), ChunkId::new(z as u32, 2, 1), (tw, th), &opts);
+            let (r, _) = tile_path(&src, (cw, ch), ChunkId::new(z as u32, 3, 1), (tw, th), &opts);
+            let (d, _) = tile_path(&src, (cw, ch), ChunkId::new(z as u32, 2, 2), (tw, th), &opts);
+            for y in 0..th {
+                assert_eq!(l[y * tw + tw - 1].to_bits(), r[y * tw].to_bits(), "z={z} vertical seam row {y}");
+                edges += 1;
+            }
+            for x in 0..tw {
+                assert_eq!(l[(th - 1) * tw + x].to_bits(), d[x].to_bits(), "z={z} horizontal seam col {x}");
+                edges += 1;
+            }
+            for oy in 0..th {
+                for ox in 0..tw {
+                    let cx = bl.x + ox as f64 / (tw as f64 - 1.0) * bl.w;
+                    let cy = bl.y + oy as f64 / (th as f64 - 1.0) * bl.h;
+                    assert_eq!(sample_elevation(&src, cw, ch, cx, cy, z, &opts).to_bits(), l[oy * tw + ox].to_bits());
+                }
+            }
+        }
+        assert_eq!(edges, 2 * (tw + th));
+    }
+
+    /// Protects: the Ruling O guard inside the km branch, on its own. Land a
+    /// hair above the shore band (`sea + 0.04`) under an absurd strength (the
+    /// sum is then many times the headroom): no texel may reach sea level, and
+    /// some must have been pushed toward it (so the guard is what held).
+    #[test]
+    fn the_km_branch_keeps_the_sea_level_guard() {
+        let (cw, ch) = (32usize, 32usize);
+        let coarse: Vec<f32> = (0..cw * ch).map(|i| (0.46 + 0.01 * ((i % cw) as f64 * 0.7).sin()) as f32).collect();
+        let opts = AmplifyOpts { seed: 3, sea: 0.42, km: Some(KmZoomDetail { strength: 200.0, ..km_at(ZOOM_DETAIL_REF_CELL_KM) }), ..Default::default() };
+        let b = FloatRegion { x: 4.0, y: 4.0, w: 6.0, h: 6.0 };
+        let mut data = vec![0.46f32; 64 * 64];
+        add_zoom_detail(&mut data, 64, 64, &coarse, cw, ch, &b, 9, &opts);
+        assert!(data.iter().all(|&v| v as f64 > 0.42), "a land texel reached sea level");
+        assert!(data.iter().filter(|&&v| (v as f64) < 0.441).count() > 50, "premise: the sum pushed land toward the sea");
     }
 }

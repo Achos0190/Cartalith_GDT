@@ -956,6 +956,7 @@ impl LodSnapshot {
             age: self.age.as_ref().map(|v| v.as_slice()),
             resistance: self.resistance.as_ref().map(|v| v.as_slice()),
             flow_log_max: self.flow_log_max,
+            zoom_detail_km: self.appearance.zoom_detail_km,
         }
     }
 

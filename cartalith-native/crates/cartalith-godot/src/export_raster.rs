@@ -3106,22 +3106,32 @@ mod adjust_census_tests {
     /// river sRGB, screen P3, river P3, export, banded, crop, tile, and the
     /// look's serde fingerprint. Produced by the scratch-copy run described in
     /// the module doc (its `CENSUS` lines), pasted here as literals.
+    ///
+    /// RE-BASELINED 2026-10-17 under Ruling CI: the **fingerprint column
+    /// only** (the ninth value of each row), because `TerrainAppearance`
+    /// gained the serialized field `zoom_detail_km` and the fingerprint is an
+    /// FNV of the serde form. Old -> new: default `ea8691108a897fa0` ->
+    /// `3ae68caf0cc64d0e`, graded `cfc5d3f4dc66e810` -> `5c4b177db1ce9572`,
+    /// antique `1d6fa0edc379f9d7` -> `155dcc21713e6655`, js_reference
+    /// `fb1b2e64b074ba0f` -> `8c59eab2f6ee4305`. Every pixel hash (32 of
+    /// them) is unchanged: this census's tile carries no map width, so it
+    /// runs the reference zoom schedule under every look.
     const HEAD: [(&str, [u64; 9]); 4] = [
         (
             "default",
-            [0xa3d12df5e0e726cd, 0xe1c6867c1f35d71f, 0x4f3245d15687bd75, 0xeefe6a4e9d5f1c4f, 0xe909cb087849684d, 0xe909cb087849684d, 0xd9e0a589f252b630, 0x1529424941caaa58, 0xea8691108a897fa0],
+            [0xa3d12df5e0e726cd, 0xe1c6867c1f35d71f, 0x4f3245d15687bd75, 0xeefe6a4e9d5f1c4f, 0xe909cb087849684d, 0xe909cb087849684d, 0xd9e0a589f252b630, 0x1529424941caaa58, 0x3ae68caf0cc64d0e],
         ),
         (
             "graded",
-            [0x8ea4fd42575c918c, 0x370b8d5ca0dd36ae, 0x30e6a46775a72de5, 0x82e42e1defe70a94, 0xda8203896589efdd, 0xda8203896589efdd, 0x5c125e1f51dd61ce, 0x3ec6dd185af837d1, 0xcfc5d3f4dc66e810],
+            [0x8ea4fd42575c918c, 0x370b8d5ca0dd36ae, 0x30e6a46775a72de5, 0x82e42e1defe70a94, 0xda8203896589efdd, 0xda8203896589efdd, 0x5c125e1f51dd61ce, 0x3ec6dd185af837d1, 0x5c4b177db1ce9572],
         ),
         (
             "antique",
-            [0x6e52ce623837583d, 0x2886ed234fd1e12a, 0x08bb3a954427c2da, 0x8e8b2ff792ee83a3, 0x1fe1e88c276a680b, 0x1fe1e88c276a680b, 0x329fe2a3c648b742, 0xf6dccf528d383567, 0x1d6fa0edc379f9d7],
+            [0x6e52ce623837583d, 0x2886ed234fd1e12a, 0x08bb3a954427c2da, 0x8e8b2ff792ee83a3, 0x1fe1e88c276a680b, 0x1fe1e88c276a680b, 0x329fe2a3c648b742, 0xf6dccf528d383567, 0x155dcc21713e6655],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xfb1b2e64b074ba0f],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x8c59eab2f6ee4305],
         ),
     ];
 

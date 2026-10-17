@@ -1456,6 +1456,36 @@ pub struct TerrainAppearance {
     /// from the grid sweep and proves it on a tile instead, exactly as it
     /// does for [`Self::ice_strength`].
     pub detail_scale_strength: f64,
+    /// **Ruling CI item 1** (owner, 2026-10-17): the deep-zoom tiles' zoom
+    /// detail keyed to **kilometres** (`cartalith_terrain::amplify::
+    /// KmZoomDetail`) instead of the reference's per-coarse-cell octave
+    /// schedule, scaled by this number.
+    ///
+    /// Why: `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §4 measured detail
+    /// per screen pixel falling at every zoom step past about x4, and the
+    /// owner made "zoom gains detail at every level" a hard requirement and
+    /// approved this change as an app-side re-baseline (`DECISIONS.md` §7p).
+    ///
+    /// **`0.0` is the reference schedule by control flow**, not a zero
+    /// amplitude: [`tile_amplify_opts`] leaves `AmplifyOpts::km` at `None`,
+    /// and `add_zoom_detail` then runs the reference's own branch, so
+    /// [`Self::js_reference`] (which pins `0.0`) and every tile golden are
+    /// byte-identical to before the field existed. Above `0.0` it multiplies
+    /// the law's octave amplitudes (`1.0` is the reference's own first-octave
+    /// coefficient, `detail_amp · 0.6`). **`default()` ships `2.0`, a labelled
+    /// judgement from the windowed Ruling CI zoom ladder** (`DECISIONS.md` §7p,
+    /// sixteen crops on four worlds): the median per-pixel luminance gradient
+    /// goes 1.58 → 2.89 from x4 to x64 (the reference schedule: 1.58 → 0.41);
+    /// `1.5` and `3.0` both also hold it, and `2.0` was read as the strongest
+    /// that still looks like rough ground on every crop rather than grain.
+    /// The range is `0..=4`.
+    ///
+    /// **A tile stage only, and it never reaches the main map**: the base
+    /// raster, the 4096 export and the fit view do not run `add_zoom_detail`
+    /// at all, so the fit view is untouched by construction. It needs the map
+    /// width ([`RenderCtx::map_width_km`]); a context without one keeps the
+    /// reference schedule rather than guessing a width.
+    pub zoom_detail_km: f64,
     /// **v2.25's `tileShadeExag(bounds, W)`** (`RC_ENGINE_CHANGES.md` §4,
     /// followed under Ruling AP): a tile's hillshade exaggeration is scaled
     /// by tile pixels per coarse cell, `(W - 1) / bounds.w`, clamped at `1`
@@ -2310,6 +2340,11 @@ impl Default for TerrainAppearance {
             // per cell this changes no pixel whatever this number is. The
             // `0.0` that matters is `js_reference`'s.
             detail_scale_strength: 1.0,
+            // Ruling CI item 1: the kilometre-keyed zoom detail, on in the
+            // shipped look at the strength the windowed zoom ladder chose
+            // (see the field). `js_reference()` pins `0.0` (the reference
+            // schedule, by control flow).
+            zoom_detail_km: 2.0,
             // v2.25 `tileShadeExag` (RC_ENGINE_CHANGES.md §4, Ruling AP): on
             // in the shipped look. `js_reference()` pins `false`.
             tile_shade_exag_scaled: true,
@@ -2666,6 +2701,10 @@ impl TerrainAppearance {
             // branch — see the field's own doc comment for why the identity
             // is safe here where `ice_strength` needed a branch.
             detail_scale_strength: 0.0,
+            // Ruling CI item 1, same rule: the reference's tile runs its own
+            // per-cell octave schedule, and `0.0` keeps `AmplifyOpts::km` at
+            // `None` so `add_zoom_detail` takes that branch by control flow.
+            zoom_detail_km: 0.0,
             // Ruling AS: `default()` turns the ocean lattice fix on, so the
             // parity path pins the reference's own axis-aligned sea-grain
             // lattice here rather than inheriting it. `sea_grain` returns the
@@ -2884,6 +2923,10 @@ tunables! {
     // -- LOD-D5: the same three bands, re-balanced by how far past the
     //    simulation grid the view has zoomed. A tile stage only --
     "detail_scale_strength" => detail_scale_strength, 0.0,   1.0,  "Scale-aware detail";
+    // -- Not a reference row (Ruling CI item 1): the deep-zoom detail keyed
+    //    to kilometres; `0.0` is the reference's per-cell schedule exactly.
+    //    `4.0` is a labelled judgement: twice the shipped `2.0` --
+    "zoom_detail_km"        => zoom_detail_km,        0.0,   4.0,  "Zoom detail (km)";
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
@@ -4119,6 +4162,13 @@ pub struct RenderCtx<'a> {
     /// built by [`GridPrecompute::build_split`], with
     /// [`Self::with_precomputed_water_height`].
     water_field: Option<&'a [f32]>,
+    /// The world's map width in km when the caller supplied one
+    /// ([`GridPrecompute::build`]'s `map_width_km`, or
+    /// [`Self::with_map_scale`]); `None` otherwise, and `None` means **no
+    /// scale is known** -- never a guessed width. Read by
+    /// [`tile_amplify_opts`] alone (Ruling CI's kilometre zoom detail), which
+    /// keeps the reference schedule without it.
+    map_width_km: Option<f64>,
 }
 
 /// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
@@ -4164,6 +4214,10 @@ pub struct GridPrecompute {
     /// empty means curvature reads the field itself.
     relief_h: Vec<f32>,
     river_thresh: f64,
+    /// The `map_width_km` this was built with, handed to every context
+    /// [`RenderCtx::from_precomputed`] makes from it (Ruling CI's kilometre
+    /// zoom detail reads it). `None` when built without one.
+    map_width_km: Option<f64>,
     /// The grid this was built for, so [`RenderCtx::from_precomputed`] can
     /// refuse a mismatched one rather than index out of bounds — a panic here
     /// crosses the gdext boundary (`cartalith-rust-conventions`).
@@ -4280,7 +4334,7 @@ impl GridPrecompute {
                 biome_bd = grid_biome_boundary_dist(water, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
             }
         }
-        GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, relief_h, river_thresh, gw, gh }
+        GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, relief_h, river_thresh, map_width_km, gw, gh }
     }
 
     /// Retained bytes — the figure `LOD_DETAIL_SCOPE.md`'s Android line needs,
@@ -4367,6 +4421,7 @@ impl<'a> RenderCtx<'a> {
             lake_class: None,
             river_layer: None,
             water_field: None,
+            map_width_km: None,
         }
     }
 
@@ -4440,6 +4495,7 @@ impl<'a> RenderCtx<'a> {
             lake_class: None,
             river_layer: None,
             water_field: split.then_some(water),
+            map_width_km: None,
         }
     }
 
@@ -4508,6 +4564,7 @@ impl<'a> RenderCtx<'a> {
             lake_class: None,
             river_layer: None,
             water_field: None,
+            map_width_km: p.map_width_km,
         })
     }
 
@@ -4568,6 +4625,8 @@ impl<'a> RenderCtx<'a> {
         // supplied, not only when the grid's own SDF stage is on, so a tile
         // can draw river bands on a map whose grid raster does not.
         self.river_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+        // Ruling CI: the width the kilometre zoom detail keys on.
+        self.map_width_km = Some(map_width_km);
         if self.appearance.sdf_biomes > 0.0 {
             // The world's height, not the shaded one (RV-3): this classifies
             // water bodies.
@@ -4649,6 +4708,13 @@ impl<'a> RenderCtx<'a> {
     #[allow(dead_code)]
     pub fn appearance(&self) -> &TerrainAppearance {
         &self.appearance
+    }
+
+    /// The map width in km this context was given, or `None` when it was
+    /// given none (see the field). Reads only.
+    #[allow(dead_code)]
+    pub fn map_width_km(&self) -> Option<f64> {
+        self.map_width_km
     }
 
     /// Attach the rivers rasterized at grid resolution ([`RiverLayer`], one
@@ -10972,6 +11038,56 @@ pub fn tile_river_seeds(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds)
         }
     }
     (mask, thresh)
+}
+
+/// **The amplify options a deep-zoom tile is synthesised with** -- the one
+/// place `lod_bridge::tile_heights`, `info_tile.rs` and the zoom-ladder
+/// harness (`tests/zoom_detail_ladder.rs`) get them from, so the drawn
+/// terrain, the info views over it and the measurement cannot disagree.
+///
+/// `seed` is the world's, `sea` the context's, `z_base` the caller's tile-size
+/// schedule (`lod_bridge::z_base`). The reference's defaults supply the rest.
+///
+/// **Ruling CI item 1** (owner, 2026-10-17): when
+/// [`TerrainAppearance::zoom_detail_km`] is above zero **and** the context
+/// carries a map width, `km` is set to
+/// `cartalith_terrain::amplify::KmZoomDetail` at that strength and the shipped
+/// gain, floor and cap -- `add_zoom_detail` then keys its octaves to
+/// kilometres. Otherwise `km` stays `None` and the tile is the reference's own
+/// schedule by control flow: `js_reference()` (`0.0`) and a context built
+/// without a width (no scale known; never a guessed one) both land there.
+///
+/// Never reached by the engine's bake, region/slippy export or EF-0 point
+/// query, which build their own opts from `AmplifyOpts::default()` and stay
+/// the JS-parity data products (`DECISIONS.md` §7p, the Ruling CI entry).
+pub fn tile_amplify_opts(ctx: &RenderCtx, seed: i32, z_base: i32) -> cartalith_terrain::amplify::AmplifyOpts {
+    let km = zoom_detail_km_law(ctx.map_width_km, ctx.gw, ctx.appearance.zoom_detail_km);
+    cartalith_terrain::amplify::AmplifyOpts { seed, sea: ctx.sea_level, z_base, km, ..cartalith_terrain::amplify::AmplifyOpts::default() }
+}
+
+/// Ruling CI's kilometre law for a world `gw` cells wide over `map_width_km`,
+/// at `strength` ([`TerrainAppearance::zoom_detail_km`]) -- or `None`, the
+/// reference schedule, when the strength is not above zero or the width is
+/// absent or not a positive finite number. Shared by [`tile_amplify_opts`]
+/// and `info_tile.rs` (whose source carries a width but no `RenderCtx`), so
+/// the terrain tiles and the info views over them run one law.
+pub fn zoom_detail_km_law(map_width_km: Option<f64>, gw: usize, strength: f64) -> Option<cartalith_terrain::amplify::KmZoomDetail> {
+    use cartalith_terrain::amplify::{
+        KmZoomDetail, ZOOM_DETAIL_KM_ELEVATION_GAIN, ZOOM_DETAIL_KM_MAX_OCTAVES, ZOOM_DETAIL_KM_NYQUIST_MARGIN, ZOOM_DETAIL_KM_OCTAVE_GAIN,
+        ZOOM_DETAIL_KM_RELIEF_FLOOR,
+    };
+    match map_width_km {
+        Some(w) if strength > 0.0 && w.is_finite() && w > 0.0 && gw > 0 => Some(KmZoomDetail {
+            km_per_cell: cartalith_spatial::cell_km(w, gw),
+            octave_gain: ZOOM_DETAIL_KM_OCTAVE_GAIN,
+            strength,
+            relief_floor: ZOOM_DETAIL_KM_RELIEF_FLOOR,
+            max_octaves: ZOOM_DETAIL_KM_MAX_OCTAVES,
+            nyquist_margin: ZOOM_DETAIL_KM_NYQUIST_MARGIN,
+            elevation_gain: ZOOM_DETAIL_KM_ELEVATION_GAIN,
+        }),
+        _ => None,
+    }
 }
 
 /// `tileShadeExag(bounds, W)` (DCC line v2.25, `RC_ENGINE_CHANGES.md` §4) —

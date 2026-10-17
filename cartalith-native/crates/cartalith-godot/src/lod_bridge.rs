@@ -568,7 +568,11 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
         return None;
     }
     let bounds = tile_bounds(gw, gh, z, col, row)?;
-    let opts = AmplifyOpts { seed, sea: ctx.sea_level, z_base: zb, ..AmplifyOpts::default() };
+    // `render::tile_amplify_opts`: the reference's opts, plus Ruling CI's
+    // kilometre zoom detail when the look asks for it and the context knows
+    // its map width (the info tiles and the zoom-ladder harness ask the same
+    // function, so they cannot disagree with this tile).
+    let opts = render::tile_amplify_opts(ctx, seed, zb);
     // `pyramid_tile` sizes itself with the same `tile_dims` call; taking the
     // dimensions from `tile_size_px` and checking rather than reading them
     // off the result is what lets a caller (`viewport_host.gd`'s tile rect,
@@ -1557,7 +1561,18 @@ mod tests {
     #[test]
     fn a_conformed_tile_meets_its_coarser_neighbour_in_colour() {
         let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
-        let ctx = tw.ctx();
+        // The reference zoom schedule (`zoom_detail_km = 0`), on which the
+        // numbers below were measured: there level 5 carries one octave more
+        // than level 4, which is the mixed-level step conforming exists to
+        // close. Under Ruling CI's kilometre law (the shipped look, 2026-10-17)
+        // neither level carries an octave on this 256-cell fixture (both sit
+        // above the law's one-octave margin), the two tiles' heights agree at
+        // the shared edge before any conform, and the plain seam measured
+        // 3.09 levels against 4.63 here -- so this test pins the conform
+        // wiring on the schedule where it has something to do.
+        let a = render::TerrainAppearance { zoom_detail_km: 0.0, ..TestWorld::appearance() };
+        let ctx = render::RenderCtx::from_precomputed(&tw.field, &tw.temp, &tw.rain, Some(&tw.field), tw.gw, tw.gh, TEST_SEA, false, 55.0, 5.0, a, &tw.pre)
+            .expect("the precompute is for this grid");
         let tf = tw.fields(&ctx);
         let (zc, cc, rc) = (4, 11, 7);
         let (zf, cf, rf) = (zc + 1, 2 * (cc + 1), 2 * rc); // NW child of (12, 7): W and SW lie in (11, 7)
@@ -2316,6 +2331,16 @@ mod tests {
     /// | 16 | 5 | 0.011305 | 0.009412 |
     /// | 24 | 6 | 0.010940 | 0.007292 |
     /// | 40 | 6 | 0.010940 | 0.007292 |
+    ///
+    /// **2026-10-17, Ruling CI:** the table above is the reference zoom
+    /// schedule. The fixture's look now ships `zoom_detail_km = 2.0` (the
+    /// kilometre law) and the same run reads, on / off: zoom 4 0.030967 /
+    /// 0.030656, 8 0.020189 / 0.020803, 16 0.012774 / 0.014616, 24 and 40
+    /// 0.022809 / 0.023688 -- level 6 up about 2x, and the statistic still
+    /// dips at level 5 on this 512-cell synthetic dome, whose relief is one
+    /// smooth bump. The bar is judged on real worlds by the windowed zoom
+    /// ladder (`_zoomdetail_probe.gd`, `DECISIONS.md` §7p), not here; finding 1
+    /// below describes the reference schedule, which `js_reference()` keeps.
     ///
     /// It **falls** on both sides. Two findings, and they are separate:
     ///
