@@ -25,6 +25,11 @@ extends Node
 ## and this machine's `cartalith_settings.cfg` boots `mode="light"`.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _datapane_probe.tscn
+## Result: an assertion (CRLF file), run headless as the header shows (`--headless --path . _datapane_probe.tscn`).
+## Prints `DP ok  |FAIL  <name>` rows, `[2]`, `[2b]`, `[3]`, `[4]`, `[5]` section banners, `DP      pattern (<n>): ...` /
+## `bespoke (<n>): ...` / `document layers: ...` info lines and a closing `=== DATA PANE OK|FAILED (<n>) ===`. It forces
+## the dark palette and refuses otherwise (`DP FAIL  could not force the dark palette -- refusing to run`, exit 1). Exit
+## 0 when no check failed, 1 otherwise.
 
 const OUT_PATH := "user://_datapane_probe_out.geojson"
 

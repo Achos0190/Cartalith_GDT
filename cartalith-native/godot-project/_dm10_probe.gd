@@ -33,6 +33,12 @@ extends Node
 ##   Headless is fine here: nothing below reads a pixel. Every claim is over
 ##   the node tree, node properties and engine return values.
 ##     Godot_v4.7.1-stable_win64_console.exe --headless --path . _dm10_probe.tscn
+## Result: an assertion. Forces the dark palette and refuses otherwise (`DM10 FAIL  could not force the dark palette --
+## refusing to run`, exit 1). The header gives both forms: windowed (`--path . _dm10_probe.tscn`, which captures
+## screenshots) and headless (`--headless ...`, nothing it asserts reads a pixel; it prints `DM10      (no capture:
+## headless)`). Prints `DM10 ok  |FAIL  <name>`, `DM10      density=... headless=... palette=dark`, `[1]` to `[6]`
+## banners, `DM10      shot <tag> ... -> <path>` when windowed and `=== DM-10 CHECKS OK|FAILED (<n>) ===`. Exit 0 when no
+## check failed, 1 otherwise.
 
 var app: Node
 var dm: DataManagerWindow

@@ -23,6 +23,15 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with a transcript, several modes. Prints `[1]` to `[6]` phase banners with `  PASS  |  FAIL
+## <label>  got=<> want=<>` rows, `windows after back`, `prompt class/title`, `buttons:`, `body:` and `smallest button
+## height` info lines, and ends each pass with `=== ALL CHECKS PASSED ===` or `=== <n> FAILED ===`. The header's default
+## form is `--resolution 393x852 _backnav_probe.tscn -- --force-touch` (phone passes); the desktop close-box pass runs
+## only in the desktop composition. Extra flags it reads: `--hold` (prints its pid and waits for a real WM_CLOSE),
+## `--hatch=asked|noworld` (sends a real `WM_CLOSE_REQUEST`; a pass exits there, `=== FAIL: the escape hatch did not quit
+## ===` and exit 1 otherwise, exit 2 for an unknown mode) and `--resolve=discard|save|cancel` (presses one prompt answer
+## and reports through the exit code, 2 for an unknown mode). The header names no headless/windowed requirement. Exit 0
+## when no check failed, 1 otherwise.
 
 var app: Node
 var _fails: Array[String] = []

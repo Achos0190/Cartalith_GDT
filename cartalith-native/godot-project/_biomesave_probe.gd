@@ -31,6 +31,12 @@ extends SceneTree
 ##     that opens it had an edited one (absent = default, not "keep");
 ##  4. a `biome_cols` of the wrong length opens with the default table and a
 ##     warning, and the rest of the appearance still comes back.
+## Result: an assertion (`extends SceneTree`, run with `--script res://_biomesave_probe.gd`, no `.tscn`; the header's
+## command line gives `--headless`). Two modes: `-- --capture <out.zip>` prints `capture: <ok> <error>` and the written
+## `appearance.json`, exits 0 when the save worked and 1 otherwise; `-- --legacy <zip>` runs the full check, printing
+## indented info lines and `  FAIL: <reason>` per miss, ending `PASS: biome colours persist; ...` and exit 0, or `FAIL:
+## <n> checks failed` and exit 1. Exit 2 for a missing `--legacy` or for an unknown or incomplete argument (`FAIL:
+## unknown or incomplete argument <arg>`).
 
 const EDIT_INDEX := 3
 const EDIT_RGB := [12, 200, 77]

@@ -60,6 +60,13 @@ extends Node
 ## Exit 0 pass, 1 a real assertion failed, 2 the premise could not be set up
 ## (no `.gdextension`, generation failed, or the world never produced a real
 ## cold/high land cell to anchor the pixel-level check on).
+## Result: an assertion with a timing section, windowed only (the header's command adds `--resolution 1600x900`;
+## `_glaciallodkey_probe.tscn`). Prints `  ok   <name>  [detail]` rows (failures go to stderr as `  FAIL <name>`),
+## `[BOOT] shell up`, `=== 1: ... ===` to `=== 5: ... ===` banners, `  info pivot cell ...` and `  HIT|MISS|FIX ...
+## median <ms> ms (min..max, n=<n>)` timing rows, and `RESULT <n> checks, <n> failed`. Exit 0 when no check failed, 1
+## otherwise, 2 when the premise could not be set up (`PROBE-CANNOT-RUN: ...` for headless, extension not loaded, no
+## bridge or no `lod_synthesize_tile` forwarder, generation never finished; `[ABORT] ...` for no world, no freezing land,
+## no tile).
 
 var _fail := 0
 var _checks := 0

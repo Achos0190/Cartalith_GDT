@@ -26,6 +26,10 @@ extends Node
 ##   3. without the province raster: `project_open` warns, there is no
 ##      boundary overlay (no panic), the province list is kept, and one
 ##      committed territory stroke brings the overlay back.
+## Result: an assertion, windowed only (the header's command is `--path . --resolution 1600x1000
+## _claimsabsent_probe.tscn`). Every line is prefixed `CLAIMSABSENT `: `ok  |FAIL <what>` rows and `RESULT PASS|FAIL
+## checks=<n> fails=<n>`. Under `--headless` it prints `CLAIMSABSENT REFUSED: headless` and exits 2; `CLAIMSABSENT
+## WATCHDOG` exits 3; otherwise exit 0 when no check failed and 1 when one did.
 
 var _fails := 0
 var _checks := 0

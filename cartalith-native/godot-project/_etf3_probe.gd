@@ -41,6 +41,13 @@ extends Node
 ## Arguments: --out DIR (required), --seed N (483920), --grid WxH (512x328), --oldzip PATH,
 ## --identity. An unknown argument refuses to run.
 ## Exit 0 = every check held; 1 = a check failed; 2 = could not run (headless, no world).
+## Result: an assertion, windowed only. Command per the header: `res://_etf3_probe.tscn -- --out DIR [--oldzip P]` or `--
+## --out DIR --identity` (`--out` required; `--seed N` default 483920, `--grid WxH` default 512x328, `--oldzip PATH`,
+## `--identity`; an unknown argument refuses to run). Prints `ETF3  ok    <what>`, `PROBE-FAIL ETF3  <what>` per miss,
+## `ETF3  note` / `ETF3  info` lines and `ETF3  RESULT checks=<n> fail=<n>`; stderr carries `PROBE-CANNOT-RUN: ...`
+## (headless, bad argument, no world, no RenderWorkspace, 1200 s watchdog). `--identity` writes `entries.txt` (each
+## archive entry with its SHA-256) into `--out` for a comparison across trees. Exit 0 = every check held, 1 = a check
+## failed, 2 = could not run.
 
 const RW := preload("res://shell/workspaces/render_workspace.gd")
 const SLOT := "appearance_style.json"

@@ -9,6 +9,10 @@ extends Node
 ## null`), so a headless run cannot read a pixel back at all -- which is
 ## exactly how a stylebox-shaped test came to pass while the pixels were wrong.
 ## A real Vulkan context is the only configuration that can answer this.
+## Result: an assertion on pixels, windowed only; the header's command adds `--rendering-driver vulkan --resolution
+## 320x200`. Prints `  PASS  |  FAIL  <what>` rows, `  [<tag>] bbox=...` readings, `[BOOT] godot <version>  dark=...`,
+## `[1]` to `[5]` banners and a closing `[RESULT] fails=<n>`. Exit 0 when no check failed, 1 otherwise; `[FATAL] no image
+## -- run WITHOUT --headless` exits 1 when the viewport image is null.
 
 var fails := 0
 var _vp: SubViewport

@@ -59,6 +59,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a survey with a failure count. Header command: `--path . _deadwire_probe.tscn` (no headless/windowed
+## requirement named). Prints `DEADWIRE  <text>` lines, per window and dock `---- <title> : <n> controls, <n>
+## interactive, <n> UNWIRED, <n> dead-silent, <n> gated`, a `---- verdict on DISABLED controls` section and `DEADWIRE
+## DONE fail=<n>`. Exit 0 when `_fail` is 0, 1 otherwise, 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var _app: Node
 var _bridge

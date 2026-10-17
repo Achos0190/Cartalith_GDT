@@ -72,6 +72,10 @@ extends Node
 ## Nothing was added to the save format for this boundary, which is what makes
 ## that phase's claim strong rather than circular: the fixture is the previous
 ## writer's own output and it needs no field the previous writer never emitted.
+## Result: an assertion, three phases in separate processes (CRLF file): `-- --phase save`, `-- --phase open`, `--
+## --phase legacy --archive <path>`. Windowed, not `--headless`. Every line is prefixed `CMK `: `ok  |FAIL <name>`, `---
+## phase SAVE|OPEN|LEGACY ... ---` banners and a final `CMK PASS|FAIL -- <n> failure(s)`. Exit 0 when no check failed, 1
+## otherwise, 2 for an unrecognised argument, a missing or unknown `--phase`, or `legacy` without `--archive`.
 
 var _app: Node
 var _bridge: Node

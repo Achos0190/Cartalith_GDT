@@ -24,6 +24,11 @@ extends Node
 ##
 ## and eight `action()` buttons carried minimum widths of 434-753 px inside
 ## collapsed sections, waiting for the first reader to open one.
+## Result: an assertion, run headless as the header shows (`--headless --path . --resolution 1600x900
+## _ds03fit_probe.tscn`, with and without `-- --force-touch`). Prints `  ok  |FAIL  <name>   got= want=` rows, `[BOOT]
+## force-touch=<b>`, `[MODE] touch=... tablet=...`, `-- <section> --` banners, `  world: has_world=<b> (<n> frames)` and
+## `_ds03fit_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL] extension did not
+## load`).
 
 var _fail := 0
 

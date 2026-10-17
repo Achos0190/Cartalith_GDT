@@ -55,6 +55,11 @@ extends Node
 ##        read off the live `CivilizationWorkspace` `Timer.paused` state --
 ##        the phone leg the residual row named as missing, matching
 ##        `_ctxring_probe.gd`'s own leg T for the desktop ring/card
+## Result: an assertion, windowed only, phone form only. Command per the header: `_ctxphone_probe.tscn -- --vp 1080x2340
+## --force-touch`. An unknown argument, a boot that is not a phone, or a build with no PhoneMenu prints `### CTXPHONE
+## ABORT: ... ###` and exits 2. Prints `PASS|FAIL  <what>  got= want=` rows and tagged state lines (`FIXTURE`, `S`, `H`,
+## `D`, `R`, `SEL`, `PW`, `PC`, `FR` ...), and `### CTXPHONE GREEN|RED <passed>/<total> checks passed ###`. Saves
+## `ctxphone_<tag>.png` captures. Exit 0 on GREEN, 1 on RED.
 
 const SEED := 552017
 

@@ -35,6 +35,13 @@ extends Control
 ## because `frame_post_draw` never delivers under `--headless`.
 ##
 ## godot4 --path . _faubgrain_probe.tscn
+## Result: an assertion on pixels, windowed only (`extends Control`; header command `godot4 --path .
+## _faubgrain_probe.tscn`). It needs `_faubgrain_town<k>_before.json` and `_faubgrain_town<k>_after.json` for four towns,
+## written by `cargo run -p cartalith-urban --example town_json` as the header shows; those JSON files are not tracked in
+## git, and a missing one makes `_load` record a failed `opens -- regenerate it` check. Prints `  PASS  |  FAIL  <what>`
+## rows and, per town, `FAUBGRAIN <town>: faubourg ... lots`, `WOBBLE ...`, `GRADIENT ...` and a building-centroid line,
+## ending `FAUBGRAIN ALL PASS|SOME FAILED (<n> failed)`. Writes `res://_faubgrain_<town>_before.png`, `_after.png`,
+## `_cluster_before.png` and `_cluster_after.png` into the project folder. Exit 0 when no check failed, 1 otherwise.
 
 const TOWNS := 4
 ## The curtain's half-stroke (`WALL_W["curtain"]` 4.5 / 2), a literal.

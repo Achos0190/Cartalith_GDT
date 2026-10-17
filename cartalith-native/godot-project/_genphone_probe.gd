@@ -30,6 +30,11 @@ extends Node
 ## `Control.size` / `get_global_rect()`, which the layout pass computes under
 ## the dummy driver exactly as it does windowed (`MISTAKES.md`'s headless row
 ## scopes itself to rasterising and timing).
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _genphone_probe.tscn --
+## --force-touch --vp 1080x2340 --tag p1080`; nothing it reads is a pixel). Flags: `--vp WxH` (default 1080x2340), `--tag
+## NAME` (default `gen`), `--world`, `--force-touch`; any other `--flag` aborts. Every line is prefixed `[<tag>] `,
+## ending `RESULT <tag> checks=<n> fail=<n>` (suffixed `(non-phone leg)` when the boot was not a phone). Exit 0 when no
+## check failed, 1 otherwise or when no `GENERATE` caption exists at launch, 2 for an unknown flag or a malformed `--vp`.
 
 var app: Node
 var _vp: SubViewport

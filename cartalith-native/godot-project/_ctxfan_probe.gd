@@ -36,6 +36,11 @@ extends Node
 ##      ground is drawn behind its label (nothing bleeds below the slot's own
 ##      circle any more), and the sub-fan's own BACK button fills in the
 ##      theme accent with a glow ring around it
+## Result: an assertion, windowed only, phone form only. Command per the header: `_ctxfan_probe.tscn -- --vp 1080x2340
+## --force-touch`. Flags: `--vp WxH`, `--force-touch`; an unknown argument, a boot that is not a phone, or a build with
+## no ToolFan prints `### CTXFAN ABORT: ... ###` and exits 2. Prints `PASS|FAIL  <what>  got= want=` rows, `FIXTURE pill
+## rect=`, `R fan bounds`, `G ...` and `L fan ... FAIL` lines and `### CTXFAN GREEN|RED <passed>/<total> checks passed
+## ###`. May save `ctxfan_sub_<tag>.png` into `CTXFAN_SHOT_DIR`. Exit 0 on GREEN, 1 on RED.
 
 const SEED := 552017
 

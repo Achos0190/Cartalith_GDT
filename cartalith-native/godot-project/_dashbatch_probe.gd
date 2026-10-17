@@ -31,6 +31,12 @@ extends Node
 ##
 ## What did move it was culling by viewport -- `map_overlay.gd`'s
 ## `_run_offscreen()`, checked by `_cull_probe`.
+## Result: a measurement with gates (pixels and Godot canvas counters), windowed only. Header command:
+## `Godot_v4.7.1-stable_win64.exe --path . _dashbatch_probe.tscn`. Every line is prefixed `DASHBATCH  `; under
+## `--headless` it prints `ABORT: this probe measures pixels and cannot run headless` and exits 2; `WATCHDOG -- probe did
+## not finish` exits 2 too. It writes `user://dashbatch_lines_*.png` and `user://dashbatch_multi_*.png`, and ends
+## `RESULT: pixels identical|<n> CHECK(S) FAILED; counters identical -- batching buys nothing|counters DIFFER -- ...`.
+## Exit 0 when no check failed (pixels identical, counters identical, neither arm nearly empty), 1 otherwise.
 
 const W := 900
 const H := 700

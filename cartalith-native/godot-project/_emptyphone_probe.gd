@@ -41,6 +41,14 @@ extends Node
 ## The density is printed beside every number because a touch floor and a drawn
 ## height are different questions at different densities (MISTAKES.md, "Judge a
 ## measurement against a floor").
+## Result: a census with some assertions. Windowed only, dark palette only: `NOT DARK -- RGB(23,23,23) is a dark-theme
+## floor; nothing measured` exits 1, `NOT PHONE -- window did not register as a handset` exits 1 and an unknown flag
+## exits 2 (`UNKNOWN ARGUMENT(S) ... refusing to run`); the watchdog exits 3. Command per the header:
+## `_emptyphone_probe.tscn -- --force-touch [flags]`; bare flags `--dismiss`, `--world`, `--pressgen`, `--desktop`, value
+## flags `--vp WxH` (default 1080x2400), `--tab ID`, `--screen ID`. Prints `=== CENSUS <tag>  <w>x<h> (phone density,
+## windowed) ===`, `blank_rows=... uniform_rows=...`, a `SURFACE / y0 / y1 / rows / blank` table, and for the assertion
+## modes `OK ...` / `FAIL: ...` lines. A completed census prints `=== done ===` and exits 0 whatever the blank-row count;
+## `--pressgen` exits 1 on a miss and 0 after `OK the empty shell's own primary makes a world`.
 
 const THRESH := 23
 const SAMPLES := 5   ## x positions per row used to name the owning surface.

@@ -29,6 +29,12 @@ extends Node
 ## light run would compare the armed pill against the wrong palette entirely.
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row.
+## Result: an assertion, windowed (the header says it also runs headless but then prints `!! DRIVER IS HEADLESS` and does
+## not earn the density and hit-test claims). Command per the header: `_ds13cluster_probe.tscn -- --force-touch
+## --nowelcome --vp 1080x2400`; `--vp WxH` is required and is refused when missing or malformed (`NO --vp WxH given; this
+## probe will not guess a density.`, exit 2). Prints `  PASS|FAIL <label> got= want=` rows, `=== DS-13 cluster ... ===`,
+## `=== 1 ... ===` to `=== 4 ... ===` banners with `  info` measurement lines and `=== <n> checks, <n> FAILED ===`. Exit
+## 0 when no check failed, 1 otherwise or when the pad is missing, 3 from the watchdog.
 
 var app: Node
 var vp: Control

@@ -31,6 +31,14 @@ extends Node
 ##      engine look sends `style.look`, changes the exported pixels, and leaves
 ##      the live map's look unchanged.
 ## Writes a screenshot `user://_exportdialog_<mode>.png` and prints its path.
+## Result: an assertion with screenshots, windowed only (CRLF file). Commands per the header: `--path . --resolution
+## 1600x1000 _exportdialog_probe.tscn` (desktop) and `--resolution 393x852 _exportdialog_probe.tscn -- --force-touch`
+## (phone); `--force-touch` is the only argument read and anything else prints `ABORT: unrecognised argument <a> -- this
+## probe reads --force-touch only` and exits 2. Prints `  ok    |  FAIL  <what>` rows, `== mode <mode>, viewport <size>
+## ==`, `== 1. menu row ==` to `== 7. look override ==` banners, `  size  <item>` rows, `SHOT <path>` per saved
+## screenshot and `RESULT: PASS|FAIL (<n> failed)`. It writes a real 2048 export to disk (section 5). Exit 0 when no
+## check failed, 1 otherwise or when the menu row or the dialog is missing, 2 from the watchdog (`WATCHDOG: the probe did
+## not finish`).
 
 var _fails := 0
 

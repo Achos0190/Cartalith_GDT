@@ -22,6 +22,11 @@ extends Node
 ## world data into their title.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _grphdr_probe.tscn
+## Result: a measurement, not an assertion: it prints and exits 0 whatever it found. Run headless as the header shows
+## (`--headless --path . _grphdr_probe.tscn`). Prints `GRP === group() header blast radius ===`, density and dock-floor
+## lines, `GRP --- A. every call site, widest first ---` rows (`demand  bare  floor  over?  host  site / title`), `GRP
+## sites=<n>  over-floor=<n>`, `GRP  demand distribution:`, per seed `GRP [seed <n>] ...` live cross-check rows and `GRP
+## === done ===`; a failed generate prints `GRP seed <n>: generate FAILED` and the run continues.
 
 const SEEDS := [483920, 77021, 4242]
 

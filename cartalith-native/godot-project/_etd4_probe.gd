@@ -25,6 +25,10 @@ extends Node
 ##
 ## Run WINDOWED (never headless):
 ##   godot --path . res://_etd4_probe.tscn -- [--force-touch --vp 1080x2340] [--tag T]
+## Result: an assertion, windowed only (CRLF file). Command per the header: `godot --path . res://_etd4_probe.tscn --
+## [--force-touch --vp 1080x2340] [--tag T]`; `--vp WxH` defaults to 1600x900 and `--tag` to `etd4`; an unknown flag
+## aborts. Every line is prefixed `[<tag>] `, ending `RESULT <tag> checks=<n> fail=<n>`. Exit 0 when no check failed, 1
+## otherwise, 2 for an unknown flag or when not windowed (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: EngineBridge

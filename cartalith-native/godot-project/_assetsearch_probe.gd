@@ -27,6 +27,11 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+## Result: an assertion on drawn pixels, windowed only. Prints `ASRCH ok  |FAIL <what>` rows, `window=... screen_dpi=...
+## palette=...`, the baseline and `query='tund'` lines and `ASRCH failures=<n>`; `_snap()` saves PNGs under
+## `user://assetsearch/` and prints `ASRCH saved <path>`. Under `--headless` it prints `ASRCH REFUSED: headless` and
+## exits 2; exit 1 when the Asset library window never opened or no search well carries `SEARCH_PLACEHOLDER`, otherwise 0
+## when no check failed and 1 when one did.
 
 ## `biomes` is the largest family in `FAMILIES` (15 frozen slots), so it is both
 ## the widest narrowing available and the worst case for `_slot_matches()`'

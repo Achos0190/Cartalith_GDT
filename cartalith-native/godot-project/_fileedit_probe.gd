@@ -7,6 +7,12 @@ extends Node
 ## Audit only: it changes nothing on disk except the settings a pressed row is
 ## meant to change, and it restores those. Every number it prints is read off
 ## the built menu, not off `menus.gd`'s source.
+## Result: an audit with assertions, run headless as the header shows (`godot --headless --path . _fileedit_probe.tscn`);
+## it changes nothing on disk beyond the settings a pressed row touches. Prints the File and Edit menus recursively (`
+## [sep]`, `   <kind> id=... enabled|DISABLED`, `accel=`, `why:`), `[BOOT] shell up`, `[BAR] ...`, `############ PASS A
+## -- NO WORLD ############`-style banners, `[COUNT-A]` / `[COUNT-B]` row counts, `  ok  |FAIL  <name>   got= want=` rows
+## and `_fileedit_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL] extension did
+## not load` or a missing File or Edit popup).
 
 var _vp: SubViewport
 var _app: Node

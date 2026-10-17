@@ -10,6 +10,11 @@ extends Node
 ## check still passes, which is the intent.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . _faithdenom_probe.tscn
+## Result: an assertion (CRLF file), run headless as the header shows (`Godot_v4.7.1-stable_win64.exe --headless --path .
+## _faithdenom_probe.tscn`). Prints `  PASS  |  FAIL  <what>` rows, `fixture:` and `independent:` count lines, `
+## LEADCOUNT:` / `   NOTAIL:` / `   UNNAMED:` / `   EXTRA:` / `   NODENOM:` detail lines and `FAITHDENOM RESULT: ALL
+## PASS|<n> FAILURES`. Exit 0 when no check failed, 1 otherwise, 2 when there is no `CivilizationWorkspace`, 3 from the
+## watchdog (`WATCHDOG TIMEOUT`).
 
 var _app: Node
 var _fails := 0

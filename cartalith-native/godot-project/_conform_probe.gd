@@ -15,6 +15,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion. Prints `CONFORM  <text>` lines, `CONFORM  FAIL  <text>` per miss, `   PTR  <key>` lines, a
+## stale-extension failure (`stale extension -- the shell asked for <n> binding(s) this build does not export`) and
+## `CONFORM  DONE fail=<n>`. The header's command is `--path . _conform_probe.tscn` and names no headless/windowed
+## requirement. Exit 0 when no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

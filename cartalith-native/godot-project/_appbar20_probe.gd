@@ -26,6 +26,11 @@ extends Node
 ## `InputEventScreenTouch` into the drawn row's own `gui_input` -- not by
 ## calling the handler behind it, which would prove the handler works and say
 ## nothing about whether a finger can reach it.
+## Result: an assertion. Run headless as the header shows: `_appbar20_probe.tscn -- --force-touch --nowelcome` (also
+## reads an undocumented `--size WxH`, default 1080x2400). Every line is prefixed `REACH `: `ok  |FAIL <check>` rows,
+## `phone_scale=<s>  palette=<dark|light>`, `bar cells:`, `bar strings:`, `MenuBar Window rows:`, `MORE > Window drew:`
+## and a final `REACH failures=<n>`. Exit 0 when no check failed, 1 on a failure or when the shell is not a phone shell
+## (`REACH  !! not a phone shell`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm            ## PhoneMenu

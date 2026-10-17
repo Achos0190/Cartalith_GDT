@@ -38,6 +38,13 @@ extends Node
 ## --grid WxH (1024x656), --only NAME (one preset, for a quick look).
 ## Exit 0 = every check held; 1 = a check failed; 2 = could not run (headless, no world,
 ## fewer than two factions for the faction leg) -- never a pass.
+## Result: an assertion with a metric table, windowed only. Command per the header: `res://_etf2_probe.tscn -- --out DIR`
+## (`--out` required; `--seed N` default 483920, `--grid WxH` default 1024x656, `--only NAME`). Prints `ETF2  ok
+## <what>`, `PROBE-FAIL ETF2  <what>` per miss, `ETF2  world: ...`, `ETF2  meanL <preset> ...` rows, an `ETF2  SUMMARY
+## ...` line and `ETF2  RESULT checks=<n> fail=<n> cannot=<b>`; stderr carries `PROBE-CANNOT-RUN: ...` (headless, bad or
+## missing argument, no world, no RenderWorkspace, fewer than two factions, watchdog after 2400 s). It writes
+## `etf2_<preset>_<variant>.png` and `etf2_table.tsv` into `--out`. Exit 0 = every check held, 1 = a check failed, 2 =
+## could not run (a failure outranks a cannot-run).
 
 const RW := preload("res://shell/workspaces/render_workspace.gd")
 const _OA := preload("res://shell/overlay_adjust.gd")

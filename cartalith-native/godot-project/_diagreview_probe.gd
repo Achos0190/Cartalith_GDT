@@ -28,6 +28,12 @@ extends Node
 ## `_diagreport_probe.gd` is the sibling that exercises `DiagnosticReport.write()`
 ## end to end from a real engine failure; this one is about the panel and the
 ## correspondence, and deliberately does not re-test what that one covers.
+## Result: an assertion, windowed only (1600x1000, pointer density). Header command: `Godot_v4.7.1-stable_win64.exe
+## --path . _diagreview_probe.tscn`. Prints `PROBE FAIL: <msg>` per miss, `PROBE density=... phone=... tablet=...`,
+## `PROBE case <name> ...` rows, `PROBE menu rows titled ...`, `PROBE index entries titled ...` and `PROBE fails=<n>`; it
+## ends by writing `diagreview_panel.png` under `DccSettings.storage_root("exports")` and printing `PROBE shot -> <path>
+## (<density>)`. Under `--headless` it prints `PROBE ABORT: run windowed -- frame_post_draw never fires under the dummy
+## driver` and exits 2; the watchdog exits 3. Exit 0 when no check failed, 1 otherwise.
 
 const W := 1600
 const H := 1000

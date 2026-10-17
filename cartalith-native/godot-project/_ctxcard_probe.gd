@@ -50,6 +50,13 @@ extends Node
 ##   E  the card stays on screen at the four edges (its rect is measured)
 ##   P  contrast of the card's text against the card's own ground, both
 ##      palettes, with a ground-only crop as the control that must read ~1:1
+## Result: an assertion with pixel legs, windowed only. Command per the header: `--path . _ctxcard_probe.tscn`, or `--
+## --vp 2560x1600 --force-touch` for the tablet form. Flags: `--vp WxH` (default 1600x900) and `--force-touch`; any other
+## argument prints `### CTXCARD ABORT: unknown argument '<a>' ###` and exits 2, as does a boot that came up as a phone.
+## Prints `PASS|FAIL  <what>  got= want=` rows, `ROW <leg> ...`, `FORM booted as <form> at <size>` and short per-leg
+## lines (`X drop`, `S hits`, `D reason`, `K focus`, `T + button`, `E map-...`, `P <tag> ...`), and `### CTXCARD
+## GREEN|RED <passed>/<total> checks passed ###`. Writes `ctxcard_<tag>.png` captures (to `CTXCARD_SHOT_DIR` for one of
+## them). Exit 0 on GREEN, 1 on RED.
 
 const SEED := 483920
 

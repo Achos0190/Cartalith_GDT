@@ -36,6 +36,12 @@ extends Node
 ## **Run it windowed.** Nothing here samples a pixel, but every act depends on
 ## the GUI hit-test and on `ScrollContainer`'s touch drag, both of which want a
 ## real frame loop.
+## Result: a census with assertions, windowed (the header: "Run it windowed"; nothing samples a pixel). Command: `godot
+## --path . _gestclass_probe.tscn -- --force-touch --vp 1080x2340 --tag g1080`. Flags: `--vp WxH` (default 1080x2340),
+## `--tag NAME` (default `gc`), `--census-only` (skip the swipe legs), `--force-touch`; any other `--flag` aborts. Every
+## line is prefixed `[<tag>] `, with `-- census (<where>): <n> non-Range candidates` and `-- vertical swipe ...` section
+## lines, ending `RESULT <tag> fail=<n>  census_hazard_at_boot=<n>` (`RESULT <tag> fail=<n> (census only)` with
+## `--census-only`). Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag or a malformed `--vp`.
 
 ## `MOUSE_FILTER_STOP` is **0**, `PASS` 1, `IGNORE` 2 -- the reverse of the
 ## order the words are usually said in, and the first cut of this probe printed

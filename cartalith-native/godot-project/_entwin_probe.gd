@@ -15,6 +15,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _entwin_probe.tscn
 ##
 ## No flags; it reads none.
+## Result: an assertion, run headless as the header shows (`--headless --path . _entwin_probe.tscn`; it reads the live
+## scene tree, not pixels). Every line is prefixed `EWN `: `ok  |FAIL  <name>`, `world generated: has_world=<b> (<n>
+## frames)` and `EWN <n> failure(s)`. Exit 0 when no check failed, 1 otherwise or when generation failed or there is no
+## settlement (`EWN  !! generate failed`, `EWN  !! no settlement`).
 
 var app: Node
 var _fail := 0

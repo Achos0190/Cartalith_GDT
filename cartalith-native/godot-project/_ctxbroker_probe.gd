@@ -35,6 +35,9 @@ extends Node
 ##      selection set
 ##   H  behaviour: "Move viewer to" moves the camera where `_on_ctx_id(1)` does
 ##   I  F4's row, pressed: the domain becomes CIVIL and CX-01's rows open
+## Result: an assertion, windowed only (the header's command is `--path . _ctxbroker_probe.tscn`). Prints `PASS|FAIL
+## <what>  got= want=` rows, `ROW <leg> ...` card rows, `MODE broker=<b>`, `FIXTURE settlement ...`, `HIT <h>` and a
+## closing `### CTXBROKER GREEN|RED <passed>/<total> checks passed ###`. Exit 0 on GREEN, 1 on RED.
 
 const SEED := 483920
 

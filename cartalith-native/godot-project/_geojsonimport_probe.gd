@@ -23,6 +23,11 @@ extends Node
 ## screenshot taken there would pass vacuously; MISTAKES.md's own rule for
 ## every pixel probe in this tree. The screenshot is evidence and is not
 ## committed -- delete it after review.)
+## Result: an assertion, windowed only (`Run: godot4 --path . _geojsonimport_probe.tscn`). Every line is prefixed `PROBE
+## `: `PROBE ok: <what>` and `PROBE FAIL: <what>` rows, `PROBE land cell`, `PROBE factions before|after`, `PROBE fixture:
+## <path>` and a closing `=== GEOJSON IMPORT PROBE OK|FAILED (<n>) ===`. It writes a synthetic GeoJSON document and a
+## screenshot `res://_geojsonimport_probe.png`. Under `--headless` it prints `PROBE REFUSED: headless` (and `push_error`)
+## and exits 2; the watchdog exits 3; otherwise exit 0 when no check failed and 1 when one did.
 
 var _app: Node
 

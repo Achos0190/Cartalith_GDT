@@ -23,6 +23,11 @@ extends Node
 ## Both are asserted with an injected control rather than by finding a natural
 ## one, so the assertion does not depend on which panels a seed happens to
 ## build, and so a `NEGATIVE` control exists at all.
+## Result: an assertion (CRLF file), run headless as the header shows (`--headless --path . _dockfit_probe.tscn -- --vp
+## 1920x1080`, then `--vp 1366x768`). `--vp WxH` is the only flag; an unrecognised argument prints `[FATAL] unrecognised
+## argument: <a>` and exits 2. Prints `  ok  |FAIL  <name>   got= want=` rows, `[VP] <w>x<h>  _left_width=...
+## tablet=...`, `-- POSITIVE: ... --` / `-- NEGATIVE 1: ... --` section banners and `_dockfit_probe: PASS|<n>
+## FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL] extension did not load`).
 
 ## **The `LAPTOP` band is over budget on four panels, and this is not that
 ## pass's doing.** `--ldW` is 330 at `w1366` (`ENV:1819`) and

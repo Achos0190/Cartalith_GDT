@@ -10,6 +10,11 @@ extends Node
 ## The second invocation is the desktop control: `DccTheme._touch` is latched
 ## for the life of the process (see its own comment), so the two densities
 ## cannot be compared inside one run and this probe is run twice instead.
+## Result: a report, not an assertion (CRLF file; it says so itself). Header commands: `Godot_v4.7.1 --path .
+## --resolution 1600x900 _ds03reflow_probe.tscn [-- --force-touch]` (it also reads an undocumented `--vp=` prefix; the
+## header names no headless/windowed requirement). Prints `[BOOT]`, `[MODE]`, `[DOCKS]`, `[BAR]` rows, one `[PANEL]
+## <domain>/<mode> ...` line per panel with `overwide=<n>`, and indented widest-leaf and widest-row detail. It exits 0
+## whatever it measured; only `[FATAL] extension did not load` exits 1.
 
 func _frames(n: int) -> void:
 	for i in n:

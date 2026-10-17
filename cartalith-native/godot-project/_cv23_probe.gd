@@ -21,6 +21,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with memory measurements, run windowed per the header (`--path . _cv23_probe.tscn`). Prints `CV23
+## <text>` lines, `CV23  ok    <text>` and `CV23  FAIL  <text>` rows (it reads process RSS and peak working set by
+## running `powershell` through `OS.execute`, so it needs Windows), a stale-extension failure and a closing `CV23  ===
+## PASS ===` or `=== <n> FAILURES ===`. Exit 0 when no check failed, 1 otherwise, 3 from the 600 s watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

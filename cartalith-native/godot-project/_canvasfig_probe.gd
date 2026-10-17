@@ -21,6 +21,9 @@ extends Node
 ##
 ## Which legs run is decided by the composition the shell actually came up in,
 ## reported on the first line, so one command per frame covers all three.
+## Result: an assertion. Flags after `--`: `--vp WxH` (default 1920x1080), `--tag NAME` (default `cf`), `--force-touch`;
+## an unknown flag aborts. Every line is prefixed `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit 0 when no check
+## failed, 1 otherwise, 2 for an unknown flag or a malformed `--vp`. The header names no headless/windowed requirement.
 
 var app: Node
 var _vp: SubViewport

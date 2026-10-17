@@ -20,6 +20,11 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+## Result: an assertion with a transcript. Prints `  PASS  |  FAIL  <what>` rows under `== 1. ... ==` to `== 7. ... ==`
+## banners (including `generated 2048 x 1312 in <s> s` and the sRGB/P3 byte-movement figures) and ends `ALL PASS (0
+## failures)` or `FAILURES (<n> failure(s))`. The header's command is `--path . _colorspace_probe.tscn` and names no
+## headless/windowed requirement. Exit 0 when no check failed, 1 otherwise, 2 from the watchdog (`push_error`:
+## `colour-space probe watchdog: _ready never finished`).
 
 var bridge: Node
 var fails := 0

@@ -16,6 +16,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with a transcript. Header command: `--path . _gradeexport_probe.tscn` (no headless/windowed
+## requirement named; the header's phrase "Not committed" is stale, the file is tracked). Prints `  PASS  |  FAIL
+## <what>` rows, `== 1. ... ==` to `== 6. ... ==` banners with byte-movement figures against the river mask, and a
+## closing `==== ALL PASS|FAILURES (<n> failures) ====`; it saves a side-by-side strip PNG. Exit 0 when no check failed,
+## 1 otherwise, 2 from the 900 s watchdog (`push_error`: `grade-export probe watchdog: _ready never finished`).
 
 var bridge: Node
 var fails := 0

@@ -24,6 +24,12 @@ extends Node
 ##   RV  river pick as the branch to its mouth (Ruling BA); Trace downstream
 ##       measured on screen against the engine's own branch; Show catchment
 ##       against the engine's own upstream mask; Clear river highlight
+## Result: an assertion with pixel legs, windowed only (CRLF file). Command per the header: `--path .
+## _ctxpicks_probe.tscn`. An unknown argument, `--headless` (`the RV leg reads the framebuffer`) or a phone-form boot
+## prints `### CTXPICKS ABORT: ... ###` and exits 2. Prints `PASS|FAIL  <what>  got= want=` rows, `ROW <leg> ...`, `###
+## running landmark pass ###`, `SKIP CL: no settlements in this fixture`, `WY picked`, `RV ...` measurement lines,
+## `palette forced: dark|light`, `FORM booted as <form>` and `### CTXPICKS GREEN|RED <passed>/<total> checks passed ###`.
+## Exit 0 on GREEN, 1 on RED.
 
 const SEED := 719004
 

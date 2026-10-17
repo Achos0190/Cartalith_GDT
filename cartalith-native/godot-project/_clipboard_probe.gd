@@ -15,6 +15,10 @@ extends Node
 ## Copy → Paste → Cut → Paste, including `_restore_armed()`; section 9 keeps
 ## the pack-free half (the `slot` → `variant` reverse map) asserted against the
 ## same literals `icon_bridge.rs`'s own `resolve_variant` tests pin.
+## Result: an assertion, run headless as the header shows (`Godot_v4.7.1 --headless --path . _clipboard_probe.tscn`).
+## Prints `  ok  |FAIL <name>   got= want=` rows, `[BOOT] shell up`, `=== 0: ... ===` to `=== 8: ... ===` banners and
+## `_clipboard_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (it also exits 1 early, after
+## printing `_clipboard_probe: <n> FAILURE(S)`, in two mid-run spots, and on `[FATAL] extension did not load`).
 
 var _fail := 0
 

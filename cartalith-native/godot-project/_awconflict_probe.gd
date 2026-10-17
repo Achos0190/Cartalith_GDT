@@ -22,6 +22,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _awconflict_probe.tscn
 ##
 ## Exit 0 = all passed, 1 = a real failure, 2 = could not run.
+## Result: an assertion on pixels, windowed only (CRLF file). Every line is prefixed `AW  `; prints the checks and a
+## `WATCHDOG` line, `ABORT: headless -- the framebuffer is not readable. Run windowed.` under `--headless`, and writes a
+## crop of the siege ring with `save_png`. Exit 0 = all passed, 1 = a failure, 2 = could not run (headless or a setup
+## abort), 3 = watchdog, as the header's `Exit 0 / 1 / 2` line plus the watchdog.
 
 var _app: Node
 var _bridge

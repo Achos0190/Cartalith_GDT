@@ -19,6 +19,12 @@ extends Node
 ## Exit 0 pass, 1 a real assertion failed, 2 the premise could not be set up
 ## (no `.gdextension`, a binary without the D6 surface, never reached deep
 ## zoom).
+## Result: an assertion with a timing section, windowed only (the header's command adds `--resolution 1600x900
+## --rendering-driver opengl3`; `_d6async_probe.tscn`). Prints `  ok   <name>  [detail]` rows (failures go to stderr as `
+## FAIL <name>`), `[BOOT] shell up`, `=== 1: ... ===` to `=== 5: ... ===` banners, `  info` lines, `  MEASURED cold LOD
+## entry ...` lines and `RESULT <n> checks, <n> failed`. Setup failures print `PROBE-CANNOT-RUN: ...` to stderr
+## (headless, extension not loaded, no bridge/viewport, a .dll without the LOD-D6 bindings, generation never finished,
+## deep zoom never reached) and exit 2. Exit 0 when no check failed, 1 otherwise.
 
 var _fail := 0
 var _checks := 0

@@ -33,6 +33,10 @@ extends Node
 ## No theme palette is assumed: every pixel assertion compares engine rasters
 ## against each other or against a colour this probe set, never against a
 ## threshold written for one palette.
+## Result: an assertion on pixels, windowed only. Flags after `--`: `--vp WxH` (default 1600x1000), `--tag NAME` (default
+## `bcol`), `--force-touch`; any other `--flag` aborts. Every line is prefixed `[<tag>] `; ends with `RESULT <tag>
+## fail=<n>` via `_finish()`. Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag, a bad `--vp`, or
+## `--headless` (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: EngineBridge

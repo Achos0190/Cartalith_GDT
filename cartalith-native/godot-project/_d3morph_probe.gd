@@ -35,6 +35,12 @@ extends Node
 ## Exit 0 every assertion held, 1 an assertion failed, 2 could not set up the
 ## premise (no extension, no world, never reached deep zoom, no level boundary
 ## inside the sweep).
+## Result: an assertion, windowed only (the header's command is `--path . _d3morph_probe.tscn`; its exit line is 0 held,
+## 1 failed, 2 could not set up). Prints `  ok  |FAIL  <name>  -- <detail>` rows, `[BOOT] shell up`, `=== 1: ... ===` to
+## `=== 5: the verdicts ===` banners, `  info` ratio lines (LOD-D3's bar is <= 1.5x) and `PROBE-RESULT: PASS|FAIL (<n>)`.
+## Setup failures go to stderr as `PROBE-CANNOT-RUN: ...` (headless, extension not loaded, no `LodSweepMetrics`) or
+## `[ABORT] ...` (no world, deep zoom never reached, no pyramid-level boundary crossed) and exit 2. Exit 0 when no check
+## failed, 1 otherwise.
 
 const SEED := 483920
 const GRID := Vector2i(512, 384)

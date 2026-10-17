@@ -23,6 +23,11 @@ extends Node
 ## would otherwise break -- `ImageTexture.update()` is a no-op under
 ## `--headless` -- does not apply to `Control.size`, which the layout pass
 ## computes either way.
+## Result: an assertion, run headless as the header shows (`--headless --path . _detent_probe.tscn -- --force-touch --vp
+## 1080x2340 --tag p1080`; nothing it reads is a pixel). Flags: `--vp WxH` (default 1080x2340), `--tag NAME` (default
+## `det`), `--force-touch`; anything else is rejected. Every line is prefixed `[<tag>] `, ending `[<tag>] RESULT
+## PASS|FAIL  failures=<n>`. Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag, a malformed `--vp`, or a
+## boot that is not phone mode (`ABORT not phone mode -- pass --force-touch`).
 
 var app: Node
 var _vp: SubViewport

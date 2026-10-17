@@ -24,6 +24,11 @@ extends Node
 ## `full` is the single-process half: what the capture control does with keys,
 ## and what the conflict line says when more than one other row already
 ## answers to the chord.
+## Result: an assertion, four modes (`-- --mode full|seed|verify|clean`; `--mode` is the only flag, an unknown argument
+## prints `[FATAL] unknown argument` and exits 2). Run headless as the header shows (`godot --headless --path .
+## _chordcap_probe.tscn -- --mode full`). Prints `  ok  |FAIL <name>   got= want=` rows, `=== A: ... ===` to `=== D: ...
+## ===` banners, `[cfg]`, `[status]` lines and a closing `_chordcap_probe[<mode>]: PASS|<n> FAILURE(S)`. `_done()` exits
+## 0 when no check failed and 1 otherwise; `[FATAL] extension did not load` exits 1.
 
 const MENU := "menu"                     ## DccSettings.SHORTCUT_CONTEXT_MENU
 const ID_NEW_WORLD := 10

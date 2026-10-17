@@ -10,6 +10,12 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with a transcript (CRLF file), run headless as the header shows (`godot --headless --path .
+## _exportraster_probe.tscn`); the header's phrase "Not committed" is stale, the file is tracked. Writes real files to a
+## scratch directory and reads them back. Prints `  PASS  |  FAIL  <what>` rows, `== 1. generate ==` to `== 8. ... ==`
+## banners with info lines (IHDR sizes, distinct-colour counts, byte-level differences between the screen and the
+## export), and ends `==== 8K: OK|SEE ABOVE ====`. Exit 0 when no check failed, 1 otherwise, 2 from the watchdog (`====
+## WATCHDOG: the probe did not finish ====`).
 
 var bridge: Node
 var fails := 0

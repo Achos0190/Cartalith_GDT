@@ -24,6 +24,12 @@ extends Node
 ## siblings), so they have to be visited one at a time, not all opened at once.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _grpfloor_probe.tscn
+## Result: a measurement, not an assertion (CRLF file): it prints and exits 0 whatever it found. Run headless as the
+## header shows (`--headless --path . _grpfloor_probe.tscn`). Per seed it prints `GF ================= seed <n>
+## =================`, one `GF <surface> floor=<px> stops=<px> over=<px> body=... hdrs=... widest_hdr=... binder=...` row
+## per rail domain and mode, then `GF --- every group header seen, widest first ---`, `GF --- group headers that BOUND a
+## dock above its floor: <n> ---` and `GF === done ===`; a failed generate prints `GF seed <n>: generate FAILED` and the
+## run continues.
 
 const SEEDS := [483920, 77021, 4242]
 

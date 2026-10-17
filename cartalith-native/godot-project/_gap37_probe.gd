@@ -17,6 +17,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion, windowed per the header (`Drives, windowed`; command `--path . _gap37_probe.tscn`). Prints
+## `GAP37  <text>` lines, `GAP37  ok    <text>` and `GAP37  FAIL  <text>` rows, a stale-extension failure and a closing
+## `GAP37  === PASS ===` or `=== <n> FAILURES ===`. It writes a `Settlement Template.md` into a vault folder. Exit 0 when
+## no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

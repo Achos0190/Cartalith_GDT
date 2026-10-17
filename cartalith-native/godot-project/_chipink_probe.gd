@@ -55,6 +55,11 @@ extends Node
 ## Both palettes, forced AFTER the shell boots (a palette set before
 ## `app.tscn` is instantiated is inert -- the boot re-applies the saved mode)
 ## and restored to `light` at the end, which is what this machine boots.
+## Result: an assertion on pixels, windowed only. Every line is prefixed `CHIPINK `: `ok  |FAIL <check>`, `---
+## palette=... ---` banners and `[<leg>]` info rows, ending `CHIPINK === PASS|FAIL (<n> failing) ===`. Command per the
+## header: `_chipink_probe.tscn -- --force-touch --nowelcome`. Exit 0 when no check failed, 1 when there is no PhoneMenu
+## or the composition is not a handset (or a check failed), 2 when headless (`CHIPINK !! ABORT -- headless`), 3 from the
+## watchdog.
 
 # -- The canvas literals ------------------------------------------------------
 #

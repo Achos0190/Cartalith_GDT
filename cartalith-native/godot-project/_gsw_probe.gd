@@ -21,6 +21,10 @@ extends Node
 ##   K  right_dock paint commit / discard                          -> refused; commit works after
 ## Panics are counted by an in-process Logger here AND by grepping stderr afterwards (the caller's job).
 ## usage: godot --path <scratch copy> res://_gsw_probe.tscn -- [--tag T]
+## Result: an assertion (CRLF file), windowed only, run from a scratch copy: `godot --path <scratch copy>
+## res://_gsw_probe.tscn -- [--tag T]` (only `--tag` is read). Every line is prefixed `[<tag>] ` and it ends `RESULT
+## <tag> checks=<n> fail=<n> engine-panic-hits(total)=<n>`. Exit 0 when no check failed, 1 otherwise, 2 when not windowed
+## (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: Node

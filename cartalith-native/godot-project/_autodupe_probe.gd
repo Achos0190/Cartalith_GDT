@@ -30,6 +30,10 @@ extends Node
 ## **The settings file is restored byte-for-byte in `_restore_cfg()`**, which
 ## runs on every exit path: this probe writes `user://cartalith_settings.cfg`
 ## through the real setter, and that file is the user's own state.
+## Result: an assertion. Prints `AD ok  |FAIL <check>` rows, `AD NOTE` lines (palette, the `autosave` and `mid` status
+## slots) and `AD <n> failed`; `AD  !! app.gd did not compile` if the shell did not load. Every exit goes through
+## `_done()`, which first restores `user://cartalith_settings.cfg` byte for byte, then exits 0 when no check failed and 1
+## when one did.
 
 const LADDER := [1, 5, 15]      ## `DccMenus.AUTOSAVE_MINUTES`, off §2.1
 const ARTBOARD_MINUTES := 4     ## `autosave every 4 min`, the artboard's figure

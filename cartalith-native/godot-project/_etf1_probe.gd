@@ -34,6 +34,11 @@ extends Node
 ##   godot --path <copy> res://_etf1_probe.tscn -- [--force-touch --vp 1080x2340] [--tag T]
 ##       [--legs abcdefgh] [--seed N] [--grid WxH]
 ## Exit 0 pass, 1 a check failed, 2 could not run.
+## Result: an assertion, windowed only. Command per the header: `godot --path <copy> res://_etf1_probe.tscn --
+## [--force-touch --vp 1080x2340] [--tag T] [--legs abcdefgh] [--seed N] [--grid WxH]` (defaults: `--vp` 1600x900,
+## `--tag` `etf1`, `--legs` all, `--grid` 384x246). Every line is prefixed `[<tag>] `, ending `RESULT <tag> checks=<n>
+## fail=<n>`. Exit 0 pass, 1 a check failed, 2 could not run (an unknown flag, or `ABORT run WINDOWED`), as the header
+## states.
 
 var OA = null
 var app: Node

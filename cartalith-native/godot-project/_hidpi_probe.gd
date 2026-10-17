@@ -15,6 +15,12 @@ extends Node
 ##   [ICON]  each `DccIcons` texture's real texel count against the size it is
 ##           drawn at. A ratio below 1 is a magnified bitmap.
 ##   [TAP]   the viewport chrome's hit boxes in millimetres.
+## Result: a measurement with a failure gate. The header's commands are `godot --path . --resolution 1440x3168
+## _hidpi_probe.tscn -- --force-touch` (and 1080x2400) and it asks for `--vp WxH` because `--resolution` is clamped to
+## the desktop work area; it names no headless/windowed requirement. Prints `  ok   |  FAIL  <label>  got= want=` rows,
+## `=== viewport=... phone=... phone_scale=... ===`, and tagged info lines (`[FONT]`, `[WIN]`, `[FILL]`, `[ICON]`,
+## `[XF]`, `[POP]`, `[TAP]`, `[SCROLL]`, `[POPUP]`), a `shot <path>` line, and `=== failures=<n> ===`. Exit 0 when no
+## check failed, 1 otherwise (it used to exit 0 whatever `_fails` held).
 
 ## Hosted in a `SubViewport`, not in the real window: Windows clamps a window to
 ## the desktop work area, so `--resolution 1440x3168` came back as 1440x1031 and

@@ -24,6 +24,10 @@ extends Node
 ##      the domain. Includes the regression that motivated the gate in
 ##      `WorldWorkspace`: a WORLD push arriving while the reader is in CIVIL (a
 ##      `generation_stage` tick) must not overwrite CIVIL's line.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _confsix_probe.tscn`; layout and
+## content only, no pixels). Prints `MC ok  |FAIL  <name> got= want=` rows, `MC ================= seed <n>
+## =================` banners and `MC PASS|FAIL (<n> failed)`. The exit code is the failure count itself (`quit(_fail)`):
+## 0 when everything held, otherwise the number of failed checks.
 
 const SEEDS := [4021, 77123, 918237]
 

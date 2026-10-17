@@ -36,6 +36,14 @@ extends Node
 ## world, and differ from the 0.42 one (positive control that the move is
 ## visible). Without the key check the shore field is drawn from the stale
 ## 0.42 flood and (2) fails.
+## Result: a measurement or an assertion depending on `--mode`, windowed only. Commands per the header:
+## `_genasync_probe.tscn -- --mode time --grid 2048x1311 --reps 3`, `-- --mode identity --grid 1024x656`, `-- --mode
+## stale --grid 1024x656`; the other flags are `--seed N`, `--reps N`, `--sync`. `--mode time` prints one
+## `GENASYNC_RESULT rep=<n> grid=... warm=... max_gap_ms=... frames=... to_drawn_ms=...` line per repetition; `identity`
+## and `stale` print `== identity: ... ==` / `== stale: ... ==` banners and `  ok  |FAIL <name>   got= want=` rows. Every
+## mode ends `PROBE-RESULT: PASS|FAIL fails=<n>`. Exit 0 when no check failed, 1 otherwise, 2 for headless
+## (`PROBE-CANNOT-RUN: headless`), an unknown argument or mode, or a shell without the render warm (`PROBE-RESULT: ABORT
+## ...`).
 
 var _mode := "time"
 var _grid := Vector2i(1024, 656)

@@ -53,6 +53,13 @@ extends Node
 ##   W  the Way▸ sub-ring offers the engine's real vocabulary (road / track /
 ##      sea lane / ancient, `infra_tools_bridge::parse_way_type`), not the
 ##      stale "trail"/"bridge" pair `MAP_CONTEXT_SCOPE.md` §5.1 used to name
+## Result: an assertion with pixel legs, windowed only, desktop form only. Command per the header: `--path .
+## _ctxring_probe.tscn`; `--vp WxH` (default 1600x900) is the only flag, any other argument or a non-desktop boot prints
+## `### CTXRING ABORT: ... ###` and exits 2. Prints `PASS|FAIL  <what>  got= want=` rows and tagged lines (`O overlap`,
+## `E ring-...`, `P`, `G4` to `G8`, `L main/sub ... FAIL`, `V2 overlap`), `FORM booted as ...` and `### CTXRING GREEN|RED
+## <passed>/<total> checks passed ###`. Side effects: writes PNGs into the project folder itself
+## (`res://_ctxring_sub_<dir>.png`, `res://_cm2res_keyboard_card.png`, `res://_cm2res_ring_paused.png`) and, when
+## `CTXRING_SHOT_DIR` is set, more captures there. Exit 0 on GREEN, 1 on RED.
 
 const SEED := 483920
 

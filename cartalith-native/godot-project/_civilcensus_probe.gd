@@ -62,6 +62,12 @@ extends Node
 ## category header, with the rail node that owns it and the one lit after the
 ## jump), `COUNT` (per category), `WIN` (a Window parented inside the dock), and
 ## `ERR` (every SCRIPT/ERROR/WARNING the tap saw).
+## Result: a census with gates, not a pure assertion. Run headless as the header shows (`--headless --path .
+## _civilcensus_probe.tscn -- --out C:/abs/civil_desktop.tsv`, plus `--force-touch` for the phone leg; `--seed N` default
+## 77021 is the third flag). Prints `  ok  |FAIL <what>` rows, `[BOOT] leg=<leg> viewport=... force-touch=<b> seed=<n>`,
+## `  info` lines, `  SCRIPT ERROR` / `  info ERROR` lines from a logger tap, and ends `_civilcensus_probe [<leg>]:
+## PASS|<n> FAILURE(S)`. With `--out` it writes the census TSV. Exit 0 when no check failed, 1 otherwise (including any
+## SCRIPT ERROR in the process), 3 from the 300 s watchdog (`[WATCHDOG] 300 s elapsed -- exit 3`).
 
 const LEG_SIZE := {"desktop": Vector2i(1920, 1080), "phone": Vector2i(1080, 2340)}
 const COLUMNS: Array[String] = ["kind", "leg", "cat_idx", "category", "section", "groups",

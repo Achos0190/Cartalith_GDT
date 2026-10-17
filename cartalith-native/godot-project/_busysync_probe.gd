@@ -21,6 +21,11 @@ extends Node
 ## Run WINDOWED from a scratch copy, never headless (pixel reads):
 ##   godot --path <copy> res://_busysync_probe.tscn -- [--vp WxH] [--grid WxH]
 ## Exit 0 = every check held; 1 = a check failed; 2 = could not run.
+## Result: an assertion with timings. Run windowed from a scratch copy: `res://_busysync_probe.tscn -- [--vp WxH] [--grid
+## WxH]` (defaults 1600x900 and 512x320). Every line is prefixed `[busysync] `; ends `RESULT busysync checks=<n> fail=<n>
+## engine-panic-hits=<n> script-errors=<n> (1 expected: the deliberate error leg)` and may save a PNG. Exit 0 only when
+## no check failed, no engine panic was logged and exactly one script error was seen; 1 otherwise; 2 when not windowed
+## (`ABORT run WINDOWED`), or the shell has no busy overlay with `busy_run` hooks (stale shell copy).
 
 var app: Node
 var bridge: Node
