@@ -12,6 +12,11 @@ extends Node
 ## It also asserts the boring things that would otherwise be found by eye much
 ## later: every engine type resolves to a glyph, no glyph is blank, and the
 ## three reuses resolve to shipped names rather than to `lm_*`.
+##
+## Result: `[KINDS] <n>`, three numbered sections (every engine type resolves to a glyph and none is blank;
+## the three reuses point at shipped glyphs; the specimen sheet), `  ok|FAIL  <name>  got= want=` lines,
+## `  UNRESOLVED` and `  BLANK` lines for offenders, `  wrote <png path>` and a final
+## `_glyphsheet_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure, else 0.
 
 const COLS := 7
 const CELL := Vector2(196, 108)

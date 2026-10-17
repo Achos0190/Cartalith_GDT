@@ -26,6 +26,11 @@ extends Node
 ##   emergency_mobilization, standing_citizen_share, emergency_citizen_share,
 ##   era, era_standing_lo, era_standing_hi, era_mobilization_lo,
 ##   era_mobilization_hi, era_standing_verdict, era_mobilization_verdict
+##
+## Result: a measurement, not an assertion; exit 0. Prints `ECOROW<TAB>...` (one per faction per world, the
+## columns listed above), `ECOSEED <shape> seed=<n> n= min= med= max= settlements=` per world,
+## `ECOPOOL n= min= p10= p25= median= p75= p90= max=` for the pooled distribution,
+## `ECOCUT >=<threshold> : <k> of <n> (<pct>%)` saturation counts, and `ECO done`.
 
 const SEEDS := [483920, 7, 101, 202501, 999331, 31337]
 ## label, width km, grid w, grid h. B is the shipped default preset's width

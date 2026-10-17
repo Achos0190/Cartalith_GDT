@@ -20,6 +20,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: lines prefixed `RR2` reporting, for runs A, B and C, the engine-side name before and after the
+## re-roll; a final `DONE  A-was-a-noop=<n>`. Exit 1 when run A was a no-op (the regression this probe guards),
+## else 0; a watchdog prints `WATCHDOG` and exits 3.
 
 var _app: Node
 var _bridge

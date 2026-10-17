@@ -14,6 +14,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a report, not an assertion; every line is prefixed `REROLL`: ten engine-side name re-rolls with the
+## editor read-back, then the two empty-text buttons that changed nothing, named. Exit 0 at the end; a
+## watchdog prints `WATCHDOG` and exits 3.
 
 var _app: Node
 var _bridge

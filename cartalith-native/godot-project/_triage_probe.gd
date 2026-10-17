@@ -7,6 +7,11 @@ extends Node
 ## engine's own stderr line up against them.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _triage_probe.tscn
+##
+## Result: a throwaway diagnostic, not an assertion; lines are prefixed `TRI`: `generated, has_world=<bool>`, a
+## layout count line (blocks, parcels, buildings, markets, farmland), `---- BEGIN <view> ----` and
+## `---- END   <view> ----` markers (the engine's own stderr lines are read between them), and a
+## `<view>: <n> distinct colours, <n> warm px, rect=<rect>` line per view; exit 0. `TRI no layout` exits 1.
 
 const DRAW := preload("res://shell/urban_layout_draw.gd")
 

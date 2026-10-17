@@ -27,6 +27,10 @@ extends SceneTree
 
 ## Exact definitions, not `DccUnits.KM_PER_MI`/`KM_PER_NMI`: asserting a
 ## constant against itself holds for every value of it (`MISTAKES.md`).
+##
+## Result: `== saved DccSettings.units_mode() = "<mode>" (restored at exit) ==`, a `world_crs(): ...` line, one
+## `  [<mode>] -> <line>` per unit mode, `  PASS|FAIL  <what>` per check, and a final `ALL PASS (0 failures)` or
+## `FAILURES (<n> failure(s))`; exit 1 on any failure (and when there is no world to build the panel over).
 const MI_M := 1609.344
 const NMI_M := 1852.0
 

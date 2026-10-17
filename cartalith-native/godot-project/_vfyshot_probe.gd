@@ -19,6 +19,10 @@ extends Node
 ##
 ## VERIFIER COPY. Windowed, not headless -- `--headless` renders nothing to diff.
 ## VERIFIER COPY.   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _jpwshot_probe.tscn
+##
+## Result: identical to `_jpwshot_probe.gd` (this is its verifier copy): no assertion; PNG files for the caller
+## to hash, `JPS seed <n>  dock rect at shipped width = ...`, `JPS seed <n>  dock rect=<rect>  -> <path>` and
+## `JPS DONE` (exit 0); `JPS  !! no framebuffer -- run windowed, not --headless` exits 2.
 
 const SEEDS := [7, 131313, 20260904]
 const WIDE := 620.0

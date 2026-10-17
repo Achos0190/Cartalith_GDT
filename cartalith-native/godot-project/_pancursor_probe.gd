@@ -16,6 +16,10 @@ extends Node
 ## either -- `overlay` is built by `ViewportHost.setup()`, called from
 ## `app.gd` well before any `_run_pipeline()` -- so this probe never starts
 ## `bridge.generating` at all and stays fast.
+##
+## Result: lines prefixed `PANCURSOR`: `FAIL  <what>` per broken check and a final `RESULT: PASS` or
+## `RESULT: FAIL -- <n> check(s) failed`; exit 0 on PASS, 1 on FAIL, 2 when the 120 s watchdog fires
+## (`WATCHDOG -- probe did not finish`).
 
 var app: Node
 var vp: Control

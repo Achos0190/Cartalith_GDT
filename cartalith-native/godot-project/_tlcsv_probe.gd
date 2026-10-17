@@ -8,6 +8,9 @@ extends Node
 ##   3. the unknown column and the bad value are REPORTED, by line.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _tlcsv_probe.tscn
+##
+## Result: `TLCSV ok|FAIL  <what>` per check, a `TLCSV result <import reply>` line, and a final
+## `TLCSV PASS|FAIL  (<n> failures)`; exit 0 when no check failed, else 1.
 
 var _fails := 0
 

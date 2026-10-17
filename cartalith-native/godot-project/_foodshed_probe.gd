@@ -28,6 +28,9 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+##
+## Result: lines prefixed `FOODSHED`: `  ok    <what>` or `  FAIL  <what>` per check and a final
+## `FOODSHED  === PASS ===` or `=== <n> FAILURES ===`; exit 0 on PASS, 1 otherwise.
 
 var _fail := 0
 

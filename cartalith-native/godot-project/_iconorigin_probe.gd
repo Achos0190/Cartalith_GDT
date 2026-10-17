@@ -24,6 +24,10 @@ extends Node
 ##     `GUI_GAP_REGISTER.md` CA-12), so the reference fixture pack is loaded
 ##     first. If that load fails the manual half is reported SKIPPED by name
 ##     rather than silently passing over zero rows.
+##
+## Result: lines prefixed `ICONORIGIN`, a `FAIL  <what>` line per broken check, and a final
+## `---- PASS ----` or `---- <n> FAILED ----`; exit 1 on any failure and on three set-up failures that quit
+## early, else 0. A manual-half skip (no asset pack) is reported by name, not as a pass.
 
 const PACK := "res://../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
 

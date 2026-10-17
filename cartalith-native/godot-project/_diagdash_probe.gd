@@ -5,6 +5,12 @@ extends Node
 ## verification pass talks itself into agreeing with the bug.
 ##
 ## Run: godot4 --headless --path . _diagdash_probe.tscn
+##
+## Result: lines prefixed `PROBE`: `settlements=<n> cards=<n>`, `rendered=<n>  bare 'Strahler order 0'=<n>
+## dashed-with-reason=<n>  blank fields=<n>`, sample card lines, then `PROBE CPU ...` lines for the CPU thread
+## setting (boot state, rungs, a `set(2)` and its readout, armed/disarmed). Exit 0 only when both the bare
+## `Strahler order 0` count and the blank-field count are 0, else 1; exit 2 with `PROBE FAIL: no
+## CivilizationWorkspace`; a watchdog prints `WATCHDOG TIMEOUT` and exits 3.
 
 var _app: Node
 

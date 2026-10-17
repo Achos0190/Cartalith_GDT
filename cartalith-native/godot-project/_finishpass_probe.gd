@@ -14,6 +14,11 @@ extends Node
 ##
 ## `--tag` names the output files; any other argument is refused.
 ## Committed, like every probe scene in this folder.
+##
+## Result: `  scratch: <dir>`, `  PASS  <what>` or `  FAIL  <what>` per check, PNGs named
+## `<tag>_screen_<case>.png` (and the export counterparts) written into that scratch directory, and a final
+## `==== finish pass: OK ====` or `==== finish pass: SEE ABOVE ====`. Exit 1 when any check failed, exit 2 on an
+## unknown argument or a missing `--tag`, else 0.
 
 var bridge: Node
 var fails := 0

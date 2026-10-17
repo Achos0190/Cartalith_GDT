@@ -16,6 +16,11 @@ extends SceneTree
 ##   3. `VaultStore.load_into()` loads preferences even with no vault bound and
 ##      no link store on disk — the placement bug this move fixes, where they
 ##      were only read when the window happened to be constructed.
+##
+## Result: `  engine  -> <json>`, `  on disk -> <json>`, `  round trip: byte-identical, flag restored`,
+## `  unbound session: preferences restored with no vault connected`, a `  FAIL: <reason>` line per broken
+## claim, and a final `vault prefs probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure. Exit 2 with
+## `  ABORT: vault_set_write_pref absent ...` when the loaded extension predates the call.
 
 func _init() -> void:
 	var fails := 0

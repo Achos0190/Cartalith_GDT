@@ -11,6 +11,11 @@ extends Node
 ##
 ## Writes nothing to user://cartalith_settings.cfg: the layout is built inline, not
 ## read from or saved to the store.
+##
+## Result: `  ok|FAIL  <name>  got=<v> want=<v>` per check, `[BOOT] composition=phone|desktop`, an info line
+## with the foot note width, and a final `_postfix53_probe (phone|desktop): PASS` or `<n> FAILURE(S)`;
+## exit 1 on any failure (also `[FATAL] extension did not load`), else 0. The phone composition is chosen
+## by the `-- --force-touch` argument, as in the second run line above.
 
 var _fail := 0
 

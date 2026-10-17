@@ -16,6 +16,10 @@ extends Node
 ## identical blank PNGs and report success.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _exportpanes_probe.tscn -- --vp 1080x2340 --force-touch
+##
+## Result: asserts nothing. Prints `[exportpanes] saved <path> (WxH)` for each PNG written, then
+## `[exportpanes] RESULT done` (exit 0). Under `--headless` it prints `[exportpanes] ABORT --headless: ...`
+## and exits 2. The window size comes from `-- --vp WxH`.
 
 func _frames(n: int) -> void:
 	for _i in n:

@@ -17,6 +17,12 @@ extends Node
 ## GeoJSON is the crispest binary witness: `geojson_bridge.rs:84` gates river
 ## features on `(Some(order), Some(ch))`, so a dropped `channels` means exactly
 ## zero river features, with `stream_order` still present and correctly shifted.
+##
+## Result: `[GEN]` and `[SEED]` lines, `=== before Center landmasses ===`, `=== center_landmasses ===` and
+## `=== after Center landmasses ===` sections with `  info ...` lines (river feature counts before and after),
+## `  ok|FAIL  <name>  got= want=` per check, an optional `NOTE offset was 0` line, and a final
+## `_centerrivers_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure, on `[FATAL] extension did not load`
+## or when no seed gives a non-zero centring offset, else 0.
 
 var _fail := 0
 

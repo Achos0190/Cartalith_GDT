@@ -7,6 +7,11 @@ extends Node
 ## batch's six files `git stash`ed to get HEAD's answer.
 ##
 ##   godot --path . _vfy_footer_probe.tscn -- --force-touch --vp 1080x2340
+##
+## Result: a measurement, no assertion. Lines are prefixed `[vfyf]`: `viewport WxH phone=... scale=...`,
+## `card <w> x <h> dp`, and one `BUTTON `<text>`  x <px>  <w> x <h> dp` per visible Create, Cancel, Close,
+## CANCEL or CREATE WORLD button of the New World dialog. Exit 1 with `dialog not up` if the dialog did not
+## open, else 0. `-- --vp WxH` sets the viewport (default 1080x2340).
 
 var app: Node
 var _vp: SubViewport

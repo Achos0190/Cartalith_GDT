@@ -14,6 +14,12 @@ extends Node
 ## Same window-sizing sequence as `_ph9_probe.gd`, for the same reason its own
 ## comment gives: `--resolution` is clamped to the monitor's usable rect on
 ## Windows, which silently turns a phone-sized run into a desktop one.
+##
+## Result: a measurement, not an assertion. Prints `=== phone=<bool> scale=<n> ...`, the Journey Planner
+## centre panel `bound=`/`active=` flags and its size, one line per child row (class, minimum size, size and
+## y position), the sum of the three fixed rows and the height left for the inspector and matrix, then
+## `=== done ===`. It quits early, measuring nothing, with `NOT PHONE -- window size did not register as a
+## handset` or `NO CENTER PANEL CONTENT (jp_* not bound in this build?)`; every path exits 0.
 
 func _frames(n: int) -> void:
 	for i in n:

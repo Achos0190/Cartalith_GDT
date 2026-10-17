@@ -30,6 +30,11 @@ extends Node
 ##
 ## The timeline strip is only visible in CIVIL (`app.gd::_on_workspace_changed`),
 ## so the probe selects that domain before reading anything.
+##
+## Result: a measurement, not an assertion; exit 0. Prints `TLH <density> ... vp=<WxH> visible= bar.size.y=
+## bar.min.y= h_status= want=`, a `TLH   pad top/bottom=... row.min.y= row.size.y= children=` line and a
+## `TLH   label <name> min.y= size.y= font=` line per label. Compare `bar.size.y` with `want` by eye across the
+## four legs.
 
 var app: Node
 

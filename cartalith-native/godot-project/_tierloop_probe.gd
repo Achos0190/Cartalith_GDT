@@ -7,6 +7,10 @@ extends SceneTree
 ## every rank < 24 is village or above), and every faction that owns a
 ## settlement still has its `capital` seat (the loop moves `kind` only).
 ## godot --headless --path godot-project -s _tierloop_probe.gd
+##
+## Result: per seed a line `  seed <n>: <count> settlements <tier histogram>`, a `  FAIL: ...` line for each
+## broken claim (no settlements; no hamlets; a faction lost its seat), then a final `PASS` or
+## `FAIL (<n>)`; exit 1 when any claim failed, else 0.
 
 func _init() -> void:
 	var fails := 0

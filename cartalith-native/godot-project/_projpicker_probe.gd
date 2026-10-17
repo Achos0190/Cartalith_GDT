@@ -20,6 +20,12 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+##
+## Result: `[BOOT] tag=<tag>  <w>x<h>  is_phone()=<bool>`, four numbered sections (`=== 1: existence follows
+## is_phone() exactly ===` to `=== 4: gone once a world loads, and stays gone ===`) with `  ok|FAIL  <name>
+## got= want=` lines and an `  info PHONE_TAP_MIN = <n>` line, and a final `_projpicker_probe (<tag>): PASS`
+## or `<n> FAILURE(S)`. The desktop boot prints `=== 2-4: skipped (this boot is the desktop/non-phone control)
+## ===`. Exit 1 on any failure or `[FATAL] extension did not load`, else 0.
 
 var _fail := 0
 var app: Node

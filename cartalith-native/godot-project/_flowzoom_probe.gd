@@ -21,6 +21,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a measurement, not an assertion. Prints `FLOWZOOM overlay node present: <bool>  vp=<size>`, then per
+## view and zoom step a `FLOWZOOM <view> zoom=<z> | on-screen=<n> of <m> ...` line (particles on screen,
+## objects in frame and draw calls), writes `flowzoom_<view>_z<NN>.png` and a `_crop.png` into the `--out DIR`
+## directory, and prints `FLOWZOOM wrote to <dir>`; it quits with the default exit code 0.
 
 const VP := Vector2i(1600, 1000)
 const ZOOMS := [1.0, 2.0, 4.0, 8.0, 16.0]

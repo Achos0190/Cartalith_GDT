@@ -17,6 +17,11 @@ extends Node
 ##
 ## Also measures what the brief calls the map-pixel question: the viewport
 ## area's own height and the status bar's, in both states.
+##
+## Result: a measurement, not an assertion; exit 0. Prints `TL visible=<bool> expanded=<bool>`, then per state
+## a `TL <density> <state> vp=<WxH> strip= strip_min= padY= rowH= maxLabelH= viewport= statusbar= h_status=
+## want=` line and a `TL SUMMARY density= before= after= want= recollapse= delta_strip= delta_viewport=
+## delta_statusbar=` line.
 
 var app: Node
 var _rows: Array = []

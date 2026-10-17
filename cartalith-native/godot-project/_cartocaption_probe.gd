@@ -23,6 +23,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _cartocaption_probe.tscn
 ## Run phone:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _cartocaption_probe.tscn -- --force-touch
+##
+## Result: `[BOOT] composition=desktop|phone`, `  OK    <msg>` or `  FAIL  <msg>` per row and a final
+## `_cartocaption_probe (desktop|phone): <n> failure(s)`; exit 1 when any row failed. `[FATAL] extension did
+## not load` and `[FATAL] --force-touch given but did not boot into phone composition` also exit 1.
 
 var _fail := 0
 

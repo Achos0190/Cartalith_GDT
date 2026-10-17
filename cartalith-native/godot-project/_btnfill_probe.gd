@@ -13,6 +13,9 @@ extends Node
 ## "btn_radius")` would pass against any value including the 0 this pass
 ## exists to remove; these are the canvas's own numbers, so the test fails if
 ## the constant drifts away from the design.
+##
+## Result: `=== _btnfill_probe  density=<pointer|tablet>  theme=dark ===`, `ok|FAIL  <name>  got=<v> want=<v>` per
+## check and a final `=== <density>: <n> failure(s) ===`; exit 1 when any check failed, else 0.
 
 var _fail := 0
 

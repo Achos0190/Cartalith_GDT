@@ -25,6 +25,11 @@ extends Control
 ## farthest. The positive control is the before/after pixel diff inside that
 ## box, taken across the two runs' PNGs (the renderer paints its own ground
 ## over the whole frame, so an in-run "is it blank" count cannot fail).
+##
+## Result: `  PASS  <what>` or `  FAIL  <what>` per check, `COURTYARD <view>: settlement #<n> buildings=<n>
+## courtyard-flagged=<n> in outer band=<n>`, PNGs `courtyard_<view>_<tag>.png` in `<out_dir>` (the `after` run also
+## writes `courtyard_box.txt` there), and a final `COURTYARD ALL PASS` or `SOME FAILED (<n> failed)`; exit 1
+## when any check failed, else 0. The before/after pixel diff is made outside this process.
 
 const SEED := 24601
 const VP := Vector2(1000, 760)

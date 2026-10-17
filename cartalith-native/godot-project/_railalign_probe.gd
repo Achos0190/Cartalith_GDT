@@ -14,6 +14,11 @@ extends Node
 ##
 ## Reports rather than asserts for the rail, because the correct rail geometry
 ## is what this probe is being used to establish.
+##
+## Result: `[BOOT]` lines, `=== 1: rail label vs its button ===` (measurements per domain button; reported, not
+## asserted), `=== 2: navpad glyph vs its pill ===` (`  ok|FAIL  <name>  got= want=` checks and `  info` lines)
+## and a final `_railalign_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure, on `[FATAL] extension did
+## not load` or on `[FATAL] could not reach _domain_marks/_domain_buttons`, else 0.
 
 var _vp: SubViewport
 var _fail := 0

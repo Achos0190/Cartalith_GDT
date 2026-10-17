@@ -14,6 +14,10 @@ extends Node
 ##      being drawn.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _lazyfill_probe.tscn
+##
+## Result: `LAZYFILL ok|FAIL  <what>` per check (a failed one also prints `PROBE-FAIL <what>`) and a final
+## `LAZYFILL RESULT PASS` or `FAIL (<n>)`; exit 0 on PASS, 1 on FAIL. Under `--headless` it prints
+## `LAZYFILL REFUSED: headless` and exits 2; a watchdog prints `LAZYFILL WATCHDOG` and exits 3.
 
 var _fails := 0
 

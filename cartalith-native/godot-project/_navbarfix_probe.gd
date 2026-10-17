@@ -15,6 +15,10 @@ extends Node
 ## inside a scrolling ancestor -- there is no ancestor clipping the sheet
 ## itself, only the sheet's own offset math, which is exactly what is under
 ## test.
+##
+## Result: lines prefixed `[navbarfix]`: `  OK|FAIL  <what>` per check and a final
+## `RESULT PASS|FAIL failures=<n>`; exit 1 when a check failed, exit 2 with `ABORT not phone -- pass
+## --force-touch` when the window did not register as a handset, exit 3 on `WATCHDOG TIMEOUT`, else 0.
 
 func _frames(n: int) -> void:
 	for i in n:

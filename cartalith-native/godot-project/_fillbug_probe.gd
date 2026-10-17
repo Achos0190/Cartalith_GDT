@@ -12,6 +12,11 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 800x400 \
 ##       _fillbug_probe.tscn
+##
+## Result: a verdict, not a tally; exit 0 whichever it is. Prints `FILLBUG <label> @ (x,y) = <colour> red=<bool>`
+## per button, `FILLBUG verdict: A(control)=.. B(flat+override)=.. C(fix pattern)=.. D(flat,no override)=..`, and
+## one of `FILLBUG CONFIRMED`, `FILLBUG REFUTED` or `FILLBUG INCONCLUSIVE`; the hover leg prints
+## `FILLBUG-HOVER` lines ending `CONFIRMED`, `REFUTED` or `INCONCLUSIVE`. Windowed only.
 
 func _grab() -> Image:
 	await RenderingServer.frame_post_draw

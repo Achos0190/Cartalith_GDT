@@ -11,6 +11,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a readout, not an assertion; lines are prefixed `ICONHANDLE`: world and grid size, the asset-pack load
+## result, the armed tool, the placed icon before and after a handle drag (`scale <a> -> <b> (grew=<bool>)`),
+## the scale and handle after a zoom redraw, `saved <png path>` and `done` (exit 0). Exit 1 on `!! no pack --
+## cannot arm the Icon tool`, `!! placement failed` or `!! no resize handle returned`.
 
 var app: Node
 

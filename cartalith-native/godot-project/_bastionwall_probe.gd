@@ -9,6 +9,11 @@ extends SceneTree
 ## is for pixels; this reads a Dictionary).
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _bastionwall_probe.gd
+##
+## Result: `BASTIONWALL <n> settlements`, `BASTIONWALL target #<i> "<name>" pop=<p>`, `BASTIONWALL before:` and
+## `BASTIONWALL after:` lines (wall style, wall ring vertex count, wall/fort keys), `  PASS|FAIL  <what>` per
+## check, and a final `BASTIONWALL ALL PASS` or `SOME FAILED (<n> failed)`; exit 1 on any failure, exit 2 with
+## `FAIL  no settlement generated -- cannot test`.
 
 var fails := 0
 

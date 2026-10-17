@@ -4,6 +4,13 @@ extends Node
 ## is safe headless.
 ##
 ##   Godot_v4.7.1 --headless --path . _lmdraw_probe.tscn
+##
+## Result: informational, no assertion and no PASS/FAIL line. Prints `generate ms`, `grid: W x H`,
+## `landmark_run ms` with the reply `ok` and `placed`, `landmarks(): <n>`, the x/y ranges, a by-class
+## count, the first landmark and a funnel summary; the only quit is at the end (exit 0).
+## STALE (checked 2026-10-17 with `--check-only`, also at HEAD before this header): `WorldGen::landmark_run`
+## now returns a bool (`cartalith-godot` `lib.rs`), so `var r: Dictionary = g.landmark_run()` is a parse error
+## and the probe cannot run until it reads the bool; the Result line above is read from its print calls, not from a run.
 
 func _ready() -> void:
 	var g := WorldGen.new()

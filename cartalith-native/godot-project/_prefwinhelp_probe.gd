@@ -10,6 +10,11 @@ extends Node
 ## Two passes per menu: as BUILT, then again after `about_to_popup` fires —
 ## several rows in `menus.gd` rewrite their own text/disabled state there, so
 ## the built state is not what a user sees.
+##
+## Result: a dump, not an assertion. Prints `[BOOT] shell up`, `[BAR] <n> menu buttons: <names>`, and for each
+## audited menu an `AS BUILT (<n> rows)` block then an `AFTER about_to_popup (<n> rows)` block, each row as
+## `[i] id=<id> ... dis= chk= acc= meta= sub= | <text>` with `TIP:` lines and `!! submenu node ... NOT FOUND`
+## markers, then `[DONE]` (exit 0). Exit 1 with `[FATAL] extension did not load`.
 var _vp: SubViewport
 
 func _frames(n: int) -> void:

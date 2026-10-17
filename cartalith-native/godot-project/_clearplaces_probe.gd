@@ -9,6 +9,10 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script _clearplaces_probe.gd
+##
+## Result: `CLEARPL ok|FAIL  <name>  -- <detail>` per check and a final `CLEARPL PASS|FAIL (<n> failed)`;
+## exit 0 when nothing failed, else 1 (including an early exit when the generated world has fewer than two
+## factions).
 
 var _fail := 0
 

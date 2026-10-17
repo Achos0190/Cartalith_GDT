@@ -15,6 +15,11 @@ extends Node
 ## Title match only, never search() -- CommandIndex.search() also matches
 ## blurb/group, which is exactly what produced a false positive in an earlier
 ## verifier pass off a neighbouring tooltip (_idxfind_probe.gd's own header).
+##
+## Result: a re-measurement, not an assertion; lines are prefixed `APCMD`: `total indexed rows: <n>`, one
+## `<term> (was <old label>) title-matches=<n>` per dropped-row term, `RESULT  <z> of <n> dropped-row terms now
+## return 0 title matches`, a list of what the non-zero hits are, and `<candidate> collision-hits=<n>` for
+## the candidate EXTRAS titles; exit 0. `[FATAL] extension did not load` exits 1; `APCMD  TIMEOUT` exits 2.
 
 var _app: Node
 

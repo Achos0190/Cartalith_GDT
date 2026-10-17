@@ -19,6 +19,11 @@ extends Node
 ##     and would make the width check pass vacuously.
 ##   * a path that FITS must not be scrolled (the positive control), so a scroll
 ##     stuck at 0 cannot be mistaken for a working pin.
+##
+## Result: `VB banner: display=<d> density=<d> viewport=<WxH>`, `VB ok|FAIL  <label>` per check, per path
+## a `VB   <state> <depth> win= contents_min.x= crumb_row_min= scrolled=<bool>` line and a scroll/last-crumb
+## line, and a final `VB DONE fail=<n>`; exit 1 when any check failed, else 0. A watchdog prints
+## `WATCHDOG TIMEOUT` and exits 3. Windowed only.
 
 var app: Node
 var _fail := 0

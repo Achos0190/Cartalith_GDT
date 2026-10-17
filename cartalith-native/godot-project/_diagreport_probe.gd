@@ -10,6 +10,11 @@ extends Node
 ## plumbing compiles.
 ##
 ## Run: godot4 --headless --path . _diagreport_probe.tscn
+##
+## Result: lines prefixed `PROBE`: `last_error before anything:`, `load_save(missing) ok=`,
+## `last_error after a real failure:`, `report path:`, `contains "<text>" -> <bool>` per expected report
+## section, `report bytes=<n>` and `fails=<n>`, plus a `PROBE FAIL: <reason>` line per failure. Exit 0 when
+## fails is 0, else 1 (also when no report file is found); a watchdog prints `WATCHDOG TIMEOUT` and exits 3.
 
 var _app: Node
 

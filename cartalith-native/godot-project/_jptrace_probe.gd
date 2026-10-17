@@ -14,6 +14,13 @@ extends Node
 ## Three seeds, because a reconciliation is content-dependent exactly as a
 ## panel width is (`MISTAKES.md`: "Report a layout measurement" -- one world is
 ## one sample). Every land and water leg of every seed is walked, not stage 0.
+##
+## Result: a measurement, not an assertion; lines are prefixed `TRACE`: a `=== phone=... scale=... ===` banner,
+## per seed a `##### seed <n> route= stages= km= travel_days= total_days= avg_km_day= #####` line, per stage
+## its category, km, daily km, days and term count with the `RESID_kmday` and `RESID_days` residuals and the
+## six-term product, then the plan-level `sum(stage days)`, `sum(stage km)` and `total_days` reconciliations,
+## and `TRACE === done ===` (default exit code 0). `generate FAILED`, `compute not ok`, `BLOCKED` and `NO TRACE
+## -- binary predates the JP-05 binding` mark the cases that could not be measured.
 
 const SEEDS := [483920, 77021, 4242]
 

@@ -28,6 +28,13 @@ extends Node
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed").
+##
+## Result: a measurement for the host to watch; exit 0 after `  RUN <mode> <width> -> <w> x <h>  <bytes> bytes
+## <n> bytes/px  <s> s wall` and `  EXPORT DONE -- deleting the file`. Earlier lines: `  scratch: <dir>`,
+## `  memory_info: ...`, `  seed <n> generated 2048 x 1311 in <s> s`, an optional `  WATER STACK set ...`,
+## `  estimate ...` and `  GENERATED -- starting the raster|heightmap export now`. Exit 1 on
+## `  REFUSED/FAILED at <width>: <error>`; exit 2 on `ABORT: ...` (an unknown flag, a missing `--width`, a
+## refused water stack) or the watchdog.
 
 var bridge: Node
 

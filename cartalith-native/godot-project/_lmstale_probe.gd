@@ -16,6 +16,12 @@ extends Node
 ## `icon_arm`/`icon_place` against the fixture asset pack); `_landmark_probe.gd`
 ## section E's pattern for booting the real shell and reading `_lm_*` panel
 ## state off the live `CivilizationWorkspace`.
+##
+## Result: `[BOOT] shell up`, sections (generate, run 1, the committed icon, the delete note, run 2) with
+## `  ok|FAIL  <name>  got= want=` and `  info badge text:` lines, and a final `_lmstale_probe: PASS` or
+## `<n> FAILURE(S)`; exit 1 on any failure, on `FAILURE (no workspace)` or `FAILURE (no _lm_stale_note)`.
+## Beware: a build without `landmark_run()`/`stale_stages()` or `icon_place()` prints `_lmstale_probe: SKIPPED
+## -- ...` and exits 0, so exit 0 alone does not prove the checks ran.
 
 const PACK := "res://../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
 

@@ -20,6 +20,11 @@ extends Node
 ## time the export call itself took. Peak memory is the host's to measure.
 ## Protects: nothing by assertion -- it is a measuring harness; the parity
 ## assertions are `export_raster.rs`'s `rv5_parity_tests`.
+##
+## Result: `  seed <n> generated 2048 x 1311 in <s> s`, `  GENERATED -- starting the banded|monolithic export now`,
+## then one `  RUN BAND|MONO <width> -> <w> x <h>  <bytes> bytes  bands <n>  <s> s wall` line (exit 0). Exit 1
+## with `  REFUSED/FAILED at <width>: <error>`; exit 2 on `ABORT: unrecognised argument ...`,
+## `ABORT: --width and --out are required` or `==== WATCHDOG: the probe did not finish ====`.
 
 var bridge: Node
 

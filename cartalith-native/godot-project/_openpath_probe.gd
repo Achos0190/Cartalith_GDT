@@ -28,6 +28,11 @@ extends SceneTree
 ##      losing the civ layer is what the flat format *is*, and the shell no
 ##      longer routes through it. It becomes a failure only if the bridge
 ##      stops preferring `project_open` -- which check 1 is what catches.
+##
+## Result: indented lines reporting each step (`settlements before save`, `project_save`, `EngineBridge.load_save`,
+## `project_open`, `WorldGen.load_save`, the flat export), `  FAIL: ...` lines for broken contracts,
+## `  OBSERVED (not a failure): ...` and `  NOTE: ...` lines, `  FAIL stale extension: ...` when the loaded binary
+## lacks a binding, and a final `open-path probe: no gap` or `<n> FAILURE(S)`; exit 1 on any failure, else 0.
 
 func _init() -> void:
 	var wg: WorldGen = WorldGen.new()

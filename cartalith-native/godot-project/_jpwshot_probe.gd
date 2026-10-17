@@ -19,6 +19,11 @@ extends Node
 ##
 ## Windowed, not headless -- `--headless` renders nothing to diff.
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _jpwshot_probe.tscn
+##
+## Result: no assertion; the evidence is PNG files for the caller to hash before and after a change. Prints
+## `JPS seed <n>  dock rect at shipped width = <w> x <h>  (x=<x>)`, then per seed
+## `JPS seed <n>  dock rect=<rect>  -> <path of the PNG>`, and `JPS DONE` (exit 0). `JPS seed <n>: generate
+## FAILED` marks a seed that did not generate; `JPS  !! no framebuffer -- run windowed, not --headless` exits 2.
 
 const SEEDS := [483920, 77021, 4242]
 const WIDE := 620.0

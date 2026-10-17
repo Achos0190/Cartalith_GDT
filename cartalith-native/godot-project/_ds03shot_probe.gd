@@ -28,6 +28,11 @@ extends Node
 ## exactly what a reflow change moves, and a differing line names the node.
 ##
 ## No `--headless` is needed for this one; it reads the layout, not the frame.
+##
+## Result: no assertion; the evidence is a geometry dump file named by `--out=NAME`, diffed outside this
+## process. Prints `[MODE] vp=<WxH> intrinsic=... flags: touch= tablet=` and `[OUT] <path>  lines=<n>` (exit 0).
+## Exit 1 on `[FATAL] extension did not load`; exit 3 on `[FATAL] asked for '<comp>', the shell that booted is
+## '<x>'. Nothing written.` (the `--comp` guard).
 
 func _frames(n: int) -> void:
 	for i in n:

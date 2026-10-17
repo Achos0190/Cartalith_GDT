@@ -22,6 +22,11 @@ extends Node
 ## rather than trusting a bare count.
 ##
 ##   godot --headless --resolution 1920x1080 _cmdaudit15_probe.tscn
+##
+## Result: a measurement, not an assertion; every line is prefixed `[cmdaudit15]`: `is_phone=...`,
+## `total rows: <n>`, one `UNAVAILABLE [<group>] <title> -- <reason>` per command with `available == false`
+## (sorted by group then title; `(NO REASON ...)` when the reason is empty), and a final
+## `RESULT unavailable=<u> of <n> total, <r> of <u> carry a reason`. Exit 0 whatever the counts are.
 
 func _log(s: String) -> void:
 	print("[cmdaudit15] %s" % s)

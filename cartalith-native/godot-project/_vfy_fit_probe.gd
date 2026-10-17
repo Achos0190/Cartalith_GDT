@@ -17,6 +17,10 @@ extends Node
 ## `SubViewport`; `--force-touch` is NOT read here -- it is consumed by
 ## `dcc_shell.gd`/`DccTheme`, and is passed through on the command line only.
 ## Those are the only two flags, and an unknown one aborts rather than defaults.
+##
+## Result: a measurement, not an assertion: a `VFYFIT vp=<WxH> touch= tablet= fs_prose= has_world=` line, then
+## one `VFYFIT  <window>  declared=<size> laid-out extent=<size> over_y=<+n> px` line per measured window;
+## exit 0. Exit 2 on `VFYFIT ABORT ...` (a malformed `--vp` or an unknown flag).
 
 var _vp: SubViewport
 var app: Node

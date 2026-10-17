@@ -14,6 +14,12 @@ extends Control
 ## (MISTAKES.md: "Assert on pixels").
 ##
 ## Godot_v4.7.1-stable_win64_console.exe --path . _settlewater_probe.tscn
+##
+## Result: `  PASS|FAIL  <what>` per check, `SETTLEWATER target #<n> "<name>" coastal at (x,y)`, a layout line
+## (water polygon vertices and mask runs), `SETTLEWATER diff near pin: after(draw_water=false, ...)=<n> px,
+## before(draw_water=true)=<m> px`, and a final `SETTLEWATER ALL PASS` or `SOME FAILED (<n> failed)`; exit 1
+## on failure, exit 2 when no coastal settlement or no layout is found. Side effect: writes
+## `res://_settlewater_after.png` and `res://_settlewater_before.png` into the project folder.
 
 const SEED := 24601
 const SIZE_KM := 96.0

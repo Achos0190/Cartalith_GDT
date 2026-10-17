@@ -7,6 +7,11 @@ extends Node
 ## Windowed, not headless: this walks a real MenuBar built by `menus.gd` and
 ## fires `about_to_popup` on every popup so the refreshed rows (family counts,
 ## pack state) are the ones reported.
+##
+## Result: a dump, not an assertion. Prints `[BOOT] shell up`, `[BAR] <menu names>`, then per menu a
+## `########## MENU: <name> ##########` banner followed by every popup row (`[POPUP] <path>   items=<n>`,
+## numbered `SEP` and item rows with id, accelerator, text and a `TIP:` line), then `[DONE]` (exit 0). Exit 1
+## with `[FATAL] extension did not load` when the extension is missing.
 
 var _vp: SubViewport
 

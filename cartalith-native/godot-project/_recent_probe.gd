@@ -11,6 +11,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a report, not an assertion; lines are prefixed `RECENT`. For each File > Recent worlds row it prints
+## `'<label>': grid <a> -> <b>, settlements <n> -> <m>, project='<path>'` followed by `>> loaded a different
+## world, as claimed` or `>> loaded nothing. status changed: <bool>` (with any new status text), then `DONE`
+## (exit 0). Exit 1 with `no RecentWorlds popup`; a watchdog prints `WATCHDOG` and exits 3.
 
 var _app: Node
 var _bridge

@@ -9,6 +9,10 @@ extends Node
 ##
 ## Headless is correct here (`MISTAKES.md`: "headless for logic and layout") --
 ## every number below is a Control rect, nothing rasterised.
+##
+## Result: not pass/fail. Prints `=== toolbargeom vp=<WxH> band=<rect> row=<rect> ===`, one `  <control>` line per
+## drawn control, `  -- phone bottom-nav tabs --` with one line per tab, and, when `--dump <path>` is given, a
+## `[DUMP] <path>` line after writing the JSON that a harness diffs between two builds; exit 0.
 
 func _frames(n: int) -> void:
 	for i in n:

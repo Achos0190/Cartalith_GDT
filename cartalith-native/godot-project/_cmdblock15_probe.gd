@@ -24,6 +24,12 @@ extends Node
 ## concurrent CIVIL-rail workflow's in-flight files entirely.
 ##
 ##   godot --headless _cmdblock15_probe.tscn
+##
+## Result: a measurement, not an assertion; every line is prefixed `[cmdblock15]`: `WorldGen present: <bool>`,
+## one `has_method(<name>) = <bool>` per checked extension method (eleven names), the cached `gpu_api`,
+## the size of `landmark_kinds()` when that method exists, the values of `DccMenus._docs_dir()` and
+## `DccSettings.layout_names()`, and a final `RESULT <n> of <m> checked methods are present on the loaded
+## WorldGen`. Exit 0 whatever the counts are.
 
 func _log(s: String) -> void:
 	print("[cmdblock15] %s" % s)

@@ -10,6 +10,11 @@ extends Node
 ## without it the engine's touch scrolling is compiled-in but never armed, so
 ## the probe would report "no scroll" for reasons that have nothing to do with
 ## the shell. Verified against 4.7.1, not assumed.
+##
+## Result: a readout, not an assertion, and no PASS/FAIL line. Prints `touchscreen_available=<bool>`,
+## `scroll rect=<rect> content=<size> ...`, `buttons under the scroll: <n> visible in rect: <m>`, one
+## `  tap <button text> filter=<n> fired=<n>` line per tapped button, and `  y=<n>  scrolled=<n>  under=<who>`
+## lines from the flick; it quits with the default exit code 0 (also after `no ScrollContainer under left_dock`).
 
 var _scroll: ScrollContainer
 

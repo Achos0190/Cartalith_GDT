@@ -12,6 +12,11 @@ extends Node
 ## disarms the active tool without touching what is selected"*. Both clauses
 ## were true. The second still is, and that is asserted here too — Escape and
 ## Deselect must NOT have become the same key.
+##
+## Result: `[BOOT] shell up`, sections `=== 0 ===` to `=== 6 ===` with `  ok|FAIL  <name>  got= want=` and `  info`
+## lines, and a final `_deselect_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure, on
+## `[FATAL] extension did not load`, when the Deselect row is not live, or after `label_create refused --
+## nothing left to test`. A skipped icon leg (no asset pack) prints an `info` line and does not fail.
 
 var _fail := 0
 

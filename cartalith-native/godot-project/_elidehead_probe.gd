@@ -22,6 +22,12 @@ extends Node
 ## Deliberately desktop-only (no `--force-touch`): the row's own defect is
 ## desktop-specific, and `_elidechurn_probe.gd` already covers the tablet
 ## path directly.
+##
+## Result: a dump to diff between two builds, not an assertion; every line is prefixed `[elidehead]`:
+## `is_tablet=... is_phone=... active_domain=...`, `header count: <n>`, one
+## `label text=<t> clip=<b> overrun=<n> rect=(x,y,w,h)` per header Label (sorted by text),
+## `registered-in-array: <r> of <n>` and `RESULT done` (exit 0). Exit 2 with `RESULT no left_dock_body --
+## cannot reach the WORLD dock` when the dock is missing.
 
 func _log(s: String) -> void:
 	print("[elidehead] %s" % s)

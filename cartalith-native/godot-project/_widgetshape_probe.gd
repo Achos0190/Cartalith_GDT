@@ -9,6 +9,11 @@ extends Node
 ##
 ## Written for the desktop density only: the question the owner asked ("all
 ## buttons and inputs are visually not the same") was asked about the PC shell.
+##
+## Result: a measurement dump, not an assertion: one line per `DccWidgets` factory describing the resolved
+## stylebox (fill, border, radius, margins, minimum height), a slider-grabber line, an `== LAID SIZES
+## (1280x800 desktop) ==` block of `<widget>  laid=<w>x<h>` lines and the project theme path; it then quits
+## with the default exit code 0.
 var out: PackedStringArray = []
 
 func _sb(n: Control, slot: String) -> StyleBox:

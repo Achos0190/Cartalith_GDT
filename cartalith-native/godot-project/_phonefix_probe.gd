@@ -12,6 +12,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a measurement, not an assertion. Prints `=== phone=<bool> scale=<n> ===`, then numbered blocks
+## tagged `[4]` (the search dialog and its chips), `[1]` (the rich-text font size after the walk), `[2]` (tool
+## buttons per domain), `[3]` (option buttons), `[min]` (an indented minimum-width tree), `shot <png path>`
+## and `=== done ===`; it quits with the default exit code 0.
 
 var app: Node
 

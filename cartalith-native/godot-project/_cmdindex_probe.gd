@@ -13,6 +13,11 @@ extends Node
 ## An index that returned an empty list would satisfy every structural check —
 ## this repository's silently-empty-output trap — so the counts are asserted
 ## non-zero and specific known entries are named.
+##
+## Result: `[BOOT] shell up`, six numbered sections (`=== 1: it found things, from both sources ===` to
+## `=== 6: groups are real and banded ===`) holding `  ok|FAIL  <name>  got= want=` and `  info ...` lines, a
+## `  SILENT  <title>  (<group> menu)` line for any unavailable row with no reason, and a final
+## `_cmdindex_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure or `[FATAL] extension did not load`.
 
 var _vp: SubViewport
 var _fail := 0

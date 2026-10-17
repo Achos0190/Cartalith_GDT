@@ -10,6 +10,9 @@ extends SceneTree
 ## something calling it on a live third-party write, which is what this adds.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _layerlive_probe.gd
+##
+## Result: section headers (`== the regression: ... ==`), `  PASS  <what>` or `  FAIL  <what>` per check, and a
+## final `ALL PASS (0 failures)` or `FAILURES (<n> failure(s))`; exit 1 when any check failed, else 0.
 
 var fails := 0
 

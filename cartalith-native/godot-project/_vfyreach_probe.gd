@@ -10,6 +10,11 @@ extends Node
 ##
 ## Reads only; arms tools through the public `app.arm_tool()` and reads
 ## `right_dock`'s own `_tool_section()` plus the drawn section headers.
+##
+## Result: a report, not a tally: `[VP] <w>x<h>  right_dock_ctrl=<bool>` then one
+## `  domain=<d> armed=<tool id> _tool_section=<s> headers=<list>` line per armed tool id; exit 0. Exit 1 with
+## `[FATAL] extension did not load`; exit 2 on `[FATAL] unrecognised argument` or `[RESULT] WATCHDOG -- never
+## reached the end`. `-- --vp WxH` sets the viewport.
 
 var _vp: SubViewport
 

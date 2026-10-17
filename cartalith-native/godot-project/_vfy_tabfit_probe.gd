@@ -12,6 +12,12 @@ extends Node
 ## Every printed figure is a measurement; assertions are literals off the
 ## canvas (`Cartalith Tablet.dc.html` `valsShell()` portrait `--ldW:232px`,
 ## `ENV:25` `--ldW:372px --rdW:304px`, `ENV:1819` `w1366` 330/280).
+##
+## Result: `=== vfy_tabfit vp=<WxH> portrait=<bool> ===`, per-state blocks of measurements (`[tag] touch= tablet=
+## phone= laptop=`, minimum and actual sizes, an `OVERFLOW shellVB size.x - frame = <+n>` line), `  [ok|FAIL]
+## <label>  got= want=` checks against literals from the canvas, optional `[rotate]` blocks, and a final
+## `=== end vfy_tabfit fails=<n> ===`; exit 1 when any check failed, else 0. A watchdog prints
+## `[RESULT] WATCHDOG failures=<n>` and exits 2.
 
 var app: Node
 var _vp: SubViewport

@@ -14,6 +14,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a measurement, not an assertion; every line is prefixed `ZOOMPIVOT`: the viewport host position, size
+## and zoom, then per probe point (centre, a 25%/30% point, an 80%/70% point) `wheel-up at screen <pt> : zoom
+## <a> -> <b>  local pivot drift = (<dx>, <dy>) px  |d|=<n>`, a `zoom_step(1.35) centre drift` line and
+## `DONE` (exit 0). A 200 s watchdog prints `WATCHDOG` and exits 3.
 
 var _app: Node
 var _bridge

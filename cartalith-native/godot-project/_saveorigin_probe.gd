@@ -17,6 +17,10 @@ extends Node
 ## has moved for the one remaining reason.
 ##
 ##   godot --headless --path . _saveorigin_probe.tscn
+##
+## Result: informational lines `key_generated =`, `key_imported =`, `flat  generated|imported reopened =` and
+## `tree  generated|imported reopened =` (the atlas keys), then `PROBE PASS: provenance survives both writers;
+## the control is unmoved` or one `PROBE FAIL: <reason>` per failure; exit 0 on pass, 1 on any failure.
 
 func _ready() -> void:
 	var dir := OS.get_user_data_dir()
