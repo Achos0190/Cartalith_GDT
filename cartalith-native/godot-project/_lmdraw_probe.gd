@@ -6,11 +6,11 @@ extends Node
 ##   Godot_v4.7.1 --headless --path . _lmdraw_probe.tscn
 ##
 ## Result: informational, no assertion and no PASS/FAIL line. Prints `generate ms`, `grid: W x H`,
-## `landmark_run ms` with the reply `ok` and `placed`, `landmarks(): <n>`, the x/y ranges, a by-class
+## `landmark_run ms` with the returned value and the reply `ok` and `placed`, `landmarks(): <n>`, the x/y ranges, a by-class
 ## count, the first landmark and a funnel summary; the only quit is at the end (exit 0).
-## STALE (checked 2026-10-17 with `--check-only`, also at HEAD before this header): `WorldGen::landmark_run`
-## now returns a bool (`cartalith-godot` `lib.rs`), so `var r: Dictionary = g.landmark_run()` is a parse error
-## and the probe cannot run until it reads the bool; the Result line above is read from its print calls, not from a run.
+## Updated 2026-10-17 for the bool return: `WorldGen::landmark_run` returns a bool (`cartalith-godot` `lib.rs`),
+## so the old `var r: Dictionary = g.landmark_run()` was a parse error. The call now goes through `callv` (which accepts
+## either return type) and the reply dictionary (`ok`, `placed`, `seconds`, `error`) is read from `landmark_last_run()`.
 
 func _ready() -> void:
 	var g := WorldGen.new()
@@ -21,9 +21,14 @@ func _ready() -> void:
 	print("generate ms: ", Time.get_ticks_msec() - t0)
 	print("grid: ", g.get_width(), " x ", g.get_height() if g.has_method("get_height") else -1)
 	var t1 := Time.get_ticks_msec()
-	var r: Dictionary = g.landmark_run()
+	var raw: Variant = g.callv("landmark_run", [])
 	var run_ms := Time.get_ticks_msec() - t1
-	print("landmark_run ms: ", run_ms, "  reply: ", r.get("ok"), " placed=", r.get("placed"),
+	var r: Dictionary = {}
+	if raw is Dictionary:
+		r = raw
+	elif g.has_method("landmark_last_run"):
+		r = g.landmark_last_run()
+	print("landmark_run ms: ", run_ms, "  returned: ", raw, "  reply: ", r.get("ok"), " placed=", r.get("placed"),
 		" seconds=", r.get("seconds"), " error=", r.get("error"))
 	var lms: Array = g.landmarks()
 	print("landmarks(): ", lms.size())
