@@ -738,14 +738,14 @@ fn wall_occupancy_is_zero_on_a_degenerate_ring() {
     eq_bits(occ.fill_fraction, 0.0, "a zero-area ring divides by nothing");
 }
 
+/// Protects: estimate_carrying_capacity's placeholder integration
+/// contract — always in [0.3, 1.0], never a hard zero — across a sweep of
+/// max_rf values.
+/// The reference's own integration contract: "one number in ~[0.3, 1.0],
+/// never a hard 0 -- a site this engine already generated a market on is
+/// buildable by construction".
 #[test]
 fn estimate_carrying_capacity_never_returns_below_its_floor() {
-    // Protects: estimate_carrying_capacity's placeholder integration
-    // contract — always in [0.3, 1.0], never a hard zero — across a sweep of
-    // max_rf values.
-    // The reference's own integration contract: "one number in ~[0.3, 1.0],
-    // never a hard 0 -- a site this engine already generated a market on is
-    // buildable by construction".
     let site = build_site(3, WM, HM, "landlocked", SiteOpts::default());
     let anchors = place_anchors(3, &site);
     for max_rf in [0.0, 50.0, 200.0, 420.0, 5000.0] {
@@ -754,12 +754,12 @@ fn estimate_carrying_capacity_never_returns_below_its_floor() {
     }
 }
 
+/// Protects: grow() on an empty seed graph not panicking on the
+/// `g.nodes[r.int(0, -1)]` out-of-bounds JS pattern, and placing nothing.
+/// `g.nodes[r.int(0, -1)]` is `undefined` in JS and `None` here; the loop
+/// spends its 2,600 tries and places nothing, per epoch, without panicking.
 #[test]
 fn grow_never_draws_when_walls_are_off_and_the_graph_is_empty() {
-    // Protects: grow() on an empty seed graph not panicking on the
-    // `g.nodes[r.int(0, -1)]` out-of-bounds JS pattern, and placing nothing.
-    // `g.nodes[r.int(0, -1)]` is `undefined` in JS and `None` here; the loop
-    // spends its 2,600 tries and places nothing, per epoch, without panicking.
     let site = build_site(3, WM, HM, "landlocked", SiteOpts::default());
     let anchors = place_anchors(3, &site);
     let mut g = Graph::new();
@@ -772,16 +772,16 @@ fn grow_never_draws_when_walls_are_off_and_the_graph_is_empty() {
     assert!(rec.calls.is_empty(), "walls were off");
 }
 
+/// Protects: the reference's `for (t = 0.15; t <= 1; t += 0.17)` loop
+/// shape — exactly six samples, the sixth landing exactly on 1.0 — and
+/// records that the indexed and accumulated forms are bit-identical here.
+/// The reference writes `for (let t = 0.15; t <= 1; t += 0.17)`. Every value
+/// below came out of `node`, not out of reasoning about the decimals — and
+/// the reasoning would have been wrong twice over. It takes SIX samples, not
+/// five, and the sixth is exactly `1.0`, i.e. the segment's own endpoint, so
+/// `isWater(B)` is always among the probes.
 #[test]
 fn the_wet_walk_takes_six_samples_and_the_last_is_the_endpoint() {
-    // Protects: the reference's `for (t = 0.15; t <= 1; t += 0.17)` loop
-    // shape — exactly six samples, the sixth landing exactly on 1.0 — and
-    // records that the indexed and accumulated forms are bit-identical here.
-    // The reference writes `for (let t = 0.15; t <= 1; t += 0.17)`. Every value
-    // below came out of `node`, not out of reasoning about the decimals — and
-    // the reasoning would have been wrong twice over. It takes SIX samples, not
-    // five, and the sixth is exactly `1.0`, i.e. the segment's own endpoint, so
-    // `isWater(B)` is always among the probes.
     let mut acc = Vec::new();
     let mut t = 0.15;
     while t <= 1.0 {
@@ -805,11 +805,11 @@ fn the_wet_walk_takes_six_samples_and_the_last_is_the_endpoint() {
     eq_bits(0.15 + 6.0 * 0.17, 1.17, "and so does the value past the end");
 }
 
+/// Protects: gen_or_one's `wallState.generation || 1` — both the falsy
+/// Some(0) and the absent None case read as 1, and a real value passes
+/// through.
 #[test]
 fn generation_zero_and_absent_both_read_as_one() {
-    // Protects: gen_or_one's `wallState.generation || 1` — both the falsy
-    // Some(0) and the absent None case read as 1, and a real value passes
-    // through.
     let a = WallState { generation: Some(0), ..WallState::default() };
     let b = WallState { generation: None, ..WallState::default() };
     let c = WallState { generation: Some(2), ..WallState::default() };
@@ -820,17 +820,17 @@ fn generation_zero_and_absent_both_read_as_one() {
 // Milestone 6's device: where a mutation survives because the code it changes
 // cannot matter, say so as an assertion instead of as an argument in a table.
 
+/// Protects: the invariant that makes estimate_carrying_capacity's clamp
+/// bounds equivalent mutants — every terrainSuitability sample is already
+/// inside [0, 1], swept over every golden site rather than argued.
+/// `clamp(0.3 + 0.7 * mean, 0.3, 1.0)` where `mean` averages
+/// `terrainSuitability`. That function is a product of two factors each
+/// already in `[0, 1]`, so `mean` is too, so the argument is already inside
+/// the clamp by construction and **both** bounds are dead — the same shape
+/// as milestone 6's `Math.max(0, rd - 260)`. Asserted across every site the
+/// golden file builds rather than argued.
 #[test]
 fn the_carrying_capacity_clamp_can_never_bind() {
-    // Protects: the invariant that makes estimate_carrying_capacity's clamp
-    // bounds equivalent mutants — every terrainSuitability sample is already
-    // inside [0, 1], swept over every golden site rather than argued.
-    // `clamp(0.3 + 0.7 * mean, 0.3, 1.0)` where `mean` averages
-    // `terrainSuitability`. That function is a product of two factors each
-    // already in `[0, 1]`, so `mean` is too, so the argument is already inside
-    // the clamp by construction and **both** bounds are dead — the same shape
-    // as milestone 6's `Math.max(0, rd - 260)`. Asserted across every site the
-    // golden file builds rather than argued.
     let mut checked = 0usize;
     for c in golden::GOLDEN {
         let (site, anchors, _) = setup(c);
@@ -852,19 +852,19 @@ fn the_carrying_capacity_clamp_can_never_bind() {
     assert!(checked >= 700, "only {checked} suitability probes");
 }
 
+/// Protects: the invariant that makes wallOccupancy's alive-edge filter
+/// an equivalent mutation within milestone 7 alone — every node's adj
+/// list holds only live edge ids after a full grow() run, over every
+/// golden scenario.
+/// `wallOccupancy`'s `n.adj.filter(id => g.edges[id].alive)` looks like a
+/// guard against stale ids. Inside milestone 7 it cannot be: `rawEdge` is the
+/// only writer and `splitEdge` removes the id from both endpoints when it
+/// kills an edge, so `adj` holds live ids only. The filter is kept because it
+/// is the reference's and because milestone 11's `_killEdge` will make it
+/// load-bearing — but until then dropping it is an equivalent mutation, and
+/// this is the statement of why.
 #[test]
 fn no_node_ever_holds_a_dead_edge_in_its_adjacency() {
-    // Protects: the invariant that makes wallOccupancy's alive-edge filter
-    // an equivalent mutation within milestone 7 alone — every node's adj
-    // list holds only live edge ids after a full grow() run, over every
-    // golden scenario.
-    // `wallOccupancy`'s `n.adj.filter(id => g.edges[id].alive)` looks like a
-    // guard against stale ids. Inside milestone 7 it cannot be: `rawEdge` is the
-    // only writer and `splitEdge` removes the id from both endpoints when it
-    // kills an edge, so `adj` holds live ids only. The filter is kept because it
-    // is the reference's and because milestone 11's `_killEdge` will make it
-    // load-bearing — but until then dropping it is an equivalent mutation, and
-    // this is the statement of why.
     for c in golden::GOLDEN {
         let (site, anchors, mut g) = setup(c);
         let mut ws = wall_state_from(c);
@@ -888,17 +888,17 @@ fn no_node_ever_holds_a_dead_edge_in_its_adjacency() {
     }
 }
 
+/// Protects: the algebraic identity that makes the reference's double
+/// angle-wrap an equivalent mutation of the bare abs, measured over
+/// 200,000 arguments rather than argued.
+/// `Math.abs(((a - b) % PI + PI) % PI)` then `Math.min(dd, PI - dd)`. The
+/// outer `+ PI) % PI` maps a negative remainder `-a` to `PI - a`, and the
+/// fold then takes `min(PI - a, a)` — which is what the bare `abs` gives too.
+/// So the double wrap cannot change the result, at **both** of `grow`'s two
+/// call sites. Measured over 200,000 arguments rather than argued, because
+/// the mutation that drops it survived and the reason had to be established.
 #[test]
 fn the_junction_angle_wrap_is_redundant_under_the_fold_that_follows_it() {
-    // Protects: the algebraic identity that makes the reference's double
-    // angle-wrap an equivalent mutation of the bare abs, measured over
-    // 200,000 arguments rather than argued.
-    // `Math.abs(((a - b) % PI + PI) % PI)` then `Math.min(dd, PI - dd)`. The
-    // outer `+ PI) % PI` maps a negative remainder `-a` to `PI - a`, and the
-    // fold then takes `min(PI - a, a)` — which is what the bare `abs` gives too.
-    // So the double wrap cannot change the result, at **both** of `grow`'s two
-    // call sites. Measured over 200,000 arguments rather than argued, because
-    // the mutation that drops it survived and the reason had to be established.
     let mut m = cartalith_rng::Mulberry32::new(0x0f17_2b3d);
     for _ in 0..200_000 {
         let d = (m.next_f64() - 0.5) * 400.0;
@@ -910,17 +910,17 @@ fn the_junction_angle_wrap_is_redundant_under_the_fold_that_follows_it() {
     }
 }
 
+/// Protects: the narrow, scenario-specific fact that licenses swapping
+/// js_cos/js_sin for f64::cos/f64::sin ONLY inside estimate_carrying_
+/// capacity's twelve fixed angles, and the contrasting fact (over 40,000
+/// arbitrary angles) that the two libms do disagree in general.
+/// `estimateCarryingCapacity` calls `Math.cos`/`Math.sin` on exactly twelve
+/// fixed angles, `2·π·i/12`. V8's FDLIBM and the platform libm agree on all
+/// twelve, which is why swapping `js_cos` for `f64::cos` survives **here**
+/// and must not be read as a licence to do it anywhere else — `placeAnchors`'
+/// 400 arbitrary angles are where the same swap changes the town.
 #[test]
 fn the_carrying_capacity_ring_angles_are_ones_v8_and_the_platform_agree_on() {
-    // Protects: the narrow, scenario-specific fact that licenses swapping
-    // js_cos/js_sin for f64::cos/f64::sin ONLY inside estimate_carrying_
-    // capacity's twelve fixed angles, and the contrasting fact (over 40,000
-    // arbitrary angles) that the two libms do disagree in general.
-    // `estimateCarryingCapacity` calls `Math.cos`/`Math.sin` on exactly twelve
-    // fixed angles, `2·π·i/12`. V8's FDLIBM and the platform libm agree on all
-    // twelve, which is why swapping `js_cos` for `f64::cos` survives **here**
-    // and must not be read as a licence to do it anywhere else — `placeAnchors`'
-    // 400 arbitrary angles are where the same swap changes the town.
     for i in 0..12 {
         let ang = 2.0 * PI * f64::from(i) / 12.0;
         assert_eq!(js_cos(ang).to_bits(), ang.cos().to_bits(), "cos at i = {i}");
@@ -939,14 +939,14 @@ fn the_carrying_capacity_ring_angles_are_ones_v8_and_the_platform_agree_on() {
     assert!(disagreements > 100, "only {disagreements} cos disagreements in 40,000 draws");
 }
 
+/// Protects: the invariant that makes wallOccupancy's `wallArea > 0`
+/// guard unreachable-with-effect — a degenerate polygon contains no
+/// points, so the interior-count floor can never fire beside it.
+/// `wallOccupancy`'s `wallArea > 0` guard survives every mutation because a
+/// degenerate polygon contains no points at all, so `interior.length >= 8`
+/// can never hold beside it. Unreachable-with-effect, not merely untested.
 #[test]
 fn a_zero_area_ring_can_never_reach_the_fill_fraction_division() {
-    // Protects: the invariant that makes wallOccupancy's `wallArea > 0`
-    // guard unreachable-with-effect — a degenerate polygon contains no
-    // points, so the interior-count floor can never fire beside it.
-    // `wallOccupancy`'s `wallArea > 0` guard survives every mutation because a
-    // degenerate polygon contains no points at all, so `interior.length >= 8`
-    // can never hold beside it. Unreachable-with-effect, not merely untested.
     let mut g = Graph::new();
     for i in 0..20 {
         let a = std::f64::consts::TAU * f64::from(i) / 20.0;
@@ -969,15 +969,15 @@ fn a_zero_area_ring_can_never_reach_the_fill_fraction_division() {
     assert!(occ.exterior_count >= 8, "and every built node must be outside it");
 }
 
+/// Protects: the invariant that makes dropping `Math.abs` on
+/// `polyArea(hull)` an equivalent mutation — convex_hull always returns
+/// the same winding, so its signed area never goes negative.
+/// `Math.abs(polyArea(hull))` survives dropping the `abs`, because
+/// `convexHull` always returns the same winding and the sign never varies.
+/// The `abs` on the **ring** is a different matter — a caller can hand in
+/// either winding, and `genRingReversed` is the fixture that proves it.
 #[test]
 fn the_convex_hull_orientation_is_fixed_so_its_area_sign_is_too() {
-    // Protects: the invariant that makes dropping `Math.abs` on
-    // `polyArea(hull)` an equivalent mutation — convex_hull always returns
-    // the same winding, so its signed area never goes negative.
-    // `Math.abs(polyArea(hull))` survives dropping the `abs`, because
-    // `convexHull` always returns the same winding and the sign never varies.
-    // The `abs` on the **ring** is a different matter — a caller can hand in
-    // either winding, and `genRingReversed` is the fixture that proves it.
     let mut m = cartalith_rng::Mulberry32::new(0x77c1_09b3);
     for _ in 0..2_000 {
         let ps: Vec<Vec2> =
@@ -989,15 +989,15 @@ fn the_convex_hull_orientation_is_fixed_so_its_area_sign_is_too() {
     }
 }
 
+/// Protects: with wallGenerations off, neither settlement_age nor
+/// carrying_capacity_weight can move the town — the ccFactor/yearsPerEpoch
+/// fallback values are read only when wallGenerations is on.
+/// `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` are only assigned when
+/// `wallGenerations` is off, and both are only **read** when it is on.
+/// Asserted from the other side: with it off, neither the carrying-capacity
+/// weight nor the settlement age can move the town.
 #[test]
 fn both_non_wall_generation_fallbacks_are_dead() {
-    // Protects: with wallGenerations off, neither settlement_age nor
-    // carrying_capacity_weight can move the town — the ccFactor/yearsPerEpoch
-    // fallback values are read only when wallGenerations is on.
-    // `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` are only assigned when
-    // `wallGenerations` is off, and both are only **read** when it is on.
-    // Asserted from the other side: with it off, neither the carrying-capacity
-    // weight nor the settlement age can move the town.
     let site = build_site(7, WM, HM, "river", SiteOpts::default());
     let anchors = place_anchors(7, &site);
     let base = GrowOpts { target_len: 2000.0, max_rf: 400.0, ..GrowOpts::default() };

@@ -1336,11 +1336,11 @@ pub(crate) mod tests {
         ]
     }
 
+    /// Protects: six real adapter rows collapsing to three physical
+    /// devices, Vulkan winning backend rank, and the software rasterizer
+    /// sorting last and flagged.
     #[test]
     fn group_adapters_collapses_the_real_machines_six_rows_to_three_devices() {
-        // Protects: six real adapter rows collapsing to three physical
-        // devices, Vulkan winning backend rank, and the software rasterizer
-        // sorting last and flagged.
         let devs = group_adapters(real_machine_rows());
         assert_eq!(devs.len(), 3, "six adapter rows, three physical devices");
 
@@ -1386,17 +1386,17 @@ pub(crate) mod tests {
         assert_eq!(devs[2].key, "name:Card");
     }
 
+    /// Protects: an empty adapter list producing an empty device list,
+    /// not a panic -- the headless/CI reality this crate has to run under.
     #[test]
     fn group_adapters_on_a_headless_machine_returns_nothing() {
-        // Protects: an empty adapter list producing an empty device list,
-        // not a panic -- the headless/CI reality this crate has to run under.
         assert!(group_adapters(Vec::new()).is_empty());
     }
 
+    /// Protects: split_rows's bands staying contiguous and covering the
+    /// whole grid exactly, across a range of heights and weight shapes.
     #[test]
     fn split_rows_covers_every_row_exactly_once() {
-        // Protects: split_rows's bands staying contiguous and covering the
-        // whole grid exactly, across a range of heights and weight shapes.
         for h in [1u32, 2, 7, 8, 64, 511, 512, 1024] {
             for weights in [vec![1.0], vec![1.0, 1.0], vec![1.0, 0.2], vec![1.0, 0.2, 0.5]] {
                 let bands = split_rows(h, &weights);
@@ -1411,38 +1411,38 @@ pub(crate) mod tests {
         }
     }
 
+    /// Protects: the exact row counts split_rows assigns for a concrete
+    /// weight ratio, so a change to the cumulative-sum arithmetic is caught.
     #[test]
     fn split_rows_is_proportional_to_the_weights() {
-        // Protects: the exact row counts split_rows assigns for a concrete
-        // weight ratio, so a change to the cumulative-sum arithmetic is caught.
         let bands = split_rows(1000, &[1.0, 0.2]);
         assert_eq!(bands[0], (0, 833));
         assert_eq!(bands[1], (833, 167));
     }
 
+    /// Protects: a zero-weight device receiving an empty band rather than
+    /// a share of the grid.
     #[test]
     fn split_rows_gives_a_zero_weight_device_nothing() {
-        // Protects: a zero-weight device receiving an empty band rather than
-        // a share of the grid.
         let bands = split_rows(100, &[1.0, 0.0]);
         assert_eq!(bands[0], (0, 100));
         assert_eq!(bands[1], (100, 0));
     }
 
+    /// Protects: all-zero weights still dispatching the whole grid (to the
+    /// first device) instead of dispatching nothing anywhere.
     #[test]
     fn split_rows_with_no_usable_weight_still_covers_the_grid() {
-        // Protects: all-zero weights still dispatching the whole grid (to the
-        // first device) instead of dispatching nothing anywhere.
         let bands = split_rows(100, &[0.0, 0.0]);
         assert_eq!(bands[0], (0, 100));
         assert_eq!(bands[1], (0, 0));
     }
 
+    /// Protects: every MultiGpuMode/VramFallback variant's as_str/parse
+    /// round-tripping, and an unknown string parsing to None rather than
+    /// a guessed default.
     #[test]
     fn mode_and_fallback_round_trip_through_their_string_names() {
-        // Protects: every MultiGpuMode/VramFallback variant's as_str/parse
-        // round-tripping, and an unknown string parsing to None rather than
-        // a guessed default.
         for m in [MultiGpuMode::SingleDevice, MultiGpuMode::SplitTiles, MultiGpuMode::AlternateFrames] {
             assert_eq!(MultiGpuMode::parse(m.as_str()), Some(m));
         }
@@ -1453,21 +1453,21 @@ pub(crate) mod tests {
         assert_eq!(VramFallback::parse("nonsense"), None);
     }
 
+    /// Protects: is_implemented() reporting AlternateFrames and
+    /// ReduceWorkingRes as unimplemented, and the real choices as implemented.
     #[test]
     fn the_two_unimplemented_choices_say_so() {
-        // Protects: is_implemented() reporting AlternateFrames and
-        // ReduceWorkingRes as unimplemented, and the real choices as implemented.
         assert!(!MultiGpuMode::AlternateFrames.is_implemented());
         assert!(MultiGpuMode::SplitTiles.is_implemented());
         assert!(!VramFallback::ReduceWorkingRes.is_implemented());
         assert!(VramFallback::CpuTilePass.is_implemented());
     }
 
+    /// Protects: gpu_working_set_bytes's 10x f32-grid multiplier, and the
+    /// exact byte totals a 1 GB budget must admit at 4096² and refuse at
+    /// 8192² (a first pass got this arithmetic wrong; see the comment below).
     #[test]
     fn working_set_estimate_is_ten_f32_grids() {
-        // Protects: gpu_working_set_bytes's 10x f32-grid multiplier, and the
-        // exact byte totals a 1 GB budget must admit at 4096² and refuse at
-        // 8192² (a first pass got this arithmetic wrong; see the comment below).
         assert_eq!(gpu_working_set_bytes(512, 256), 512 * 256 * 4 * 10);
         // The two sizes that bracket a plausible cap, spelled out rather
         // than asserted loosely: 4096² is 640 MB and 8192² is 2.5 GB, so a
@@ -1484,17 +1484,17 @@ pub(crate) mod tests {
         );
     }
 
+    /// Protects: a zero (unset) budget always returning Ok, even for the
+    /// largest possible need -- "no cap" must mean no cap.
     #[test]
     fn no_budget_never_denies() {
-        // Protects: a zero (unset) budget always returning Ok, even for the
-        // largest possible need -- "no cap" must mean no cap.
         assert_eq!(vram_verdict_for(u64::MAX, 0, VramFallback::FailWithError), VramVerdict::Ok);
     }
 
+    /// Protects: the equal-fits-under-budget boundary, and each
+    /// VramFallback variant's exact verdict once the budget is exceeded.
     #[test]
     fn budget_denies_only_above_the_cap_and_honours_the_fallback() {
-        // Protects: the equal-fits-under-budget boundary, and each
-        // VramFallback variant's exact verdict once the budget is exceeded.
         let gb = 1024 * 1024 * 1024;
         assert_eq!(vram_verdict_for(gb, gb, VramFallback::FailWithError), VramVerdict::Ok, "equal fits");
         assert_eq!(vram_verdict_for(gb + 1, gb, VramFallback::FailWithError), VramVerdict::Fail);
@@ -1690,11 +1690,11 @@ pub(crate) mod tests {
     /// than added after the fact.
     static DEVICE_CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Protects: Ruling Y's device cache reusing a healthy device (same
+    /// `lost` Arc) and never handing back a device once it is lost
+    /// (fresh Arc, healthy, on the next call).
     #[test]
     fn init_gpu_device_set_reuses_a_healthy_device_and_drops_a_lost_one() {
-        // Protects: Ruling Y's device cache reusing a healthy device (same
-        // `lost` Arc) and never handing back a device once it is lost
-        // (fresh Arc, healthy, on the next call).
         let _guard = DEVICE_CACHE_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let saved = preferences();
         set_preferences(GpuPreferences::default());

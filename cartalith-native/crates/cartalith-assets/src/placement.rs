@@ -673,20 +673,20 @@ mod tests {
         r
     }
 
+    /// Protects: the w==0/h==0 early-return guard from a panicking w-1
+    /// underflow that a Rust usize (unlike JS's -1) cannot absorb.
     #[test]
     fn empty_grid_returns_no_items_instead_of_panicking() {
-        // Protects: the w==0/h==0 early-return guard from a panicking w-1
-        // underflow that a Rust usize (unlike JS's -1) cannot absorb.
         let r = rule(|_| {});
         let rules = [("a", &r)];
         let opts = PlaceIconsRuledOpts::new(0, &rules);
         assert!(place_map_icons_ruled(&[], None, 0, 0, &opts).is_empty());
     }
 
+    /// Protects: PlaceIconsRuledOpts::new's t_gap formula against the
+    /// reference's own default object.
     #[test]
     fn opts_new_matches_the_reference_default_t_gap() {
-        // Protects: PlaceIconsRuledOpts::new's t_gap formula against the
-        // reference's own default object.
         let rules: [(&str, &ScatterRule); 0] = [];
         // Math.max(4, Math.round(W/110))
         assert_eq!(PlaceIconsRuledOpts::new(110, &rules).t_gap, 4);
@@ -694,10 +694,10 @@ mod tests {
         assert_eq!(PlaceIconsRuledOpts::new(1, &rules).t_gap, 4);
     }
 
+    /// Protects: opts.t_gap.max(1) -- a caller-supplied zero must not spin
+    /// the scatter loop forever the way a JS `for(;gy+=0)` effectively would.
     #[test]
     fn t_gap_of_zero_is_clamped_rather_than_hanging() {
-        // Protects: opts.t_gap.max(1) -- a caller-supplied zero must not spin
-        // the scatter loop forever the way a JS `for(;gy+=0)` effectively would.
         let r = rule(|r| r.mode = ScatterMode::Scatter);
         let rules = [("a", &r)];
         let mut opts = PlaceIconsRuledOpts::new(4, &rules);
@@ -707,10 +707,10 @@ mod tests {
         let _ = place_map_icons_ruled(&fld, None, 4, 4, &opts);
     }
 
+    /// Protects: biome_ok's exact f64 equality against an i32-cast
+    /// shortcut that would let a fractional rule biome match by accident.
     #[test]
     fn biome_ok_rejects_a_non_integer_rule_biome_even_though_the_field_is_finite() {
-        // Protects: biome_ok's exact f64 equality against an i32-cast
-        // shortcut that would let a fractional rule biome match by accident.
         let r = rule(|r| r.biomes = vec![5.5]);
         let biome = [5u8];
         assert!(!biome_ok(&r, Some(&biome), 0));
@@ -718,20 +718,20 @@ mod tests {
         assert!(biome_ok(&r_int, Some(&biome), 0));
     }
 
+    /// Protects: the reference's `!biome` branch -- an empty rule.biomes
+    /// list accepts any land cell, but only when a biome raster exists.
     #[test]
     fn biome_ok_any_land_when_biomes_empty_but_rejects_missing_biome_array() {
-        // Protects: the reference's `!biome` branch -- an empty rule.biomes
-        // list accepts any land cell, but only when a biome raster exists.
         let r = rule(|_| {});
         assert!(biome_ok(&r, None, 0));
         let r = rule(|r| r.biomes = vec![1.0]);
         assert!(!biome_ok(&r, None, 0));
     }
 
+    /// Protects: `if(it.key) return it.key` -- an explicit key always wins
+    /// over the cat/kind fallback branches.
     #[test]
     fn icon_slot_for_item_prefers_key_over_cat() {
-        // Protects: `if(it.key) return it.key` -- an explicit key always wins
-        // over the cat/kind fallback branches.
         let it = PlacedIcon {
             x: 0,
             y: 0,
@@ -743,10 +743,10 @@ mod tests {
         assert_eq!(icon_slot_for_item(&it), "mountain_pack");
     }
 
+    /// Protects: JS truthiness on `it.key` -- an empty string is falsy and
+    /// must fall through to the cat/kind branches, not be returned as-is.
     #[test]
     fn icon_slot_for_item_treats_an_empty_key_as_absent() {
-        // Protects: JS truthiness on `it.key` -- an empty string is falsy and
-        // must fall through to the cat/kind branches, not be returned as-is.
         let it = PlacedIcon {
             x: 0,
             y: 0,
@@ -760,10 +760,10 @@ mod tests {
         assert_eq!(icon_slot_for_item(&it), "shrub");
     }
 
+    /// Protects: TREE_SLOT/SCATTER_SLOT's every named kind, plus their
+    /// ||fallback for an unmapped or absent kind.
     #[test]
     fn icon_slot_for_item_legacy_tree_and_scatter_maps() {
-        // Protects: TREE_SLOT/SCATTER_SLOT's every named kind, plus their
-        // ||fallback for an unmapped or absent kind.
         let tree = |kind| PlacedIcon {
             x: 0,
             y: 0,
@@ -803,9 +803,9 @@ mod tests {
         assert_eq!(icon_slot_for_item(&scatter(None)), "shrub");
     }
 
+    /// Protects: the two legacy cats with no kind dependency at all.
     #[test]
     fn icon_slot_for_item_mountain_and_hill_cats() {
-        // Protects: the two legacy cats with no kind dependency at all.
         let it = |cat| PlacedIcon {
             x: 0,
             y: 0,
@@ -818,10 +818,10 @@ mod tests {
         assert_eq!(icon_slot_for_item(&it(IconCategory::Hill)), "hill");
     }
 
+    /// Protects: v1.27 fix #1 -- the specificity ordering that makes the
+    /// most-specific rule win a contested cell regardless of insertion order.
     #[test]
     fn specificity_orders_wetland_and_biome_specificity_as_the_reference_does() {
-        // Protects: v1.27 fix #1 -- the specificity ordering that makes the
-        // most-specific rule win a contested cell regardless of insertion order.
         let wetland_narrow = rule(|r| {
             r.require_wetland = true;
             r.biomes = vec![7.0];
@@ -836,10 +836,10 @@ mod tests {
         assert!(specificity(&wetland_any) < specificity(&non_wetland_any));
     }
 
+    /// Protects: spriteDrawRect's bottom-centre placement formula against
+    /// hand-worked reference literals.
     #[test]
     fn sprite_draw_rect_matches_reference_geometry() {
-        // Protects: spriteDrawRect's bottom-centre placement formula against
-        // hand-worked reference literals.
         let r = sprite_draw_rect(50.0, 80.0, 1.3, 4.5, 32.0, 48.0);
         assert!((r.dh - 12.870_000_000_000_001).abs() < 1e-9);
         assert!((r.dw - 8.58).abs() < 1e-9);
@@ -878,10 +878,11 @@ mod tests {
         );
     }
 
+    /// Protects: a single trait centred under the pin (cx equal to the pin's x, no offset),
+    /// and the empty-row early return -- an absent trait list yields no badge rather than a
+    /// zero-radius one.
     #[test]
     fn a_single_trait_sits_centred_under_the_pin_and_none_draws_nothing() {
-        // Protects: the empty-row early return -- an absent trait list must
-        // not render as a zero-radius badge.
         let one = trait_badge_layout(50.0, 60.0, &keys(&["port"]), 10.0, 2.0);
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].cx, 50.0); // total == 0, so no offset at all
@@ -948,10 +949,10 @@ mod tests {
         assert!(trait_badge_radius(f64::NAN).is_nan());
     }
 
+    /// Protects: Math.max(1,sh) -- a zero-height source image must not
+    /// divide by zero.
     #[test]
     fn sprite_draw_rect_guards_a_zero_height_source() {
-        // Protects: Math.max(1,sh) -- a zero-height source image must not
-        // divide by zero.
         let r = sprite_draw_rect(100.0, 200.0, 1.0, 5.0, 64.0, 0.0);
         assert_eq!((r.dw, r.dh), (704.0, 11.0));
     }

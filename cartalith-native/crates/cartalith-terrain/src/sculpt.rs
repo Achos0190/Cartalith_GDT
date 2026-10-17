@@ -2166,12 +2166,12 @@ mod tests {
 
     // ---- registry shape ----
 
+    /// Protects: FEATURE_KEYS' key order and count against the
+    /// reference's SCULPT_FEATURES, and that Feature::index() agrees
+    /// with each feature's position -- the order the noise-seed
+    /// derivation depends on.
     #[test]
     fn the_registry_has_the_reference_s_thirteen_features_in_order() {
-        // Protects: FEATURE_KEYS' key order and count against the
-        // reference's SCULPT_FEATURES, and that Feature::index() agrees
-        // with each feature's position -- the order the noise-seed
-        // derivation depends on.
         let keys: Vec<&str> = FEATURE_KEYS.iter().map(|f| f.meta().key).collect();
         assert_eq!(
             keys,
@@ -2196,11 +2196,11 @@ mod tests {
         }
     }
 
+    /// Protects: exactly Lake and Volcano carry `radial: true` in the
+    /// registry -- the flag that switches a feature between centroid
+    /// distance and stroke signed-distance.
     #[test]
     fn only_lake_and_volcano_are_radial() {
-        // Protects: exactly Lake and Volcano carry `radial: true` in the
-        // registry -- the flag that switches a feature between centroid
-        // distance and stroke signed-distance.
         let radial: Vec<&str> = FEATURE_KEYS
             .iter()
             .filter(|f| f.meta().radial)
@@ -2209,10 +2209,10 @@ mod tests {
         assert_eq!(radial, vec!["lake", "volcano"]);
     }
 
+    /// Protects: every non-Freehand feature's `modes` list is empty, and
+    /// Freehand's has exactly the eight registered sub-modes.
     #[test]
     fn only_freehand_has_sub_modes_and_it_has_eight() {
-        // Protects: every non-Freehand feature's `modes` list is empty, and
-        // Freehand's has exactly the eight registered sub-modes.
         for f in FEATURE_KEYS {
             let n = f.meta().modes.len();
             if f == Feature::Freehand {
@@ -2223,11 +2223,11 @@ mod tests {
         }
     }
 
+    /// Protects: every registered control's `default` lies within its
+    /// own `[min, max]`, for all thirteen features -- a transcription
+    /// slip in a `*_CTL` table would open a slider already out of range.
     #[test]
     fn every_control_default_is_inside_its_own_range() {
-        // Protects: every registered control's `default` lies within its
-        // own `[min, max]`, for all thirteen features -- a transcription
-        // slip in a `*_CTL` table would open a slider already out of range.
         for f in FEATURE_KEYS {
             for c in f.meta().controls {
                 assert!(
@@ -2243,20 +2243,20 @@ mod tests {
         }
     }
 
+    /// Protects: Feature::from_key round-trips every registered feature's
+    /// own key, and rejects a key not in the registry.
     #[test]
     fn from_key_round_trips_every_feature() {
-        // Protects: Feature::from_key round-trips every registered feature's
-        // own key, and rejects a key not in the registry.
         for f in FEATURE_KEYS {
             assert_eq!(Feature::from_key(f.meta().key), Some(f));
         }
         assert_eq!(Feature::from_key("nope"), None);
     }
 
+    /// Protects: FreehandMode::from_key round-trips every one of the
+    /// eight sub-mode keys, and rejects an unknown one.
     #[test]
     fn freehand_mode_from_key_round_trips_every_sub_mode() {
-        // Protects: FreehandMode::from_key round-trips every one of the
-        // eight sub-mode keys, and rejects an unknown one.
         for &m in FREEHAND_MODES {
             let mode = FreehandMode::from_key(m).unwrap_or_else(|| panic!("no FreehandMode for {m}"));
             assert_eq!(mode.key(), m);
@@ -2264,11 +2264,11 @@ mod tests {
         assert_eq!(FreehandMode::from_key("nope"), None);
     }
 
+    /// Protects: all eight presets exist, each `apply()`s params for its
+    /// own declared feature and writes its own `noise_scale`, and touches
+    /// no other global -- a preset overrides exactly one shared value.
     #[test]
     fn the_eight_presets_name_features_that_exist_and_seed_real_params() {
-        // Protects: all eight presets exist, each `apply()`s params for its
-        // own declared feature and writes its own `noise_scale`, and touches
-        // no other global -- a preset overrides exactly one shared value.
         assert_eq!(SCULPT_PRESETS.len(), 8);
         for p in SCULPT_PRESETS {
             let mut g = SculptGlobals::default();
@@ -2285,12 +2285,12 @@ mod tests {
 
     // ---- geometry ----
 
+    /// Protects: a 1-point stroke reports plain radial distance (dist ==
+    /// sd, s == 0) from nearest_on_stroke.
+    /// This is the mechanism Freehand's tap-once mesa/volcano sub-modes
+    /// rely on, not an incidental edge case.
     #[test]
     fn a_one_point_stroke_degenerates_to_radial_distance() {
-        // Protects: a 1-point stroke reports plain radial distance (dist ==
-        // sd, s == 0) from nearest_on_stroke.
-        // This is the mechanism Freehand's tap-once mesa/volcano sub-modes
-        // rely on, not an incidental edge case.
         let pts = vec![Point::new(4.0, 4.0)];
         let hit = nearest_on_stroke(7.0, 8.0, &pts);
         assert_eq!(hit.dist, 5.0);
@@ -2298,11 +2298,11 @@ mod tests {
         assert_eq!(hit.s, 0.0);
     }
 
+    /// Protects: nearest_on_stroke's signed distance has opposite sign on
+    /// opposite sides of the polyline -- what Cliff's one-sided step
+    /// depends on.
     #[test]
     fn signed_distance_flips_across_the_stroke() {
-        // Protects: nearest_on_stroke's signed distance has opposite sign on
-        // opposite sides of the polyline -- what Cliff's one-sided step
-        // depends on.
         let pts = stroke(); // left-to-right along y = 32
         let above = nearest_on_stroke(30.0, 20.0, &pts);
         let below = nearest_on_stroke(30.0, 44.0, &pts);
@@ -2314,12 +2314,12 @@ mod tests {
         );
     }
 
+    /// Protects: nearest_on_stroke's `s` (arclength at the projection)
+    /// increases as the query point moves further along the stroke, and
+    /// its absolute value is the real distance from the first point --
+    /// what `meander`'s sinusoidal offset is computed against.
     #[test]
     fn arclength_grows_along_the_stroke() {
-        // Protects: nearest_on_stroke's `s` (arclength at the projection)
-        // increases as the query point moves further along the stroke, and
-        // its absolute value is the real distance from the first point --
-        // what `meander`'s sinusoidal offset is computed against.
         let pts = stroke();
         let a = nearest_on_stroke(15.0, 32.0, &pts);
         let b = nearest_on_stroke(45.0, 32.0, &pts);
@@ -2327,11 +2327,11 @@ mod tests {
         assert!((a.s - 5.0).abs() < 1e-9);
     }
 
+    /// Protects: a duplicate captured point (a zero-length segment) does
+    /// not produce NaN/Inf from the `l2` division -- the JS `||1e-9`
+    /// guard's Rust equivalent.
     #[test]
     fn a_zero_length_segment_does_not_divide_by_zero() {
-        // Protects: a duplicate captured point (a zero-length segment) does
-        // not produce NaN/Inf from the `l2` division -- the JS `||1e-9`
-        // guard's Rust equivalent.
         let pts = vec![Point::new(5.0, 5.0), Point::new(5.0, 5.0)];
         let hit = nearest_on_stroke(8.0, 9.0, &pts);
         assert!(hit.dist.is_finite());
@@ -2340,10 +2340,10 @@ mod tests {
 
     // ---- bounds ----
 
+    /// Protects: bbox's padding formula (`radius + feather + edgeAmp + 3`)
+    /// against the same expression computed independently here.
     #[test]
     fn bounds_pad_by_radius_feather_and_edge_noise() {
-        // Protects: bbox's padding formula (`radius + feather + edgeAmp + 3`)
-        // against the same expression computed independently here.
         let s = stamp(Feature::Hills);
         let b = s.bounds(64, 64);
         // The stroke spans x 10..54 at y 32; padding is
@@ -2355,10 +2355,10 @@ mod tests {
         assert!(b.w > 0 && b.h > 0);
     }
 
+    /// Protects: a stroke near the grid origin clips its padded box to
+    /// 0 rather than reporting a negative-origin region.
     #[test]
     fn bounds_clip_to_the_grid_and_never_exceed_it() {
-        // Protects: a stroke near the grid origin clips its padded box to
-        // 0 rather than reporting a negative-origin region.
         let mut s = stamp(Feature::Hills);
         s.points = vec![Point::new(1.0, 1.0)];
         let b = s.bounds(16, 16);
@@ -2368,10 +2368,10 @@ mod tests {
         assert!(b.y + b.h <= 16);
     }
 
+    /// Protects: a stroke whose padded box falls wholly outside the grid
+    /// reports a zero-size bounds and apply() leaves the field untouched.
     #[test]
     fn a_stamp_entirely_off_grid_touches_nothing() {
-        // Protects: a stroke whose padded box falls wholly outside the grid
-        // reports a zero-size bounds and apply() leaves the field untouched.
         let mut s = stamp(Feature::Hills);
         s.points = vec![Point::new(500.0, 500.0)];
         let b = s.bounds(64, 64);
@@ -2382,11 +2382,11 @@ mod tests {
         assert_eq!(f, before);
     }
 
+    /// Protects: Volcano's radius() reads its own `volc_radius` control,
+    /// ignoring `brush_size`, and a larger `volc_radius` yields a larger
+    /// bounds box.
     #[test]
     fn volcano_sizes_itself_from_volc_radius_not_brush_size() {
-        // Protects: Volcano's radius() reads its own `volc_radius` control,
-        // ignoring `brush_size`, and a larger `volc_radius` yields a larger
-        // bounds box.
         let mut s = stamp(Feature::Volcano);
         s.globals.brush_size = 8.0;
         assert_eq!(s.radius(), 110.0, "volcRadius default");
@@ -2403,11 +2403,11 @@ mod tests {
 
     // ---- apply: the properties each feature is defined by ----
 
+    /// Protects: for all thirteen features, apply() changes at least one
+    /// cell, and every changed cell lies within the bounds() it reported
+    /// -- the bbox promise apply_into's per-pixel loop must keep.
     #[test]
     fn every_feature_writes_something_inside_its_bounds_and_nothing_outside() {
-        // Protects: for all thirteen features, apply() changes at least one
-        // cell, and every changed cell lies within the bounds() it reported
-        // -- the bbox promise apply_into's per-pixel loop must keep.
         for f in FEATURE_KEYS {
             let mut s = stamp(f);
             if f == Feature::Volcano {
@@ -2441,12 +2441,12 @@ mod tests {
         }
     }
 
+    /// Protects: a tall starting field must come out unchanged, and a
+    /// low field must be raised.
+    /// The defining trait versus Raise/lower: `set` to max(h0, level),
+    /// not `add`. A tall starting field must come out unchanged.
     #[test]
     fn plateau_never_lowers_existing_terrain() {
-        // Protects: a tall starting field must come out unchanged, and a
-        // low field must be raised.
-        // The defining trait versus Raise/lower: `set` to max(h0, level),
-        // not `add`. A tall starting field must come out unchanged.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Plateau);
         s.sea_level = 0.2;
@@ -2467,11 +2467,11 @@ mod tests {
         assert!(low.iter().any(|&v| v > 0.05));
     }
 
+    /// Protects: Plateau's `js_round(terr * steps) / steps` quantization
+    /// produces at most `terraces + 1` distinct fully-covered height
+    /// levels, not a continuous FBM surface.
     #[test]
     fn plateau_quantizes_its_top_into_the_requested_number_of_terraces() {
-        // Protects: Plateau's `js_round(terr * steps) / steps` quantization
-        // produces at most `terraces + 1` distinct fully-covered height
-        // levels, not a continuous FBM surface.
         let (w, h) = (96usize, 96usize);
         let mut s = stamp(Feature::Plateau);
         s.globals.brush_size = 20.0;
@@ -2505,11 +2505,11 @@ mod tests {
         );
     }
 
+    /// Protects: Cliff's smoothstep step is centred on zero, so it moves
+    /// the two sides of the stroke in opposite directions -- the
+    /// one-sided escarpment the reference's own hint string promises.
     #[test]
     fn cliff_raises_one_side_and_lowers_the_other() {
-        // Protects: Cliff's smoothstep step is centred on zero, so it moves
-        // the two sides of the stroke in opposite directions -- the
-        // one-sided escarpment the reference's own hint string promises.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Cliff);
         s.globals.edge_noise = 0.0;
@@ -2524,11 +2524,11 @@ mod tests {
         );
     }
 
+    /// Protects: Canyon/Valley/Basin's minimum drops below the flat base,
+    /// and Mountains/Hills/Ridge's maximum rises above it -- carve vs.
+    /// build direction, per feature.
     #[test]
     fn carving_features_lower_the_field_and_building_features_raise_it() {
-        // Protects: Canyon/Valley/Basin's minimum drops below the flat base,
-        // and Mountains/Hills/Ridge's maximum rises above it -- carve vs.
-        // build direction, per feature.
         let (w, h) = (64usize, 64usize);
         let base = flat(w, h, 0.5);
         let carve = [Feature::Canyon, Feature::Valley, Feature::Basin];
@@ -2547,11 +2547,11 @@ mod tests {
         }
     }
 
+    /// Protects: Coastline moves high ground down and low ground up (one cell checked, at
+    /// sea level 0.5, with no water mask supplied). Only the direction is asserted; the
+    /// target level `sea_level - 0.05` and the absence of a water-mask gate are not.
     #[test]
     fn coastline_pulls_terrain_toward_sea_level_from_both_directions() {
-        // Protects: Coastline lerps high ground down and low ground up
-        // toward `sea_level - 0.05`, from both sides -- it is defined
-        // entirely in terms of sea level, needing no water-mask gate.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Coastline);
         s.sea_level = 0.5;
@@ -2564,10 +2564,10 @@ mod tests {
         assert!(low[i] > 0.05, "low ground pulled up toward the shore");
     }
 
+    /// Protects: Raise(amount) and Lower(amount) move the same cells by
+    /// equal and opposite deltas -- `add(amount)` vs. `add(-amount)`.
     #[test]
     fn freehand_raise_and_lower_are_symmetric() {
-        // Protects: Raise(amount) and Lower(amount) move the same cells by
-        // equal and opposite deltas -- `add(amount)` vs. `add(-amount)`.
         let (w, h) = (64usize, 64usize);
         let mut up = stamp(Feature::Freehand);
         up.params = FeatureParams::Freehand {
@@ -2593,14 +2593,12 @@ mod tests {
         }
     }
 
+    /// Protects: the Smooth sub-mode reduces local roughness on a field of alternating 0.2 and
+    /// 0.8 cells (`i % 2` over a row-major 64-wide grid). The comment below says the blur
+    /// reads a pre-loop snapshot so the result cannot depend on scan direction; the
+    /// assertion checks only the roughness drop, not scan-order independence.
     #[test]
     fn freehand_smooth_flattens_noise_and_reads_a_stable_snapshot() {
-        // Protects: the Smooth blur reduces local roughness on a genuinely
-        // noisy checkerboard field, which is shaped to expose a scan-order
-        // dependency if one existed.
-        // The dedicated blur bypasses eval() precisely so it can read a
-        // pre-loop snapshot. If it read the live buffer instead, the result
-        // would depend on scan direction; here it must not.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Freehand);
         s.globals.brush_size = 20.0;
@@ -2633,11 +2631,11 @@ mod tests {
         acc
     }
 
+    /// Protects: of the thirteen features, exactly River and Lake ever
+    /// produce a `water_out` and write the water array -- every other
+    /// feature must leave it untouched.
     #[test]
     fn river_and_lake_are_the_only_features_that_write_water() {
-        // Protects: of the thirteen features, exactly River and Lake ever
-        // produce a `water_out` and write the water array -- every other
-        // feature must leave it untouched.
         let (w, h) = (64usize, 64usize);
         for f in FEATURE_KEYS {
             let mut s = stamp(f);
@@ -2661,13 +2659,13 @@ mod tests {
         }
     }
 
+    /// Protects: a `water_only = true` apply_into leaves `field` bit for
+    /// bit identical to the already-baked height and still deposits the
+    /// lake surface.
+    /// sculptCommit's ordering depends on this: the dry-run runs AFTER
+    /// the bake so it tests the final height, and must not carve again.
     #[test]
     fn the_lake_water_only_pass_never_touches_the_height_field() {
-        // Protects: a `water_only = true` apply_into leaves `field` bit for
-        // bit identical to the already-baked height and still deposits the
-        // lake surface.
-        // sculptCommit's ordering depends on this: the dry-run runs AFTER
-        // the bake so it tests the final height, and must not carve again.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Lake);
         s.points = vec![Point::new(32.0, 32.0)];
@@ -2682,11 +2680,11 @@ mod tests {
 
     // ---- determinism ----
 
+    /// Protects: applying the same stamp twice, from the same base field,
+    /// produces bit-identical `f32` output -- no hidden time- or
+    /// order-dependent state.
     #[test]
     fn the_same_stamp_at_the_same_seed_reproduces_exactly() {
-        // Protects: applying the same stamp twice, from the same base field,
-        // produces bit-identical `f32` output -- no hidden time- or
-        // order-dependent state.
         let (w, h) = (64usize, 64usize);
         let s = stamp(Feature::Mountains);
         let mut a = flat(w, h, 0.3);
@@ -2697,10 +2695,10 @@ mod tests {
         assert_eq!(bits(&a), bits(&b));
     }
 
+    /// Protects: changing `seed` actually changes the noise the stamp
+    /// samples -- the seed is not silently ignored somewhere in the chain.
     #[test]
     fn a_different_seed_gives_a_different_result() {
-        // Protects: changing `seed` actually changes the noise the stamp
-        // samples -- the seed is not silently ignored somewhere in the chain.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Mountains);
         let mut a = flat(w, h, 0.3);
@@ -2711,14 +2709,12 @@ mod tests {
         assert_ne!(a, b);
     }
 
+    /// Protects: nothing beyond arithmetic the test performs itself: it evaluates
+    /// `seed ^ ((index + 1) * 1013)` for Hills and Basin and asserts the two results differ.
+    /// It never calls `apply` or reads the stamp's own derivation, so it shows only that the
+    /// two feature indexes differ; that `apply` uses this term is not asserted here.
     #[test]
     fn the_feature_index_really_participates_in_the_seed() {
-        // Protects: two different features' derived noise seeds
-        // (`seed ^ ((index+1)*1013)`) actually differ at the same stamp seed.
-        // Two features whose apply() bodies both start from c.fbm() must
-        // not sample identical noise at the same stamp seed -- the
-        // (index+1)*1013 term is what separates them, and FEATURE_KEYS
-        // order is therefore load-bearing.
         let (w, h) = (64usize, 64usize);
         let mut hills = stamp(Feature::Hills);
         hills.globals.edge_noise = 0.0;
@@ -2730,12 +2726,12 @@ mod tests {
 
     // ---- integration with milestone A's PassBuffer ----
 
+    /// Protects: PassBuffer<SculptStamp> preview leaves the source field
+    /// untouched and produces a non-trivial preview; commit applies the
+    /// same stack and reproduces the preview bit for bit; and the buffer
+    /// empties itself after commit.
     #[test]
     fn sculpt_stamps_drive_milestone_a_s_pass_buffer_end_to_end() {
-        // Protects: PassBuffer<SculptStamp> preview leaves the source field
-        // untouched and produces a non-trivial preview; commit applies the
-        // same stack and reproduces the preview bit for bit; and the buffer
-        // empties itself after commit.
         let (w, h) = (64usize, 64usize);
         let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
         buf.push(stamp(Feature::Mountains));
@@ -2759,12 +2755,14 @@ mod tests {
         assert!(buf.is_empty());
     }
 
+    /// Protects: very little as written. `field` is a local that is never passed to the
+    /// buffer, so the final comparison of its bits against a snapshot cannot fail; the test
+    /// shows only that pushing two stamps and calling `PassBuffer::discard` does not panic.
+    /// The claim that a draft never touches the real field before commit is exercised by
+    /// `sculpt_stamps_drive_milestone_a_s_pass_buffer_end_to_end` (preview leaves the source
+    /// field untouched).
     #[test]
     fn discarding_a_sculpt_draft_leaves_the_field_bit_identical() {
-        // Protects: PassBuffer::discard, called after pushing stamps that
-        // were never previewed or committed into `field`, leaves that field
-        // bit-identical to before -- a draft's stamps never touch the real
-        // field until commit.
         let (w, h) = (64usize, 64usize);
         let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
         let field = flat(w, h, 0.4);
@@ -2778,12 +2776,12 @@ mod tests {
         );
     }
 
+    /// Protects: previewing [Mountains, Coastline] and [Coastline,
+    /// Mountains] on the same base field gives different results.
+    /// Coastline is `set`-mode, so whichever of the two lands last wins
+    /// -- the reason commit bakes the stack in order.
     #[test]
     fn stack_order_matters_for_set_mode_features() {
-        // Protects: previewing [Mountains, Coastline] and [Coastline,
-        // Mountains] on the same base field gives different results.
-        // Coastline is `set`-mode, so whichever of the two lands last wins
-        // -- the reason commit bakes the stack in order.
         let (w, h) = (64usize, 64usize);
         let mut a: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
         let mut mountains = stamp(Feature::Mountains);
@@ -2807,21 +2805,21 @@ mod tests {
 
     // ---- helpers ----
 
+    /// Protects: smoothstep(0,0,x) does not divide by zero and instead
+    /// returns the correct step (0 below, 1 at/above).
+    /// JS `(b-a)||1e-6`. Without it, Cliff at transW == 0 divides by zero.
     #[test]
     fn smoothstep_substitutes_for_a_zero_width_band() {
-        // Protects: smoothstep(0,0,x) does not divide by zero and instead
-        // returns the correct step (0 below, 1 at/above).
-        // JS `(b-a)||1e-6`. Without it, Cliff at transW == 0 divides by zero.
         assert_eq!(smoothstep(0.0, 0.0, -1.0), 0.0);
         assert_eq!(smoothstep(0.0, 0.0, 1.0), 1.0);
     }
 
+    /// Protects: sculpt_fbm's output spans both sides of zero and never
+    /// leaves [-1, 1].
+    /// ~[-1,1], deliberately not fbm()'s [0,1] -- every feature formula
+    /// was tuned against the signed range.
     #[test]
     fn sculpt_fbm_stays_in_the_reference_s_signed_range() {
-        // Protects: sculpt_fbm's output spans both sides of zero and never
-        // leaves [-1, 1].
-        // ~[-1,1], deliberately not fbm()'s [0,1] -- every feature formula
-        // was tuned against the signed range.
         let mut lo = f64::INFINITY;
         let mut hi = f64::NEG_INFINITY;
         for i in 0..2000 {
@@ -2833,11 +2831,11 @@ mod tests {
         assert!(lo >= -1.0 && hi <= 1.0);
     }
 
+    /// Protects: all three noise families return exactly 0.0, not NaN,
+    /// when `oct == 0` (so `nrm` stays 0.0) -- the JS `nrm?sum/nrm:0`
+    /// falsy-covers-NaN rule.
     #[test]
     fn zero_octaves_returns_zero_rather_than_nan() {
-        // Protects: all three noise families return exactly 0.0, not NaN,
-        // when `oct == 0` (so `nrm` stays 0.0) -- the JS `nrm?sum/nrm:0`
-        // falsy-covers-NaN rule.
         assert_eq!(sculpt_fbm(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_ridged(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_billow(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);

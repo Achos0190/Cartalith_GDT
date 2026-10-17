@@ -696,11 +696,11 @@ mod year_record_tests {
         YearFactionInstitutions { ag_tech: ag.to_string(), government: gov.to_string() }
     }
 
+    /// Protects: not recorded (`None`) reads today's whole; a recorded faction wins over
+    /// today's; a blank recorded key falls back for that key only; a faction added after
+    /// the record (id past its end) reads today's.
     #[test]
     fn resolve_institutions_prefers_the_record_per_key_and_falls_back_to_today() {
-        // Protects: not recorded (`None`) reads today's whole; a recorded faction wins over
-        // today's; a blank recorded key falls back for that key only; a faction added after
-        // the record (id past its end) reads today's.
         let live = ("farm_a", "gov_a");
         assert_eq!(resolve_institutions(live, None, 1), live);
         let rec = [inst("", ""), inst("farm_r", "gov_r"), inst("", "gov_only")];
@@ -709,13 +709,13 @@ mod year_record_tests {
         assert_eq!(resolve_institutions(live, Some(&rec), 3), live, "added after the record");
     }
 
+    /// Protects: the owner-visible point of the row. The same world is read twice after
+    /// today's government changes from "monarchy" to "empire": a year that recorded
+    /// "monarchy" keeps its original standing army, a year that recorded nothing follows
+    /// today's "empire" -- and the two differ, so the test cannot pass by both paths
+    /// reading the same value.
     #[test]
     fn a_changed_government_moves_a_past_years_reading_only_when_that_year_did_not_record_it() {
-        // Protects: the owner-visible point of the row. The same world is read twice after
-        // today's government changes from "monarchy" to "empire": a year that recorded
-        // "monarchy" keeps its original standing army, a year that recorded nothing follows
-        // today's "empire" -- and the two differ, so the test cannot pass by both paths
-        // reading the same value.
         let today = ("hunter_gatherer", "empire");
         let recorded = [inst("", ""), inst("hunter_gatherer", "monarchy")];
         let standing = |gov: &str| {

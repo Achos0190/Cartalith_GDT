@@ -2447,10 +2447,10 @@ mod civ_pipeline_tests {
     /// (`assert_endpoints_reach_settlements`, both networks), and the
     /// rebuild must never draw LESS than filtering (`>=`, not `>` --
     /// extend-back can make them equal without either being wrong).
-    // Protects: after settlement recovery drops nodes and re-indexes the
-    // list, every surviving way in both the Stable network (the "filtered"
-    // view) and the post-recovery rebuild still reaches its own A/B
-    // settlement, and the rebuild is never shorter than filtering.
+    /// Protects: after settlement recovery drops nodes and re-indexes the
+    /// list, every surviving way in both the Stable network (the "filtered"
+    /// view) and the post-recovery rebuild still reaches its own A/B
+    /// settlement, and the rebuild is never shorter than filtering.
     #[test]
     fn recovery_keeps_every_road_on_the_settlements_it_joined() {
         let main = recovery_road_lengths(&world().0, &world().1);
@@ -3350,13 +3350,13 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: `civ_add_year` records the roster's ag-tech/government and the place
+    /// overrides with the year (`SAVEFILE_COMPAT.md` §10.1); a government changed after
+    /// the year was recorded leaves that year's record alone, while the *next* recording
+    /// of the same year takes the new value; a year created by carry-forward inherits
+    /// the earlier year's record rather than today's.
     #[test]
     fn recording_a_year_keeps_its_institutions_and_later_edits_do_not_rewrite_them() {
-        // Protects: `civ_add_year` records the roster's ag-tech/government and the place
-        // overrides with the year (`SAVEFILE_COMPAT.md` §10.1); a government changed after
-        // the year was recorded leaves that year's record alone, while the *next* recording
-        // of the same year takes the new value; a year created by carry-forward inherits
-        // the earlier year's record rather than today's.
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![1, 1, 1]);
         civ.faction_roster.0[1].government = "monarchy".to_string();
         civ.place_extras.0.insert(1, civ_roster_bridge::PlaceExtras { walls: Some(true), ..Default::default() });

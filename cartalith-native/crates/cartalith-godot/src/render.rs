@@ -12809,14 +12809,14 @@ mod valley_split_tests {
         RenderCtx::with_appearance(f, temp, rain, None, GW, GH, SL, false, 50.0, 40.0, TerrainAppearance::default())
     }
 
-    // Protects: `with_appearance_split` (the repaint row's speed-up,
-    // 2026-09-28) is the context `with_appearance(..).with_water_height(..)`
-    // built, byte for byte -- every cell's colour, the attached water height,
-    // the bathymetry -- and a water height that is the shaded field itself
-    // (or the wrong length) attaches nothing, as `with_water_height` refuses.
-    // Positive control: the shaded field alone colours the coast differently,
-    // so the equality is about the split, not a fixture the two heights agree
-    // on.
+    /// Protects: `with_appearance_split` (the repaint row's speed-up,
+    /// 2026-09-28) is the context `with_appearance(..).with_water_height(..)`
+    /// built, byte for byte -- every cell's colour, the attached water height,
+    /// the bathymetry -- and a water height that is the shaded field itself
+    /// (or the wrong length) attaches nothing, as `with_water_height` refuses.
+    /// Positive control: the shaded field alone colours the coast differently,
+    /// so the equality is about the split, not a fixture the two heights agree
+    /// on.
     #[test]
     fn the_split_constructor_is_the_two_step_context() {
         let (truth, shaded, rain, temp) = worlds();
@@ -12844,8 +12844,8 @@ mod valley_split_tests {
         assert_eq!(colours(&short), colours(&alone));
     }
 
-    // Protects: a tile's water bodies are built from the world's height, not
-    // the shaded one -- a depression the valley field opened is not a lake.
+    /// Protects: a tile's water bodies are built from the world's height, not
+    /// the shaded one -- a depression the valley field opened is not a lake.
     #[test]
     fn a_depression_in_the_shaded_field_is_not_a_lake() {
         let (truth, shaded, rain, temp) = worlds();
@@ -12860,10 +12860,10 @@ mod valley_split_tests {
         assert_eq!(bits(&got.lake_fill), bits(&want.lake_fill), "fill level from the world's height");
     }
 
-    // Protects: the sea is coloured from the world's own ground, both on a
-    // context built directly (`with_water_height`) and over a split
-    // precompute (`build_split`), while the relief rasters come from the
-    // shaded field.
+    /// Protects: the sea is coloured from the world's own ground, both on a
+    /// context built directly (`with_water_height`) and over a split
+    /// precompute (`build_split`), while the relief rasters come from the
+    /// shaded field.
     #[test]
     fn the_sea_and_the_relief_come_from_the_right_heights() {
         let (truth, shaded, rain, temp) = worlds();
@@ -12892,8 +12892,8 @@ mod valley_split_tests {
         assert_eq!(bits(&c.sea_h), bits(&water.sea_h));
     }
 
-    // Protects: "no value" is not a plausible value -- a short world height is
-    // refused, and the context keeps deciding water from its own field.
+    /// Protects: "no value" is not a plausible value -- a short world height is
+    /// refused, and the context keeps deciding water from its own field.
     #[test]
     fn a_short_water_height_is_refused() {
         let (truth, shaded, rain, temp) = worlds();

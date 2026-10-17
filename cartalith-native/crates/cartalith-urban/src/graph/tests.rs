@@ -210,13 +210,13 @@ fn grid_sorted(g: &Graph) -> Vec<((i64, i64), Vec<usize>)> {
     v
 }
 
+/// Protects: every operation this module exposes (add_street,
+/// add_polyline_street via the "polyline" scenario, extract_faces, and
+/// edge_between derived from the same adjacency) against the reference's
+/// own captured full-state dump — nodes, edges (dead ones included), the
+/// spatial index and the extracted faces, not just a return value.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_graph_exactly() {
-    // Protects: every operation this module exposes (add_street,
-    // add_polyline_street via the "polyline" scenario, extract_faces, and
-    // edge_between derived from the same adjacency) against the reference's
-    // own captured full-state dump — nodes, edges (dead ones included), the
-    // spatial index and the extracted faces, not just a return value.
     for sc in golden::GOLDEN {
         let (g, made) = run(&scenario_ops(sc.name));
         let what = sc.name;
@@ -365,14 +365,14 @@ fn the_half_edge_sort_key_orders_like_v8_not_like_rust() {
     assert_eq!(rust_order_wrong, 5, "these rows exist to discriminate; f64::atan2 now agrees");
 }
 
+/// Protects: the golden fixture set itself against silently losing the
+/// scenario that exercises a specific branch (tombstoning, orphan nodes,
+/// the duplicate-edge return, the outer-face tie-break, spur collapse, the
+/// t-clamp at both ends, the stress case's real scale).
+/// A guard against the goldens quietly becoming vacuous: if a future edit
+/// drops a scenario, the counts below stop matching and this fails loudly.
 #[test]
 fn golden_scenarios_cover_every_branch_this_milestone_claims() {
-    // Protects: the golden fixture set itself against silently losing the
-    // scenario that exercises a specific branch (tombstoning, orphan nodes,
-    // the duplicate-edge return, the outer-face tie-break, spur collapse, the
-    // t-clamp at both ends, the stress case's real scale).
-    // A guard against the goldens quietly becoming vacuous: if a future edit
-    // drops a scenario, the counts below stop matching and this fails loudly.
     let by = |n: &str| golden::GOLDEN.iter().find(|s| s.name == n).unwrap_or_else(|| panic!("{n}"));
 
     // splitEdge really tombstones rather than removes, and ids never shift.
@@ -407,21 +407,21 @@ fn golden_scenarios_cover_every_branch_this_milestone_claims() {
     assert!(st.faces.len() > 5, "stress produced only {} faces", st.faces.len());
 }
 
+/// Protects: the claim that `add_street`'s stable sort over hit parameters
+/// never actually breaks a tie on the graphs this engine builds — checked
+/// by re-deriving every hit parameter on one more segment laid across each
+/// finished golden graph and asserting they are pairwise distinct.
+/// Recorded as a finding, not as a gap. `add_street` sorts its hits with a
+/// *stable* sort and the port matches that, but no golden exercises the
+/// tie-break — because the reference's own guards make a tie unreachable.
+/// The argument is spelled out at the sort in `graph.rs`; this test is the
+/// mechanical half of it, and it is what turned an assumed-important
+/// ordering rule into a known-unreachable one.
+///
+/// `near_parallel` is the scenario that attempt produced. It is kept for what
+/// it does cover, not for the tie it failed to create.
 #[test]
 fn no_scenario_ties_two_hits_at_the_same_t_because_none_can() {
-    // Protects: the claim that `add_street`'s stable sort over hit parameters
-    // never actually breaks a tie on the graphs this engine builds — checked
-    // by re-deriving every hit parameter on one more segment laid across each
-    // finished golden graph and asserting they are pairwise distinct.
-    // Recorded as a finding, not as a gap. `add_street` sorts its hits with a
-    // *stable* sort and the port matches that, but no golden exercises the
-    // tie-break — because the reference's own guards make a tie unreachable.
-    // The argument is spelled out at the sort in `graph.rs`; this test is the
-    // mechanical half of it, and it is what turned an assumed-important
-    // ordering rule into a known-unreachable one.
-    //
-    // `near_parallel` is the scenario that attempt produced. It is kept for what
-    // it does cover, not for the tie it failed to create.
     for sc in golden::GOLDEN {
         let (g, _) = run(&scenario_ops(sc.name));
         // Re-derive every hit parameter the way `add_street` does, for one more
@@ -450,23 +450,23 @@ fn no_scenario_ties_two_hits_at_the_same_t_because_none_can() {
     }
 }
 
+/// Protects: `attach_point`'s use of `js_hypot` rather than `f64::hypot` —
+/// a `dx` exists where the two implementations land on opposite sides of
+/// the 11 m snap threshold, so the wrong hypot builds a structurally
+/// different graph, not merely a differently-rounded one.
+/// The `hypotSnap*` scenarios are not decoration. `attach_point` snaps when
+/// the distance is strictly under 11, and for `dx = 7.778174593052022` the
+/// two hypot implementations straddle that line:
+///
+/// V8   Math.hypot(dx, dx) == 11                  -> no snap
+/// Rust f64::hypot(dx, dx) == 10.999999999999998  -> would snap
+///
+/// so a port using `f64::hypot` would build a structurally *different* graph
+/// — three nodes instead of four — not merely a differently-rounded one.
+/// Asserted directly so the reason the goldens pass is visible, and so
+/// `js_hypot` cannot be "simplified" away without this failing first.
 #[test]
 fn hypot_threshold_decides_a_snap_that_f64_hypot_would_decide_differently() {
-    // Protects: `attach_point`'s use of `js_hypot` rather than `f64::hypot` —
-    // a `dx` exists where the two implementations land on opposite sides of
-    // the 11 m snap threshold, so the wrong hypot builds a structurally
-    // different graph, not merely a differently-rounded one.
-    // The `hypotSnap*` scenarios are not decoration. `attach_point` snaps when
-    // the distance is strictly under 11, and for `dx = 7.778174593052022` the
-    // two hypot implementations straddle that line:
-    //
-    //   V8   Math.hypot(dx, dx) == 11                  -> no snap
-    //   Rust f64::hypot(dx, dx) == 10.999999999999998  -> would snap
-    //
-    // so a port using `f64::hypot` would build a structurally *different* graph
-    // — three nodes instead of four — not merely a differently-rounded one.
-    // Asserted directly so the reason the goldens pass is visible, and so
-    // `js_hypot` cannot be "simplified" away without this failing first.
     let d = DX[1];
     assert_eq!(crate::geom::js_hypot(d, d), 11.0);
     assert!(d.hypot(d) < 11.0);
@@ -487,19 +487,12 @@ fn hypot_threshold_decides_a_snap_that_f64_hypot_would_decide_differently() {
     }
 }
 
+/// Protects: `edges_near` returns no repeated id, only ids this graph created, and the
+/// same sequence on two calls. The comment below says the first-seen insertion order is
+/// what `attach_point`'s first-wins `<` and `add_street`'s stable sort depend on; the
+/// body asserts determinism and uniqueness, not that order itself.
 #[test]
 fn edges_near_returns_first_seen_order_not_set_order() {
-    // Protects: `edges_near` returning an insertion-ordered `Vec` rather than
-    // a `HashSet` — `attach_point`'s first-wins `<` and `add_street`'s stable
-    // sort both depend on that order, which no golden fixture can see because
-    // it dumps state, not the intermediate call sequence.
-    // No golden path: a JS `Set`'s iteration order is not observable through
-    // `_test`, so this is a real unit test of the ported logic, documented as
-    // such (the same precedent `poly_self_intersects` set in milestone 1).
-    //
-    // It matters because `attach_point` picks its best edge with a strict `<`
-    // (first candidate wins a tie) and `add_street` sorts crossings with a
-    // stable sort. A `HashSet` here would make both non-deterministic.
     let mut g = Graph::new();
     for i in 0..6 {
         let y = 40.0 * i as f64;
@@ -515,18 +508,18 @@ fn edges_near_returns_first_seen_order_not_set_order() {
     assert_eq!(near, again, "edges_near must be deterministic across calls");
 }
 
+/// Protects: the invariant that unindexing an edge restores the spatial
+/// grid to exactly its prior contents, which no golden dump alone pins
+/// because it only ever sees the index after operations, never the delta.
+/// Also not on `_test` in isolation — the goldens pin the index's *state*
+/// after real operations, and this pins the invariant behind it: indexing
+/// then unindexing an edge restores the grid to its prior contents.
+///
+/// The two streets must not cross: a crossing would tombstone and re-split
+/// the first one, so the "prior contents" the test compares against would no
+/// longer exist. (That mistake is why this test failed on its first run.)
 #[test]
 fn unindex_edge_removes_exactly_what_index_edge_added() {
-    // Protects: the invariant that unindexing an edge restores the spatial
-    // grid to exactly its prior contents, which no golden dump alone pins
-    // because it only ever sees the index after operations, never the delta.
-    // Also not on `_test` in isolation — the goldens pin the index's *state*
-    // after real operations, and this pins the invariant behind it: indexing
-    // then unindexing an edge restores the grid to its prior contents.
-    //
-    // The two streets must not cross: a crossing would tombstone and re-split
-    // the first one, so the "prior contents" the test compares against would no
-    // longer exist. (That mistake is why this test failed on its first run.)
     let mut g = Graph::new();
     g.add_street(10., 10., 260., 60., "street", 5., 0, "p");
     let before = grid_sorted(&g);
@@ -537,13 +530,13 @@ fn unindex_edge_removes_exactly_what_index_edge_added() {
     assert_eq!(grid_sorted(&g), before, "unindexing must restore the prior cells exactly");
 }
 
+/// Protects: `extract_faces` returning an empty `Vec` (not a degenerate
+/// ring) for a graph with no cycle, which `build_blocks` (milestone 12)
+/// reads as emptiness.
+/// A tree has no bounded face, and the reference returns `[]` rather than a
+/// degenerate ring — `build_blocks` (milestone 12) reads that emptiness.
 #[test]
 fn extract_faces_is_empty_on_a_graph_with_no_cycle() {
-    // Protects: `extract_faces` returning an empty `Vec` (not a degenerate
-    // ring) for a graph with no cycle, which `build_blocks` (milestone 12)
-    // reads as emptiness.
-    // A tree has no bounded face, and the reference returns `[]` rather than a
-    // degenerate ring — `build_blocks` (milestone 12) reads that emptiness.
     let mut g = Graph::new();
     g.add_street(0., 0., 200., 0., "street", 5., 0, "p");
     g.add_street(100., 0., 100., 120., "street", 5., 0, "p");

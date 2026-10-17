@@ -269,13 +269,13 @@ mod tests {
 
     const HAND: &str = "# Nareth\n\nA river town the author wrote by hand.\n\n## History\n\nFounded in the third age.\n";
 
+    /// Protects: the full insert -> replace -> remove cycle -- §23 rule 2
+    /// (user content outside the block is untouched by insert and
+    /// replace), rule 3 (an update replaces only the block, never
+    /// duplicates it), and `remove`'s round trip back to the original
+    /// hand-written document.
     #[test]
     fn insert_then_update_leaves_every_hand_written_byte_alone() {
-        // Protects: the full insert -> replace -> remove cycle -- §23 rule 2
-        // (user content outside the block is untouched by insert and
-        // replace), rule 3 (an update replaces only the block, never
-        // duplicates it), and `remove`'s round trip back to the original
-        // hand-written document.
         let (v1, act) = upsert(HAND, "settlement:42", "**Population**: 8,420").unwrap();
         assert!(matches!(act, BlockAction::Inserted(_)));
         assert!(v1.contains("A river town the author wrote by hand."));
@@ -298,11 +298,11 @@ mod tests {
         assert_eq!(back, HAND);
     }
 
+    /// Protects: `find`/`blocks` scope by entity id, so a document with
+    /// two Cartalith blocks lets an update to one leave the other's body
+    /// byte-for-byte alone.
     #[test]
     fn two_entities_can_share_a_document() {
-        // Protects: `find`/`blocks` scope by entity id, so a document with
-        // two Cartalith blocks lets an update to one leave the other's body
-        // byte-for-byte alone.
         let (a, _) = upsert(HAND, "settlement:42", "one").unwrap();
         let (b, _) = upsert(&a, "province:3", "two").unwrap();
         assert_eq!(blocks(&b).unwrap().len(), 2);
@@ -312,29 +312,29 @@ mod tests {
         assert!(!c.contains(">one\n"));
     }
 
+    /// Protects: §23 rule 4 -- a BEGIN with no matching END is a hard
+    /// `Unterminated` error from both `blocks` and `upsert`, never a
+    /// best-guess overwrite.
     #[test]
     fn an_unterminated_marker_refuses_rather_than_overwriting() {
-        // Protects: §23 rule 4 -- a BEGIN with no matching END is a hard
-        // `Unterminated` error from both `blocks` and `upsert`, never a
-        // best-guess overwrite.
         let broken = format!("# T\n\n{BEGIN_PREFIX} entity=\"settlement:1\" version=\"1\" -->\nhalf a block\n");
         assert_eq!(blocks(&broken), Err(BlockError::Unterminated));
         assert_eq!(upsert(&broken, "settlement:1", "x"), Err(BlockError::Unterminated));
     }
 
+    /// Protects: §23 rule 4's other refusal -- two blocks claiming the
+    /// same entity id is a `Duplicate` error, not a silent pick of one.
     #[test]
     fn duplicate_blocks_for_one_entity_refuse() {
-        // Protects: §23 rule 4's other refusal -- two blocks claiming the
-        // same entity id is a `Duplicate` error, not a silent pick of one.
         let one = render("settlement:1", "a");
         let doc = format!("# T\n\n{one}\n\n{one}\n");
         assert!(matches!(find(&doc, "settlement:1"), Err(BlockError::Duplicate { count: 2, .. })));
     }
 
+    /// Protects: `insertion_point`'s §24 placement -- frontmatter, then
+    /// the title, then the block, for a document that has both.
     #[test]
     fn the_block_lands_below_frontmatter_and_the_title() {
-        // Protects: `insertion_point`'s §24 placement -- frontmatter, then
-        // the title, then the block, for a document that has both.
         let doc = "---\ntitle: Nareth\n---\n\n# Nareth\n\nprose\n";
         let (out, _) = upsert(doc, "settlement:1", "x").unwrap();
         let fm = out.find("---\ntitle").unwrap();
@@ -344,11 +344,11 @@ mod tests {
         assert!(out.contains("prose"));
     }
 
+    /// Protects: `insertion_point` falls back to offset 0 when there is neither a level-1
+    /// heading nor frontmatter to anchor on, including the fully empty document. The
+    /// frontmatter-end fallback is not exercised here.
     #[test]
     fn a_document_with_no_heading_still_works() {
-        // Protects: `insertion_point`'s fallback to the frontmatter end (or
-        // offset 0) when there is no level-1 heading to anchor on, including
-        // the fully empty document.
         let (out, act) = upsert("just prose, no heading\n", "settlement:1", "x").unwrap();
         assert_eq!(act, BlockAction::Inserted(0));
         assert!(out.contains("just prose, no heading"));
@@ -357,11 +357,11 @@ mod tests {
         assert!(out2.starts_with(BEGIN_PREFIX));
     }
 
+    /// Protects: `attr`'s parsing of the marker header -- `entity` and
+    /// `version` come back exactly as written, and the body text
+    /// survives trimmed.
     #[test]
     fn the_header_round_trips_its_attributes() {
-        // Protects: `attr`'s parsing of the marker header -- `entity` and
-        // `version` come back exactly as written, and the body text
-        // survives trimmed.
         let (out, _) = upsert(HAND, "continent:2", "x").unwrap();
         let b = find(&out, "continent:2").unwrap().unwrap();
         assert_eq!(b.entity, "continent:2");

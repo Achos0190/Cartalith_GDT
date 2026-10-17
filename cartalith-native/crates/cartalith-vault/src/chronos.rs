@@ -457,11 +457,11 @@ mod tests {
         format!("# Nareth\n\nProse the author wrote.\n\n```chronos\n{body}\n```\n\nMore prose.\n")
     }
 
+    /// Protects: the owner's own example lines for every optional part
+    /// (date-only, range, description, colour, group, non-ASCII name)
+    /// read exactly, in order, with no line skipped.
     #[test]
     fn the_owner_supplied_examples_read_exactly() {
-        // Protects: the owner's own example lines for every optional part
-        // (date-only, range, description, colour, group, non-ASCII name)
-        // read exactly, in order, with no line skipped.
         let c = parse(&block(
             "- [1879-03-14] Einstein born\n\
              - [1991~2001] Time I believed in Santa\n\
@@ -488,11 +488,11 @@ mod tests {
         assert_eq!(c.events[4].start, 1916);
     }
 
+    /// Protects: a negative-year range reads correctly, all four
+    /// optional parts read together on one line, and a `T…` time
+    /// suffix is accepted and dropped.
     #[test]
     fn negative_years_and_a_full_colour_group_description_line() {
-        // Protects: a negative-year range reads correctly, all four
-        // optional parts read together on one line, and a `T…` time
-        // suffix is accepted and dropped.
         let c = parse(&block("- [-300~250] #ff8800 {Wars} The long siege | walls held"));
         let e = &c.events[0];
         assert_eq!((e.start, e.end), (-300, Some(250)));
@@ -503,10 +503,10 @@ mod tests {
         assert_eq!(parse_line("- [-1200-06-01T12:00:00] Flood").unwrap().start, -1200);
     }
 
+    /// Protects: all four leading symbols (`-`, `@`, `*`, `=`) read as
+    /// their own `Kind`, sharing the one grammar for the rest of the line.
     #[test]
     fn periods_points_and_markers_share_the_grammar() {
-        // Protects: all four leading symbols (`-`, `@`, `*`, `=`) read as
-        // their own `Kind`, sharing the one grammar for the rest of the line.
         let c = parse(&block(
             "@ [1100~1250] #blue {Rule} Ashfall regency\n* [1180] Charter granted | by the regent\n= [1200] Census",
         ));
@@ -517,11 +517,11 @@ mod tests {
         assert_eq!(c.events[2].name, "Census");
     }
 
+    /// Protects: a malformed item line does not abort the block -- every
+    /// valid line before and after it still parses, and every rejected
+    /// line (and unrelated prose) is reported verbatim in `skipped`.
     #[test]
     fn a_malformed_line_is_skipped_and_reported_not_fatal() {
-        // Protects: a malformed item line does not abort the block -- every
-        // valid line before and after it still parses, and every rejected
-        // line (and unrelated prose) is reported verbatim in `skipped`.
         let c = parse(&block(
             "- [1200] Good one\n- 1201 no brackets\n- [12x] bad year\n- [1203]\n- [1204 unclosed\nplain prose\n- [1205] Also good",
         ));
@@ -533,33 +533,33 @@ mod tests {
         );
     }
 
+    /// Protects: `> ` view flags, `#` comments and blank lines inside a
+    /// block are passed over silently -- neither read as events nor
+    /// reported as skipped.
     #[test]
     fn flags_comments_and_blank_lines_are_neither_events_nor_errors() {
-        // Protects: `> ` view flags, `#` comments and blank lines inside a
-        // block are passed over silently -- neither read as events nor
-        // reported as skipped.
         let c = parse(&block("> ORDERBY start\n> DEFAULTVIEW -100|300\n\n# a comment\n- [7] Seven"));
         assert_eq!(c.events.len(), 1);
         assert!(c.skipped.is_empty(), "{:?}", c.skipped);
     }
 
+    /// Protects: an item line outside any fence is not read at all, a
+    /// plain or differently-languaged fence is not a chronos block, and
+    /// an empty chronos block still counts (`blocks: 1`, `events: 0`) so
+    /// "no block" and "an empty block" stay distinguishable.
     #[test]
     fn no_block_an_empty_block_and_other_fences() {
-        // Protects: an item line outside any fence is not read at all, a
-        // plain or differently-languaged fence is not a chronos block, and
-        // an empty chronos block still counts (`blocks: 1`, `events: 0`) so
-        // "no block" and "an empty block" stay distinguishable.
         assert_eq!(parse("# Nareth\n\n- [1200] Not in a block\n"), Chronos::default());
         assert_eq!(parse("```\n- [1200] plain fence\n```\n```rust\n- [1] x\n```\n").events.len(), 0);
         let empty = parse("```chronos\n```\n");
         assert_eq!((empty.blocks, empty.events.len()), (1, 0));
     }
 
+    /// Protects: two separate chronos blocks in one document are both
+    /// read (in order), a longer fence (` ```` `) is honoured as its own
+    /// open/close pair, and an item line between the blocks is not read.
     #[test]
     fn two_blocks_are_both_read_and_text_after_a_block_is_not() {
-        // Protects: two separate chronos blocks in one document are both
-        // read (in order), a longer fence (` ```` `) is honoured as its own
-        // open/close pair, and an item line between the blocks is not read.
         let t = "```chronos\n- [1] A\n```\n- [2] outside\n````chronos\n- [3] B\n````\n";
         let c = parse(t);
         assert_eq!(c.blocks, 2);
@@ -567,10 +567,10 @@ mod tests {
         assert_eq!(names, vec!["A", "B"]);
     }
 
+    /// Protects: an unclosed ` ```chronos ` fence reads as CommonMark
+    /// reads it -- to the end of the document, not zero events.
     #[test]
     fn an_unclosed_fence_runs_to_the_end_of_the_note() {
-        // Protects: an unclosed ` ```chronos ` fence reads as CommonMark
-        // reads it -- to the end of the document, not zero events.
         let c = parse("```chronos\n- [1] A\n- [2] B");
         assert_eq!(c.events.len(), 2);
     }
@@ -627,10 +627,10 @@ mod tests {
         );
     }
 
+    /// Protects: `to_line` writes each non-Event kind's own leading
+    /// symbol, and each round-trips through `parse_line`.
     #[test]
     fn the_other_three_kinds_write_their_own_symbol() {
-        // Protects: `to_line` writes each non-Event kind's own leading
-        // symbol, and each round-trips through `parse_line`.
         for (kind, sym) in [(Kind::Period, '@'), (Kind::Point, '*'), (Kind::Marker, '=')] {
             let e = Event { kind, ..ev(1200, None, None, None, "Census", None) };
             let line = to_line(&e).unwrap();
@@ -694,11 +694,11 @@ mod tests {
         assert_eq!(MonthDay::new(3, None).map(MonthDay::day_of_year), Some(59), "a bare month is its 1st");
     }
 
+    /// Protects: `MonthDay::day_of_year`/`from_day_of_year` round-trip
+    /// for every day of the 365-day year, consecutive days are actually
+    /// consecutive dates, and an out-of-range day returns `None`.
     #[test]
     fn every_day_of_the_year_round_trips_through_month_and_day() {
-        // Protects: `MonthDay::day_of_year`/`from_day_of_year` round-trip
-        // for every day of the 365-day year, consecutive days are actually
-        // consecutive dates, and an out-of-range day returns `None`.
         let mut prev: Option<MonthDay> = None;
         for doy in 0..365 {
             let md = MonthDay::from_day_of_year(doy).unwrap();
@@ -716,11 +716,11 @@ mod tests {
         assert_eq!(MonthDay::from_day_of_year(365), None);
     }
 
+    /// Protects: `day_number`/`date_of_day_number` round-trip across a
+    /// wide range including negative years, count consistently across
+    /// the year-0 boundary, and a year-only date is treated as 1 January.
     #[test]
     fn day_numbers_count_across_years_and_across_zero() {
-        // Protects: `day_number`/`date_of_day_number` round-trip across a
-        // wide range including negative years, count consistently across
-        // the year-0 boundary, and a year-only date is treated as 1 January.
         let d = |y, m, dd| day_number(y, MonthDay::new(m, Some(dd)));
         assert_eq!(d(0, 1, 1), 0);
         assert_eq!(d(1, 1, 1), 365);
@@ -735,13 +735,13 @@ mod tests {
         assert_eq!(day_number(1200, None), 1200 * 365, "a year-only date is 1 January");
     }
 
+    /// Protects: a full date, a range with mixed month/day granularity,
+    /// a real owner-vault `YYYY-MM` line, and a year-only date each keep
+    /// exactly the month/day precision written; a date this calendar has
+    /// no room for (Feb 29, month 13, etc.) still parses as its bare
+    /// year rather than being refused (Ruling AO's loose acceptance).
     #[test]
     fn month_and_day_are_kept_when_written_and_absent_when_not() {
-        // Protects: a full date, a range with mixed month/day granularity,
-        // a real owner-vault `YYYY-MM` line, and a year-only date each keep
-        // exactly the month/day precision written; a date this calendar has
-        // no room for (Feb 29, month 13, etc.) still parses as its bare
-        // year rather than being refused (Ruling AO's loose acceptance).
         let e = parse_line("- [1879-03-14] Einstein born").unwrap();
         assert_eq!((e.start, e.start_md), (1879, MonthDay::new(3, Some(14))));
         let e = parse_line("- [-1200-06-01T12:00:00~-1199-02] Flood").unwrap();
@@ -761,13 +761,13 @@ mod tests {
         }
     }
 
+    /// Protects: `to_line`/`parse_line` round-trip a dated event
+    /// including mixed month/day-vs-month-only ends and a negative year
+    /// with a day, and refuse an invalid month/day, an end date before
+    /// the start within one year, and an end month with no end year --
+    /// while a same-day range is accepted, not treated as "before".
     #[test]
     fn a_dated_event_round_trips_and_an_undated_one_is_written_as_before() {
-        // Protects: `to_line`/`parse_line` round-trip a dated event
-        // including mixed month/day-vs-month-only ends and a negative year
-        // with a day, and refuse an invalid month/day, an end date before
-        // the start within one year, and an end month with no end year --
-        // while a same-day range is accepted, not treated as "before".
         let md = |m, d| MonthDay::new(m, d);
         let e = Event { start_md: md(3, Some(14)), end: Some(1880), end_md: md(2, None), ..ev(1879, None, Some("red"), None, "Stay", None) };
         let line = to_line(&e).unwrap();
@@ -786,12 +786,12 @@ mod tests {
         assert_eq!(parse_line(&to_line(&same).unwrap()), Some(same));
     }
 
+    /// Protects: `append_line` creates a new chronos block at the
+    /// document's end when none exists, correctly for a trailing
+    /// newline, no trailing newline, and a wholly empty document; and
+    /// the appended line reads back through `parse`.
     #[test]
     fn a_note_without_a_block_gets_one_at_the_end() {
-        // Protects: `append_line` creates a new chronos block at the
-        // document's end when none exists, correctly for a trailing
-        // newline, no trailing newline, and a wholly empty document; and
-        // the appended line reads back through `parse`.
         let t = "# Nareth\n\nProse.\n";
         let out = append_line(t, "- [1] A").unwrap();
         assert_eq!(out, "# Nareth\n\nProse.\n\n```chronos\n- [1] A\n```\n");
@@ -801,12 +801,12 @@ mod tests {
         assert_eq!(parse(&out).events[0].name, "A");
     }
 
+    /// Protects: `append_line` appends inside an existing block in
+    /// source order (never sorted in), targets the LAST of several
+    /// blocks, honours a longer fence, handles an unclosed trailing
+    /// block, and preserves CRLF line endings.
     #[test]
     fn a_line_is_appended_inside_the_last_existing_block() {
-        // Protects: `append_line` appends inside an existing block in
-        // source order (never sorted in), targets the LAST of several
-        // blocks, honours a longer fence, handles an unclosed trailing
-        // block, and preserves CRLF line endings.
         let t = block("- [2] B\n- [1] A");
         let out = append_line(&t, "- [3] C").unwrap();
         assert_eq!(out, t.replace("- [1] A\n```", "- [1] A\n- [3] C\n```"));
@@ -822,13 +822,13 @@ mod tests {
         assert_eq!(append_line("```chronos\r\n- [1] A\r\n```\r\n", "- [2] B").unwrap(), "```chronos\r\n- [1] A\r\n- [2] B\r\n```\r\n");
     }
 
+    /// Protects: `append_line` never targets a chronos block that lives
+    /// inside Cartalith's own machine block (which is replaced wholesale
+    /// on the next write) -- it appends a fresh block after it instead --
+    /// and refuses outright when the machine block itself cannot be
+    /// delimited.
     #[test]
     fn a_block_inside_the_machine_block_is_never_the_target() {
-        // Protects: `append_line` never targets a chronos block that lives
-        // inside Cartalith's own machine block (which is replaced wholesale
-        // on the next write) -- it appends a fresh block after it instead --
-        // and refuses outright when the machine block itself cannot be
-        // delimited.
         use crate::block::{BEGIN_PREFIX, END_MARKER};
         let t = format!("# N\n\n{BEGIN_PREFIX} entity=\"settlement:1\" version=\"1\" -->\n```chronos\n- [1] Machine\n```\n{END_MARKER}\n\nProse.\n");
         let out = append_line(&t, "- [2] Mine").unwrap();

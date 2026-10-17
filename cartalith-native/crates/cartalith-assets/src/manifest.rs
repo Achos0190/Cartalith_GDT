@@ -810,11 +810,11 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Protects: js_parse_float against str::parse's stricter grammar —
+    /// trailing junk, surrounding whitespace and an empty/non-numeric
+    /// string must all match what JavaScript's own `parseFloat` returns.
     #[test]
     fn js_parse_float_matches_javascript() {
-        // Protects: js_parse_float against str::parse's stricter grammar —
-        // trailing junk, surrounding whitespace and an empty/non-numeric
-        // string must all match what JavaScript's own `parseFloat` returns.
         assert_eq!(js_parse_float("1"), Some(1.0));
         assert_eq!(js_parse_float(" 2.5 "), Some(2.5));
         assert_eq!(js_parse_float("3px"), Some(3.0)); // str::parse would reject
@@ -823,10 +823,10 @@ mod tests {
         assert_eq!(js_parse_float("abc"), None);
     }
 
+    /// Protects: the per-slot procedural fallback — an icons-only pack is
+    /// legal, and omitting the other families is silent, not a warning.
     #[test]
     fn an_omitted_slot_is_silently_absent() {
-        // Protects: the per-slot procedural fallback — an icons-only pack is
-        // legal, and omitting the other families is silent, not a warning.
         let raw: RawManifest =
             serde_json::from_str(r#"{"icons":{"shrub":["icons/s.png"]}}"#).unwrap();
         let m = parse_pack_manifest(&raw, &files(&["icons/s.png"]));
@@ -836,10 +836,10 @@ mod tests {
         assert!(m.slot_paths(Family::Icons, "cactus").is_none());
     }
 
+    /// Protects: `if(p==null) continue` in the reference — an explicit
+    /// null is "no art here", not a broken reference, and must not warn.
     #[test]
     fn a_null_valued_slot_is_skipped_without_a_warning() {
-        // Protects: `if(p==null) continue` in the reference — an explicit
-        // null is "no art here", not a broken reference, and must not warn.
         let raw: RawManifest =
             serde_json::from_str(r#"{"textures":{"grass":null},"icons":{"hill":null}}"#).unwrap();
         let m = parse_pack_manifest(&raw, &files(&[]));
@@ -998,10 +998,10 @@ mod tests {
         assert_eq!(m.structures.traits.len(), 1);
     }
 
+    /// Protects: referenced_files() against a family a future edit forgets
+    /// to `extend` from -- every family's paths must appear in the result.
     #[test]
     fn referenced_files_lists_every_family() {
-        // Protects: referenced_files() against a family a future edit forgets
-        // to `extend` from -- every family's paths must appear in the result.
         let raw: RawManifest = serde_json::from_str(
             r#"{"textures":{"grass":"t/g.png"},"biomes":{"jungle":"b/j.png"},
                 "terrains":{"paved":"r/p.png"},"icons":{"hill":["i/h.png"]},
@@ -1024,10 +1024,10 @@ mod tests {
         assert!(m.custom_paths("Mining", "anchor").is_none());
     }
 
+    /// Protects: export -> re-import losslessness -- a validated manifest
+    /// serialized via to_pack_json and re-parsed must equal the original.
     #[test]
     fn to_raw_round_trips_through_json() {
-        // Protects: export -> re-import losslessness -- a validated manifest
-        // serialized via to_pack_json and re-parsed must equal the original.
         let raw: RawManifest = serde_json::from_str(
             r#"{"schema":2,"name":"P","author":"a","license":"CC0",
                 "textures":{"grass":"t/g.png"},"icons":{"hill":"i/h.png"},
@@ -1052,12 +1052,12 @@ mod tests {
         assert!(json.contains("\"schema\": 2"));
     }
 
+    /// Protects: `to_pack_json`'s per-section skip_serializing_if rules --
+    /// mirrors PackManifestBuilder, which seeds `textures:{}` and
+    /// `icons:{}` unconditionally and adds the other sections only when
+    /// used.
     #[test]
     fn empty_sections_are_omitted_but_textures_and_icons_are_always_written() {
-        // Protects: `to_pack_json`'s per-section skip_serializing_if rules --
-        // mirrors PackManifestBuilder, which seeds `textures:{}` and
-        // `icons:{}` unconditionally and adds the other sections only when
-        // used.
         let json = PackManifest {
             name: "P".into(),
             ..Default::default()
@@ -1070,10 +1070,10 @@ mod tests {
         assert!(!json.contains("\"custom\""));
     }
 
+    /// Protects: parse_pack_entries's no-manifest error and its
+    /// JSON-over-CSV precedence when both are present.
     #[test]
     fn parse_pack_entries_picks_json_over_csv_and_reports_neither() {
-        // Protects: parse_pack_entries's no-manifest error and its
-        // JSON-over-CSV precedence when both are present.
         let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         entries.insert("art.png".into(), vec![1]);
         assert!(matches!(
@@ -1100,10 +1100,10 @@ mod tests {
         assert!(m.textures.is_empty(), "JSON must win over CSV");
     }
 
+    /// Protects: a truncated/invalid pack.json returns Err(PackError::Json)
+    /// rather than propagating a serde panic through the caller.
     #[test]
     fn malformed_pack_json_is_an_error_not_a_panic() {
-        // Protects: a truncated/invalid pack.json returns Err(PackError::Json)
-        // rather than propagating a serde panic through the caller.
         let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         entries.insert("pack.json".into(), b"{not json".to_vec());
         assert!(matches!(
@@ -1112,10 +1112,10 @@ mod tests {
         ));
     }
 
+    /// Protects: parse_pack_csv's documented format limitation -- an
+    /// unrecognized "structure" row type is dropped, not misfiled.
     #[test]
     fn csv_cannot_express_structures_or_custom() {
-        // Protects: parse_pack_csv's documented format limitation -- an
-        // unrecognized "structure" row type is dropped, not misfiled.
         let raw = parse_pack_csv("icon,mountain,i/m.png,1\nstructure,hamlet,s/h.png,1");
         assert!(raw.structures.is_empty());
         assert!(raw.custom.is_empty());

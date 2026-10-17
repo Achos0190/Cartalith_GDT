@@ -543,9 +543,9 @@ mod tests {
         }
     }
 
-    // Protects: an undrawn carve leaves no groove -- the carve under no drawn
-    // line is filled back to its banks (Ruling BD: "no carve shading appears
-    // where no river is drawn").
+    /// Protects: an undrawn carve leaves no groove -- the carve under no drawn
+    /// line is filled back to its banks (Ruling BD: "no carve shading appears
+    /// where no river is drawn").
     #[test]
     fn a_carve_with_no_drawn_river_is_filled_to_its_banks() {
         let (gw, gh) = (40, 30);
@@ -559,9 +559,9 @@ mod tests {
         assert!((f[15 * gw + 20] - 0.59).abs() < 1e-6);
     }
 
-    // Protects: the fill relaxes, it does not just copy the bank -- a trench
-    // seven cells wide, whose middle row has no uncarved neighbour to start
-    // from, still ends within 1e-4 of its banks.
+    /// Protects: the fill relaxes, it does not just copy the bank -- a trench
+    /// seven cells wide, whose middle row has no uncarved neighbour to start
+    /// from, still ends within 1e-4 of its banks.
     #[test]
     fn a_wide_carve_is_filled_all_the_way_across() {
         let (gw, gh) = (40, 30);
@@ -578,9 +578,9 @@ mod tests {
         assert!((mid - 0.6).abs() < 1e-4, "the middle of a 7-cell trench is filled to the banks: {mid}");
     }
 
-    // Protects: the depth is smoothed along the line -- where the carve's
-    // depth steps from 0.01 to 0.002 at x = 20, the valley floor there is in
-    // between, not either step.
+    /// Protects: the depth is smoothed along the line -- where the carve's
+    /// depth steps from 0.01 to 0.002 at x = 20, the valley floor there is in
+    /// between, not either step.
     #[test]
     fn a_step_in_the_carve_depth_is_smoothed_along_the_line() {
         let (gw, gh) = (40, 30);
@@ -599,9 +599,10 @@ mod tests {
         assert!((s[15 * gw + 10] as f64 - 0.59).abs() < 1e-4 && (s[15 * gw + 30] as f64 - 0.598).abs() < 1e-4);
     }
 
-    // Protects: the valley follows the DRAWN line, not the carve. A trench on
-    // row 15 with the drawn line on row 18 ends with its lowest cells on row
-    // 18, and row 15 back near the bank.
+    /// Protects: the valley follows the DRAWN line, not the carve. A trench on
+    /// row 15 with the line drawn at y = 17.0 (1.5 cells off the carve's centres) ends with
+    /// its lowest cells on rows 16 and 17, the two rows straddling the line; row 15 is then
+    /// shallower than those, and row 13, outside the rim, is untouched.
     #[test]
     fn the_valley_is_cut_along_the_drawn_line_not_the_carve() {
         let (gw, gh) = (40, 30);
@@ -619,8 +620,8 @@ mod tests {
         assert!((at(20, 13) - 0.6).abs() < 1e-6, "outside the rim the ground is untouched: {}", at(20, 13));
     }
 
-    // Protects: the valley is as deep as the carve was -- the re-cut moves the
-    // valley, it does not deepen or flatten it.
+    /// Protects: the valley is as deep as the carve was -- the re-cut moves the
+    /// valley, it does not deepen or flatten it.
     #[test]
     fn the_valley_is_as_deep_as_the_carve() {
         let (gw, gh) = (40, 30);
@@ -631,13 +632,13 @@ mod tests {
         assert!((floor - 0.59).abs() < 1e-4, "the floor on the line is the carve's depth, 0.59: {floor}");
     }
 
-    // Protects: RIM-3 -- with `recut` off the shaded surface is the carve
-    // filled back in and NOTHING else: the cell under a drawn line, its
-    // shoulder row either side and the row beyond all end at the plain's
-    // height, so no depression (and no ridge of left-over shoulder) is shaded
-    // along a river the shader paints as water. With `recut` on, the same
-    // inputs dig the valley (the control: the assertion below would pass on an
-    // all-flat result if the test did not show the cut exists).
+    /// Protects: RIM-3 -- with `recut` off the shaded surface is the carve
+    /// filled back in and NOTHING else: the cell under a drawn line, its
+    /// shoulder row either side and the row beyond all end at the plain's
+    /// height, so no depression (and no ridge of left-over shoulder) is shaded
+    /// along a river the shader paints as water. With `recut` on, the same
+    /// inputs dig the valley (the control: the assertion below would pass on an
+    /// all-flat result if the test did not show the cut exists).
     #[test]
     fn recut_off_shades_the_filled_carve_only() {
         let (gw, gh) = (40, 30);
@@ -651,10 +652,10 @@ mod tests {
         }
     }
 
-    // Protects: shading changes by a fraction of a cell when the line moves by
-    // a fraction of a cell -- no whole-cell step. The cross-section at
-    // successive sub-cell offsets of the line changes monotonically and by
-    // less than the full depth per quarter cell.
+    /// Protects: shading changes by a fraction of a cell when the line moves by
+    /// a fraction of a cell -- no whole-cell step. The cross-section at
+    /// successive sub-cell offsets of the line changes monotonically and by
+    /// less than the full depth per quarter cell.
     #[test]
     fn a_sub_cell_shift_of_the_line_moves_the_valley_by_a_fraction() {
         let (gw, gh) = (40, 30);
@@ -673,12 +674,12 @@ mod tests {
         }
     }
 
-    // Protects: water keeps its true height and no land is cut below sea
-    // level, so no cell changes side; and the land beside water is shaded
-    // like the rest of the channel (the ring is no longer frozen, 2026-09-28).
-    // The carve runs from the coast (x = 2, beside the sea at x < 2) past a
-    // lake cell (30, 14), and a low patch of land (row 17, 0.45) lies on the
-    // valley's shoulder, where the cut would take it under the sea.
+    /// Protects: water keeps its true height and no land is cut below sea
+    /// level, so no cell changes side; and the land beside water is shaded
+    /// like the rest of the channel (the ring is no longer frozen, 2026-09-28).
+    /// The carve runs from the coast (x = 2, beside the sea at x < 2) past a
+    /// lake cell (30, 14), and a low patch of land (row 17, 0.45) lies on the
+    /// valley's shoulder, where the cut would take it under the sea.
     #[test]
     fn water_is_never_changed_and_land_stays_land() {
         let (gw, gh) = (40, 30);
@@ -720,8 +721,8 @@ mod tests {
         assert!(low < 0.44 && low >= sea, "the low patch is cut down to the land floor, not below: {low}");
     }
 
-    // Protects: "no value" is not a plausible value -- a grid of the wrong
-    // length is refused, and the caller shades the true field.
+    /// Protects: "no value" is not a plausible value -- a grid of the wrong
+    /// length is refused, and the caller shades the true field.
     #[test]
     fn a_mismatched_grid_is_refused() {
         let f = vec![0.6f32; 12];
@@ -730,9 +731,9 @@ mod tests {
         assert!(valley_shade_field(&f, &[0; 12], &[0; 12], None, &[], 4, 4, 0.42, false, true).is_none());
     }
 
-    // Protects: the profile's shape -- full depth on the bed, zero at the rim,
-    // and a shoulder of at least SHOULDER_MIN_CELLS (literals, not the
-    // constants themselves).
+    /// Protects: the profile's shape -- full depth on the bed, zero at the rim,
+    /// and a shoulder of at least SHOULDER_MIN_CELLS (literals, not the
+    /// constants themselves).
     #[test]
     fn the_profile_is_full_on_the_bed_and_zero_at_the_rim() {
         assert_eq!(profile(0.0, 0.5), 1.0);
@@ -743,10 +744,10 @@ mod tests {
         assert!((profile(0.75, 0.5) - (1.0 - 0.25f64).powi(2)).abs() < 1e-12, "q = 0.5 at mid-shoulder");
     }
 
-    // Protects: a channel the user sculpted (locked by a Sculpt commit, value
-    // 2), with no drawn river on it, keeps its groove in the shading -- the
-    // row "RV-3 follow-ups", item 1. The same trench locked by the generation
-    // carve (value 1) is the positive control: it is filled.
+    /// Protects: a channel the user sculpted (locked by a Sculpt commit, value
+    /// 2), with no drawn river on it, keeps its groove in the shading -- the
+    /// row "RV-3 follow-ups", item 1. The same trench locked by the generation
+    /// carve (value 1) is the positive control: it is filled.
     #[test]
     fn a_sculpted_channel_with_no_drawn_river_keeps_its_groove() {
         let (gw, gh) = (40, 30);
@@ -763,9 +764,9 @@ mod tests {
         assert!((s[15 * gw + 20] - 0.6).abs() < 1e-5, "control: the carve's own trench is filled: {}", s[15 * gw + 20]);
     }
 
-    // Protects: only the carve's own depth is filled. A carved trench (floor
-    // 0.59) that a sculpt then lowered by a further 0.02 over x = 15..25 ends
-    // 0.02 below the banks there, and at the banks elsewhere.
+    /// Protects: only the carve's own depth is filled. A carved trench (floor
+    /// 0.59) that a sculpt then lowered by a further 0.02 over x = 15..25 ends
+    /// 0.02 below the banks there, and at the banks elsewhere.
     #[test]
     fn a_sculpt_that_deepened_a_carved_channel_keeps_its_extra_depth() {
         let (gw, gh) = (40, 30);
@@ -782,10 +783,10 @@ mod tests {
         assert!((s[15 * gw + 8] - 0.6).abs() < 1e-4, "outside the sculpt the carve is filled: {}", s[15 * gw + 8]);
     }
 
-    // Protects: the re-cut is as deep as the CARVE was, not as deep as the
-    // cell now is. Where a sculpt lowered a carved cell a further 0.02 below
-    // its floor, the valley cut along a drawn line there takes the carve's
-    // 0.01 off the sculpted 0.58 (0.57), not 0.03.
+    /// Protects: the re-cut is as deep as the CARVE was, not as deep as the
+    /// cell now is. Where a sculpt lowered a carved cell a further 0.02 below
+    /// its floor, the valley cut along a drawn line there takes the carve's
+    /// 0.01 off the sculpted 0.58 (0.57), not 0.03.
     #[test]
     fn the_recut_under_a_sculpt_is_as_deep_as_the_carve_not_the_sculpt() {
         let (gw, gh) = (40, 30);
@@ -800,10 +801,10 @@ mod tests {
         assert!((v - 0.57).abs() < 1e-3, "sculpted 0.58 less the carve's 0.01: {v}");
     }
 
-    // Protects: land below sea level that the drawn classification does not
-    // call water (a dry depression under the datum) is frozen as water -- the
-    // renderer's own `h < sea_level` test calls it sea -- while the carved cell
-    // diagonal to it is no longer frozen with it (2026-09-28).
+    /// Protects: land below sea level that the drawn classification does not
+    /// call water (a dry depression under the datum) is frozen as water -- the
+    /// renderer's own `h < sea_level` test calls it sea -- while the carved cell
+    /// diagonal to it is no longer frozen with it (2026-09-28).
     #[test]
     fn a_cell_below_sea_level_is_frozen_even_when_not_classified_water() {
         let (gw, gh) = (40, 30);
@@ -822,10 +823,10 @@ mod tests {
         assert!((s[15 * gw + 10] - 0.6).abs() < 1e-5, "control: away from it the carve is filled");
     }
 
-    // Protects: the item this change exists for -- the last carved cell of a
-    // channel at the sea no longer keeps its one-cell step. With no drawn
-    // river over it the fill lifts it from the carve's 0.45 toward its banks
-    // (the sea cell beside it holds it below them), and it stays land.
+    /// Protects: the item this change exists for -- the last carved cell of a
+    /// channel at the sea no longer keeps its one-cell step. With no drawn
+    /// river over it the fill lifts it from the carve's 0.45 toward its banks
+    /// (the sea cell beside it holds it below them), and it stays land.
     #[test]
     fn the_carved_cell_at_the_mouth_loses_its_step() {
         let (gw, gh) = (40, 30);
@@ -843,9 +844,9 @@ mod tests {
         assert!(mouth >= 0.42 && mouth <= 0.6, "and stays land, no higher than its banks: {mouth}");
     }
 
-    // Protects: a carved cell raised above its floor after the carve (an
-    // erosion deposit) is filled from its raised height, not its old floor --
-    // the fill never lifts ground above its banks.
+    /// Protects: a carved cell raised above its floor after the carve (an
+    /// erosion deposit) is filled from its raised height, not its old floor --
+    /// the fill never lifts ground above its banks.
     #[test]
     fn a_carved_cell_raised_above_its_floor_is_filled_to_the_banks_not_above() {
         let (gw, gh) = (40, 30);
@@ -861,9 +862,9 @@ mod tests {
         }
     }
 
-    // Protects: on a world nothing has edited since the carve (every locked
-    // cell's height is its floor), passing the floor changes nothing -- the
-    // RV-3 look on a fresh world is unchanged by the item-1 fix.
+    /// Protects: on a world nothing has edited since the carve (every locked
+    /// cell's height is its floor), passing the floor changes nothing -- the
+    /// RV-3 look on a fresh world is unchanged by the item-1 fix.
     #[test]
     fn a_floor_equal_to_the_field_changes_nothing() {
         let (gw, gh) = (40, 30);
@@ -875,18 +876,18 @@ mod tests {
         assert!(a[16 * gw + 20] < 0.595, "premise: the valley was cut");
     }
 
-    // Protects: "no value" is not a plausible value -- a floor of the wrong
-    // length is refused rather than read short.
+    /// Protects: "no value" is not a plausible value -- a floor of the wrong
+    /// length is refused rather than read short.
     #[test]
     fn a_floor_of_the_wrong_length_is_refused() {
         let f = vec![0.6f32; 12];
         assert!(valley_shade_field(&f, &[0; 12], &[0; 12], Some(&[0.6; 11]), &[], 4, 3, 0.42, false, true).is_none());
     }
 
-    // Protects: the relabelling after a Sculpt commit (`mark_sculpt_locks`):
-    // a new lock, a re-lock with a new floor, and an earlier sculpt lock read
-    // as the user's (2); a generation lock whose floor did not move stays the
-    // carve's (1); unlocked stays 0; with no previous mask every lock is new.
+    /// Protects: the relabelling after a Sculpt commit (`mark_sculpt_locks`):
+    /// a new lock, a re-lock with a new floor, and an earlier sculpt lock read
+    /// as the user's (2); a generation lock whose floor did not move stays the
+    /// carve's (1); unlocked stays 0; with no previous mask every lock is new.
     #[test]
     fn a_sculpt_commit_marks_only_the_locks_it_made() {
         let prev = [0u8, 1, 1, 2, 0, 1];

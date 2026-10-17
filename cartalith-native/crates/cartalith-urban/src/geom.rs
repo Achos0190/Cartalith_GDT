@@ -497,10 +497,10 @@ mod tests {
         pts(&[(0., 0.), (12., 0.), (12., 4.), (5., 4.), (5., 11.), (0., 11.)])
     }
 
+    /// Protects: poly_area's signed shoelace sum, including the collinear
+    /// (exactly zero) and self-crossing (lobes cancel) edge cases.
     #[test]
     fn golden_poly_area() {
-        // Protects: poly_area's signed shoelace sum, including the collinear
-        // (exactly zero) and self-crossing (lobes cancel) edge cases.
         assert_eq!(poly_area(&square()), 100.0);
         assert_eq!(poly_area(&cw_square()), -100.0);
         assert_eq!(poly_area(&tri()), 24.0);
@@ -510,10 +510,10 @@ mod tests {
         assert_eq!(poly_area(&pts(&[(0., 0.), (10., 10.), (10., 0.), (0., 10.)])), 0.0);
     }
 
+    /// Protects: poly_centroid's area-weighted centroid and its fallback
+    /// to the vertex mean when the signed area is degenerate.
     #[test]
     fn golden_poly_centroid() {
-        // Protects: poly_centroid's area-weighted centroid and its fallback
-        // to the vertex mean when the signed area is degenerate.
         assert_eq!(flat(&[poly_centroid(&square())]), [(5.0, 5.0)]);
         assert_eq!(flat(&[poly_centroid(&cw_square())]), [(5.0, 5.0)]);
         assert_eq!(flat(&[poly_centroid(&tri())]), [(2.6666666666666665, 2.0)]);
@@ -525,12 +525,12 @@ mod tests {
         assert_eq!(flat(&[poly_centroid(&pts(&[(1., 1.), (3., 1.), (5., 1.)]))]), [(3.0, 1.0)]);
     }
 
+    /// Protects: point_in_poly's crossing-number test and its asymmetric
+    /// half-open edge convention (an edge belongs to one side, not both).
+    /// includes the reference's asymmetric edge convention: the (0,0) corner
+    /// and the x=10 edge of the same square answer differently.
     #[test]
     fn golden_point_in_poly() {
-        // Protects: point_in_poly's crossing-number test and its asymmetric
-        // half-open edge convention (an edge belongs to one side, not both).
-        // includes the reference's asymmetric edge convention: the (0,0) corner
-        // and the x=10 edge of the same square answer differently.
         for (pt, poly, want) in [
             (p(5., 5.), square(), true),
             (p(-1., 5.), square(), false),
@@ -545,10 +545,10 @@ mod tests {
         }
     }
 
+    /// Protects: seg_int's segment-vs-segment intersection, including the
+    /// parallel, collinear, T-junction (u == 0 exactly) and oblique cases.
     #[test]
     fn golden_seg_int() {
-        // Protects: seg_int's segment-vs-segment intersection, including the
-        // parallel, collinear, T-junction (u == 0 exactly) and oblique cases.
         assert_eq!(
             seg_int(p(0., 0.), p(10., 10.), p(0., 10.), p(10., 0.)),
             Some(SegHit { t: 0.5, u: 0.5, pt: p(5., 5.) })
@@ -566,10 +566,10 @@ mod tests {
         assert_eq!((h.pt.x, h.pt.y), (2.2941176470588234, 5.352941176470588));
     }
 
+    /// Protects: dist_pt_seg's clamped-projection distance, including both
+    /// clamp directions and the degenerate zero-length-segment fallback.
     #[test]
     fn golden_dist_pt_seg() {
-        // Protects: dist_pt_seg's clamped-projection distance, including both
-        // clamp directions and the degenerate zero-length-segment fallback.
         assert_eq!(dist_pt_seg(p(5., 5.), p(0., 0.), p(10., 0.)), 5.0);
         assert_eq!(dist_pt_seg(p(-3., 4.), p(0., 0.), p(10., 0.)), 5.0); // clamped to t=0
         assert_eq!(dist_pt_seg(p(13., 4.), p(0., 0.), p(10., 0.)), 5.0); // clamped to t=1
@@ -577,19 +577,19 @@ mod tests {
         assert_eq!(dist_pt_seg(p(3., 9.), p(0., 0.), p(6., 6.)), 4.242640687119286);
     }
 
+    /// Protects: ensure_ccw leaving an already-CCW polygon alone and
+    /// reversing a CW one to the same winding.
     #[test]
     fn golden_ensure_ccw() {
-        // Protects: ensure_ccw leaving an already-CCW polygon alone and
-        // reversing a CW one to the same winding.
         let want = flat(&square());
         assert_eq!(flat(&ensure_ccw(&square())), want);
         assert_eq!(flat(&ensure_ccw(&cw_square())), want);
     }
 
+    /// Protects: chaikin's ¼/¾ corner-cutting pass on open and closed
+    /// polylines, plus buildSite's own double-pass idiom on an open one.
     #[test]
     fn golden_chaikin() {
-        // Protects: chaikin's ¼/¾ corner-cutting pass on open and closed
-        // polylines, plus buildSite's own double-pass idiom on an open one.
         assert_eq!(
             flat(&chaikin(&tri(), false)),
             [(0., 0.), (2., 0.), (6., 0.), (6., 1.5), (2., 4.5), (0., 6.)]
@@ -621,10 +621,10 @@ mod tests {
         );
     }
 
+    /// Protects: simplify's iterative Douglas-Peucker across a range of
+    /// tolerances, plus the fewer-than-three-points pass-through.
     #[test]
     fn golden_simplify() {
-        // Protects: simplify's iterative Douglas-Peucker across a range of
-        // tolerances, plus the fewer-than-three-points pass-through.
         let line: Vec<Vec2> =
             (0..=20).map(|i| p(i as f64 * 5.0, (i as f64 / 3.0).sin() * 9.0)).collect();
         assert_eq!(
@@ -646,10 +646,12 @@ mod tests {
         assert_eq!(flat(&simplify(&pts(&[(0., 0.), (1., 1.)]), 1.0)), [(0., 0.), (1., 1.)]);
     }
 
+    /// Protects: inset_poly's per-edge miter offset, its clamping of a short `dists` list to
+    /// its last entry, and four rejections returning None: an inverted inset, an area under
+    /// 15, an L shape inset 2 m all round (a reflex corner), and fewer than three vertices.
+    /// The 60-vertex self-intersection gate is not exercised here.
     #[test]
     fn golden_inset_poly() {
-        // Protects: inset_poly's per-edge miter offset and its three
-        // rejection gates (n < 3, area < 15, self-intersection past 60 verts).
         assert_eq!(
             flat(&inset_poly(&square(), &[3., 3., 3., 3.]).expect("uniform inset")),
             [(3., 3.), (7., 3.), (7., 7.), (3., 7.)]
@@ -670,14 +672,14 @@ mod tests {
         assert!(inset_poly(&pts(&[(0., 0.), (1., 0.)]), &[1., 1.]).is_none()); // n < 3
     }
 
+    /// Protects: clip_convex's Sutherland-Hodgman clip, including the
+    /// segment-vs-line caveat (a shape poking past a clip corner can
+    /// collapse to empty rather than the true intersection).
+    /// The segment-vs-line caveat, pinned: a square overlapping the clip
+    /// window's corner yields the reference's own partial result, and a
+    /// triangle poking outside collapses to EMPTY rather than clipping.
     #[test]
     fn golden_clip_convex() {
-        // Protects: clip_convex's Sutherland-Hodgman clip, including the
-        // segment-vs-line caveat (a shape poking past a clip corner can
-        // collapse to empty rather than the true intersection).
-        // The segment-vs-line caveat, pinned: a square overlapping the clip
-        // window's corner yields the reference's own partial result, and a
-        // triangle poking outside collapses to EMPTY rather than clipping.
         assert_eq!(
             flat(&clip_convex(&square(), &pts(&[(4., 4.), (14., 4.), (14., 14.), (4., 14.)]))),
             [(4., 7.6), (10., 4.), (10., 10.), (4., 10.)]
@@ -697,10 +699,10 @@ mod tests {
         );
     }
 
+    /// Protects: convex_hull's monotone-chain construction, including
+    /// collinear collapse, the <3-point short-circuit and duplicate points.
     #[test]
     fn golden_convex_hull() {
-        // Protects: convex_hull's monotone-chain construction, including
-        // collinear collapse, the <3-point short-circuit and duplicate points.
         assert_eq!(
             flat(&convex_hull(&pts(&[
                 (0., 0.), (5., 1.), (10., 0.), (10., 10.),
@@ -721,13 +723,13 @@ mod tests {
         );
     }
 
+    /// Protects: poly_self_intersects' O(n^2) all-pairs test, including
+    /// that adjacent shared-vertex edges must not count as a crossing.
+    /// No golden path: `polySelfIntersects` is not on the reference's
+    /// `_test` export, so this is a real unit test of the ported logic,
+    /// documented as such (same precedent as territory/provinces).
     #[test]
     fn poly_self_intersects_matches_its_only_caller_s_needs() {
-        // Protects: poly_self_intersects' O(n^2) all-pairs test, including
-        // that adjacent shared-vertex edges must not count as a crossing.
-        // No golden path: `polySelfIntersects` is not on the reference's
-        // `_test` export, so this is a real unit test of the ported logic,
-        // documented as such (same precedent as territory/provinces).
         assert!(!poly_self_intersects(&square()));
         assert!(!poly_self_intersects(&l_shape()));
         assert!(poly_self_intersects(&pts(&[(0., 0.), (10., 10.), (10., 0.), (0., 10.)])));
@@ -735,13 +737,13 @@ mod tests {
         assert!(!poly_self_intersects(&tri()));
     }
 
+    /// Protects: Vec2's helper methods (norm, len, rot90, cross, dot,
+    /// lerp), particularly norm's zero-vector-maps-to-itself convention.
+    /// `V.norm` divides by `hypot||1`, so the zero vector maps to itself
+    /// instead of to NaN — several call sites depend on that, so it is
+    /// asserted rather than left implicit.
     #[test]
     fn vector_helpers_hold_the_reference_s_zero_length_convention() {
-        // Protects: Vec2's helper methods (norm, len, rot90, cross, dot,
-        // lerp), particularly norm's zero-vector-maps-to-itself convention.
-        // `V.norm` divides by `hypot||1`, so the zero vector maps to itself
-        // instead of to NaN — several call sites depend on that, so it is
-        // asserted rather than left implicit.
         let z = Vec2::default().norm();
         assert_eq!((z.x, z.y), (0.0, 0.0));
         assert_eq!(p(3., 4.).len(), 5.0);

@@ -501,11 +501,11 @@ mod tests {
             .collect()
     }
 
+    /// Protects: trace_coastline's geometric accuracy against a known
+    /// analytic shore radius, and that a closed island ring repeats its
+    /// first point as its last.
     #[test]
     fn a_coastline_follows_a_known_circle() {
-        // Protects: trace_coastline's geometric accuracy against a known
-        // analytic shore radius, and that a closed island ring repeats its
-        // first point as its last.
         let (gw, gh) = (81usize, 81usize);
         let (cx, cy) = (40.5f64, 40.5f64);
         // peak 1.0, slope 1/50 per cell, sea at 0.6 -> shore at r = 20.
@@ -520,11 +520,11 @@ mod tests {
         assert_eq!(pls[0][0], pls[0][pls[0].len() - 1], "an island shore closes");
     }
 
+    /// Protects: trace_coastline's determinism across repeat calls on a
+    /// multi-shore field, and that a wiggly field really does produce
+    /// several distinct shores rather than one.
     #[test]
     fn a_coastline_traces_identically_twice() {
-        // Protects: trace_coastline's determinism across repeat calls on a
-        // multi-shore field, and that a wiggly field really does produce
-        // several distinct shores rather than one.
         let (gw, gh) = (64usize, 48usize);
         let f: Vec<f32> = (0..gw * gh)
             .map(|i| {
@@ -537,11 +537,11 @@ mod tests {
         assert_eq!(a, trace_coastline(&f, gw, gh, 0.5));
     }
 
+    /// Protects: trace_fault_lines' type tagging and its cell-centre
+    /// pixel convention (col + 0.5, row + 0.5) -- both must survive the
+    /// adapter conversion from trace_boundaries' cell-index points.
     #[test]
     fn fault_lines_carry_the_type_and_the_pixel_convention() {
-        // Protects: trace_fault_lines' type tagging and its cell-centre
-        // pixel convention (col + 0.5, row + 0.5) -- both must survive the
-        // adapter conversion from trace_boundaries' cell-index points.
         // A straight 1-px boundary across five cells, all tagged RIFT.
         let (gw, gh) = (5usize, 3usize);
         let mut mask = vec![0u8; gw * gh];
@@ -562,11 +562,11 @@ mod tests {
         }
     }
 
+    /// Protects: the length guard at the top of trace_fault_lines --
+    /// a mask/type buffer shorter than gw*gh, or an empty world, must
+    /// return empty rather than index out of range.
     #[test]
     fn fault_lines_refuse_a_short_buffer_rather_than_indexing_past_it() {
-        // Protects: the length guard at the top of trace_fault_lines --
-        // a mask/type buffer shorter than gw*gh, or an empty world, must
-        // return empty rather than index out of range.
         assert!(trace_fault_lines(&[1, 1], &[1, 1], 4, 4).is_empty());
         assert!(trace_fault_lines(&[], &[], 0, 0).is_empty());
     }
@@ -582,11 +582,11 @@ mod tests {
             .collect()
     }
 
+    /// Protects: the module doc's "Termination is a property of the walk"
+    /// claim -- every step must strictly rise, and the long crest must
+    /// trace as one long run ending near the true crest row.
     #[test]
     fn ridgelines_ascend_strictly_and_end_at_a_local_maximum() {
-        // Protects: the module doc's "Termination is a property of the walk"
-        // claim -- every step must strictly rise, and the long crest must
-        // trace as one long run ending near the true crest row.
         let (gw, gh) = (60usize, 25usize);
         let f = crest(gw, gh);
         let opts = RidgeOpts { tpi_radius: 5, ..RidgeOpts::default() };
@@ -607,11 +607,11 @@ mod tests {
         );
     }
 
+    /// Protects: trace_ridgelines' determinism across repeat calls, and
+    /// the all-ocean / empty-world guards that avoid a divide-by-zero
+    /// standard deviation.
     #[test]
     fn ridgelines_trace_identically_twice_and_skip_an_all_ocean_world() {
-        // Protects: trace_ridgelines' determinism across repeat calls, and
-        // the all-ocean / empty-world guards that avoid a divide-by-zero
-        // standard deviation.
         let (gw, gh) = (60usize, 25usize);
         let f = crest(gw, gh);
         let opts = RidgeOpts { tpi_radius: 5, ..RidgeOpts::default() };
@@ -624,11 +624,11 @@ mod tests {
         assert!(trace_ridgelines(&[], 0, 0, 0.0, opts).is_empty());
     }
 
+    /// Protects: the thinning pass actually collapsing a disc-shaped TPI
+    /// mask to a point (no runs) rather than a filled-band walk that
+    /// would spuriously trace a cone's summit as a ridge.
     #[test]
     fn a_cone_has_no_ridgeline_and_a_crest_does() {
-        // Protects: the thinning pass actually collapsing a disc-shaped TPI
-        // mask to a point (no runs) rather than a filled-band walk that
-        // would spuriously trace a cone's summit as a ridge.
         // Not a degenerate case — the distinction the thinning pass exists to
         // make. A radially symmetric cone has a *summit* and no crest: its TPI
         // ridge class is a disc around the peak, and the skeleton of a disc is
@@ -642,11 +642,11 @@ mod tests {
         assert!(!r.is_empty(), "a crest traces");
     }
 
+    /// Protects: the explicit zero-standard-deviation guard -- a perfectly
+    /// flat plain must be refused, not silently masked in as "the whole
+    /// map is at the threshold".
     #[test]
     fn a_flat_plain_has_no_ridge_to_trace() {
-        // Protects: the explicit zero-standard-deviation guard -- a perfectly
-        // flat plain must be refused, not silently masked in as "the whole
-        // map is at the threshold".
         // Zero TPI variance. Without the explicit guard this returns empty for
         // the wrong reason — `0 >= 0` would mask the whole map in and then
         // every walk would be one point long — so assert the mask is refused,

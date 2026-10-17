@@ -34,21 +34,21 @@ fn write(root: &std::path::Path, rel: &str, text: &str) {
 
 // ------------------------------------------------------------------ parsing
 
+/// Protects: `parse_links` strips a wikilink's `|alias` and `#heading`
+/// down to the bare target, for all three wikilink shapes.
 #[test]
 fn wikilinks_lose_their_alias_and_their_heading() {
-    // Protects: `parse_links` strips a wikilink's `|alias` and `#heading`
-    // down to the bare target, for all three wikilink shapes.
     let links = parse_links("see [[Kelvhold]], [[Kelvhold|the town]] and [[Nareth#History]].");
     let targets: Vec<&str> = links.iter().map(|l| l.target.as_str()).collect();
     assert_eq!(targets, vec!["Kelvhold", "Kelvhold", "Nareth"]);
     assert!(links.iter().all(|l| l.form == LinkForm::Wiki));
 }
 
+/// Protects: `parse_links`/`is_note_path` accept a relative Markdown
+/// link and a note-with-no-extension link, and reject a URL, a mailto,
+/// an anchor-only link and an image.
 #[test]
 fn markdown_links_are_taken_and_urls_are_not() {
-    // Protects: `parse_links`/`is_note_path` accept a relative Markdown
-    // link and a note-with-no-extension link, and reject a URL, a mailto,
-    // an anchor-only link and an image.
     let links = parse_links(
         "[a](Settlements/Kelvhold.md) [b](../Notes/Thing) [c](https://example.com/x.md) \
          [d](mailto:someone@example.com) [e](#a-heading) [f](img/map.png)",
@@ -73,11 +73,11 @@ fn unterminated_brackets_do_not_hang_or_capture() {
     assert_eq!(mixed[0].target, "Kelvhold");
 }
 
+/// Protects: `parse_entities` returns a well-formed block's entity key,
+/// and returns nothing (rather than erroring) for an unterminated one —
+/// the index must never refuse to open a vault over a malformed block.
 #[test]
 fn entity_blocks_are_read_and_a_broken_one_is_not_an_error() {
-    // Protects: `parse_entities` returns a well-formed block's entity key,
-    // and returns nothing (rather than erroring) for an unterminated one —
-    // the index must never refuse to open a vault over a malformed block.
     let good = format!(
         "# T\n\n{} entity=\"settlement:42\" version=\"1\" -->\nbody\n{}\n",
         block::BEGIN_PREFIX,
@@ -146,12 +146,12 @@ fn a_note_record_holds_no_prose() {
 
 // ----------------------------------------------------------- the real index
 
+/// Protects: a full `refresh` over a real folder finds both link forms,
+/// counts multiple references from one source correctly, keeps each
+/// source's own link form, and `mention_candidates` surfaces an
+/// unlinked mention while excluding notes that already link properly.
 #[test]
 fn a_real_folder_indexes_backlinks_both_ways() {
-    // Protects: a full `refresh` over a real folder finds both link forms,
-    // counts multiple references from one source correctly, keeps each
-    // source's own link form, and `mention_candidates` surfaces an
-    // unlinked mention while excluding notes that already link properly.
     let root = tmp("both");
     write(&root, "Settlements/Kelvhold.md", "# Kelvhold\n\nA river town.\n");
     write(&root, "Factions/Veldmark.md", "Holds [[Kelvhold]] and [[Kelvhold|the town]].\n");
@@ -218,11 +218,11 @@ fn a_refresh_reads_only_what_changed() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Protects: a note removed from the vault is dropped from the index on
+/// the next `refresh` (counted in `RefreshStats::dropped`), and a link
+/// that pointed at it now shows up in `broken_links`.
 #[test]
 fn a_deleted_note_leaves_the_index() {
-    // Protects: a note removed from the vault is dropped from the index on
-    // the next `refresh` (counted in `RefreshStats::dropped`), and a link
-    // that pointed at it now shows up in `broken_links`.
     let root = tmp("del");
     write(&root, "A.md", "[[B]]\n");
     write(&root, "B.md", "b\n");
@@ -269,11 +269,11 @@ fn an_entity_is_found_through_a_block_in_someone_elses_note() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Protects: `orphans` lists exactly the notes no other note links to,
+/// by stem -- a linked leaf is excluded, an unlinked hub and an
+/// unlinked lone note are both included.
 #[test]
 fn orphans_are_notes_nothing_points_at() {
-    // Protects: `orphans` lists exactly the notes no other note links to,
-    // by stem -- a linked leaf is excluded, an unlinked hub and an
-    // unlinked lone note are both included.
     let root = tmp("orph");
     write(&root, "Hub.md", "[[Leaf]]\n");
     write(&root, "Leaf.md", "leaf\n");
@@ -287,11 +287,11 @@ fn orphans_are_notes_nothing_points_at() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Protects: `to_json`/`from_json` round-trip the whole index
+/// byte-for-value, the reload is recognised as already built, and it
+/// still costs zero rereads against an unchanged vault.
 #[test]
 fn the_index_round_trips_through_json() {
-    // Protects: `to_json`/`from_json` round-trip the whole index
-    // byte-for-value, the reload is recognised as already built, and it
-    // still costs zero rereads against an unchanged vault.
     let root = tmp("json");
     write(&root, "A.md", "[[B]] and [[C|see]]\n");
     write(&root, "B.md", "b\n");
@@ -307,11 +307,11 @@ fn the_index_round_trips_through_json() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Protects: `clear` empties the index and resets `is_built` to false,
+/// and the next `refresh` re-reads every note rather than trusting the
+/// (now-gone) old state.
 #[test]
 fn clear_forces_a_full_rebuild() {
-    // Protects: `clear` empties the index and resets `is_built` to false,
-    // and the next `refresh` re-reads every note rather than trusting the
-    // (now-gone) old state.
     let root = tmp("clear");
     write(&root, "A.md", "[[B]]\n");
     write(&root, "B.md", "b\n");

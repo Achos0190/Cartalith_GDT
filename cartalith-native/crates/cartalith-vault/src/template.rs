@@ -844,10 +844,10 @@ mod tests {
         move |p: &str| owned.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone())
     }
 
+    /// Protects: templates.json's folder and format keys are read and win
+    /// over Templater's, and discover() returns only that folder's notes.
     #[test]
     fn templates_json_names_the_folder_and_the_formats() {
-        // Protects: templates.json's folder and format keys are read and win
-        // over Templater's, and discover() returns only that folder's notes.
         let cfg = Config::read(reader(&[
             (".obsidian/templates.json", r#"{"folder":"Templates","dateFormat":"DD.MM.YYYY","timeFormat":"HH:mm:ss"}"#),
             (".obsidian/plugins/templater-obsidian/data.json", r#"{"templates_folder":"Other"}"#),
@@ -869,11 +869,11 @@ mod tests {
         );
     }
 
+    /// Protects: folder_of() trims slashes and whitespace, an unset
+    /// format stays None (not the default), and a blank saved format
+    /// ("" or " ") is treated as unset too.
     #[test]
     fn a_folder_written_with_slashes_is_the_same_folder() {
-        // Protects: folder_of() trims slashes and whitespace, an unset
-        // format stays None (not the default), and a blank saved format
-        // ("" or " ") is treated as unset too.
         let cfg = Config::read(reader(&[(".obsidian/templates.json", r#"{"folder":"/Meta/Templates/"}"#)]));
         assert_eq!(cfg.folder.as_deref(), Some("Meta/Templates"));
         assert_eq!(cfg.date_format, None, "an unset format is absent, not the default");
@@ -886,11 +886,11 @@ mod tests {
         assert_eq!(cfg.time_format_or_default(), "HH:mm");
     }
 
+    /// Protects: Templater's setting names the folder when the core
+    /// plugin's does not, and the core plugin's date/time formats still
+    /// apply even when it names no folder.
     #[test]
     fn templater_alone_names_the_folder() {
-        // Protects: Templater's setting names the folder when the core
-        // plugin's does not, and the core plugin's date/time formats still
-        // apply even when it names no folder.
         let cfg = Config::read(reader(&[(".obsidian/plugins/templater-obsidian/data.json", r#"{"templates_folder":"_tpl","trigger_on_file_creation":false}"#)]));
         assert_eq!(cfg.source, Source::Templater);
         assert_eq!(cfg.folder.as_deref(), Some("_tpl"));
@@ -904,10 +904,10 @@ mod tests {
         assert_eq!(cfg2.date_format.as_deref(), Some("YYYY"), "the core formats still apply");
     }
 
+    /// Protects: with no settings at all, discover() falls back to the
+    /// pre-BF "template" in the path rule and labels by parent folder.
     #[test]
     fn neither_setting_falls_back_to_the_path_rule() {
-        // Protects: with no settings at all, discover() falls back to the
-        // pre-BF "template" in the path rule and labels by parent folder.
         let cfg = Config::read(reader(&[]));
         assert_eq!(cfg, Config::fallback());
         let got = discover(
@@ -935,10 +935,10 @@ mod tests {
         assert_eq!(got[1].label, "Landmarks \u{25B8} Landmark template");
     }
 
+    /// Protects: unparseable, empty, or non-string/non-folder JSON never
+    /// names a folder -- it falls back rather than guessing.
     #[test]
     fn malformed_or_empty_settings_are_not_configured() {
-        // Protects: unparseable, empty, or non-string/non-folder JSON never
-        // names a folder -- it falls back rather than guessing.
         for bad in ["{not json", "[]", r#"{"folder":""}"#, r#"{"folder":"  /  "}"#, r#"{"folder":7}"#, ""] {
             let cfg = Config::read(reader(&[(".obsidian/templates.json", bad)]));
             assert_eq!(cfg.source, Source::Fallback, "{bad:?} must not name a folder");
@@ -950,22 +950,22 @@ mod tests {
 
     // -- the clock and Moment ---------------------------------------------------------
 
+    /// Protects: DateTime::new rejects a non-leap Feb 29, month 13 and
+    /// hour 24, and accepts a real leap-year Feb 29.
     #[test]
     fn datetime_refuses_what_is_not_a_date() {
-        // Protects: DateTime::new rejects a non-leap Feb 29, month 13 and
-        // hour 24, and accepts a real leap-year Feb 29.
         assert!(DateTime::new(2026, 2, 29, 0, 0, 0).is_none());
         assert!(DateTime::new(2024, 2, 29, 0, 0, 0).is_some());
         assert!(DateTime::new(2026, 13, 1, 0, 0, 0).is_none());
         assert!(DateTime::new(2026, 1, 1, 24, 0, 0).is_none());
     }
 
+    /// Protects: format_moment reproduces Moment.js's own published
+    /// examples verbatim, including the English locale long-date formats.
+    /// https://momentjs.com/docs/#/displaying/format/ -- the examples on
+    /// the home page, for Sunday 2010-02-14 15:25:50.
     #[test]
     fn moment_documentations_own_examples() {
-        // Protects: format_moment reproduces Moment.js's own published
-        // examples verbatim, including the English locale long-date formats.
-        // https://momentjs.com/docs/#/displaying/format/ -- the examples on
-        // the home page, for Sunday 2010-02-14 15:25:50.
         let t = moment_doc_instant();
         assert_eq!(format_moment("dddd, MMMM Do YYYY, h:mm:ss a", &t), "Sunday, February 14th 2010, 3:25:50 pm");
         assert_eq!(format_moment("ddd, hA", &t), "Sun, 3PM");
@@ -984,11 +984,11 @@ mod tests {
         assert_eq!(format_moment(r"[LL] \LT", &t), "LL LT", "bracketed and escaped locale tokens are text");
     }
 
+    /// Protects: every token format_moment formats (as opposed to leaving
+    /// verbatim) against one fixed instant, including an unclosed `[`.
+    /// Sunday 2026-09-27 09:05:03: day 270 of the year, ISO week 39.
     #[test]
     fn every_supported_token_against_a_fixed_instant() {
-        // Protects: every token format_moment formats (as opposed to leaving
-        // verbatim) against one fixed instant, including an unclosed `[`.
-        // Sunday 2026-09-27 09:05:03: day 270 of the year, ISO week 39.
         let t = DateTime::new(2026, 9, 27, 9, 5, 3).unwrap();
         let cases = [
             ("YYYY", "2026"), ("YY", "26"), ("Y", "2026"), ("M", "9"), ("MM", "09"), ("Mo", "9th"),
@@ -1007,11 +1007,11 @@ mod tests {
         }
     }
 
+    /// Protects: 12-hour clock at midnight/noon (h/hh/A/k/kk), the
+    /// ordinal suffix table, and an ISO week crossing a year boundary
+    /// either way.
     #[test]
     fn midnight_noon_and_ordinals() {
-        // Protects: 12-hour clock at midnight/noon (h/hh/A/k/kk), the
-        // ordinal suffix table, and an ISO week crossing a year boundary
-        // either way.
         let midnight = DateTime::new(2026, 1, 1, 0, 0, 0).unwrap();
         assert_eq!(format_moment("h hh A k kk dddd W", &midnight), "12 12 AM 24 24 Thursday 1");
         let noon = DateTime::new(2026, 1, 2, 12, 0, 0).unwrap();
@@ -1028,22 +1028,22 @@ mod tests {
 
     // -- placeholders ------------------------------------------------------------------
 
+    /// Protects: title/date/time (with and without an explicit format)
+    /// fill with the vault's own formats, matching case-insensitively and
+    /// tolerating spaces inside the braces.
     #[test]
     fn obsidians_placeholders_are_filled_with_the_vaults_formats() {
-        // Protects: title/date/time (with and without an explicit format)
-        // fill with the vault's own formats, matching case-insensitively and
-        // tolerating spaces inside the braces.
         let cfg = Config { source: Source::Obsidian, folder: Some("Templates".into()), date_format: Some("DD.MM.YYYY".into()), time_format: None };
         let f = Fill { title: "Kel Var", name: "Kel/Var", now: moment_doc_instant(), cfg: &cfg };
         let t = "# {{title}}\ncreated {{date}} at {{time}}\n{{date:dddd}} {{time:YYYY}} {{ Title }} {{DATE}}\n";
         assert_eq!(fill(t, &f), "# Kel Var\ncreated 14.02.2010 at 15:25\nSunday 2010 Kel Var 14.02.2010\n");
     }
 
+    /// Protects: `[Name]` and any `{{...Name}}` token fill with the
+    /// entity's name, while `[If applicable]`, an unknown token, an empty
+    /// format and an unclosed token all survive verbatim.
     #[test]
     fn the_owners_name_tokens_still_fill_and_everything_else_survives() {
-        // Protects: `[Name]` and any `{{...Name}}` token fill with the
-        // entity's name, while `[If applicable]`, an unknown token, an empty
-        // format and an unclosed token all survive verbatim.
         let cfg = Config::fallback();
         let f = Fill { title: "Kel-Var", name: "Kel/Var", now: moment_doc_instant(), cfg: &cfg };
         let t = "## Settlement Profile: [Name]\n**Former Names:** [If applicable]\n# {{Landmark_Name}} {{Region_Name}}\n\
@@ -1055,22 +1055,22 @@ mod tests {
         );
     }
 
+    /// Protects: `<% ... %>` and `<%* ... %>` blocks are copied verbatim
+    /// (never executed or imitated), even one containing a `{{date}}`
+    /// that would otherwise be a placeholder.
     #[test]
     fn templater_commands_are_left_verbatim() {
-        // Protects: `<% ... %>` and `<%* ... %>` blocks are copied verbatim
-        // (never executed or imitated), even one containing a `{{date}}`
-        // that would otherwise be a placeholder.
         let cfg = Config::fallback();
         let f = Fill { title: "T", name: "N", now: moment_doc_instant(), cfg: &cfg };
         let t = "<% tp.date.now(\"{{date}}\") %> {{date}} <%* tR += tp.file.title %> <% unclosed {{title}}";
         assert_eq!(fill(t, &f), "<% tp.date.now(\"{{date}}\") %> 2010-02-14 <%* tR += tp.file.title %> <% unclosed T");
     }
 
+    /// Protects: fill() advances by char, not byte, around multibyte
+    /// text, and an unclosed `{{` and an empty template are left/returned
+    /// as-is rather than panicking.
     #[test]
     fn fill_handles_multibyte_and_unclosed_tokens() {
-        // Protects: fill() advances by char, not byte, around multibyte
-        // text, and an unclosed `{{` and an empty template are left/returned
-        // as-is rather than panicking.
         let cfg = Config::fallback();
         let f = Fill { title: "T", name: "X", now: moment_doc_instant(), cfg: &cfg };
         assert_eq!(fill("Ré{{Name}}ém", &f), "RéXém");
@@ -1078,10 +1078,10 @@ mod tests {
         assert_eq!(fill("", &f), "");
     }
 
+    /// Protects: title_of strips any extension case-insensitively and
+    /// returns the whole string when there is no path or extension.
     #[test]
     fn title_is_the_basename() {
-        // Protects: title_of strips any extension case-insensitively and
-        // returns the whole string when there is no path or extension.
         assert_eq!(title_of("Settlements/Kel Var.md"), "Kel Var");
         assert_eq!(title_of("Root.MD"), "Root");
         assert_eq!(title_of("NoExt"), "NoExt");
@@ -1089,11 +1089,11 @@ mod tests {
 
     // -- insert --------------------------------------------------------------------------
 
+    /// Protects: insert() splices the filled template in at the caret and
+    /// returns the caret position after it, counting characters (not
+    /// bytes) across a multibyte note.
     #[test]
     fn insert_puts_the_body_at_the_caret() {
-        // Protects: insert() splices the filled template in at the caret and
-        // returns the caret position after it, counting characters (not
-        // bytes) across a multibyte note.
         let (t, c) = insert("ab\ncd", 3, "X\nY\n");
         assert_eq!(t, "ab\nX\nY\ncd");
         assert_eq!(c, 7);
@@ -1101,11 +1101,11 @@ mod tests {
         assert_eq!((t.as_str(), c), ("éz", 2), "the caret counts characters, not bytes");
     }
 
+    /// Protects: merge_props unions list properties (note's items first),
+    /// a scalar takes the template's value, and a key only the template
+    /// has is appended -- Obsidian's forum-documented merge behaviour.
     #[test]
     fn a_template_with_properties_merges_them_like_obsidian() {
-        // Protects: merge_props unions list properties (note's items first),
-        // a scalar takes the template's value, and a key only the template
-        // has is appended -- Obsidian's forum-documented merge behaviour.
         let note = "---\ntags:\n  - foo\n  - bar\ndate: 2020-12-12\nkeep: me\n---\nBody\n";
         let tpl = "---\ntags: [journal, foo]\ndate: 2010-02-14\nnew: yes\n---\n## Log\n";
         let caret = note.chars().count(); // end of the note
@@ -1118,12 +1118,12 @@ mod tests {
         assert_eq!(c, t.chars().count());
     }
 
+    /// Protects: a note with no frontmatter gains the template's whole,
+    /// a caret inside the note's own frontmatter still inserts just below
+    /// it, and an already-matching list keeps its own spelling rather
+    /// than being rewritten.
     #[test]
     fn a_note_without_properties_gains_the_templates() {
-        // Protects: a note with no frontmatter gains the template's whole,
-        // a caret inside the note's own frontmatter still inserts just below
-        // it, and an already-matching list keeps its own spelling rather
-        // than being rewritten.
         let (t, c) = insert("Body", 4, "---\na: 1\n---\n!");
         assert_eq!(t, "---\na: 1\n---\nBody!");
         assert_eq!(c, 18);
@@ -1137,10 +1137,10 @@ mod tests {
 
     // -- unchanged helpers -------------------------------------------------------------------
 
+    /// Protects: suggested_path names the right plural folder for every
+    /// EntityKind this port can address, v3's `{Folder}/{name}.md`.
     #[test]
     fn suggested_paths_follow_v3s_convention_for_every_kind() {
-        // Protects: suggested_path names the right plural folder for every
-        // EntityKind this port can address, v3's `{Folder}/{name}.md`.
         assert_eq!(suggested_path(EntityKind::Settlement, "Nareth"), "Settlements/Nareth.md");
         assert_eq!(suggested_path(EntityKind::Province, "Lower Vale"), "Provinces/Lower Vale.md");
         assert_eq!(suggested_path(EntityKind::Continent, "Vantharis"), "Continents/Vantharis.md");
@@ -1149,12 +1149,12 @@ mod tests {
         assert_eq!(suggested_path(EntityKind::Landmark, "Waterfall (120, 64)"), "Landmarks/Waterfall (120, 64).md");
     }
 
+    /// Protects: sanitise() replaces `/` and `:` with `-` (the reserved characters the
+    /// assertions use), trims leading/trailing dots and whitespace, falls back to "Untitled"
+    /// for an empty result, and keeps two distinct names (`A:B`, `A?`) distinct after
+    /// sanitising.
     #[test]
     fn a_name_that_is_not_a_filename_still_becomes_one() {
-        // Protects: sanitise() replaces every filesystem-reserved character
-        // with `-`, trims leading/trailing dots and whitespace, falls back
-        // to "Untitled" for an empty result, and keeps distinct names
-        // distinct after sanitising.
         assert_eq!(sanitise("Kel/Var: the Deep"), "Kel-Var- the Deep");
         assert_eq!(sanitise("  ..  "), "Untitled");
         assert_eq!(sanitise("Trailing."), "Trailing");

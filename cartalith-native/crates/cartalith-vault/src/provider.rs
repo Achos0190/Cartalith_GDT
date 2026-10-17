@@ -349,11 +349,11 @@ mod tests {
         assert!(is_safe_relative_path("Locations/Nareth.md"));
     }
 
+    /// Protects: `FsVault::resolve`'s own containment check, over the
+    /// same escape fixtures -- §30's least-privilege rule enforced at the
+    /// one place every read/write funnels through.
     #[test]
     fn resolve_refuses_every_way_out_of_the_vault() {
-        // Protects: `FsVault::resolve`'s own containment check, over the
-        // same escape fixtures -- §30's least-privilege rule enforced at the
-        // one place every read/write funnels through.
         let v = FsVault::new(temp_root("resolve"));
         for bad in ["..", "../x.md", "a/../../b.md", "/etc/passwd", "C:/Windows/x.md", ""] {
             assert!(v.resolve(bad).is_err(), "{bad} must be refused");
@@ -361,12 +361,12 @@ mod tests {
         assert!(v.resolve("Locations/Nareth.md").is_ok());
     }
 
+    /// Protects: `list_markdown`'s filtering (only .md, dot-dirs skipped,
+    /// sorted, the `limit` cap is real), the atomic `write` leaving no
+    /// temp file behind, and that a read after a write sees the new
+    /// content in a freshly created subdirectory.
     #[test]
     fn list_read_write_round_trip() {
-        // Protects: `list_markdown`'s filtering (only .md, dot-dirs skipped,
-        // sorted, the `limit` cap is real), the atomic `write` leaving no
-        // temp file behind, and that a read after a write sees the new
-        // content in a freshly created subdirectory.
         let root = temp_root("rt");
         let v = FsVault::new(&root);
         assert!(v.available());
@@ -395,22 +395,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: §7's Missing case -- a vault whose root does not exist reports
+    /// `available() == false`, `RootUnavailable` from `list_markdown` and an error from
+    /// `read`, rather than panicking. Only those three entry points are asserted.
     #[test]
     fn a_missing_root_is_reported_not_panicked() {
-        // Protects: §7's Missing case -- a vault whose root does not exist
-        // reports `RootUnavailable`/an error through every entry point
-        // rather than panicking.
         let v = FsVault::new(std::env::temp_dir().join("cartalith-vault-does-not-exist"));
         assert!(!v.available());
         assert!(matches!(v.list_markdown(10), Err(VaultError::RootUnavailable(_))));
         assert!(v.read("x.md").is_err());
     }
 
+    /// Protects: `content_hash` is deterministic (same input, same hash),
+    /// discriminates a one-byte change, and always emits 16 hex digits --
+    /// the shape §14's staleness check assumes.
     #[test]
     fn content_hash_is_stable_and_discriminating() {
-        // Protects: `content_hash` is deterministic (same input, same hash),
-        // discriminates a one-byte change, and always emits 16 hex digits --
-        // the shape §14's staleness check assumes.
         assert_eq!(content_hash("abc"), content_hash("abc"));
         assert_ne!(content_hash("abc"), content_hash("abd"));
         assert_eq!(content_hash("").len(), 16);

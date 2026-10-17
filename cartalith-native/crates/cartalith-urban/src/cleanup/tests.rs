@@ -252,10 +252,10 @@ fn lane_added(name: &str) -> usize {
 
 // ----------------------------------------------------------- pruneLargest --
 
+/// Protects: prune_largest keeping the larger of two components and
+/// killing the smaller.
 #[test]
 fn prune_keeps_the_largest_component() {
-    // Protects: prune_largest keeping the larger of two components and
-    // killing the smaller.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 3, 3, 60.0, 55.0, "street", 6.0, 1, true);
     grid(&mut g, 900.0, 800.0, 2, 1, 50.0, 50.0, "street", 6.0, 1, true);
@@ -285,9 +285,9 @@ fn prune_equal_components_keep_the_first_seen() {
     assert!(live.iter().all(|&id| id < before / 2), "the second grid survived instead");
 }
 
+/// Protects: prune_largest on a single-component graph — nothing lost.
 #[test]
 fn prune_leaves_a_connected_graph_alone() {
-    // Protects: prune_largest on a single-component graph — nothing lost.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 3, 3, 60.0, 55.0, "street", 6.0, 1, true);
     let before = alive(&g);
@@ -298,10 +298,10 @@ fn prune_leaves_a_connected_graph_alone() {
 
 // -------------------------------------------------------------- _killEdge --
 
+/// Protects: kill_edge splicing both endpoints' adjacency lists, and its
+/// `if (k >= 0)` guard making a second kill on the same edge a no-op.
 #[test]
 fn kill_edge_unhooks_both_endpoints_and_is_idempotent() {
-    // Protects: kill_edge splicing both endpoints' adjacency lists, and its
-    // `if (k >= 0)` guard making a second kill on the same edge a no-op.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 2, 2, 70.0, 65.0, "street", 6.0, 1, true);
     let victim = g.edges.iter().find(|e| e.alive).expect("fixture has a live edge").id;
@@ -394,20 +394,21 @@ fn the_wet_band_is_river_width_over_two_plus_a_half() {
     assert!(alive(&g) < before, "the ladder must lose its wet rungs");
 }
 
+/// Protects: remove_water_crossings on a "river" site, against the golden.
 #[test]
 fn water_crossings_river() {
-    // Protects: remove_water_crossings on a "river" site, against the golden.
     water_scenario("river");
 }
+/// Protects: remove_water_crossings on a "riverthrough" site, against the golden. The
+/// module header's mutation table (line 30) names this test as the one covering the
+/// 9 interior samples of the wet scan; the body itself is one call to `water_scenario`.
 #[test]
 fn water_crossings_riverthrough() {
-    // Protects: remove_water_crossings on a "riverthrough" site, including
-    // the 9-interior-sample wet scan, against the golden.
     water_scenario("riverthrough");
 }
+/// Protects: remove_water_crossings on a "coastal" site, against the golden.
 #[test]
 fn water_crossings_coastal() {
-    // Protects: remove_water_crossings on a "coastal" site, against the golden.
     water_scenario("coastal");
 }
 
@@ -431,9 +432,9 @@ fn the_quay_is_exempt_from_the_sweeps() {
         assert!(quay.iter().all(|e| e.alive), "{kind}: a quay segment was culled");
     }
 }
+/// Protects: remove_water_crossings on an "inland" site, against the golden.
 #[test]
 fn water_crossings_inland() {
-    // Protects: remove_water_crossings on an "inland" site, against the golden.
     water_scenario("inland");
 }
 
@@ -578,27 +579,27 @@ fn priv_scenario(name: &str, seed: u32, p_bias: f64, r_bias: f64) {
     check(name, &g, before);
 }
 
+/// Protects: privatize_alleys with both biases at zero doing nothing.
 #[test]
 fn privatize_zero_bias_is_a_no_op() {
-    // Protects: privatize_alleys with both biases at zero doing nothing.
     priv_scenario("privatize_zero", 777, 0.0, 0.0);
     let s = scenario("privatize_zero");
     assert_eq!(s.before, s.after);
 }
 
+/// Protects: privatize_alleys closing at least one dead end at the 0.16
+/// rules bias against the golden.
 #[test]
 fn privatize_islamic_floor() {
-    // Protects: privatize_alleys closing at least one dead end at the 0.16
-    // rules bias against the golden.
     priv_scenario("privatize_016", 777, 0.0, 0.16);
     let s = scenario("privatize_016");
     assert!(s.after < s.before, "0.16 must close something");
 }
 
+/// Protects: privatize_alleys at exactly the 0.40 bias ceiling, against
+/// the golden — the reference value the clamp tests below compare to.
 #[test]
 fn privatize_at_the_ceiling() {
-    // Protects: privatize_alleys at exactly the 0.40 bias ceiling, against
-    // the golden — the reference value the clamp tests below compare to.
     priv_scenario("privatize_040", 777, 0.0, 0.40);
 }
 
@@ -905,17 +906,17 @@ const GATES: fn() -> Vec<Gate> = || {
     ]
 };
 
+/// Protects: clear_fort_zone's whole sweep (buildings, parcels, details,
+/// graph) on a plain wall trace, against the golden.
 #[test]
 fn fort_zone_sweep_matches() {
-    // Protects: clear_fort_zone's whole sweep (buildings, parcels, details,
-    // graph) on a plain wall trace, against the golden.
     fort_scenario("fort_wall", "wall", None, GATES());
 }
 
+/// Protects: clear_fort_zone's bastioned `glacisOff + 8` clear distance
+/// against the golden, and that it differs from a plain wall's clear_dist.
 #[test]
 fn fort_zone_bastioned_uses_the_glacis_offset() {
-    // Protects: clear_fort_zone's bastioned `glacisOff + 8` clear distance
-    // against the golden, and that it differs from a plain wall's clear_dist.
     fort_scenario("fort_bastioned", "bastioned", Some(70.0), GATES());
     assert_eq!(fort_golden("fort_bastioned").clear_dist, 78.0);
     assert_eq!(fort_golden("fort_wall").clear_dist, 15.0);
@@ -1009,10 +1010,10 @@ fn the_gate_corridor_radius_at_its_boundary() {
     assert!(probe < clear * 0.86, "and must cover it at 0.86");
 }
 
+/// Protects: clear_fort_zone's `gates.some(…)` over an empty gate list
+/// being vacuously false (every crossing road dies), not vacuously true.
 #[test]
 fn fort_zone_with_no_gates_severs_every_crossing() {
-    // Protects: clear_fort_zone's `gates.some(…)` over an empty gate list
-    // being vacuously false (every crossing road dies), not vacuously true.
     fort_scenario("fort_nogates", "wall", None, Vec::new());
     let (with, without) = (scenario("fort_wall"), scenario("fort_nogates"));
     assert!(without.after < with.after, "gates must save roads");
@@ -1077,11 +1078,11 @@ fn place_anchors_stub() -> Anchors {
     crate::routes::place_anchors(1, &site)
 }
 
+/// Protects: lane_pass laying at least one lane on an oversized grid, and
+/// that each lane it lays is classed `'lane'`, 2.6 m wide, and carries the
+/// pass's own epoch and [`LANE_PROV`].
 #[test]
 fn lane_pass_splits_oversized_central_blocks() {
-    // Protects: lane_pass laying at least one lane on an oversized grid, and
-    // that each lane it lays is classed `'lane'`, 2.6 m wide, and carries the
-    // pass's own epoch and [`LANE_PROV`].
     let site = dry_site();
     lane_scenario(
         "lane_grid_default",

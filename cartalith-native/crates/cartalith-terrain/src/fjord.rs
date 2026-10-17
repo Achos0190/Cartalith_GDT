@@ -213,10 +213,10 @@ mod tests {
         assert_eq!(FjordMaskOpts::for_width(600).coast_buffer, 20.0);
     }
 
+    /// Protects: carve_fjords() only ever lowering a cell, never raising
+    /// one, across a fully-masked field.
     #[test]
     fn carving_never_raises_a_cell() {
-        // Protects: carve_fjords() only ever lowering a cell, never raising
-        // one, across a fully-masked field.
         let w = 8;
         let h = 8;
         let fld: Vec<f32> = (0..w * h).map(|i| 0.30 + (i % 5) as f32 * 0.02).collect();
@@ -227,10 +227,10 @@ mod tests {
         }
     }
 
+    /// Protects: carve_fjords() leaving the field completely unchanged
+    /// when the mask is zero everywhere (the `m <= 0.02` guard).
     #[test]
     fn a_zero_mask_carves_nothing() {
-        // Protects: carve_fjords() leaving the field completely unchanged
-        // when the mask is zero everywhere (the `m <= 0.02` guard).
         let w = 6;
         let h = 6;
         let fld: Vec<f32> = (0..w * h).map(|i| 0.2 + i as f32 * 0.01).collect();

@@ -189,11 +189,11 @@ fn dump_parcel(p: &Parcel) -> String {
     )
 }
 
+/// Protects: the market anchor, the block/parcel counts, every listed
+/// block's and parcel's fields and vertices, and the whole-state hash
+/// over everything not individually listed — for all five scenarios.
 #[test]
 fn golden_blocks_and_parcels() {
-    // Protects: the market anchor, the block/parcel counts, every listed
-    // block's and parcel's fields and vertices, and the whole-state hash
-    // over everything not individually listed — for all five scenarios.
     for sc in golden::SCENARIOS {
         let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
         let g = build_graph(sc.name);
@@ -450,12 +450,12 @@ fn block_area_band_is_enforced() {
     }
 }
 
+/// Protects: the 0.97 area-conservation trim per block, and the 26..2600
+/// m² lot-area band, over every scenario.
+/// The reference's own invariant: sum(parcels) <= 0.97 * block area. It is
+/// enforced by a trim loop, so a broken trim shows up here and nowhere else.
 #[test]
 fn parcels_conserve_block_area() {
-    // Protects: the 0.97 area-conservation trim per block, and the 26..2600
-    // m² lot-area band, over every scenario.
-    // The reference's own invariant: sum(parcels) <= 0.97 * block area. It is
-    // enforced by a trim loop, so a broken trim shows up here and nowhere else.
     for sc in golden::SCENARIOS {
         let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
         let g = build_graph(sc.name);

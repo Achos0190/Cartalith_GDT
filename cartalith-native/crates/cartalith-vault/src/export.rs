@@ -275,11 +275,11 @@ pub fn render_body(heading: &str, selected: &[String], values: &dyn Fn(&str) -> 
 mod tests {
     use super::*;
 
+    /// Protects: no two registry rows share a `key` (the UI's selection
+    /// set and the save both index by it), and every `AUTHOR_FIELDS`
+    /// entry names a key that actually exists in the registry.
     #[test]
     fn every_key_is_unique_and_every_author_mapping_names_a_real_field() {
-        // Protects: no two registry rows share a `key` (the UI's selection
-        // set and the save both index by it), and every `AUTHOR_FIELDS`
-        // entry names a key that actually exists in the registry.
         let mut keys: Vec<&str> = FIELDS.iter().map(|f| f.key).collect();
         let n = keys.len();
         keys.sort_unstable();
@@ -456,13 +456,13 @@ mod tests {
         );
     }
 
+    /// Protects: §20's two hiding rules together -- a field outside the
+    /// entity kind's `kinds` list is never offered, and a field the
+    /// caller could not supply a value for is skipped even when the kind
+    /// allows it.
+    /// A continent has no settlement type at all, whatever the caller says.
     #[test]
     fn offer_hides_what_the_entity_cannot_have_and_what_it_does_not_have() {
-        // Protects: §20's two hiding rules together -- a field outside the
-        // entity kind's `kinds` list is never offered, and a field the
-        // caller could not supply a value for is skipped even when the kind
-        // allows it.
-        // A continent has no settlement type at all, whatever the caller says.
         let all = offer(EntityKind::Continent, &|_| true);
         assert!(all.iter().all(|f| f.key != "settlement_type"));
         assert!(all.iter().any(|f| f.key == "area"));
@@ -496,11 +496,11 @@ mod tests {
         assert!(identity.iter().all(|f| f.key != "terrain_affinity"));
     }
 
+    /// Protects: `render_body` groups selected fields by registry order,
+    /// skips a whitespace-only value as if it were absent, and renders
+    /// an empty block (just the heading) when nothing is selected.
     #[test]
     fn render_body_groups_in_registry_order_and_skips_empties() {
-        // Protects: `render_body` groups selected fields by registry order,
-        // skips a whitespace-only value as if it were absent, and renders
-        // an empty block (just the heading) when nothing is selected.
         let selected: Vec<String> = ["name", "population", "biome", "elevation"].iter().map(|s| s.to_string()).collect();
         let body = render_body("Cartalith", &selected, &|k| match k {
             "name" => Some("Nareth".into()),

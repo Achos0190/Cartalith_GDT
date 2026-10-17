@@ -420,13 +420,13 @@ fn run<'a>(c: &Case, f: &'a Fixture) -> (Vec<Lot<'a>>, Vec<Building>, Vec<FaithS
 
 // -------------------------------------------------------------- the tests ---
 
+/// Protects: the market anchor and maxRF, the parcel count, the district
+/// tally and empty/unsuitable/built/churchyard counts, the lots/
+/// buildings/faith whole-set hashes, the first listed building and faith
+/// site field for field, and (Syn family only) every parcel's district
+/// and market distance — over all 36 captured scenarios.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
-    // Protects: the market anchor and maxRF, the parcel count, the district
-    // tally and empty/unsuitable/built/churchyard counts, the lots/
-    // buildings/faith whole-set hashes, the first listed building and faith
-    // site field for field, and (Syn family only) every parcel's district
-    // and market distance — over all 36 captured scenarios.
     for c in golden::GOLDEN {
         let what = c.name;
         let f = setup(c);

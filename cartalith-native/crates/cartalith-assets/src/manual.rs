@@ -601,37 +601,37 @@ mod tests {
         f
     }
 
+    /// Protects: ArmedIcon::rule_key's two shapes -- a bare slot for
+    /// ordinary families, `custom::<set>::<slot>` for custom assets.
     #[test]
     fn the_rule_key_matches_the_scatterer_for_both_family_shapes() {
-        // Protects: ArmedIcon::rule_key's two shapes -- a bare slot for
-        // ordinary families, `custom::<set>::<slot>` for custom assets.
         assert_eq!(feature().rule_key(), "mountain");
         assert_eq!(custom().rule_key(), "custom::myset::thing");
     }
 
+    /// Protects: icon_brush_rule's defaultScatterRule() fallback for a
+    /// slot with no entry in the rule table.
     #[test]
     fn an_unknown_slot_falls_back_to_the_default_rule() {
-        // Protects: icon_brush_rule's defaultScatterRule() fallback for a
-        // slot with no entry in the rule table.
         let table = ScatterRuleTable::new();
         let r = icon_brush_rule(Some(&feature()), &table).expect("armed");
         assert_eq!(r, ScatterRule::default());
     }
 
+    /// Protects: icon_brush_rule returns the table's own entry when one
+    /// exists, rather than always falling back to the default.
     #[test]
     fn a_known_slot_uses_its_own_rule() {
-        // Protects: icon_brush_rule returns the table's own entry when one
-        // exists, rather than always falling back to the default.
         let mut table = ScatterRuleTable::new();
         table.insert("mountain", ScatterRule { min_size: 0.55, max_size: 1.9, ..Default::default() });
         let r = icon_brush_rule(Some(&feature()), &table).expect("armed");
         assert_eq!((r.min_size, r.max_size), (0.55, 1.9));
     }
 
+    /// Protects: `if(!_carIconArmed) return null` -- every placement path
+    /// (rule lookup, click, brush) must be a no-op with nothing armed.
     #[test]
     fn nothing_armed_means_no_rule_and_no_placement() {
-        // Protects: `if(!_carIconArmed) return null` -- every placement path
-        // (rule lookup, click, brush) must be a no-op with nothing armed.
         let table = ScatterRuleTable::new();
         assert!(icon_brush_rule(None, &table).is_none());
         assert!(place_manual_icon(5.0, 5.0, 48, 32, None).is_none());
@@ -645,10 +645,10 @@ mod tests {
         assert!(icons.is_empty());
     }
 
+    /// Protects: place_manual_icon's bounds gate on all four edges,
+    /// inclusive of the last valid cell.
     #[test]
     fn click_placement_is_bounds_gated_on_every_side() {
-        // Protects: place_manual_icon's bounds gate on all four edges,
-        // inclusive of the last valid cell.
         let a = feature();
         assert!(place_manual_icon(5.0, 5.0, 48, 32, Some(&a)).is_some());
         assert!(place_manual_icon(47.0, 31.0, 48, 32, Some(&a)).is_some());
@@ -658,10 +658,10 @@ mod tests {
         assert!(place_manual_icon(5.0, -1.0, 48, 32, Some(&a)).is_none());
     }
 
+    /// Protects: place_manual_icon's scale=1.0 and its set field, which
+    /// the reference's two distinct object literals draw apart by family.
     #[test]
     fn a_clicked_icon_is_full_scale_and_carries_a_set_only_when_custom() {
-        // Protects: place_manual_icon's scale=1.0 and its set field, which
-        // the reference's two distinct object literals draw apart by family.
         let f = place_manual_icon(5.0, 5.0, 48, 32, Some(&feature())).expect("placed");
         assert_eq!(f.scale, 1.0);
         assert_eq!(f.set, None);
@@ -669,20 +669,20 @@ mod tests {
         assert_eq!(c.set.as_deref(), Some("myset"));
     }
 
+    /// Protects: the reference's click path really does not check sea
+    /// level -- a hand-placed buoy is a legitimate thing to want.
     #[test]
     fn click_placement_has_no_water_gate_unlike_the_brush() {
-        // Protects: the reference's click path really does not check sea
-        // level -- a hand-placed buoy is a legitimate thing to want.
         let field = synthetic_field(48, 32, 5);
         let (wx, wy) = (2usize, 30usize);
         assert!(field[wy * 48 + wx] as f64 <= 0.42, "fixture cell is not water");
         assert!(place_manual_icon(wx as f64, wy as f64, 48, 32, Some(&feature())).is_some());
     }
 
+    /// Protects: icon_brush_stamp's water gate and bounds check on every
+    /// accepted dart.
     #[test]
     fn the_brush_never_paints_into_water_or_out_of_bounds() {
-        // Protects: icon_brush_stamp's water gate and bounds check on every
-        // accepted dart.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut rng = lcg(12345);
@@ -695,10 +695,10 @@ mod tests {
         }
     }
 
+    /// Protects: no two darts from one stamp land closer than the
+    /// density-derived spacing rule.
     #[test]
     fn the_brush_respects_the_blue_noise_spacing() {
-        // Protects: no two darts from one stamp land closer than the
-        // density-derived spacing rule.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut rng = lcg(999);
@@ -714,10 +714,12 @@ mod tests {
         }
     }
 
+    /// Protects: repeated stamps over one spot are additive (the per-stamp counts sum to the
+    /// number of icons held, and the first stamp places some) and the fourth stamp adds no more
+    /// than the first, the spacing limit filling up. The RNG is seeded (`lcg(777)`), so the
+    /// run is reproducible.
     #[test]
     fn re_stamping_the_same_spot_thickens_the_stand_and_then_saturates() {
-        // Protects: the brush is non-deterministic and additive -- repeated
-        // stamps over one spot keep adding until the spacing limit fills up.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut rng = lcg(777);
@@ -734,10 +736,10 @@ mod tests {
         assert!(counts[3] <= counts[0]);
     }
 
+    /// Protects: every dart in an all-water disc is rejected, not merely
+    /// most of them.
     #[test]
     fn a_brush_entirely_over_water_places_nothing() {
-        // Protects: every dart in an all-water disc is rejected, not merely
-        // most of them.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut rng = lcg(42);
@@ -748,12 +750,12 @@ mod tests {
         );
     }
 
+    /// Protects: ICON_BRUSH_MAX_DARTS -- a huge brush must not scale its
+    /// per-stamp work with its area.
+    /// A radius-200 brush at max density would ask for ~170k darts
+    /// uncapped; the cap means the RNG is called at most 3 * 1500 times.
     #[test]
     fn the_dart_budget_is_capped_however_big_the_brush_gets() {
-        // Protects: ICON_BRUSH_MAX_DARTS -- a huge brush must not scale its
-        // per-stamp work with its area.
-        // A radius-200 brush at max density would ask for ~170k darts
-        // uncapped; the cap means the RNG is called at most 3 * 1500 times.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut calls = 0usize;
@@ -768,10 +770,10 @@ mod tests {
         assert!(calls >= ICON_BRUSH_MAX_DARTS * 2);
     }
 
+    /// Protects: ICON_BRUSH_MIN_DENSITY -- a zeroed density slider must
+    /// not divide by zero in the spacing formula.
     #[test]
     fn the_density_floor_keeps_a_zeroed_slider_painting() {
-        // Protects: ICON_BRUSH_MIN_DENSITY -- a zeroed density slider must
-        // not divide by zero in the spacing formula.
         let field = synthetic_field(48, 32, 5);
         let mut icons = Vec::new();
         let mut rng = lcg(8);
@@ -781,10 +783,10 @@ mod tests {
         assert!(n > 0);
     }
 
+    /// Protects: every brushed icon's scale is drawn from the rule's own
+    /// min_size..max_size band, never outside it.
     #[test]
     fn brushed_scale_stays_inside_the_rules_size_band() {
-        // Protects: every brushed icon's scale is drawn from the rule's own
-        // min_size..max_size band, never outside it.
         let field = synthetic_field(48, 32, 5);
         let rule = ScatterRule { min_size: 0.55, max_size: 1.9, ..Default::default() };
         let mut icons = Vec::new();
@@ -795,10 +797,10 @@ mod tests {
         assert!(icons.iter().all(|i| (0.55..=1.9).contains(&i.scale)));
     }
 
+    /// Protects: the spacing test against `icons` (not just this stamp's
+    /// own darts), including icons at non-integer coordinates.
     #[test]
     fn existing_icons_block_new_darts_even_at_fractional_positions() {
-        // Protects: the spacing test against `icons` (not just this stamp's
-        // own darts), including icons at non-integer coordinates.
         let field = synthetic_field(48, 32, 5);
         // A dense pre-existing mat over the brush disc leaves nowhere to land.
         let mut icons: Vec<ManualIcon> = (0..48)
@@ -862,19 +864,19 @@ mod tests {
         assert!(icons.iter().all(|i| i.origin == IconOrigin::Manual), "{icons:?}");
     }
 
+    /// Protects: js_round's half-up rule (Math.round), where Rust's own
+    /// f64::round is half-away-from-zero and would disagree at -0.5.
     #[test]
     fn js_round_is_half_up_which_matters_at_the_left_edge() {
-        // Protects: js_round's half-up rule (Math.round), where Rust's own
-        // f64::round is half-away-from-zero and would disagree at -0.5.
         assert_eq!(js_round(-0.5), 0.0);
         assert_eq!(js_round(-0.51), -1.0);
         assert_eq!(js_round(0.5), 1.0);
     }
 
+    /// Protects: icon_box's cell-centre offset, its r=5*sc formula and the
+    /// side=r*2.6 hit box, which is deliberately wider than the sprite.
     #[test]
     fn the_icon_box_is_wider_than_the_sprite_it_wraps() {
-        // Protects: icon_box's cell-centre offset, its r=5*sc formula and the
-        // side=r*2.6 hit box, which is deliberately wider than the sprite.
         let ic = ManualIcon {
             x: 10.0,
             y: 8.0,
@@ -890,10 +892,10 @@ mod tests {
         assert_eq!(b.side, 13.0);
     }
 
+    /// Protects: icon_box_at's per-instance scale term scales the sprite
+    /// radius linearly.
     #[test]
     fn per_instance_scale_scales_the_box() {
-        // Protects: icon_box_at's per-instance scale term scales the sprite
-        // radius linearly.
         let mut ic = ManualIcon {
             x: 0.0,
             y: 0.0,
@@ -909,10 +911,10 @@ mod tests {
         assert_eq!(icon_box(&ic, &env).r, a * 2.5);
     }
 
+    /// Protects: icon_hit_test's priority order -- an armed handle always
+    /// wins over any underlying box, and a clean miss returns None.
     #[test]
     fn the_handle_beats_every_box_and_a_miss_returns_nothing() {
-        // Protects: icon_hit_test's priority order -- an armed handle always
-        // wins over any underlying box, and a clean miss returns None.
         let boxes = vec![IconBox { px: 0.0, py: 0.0, side: 100.0, r: 38.0 }];
         let h = IconHandle { x: 5.0, y: 5.0, r: 2.0 };
         assert_eq!(icon_hit_test(&boxes, Some(&h), 5.0, 5.0).unwrap().kind, IconHitKind::Handle);
@@ -920,10 +922,10 @@ mod tests {
         assert!(icon_hit_test(&boxes, Some(&h), 500.0, 500.0).is_none());
     }
 
+    /// Protects: icon_hit_test scans back to front, so the most recently
+    /// placed (topmost-drawn) icon wins an overlapping hit.
     #[test]
     fn the_topmost_icon_wins_an_overlap() {
-        // Protects: icon_hit_test scans back to front, so the most recently
-        // placed (topmost-drawn) icon wins an overlapping hit.
         let boxes = vec![
             IconBox { px: 0.0, py: 0.0, side: 20.0, r: 7.7 },
             IconBox { px: 1.0, py: 1.0, side: 20.0, r: 7.7 },
@@ -931,18 +933,18 @@ mod tests {
         assert_eq!(icon_hit_test(&boxes, None, 0.5, 0.5).unwrap().index, Some(1));
     }
 
+    /// Protects: icon_resize_scale's clamp to [ICON_SCALE_MIN,
+    /// ICON_SCALE_MAX] at both ends.
     #[test]
     fn resizing_an_icon_clamps_between_a_fifth_and_four_times() {
-        // Protects: icon_resize_scale's clamp to [ICON_SCALE_MIN,
-        // ICON_SCALE_MAX] at both ends.
         assert_eq!(icon_resize_scale(1.0, 10.0, 10.0, 10.0, 10.0, 5.0), ICON_SCALE_MIN);
         assert_eq!(icon_resize_scale(1.0, 10.0, 10.0, 60.0, 60.0, 3.0), ICON_SCALE_MAX);
     }
 
+    /// Protects: ManualIconFamily::key/from_key round-trip for every real
+    /// variant, and from_key rejects an unrecognized string.
     #[test]
     fn the_family_keys_round_trip() {
-        // Protects: ManualIconFamily::key/from_key round-trip for every real
-        // variant, and from_key rejects an unrecognized string.
         for f in [
             ManualIconFamily::Settlement,
             ManualIconFamily::Feature,
@@ -954,10 +956,10 @@ mod tests {
         assert_eq!(ManualIconFamily::from_key("nope"), None);
     }
 
+    /// Protects: pack_family's one rename between the two taxonomies,
+    /// pinned so it is not "tidied" into a same-name mapping.
     #[test]
     fn the_feature_family_draws_from_the_packs_icons_directory() {
-        // Protects: pack_family's one rename between the two taxonomies,
-        // pinned so it is not "tidied" into a same-name mapping.
         assert_eq!(ManualIconFamily::Feature.pack_family(), crate::slots::Family::Icons);
         assert_eq!(ManualIconFamily::Settlement.pack_family(), crate::slots::Family::Settlement);
     }
@@ -1026,39 +1028,39 @@ mod tests {
                          &ScatterRule::default(), &field, 48, 32, 0.42, 20.0, 10.0, &mut rng) == 1
     }
 
+    /// Protects: the `3.0` spacing constant, invisible to the golden
+    /// fixtures (see the section note above).
+    /// At density 1.0 the spacing is exactly 3.0 / sqrt(1) = 3.0. A dart
+    /// 2.95 from an existing icon collides; 3.05 does not. A spacing
+    /// constant of 2.9 would accept the 2.95 case.
     #[test]
     fn the_spacing_constant_decides_a_rejection_at_a_known_separation() {
-        // Protects: the `3.0` spacing constant, invisible to the golden
-        // fixtures (see the section note above).
-        // At density 1.0 the spacing is exactly 3.0 / sqrt(1) = 3.0. A dart
-        // 2.95 from an existing icon collides; 3.05 does not. A spacing
-        // constant of 2.9 would accept the 2.95 case.
         assert!(!one_dart_against((17.05, 10.0), 0.0, 10.0, 1.0), "2.95 apart must collide at 3.0");
         assert!(one_dart_against((16.95, 10.0), 0.0, 10.0, 1.0), "3.05 apart must not");
     }
 
+    /// Protects: ICON_BRUSH_MIN_SPACING, unreachable within the shipped
+    /// 0..1 density range and so invisible to the golden fixtures.
+    /// `max(1.2, 3/sqrt(d))` reaches its floor only at d > 6.25, which the
+    /// reference's own 0..1 density slider cannot reach -- so inside the
+    /// shipped parameter range the floor is unobservable and no golden can
+    /// see it. Driven out of range here: at d = 100 the spacing is 1.2, so
+    /// 1.25 away is accepted and 1.15 away is not. A floor of 1.3 would
+    /// reject the 1.25 case.
     #[test]
     fn the_spacing_floor_binds_only_above_a_density_of_625_percent() {
-        // Protects: ICON_BRUSH_MIN_SPACING, unreachable within the shipped
-        // 0..1 density range and so invisible to the golden fixtures.
-        // `max(1.2, 3/sqrt(d))` reaches its floor only at d > 6.25, which the
-        // reference's own 0..1 density slider cannot reach -- so inside the
-        // shipped parameter range the floor is unobservable and no golden can
-        // see it. Driven out of range here: at d = 100 the spacing is 1.2, so
-        // 1.25 away is accepted and 1.15 away is not. A floor of 1.3 would
-        // reject the 1.25 case.
         assert!(one_dart_against((18.75, 10.0), 0.0, 10.0, 100.0), "1.25 apart must be accepted at 1.2");
         assert!(!one_dart_against((18.85, 10.0), 0.0, 10.0, 100.0), "1.15 apart must not be");
     }
 
+    /// Protects: the `* 2` oversample and the 1500 cap in the attempts
+    /// formula, both hidden by a saturated disc in the golden fixtures.
+    /// Counted rather than inferred: with every dart rejected (all water)
+    /// the RNG is consulted exactly twice per attempt, so the call count
+    /// *is* the attempt count. This is the only thing that can see the `* 2`
+    /// oversample and the 1500 cap, both of which a saturated disc hides.
     #[test]
     fn the_dart_budget_is_exactly_the_references_formula() {
-        // Protects: the `* 2` oversample and the 1500 cap in the attempts
-        // formula, both hidden by a saturated disc in the golden fixtures.
-        // Counted rather than inferred: with every dart rejected (all water)
-        // the RNG is consulted exactly twice per attempt, so the call count
-        // *is* the attempt count. This is the only thing that can see the `* 2`
-        // oversample and the 1500 cap, both of which a saturated disc hides.
         let water = vec![0.1f32; 48 * 32];
         let cases: &[(f64, f64, usize)] = &[
             // r, density, expected attempts = max(1, min(1500, ceil(PI r^2 / spacing^2) * 2))
@@ -1077,12 +1079,12 @@ mod tests {
         }
     }
 
+    /// Protects: ICON_BRUSH_MIN_DENSITY lies between 0.02 and 0.03, not merely that some
+    /// floor exists: zero density yields the same attempt count as 0.02 (clamped to the
+    /// floor) and a different count from 0.03. This bounds the constant; it does not
+    /// assert its exact value. A raised floor would make all three agree.
     #[test]
     fn the_density_floor_pins_the_attempt_count_below_two_percent() {
-        // Protects: ICON_BRUSH_MIN_DENSITY's exact value, not merely that
-        // some floor exists.
-        // Zero and 0.02 must derive the same spacing (and so the same attempt
-        // count); 0.03 must not. A raised floor would make all three agree.
         let water = vec![0.1f32; 48 * 32];
         let count = |density: f64| {
             let mut icons = Vec::new();
@@ -1095,13 +1097,13 @@ mod tests {
         assert_ne!(count(0.0), count(0.03), "0.03 is above the floor and must differ");
     }
 
+    /// Protects: js_round's use inside icon_brush_stamp at the one input
+    /// where JS's `Math.round` and Rust's `f64::round`
+    /// disagree. A continuous RNG effectively never produces it, which is
+    /// why every golden survived the mutation; scripting `rad = 0` at a
+    /// centre of -0.5 hits it exactly.
     #[test]
     fn a_dart_landing_on_exactly_minus_a_half_rounds_into_the_grid() {
-        // Protects: js_round's use inside icon_brush_stamp at the one input
-        // where JS's `Math.round` and Rust's `f64::round`
-        // disagree. A continuous RNG effectively never produces it, which is
-        // why every golden survived the mutation; scripting `rad = 0` at a
-        // centre of -0.5 hits it exactly.
         let field = all_land(48, 32);
         let (mut rng, _) = scripted(vec![0.0, 0.0, 1.0]);
         let mut icons = Vec::new();
@@ -1112,10 +1114,10 @@ mod tests {
         assert_eq!(icons[0].x, 0.0);
     }
 
+    /// Protects: IconBrush::default's literal fields against the
+    /// reference's own `{on:false, r:12, density:0.6}`.
     #[test]
     fn the_brush_defaults_are_the_references_own() {
-        // Protects: IconBrush::default's literal fields against the
-        // reference's own `{on:false, r:12, density:0.6}`.
         let b = IconBrush::default();
         assert!(!b.on);
         assert_eq!(b.r, 12.0);

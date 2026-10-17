@@ -3927,23 +3927,24 @@ pub fn smooth_orogeny(u: &[f32], w: usize, h: usize, blur_r: f64, wrap: bool) ->
 mod tests {
     use super::*;
 
+    /// Protects nothing beyond the harness: it asserts `2 + 2 == 4`, so it fails only if the
+    /// test binary cannot be built or run.
     #[test]
     fn crate_compiles_and_tests_run() {
-        // Protects: the crate builds and the test harness itself runs.
         assert_eq!(2 + 2, 4);
     }
 
+    /// Protects: compute_warp's `amp < 0.5` early-out returns None
+    /// rather than a negligible field.
     #[test]
     fn none_below_threshold() {
-        // Protects: compute_warp's `amp < 0.5` early-out returns None
-        // rather than a negligible field.
         assert!(compute_warp(100, 100, 1, 0.0, false).is_none());
     }
 
+    /// Protects: compute_warp is a pure function of its arguments --
+    /// same seed/params always produce the same field.
     #[test]
     fn deterministic_for_same_input() {
-        // Protects: compute_warp is a pure function of its arguments --
-        // same seed/params always produce the same field.
         let a = compute_warp(6, 5, 42, 0.6, false);
         let b = compute_warp(6, 5, 42, 0.6, false);
         assert_eq!(a, b);
@@ -3951,10 +3952,10 @@ mod tests {
 
     // Hand-derived against the Zhang-Suen conditions transcribed from the
     // JS source (see thin_mask's own doc comment).
+    /// Protects: a 1px-wide straight line is already a skeleton and
+    /// must be a fixed point of thin_mask.
     #[test]
     fn thin_mask_leaves_a_straight_1px_line_untouched() {
-        // Protects: a 1px-wide straight line is already a skeleton and
-        // must be a fixed point of thin_mask.
         // Endpoints are always kept (B<2 skip); interior cells of a
         // straight line have exactly 2 opposite-side 1-neighbors, which
         // is 2 separate 0->1 transitions around the ring (A=2, not 1),
@@ -3964,10 +3965,10 @@ mod tests {
         assert_eq!(thinned, mask);
     }
 
+    /// Protects: thinning converges to a stable skeleton and never
+    /// adds pixels back.
     #[test]
     fn thin_mask_is_idempotent_and_never_grows() {
-        // Protects: thinning converges to a stable skeleton and never
-        // adds pixels back.
         // A solid 5x4 block: not a fixed point (thinning must remove
         // interior/edge pixels down toward a skeleton), but whatever it
         // converges to must itself be stable under a second pass, and
@@ -3982,17 +3983,17 @@ mod tests {
         assert!(count(&once) > 0, "thinning must not erase the shape entirely");
     }
 
+    /// Protects: an empty mask has nothing to thin.
     #[test]
     fn thin_mask_all_zero_stays_all_zero() {
-        // Protects: an empty mask has nothing to thin.
         let mask = vec![0u8; 12];
         assert_eq!(thin_mask(&mask, 4, 3), mask);
     }
 
+    /// Protects: a straight 1px line traces as one open polyline with
+    /// no spurious junction nodes and zero curvature.
     #[test]
     fn trace_boundaries_traces_a_straight_line_end_to_end() {
-        // Protects: a straight 1px line traces as one open polyline with
-        // no spurious junction nodes and zero curvature.
         // W=5,H=1, all-ones: two degree-1 endpoints and three degree-2
         // interior cells. `nodes` (the returned list) only reports
         // degree>=3 junctions -- degree-1 endpoints don't count as
@@ -4014,10 +4015,10 @@ mod tests {
         assert_eq!(p.curvature, 0.0, "a straight line never turns");
     }
 
+    /// Protects: a 2-cell direct edge is recorded once from each
+    /// endpoint, matching the reference's own double-count behaviour.
     #[test]
     fn trace_boundaries_walks_a_direct_node_edge_from_both_ends() {
-        // Protects: a 2-cell direct edge is recorded once from each
-        // endpoint, matching the reference's own double-count behaviour.
         // A 2-cell mask: both cells are degree-1 endpoints (no degree>=3
         // junction, so `nodes` is empty), each other's only neighbor.
         // Reference HTML's own `traceBoundaries` never marks a walk's
@@ -4033,11 +4034,11 @@ mod tests {
         assert_eq!(g.polylines[1].pts, vec![(1, 0), (0, 0)]);
     }
 
+    /// Protects: each polyline's kind is the majority boundary-type
+    /// vote over its cells, and a tie keeps the lower type id (JS's
+    /// strict `>` comparison), not the last one scanned.
     #[test]
     fn tag_boundary_types_majority_vote_and_tie_break() {
-        // Protects: each polyline's kind is the majority boundary-type
-        // vote over its cells, and a tie keeps the lower type id (JS's
-        // strict `>` comparison), not the last one scanned.
         // Hand-traceable (pure counting + argmax over a fixed 6-entry
         // array) rather than Node-extracted: the JS this mirrors is
         // inlined in currentBoundaryGraph(), which needs boundaryMask/
@@ -4702,11 +4703,11 @@ mod crater_degradation_tests {
 mod volcano_trace_tests {
     use super::*;
 
+    /// Protects: recording a VolcanoTrace changes neither the height
+    /// field nor volcanic_field, and each cell's recorded winner is
+    /// whichever edifice actually raised volcanic_field's max there.
     #[test]
     fn trace_keeps_the_max_winner_and_moves_no_output() {
-        // Protects: recording a VolcanoTrace changes neither the height
-        // field nor volcanic_field, and each cell's recorded winner is
-        // whichever edifice actually raised volcanic_field's max there.
         let (gw, gh) = (64usize, 64usize);
         let run = |traced: bool| {
             let mut field = vec![0.3f32; gw * gh];

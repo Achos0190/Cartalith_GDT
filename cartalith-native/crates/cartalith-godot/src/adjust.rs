@@ -703,11 +703,11 @@ mod tests {
     /// A pixel inside the gamut for every HSL pin.
     const PX: Rgb = (130.0, 100.0, 70.0);
 
+    /// Protects: every way a stack can be "off" is skipped by control flow
+    /// (is_identity true, apply returns the same bits), including fractional
+    /// and out-of-range inputs a multiply-by-identity could perturb.
     #[test]
     fn identity_empty_disabled_zero_opacity_and_neutral() {
-        // Protects: every way a stack can be "off" is skipped by control flow
-        // (is_identity true, apply returns the same bits), including fractional
-        // and out-of-range inputs a multiply-by-identity could perturb.
         let neutral = [
             levels(0.0, 255.0, 1.0, 0.0, 255.0),
             curve(&[(0.0, 0.0), (255.0, 255.0)]),
@@ -733,10 +733,10 @@ mod tests {
         }
     }
 
+    /// Protects: the scope's "(in 0..255, gamma 1, out 0..255) returns its
+    /// input bit-exactly", through Adjustment::apply with no caller-side skip.
     #[test]
     fn levels_at_rest_is_bit_exact_directly() {
-        // Protects: the scope's "(in 0..255, gamma 1, out 0..255) returns its
-        // input bit-exactly", through Adjustment::apply with no caller-side skip.
         let a = levels(0.0, 255.0, 1.0, 0.0, 255.0);
         for i in 0..=2550 {
             let x = i as f64 / 10.0 + 1.0 / 3.0;
@@ -748,10 +748,10 @@ mod tests {
         assert!((via_math - (1.0 / 3.0 + 77.0)).abs() < 1e-12);
     }
 
+    /// Protects: the Levels formula (clip, 1/gamma exponent, output range).
+    /// Reference: ref.py levels((20,110,230), 20,200,2.0,10,240).
     #[test]
     fn levels_literal_values() {
-        // Protects: the Levels formula (clip, 1/gamma exponent, output range).
-        // Reference: ref.py levels((20,110,230), 20,200,2.0,10,240).
         let got = levels(20.0, 200.0, 2.0, 10.0, 240.0).apply((20.0, 110.0, 230.0));
         close(got, (10.0, 172.63455967290594, 240.0), 1e-9);
         // gamma > 1 brightens a midtone; gamma < 1 darkens it.
@@ -764,10 +764,10 @@ mod tests {
         close(inv.apply(PX), (128.75, 113.75, 98.75), 1e-9);
     }
 
+    /// Protects: the stack operates in float and never rounds between entries.
+    /// Reference: ref.py levels2 (second stage fed the unrounded first output).
     #[test]
     fn single_quantisation_chain_stays_float() {
-        // Protects: the stack operates in float and never rounds between entries.
-        // Reference: ref.py levels2 (second stage fed the unrounded first output).
         let a = levels(20.0, 200.0, 2.0, 10.0, 240.0);
         let b = levels(0.0, 255.0, 0.5, 0.0, 255.0);
         let x = (20.0, 110.0, 230.0);
@@ -781,10 +781,10 @@ mod tests {
         assert!((rounded.1 - chained.1).abs() > 0.3, "{rounded:?} vs {chained:?}");
     }
 
+    /// Protects: OkLab matrices, the hue rotation, chroma scale and both
+    /// lightness branches. Reference: ref.py hsl(...) on (130,100,70).
     #[test]
     fn hsl_literal_values() {
-        // Protects: OkLab matrices, the hue rotation, chroma scale and both
-        // lightness branches. Reference: ref.py hsl(...) on (130,100,70).
         let cases: [(Adjustment, Rgb); 5] = [
             (hsl(90.0, 0.0, 0.0), (78.36422443061925, 116.95610657095114, 92.48791038888795)),
             (hsl(0.0, 0.5, 0.0), (140.76021165871418, 95.63630184271128, 46.72955548703234)),
@@ -797,11 +797,11 @@ mod tests {
         }
     }
 
+    /// Protects: scope "HSL hue +360 returns its input within 1e-9" through
+    /// the real maths (+-360 is not neutral, so this is not a skip), and the
+    /// OkLCh property that a hue rotation does not move L.
     #[test]
     fn hsl_hue_360_returns_input_and_keeps_lightness() {
-        // Protects: scope "HSL hue +360 returns its input within 1e-9" through
-        // the real maths (+-360 is not neutral, so this is not a skip), and the
-        // OkLCh property that a hue rotation does not move L.
         for h in [360.0, -360.0] {
             let a = hsl(h, 0.0, 0.0);
             assert!(!a.is_skipped());
@@ -816,27 +816,27 @@ mod tests {
         }
     }
 
+    /// Protects: chroma scale 1+s reaching exactly zero chroma, written as
+    /// an EXACT grey (Ruling CF item 1, 2026-10-12). Re-baselined from the
+    /// generic path's (106.46571180054221, 106.46571628108074,
+    /// 106.46572840906943), whose ~2e-5 channel spread the quantiser split
+    /// into 1-LSB tints. Literal from an independent Python transcription
+    /// (scratchpad grey_ref.py: forward OkLab only, L / L(white), cubed,
+    /// sRGB OETF), not from this code.
     #[test]
     fn hsl_saturation_minus_one_is_grey() {
-        // Protects: chroma scale 1+s reaching exactly zero chroma, written as
-        // an EXACT grey (Ruling CF item 1, 2026-10-12). Re-baselined from the
-        // generic path's (106.46571180054221, 106.46571628108074,
-        // 106.46572840906943), whose ~2e-5 channel spread the quantiser split
-        // into 1-LSB tints. Literal from an independent Python transcription
-        // (scratchpad grey_ref.py: forward OkLab only, L / L(white), cubed,
-        // sRGB OETF), not from this code.
         let g = hsl(0.0, -1.0, 0.0).apply(PX);
         assert!(g.0.to_bits() == g.1.to_bits() && g.1.to_bits() == g.2.to_bits(), "{g:?}");
         close(g, (106.46571627438693, 106.46571627438693, 106.46571627438693), 1e-9);
     }
 
+    /// Protects: Ruling CF item 1 -- an input grey 0..=255 comes out with
+    /// three bit-equal channels under every hue / saturation / lightness
+    /// combination, and with lightness 0 comes out bit-identical to its
+    /// input (hue and chroma are identities on a neutral). Mutation: drop
+    /// either neutral branch of `hsl_oklch` and this goes red.
     #[test]
     fn every_grey_stays_exactly_neutral_through_hsl() {
-        // Protects: Ruling CF item 1 -- an input grey 0..=255 comes out with
-        // three bit-equal channels under every hue / saturation / lightness
-        // combination, and with lightness 0 comes out bit-identical to its
-        // input (hue and chroma are identities on a neutral). Mutation: drop
-        // either neutral branch of `hsl_oklch` and this goes red.
         let hues = [0.0, -170.0, 33.0, 90.0, 360.0];
         let sats = [-1.0, -0.6, 0.0, 0.5, 1.0];
         let lights = [-1.0, -0.25, 0.0, 0.3, 1.0];
@@ -859,10 +859,10 @@ mod tests {
         close(hsl(45.0, 0.0, 0.25).apply((140.0, 140.0, 140.0)), (167.52431666075415, 167.52431666075415, 167.52431666075415), 1e-9);
     }
 
+    /// Protects: lightness range property: more lightness never darkens, and
+    /// -1 / +1 drive L to 0 / 1.
     #[test]
     fn hsl_lightness_is_monotone_and_reaches_ends() {
-        // Protects: lightness range property: more lightness never darkens, and
-        // -1 / +1 drive L to 0 / 1.
         let mut prev = -1.0;
         for i in 0..=20 {
             let l = -1.0 + i as f64 * 0.1;
@@ -875,11 +875,11 @@ mod tests {
         assert!((srgb_to_oklab(hsl(0.0, 0.0, 1.0).apply(PX))[0] - 1.0).abs() < 1e-12);
     }
 
+    /// Protects: the matrix pair is an exact round trip, and the forward
+    /// transform lands on Ottosson's published anchors (white L=1, a~b~0;
+    /// sRGB red L = 0.62792 per the post's table, a = 0.22486, b = 0.12585).
     #[test]
     fn oklab_round_trip_and_anchor_values() {
-        // Protects: the matrix pair is an exact round trip, and the forward
-        // transform lands on Ottosson's published anchors (white L=1, a~b~0;
-        // sRGB red L = 0.62792 per the post's table, a = 0.22486, b = 0.12585).
         for c in [PX, (0.0, 0.0, 0.0), (255.0, 255.0, 255.0), (255.0, 0.0, 0.0), (1.0, 2.0, 250.0)] {
             close(oklab_to_srgb(srgb_to_oklab(c)), c, 1e-9);
         }
@@ -889,11 +889,11 @@ mod tests {
         assert!((r[0] - 0.6279553606).abs() < 1e-6 && (r[1] - 0.2248630684).abs() < 1e-6 && (r[2] - 0.1258462985).abs() < 1e-6);
     }
 
+    /// Protects: Fritsch-Carlson tangents, Hermite basis, flat extrapolation,
+    /// passing through control points. Reference: ref.py pchip() on
+    /// [(0,0),(64,32),(192,224),(255,255)].
     #[test]
     fn curves_literal_values_and_endpoints() {
-        // Protects: Fritsch-Carlson tangents, Hermite basis, flat extrapolation,
-        // passing through control points. Reference: ref.py pchip() on
-        // [(0,0),(64,32),(192,224),(255,255)].
         let pts = [(0.0, 0.0), (64.0, 32.0), (192.0, 224.0), (255.0, 255.0)];
         let a = curve(&pts);
         let xs = [0.0, 32.0, 64.0, 100.0, 128.0, 192.0, 230.0, 255.0];
@@ -909,11 +909,11 @@ mod tests {
         close(c.apply((50.0, 125.0, 200.0)), (62.5, 100.0, 153.5579311089515), 1e-9);
     }
 
+    /// Protects: the monotonicity property (the reason for Fritsch-Carlson)
+    /// on steep data that would overshoot a plain cubic, including the 9/3
+    /// limiter branch.
     #[test]
     fn curves_monotone_data_gives_monotone_curve_without_overshoot() {
-        // Protects: the monotonicity property (the reason for Fritsch-Carlson)
-        // on steep data that would overshoot a plain cubic, including the 9/3
-        // limiter branch.
         let pts = [(0.0, 0.0), (10.0, 10.0), (20.0, 240.0), (30.0, 245.0), (255.0, 255.0)];
         let a = curve(&pts);
         let mut prev = f64::NEG_INFINITY;
@@ -926,10 +926,10 @@ mod tests {
         }
     }
 
+    /// Protects: luma weights, ramp sampling, the alpha mix over the original.
+    /// Reference: ref.py gmap() with stops (0,navy),(0.5,yellow),(1,red a=.5).
     #[test]
     fn gradient_map_literal_values() {
-        // Protects: luma weights, ramp sampling, the alpha mix over the original.
-        // Reference: ref.py gmap() with stops (0,navy),(0.5,yellow),(1,red a=.5).
         let g = gmap();
         close(g.apply((130.0, 100.0, 70.0)), (208.424, 208.424, 23.37932549019608), 1e-9);
         close(g.apply((0.0, 0.0, 0.0)), (0.0, 0.0, 128.0), 1e-9);
@@ -938,9 +938,9 @@ mod tests {
         assert!(!g.kind.is_neutral());
     }
 
+    /// Protects: entries run first to last; opacity is a lerp from the input.
     #[test]
     fn stack_order_matters_and_opacity_mixes() {
-        // Protects: entries run first to last; opacity is a lerp from the input.
         let a = levels(0.0, 255.0, 1.0, 40.0, 200.0);
         let b = hsl(0.0, 0.0, 0.25);
         let ab = stack(vec![a.clone(), b.clone()]).apply(PX);
@@ -960,14 +960,14 @@ mod tests {
         }
     }
 
+    /// Protects: the Fritsch-Carlson radius-3 limiter (threshold 9, scale 3).
+    /// Reference: ref.py-style pchip with the limiter, written independently
+    /// in Python. Set A is steep enough that the limiter fires at any
+    /// threshold and would overshoot (to ~165) without it; set B has
+    /// alpha^2 + beta^2 = 10.58, between 9 and 16, so only the true threshold
+    /// of 9 limits it.
     #[test]
     fn curves_limiter_literal_values() {
-        // Protects: the Fritsch-Carlson radius-3 limiter (threshold 9, scale 3).
-        // Reference: ref.py-style pchip with the limiter, written independently
-        // in Python. Set A is steep enough that the limiter fires at any
-        // threshold and would overshoot (to ~165) without it; set B has
-        // alpha^2 + beta^2 = 10.58, between 9 and 16, so only the true threshold
-        // of 9 limits it.
         let a = curve(&[(0.0, 0.0), (1.0, 100.0), (11.0, 110.0), (255.0, 255.0)]);
         let xs = [0.5, 3.0, 6.0, 9.0, 50.0];
         let want = [62.12504670860829, 104.86437020710954, 108.6903473797703, 109.85927443899647, 118.12015996339416];
@@ -992,9 +992,9 @@ mod tests {
         }
     }
 
+    /// Protects: same input, same bits, every call and across clones.
     #[test]
     fn apply_is_deterministic() {
-        // Protects: same input, same bits, every call and across clones.
         let st = stack(vec![levels(10.0, 240.0, 1.3, 5.0, 250.0), hsl(33.0, 0.2, 0.1), curve(&[(0.0, 0.0), (90.0, 70.0), (255.0, 255.0)]), gmap()]);
         let cl = st.clone();
         for c in [PX, (3.0, 250.0, 17.0)] {
@@ -1003,10 +1003,10 @@ mod tests {
         }
     }
 
+    /// Protects: every range check refuses (including NaN and infinity) and
+    /// names the parameter; the boundary values are accepted.
     #[test]
     fn validation_refuses_bad_parameters_without_panicking() {
-        // Protects: every range check refuses (including NaN and infinity) and
-        // names the parameter; the boundary values are accepted.
         let nan = f64::NAN;
         let inf = f64::INFINITY;
         let bad: Vec<(Adjustment, &str)> = vec![
@@ -1074,11 +1074,11 @@ mod tests {
         adjust: AdjustStack,
     }
 
+    /// Protects: saved form round-trips every kind losslessly, an empty stack
+    /// is omitted so an existing save re-serialises byte-identically, and a
+    /// document written before the field existed loads with an empty stack.
     #[test]
     fn serde_round_trip_and_empty_stack_omitted() {
-        // Protects: saved form round-trips every kind losslessly, an empty stack
-        // is omitted so an existing save re-serialises byte-identically, and a
-        // document written before the field existed loads with an empty stack.
         let legacy = r#"{"name":"terrain"}"#;
         let o: Owner = serde_json::from_str(legacy).unwrap();
         assert!(o.adjust.is_empty());
@@ -1106,10 +1106,10 @@ mod tests {
         assert!(bare.enabled && bare.opacity == 1.0);
     }
 
+    /// Protects: loading is not a bypass of validation, and garbage is an
+    /// error, never a panic or a silently-empty stack.
     #[test]
     fn from_json_validates_and_refuses_unknown_kinds() {
-        // Protects: loading is not a bypass of validation, and garbage is an
-        // error, never a panic or a silently-empty stack.
         let ok = r#"{"entries":[{"kind":{"hsl":{"hue_deg":10.0,"saturation":0.0,"lightness":0.0}}}]}"#;
         assert_eq!(AdjustStack::from_json(ok).unwrap().entries.len(), 1);
         let range = r#"{"entries":[{"kind":{"hsl":{"hue_deg":1000.0,"saturation":0.0,"lightness":0.0}}}]}"#;

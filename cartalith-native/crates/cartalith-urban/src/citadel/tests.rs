@@ -19,11 +19,11 @@ fn town(pop: f64, f: impl FnOnce(&mut GenOpts)) -> Town {
     generate(SEED, &o)
 }
 
+/// Protects: Ruling AC's size tier (CITADEL_MIN_POP), the no-circuit
+/// refusal, the bastioned-trace refusal, and the radial-plan refusal.
+/// The boundary, as literals: 10 000 qualifies and 9 999 does not.
 #[test]
 fn only_the_largest_tier_of_walled_organic_curtain_towns_gets_one() {
-    // Protects: Ruling AC's size tier (CITADEL_MIN_POP), the no-circuit
-    // refusal, the bastioned-trace refusal, and the radial-plan refusal.
-    // The boundary, as literals: 10 000 qualifies and 9 999 does not.
     assert!(town(10000.0, |_| {}).citadel.is_some(), "10 000 is the tier");
     assert!(town(9999.0, |_| {}).citadel.is_none(), "9 999 is below it");
     assert!(town(12000.0, |_| {}).citadel.is_some());
@@ -36,12 +36,12 @@ fn only_the_largest_tier_of_walled_organic_curtain_towns_gets_one() {
     assert!(town(12000.0, |o| o.culture = Some("venus".into())).citadel.is_none());
 }
 
+/// Protects: every property the module header promises — astride
+/// placement, corner and junction towers, the inner gate and its
+/// approach, the keep/court split, and the gate/primary/build clearances
+/// — over all 40 site/seed combinations that are measured to qualify.
 #[test]
 fn the_citadel_sits_astride_the_curtain_with_an_inner_gate_a_keep_and_a_court() {
-    // Protects: every property the module header promises — astride
-    // placement, corner and junction towers, the inner gate and its
-    // approach, the keep/court split, and the gate/primary/build clearances
-    // — over all 40 site/seed combinations that are measured to qualify.
     let mut built = 0;
     let sites = ["inland", "river", "riverthrough", "coast", "estuary"];
     let fixtures = [SEED, 42, 7, 99, 3, 11, 2024, 555]
@@ -134,11 +134,11 @@ fn the_citadel_sits_astride_the_curtain_with_an_inner_gate_a_keep_and_a_court() 
     assert_eq!(built, 40);
 }
 
+/// Protects: citadel_sweep's three predicates (vertex-inside or
+/// near-approach for buildings, centroid-inside for parcels and details)
+/// and that every removal list comes back index-descending.
 #[test]
 fn the_sweep_reports_descending_and_by_footprint() {
-    // Protects: citadel_sweep's three predicates (vertex-inside or
-    // near-approach for buildings, centroid-inside for parcels and details)
-    // and that every removal list comes back index-descending.
     let sq = |x: f64, y: f64| {
         vec![Vec2::new(x, y), Vec2::new(x + 4.0, y), Vec2::new(x + 4.0, y + 4.0), Vec2::new(x, y + 4.0)]
     };

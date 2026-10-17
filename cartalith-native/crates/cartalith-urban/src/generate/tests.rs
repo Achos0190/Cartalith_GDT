@@ -291,12 +291,12 @@ fn opts_for(c: &golden::Case) -> GenOpts {
 
 // ------------------------------------------------------------- the assertion --
 
+/// Protects: generate()'s whole orchestration over 29 captured scenarios
+/// — every derived scalar, every shape count and histogram, which branch
+/// each optional stage took, the full metrics readout, the written-out
+/// first/last anchors, and the reference's own whole-model hash.
 #[test]
 fn whole_subsystem_matches_reference() {
-    // Protects: generate()'s whole orchestration over 29 captured scenarios
-    // — every derived scalar, every shape count and histogram, which branch
-    // each optional stage took, the full metrics readout, the written-out
-    // first/last anchors, and the reference's own whole-model hash.
     assert_eq!(golden::CASES.len(), 29, "the golden lost cases");
     for c in golden::CASES {
         let t = generate(c.seed, &opts_for(c));

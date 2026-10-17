@@ -759,30 +759,30 @@ mod tests {
         f
     }
 
+    /// Protects: the output buffer is sized `out_w * out_h`, not the
+    /// source or region dimensions.
     #[test]
     fn output_is_exactly_out_w_times_out_h() {
-        // Protects: the output buffer is sized `out_w * out_h`, not the
-        // source or region dimensions.
         let src = synthetic_field(16, 12, 0);
         let o = amplify_region(&src, 16, 12, &Region { x: 2, y: 2, w: 8, h: 6 }.to_float(), 20, 15,
                                &AmplifyOpts::default());
         assert_eq!(o.len(), 300);
     }
 
+    /// Protects: the final `[0,1]` clamp in `amplify_region`'s write-back
+    /// holds even with an exaggerated detail amplitude.
     #[test]
     fn every_sample_stays_inside_the_unit_range() {
-        // Protects: the final `[0,1]` clamp in `amplify_region`'s write-back
-        // holds even with an exaggerated detail amplitude.
         let src = synthetic_field(24, 18, 3);
         let o = amplify_region(&src, 24, 18, &Region { x: 0, y: 0, w: 24, h: 18 }.to_float(), 40, 30,
                                &AmplifyOpts { detail_amp: 5.0, ..Default::default() });
         assert!(o.iter().all(|v| (0.0..=1.0).contains(v)));
     }
 
+    /// Protects: `detail_amp == 0.0` makes the noise term's coefficient
+    /// zero, so the noise family and seed cannot change the output.
     #[test]
     fn zero_detail_amplitude_is_a_pure_upsample() {
-        // Protects: `detail_amp == 0.0` makes the noise term's coefficient
-        // zero, so the noise family and seed cannot change the output.
         let src = synthetic_field(16, 12, 1);
         let reg = Region { x: 1, y: 1, w: 10, h: 8 }.to_float();
         let with = amplify_region(&src, 16, 12, &reg, 20, 16, &AmplifyOpts { detail_amp: 0.0, ..Default::default() });
@@ -792,11 +792,11 @@ mod tests {
         assert_eq!(with, flat);
     }
 
+    /// Protects: the converse of the zero-amplitude test above — a
+    /// non-zero `detail_amp` really does perturb the output (guards
+    /// against a term that got wired but multiplied away).
     #[test]
     fn the_detail_actually_changes_the_result() {
-        // Protects: the converse of the zero-amplitude test above — a
-        // non-zero `detail_amp` really does perturb the output (guards
-        // against a term that got wired but multiplied away).
         let src = synthetic_field(16, 12, 1);
         let reg = Region { x: 1, y: 1, w: 10, h: 8 }.to_float();
         let plain = amplify_region(&src, 16, 12, &reg, 20, 16, &AmplifyOpts::default());
@@ -805,10 +805,10 @@ mod tests {
         assert_ne!(plain, none, "detail_amp 0.14 produced the same field as 0.0");
     }
 
+    /// Protects: `opts.ridged` actually switches the noise family used for
+    /// the detail term, not just its label.
     #[test]
     fn ridged_and_fbm_detail_differ() {
-        // Protects: `opts.ridged` actually switches the noise family used for
-        // the detail term, not just its label.
         let src = synthetic_field(16, 12, 1);
         let reg = Region { x: 1, y: 1, w: 10, h: 8 }.to_float();
         let a = amplify_region(&src, 16, 12, &reg, 20, 16, &AmplifyOpts::default());
@@ -816,11 +816,11 @@ mod tests {
         assert_ne!(a, b);
     }
 
+    /// Protects: the seam property this module's header describes —
+    /// `refine_tile`'s one-coarse-column overlap gives two horizontally
+    /// adjacent tiles a byte-identical shared edge.
     #[test]
     fn adjacent_tiles_agree_exactly_on_their_shared_edge() {
-        // Protects: the seam property this module's header describes —
-        // `refine_tile`'s one-coarse-column overlap gives two horizontally
-        // adjacent tiles a byte-identical shared edge.
         let src = synthetic_field(48, 32, 5);
         let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
         let o = AmplifyOpts { seed: 4242, ..Default::default() };
@@ -836,10 +836,10 @@ mod tests {
         }
     }
 
+    /// Protects: the same seam property on the other axis — the row
+    /// overlap, not just the column one.
     #[test]
     fn vertically_adjacent_tiles_agree_too() {
-        // Protects: the same seam property on the other axis — the row
-        // overlap, not just the column one.
         let src = synthetic_field(48, 32, 5);
         let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
         let o = AmplifyOpts { seed: 4242, ..Default::default() };
@@ -903,10 +903,10 @@ mod tests {
         assert!(worst < 1e-6, "halo differs from the neighbour by {worst}");
     }
 
+    /// Protects: a 1x1 region degenerates to a constant field, not NaN —
+    /// the `rw <= 1`/`rh <= 1` branches of the coordinate mapping.
     #[test]
     fn a_collapsed_region_samples_one_coarse_point_everywhere() {
-        // Protects: a 1x1 region degenerates to a constant field, not NaN —
-        // the `rw <= 1`/`rh <= 1` branches of the coordinate mapping.
         let src = synthetic_field(16, 12, 2);
         let o = amplify_region(&src, 16, 12, &FloatRegion { x: 5.0, y: 5.0, w: 1.0, h: 1.0 }, 6, 6,
                                &AmplifyOpts::default());
@@ -916,11 +916,11 @@ mod tests {
         assert!(o[0].is_finite());
     }
 
+    /// Protects: the documented `0/0` divide-by-`outW-1` case is ported
+    /// as-written, not silently fixed — a real (non-degenerate) region
+    /// with `out_w == out_h == 1` must still come back NaN.
     #[test]
     fn a_single_pixel_output_over_a_real_region_is_all_nan_like_the_reference() {
-        // Protects: the documented `0/0` divide-by-`outW-1` case is ported
-        // as-written, not silently fixed — a real (non-degenerate) region
-        // with `out_w == out_h == 1` must still come back NaN.
         let src = synthetic_field(16, 12, 2);
         let o = amplify_region(&src, 16, 12, &Region { x: 2, y: 2, w: 10, h: 10 }.to_float(), 1, 1,
                                &AmplifyOpts::default());
@@ -930,20 +930,20 @@ mod tests {
         assert!(o[0].is_nan());
     }
 
+    /// Protects: `samp`'s edge behaviour is clamp, not wrap or panic —
+    /// querying far outside the source grid returns the nearest corner.
     #[test]
     fn the_sampler_clamps_rather_than_wrapping_at_every_edge() {
-        // Protects: `samp`'s edge behaviour is clamp, not wrap or panic —
-        // querying far outside the source grid returns the nearest corner.
         let src = synthetic_field(8, 6, 0);
         assert_eq!(samp(&src, 8, 6, -5.0, -5.0), src[0] as f64);
         assert_eq!(samp(&src, 8, 6, 99.0, 99.0), src[5 * 8 + 7] as f64);
     }
 
+    /// Protects: the `underwater` fade really does drive the detail term
+    /// to zero, leaving a pure upsample, once the whole field is below
+    /// sea level.
     #[test]
     fn underwater_cells_lose_their_detail() {
-        // Protects: the `underwater` fade really does drive the detail term
-        // to zero, leaving a pure upsample, once the whole field is below
-        // sea level.
         // A field entirely below sea level gets `underwater` >= 1 everywhere,
         // so taper is 0 and the output is the pure upsample.
         let src = vec![0.10f32; 16 * 12];
@@ -1088,11 +1088,13 @@ mod tests {
         assert!(band.iter().all(|&v| v as f64 >= SEA), "the band crossed the shelf");
     }
 
+    /// Protects: `refine_tile` over a 3 x 3 grid returns a buffer of exactly the requested
+    /// 8 x 8 size for the last tile (2, 2). The coverage claim the comment makes -- that the
+    /// last tile's sub-bounds reach `region.x + region.w` plus the one-cell overlap -- is
+    /// checked by arithmetic the test performs itself on `step_x`, not by reading anything
+    /// back from `refine_tile`, so the output is checked only for its length.
     #[test]
     fn refine_tile_covers_the_whole_region_across_its_grid() {
-        // Protects: the last tile of a `refine_tile` grid reaches exactly the
-        // region's far edge (plus the one-cell overlap), so tiling a region
-        // leaves no coarse strip unrendered.
         let src = synthetic_field(48, 32, 5);
         let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
         let o = AmplifyOpts::default();
@@ -1105,19 +1107,19 @@ mod tests {
         assert_eq!(t.len(), 64);
     }
 
+    /// Protects: an empty/zero-dimension source panics with a named
+    /// assertion instead of indexing past the end of `src`.
     #[test]
     #[should_panic(expected = "non-empty source field")]
     fn an_empty_source_is_rejected_rather_than_read_out_of_bounds() {
-        // Protects: an empty/zero-dimension source panics with a named
-        // assertion instead of indexing past the end of `src`.
         amplify_region(&[], 0, 0, &FloatRegion { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, 4, 4,
                        &AmplifyOpts::default());
     }
 
+    /// Protects: `AmplifyOpts::default()` matches the reference's own
+    /// hard-coded `amplifyRegion`/`refineTile` defaults.
     #[test]
     fn the_defaults_are_the_references_own() {
-        // Protects: `AmplifyOpts::default()` matches the reference's own
-        // hard-coded `amplifyRegion`/`refineTile` defaults.
         let d = AmplifyOpts::default();
         assert_eq!(d.seed, 1234);
         assert_eq!(d.detail_freq, 1.0);
@@ -1217,11 +1219,11 @@ mod tests {
         }
     }
 
+    /// Protects: `sample_elevation` is a pure function (same arguments,
+    /// same bits, twice) and two adjacent tiles' shared coarse edge really
+    /// does map to one value under it.
     #[test]
     fn sample_elevation_is_deterministic_and_seam_agreement_is_a_single_value() {
-        // Protects: `sample_elevation` is a pure function (same arguments,
-        // same bits, twice) and two adjacent tiles' shared coarse edge really
-        // does map to one value under it.
         let (cw, ch) = (48usize, 32usize);
         let src = synthetic_field(cw, ch, 5);
         let opts = AmplifyOpts { seed: 4242, ..Default::default() };
@@ -1271,11 +1273,11 @@ mod tests {
         assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { sea: 0.99, ..o }), "sea");
     }
 
+    /// Protects: `sample_elevation` stays finite (never panics or returns
+    /// NaN from an index issue) for coordinates far outside the coarse
+    /// field — `samp`'s clamp reaches through the whole point-query path.
     #[test]
     fn the_point_query_clamps_outside_the_field_rather_than_panicking() {
-        // Protects: `sample_elevation` stays finite (never panics or returns
-        // NaN from an index issue) for coordinates far outside the coarse
-        // field — `samp`'s clamp reaches through the whole point-query path.
         let (cw, ch) = (16usize, 12usize);
         let src = synthetic_field(cw, ch, 0);
         let o = AmplifyOpts::default();
@@ -1286,13 +1288,13 @@ mod tests {
         }
     }
 
+    /// Protects: `z_base_for_tile_size` returns the reference's own `2` at
+    /// its 1024px default, holds the "halving the tile is one level
+    /// deeper" relationship, and never sends a zero into `log2`.
+    /// Literals, not `AmplifyOpts::default().z_base`: an assertion written
+    /// against the constant holds for every value of it.
     #[test]
     fn z_base_for_tile_size_matches_the_references_own_quoted_sizes() {
-        // Protects: `z_base_for_tile_size` returns the reference's own `2` at
-        // its 1024px default, holds the "halving the tile is one level
-        // deeper" relationship, and never sends a zero into `log2`.
-        // Literals, not `AmplifyOpts::default().z_base`: an assertion written
-        // against the constant holds for every value of it.
         assert_eq!(z_base_for_tile_size(1024), 2, "the reference's own _lodTile");
         assert_eq!(z_base_for_tile_size(512), 3);
         assert_eq!(z_base_for_tile_size(256), 4, "cartalith_godot::lod_bridge::TILE_PX");

@@ -170,6 +170,12 @@ fn prov_count(g: &Graph, prov: &str) -> usize {
 // count and radii, live edge counts by class and by provenance, the whole
 // graph's fnv1a hash, and the canal at three different radii — against a
 // single-ulp regression anywhere in `build_radial_streets` or `build_waterway`.
+/// Protects: the radial plan against the reference's captured values for every scenario
+/// in `golden::GOLDEN` (at least 21): the market anchor restated bit for bit, the spoke
+/// count, the ring count (the hub ring plus five), the per-provenance edge counts (ring,
+/// spoke, cross-spoke), the node and edge counts, and the waterway records -- count,
+/// kind, provenance, vertex count and vertex hash, again at r = 60. Fresh doc: this test
+/// had no `Protects` paragraph.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
     assert!(golden::GOLDEN.len() >= 21, "the golden set shrank");

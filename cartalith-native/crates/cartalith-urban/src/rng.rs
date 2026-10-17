@@ -163,11 +163,11 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    /// Protects: fnv1a's UTF-16 hash against the reference's own output
+    /// for the exact substream labels this engine actually draws.
+    /// reference: UME.fnv1a(label)
     #[test]
     fn golden_fnv1a() {
-        // Protects: fnv1a's UTF-16 hash against the reference's own output
-        // for the exact substream labels this engine actually draws.
-        // reference: UME.fnv1a(label)
         for (label, want) in [
             ("", 2166136261u32),
             ("site", 932310606),
@@ -186,11 +186,11 @@ mod tests {
         }
     }
 
+    /// Protects: stream()'s seed derivation (mulberry32(seed ^ fnv1a(label)))
+    /// and the raw draw sequence against the reference's own values.
+    /// reference: const r=UME.stream(seed,label); r.u() x8
     #[test]
     fn golden_stream_raw_draws() {
-        // Protects: stream()'s seed derivation (mulberry32(seed ^ fnv1a(label)))
-        // and the raw draw sequence against the reference's own values.
-        // reference: const r=UME.stream(seed,label); r.u() x8
         let cases: [(u32, &str, [f64; 8]); 6] = [
             (0, "site", [
                 0.6914413259364665, 0.7049627169035375, 0.2130293461959809, 0.4871823317371309,
@@ -225,12 +225,12 @@ mod tests {
         }
     }
 
+    /// Protects: range/int/pick_index/norm/logn/chance, all off one shared
+    /// generator, in call order — the shared state makes order load-bearing.
+    /// reference: one stream(12345,'ops') driven through each helper in
+    /// this order — the shared generator makes the ORDER part of the golden.
     #[test]
     fn golden_stream_helpers() {
-        // Protects: range/int/pick_index/norm/logn/chance, all off one shared
-        // generator, in call order — the shared state makes order load-bearing.
-        // reference: one stream(12345,'ops') driven through each helper in
-        // this order — the shared generator makes the ORDER part of the golden.
         let mut r = stream(12345, "ops");
         for w in [
             4.211377810395788, 1.4987015617080033, 0.2666817402932793, -1.873793491453398,
@@ -262,14 +262,14 @@ mod tests {
         }
     }
 
+    /// Protects: logn's Box-Muller draw pairing at a real call-site shape
+    /// (buildParcels' substream), not just a synthetic one.
+    /// reference: buildParcels' own substream shape,
+    /// stream((fnv1a(blk.id)^0)>>>0,'parcels/'+blk.id), driven through logn
+    /// as buildParcels drives it — pins the Box-Muller draw pairing against
+    /// a call site the engine really has, not just a synthetic one.
     #[test]
     fn golden_logn_at_a_real_call_site() {
-        // Protects: logn's Box-Muller draw pairing at a real call-site shape
-        // (buildParcels' substream), not just a synthetic one.
-        // reference: buildParcels' own substream shape,
-        // stream((fnv1a(blk.id)^0)>>>0,'parcels/'+blk.id), driven through logn
-        // as buildParcels drives it — pins the Box-Muller draw pairing against
-        // a call site the engine really has, not just a synthetic one.
         let mut r = stream(fnv1a("blk7"), "parcels/blk7");
         for w in [
             39.39784913136483, 20.438528410799016, 31.163337459954445, 31.013435141033312,
@@ -279,13 +279,13 @@ mod tests {
         }
     }
 
+    /// Protects: pick_index on an empty slice still consuming a draw, so
+    /// the shared generator cannot desynchronise against the reference.
+    /// JS `arr[Math.floor(f()*0)]` is `undefined`; this port says so in the
+    /// type. `f()` is evaluated regardless, so the generator advances —
+    /// a port that short-circuited would desynchronise every later draw.
     #[test]
     fn pick_on_empty_is_none_but_still_consumes_a_draw() {
-        // Protects: pick_index on an empty slice still consuming a draw, so
-        // the shared generator cannot desynchronise against the reference.
-        // JS `arr[Math.floor(f()*0)]` is `undefined`; this port says so in the
-        // type. `f()` is evaluated regardless, so the generator advances —
-        // a port that short-circuited would desynchronise every later draw.
         let mut r = stream(1, "x");
         assert_eq!(r.pick::<u8>(&[]), None);
         let mut plain = stream(1, "x");

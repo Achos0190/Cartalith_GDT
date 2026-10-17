@@ -635,10 +635,10 @@ pub fn heightmap_to_field(
 mod tests {
     use super::*;
 
+    /// Protects: heightmap_grid_h's aspect-ratio derivation, the
+    /// `max(80, ...)` floor, and the zero-dimension guard.
     #[test]
     fn heightmap_grid_h_follows_image_aspect_and_floors_at_80() {
-        // Protects: heightmap_grid_h's aspect-ratio derivation, the
-        // `max(80, ...)` floor, and the zero-dimension guard.
         assert_eq!(heightmap_grid_h(1024, 2000, 1000), 512);
         assert_eq!(heightmap_grid_h(1024, 1000, 1000), 1024);
         // A very wide image would give a 1-row grid; the reference's own
@@ -648,12 +648,12 @@ mod tests {
         assert_eq!(heightmap_grid_h(512, 0, 0), 80);
     }
 
+    /// Protects: the Rec. 601 luma weights (0.299/0.587/0.114) against a
+    /// mutation to a flat RGB mean, which would land at a distinctly
+    /// different value on a pure-red pixel.
+    /// One pure-red pixel: Rec. 601 luma is 0.299, a flat RGB mean 0.333.
     #[test]
     fn heightmap_luma_uses_rec601_weights_not_a_flat_mean() {
-        // Protects: the Rec. 601 luma weights (0.299/0.587/0.114) against a
-        // mutation to a flat RGB mean, which would land at a distinctly
-        // different value on a pure-red pixel.
-        // One pure-red pixel: Rec. 601 luma is 0.299, a flat RGB mean 0.333.
         let px = [255u8, 0, 0, 255];
         let f = heightmap_to_field(&px, 1, 1, 1, 1);
         assert!((f[0] - 0.299).abs() < 1e-6, "got {}", f[0]);
@@ -661,21 +661,21 @@ mod tests {
         assert!((f[0] - 1.0 / 3.0).abs() > 1e-3);
     }
 
+    /// Protects: the box-average downsample actually averaging its
+    /// source span rather than sampling a single pixel from it.
+    /// 2x1 black/white -> one cell must be mid grey, not one or the other.
     #[test]
     fn heightmap_downsample_averages_rather_than_dropping_pixels() {
-        // Protects: the box-average downsample actually averaging its
-        // source span rather than sampling a single pixel from it.
-        // 2x1 black/white -> one cell must be mid grey, not one or the other.
         let px = [0u8, 0, 0, 255, 255, 255, 255, 255];
         let f = heightmap_to_field(&px, 2, 1, 1, 1);
         assert!((f[0] - 0.5).abs() < 1e-6, "got {}", f[0]);
     }
 
+    /// Protects: the span-clamping arithmetic (`max(sx0+1)`) that keeps
+    /// an upsample's degenerate single-source-row/column span from
+    /// collapsing every target cell onto one source pixel or panicking.
     #[test]
     fn heightmap_upsample_replicates_without_panicking_on_empty_spans() {
-        // Protects: the span-clamping arithmetic (`max(sx0+1)`) that keeps
-        // an upsample's degenerate single-source-row/column span from
-        // collapsing every target cell onto one source pixel or panicking.
         let px = [0u8, 0, 0, 255, 255, 255, 255, 255];
         let f = heightmap_to_field(&px, 2, 1, 6, 3);
         assert_eq!(f.len(), 18);
@@ -685,19 +685,19 @@ mod tests {
         assert!(f[0] < 0.1 && f[5] > 0.9);
     }
 
+    /// Protects: the module doc's "all-zero is correct, not a failure"
+    /// claim -- a world with no subduction/arc cells must return all
+    /// zeros, not panic or return garbage.
     #[test]
     fn stamp_volcanic_arcs_is_empty_without_arc_boundaries() {
-        // Protects: the module doc's "all-zero is correct, not a failure"
-        // claim -- a world with no subduction/arc cells must return all
-        // zeros, not panic or return garbage.
         let bt = vec![btype::COLLISION; 24];
         assert!(stamp_volcanic_arcs(&bt, 6, 4, None).iter().all(|&v| v == 0.0));
     }
 
+    /// Protects: the chamfer-distance-driven exponential decay peaking at
+    /// exactly 1 on the arc cell itself and falling off away from it.
     #[test]
     fn stamp_volcanic_arcs_peaks_at_one_on_an_arc_cell() {
-        // Protects: the chamfer-distance-driven exponential decay peaking at
-        // exactly 1 on the arc cell itself and falling off away from it.
         let mut bt = vec![btype::RIFT; 24];
         bt[9] = btype::ARC_OO;
         let out = stamp_volcanic_arcs(&bt, 6, 4, None);
@@ -705,11 +705,11 @@ mod tests {
         assert!(out[8] < 1.0 && out[8] > 0.0, "decays away from it");
     }
 
+    /// Protects: the `c[p] == 0.0` fallback zeroing a plate's velocity
+    /// (rather than leaving a stale non-zero value) when it has no
+    /// convergent-margin cells to derive a direction from.
     #[test]
     fn infer_plate_velocities_zeroes_a_plate_with_no_convergent_margin() {
-        // Protects: the `c[p] == 0.0` fallback zeroing a plate's velocity
-        // (rather than leaving a stale non-zero value) when it has no
-        // convergent-margin cells to derive a direction from.
         let mut plates = vec![
             Plate { x: 1.5, y: 1.5, vx: 9.0, vy: 9.0, base: 0.6 },
             Plate { x: 4.5, y: 1.5, vx: 9.0, vy: 9.0, base: -0.6 },
@@ -722,10 +722,10 @@ mod tests {
         assert_eq!((plates[1].vx, plates[1].vy), (0.0, 0.0));
     }
 
+    /// Protects: the oceanic/continental sign split at sea level and the
+    /// `[0.55, 1]` magnitude range classify_plate_crust must stay within.
     #[test]
     fn classify_plate_crust_signs_split_at_sea_level_with_a_055_floor() {
-        // Protects: the oceanic/continental sign split at sea level and the
-        // `[0.55, 1]` magnitude range classify_plate_crust must stay within.
         // Two cells, one plate each, one side of sea level each.
         let fld = [0.2f32, 0.8];
         let ids = [0u16, 1];
@@ -735,11 +735,11 @@ mod tests {
         assert!(base[0].abs() <= 1.0 && base[1] <= 1.0);
     }
 
+    /// Protects: the reference's own `cnt[p]?...:sea` fallback for a
+    /// plate with zero cells -- it must classify continental at exactly
+    /// the 0.55 floor, not panic on a divide-by-zero mean.
     #[test]
     fn classify_plate_crust_treats_an_empty_plate_as_sea_level() {
-        // Protects: the reference's own `cnt[p]?...:sea` fallback for a
-        // plate with zero cells -- it must classify continental at exactly
-        // the 0.55 floor, not panic on a divide-by-zero mean.
         let fld = [0.9f32, 0.9];
         let ids = [0u16, 0];
         let base = classify_plate_crust(&fld, &ids, 2, 2, 1, 0.4);

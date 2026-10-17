@@ -262,11 +262,11 @@ fn ring_at(m: Vec2) -> Vec<Vec2> {
 
 /* ---------------------------------------------------------------- markets */
 
+/// Protects: the market anchor and fixture graph shape, every placed
+/// market's name/centre/poly/provenance, and the cleared-parcel and
+/// removed-building index lists — over all 30 captured scenarios.
 #[test]
 fn golden_markets_reproduce_the_reference_exactly() {
-    // Protects: the market anchor and fixture graph shape, every placed
-    // market's name/centre/poly/provenance, and the cleared-parcel and
-    // removed-building index lists — over all 30 captured scenarios.
     let mut total = 0usize;
     let mut cleared_seen = 0usize;
     let mut removed_seen = 0usize;
@@ -382,11 +382,11 @@ fn band_fixture(d: f64, spokes: usize) -> (Site, Anchors, Graph, Plaza) {
     (site, anchors, g, plaza)
 }
 
+/// Protects: the 85-300 m candidate band, inclusive at both ends; that a
+/// degree-2 bend is not a market site while degree 3/4 are; and that the
+/// junction degree is counted over live edges only.
 #[test]
 fn the_candidate_band_and_the_junction_degree_are_exact() {
-    // Protects: the 85-300 m candidate band, inclusive at both ends; that a
-    // degree-2 bend is not a market site while degree 3/4 are; and that the
-    // junction degree is counted over live edges only.
     let placed = |d: f64, spokes: usize| {
         let (site, anchors, g, plaza) = band_fixture(d, spokes);
         let p = Vec2::new(anchors.market.x + d, anchors.market.y);
@@ -581,11 +581,11 @@ fn no_junction_places_no_market() {
 
 /* ------------------------------------------------------------------ civic */
 
+/// Protects: build_civic's style/name/dome/provenance, centre, hall,
+/// columns, belfry and apse (presence and value), and that a refusal
+/// (None) and a build agree with the reference — over all 20 scenarios.
 #[test]
 fn golden_civic_reproduces_the_reference_exactly() {
-    // Protects: build_civic's style/name/dome/provenance, centre, hall,
-    // columns, belfry and apse (presence and value), and that a refusal
-    // (None) and a build agree with the reference — over all 20 scenarios.
     let f = fixture(golden::CIVIC_SEED, golden::CIVIC_KIND);
     let mut built = 0usize;
     let mut refused = 0usize;
@@ -800,11 +800,11 @@ fn a_nan_population_stays_nan_through_the_rank_curve() {
 
 /* ------------------------------------------------------------------ games */
 
+/// Protects: build_games' placed count, and each placed building's id,
+/// kind, name, provenance, centre and poly — over all 50 scenarios,
+/// including the honest-omission (empty) path.
 #[test]
 fn golden_games_reproduce_the_reference_exactly() {
-    // Protects: build_games' placed count, and each placed building's id,
-    // kind, name, provenance, centre and poly — over all 50 scenarios,
-    // including the honest-omission (empty) path.
     let mut placed = 0usize;
     let mut empty = 0usize;
     for c in golden::GAMES {
@@ -966,10 +966,10 @@ fn a_placed_games_building_clears_the_box_and_the_water() {
 
 /* ----------------------------------------------- orientedRect / spec table */
 
+/// Protects: oriented_rect matches the reference's own captured cases,
+/// and games_shape_at agrees with oriented_rect for every surviving spec.
 #[test]
 fn oriented_rect_and_games_shape_at_are_the_references_own() {
-    // Protects: oriented_rect matches the reference's own captured cases,
-    // and games_shape_at agrees with oriented_rect for every surviving spec.
     assert!(!golden::RECTS.is_empty());
     let spec = &games_spec("medieval")[0];
     for (i, c) in golden::RECTS.iter().enumerate() {
@@ -984,11 +984,11 @@ fn oriented_rect_and_games_shape_at_are_the_references_own() {
     }
 }
 
+/// Protects: the medieval and venus spec table lengths, and every field
+/// of the medieval table's first entry, against the reference's own
+/// captured values.
 #[test]
 fn the_games_spec_table_is_the_references_own() {
-    // Protects: the medieval and venus spec table lengths, and every field
-    // of the medieval table's first entry, against the reference's own
-    // captured values.
     assert_eq!(games_spec("medieval").len(), golden::SPEC_MEDIEVAL_LEN);
     assert_eq!(games_spec("venus").len(), golden::SPEC_VENUS_LEN);
     let s = &games_spec("medieval")[0];

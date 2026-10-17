@@ -249,20 +249,20 @@ const G18_TO_SRGB: [[u8; 3]; 10] = [
 // The chunk walk
 // ---------------------------------------------------------------------------
 
+/// Protects: the CRC the chunk walk uses to decide a colour chunk is
+/// readable. Literals: IEND's CRC 0xAE426082 (every PNG ends with it) and
+/// the sRGB-intent-0 chunk's 0xAECE1CE9 (ET-E1's pinned constant, read
+/// from the png crate's own writer).
 #[test]
 fn png_crc32_matches_published_chunk_crcs() {
-    // Protects: the CRC the chunk walk uses to decide a colour chunk is
-    // readable. Literals: IEND's CRC 0xAE426082 (every PNG ends with it) and
-    // the sRGB-intent-0 chunk's 0xAECE1CE9 (ET-E1's pinned constant, read
-    // from the png crate's own writer).
     assert_eq!(png_crc32(&[b"IEND", b""]), 0xAE42_6082);
     assert_eq!(png_crc32(&[b"sRGB", &[0]]), 0xAECE_1CE9);
 }
 
+/// Protects: the walker's framing (length, type, data, CRC), its stop at
+/// IEND, and that a corrupted CRC is reported rather than trusted.
 #[test]
 fn png_chunks_walks_a_real_file_and_flags_bad_crcs() {
-    // Protects: the walker's framing (length, type, data, CRC), its stop at
-    // IEND, and that a corrupted CRC is reported rather than trusted.
     let png = untagged_png();
     let list = png_chunks(&png).expect("a valid PNG walks");
     let kinds: Vec<&[u8; 4]> = list.iter().map(|c| &c.kind).collect();
@@ -278,19 +278,19 @@ fn png_chunks_walks_a_real_file_and_flags_bad_crcs() {
     assert!(!srgb.crc_ok, "a wrong CRC must be flagged");
 }
 
+/// Protects: the walker never panics or reads past the buffer.
 #[test]
 fn png_chunks_refuses_a_missing_signature_and_a_truncated_file() {
-    // Protects: the walker never panics or reads past the buffer.
     assert!(png_chunks(b"not a png").is_err());
     let png = untagged_png();
     assert!(png_chunks(&png[..40]).is_err(), "a chunk running past the end is an error");
 }
 
+/// Protects: the chunk field layouts (cICP 4, sRGB 1, gAMA 4, cHRM 32
+/// bytes), the IHDR colour type, the stop at the first IDAT (PNG-3 puts
+/// every colour chunk before it), and duplicate reporting.
 #[test]
 fn colour_chunks_reads_fields_stops_at_idat_and_reports_duplicates() {
-    // Protects: the chunk field layouts (cICP 4, sRGB 1, gAMA 4, cHRM 32
-    // bytes), the IHDR colour type, the stop at the first IDAT (PNG-3 puts
-    // every colour chunk before it), and duplicate reporting.
     let png = splice(
         &untagged_png(),
         &[
@@ -342,10 +342,10 @@ fn colour_chunks_reads_fields_stops_at_idat_and_reports_duplicates() {
 /// running it on this fixture, 2026-10-11).
 const UNTAGGED_RGBA_FNV: u64 = 0x232d_f214_a7db_8da9;
 
+/// Protects: the standing constraint (no colour chunk -> today's bytes)
+/// and the report's honesty: "untagged (treated as sRGB)", not "sRGB".
 #[test]
 fn an_untagged_image_imports_byte_identical_and_says_it_was_assumed() {
-    // Protects: the standing constraint (no colour chunk -> today's bytes)
-    // and the report's honesty: "untagged (treated as sRGB)", not "sRGB".
     let png = untagged_png();
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!(img.rgba, decode_png(&png).unwrap().rgba);
@@ -363,10 +363,10 @@ fn an_untagged_image_imports_byte_identical_and_says_it_was_assumed() {
     );
 }
 
+/// Protects: an sRGB-chunk image (every ET-E1 default export) re-imports
+/// with today's bytes and is reported as sRGB, not converted.
 #[test]
 fn an_srgb_tagged_image_imports_byte_identical() {
-    // Protects: an sRGB-chunk image (every ET-E1 default export) re-imports
-    // with today's bytes and is reported as sRGB, not converted.
     let png = encode_png_rgb8(5, 2, colour_rgb(), PngColour::Srgb).unwrap();
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!(fnv(&img.rgba), UNTAGGED_RGBA_FNV);
@@ -374,11 +374,11 @@ fn an_srgb_tagged_image_imports_byte_identical() {
     assert!(r.warnings.is_empty());
 }
 
+/// Protects: an embedded sRGB ICC profile and cICP 1/13 are read as sRGB
+/// with today's bytes (byte identity by control flow), and Display P3 is
+/// NOT taken for sRGB by the equivalence test.
 #[test]
 fn an_srgb_equivalent_icc_profile_and_srgb_cicp_do_not_convert() {
-    // Protects: an embedded sRGB ICC profile and cICP 1/13 are read as sRGB
-    // with today's bytes (byte identity by control flow), and Display P3 is
-    // NOT taken for sRGB by the equivalence test.
     let srgb_icc = moxcms::ColorProfile::new_srgb().encode().unwrap();
     let png = encode_png_rgb8(5, 2, colour_rgb(), PngColour::IccProfile(&srgb_icc)).unwrap();
     let (img, r) = decode_png_managed(&png).unwrap();
@@ -399,13 +399,13 @@ fn an_srgb_equivalent_icc_profile_and_srgb_cicp_do_not_convert() {
 // Conversions, against the independent reference
 // ---------------------------------------------------------------------------
 
+/// Protects: the conversion itself (skip it and pure P3 green stays
+/// (0,255,0) but (200,100,50) stays (200,100,50), not (215,93,31)), the
+/// relative-colorimetric clip (P3 red (255,0,0) is linear sRGB
+/// (1.225,-0.042,-0.020): it must land on (255,0,0) exactly), and the
+/// report.
 #[test]
 fn a_display_p3_iccp_image_converts_to_the_reference_srgb_and_clips() {
-    // Protects: the conversion itself (skip it and pure P3 green stays
-    // (0,255,0) but (200,100,50) stays (200,100,50), not (215,93,31)), the
-    // relative-colorimetric clip (P3 red (255,0,0) is linear sRGB
-    // (1.225,-0.042,-0.020): it must land on (255,0,0) exactly), and the
-    // report.
     let (img, r) = decode_png_managed(&p3_png()).unwrap();
     assert_near(&rgb_of(&img), &P3_TO_SRGB, &P3_CLIPPED, "P3 iCCP");
     assert_eq!(rgb_of(&img)[0], [255, 0, 0], "P3 red clips to sRGB red");
@@ -416,10 +416,10 @@ fn a_display_p3_iccp_image_converts_to_the_reference_srgb_and_clips() {
     assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 }
 
+/// Protects: cICP primaries 12 (Display P3) with the sRGB transfer reaches
+/// the same pixels as the iCCP profile, both against the reference.
 #[test]
 fn a_cicp_p3_image_converts_like_the_iccp_one() {
-    // Protects: cICP primaries 12 (Display P3) with the sRGB transfer reaches
-    // the same pixels as the iCCP profile, both against the reference.
     let png = splice(&untagged_png(), &[(b"cICP", cicp(12, 13), None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_near(&rgb_of(&img), &P3_TO_SRGB, &P3_CLIPPED, "P3 cICP");
@@ -432,18 +432,18 @@ fn a_cicp_p3_image_converts_like_the_iccp_one() {
     assert_eq!((r.source.as_str(), r.tag, r.converted), ("Display P3 (cICP)", Some("cICP"), true));
 }
 
+/// Protects: cICP primaries 9 (Rec. 2020).
 #[test]
 fn a_cicp_rec2020_image_converts_to_the_reference() {
-    // Protects: cICP primaries 9 (Rec. 2020).
     let png = splice(&untagged_png(), &[(b"cICP", cicp(9, 13), None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_near(&rgb_of(&img), &R2020_TO_SRGB, &R2020_CLIPPED, "Rec. 2020 cICP");
     assert!(r.converted);
 }
 
+/// Protects: a non-P3 matrix/TRC ICC profile with its own gamma.
 #[test]
 fn an_adobe_rgb_icc_image_converts_to_the_reference() {
-    // Protects: a non-P3 matrix/TRC ICC profile with its own gamma.
     let adobe = moxcms::ColorProfile::new_adobe_rgb().encode().unwrap();
     let png = encode_png_rgb8(5, 2, colour_rgb(), PngColour::IccProfile(&adobe)).unwrap();
     let (img, r) = decode_png_managed(&png).unwrap();
@@ -451,10 +451,10 @@ fn an_adobe_rgb_icc_image_converts_to_the_reference() {
     assert!(r.converted);
 }
 
+/// Protects: tier 4. gamma 1/0.55556 with sRGB primaries converts to the
+/// reference; the PNG spec's sRGB pair (45455 + sRGB cHRM) does not.
 #[test]
 fn gama_and_chrm_convert_unless_they_are_the_srgb_compatibility_pair() {
-    // Protects: tier 4. gamma 1/0.55556 with sRGB primaries converts to the
-    // reference; the PNG spec's sRGB pair (45455 + sRGB cHRM) does not.
     let png = splice(
         &untagged_png(),
         &[(b"gAMA", 55556u32.to_be_bytes().to_vec(), None), (b"cHRM", chrm(SRGB_CHRM), None)],
@@ -473,10 +473,10 @@ fn gama_and_chrm_convert_unless_they_are_the_srgb_compatibility_pair() {
     assert!(gama_chrm_is_srgb(45455, SRGB_CHRM) && !gama_chrm_is_srgb(55556, SRGB_CHRM));
 }
 
+/// Protects: no primaries -> no guess. The pixels stay today's, the
+/// report says why.
 #[test]
 fn gama_alone_is_warned_and_not_converted() {
-    // Protects: no primaries -> no guess. The pixels stay today's, the
-    // report says why.
     let png = splice(&untagged_png(), &[(b"gAMA", 55556u32.to_be_bytes().to_vec(), None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!(fnv(&img.rgba), UNTAGGED_RGBA_FNV);
@@ -489,9 +489,9 @@ fn gama_alone_is_warned_and_not_converted() {
 // Precedence (PNG-3: cICP > iCCP > sRGB > gAMA/cHRM)
 // ---------------------------------------------------------------------------
 
+/// Protects: tier 1 beats tiers 2 and 3.
 #[test]
 fn cicp_wins_over_srgb_and_iccp() {
-    // Protects: tier 1 beats tiers 2 and 3.
     let png = splice(&untagged_png(), &[(b"cICP", cicp(12, 13), None), (b"sRGB", vec![0], None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!((r.tag, r.converted), (Some("cICP"), true));
@@ -504,9 +504,9 @@ fn cicp_wins_over_srgb_and_iccp() {
     assert_eq!(fnv(&img.rgba), UNTAGGED_RGBA_FNV);
 }
 
+/// Protects: tier 2 beats tier 3, tier 3 beats tier 4.
 #[test]
 fn iccp_wins_over_srgb_and_srgb_wins_over_gama_chrm() {
-    // Protects: tier 2 beats tier 3, tier 3 beats tier 4.
     let png = splice(&p3_png(), &[(b"sRGB", vec![0], None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!((r.tag, r.converted), (Some("iCCP"), true));
@@ -521,10 +521,10 @@ fn iccp_wins_over_srgb_and_srgb_wins_over_gama_chrm() {
     assert_eq!(fnv(&img.rgba), UNTAGGED_RGBA_FNV);
 }
 
+/// Protects: an HDR (PQ) cICP is not tone-mapped and not silently
+/// ignored: it warns and the next tier (here a P3 iCCP) decides.
 #[test]
 fn an_unsupported_cicp_falls_through_with_a_warning() {
-    // Protects: an HDR (PQ) cICP is not tone-mapped and not silently
-    // ignored: it warns and the next tier (here a P3 iCCP) decides.
     let png = splice(&p3_png(), &[(b"cICP", cicp(9, 16), None)]);
     let (img, r) = decode_png_managed(&png).unwrap();
     assert_eq!((r.tag, r.converted), (Some("iCCP"), true));
@@ -537,11 +537,11 @@ fn an_unsupported_cicp_falls_through_with_a_warning() {
 // Profiles that cannot be used
 // ---------------------------------------------------------------------------
 
+/// Protects: a profile that will not inflate, one that inflates to
+/// garbage, and one with a bad CRC each warn, keep today's pixels and
+/// never fail the import.
 #[test]
 fn a_corrupt_iccp_is_a_warning_and_untagged_treatment() {
-    // Protects: a profile that will not inflate, one that inflates to
-    // garbage, and one with a bad CRC each warn, keep today's pixels and
-    // never fail the import.
     for (what, chunk, needle) in [
         ("not zlib", {
             let mut v = b"bad\0\0".to_vec();
@@ -561,12 +561,12 @@ fn a_corrupt_iccp_is_a_warning_and_untagged_treatment() {
     }
 }
 
+/// Protects: a CMYK profile on an RGB PNG (invalid per PNG-3, seen in the
+/// wild) is named and left alone, never pushed through an RGB transform.
+/// Built by relabelling an encoded RGB profile's header colour-space
+/// field (ICC.1 header bytes 16..20) as 'CMYK'.
 #[test]
 fn a_cmyk_profile_is_warned_and_not_converted() {
-    // Protects: a CMYK profile on an RGB PNG (invalid per PNG-3, seen in the
-    // wild) is named and left alone, never pushed through an RGB transform.
-    // Built by relabelling an encoded RGB profile's header colour-space
-    // field (ICC.1 header bytes 16..20) as 'CMYK'.
     let mut icc = moxcms::ColorProfile::new_srgb().encode().unwrap();
     icc[16..20].copy_from_slice(b"CMYK");
     let parsed = moxcms::ColorProfile::new_from_slice(&icc).expect("moxcms reads the relabelled header");
@@ -583,9 +583,9 @@ fn a_cmyk_profile_is_warned_and_not_converted() {
 // Alpha, 16-bit
 // ---------------------------------------------------------------------------
 
+/// Protects: alpha is not colour.
 #[test]
 fn alpha_survives_a_conversion_untouched() {
-    // Protects: alpha is not colour.
     let rgba: Vec<u8> = COLOURS.iter().enumerate().flat_map(|(i, c)| [c[0], c[1], c[2], (i * 25) as u8]).collect();
     let base = encode_png(&DecodedImage::new(5, 2, rgba.clone()).unwrap()).unwrap();
     let png = splice(&base, &[(b"iCCP", iccp_body(p3_profile()), None)]);
@@ -596,11 +596,11 @@ fn alpha_survives_a_conversion_untouched() {
     assert_near(&rgb_of(&img), &P3_TO_SRGB, &P3_CLIPPED, "RGBA P3");
 }
 
+/// Protects: 16-bit is handled (reduced to 8 bits by decode_png exactly
+/// as before, then converted), not skipped. Values are v*257 so the
+/// reduction is exact.
 #[test]
 fn a_sixteen_bit_p3_image_converts_like_its_eight_bit_twin() {
-    // Protects: 16-bit is handled (reduced to 8 bits by decode_png exactly
-    // as before, then converted), not skipped. Values are v*257 so the
-    // reduction is exact.
     let mut buf = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut buf, 5, 2);
@@ -634,11 +634,11 @@ fn coloured_heightmap() -> Vec<u8> {
     encode_png_rgb8(w, h, rgb, PngColour::Data).unwrap()
 }
 
+/// Protects: ET-E2's "heightmaps are never converted". The positive
+/// control shows the tag WOULD move these pixels through the managed
+/// decode, so the equality below is not vacuous.
 #[test]
 fn a_p3_tagged_heightmap_imports_to_the_same_field_as_its_untagged_twin() {
-    // Protects: ET-E2's "heightmaps are never converted". The positive
-    // control shows the tag WOULD move these pixels through the managed
-    // decode, so the equality below is not vacuous.
     let plain = coloured_heightmap();
     let tagged = splice(&plain, &[(b"iCCP", iccp_body(p3_profile()), None)]);
     let cicp_tagged = splice(&plain, &[(b"cICP", cicp(12, 13), None)]);
@@ -660,11 +660,11 @@ fn a_p3_tagged_heightmap_imports_to_the_same_field_as_its_untagged_twin() {
 // The import paths
 // ---------------------------------------------------------------------------
 
+/// Protects: the two asset entry points behind `as_import_item` and
+/// `as_load_sheet` run the managed decode, store converted pixels, and
+/// hand the report back.
 #[test]
 fn the_asset_library_import_and_the_slicer_convert_and_report() {
-    // Protects: the two asset entry points behind `as_import_item` and
-    // `as_load_sheet` run the managed decode, store converted pixels, and
-    // hand the report back.
     let mut s = crate::asset_bridge::AssetLibrarySession::new();
     let uid = s.add_custom_slot("p3", None);
     let r = s.import_item_managed(&uid, "p3".into(), &p3_png()).unwrap();
@@ -679,11 +679,11 @@ fn the_asset_library_import_and_the_slicer_convert_and_report() {
     assert_eq!(fnv(&s.image(&uid, 1).unwrap().rgba), UNTAGGED_RGBA_FNV);
 }
 
+/// Protects: asset-pack images (the scope's "asset-pack images") go
+/// through the managed decode, and the pack keeps one report per tagged
+/// image, keyed by its archive path.
 #[test]
 fn a_loaded_pack_converts_tagged_images_and_lists_them() {
-    // Protects: asset-pack images (the scope's "asset-pack images") go
-    // through the managed decode, and the pack keeps one report per tagged
-    // image, keyed by its archive path.
     let manifest = br#"{"schema":2,"name":"p3","structures":{"trait":{"mining":["structures/trait/mining_01.png","structures/trait/mining_02.png"]}}}"#;
     let p3 = p3_png();
     let plain = untagged_png();

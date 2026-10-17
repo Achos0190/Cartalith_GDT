@@ -2303,10 +2303,10 @@ mod tests {
         out
     }
 
-    // Protects: the overlay's chunked river rebuild (`map_overlay.gd` layer
-    // cache) drawing the SAME stroke as the whole call -- every chunking of the
-    // runs, glued in order, is bit-identical to `0..len`, including a range
-    // running past the end and an empty one.
+    /// Protects: the overlay's chunked river rebuild (`map_overlay.gd` layer
+    /// cache) drawing the SAME stroke as the whole call -- every chunking of the
+    /// runs, glued in order, is bit-identical to `0..len`, including a range
+    /// running past the end and an empty one.
     #[test]
     fn chunked_view_mesh_is_the_whole_mesh_in_order() {
         let g = five_runs();
@@ -2324,9 +2324,9 @@ mod tests {
         }
     }
 
-    // Protects: a chunk draws only its own runs -- a middle chunk is not the
-    // whole network, and a range wholly past the end draws nothing (the
-    // overlay asks for `n*idx/count ..` ranges, which can be empty).
+    /// Protects: a chunk draws only its own runs -- a middle chunk is not the
+    /// whole network, and a range wholly past the end draws nothing (the
+    /// overlay asks for `n*idx/count ..` ranges, which can be empty).
     #[test]
     fn a_chunk_draws_only_its_own_runs() {
         let g = five_runs();

@@ -149,10 +149,10 @@ pub fn build_landform_field(
 mod tests {
     use super::*;
 
+    /// Protects: build_landform_field()'s `hh < sea` continue -- every
+    /// cell below sea level stays class 0 regardless of slope/curvature.
     #[test]
     fn ocean_is_never_classified() {
-        // Protects: build_landform_field()'s `hh < sea` continue -- every
-        // cell below sea level stays class 0 regardless of slope/curvature.
         let w = 6;
         let h = 6;
         let fld = vec![0.1f32; w * h];
@@ -207,10 +207,10 @@ mod tests {
         assert_eq!(steep[cell], 1, "the same cell must come out a cliff once it also satisfies cliff");
     }
 
+    /// Protects: LANDFORM_COLS and LANDFORM_NAMES staying the same
+    /// length, so no class index can index one but not the other.
     #[test]
     fn the_palette_and_the_names_agree_on_length() {
-        // Protects: LANDFORM_COLS and LANDFORM_NAMES staying the same
-        // length, so no class index can index one but not the other.
         assert_eq!(LANDFORM_COLS.len(), LANDFORM_NAMES.len());
     }
 }

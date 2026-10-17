@@ -1243,12 +1243,12 @@ mod tests {
         assert_eq!(r, FactionRoster::seeded(3), "cleared is exactly unset, one encoding");
     }
 
+    /// Protects: `institutions_record` copies every faction's two keys by id (index 0
+    /// included), and `override_record` keeps only the four military-relevant fields of
+    /// settlements in the asked-for list that carry a non-default override -- an
+    /// untouched settlement, a history-only edit and an unlisted tid all stay out.
     #[test]
     fn year_record_captures_roster_institutions_verbatim_and_only_non_default_overrides() {
-        // Protects: `institutions_record` copies every faction's two keys by id (index 0
-        // included), and `override_record` keeps only the four military-relevant fields of
-        // settlements in the asked-for list that carry a non-default override -- an
-        // untouched settlement, a history-only edit and an unlisted tid all stay out.
         let mut r = FactionRoster::seeded(3);
         r.0[2].government = "empire".to_string();
         let rec = r.institutions_record();
@@ -1267,12 +1267,12 @@ mod tests {
         assert_eq!(o[&7].age, Some(400));
     }
 
+    /// Protects: `None` reads the live table (the pre-record behaviour); a recorded map
+    /// wins over a later live edit; and a tid a recorded map omits reads "no override"
+    /// (default), not today's -- the difference between "not recorded" and "recorded as
+    /// none".
     #[test]
     fn resolve_for_reading_uses_today_only_when_the_year_recorded_no_overrides() {
-        // Protects: `None` reads the live table (the pre-record behaviour); a recorded map
-        // wins over a later live edit; and a tid a recorded map omits reads "no override"
-        // (default), not today's -- the difference between "not recorded" and "recorded as
-        // none".
         let mut live = PlaceExtrasTable::default();
         live.0.insert(7, PlaceExtras { walls: Some(true), ..Default::default() });
         live.0.insert(8, PlaceExtras { walls: Some(true), ..Default::default() });

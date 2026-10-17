@@ -192,11 +192,11 @@ fn distinct(name: &str) -> Vec<f64> {
     v
 }
 
+/// Protects: astar's whole search (DIRS order, heap tie-breaks, the
+/// trapezoidal step cost, the 0.9x heuristic, the early goal-pop break,
+/// non-finite handling) against the reference's own captured paths.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_path_exactly() {
-    // Protects: astar's whole search (DIRS order, heap tie-breaks, the
-    // trapezoidal step cost, the 0.9x heuristic, the early goal-pop break,
-    // non-finite handling) against the reference's own captured paths.
     for sc in golden::GOLDEN {
         let got = run(sc.name);
         let want = sc.path.map(<[(usize, usize)]>::to_vec);
@@ -204,14 +204,14 @@ fn golden_every_scenario_reproduces_the_reference_path_exactly() {
     }
 }
 
+/// Protects: astar against an x/y transposition or an off-by-one
+/// backtrack, which a single hand-picked goal on a square raster could hide.
+/// A single hand-picked goal can hide an x/y transposition (it is symmetric
+/// on a square raster reached along the diagonal) and can hide a backtrack
+/// that drops or duplicates one end. Taking every cell in a small raster as
+/// the goal in turn does not.
 #[test]
 fn golden_sweep_reproduces_every_goal_in_the_raster() {
-    // Protects: astar against an x/y transposition or an off-by-one
-    // backtrack, which a single hand-picked goal on a square raster could hide.
-    // A single hand-picked goal can hide an x/y transposition (it is symmetric
-    // on a square raster reached along the diagonal) and can hide a backtrack
-    // that drops or duplicates one end. Taking every cell in a small raster as
-    // the goal in turn does not.
     let (cost, w, h) = sweep_raster();
     assert_eq!(golden::SWEEP.len(), w * h, "the sweep golden lost entries");
     for y in 0..h {
@@ -223,15 +223,15 @@ fn golden_sweep_reproduces_every_goal_in_the_raster() {
     }
 }
 
+/// Protects: the golden fixture set against silently losing the scenario
+/// that exercises a specific property (inclusive endpoints, both routes to
+/// None, detour-around-a-gap, orientation, RNG wander, the eight
+/// tie-break-discriminating rasters, legality of every emitted path).
+/// The guard against goldens quietly becoming vacuous, in the shape milestone
+/// 2 established: assert the properties each scenario exists to pin, so that
+/// dropping or weakening one fails loudly here rather than silently there.
 #[test]
 fn golden_scenarios_cover_every_branch_this_milestone_claims() {
-    // Protects: the golden fixture set against silently losing the scenario
-    // that exercises a specific property (inclusive endpoints, both routes to
-    // None, detour-around-a-gap, orientation, RNG wander, the eight
-    // tie-break-discriminating rasters, legality of every emitted path).
-    // The guard against goldens quietly becoming vacuous, in the shape milestone
-    // 2 established: assert the properties each scenario exists to pin, so that
-    // dropping or weakening one fails loudly here rather than silently there.
     let by = |n: &str| {
         golden::GOLDEN.iter().find(|s| s.name == n).unwrap_or_else(|| panic!("scenario {n} is gone"))
     };
@@ -299,17 +299,17 @@ fn golden_scenarios_cover_every_branch_this_milestone_claims() {
     }
 }
 
+/// Protects: the claim that astar's non-optimal greedy behaviour on a
+/// cheap/uniform raster is reference behaviour to reproduce, not a defect
+/// to "fix" — an optimal search would break parity here.
+/// Recorded as a finding, not a defect. The heuristic is `0.9 x` the
+/// Euclidean distance **in cells** while a step costs the trapezoidal mean of
+/// two raster values, so on a cheap raster the heuristic dominates and the
+/// search behaves like greedy best-first: it takes the straight row rather
+/// than any cheaper wander, and `if (i == gi) break` accepts the first pop of
+/// the goal. `cheap` is that case, at a uniform 0.1 per cell.
 #[test]
 fn the_search_is_reproducible_but_not_optimal_and_that_is_the_point() {
-    // Protects: the claim that astar's non-optimal greedy behaviour on a
-    // cheap/uniform raster is reference behaviour to reproduce, not a defect
-    // to "fix" — an optimal search would break parity here.
-    // Recorded as a finding, not a defect. The heuristic is `0.9 x` the
-    // Euclidean distance **in cells** while a step costs the trapezoidal mean of
-    // two raster values, so on a cheap raster the heuristic dominates and the
-    // search behaves like greedy best-first: it takes the straight row rather
-    // than any cheaper wander, and `if (i == gi) break` accepts the first pop of
-    // the goal. `cheap` is that case, at a uniform 0.1 per cell.
     let straight: Vec<(usize, usize)> = (0..13).map(|x| (x, 4)).collect();
     assert_eq!(run("cheap").unwrap(), straight);
 
@@ -325,23 +325,23 @@ fn the_search_is_reproducible_but_not_optimal_and_that_is_the_point() {
     assert_eq!(run("zero").unwrap().len(), 9);
 }
 
+/// Protects: the invariant behind the one mutation no golden can kill —
+/// that no cell popped from the open list can ever hold g0 == INFINITY,
+/// re-derived directly from the relaxation rule rather than assumed.
+/// The one mutation of fifteen that survives every golden: deleting
+/// `if g0[i] == INFINITY { continue; }` from the expansion loop changes
+/// nothing. That is not a coverage hole to be papered over with another
+/// scenario — no scenario can reach it. `g0[ni]` is written on the line
+/// before every `push`, and `g0[si]` is written before the start's own push,
+/// so every index that can be popped already holds a finite `g`.
+///
+/// The line is kept because it is what the reference writes, and removing it
+/// would be a silent bet that this argument stays true as later milestones
+/// hand in stranger rasters. Asserted here as the invariant it depends on:
+/// even with infinities and NaNs in the raster, no relaxation ever leaves a
+/// pushed cell at `INFINITY`.
 #[test]
 fn the_dead_infinity_guard_is_dead_in_the_reference_too() {
-    // Protects: the invariant behind the one mutation no golden can kill —
-    // that no cell popped from the open list can ever hold g0 == INFINITY,
-    // re-derived directly from the relaxation rule rather than assumed.
-    // The one mutation of fifteen that survives every golden: deleting
-    // `if g0[i] == INFINITY { continue; }` from the expansion loop changes
-    // nothing. That is not a coverage hole to be papered over with another
-    // scenario — no scenario can reach it. `g0[ni]` is written on the line
-    // before every `push`, and `g0[si]` is written before the start's own push,
-    // so every index that can be popped already holds a finite `g`.
-    //
-    // The line is kept because it is what the reference writes, and removing it
-    // would be a silent bet that this argument stays true as later milestones
-    // hand in stranger rasters. Asserted here as the invariant it depends on:
-    // even with infinities and NaNs in the raster, no relaxation ever leaves a
-    // pushed cell at `INFINITY`.
     for name in ["moat", "nanBand", "nanSeals", "rngWide"] {
         let Case { cost, w, h, start, goal } = scenario(name);
         // Re-run the relaxation rule directly: any cell that would be pushed has
@@ -378,19 +378,19 @@ fn the_dead_infinity_guard_is_dead_in_the_reference_too() {
     }
 }
 
+/// Protects: astar's heuristic term using js_hypot rather than f64::hypot
+/// — measured to disagree on better than a third of integer offsets on a
+/// 64x64 raster, which the `tiesWide` golden is the only fixture to catch.
+/// Milestone 1 found the discrepancy and milestone 2 proved it structural
+/// (V8 returns exactly 11 where `f64::hypot` returns 10.999999999999998, and
+/// 11 is a node-snap threshold). Milestone 3's contribution is that it is not
+/// exotic at all: over the 4,096 integer offsets a 64 x 64 raster produces,
+/// the two disagree on **1,398** — better than a third. This is the direct
+/// statement of the requirement; `tiesWide` is the golden that enforces it,
+/// and it took a 64 x 48 quantised raster to find one, because the disagreement
+/// is one ulp and only bites when it breaks or makes an exact `f` tie.
 #[test]
 fn js_hypot_is_used_for_the_heuristic_not_f64_hypot() {
-    // Protects: astar's heuristic term using js_hypot rather than f64::hypot
-    // — measured to disagree on better than a third of integer offsets on a
-    // 64x64 raster, which the `tiesWide` golden is the only fixture to catch.
-    // Milestone 1 found the discrepancy and milestone 2 proved it structural
-    // (V8 returns exactly 11 where `f64::hypot` returns 10.999999999999998, and
-    // 11 is a node-snap threshold). Milestone 3's contribution is that it is not
-    // exotic at all: over the 4,096 integer offsets a 64 x 64 raster produces,
-    // the two disagree on **1,398** — better than a third. This is the direct
-    // statement of the requirement; `tiesWide` is the golden that enforces it,
-    // and it took a 64 x 48 quantised raster to find one, because the disagreement
-    // is one ulp and only bites when it breaks or makes an exact `f` tie.
     let disagreements = (0..64)
         .flat_map(|dx| (0..64).map(move |dy| (dx as f64, dy as f64)))
         .filter(|&(dx, dy)| js_hypot(dx, dy) != dx.hypot(dy))
@@ -402,15 +402,15 @@ fn js_hypot_is_used_for_the_heuristic_not_f64_hypot() {
     assert!(d.hypot(d) < 11.0);
 }
 
+/// Protects: astar panicking on an out-of-range goal instead of silently
+/// reading garbage the way the reference's typed-array access would.
+/// The reference reads past the end of its typed arrays and gets `undefined`,
+/// whose comparisons are all false, so it silently produces nonsense. Its one
+/// caller clamps to `[1, w-2] x [1, h-2]` first, so this is unreachable in
+/// the engine; the port makes it loud instead of silent, and says so.
 #[test]
 #[should_panic(expected = "outside the")]
 fn an_out_of_range_goal_panics_rather_than_reading_garbage() {
-    // Protects: astar panicking on an out-of-range goal instead of silently
-    // reading garbage the way the reference's typed-array access would.
-    // The reference reads past the end of its typed arrays and gets `undefined`,
-    // whose comparisons are all false, so it silently produces nonsense. Its one
-    // caller clamps to `[1, w-2] x [1, h-2]` first, so this is unreachable in
-    // the engine; the port makes it loud instead of silent, and says so.
     let cost = fill(5, 5, |_, _| 1.0);
     let _ = astar(&cost, 5, 5, (0, 0), (5, 0));
 }
