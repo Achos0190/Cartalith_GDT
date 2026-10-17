@@ -707,10 +707,10 @@ mod tests {
         PassBuffer::new(8, 8, 4)
     }
 
+    /// Protects: tile_count() staying in sync with tiles_x()*tiles_y(),
+    /// since a caller sizes its DirtyTracker from tile_count() alone.
     #[test]
     fn tile_count_matches_a_paired_dirty_tracker() {
-        // Protects: tile_count() staying in sync with tiles_x()*tiles_y(),
-        // since a caller sizes its DirtyTracker from tile_count() alone.
         let buf = buffer();
         assert_eq!(buf.tiles_x(), 2);
         assert_eq!(buf.tiles_y(), 2);
@@ -719,11 +719,11 @@ mod tests {
 
     // ---- the headline guarantee: preview never mutates ----
 
+    /// Protects: the non-destructive guarantee -- preview_into must never
+    /// write `base`, and must show every visible stamp composited in
+    /// stack order.
     #[test]
     fn preview_composites_without_mutating_the_field() {
-        // Protects: the non-destructive guarantee -- preview_into must never
-        // write `base`, and must show every visible stamp composited in
-        // stack order.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(1, 1, 2, 2, 0.5));
@@ -742,10 +742,10 @@ mod tests {
         assert_eq!(scratch[63], 0.0); // untouched, copied from base
     }
 
+    /// Protects: preview_into rebuilding scratch from base every call
+    /// rather than accumulating across repeated previews.
     #[test]
     fn preview_is_idempotent_across_repeated_calls() {
-        // Protects: preview_into rebuilding scratch from base every call
-        // rather than accumulating across repeated previews.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 3, 3, 2.0));
         let base = vec![1.0f32; 64];
@@ -759,10 +759,10 @@ mod tests {
         assert_eq!(a[0], 3.0);
     }
 
+    /// Protects: a hidden entry contributing nothing to preview_into's
+    /// composite even though it stays on the stack.
     #[test]
     fn preview_skips_hidden_stamps() {
-        // Protects: a hidden entry contributing nothing to preview_into's
-        // composite even though it stays on the stack.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         let i = buf.push(stamp(0, 0, 2, 2, 4.0));
@@ -775,11 +775,11 @@ mod tests {
 
     // ---- commit ----
 
+    /// Protects: commit() baking every visible stamp into the field in
+    /// stack order and clearing the draft (including its undo history)
+    /// afterward.
     #[test]
     fn commit_applies_the_whole_stack_in_order_and_empties_the_draft() {
-        // Protects: commit() baking every visible stamp into the field in
-        // stack order and clearing the draft (including its undo history)
-        // afterward.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(1, 1, 2, 2, 0.5));
@@ -797,12 +797,12 @@ mod tests {
         assert!(!buf.can_undo(), "committing clears the draft-scoped history");
     }
 
+    /// Protects: preview and commit staying the same code path against
+    /// different destinations (the reference's own sculptApplyStamp
+    /// contract) -- this is the test that would catch them drifting
+    /// apart.
     #[test]
     fn commit_result_is_identical_to_the_preview_it_replaced() {
-        // Protects: preview and commit staying the same code path against
-        // different destinations (the reference's own sculptApplyStamp
-        // contract) -- this is the test that would catch them drifting
-        // apart.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 5, 5, 0.25));
         buf.push(stamp(3, 3, 4, 4, -0.75));
@@ -818,10 +818,10 @@ mod tests {
         assert_eq!(field, preview);
     }
 
+    /// Protects: commit() not baking a hidden stamp into the field, while
+    /// still counting and discarding it as part of the draft.
     #[test]
     fn commit_skips_hidden_stamps_but_still_drops_them() {
-        // Protects: commit() not baking a hidden stamp into the field, while
-        // still counting and discarding it as part of the draft.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         let i = buf.push(stamp(0, 0, 2, 2, 9.0));
@@ -836,11 +836,11 @@ mod tests {
         assert!(buf.is_empty());
     }
 
+    /// Protects: commit() marking exactly the tiles the visible stamps
+    /// touch, with the caller's reason string attached, and leaving
+    /// untouched tiles clean.
     #[test]
     fn commit_marks_exactly_the_touched_tiles_with_the_given_reason() {
-        // Protects: commit() marking exactly the tiles the visible stamps
-        // touch, with the caller's reason string attached, and leaving
-        // untouched tiles clean.
         let mut buf = buffer();
         // Entirely inside tile (0,0) -> index 0.
         buf.push(stamp(0, 0, 3, 3, 1.0));
@@ -859,11 +859,11 @@ mod tests {
         assert_eq!(tracker.reason(0), Some("height_edited"));
     }
 
+    /// Protects: "undo granularity is one committed pass, not one
+    /// stroke" (UI_SHELL_DESIGN.md) -- five strokes over the same tile
+    /// must be one version bump, not five.
     #[test]
     fn one_commit_bumps_each_touched_tile_exactly_once_however_many_strokes() {
-        // Protects: "undo granularity is one committed pass, not one
-        // stroke" (UI_SHELL_DESIGN.md) -- five strokes over the same tile
-        // must be one version bump, not five.
         let mut buf = buffer();
         for _ in 0..5 {
             buf.push(stamp(0, 0, 2, 2, 0.1));
@@ -875,10 +875,10 @@ mod tests {
         assert_eq!(tracker.version(1), 0);
     }
 
+    /// Protects: committing an empty draft being a true no-op -- no
+    /// field write, no tile marked, no version bumped.
     #[test]
     fn an_empty_commit_writes_nothing_and_marks_nothing() {
-        // Protects: committing an empty draft being a true no-op -- no
-        // field write, no tile marked, no version bumped.
         let mut buf = buffer();
         let mut field = vec![0.25f32; 64];
         let before = field.clone();
@@ -892,10 +892,10 @@ mod tests {
 
     // ---- discard ----
 
+    /// Protects: discard() never having written the field at all, down
+    /// to the bit pattern, even after a preview showed a real change.
     #[test]
     fn discard_leaves_the_field_bit_identical() {
-        // Protects: discard() never having written the field at all, down
-        // to the bit pattern, even after a preview showed a real change.
         let mut buf = buffer();
         let field: Vec<f32> = (0..64).map(|i| i as f32 * 0.125).collect();
         let before = field.clone();
@@ -916,10 +916,10 @@ mod tests {
         assert_eq!(bits_after, bits_before);
     }
 
+    /// Protects: discard() marking no tiles dirty, and a subsequent
+    /// fresh commit still starting its version counter at 0+1.
     #[test]
     fn discard_leaves_no_dirty_marks_behind() {
-        // Protects: discard() marking no tiles dirty, and a subsequent
-        // fresh commit still starting its version counter at 0+1.
         let mut buf = buffer();
         let mut tracker = DirtyTracker::new(buf.tile_count());
         buf.push(stamp(0, 0, 4, 4, 1.0));
@@ -933,11 +933,11 @@ mod tests {
         assert_eq!(tracker.version(0), 1);
     }
 
+    /// Protects: only commit() bumping the dirty-tracker version;
+    /// discard() must contribute nothing, over repeated commit/discard
+    /// cycles.
     #[test]
     fn commit_discard_cycles_bump_versions_only_on_commit() {
-        // Protects: only commit() bumping the dirty-tracker version;
-        // discard() must contribute nothing, over repeated commit/discard
-        // cycles.
         let mut buf = buffer();
         let mut field = vec![0.0f32; 64];
         let mut tracker = DirtyTracker::new(buf.tile_count());
@@ -955,10 +955,10 @@ mod tests {
 
     // ---- touched tiles ----
 
+    /// Protects: touched_tiles() being the union of every entry's
+    /// footprint, recomputed (and able to shrink) after remove().
     #[test]
     fn touched_tiles_is_the_union_and_shrinks_when_a_stamp_is_removed() {
-        // Protects: touched_tiles() being the union of every entry's
-        // footprint, recomputed (and able to shrink) after remove().
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0)); // tile 0
         let i = buf.push(stamp(5, 5, 2, 2, 1.0)); // tile 3
@@ -967,32 +967,32 @@ mod tests {
         assert_eq!(buf.touched_tiles().collect::<Vec<_>>(), vec![0]);
     }
 
+    /// Protects: hiding a stamp is itself a reason to repaint where it
+    /// was, so the render scope keeps it even though preview/commit
+    /// skip it.
     #[test]
     fn touched_tiles_keeps_a_hidden_stamps_footprint() {
-        // Protects: hiding a stamp is itself a reason to repaint where it
-        // was, so the render scope keeps it even though preview/commit
-        // skip it.
         let mut buf = buffer();
         let i = buf.push(stamp(5, 5, 2, 2, 1.0));
         buf.set_hidden(i, true);
         assert_eq!(buf.touched_tiles().collect::<Vec<_>>(), vec![3]);
     }
 
+    /// Protects: a zero-area stamp footprint contributing no tile and no
+    /// touched_bounds, rather than degenerating into tile 0 or the
+    /// whole grid.
     #[test]
     fn a_stamp_touching_nothing_marks_no_tiles() {
-        // Protects: a zero-area stamp footprint contributing no tile and no
-        // touched_bounds, rather than degenerating into tile 0 or the
-        // whole grid.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 0, 0, 1.0));
         assert_eq!(buf.touched_tiles().count(), 0);
         assert_eq!(buf.touched_bounds(), None);
     }
 
+    /// Protects: touched_bounds() returning the true axis-aligned union
+    /// of every entry's bounds, not just the first or the last.
     #[test]
     fn touched_bounds_unions_every_entry() {
-        // Protects: touched_bounds() returning the true axis-aligned union
-        // of every entry's bounds, not just the first or the last.
         let mut buf = buffer();
         buf.push(stamp(1, 1, 2, 2, 1.0));
         buf.push(stamp(5, 6, 2, 2, 1.0));
@@ -1116,11 +1116,11 @@ mod tests {
 
     // ---- stack order and structural edits ----
 
+    /// Protects: stack order actually changing the composited result --
+    /// an add-only stamp can't show this, so this test uses a "set to a
+    /// constant" stamp, where reordering changes which value wins.
     #[test]
     fn stack_order_is_load_bearing_for_order_dependent_stamps() {
-        // Protects: stack order actually changing the composited result --
-        // an add-only stamp can't show this, so this test uses a "set to a
-        // constant" stamp, where reordering changes which value wins.
         /// A test-only "set to a constant" stamp: unlike `AddBox` above, its
         /// `apply` overwrites rather than accumulates, which is what makes
         /// stack order visible in this test's result.
@@ -1168,10 +1168,10 @@ mod tests {
         assert_eq!(scratch[0], 1.0, "reordering really changes the result");
     }
 
+    /// Protects: move_up()/move_down() being no-ops (returning false)
+    /// at the ends of the stack, rather than panicking or wrapping.
     #[test]
     fn move_up_and_down_reject_out_of_range_moves() {
-        // Protects: move_up()/move_down() being no-ops (returning false)
-        // at the ends of the stack, rather than panicking or wrapping.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 1, 1, 1.0));
         buf.push(stamp(1, 1, 1, 1, 1.0));
@@ -1183,11 +1183,11 @@ mod tests {
 
     // ---- draft-scoped undo/redo ----
 
+    /// Protects: undo()/redo() being draft-scoped only -- the field
+    /// itself is never written by either, and touched_tiles() tracks
+    /// the reverted/reapplied state.
     #[test]
     fn undo_reverts_a_structural_edit_without_touching_the_field() {
-        // Protects: undo()/redo() being draft-scoped only -- the field
-        // itself is never written by either, and touched_tiles() tracks
-        // the reverted/reapplied state.
         let mut buf = buffer();
         let field = vec![0.0f32; 64];
         buf.push(stamp(0, 0, 2, 2, 1.0));
@@ -1205,12 +1205,12 @@ mod tests {
         assert_eq!(field, vec![0.0f32; 64], "undo/redo is draft-scoped only");
     }
 
+    /// Protects: Ruling 17's live re-stamp (`rewrite_stamps`) reaching
+    /// every copy of a stamp -- the live stack, an undo snapshot and the
+    /// redo branch -- and recording no history of its own, so one undo
+    /// after it still reverts the user's last structural edit.
     #[test]
     fn rewrite_stamps_reaches_live_history_and_redo_without_a_history_step() {
-        // Protects: Ruling 17's live re-stamp (`rewrite_stamps`) reaching
-        // every copy of a stamp -- the live stack, an undo snapshot and the
-        // redo branch -- and recording no history of its own, so one undo
-        // after it still reverts the user's last structural edit.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(4, 4, 2, 2, 1.0));
@@ -1228,11 +1228,11 @@ mod tests {
         assert_eq!(buf.entries()[0].stamp.amount, 5.0, "undo history rewritten");
     }
 
+    /// Protects: undo() reverting all four structural edits the
+    /// reference's draft undo tracks -- hide, reorder (move_down) and
+    /// delete (remove), not only add.
     #[test]
     fn undo_covers_delete_hide_and_reorder_not_just_add() {
-        // Protects: undo() reverting all four structural edits the
-        // reference's draft undo tracks -- hide, reorder (move_down) and
-        // delete (remove), not only add.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(4, 4, 2, 2, 1.0));
@@ -1251,11 +1251,11 @@ mod tests {
         assert_eq!(buf.len(), 2);
     }
 
+    /// Protects: push_history() clearing the redo branch on any new
+    /// structural edit, so a stale redo cannot resurrect a branch that
+    /// was abandoned.
     #[test]
     fn a_new_edit_clears_the_redo_branch() {
-        // Protects: push_history() clearing the redo branch on any new
-        // structural edit, so a stale redo cannot resurrect a branch that
-        // was abandoned.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(4, 4, 2, 2, 1.0));
@@ -1265,19 +1265,19 @@ mod tests {
         assert!(!buf.can_redo());
     }
 
+    /// Protects: undo()/redo() returning false rather than panicking
+    /// when there is nothing to revert or reapply.
     #[test]
     fn undo_and_redo_are_no_ops_on_an_empty_history() {
-        // Protects: undo()/redo() returning false rather than panicking
-        // when there is nothing to revert or reapply.
         let mut buf = buffer();
         assert!(!buf.undo());
         assert!(!buf.redo());
     }
 
+    /// Protects: HISTORY_MAX actually bounding the undo depth -- past it,
+    /// the oldest snapshots are dropped rather than kept unbounded.
     #[test]
     fn draft_history_is_capped() {
-        // Protects: HISTORY_MAX actually bounding the undo depth -- past it,
-        // the oldest snapshots are dropped rather than kept unbounded.
         let mut buf = buffer();
         for _ in 0..(HISTORY_MAX + 10) {
             buf.push(stamp(0, 0, 1, 1, 1.0));
@@ -1290,13 +1290,13 @@ mod tests {
         assert_eq!(steps, HISTORY_MAX);
     }
 
+    /// Protects: ET-D2's "a stroke is one undo step" at the buffer level:
+    /// 40 pushes inside begin_group/end_group undo in a single call (past
+    /// HISTORY_MAX, so a per-push history would also have lost the oldest),
+    /// a push after end_group is its own step again, and an empty group
+    /// leaves no history behind.
     #[test]
     fn a_group_of_pushes_is_one_undo_step() {
-        // Protects: ET-D2's "a stroke is one undo step" at the buffer level:
-        // 40 pushes inside begin_group/end_group undo in a single call (past
-        // HISTORY_MAX, so a per-push history would also have lost the oldest),
-        // a push after end_group is its own step again, and an empty group
-        // leaves no history behind.
         let mut buf = buffer();
         buf.begin_group();
         for _ in 0..40 {
@@ -1317,10 +1317,10 @@ mod tests {
         assert!(!empty.can_undo(), "a group that pushed nothing records no step");
     }
 
+    /// Protects: discard() clearing undo/redo history along with the
+    /// stamp stack, via the shared clear_draft() path.
     #[test]
     fn discard_clears_the_draft_history_too() {
-        // Protects: discard() clearing undo/redo history along with the
-        // stamp stack, via the shared clear_draft() path.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         assert!(buf.can_undo());
@@ -1329,11 +1329,11 @@ mod tests {
         assert!(!buf.can_redo());
     }
 
+    /// Protects: PassBuffer's Serialize/Deserialize impls preserving the
+    /// stack and its derived touched-tile state across a JSON round
+    /// trip (a save/load path this crate does not otherwise exercise).
     #[test]
     fn pass_buffer_round_trips_through_json() {
-        // Protects: PassBuffer's Serialize/Deserialize impls preserving the
-        // stack and its derived touched-tile state across a JSON round
-        // trip (a save/load path this crate does not otherwise exercise).
         let mut buf = buffer();
         buf.push(stamp(1, 1, 2, 2, 0.75));
         let json = serde_json::to_string(&buf).unwrap();

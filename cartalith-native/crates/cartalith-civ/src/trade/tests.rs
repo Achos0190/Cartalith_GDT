@@ -1156,9 +1156,9 @@ fn wm(pairs: &[(&'static str, f64)]) -> HashMap<&'static str, f64> {
     pairs.iter().copied().collect()
 }
 
+/// Protects: an empty place mean returns `None` before even the specialisation check.
 #[test]
 fn archetype_empty_mean_returns_none_before_any_branch_runs() {
-    // Protects: an empty place mean returns `None` before even the specialisation check.
     // The reference's `if(!rc||!rc.mean) return null;` fires before even the
     // specialisation check -- an empty `mean` must short-circuit past a
     // `specialisation` that would otherwise have matched.
@@ -1167,10 +1167,10 @@ fn archetype_empty_mean_returns_none_before_any_branch_runs() {
     assert_eq!(civ_place_archetype(&mean, &world_mean, 0.9, 0.9, Some("pastoral")), None);
 }
 
+/// Protects: bog iron needs both iron richness (1.8 times the world mean) and wet
+/// conditions.
 #[test]
 fn archetype_bog_iron_needs_both_iron_richness_and_wet() {
-    // Protects: bog iron needs both iron richness (1.8 times the world mean) and wet
-    // conditions.
     let mean = wm(&[("iron", 0.19)]);
     let world_mean = wm(&[("iron", 0.10)]); // threshold = 0.10*1.8 = 0.18
     assert_eq!(
@@ -1185,10 +1185,10 @@ fn archetype_bog_iron_needs_both_iron_richness_and_wet() {
     );
 }
 
+/// Protects: when two archetypes both match, the earlier one in the reference's order
+/// wins.
 #[test]
 fn archetype_priority_order_is_most_specific_first() {
-    // Protects: when two archetypes both match, the earlier one in the reference's order
-    // wins.
     // bog_iron and bronze_hub are both satisfiable at once; bog_iron is
     // listed first and must win.
     let mean = wm(&[("iron", 1.0), ("tin", 1.0), ("copper", 1.0)]);
@@ -1196,10 +1196,10 @@ fn archetype_priority_order_is_most_specific_first() {
     assert_eq!(civ_place_archetype(&mean, &world_mean, 0.9, 0.9, None), Some("bog_iron"));
 }
 
+/// Protects: with no world mean the richness threshold falls back to the absolute 0.25
+/// floor.
 #[test]
 fn archetype_without_a_world_mean_falls_back_to_the_absolute_quarter() {
-    // Protects: with no world mean the richness threshold falls back to the absolute 0.25
-    // floor.
     let world_mean = HashMap::new();
     assert_eq!(
         civ_place_archetype(&wm(&[("obsidian", 0.30)]), &world_mean, 0.0, 0.9, None),
@@ -1213,10 +1213,10 @@ fn archetype_without_a_world_mean_falls_back_to_the_absolute_quarter() {
     );
 }
 
+/// Protects: a pastoral specialisation yields the pastoral archetype only after the
+/// earlier branches miss, and the specialisation `none` is not one.
 #[test]
 fn archetype_pastoral_specialisation_only_fires_with_no_richer_match_ahead_of_it() {
-    // Protects: a pastoral specialisation yields the pastoral archetype only after the
-    // earlier branches miss, and the specialisation `none` is not one.
     // Non-empty but irrelevant to every earlier branch, so only the
     // specialisation check can fire.
     let mean = wm(&[("dummy", 0.0)]);
@@ -1232,10 +1232,10 @@ fn archetype_pastoral_specialisation_only_fires_with_no_richer_match_ahead_of_it
     );
 }
 
+/// Protects: arid salt needs both salt richness (1.6 times the world mean) and
+/// aridity.
 #[test]
 fn archetype_arid_salt_needs_both_salt_richness_and_aridity() {
-    // Protects: arid salt needs both salt richness (1.6 times the world mean) and
-    // aridity.
     let mean = wm(&[("salt", 1.0)]);
     let world_mean = wm(&[("salt", 0.1)]); // threshold = 0.1*1.6 = 0.16
     assert_eq!(civ_place_archetype(&mean, &world_mean, 0.0, 0.20, None), Some("arid_salt"));
@@ -1279,10 +1279,10 @@ impl PastoralFixture {
     }
 }
 
+/// Protects: mode-1 cells under forest do not count as pasture, while the same cells
+/// on open land do.
 #[test]
 fn pastoral_balance_forested_open_land_is_not_pasture() {
-    // Protects: mode-1 cells under forest do not count as pasture, while the same cells
-    // on open land do.
     let mut fx = PastoralFixture::new();
     // k=0.15 is mode 1 (pastoral-eligible) everywhere in the disc: below the
     // 0.28 crop floor, at or above the 0.10 pasture floor.
@@ -1298,10 +1298,10 @@ fn pastoral_balance_forested_open_land_is_not_pasture() {
     assert_eq!(open.mode, "pastoral");
 }
 
+/// Protects: the manure uplift and crop-competition values match the formula, pinned to
+/// the reference's literals (0.35 and 0.45) rather than to the constants.
 #[test]
 fn pastoral_balance_manure_uplift_and_competition_match_the_formula() {
-    // Protects: the manure uplift and crop-competition values match the formula, pinned to
-    // the reference's literals (0.35 and 0.45) rather than to the constants.
     let mut fx = PastoralFixture::new();
     // The 3x3 "+"-disc around (1,1) is indices {1,3,4,5,7}. Two crop cells
     // (mode 3), two pasture cells (mode 1, open), one neither (desert,
@@ -1327,10 +1327,10 @@ fn pastoral_balance_manure_uplift_and_competition_match_the_formula() {
     assert_eq!(out.mode, "mixed", "neither share exceeds twice the other");
 }
 
+/// Protects: a mismatched `k` length or an all-ocean disc returns
+/// `PastoralBalance::default()`, not a panic.
 #[test]
 fn pastoral_balance_degenerate_inputs_return_the_default_not_a_panic() {
-    // Protects: a mismatched `k` length or an all-ocean disc returns
-    // `PastoralBalance::default()`, not a panic.
     let fx = PastoralFixture::new();
     // Mismatched `k` length -- the reference's own `if(!K) return out;`.
     let short_k = civ_place_pastoral_balance(
@@ -1418,10 +1418,10 @@ fn no_food() -> FoodSurplus {
     FoodSurplus { ceiling: 0.0, sustainable: 0.0, actual: 0.0, net: 0.0, surplus: true }
 }
 
+/// Protects: a specialisation exports its good and implies a food import, and the
+/// hinterland basis does not fire without a world mean.
 #[test]
 fn place_trade_specialisation_exports_its_good_and_implies_a_food_import() {
-    // Protects: a specialisation exports its good and implies a food import, and the
-    // hinterland basis does not fire without a world mean.
     let fx = TradeFixture::new();
     let out = run_trade(
         &fx, Some("mining"), &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
@@ -1433,10 +1433,10 @@ fn place_trade_specialisation_exports_its_good_and_implies_a_food_import() {
     assert_eq!(out.checklist.len(), 7);
 }
 
+/// Protects: a genuine food surplus clears the specialisation's inferred food import
+/// and exports food.
 #[test]
 fn place_trade_food_surplus_overrides_the_specialisation_food_need() {
-    // Protects: a genuine food surplus clears the specialisation's inferred food import
-    // and exports food.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 100.0, sustainable: 80.0, actual: 30.0, net: 50.0, surplus: true };
     let out = run_trade(
@@ -1448,10 +1448,10 @@ fn place_trade_food_surplus_overrides_the_specialisation_food_need() {
     assert_eq!(out.basis, vec!["specialisation", "food surplus"]);
 }
 
+/// Protects: a food deficit with no viable supply actively removes the inferred food
+/// import and sets `food_unsupported`.
 #[test]
 fn place_trade_food_deficit_with_no_reachable_supply_is_unsupported_not_an_import() {
-    // Protects: a food deficit with no viable supply actively removes the inferred food
-    // import and sets `food_unsupported`.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 140.0, net: -100.0, surplus: false };
     let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 4.0, ..FoodShed::default() };
@@ -1467,9 +1467,9 @@ fn place_trade_food_deficit_with_no_reachable_supply_is_unsupported_not_an_impor
     assert!(out.basis.iter().any(|b| b.contains("no viable supply")));
 }
 
+/// Protects: a food deficit within reach is a real food import, not unsupported.
 #[test]
 fn place_trade_food_deficit_within_reach_is_a_real_import() {
-    // Protects: a food deficit within reach is a real food import, not unsupported.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 50.0, net: -10.0, surplus: false };
     let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 6.0, ..FoodShed::default() };
@@ -1482,9 +1482,9 @@ fn place_trade_food_deficit_within_reach_is_a_real_import() {
     assert!(out.basis.contains(&"food deficit (importable)"));
 }
 
+/// Protects: fuel-poor smelting removes iron from exports and adds a charcoal import.
 #[test]
 fn place_trade_fuel_poor_smelting_pulls_iron_back_out_of_exports() {
-    // Protects: fuel-poor smelting removes iron from exports and adds a charcoal import.
     let mut fx = TradeFixture::new();
     fx.res.iron = vec![0.5; 81]; // uniform -> the windowed mean is ~0.5 too
     let world_mean = wm(&[("iron", 0.1)]); // ratio 5 > 1.35 -> hinterland export
@@ -1498,9 +1498,9 @@ fn place_trade_fuel_poor_smelting_pulls_iron_back_out_of_exports() {
     assert!(out.basis.contains(&"fuel-limited smelting"));
 }
 
+/// Protects: a settlement with salt access never imports salt and records the source.
 #[test]
 fn place_trade_salt_access_clears_the_inferred_import_and_records_its_source() {
-    // Protects: a settlement with salt access never imports salt and records the source.
     let mut fx = TradeFixture::new();
     fx.res.salt = vec![0.01; 81]; // scarce here
     let world_mean = wm(&[("salt", 0.5)]); // ratio 0.02 < 0.65 -> hinterland import
@@ -1513,10 +1513,10 @@ fn place_trade_salt_access_clears_the_inferred_import_and_records_its_source() {
     assert_eq!(out.salt_source, Some("sea salt"));
 }
 
+/// Protects: the husbandry checklist item reads specialisation and timber scarcity,
+/// not its own (empty) resource list.
 #[test]
 fn place_trade_checklist_husbandry_reads_specialisation_and_timber_not_its_own_empty_list() {
-    // Protects: the husbandry checklist item reads specialisation and timber scarcity,
-    // not its own (empty) resource list.
     let mut fx = TradeFixture::new();
     fx.res.timber = vec![0.9; 81]; // plenty of timber -- would read "met" on a naive test
     let out = run_trade(
@@ -1535,10 +1535,10 @@ fn place_trade_checklist_husbandry_reads_specialisation_and_timber_not_its_own_e
     assert!(husbandry.met);
 }
 
+/// Protects: the fibre checklist item follows pasture share, not the alum resource
+/// field.
 #[test]
 fn place_trade_checklist_fibre_reads_pastoral_shares_not_alum() {
-    // Protects: the fibre checklist item follows pasture share, not the alum resource
-    // field.
     let mut fx = TradeFixture::new();
     // Zero alum everywhere -- a resources-only test would call this unmet.
     // k=0.15 in the pastoral catchment disc is mode 1 on open (grass) land,
@@ -1553,10 +1553,10 @@ fn place_trade_checklist_fibre_reads_pastoral_shares_not_alum() {
     assert!(fibre.met, "fibre access follows land use, not the alum resource field");
 }
 
+/// Protects: `trade_isolated` follows reach: a bulk export with no navigable water is
+/// isolated, and the same export from a sea port is not.
 #[test]
 fn place_trade_isolated_flag_follows_reach_not_export_count() {
-    // Protects: `trade_isolated` follows reach: a bulk export with no navigable water is
-    // isolated, and the same export from a sea port is not.
     let mut fx = TradeFixture::new();
     fx.res.timber = vec![0.9; 81];
     let world_mean = wm(&[("timber", 0.1)]); // ratio 9 > 1.35 -> hinterland export
@@ -1690,10 +1690,10 @@ fn a_zero_rate_tariff_row_changes_nothing() {
 
 // ----------------------------------------------------------- price and tariff
 
+/// Protects: `scarcity_price` literals: 1 when balanced, 1.5 and 0.5 at 3:1, 0 (not NaN)
+/// with no market, and approaching 2 from below at extreme scarcity.
 #[test]
 fn scarcity_price_literals() {
-    // Protects: `scarcity_price` literals: 1 when balanced, 1.5 and 0.5 at 3:1, 0 (not NaN)
-    // with no market, and approaching 2 from below at extreme scarcity.
     assert_eq!(scarcity_price(100.0, 100.0), 1.0, "balanced market is 1");
     assert_eq!(scarcity_price(300.0, 100.0), 1.5);
     assert_eq!(scarcity_price(100.0, 300.0), 0.5);
@@ -1783,10 +1783,10 @@ fn a_full_tariff_is_an_embargo() {
     assert_eq!(net.way_load[0], 0.0);
 }
 
+/// Protects: `tariff_rate` clamps to [0, 1], treats NaN and negative as 0, ignores a
+/// faction taxing itself and returns 0 where no row exists.
 #[test]
 fn tariff_rate_clamps_and_ignores_bad_rows() {
-    // Protects: `tariff_rate` clamps to [0, 1], treats NaN and negative as 0, ignores a
-    // faction taxing itself and returns 0 where no row exists.
     let t = [
         Tariff { importer: 1, exporter: 2, rate: 3.0 },
         Tariff { importer: 2, exporter: 1, rate: f64::NAN },

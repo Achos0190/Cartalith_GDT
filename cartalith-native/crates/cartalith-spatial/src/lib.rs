@@ -189,19 +189,19 @@ impl DirtyTracker {
 mod tests {
     use super::*;
 
+    /// Protects: nothing behavioural -- a smoke test that the crate
+    /// builds and its test harness runs at all.
     #[test]
     fn crate_compiles_and_tests_run() {
-        // Protects: nothing behavioural -- a smoke test that the crate
-        // builds and its test harness runs at all.
         assert_eq!(2 + 2, 4);
     }
 
     // ---- DirtyTracker ----
 
+    /// Protects: DirtyTracker::new() initialising every tile clean, with
+    /// no reason and version 0.
     #[test]
     fn dirty_tracker_starts_clean_at_version_zero() {
-        // Protects: DirtyTracker::new() initialising every tile clean, with
-        // no reason and version 0.
         let tracker = DirtyTracker::new(4);
         for i in 0..4 {
             assert!(!tracker.is_dirty(i));
@@ -210,10 +210,10 @@ mod tests {
         }
     }
 
+    /// Protects: mark_dirty() setting dirty/reason/version on the marked
+    /// tile only, leaving every other tile untouched.
     #[test]
     fn dirty_tracker_mark_sets_dirty_reason_and_bumps_version() {
-        // Protects: mark_dirty() setting dirty/reason/version on the marked
-        // tile only, leaving every other tile untouched.
         let mut tracker = DirtyTracker::new(2);
         tracker.mark_dirty(1, "brush");
         assert!(tracker.is_dirty(1));
@@ -223,10 +223,10 @@ mod tests {
         assert_eq!(tracker.version(0), 0);
     }
 
+    /// Protects: clear_dirty() clearing dirty/reason but leaving the
+    /// version counter unchanged -- acknowledging isn't a data change.
     #[test]
     fn dirty_tracker_clear_does_not_bump_version() {
-        // Protects: clear_dirty() clearing dirty/reason but leaving the
-        // version counter unchanged -- acknowledging isn't a data change.
         let mut tracker = DirtyTracker::new(1);
         tracker.mark_dirty(0, "edit");
         assert_eq!(tracker.version(0), 1);
@@ -238,10 +238,10 @@ mod tests {
         assert_eq!(tracker.version(0), 1);
     }
 
+    /// Protects: repeated mark_dirty() calls each bumping the version
+    /// again and overwriting the reason with the latest one.
     #[test]
     fn dirty_tracker_repeated_marks_keep_bumping_version() {
-        // Protects: repeated mark_dirty() calls each bumping the version
-        // again and overwriting the reason with the latest one.
         let mut tracker = DirtyTracker::new(1);
         tracker.mark_dirty(0, "a");
         tracker.mark_dirty(0, "b");
@@ -250,10 +250,10 @@ mod tests {
         assert_eq!(tracker.reason(0), Some("c"));
     }
 
+    /// Protects: dirty_tiles() yielding exactly the marked indices, in
+    /// order, and nothing else.
     #[test]
     fn dirty_tiles_lists_only_dirty_indices() {
-        // Protects: dirty_tiles() yielding exactly the marked indices, in
-        // order, and nothing else.
         let mut tracker = DirtyTracker::new(5);
         tracker.mark_dirty(1, "x");
         tracker.mark_dirty(3, "y");
@@ -263,10 +263,10 @@ mod tests {
 
     // ---- Serialization round-trips ----
 
+    /// Protects: DirtyTracker's serde round trip preserving tile count,
+    /// dirty flag, reason and version.
     #[test]
     fn dirty_tracker_round_trips_through_json() {
-        // Protects: DirtyTracker's serde round trip preserving tile count,
-        // dirty flag, reason and version.
         let mut tracker = DirtyTracker::new(3);
         tracker.mark_dirty(1, "reason");
         let json = serde_json::to_string(&tracker).unwrap();
@@ -277,11 +277,11 @@ mod tests {
         assert_eq!(back.version(1), 1);
     }
 
+    /// Protects: Region::intersects() treating merely-touching edges as
+    /// no overlap, a real overlap as true, and an empty region as never
+    /// intersecting anything.
     #[test]
     fn region_intersects_is_correct_including_touching_edges() {
-        // Protects: Region::intersects() treating merely-touching edges as
-        // no overlap, a real overlap as true, and an empty region as never
-        // intersecting anything.
         let a = Region::new(0, 0, 4, 4);
         let b = Region::new(4, 0, 4, 4); // touches a's right edge, no overlap
         let c = Region::new(3, 3, 4, 4); // overlaps a's bottom-right cell

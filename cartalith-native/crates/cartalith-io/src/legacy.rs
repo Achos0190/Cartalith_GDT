@@ -623,12 +623,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Protects: an archive with no project records at all (missing
+    /// `state`, an empty object, or every array present but empty) opens
+    /// as `LegacyProject::is_empty() == true` with nothing in `unmapped`
+    /// -- no false report for a project that never had anything to say.
     #[test]
     fn a_state_with_no_records_imports_nothing_and_reports_nothing() {
-        // Protects: an archive with no project records at all (missing
-        // `state`, an empty object, or every array present but empty) opens
-        // as `LegacyProject::is_empty() == true` with nothing in `unmapped`
-        // -- no false report for a project that never had anything to say.
         for state in [
             Value::Null,
             json!({}),
@@ -641,15 +641,15 @@ mod tests {
         }
     }
 
+    /// Protects: §15.1's "do not invent a settlement" rule end to end in
+    /// one fixture -- a real settlement tier imports with its tid/x/y/
+    /// name/kind/population/faction/coastal all correct; a non-settlement
+    /// kind (a point of interest), a kindless place, an off-grid place, a
+    /// reference-only class (reclassed to "town" with a fresh id past the
+    /// highest carried tid) and an unknown member each produce exactly
+    /// one report line and no fabricated settlement.
     #[test]
     fn settlements_are_filtered_by_kind_and_everything_else_is_reported() {
-        // Protects: §15.1's "do not invent a settlement" rule end to end in
-        // one fixture -- a real settlement tier imports with its tid/x/y/
-        // name/kind/population/faction/coastal all correct; a non-settlement
-        // kind (a point of interest), a kindless place, an off-grid place, a
-        // reference-only class (reclassed to "town" with a fresh id past the
-        // highest carried tid) and an unknown member each produce exactly
-        // one report line and no fabricated settlement.
         let state = json!({
             "places": [
                 {"x": 2, "y": 3, "name": "Kessa", "kind": "city", "faction": 2, "pop": 5400, "traits": ["port"], "tid": 9},
@@ -679,13 +679,13 @@ mod tests {
         }
     }
 
+    /// Protects: Ruling BW item 2. The reference's `sizeMode: 'fixed'`
+    /// grows with the terrain, so it must import as the shell's scaling
+    /// mode (`fixed_size == false`); its `'zoom'`, an absent key and an
+    /// unrecognised value all hold a constant on-screen size and must
+    /// import as the shell's constant-size mode (`fixed_size == true`).
     #[test]
     fn a_label_size_mode_is_migrated_to_the_shells_opposite_vocabulary() {
-        // Protects: Ruling BW item 2. The reference's `sizeMode: 'fixed'`
-        // grows with the terrain, so it must import as the shell's scaling
-        // mode (`fixed_size == false`); its `'zoom'`, an absent key and an
-        // unrecognised value all hold a constant on-screen size and must
-        // import as the shell's constant-size mode (`fixed_size == true`).
         let label = |extra: Value| {
             let mut o = json!({"x": 1, "y": 1, "name": "L"});
             o.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
@@ -702,11 +702,11 @@ mod tests {
         assert_eq!(modes, vec![false, true, true, true]);
     }
 
+    /// Protects: a settlement with no `pop`/`faction` still imports (as
+    /// population 0, faction Unclaimed) but each substitution gets its
+    /// own report line -- the default is visible, not silent.
     #[test]
     fn a_missing_value_is_reported_not_silently_defaulted() {
-        // Protects: a settlement with no `pop`/`faction` still imports (as
-        // population 0, faction Unclaimed) but each substitution gets its
-        // own report line -- the default is visible, not silent.
         let state = json!({"places": [{"x": 1, "y": 1, "kind": "town"}]});
         let got = read_legacy(&state, 4, 4);
         assert_eq!(got.settlements[0].population, 0);
@@ -715,14 +715,14 @@ mod tests {
         assert!(r.contains("1 settlement carried no faction"), "{r}");
     }
 
+    /// Protects: sparse `[cell, faction, …]` pairs decode into a dense
+    /// grid correctly, an out-of-grid cell and an out-of-roster faction
+    /// are each skipped and reported rather than corrupting the grid, a
+    /// faction column shorter than the roster reads as absent past its
+    /// end (not a guessed value), and the §15.3/AU-uncovered members
+    /// (ways, an unknown `state.civ` key) each get their own report line.
     #[test]
     fn territory_is_decoded_from_sparse_pairs_and_colours_are_reported() {
-        // Protects: sparse `[cell, faction, …]` pairs decode into a dense
-        // grid correctly, an out-of-grid cell and an out-of-roster faction
-        // are each skipped and reported rather than corrupting the grid, a
-        // faction column shorter than the roster reads as absent past its
-        // end (not a guessed value), and the §15.3/AU-uncovered members
-        // (ways, an unknown `state.civ` key) each get their own report line.
         let state = json!({"civ": {
             "territory": [0, 1, 5, 2, 99, 1, 3, 9],
             "factionNames": ["Unclaimed", "Aurelia", "Kessa"],

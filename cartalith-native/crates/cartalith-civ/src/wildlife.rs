@@ -797,11 +797,11 @@ pub fn current_wildlife(
 mod tests {
     use super::*;
 
+    /// Protects: WILD_GUILDS and WILD_GUILD_LABELS stay index-parallel,
+    /// and guild_trophic classifies each named guild (and an unknown
+    /// fallback) correctly.
     #[test]
     fn the_guild_table_and_its_labels_stay_parallel() {
-        // Protects: WILD_GUILDS and WILD_GUILD_LABELS stay index-parallel,
-        // and guild_trophic classifies each named guild (and an unknown
-        // fallback) correctly.
         assert_eq!(WILD_GUILDS.len(), WILD_GUILD_LABELS.len());
         assert_eq!(guild_trophic("grazer"), Trophic::Herb);
         assert_eq!(guild_trophic("apexPredator"), Trophic::Pred);
@@ -810,10 +810,10 @@ mod tests {
         assert_eq!(guild_trophic("nothing-like-this"), Trophic::Herb);
     }
 
+    /// Protects: wild_roster returns a non-empty, well-formed roster for
+    /// every valid biome id, and an empty one out of range.
     #[test]
     fn every_roster_entry_names_a_real_guild_and_a_real_biome() {
-        // Protects: wild_roster returns a non-empty, well-formed roster for
-        // every valid biome id, and an empty one out of range.
         for b in 1u8..=15 {
             let r = wild_roster(b);
             assert!(!r.is_empty(), "biome {b} ({}) must have a roster", CART_BIOMES[b as usize - 1]);
@@ -826,10 +826,10 @@ mod tests {
         assert!(wild_roster(200).is_empty());
     }
 
+    /// Protects: wild_sig2 rounds to two significant figures, clamps
+    /// non-positive input to zero, and leaves a single-digit value alone.
     #[test]
     fn sig2_keeps_two_significant_figures() {
-        // Protects: wild_sig2 rounds to two significant figures, clamps
-        // non-positive input to zero, and leaves a single-digit value alone.
         assert_eq!(wild_sig2(0.0), 0.0);
         assert_eq!(wild_sig2(-5.0), 0.0);
         assert_eq!(wild_sig2(1234.0), 1200.0);
@@ -837,10 +837,10 @@ mod tests {
         assert_eq!(wild_sig2(7.0), 7.0);
     }
 
+    /// Protects: wild_fmt_pop's unit switchover exactly at 1000 and
+    /// 1,000,000, and its one-decimal rounding within a unit.
     #[test]
     fn fmt_pop_switches_units_at_the_reference_s_own_boundaries() {
-        // Protects: wild_fmt_pop's unit switchover exactly at 1000 and
-        // 1,000,000, and its one-decimal rounding within a unit.
         assert_eq!(wild_fmt_pop(0.0), "0");
         assert_eq!(wild_fmt_pop(999.0), "999");
         assert_eq!(wild_fmt_pop(1000.0), "1k");
@@ -850,10 +850,10 @@ mod tests {
         assert_eq!(wild_fmt_pop(4_500_000.0), "4.5M");
     }
 
+    /// Protects: build_tri returns zero everywhere on a flat field and
+    /// positive at and around a single-cell step.
     #[test]
     fn tri_is_zero_on_a_flat_grid_and_positive_on_a_step() {
-        // Protects: build_tri returns zero everywhere on a flat field and
-        // positive at and around a single-cell step.
         let flat = vec![0.5f32; 9];
         assert!(build_tri(&flat, 3, 3, false).iter().all(|v| *v == 0.0));
         let mut step = vec![0.0f32; 9];
@@ -862,11 +862,11 @@ mod tests {
         assert!(t[4] > 0.0 && t[0] > 0.0);
     }
 
+    /// Protects: build_tri's `wrap` flag only changes the TRI value at the
+    /// X seam (where a wall on the opposite edge becomes a neighbour); the
+    /// interior is unaffected either way.
     #[test]
     fn wrapping_changes_tri_only_at_the_seam() {
-        // Protects: build_tri's `wrap` flag only changes the TRI value at the
-        // X seam (where a wall on the opposite edge becomes a neighbour); the
-        // interior is unaffected either way.
         let mut f = vec![0.0f32; 12];
         for y in 0..3 {
             f[y * 4] = 1.0; // a wall down the left edge
@@ -877,11 +877,11 @@ mod tests {
         assert_eq!(clamped[1], wrapped[1], "the interior must be untouched");
     }
 
+    /// Protects: a component smaller than min_area is dropped from
+    /// regions and its cells read back -1, but survives (and reindexes
+    /// to 0) once the floor is lowered below its size.
     #[test]
     fn a_region_below_min_area_is_dropped_and_its_cells_read_minus_one() {
-        // Protects: a component smaller than min_area is dropped from
-        // regions and its cells read back -1, but survives (and reindexes
-        // to 0) once the floor is lowered below its size.
         // One 3-cell blob of biome 2 in an 8x8 grid; min_area = 12 default.
         let (w, h) = (8usize, 8usize);
         let mut cb = vec![0u8; w * h];
@@ -900,6 +900,9 @@ mod tests {
         assert_eq!(eco.region_id[0], -1);
     }
 
+    /// Protects: `assign_wildlife` on a small biome-12 record gives a positive richness, at least one
+    /// guild with species, and guild biomass shares summing to about 1 (within 0.05). Despite the name,
+    /// no assertion here checks that predators are dropped when no herbivore is present.
     #[test]
     fn predators_are_dropped_when_no_herbivore_is_present() {
         // Protects: assign_wildlife produces a positive richness and a
@@ -923,11 +926,11 @@ mod tests {
         assert!((shares - 1.0).abs() < 0.05, "biomass shares should sum to ~1, got {shares}");
     }
 
+    /// Protects: wild_region_color's fixed lake/ocean blues, its base
+    /// green for zero richness, its brighter green at richness 8, and
+    /// that richness above 8 clamps rather than wrapping the channel.
     #[test]
     fn region_colour_is_blue_for_water_biomes_and_greens_with_richness() {
-        // Protects: wild_region_color's fixed lake/ocean blues, its base
-        // green for zero richness, its brighter green at richness 8, and
-        // that richness above 8 clamps rather than wrapping the channel.
         let lake = Ecoregion {
             biome: 14,
             ..Ecoregion::default()

@@ -105,11 +105,11 @@ fn settlement(x: usize, y: usize, pop: u32) -> NamedSettlement {
     }
 }
 
+/// Protects: `um_site_box_km` is 1.7, `um_water_near_km` is 1.25 times it, and
+/// `um_water_reach_km` floors the reach at 1.5 cells on a coarse grid (the v1.34
+/// "water access: none" bug) while leaving the near radius alone on a fine one.
 #[test]
 fn site_box_thresholds_are_the_reference_ladder() {
-    // Protects: `um_site_box_km` is 1.7, `um_water_near_km` is 1.25 times it, and
-    // `um_water_reach_km` floors the reach at 1.5 cells on a coarse grid (the v1.34
-    // "water access: none" bug) while leaving the near radius alone on a fine one.
     // max(1700,1250)/1000
     assert_eq!(um_site_box_km(), 1.7);
     assert_eq!(um_water_near_km(), 1.7 * 1.25);
@@ -122,10 +122,10 @@ fn site_box_thresholds_are_the_reference_ladder() {
     assert_eq!(fine, um_water_near_km());
 }
 
+/// Protects: `um_infer_age` gives 60 at 0 and 100 souls and 300 at 1 000, rises with
+/// population, and clamps to UME's 1000 ceiling and 30 floor.
 #[test]
 fn infer_age_is_monotone_and_clamped() {
-    // Protects: `um_infer_age` gives 60 at 0 and 100 souls and 300 at 1 000, rises with
-    // population, and clamps to UME's 1000 ceiling and 30 floor.
     assert_eq!(um_infer_age(0.0), 60.0); // max(1,pop) -> log10(1) = 0
     assert_eq!(um_infer_age(100.0), 60.0);
     assert_eq!(um_infer_age(1_000.0), 300.0);
@@ -135,10 +135,10 @@ fn infer_age_is_monotone_and_clamped() {
     assert!(um_infer_age(1.0) >= 30.0);
 }
 
+/// Protects: `um_ray_box_exit` lands on the box edge for an east and a south ray, and
+/// a zero ray returns the box centre rather than dividing by zero.
 #[test]
 fn ray_box_exit_lands_on_the_box_edge() {
-    // Protects: `um_ray_box_exit` lands on the box edge for an east and a south ray, and
-    // a zero ray returns the box centre rather than dividing by zero.
     let e = um_ray_box_exit(1.0, 0.0, SITE_WM, SITE_HM);
     assert_eq!(e, Vec2::new(SITE_WM, SITE_HM / 2.0));
     let s = um_ray_box_exit(0.0, 1.0, SITE_WM, SITE_HM);
@@ -149,10 +149,10 @@ fn ray_box_exit_lands_on_the_box_edge() {
     assert_eq!(z, Vec2::new(SITE_WM / 2.0, SITE_HM / 2.0));
 }
 
+/// Protects: `um_way_bearing_from` skips segments shorter than `min_dist`, so a
+/// short noisy stub does not set the bearing, and the far-end form points back.
 #[test]
 fn way_bearing_walks_past_a_short_first_segment() {
-    // Protects: `um_way_bearing_from` skips segments shorter than `min_dist`, so a
-    // short noisy stub does not set the bearing, and the far-end form points back.
     // A 0.1-long noisy stub pointing north, then a long run east. With
     // `min_dist` above the stub's length the bearing must be the east run's.
     let pts = vec![(0.0, 0.0), (0.0, -0.1), (10.0, -0.1)];
@@ -163,11 +163,11 @@ fn way_bearing_walks_past_a_short_first_segment() {
     assert!(back.0 < -0.99, "expected a westward bearing, got {back:?}");
 }
 
+/// Protects: `um_site_kind_from_terrain` reads the real field and flow: dry inland is
+/// landlocked, the flow column inland is a river, and shore plus river is
+/// riverthrough.
 #[test]
 fn site_kind_reads_the_real_field() {
-    // Protects: `um_site_kind_from_terrain` reads the real field and flow: dry inland is
-    // landlocked, the flow column inland is a river, and shore plus river is
-    // riverthrough.
     let f = Fixture::new();
     let w = f.world();
     // Deep inland, away from the flow column: nothing wet in reach.
@@ -178,11 +178,11 @@ fn site_kind_reads_the_real_field() {
     assert_eq!(um_site_kind_from_terrain(&w, 20.0, 46.0), "riverthrough");
 }
 
+/// Protects: `um_water_ctx` is `None` for a dry inland box, and for a mid-sea box
+/// returns a full 77x57 all-water mask, `mostly_water`, and a zero distance
+/// transform.
 #[test]
 fn water_ctx_is_none_when_dry_and_real_when_wet() {
-    // Protects: `um_water_ctx` is `None` for a dry inland box, and for a mid-sea box
-    // returns a full 77x57 all-water mask, `mostly_water`, and a zero distance
-    // transform.
     let f = Fixture::new();
     let w = f.world();
     // Deep inland at 800 km across a 64-cell grid, the whole 1.7 km box lands
@@ -200,11 +200,11 @@ fn water_ctx_is_none_when_dry_and_real_when_wet() {
     assert!(sea.ctx.dt.iter().all(|&d| d == 0.0));
 }
 
+/// Protects: `um_terrain_ctx` returns a 77x57 raster of 22 m cells whose heights stay in
+/// raw field units [0, 1], which the engine's slope scaling and rejection
+/// threshold depend on.
 #[test]
 fn terrain_ctx_carries_the_real_relief_in_field_units() {
-    // Protects: `um_terrain_ctx` returns a 77x57 raster of 22 m cells whose heights stay in
-    // raw field units [0, 1], which the engine's slope scaling and rejection
-    // threshold depend on.
     let f = Fixture::new();
     let w = f.world();
     let t = um_terrain_ctx(&w, 30.0, 20.0).expect("a heightfield");
@@ -217,9 +217,9 @@ fn terrain_ctx_carries_the_real_relief_in_field_units() {
     assert!(t.grid.iter().all(|&h| (0.0..=1.0).contains(&h)), "heights left [0,1]");
 }
 
+/// Protects: a settlement in open sea gets `None`, not an empty layout.
 #[test]
 fn a_mid_sea_settlement_gets_no_layout() {
-    // Protects: a settlement in open sea gets `None`, not an empty layout.
     let f = Fixture::new();
     let w = f.world();
     assert!(settlement_layout(&w, &settlement(30, 60, 4_000), &[]).is_none());
@@ -599,10 +599,10 @@ fn zero_pots(n: usize) -> ResourcePotentials {
 
 // --------------------------------------------------------- _umHarbourScale --
 
+/// Protects: `um_harbour_scale` returns exactly 1.0 for the "landlocked" site kind and
+/// more than 1 for coast, bay, river and riverthrough at 50 000 souls.
 #[test]
 fn harbour_scale_is_one_when_landlocked() {
-    // Protects: `um_harbour_scale` returns exactly 1.0 for the "landlocked" site kind and
-    // more than 1 for coast, bay, river and riverthrough at 50 000 souls.
     // The reference's own "unused" return: no harbour is built there at all.
     assert_eq!(um_harbour_scale(50_000.0, "landlocked"), 1.0);
     // ...and only for that exact site kind -- every water kind scales.
@@ -612,18 +612,18 @@ fn harbour_scale_is_one_when_landlocked() {
     assert!(um_harbour_scale(50_000.0, "riverthrough") > 1.0);
 }
 
+/// Protects: 3 000 souls gives exactly 1.0, the divisor anchor.
 #[test]
 fn harbour_scale_reference_port_is_exactly_one() {
-    // Protects: 3 000 souls gives exactly 1.0, the divisor anchor.
     // 3000 souls is the anchor: `(3000/3000)^0.4 == 1`, the ~120-150 m base
     // quay `buildHarbour` draws unscaled. A mutated divisor moves this off 1.
     assert_eq!(um_harbour_scale(3_000.0, "coast"), 1.0);
 }
 
+/// Protects: the exponent is 0.4: 30 000 souls gives `10^0.4` and 1 500 gives
+/// `0.5^0.4`, pinned exactly so 0.3 or 0.5 would fail.
 #[test]
 fn harbour_scale_is_sublinear_not_linear() {
-    // Protects: the exponent is 0.4: 30 000 souls gives `10^0.4` and 1 500 gives
-    // `0.5^0.4`, pinned exactly so 0.3 or 0.5 would fail.
     // The exponent is the point of the function. Ten times the population is
     // 10^0.4 ~ 2.51x the quay, not 10x -- and the value is pinned exactly, so
     // 0.4 -> 0.5 (3.16) or 0.3 (2.00) both fail here rather than merely
@@ -633,10 +633,10 @@ fn harbour_scale_is_sublinear_not_linear() {
     assert_eq!(um_harbour_scale(1_500.0, "coast"), 0.5f64.powf(0.4));
 }
 
+/// Protects: the 0.6 floor (also for zero and negative populations, with no NaN) and
+/// the 3.0 ceiling, with the unclamped power returned between them.
 #[test]
 fn harbour_scale_is_clamped_at_both_ends() {
-    // Protects: the 0.6 floor (also for zero and negative populations, with no NaN) and
-    // the 3.0 ceiling, with the unclamped power returned between them.
     // A hamlet-port is not a pinprick: the 0.6 floor. Raw would be
     // (1/3000)^0.4 ~ 0.0166.
     assert_eq!(um_harbour_scale(1.0, "coast"), 0.6);
@@ -662,10 +662,10 @@ fn pots_with(x: usize, y: usize, v: f32) -> ResourcePotentials {
     p
 }
 
+/// Protects: `um_ore_bearing` needs strictly more than 0.25: 0.25 and 0.24 give
+/// `None`, 0.2501 is found.
 #[test]
 fn ore_bearing_is_none_below_the_floor() {
-    // Protects: `um_ore_bearing` needs strictly more than 0.25: 0.25 and 0.24 give
-    // `None`, 0.2501 is found.
     // 0.25 is a floor, not a threshold to reach: `v > best` with best = 0.25.
     let at = pots_with(34, 32, 0.25);
     assert_eq!(um_ore_bearing(&at, GW, GH, 32.0, 32.0, 0.0), None);
@@ -676,10 +676,10 @@ fn ore_bearing_is_none_below_the_floor() {
     assert_eq!(um_ore_bearing(&above, GW, GH, 32.0, 32.0, 0.0), Some(0.0));
 }
 
+/// Protects: a deposit on the settlement's own cell, or no deposit anywhere, gives
+/// `None`.
 #[test]
 fn ore_bearing_is_none_when_the_deposit_is_underfoot() {
-    // Protects: a deposit on the settlement's own cell, or no deposit anywhere, gives
-    // `None`.
     // `bx===0&&by===0` -- the ore-yard rule then falls back to "periphery,
     // away from the market", so None is a real instruction.
     let under = pots_with(32, 32, 0.9);
@@ -689,10 +689,10 @@ fn ore_bearing_is_none_when_the_deposit_is_underfoot() {
     assert_eq!(um_ore_bearing(&zero_pots(GW * GH), GW, GH, 32.0, 32.0, 0.0), None);
 }
 
+/// Protects: the bearing is `atan2` of the offset (north is -pi/2, east is 0), has
+/// `orient` subtracted, and a NaN `orient` counts as 0.
 #[test]
 fn ore_bearing_points_at_the_deposit_and_subtracts_orient() {
-    // Protects: the bearing is `atan2` of the offset (north is -pi/2, east is 0), has
-    // `orient` subtracted, and a NaN `orient` counts as 0.
     // Due north in grid terms is -y, and atan2(-1,0) = -pi/2.
     let north = pots_with(32, 31, 0.9);
     let b = um_ore_bearing(&north, GW, GH, 32.0, 32.0, 0.0).expect("a bearing");
@@ -706,10 +706,10 @@ fn ore_bearing_points_at_the_deposit_and_subtracts_orient() {
     assert_eq!(um_ore_bearing(&east, GW, GH, 32.0, 32.0, f64::NAN), Some(0.0));
 }
 
+/// Protects: the search radius is `max(2, GW/64)`: two cells out is inside and three
+/// is outside at GW 64, and three is inside at GW 256.
 #[test]
 fn ore_bearing_radius_is_max_two_and_gw_over_64() {
-    // Protects: the search radius is `max(2, GW/64)`: two cells out is inside and three
-    // is outside at GW 64, and three is inside at GW 256.
     // GW/64 = 1 here, so the floor of 2 is what is in force: a deposit two
     // cells out is inside the disc and one three cells out is not.
     let inside = pots_with(34, 32, 0.9);
@@ -722,10 +722,10 @@ fn ore_bearing_radius_is_max_two_and_gw_over_64() {
     assert!(um_ore_bearing(&wide, 256, 8, 128.0, 4.0, 0.0).is_some());
 }
 
+/// Protects: among equal maxima the first in scan order wins (smallest dy, then
+/// smallest dx).
 #[test]
 fn ore_bearing_first_maximum_wins_in_scan_order() {
-    // Protects: among equal maxima the first in scan order wins (smallest dy, then
-    // smallest dx).
     // `v > best`, `dy` outer and `dx` inner: among equal maxima the smallest
     // dy wins, then the smallest dx. Two equal deposits, one north-west and
     // one south-east, must resolve to the north-west one.
@@ -736,9 +736,9 @@ fn ore_bearing_first_maximum_wins_in_scan_order() {
     assert!((b - (-1.0f64).atan2(-1.0)).abs() < 1e-12, "scan order changed: {b}");
 }
 
+/// Protects: copper, tin, iron, gold and salt are each read, and timber is not.
 #[test]
 fn ore_bearing_reads_all_five_metals_and_ignores_the_rest() {
-    // Protects: copper, tin, iron, gold and salt are each read, and timber is not.
     for pick in ["copper", "tin", "iron", "gold", "salt"] {
         let mut p = zero_pots(GW * GH);
         let f = match pick {
@@ -761,10 +761,10 @@ fn ore_bearing_reads_all_five_metals_and_ignores_the_rest() {
     assert_eq!(um_ore_bearing(&t, GW, GH, 32.0, 32.0, 0.0), None);
 }
 
+/// Protects: a too-short or zero-length potentials set gives `None`, the stand-in for
+/// the reference's `!pots` guard.
 #[test]
 fn ore_bearing_is_none_without_potentials() {
-    // Protects: a too-short or zero-length potentials set gives `None`, the stand-in for
-    // the reference's `!pots` guard.
     // The Rust stand-in for the reference's `!pots` guard.
     assert_eq!(um_ore_bearing(&zero_pots(4), GW, GH, 32.0, 32.0, 0.0), None);
     assert_eq!(um_ore_bearing(&zero_pots(0), 0, 0, 0.0, 0.0, 0.0), None);
@@ -970,9 +970,9 @@ fn bare_profile_world<'a>(res: &'a ResourcePotentials, ways: &'a [Way]) -> SiteP
     }
 }
 
+/// Protects: `um_site_profile` returns `None` when the field is empty.
 #[test]
 fn site_profile_is_none_without_a_field() {
-    // Protects: `um_site_profile` returns `None` when the field is empty.
     let f = Fixture::new();
     let mut w = f.world();
     let res = zero_pots(0);
@@ -1032,10 +1032,10 @@ fn site_profile_on_a_real_world_is_fully_populated() {
     assert!(p.buildable_frac > 0.0, "buildableFrac collapsed to 0 -- the v1.32 bug");
 }
 
+/// Protects: absent optional sources give the reference's own defaults: infinite coast
+/// and river distance, zeros, no biome, no resources, no roads, no confluence.
 #[test]
 fn site_profile_missing_sources_are_the_references_own_answers() {
-    // Protects: absent optional sources give the reference's own defaults: infinite coast
-    // and river distance, zeros, no biome, no resources, no roads, no confluence.
     let f = Fixture::new();
     let w = f.world();
     let res = zero_pots(0); // wrong length: no potentials at all
@@ -1057,10 +1057,10 @@ fn site_profile_missing_sources_are_the_references_own_answers() {
     assert!(!p.confluence);
 }
 
+/// Protects: `elev_n` clamps to 0 below sea level while defensibility is handed the
+/// unclamped ratio.
 #[test]
 fn site_profile_elev_n_floors_at_zero() {
-    // Protects: `elev_n` clamps to 0 below sea level while defensibility is handed the
-    // unclamped ratio.
     // A sub-sea-level cell: `elevN` clamps to 0, while `_civPlaceDefensibility`
     // is handed the UNclamped ratio, as in the reference. (The two arguments
     // happen to give the same defensibility for every input -- see the
@@ -1076,10 +1076,10 @@ fn site_profile_elev_n_floors_at_zero() {
     assert_eq!(p.defensibility, civ_place_defensibility(raw, false));
 }
 
+/// Protects: the caller's `walled` input reaches defensibility and adds 0.4, capped
+/// at 1.
 #[test]
 fn site_profile_defensibility_reads_the_caller_resolved_walls() {
-    // Protects: the caller's `walled` input reaches defensibility and adds 0.4, capped
-    // at 1.
     // The `walled` input is the whole data-gap answer: it must reach the
     // number, and the 0.4 wall term is what it is worth.
     let f = Fixture::new();
@@ -1093,10 +1093,10 @@ fn site_profile_defensibility_reads_the_caller_resolved_walls() {
     assert!((fortified - js_min(1.0, open + 0.4)).abs() < 1e-12);
 }
 
+/// Protects: visibility and local relief come from the 5x5 sampling lattice: 24/25 from
+/// a summit, 0 from the plain, relief 0.4 in both, and a flat cell has no aspect.
 #[test]
 fn site_profile_visibility_and_relief_read_the_real_disc() {
-    // Protects: visibility and local relief come from the 5x5 sampling lattice: 24/25 from
-    // a summit, 0 from the plain, relief 0.4 in both, and a flat cell has no aspect.
     // A cone: one high cell in a flat plain. From the summit every sampled
     // neighbour is lower.
     let mut field = vec![0.50f32; GW * GH];
@@ -1132,10 +1132,10 @@ fn site_profile_visibility_and_relief_read_the_real_disc() {
     assert_eq!(plain.slope_n, 0.0);
 }
 
+/// Protects: a neighbourhood only 0.002 lower is not "lower" (the 0.004 deadband),
+/// while one 0.006 lower is.
 #[test]
 fn site_profile_visibility_needs_the_0_004_deadband() {
-    // Protects: a neighbourhood only 0.002 lower is not "lower" (the 0.004 deadband),
-    // while one 0.006 lower is.
     // A neighbourhood only 0.002 below the site is NOT "lower": the reference
     // requires `hv < elevation - 0.004`. Without the deadband this reads 24/25
     // instead of 0.
@@ -1205,10 +1205,10 @@ fn site_profile_river_order_only_fills_in_within_reach() {
     assert_eq!(UM_RIVER_CONTEXT_KM, 25.0);
 }
 
+/// Protects: a Strahler order of 0 and a missing network both read as 1 (the JS
+/// `|| 1`), giving a 17 m width.
 #[test]
 fn site_profile_river_order_zero_and_no_net_both_read_one() {
-    // Protects: a Strahler order of 0 and a missing network both read as 1 (the JS
-    // `|| 1`), giving a 17 m width.
     let f = Fixture::new();
     let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
     let polys = vec![stem];
@@ -1227,10 +1227,10 @@ fn site_profile_river_order_zero_and_no_net_both_read_one() {
     assert_eq!(pn.river_order, 1.0);
 }
 
+/// Protects: the width caps at 46 m for order 6; the 12 floor is asserted on the
+/// formula itself only, since it cannot bind through `um_site_profile`.
 #[test]
 fn site_profile_river_width_is_clamped_at_both_ends() {
-    // Protects: the width caps at 46 m for order 6; the 12 floor is asserted on the
-    // formula itself only, since it cannot bind through `um_site_profile`.
     let f = Fixture::new();
     let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
     let polys = vec![stem];
@@ -1246,10 +1246,10 @@ fn site_profile_river_width_is_clamped_at_both_ends() {
     assert_eq!(js_max(12.0, js_min(46.0, 10.0 + impossible_order * 7.0)), 12.0);
 }
 
+/// Protects: a confluence needs a second stem within the near radius (half a cell
+/// away counts, three cells away does not).
 #[test]
 fn site_profile_confluence_needs_a_second_distinct_stem() {
-    // Protects: a confluence needs a second stem within the near radius (half a cell
-    // away counts, three cells away does not).
     let f = Fixture::new();
     let order = vec![3i16; GW * GH];
     let res = zero_pots(0);
@@ -1270,11 +1270,11 @@ fn site_profile_confluence_needs_a_second_distinct_stem() {
     assert!(!pa.confluence);
 }
 
+/// Protects: the connected-road count takes ways that start or end on the settlement
+/// and excludes hidden, single-point and distant ones, and types are deduped in
+/// first-seen order.
 #[test]
 fn site_profile_counts_connected_roads_and_dedupes_their_types() {
-    // Protects: the connected-road count takes ways that start or end on the settlement
-    // and excludes hidden, single-point and distant ones, and types are deduped in
-    // first-seen order.
     let f = Fixture::new();
     let w = f.world();
     let res = zero_pots(0);
@@ -1303,10 +1303,10 @@ fn site_profile_counts_connected_roads_and_dedupes_their_types() {
     assert_eq!(p.road_types, vec!["road", "highway"]);
 }
 
+/// Protects: a resource is nearby only above 0.4 (0.40625 in, 0.375 out), listed in
+/// descending order, and the mean carries every resource key.
 #[test]
 fn site_profile_nearby_resources_are_over_0_4_and_descending() {
-    // Protects: a resource is nearby only above 0.4 (0.40625 in, 0.375 out), listed in
-    // descending order, and the mean carries every resource key.
     let f = Fixture::new();
     let w = f.world();
     let mut res = zero_pots(GW * GH);
@@ -1325,9 +1325,9 @@ fn site_profile_nearby_resources_are_over_0_4_and_descending() {
     assert_eq!(mean["timber"], 0.0);
 }
 
+/// Protects: biome codes 0, 1, 7, 12 and 13 map to ocean, ice, grass, tropWet and lake.
 #[test]
 fn site_profile_biome_maps_ocean_lake_and_the_key_table() {
-    // Protects: biome codes 0, 1, 7, 12 and 13 map to ocean, ice, grass, tropWet and lake.
     let f = Fixture::new();
     let w = f.world();
     let res = zero_pots(0);
@@ -1341,10 +1341,10 @@ fn site_profile_biome_maps_ocean_lake_and_the_key_table() {
     }
 }
 
+/// Protects: buildable fraction is 1.0 on flat dry land, 0.0 below sea level, 1.0 on a
+/// 0.05-per-cell ramp and 0.0 on a 0.20-per-cell ramp.
 #[test]
 fn site_profile_buildable_fraction_reads_slope_and_sea() {
-    // Protects: buildable fraction is 1.0 on flat dry land, 0.0 below sea level, 1.0 on a
-    // 0.05-per-cell ramp and 0.0 on a 0.20-per-cell ramp.
     let n = GW * GH;
     let flow = vec![0.0f32; n];
     let wb = vec![0u8; n];
@@ -1387,10 +1387,10 @@ fn site_profile_buildable_fraction_reads_slope_and_sea() {
     assert_eq!(mk(&ramp(0.20)), 0.0);
 }
 
+/// Protects: `civ_coast_dist_field` is 0 on sea and 48 at the far north, and empty for
+/// an empty field or a zero-sized grid.
 #[test]
 fn coast_dist_field_is_a_real_chamfer_and_empty_when_it_cannot_be() {
-    // Protects: `civ_coast_dist_field` is 0 on sea and 48 at the far north, and empty for
-    // an empty field or a zero-sized grid.
     let f = Fixture::new();
     let dt = civ_coast_dist_field(&f.field, GW, GH, SEA);
     assert_eq!(dt.len(), GW * GH);

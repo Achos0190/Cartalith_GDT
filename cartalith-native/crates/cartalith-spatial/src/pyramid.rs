@@ -211,22 +211,22 @@ pub fn baked_cover(c: ChunkId, is_baked: impl Fn(ChunkId) -> bool) -> bool {
 mod tests {
     use super::*;
 
+    /// Protects: pyramid_dims() doubling cols/rows per level and clamping
+    /// a negative level to the root (2^0), matching the reference's own
+    /// `Math.max(0, z|0)`.
     #[test]
     fn dims_double_per_level_and_floor_at_the_root() {
-        // Protects: pyramid_dims() doubling cols/rows per level and clamping
-        // a negative level to the root (2^0), matching the reference's own
-        // `Math.max(0, z|0)`.
         assert_eq!(pyramid_dims(0), PyramidDims { cols: 1, rows: 1 });
         assert_eq!(pyramid_dims(3), PyramidDims { cols: 8, rows: 8 });
         // The reference's `Math.max(0, z|0)`: a negative level is the root.
         assert_eq!(pyramid_dims(-1), PyramidDims { cols: 1, rows: 1 });
     }
 
+    /// Protects: pyramid_tile_count() against the reference's own
+    /// documented totals -- a wrong series sum would silently mis-size a
+    /// bake progress bar rather than fail loudly.
     #[test]
     fn tile_count_matches_the_references_own_worked_numbers() {
-        // Protects: pyramid_tile_count() against the reference's own
-        // documented totals -- a wrong series sum would silently mis-size a
-        // bake progress bar rather than fail loudly.
         // From `bakeAllTiles`' own comment, verbatim.
         assert_eq!(pyramid_tile_count(3), 85);
         assert_eq!(pyramid_tile_count(4), 341);
@@ -234,11 +234,11 @@ mod tests {
         assert_eq!(pyramid_tile_count(0), 1);
     }
 
+    /// Protects: pyramid_tile_bounds()'s fractional step tiling the
+    /// `[0, cW-1]` inset exactly, with no gap or overlap between
+    /// neighbouring tiles at any level.
     #[test]
     fn a_levels_tiles_tile_the_whole_inset_field_exactly() {
-        // Protects: pyramid_tile_bounds()'s fractional step tiling the
-        // `[0, cW-1]` inset exactly, with no gap or overlap between
-        // neighbouring tiles at any level.
         // Every tile at a level, laid end to end, must cover [0, cW-1] with no
         // gap and no overlap -- the property the fractional step exists for.
         let (cw, ch) = (48usize, 32usize);
@@ -255,20 +255,20 @@ mod tests {
         }
     }
 
+    /// Protects: tiles_in_view() clamping each edge independently into
+    /// [0, cols-1]/[0, rows-1] rather than returning an empty range for a
+    /// view rectangle that misses the grid entirely.
     #[test]
     fn a_view_entirely_off_the_grid_still_names_one_tile() {
-        // Protects: tiles_in_view() clamping each edge independently into
-        // [0, cols-1]/[0, rows-1] rather than returning an empty range for a
-        // view rectangle that misses the grid entirely.
         let t = tiles_in_view(2, -50.0, -50.0, -40.0, -40.0, 48, 32);
         assert_eq!((t.c0, t.c1, t.r0, t.r1), (0, 0, 0, 0));
         assert_eq!(t.count, 1);
     }
 
+    /// Protects: chunk_parent()/chunk_children() being exact inverses of
+    /// each other, and the root (z=0) having no parent.
     #[test]
     fn parent_and_children_are_inverses() {
-        // Protects: chunk_parent()/chunk_children() being exact inverses of
-        // each other, and the root (z=0) having no parent.
         let c = ChunkId::new(3, 5, 7);
         for kid in chunk_children(c) {
             assert_eq!(chunk_parent(kid), Some(c));
@@ -276,11 +276,11 @@ mod tests {
         assert_eq!(chunk_parent(ChunkId::new(0, 0, 0)), None);
     }
 
+    /// Protects: baked_cover() walking every ancestor up to the root (not
+    /// just the immediate parent), terminating when nothing is baked, and
+    /// not being fooled by a baked sibling.
     #[test]
     fn baked_cover_walks_all_the_way_to_the_root() {
-        // Protects: baked_cover() walking every ancestor up to the root (not
-        // just the immediate parent), terminating when nothing is baked, and
-        // not being fooled by a baked sibling.
         let root = ChunkId::new(0, 0, 0);
         // Only the root is baked; a deep descendant of it is still covered.
         assert!(baked_cover(ChunkId::new(5, 31, 31), |k| k == root));
@@ -292,6 +292,8 @@ mod tests {
         assert!(!baked_cover(ChunkId::new(5, 31, 31), |k| k == sib));
     }
 
+    /// Protects: `pyramid_level_for_zoom()` never decreasing as scale grows, staying within
+    /// [0, max_level], and defaulting a `None` max_level to 6.
     #[test]
     fn level_for_zoom_is_monotonic_in_scale_and_respects_the_cap() {
         // Protects: pyramid_level_for_zoom() never decreasing as scale

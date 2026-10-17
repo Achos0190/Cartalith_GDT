@@ -2188,11 +2188,11 @@ mod tests {
         out
     }
 
+    /// Protects: a ProjectWrite with no rasters/documents/history writes
+    /// an archive that reads back with matching params/fields, empty
+    /// documents/rasters/history and no warnings.
     #[test]
     fn an_empty_project_round_trips() {
-        // Protects: a ProjectWrite with no rasters/documents/history writes
-        // an archive that reads back with matching params/fields, empty
-        // documents/rasters/history and no warnings.
         let (params, fields) = sample(7, 5);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let back = read_project(Cursor::new(&buf)).expect("read_project should succeed");
@@ -2211,12 +2211,12 @@ mod tests {
         );
     }
 
+    /// Protects: every payload kind this writer supports -- rasters of
+    /// all three element types, documents, history/territory years,
+    /// preview PNG, readme, created timestamp and both parameter views --
+    /// round-trips through a real archive with no warnings.
     #[test]
     fn every_payload_kind_round_trips() {
-        // Protects: every payload kind this writer supports -- rasters of
-        // all three element types, documents, history/territory years,
-        // preview PNG, readme, created timestamp and both parameter views --
-        // round-trips through a real archive with no warnings.
         let (params, fields) = sample(6, 4);
         let n = 24;
         let mut p = ProjectWrite::new(&params, &fields);
@@ -2354,11 +2354,11 @@ mod tests {
         );
     }
 
+    /// Protects: a generated world nobody has edited saves and reloads
+    /// without inventing an empty settlement list, faction roster or
+    /// territory raster, and with no warnings.
     #[test]
     fn a_world_with_no_civ_layer_round_trips() {
-        // Protects: a generated world nobody has edited saves and reloads
-        // without inventing an empty settlement list, faction roster or
-        // territory raster, and with no warnings.
         // The case the register calls out explicitly: a generated world
         // nobody has edited must save and reload without inventing an
         // empty settlement list, an empty faction roster or a warning.
@@ -2372,11 +2372,11 @@ mod tests {
         assert_eq!(back.save.fields, fields);
     }
 
+    /// Protects: read_project accepts a flat (interoperability-writer)
+    /// archive too, tagging it Layout::Flat/format_version 0, with
+    /// matching params/fields and no documents.
     #[test]
     fn a_flat_legacy_archive_still_reads() {
-        // Protects: read_project accepts a flat (interoperability-writer)
-        // archive too, tagging it Layout::Flat/format_version 0, with
-        // matching params/fields and no documents.
         // Written with the interoperability writer, read with the project
         // reader -- `SAVEFILE_COMPAT.md` §1's "readers accept both".
         let (params, fields) = sample(9, 4);
@@ -2400,12 +2400,12 @@ mod tests {
         assert!(back.documents.is_empty());
     }
 
+    /// Protects: an unrecognised entry does not fail the read, is not
+    /// reported as a warning, and is censused (name and bytes retained)
+    /// under `foreign` -- while a clean self-written archive has nothing
+    /// foreign at all.
     #[test]
     fn an_unknown_entry_is_ignored_not_an_error() {
-        // Protects: an unrecognised entry does not fail the read, is not
-        // reported as a warning, and is censused (name and bytes retained)
-        // under `foreign` -- while a clean self-written archive has nothing
-        // foreign at all.
         // §6.3, the rule that lets two implementations add payloads without
         // breaking each other. Tested on the tree layout; `lib.rs` already
         // tests it on the flat one.
@@ -3245,11 +3245,11 @@ mod tests {
         assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
     }
 
+    /// Protects: a corrupt optional document (unparseable JSON) is
+    /// dropped with exactly one warning naming it, while every other
+    /// document and the core fields survive untouched.
     #[test]
     fn a_damaged_optional_document_costs_only_itself() {
-        // Protects: a corrupt optional document (unparseable JSON) is
-        // dropped with exactly one warning naming it, while every other
-        // document and the core fields survive untouched.
         // §6.4: a corrupt labels file must not cost the user their world.
         let (params, fields) = sample(4, 4);
         let mut p = ProjectWrite::new(&params, &fields);
@@ -3313,13 +3313,13 @@ mod tests {
         out
     }
 
+    /// Protects: an optional raster compressed with an undecodable method
+    /// is dropped with a warning naming the entry and method (not
+    /// reported as missing), while an undecodable heightmap -- the one
+    /// fatal raster -- fails the load with an explicit error rather than
+    /// falling back to the unshuffled name.
     #[test]
     fn an_undecodable_entry_is_reported_and_never_looks_absent() {
-        // Protects: an optional raster compressed with an undecodable method
-        // is dropped with a warning naming the entry and method (not
-        // reported as missing), while an undecodable heightmap -- the one
-        // fatal raster -- fails the load with an explicit error rather than
-        // falling back to the unshuffled name.
         // `SAVEFILE_COMPAT.md` §3.3: an entry compressed with a method the
         // reader has no decoder for is intact and unreadable, which is not
         // the same thing as absent. Reporting it as absent would let the
@@ -3360,12 +3360,12 @@ mod tests {
         );
     }
 
+    /// Protects: a missing heightmap entry fails the load outright, a
+    /// missing temperature zero-fills and reports it, and a missing
+    /// volcanic/impact field zero-fills silently because zero is the
+    /// true value for those fields.
     #[test]
     fn a_missing_heightmap_is_fatal_and_a_missing_climate_is_not() {
-        // Protects: a missing heightmap entry fails the load outright, a
-        // missing temperature zero-fills and reports it, and a missing
-        // volcanic/impact field zero-fills silently because zero is the
-        // true value for those fields.
         let (params, fields) = sample(4, 4);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
 
@@ -3407,11 +3407,11 @@ mod tests {
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     }
 
+    /// Protects: a raster whose length does not match gw*gh is refused
+    /// at write time (SaveError::RasterLength, naming the entry and both
+    /// lengths) rather than written short.
     #[test]
     fn a_truncated_raster_is_refused_not_believed() {
-        // Protects: a raster whose length does not match gw*gh is refused
-        // at write time (SaveError::RasterLength, naming the entry and both
-        // lengths) rather than written short.
         let (params, fields) = sample(4, 4);
         let mut p = ProjectWrite::new(&params, &fields);
         p.raster("rasters/territory.i32", Raster::I32(vec![1; 15]));
@@ -3424,11 +3424,11 @@ mod tests {
         );
     }
 
+    /// Protects: a core SaveFields field (rainfall) shorter than gw*gh is
+    /// refused at write time (SaveError::FieldLength, naming the entry
+    /// and both lengths).
     #[test]
     fn a_short_core_field_is_refused() {
-        // Protects: a core SaveFields field (rainfall) shorter than gw*gh is
-        // refused at write time (SaveError::FieldLength, naming the entry
-        // and both lengths).
         let (params, mut fields) = sample(6, 5);
         Arc::make_mut(&mut fields.rainfall).pop();
         let mut buf = Vec::new();
@@ -3444,11 +3444,11 @@ mod tests {
         ));
     }
 
+    /// Protects: an invented document slot, an invented raster path, and
+    /// a second (duplicate) copy of a core raster are all refused with
+    /// SaveError::UnknownSlot naming the offending path.
     #[test]
     fn an_unregistered_slot_is_a_write_error() {
-        // Protects: an invented document slot, an invented raster path, and
-        // a second (duplicate) copy of a core raster are all refused with
-        // SaveError::UnknownSlot naming the offending path.
         // The registry is what keeps "one concept, one home" a property of
         // the code rather than of good intentions.
         let (params, fields) = sample(3, 3);
@@ -3546,10 +3546,10 @@ mod tests {
         assert_eq!(back.save.fields.strahler_order, vec![0u8; 9]);
     }
 
+    /// Protects: writing an f32 raster into a registered i32 slot is
+    /// refused with SaveError::RasterElement naming both element types.
     #[test]
     fn a_raster_of_the_wrong_element_type_is_refused() {
-        // Protects: writing an f32 raster into a registered i32 slot is
-        // refused with SaveError::RasterElement naming both element types.
         let (params, fields) = sample(3, 3);
         let mut p = ProjectWrite::new(&params, &fields);
         p.raster("rasters/territory.i32", Raster::F32(vec![0.0; 9]));
@@ -3565,10 +3565,10 @@ mod tests {
         ));
     }
 
+    /// Protects: an invalid-JSON document string is refused at write
+    /// time (SaveError::DocumentJson) rather than written broken.
     #[test]
     fn an_unparseable_document_is_refused_at_write_time() {
-        // Protects: an invalid-JSON document string is refused at write
-        // time (SaveError::DocumentJson) rather than written broken.
         let (params, fields) = sample(3, 3);
         let mut p = ProjectWrite::new(&params, &fields);
         p.document("vault.json", "{ not json");
@@ -3580,13 +3580,13 @@ mod tests {
         ));
     }
 
+    /// Protects: coerce_integral_floats turns every value that is a
+    /// whole number (at any nesting depth) into a JSON integer, leaves
+    /// genuine fractions and huge (unsafe-integer) values as floats, and
+    /// leaves strings/bools/null untouched -- and the same coercion runs
+    /// on the real read path, not only in this direct unit test.
     #[test]
     fn integral_floats_are_coerced_everywhere_kv04() {
-        // Protects: coerce_integral_floats turns every value that is a
-        // whole number (at any nesting depth) into a JSON integer, leaves
-        // genuine fractions and huge (unsafe-integer) values as floats, and
-        // leaves strings/bools/null untouched -- and the same coercion runs
-        // on the real read path, not only in this direct unit test.
         // `SAVEFILE_COMPAT.md` §14.2 / `GUI_GAP_REGISTER.md` KV-04: a
         // document that has passed through a language with one number type
         // comes back with `1.0` where `1` was written, and a strict parser
@@ -3671,9 +3671,9 @@ mod tests {
         assert_eq!(m["world"]["map_width_km"], 1234.5);
     }
 
+    /// Protects: a set `params.origin` writes as `world.origin` verbatim.
     #[test]
     fn a_known_origin_is_a_member_of_the_world_object() {
-        // Protects: a set `params.origin` writes as `world.origin` verbatim.
         let (mut params, fields) = sample(4, 4);
         params.origin = Some("region".to_string());
         let m = manifest_json(&ProjectWrite::new(&params, &fields));
@@ -3722,9 +3722,9 @@ mod tests {
         assert_eq!(m["world"]["map_width_km"], 1234.5);
     }
 
+    /// Protects: a set `params.name` writes as `world.name` verbatim.
     #[test]
     fn a_known_name_is_a_member_of_the_world_object() {
-        // Protects: a set `params.name` writes as `world.name` verbatim.
         let (mut params, fields) = sample(4, 4);
         params.name = Some("The Vharen Reach".to_string());
         let m = manifest_json(&ProjectWrite::new(&params, &fields));
@@ -3774,12 +3774,12 @@ mod tests {
         assert_eq!(back.save.params.seed, params.seed);
     }
 
+    /// Protects: manifest_json's format/format_version/world/created
+    /// members match the specification's literal values (format_version
+    /// asserted as the literal 2, not against its own constant), and no
+    /// grid duplication (a top-level "GW") leaks in.
     #[test]
     fn the_manifest_says_what_the_specification_says_it_says() {
-        // Protects: manifest_json's format/format_version/world/created
-        // members match the specification's literal values (format_version
-        // asserted as the literal 2, not against its own constant), and no
-        // grid duplication (a top-level "GW") leaks in.
         let (params, fields) = sample(11, 7);
         let mut p = ProjectWrite::new(&params, &fields);
         p.created = Some("2026-08-25T00:00:00Z".into());
@@ -3800,11 +3800,11 @@ mod tests {
         assert!(m.get("GW").is_none());
     }
 
+    /// Protects: a project.json naming a different `format` is refused
+    /// with LoadError::NotAProject carrying that format string, rather
+    /// than being read as if it were this build's own.
     #[test]
     fn a_foreign_project_json_is_refused_rather_than_guessed() {
-        // Protects: a project.json naming a different `format` is refused
-        // with LoadError::NotAProject carrying that format string, rather
-        // than being read as if it were this build's own.
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
@@ -3818,11 +3818,11 @@ mod tests {
         );
     }
 
+    /// Protects: an archive stamped with a higher format_version than
+    /// this build knows opens rather than being discarded, and reports
+    /// the version it actually read.
     #[test]
     fn a_newer_format_version_warns_and_still_reads() {
-        // Protects: an archive stamped with a higher format_version than
-        // this build knows opens rather than being discarded, and reports
-        // the version it actually read.
         let (params, fields) = sample(4, 4);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let mut bumped = Vec::new();
@@ -3853,10 +3853,10 @@ mod tests {
         );
     }
 
+    /// Protects: a document entry prefixed with a UTF-8 BOM still parses
+    /// as JSON, with no warning.
     #[test]
     fn a_bom_on_a_document_does_not_defeat_the_reader() {
-        // Protects: a document entry prefixed with a UTF-8 BOM still parses
-        // as JSON, with no warning.
         let (params, fields) = sample(3, 3);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let mut with_bom = Vec::new();
@@ -3876,12 +3876,12 @@ mod tests {
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     }
 
+    /// Protects: DOCUMENT_SLOTS and RASTER_SLOTS each carry no duplicate
+    /// path, every document slot is a safe `.json` entry name, every
+    /// raster slot lives under `rasters/` with an extension matching its
+    /// element type, and every CORE_RASTERS name is actually registered.
     #[test]
     fn every_registered_slot_is_reachable_and_unique() {
-        // Protects: DOCUMENT_SLOTS and RASTER_SLOTS each carry no duplicate
-        // path, every document slot is a safe `.json` entry name, every
-        // raster slot lives under `rasters/` with an extension matching its
-        // element type, and every CORE_RASTERS name is actually registered.
         // A registry with a typo silently creates a slot nothing can ever
         // write to, which is the failure this whole mechanism exists to
         // prevent -- so it is asserted rather than trusted.
@@ -3923,12 +3923,12 @@ mod tests {
         }
     }
 
+    /// Protects: writing the same ProjectWrite twice produces the same
+    /// entry names, CRC-32s and sizes both times (content_fingerprint),
+    /// deliberately excluding `created`, the one member that must differ
+    /// between two real saves.
     #[test]
     fn a_project_written_twice_has_identical_content() {
-        // Protects: writing the same ProjectWrite twice produces the same
-        // entry names, CRC-32s and sizes both times (content_fingerprint),
-        // deliberately excluding `created`, the one member that must differ
-        // between two real saves.
         // Not cosmetic: a save that differs run to run defeats every
         // version-control and sync workflow the owner might put a project
         // directory into.

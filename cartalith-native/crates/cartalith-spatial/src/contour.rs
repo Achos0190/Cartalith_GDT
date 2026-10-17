@@ -312,11 +312,11 @@ mod tests {
         (0..w * h).map(|i| ((i % w) as f64 - cut) as f32).collect()
     }
 
+    /// Protects: contour_polylines() tracing a single straight open
+    /// chain at the exact interpolated crossing of a linear ramp, one
+    /// point per sampled row.
     #[test]
     fn a_linear_ramp_traces_one_straight_chain_at_the_exact_crossing() {
-        // Protects: contour_polylines() tracing a single straight open
-        // chain at the exact interpolated crossing of a linear ramp, one
-        // point per sampled row.
         let (w, h) = (24usize, 9usize);
         let pls = contour_polylines(&ramp(w, h, 10.3), w, h, 0.0);
         assert_eq!(pls.len(), 1, "one crossing, one chain");
@@ -334,11 +334,11 @@ mod tests {
         assert_ne!(pls[0][0], pls[0][pls[0].len() - 1]);
     }
 
+    /// Protects: contour_polylines() tracing a disc's boundary as one
+    /// closed ring, within the expected chord-vs-arc interpolation
+    /// error bound.
     #[test]
     fn a_circle_is_traced_as_one_closed_ring_on_the_circle() {
-        // Protects: contour_polylines() tracing a disc's boundary as one
-        // closed ring, within the expected chord-vs-arc interpolation
-        // error bound.
         let (w, h, r) = (61usize, 61usize, 20.0f64);
         let (cx, cy) = (30.5f64, 30.5f64);
         // Positive inside the disc, negative outside — an island.
@@ -364,12 +364,12 @@ mod tests {
         assert!(worst < 0.02, "worst radial error {worst} cells");
     }
 
+    /// Protects: contour_polylines()'s orientation rule (above-level
+    /// side on the visual left) making an island ring and a lake ring
+    /// wind oppositely, which is what lets a signed-area test tell them
+    /// apart downstream.
     #[test]
     fn an_island_ring_winds_the_opposite_way_from_a_lake_ring() {
-        // Protects: contour_polylines()'s orientation rule (above-level
-        // side on the visual left) making an island ring and a lake ring
-        // wind oppositely, which is what lets a signed-area test tell them
-        // apart downstream.
         let (w, h) = (41usize, 41usize);
         let disc = |sign: f64| -> Vec<f32> {
             (0..w * h)
@@ -389,11 +389,11 @@ mod tests {
         assert!(a * b < 0.0, "island {a} and lake {b} must wind oppositely");
     }
 
+    /// Protects: contour_polylines()'s determinism claim -- two calls on
+    /// the same multi-component, saddle-containing field return
+    /// byte-identical output, in the same order.
     #[test]
     fn the_same_field_traces_byte_identically_twice() {
-        // Protects: contour_polylines()'s determinism claim -- two calls on
-        // the same multi-component, saddle-containing field return
-        // byte-identical output, in the same order.
         let (w, h) = (37usize, 29usize);
         // Something with several components and at least one saddle: a
         // product of sines crosses zero on a checkerboard of lobes.
@@ -409,21 +409,21 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    /// Protects: contour_polylines() returning empty (cases 0 and 15
+    /// skipped) when every block is entirely above or entirely below
+    /// the level.
     #[test]
     fn a_field_that_never_crosses_the_level_traces_nothing() {
-        // Protects: contour_polylines() returning empty (cases 0 and 15
-        // skipped) when every block is entirely above or entirely below
-        // the level.
         let f = vec![1.0f32; 16 * 16];
         assert!(contour_polylines(&f, 16, 16, 0.0).is_empty(), "all above");
         assert!(contour_polylines(&f, 16, 16, 2.0).is_empty(), "all below");
     }
 
+    /// Protects: contour_polylines() refusing (empty, no panic) a grid
+    /// with fewer than 2 rows or columns, an empty field, and a buffer
+    /// shorter than `w * h` rather than indexing past the end.
     #[test]
     fn a_degenerate_grid_traces_nothing_rather_than_panicking() {
-        // Protects: contour_polylines() refusing (empty, no panic) a grid
-        // with fewer than 2 rows or columns, an empty field, and a buffer
-        // shorter than `w * h` rather than indexing past the end.
         let f = ramp(8, 1, 3.5);
         assert!(contour_polylines(&f, 8, 1, 0.0).is_empty(), "one row");
         assert!(contour_polylines(&f, 1, 8, 0.0).is_empty(), "one column");
@@ -432,11 +432,11 @@ mod tests {
         assert!(contour_polylines(&f, 8, 4, 0.0).is_empty(), "short buffer");
     }
 
+    /// Protects: the saddle-case centre-average disambiguation choosing
+    /// the below-level pairing deterministically, emitting exactly two
+    /// one-segment open chains rather than merging or dropping one.
     #[test]
     fn a_saddle_resolves_to_two_segments_and_links_both() {
-        // Protects: the saddle-case centre-average disambiguation choosing
-        // the below-level pairing deterministically, emitting exactly two
-        // one-segment open chains rather than merging or dropping one.
         // A 2x2 field with the two diagonals on opposite sides of 0 is
         // marching-squares case 10 (TR and BL above), the ambiguous one. The
         // centre average is 0, which `>=` reads as above — so the two *below*

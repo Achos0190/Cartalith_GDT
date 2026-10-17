@@ -1531,43 +1531,43 @@ mod tests {
 
     // ---------- stock data is real, valid data ----------
 
+    /// Protects: every built-in animal validates `Ok`, so shipping stock data never
+    /// shows a warning on first launch.
     #[test]
     fn every_stock_animal_validates_ok() {
-        // Protects: every built-in animal validates `Ok`, so shipping stock data never
-        // shows a warning on first launch.
         for a in stock_animals() {
             assert_eq!(validate_animal(&a), ValidationState::Ok, "{}", a.name);
         }
     }
 
+    /// Protects: every built-in vehicle validates `Ok`.
     #[test]
     fn every_stock_vehicle_validates_ok() {
-        // Protects: every built-in vehicle validates `Ok`.
         for v in stock_vehicles() {
             assert_eq!(validate_vehicle(&v), ValidationState::Ok, "{}", v.name);
         }
     }
 
+    /// Protects: every built-in vessel validates `Ok`.
     #[test]
     fn every_stock_vessel_validates_ok() {
-        // Protects: every built-in vessel validates `Ok`.
         for v in stock_vessels() {
             assert_eq!(validate_vessel(&v), ValidationState::Ok, "{}", v.name);
         }
     }
 
+    /// Protects: every built-in party preset validates `Ok`.
     #[test]
     fn every_stock_party_preset_validates_ok() {
-        // Protects: every built-in party preset validates `Ok`.
         for p in stock_party_presets() {
             assert_eq!(validate_party_preset(&p), ValidationState::Ok, "{}", p.name);
         }
     }
 
+    /// Protects: exactly the four engine-backed stock animals carry a `species_key`, in
+    /// the order donkey, mule, camel, horse; Ox/Yak/Reindeer have none.
     #[test]
     fn four_stock_animals_carry_the_engine_species_key_the_other_three_do_not() {
-        // Protects: exactly the four engine-backed stock animals carry a `species_key`, in
-        // the order donkey, mule, camel, horse; Ox/Yak/Reindeer have none.
         let keyed: Vec<&str> = stock_animals()
             .iter()
             .filter_map(|a| a.species_key)
@@ -1577,10 +1577,10 @@ mod tests {
 
     // ---------- validation states: all three reachable ----------
 
+    /// Protects: a blank animal is `Incomplete` (never `Ok`/`Conflicting`) and the
+    /// missing list names representative fields (load capacity, terrain, availability).
     #[test]
     fn a_blank_animal_is_incomplete_and_names_every_missing_field() {
-        // Protects: a blank animal is `Incomplete` (never `Ok`/`Conflicting`) and the
-        // missing list names representative fields (load capacity, terrain, availability).
         let a = AnimalDef::blank("test", "Test Animal");
         let ValidationState::Incomplete(missing) = validate_animal(&a) else {
             panic!("expected Incomplete")
@@ -1590,10 +1590,10 @@ mod tests {
         assert!(missing.contains(&"availability"));
     }
 
+    /// Protects: §4's worked example: grassland-only grazing plus a non-grassland row
+    /// with a live multiplier is `Conflicting`, and the reason says "grassland-only".
     #[test]
     fn grazing_vs_terrain_is_the_specs_own_worked_conflict() {
-        // Protects: §4's worked example: grassland-only grazing plus a non-grassland row
-        // with a live multiplier is `Conflicting`, and the reason says "grassland-only".
         // TRAVEL_LIBRARY_SPEC.md §4's own example: grassland-only grazing,
         // but a non-grassland terrain still carries a real multiplier.
         let mut a = stock_animals()
@@ -1607,10 +1607,10 @@ mod tests {
         assert!(reasons.iter().any(|r| r.contains("grassland-only")));
     }
 
+    /// Protects: a `Mount` role with `usable_as_mount == false` is `Conflicting`, with a
+    /// reason that names "usable as a mount".
     #[test]
     fn mount_role_and_usable_as_mount_must_agree() {
-        // Protects: a `Mount` role with `usable_as_mount == false` is `Conflicting`, with a
-        // reason that names "usable as a mount".
         let mut a = stock_animals()
             .into_iter()
             .find(|a| a.id == "donkey")
@@ -1622,10 +1622,10 @@ mod tests {
         assert!(reasons.iter().any(|r| r.contains("usable as a mount")));
     }
 
+    /// Protects: completeness is checked before conflicts: an entry with a conflict AND
+    /// an unset field reports `Incomplete`, not `Conflicting`.
     #[test]
     fn incomplete_takes_priority_over_a_conflict_that_would_otherwise_fire() {
-        // Protects: completeness is checked before conflicts: an entry with a conflict AND
-        // an unset field reports `Incomplete`, not `Conflicting`.
         // Same contradiction as above, but with a constraint field also
         // unset -- Incomplete must win, per this module's own ordering.
         let mut a = stock_animals()
@@ -1640,10 +1640,10 @@ mod tests {
         ));
     }
 
+    /// Protects: a vehicle needing no road (the stock sledge's setting) whose off-road
+    /// travel is blocked is `Conflicting`.
     #[test]
     fn vehicle_no_road_needed_but_off_road_blocked_is_conflicting() {
-        // Protects: a vehicle needing no road (the stock sledge's setting) whose off-road
-        // travel is blocked is `Conflicting`.
         let mut v = stock_vehicles()
             .into_iter()
             .find(|v| v.id == "sledge")
@@ -1655,10 +1655,10 @@ mod tests {
         ));
     }
 
+    /// Protects: a Sheltered-rated vessel (the stock river barge) that also claims `Sea`
+    /// is `Conflicting`.
     #[test]
     fn vessel_sheltered_but_rated_for_sea_is_conflicting() {
-        // Protects: a Sheltered-rated vessel (the stock river barge) that also claims `Sea`
-        // is `Conflicting`.
         let mut v = stock_vessels()
             .into_iter()
             .find(|v| v.id == "river_barge")
@@ -1670,10 +1670,10 @@ mod tests {
         ));
     }
 
+    /// Protects: a preset with no transport and group size 0 is `Incomplete`; party
+    /// presets have no conflict rules, so never `Conflicting`.
     #[test]
     fn a_blank_party_preset_is_incomplete_never_conflicting() {
-        // Protects: a preset with no transport and group size 0 is `Incomplete`; party
-        // presets have no conflict rules, so never `Conflicting`.
         let mut p = PartyPreset::blank("t", "Test");
         p.transport.clear();
         p.party.group_size = 0;
@@ -1685,19 +1685,19 @@ mod tests {
 
     // ---------- terrain vocabulary mapping ----------
 
+    /// Protects: the engine's road/ruin surfaces map to no Travel Library terrain row
+    /// (`None`), by design -- roads are a vehicle requirement, not an animal terrain.
     #[test]
     fn engine_roads_are_deliberately_unmapped() {
-        // Protects: the engine's road/ruin surfaces map to no Travel Library terrain row
-        // (`None`), by design -- roads are a vehicle requirement, not an animal terrain.
         assert_eq!(tl_terrain_key_for_engine("Paved Road"), None);
         assert_eq!(tl_terrain_key_for_engine("Dirt Track"), None);
         assert_eq!(tl_terrain_key_for_engine("Ruins / Debris"), None);
     }
 
+    /// Protects: each of the ten engine land terrains maps to a key that actually exists
+    /// in `TL_TERRAIN_KEYS`, so the mapping cannot drift to a nonexistent row.
     #[test]
     fn every_engine_land_terrain_that_does_map_names_a_real_tl_key() {
-        // Protects: each of the ten engine land terrains maps to a key that actually exists
-        // in `TL_TERRAIN_KEYS`, so the mapping cannot drift to a nonexistent row.
         for t in [
             "Open Plains",
             "Forest Path",
@@ -1717,10 +1717,10 @@ mod tests {
 
     // ---------- party preset round trip ----------
 
+    /// Protects: capture-then-apply round trip: transport, mount and party survive
+    /// `from_jp_plan` -> `apply_to`, and route-only fields come from `base`.
     #[test]
     fn a_captured_preset_applies_back_onto_a_plan_unchanged() {
-        // Protects: capture-then-apply round trip: transport, mount and party survive
-        // `from_jp_plan` -> `apply_to`, and route-only fields come from `base`.
         let plan = crate::JpPlan {
             transport: "Mounted Rider".into(),
             mount_animal: Some("camel".into()),
@@ -1742,10 +1742,10 @@ mod tests {
 
     // ---------- the resolver ----------
 
+    /// Protects: with no override the resolver returns `None` for both stats and terrain
+    /// (the fall-back to the built-in table happens centrally, not here).
     #[test]
     fn animal_resolver_falls_back_to_the_built_in_table_for_an_unlisted_species() {
-        // Protects: with no override the resolver returns `None` for both stats and terrain
-        // (the fall-back to the built-in table happens centrally, not here).
         let overrides: HashMap<String, AnimalDef> = HashMap::new();
         let (stats, terrain) = animal_resolver_fns(&overrides);
         assert_eq!(
@@ -1756,10 +1756,10 @@ mod tests {
         assert_eq!(terrain("donkey", "Hills"), None);
     }
 
+    /// Protects: an edited override is reported (stats carry the new capacity), a blocked
+    /// row reads `Some(None)`, and untouched rows keep the stock multiplier.
     #[test]
     fn animal_resolver_reports_a_real_override_and_a_blocked_terrain() {
-        // Protects: an edited override is reported (stats carry the new capacity), a blocked
-        // row reads `Some(None)`, and untouched rows keep the stock multiplier.
         let mut donkey = stock_animals()
             .into_iter()
             .find(|a| a.id == "donkey")
@@ -1778,10 +1778,10 @@ mod tests {
         );
     }
 
+    /// Protects: an override with any required stat unset yields no stats at all (no
+    /// partial application), so the central fall-back re-reads the built-in row.
     #[test]
     fn a_partially_incomplete_override_yields_no_stats_for_that_species() {
-        // Protects: an override with any required stat unset yields no stats at all (no
-        // partial application), so the central fall-back re-reads the built-in row.
         // `animal_resolver_fns`' own contract: an incomplete override does
         // not partially apply here -- `resolve_animal_stats` (cartalith-civ
         // lib.rs) is what falls back to the built-in table field-by-field,

@@ -321,20 +321,20 @@ mod tests {
         (x == 2 && y == 2) || (x == 3 && y == 3)
     }
 
+    /// Protects: the north-up Y flip (`gh - gy`) in geo_xy(), plus
+    /// js_to_fixed()'s 3-decimal rounding.
     #[test]
     fn geo_xy_flips_north_up() {
-        // Protects: the north-up Y flip (`gh - gy`) in geo_xy(), plus
-        // js_to_fixed()'s 3-decimal rounding.
         // gh = 9, cell = 50 km: row 0 is the NORTH edge, row 9 the south.
         assert_eq!(geo_xy(0.0, 0.0, 9, 50.0), [0.0, 450.0]);
         assert_eq!(geo_xy(0.0, 9.0, 9, 50.0), [0.0, 0.0]);
         assert_eq!(geo_xy(5.5, 2.25, 9, 50.0), [275.0, 337.5]);
     }
 
+    /// Protects: a simple solid mask tracing to one closed, positive-area
+    /// ring (a shell, not a hole).
     #[test]
     fn a_solid_block_traces_one_positive_ring() {
-        // Protects: a simple solid mask tracing to one closed, positive-area
-        // ring (a shell, not a hole).
         let rings = trace_mask_rings(&|x, y| (1..=3).contains(&x) && (1..=2).contains(&y), 0, 0, 8, 8);
         assert_eq!(rings.len(), 1);
         assert!(ring_area(&rings[0]) > 0.0);
@@ -343,41 +343,41 @@ mod tests {
         assert_eq!(ring_area(&rings[0]), 6.0); // 3x2 cells
     }
 
+    /// Protects: a hole tracing to a negative-area ring, and a disjoint
+    /// blob tracing to its own independent positive ring -- three rings
+    /// total from one mask.
     #[test]
     fn a_hole_traces_as_a_negative_ring_and_the_blob_as_its_own_shell() {
-        // Protects: a hole tracing to a negative-area ring, and a disjoint
-        // blob tracing to its own independent positive ring -- three rings
-        // total from one mask.
         let rings = trace_mask_rings(&mask_a, 0, 0, 12, 9);
         assert_eq!(rings.len(), 3);
         let areas: Vec<f64> = rings.iter().map(|r| ring_area(r)).collect();
         assert_eq!(areas, vec![30.0, -4.0, 4.0]);
     }
 
+    /// Protects: an all-false mask producing no rings, and
+    /// mask_outline_coords() returning None rather than an empty Vec.
     #[test]
     fn an_empty_mask_traces_nothing() {
-        // Protects: an all-false mask producing no rings, and
-        // mask_outline_coords() returning None rather than an empty Vec.
         assert!(trace_mask_rings(&|_, _| false, 0, 0, 12, 9).is_empty());
         assert!(mask_outline_coords(&|_, _| false, 12, 9, 50.0).is_none());
     }
 
+    /// Protects: a 1x1 mask still tracing to a closed 5-point ring
+    /// (4 corners + the closing repeat) of area 1.
     #[test]
     fn a_single_cell_still_makes_a_ring() {
-        // Protects: a 1x1 mask still tracing to a closed 5-point ring
-        // (4 corners + the closing repeat) of area 1.
         let rings = trace_mask_rings(&|x, y| x == 5 && y == 4, 0, 0, 12, 9);
         assert_eq!(rings.len(), 1);
         assert_eq!(rings[0].len(), 5);
         assert_eq!(ring_area(&rings[0]), 1.0);
     }
 
+    /// Protects: the reference says it "doesn't disambiguate the rare checkerboard
+    /// pinch-point"; this is what not disambiguating LOOKS like -- the
+    /// second cell's up-edge overwrites the first cell's down-edge, so the
+    /// walk runs off into the second square and stops on a visited key.
     #[test]
     fn the_checkerboard_pinch_yields_one_unclosed_ring() {
-        // Protects: the reference says it "doesn't disambiguate the rare checkerboard
-        // pinch-point"; this is what not disambiguating LOOKS like -- the
-        // second cell's up-edge overwrites the first cell's down-edge, so the
-        // walk runs off into the second square and stops on a visited key.
         let rings = trace_mask_rings(&mask_pinch, 0, 0, 12, 9);
         assert_eq!(rings.len(), 1);
         assert_eq!(rings[0].len(), 6);
@@ -385,10 +385,10 @@ mod tests {
         assert_eq!(ring_area(&rings[0]), 3.0);
     }
 
+    /// Protects: point_in_ring()'s even-odd crossing test on a real
+    /// traced shell, both inside and outside.
     #[test]
     fn point_in_ring_answers_inside_and_outside_a_traced_shell() {
-        // Protects: point_in_ring()'s even-odd crossing test on a real
-        // traced shell, both inside and outside.
         let rings = trace_mask_rings(&mask_a, 0, 0, 12, 9);
         let shell = &rings[0];
         assert!(point_in_ring(3.0, 3.0, shell));
@@ -397,11 +397,11 @@ mod tests {
         assert!(!point_in_ring(7.0, 6.0, shell));
     }
 
+    /// Protects: mask_outline_coords() nesting a hole under its own
+    /// containing shell (not the other polygon), and emitting real
+    /// kilometre, north-up coordinates.
     #[test]
     fn outline_coords_nest_the_hole_under_its_own_shell() {
-        // Protects: mask_outline_coords() nesting a hole under its own
-        // containing shell (not the other polygon), and emitting real
-        // kilometre, north-up coordinates.
         let out = mask_outline_coords(&mask_a, 12, 9, 50.0).expect("non-empty");
         assert_eq!(out.len(), 2, "two polygons: the holed block and the blob");
         assert_eq!(out[0].len(), 2, "shell + one hole");
@@ -410,12 +410,12 @@ mod tests {
         assert_eq!(out[0][0][0], [50.0, 400.0]);
     }
 
+    /// Protects: 7x7 block, 3x3 hole, one cell back in the middle of the hole. The
+    /// island traces positive, so it is a shell, not a nested ring -- the
+    /// documented staircase-level simplification, asserted rather than
+    /// assumed.
     #[test]
     fn an_island_inside_a_hole_becomes_its_own_polygon() {
-        // Protects: 7x7 block, 3x3 hole, one cell back in the middle of the hole. The
-        // island traces positive, so it is a shell, not a nested ring -- the
-        // documented staircase-level simplification, asserted rather than
-        // assumed.
         let m = |x: i32, y: i32| {
             ((1..=7).contains(&x) && (1..=7).contains(&y) && !((3..=5).contains(&x) && (3..=5).contains(&y)))
                 || (x == 4 && y == 4)
@@ -426,18 +426,21 @@ mod tests {
         assert_eq!(out[1].len(), 1);
     }
 
+    /// Protects: only that `ring_area` of the ring (0,0), (0,1), (1,1), (1,0), (0,0) is negative, the
+    /// winding of a hole. The body never calls `mask_outline_coords`, so despite its name this test does
+    /// not check that an all-holes mask returns `None`.
     #[test]
     fn a_mask_of_only_holes_returns_none() {
-        // Protects: impossible from a real raster, but the reference guards it, so this
-        // pins that the guard is a `None` and not a panic.
+        // Intent (from the test name): the reference guards an all-holes mask, which a real
+        // raster cannot produce. What the body checks is only the negative winding of a hole ring.
         let ring = vec![(0, 0), (0, 1), (1, 1), (1, 0), (0, 0)];
         assert!(ring_area(&ring) < 0.0);
     }
 
+    /// Protects: id_mask()'s out-of-range guard reading false, which
+    /// trace_mask_rings() depends on to close outlines at the grid edge.
     #[test]
     fn id_mask_reads_false_outside_the_grid() {
-        // Protects: id_mask()'s out-of-range guard reading false, which
-        // trace_mask_rings() depends on to close outlines at the grid edge.
         let ids = vec![1u8; 12 * 9];
         let m = id_mask(&ids, 12, 9, 1);
         assert!(m(0, 0));
@@ -446,10 +449,10 @@ mod tests {
         assert!(!m(0, 9));
     }
 
+    /// Protects: an id_mask() covering every cell tracing to exactly one
+    /// ring, the whole grid's own outline.
     #[test]
     fn an_id_mask_over_the_whole_grid_traces_the_grid_outline() {
-        // Protects: an id_mask() covering every cell tracing to exactly one
-        // ring, the whole grid's own outline.
         let ids = vec![7u8; 12 * 9];
         let rings = trace_mask_rings(&id_mask(&ids, 12, 9, 7), 0, 0, 12, 9);
         assert_eq!(rings.len(), 1);

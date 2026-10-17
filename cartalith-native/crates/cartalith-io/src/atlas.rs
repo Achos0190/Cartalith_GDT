@@ -688,11 +688,11 @@ mod tests {
         encode_chunk(ChunkId::new(z, col, row), &data, n, 1, Some(vec![0x89, b'P', b'N', b'G']))
     }
 
+    /// Protects: fnv1a32_hex produces the exact hex digits the
+    /// reference's own hash loop would over these strings -- pinned so
+    /// the atlas key namespace never silently drifts from the reference.
     #[test]
     fn fnv1a_matches_the_reference_on_known_strings() {
-        // Protects: fnv1a32_hex produces the exact hex digits the
-        // reference's own hash loop would over these strings -- pinned so
-        // the atlas key namespace never silently drifts from the reference.
         // Extracted from the reference's own `worldKey` hash loop, run over
         // three fixed strings so the hash is pinned without reproducing the
         // reference's `state` object.
@@ -701,19 +701,19 @@ mod tests {
         assert_eq!(fnv1a32_hex("cartalith"), "8bd9c985");
     }
 
+    /// Protects: the invalidation property the whole atlas rests on.
     #[test]
     fn a_changed_signature_changes_the_key() {
-        // Protects: the invalidation property the whole atlas rests on.
         assert_ne!(world_key("[512,0.42]"), world_key("[512,0.5]"));
         assert_eq!(world_key("[512,0.42]"), world_key("[512,0.42]"));
     }
 
+    /// Protects: the exact string forms of `atlas_key_str`,
+    /// `atlas_meta_key` and `atlas_chunk_file`, including the `.bin.gz`
+    /// and `.png` extension cases -- consumed byte-for-byte by both this
+    /// port and the reference's own archive layout.
     #[test]
     fn key_and_path_spellings_match_the_reference() {
-        // Protects: the exact string forms of `atlas_key_str`,
-        // `atlas_meta_key` and `atlas_chunk_file`, including the `.bin.gz`
-        // and `.png` extension cases -- consumed byte-for-byte by both this
-        // port and the reference's own archive layout.
         assert_eq!(atlas_key_str("abc", 1024, ChunkId::new(3, 5, 7)), "abc:1024:3:5:7");
         assert_eq!(atlas_meta_key("abc"), "meta:abc");
         assert_eq!(atlas_chunk_file(ChunkId::new(0, 0, 0), "bin"), "World/LOD0/0_0_0.bin");
@@ -721,12 +721,12 @@ mod tests {
         assert_eq!(atlas_chunk_file(ChunkId::new(2, 1, 0), "png"), "World/LOD2/2_1_0.png");
     }
 
+    /// Protects: `put`/`get` round-trip a chunk's bytes exactly, a
+    /// different chunk id at the same world key reads as absent, and a
+    /// different world key reads nothing at all -- the key namespace
+    /// actually separates worlds.
     #[test]
     fn a_chunk_round_trips_through_the_store() {
-        // Protects: `put`/`get` round-trip a chunk's bytes exactly, a
-        // different chunk id at the same world key reads as absent, and a
-        // different world key reads nothing at all -- the key namespace
-        // actually separates worlds.
         let root = tmp("roundtrip");
         let s = AtlasStore::new(&root);
         let c = chunk(2, 1, 3, 64);
@@ -740,12 +740,12 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `keys_for_world` reconstructs every baked chunk's
+    /// address purely from the directory layout, across multiple pyramid
+    /// levels and tile sizes coexisting in the same world, and returns
+    /// empty (not an error) for a world never baked.
     #[test]
     fn keys_for_world_recovers_every_address_from_the_layout() {
-        // Protects: `keys_for_world` reconstructs every baked chunk's
-        // address purely from the directory layout, across multiple pyramid
-        // levels and tile sizes coexisting in the same world, and returns
-        // empty (not an error) for a world never baked.
         let root = tmp("keys");
         let s = AtlasStore::new(&root);
         let want: BTreeSet<AtlasKey> = [(0, 0, 0), (1, 0, 1), (1, 1, 1), (3, 7, 2)]
@@ -765,11 +765,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `clear_world` removes exactly one world's chunks,
+    /// leaves a sibling world untouched, and clearing an absent world is
+    /// not an error.
     #[test]
     fn clear_world_removes_only_that_world() {
-        // Protects: `clear_world` removes exactly one world's chunks,
-        // leaves a sibling world untouched, and clearing an absent world is
-        // not an error.
         let root = tmp("clear");
         let s = AtlasStore::new(&root);
         s.put("a", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -782,11 +782,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `sanitise`'s directory-traversal guard -- a world key
+    /// carrying `../../evil` is neutralised to a plain `evil` directory
+    /// inside the root, not a write outside it.
     #[test]
     fn a_key_cannot_escape_the_atlas_root() {
-        // Protects: `sanitise`'s directory-traversal guard -- a world key
-        // carrying `../../evil` is neutralised to a plain `evil` directory
-        // inside the root, not a write outside it.
         let root = tmp("escape");
         let s = AtlasStore::new(&root);
         s.put("../../evil", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -795,11 +795,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `encode_chunk`/`decode_chunk`'s 16-bit round trip loses
+    /// at most one LSB (1/65535), across a spread of values, not just an
+    /// isolated sample.
     #[test]
     fn rg16_round_trips_to_within_one_lsb() {
-        // Protects: `encode_chunk`/`decode_chunk`'s 16-bit round trip loses
-        // at most one LSB (1/65535), across a spread of values, not just an
-        // isolated sample.
         let data: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
         let c = encode_chunk(ChunkId::new(1, 0, 0), &data, 16, 16, None);
         assert_eq!(c.rg16.len(), 16 * 16 * 4);
@@ -808,11 +808,11 @@ mod tests {
         assert!(maxd <= 1.0 / 65535.0, "round trip lost {maxd}");
     }
 
+    /// Protects: `get_meta` returns `None` before any `put_meta`, and
+    /// exact equality after one -- the per-world status record survives
+    /// its own JSON round trip.
     #[test]
     fn meta_round_trips() {
-        // Protects: `get_meta` returns `None` before any `put_meta`, and
-        // exact equality after one -- the per-world status record survives
-        // its own JSON round trip.
         let root = tmp("meta");
         let s = AtlasStore::new(&root);
         assert!(s.get_meta("w").unwrap().is_none());
@@ -849,11 +849,11 @@ mod tests {
     /// than an approximate one.
     const CHUNK_BYTES: u64 = 16 * 4 + 4;
 
+    /// Protects: `evict_to` frees enough chunks to land at or under the
+    /// requested budget, reports the bytes it actually freed, and a
+    /// second call once already under budget frees nothing further.
     #[test]
     fn evicting_to_a_budget_below_the_cache_reaches_the_budget() {
-        // Protects: `evict_to` frees enough chunks to land at or under the
-        // requested budget, reports the bytes it actually freed, and a
-        // second call once already under budget frees nothing further.
         let root = tmp("evict-budget");
         let s = AtlasStore::new(&root);
         // One coarse tile (never evictable) and four deep ones.
@@ -871,11 +871,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `evict_order`'s primary sort -- among chunks at the
+    /// same level, the one with the oldest access time is evicted first,
+    /// warmer ones survive.
     #[test]
     fn eviction_takes_the_coldest_chunk_first() {
-        // Protects: `evict_order`'s primary sort -- among chunks at the
-        // same level, the one with the oldest access time is evicted first,
-        // warmer ones survive.
         let root = tmp("evict-cold");
         let s = AtlasStore::new(&root);
         s.put("w1", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -1019,11 +1019,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Protects: `evict_to`/`total_bytes`/`worlds` all handle a store
+    /// with nothing baked yet cleanly, without erroring on a missing
+    /// root directory.
     #[test]
     fn evicting_an_empty_store_is_not_an_error() {
-        // Protects: `evict_to`/`total_bytes`/`worlds` all handle a store
-        // with nothing baked yet cleanly, without erroring on a missing
-        // root directory.
         let root = tmp("evict-empty");
         let s = AtlasStore::new(&root);
         assert_eq!(s.evict_to(0).unwrap(), 0);

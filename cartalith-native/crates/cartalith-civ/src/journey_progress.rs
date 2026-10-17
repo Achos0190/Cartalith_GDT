@@ -366,11 +366,11 @@ mod tests {
         (t, pts)
     }
 
+    /// Protects: arrival_offset_days, food/fodder totals, at()'s phase,
+    /// point, km_done and food_kg_used at before/mid/leg-boundary/past-end
+    /// elapsed values, over the zero-day seam leg.
     #[test]
     fn position_supply_and_arrival_over_a_known_route() {
-        // Protects: arrival_offset_days, food/fodder totals, at()'s phase,
-        // point, km_done and food_kg_used at before/mid/leg-boundary/past-end
-        // elapsed values, over the zero-day seam leg.
         let (t, pts) = tl();
         assert_eq!(t.arrival_offset_days(), 50);
         assert_eq!((t.food_kg(), t.fodder_kg()), (200.0, 40.0));
@@ -477,10 +477,10 @@ mod tests {
         RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways: &[], gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
+    /// Protects: bind_endpoint picks the nearest settlement within the
+    /// stop radius, never tid 0 (unassigned), and returns None past it.
     #[test]
     fn an_endpoint_binds_to_the_nearest_settlement_in_the_stop_radius_only() {
-        // Protects: bind_endpoint picks the nearest settlement within the
-        // stop radius, never tid 0 (unassigned), and returns None past it.
         // gw 24 -> radius max(24/90, 3) = 3 cells.
         let places = [place(1, "Ard", 12, 4), place(2, "Bel", 14, 4), place(0, "Unassigned", 12, 5)];
         assert_eq!(bind_endpoint((13.4, 4.0), &places, 24, false), Some((2, "Bel".into())));
@@ -488,11 +488,11 @@ mod tests {
         assert_eq!(bind_endpoint((20.0, 12.0), &places, 24, false), None, "open country");
     }
 
+    /// Protects: resnap_journey rebinds a settlement endpoint to its new
+    /// position (same tid + name), leaves a free endpoint's cell alone,
+    /// and carries the journey's id/name/preset/start_year unchanged.
     #[test]
     fn a_moved_settlement_carries_the_journey_and_a_free_endpoint_stays_put() {
-        // Protects: resnap_journey rebinds a settlement endpoint to its new
-        // position (same tid + name), leaves a free endpoint's cell alone,
-        // and carries the journey's id/name/preset/start_year unchanged.
         let (field, wb) = fixture();
         let old = [place(1, "Ard", 12, 2)];
         let new = [place(1, "Ard", 14, 3)]; // same tid AND name: the same town, moved

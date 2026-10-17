@@ -675,11 +675,11 @@ mod tests {
         dst.iter().filter(|&&v| v != 0).count()
     }
 
+    /// Protects: the reference's own hard-disc contract -- every painted
+    /// cell carries exactly one clean index, the radius test is `> R`
+    /// not `>= R`, and cells outside the bounding box stay untouched.
     #[test]
     fn a_dab_is_a_hard_disc_with_no_falloff() {
-        // Protects: the reference's own hard-disc contract -- every painted
-        // cell carries exactly one clean index, the radius test is `> R`
-        // not `>= R`, and cells outside the bounding box stay untouched.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 3.0, 5, land()).apply(&mut dst, W, H);
         // Every painted cell carries the same index -- no intermediate
@@ -696,12 +696,12 @@ mod tests {
 
     // ---- with_falloff (`DECISIONS.md` §7k) ----
 
+    /// Protects: the exact claim `DECISIONS.md` §7k rests on: `hardness=1.0,
+    /// softness=0.0` -- both the type's own construction default AND an
+    /// explicit `with_falloff` call at those values -- must reproduce
+    /// the untouched hard-disc output, cell for cell.
     #[test]
     fn with_falloff_at_the_construction_defaults_is_bit_identical_to_the_hard_disc() {
-        // Protects: the exact claim `DECISIONS.md` §7k rests on: `hardness=1.0,
-        // softness=0.0` -- both the type's own construction default AND an
-        // explicit `with_falloff` call at those values -- must reproduce
-        // the untouched hard-disc output, cell for cell.
         let mut baseline = vec![0u8; W * H];
         PaintStamp::new(8, 8, 6.0, 5, land()).apply(&mut baseline, W, H);
 
@@ -721,12 +721,12 @@ mod tests {
         assert_eq!(baseline2, explicit2);
     }
 
+    /// Protects: falloff only softening the outer band -- the deep
+    /// interior stays solid, the band is a genuine mix of painted and
+    /// unpainted cells, and falloff never extends the disc past its
+    /// hard radius.
     #[test]
     fn a_softer_edge_keeps_the_interior_solid_but_mottles_the_rim() {
-        // Protects: falloff only softening the outer band -- the deep
-        // interior stays solid, the band is a genuine mix of painted and
-        // unpainted cells, and falloff never extends the disc past its
-        // hard radius.
         // Radius 20 in a grid big enough to hold it -- the small radii
         // (3..6) the rest of this file uses don't leave enough rim cells
         // for "mottled, not merely smaller" to be a meaningful measurement.
@@ -782,11 +782,11 @@ mod tests {
         }
     }
 
+    /// Protects: hardness stays at its own "fully hard" default; softness alone
+    /// must still be able to open a falloff band -- the two sliders add,
+    /// rather than softness being hardness-in-disguise.
     #[test]
     fn softness_alone_softens_the_edge_even_at_full_hardness() {
-        // Protects: hardness stays at its own "fully hard" default; softness alone
-        // must still be able to open a falloff band -- the two sliders add,
-        // rather than softness being hardness-in-disguise.
         const G: usize = 48; // same grid as the falloff-band test above, for consistency
         const C: i64 = 24; // grid centre, G/2
         const R: f64 = 20.0; // same radius as the falloff-band test above
@@ -797,13 +797,13 @@ mod tests {
         assert_ne!(hard, soft, "softness=0.5 at hardness=1.0 must still feather the edge");
     }
 
+    /// Protects: "a deterministic, position-seeded threshold so repeated passes
+    /// are stable" -- the property a per-frame random draw would not
+    /// have. Applying the same stamp twice (independent scratch buffers,
+    /// same stamp value reused) must paint exactly the same cells both
+    /// times.
     #[test]
     fn falloff_is_deterministic_across_repeated_applications() {
-        // Protects: "a deterministic, position-seeded threshold so repeated passes
-        // are stable" -- the property a per-frame random draw would not
-        // have. Applying the same stamp twice (independent scratch buffers,
-        // same stamp value reused) must paint exactly the same cells both
-        // times.
         const G: usize = 48;
         let stamp = PaintStamp::ungated(24, 24, 20.0, 3).with_falloff(0.4, 0.0);
         let mut a = vec![0u8; G * G];
@@ -834,9 +834,9 @@ mod tests {
         out
     }
 
+    /// Protects: the band shapes being exactly t, t^2(3-2t), t^3 and 1 (ET-D2).
     #[test]
     fn each_edge_shape_matches_its_literal_formula() {
-        // Protects: the band shapes being exactly t, t^2(3-2t), t^3 and 1 (ET-D2).
         // The oracle writes each formula out inline; a changed arm in
         // `EdgeShape::weight` (or a swapped pair) paints a different cell set.
         // Radius 20 on a 48 grid keeps hypot-vs-js_hypot rim differences out
@@ -857,12 +857,12 @@ mod tests {
         }
     }
 
+    /// Protects: the shapes being genuinely different pictures (so a shape
+    /// that silently fell through to Linear is caught) in the expected order
+    /// of band density, and `Constant` painting the full hard disc even with
+    /// a wide band. Counts are over one 48 x 48 disc, radius 20, hardness 0.4.
     #[test]
     fn edge_shapes_order_the_band_density_and_constant_is_the_hard_disc() {
-        // Protects: the shapes being genuinely different pictures (so a shape
-        // that silently fell through to Linear is caught) in the expected order
-        // of band density, and `Constant` painting the full hard disc even with
-        // a wide band. Counts are over one 48 x 48 disc, radius 20, hardness 0.4.
         const G: usize = 48;
         let count = |shape: EdgeShape| {
             let mut v = vec![0u8; G * G];
@@ -880,10 +880,10 @@ mod tests {
         assert!(constant > lin && lin > smooth && smooth > sharp, "{constant} > {lin} > {smooth} > {sharp}");
     }
 
+    /// Protects: `from_key` being the inverse of `key` for every shape, and
+    /// refusing a mistyped key rather than defaulting to Linear.
     #[test]
     fn edge_shape_keys_round_trip_and_an_unknown_key_is_refused() {
-        // Protects: `from_key` being the inverse of `key` for every shape, and
-        // refusing a mistyped key rather than defaulting to Linear.
         for s in EdgeShape::ALL {
             assert_eq!(EdgeShape::from_key(s.key()), Some(s));
         }
@@ -892,22 +892,22 @@ mod tests {
         assert_eq!(EdgeShape::default(), EdgeShape::Linear);
     }
 
+    /// Protects: the hypot gate at radius 1 excluding the diagonal
+    /// neighbours (dist sqrt(2) > 1), so the shape is a plus, not the
+    /// 3x3 square the bounding box alone would suggest.
     #[test]
     fn radius_one_paints_a_plus_not_a_square() {
-        // Protects: the hypot gate at radius 1 excluding the diagonal
-        // neighbours (dist sqrt(2) > 1), so the shape is a plus, not the
-        // 3x3 square the bounding box alone would suggest.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 1.0, 3, land()).apply(&mut dst, W, H);
         assert_eq!(painted(&dst), 5);
         assert_eq!(dst[7 * W + 7], 0, "diagonal is hypot(1,1)=1.41 > 1");
     }
 
+    /// Protects: the mask gate being `!= 0`, not `== 1` -- excluding
+    /// lakes (classification 2) as well as ocean, per the reference's
+    /// own stated comment.
     #[test]
     fn the_mask_gate_excludes_lakes_not_just_ocean() {
-        // Protects: the mask gate being `!= 0`, not `== 1` -- excluding
-        // lakes (classification 2) as well as ocean, per the reference's
-        // own stated comment.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, lake_band()).apply(&mut dst, W, H);
         for y in 7..=9 {
@@ -918,10 +918,10 @@ mod tests {
         assert!(painted(&dst) > 0, "everything outside the band still painted");
     }
 
+    /// Protects: the new affordance (an optional mask) actually painting
+    /// more than a gated dab, kept honestly separate from the port.
     #[test]
     fn an_ungated_dab_paints_where_a_gated_one_would_not() {
-        // Protects: the new affordance (an optional mask) actually painting
-        // more than a gated dab, kept honestly separate from the port.
         let mut gated = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, lake_band()).apply(&mut gated, W, H);
         let mut free = vec![0u8; W * H];
@@ -929,11 +929,11 @@ mod tests {
         assert!(painted(&free) > painted(&gated));
     }
 
+    /// Protects: `is_erase()`/apply() erasing (value 0) over a
+    /// previously painted index inside the eraser's own radius, and
+    /// leaving cells outside it untouched.
     #[test]
     fn erase_writes_zero_over_an_existing_index() {
-        // Protects: `is_erase()`/apply() erasing (value 0) over a
-        // previously painted index inside the eraser's own radius, and
-        // leaving cells outside it untouched.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, land()).apply(&mut dst, W, H);
         let before = painted(&dst);
@@ -945,21 +945,21 @@ mod tests {
         assert_eq!(dst[8 * W + 12], 5, "outside the eraser, untouched");
     }
 
+    /// Protects: categorical last-write-wins semantics -- apply() does
+    /// not accumulate or blend two indices.
     #[test]
     fn a_later_dab_overwrites_an_earlier_one() {
-        // Protects: categorical last-write-wins semantics -- apply() does
-        // not accumulate or blend two indices.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, land()).apply(&mut dst, W, H);
         PaintStamp::new(8, 8, 2.0, 9, land()).apply(&mut dst, W, H);
         assert_eq!(dst[8 * W + 8], 9);
     }
 
+    /// Protects: bounds() clamping a partially off-grid disc to the
+    /// grid, and returning a zero-area Region when it is fully outside
+    /// rather than a bogus clamped 1x1 box.
     #[test]
     fn bounds_clip_to_the_grid_and_go_empty_when_fully_outside() {
-        // Protects: bounds() clamping a partially off-grid disc to the
-        // grid, and returning a zero-area Region when it is fully outside
-        // rather than a bogus clamped 1x1 box.
         let s = PaintStamp::new(1, 1, 6.0, 2, land());
         assert_eq!(s.bounds(W, H), Region::new(0, 0, 8, 8));
         let off = PaintStamp::new(-40, -40, 3.0, 2, land());
@@ -967,11 +967,11 @@ mod tests {
         assert!(b.w == 0 && b.h == 0);
     }
 
+    /// Protects: the contract PassBuffer's tile marking depends on --
+    /// apply() never writes a cell outside what bounds() reported,
+    /// across on-grid, edge and off-grid centres.
     #[test]
     fn a_dab_never_writes_outside_its_own_bounds() {
-        // Protects: the contract PassBuffer's tile marking depends on --
-        // apply() never writes a cell outside what bounds() reported,
-        // across on-grid, edge and off-grid centres.
         for (cx, cy) in [(0i64, 0i64), (8, 8), (15, 15), (-2, 8), (8, 20)] {
             let s = PaintStamp::new(cx, cy, 5.0, 7, land());
             let b = s.bounds(W, H);
@@ -990,11 +990,11 @@ mod tests {
         }
     }
 
+    /// Protects: the whole reason PaintStamp is a Stamp -- draft,
+    /// preview, discard, commit and undo come from milestone A
+    /// unchanged, and commit writes into a PaintLayer's own cells.
     #[test]
     fn a_paint_stroke_runs_through_the_pass_buffer() {
-        // Protects: the whole reason PaintStamp is a Stamp -- draft,
-        // preview, discard, commit and undo come from milestone A
-        // unchanged, and commit writes into a PaintLayer's own cells.
         let mut buf: PassBuffer<PaintStamp> = PassBuffer::new(W, H, 8);
         buf.push(PaintStamp::new(4, 4, 3.0, 5, land()));
         buf.push(PaintStamp::new(12, 12, 3.0, 6, land()));
@@ -1014,10 +1014,10 @@ mod tests {
         assert_eq!(layer.cells().unwrap()[4 * W + 4], 5);
     }
 
+    /// Protects: discard() never having reached the committed layer at
+    /// all -- the layer is exactly what it was before the draft existed.
     #[test]
     fn discarding_a_paint_draft_leaves_the_layer_untouched() {
-        // Protects: discard() never having reached the committed layer at
-        // all -- the layer is exactly what it was before the draft existed.
         let mut layer = PaintLayer::new();
         layer.cells_mut(W * H)[0] = 3;
         let before = layer.clone();
@@ -1029,11 +1029,11 @@ mod tests {
 
     // ---- the layer itself ----
 
+    /// Protects: PaintLayer::new() being genuinely lazy -- unallocated,
+    /// empty, no cells, sampling and encoding all behave as "nothing
+    /// painted" without ever touching a Vec.
     #[test]
     fn a_fresh_layer_allocates_nothing() {
-        // Protects: PaintLayer::new() being genuinely lazy -- unallocated,
-        // empty, no cells, sampling and encoding all behave as "nothing
-        // painted" without ever touching a Vec.
         let l = PaintLayer::new();
         assert!(l.is_unallocated());
         assert!(l.is_empty());
@@ -1042,10 +1042,10 @@ mod tests {
         assert!(l.encode_sparse().is_empty());
     }
 
+    /// Protects: the reference's own v0.148 length guard: a resolution change must
+    /// never serve the old grid.
     #[test]
     fn cells_mut_reallocates_when_the_resolution_changes() {
-        // Protects: the reference's own v0.148 length guard: a resolution change must
-        // never serve the old grid.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[5] = 7;
         assert_eq!(l.cells().unwrap().len(), W * H);
@@ -1054,19 +1054,19 @@ mod tests {
         assert!(bigger.iter().all(|&v| v == 0), "stale data must not survive");
     }
 
+    /// Protects: cells_mut() not reallocating (and so not clearing
+    /// existing data) when the requested length already matches.
     #[test]
     fn cells_mut_keeps_the_grid_when_the_size_is_unchanged() {
-        // Protects: cells_mut() not reallocating (and so not clearing
-        // existing data) when the requested length already matches.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[5] = 7;
         assert_eq!(l.cells_mut(W * H)[5], 7);
     }
 
+    /// Protects: merge_over() replacing only the cells the layer
+    /// actually painted, leaving the rest of `base` untouched.
     #[test]
     fn merge_over_replaces_only_painted_cells() {
-        // Protects: merge_over() replacing only the cells the layer
-        // actually painted, leaving the rest of `base` untouched.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(4);
@@ -1078,19 +1078,19 @@ mod tests {
         assert_eq!(base, vec![5, 9, 5, 2]);
     }
 
+    /// Protects: merge_over() on a never-painted layer leaving `base`
+    /// completely unchanged, rather than treating None as all-zero data.
     #[test]
     fn merge_over_an_unallocated_layer_is_a_no_op() {
-        // Protects: merge_over() on a never-painted layer leaving `base`
-        // completely unchanged, rather than treating None as all-zero data.
         let mut base = vec![5u8, 5, 5, 5];
         PaintLayer::new().merge_over(&mut base);
         assert_eq!(base, vec![5, 5, 5, 5]);
     }
 
+    /// Protects: sample_nearest()'s JS-style half-up rounding and
+    /// clamping to the grid at both extremes, matching `_paintSampleAt`.
     #[test]
     fn sample_nearest_rounds_and_clamps() {
-        // Protects: sample_nearest()'s JS-style half-up rounding and
-        // clamping to the grid at both extremes, matching `_paintSampleAt`.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(W * H);
@@ -1103,11 +1103,11 @@ mod tests {
         assert_eq!(l.sample_nearest(1e6, 1e6, W, H), 0, "clamped to the far corner");
     }
 
+    /// Protects: encode_sparse()/decode_sparse() round-tripping a
+    /// partially painted layer, with unpainted cells contributing no
+    /// pairs.
     #[test]
     fn sparse_encoding_round_trips() {
-        // Protects: encode_sparse()/decode_sparse() round-tripping a
-        // partially painted layer, with unpainted cells contributing no
-        // pairs.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(W * H);
@@ -1121,37 +1121,37 @@ mod tests {
         assert_eq!(back, l);
     }
 
+    /// Protects: verbatim from the reference's `if(pairs[k] < a.length)` -- loading
+    /// a save made at a higher resolution must not panic.
     #[test]
     fn decoding_drops_indices_past_the_grid() {
-        // Protects: verbatim from the reference's `if(pairs[k] < a.length)` -- loading
-        // a save made at a higher resolution must not panic.
         let l = PaintLayer::decode_sparse(&[2, 5, 9_999, 6], 4);
         assert_eq!(l.cells().unwrap(), &[0, 0, 5, 0]);
     }
 
+    /// Protects: `if(!pairs||!pairs.length) return null` -- an empty
+    /// pair list decodes to unallocated, not an allocated all-zero grid.
     #[test]
     fn decoding_an_empty_pair_list_yields_an_unallocated_layer() {
-        // Protects: `if(!pairs||!pairs.length) return null` -- an empty
-        // pair list decodes to unallocated, not an allocated all-zero grid.
         assert!(PaintLayer::decode_sparse(&[], 64).is_unallocated());
     }
 
+    /// Protects: clear() deallocating the grid outright (paint does not
+    /// survive a full terrain rebuild, per the reference's `paintBiome
+    /// = null`).
     #[test]
     fn clear_drops_the_grid_entirely() {
-        // Protects: clear() deallocating the grid outright (paint does not
-        // survive a full terrain rebuild, per the reference's `paintBiome
-        // = null`).
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[0] = 4;
         l.clear();
         assert!(l.is_unallocated());
     }
 
+    /// Protects: is_empty()/is_unallocated() staying distinct -- erasing
+    /// every painted cell back to 0 makes the layer empty, but the
+    /// reference's array (and this port's) survives allocated.
     #[test]
     fn an_erased_layer_is_empty_but_still_allocated() {
-        // Protects: is_empty()/is_unallocated() staying distinct -- erasing
-        // every painted cell back to 0 makes the layer empty, but the
-        // reference's array (and this port's) survives allocated.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[0] = 4;
         l.cells_mut(W * H)[0] = 0;

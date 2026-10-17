@@ -451,6 +451,8 @@ mod tests {
         }
     }
 
+    /// Protects: `world_name` for seeds 0, 1, 24601 and 483920 never equals the first draw of the
+    /// fixed-seed settlement name stream or of the fixed-seed continent name stream.
     #[test]
     fn world_name_does_not_share_the_settlement_naming_streams_first_draw() {
         // The whole reason for a fresh, seed-derived stream (this fn's own

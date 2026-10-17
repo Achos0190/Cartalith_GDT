@@ -427,12 +427,12 @@ mod tests {
         assert_eq!(save.params.origin, None);
     }
 
+    /// Protects: every one of the six raw fields, plus the four
+    /// `SaveParams` scalars, comes back from a STORE-compressed
+    /// reference-shaped archive exactly as written -- the basic read
+    /// contract for a region (non-`world`) save.
     #[test]
     fn load_save_round_trip_region() {
-        // Protects: every one of the six raw fields, plus the four
-        // `SaveParams` scalars, comes back from a STORE-compressed
-        // reference-shaped archive exactly as written -- the basic read
-        // contract for a region (non-`world`) save.
         let gw = 10;
         let gh = 8;
         let zip_bytes = build_test_zip(gw, gh, 12345, 800.0, 0.42, false);
@@ -461,11 +461,11 @@ mod tests {
         assert_eq!(save.fields.strahler_order, expected_strahler);
     }
 
+    /// Protects: the `world: true` case (a full-world save, not a
+    /// region) reads its `world`/`mapWidthKm`/`seaLevel` correctly --
+    /// the flag that changes what a reopen means downstream.
     #[test]
     fn load_save_round_trip_world() {
-        // Protects: the `world: true` case (a full-world save, not a
-        // region) reads its `world`/`mapWidthKm`/`seaLevel` correctly --
-        // the flag that changes what a reopen means downstream.
         let gw = 12;
         let gh = 6;
         let zip_bytes = build_test_zip(gw, gh, 999, 40000.0, 0.35, true);
@@ -476,12 +476,12 @@ mod tests {
         assert_eq!(save.params.sea_level, 0.35);
     }
 
+    /// Protects: a truncated archive (params.json but no heightmap.f32)
+    /// returns `LoadError::MissingEntry("heightmap.f32")` and does not
+    /// panic -- the read path fails loudly rather than reading past a
+    /// missing entry into garbage.
     #[test]
     fn load_save_missing_entry_errors_cleanly() {
-        // Protects: a truncated archive (params.json but no heightmap.f32)
-        // returns `LoadError::MissingEntry("heightmap.f32")` and does not
-        // panic -- the read path fails loudly rather than reading past a
-        // missing entry into garbage.
         // A zip with only params.json -- no heightmap.f32 -- should
         // return a clear MissingEntry error, not panic.
         let mut buf = Vec::new();

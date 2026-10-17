@@ -327,13 +327,13 @@ mod tests {
         (params, fields)
     }
 
+    /// Protects: a value written into every one of the six raw fields
+    /// (all f32 grids plus the strahler byte grid) comes back unchanged
+    /// after a real zip round trip through this crate's own reader --
+    /// the basic write/read contract the rest of this module's guards
+    /// sit on top of.
     #[test]
     fn write_then_load_round_trips_every_field() {
-        // Protects: a value written into every one of the six raw fields
-        // (all f32 grids plus the strahler byte grid) comes back unchanged
-        // after a real zip round trip through this crate's own reader --
-        // the basic write/read contract the rest of this module's guards
-        // sit on top of.
         let (params, fields) = sample(17, 11);
         let mut buf = Vec::new();
         write_save(
@@ -366,13 +366,13 @@ mod tests {
         assert!(json["state"].get("origin").is_none());
     }
 
+    /// Protects: a known origin lands at `params.json`'s top level, not
+    /// inside `state` where `loadZip()`'s `Object.assign` would merge it
+    /// into the reference app's own live state -- and the four keys
+    /// this writer owns (`v`, `GW`, `GH`, `state.seaLevel`) are untouched
+    /// by adding it.
     #[test]
     fn a_known_origin_is_written_beside_the_grid_not_inside_state() {
-        // Protects: a known origin lands at `params.json`'s top level, not
-        // inside `state` where `loadZip()`'s `Object.assign` would merge it
-        // into the reference app's own live state -- and the four keys
-        // this writer owns (`v`, `GW`, `GH`, `state.seaLevel`) are untouched
-        // by adding it.
         let (mut params, _) = sample(4, 4);
         params.origin = Some("import".to_string());
         let json = params_json(&params, &serde_json::json!({}));
@@ -424,10 +424,10 @@ mod tests {
         assert!(json["state"].get("name").is_none());
     }
 
+    /// Protects: a known world name lands at `params.json`'s top level,
+    /// not inside `state`, mirroring the origin case above.
     #[test]
     fn a_known_name_is_written_beside_the_grid_not_inside_state() {
-        // Protects: a known world name lands at `params.json`'s top level,
-        // not inside `state`, mirroring the origin case above.
         let (mut params, _) = sample(4, 4);
         params.name = Some("The Vharen Reach".to_string());
         let json = params_json(&params, &serde_json::json!({}));
@@ -455,9 +455,13 @@ mod tests {
         }
     }
 
+    /// Protects: the six keys this writer owns (GW, GH, state.world, state.seaLevel,
+    /// state.mapWidthKm, state.tect.seed) win over contradicting values a caller wrote into `state`,
+    /// so a save can never disagree with its own `fields`, while everything else the caller put in
+    /// `tect` (here `plates`) survives untouched.
     #[test]
     fn writer_owns_the_keys_the_reader_requires() {
-        // Protects: the four keys this writer owns (GW, GH, state.world,
+        // Protects: the six keys this writer owns (GW, GH, state.world,
         // state.seaLevel, state.mapWidthKm, state.tect.seed) win over
         // contradicting values a caller wrote into `state`, so a save can
         // never disagree with its own `fields` -- while everything else the
@@ -477,11 +481,15 @@ mod tests {
         assert_eq!(json["state"]["tect"]["plates"], 9);
     }
 
+    /// Protects: `SaveWrite::state`'s "a non-object Value... is treated as an empty object rather
+    /// than rejected" guarantee: Null, a bare number and an empty object each still give a
+    /// `params_json` whose `state.tect.seed` and `state.mapWidthKm` are filled in, rather than a
+    /// panic. Only those two keys are asserted.
     #[test]
     fn params_json_tolerates_a_caller_with_nothing_to_add() {
         // Protects: `SaveWrite::state`'s "a non-object Value... is treated
         // as an empty object rather than rejected" guarantee -- Null, a
-        // bare number, and an empty object all still get the four required
+        // bare number, and an empty object all still get the required
         // keys filled in rather than panicking or producing a state with no
         // `tect.seed`.
         let (params, _) = sample(4, 4);
@@ -492,12 +500,12 @@ mod tests {
         }
     }
 
+    /// Protects: the module doc's guard 1 -- a field shorter than gw*gh
+    /// is a hard `SaveError::FieldLength`, not a write that would leave
+    /// a silently truncated climate on disk with no length prefix to
+    /// catch it on read-back.
     #[test]
     fn a_short_field_is_refused_not_truncated() {
-        // Protects: the module doc's guard 1 -- a field shorter than gw*gh
-        // is a hard `SaveError::FieldLength`, not a write that would leave
-        // a silently truncated climate on disk with no length prefix to
-        // catch it on read-back.
         let (params, mut fields) = sample(6, 5);
         Arc::make_mut(&mut fields.rainfall).pop();
         let mut buf = Vec::new();
@@ -506,12 +514,12 @@ mod tests {
         assert!(matches!(err, SaveError::FieldLength { entry: "rainfall.f32", expected: 30, got: 29 }));
     }
 
+    /// Protects: the archive's entry names and their write order match
+    /// the reference's own `exportZip()` exactly, and a `.f32` entry is
+    /// exactly gw*gh*4 bytes with no header or length prefix -- the
+    /// shape `crate::load_save` depends on.
     #[test]
     fn entries_are_the_documented_set_in_the_reference_order() {
-        // Protects: the archive's entry names and their write order match
-        // the reference's own `exportZip()` exactly, and a `.f32` entry is
-        // exactly gw*gh*4 bytes with no header or length prefix -- the
-        // shape `crate::load_save` depends on.
         let (params, fields) = sample(3, 3);
         let mut buf = Vec::new();
         write_save(Cursor::new(&mut buf), &SaveWrite { params: &params, state: serde_json::json!({}), fields: &fields })
