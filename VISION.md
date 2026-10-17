@@ -290,5 +290,7 @@ sharpness first, then ice) and `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
 (EF-0…EF-9), and any gap assessment against this image has to be made at
 several zoom levels, not at fit view only.
 
-This is a direction, not a specification, and the gap against the current
-renderer has not yet been assessed; see `OUTSTANDING_WORK.md` for the row.
+This is a direction, not a specification. The gap against the shipped renderer
+was assessed on 2026-10-17 at four zoom levels:
+`RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`. Its gap list is routed in
+`OUTSTANDING_WORK.md` ("Render target gap list — awaiting owner").
