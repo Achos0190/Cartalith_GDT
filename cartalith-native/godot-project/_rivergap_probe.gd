@@ -24,13 +24,13 @@ extends Node
 ## the worst remaining loose ends, which after the continuation fix are
 ## different (and far fewer) ones.
 ##
-## Prints PROBE-FAIL (and still exits 0) on a failed assertion; grep for it.
+## Prints PROBE-FAIL on a failed assertion and then exits 1 (0 only when none failed).
 ## Result: a measurement with assertions that does not carry its verdict in the exit code; windowed only. Command per the
 ## header: `--path . --resolution 1600x1000 _rivergap_probe.tscn -- --out DIR [--seeds 483920,24601] [--shots 3] [--km
 ## 800] [--sites X:Y,X:Y]`. Prints `integrate_drainage (app param table): ...`, `generating seed <n>, 2048 x 1311, <km>
 ## km...`, per seed `delta fans: ...` and `LIVE get_rivers(1): drawn runs ...` lines, `  PASS  |  PROBE-FAIL  <what>`
 ## rows and `_rivergap_probe: ALL PASS|PROBE-FAIL FAILURES (<n> failures); images in <dir>`; it saves `s<seed>_fit.png`
-## and per-site captures. It exits 0 after that line whatever the verdict (the header says to grep for `PROBE-FAIL`);
+## and per-site captures. Exit code (Ruling BK probe pass): 0 only when `_fails == 0`, else 1;
 ## exit 2 for headless, an unknown argument, or generation that never finished.
 
 var _out := "user://rivergap/"
@@ -140,7 +140,7 @@ func _ready() -> void:
 			get_viewport().get_texture().get_image().save_png("%ss%d_fit.png" % [_out, seed_value])
 	print("\n_rivergap_probe: %s (%d failures); images in %s"
 		% ["ALL PASS" if _fails == 0 else "PROBE-FAIL FAILURES", _fails, ProjectSettings.globalize_path(_out)])
-	get_tree().quit(0)
+	get_tree().quit(0 if _fails == 0 else 1)
 
 
 ## Counts loose ends on `br.rivers(1)` and returns the worst ones' grid

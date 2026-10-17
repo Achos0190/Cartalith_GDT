@@ -11,11 +11,12 @@ extends Node
 ## Flags actually read (grepped from the body below):
 ##   --vp WxH     SubViewport size. Default 1080x2340.
 ##   --tag NAME   line prefix. Default vfy.
-##   --part A|B|C|D|E|ALL   which sections to run. Default ALL.
+##   --part A|B|C|D|E|F|G|H|ALL   which sections to run (the code has PART A through PART H; `_want(p)` tests
+##                whether the argument string CONTAINS the letter). Default ALL.
 ##   --force-touch   NOT read here; `dcc_shell.gd` reads it.
 ## Result: an assertion with a census. Command per the header: `godot --path . _vfy_gesture_probe.tscn -- --force-touch
 ## --vp 1080x2340 --tag V`; flags `--vp WxH` (default 1080x2340), `--tag NAME` (default `vfy`), `--part A|B|C|D|E|ALL`
-## (default ALL; the header lists A to E but the code also has `PART F` and `PART G` sections), `--force-touch`. The
+## (default ALL; sections A through H, all listed in the header since the Ruling BK probe pass), `--force-touch`. The
 ## header names no headless/windowed requirement. Every line is prefixed `[<tag>] `, with `-- inventory (...)`, `--
 ## measured, not tabulated: ...` and `-- PART <x>: ...` section lines, ending `RESULT <tag> fail=<n>`. Exit 0 when no
 ## failure was counted, 1 otherwise.

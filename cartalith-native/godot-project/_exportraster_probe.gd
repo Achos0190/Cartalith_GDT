@@ -1,6 +1,6 @@
 extends Node
 ## Committed verification harness for the export raster + channel atlas
-## (PARITY_AUDIT.md §5 item 14). Not committed. Drives the real bindings
+## (PARITY_AUDIT.md §5 item 14). Committed (tracked). Drives the real bindings
 ## through EngineBridge exactly as the Data manager pane does, writes real
 ## files, and reads them back off disk.
 ##
@@ -11,7 +11,7 @@ extends Node
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
 ## Result: an assertion with a transcript (CRLF file), run headless as the header shows (`godot --headless --path .
-## _exportraster_probe.tscn`); the header's phrase "Not committed" is stale, the file is tracked. Writes real files to a
+## _exportraster_probe.tscn`); the file is tracked (an earlier header said "Not committed"; corrected in the Ruling BK probe pass). Writes real files to a
 ## scratch directory and reads them back. Prints `  PASS  |  FAIL  <what>` rows, `== 1. generate ==` to `== 8. ... ==`
 ## banners with info lines (IHDR sizes, distinct-colour counts, byte-level differences between the screen and the
 ## export), and ends `==== 8K: OK|SEE ABOVE ====`. Exit 0 when no check failed, 1 otherwise, 2 from the watchdog (`====

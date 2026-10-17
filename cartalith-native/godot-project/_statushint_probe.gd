@@ -12,12 +12,12 @@ extends Node
 ## it with the long catchment sentence showing. Any other argument is refused.
 ##
 ## Every check starts with "Protects:" and says what regression it catches.
-## Prints one `### STATUSHINT GREEN|RED n/m ###` line; the exit code is 0 either
-## way (the harness greps), as for every probe here.
+## Prints one `### STATUSHINT GREEN|RED n/m ###` line; the exit code is 0 only on
+## GREEN and 1 on RED (Ruling BK probe pass).
 ##
-## Result: an assertion, but the exit code does not carry it. Prints `SH ok  |PROBE-FAIL <check>` per check, `SH viewport
+## Result: an assertion; the exit code carries it (0 GREEN, 1 RED). Prints `SH ok  |PROBE-FAIL <check>` per check, `SH viewport
 ## <size>`, with `--shot` `SH screenshot <path> (<w>x<h>)`, then `### STATUSHINT GREEN|RED <passed>/<total> checks passed ###`
-## and exits 0 for either verdict (the harness greps the line). `### STATUSHINT ABORT: ... ###` exits 2 (unknown argument,
+## and exits 0 on GREEN, 1 on RED. `### STATUSHINT ABORT: ... ###` exits 2 (unknown argument,
 ## or headless) or 1 (`app.gd` did not compile).
 
 const LONG_HINT := "Catchment: 18 342 cells upstream of the clicked cell, draining 41 % of the continent through 7 named rivers to a single mouth on the western sea; Clear river highlight (right-click) removes the wash"
@@ -135,4 +135,4 @@ func _ready() -> void:
 
 	print("### STATUSHINT %s  %d/%d checks passed ###" % [
 		"GREEN" if _fails == 0 else "RED", _checks - _fails, _checks])
-	get_tree().quit(0)
+	get_tree().quit(0 if _fails == 0 else 1)

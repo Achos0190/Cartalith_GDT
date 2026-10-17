@@ -29,11 +29,11 @@ extends Node
 ##       bigger than the engine circle would fail here;
 ##   (c) the on-screen resize radius is the same at every zoom (+-12 %), which is
 ##       the scaling itself (an unscaled floor would be x8 and x30).
-## Prints PROBE-FAIL for each failure; exit status is 0 regardless, so grep.
+## Prints PROBE-FAIL for each failure; exit status is 0 only when none failed, else 1 (Ruling BK probe pass).
 ##
-## Result: an assertion that does not set the exit code. Prints `  PASS  |  PROBE-FAIL  <check>` rows, `z=<zoom> image: <path>` for each captured
+## Result: an assertion; exit 0 when none failed, 1 otherwise. Prints `  PASS  |  PROBE-FAIL  <check>` rows, `z=<zoom> image: <path>` for each captured
 ## frame, a `z=<zoom> <handle>: centre=... r=...px  inside-handle=...  ring-handle=...` measurement per handle and zoom (1, 8, 30), and a final
-## `PROBE-RESULT: PASS|FAIL (<n>)`. Exit 0 regardless of the verdict (grep for PROBE-FAIL); `PROBE-CANNOT-RUN: headless server; the canvas is never
+## `PROBE-RESULT: PASS|FAIL (<n>)`. Exit 0 on PASS, 1 on FAIL; `PROBE-CANNOT-RUN: headless server; the canvas is never
 ## composited.` goes to stderr with exit 2.
 
 const OVERLAY := preload("res://map_overlay.gd")
@@ -166,4 +166,4 @@ func _ready() -> void:
 	_ok(absf(float(resize_px[30.0]) / float(resize_px[1.0]) - 1.0) < 0.12,
 		"on-screen resize radius at z=30 matches z=1 (%.2f vs %.2f px)" % [resize_px[30.0], resize_px[1.0]])
 	print("PROBE-RESULT: ", "PASS" if _fails == 0 else "FAIL (%d)" % _fails)
-	get_tree().quit(0)
+	get_tree().quit(0 if _fails == 0 else 1)

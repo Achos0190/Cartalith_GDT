@@ -8,8 +8,8 @@ extends SceneTree
 ##         (a SceneTree script, no .tscn; the body reads no pixels)
 ## Result: `ORIGINAL units_mode = <mode>`, `format(...)` and `--- units_mode = <mode> ---`
 ##         readout lines, `  FAIL <what>` for each broken claim, `RESTORED units_mode = <mode>`
-##         and a final `UNITS PROBE FAILURES = N`. The exit code is always 0 (`quit()`), so
-##         read that last line, not the exit code.
+##         and a final `UNITS PROBE FAILURES = N`. The exit code is 0 only when that count is
+##         0, else 1 (Ruling BK probe pass).
 
 func _init() -> void:
 	var orig := DccSettings.units_mode()
@@ -77,4 +77,4 @@ func _init() -> void:
 	DccSettings.set_units_mode(orig)
 	print("RESTORED units_mode = ", DccSettings.units_mode())
 	print("UNITS PROBE FAILURES = ", fail)
-	quit()
+	quit(0 if fail == 0 else 1)

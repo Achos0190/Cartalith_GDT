@@ -47,9 +47,9 @@ extends Node
 ## DIR`; options `--seeds a,b`, `--grid WxH`, `--zooms 1,4`, `--targets DIR/rivcolour.json`, `--stroke-path`; an unknown
 ## argument prints `unknown arg <a>` and exits 2. Prints `======== seed <n>  grid <w>x<h> ========`, `  river path
 ## measured: ...`, `  data: <json>`, per-target `max_step` rows, ends `PROBE-RESULT: DONE`, and writes `rivcolour.json`
-## plus `<tag>_on.png` captures into `--out`. A failed positive control prints `PROBE-FAIL: ...` to stderr but does not
-## change the exit code: it exits 0 after `PROBE-RESULT: DONE` whatever was printed (2 only for headless or an unknown
-## argument).
+## plus `<tag>_on.png` captures into `--out`. A failed positive control prints `PROBE-FAIL: ...` to stderr and sets
+## `_failed`; after `PROBE-RESULT: DONE` it exits 1 if any was set, else 0 (Ruling BK probe pass; 2 for headless or an
+## unknown argument).
 
 var _out := "user://rivcolour/"
 var _seeds: Array[int] = [483920, 24601, 1]
@@ -62,6 +62,8 @@ var _app: Node
 var _vh: Control
 var _br: Node
 var _report := {}
+## Set by any failed positive control; decides the exit code (Ruling BK probe pass).
+var _failed := false
 
 ## Levels (0-255) in one channel that count as a visible jump -- labelled
 ## judgement: under the smallest palette step (26 levels, orders 7->8), and
@@ -121,7 +123,7 @@ func _ready() -> void:
 	var f := FileAccess.open(_out.path_join("rivcolour.json"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(_report, "  "))
 	print("\nPROBE-RESULT: DONE")
-	get_tree().quit(0)
+	get_tree().quit(1 if _failed else 0)
 
 
 func _run_seed(seed_v: int) -> void:
@@ -149,9 +151,11 @@ func _run_seed(seed_v: int) -> void:
 	print("  river path measured: ", sr["path"])
 	if _stroke_path == _br.world_gen.rivers_painted():
 		printerr("PROBE-FAIL: --stroke-path=%s but rivers_painted()=%s (the switch did not take, or the field never built)" % [_stroke_path, _br.world_gen.rivers_painted()])
+		_failed = true
 	print("  data: ", JSON.stringify(sr["summary"]))
 	if int(sr["summary"]["drawn"]) == 0 or int(sr["summary"]["order_changes"]) == 0:
 		printerr("PROBE-FAIL: positive control -- no drawn rivers or no order change (seed %d)" % seed_v)
+		_failed = true
 	var targets: Dictionary = sr["targets"]
 	if _fixed.has(str(seed_v)):
 		targets = _fixed[str(seed_v)]["targets"]

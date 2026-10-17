@@ -8,11 +8,11 @@ extends Node
 ## register keeps finding. Deliberately skips rows that touch the filesystem
 ## (Clear caches, atlas import/export, Documentation) -- those are audited by
 ## reading their handler, not by firing them.
-## Result: an assertion that does not carry its verdict in the exit code. Header command: `godot --path . --resolution
+## Result: an assertion; exit 0 when the failure count is 0, else 1. Header command: `godot --path . --resolution
 ## 1600x900 _prefwinhelp_press.tscn` (no headless/windowed requirement named). Prints `  ok  |FAIL  <name>   got= want=`
 ## rows, `[BOOT] shell up`, `=== WINDOW - ... ===`, `=== PREFERENCES - ... ===` and `=== HELP - the dialog rows ===`
-## sections with `     info` lines and `[RESULT] failures=<n>`. It exits 0 after the result line whatever the count; only
-## `[FATAL] extension did not load` exits 1.
+## sections with `     info` lines and `[RESULT] failures=<n>`. It exits 0 after the result line when the count is 0 and 1 otherwise
+## (Ruling BK probe pass); `[FATAL] extension did not load` also exits 1.
 var _vp: SubViewport
 var _fail := 0
 var _app: Node
@@ -215,7 +215,7 @@ func _ready() -> void:
 		await _frames(2)
 
 	print("\n[RESULT] failures=", _fail)
-	get_tree().quit(0)
+	get_tree().quit(0 if _fail == 0 else 1)
 
 func _count_visible_dialogs() -> int:
 	var n := 0

@@ -153,8 +153,8 @@ extends Node
 ## `--rim7`, `--rim7rest`, `--vx` with their sub-options); an unknown argument prints `unknown arg <a>` and exits 2.
 ## Prints `======== seed <n>  grid <w>x<h> ========`, grid-statistics and per-target lines, `PROBE-OK: ...` /
 ## `PROBE-FAIL: ...` lines, writes `riverzoom.json` and PNG captures into `--out`, and ends `PROBE-RESULT: DONE`.
-## `PROBE-FAIL` lines go to stderr and do not change the exit code: it exits 0 after `PROBE-RESULT: DONE`; exit 2 for
-## headless or an unknown argument.
+## Every `PROBE-FAIL` sets `_report["fail"]`; after `PROBE-RESULT: DONE` it exits 1 if that is set and 0 otherwise
+## (Ruling BK probe pass); exit 2 for headless or an unknown argument.
 
 var _out := "user://riverzoom/"
 var _seeds: Array[int] = [483920, 24601, 71077345]
@@ -299,7 +299,7 @@ func _ready() -> void:
 	var f := FileAccess.open(_out.path_join("riverzoom.json"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(_report, "  "))
 	print("\nPROBE-RESULT: DONE")
-	get_tree().quit(0)
+	get_tree().quit(1 if bool(_report.get("fail", false)) else 0)
 
 
 func _run_seed(seed_v: int) -> void:

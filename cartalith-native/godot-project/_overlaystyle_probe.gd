@@ -39,8 +39,8 @@ extends Node
 ## calls -- and a screenshot control proves the draw moved (E's diff counts), so
 ## a resolver that was right but never reached the canvas still fails.
 ##
-## MUST run WINDOWED (`MISTAKES.md`, "Run a pixel probe"); probes exit 0 even on
-## failure, so grep the output for PROBE-FAIL and the RESULT line:
+## MUST run WINDOWED (`MISTAKES.md`, "Run a pixel probe"); this probe exits 0 only when no check
+## failed and 1 otherwise (code: `quit(0 if _fail == 0 else 1)`; 2 = cannot run), and prints PROBE-FAIL and a RESULT line:
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _overlaystyle_probe.tscn -- --out DIR
 ##

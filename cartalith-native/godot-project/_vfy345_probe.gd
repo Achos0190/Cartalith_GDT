@@ -1,5 +1,5 @@
 extends Node
-## VERIFIER probe (untracked). Independent re-derivation of fixes 3, 4, 5.
+## VERIFIER probe (committed; tracked in git). Independent re-derivation of fixes 3, 4, 5.
 ## Written from the design + engine API, not from the lane's probe.
 ##
 ##   godot --headless --path . _vfy345_probe.tscn
@@ -15,8 +15,8 @@ extends Node
 ##    and asserts the sculpt draft is untouched.
 ##  - fix 5: ACTUALLY collapses the dock in each domain, and switches domain
 ##    while collapsed -- the stale-value shape.
-## Result: an assertion, run headless as the header shows (`godot --headless --path . _vfy345_probe.tscn`); the header's
-## "(untracked)" is stale, the file is tracked. Prints `V ok  |FAIL  <label>  got= want=` rows, `V ---------------- seed
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _vfy345_probe.tscn`); the file is tracked (an earlier
+## header said "(untracked)"; corrected in the Ruling BK probe pass). Prints `V ok  |FAIL  <label>  got= want=` rows, `V ---------------- seed
 ## <n> ----------------` banners and `V ==== PASS|FAIL  <passed>/<total> assertions, <n> failed ====`. The exit code is
 ## the failure count itself (`quit(_fail)`): 0 when everything held, otherwise the number of failed assertions.
 

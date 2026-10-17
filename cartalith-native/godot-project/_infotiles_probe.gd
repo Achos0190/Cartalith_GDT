@@ -24,9 +24,9 @@ extends Node
 ## It then reports synthesis latency (median with min..max, run alone), tile
 ## memory against the tier budget, and the main-thread cost of the layer.
 ##
-## Prints PROBE-FAIL lines and exits 0 either way (a Godot probe cannot be
-## trusted to set an exit code through a window); grep PROBE-FAIL and the
-## RESULT line. ASCII only.
+## Prints PROBE-FAIL lines and the RESULT line; exits 0 only when no check failed,
+## 1 otherwise (Ruling BK probe pass -- an older header claimed a windowed probe cannot set
+## an exit code, which the other windowed probes here disprove). ASCII only.
 
 const VP := Vector2i(1280, 800)
 const WATCHDOG_S := 280
@@ -147,7 +147,7 @@ func _ready() -> void:
 
 	print("")
 	print("RESULT: ", "GREEN" if _fail == 0 else "RED (%d failure(s))" % _fail)
-	get_tree().quit(0)
+	get_tree().quit(0 if _fail == 0 else 1)
 
 
 # -- world and camera -----------------------------------------------------------

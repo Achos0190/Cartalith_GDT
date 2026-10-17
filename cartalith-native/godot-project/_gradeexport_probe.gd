@@ -1,6 +1,6 @@
 extends Node
 ## Committed verification harness: does the export raster carry the colour
-## grade, and does a graded export match the graded viewport? Not committed.
+## grade, and does a graded export match the graded viewport? Committed (tracked).
 ##
 ## Why this is a separate probe from _exportraster_probe.gd: that probe's
 ## section 13 already compares a grid-resolution export against
@@ -17,7 +17,7 @@ extends Node
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
 ## Result: an assertion with a transcript. Header command: `--path . _gradeexport_probe.tscn` (no headless/windowed
-## requirement named; the header's phrase "Not committed" is stale, the file is tracked). Prints `  PASS  |  FAIL
+## requirement named; the file is tracked; an earlier header said "Not committed", corrected in the Ruling BK probe pass). Prints `  PASS  |  FAIL
 ## <what>` rows, `== 1. ... ==` to `== 6. ... ==` banners with byte-movement figures against the river mask, and a
 ## closing `==== ALL PASS|FAILURES (<n> failures) ====`; it saves a side-by-side strip PNG. Exit 0 when no check failed,
 ## 1 otherwise, 2 from the 900 s watchdog (`push_error`: `grade-export probe watchdog: _ready never finished`).
@@ -76,7 +76,7 @@ func _cmp(a: PackedByteArray, b: PackedByteArray) -> Array:
 ## antialiasing margin of a river, `0` elsewhere. Copied from
 ## `_exportraster_probe.gd` (see that file's own comment for the full
 ## reasoning) rather than shared, because these are two independent,
-## uncommitted probe scripts with no shared module today and duplicating
+## probe scripts with no shared module today and duplicating
 ## ~25 lines is cheaper than inventing one for two callers.
 ##
 ## Only valid where the pixel grid IS the cell grid -- true here because

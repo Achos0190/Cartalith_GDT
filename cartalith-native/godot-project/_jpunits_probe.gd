@@ -25,11 +25,11 @@ extends Node
 ## **It restores `DccSettings.units_mode()` to whatever it found.** The setting
 ## is persisted to `cartalith_settings.cfg` on every write, so a probe that
 ## exits in miles leaves the app in miles.
-## Result: an assertion that does not carry its verdict in the exit code. Windowed by design (header command `--path .
+## Result: an assertion; exit 0 when `fails` is 0, else 1. Windowed by design (header command `--path .
 ## _jpunits_probe.tscn`; it reads no argument). Prints `UNITS   ok    <what>` / `UNITS   FAIL  <what>` rows, per seed
 ## `UNITS ##### seed <n> route=<n> stages=<n> ... #####`, `UNITS      first divergence [...]`, `UNITS      NEW straggler:
 ## ...` and a closing `UNITS === restored units_mode=<mode>  checks=<n> fails=<n> ===`. It restores the entry units mode
-## and exits 0 whatever `fails` holds.
+## and then exits 0 when `fails` is 0 and 1 otherwise (Ruling BK probe pass).
 
 const SEEDS := [483920, 77021, 4242]
 const MODES := ["km", "mi", "nmi"]
@@ -164,7 +164,7 @@ func _ready() -> void:
 	DccSettings.set_units_mode(entry_mode)
 	print("UNITS === restored units_mode=", DccSettings.units_mode(),
 		"  checks=", checks, " fails=", fails, " ===")
-	get_tree().quit()
+	get_tree().quit(0 if fails == 0 else 1)
 
 func _one_seed(bridge, seed_v: int) -> void:
 	bridge.generate({

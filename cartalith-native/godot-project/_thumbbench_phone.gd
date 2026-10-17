@@ -4,10 +4,11 @@ extends Node
 ## the shell's own main viewport rather than parenting a picker by hand -- the
 ## first attempt did the latter and captured the desktop dialog instead.
 ##
-##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 393x852 ##       --force-touch _thumbbench_phone.tscn
+##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 393x852 _thumbbench_phone.tscn -- --force-touch
 ## Result: a capture tool that asserts nothing. Command per the header: `Godot_v4.7.1-stable_win64_console.exe --path .
-## --resolution 393x852 --force-touch _thumbbench_phone.tscn` (as written the header puts `--force-touch` before the
-## scene name, not after `--` where `dcc_shell.gd` reads it from the user arguments; not run here). Windowed, since it
+## --resolution 393x852 --force-touch _thumbbench_phone.tscn` (`--force-touch` goes after `--`, because
+## `dcc_shell.gd` reads it from `OS.get_cmdline_user_args()`; the line used to run it together with a stray `##` and put it
+## before the scene name, where the shell never sees it -- corrected in the Ruling BK probe pass). Windowed, since it
 ## grabs the main viewport. Prints `PHONE  <w>x<h>  is_phone=<b>  picker=<b>` and saves `user://_thumbbench/phone.png`;
 ## `PHONE  !! null framebuffer` exits 1, otherwise 0.
 

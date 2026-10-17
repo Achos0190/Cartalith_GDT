@@ -13,8 +13,8 @@ extends Node
 ## Run:    Godot_v4.7.1-stable_win64_console.exe --path . _rcustomdisplay_probe.tscn   (from
 ##         godot-project/; the header names no headless/windowed requirement)
 ## Result: `  PASS  <what>` / `  FAIL  PROBE-FAIL <what>` per check and a final `RESULT: ALL PASS`
-##         or `RESULT: N FAILURES`. CAUTION: the process exits 0 either way (`quit(0)`), so
-##         read the `RESULT:` line, not the exit code.
+##         or `RESULT: N FAILURES`. The process exits 0 only on ALL PASS and 1 on any
+##         failure (Ruling BK probe pass).
 
 const OVERLAY := preload("res://map_overlay.gd")
 
@@ -105,4 +105,4 @@ func _ready() -> void:
 
 	print("")
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAILURES" % fails)
-	get_tree().quit(0)
+	get_tree().quit(0 if fails == 0 else 1)

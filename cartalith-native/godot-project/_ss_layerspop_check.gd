@@ -1,9 +1,10 @@
 extends Node
-## Throwaway diagnostic -- NOT part of the owned probe set, deleted after use.
+## Throwaway diagnostic -- NOT part of the owned probe set. It was meant to be deleted after use but is tracked in git
+## (and has no `.tscn`), so it is kept as the record of the measurement below.
 ## Measures whether `LayersPopover`'s fixed-228px non-phone width actually
 ## clips its Opacity slider row now that `DccWidgets.slider()` grows the
 ## track to `role_px("slider_track_w")` (90) on tablet.
-## Result: a throwaway diagnostic that asserts nothing, tracked despite its header ("deleted after use"); no `.tscn` is
+## Result: a throwaway diagnostic that asserts nothing, tracked although it was meant to be deleted after use (header corrected in the Ruling BK probe pass); no `.tscn` is
 ## tracked for it, so it needs a scene that attaches it. It boots the shell in a 2560x1600 SubViewport, prints
 ## `is_tablet=<b>`, `popover size=... visible=...`, `HSlider found: min_size=... global_rect=...` and `popover
 ## combined_minimum_size=...`, then exits 0; `[FAIL] no layers_popover on app` exits 1.

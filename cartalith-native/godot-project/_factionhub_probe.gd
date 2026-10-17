@@ -87,14 +87,14 @@ extends Node
 ##   ... _factionhub_probe.tscn -- --force-touch --vp 1080x2340      (phone)
 ## `FACTIONHUB_SHOT_DIR`, if set, receives PNGs of the live viewport.
 ##
-## A run prints `PROBE-FAIL` per failed check and exits 0 either way (the suite's
-## convention); read the `FACTIONHUB RESULT` line. `ABORT` (exit 2) means the
+## A run prints `PROBE-FAIL` per failed check and exits 0 only when none failed, 1
+## otherwise (Ruling BK probe pass); the `FACTIONHUB RESULT` line carries the counts. `ABORT` (exit 2) means the
 ## probe could not run, which must never be read as a pass.
 ## Result: an assertion that does not carry its verdict in the exit code. Windowed, never `--headless` (the header's
 ## commands: `--path . _factionhub_probe.tscn`, and `-- --force-touch --vp 1080x2340` for the phone). Prints `FACTIONHUB
 ## ok    <name>`, `FACTIONHUB FAIL  <name>  -- <detail>` plus `PROBE-FAIL <name>` per miss, `FACTIONHUB
 ## form=<phone|tablet|desktop>`, `FACTIONHUB TIMING ...` rows and `FACTIONHUB RESULT PASS|FAIL  checks=<n> fails=<n>`. It
-## exits 0 whatever the verdict, as the header says; exit 2 for an unknown argument (`FACTIONHUB ABORT: unknown
+## exits 0 only when `fails=0`, else 1; exit 2 for an unknown argument (`FACTIONHUB ABORT: unknown
 ## argument`) or fewer than two factions, and 3 from the watchdog (`FACTIONHUB WATCHDOG`). Saves `factionhub_<tag>.png`
 ## captures and writes a `Factions/FH8.md` file into its vault fixture.
 
@@ -264,7 +264,7 @@ func _ready() -> void:
 	await _run()
 	print("FACTIONHUB RESULT %s  checks=%d fails=%d" % [
 		"PASS" if _fails == 0 else "FAIL", _checks, _fails])
-	get_tree().quit(0)
+	get_tree().quit(0 if _fails == 0 else 1)
 
 
 func _run() -> void:

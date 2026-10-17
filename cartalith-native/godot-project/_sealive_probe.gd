@@ -31,7 +31,8 @@ extends Node
 ## `--timing N` instead generates an N x N world and prints the median
 ## (min..max) of five live moves and five repaints; no checks.
 ## Ends with `SEALIVE RESULT GREEN` or `SEALIVE RESULT FAIL (n)`; every failed
-## check prints `PROBE-FAIL`. Exits 0 either way (grep the lines).
+## check prints `PROBE-FAIL`. Exit code (Ruling BK probe pass): 0 only when every check passed (and for `--timing`,
+## which runs no checks); 1 on any failed check or a missing slider; 2 headless; 3 watchdog.
 ## Result: an assertion that does not carry its verdict in the exit code; windowed only. Commands per the header: `--path
 ## . --resolution 1600x1000 _sealive_probe.tscn` and `... -- --timing 2048` (an N x N world and a median timing instead
 ## of the checks). Prints `SEALIVE ok  |PROBE-FAIL  <what>`, `SEALIVE dll binding present: <b>`, `SEALIVE timing run <i>:
@@ -173,7 +174,7 @@ func _ready() -> void:
 	_check("the World data Sea level slider exists", s != null)
 	if s == null:
 		print("SEALIVE RESULT FAIL (%d)" % _fails)
-		get_tree().quit(0)
+		get_tree().quit(1)
 		return
 
 	# A Coastline stamp on the draft: Plateau and Coastline read the level.
@@ -257,4 +258,4 @@ func _ready() -> void:
 	_check("5: reopened at the base level with the base counts", JSON.stringify(c6) == JSON.stringify(c0), "%s vs %s" % [c6, c0])
 
 	print("SEALIVE RESULT %s" % ("GREEN" if _fails == 0 else "FAIL (%d)" % _fails))
-	get_tree().quit(0)
+	get_tree().quit(0 if _fails == 0 else 1)

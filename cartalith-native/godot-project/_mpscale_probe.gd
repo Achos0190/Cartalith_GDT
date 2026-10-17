@@ -13,7 +13,7 @@ extends Node
 ## one (2400 km, 384x288, villages on).
 ##
 ## Prints one MPROW per faction, one MPSHAPE summary per world shape, and the
-## pooled MPPOOL line. `land_capacity` / `land_reference` are read only if the
+## pooled line (printed as `MPSHAPE POOLED`; there is no `MPPOOL` token in the code). `land_capacity` / `land_reference` are read only if the
 ## bridge publishes them (after option (b)); before it they print as -1.
 ##
 ## Committed, like every probe scene in this folder (`STATUS.md` F8): kept as
@@ -22,8 +22,8 @@ extends Node
 ## Result: a measurement, not an assertion. Prints one `MPROW<TAB>...` line per faction (label, seed, name, government,
 ## ag tech, eco, land, ref, pop, standing, field, levy, stand%cit, mob%cit, verdicts, settlement count), one
 ## `MPSHAPE <label> n=... standing below/within/above=... mobilization=... eco median/min/max=...` summary per world shape,
-## per scope-document world and for the pooled set (printed as `MPSHAPE POOLED`; the header's `MPPOOL` name is not what the
-## code prints), then `MP done`. Exit 0.
+## per scope-document world and for the pooled set (printed as `MPSHAPE POOLED`; an earlier header called it `MPPOOL`, which the
+## code never printed -- corrected in the Ruling BK probe pass), then `MP done`. Exit 0.
 
 const SEEDS := [483920, 7, 101, 202501, 999331, 31337]
 const WORLDS := [

@@ -11,7 +11,7 @@ extends Node
 ##
 ## Result: `  ok   <name>` / `  FAIL <name>` per check, `[1]`..`[3]` section lines, and a final
 ##         `=== N FAILED (a FAIL here is the verifier's finding, not a broken probe) ===`. The
-##         exit code is always 0 (`quit(0)`), so read the FAILED count, not the exit code.
+##         exit code is 0 only when the FAILED count is 0, else 1 (Ruling BK probe pass); 1 also after `[FATAL]`.
 
 var app: Node
 var _fail := 0
@@ -130,4 +130,4 @@ func _ready() -> void:
 			.find("not surfaced by any binding yet") == -1)
 
 	print("=== %d FAILED (a FAIL here is the verifier's finding, not a broken probe) ===" % _fail)
-	get_tree().quit(0)
+	get_tree().quit(0 if _fail == 0 else 1)

@@ -21,12 +21,12 @@ extends Node
 ##      pre-save ones journey for journey, B's dates differ from C's (the
 ##      non-default cadence MOVES the dates) and from A's, and re-loading the
 ##      restored B into the planner computes the same total days again.
-## Every PROBE-FAIL line is a failure; the script still exits 0 so the caller
-## greps for it. Headless is refused: it cannot size or draw the shell.
+## Every PROBE-FAIL line is a failure; the script exits 1 on any (0 only on GREEN),
+## so the exit code carries the verdict. Headless is refused: it cannot size or draw the shell.
 ## Result: an assertion, windowed only (header command `--path . --resolution 1600x1000 _journeyplan_probe.tscn`). Every
 ## line is prefixed `JPLAN `: `ok    <what>`, `PROBE-FAIL  <what>`, `dll mtime: <n>` and `RESULT GREEN|FAIL  (<n>
-## failures)`. The header's sentence that "the script still exits 0 so the caller greps" is stale: the code exits 0 on
-## GREEN and 1 on FAIL. Under `--headless` it prints `JPLAN REFUSED: headless` and exits 2; the watchdog (`JPLAN
+## failures)`. The code exits 0 on GREEN and 1 on FAIL (an older header sentence said it always exited 0; corrected in the Ruling BK
+## probe pass). Under `--headless` it prints `JPLAN REFUSED: headless` and exits 2; the watchdog (`JPLAN
 ## PROBE-FAIL watchdog`) exits 3.
 
 var _fails := 0

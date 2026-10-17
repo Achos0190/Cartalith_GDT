@@ -5,7 +5,8 @@ extends Node
 ## the question that probe cannot: **how wide is the target, and what happens
 ## when a finger misses it.**
 ##
-##   (run WINDOWED -- headless never draws, so the picker is never staged)
+##   (runs either windowed or `--headless`: both gave `RESULT PASS failures=0` with exit 0 in the Ruling BK probe
+##   pass, because nothing here reads a pixel -- see the note below)
 ##   godot --path . _sheetgrab_probe.tscn -- --force-touch --vp 1080x2340 --tag g1080
 ##   godot --path . _sheetgrab_probe.tscn -- --force-touch --vp 1440x3200 --tag g1440
 ##
@@ -22,8 +23,8 @@ extends Node
 ##
 ## Headless is sound: nothing here reads a pixel, only `Control.size`/`position`
 ## and the detent the shell reports.
-## Result: an assertion. Its header is inconsistent: it says "run WINDOWED -- headless never draws, so the picker is
-## never staged" and later "Headless is sound: nothing here reads a pixel". Commands: `godot --path .
+## Result: an assertion. The header used to contradict itself ("run WINDOWED -- headless never draws" vs "Headless is
+## sound"); the Ruling BK probe pass ran both ways, each exit 0 and PASS, so headless is sound and the first claim was removed. Commands: `godot --path .
 ## _sheetgrab_probe.tscn -- --force-touch --vp 1080x2340 --tag g1080` (also 1440x3200). Flags: `--vp WxH` (default
 ## 1080x2340), `--tag NAME` (default `grab`), `--jitter`, `--force-touch`; any other flag aborts. Every line is prefixed
 ## `[<tag>] `, ending `RESULT <tag>  failures=<n>` via `PASS|FAIL`. Exit 0 when no check failed, 1 otherwise, 2 for an

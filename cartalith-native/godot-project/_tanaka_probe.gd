@@ -19,16 +19,16 @@ extends Node
 ##      convention is the renderer's own light and not an assumption.
 ##   4. Turning the sun 180 degrees swaps which side is bright.
 ##
-## Output is ASCII. A failing check prints `PROBE-FAIL`; the process still
-## exits 0, so grep for it and for the final `RESULT` line.
+## Output is ASCII. A failing check prints `PROBE-FAIL`; the process then exits 1
+## (0 only when no check failed; the watchdog exits 3), as well as the final `RESULT` line.
 ##
 ## Optional environment: `TANAKA_OUT` names a directory that gets before/after
 ## PNGs at two zooms (the full map, and one deep-zoom tile).
 ## Result: an assertion that does not carry its verdict in the exit code; windowed ("the windowed, real-cdylib check";
 ## header command `Godot_v4.7.1-stable_win64.exe --path . _tanaka_probe.tscn`). Prints `  PASS  <what>` and `PROBE-FAIL
 ## <what>` rows, `== 1. ... ==` to `== 4. ... ==` banners with histogram and count lines, `== screenshots to <dir> ==`
-## and `RESULT GREEN|RED (<n> failed)`. It exits 0 whatever the verdict, as the header says (grep for `PROBE-FAIL` and
-## `RESULT`); the watchdog also exits 0. With the environment variable `TANAKA_OUT` set it writes before/after PNGs at
+## and `RESULT GREEN|RED (<n> failed)`. Exit code (Ruling BK probe pass): 0 only when no check failed, 1 on any
+## `PROBE-FAIL`/`RESULT RED`, 3 from the watchdog. With the environment variable `TANAKA_OUT` set it writes before/after PNGs at
 ## two zooms there.
 
 const SEED := 20261006
@@ -84,7 +84,7 @@ func _facing(gen: WorldGen, px: int, py: int, sx: float, sy: float, az_deg: floa
 func _ready() -> void:
 	get_tree().create_timer(270.0).timeout.connect(func() -> void:
 		print("PROBE-FAIL  watchdog: _ready never finished")
-		get_tree().quit(0))
+		get_tree().quit(3))
 
 	var gen := WorldGen.new()
 	gen.generate_sized(SEED, 1200.0, GW, GH)
@@ -330,4 +330,4 @@ func _ready() -> void:
 			i1.save_png(out.path_join("zoom2_after.png"))
 
 	print("\nRESULT %s (%d failed)" % ["GREEN" if fails == 0 else "RED", fails])
-	get_tree().quit(0)
+	get_tree().quit(0 if fails == 0 else 1)

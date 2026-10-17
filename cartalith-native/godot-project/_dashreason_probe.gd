@@ -28,8 +28,8 @@ extends Node
 ##
 ## Result: an assertion. Prints `DASHR ok  |FAIL  <check>` per check (P0-P3, N1-N4, Z1-Z2), `DASHR world generated: has_world=<bool> (<n> frames)`,
 ## two `DASHR saved <path>` screenshot paths and a final `DASHR RESULT fail=<n> checks=<n>`. Exit 2 after `DASHR ABORT: run windowed ...`, 1
-## after `DASHR !! generate failed ...` or a failed P0. After the final RESULT line the script ends with no `quit()` call, so on the
-## success path the exit code is not set by the probe.
+## after `DASHR !! generate failed ...` or a failed P0. After the final RESULT line it exits 0 when `_fail == 0` and 1 otherwise
+## (Ruling BK probe pass; it used to end with no `quit()` call, leaving the editor-loop running).
 
 var app: Node
 var _fail := 0
@@ -162,3 +162,4 @@ func _ready() -> void:
 	print("DASHR saved ", ProjectSettings.globalize_path(out2))
 
 	print("DASHR RESULT fail=%d checks=%d" % [_fail, _checks])
+	get_tree().quit(0 if _fail == 0 else 1)

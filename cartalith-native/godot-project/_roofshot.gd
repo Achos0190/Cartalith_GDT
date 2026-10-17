@@ -1,5 +1,5 @@
 extends Control
-## Temporary, untracked verification harness for milestone 12's blocks/parcels
+## Verification harness (tracked in git, kept as evidence) for milestone 12's blocks/parcels
 ## and the City Viewer's new rendering.
 ##
 ## Run:
@@ -17,8 +17,8 @@ extends Control
 ## roads run to its 1.7 km box edge and would otherwise scribble across every
 ## neighbouring panel.
 ## Result: a capture and timing tool that asserts nothing and exits 0 (`extends Control`). Header command:
-## `Godot_v4.7.1-stable_win64_console.exe --path . _roofshot.tscn`; the header's "Temporary, untracked" is stale, the
-## file is tracked. Prints `ROOF world <w>x<h>, <n> settlements`, `ROOF generated <n> layouts in <ms> ms`, per-town `ROOF
+## `Godot_v4.7.1-stable_win64_console.exe --path . _roofshot.tscn`; the file is tracked (an earlier header
+## said "Temporary, untracked"; corrected in the Ruling BK probe pass). Prints `ROOF world <w>x<h>, <n> settlements`, `ROOF generated <n> layouts in <ms> ms`, per-town `ROOF
 ## <name> pop=... blocks=... parcels=... bldg=... tone=[...] site=...` rows, `ROOF distinct first-tone across towns: <n>
 ## of <n>`, `ROOF redraw (6 towns) <ms> ms` and `ROOF saved _roofshot.png <w>x<h>`; it writes `res://_roofshot.png` into
 ## the project folder.
