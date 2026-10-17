@@ -261,3 +261,34 @@ owner's call, and it is the single biggest open question this render raises.
 4. **Journey Planner** milestones 3-6 — already scoped and underway.
 5. **Narrative/Scenario, and the static-vs-temporal question** — needs an
    explicit product decision before any code.
+
+## Second target: the photoreal map render (owner, 2026-10-17)
+
+Owner-supplied, with the words *"lets say that graphically this would be a goal"*:
+`design/vision-render-2026-10-17/target_map_render.webp`. Where the 2026-08-17
+render above is a whole-shell mockup in an atlas style, this is the **map
+itself** in a satellite-and-relief style. What it shows (read from the image, not
+measured against the shipped renderer):
+
+- **Sea:** a smooth depth ramp, pale turquoise shelf shallows at every coast
+  down to deep navy; no hard coast line, a bright shore halo.
+- **Land cover:** dark textured forest canopy, tan desert, grass and meadow
+  greens cross-fading over wide distances (no hard biome edges).
+- **Mountains:** strong directional hillshade, visible rock texture, grey crag
+  and snow on the ridges; ranges with spurs and foothills.
+- **Ice:** a ragged, fractal ice-shelf edge at the north, tundra below it.
+- **Rivers:** thin blue lines forming a branching network that follows the
+  valleys, lakes in basins.
+- **Layout:** two large continents, island scatter and archipelagos; no labels,
+  borders or icons — a clean base layer.
+
+**Hard requirement stated with it (owner, 2026-10-17): zoom that gains detail
+with each zoom level stays a hard feature.** The target is not a single picture
+to match at one scale; the same world must keep gaining believable detail as
+the user zooms in. That is `LOD_DETAIL_SCOPE.md` (Ruling K, the Aletsch target:
+sharpness first, then ice) and `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
+(EF-0…EF-9), and any gap assessment against this image has to be made at
+several zoom levels, not at fit view only.
+
+This is a direction, not a specification, and the gap against the current
+renderer has not yet been assessed; see `OUTSTANDING_WORK.md` for the row.
