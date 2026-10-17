@@ -29,6 +29,9 @@ extends Node
 ## the cells where the two maps agree.
 ##
 ## Exit 0 pass, 1 an assertion failed, 2 the premise could not be set up.
+##
+## Result: an assertion. Prints `  ok  |FAIL <check>` rows, `GPU generation stages: ...`, `CPU-vs-GPU world: plate id agrees on <n> of <m> cells ... stress worst ..., mean ...`
+## and a final `PASS` or `FAIL (<n>)`; it saves the framebuffer of each world. Exit 0 on PASS, 1 on FAIL, 2 after `!! no world`, 3 after `WATCHDOG`.
 
 var _app: Node
 var _bridge: Node

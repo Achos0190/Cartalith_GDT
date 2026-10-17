@@ -29,6 +29,11 @@ extends Node
 ## until the timeline exceeds it.
 ##
 ## Density-independent: nothing here draws.
+##
+## Result: a measurement, not an assertion. Prints `TLMEM cfg years=... gw=... gh=... sim=... seed=...`, `TLMEM world settlements=... roads=...`, the
+## recorded-year and scrub figures (`TLMEM recorded_years=<n>`, `TLMEM scrub_years=<n>`, `TLMEM scrub_goto_us n=... median=... min=... max=... p90=...`),
+## with `--save` the `TLMEM save ok=...` and `TLMEM open ok=... ` lines and `TLMEM restored_census_identical=<bool> at_year=...`, then `TLMEM hold_start` and
+## `TLMEM done`. Exit 0. `UNKNOWN ARG <arg> -- refusing rather than defaulting through it` exits 2. The host poller, not this script, reads the memory.
 
 var _gen: WorldGen
 

@@ -14,6 +14,10 @@ extends Node
 ##
 ## Read-only: instantiates `res://shell/app.tscn`, drives its own public
 ## methods, writes nothing but a log to stdout.
+##
+## Result: a dump, not an assertion. Prints `[MODE] vp=... touch=... tablet=... phone=... theme=... docks=<l>/<r>`, `[WORLD] generated`, per left-dock block `##### LEFT <id>
+## dock=<w> cap=<w> header=...`, `  SECTIONS: ...`, a chain of over-wide nodes (`  OVER <min_x>  <class> '<name>'`) and the full tree, per right-dock block
+## `##### RIGHT <name> dock=<w>` with sections and tree, then `### DONE ###`. Quits with the default exit code 0.
 
 const SEED := 483920
 

@@ -14,6 +14,11 @@ extends Node
 ## Every check starts with "Protects:" and says what regression it catches.
 ## Prints one `### STATUSHINT GREEN|RED n/m ###` line; the exit code is 0 either
 ## way (the harness greps), as for every probe here.
+##
+## Result: an assertion, but the exit code does not carry it. Prints `SH ok  |PROBE-FAIL <check>` per check, `SH viewport
+## <size>`, with `--shot` `SH screenshot <path> (<w>x<h>)`, then `### STATUSHINT GREEN|RED <passed>/<total> checks passed ###`
+## and exits 0 for either verdict (the harness greps the line). `### STATUSHINT ABORT: ... ###` exits 2 (unknown argument,
+## or headless) or 1 (`app.gd` did not compile).
 
 const LONG_HINT := "Catchment: 18 342 cells upstream of the clicked cell, draining 41 % of the continent through 7 named rivers to a single mouth on the western sea; Clear river highlight (right-click) removes the wash"
 const SHORT_HINT := "V M R · B F · ⌘Z · Esc"

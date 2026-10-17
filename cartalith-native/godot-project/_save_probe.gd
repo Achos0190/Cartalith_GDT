@@ -26,6 +26,10 @@ extends SceneTree
 ##
 ## Same shape and lifetime as `smoke_test.gd`: a `SceneTree` script, non-zero
 ## exit on failure, no scene involved.
+##
+## Result: an assertion. Prints `  ok   <what>` / `  FAIL <what>` per check, then `PASS` (exit 0) or `FAILED: <n>` (exit 1); exit 1 after
+## `FAIL: this extension has no save_project`. Side effect: writes `_save_probe.zip` and `_save_probe_2.zip` (the re-save leg) in the
+## user data directory.
 
 const ENTRIES := ["heightmap.f32", "temperature.f32", "rainfall.f32",
 	"volcanic_field.f32", "impact_field.f32", "strahler_order.bin"]

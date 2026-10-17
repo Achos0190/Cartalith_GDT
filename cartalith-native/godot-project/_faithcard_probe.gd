@@ -25,6 +25,10 @@ extends Node
 ## nothing:
 ##
 ##   Godot_v4.7.1-stable_win64.exe --path . _faithcard_probe.tscn
+##
+## Result: an assertion on pixels. Prints `  PASS  |  FAIL  <what>` rows, `IMAGES: <dir>` (it writes `ship.png`, `ctrl.png` and `blank.png` there), `bytes differing between the two frames: <n> of <m>`,
+## `card width with the clause: <n> px ; without: <n> px (scan <n> ms)` and a final `FAITHCARD RESULT: ALL PASS` or `<n> FAILURES`. Exit 0 on ALL PASS, 1 otherwise; exit 2 after
+## `ABORT: this probe measures pixels and cannot run headless -- ` or `WATCHDOG -- probe did not finish`.
 
 const W := 900
 const H := 600

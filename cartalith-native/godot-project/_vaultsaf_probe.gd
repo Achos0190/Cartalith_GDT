@@ -17,6 +17,9 @@ extends SceneTree
 ## what a real device pass still has to check that this cannot.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --script _vaultsaf_probe.gd
+##
+## Result: an assertion (`extends SceneTree`). Prints `  FAIL: <reason>` per failure, `  attach/edit/write through the fake SAF path: section replaced, siblings untouched`, `  source-changed refusal and recovery through the fake SAF path: both edits
+## survived`, and a final `vault SAF probe: PASS` or `vault SAF probe: <n> FAILURE(S)`. Exit 0 on PASS, 1 otherwise (and straight after a refused connect, attach or preview), 2 after `ABORT: vault_connect_saf absent -- ...`.
 
 ## Stands in for the Android-side handler `vault_saf.rs`'s module doc
 ## specifies: an in-memory map instead of a `content://` tree, reachable only

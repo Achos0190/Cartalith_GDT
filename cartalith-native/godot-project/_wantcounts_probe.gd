@@ -18,6 +18,12 @@ extends Node
 ## Run WINDOWED (pixels are read for the screenshots):
 ##   godot --path . _wantcounts_probe.tscn
 ## Reads no command-line flags.
+##
+## Result: an assertion. Prints `GENERATE_HASH seed <n> <hash> hist ... n=<n>` and `POPULATE_HASH seed <n> <hash> hist ...` per world,
+## `  OK  |FAIL  <check>`, `  NOTE '<dialog note>'`, `  SHOT <path>`, `COUNTS_HIST C/Ci/T/V/H/other ... requested ...`,
+## `POPULATE_HASH_AFTER_OFF <hash>` and a final `RESULT PASS|FAIL (<n> failures)`. Exit 0 on PASS, 1 on FAIL, 3 after `WATCHDOG TIMEOUT`;
+## against an engine without `civ.fixed_counts` it prints `NO civ.fixed_counts ROW -- pre-change engine; hashes above are the baseline`
+## and exits 0 after the baseline hashes. The screenshots are PNGs under `user://wantcounts_probe`.
 
 const WANT := [2, 3, 5, 8, 6]
 const KINDS := ["capital", "city", "town", "village", "hamlet"]

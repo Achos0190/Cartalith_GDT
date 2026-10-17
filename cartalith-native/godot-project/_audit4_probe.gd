@@ -31,6 +31,12 @@ extends Node
 ## through `--resolution` is wrong. Nothing here is measured in pixels, but the
 ## shell classifies its layout from the viewport rect, so the same idiom keeps
 ## the desktop composition from being misread as a tablet.
+##
+## Result: an assertion on extension freshness plus a census. Prints `[EXT] WorldGen registered: <bool>`, `[EXT] WorldGen public
+## methods visible to GDScript: <n>`, `[BOOT] shell instantiated, node count: <n>`, `[GAP] BaseButtons total: <n>`, `[GAP] disabled: <n>
+## of which disclosed by tooltip: <n>`, one `[DEAD] <label> || <tooltip>` per dead control, then either `[EXT] bindings missing: none`
+## or `[EXT] FAIL stale extension: ...`, `[SHOT] user://_audit4_boot.png <w>x<h>` (it writes that PNG) and `[EXT] DONE fail=<n>`.
+## Exit 1 when fail > 0, or after `[EXT] FATAL - the .gdextension did not load.` / `[BOOT] FATAL - shell/app.tscn did not load.`; else 0.
 
 var _vp: SubViewport
 

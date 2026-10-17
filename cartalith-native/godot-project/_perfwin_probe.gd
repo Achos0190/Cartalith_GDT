@@ -17,6 +17,10 @@ extends Node
 ## does cannot change a verdict. Row TEXT and TOOLTIP only.
 ##
 ## `godot --headless --path . _perfwin_probe.tscn`
+##
+## Result: an assertion. Prints `[BOOT] shell up`, `=== 1: the window is gone ===`, `=== 2: the rows it carried still draw ===`, `=== 3: the searchable index ===` banners with
+## `  ok  |FAIL <check>   got=<> want=<>` rows and `    row text:` / `    tooltip :` / `  index size:` lines, and a final `[VERDICT] PASS` or `[VERDICT] FAIL (<n> checks)`. Exit 0 on PASS, 1
+## on failure, 1 after `[FATAL] extension did not load`; if the Preferences popup is missing it prints `  FAIL could not find the Preferences popup` and the verdict, then exits.
 
 var _fail := 0
 var _vp: SubViewport

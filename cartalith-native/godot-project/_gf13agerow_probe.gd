@@ -25,6 +25,11 @@ extends Node
 ## crops and the two full frames go. An unknown argument aborts (exit 2).
 ## Exit status: 0 every check passed; 1 a check failed; 2 could not run;
 ## 3 watchdog.
+##
+## Result: an assertion. Prints `[PASS|FAIL] <check>` rows, `[NOTE1] <text>` and `[NOTE2] <text>` (the age-row note in each state), `[OUT] <path> (rect <rect>)` for
+## each crop written, and `[DONE] <n> checks, <m> failed`. The two crops and two full frames go to `--out DIR` (default `user://gf13agerow`). Exit 0 when every check
+## passed, 1 when one failed; 2 after `[FATAL] unknown argument <arg> (read: --out DIR)`, `[FATAL] extension did not load` or `[FATAL] no node carries a built
+## geological-age row`; 3 after `[WATCHDOG] timed out`.
 
 var _fail := 0
 var _checks := 0

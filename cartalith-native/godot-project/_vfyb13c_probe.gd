@@ -17,6 +17,9 @@ extends Node
 ##    the one that used to fail.
 ##
 ##   Godot..._console.exe --path . _vfyb13c_probe.tscn -- --vp 1920x1080
+##
+## Result: an assertion. Every line is prefixed `VC `: `ok  |FAIL  <label>  got=<> want=<>`, `banner: gated nodes = [...] carto_gates=<b>`, `  CARTO selected: pill.visible=... texts=[...] domain=...`
+## and a final `DONE fail=<n>`. Exit 0 when none failed, 1 otherwise, 3 after `WATCHDOG TIMEOUT`.
 
 var app: Node
 var _fail := 0

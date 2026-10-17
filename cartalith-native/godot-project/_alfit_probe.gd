@@ -9,6 +9,11 @@ extends Node
 ## 340 px search well), body 1264 (a grid pane held at 668 by two text rows),
 ## 38 controls past the right edge at 1152 -- FAIL. After: PASS, 0 outside,
 ## min 1152; at 1920 the canvas layout is back (search 340, note shown).
+##
+## Result: an assertion. Prints `ALFIT main <window size>  asset window size <size>  min <size>`, an `ALFIT fit:` line, one
+## `ALFIT outside:` line per visible control past the window's right edge, `ALFIT min ...` lines from the control walk,
+## `ALFIT ok  |FAIL  <check>` per check, then `ALFIT PASS|FAIL  (<n> failures)`. Exit 0 on PASS, 1 on FAIL, 2 after
+## `ALFIT REFUSED: headless`.
 
 var _fails := 0
 var _outside := 0

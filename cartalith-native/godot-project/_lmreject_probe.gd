@@ -16,6 +16,13 @@ extends Node
 ##      every reject carries a reason and the reasons must close on the funnel.
 ##
 ##   Godot_v4.7.1 --headless --path . _lmreject_probe.tscn
+##
+## Result: a measurement, not an assertion. Prints `generate ms: <n>`, `grid: <w> x <h>`, one `landmark_run #<i> us: <n> returned=<bool>` per
+## pass, `last_run: ...`, `funnel totals: candidates=...`, `offered-and-rejected (score+spacing+cap) = <n>`, `landmark_rejects us: <n>  rows=<n>`,
+## `rejects by reason: ...`, `x range: ...`, `smallest needs_crowding ...`, `kinds closing exactly on the funnel: ...`, the timings of
+## `landmark_reject_points` for '', 'spacing' and 'nonsense', and `overlay drew with <n> reject marks across <n> reasons`; on an
+## engine without the binding it prints `landmark_rejects: NOT BOUND (baseline run)` instead. Quits with the default exit code 0;
+## an `assert` inside the overlay leg aborts the script instead.
 
 func _ready() -> void:
 	var g := WorldGen.new()

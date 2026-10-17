@@ -12,6 +12,9 @@ extends SceneTree
 # texture the app draws AND the raster the exporter writes.
 #
 #   godot --headless --path <godot-project> --script _layerstack_probe.gd
+##
+## Result: an assertion (`extends SceneTree`). Prints `  PASS  |  FAIL  <what>` per check, `  SKIP  <reason>` when it cannot measure (no generate, or an export refused), and a final
+## `ALL PASS -- 0 failure(s)` or `FAILURES -- <n> failure(s)`. Exit 0 when no check failed, 1 otherwise and after `FAIL  WorldGen is not registered -- the GDExtension did not load`.
 
 var fails := 0
 

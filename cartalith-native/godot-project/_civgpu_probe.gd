@@ -16,6 +16,12 @@ extends Node
 ##
 ## Run: Godot_v4.7.1-stable_win64_console.exe --path . _civgpu_probe.tscn
 ## Windowed (no pixel is read, but it is the real shell at its real size).
+##
+## Result: an assertion. Per world size prints `PROBE <size>  stages: ...` and `PROBE <size>  settlements gen=<n> cpu=<n> gpu=<n>
+## cpu==gpu: <bool>  shared=<n>  populate ms cpu=<ms> gpu=<ms>`, plus `FAIL <size>: <reason>` when a stage name is not
+## reported, `use_gpu` did not turn off, the GPU re-populate differs from the generate's own list, or no settlements
+## exist. Ends with `PROBE RESULT: PASS` (exit 0) or `PROBE RESULT: FAIL (<n>)` (exit 1). A watchdog prints
+## `WATCHDOG TIMEOUT` and exits 3.
 
 func _ready() -> void:
 	var wd := Timer.new()

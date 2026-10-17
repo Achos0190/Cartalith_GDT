@@ -31,6 +31,10 @@ extends Node
 ##   `--force-touch` read here for the expectation, and by `dcc_shell.gd` for
 ##                   the density itself.
 ## Any other `--flag` aborts rather than being silently ignored.
+##
+## Result: an assertion. Flags after `--`: `--vp WxH`, `--force-touch`. Every line is prefixed `[dockhead] `: `  OK  |FAIL <check>`, `canvas <n> bytes at <path>`, `viewport <w>x<h>  force-touch=<b>
+## phone=<b>`, `canvas expects left <n>, right <n> (--ctl <n>)`, per-dock header rows and a final `RESULT fail=<n>`. Exit 0 when none failed, 1 otherwise. On the phone form it prints `RESULT fail=0 (phone:
+## the docks are sheets, not this chrome)` and exits 0; exit 2 after `ABORT unknown flag ...` or `ABORT --vp wants WxH`; an unreadable canvas file is reported as a failed check.
 
 ## `ENV:25` / `ENV:1819`. Pinned as the token values, not as the sums, so a
 ## mutation of either half of the arithmetic is visible.

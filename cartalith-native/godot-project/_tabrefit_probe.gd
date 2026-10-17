@@ -24,6 +24,10 @@ extends Node
 ##   godot --headless _tabrefit_probe.tscn -- --force-touch --vp 1600x1000
 ##
 ## Exit 0 all held · 1 an assertion failed · 2 could not run here.
+##
+## Result: an assertion. Every line is prefixed `[tabrefit] `: `  ok   |  FAIL ` per check, then `=== end tabrefit fails=<n> ===`.
+## Exit 1 when any check failed, 0 when all held. Exit 2 after `ABORT this run is not the tablet composition ...` (run without
+## `-- --force-touch --vp 1600x1000`) or `ABORT right_dock is null`.
 
 const UNDERSIZED_H := 12.0   ## Well under any floor, so the assertion is unambiguous.
 

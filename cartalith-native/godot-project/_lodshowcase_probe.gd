@@ -7,6 +7,11 @@ extends Node
 ##
 ## TILE_PX (cartalith-godot/src/lod_bridge.rs) is 256, not 512 -- reported
 ## honestly rather than silently matched to the request.
+##
+## Result: a screenshot capture, not an assertion. `--out <path.png>` names the final shot. Prints `[gen] ...`, `[boot] window size = <size>`, `[shot-full] save_png(<path>) -> <err> size=<size>`, `[land] scan
+## found_land=...`, `[centre] camera moved to land cell (<x>,<y>)`, `  step <n> zoom=<z> px/cell=<p> level=<l>` rows, `[zoom] reached LOD level <n> (wanted <m>)`, `[shot] save_png(<out>) -> <err>
+## size=<size>` and `_lodshowcase_probe: DONE reached_level=<n> img=<size>`. Exit 0 when the wanted level was reached, 2 when it was not, 1 after a `[FATAL]` line (extension did not load, generation did
+## not finish, or a null image).
 
 func _frames(n: int) -> void:
 	for i in n:

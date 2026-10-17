@@ -13,6 +13,10 @@ extends Node
 ## This probe **reports**; it does not assert conformance. Its job is to make
 ## the private-construction census a measurement instead of a grep, because a
 ## grep cannot see which builder actually ran.
+##
+## Result: a census, not an assertion. Prints `=== _wincensus_probe density=<> theme=<> ===`, `layout: is_phone=... is_tablet=... is_touch=...`, then per surface either
+## `[<surface>] MISSING` or `[<surface>]  <n> control(s) with a gap:` followed by rows (`  <name> flat=... min=... size=...  box-:... ink-:...`) or
+## `(every built control carries its own overrides)`, and `CENSUS done` (exit 0). `[FATAL] extension did not load` exits 1. Flags after `--`: `--force-touch`, `--light`.
 
 var app: Node
 var _rows: Array = []

@@ -25,6 +25,10 @@ extends Node
 ## Headless is sound here per `_detent_probe.gd`'s own header: nothing below
 ## reads a pixel, only `Control.size`/`.text`, which the layout pass computes
 ## under `--headless` same as windowed.
+##
+## Result: an assertion. Every line is prefixed `[plansub] `: `settlements: <n>`, `route A #<i>: <from> -> <to>   route B #<j>: <from> -> <to>`, `[after tab-pick, route A default]  title=...  sub=...`,
+## `[after computing route B's plan, PLAN tab NEVER re-picked]  sub=...`, `OK: subtitle changed from route A's pair to route B's pair with no tab re-pick`, `FAIL: <msg>` and a final `RESULT
+## PASS|FAIL  failures=<n>`. Exit 0 on PASS, 1 on FAIL, 2 after `ABORT not phone mode -- pass --force-touch`, 3 after `WATCHDOG TIMEOUT`.
 
 func _log(s: String) -> void:
 	print("[plansub] %s" % s)

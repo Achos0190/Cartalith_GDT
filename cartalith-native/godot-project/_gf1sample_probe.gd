@@ -18,6 +18,11 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _gf1sample_probe.tscn
 ##
 ## Screenshot: user://gf1sample/sample_two_layer.png (the path is printed).
+##
+## Result: an assertion. Prints `GF1S ok  |FAIL  <check>` per check (P0-P2, R0, T1-T6, S1-S3, N), `GF1S world generated: has_world=<bool> (<n> frames)`,
+## `GF1S scanned: land cells with a rock <n>, without a column <n>; two-layer <cell>, single-layer <cell>`, two `GF1S saved <path>`
+## screenshot paths (`user://gf1sample/`) and a final `GF1S RESULT fail=<n> checks=<n>`. Exit 0 when no check failed, 1 otherwise or after
+## `GF1S !! generate failed`, 2 after `GF1S ABORT: run windowed ...`.
 
 var app: Node
 var _fail := 0

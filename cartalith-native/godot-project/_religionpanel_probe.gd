@@ -12,6 +12,10 @@ extends Node
 ## edit and only on one.
 ##
 ## Run: godot4 --headless --path . _religionpanel_probe.tscn
+##
+## Result: an assertion with a transcript. Prints `  PASS  |  FAIL  <what>` rows and, for each state, a `== state '<name>' ... ==` banner followed by the panel text (`no_world`, `not_run`, `secular`,
+## `live`, `invalidated`, and the culture-staleness leg), then `RESULT: ALL PASS` or `RESULT: <n> FAILURES`. Exit 0 on ALL PASS, 1 otherwise, 2 after `PROBE FAIL: no CivilizationWorkspace`, 3 after
+## `WATCHDOG TIMEOUT`.
 
 var _app: Node
 var _fails := 0

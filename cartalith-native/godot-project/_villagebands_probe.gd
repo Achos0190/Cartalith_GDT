@@ -20,6 +20,10 @@ extends Node
 ## `--tag` names the output PNGs (and is required); any other argument is
 ## refused. Not committed -- a measurement probe for one backlog row, not a
 ## regression guard (those live in `cargo test`).
+##
+## Result: a measurement with gates. `--tag <name>` is required (it names the output PNGs). Prints `  scratch: <dir>`, `  threshold: <t> (Euclidean RGB distance, 0-441.7 range)`,
+## `  PASS  |FAIL  <what>`, `  <preset> harsh=<n>/<total> fraction=<f>` per preset, `  other presets' fraction range: [<lo>, <hi>]`, `  Village fraction: <f>` and `==== village bands (<tag>): OK ====`
+## or `SEE ABOVE`; it writes `<tag>_village.png` in the scratch directory. Exit 0 when no check failed, 1 otherwise, 2 after an unknown argument or a missing `--tag`.
 
 const SEED := 20260927
 const WIDTH_KM := 1200.0

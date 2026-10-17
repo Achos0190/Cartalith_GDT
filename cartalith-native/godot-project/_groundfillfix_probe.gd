@@ -27,6 +27,11 @@ extends Control
 ## Windowed only (MISTAKES.md: ImageTexture.update() no-ops headless).
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _groundfillfix_probe.tscn
+##
+## Result: an assertion. Prints `  PASS  |FAIL  <check>` rows (the x1000 premise, the control patch, the fallback shape at its centroid), a
+## `GROUNDFILLFIX fallback centroid window px ~ (<x>,<y>) scale=<s>` line, a `GROUNDFILLFIX region scan around fallback shape: <n>/<total> px match
+## FILL_COLOR` line and `GROUNDFILLFIX ALL PASS|SOME FAILED (<n> failed)`. Writes `res://_groundfillfix_drawn.png` into the project folder. Exit 0 when no check failed, 1
+## otherwise, 2 after `ABORT premise false -- this probe cannot test the fallback branch this way`.
 
 ## The real block-324 screen points from `_settlepix_probe`, scaled x1000.
 const BIG_QUAD := [

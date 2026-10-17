@@ -26,6 +26,12 @@ extends Node
 ## Exit 0 when the run wrote its file, 1 when it did not, 2 for bad arguments or
 ## the watchdog. It asserts nothing about the frame times: they are the
 ## measurement, recorded with their spread where the scope cites them.
+##
+## Result: a measurement with one gate (the export wrote its file). Prints `  seed <n> generated <w>x<h> in <s> s; <n> settlements`,
+## `  estimate: ...`, `PID <n>`, `  run: ok, <w> x <h>, <n> bands, <MB> MB`, `  wall <s> s; frames <n>, median <ms> ms, longest <ms> ms,
+## <n> over 50 ms, <n> over 100 ms`, `  longest main-thread step of each kind (ms): ...`, `BANDROWS <n>`, `FILE <path>` and
+## `RESULT: PASS|FAIL`. The file is `user://_exportfull_probe/full_<width>.png`. Exit 0 on PASS, 1 on FAIL or
+## `RESULT: FAIL -- no live overlay with a world`, 2 after an `ABORT:` (unrecognised argument, missing `--width`) or `WATCHDOG:`.
 
 const EXPORT_OVERLAY := preload("res://shell/export_overlay.gd")
 

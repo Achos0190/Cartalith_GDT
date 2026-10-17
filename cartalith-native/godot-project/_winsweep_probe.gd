@@ -13,6 +13,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: a dump with a failure count. Every line is prefixed `WINSWEEP  `: `world <name>, <n> settlements, <m> factions`, per window a `================ <label> ================` banner,
+## `  window size=<size> title='<title>'` and the window's visible text lines, `shot _sweep_<name>.png <w>x<h>` (it writes `res://_sweep_<name>.png`), `FAIL  <s>` for a failure and `DONE
+## fail=<n>`. Exit 0 when none failed, 1 otherwise, 2 after `WATCHDOG`.
 
 var _app: Node
 var _bridge

@@ -5,6 +5,11 @@ extends Node
 ## "no error printed".
 ##
 ##   godot --path . --resolution 1600x900 _adpress_probe.tscn
+##
+## Result: a report, not an assertion. Prints `[BOOT] shell up`, then under `=== ASSETS top level ===`, `=== ASSETS > Asset pack ===`,
+## `=== ASSETS > Icon families (first) / Texture sets (first) ===`, `=== ASSETS > Landmark types ===` and `=== DATA ===` one
+## `  PRESS '<row>'  -> windows=... dm_route=... domain <a>-><b>` line per row pressed, then `=== Definitions pane content ===` with
+## `  pane_title=...`, `  label/button count=<n>` and `    | <text>` lines, and `[DONE]` (exit 0). Exit 1 after `[FATAL] extension did not load`.
 
 var _vp: SubViewport
 var _app: Node

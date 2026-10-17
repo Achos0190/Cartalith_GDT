@@ -14,6 +14,10 @@ extends Node
 ## one whole-run chain, same as `_NoCull` there). Windowed -- pixel probe.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --path . _dashvssolid_probe.tscn
+##
+## Result: a measurement, not an assertion. Every line is prefixed `DASHVSSOLID  `: `  <family> z<zoom> pan(<x>,<y>) DIFFER  max_delta=<n> diff_px=<n> (<pct>%)` per
+## differing capture, `<family>: <n>/16 exact, <n>/16 differ, <n>/16 inked -- worst max_delta=<n> (<pct>% px)` per way family, and `DONE` (exit 0). `ABORT: pixel probe, needs the
+## windowed binary -- see header` and `WATCHDOG -- probe did not finish` both exit 2.
 
 const W := 900
 const H := 600

@@ -8,6 +8,9 @@ extends SceneTree
 ## back out of the editor (`MISTAKES.md`: never assert a constant against
 ## itself). Exit 0 = every check held; 1 = at least one failed. The RESULT
 ## line carries the count, so no header can drift from it.
+##
+## Result: an assertion. Prints `MDEDIT  ok  <label>` per check, `MDEDIT  !!  <label>` followed by `got` and `want` lines per failure, and a final
+## `MDEDIT  RESULT checks=<n> failed=<n>`. Exit 0 when every check held, 1 otherwise.
 
 const ED := preload("res://shell/markdown_editor.gd")
 

@@ -30,6 +30,11 @@ extends Node
 ##   (c) the on-screen resize radius is the same at every zoom (+-12 %), which is
 ##       the scaling itself (an unscaled floor would be x8 and x30).
 ## Prints PROBE-FAIL for each failure; exit status is 0 regardless, so grep.
+##
+## Result: an assertion that does not set the exit code. Prints `  PASS  |  PROBE-FAIL  <check>` rows, `z=<zoom> image: <path>` for each captured
+## frame, a `z=<zoom> <handle>: centre=... r=...px  inside-handle=...  ring-handle=...` measurement per handle and zoom (1, 8, 30), and a final
+## `PROBE-RESULT: PASS|FAIL (<n>)`. Exit 0 regardless of the verdict (grep for PROBE-FAIL); `PROBE-CANNOT-RUN: headless server; the canvas is never
+## composited.` goes to stderr with exit 2.
 
 const OVERLAY := preload("res://map_overlay.gd")
 const TOOL_OVERLAY := preload("res://shell/tool_overlay.gd")

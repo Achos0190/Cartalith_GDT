@@ -22,6 +22,9 @@ extends Node
 ##      `OUTSTANDING_WORK.md` §2.11): the SP-2 journey markers
 ##      (`journey_positions`) with the cursor three days into the journey, and
 ##      the landmark set of a landmark pass run before the save.
+##
+## Result: an assertion. Every line is prefixed `JPRESTORE `: `ok  |FAIL  <check>` rows and a final `PASS|FAIL  (<n> failures)`. Exit 0 on PASS, 1 on FAIL, 2 after `REFUSED: headless`, 3 after
+## `WATCHDOG`. It writes a project file to the path named in its first `the project was written` check.
 
 var _fails := 0
 

@@ -19,6 +19,9 @@ extends Node
 ## are read from the bridge, not assumed.
 ##
 ##   Godot --headless --path . _lakelabel_probe.tscn
+##
+## Result: an assertion. Every line is prefixed `LAKELABEL `: `ok  |FAIL  <check>` per check (P0-P6), `seed <n>: labels ok=... total=... water=<n>`, the dig
+## location and the label counts before and after, and a final `---- <n> checks, PASS|<n> FAILED ----`. Exit 0 on PASS, 1 on FAIL, 3 after `LAKELABEL WATCHDOG`.
 
 var app: Node
 var _fails := 0

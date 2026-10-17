@@ -14,6 +14,10 @@ extends Node
 ## skipped (listed below, and printed as SKIPPED rather than counted).
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _codenames_probe.tscn
+##
+## Result: an assertion. Prints `CODENAME <hit>` per developer code name found in visible text, `CODENAME total distinct <n>`,
+## `CODENAME PASS|FAIL`, then the same three for tooltips (`TOOLTIP-CODENAME ...`). Hits whose source is one of `SKIPPED_SOURCES`
+## are reported as SKIPPED and do not fail it. Exit 0 when neither pass found a hit, else 1.
 
 ## Files this 2026-09-27 tooltip sweep could not touch -- owned by the
 ## concurrent per-style-rivers lane (`engine_bridge.gd`, `data_manager_window.gd`,

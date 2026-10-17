@@ -36,6 +36,10 @@ extends Node
 ## is still a real test -- the icon is placed on the landmark's exact cell --
 ## and the print below states the measured radius so a reader is not left
 ## guessing how wide the obstacle was.
+##
+## Result: an assertion. Every line is prefixed `LMICON  `: `grid <w> x <h>, <km> km/cell, icon ring <r> cells (...)`, `run A: <n> landmarks`, `icon <i> placed on ... -> origin=...`, `run B: <n> landmarks
+## (A had <m>)`, `POSITIVE  ...`, `run C: <n> landmarks`, `NEGATIVE  run C == run A, all <n> keys in order -- ...`, `FAIL  <s>` per failure, and a final `---- PASS ----` or `---- <n> FAILED ----`.
+## Exit 0 on PASS, 1 otherwise.
 
 const PACK := "res://../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
 const SEED := 483920

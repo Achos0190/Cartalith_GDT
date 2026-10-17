@@ -13,6 +13,9 @@ extends Node
 ##     _lb2browse_probe.tscn -- --vp 1920x1080
 ##   ... -- --vp 1366x768                        (LAPTOP)
 ##   ... -- --vp 2560x1600 --force-touch         (TABLET)
+##
+## Result: an assertion with measurements. Flags after `--`: `--vp WxH`, `--force-touch`. Every line is prefixed `LB2 `: `ok  |FAIL  <check>`, `density=<d> viewport=<w>x<h> touch=<b> narrow=<b>`, `paths ...`, one `<case> depth=<n> win=<w>x<h> contents_min=... crumbs_min=...` row per case,
+## `note len=<n> ... note_w=<px>  win=<n>` rows and a final `---- <n> failure(s)`. Exit 0 when none failed, 1 otherwise.
 
 var app: Node
 var _fail := 0

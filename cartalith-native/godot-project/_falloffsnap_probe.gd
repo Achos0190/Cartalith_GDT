@@ -20,6 +20,9 @@ extends SceneTree
 ##      zero, snaps captured points onto the lattice, and `sculpt_snap`
 ##      agrees with what `sculpt_add_point` stored (which is what makes the
 ##      stroke preview honest).
+##
+## Result: an assertion (`extends SceneTree`). Prints `[1] globals info` to `[5] touch floor at tablet density` banners with `  ok   <what>` / `  FAIL <what>` rows, and a final `PROBE PASS` or
+## `PROBE FAIL: <n> assertion(s)`. Exit 0 on PASS, 1 otherwise.
 
 var _fail := 0
 

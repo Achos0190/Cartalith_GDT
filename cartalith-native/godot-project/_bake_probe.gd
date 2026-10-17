@@ -10,6 +10,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: an assertion. Prints `== <n>. <step> ==` banners, `  PASS  |FAIL  <what>` per check and `  info` lines, ending with
+## `==== ALL PASS (0 failures) ====` or `==== FAILURES (<n> failures) ====`. Exit 0 when no check failed, 1 otherwise, 2 after
+## `==== WATCHDOG: the probe did not finish ====` (which also calls `push_error`).
 
 var bridge: Node
 var fails := 0

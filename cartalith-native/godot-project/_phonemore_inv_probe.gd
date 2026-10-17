@@ -11,6 +11,10 @@ extends Node
 ## readable line per row.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _phonemore_inv_probe.tscn
+##
+## Result: an inventory, not an assertion. Prints `MENU<TAB><menu title><TAB><item count>` per top-level menu and one
+## `ROW<TAB><trail><TAB><id><TAB><kind><TAB><text>` per non-separator item (a banded row prints `ROW<TAB><trail><TAB>-<TAB>band<TAB><state>`),
+## then `INV menus=<n>` and exit 0. Prints `INV  !! no menu_bar_row` and exits 1 when the shell has no menu bar row.
 
 var app: Node
 

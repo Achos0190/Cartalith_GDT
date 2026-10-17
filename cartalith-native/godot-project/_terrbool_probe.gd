@@ -15,6 +15,9 @@ extends SceneTree
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script res://_terrbool_probe.gd
+##
+## Result: an assertion. Prints `TERRBOOL ok  |FAIL  <check>` per check and a final `RESULT PASS|FAIL  checks=<n> fails=<n>`; exit 0 on PASS,
+## 1 on FAIL. Prints `RESULT FAIL  checks=<n> fails=<n> (cannot run)` and exits 3 when the world has no factions.
 
 var _checks := 0
 var _fails := 0

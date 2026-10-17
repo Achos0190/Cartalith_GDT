@@ -36,6 +36,9 @@ extends SceneTree
 ## stays exactly what the engine actually wrote. Reopen in a FRESH `WorldGen`
 ## and read `warnings` back off the real `#[func]` return, not off a
 ## re-derived count -- the exact gap the row names.
+##
+## Result: an assertion (`extends SceneTree`). Prints `DROPWARN placed before splice: <n>`, `DROPWARN warnings on reopen: ...`, `  ok: <check>` rows, `FAIL: <reason>` / `  FAIL: <reason>` lines and a final `DROPWARN ALL PASS` or `DROPWARN SOME FAILED (<n> failed)`.
+## Exit 0 on ALL PASS and 1 otherwise, including every early `quit(1)` (absent binding, landmark run refused or empty, save or reopen failed, splice failed). It writes a saved archive and `_dropwarn_probe_spliced.zip` in the user data directory.
 
 const BAD_KIND := "totally_bogus_kind_xyz_does_not_exist"
 const BAD_FAMILY := "totally_bogus_family_xyz_does_not_exist"

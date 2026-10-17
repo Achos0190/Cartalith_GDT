@@ -18,6 +18,12 @@ extends Node
 ##
 ## Committed, like every probe scene in this folder (`STATUS.md` F8): kept as
 ## the evidence for the pass that wrote it.
+##
+## Result: a measurement, not an assertion. Prints one `MPROW<TAB>...` line per faction (label, seed, name, government,
+## ag tech, eco, land, ref, pop, standing, field, levy, stand%cit, mob%cit, verdicts, settlement count), one
+## `MPSHAPE <label> n=... standing below/within/above=... mobilization=... eco median/min/max=...` summary per world shape,
+## per scope-document world and for the pooled set (printed as `MPSHAPE POOLED`; the header's `MPPOOL` name is not what the
+## code prints), then `MP done`. Exit 0.
 
 const SEEDS := [483920, 7, 101, 202501, 999331, 31337]
 const WORLDS := [

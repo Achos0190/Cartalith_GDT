@@ -25,6 +25,9 @@ extends Node
 ## The size is fixed at 1080 x 2400 in `_ready()` — a handset where
 ## `phone_scale()` is 2.62, not 1.0. A 393 x 852 reference box is exactly 1.0
 ## and could not discriminate a scaled row from an unscaled one.
+##
+## Result: an assertion. Every line is prefixed `EWP `: `ok  |FAIL  <check>` rows (FR0-FR8, PE1, CV1), `=== phone=<b> scale=<s> screen=<size> ===`, `world generated: has_world=<b> (<n> frames)`
+## and a final `<n> failure(s)`. Exit 0 when none failed, 1 otherwise or after `!! NOT PHONE -- the resize did not register; nothing asserted` / `!! generate failed`, 3 after `WATCHDOG TIMEOUT`.
 
 var app: Node
 var _fail := 0

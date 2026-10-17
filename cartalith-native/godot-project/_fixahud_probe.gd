@@ -13,6 +13,11 @@ extends Node
 ## Hosted in a `SubViewport` for the same reason `_ph412_probe.gd` is: a
 ## `--resolution` above this machine's 1680x1050 work area is clamped, and three
 ## of the frames under test are wider than that.
+##
+## Result: an assertion. Flags after `--`: `--vp WxH`, `--tag NAME`, `--force-touch`, `--shot`. Prints `=== <tag> vp=<size> touch=<b> phone=<b> dark=<b> ===`,
+## the section banners (`-- A. Layers button`, `-- B. scale bar`, `-- C. zoom readout`), `  ok  |FAIL <what> got=<> want=<>` rows, `     diag ...` lines, the
+## label and readout texts, with `--shot` either `  shot <path>` or `  SHOT ABORTED -- null image; run windowed, not --headless`, and a final
+## `[RESULT] <tag> pass=<n> failures=<n>`. Exit 0 when no check failed, else 1.
 
 var app: Node
 var _vp: SubViewport

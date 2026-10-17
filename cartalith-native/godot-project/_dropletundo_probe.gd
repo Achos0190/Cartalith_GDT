@@ -27,6 +27,10 @@ extends Node
 ## cannot be a two-run coincidence.
 ##
 ## Exit 0 pass, 1 an assertion failed, 2 the premise could not be set up.
+##
+## Result: an assertion. Prints `  ok  |FAIL <check>` rows, `  A vs B (the fix under test): elevation differ <n>, drainage differ <n>, precipitation differ <n> (of <m>
+## cells)`, `  B vs C (CPU-vs-CPU control): ...` and a final `### DROPLETUNDO PASS ###` or `### DROPLETUNDO FAIL (<n>)  ###`; it saves the framebuffer before and after each erode.
+## Exit 0 on PASS, 1 on FAIL, 2 after `!! no world, or no erode_op in this build`, 3 after `WATCHDOG`.
 
 const SEED := 771001
 

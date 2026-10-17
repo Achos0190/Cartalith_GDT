@@ -34,6 +34,10 @@ extends Node
 ## rule.
 ##
 ##   Godot_v4.7.1 --path . --resolution 1200x800 _leftdockcheck_probe.tscn -- --force-touch
+##
+## Result: an assertion. Prints `[BOOT] force-touch=<b>`, `  ok  |FAIL <check>   got=<> want=<>` rows between `-- ... --` banners, the shadow and real values of the Left dock
+## switch after each press, and a final `_leftdockcheck_probe: PASS (fix holds)` or `_leftdockcheck_probe: <n> unexpected result(s) -- fix is missing or broken`. Exit 0 on PASS,
+## 1 on failure and after any `[FATAL]` line (extension did not load, not phone-classified, `DccApp.is_region_shown()` missing, no Window popup, no `ID_WIN_LEFT`, no `_set_sheet_open`).
 
 var _fail := 0
 

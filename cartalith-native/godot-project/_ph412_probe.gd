@@ -12,6 +12,10 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them.
+##
+## Result: a measurement, not an assertion. Flags after `--`: `--force-touch`, `--vp WxH`, `--tag NAME`. Prints `=== <tag>  vp=<size>  phone=<b>  scale=<s>  REF_SHORT=<n> ===`, then under `[chrome]`,
+## `[bottom nav cells]`, `[app bar]`, `[phone menu root]` and `[left sheet]` one row per region (`px=<px>  dp=<dp>  want=<dp>  vis=<b>` or `ABSENT`), `  shot <path>`, and `=== log <path> ===`. The
+## same text is written to `user://ph412/<tag>_log.txt`. Quits with the default exit code 0.
 
 var app: Node
 var _vp: SubViewport

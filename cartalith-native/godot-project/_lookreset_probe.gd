@@ -20,6 +20,10 @@ extends SceneTree
 ## typed in, so the comparison is session-default against session-default.
 ## The edit values are literals and are checked to differ from the defaults
 ## first, so a pass cannot be vacuous.
+##
+## Result: an assertion. Prints `LOOKRESET ok  |FAIL  <check>` per check and a final `RESULT PASS|FAIL  checks=<n> fails=<n>`; exit 0 on PASS, 1 on
+## FAIL. Exit 2 after `FAIL: unknown or incomplete argument <arg>`, `FAIL: --head <zip> is required (see the header)` or `FAIL: flat fixture missing at
+## <path>`.
 
 const EDIT_INDEX := 3
 const EDIT_RGB := [12, 200, 77]

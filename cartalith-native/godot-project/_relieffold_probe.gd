@@ -22,6 +22,9 @@ extends Node
 ## test the setter and not the wiring.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _relieffold_probe.tscn
+##
+## Result: an assertion. Prints `FOLD ok  |FAIL  <check>  -- <detail>` rows, `FOLD world generated: has_world=<b> (<n> frames)`, `FOLD density: <d>, viewport <size>` and a final `FOLD ALL PASS -- 0 failure(s)` or `FOLD FAILURES -- <n> failure(s)`.
+## Exit 0 when none failed, 1 otherwise and straight after a missing CARTO workspace, `RenderWorkspace` child or ramp-strength slider, or after `FOLD  !! generate failed -- nothing else here can run`.
 
 var app: Node
 var _fail := 0

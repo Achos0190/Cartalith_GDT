@@ -6,6 +6,10 @@ extends Node
 ## Windowed (reads real drawn Label text):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _pechronos_probe.tscn
 ## Exit 0 pass, 1 real failure, 2 could not run.
+##
+## Result: an assertion. Every line is prefixed `PECHRONOS  `: `ok  |FAIL  <check>` per check, `settlement idx=<n> tid=<n> name=<name>`, a
+## `screenshot <path>` line (`user://_pechronos_after.png`) and `DONE fail=<n>`. It writes a note under `VAULT_DIR`/Settlements/Note.md. Exit 0
+## when no check failed, 1 otherwise, 2 after `ABORT: ...` (no `vault_entity_chronos` binding, or no settlement with a tid), 3 after `WATCHDOG`.
 
 const VAULT_DIR := "user://_pechronos_vault"
 var _app: Node

@@ -27,6 +27,11 @@ extends Node
 ## runs windowed. `--force-touch` is read by `dcc_shell.gd::_read_layout_env()`
 ## before this probe runs; without it `is_phone()` is false and the phone
 ## sheet header this probe reads does not exist.
+##
+## Result: an assertion. Every line is prefixed `[stagetitle] `: `settlements: <n>`, `route #<i>: <a> -> <b>`, `[after tab-pick, no stage
+## isolated] title=...`, `stages in committed plan: <n>`, `[after isolating stage 0, ...] title=... sub=...`, `OK: title advanced to PLAN · STAGE 1
+## with no tab re-pick`, `[after un-isolating] title=...`, `FAIL: <msg>` (exit 1) and a final `RESULT PASS|FAIL  failures=<n>`. Exit 0 on
+## PASS, 1 on FAIL, 2 after `ABORT not phone mode -- pass --force-touch`, 3 after `WATCHDOG TIMEOUT`.
 
 func _log(s: String) -> void:
 	print("[stagetitle] %s" % s)

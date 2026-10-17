@@ -22,6 +22,9 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _in13_tariff_probe.tscn
 ##
 ## Headless is correct here: nothing below reads a pixel.
+##
+## Result: an assertion. Every line is prefixed `IN13T  `: `A  <n> settlements, <n> flows, total <t>, digest <d>`, `B  factions present ..., digest <d>`, `ok    <check>` / `FAIL  <check>` rows, `=== tariff ===` with the cross-faction and tariff figures,
+## and a closing `=== PASS ===` or `=== <n> FAILURES ===`. Against an engine without the tariff surface it prints `extension has no tariff surface -- recording-only run` and ends after the digests. Exit 0 when none failed, 1 otherwise, 3 after `WATCHDOG`.
 
 const DIGEST_A := "a3bea37d327bb8ebecf219acefe58aa2"  # 233 settlements, 928 flows, total 78029.033914
 const DIGEST_B := "a548698d66bb190548825477afe0ce61"  # factions [1], 947 flows, total 46830.425123

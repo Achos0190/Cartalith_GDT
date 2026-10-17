@@ -6,6 +6,10 @@ extends Node
 ## not caught by this probe until it is added here (the fallback string in `_trace_source` is what exposes it in
 ## the product). Run: godot --headless --path <scratch copy> res://_tracekeys_probe.tscn
 ## Exit 0 = held; 1 = failed.
+##
+## Result: an assertion. Prints one line, `[tracekeys] unmapped=<keys with no _TRACE_TERMS row> control=<fallback text>
+## keys=<n> -> OK|FAIL>`. Exit 0 only when no key is unmapped, the control key `__not_a_term__` hits the fallback and the
+## hand-written list holds exactly 16 keys; exit 1 otherwise.
 
 const _EMITTED_KEYS := ["base", "hours", "terrain", "route", "slope", "group", "pace", "infra", "weather",
 	"fatigue", "grazing", "foraging", "desert water", "column", "load", "sailing window"]

@@ -41,6 +41,11 @@ extends Node
 ## has not been made and which this lane was explicitly scoped out of. Guessing
 ## either would be canvas adoption under another name. The figures above are
 ## printed on every run so the next lane starts from a measurement.
+##
+## Result: an assertion plus a residual measurement. Prints `=== tabfit vp=<w>x<h> portrait=<b> tablet=<b> tablet_portrait=<b> ===`, the banners
+## `[dock reservation]`, `[dock row fits the frame]` and `[residual: whole-shell frame fit]` with `  [ok|FAIL] <label> got=<> want=<>` rows and the shell's
+## minimum and size, then `=== end tabfit fails=<n> residual_overflow=<px> ===`. Exit 1 when a dock assertion failed; exit 3 (after `TABFIT RESIDUAL: dock
+## assertions all held, but the shell overflows its frame by <px> px`) when the assertions held but the residual overflow is above 0.5 px; else 0.
 
 var app: Node
 var _vp: SubViewport

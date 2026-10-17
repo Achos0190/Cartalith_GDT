@@ -23,6 +23,11 @@ extends Node
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed").
+##
+## Result: a measurement with gates. Prints `======== seed <n> ========`, `  generated 2048 x 1311 in <s> s`, `  estimate ...`, `  RUN ... <bytes> bytes  <b> bytes/px  <s> s` per export width, a
+## bytes-per-pixel table (`<w> px wide ...: median <m> (<lo> .. <hi>) bytes/px over <n> worlds`), the ladder, the estimate keys, the file-size prediction against the file, the memory
+## budget and the refusal on an unaffordable size, with `  PASS  |FAIL  <what>` rows, ending `==== ALL PASS (0 failures) ====` or `==== FAILURES (<n> failures) ====`. Exit 0 when no check
+## failed, 1 otherwise, 2 after `==== WATCHDOG: the probe did not finish ====`. The exports are written under a scratch directory.
 
 var bridge: Node
 var fails := 0

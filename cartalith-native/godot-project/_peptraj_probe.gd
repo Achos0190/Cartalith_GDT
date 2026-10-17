@@ -16,6 +16,9 @@ extends Node
 ## itself could not run (no settlement generated, or the new #[func] is
 ## absent from this binary) -- distinct from a real finding, same convention
 ## `_pepolitical_probe.gd` uses.
+##
+## Result: an assertion. Every line is prefixed `PEPTRAJ  `: `ok  |FAIL  <check>  -- <detail>`, `settlement idx=<n> tid=<n> name='<name>' pop=<n>`, `civ_settlement_population_trajectory(<tid>) = <points>` and `DONE fail=<n>`. Exit 0 when none failed, 1 otherwise,
+## 2 after an `ABORT:` (binding absent, no settlement generated, or the Political history tab not reachable), 3 after `WATCHDOG`.
 
 var _app: Node
 var _bridge

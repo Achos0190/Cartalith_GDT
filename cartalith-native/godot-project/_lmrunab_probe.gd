@@ -8,6 +8,10 @@ extends Node
 ## `nearest_conflict_sq` scan) and the two compared.
 ##
 ##   Godot_v4.7.1 --headless --path . _lmrunab_probe.tscn
+##
+## Result: a timing, not an assertion. Prints three `landmark_run #<i> us: <microseconds>` lines (i = 0..2), then
+## `reject rows retained: <n>` (`landmark_rejects().size()`, or -1 when `WorldGen` has no `landmark_rejects`). Quits with
+## the default exit code 0 whatever the figures are.
 
 func _ready() -> void:
 	var g := WorldGen.new()

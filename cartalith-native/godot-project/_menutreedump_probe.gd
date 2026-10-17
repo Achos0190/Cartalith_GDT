@@ -5,6 +5,10 @@ extends Node
 ## field. Read-only: boots one tablet composition, prints, quits 0 always.
 ##
 ##   Godot_v4.7.1 --path . --resolution 1600x900 _menutreedump_probe.tscn -- --force-touch
+##
+## Result: a dump, not an assertion. Prints `=== tablet menu tree (force-touch=<bool>) ===`, then per menu `<title>:`
+## followed by its rows indented by submenu depth (`- <text>  [<accelerator>]<disabled marker>`, `---` for a separator).
+## Exit 0; exit 1 after `[FATAL] extension did not load` or `[FATAL] no menu bar found`.
 
 func _frames(n: int) -> void:
 	for i in n:

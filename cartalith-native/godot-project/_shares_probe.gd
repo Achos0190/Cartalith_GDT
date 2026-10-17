@@ -11,6 +11,10 @@ extends SceneTree
 ## is tested only here.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . --script _shares_probe.gd
+##
+## Result: an assertion with a census (`extends SceneTree`). Prints `  PASS  |  FAIL  <what>` rows, `settlements: <n>`, the population-0 census (`population-0 settlements: <n> of <m>`, whole-faith and unaffiliated counts, empty `adherents`,
+## shares, mixtures) with an example, `years=<n>: population-0 settlements holding a mixture = <m>; populated = <p>`, and a final `PASS: the share vector crosses the boundary, and its absence still means `unrun`` or `FAIL: <n> check(s) failed`.
+## Exit 0 on PASS, 1 otherwise and after `FAIL: no settlements on this world`.
 
 var _fails := 0
 

@@ -12,6 +12,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _lm9battle_probe.tscn
 ##
 ## Exit 0 = all passed, 1 = a real failure, 2 = could not run.
+##
+## Result: an assertion. Every line is prefixed `LM9  `: `ok  |FAIL  <check>` per check and a final `LM9  PASS|FAIL  (<n> failure(s))`.
+## Exit 0 on PASS, 1 on FAIL, 2 after `ABORT: ...` (no `conflict_add` binding, no settlements or factions in the world, or every
+## settlement already has a landmark inside the Cultural ring).
 
 var _fail := 0
 

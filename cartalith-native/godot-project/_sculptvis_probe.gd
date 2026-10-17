@@ -21,6 +21,12 @@ extends Node
 ##   godot --headless _sculptvis_probe.tscn -- --vp 1920x1080
 ##
 ## Exit 0 measured · 2 could not reach the workspace.
+##
+## Result: a measurement, not an assertion. Every line is prefixed `[sculptvis] `: `armed tool = <tool>`, one line per body measured
+## (`own_vis`, `in_tree`, child count, block), the `_sculpt_body` visibility after arming sculpt and after returning to inspect,
+## then `=== the answer ===` with one verdict line (`GATED CORRECTLY`, `BROKEN: hidden even WITH sculpt armed`, `DEFECT PRESENT:
+## visible with nothing armed`, or `shown on arm but not hidden on disarm`). Exit 0 whichever verdict; exit 2 after `ABORT no
+## WorldWorkspace in the tree`.
 
 var _vp: SubViewport
 

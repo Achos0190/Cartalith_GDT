@@ -22,6 +22,11 @@ extends Node
 ## never delivers a texture for a pixel probe and is not tested here for a
 ## plain layout query, so the instruction is followed literally rather than
 ## re-derived. Reads nothing; writes nothing; changes no behaviour.
+##
+## Result: a dump to diff between modes, not an assertion. Prints `=== vp=<w>x<h> touch=<b> tablet=<b> phone=<b> ===`,
+## `[menus] count=<n> <titles>`, `[menu_bar_row] min_w=<px>`, one `  <title> size=<> min=<>` per menu button, `[command_index]
+## count=<n>` followed by `T|<title>` rows, `[accelerators] count=<n>` followed by `A|<key>|<text>` rows (and `DUP_ACCEL|<key>|<text>|also:...`
+## for a repeated key), `[dupe_accelerators] count=<n>`, then `=== end ===`. Exit 0.
 
 var app: Node
 var _vp: SubViewport

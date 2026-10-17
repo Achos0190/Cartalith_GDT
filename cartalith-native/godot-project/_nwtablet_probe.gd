@@ -29,6 +29,10 @@ extends Node
 ##
 ## Flags: `--vp WxH`, `--tag NAME`, `--force-touch` (required). Any other `--flag` aborts.
 ## Exit codes: 0 all legs passed, 1 a leg failed, 2 could not run and asserted nothing.
+##
+## Result: an assertion. Every line is prefixed `[<tag>] `: `viewport <w>x<h> phone=<b> tablet=<b> touch=<b>`, `  OK  |FAIL <check>` rows, window, button and preview
+## rects, and a final `RESULT <tag> fail=<n>`. Exit 0 when no check failed, 1 otherwise or when the New World dialog is not up. Exit 2 after `ABORT unknown flag <flag>`,
+## `ABORT needs --vp WxH and --force-touch ...` or `ABORT this run is not the touch TABLET composition; nothing was measured`.
 
 var app: Node
 var _vp: SubViewport

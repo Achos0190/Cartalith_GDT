@@ -5,6 +5,10 @@ extends Node
 ## this is the first time the new Rust keys are read from the shell at all.
 ## Graded against `target/debug/cartalith_godot.dll`, whose mtime the harness
 ## prints beside the two `.rs` mtimes.
+##
+## Result: an assertion. Prints `  ok   |  FAIL <check>   -- <note>` per check under the banners `[1] the key`, `[2] the measurement` and `[3] the stage
+## line agrees with the arrays`, a `  note site kinds: ...` line, and a final `=== VFY BRIDGES OK ===` or `=== VFY BRIDGES FAILED (<n>) ===`. Exit 0 on OK, 1
+## on FAILED.
 
 const SEED := 40417
 const DEDUP_M := 80.0   ## `water.rs::detect_river_crossings`' own literal, carried

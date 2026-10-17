@@ -14,6 +14,10 @@ extends SceneTree
 ##
 ##   godot --headless --path godot-project -s _sculptpaint_probe.gd
 ## Run `cargo build -p cartalith-godot` first: this loads the DLL.
+##
+## Result: an assertion. Prints `  OK  |FAIL  <what>` per check (with a `    reason: ...` line and an
+## `  undo_last -> `<text>`` line), then `RESULT fail=<n>`; exit 1 when any check failed, else 0. Loads the built
+## `cartalith_godot` DLL, so a stale DLL tests the previous engine.
 
 var fails := 0
 

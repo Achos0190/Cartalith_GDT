@@ -10,6 +10,10 @@ extends Node
 ##
 ## Headless is sound: nothing here reads a pixel. It reads `PopupMenu` item text
 ## and check state, which exist without a framebuffer.
+##
+## Result: an assertion. Every line is prefixed `[prefval] `: `  OK  |FAIL <check>`, `=== Preferences value groups after about_to_popup ===`, one row per group
+## (`items=<n> checked=<n> ...`), `  <n> of <m> value groups carry their selection`, `  LIED <group>: ...` and `  DRIFT <group>: ...` lines when it finds them, and a final `RESULT PASS|FAIL
+## failures=<n>`. Exit 0 on PASS, 1 on FAIL, 2 after `ABORT unknown flag <flag> -- this probe reads none` or `ABORT no Preferences MenuButton found`.
 
 var app: Node
 var _fail := 0

@@ -10,6 +10,10 @@ extends Node
 ## to `bridge.can_undo()` and leg 2 goes red.
 ## Run WINDOWED from a scratch copy: godot --path <copy> res://_phoneundo_probe.tscn -- --force-touch
 ## Exit 0 = held; 1 = a check failed; 2 = could not run.
+##
+## Result: an assertion. Prints `PHUN  ok  |FAIL  <what>` per check and a final `PHUN  <n> checks, <m> failed`; exit 1 when
+## any check failed, else 0. Prints `[FATAL] run windowed with `-- --force-touch`` and exits 2 when run headless or without
+## `--force-touch`, and `[FATAL] not the phone composition` (exit 2) when the shell did not boot as the phone.
 
 var _fail := 0
 var _checks := 0

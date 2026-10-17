@@ -21,6 +21,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: an assertion. Prints `  ok  |FAIL <check>   got=<> want=<>` per check, `=== <n>: ... ===` banners and `  info ...` lines, ending with
+## `_genstage_probe: PASS` or `_genstage_probe: <n> FAILURE(S)`. Exit 0 on PASS, 1 on failure, on `[FATAL] extension did not load`, or when zero
+## stage signals arrive (`_genstage_probe: FAIL -- zero stage signals observed (silently-empty output)`); exit 3 after `[WATCHDOG] timed out`.
 
 var _fail := 0
 var _events: Array = []  ## each entry: {"index": int, "name": String, "total": int, "token": int}

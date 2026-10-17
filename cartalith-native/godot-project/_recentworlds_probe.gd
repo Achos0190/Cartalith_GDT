@@ -9,6 +9,10 @@ extends Node
 ## Read-only: does not seed, does not clear, does not write
 ## `user://cartalith_settings.cfg`. Whatever is in `[recent]` today is what
 ## this prints.
+##
+## Result: a dump with gates. Prints `=== OPEN lane Part C (2026-09-13): project_meta() seed source ===` with `  native  meta.seed=`, `  legacy  meta.seed=`, `  mixed   meta.seed=` and `  ok  |FAIL  <check>` rows (the fixtures are removed afterwards: `[cleanup] fixtures removed:`),
+## `=== recent_projects() on disk, in order ===`, `=== File > Recent worlds, real rows (label | tooltip) ===` with `  LABEL|<label>` / `    tip|<tip>` rows, `=== MENUS lane Part C gates ===`, `_recentworlds_probe: PASS|<n> FAILURE(S)` and `=== end ===`. Exit 0 when none failed,
+## 1 otherwise and after `[FATAL] extension did not load`, `[FATAL] no File menu button found` or `[FATAL] no Recent worlds submenu found`.
 
 ## **OPEN lane, Part C, 2026-09-13 -- a DIFFERENT "Part C" than the header
 ## above.** That one (same date, an earlier dispatch) is about the world NAME

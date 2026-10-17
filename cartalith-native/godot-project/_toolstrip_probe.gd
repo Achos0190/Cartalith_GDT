@@ -9,6 +9,10 @@ extends Node
 ## (`app.tool_options_bar`) or elsewhere (the left dock); then drives each one
 ## with a REAL mouse click through `push_input` and with its keyboard letter,
 ## and reads `app.armed_tool` back. Unknown arguments fail loudly.
+##
+## Result: an assertion with screenshots. Flags after `--`: `--out <dir>` and `--tag <name>` (both required). Prints `TSP width <w>/<h> armed=<tool> bar_min=<n> strip_min=<n> window=<n> [OVERFLOW]` rows, `TSP <name> shot -> <path>`,
+## `TSP <name> palette[<n>]: ...`, `TSP <name> Inspect lit after Esc: OK|FAIL`, one `TSP <name> <tip> -> <want> click=... key=... lit=...` row per tool, and `TSP DONE fails=<n>`. Exit 0 when none failed, 1 otherwise, 2 after
+## `TSP generate FAILED` (stderr), 3 after `TSP unknown argument: <arg>` or `TSP needs --out <dir> --tag <name>` (stderr).
 
 const EXPECT := {
 	"Inspect (V)": "inspect", "Measure (M)": "measure", "Region select (R)": "region",

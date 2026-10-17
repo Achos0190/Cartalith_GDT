@@ -51,6 +51,10 @@ extends Node
 ## depend on a route existing. Content-richness with a real route committed
 ## is not covered here -- committing one needs map clicks this harness does
 ## not attempt.
+##
+## Result: a measurement; its only failures are two `FAIL:` lines. Prints `ds_window_size=... root.size=...`, `=== phone=<b> scale=<s> screen=<size> ===`, `[jp] ...`
+## lines for the centre panel's visibility and rect, the PanelContainer overflow below the screen, a row scan of blank rows, `shot <path>`, and `=== done ===`
+## (exit 0). `FAIL: --force-touch did not produce phone mode; nothing below is meaningful` and `FAIL: journey_planner_view._center_panel is null/invalid` exit 1.
 
 func _frames(n: int) -> void:
 	for i in n:

@@ -20,6 +20,10 @@ extends Node
 ## Draws and clicks, so WINDOWED, never `--headless`:
 ##   godot --path . _printgamut_probe.tscn
 ## Flags: none. Any `--flag` after `--` aborts rather than being ignored.
+##
+## Result: an assertion. Prints `PASS|FAIL <check>` per check (states A, B and C), `C: grey -> <dict>`, `C: blue -> <dict>` and a final
+## `PROBE-RESULT: PASS|FAIL (fail=<n>)`. Exit 0 on PASS, 1 on FAIL, 2 after `push_error("unknown flag ...")`, and 3 after
+## `FAIL C: the loaded binary has no WorldGen.color_print_gamut -- cannot answer`.
 
 var _fail := 0
 var _live: Array[Color] = []

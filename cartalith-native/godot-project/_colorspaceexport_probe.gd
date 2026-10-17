@@ -21,6 +21,10 @@ extends Node
 ## Then prints the density set and palette the measurement was taken under,
 ## because both change the rendered text's size and colour and neither is
 ## constant on this machine.
+##
+## Result: an assertion with a transcript. Prints `  PASS  |  FAIL  <what>` rows, `density: ...`, `palette: DARK|LIGHT`, `color_space_api: ...   engine list: ...   current: ...`, `--- rendered section, in order ---` with the section's
+## text as `  | <line>` rows, `section rendered at <w> x <h> px (left dock minimum = <n>)`, `screenshot saved (<w>x<h>)` (the PNG is `user://_colorspaceexport_probe.png`) and `FAILS=<n>`. Exit 0 when none failed, 1 otherwise or after
+## `FAIL: no CartographyWorkspace` / `FAIL: CartographyWorkspace has no _render`, 3 after `WATCHDOG TIMEOUT`.
 
 var _fails := 0
 

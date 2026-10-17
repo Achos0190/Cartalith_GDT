@@ -24,6 +24,10 @@ extends Node
 ## NONE -- a connector never draws before its village. Positive control at 1.0:
 ## removing the ordinary (non-connector) ways must move pixels, so the zero is
 ## not a blank capture.
+##
+## Result: an assertion. Every line is prefixed `VILLAGEROADS  `: `world: <n> settlements, <n> ways (...), <n> sea routes`, `  tier <name> reached <a>/<b>`, `addon villages: <n>`, `  BEFORE (network without connectors): ...`,
+## `  AFTER  (with connectors): ...`, diagnostic lines for each unreached village, the pixel counts (`pixels moved by the connectors at zoom 3.0 (> 2.4)`, `... at zoom 1.0 (< 2.4)`, the ordinary-ways control) and a final
+## `RESULT PASS|FAIL`. Exit 0 on PASS, 1 on FAIL, 3 after `WATCHDOG TIMEOUT`.
 
 const REACH := 1.5   ## cells: "has a road" = some way passes within this
 const VW := 1024

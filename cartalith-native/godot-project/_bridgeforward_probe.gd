@@ -21,6 +21,9 @@ extends Node
 ##
 ## Run:
 ##   godot --headless --path . _bridgeforward_probe.tscn
+##
+## Result: an assertion. Prints `--- T0` to `--- T6` banners with `  ok: <what>` / `  FAIL: <what>` rows and a final `FAILURES: <n>`. Exit 0 when no check failed, 1
+## otherwise (also 1 after `no settlements -- the four passes all return {} by contract, ...`), 3 after `WATCHDOG TIMEOUT`.
 
 var app: Node
 var _fails := 0

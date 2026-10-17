@@ -18,6 +18,10 @@ extends Node
 ##
 ## The user's own sidecar files are backed up first and restored byte for
 ## byte at the end, whatever happens in between.
+##
+## Result: an assertion. Prints `[BOOT] shell up`, `=== <n>: ... ===` banners, `  ok  |FAIL <check>   got=<> want=<>` rows, `  info relaunched index: ...` and a
+## final `_vaultunlink_probe: PASS` or `_vaultunlink_probe: <n> FAILURE(S)`. It temporarily rewrites the vault sidecar and index files and restores the backups
+## (`_restore_backups`). Exit 0 on PASS, 1 on failure, 2 after `[FATAL] extension did not load` or `ABORT: the loaded extension has no vault surface; rebuild first`.
 
 var _vp: SubViewport
 var _fail := 0

@@ -7,6 +7,11 @@ extends Node
 ##
 ## Opens the left sheet, scrolls it down, closes it, reopens it, and prints
 ## the scroll position both dock sheets land on. Also checks the right sheet.
+##
+## Result: a measurement, not an assertion (the only expectation is the printed text `(expect 0)`). Prints
+## `=== phone=<bool> ===`, then per dock side `[<side>] scroll rect=... content max_value=... (settled after <n> frames)`,
+## `[<side>] after manual scroll-to-bottom: scroll_vertical=<n> (max=<m>)` and `[<side>] after close+reopen:
+## scroll_vertical=<n> (expect 0)` (or `[<side>] no ScrollContainer found under dock`), then `=== done ===`. Exit 0.
 
 func _frames(n: int) -> void:
 	for i in n:

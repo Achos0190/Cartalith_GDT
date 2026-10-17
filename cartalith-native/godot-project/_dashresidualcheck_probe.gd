@@ -15,6 +15,11 @@ extends Node
 ## probes is specifically `RenderingServer.frame_post_draw` never firing).
 ##
 ##   Godot_v4.7.1-stable_win64.exe --headless --path . _dashresidualcheck_probe.tscn
+##
+## Result: a measurement, not an assertion. Prints `DASHRESIDUAL  <case> max_delta=<n>  diff_px=<n>/<total> (<pct>%)
+## within_segcull_AA_tolerance=<bool>` per capture (or `<case> MISSING (... re-run _cull_probe.tscn first)` / `<case> LOAD FAILED
+## or size mismatch`), then `---- summary: <n> within _segcull_probe.gd's AA tolerance, <n> outside it, <n> missing/unreadable`.
+## Exit 0 whatever the counts are.
 
 const AA_AGREEMENT_MAX_DELTA := 10          ## `_segcull_probe.gd`'s own bar.
 const AA_AGREEMENT_MAX_DIFF_FRACTION := 0.001

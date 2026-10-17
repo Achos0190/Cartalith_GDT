@@ -38,6 +38,10 @@ extends Node
 ## except at its own single final line, after every phase's checks, so a
 ## crash anywhere above leaves the process hung/errored rather than emitting a
 ## success exit code -- the harness sees a non-zero/aborted run either way.
+##
+## Result: an assertion. Prints `[elidechurn] ` lines: `  OK  |FAIL  <check>`, the desktop and tablet phase banners, the registry size after boot and
+## after churn, and a final `[elidechurn] RESULT fail=<n>`. Exit 1 when any check failed, else 0 (its only `quit` is that single last call, so a script
+## error leaves the process errored rather than green).
 
 var _fail := 0
 

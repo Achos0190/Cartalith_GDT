@@ -35,6 +35,9 @@ extends Node
 ##     wired to `_regenerate_labels()` and not decorative.
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row.
+##
+## Result: an assertion. Prints `LGC shell build <id>`, `  PASS  |FAIL  <check>` per check and `LGC DONE fails=<n>`. Exit 0 when no check failed,
+## 1 otherwise, and 1 after `LGC FATAL: no CartographyWorkspace under left_dock_body` or `LGC FATAL: generate failed`.
 
 const SEED := 483920
 

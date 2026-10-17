@@ -35,6 +35,10 @@ extends Node
 ## so this is not the `ImageTexture.update()`-under-headless trap; windowed
 ## anyway, because the brief that scoped this probe asks for it and a real
 ## phone shell is cheap to boot.
+##
+## Result: an assertion. Flags after `--`: `--vp WxH`, `--force-touch`. Prints `PASS|FAIL  <check>  -- <detail>` rows under `=== A: ... ===` and `=== B: ... ===`, `A stale_stages() after
+## undo_revert_to: ...`, and a final `### UNDOFIX GREEN|RED  <passed>/<total> checks passed ###`. Exit 0 when none failed, 1 otherwise, 2 after `### UNDOFIX ABORT: ... ###` (unknown argument, or not the phone form),
+## 3 after `WATCHDOG`.
 
 const SEED := 552017
 

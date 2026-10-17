@@ -20,6 +20,10 @@ extends Node
 ## reasons is exactly the defect this batch exists to stop: the live path with
 ## a generated world, and the empty path by holding `EngineBridge.generating`
 ## true, which is one of the three absences the dash text names.
+##
+## Result: an assertion. Prints `[0] surface`, `[1] the count and the document`, `[2] the chip on screen`, `[3] both branches of _gis_count`
+## banners with `  ok  |FAIL <check>` rows, then `=== RIVER CHIP OK ===` or `=== RIVER CHIP FAILED (<n>) ===`. Exit 0 on OK, 1 on FAILED or after
+## `[FATAL] extension did not load`.
 
 const EXPORT_MIN_RIVER_ORDER := 2   ## geojson_bridge.rs's own literal, carried
 const HEADWATER_ORDER := 1          ## the control: every trickle, not the export set

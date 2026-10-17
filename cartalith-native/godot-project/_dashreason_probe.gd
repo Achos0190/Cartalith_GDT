@@ -25,6 +25,11 @@ extends Node
 ## other Sample-panel probe's own convention):
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _dashreason_probe.tscn
+##
+## Result: an assertion. Prints `DASHR ok  |FAIL  <check>` per check (P0-P3, N1-N4, Z1-Z2), `DASHR world generated: has_world=<bool> (<n> frames)`,
+## two `DASHR saved <path>` screenshot paths and a final `DASHR RESULT fail=<n> checks=<n>`. Exit 2 after `DASHR ABORT: run windowed ...`, 1
+## after `DASHR !! generate failed ...` or a failed P0. After the final RESULT line the script ends with no `quit()` call, so on the
+## success path the exit code is not set by the probe.
 
 var app: Node
 var _fail := 0

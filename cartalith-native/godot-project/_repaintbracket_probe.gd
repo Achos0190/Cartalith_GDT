@@ -32,6 +32,9 @@ extends Node
 ## excluded from the median: it is the only one that pays for first-touch
 ## allocation of the textures and of `MapOverlay`'s arrays, so folding it in
 ## measures the boot as well as the repaint.
+##
+## Result: an assertion plus a timing. Flags after `--`: `--nowelcome`, `--runs N` (default 9). Every line is prefixed `RPT `: `ok  |FAIL  <check>`, `<signal> connections: ...`, `after generate: _repaint_ms=<ms>  mid=<text>`,
+## `repaint_map() samples (ms, in order): ...`, `first=<ms> ms (excluded)  median=<ms> ms (<min>..<max>) over <n> runs`, `mid after repaint_map(): ...` and `failures=<n>`. Exit 0 when none failed, 1 otherwise, 3 after `WATCHDOG TIMEOUT`.
 
 var app: Node
 var _fail := 0

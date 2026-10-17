@@ -12,6 +12,10 @@ extends Node
 ##      so the river is drawn and the comparison can see it.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _rivlake_probe.tscn
+##
+## Result: an assertion. Every line is prefixed `RIVLAKE `: `ok  |FAIL  <check>` rows, `  grid <g> -> screen <c>`, `  worst channel change in the box: switch <n> levels, identical re-render
+## (control) <n>` and a final `PASS|FAIL  (<n> failures)`. Exit 0 on PASS, 1 on FAIL or when no drawn river was found after the premise check `some river crosses an above-sea lake`, 2 after `REFUSED: headless`, 3 after
+## `WATCHDOG`.
 
 var _fails := 0
 

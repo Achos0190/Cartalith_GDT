@@ -17,6 +17,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+##
+## Result: an assertion. Every line is prefixed `FOCUSBUG  `: `roster before: ...`, `selected=<n>`, `focused the name field, text='...' hasFocus=<b>`, `clicking list row '...'`, `roster after:  ...`,
+## `PASS|FAIL  <check>` rows (the faction rename, PE-01, PE-01b) and `DONE fail=<n>`. Exit 0 when none failed, 1 otherwise, 2 after an `ABORT:` (no roster LineEdit, or no second faction row), 3 after
+## `WATCHDOG`.
 
 var _app: Node
 var _bridge
