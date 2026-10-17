@@ -123,6 +123,57 @@ what is left.** Every milestone has code, and 16 and 17 closed under adversarial
 verification on 2026-09-03 (`9e79e52`). What remains is defects, filed in
 `OUTSTANDING_WORK.md`; where they stand is `cartalith-native/docs/STATUS.md`’s.
 
+## Phase 6 — Story and tracking layer (owner direction, 2026-10-17)
+
+**The goal:** Cartalith should help worldbuilders, writers and dungeon masters plot
+stories and keep track of their world's structure, not only generate and draw it.
+The workflow it serves is Premise → Land → Peoples → Places that matter → Time →
+Movement → Presentation → Run & revise. Most of the engine for this already exists
+(factions, places, timeline, conflicts, the journey planner, the Markdown vault,
+export); what is missing is the way the shell organises it around that workflow.
+
+**What belongs to this phase** (the reasoning, the row-by-row audit of what is built
+against what is new, and the owner questions are in `STORY_MENUS_PROPOSAL.md`;
+the mock is `design/story-menus-2026-10-17/mockup.html`):
+
+- **Menu and rail restructure (SM-1 to SM-7):** `Data` becomes `World` with Records
+  and Technical bands; a new `Story` menu (timeline and political history, journeys,
+  conflicts, notes for this place); `File ▸ Export ▸` with player and DM presets; a
+  `Window ▸ Session mode` for use at the table; a STORY section in the left rail and
+  a standalone Settlements node; story verbs on the map's context card.
+- **New features the audit exposed, none of which exist yet:** a vault view of
+  places without notes; a per-item "DM only" mark so a player map can be exported;
+  print and VTT writers; a free-text timeline event store; list windows for saved
+  journeys and for all conflicts; the Settlement Editor's Timeline and Political
+  history tabs (`DESIGN_SETTLEMENT_EDITOR.md`, `design/settlement-editor-2026-09-21/`).
+- **Boundary:** this is shell and data-model work over existing engine calls. It
+  adds no generation behaviour, so it moves no generated golden. A change that does
+  (for example a new event store that feeds the simulation) is a separate ruling.
+- **Not scheduled until the owner answers** the proposal's Q1 (an eighth top-level
+  menu against the seven `DCC_SHELL_SPEC.md` §2 specifies) and Q2 (the tablet already
+  has a `World` menu, so renaming `Data` collides there).
+
+## Render target (owner direction, 2026-10-17)
+
+A second target image — a photoreal map render with a navy-to-turquoise depth ramp
+and shelf, forest canopy texture, ridged and shaded mountains, thin river networks
+and a ragged ice edge — recorded in `VISION.md` ("Second target") with its gap
+assessment in `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`. **Standing requirement
+with it: zoom that gains detail at every zoom level is a hard feature**, so every
+render item is judged at several zoom levels, never at fit view only.
+
+- **Zoom detail first** (Ruling CI): key the zoom-detail frequency to kilometres and
+  change its octave decay, as a golden re-baseline behind the app-side divergence so
+  the JS-parity goldens stay put (`LOD_DETAIL_SCOPE.md`, LOD-D5's open question).
+- **A "Satellite relief" look** with a coast-distance shelf and halo term, added
+  beside the existing looks; Natural Vibrant stays the default until the new look
+  passes its own zoom ladder.
+- **Then, in the owner's order:** mountain relief (ridges and rock; the height field
+  may be the limit, so this meets the elevation-field work, EF-0 to EF-9), forest
+  canopy texture, and the square mottle.
+- **Out of scope for the render:** world shape (two continents with archipelagos) is a
+  World Structure archetype question.
+
 ## Not a phase: LOD and large worlds
 
 The tiled-LOD deep-zoom system matters as worlds grow. Godot's terrain plugins may
