@@ -75,6 +75,13 @@ extends Node
 ## classifies as tablet; 1080 x 2340 is 0.462 and classifies as phone. Both need
 ## `--force-touch`, because real touch hardware is never present in this dev
 ## environment (`dcc_shell.gd::_ready()`).
+## Result: an assertion, run headless as the header shows (`--headless --path . _tlfloor_probe.tscn -- --tablet
+## --force-touch`; one leg per process: `--tablet`, `--tablet-portrait`, `--tablet-narrow`, `--phone` (each with
+## `--force-touch`) or `--pointer`; `--resolution` is not used). Prints `[BOOT] leg=... viewport=... density=...
+## phone_scale=... floor=... px`, `--- <form> form, <density> density, floor <px> px on BOTH axes ---` sections,
+## per-target rows, `  FAIL ...` lines, a report-only phone sim strip section and `_tlfloor_probe (<density>): clean|<n>
+## FAILURE(S)`. Exit 0 when no check failed, 1 otherwise and for each `[FATAL]` (extension not loaded, bad leg flags,
+## `--force-touch` missing, a boot into the wrong density).
 
 var _fail := 0
 var _app: Node

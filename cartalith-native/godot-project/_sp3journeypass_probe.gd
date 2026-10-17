@@ -10,6 +10,11 @@ extends Node
 ## WINDOWED (reads real drawn Labels; the shell is the same as SP-2's run):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _sp3journeypass_probe.tscn
 ## Exit 0 pass, 1 failure.
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _sp3journeypass_probe.tscn` (no
+## headless/windowed requirement named). Every line is prefixed `SP3J `: `ok  |FAIL  <name>`, `SP3J dll mtime: <n>`,
+## `SP3J world ...`, `SP3J journey <id>: <a> -> <b>, <d> days, arrives <date>`, `SP3J passes (<n>): ...` and `SP3J done:
+## <n> failure(s)`. Exit 0 pass, 1 failure (including a stale .dll, failed generation or no journey), 3 watchdog, as the
+## header's `Exit 0 pass, 1 failure` plus the watchdog (`SP3J WATCHDOG`).
 
 var app: Node
 var _fail := 0

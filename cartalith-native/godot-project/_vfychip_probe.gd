@@ -12,6 +12,11 @@ extends Node
 ##   AND:31    dark  --acc:#e0a34a
 ##   AND:1469  light --acc:#a4650f
 ## Theme preference is restored to light at the end.
+## Result: an assertion on pixels, windowed only, phone form only. Command per the header: `_vfychip_probe.tscn --
+## --force-touch --vp 1080x2400`. Every line is prefixed `[vfychip] `, ending `[vfychip] RESULT vfychip fail=<n>`; it
+## restores the user's palette preference at the end and logs `restored: dark=<b> (preference must end light)`. Exit 0
+## when no check failed, 1 otherwise, 2 under `--headless` (`ABORT headless -- get_image() is vacuous here. exit 2`),
+## when the boot is not a phone, or when there is no phone menu.
 
 const ACC_LIGHT := "a4650f"
 const ACC_DARK := "e0a34a"

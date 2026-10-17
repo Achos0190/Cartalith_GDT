@@ -14,6 +14,11 @@ extends Node
 ## WINDOWED (reads real drawn Labels):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _sp5joined_probe.tscn
 ## Exit 0 pass, 1 failure, 3 watchdog.
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _sp5joined_probe.tscn` (no
+## headless/windowed requirement named). Every line is prefixed `SP5 `: `ok  |FAIL  <name>`, `SP5 dll mtime: <n>`, `SP5
+## try <k>: ...`, `SP5 town <name> (tid <n>) passed <date>`, `SP5 touching <tid>: ...`, `SP5 pass notes: ...` and `SP5
+## done: <n> check(s), <n> failure(s)`. Exit 0 pass, 1 failure (including a stale .dll, failed generation, or no
+## through-town found), 3 watchdog (`SP5 WATCHDOG`), as the header states.
 
 var app: Node
 var _fail := 0

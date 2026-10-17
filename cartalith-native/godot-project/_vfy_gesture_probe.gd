@@ -13,6 +13,12 @@ extends Node
 ##   --tag NAME   line prefix. Default vfy.
 ##   --part A|B|C|D|E|ALL   which sections to run. Default ALL.
 ##   --force-touch   NOT read here; `dcc_shell.gd` reads it.
+## Result: an assertion with a census. Command per the header: `godot --path . _vfy_gesture_probe.tscn -- --force-touch
+## --vp 1080x2340 --tag V`; flags `--vp WxH` (default 1080x2340), `--tag NAME` (default `vfy`), `--part A|B|C|D|E|ALL`
+## (default ALL; the header lists A to E but the code also has `PART F` and `PART G` sections), `--force-touch`. The
+## header names no headless/windowed requirement. Every line is prefixed `[<tag>] `, with `-- inventory (...)`, `--
+## measured, not tabulated: ...` and `-- PART <x>: ...` section lines, ending `RESULT <tag> fail=<n>`. Exit 0 when no
+## failure was counted, 1 otherwise.
 
 const _FILTER := ["STOP", "PASS", "IGNORE"]
 

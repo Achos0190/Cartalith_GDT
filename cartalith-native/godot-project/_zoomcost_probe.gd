@@ -60,6 +60,13 @@ extends Node
 ##
 ## A frame's time is the wall time between two `frame_post_draw`s; its
 ## `process_ms` is Godot's own `Performance.TIME_PROCESS` for it.
+## Result: a measurement; windowed only ("MUST run windowed"). Command per the header: `_zoomcost_probe.tscn -- --out DIR
+## [--grid 2048x1311] [--seed 24601] [--vsync off|on] [--overlays shown|hidden] [--notches N] [--layer-costs] [--shots]
+## [--vp WxH] [--force-touch] [--tag NAME]`; an unknown flag prints `unknown arg <a>` and exits 2. Prints `  idle frame
+## ms: ...`, `  overlay redraw at fit, ms/frame: ...`, per-notch `call / first / worst / sharp in <n> frames` rows, `
+## pan at x16 frame ms: ...`, `  frames over <ms> ms: <n>` (or per-layer redraw medians with `--layer-costs`, or `shot
+## ... -> <path>` lines with `--shots`) and `PROBE-RESULT: DONE`; it writes JSON and PNG output into `--out`. Exit 0
+## after `PROBE-RESULT: DONE` whatever it measured; 2 for headless, an unknown flag, or `PROBE-RESULT: ABORT no world`.
 
 const WHEEL := 1.15
 const PAN_ZOOM := 16.0

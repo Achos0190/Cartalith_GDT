@@ -19,6 +19,12 @@ extends Node
 ## (default vfy). `--force-touch` is read by `dcc_shell.gd`, not here, and
 ## without it every line is void. Run WINDOWED: nothing samples a pixel, but
 ## the GUI hit-test wants a frame loop.
+## Result: an assertion with an element dump. Command per the header: `godot --path . _vfy_nwcanvas_probe.tscn --
+## --force-touch --vp 1080x2340` (flags read: `--vp WxH` default 1080x2340 and `--tag NAME` default `vfy`, plus
+## `--force-touch`; any other `--flag` prints `ABORT unknown flag` and exits 2). The header names no headless/windowed
+## requirement. Every line is prefixed `[<tag>] `, with `-- ordered inventory of the phone New World dialog`, `-- does
+## Width (km) COMMIT to the engine?` and `-- a plain TAP on the track still sets the value` sections, ending `RESULT
+## <tag> fail=<n>`. Exit 0 when no check failed, 1 otherwise.
 
 var app: Node
 var _vp: SubViewport

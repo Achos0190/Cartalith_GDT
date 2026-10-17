@@ -27,6 +27,12 @@ extends Node
 ##   desktop: Godot_v4.7.1-stable_win64_console.exe --path . _sp3strip_probe.tscn
 ##   phone:   ... --path . _sp3strip_probe.tscn -- --force-touch --sp3strip-phone
 ## Prints SP3S ... FAIL lines; exits 1 on any failure (grep "FAIL").
+## Result: an assertion on pixels, windowed (`WINDOWED`; commands `--path . _sp3strip_probe.tscn` for the desktop and `--
+## --force-touch --sp3strip-phone` for the phone). Prints `SP3S  <text>` lines including the `FAIL` ones, and, only when
+## a check failed, a closing `PROBE-FAIL <n>`; a clean run prints no summary line. It writes a vault note under
+## `user://_sp3strip_vault/` and PNG captures. Exit 0 when no check failed, 1 otherwise (including a stale .dll, failed
+## generation, a desktop run that came up as a phone, or a phone run that did not register as one), 3 from the watchdog
+## (`WATCHDOG`).
 
 var _app: Node
 var _bridge

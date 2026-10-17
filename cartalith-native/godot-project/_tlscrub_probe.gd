@@ -16,6 +16,13 @@ extends Node
 ## Dark is forced: this machine boots `mode="light"`
 ## (`cartalith_settings.cfg`), and §1's fill assertion is a comparison against
 ## two dark tokens that differ by alpha.
+## Result: an assertion with a pixel section that skips itself headless. Commands per the header: `--headless --path .
+## _tlscrub_probe.tscn` (sections 1 to 6; section 7, the only pixel section, is skipped) and `--path .
+## _tlscrub_probe.tscn` (windowed, section 7 as well). It asserts the pointer leg only: `--force-touch` prints `===
+## _tlscrub_probe: REFUSING --force-touch ===` and exits 2. Prints `  ok  |FAIL  <label>   got= want=`, `  --   <label> =
+## <value>` info rows, `=== _tlscrub_probe · 1920x1080 pointer ===`, `-- §1 ... --` to `-- §7 marks rasterise (windowed
+## only) --` (`SKIP  headless: ...` under the dummy driver) and `=== PASS|FAIL (<n>) ===`. Exit 0 when no check failed, 1
+## otherwise.
 
 var _fail := 0
 var _app: Node

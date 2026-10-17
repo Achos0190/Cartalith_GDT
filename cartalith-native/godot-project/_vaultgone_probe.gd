@@ -43,6 +43,11 @@ extends Node
 ## regression would have.
 ##
 ## Committed like every probe scene in this folder — `STATUS.md`'s F8 row.
+## Result: an assertion, windowed ("Windowed, not --headless"; header command `Godot_v4.7.1-stable_win64_console.exe
+## --path . _vaultgone_probe.tscn`). Prints `VGONE    OK  <label>` / `VGONE    !!  <label>   <detail>` rows, `VGONE    ..
+## width @<n>: body min.x = ... (budget <n>)` and either `VGONE    ALL CHECKS PASSED` or `VGONE    <n> FAILED: <labels>`.
+## Exit 0 when no check failed, 1 otherwise, 2 when the premise could not be set up (`ABORT: vault_snapshot_radii absent`
+## for a stale extension, `ABORT: the shell did not build`).
 
 const SEED := 483920
 const SNAP_PX := 128

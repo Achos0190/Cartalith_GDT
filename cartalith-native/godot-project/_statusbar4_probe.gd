@@ -25,6 +25,10 @@ extends Node
 ## `DccTheme.ROLE["fs_status"]`, whose pointer figure is 10. 10 is asserted --
 ## it is what is on screen -- and the divergence is printed, since closing it is
 ## a one-value edit in `dcc_theme.gd`, which this lane does not own.
+## Result: an assertion, run headless as the header shows (`--headless --path . _statusbar4_probe.tscn`). It forces the
+## dark palette and refuses otherwise (`SB4  !! dark palette refused`, exit 1). Prints `SB4 ok  |FAIL  <name>`, `SB4
+## dark=... accent=... line_soft=...`, `SB4 NOTE autosave slot = [...]`, `SB4 NOTE mid slot      = [...]` and `SB4 <n>
+## failed`. Exit 0 when no check failed, 1 otherwise (including `SB4  !! app.gd did not compile`).
 
 const ARTBOARD_SB_H := 26          ## `--sbH:26px`
 const ARTBOARD_PAD := 14           ## `--pad:14px`

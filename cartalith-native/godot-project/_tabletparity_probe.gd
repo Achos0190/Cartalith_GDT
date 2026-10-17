@@ -37,6 +37,13 @@ extends Node
 ##   Right dock    284-340       400
 ##   Timeline bar      70         88
 ##   Status bar        26         36
+## Result: an assertion with a census. Header command: `Godot_v4.7.1 --path . --resolution 1600x900
+## _tabletparity_probe.tscn -- --force-touch` (no explicit headless/windowed requirement named); it runs the tablet
+## 2560x1600 leg and the desktop 1920x1080 leg in one process. Prints `  ok  |FAIL  <name>   got= want=` rows, `[BOOT]
+## force-touch=<b>`, `=== TABLET 2560x1600 ===` and later desktop banners, `-- SS1 ... --` / `-- SS13 ... --` and
+## menu-reachability sections with `  info` lines, `[settings]` backup and restore lines (it restores the user settings
+## file byte for byte) and `  note <text>` lines at the end. Exit 0 when no check failed, 1 otherwise (and on `[FATAL]
+## extension did not load`); there is no closing PASS/FAIL line.
 
 var _fail := 0
 var _notes: Array[String] = []

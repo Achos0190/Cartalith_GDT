@@ -20,6 +20,13 @@ extends Node
 ##
 ## Windowed, deliberately: every number below is a framebuffer census, and
 ## `RenderingServer.frame_post_draw` never fires under the dummy driver.
+## Result: an assertion on pixels, windowed only. Commands per the header: `Godot_v4.7.1-stable_win64_console.exe --path
+## . _vfy_iconmerge_probe.tscn` and `... -- --head` (`--head` loads `res://_vfy_overlay_head.gd`, which is not kept in
+## the tree and must be generated from `git show <ref>:cartalith-native/godot-project/map_overlay.gd`; without it
+## `--head` aborts with exit 2). Every line is prefixed `VFYMERGE  `, ending `VFYMERGE  ---- PASS|<n> FAILED ----`. Exit
+## 0 when no check failed, 1 otherwise or when a precondition fails (`landmark_run() returned false`, too few landmarks,
+## the POI pass placed nothing, no isolated empty cells), 2 for headless (`ABORT: pixels; frame_post_draw never fires
+## headless.`), a missing `--head` script, or the watchdog.
 
 const W := 1600
 const H := 1000

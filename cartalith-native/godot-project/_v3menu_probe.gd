@@ -26,6 +26,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion with screenshots, windowed ("Run WINDOWED"; header command `Godot_v4.7.1-stable_win64_console.exe
+## --path . _v3menu_probe.tscn`). Prints `V3 !! <message>` for a failure and `V3    <text>` info lines (`V3    world ...
+## settlements / ... provinces / ... ways`, `V3    shot -> <path>`, `V3    solo -> <path>`), ending `V3 RESULT PASS|FAIL
+## (<n> failures)`; it writes a settlement template into a vault directory and PNG captures. Exit 0 when no failure was
+## counted, 1 otherwise or when a workspace is missing from the tree.
 
 const SEED := 483920
 

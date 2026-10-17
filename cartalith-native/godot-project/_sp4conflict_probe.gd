@@ -19,6 +19,11 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _sp4conflict_probe.tscn
 ##
 ## Exit 0 = all passed, 1 = a real failure, 2 = could not run.
+## Result: an assertion on pixels, windowed (`Windowed (pixel diff...)`; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _sp4conflict_probe.tscn`). Every line is prefixed `SP4  `, ending `SP4
+## RESULT PASS|FAIL (<n> failure(s))`; it saves a capture PNG. Exit 0 = all passed, 1 = a real failure (also a missing
+## Conflict palette button or an empty list), 2 = could not run (no `conflict_add` `#[func]`, or a world without enough
+## settlements and factions), plus 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

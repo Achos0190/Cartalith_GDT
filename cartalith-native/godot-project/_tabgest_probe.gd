@@ -31,6 +31,12 @@ extends Node
 ##
 ## Run it windowed: nothing here samples a pixel, but everything depends on the
 ## GUI hit-test and on `ScrollContainer`'s touch drag.
+## Result: an assertion, windowed (the header: "Run it windowed"; nothing samples a pixel), tablet composition only.
+## Commands: `godot --path . _tabgest_probe.tscn -- --force-touch --vp 800x1280 --tag tg800` and `--vp 1280x800 --tag
+## tgL`. Flags: `--vp WxH` (default 800x1280), `--tag NAME` (default `tg`), `--wobble F` (default 0.75), `--force-touch`;
+## any other `--flag` aborts. Every line is prefixed `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit 0 when no check
+## failed, 1 otherwise, 2 for an unknown flag, a malformed `--vp`, or a boot that is not a tablet (`ABORT this probe is
+## about the TABLET composition`).
 
 var app: Node
 var _vp: SubViewport

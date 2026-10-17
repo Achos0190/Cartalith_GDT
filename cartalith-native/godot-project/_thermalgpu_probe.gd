@@ -21,6 +21,10 @@ extends Node
 ## asserted).
 ##
 ## Exit 0 pass, 1 an assertion failed, 2 the premise could not be set up.
+## Result: an assertion on pixels, windowed only (the header's command adds `--resolution 1600x900`;
+## `_thermalgpu_probe.tscn`). Prints `  ok  |FAIL  <name>  -- <detail>` rows, plain progress lines and a closing `PASS`
+## or `FAIL (<n>)`; it saves before/after framebuffer PNGs. Exit 0 pass, 1 an assertion failed, 2 the premise could not
+## be set up (`!! no world, or no erode_op in this build`), plus 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge: Node

@@ -40,6 +40,12 @@ extends Node
 ##      fit and a zoomed screenshot of each, for the before/after sheet.
 ## `--grid WxH` generates at that size instead of 384x288 (the app's own
 ## working size is 1024x656).
+## Result: an assertion on pixels and a screenshot set, windowed only. Command per the header: `_stylepresets_probe.tscn
+## -- --out DIR [--tag T]`; the known flags are `--out`, `--tag`, `--focus auto`, `--fzoom`, `--cel-only` and `--grid
+## WxH`; an unknown flag, a malformed `--grid` or a missing `--out` is refused (exit 2). Every line is prefixed
+## `STYLEPRESETS  `: `ok    <text>`, `FAIL  <text>` and `=== SUMMARY: <n> failures ===`. Under `--headless` it records a
+## failed check (`run WINDOWED -- see this probe's header`) and exits 1. Exit 0 when no check failed, 1 otherwise
+## (including no RenderWorkspace), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var bridge

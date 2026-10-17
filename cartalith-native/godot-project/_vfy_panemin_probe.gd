@@ -24,6 +24,12 @@ extends Node
 ##
 ## **Windowed on purpose.** An embedded `Window` clamps against the real
 ## screen; the dummy driver's screen is not this machine's.
+## Result: an assertion, windowed on purpose (`An embedded Window clamps against the real ...`). Command per the header:
+## `Godot_v4.7.1-stable_win64_console.exe --path . _vfy_panemin_probe.tscn -- --vp 1152x648`; flags `--vp WxH` (default
+## 1152x648), `--tag NAME` (default `VFY`), `--force-touch`; any other `--flag` aborts with exit 2. Prints `<tag> <text>`
+## lines, `<tag> WORST contents_min=<n> at route <id>` and `RESULT fail=<n>`. Exit 0 when no check failed, 1 otherwise, 2
+## for an abort (`RESULT fail=abort`: unknown flag, malformed `--vp`, `--force-touch` passed but `DccTheme.is_touch()`
+## false).
 
 var app: Node
 var _tag := "VFY"

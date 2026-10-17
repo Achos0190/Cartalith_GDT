@@ -39,6 +39,13 @@ extends Control
 ## their PNGs can be diffed after the fact; `--tag` labels this run's files
 ## (e.g. "tree" / "head") and is echoed into every printed line so the two
 ## runs' logs are never confused for each other.
+## Result: an assertion on pixels, windowed only (`extends Control`). Command per the header:
+## `Godot_v4.7.1-stable_win64_console.exe --path . _towertint_probe.tscn -- --out <dir> --tag <tag>`; `--out` is required
+## (`URBANTINT ABORT -- no --out dir given`, exit 2) and the header runs it twice, against the live tree and against
+## HEAD, into the same `--out`. Prints `  PASS  |  FAIL  [<tag>] <what>`, per settlement `URBANTINT [<tag>] settlement
+## #<n> ...` rows (draw-time median, tower probe, intramural and extramural pick and sample colour, skips), a
+## triangulation-failure count and `URBANTINT [<tag>] ALL PASS|SOME FAILED (<n> failed)`; it saves a PNG per settlement.
+## Exit 0 when no check failed, 1 otherwise.
 
 const SEED := 24601
 const SIZE_KM := 96.0

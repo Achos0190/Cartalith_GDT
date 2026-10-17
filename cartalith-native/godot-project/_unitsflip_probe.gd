@@ -23,6 +23,10 @@ extends Node
 ## theme-flip probe owes the file it pokes.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _unitsflip_probe.tscn
+## Result: an assertion, run headless as the header shows (`--headless --path . _unitsflip_probe.tscn`). Every line is
+## prefixed `UFP `: check rows (`UFP <tag>  <name>  -- <detail>`), `UFP world generated: has_world=<b> (<n> frames)`,
+## `UFP original units_mode=<mode> (restored at the end)`, `UFP units_mode restored to <mode>` and `UFP TOTAL FAILURES:
+## <n>`. Exit 0 when no check failed, 1 otherwise (and when generation failed: `UFP  !! generate failed`).
 
 var app: Node
 var _fail := 0

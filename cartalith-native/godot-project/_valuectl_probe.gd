@@ -23,6 +23,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a survey that exits 0. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _valuectl_probe.tscn`
+## (no headless/windowed requirement named). Prints `VALUECTL  <text>` lines, per window `---- <title> : <n> options, <n>
+## ranges, <n> CHANGED NOTHING` and `VALUECTL  DONE`. A control that changed nothing is not automatically a defect (the
+## header says so), and the probe exits 0 after `DONE` whatever it found; 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

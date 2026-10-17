@@ -39,6 +39,12 @@ extends Node
 ## a starved container is inert. The starvation is what this probe locates: it
 ## walks up from each victim to the first ancestor that is at least its own
 ## combined minimum, and reports the boundary.
+## Result: an investigation that asserts almost nothing, run headless as the header shows (`--headless --path .
+## _tapfloor_probe.tscn -- --force-touch`; `--force-touch` is required). Prints `[BOOT] 1080x2340 portrait,
+## phone_scale=... tap floor = ... physical px`, `=== the residue at 1080x2340 ... ===`, `--- 1. what they are ---` to
+## `--- 4. which ancestor is hidden ---` sections with tallies by class, script and cause, and `_tapfloor_probe:
+## clean|<n> FAILURE(S)`. Exit 0 when no failure was counted, 1 otherwise and for each `[FATAL]` (extension not loaded,
+## `--force-touch` missing, a boot that is not phone).
 
 var _fail := 0
 const FLOOR_DP := 44.0

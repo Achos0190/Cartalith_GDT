@@ -27,6 +27,10 @@ extends Node
 ## expansion, so the surviving row is the design's own §6.3 row 13.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _structmove_probe.tscn
+## Result: an assertion, run headless as the header shows (`--headless --path . _structmove_probe.tscn`). Prints `SM ok
+## |FAIL  <name>  -- <detail>`, `SM world generated: has_world=<b> (<n> frames)`, `=== 1: ... ===` to `=== 3: ... ===`
+## banners and `SM <n> failure(s)`. Exit 0 when no check failed, 1 otherwise (and when generation failed: `SM  !!
+## generate failed`).
 
 var app: Node
 var _fail := 0

@@ -44,6 +44,12 @@ extends Node
 ##       --resolution 1920x1080
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _washstep_probe.tscn \
 ##       --resolution 1280x800 -- --force-touch
+## Result: a measurement with a pin, windowed only. Commands per the header: `--path . _washstep_probe.tscn --resolution
+## 1920x1080` and `--resolution 1280x800 -- --force-touch`. Prints `  ok  |FAIL  <name>  got= want=` rows, `=== washstep
+## viewport=... density=... boot theme=... ===`, `[<tag>] visible Buttons=... lit segments=...`, `[<tag>] WORST .09 ->
+## .16 channel step over <n> chips = <n>/255` and `=== PASS|FAIL (<n>) ===`; it saves
+## `user://washstep_<tag>_shipped_016.png` and `_former_009.png`. Under `--headless` it prints `WASHSTEP: refusing to run
+## headless` and exits 2. Exit 0 when no check failed, 1 otherwise.
 
 ## The shipped token and the one it replaced. Both are named so the
 ## counterfactual is a token lookup and not a literal this file invented.

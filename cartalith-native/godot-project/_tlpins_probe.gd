@@ -39,6 +39,13 @@ extends Node
 ## crop of each box (`..._crop.png`) for looking at the marks themselves.
 ##
 ## Exit 0 = green, 1 = a check failed, 2 = the probe could not run.
+## Result: an assertion on pixels, windowed ("Windowed, never --headless"). Commands per the header: `--path .
+## _tlpins_probe.tscn` and `-- --vp 1080x2340 --force-touch`; any other argument prints `### TLPINS ABORT: unknown
+## argument ... ###` and exits 2. Prints `PASS|FAIL  <what>  -- <detail>`, `fixture:` / `screen:` lines, `FORM booted as
+## <form> at <size>` and `### TLPINS GREEN|RED  <passed>/<total> checks passed ###`. It writes
+## `res://_tlpins_<form>_<tag>.png` and `_crop.png` captures into the project folder. Exit 0 = green, 1 = a check failed,
+## 2 = could not run (an `### TLPINS ABORT: ... ###` line: stale shell copy or DLL, no fixture settlement, no drawable
+## ways, `civ_drop_settlement` refused), plus 3 from the watchdog (`### TLPINS WATCHDOG ###`).
 
 const SEED := 552017
 ## Half-size of the measured box, in viewport px. Wide enough to hold a

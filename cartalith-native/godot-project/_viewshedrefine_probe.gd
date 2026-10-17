@@ -28,6 +28,10 @@ extends Node
 ##      again; `landmark_refine_clear` returns to `never`.
 ##   7. old files: a project written with no refine carries no
 ##      `viewshed_refined` member at all.
+## Result: an assertion, windowed only (header command `--path . --resolution 1600x1000 _viewshedrefine_probe.tscn`).
+## Every line is prefixed `VSREFINE `: `ok  |FAIL  <what>` and `VSREFINE PASS|FAIL  (<n> failures)`. Under `--headless`
+## it prints `VSREFINE REFUSED: headless` and exits 2; the watchdog (`VSREFINE WATCHDOG`) exits 3; otherwise exit 0 when
+## no check failed and 1 when one did. It removes a project file it saved when it finishes.
 
 var _fails := 0
 

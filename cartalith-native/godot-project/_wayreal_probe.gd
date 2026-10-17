@@ -21,6 +21,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a measurement; no pass/fail count. Header command: `Godot_v4.7.1-stable_win64.exe --path .
+## _wayreal_probe.tscn` (no headless/windowed requirement named). Every line is prefixed `WAYREAL  `: `--- measured
+## composite vs. every candidate type ... ---`, `--- layering: ... ---`, `--- per-way-type filter: ... ---` sections and
+## `shot -> <path>`; it saves `user://wayreal_<name>.png` captures. Exit 0 when it finishes, 1 when no route could be
+## committed (`NO ROUTE -- aborting`), 2 from the watchdog (`WATCHDOG -- probe did not finish`).
 
 var _app: Node
 var _bridge

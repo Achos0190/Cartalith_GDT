@@ -24,6 +24,11 @@ extends Node
 ##      than `open_vault_browse`) still attaches: since Ruling BE (2026-09-27)
 ##      it is the same tree, with an "Attach to <entity>" button on the
 ##      picked note, and a real `vault_attach` behind it.
+## Result: an assertion with a screenshot, windowed only (header command `godot4 --path . _vaulttree_probe.tscn`). Prints
+## `VTREE    OK  <label>` / `VTREE    !!  <label>   <detail>` rows, `VTREE    shot: <path> (<w>x<h>)` and either `VTREE
+## ALL CHECKS PASSED` or `VTREE    <n> FAILED: <labels>`. Under `--headless` it prints `PROBE REFUSED: headless` (and
+## `push_error`) and exits 2; the watchdog (`WATCHDOG TIMEOUT`) exits 3; otherwise exit 0 when no check failed and 1 when
+## one did.
 
 var _app: Node
 var _fails: Array = []

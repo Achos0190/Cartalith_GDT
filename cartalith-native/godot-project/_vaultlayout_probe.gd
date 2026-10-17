@@ -33,6 +33,12 @@ extends Node
 ##                   wrong density under the phone label.
 ## Any other `--flag` aborts rather than being silently ignored (MISTAKES.md's
 ## "write a probe's usage header" row).
+## Result: an assertion on pixels, windowed only. Commands per the header: `--path . _vaultlayout_probe.tscn -- --vp
+## 1280x800` and `-- --vp 1080x2340 --force-touch`. Flags: `--vp WxH` (default 1280x800) and `--force-touch`; any other
+## `--flag` aborts. Prints `VAULTLAYOUT  OK  <label>` / `VAULTLAYOUT  !!  <label>   <detail>` rows, `VAULTLAYOUT vp=...
+## force_touch=... phone=...`, `VAULTLAYOUT outline_rect=... excerpt_rect=...`, `VAULTLAYOUT saved <path>` and either
+## `VAULTLAYOUT  ALL CHECKS PASSED` or `VAULTLAYOUT  <n> FAILED: <labels>`. Exit 0 when no check failed, 1 otherwise, 2
+## for an unknown flag, a malformed `--vp`, or `--headless` (`VAULTLAYOUT REFUSED: headless`).
 
 const SEED := 552017
 

@@ -63,6 +63,10 @@ extends Node
 ## renamed or dropped member trips it instead of silently shrinking the loop.
 ##
 ## Committed, like every probe scene in this folder — `STATUS.md`'s F8 row.
+## Result: an assertion, run headless as the header shows (`--headless --path . _vaultguard_probe.tscn`). Prints `VGUARD
+## OK  <label>` / `VGUARD   !!  <label>   <detail>` rows and either `VGUARD   ALL CHECKS PASSED` or `VGUARD   <n> FAILED:
+## <labels>`; it writes fixture vault files to disk. A stale `cartalith_godot.dll` fails part 1 loudly (the header says
+## so). Exit 0 when no check failed, 1 otherwise.
 
 const SEED := 483920
 const SNAP_PX := 128

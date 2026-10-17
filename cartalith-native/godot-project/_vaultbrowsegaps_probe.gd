@@ -28,6 +28,10 @@ extends Node
 ##      `_build_attach`'s own "Preview & edit this note…", which is unchanged.
 ##
 ## Committed like every probe in this folder (`STATUS.md`'s F8 row).
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _vaultbrowsegaps_probe.tscn` (no
+## headless/windowed requirement named). Prints `VAULTBROWSEGAPS  OK  <label>` / `VAULTBROWSEGAPS  !!  <label>
+## <detail>` rows and either `VAULTBROWSEGAPS  ALL CHECKS PASSED` or `VAULTBROWSEGAPS  <n> FAILED: <labels>`; it writes
+## fixture vault notes to disk. Exit 0 when no check failed, 1 otherwise.
 
 const SEED := 483920
 

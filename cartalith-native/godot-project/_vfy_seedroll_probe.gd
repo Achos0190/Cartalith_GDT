@@ -13,6 +13,10 @@ extends Node
 ## `pressed` is emitted -- neither is a finger.
 ##
 ## Run windowed: Godot_v4.7.1-stable_win64_console.exe --path . _vfy_seedroll_probe.tscn
+## Result: an assertion that does not carry its verdict in the exit code; windowed ("Run windowed"; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _vfy_seedroll_probe.tscn`). Prints `VFY ok  |FAIL  <name> -- <detail>`
+## rows and `VFY RESULT failed=<n>`. It exits 0 after the result line whatever `failed` holds, and 3 from the watchdog
+## (`VFY WATCHDOG TIMEOUT`).
 
 var _app: Node
 var _emits: Array = []

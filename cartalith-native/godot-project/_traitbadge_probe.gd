@@ -38,6 +38,12 @@ extends Node
 ## panel widths are content-dependent"*. A label box is `name.length` wide and
 ## sits `(4+rank)*sc` from the pin, so the overlap is a function of both --
 ## the three fixtures vary tier and name length together, and each is reported.
+## Result: an assertion on pixels, windowed only (header command `Godot_v4.7.1-stable_win64.exe --path .
+## _traitbadge_probe.tscn`). Prints `  PASS  |  FAIL  <what>` rows, per fixture `================ fixture: "<name>", a
+## <kind> ================`, `-- rule 3: ... --` / `-- row 1: ... --` / `-- row 2: ... --` sections, `badge bbox: ...`,
+## `label top y   before <n>   after <n>`, `OVERLAP with the badge row: before <n> px   after <n> px`, `row width: ...`,
+## `IMAGES: <dir>` and `TRAITBADGE RESULT: ALL PASS|<n> FAILURES`. Under `--headless` it prints an `ABORT` message with
+## the windowed command and exits 2; the watchdog exits 2 too. Exit 0 when no check failed, 1 otherwise.
 
 ## 2400 wide because the pin is sized `(4+rank) * (width/1400) * civZoomK`:
 ## at 900 px a city pin is 4.5 px across and its badges clamp to the 2.2

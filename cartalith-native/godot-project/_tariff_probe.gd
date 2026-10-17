@@ -36,6 +36,12 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _tariff_probe.tscn
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _tariff_probe.tscn -- --vp 1080x2340 --force-touch
+## Result: an assertion on pixels with a screenshot, windowed ("Windowed (MISTAKES.md: ...)"). Commands per the header:
+## `--path . _tariff_probe.tscn` and `-- --vp 1080x2340 --force-touch` (`--vp WxH` default 1920x1080 sizes the real OS
+## window; a value that does not parse is recorded as a failed `--vp parses as WxH` check). Every line is prefixed
+## `TARIFFC `: `ok  |FAIL  <what>`, `TARIFFC boot vp=<w>x<h> force-touch=<b>`, `TARIFFC pre-tariff row: ...`, `TARIFFC
+## post-tariff row: ...`, `TARIFFC saved <path> (<size>)` and `TARIFFC PASS|FAIL  (<n> failures)`. Exit 0 when no check
+## failed, 1 otherwise.
 
 var _fails := 0
 var _phone := false

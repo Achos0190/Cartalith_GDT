@@ -35,6 +35,10 @@ extends Node
 ##
 ## Committed, like every probe scene in this folder — `STATUS.md`'s F8 row:
 ## these are kept as the evidence for the passes that wrote them.
+## Result: an assertion, run headless as the header shows (`--headless --path . _vaultmap_probe.tscn`). Prints `VMAP
+## OK  <label>` / `VMAP     !!  <label>   <detail>` rows and either `VMAP     ALL CHECKS PASSED` or `VMAP     <n> FAILED:
+## <labels>`; it writes fixture vault files to disk. Exit 0 when no check failed, 1 otherwise, 2 when the loaded
+## extension predates the snapshot surface (`VMAP     ABORT: vault_snapshot absent`).
 
 const SEED := 483920
 const SNAP_PX := 256

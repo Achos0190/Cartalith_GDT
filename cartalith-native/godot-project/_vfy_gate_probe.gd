@@ -12,6 +12,10 @@ extends Node
 ## 3. **A control: the same swipe on the same slider while it is editable.**
 ##
 ##   godot --path . _vfy_gate_probe.tscn -- --force-touch --vp 1080x2340
+## Result: a measurement; exits 0 whatever it found. Command per the header: `godot --path . _vfy_gate_probe.tscn --
+## --force-touch --vp 1080x2340` (`--vp WxH` default 1080x2340; the header names no headless/windowed requirement). Every
+## line is prefixed `[<tag>] `, with per-question lines (`Q2 no left-dock slider found` ...). It quits with code 0 on
+## every path, including after restoring the slider it temporarily disabled.
 
 var app: Node
 var _vp: SubViewport

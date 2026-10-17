@@ -30,6 +30,11 @@ extends Node
 ## exactly `PICKER_MAX_TILES` of five, and the empty case exactly zero with the
 ## row hidden -- a probe that could only ever report "no overflow" is the
 ## failure `MISTAKES.md` calls a check that cannot fail.
+## Result: an assertion, windowed (the header: "Run windowed, not --headless"; command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _welcomepicker_probe.tscn`). Every line is prefixed `WP `: `ok  |FAIL
+## <label>`, `WP [<tag>] dialog=... picker.min=... cards=... foot_lines=...`, `WP [<tag>] actions=...`, `WP [<tag>]
+## foot='...'`, `WP [gallery] ...` and `WP done -- <n> failure(s)`; it creates and tears down fixture worlds on disk.
+## Exit 0 when no check failed, 1 otherwise.
 
 var app: Node
 var _fail := 0

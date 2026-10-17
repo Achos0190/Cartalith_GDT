@@ -17,6 +17,13 @@ extends SceneTree
 ## an edit-the-wrong-one hazard). Regenerate it when a timing is wanted:
 ##
 ##   git show HEAD:cartalith-native/godot-project/shell/open_project_dialog.gd ##     | sed "s/^class_name OpenProjectDialog$//" > _thumbbench_before.gd
+## Result: an assertion with a cost benchmark (`extends SceneTree`, no `.tscn`), run headless as the header shows
+## (`--headless --script _thumbbench_probe.gd`; every image asserted is CPU-side). Prints `projects root:` / `thumb
+## cache:` paths, `BEFORE (identicon) <ms> ms <n> tiles` (or `skipped -- ... absent` when the optional
+## `_thumbbench_before.gd` has not been generated from `git show HEAD:...open_project_dialog.gd`), `AFTER  cold (no
+## cache)`, `AFTER  warm disk cache` and `AFTER  warm memory cache` timings, `  PASS  |  FAIL  <msg>` rows and `<n>
+## failure(s)` followed by `  - <failure>` lines. It writes golden PNGs into its output directory and a golden file. Exit
+## 0 when no check failed, 1 otherwise.
 
 const BEFORE := "res://_thumbbench_before.gd"
 const OUT := "user://_thumbbench"

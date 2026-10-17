@@ -14,6 +14,13 @@ extends Node
 ##
 ## Claim 2 -- `civ_trait_badge_row` is reachable from GDScript with Godot
 ## argument types. Proved from `ClassDB.class_get_method_list`, then called.
+## Result: an assertion on pixels, windowed only (header command `Godot_v4.7.1-stable_win64.exe --path .
+## _vfy_traitart_probe.tscn`). Claim 1 compares the no-art frame byte for byte against the committed `map_overlay.gd`,
+## which must first be extracted with `git show HEAD:cartalith-native/godot-project/map_overlay.gd >
+## _vfy_head_overlay.gd`. Prints `  PASS  |  FAIL  <what>` rows, `SIGNATURE (ClassDB, not prose)` with
+## `args`/`types`/`return` lines, `RETURN SHAPE ...`, `NO-ART BYTE IDENTITY vs COMMITTED map_overlay.gd (full 2400x1200
+## frame)` and `VERIFIER RESULT: <n> FAIL`. Under `--headless` it prints `ABORT: pixel probe cannot run headless` and
+## exits 2; the watchdog exits 2 too. Exit 0 when no check failed, 1 otherwise.
 
 const W := 2400
 const H := 1200

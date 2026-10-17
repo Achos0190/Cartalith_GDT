@@ -22,6 +22,12 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a measurement that exits 0. Header command: `Godot_v4.7.1-stable_win64.exe --path . _waycolor_probe.tscn` (it
+## names no headless/windowed requirement but reads composited pixels). Every line is prefixed `WAYCOLOR  `: `---
+## recovered drawn colour (C) and effective alpha (a) per row ---`, `--- underlayer-only sample ... ---`, `--- measured
+## total stroke extent ... ---`, `--- measured dash period ... ---` and `WAYCOLOR  shots -> <path>`; it saves
+## `user://waycolor_black.png` and `user://waycolor_white.png`. It asserts no check count; exit 0 when it finishes, 2
+## from the watchdog (`WATCHDOG -- probe did not finish`).
 
 const W := 1200
 const H := 800

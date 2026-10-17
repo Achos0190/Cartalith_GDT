@@ -19,6 +19,12 @@ extends Node
 ##
 ##   Godot..._console.exe --path . _vfyb13_probe.tscn -- --force-touch --nowelcome
 ## Run WINDOWED for the layout figures; the banner prints which it was.
+## Result: an assertion. Command per the header: `Godot..._console.exe --path . _vfyb13_probe.tscn -- --force-touch
+## --nowelcome` (it also reads `--size=WxH`; no headless/windowed requirement named). Every line is prefixed `VFY `: `ok
+## |FAIL  <name>`, `VFY banner: display=... window=... viewport=... phone_scale=...`, `VFY root routes to these menus:
+## [...]`, `VFY menus fully covered: [...]`, `VFY --- layout, window <w>x<h>, phone_scale <s> ---` rows and `VFY DONE
+## fail=<n>`. Exit 0 when no check failed, 1 otherwise or when there is no PhoneMenu (`VFY  !! no PhoneMenu -- run with
+## -- --force-touch`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm

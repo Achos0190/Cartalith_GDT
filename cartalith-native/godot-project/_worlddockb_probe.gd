@@ -26,6 +26,11 @@ extends Node
 ## `accent_wash_2` behind an `accent` border, `set_mode_segment_on()` fills with
 ## `accent` under `accent_ink` type. Comparing to `DccTheme.c()` rather than to a
 ## hex keeps the assertion true in both palettes — this machine boots light.
+## Result: an assertion, run headless as the header shows (`--headless --path . _worlddockb_probe.tscn`; the header
+## states headless is correct because every figure is a laid-out size). `-- --force-touch` adds the touch leg. Prints `
+## ok  |FAIL  <name>   got= want=` rows, `       -- <name> = <value>` info rows, `=== <tag> ===   palette=...` banners, `
+## [1] the pill` to `  [5] the gate, mode b` sections and `_worlddockb_probe: <n> FAILURE(S)`. Exit 0 when no check
+## failed, 1 otherwise (and on `[FATAL] extension did not load`).
 
 var _fail := 0
 

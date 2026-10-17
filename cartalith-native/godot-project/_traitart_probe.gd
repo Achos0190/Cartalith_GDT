@@ -37,6 +37,13 @@ extends Node
 ## and a set of non-pixel assertions on what the two new `#[func]`s return,
 ## because the map draws the same fallback for both miss reasons on purpose
 ## and pixels therefore cannot tell them apart.
+## Result: an assertion on pixels, windowed only (header command `Godot_v4.7.1-stable_win64.exe --path .
+## _traitart_probe.tscn`). Prints `  PASS  |  FAIL  <what>` rows, `engine has civ_trait_badge_row: <b>`, `map_overlay has
+## set_trait_art_resolver: <b>`, per fixture `================ fixture: "<name>", a <kind> ================`, `  BASELINE
+## WRITTEN  <png> -- re-run to compare` on a first run, art-span lines, `  200 pins x 3 badges: median <ms> ms (min ..
+## max over 5 runs)`, `IMAGES: <dir>` and `TRAITART RESULT: ALL PASS|<n> FAILURES`. Under `--headless` it prints an
+## `ABORT` message with the windowed command and exits 2; the watchdog exits 2 too. Exit 0 when no check failed, 1
+## otherwise.
 
 const W := 2400
 const H := 1200

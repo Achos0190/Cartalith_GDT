@@ -20,6 +20,12 @@ extends Node
 ## `MODAL_INSET_RADIUS` are `DccWidgets`' own published modal-header figures
 ## and are cited as the vocabulary being conformed TO, not as the value being
 ## checked against itself.
+## Result: an assertion (CRLF file). Commands per the header: `Godot_v4.7.1-stable_win64_console.exe --path .
+## _winconform_probe.tscn`, `... -- --force-touch` (tablet, 1600x1000) and `... -- --light` (light palette); the header
+## names no explicit headless/windowed requirement. Prints `ok  |FAIL  <label>  got= want=` rows, `=== _winconform_probe
+## density=... theme=... ===`, indented `OPD close laid out ...` / `picker column laid out ...` / `sort laid out ...` /
+## `GAP slicer close ...` measurement lines and `WC done -- <n> check(s), <n> failure(s)`. Exit 0 when no check failed, 1
+## otherwise (and on `[FATAL] extension did not load`).
 
 var app: Node
 var _fail := 0

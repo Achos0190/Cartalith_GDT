@@ -19,6 +19,12 @@ extends Node
 ## weekday table typed below -- never from the engine's Moment formatter, which
 ## is what is under test. Exit 0 = every check held, 1 = a check failed,
 ## 2 = could not run. The RESULT line carries the check count.
+## Result: an assertion with screenshots, windowed only. Commands per the header: `Godot_v4.7.1-stable_win64_console.exe
+## --path . _vaultbf_probe.tscn -- --vp 1600x1000 --shots <dir>` and `-- --vp 1080x2340 --force-touch --shots <dir>`;
+## `--vp WxH` (default 1600x1000), `--force-touch` and `--shots DIR` are the only flags (an unknown one prints `VAULTBF
+## ABORT unknown flag ...`, exit 2). Prints `VAULTBF  ok  <label>`, `VAULTBF  !!  <label>   <detail>`, `VAULTBF  shot
+## <path>` and `VAULTBF  RESULT checks=<n> failed=<n> [<labels>]`. Exit 0 = every check held, 1 = a check failed, 2 =
+## could not run (an unknown flag, `VAULTBF REFUSED: run windowed`, or a .dll that predates Ruling BF).
 
 const SEED := 552017
 const DAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]

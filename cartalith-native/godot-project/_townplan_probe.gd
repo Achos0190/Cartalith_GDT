@@ -13,6 +13,11 @@ extends Node
 ##      and the stale-stage report are byte-identical before and after, and
 ##      the map's town cache loses exactly the one entry;
 ##  (c) closing and reopening the window shows the stored override state.
+## Result: an assertion with before/after screenshots, windowed ("Windowed (not --headless)"; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _townplan_probe.tscn`). Every line is prefixed `TPL `: `ok  |FAIL
+## <name>`, `TPL world: ...`, `TPL target: ...`, `TPL original:` / `TPL venus:` / `TPL medieval ...` signature lines,
+## `TPL shot <name> -> <path> (<w>x<h>)` and `TPL done: <n> failure(s)`. Exit 0 when no check failed, 1 otherwise or when
+## generation failed, fewer than three settlements have a layout, or the culture/rules/regenerate controls are missing.
 
 var app: Node
 var _fail := 0

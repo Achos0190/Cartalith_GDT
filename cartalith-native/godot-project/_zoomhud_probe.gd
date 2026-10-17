@@ -16,6 +16,12 @@ extends Node
 ## The zoom segment is recomputed here from the public `zoom()` accessor rather
 ## than from `_update_zoom_readout()`'s own expression, so replacing `100.0`,
 ## `roundi` or `%d` in that function makes this probe red.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . _zoomhud_probe.tscn -- --vp
+## 1920x1080 --tag pc`, and `--vp 2560x1600 --tag tab --force-touch`). Flags: `--vp WxH` (default 1920x1080), `--tag
+## NAME` (default `pc`), `--force-touch`; an unknown `--` argument is a hard failure. Prints `  ok  |FAIL  <what>  got=
+## want=` rows, `=== <tag> vp=... touch=... phone=... ===`, `-- A. ... --` to `-- E. field segment` sections, `
+## [<when>] zoom=... text='...'` lines and `[RESULT] <tag> pass=<n> failures=<n>`. Exit 0 when no check failed, 1
+## otherwise, 2 from the watchdog (`[RESULT] <tag> WATCHDOG after <s>s ...`).
 
 var app: Node
 var _vp: SubViewport

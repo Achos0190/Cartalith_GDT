@@ -39,6 +39,12 @@ extends Node
 ## checks, as it should; it still writes its TSV, which is the point -- the
 ## before/after diff is the evidence, and the assertions are what name the
 ## differences that are deliberate.
+## Result: a census with gates, not a pure assertion. Run headless as the header shows (`--headless --path .
+## _worldcensus_probe.tscn -- --out C:/abs/world.tsv`); flags `--out PATH` (omitted, no file) and `--seed N` (default
+## 77021). Prints `  ok  |FAIL  <what>` rows, `[BOOT] leg=desktop viewport=... seed=<n>`, `  info` lines (including
+## per-mode dock-outside-category counts), `  SCRIPT ERROR` / `  info ERROR` lines from a logger tap and
+## `_worldcensus_probe: PASS|<n> FAILURE(S)`. With `--out` it writes the census TSV. Exit 0 when no check failed, 1
+## otherwise (including any SCRIPT ERROR in the process), 3 from the 300 s watchdog.
 
 const LEG := Vector2i(1920, 1080)
 const COLUMNS: Array[String] = ["kind", "mode", "cat_idx", "category", "section", "groups",

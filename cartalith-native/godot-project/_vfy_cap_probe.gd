@@ -14,6 +14,10 @@ extends Node
 ## `_layout` (the engine's own dict) rather than sampling the framebuffer, and
 ## `ImageTexture.update()` being a no-op under `--headless` therefore does not
 ## reach any assertion here.
+## Result: an assertion, run headless as the header shows (`--headless --path . _vfy_cap_probe.tscn`; no flags are read).
+## Prints `VFY ok  |FAIL  <name>`, `VFY world: has_world=<b> settlements=<n>`, `VFY --    GI-D skipped: no clipboard on
+## this display server (run windowed)` where the display server has none, and `VFY <n> failure(s)`. Exit 0 when no check
+## failed, 1 otherwise or when no world was generated.
 
 var app: Node
 var _fail := 0

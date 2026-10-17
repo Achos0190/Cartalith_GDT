@@ -9,6 +9,12 @@ extends Node
 ## Reports, per region, the laid-out pixel size against the tablet canvas's own
 ## figure (`Cartalith Tablet.dc.html`, `valsShell()`). Reads nothing; writes
 ## nothing; changes no behaviour.
+## Result: a measurement; it exits 0 (`get_tree().quit()`) when it finishes, whatever it found. Commands per the header:
+## `godot --path . _tabspec_probe.tscn -- --force-touch --vp 1600x1000 --tag land` and `--vp 800x1280 --tag port` (`--vp
+## WxH` default 1600x1000, `--tag NAME` default `tab`; the header names no headless/windowed requirement). Prints `===
+## <tag> vp=<w>x<h> portrait=... touch=... tablet=... phone=... ===`, `[heights]`, `[widths]`, `[floor]`, `[fit]`, `[menu
+## titles]`, `[role table, live]` and `[drivers]` sections with `ABSENT` rows where a node is missing, and `=== end <tag>
+## ===`.
 
 var app: Node
 var _vp: SubViewport

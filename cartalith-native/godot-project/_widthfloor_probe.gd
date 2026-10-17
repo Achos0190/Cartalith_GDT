@@ -29,6 +29,12 @@ extends Node
 ##
 ## `--force-touch` is required for the same reason `_phonechrome_probe.gd`
 ## documents: `_phone` can never be true in this dev environment without it.
+## Result: an assertion with a dump, run headless as the header shows (`--headless --path . _widthfloor_probe.tscn --
+## --force-touch`; `--force-touch` is required, `--dump=PATH` optionally writes the control census to a file). Prints `
+## ok  |FAIL  <name>   got= want=` rows, `[BOOT] shell up, is_phone=... phone_scale=...`, `=== census: ... ===` and `===
+## windows: ... ===` sections, `[<tag>] controls=... tappable(non-popup)=...` tallies, `OVERFLOW` and `under-floor` lines
+## and `_widthfloor_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise and for each `[FATAL]`
+## (extension not loaded, `--force-touch` missing, a boot that is not phone).
 
 var _fail := 0
 

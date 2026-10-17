@@ -24,6 +24,12 @@ extends Node
 ##
 ## Optional environment: `TANAKA_OUT` names a directory that gets before/after
 ## PNGs at two zooms (the full map, and one deep-zoom tile).
+## Result: an assertion that does not carry its verdict in the exit code; windowed ("the windowed, real-cdylib check";
+## header command `Godot_v4.7.1-stable_win64.exe --path . _tanaka_probe.tscn`). Prints `  PASS  <what>` and `PROBE-FAIL
+## <what>` rows, `== 1. ... ==` to `== 4. ... ==` banners with histogram and count lines, `== screenshots to <dir> ==`
+## and `RESULT GREEN|RED (<n> failed)`. It exits 0 whatever the verdict, as the header says (grep for `PROBE-FAIL` and
+## `RESULT`); the watchdog also exits 0. With the environment variable `TANAKA_OUT` set it writes before/after PNGs at
+## two zooms there.
 
 const SEED := 20261006
 const GW := 1024
