@@ -37,6 +37,10 @@ extends Node
 ## asks for windowed evidence and a windowed run costs nothing extra:
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _redodock_probe.tscn
+## Result: an assertion. The header says to run it windowed though nothing rasterises (command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _redodock_probe.tscn`). Prints `REDO <text>` lines, `REDO ok  |FAIL
+## <name>` rows and `REDO === <n> failure(s) ===`. Exit 0 when no check failed, 1 otherwise, 2 when generation failed
+## (`!! generate failed -- nothing below can run`), 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge: Node

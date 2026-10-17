@@ -43,6 +43,11 @@ extends Node
 ## Palette: both palettes are forced and the forced state is VERIFIED before any
 ## pixel threshold is read; the drawn-fill check compares against the live
 ## `DccTheme.c("accent")`, never a colour written for one palette.
+## Result: an assertion on pixels, windowed only (CRLF file). Command per the header: `godot --path .
+## _phonepaint_probe.tscn -- --force-touch --vp 1080x2340 --tag phone --shotdir DIR`. Flags: `--vp WxH` (default
+## 1080x2340), `--tag NAME` (default `phonepaint`), `--shotdir DIR`, `--force-touch`; any other `--flag` aborts. Every
+## line is prefixed `[<tag>] `, ending `RESULT <tag> checks=<n> fail=<n>`. Exit 0 when no check failed, 1 otherwise, 2
+## for an unknown flag, a malformed `--vp`, or `--headless` (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: EngineBridge

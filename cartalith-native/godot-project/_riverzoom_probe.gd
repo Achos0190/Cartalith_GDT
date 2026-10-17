@@ -147,6 +147,14 @@ extends Node
 ## generation (e.g. `river_ink=1,river_ink_r=0,river_ink_g=0,river_ink_b=0` to
 ## measure the stroke's continuity in a full-contrast ink, independent of how
 ## far a style's colour sits from the ground).
+## Result: a measurement harness that reports and exits 0; windowed only ("MUST run windowed"). Command per the header:
+## `_riverzoom_probe.tscn -- --out DIR`; the header documents many further options (`--seeds`, `--grid`, `--zooms`,
+## `--targets`, `--stats-only`, `--vp`, `--appearance`, and the legs `--paint-compare`, `--rim2`, `--rim4`, `--rim5`,
+## `--rim7`, `--rim7rest`, `--vx` with their sub-options); an unknown argument prints `unknown arg <a>` and exits 2.
+## Prints `======== seed <n>  grid <w>x<h> ========`, grid-statistics and per-target lines, `PROBE-OK: ...` /
+## `PROBE-FAIL: ...` lines, writes `riverzoom.json` and PNG captures into `--out`, and ends `PROBE-RESULT: DONE`.
+## `PROBE-FAIL` lines go to stderr and do not change the exit code: it exits 0 after `PROBE-RESULT: DONE`; exit 2 for
+## headless or an unknown argument.
 
 var _out := "user://riverzoom/"
 var _seeds: Array[int] = [483920, 24601, 71077345]

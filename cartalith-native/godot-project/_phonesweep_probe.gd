@@ -16,6 +16,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an evidence-gathering sweep, not an assertion; windowed ("NOT headless -- this is about pixels"). Command per
+## the header: `--path . --resolution 1440x3168 _phonesweep_probe.tscn -- --force-touch`. Prints `--- <res> / <screen>
+## ---` rows with measured tappables and label font sizes, a `flick-test-left-sheet` leg, `=== shots at <dir> ===` and
+## `=== DONE. log at <path> ===`; it saves a screenshot per screen and `log.txt` into its shot directory. It exits 0
+## (`get_tree().quit()`) when the sweep finishes, whatever it measured.
 
 const SEED := 483920
 const TAP_FLOOR := 44.0   ## dcc_theme.gd DccTheme.PHONE_TAP_MIN, dp/units as authored.

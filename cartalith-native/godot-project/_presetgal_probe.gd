@@ -35,6 +35,12 @@ extends Node
 ##      unlights every tile; and the next preset is lossless
 ##   4. every tile clears the touch floor, covers its own card, and the gallery
 ##      fits the dock -- at the density this run measured
+## Result: an assertion with an optional cost section, windowed. Commands per the header: `--path . _presetgal_probe.tscn
+## -- --vp 1920x1080`, `-- --vp 2560x1600 --force-touch`, `-- --vp 1920x1080 --cost`; `--vp WxH` is required, an unknown
+## flag prints `PRESETGAL  UNKNOWN ARGUMENT ...` and a missing or malformed `--vp` is refused (exit 2). Every line is
+## prefixed `PRESETGAL  `: `ok    <text>`, `FAIL  <text>` and `=== done, <n> failures ===`. Exit 0 when no check failed,
+## 1 otherwise, 3 from the watchdog (`WATCHDOG TIMEOUT`). Run under `--headless` it records a failed check (`run WINDOWED
+## -- see this probe's header`) and carries on, so it exits 1.
 
 var app: Node
 var bridge

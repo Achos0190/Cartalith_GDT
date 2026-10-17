@@ -15,6 +15,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _phonemore_act_probe.tscn \
 ##       -- --force-touch --nowelcome
+## Result: an assertion. Header command: `--path . _phonemore_act_probe.tscn -- --force-touch --nowelcome` (no
+## headless/windowed requirement named). Every line is prefixed `ACT `: `ok  |FAIL  <name>` and `ACT done: <n>
+## failure(s)`. Exit 0 when no check failed, 1 otherwise or when there is no PhoneMenu or generation failed (`ACT  !!
+## ...`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm

@@ -12,6 +12,10 @@ extends Node
 ## the silently-empty-output trap this repository has been bitten by four
 ## times -- so the row count is asserted non-zero and specific shortcuts are
 ## named.
+## Result: an assertion, run headless as the header shows (`godot --headless --path . --resolution 1600x900
+## _shortcuts_probe.tscn`). Prints `  ok  |FAIL  <name>   got= want=` rows, `[BOOT] shell up`, `=== 0: ... ===` to `===
+## 11: ... ===` banners and `_shortcuts_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on
+## `[FATAL] extension did not load` or a missing shortcuts dialog).
 
 var _vp: SubViewport
 var _fail := 0

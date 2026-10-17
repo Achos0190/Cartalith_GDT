@@ -24,6 +24,12 @@ extends Node
 ##
 ## Prints `POLITY ok|FAIL ...` per check and a RESULT line. Exit 0 all green,
 ## 1 a failure, 2 could not run (headless, no candidate, missing binding).
+## Result: an assertion on pixels, windowed only. Command per the header: `--path . _polity_probe.tscn [-- --shots DIR]
+## [--vp WxH --force-touch]`; an unknown argument aborts with exit 2. Prints `POLITY ok|FAIL <what>  -- <detail>`,
+## `PROBE-FAIL <what>` per miss, `FORM booted as <form>`, `candidate: settlement ...` and `### POLITY RESULT GREEN|RED
+## <passed>/<total> checks passed (form <form>) ###`; `--shots` saves PNGs. Exit 0 all green, 1 a failure, 2 could not
+## run (headless, no candidate, missing binding: `### POLITY ABORT: ... ###`), plus 3 from the watchdog (`### POLITY
+## WATCHDOG ###`).
 
 var app: Node
 var bridge

@@ -55,6 +55,13 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _rearmscan_probe.tscn
 ## Run phone (adds Part 2 and the phone composition legs of parts 3/5/6):
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _rearmscan_probe.tscn -- --force-touch
+## Result: an assertion, run headless as the header shows, twice: `--headless --path . _rearmscan_probe.tscn` and `... --
+## --force-touch` (Part 2 needs the phone form and prints `=== Part 2 SKIPPED (needs -- --force-touch; run separately)
+## ===` otherwise). Prints `  OK    |  FAIL  <msg>` rows, `[BOOT] composition=<phone|desktop> ...`, `=== Part 1: ... ===`
+## to `=== Part 4: ... ===` banners, `--- 3a ... ---` / `--- 5a ... ---` legs, `--- <label>: <n> connection(s) ---`
+## subscriber lists and `<n> failure(s)`. Exit 0 when no check failed, 1 otherwise (and on a `[FATAL]` line: extension
+## not loaded, `--force-touch` without a phone boot, no journey planner view, or planner `jp_*` not exposed by this
+## build).
 
 var _fail := 0
 

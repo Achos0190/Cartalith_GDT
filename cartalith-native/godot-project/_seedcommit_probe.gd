@@ -58,6 +58,11 @@ extends Node
 ##
 ## Run: godot4 --path . _seedcommit_probe.tscn
 ## Run (cell 4): godot4 --path . --force-touch _seedcommit_probe.tscn
+## Result: an assertion with signal diagnostics, windowed, not `--headless`. Command per the header: `godot4 --path .
+## _seedcommit_probe.tscn`, and for cell 4 `godot4 --path . --force-touch _seedcommit_probe.tscn` (the flag is read from
+## the engine's own command line, `get_cmdline_args()`, not after `--`). Prints `SEED ok  |FAIL  <name>` rows, `SEED run:
+## force_touch=<b>`, `DIAG ...` lines, `SEED cell 4 SKIPPED this run -- no --force-touch` and `SEED RESULT: <n> failed
+## (force_touch=<b>)`. Exit 0 when no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var _app: Node
 var _fail := 0

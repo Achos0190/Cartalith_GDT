@@ -23,6 +23,10 @@ extends Node
 ## `population`, by largest remainder"*).
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _rdb18_probe.tscn
+## Result: an assertion (CRLF file), run headless as the header shows (`--headless --path . _rdb18_probe.tscn`). Every
+## line is prefixed `RDB `: check rows, `RDB  note: ...`, `RDB belief run: set_field=... status=...`, `RDB  measured:
+## body min width ... px` and `RDB fail=<n>`. Exit 0 when no check failed, 1 otherwise or when generation failed or there
+## is no settlement to select (`RDB  !! ...`).
 
 var app: Node
 var _fail := 0

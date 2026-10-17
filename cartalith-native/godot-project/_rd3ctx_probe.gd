@@ -24,6 +24,10 @@ extends Node
 ## harness's and not the panel's.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _rd3ctx_probe.tscn
+## Result: an assertion, run headless as the header shows (`--headless --path . _rd3ctx_probe.tscn`). It forces the dark
+## palette and refuses otherwise (`REFUSING TO RUN -- every hex here is a dark-palette value`, exit 2). Every line is
+## prefixed `RD3 `: `ok  |FAIL  <name>`, `palette: dark (forced)` and a closing `RD3 === <n> failure(s) ===`. Exit 0 when
+## no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge: Node

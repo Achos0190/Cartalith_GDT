@@ -22,6 +22,12 @@ extends Control
 ## This is a palette-agnostic pixel-owns-it test (MISTAKES.md "Assert on
 ## pixels": a threshold check against one hardcoded color proves nothing; a
 ## diff against a captured true-blank frame does).
+## Result: an assertion on pixels, windowed only (`extends Control`; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _settlepix_probe.tscn`). Prints `  PASS  |  FAIL  <what>` rows,
+## `SETTLEPIX world <w>x<h> @ <km> km, <n> settlements`, `SETTLEPIX target ...`, shallow and deep `diff=<n>/<n> px`
+## lines, `SETTLEPIX PART_B_BEGIN` ... `PART_B_END` sections and `SETTLEPIX ALL PASS|SOME FAILED (<n> failed)`. It writes
+## `res://_settlepix_blank.png`, `_shallow.png`, `_deep.png` and `_z64.png` into the project folder. Exit 0 when no check
+## failed, 1 otherwise, 2 when no populated settlement was generated.
 
 const SEED := 24601
 const SIZE_KM := 96.0

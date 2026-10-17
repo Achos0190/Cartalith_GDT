@@ -10,6 +10,12 @@ extends Node
 ## `--headless` (MISTAKES.md), and part of this is a pixel check.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _sp2journey_probe.tscn
+## Result: an assertion on pixels, windowed ("WINDOWED, not headless"; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _sp2journey_probe.tscn`). Every line is prefixed `SP2 `: `ok  |FAIL
+## <name>`, `SP2 dll mtime: <n>`, `SP2 world <w>x<h> generated (<n> frames)`, candidate and marker lines, `SP2
+## journey_positions(): median <ms> ms (min .. max)`, `SP2 re-snap report: ...` and `SP2 done: <n> failure(s)`; it saves
+## `sp2_day0.png` and `sp2_mid.png` into an output directory. Exit 0 when no check failed, 1 otherwise or when generation
+## failed or no journey was saved.
 
 var app: Node
 var _fail := 0

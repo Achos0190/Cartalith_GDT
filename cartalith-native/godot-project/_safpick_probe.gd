@@ -16,6 +16,12 @@ extends Node
 ## between branching on the platform and branching on the flag. Headless
 ## reports the feature absent, so the assertion would pass vacuously there and
 ## prove nothing.
+## Result: an assertion on the desktop half of owner ruling A and the URI-shaped half of the materialiser; the header
+## says to run windowed, not `--headless` (headless reports the native-dialog feature absent, so its key assertion would
+## pass vacuously), and the probe does not refuse headless. The header gives no command line and reads no argument.
+## Prints `SAF env   OS=... FEATURE_NATIVE_DIALOG_FILE=...`, `SAF ok    <label>` / `SAF FAIL  <label>` rows and `SAF ----
+## <n> check(s), <n> failure(s)`. It writes and wipes scratch files under `user://`. Exit 0 when no check failed, 1
+## otherwise.
 
 var _fails := 0
 var _checks := 0

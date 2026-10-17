@@ -22,6 +22,12 @@ extends Node
 ## OS.has_feature("mobile")`, neither ever true in this headless dev
 ## environment, OR this cmdline flag -- the same override `_shot_phone.gd`
 ## already documents and relies on.
+## Result: an assertion (CRLF file), run headless as the header shows (`--headless --path . _phonechrome_probe.tscn --
+## --force-touch`; structural assertions only, no pixels). `--force-touch` is required: without it the run prints
+## `[FATAL] run with -- --force-touch` and exits 1. Prints `  ok  |FAIL  <name>   got= want=` rows, `[BOOT] shell up,
+## is_phone=<b>`, `=== 1: ... ===` onward banners, `  UNLAID` / `  VIOLATION` lines with node paths and `  info` lines,
+## and `_phonechrome_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL]` for an
+## unloaded extension, or a boot into the desktop or tablet composition).
 
 var _fail := 0
 

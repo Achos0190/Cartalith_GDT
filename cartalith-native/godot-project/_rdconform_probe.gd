@@ -22,6 +22,13 @@ extends Node
 ## global rects, not as the constants that produce them: `RightDock`'s margins
 ## are the canvas figures minus `DccWidgets.section()`'s body separation, so a
 ## probe that read the constants would pass while the pixels were wrong.
+## Result: an assertion, run headless as the header shows (`--headless --path . _rdconform_probe.tscn -- --vp 1920x1080`,
+## also 1366x768, and `--vp 2560x1600 --force-touch`). `--vp WxH` and `--force-touch` are the only flags; an unrecognised
+## argument prints `[FATAL] unrecognised argument: <a>` and exits 2. Prints `  ok  |FAIL  <name>   got= want=` rows,
+## `[VP] <w>x<h>  touch=... _right_width=...`, `-- <section> --` banners (`--rdW` as a canvas literal, the HUD chips,
+## `CONTEXT SWEEP, no world` / `world live`, `APPENDED TOOL SECTIONS`, the key/value row, the hero block), `[GEN]
+## has_world=...` and `_rdconform_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL]
+## extension did not load` or `[FATAL] generate failed`).
 
 # -- Canvas literals, typed from the markup ----------------------------------
 const C_RDW := 304        ## `ENV:25`  `--rdW:304px`

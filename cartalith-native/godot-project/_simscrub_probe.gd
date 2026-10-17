@@ -63,6 +63,13 @@ extends Node
 ## driver is why pixel probes in this tree run windowed; this one reads no
 ## pixels.) Capture stderr anyway when quoting an error count -- `--headless`
 ## manufactures its own from the dummy texture storage at exit.
+## Result: an assertion, run headless as the header shows (`--headless --path . _simscrub_probe.tscn -- --phone
+## --force-touch`; one leg per process: `--phone`, `--phone-1440`, `--phone-landscape` or `--tablet`, all with
+## `--force-touch`; `--resolution` is not read). Prints `--- strip arithmetic (...) ---`, `--- targets (...) ---`, `---
+## geometry, ... ---`, `  A3` / `A4` / `A5` rows, `--- year readout, ... ---`, `  FAIL ...` lines and `_simscrub_probe
+## (<density>): clean|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise and for each `[FATAL]` (extension not
+## loaded, bad leg flags, `--force-touch` missing, a boot into the wrong density, strip missing or not open). The tablet
+## leg is the control state.
 
 var _fail := 0
 var _app: Node

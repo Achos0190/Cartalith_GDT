@@ -51,6 +51,11 @@ extends Node
 ## writes `256 MB`; with one it writes `256 MB — 5 steps here`. The stale-stamp
 ## half of the defect exists only in the second state, and this probe reported
 ## green on it until it generated.
+## Result: an assertion on pixels, windowed only, phone form only. Command per the header: `_prefchip_probe.tscn --
+## --force-touch --nowelcome`. Every line is prefixed `PREF ` or indented under it: `ok  |FAIL  <name>`, `PREF groups=<n>
+## palette=...`, `TREE` and `DRAWN` info lines, `PREF --- sweep ---` rows and `PREF === PASS|FAIL (<n> failing) ===`; it
+## saves `user://prefchip_medium.png` and a `_full` variant. Exit 0 when no check failed, 1 otherwise or when there is no
+## PhoneMenu or the composition is not a handset (`PREF !! ...`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm

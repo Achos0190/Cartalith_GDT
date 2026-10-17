@@ -74,6 +74,13 @@ extends Node
 ##   --presets a,b only these presets (default PRESETS)
 ##
 ## Exit status: 0 every assertion held, 1 one failed, 2 could not run.
+## Result: an assertion with a JSON report, windowed only. Command per the header: `_shorestep_probe.tscn -- --out DIR
+## --seed N`; options `--grid WxH` (default 1024x656), `--presets a,b`; an unknown argument aborts. Prints `SHORESTEP  ok
+## |FAIL  <what>`, `SHORESTEP  seed <n>: <n> visits ...`, `G`, `I`, `R`, `Z` measurement rows, `SKIPPED` rows where a
+## build has no shore material or the rivers are not painted, and `SHORESTEP  === <n> failures ===`; stderr carries
+## `PROBE-CANNOT-RUN: ...`. It writes `shorestep.json` and PNGs into `--out`. Exit 0 every assertion held, 1 one failed,
+## 2 could not run (headless, bad argument, 1500 s watchdog, no drawn-water mask or one of the wrong size, no
+## RenderWorkspace), as the header states.
 
 const PRESETS := ["Default", "Ink"]
 const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",

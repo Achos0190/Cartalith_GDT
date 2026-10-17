@@ -19,6 +19,12 @@ extends Node
 ## `--force-touch` is required: `PhoneMenu` is only built by
 ## `DccShell._build_phone_shell()`, and without it the run gets a desktop shell
 ## and nothing to walk.
+## Result: an assertion, run headless as the header shows (`--headless --path . _phonemore_reach_probe.tscn --
+## --force-touch --nowelcome`; `--force-touch` is required; it also reads `--size=WxH`). Every line is prefixed `REACH `:
+## `ok  |FAIL  <name>`, `REACH phone_scale=<s>`, `REACH menus on the bar: ...`, `REACH screen '<id>' drew <n> strings`,
+## `REACH layout <w>x<h> screen=... body_min_w=... rows=...`, `REACH   over:` lines and `REACH done: <n> failure(s)`.
+## Exit 0 when no check failed, 1 otherwise or when there is no PhoneMenu (`REACH  !! no PhoneMenu`), 3 from the watchdog
+## (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm            ## PhoneMenu

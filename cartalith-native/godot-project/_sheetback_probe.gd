@@ -39,6 +39,12 @@ extends Node
 ##   against `DccShell`'s own `_phone_root` child fields rather than by the
 ##   anonymous `@Button@214` path the failing probe can print, then measured
 ##   again with that subtree actually shown.
+## Result: a measurement and diagnosis harness; windowed ("Run WINDOWED, not --headless"). Commands per the header:
+## `--path . --resolution 393x852 _sheetback_probe.tscn -- --force-touch` and `... -- --force-touch --sub 1080x2340`;
+## `--force-touch` and `--sub WxH` are the only arguments, anything else prints `[ABORT] unrecognised argument ...` and
+## exits 1. Prints `[DENSITY] ...`, `[SHEET] ...`, `=== A: ... ===` / `A2` / `B` / `B2` / `C` sections with indented
+## measurement rows. It exits 0 (`get_tree().quit()`) when the sections finish whatever they measured; exit 1 on an
+## unknown argument, a boot that is not the phone composition, or no ScrollContainer under the left dock.
 
 var _scroll: ScrollContainer
 var _app: Node

@@ -14,6 +14,11 @@ extends Node
 ##   Godot --path . _poiclick_probe.tscn -- [--vp 1600x1000] [--force-touch] [--out DIR]
 ##
 ## Windowed (the screenshots are evidence the marker is really drawn there).
+## Result: an assertion with screenshots, windowed only. Command per the header: `Godot --path . _poiclick_probe.tscn --
+## [--vp 1600x1000] [--force-touch] [--out DIR]`. Prints `POICLICK ok  |FAIL  <what>  -- <detail>`, `POICLICK <text>`
+## lines and `POICLICK ---- <n> checks, PASS|<n> FAILED ----`; it saves PNG captures into `--out`. Exit 0 when no check
+## failed, 1 otherwise, 2 for an unknown argument or `--headless` (`ABORT run windowed`), 3 from the watchdog
+## (`WATCHDOG`).
 
 const SEED := 552017
 

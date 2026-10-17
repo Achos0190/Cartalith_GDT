@@ -46,6 +46,11 @@ extends Node
 ##
 ## `--targets FILE` reuses an earlier run's rv3shade.json targets, so a
 ## before/after pair frames the same ground.
+## Result: a measurement; windowed only ("MUST run windowed"). Command per the header: `_rv3shade_probe.tscn -- --out
+## DIR` (also `--seeds`, `--zooms`, `--targets FILE`). Prints `======== seed <n>  grid <w>x<h> ========`, `  grid: ...`
+## and per-zoom rows `dark: on_line ... off_carve ... control ... excess ...`, and ends `PROBE-RESULT: DONE`; it writes
+## `rv3shade.json` and `<tag>_on.png` / `_off.png` into `--out`. Exit 0 when it finishes whatever it measured, 2 for
+## headless or an unknown argument.
 
 const K_PX_PER_CELL := 3.0 ## the frame is box-resampled to this many px per cell
                            ## (never upsampled), so the element is a ground width

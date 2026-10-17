@@ -74,6 +74,10 @@ extends Node
 ## no world generation and no seed in the evidence. Row shapes are read off
 ## `lib.rs::icon_dict` (`{x,y,family,slot,set,scale,origin}`) and
 ## `lib.rs::landmark_dict` (`{id,kind,class,x,y,...}`), not invented.
+## Result: an assertion on pixels, windowed only (header command `Godot_v4.7.1-stable_win64_console.exe --path .
+## _ringdedup_probe.tscn`). Every line is prefixed `RINGDEDUP  `, ending `RINGDEDUP  ---- <n> checks, PASS|<n> FAILED
+## ----`. Under `--headless` it prints an `ABORT` message with the windowed command and exits 2; the watchdog (`WATCHDOG
+## -- probe did not finish`) exits 2 too. Exit 0 when no check failed, 1 otherwise.
 
 const W := 900
 const H := 600

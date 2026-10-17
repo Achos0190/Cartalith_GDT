@@ -21,6 +21,11 @@ extends Node
 ##                   `OS.get_cmdline_user_args()`; without it the shell boots
 ##                   desktop and every check below is void.
 ## Any other `--flag` aborts rather than being silently ignored.
+## Result: an assertion, windowed (the header gives `godot4 --path . _phonesheets_probe.tscn -- --vp 1080x2340
+## --force-touch` and names no explicit headless requirement). Flags: `--vp WxH` (default 1080x2340), `--force-touch`;
+## any other `--flag` aborts. Every line is prefixed `[phonesheets] `, ending `[phonesheets] === <n> failure(s) ===`; it
+## saves PNG captures into a directory it builds. Exit 0 when no check failed, 1 otherwise, 2 for an unknown flag or a
+## malformed `--vp`.
 
 var app: Node
 var _vp: SubViewport

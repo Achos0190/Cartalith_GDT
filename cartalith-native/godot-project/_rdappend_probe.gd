@@ -23,6 +23,10 @@ extends Node
 ## setter and not the wiring.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _rdappend_probe.tscn
+## Result: an assertion. Header command: `--path . _rdappend_probe.tscn` (no headless/windowed requirement named). Every
+## line is prefixed `RDA `: `RDA world generated: has_world=<b> (<n> frames)`, check rows (`RDA <tag> <name>  --
+## <detail>`) and `RDA fail=<n>`. Exit 0 when no check failed, 1 otherwise or when generation failed or there is no
+## settlement to select (`RDA  !! ...`).
 
 var app: Node
 var _fail := 0

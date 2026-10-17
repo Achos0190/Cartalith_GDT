@@ -18,6 +18,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a survey with a failure count. Header command: `--path . _railpress_probe.tscn` (no headless/windowed
+## requirement named). Prints `RAILPRESS  <text>` lines, per rail category and dock context `---- <title> : <n> buttons,
+## <n> pressed, <n> skipped, <n> CHANGED NOTHING`, `---- menu bar : ... ----` lines, a stale-extension failure and
+## `RAILPRESS  DONE fail=<n>`. Exit 0 when `_fail` is 0, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

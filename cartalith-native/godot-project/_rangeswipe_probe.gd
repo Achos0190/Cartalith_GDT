@@ -39,6 +39,13 @@ extends Node
 ## **Run it windowed.** Nothing here samples a pixel, but every act depends on
 ## the GUI hit-test, which wants a real frame loop; `MISTAKES.md`'s headless row
 ## is scoped to rasterising and timing.
+## Result: a census with assertions, windowed (the header: "Run it windowed"; nothing samples a pixel). Commands: `godot
+## --path . _rangeswipe_probe.tscn -- --force-touch --vp 1080x2340 --tag p1080` (also 1440x3168 and 800x1280). Flags:
+## `--vp WxH` (default 1080x2340), `--tag NAME` (default `rs`), `--census-only` (skip the swipe legs), `--force-touch`;
+## any other `--flag` aborts. Every line is prefixed `[<tag>] `, with `-- census (<where>): <n> Range nodes`, `--
+## vertical swipe with cross-axis jitter: ...` and `-- SpinBox: ...` section lines, ending `RESULT <tag> fail=<n>
+## census_hazard_before=<n>` (`RESULT <tag> fail=<n> (census only)` with `--census-only`). Exit 0 when no failure was
+## counted, 1 otherwise, 2 for an unknown flag or a malformed `--vp`.
 
 var app: Node
 var _vp: SubViewport

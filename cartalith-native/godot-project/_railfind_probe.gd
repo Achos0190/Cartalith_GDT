@@ -44,6 +44,12 @@ extends Node
 ##      splitting (`l` vs `lb`), the `.` scope reaching `CommandIndex`, bands
 ##      drawn WITHOUT re-ranking (row order asserted byte-identical to
 ##      `search()`'s own), and the count.
+## Result: an assertion (CRLF file), windowed only. Commands per the header: `Godot_v4.7.1_console --path .
+## _railfind_probe.tscn -- --vp 1600x900`, `-- --vp 2560x1600 --force-touch`, and `-- --vp 412x915 --force-touch` for the
+## phone leg; `--vp WxH` and `--force-touch` are the only flags. Prints `  ok  |FAIL  <name>   got= want=` rows,
+## `[DENSITY] ...`, `[BUILD] shell hash ...`, `=== A. ... ===` to `=== K. ... ===` banners with `  info` lines and `PROBE
+## PASS|PROBE FAIL: <n> failure(s)`. Exit 0 when no check failed, 1 otherwise; every refusal exits 3, not 2: `PROBE
+## ABORT: run WINDOWED ...` under `--headless`, a malformed `--vp`, or an unrecognised argument.
 
 var _fail := 0
 var _app: Node

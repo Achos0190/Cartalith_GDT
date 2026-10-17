@@ -54,6 +54,13 @@ extends Node
 ## the desktop exactly as the six hand-built sites left it -- stock OS chrome,
 ## `dialog_text`, a centred window -- because converting that to the modal card
 ## is an owner call and not this lane's (`menus.gd::_open_pack_metadata`).
+## Result: an assertion, windowed only (the header: "Windowed, never --headless"). Commands: `--path .
+## _phoneproto_probe.tscn -- --force-touch` (the phone protocol grade) and `-- --desktop` (the regression half; it reads
+## no other flag). Every line is prefixed `PROTO `: `ok  |FAIL  <name>`, `PROTO      phone=... scale=... viewport=...
+## tap_floor=...`, per-site protocol lines, the banners `-- known-bad specimens: the grade must FAIL on each --` and `--
+## the helpers and the card: the grade must PASS --`, and `PROTO  done fail=<n>`. Exit 0 when no check failed, 1
+## otherwise or when the shell is not in the mode the flag asked for (`PROTO  !! not in phone mode ...`, `PROTO  !!
+## --desktop asked for but the shell is in phone mode`), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var app: Node
 var _fail := 0

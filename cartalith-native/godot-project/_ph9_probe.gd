@@ -21,6 +21,11 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a measurement; it exits 0 whatever it found. Windowed (header commands `godot4 --path . --resolution 1440x3168
+## _ph9_probe.tscn -- --force-touch --nowelcome`, and 1080x2400; it also reads an undocumented `--h1080` and sets the
+## window size itself). Prints `=== phone=... scale=... ===`, `=== has_world=... ===`, `[layers]` and `[credits]` checks
+## as info, and per window `[<tag>] embedded=... visible=...`, `overflow px w=... h=...`, `tappables=<n> under <floor>px
+## = <n>`, `column=... controls whose min.x exceeds it: <n>`, `shot <path>` (`user://ph9_<tag>.png`) and `=== done ===`.
 
 var app: Node
 var _screen := Vector2.ZERO

@@ -25,6 +25,12 @@ extends Node
 ## and **no `border:` on either** -- asserted per side, per state, because that
 ## is the half of the old drawing that made these read as a different control
 ## from every other button on screen.
+## Result: an assertion, four modes chosen by the flag, one per process: none (desktop, dark), `-- --force-touch`
+## (tablet), `-- --light` (light palette), `-- --phone` (PhoneProjectPicker). Header command: `--path .
+## _pickerbtn_probe.tscn`; it names no headless/windowed requirement. Prints `ok  |FAIL  <label>  got= want=` rows,
+## `[picker] buttons=...` / `[phone] buttons=...`, `GAP   phone secondary is transparent` lines, `=== _pickerbtn_probe
+## mode=... theme=... ===` and `PB done -- <n> check(s), <n> failure(s)`. Exit 0 when no check failed, 1 otherwise (and
+## on `[FATAL] extension did not load`).
 
 var app: Node
 var _vp: SubViewport

@@ -30,6 +30,12 @@ extends Node
 ## Exit 0 pass, 1 the real assertion failed, 2 could not even set up the
 ## premise (no `.gdextension`, no world, never reached deep zoom, the stroke
 ## did not land, or the base texture did not change).
+## Result: an assertion on pixels, windowed only (the header's command adds `--resolution 1600x900`;
+## `_sculptlodcache_probe.tscn`). Prints `  ok  |FAIL  <name>  -- <detail>`, `[BOOT] shell up`, `=== 1: ... ===` to `===
+## 10: ... ===` banners, `  [SKIP] ...` lines (including `this build's GDExtension has no WorldGen.erode_op()`) and
+## `_sculptlodcache_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise, 2 when the premise could not
+## be set up (`[FATAL] the .gdextension did not load.`, `[ABORT]` for no world, deep zoom never reached with real tiles,
+## no draft to commit, or a stroke that did not change the baked field).
 
 var _vp: SubViewport
 var _fail := 0

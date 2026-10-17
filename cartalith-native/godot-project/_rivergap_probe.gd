@@ -25,6 +25,13 @@ extends Node
 ## different (and far fewer) ones.
 ##
 ## Prints PROBE-FAIL (and still exits 0) on a failed assertion; grep for it.
+## Result: a measurement with assertions that does not carry its verdict in the exit code; windowed only. Command per the
+## header: `--path . --resolution 1600x1000 _rivergap_probe.tscn -- --out DIR [--seeds 483920,24601] [--shots 3] [--km
+## 800] [--sites X:Y,X:Y]`. Prints `integrate_drainage (app param table): ...`, `generating seed <n>, 2048 x 1311, <km>
+## km...`, per seed `delta fans: ...` and `LIVE get_rivers(1): drawn runs ...` lines, `  PASS  |  PROBE-FAIL  <what>`
+## rows and `_rivergap_probe: ALL PASS|PROBE-FAIL FAILURES (<n> failures); images in <dir>`; it saves `s<seed>_fit.png`
+## and per-site captures. It exits 0 after that line whatever the verdict (the header says to grep for `PROBE-FAIL`);
+## exit 2 for headless, an unknown argument, or generation that never finished.
 
 var _out := "user://rivergap/"
 var _fails := 0

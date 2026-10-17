@@ -39,6 +39,12 @@ extends Node
 ## call. It catches a stall in GDScript-land; it cannot catch the freeze this
 ## report is about. That is why the runner also wraps the process in an OS-level
 ## timeout — see the pass notes.
+## Result: a timing reproduction with a failure gate, run headless as the header shows (`Godot_v4.7.1 --headless --path .
+## _poifreeze_probe.tscn -- 256 192`; the grid is the two positional user arguments, one size per process). Prints `===
+## _poifreeze_probe  grid <w>x<h> ===`, `[STEP 1]` to `[STEP 9]` progress lines (including how many main-loop frames were
+## served during `landmark_run()`), `  ok  |FAIL  <name>   got= want=` rows, a tab-separated `RESULT_ROW` line and `===
+## SUMMARY <w>x<h> fails=<n> ===`. Exit 0 when no check failed, 1 otherwise (and on `[FATAL] extension did not load` or a
+## null `app.bridge`), 3 from the watchdog (`WATCHDOG TIMEOUT after <s> s`).
 
 const WATCHDOG_S := 900.0
 

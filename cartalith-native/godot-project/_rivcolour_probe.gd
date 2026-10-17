@@ -43,6 +43,13 @@ extends Node
 ##    stroke pixels are sampled (see `_walk`).
 ##    With no defect to target (the healthy case since 2026-09-28) the walk
 ##    runs on a `course` control target, the longest drawn river's midpoint.
+## Result: a measurement that reports and exits 0; windowed only. Command per the header: `_rivcolour_probe.tscn -- --out
+## DIR`; options `--seeds a,b`, `--grid WxH`, `--zooms 1,4`, `--targets DIR/rivcolour.json`, `--stroke-path`; an unknown
+## argument prints `unknown arg <a>` and exits 2. Prints `======== seed <n>  grid <w>x<h> ========`, `  river path
+## measured: ...`, `  data: <json>`, per-target `max_step` rows, ends `PROBE-RESULT: DONE`, and writes `rivcolour.json`
+## plus `<tag>_on.png` captures into `--out`. A failed positive control prints `PROBE-FAIL: ...` to stderr but does not
+## change the exit code: it exits 0 after `PROBE-RESULT: DONE` whatever was printed (2 only for headless or an unknown
+## argument).
 
 var _out := "user://rivcolour/"
 var _seeds: Array[int] = [483920, 24601, 1]

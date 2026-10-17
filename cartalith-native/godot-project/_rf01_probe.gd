@@ -21,6 +21,9 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _rf01_probe.tscn` (no
+## headless/windowed requirement named). Prints `RF01  <text>` lines, `RF01  FAIL  <text>` per miss and `RF01  DONE
+## fail=<n>`. Exit 0 when no check failed, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

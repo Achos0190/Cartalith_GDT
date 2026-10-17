@@ -22,6 +22,12 @@ extends Node
 ##
 ## Exit status: 0 always (measurement probe, not a pass/fail gate) unless it
 ## could not run (2).
+## Result: a measurement, not a pass/fail gate; windowed only. Command per the header: `--path . _roadsettle_probe.tscn
+## -- --out DIR` (`--out` required; `--seed N` default 483920, `--grid WxH` default 512x384; the code also reads
+## `--metropolis`, `--river-density` and `--geology-model` and `--focus`, which the header does not list). Prints
+## `ROADSETTLE  <text>` lines and ends `ROADSETTLE  ---- done ----`; it writes PNG crops into `--out`. Exit 0 when the
+## run finishes whatever it measured; 2 for headless, a bad argument or the 600 s watchdog (stderr `PROBE-CANNOT-RUN:
+## ...`).
 
 const DEEP := 16.0
 

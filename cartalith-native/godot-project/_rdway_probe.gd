@@ -20,6 +20,10 @@ extends Node
 ##    literal, or any other constant, that comparison fails.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _rdway_probe.tscn
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _rdway_probe.tscn` (no
+## headless/windowed requirement named). Every line is prefixed `RDW `: `RDW world generated: has_world=<b> (<n>
+## frames)`, check rows (`RDW <tag> <name>  -- <detail>`) and `RDW ---- <n> failure(s)`. Exit 0 when no check failed, 1
+## otherwise or when generation failed or there is no settlement (`RDW  !! ...`).
 
 var app: Node
 var _fail := 0

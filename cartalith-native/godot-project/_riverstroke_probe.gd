@@ -33,6 +33,12 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _riverstroke_probe.tscn -- --out C:/some/scratch/dir
+## Result: an assertion on pixels, windowed only (CRLF file). Command per the header: `--path . --resolution 1600x1000
+## _riverstroke_probe.tscn -- --out C:/some/scratch/dir`; `--out DIR` is the only argument and anything else exits 2.
+## Prints `  PASS  |  FAIL  <what>` rows, `== A. defaults ==` onward banners with measurement lines, and `ALL
+## PASS|FAILURES (<n> failures); images in <dir>`; it writes `C_zoom<z>_on.png` / `_off.png` and `D_lod_rivers_on.png` /
+## `_off.png` into `--out`. Exit 0 when no check failed, 1 otherwise, 2 could not run (headless, unknown argument, no
+## viewport/bridge, generation never finished).
 
 var _out := "user://riverstroke/"
 var _fails := 0

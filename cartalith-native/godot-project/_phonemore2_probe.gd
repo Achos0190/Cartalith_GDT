@@ -35,6 +35,12 @@ extends Node
 ##
 ## `--force-touch` is required: `PhoneMenu` is built only by
 ## `DccShell._build_phone_shell()`, and without it there is no menu to walk.
+## Result: an assertion with a small timing section, windowed (header: "Run windowed"; command `--path .
+## _phonemore2_probe.tscn -- --force-touch --nowelcome [--size=WxH]`; it also reads an undocumented `--world`). Every
+## line is prefixed `PM2 `: `ok  |FAIL  <name>`, `PM2 screen <id> arg=... rows=... strings=... body_min_w=...
+## screen_w=...`, `PM2   over:` lines, `PM2 root render: median <ms> ms (min..max) over 9`, `PM2 note: ...` and `PM2
+## done: <n> failure(s)`. Exit 0 when no check failed, 1 otherwise or when there is no PhoneMenu (`PM2  !! no PhoneMenu
+## -- run with -- --force-touch`), 3 from the watchdog (`PM2 WATCHDOG TIMEOUT`).
 
 var app: Node
 var pm            ## PhoneMenu

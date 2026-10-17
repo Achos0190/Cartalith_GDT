@@ -68,6 +68,11 @@ extends Node
 ##      real work", reproduced here on one long way instead of fifty.
 ##   5. **Timing**: wall-clock per redraw with vsync off, OLD vs NEW, median
 ##      of 5 batches with min/max, this probe run alone.
+## Result: an assertion on pixels and Godot render counters, windowed only (header command `Godot_v4.7.1-stable_win64.exe
+## --path . _segcull_probe.tscn`). Prints `SEGCULL  <text>` lines, `---- phase 1: ... ----` to `---- phase 4: ... ----`
+## banners and `SEGCULL  RESULT: PASS|FAIL -- <n> check(s) failed`; it saves `user://segcull_on_z...png` /
+## `_off_z...png`. Under `--headless` it prints an `ABORT` message with the windowed command and exits 2; the watchdog
+## exits 2 too. Exit 0 when no check failed, 1 otherwise.
 
 const W := 900
 const H := 600

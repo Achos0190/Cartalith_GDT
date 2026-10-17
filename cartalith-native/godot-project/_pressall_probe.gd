@@ -17,6 +17,10 @@ extends Node
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
 ## the passes that wrote them, not deleted after them. Copy this line rather
 ## than the disposable-scratch-file boilerplate the earlier headers carried.
+## Result: a survey with a failure count. Header command: `--path . _pressall_probe.tscn` (no headless/windowed
+## requirement named). Prints `PRESSALL  <text>` lines, per window `---- <title> : <n> buttons, <n> pressed, <n> skipped,
+## <n> CHANGED NOTHING`, a stale-extension failure and `PRESSALL  DONE fail=<n>`. A press that changed nothing is not
+## automatically a failure (the header says so). Exit 0 when `_fail` is 0, 1 otherwise, 3 from the watchdog (`WATCHDOG`).
 
 var _app: Node
 var _bridge

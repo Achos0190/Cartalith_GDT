@@ -25,6 +25,11 @@ extends Node
 ##
 ## Headless is sound here: every assertion is over engine state, node text and
 ## signal order. Nothing is sampled off the framebuffer.
+## Result: an assertion, run headless as the header shows (`godot4 --headless --path . _regionnewworld_probe.tscn`; every
+## assertion is over engine state and node text). Prints `  PASS  |  FAIL  <what>` rows, `== 0. ... ==` to `== 6. ... ==`
+## banners, `  parent:` / `  child :` fixture lines, the confirmation card's prose, and `ALL PASS (0 failures)` or
+## `FAILURES (<n> failure(s))`. Exit 0 when no check failed, 1 otherwise or at a `FATAL:` line (no File menu on the live
+## `MenuBar`, no card to answer or confirm, no destructive button), 3 from the watchdog (`WATCHDOG TIMEOUT`).
 
 var _app: Node
 var _fails := 0

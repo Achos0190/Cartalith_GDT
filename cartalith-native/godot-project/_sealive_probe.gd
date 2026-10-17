@@ -32,6 +32,12 @@ extends Node
 ## (min..max) of five live moves and five repaints; no checks.
 ## Ends with `SEALIVE RESULT GREEN` or `SEALIVE RESULT FAIL (n)`; every failed
 ## check prints `PROBE-FAIL`. Exits 0 either way (grep the lines).
+## Result: an assertion that does not carry its verdict in the exit code; windowed only. Commands per the header: `--path
+## . --resolution 1600x1000 _sealive_probe.tscn` and `... -- --timing 2048` (an N x N world and a median timing instead
+## of the checks). Prints `SEALIVE ok  |PROBE-FAIL  <what>`, `SEALIVE dll binding present: <b>`, `SEALIVE timing run <i>:
+## ...`, `SEALIVE TIMING <n>x<n> live move ...; repaint (color_texture) ...`, and `SEALIVE RESULT GREEN|FAIL (<n>)`. It
+## exits 0 after the result line whatever the verdict (the header says to grep); under `--headless` it prints `SEALIVE
+## REFUSED: headless` and exits 2; the watchdog (`SEALIVE WATCHDOG`) exits 3.
 
 var _fails := 0
 

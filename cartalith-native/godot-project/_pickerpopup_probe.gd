@@ -27,6 +27,11 @@ extends Node
 ##   `--force-touch` NOT read here -- `dcc_shell.gd` reads it; with a phone-sized
 ##                `--vp` it makes the run a phone.
 ## Any other `--flag` aborts rather than being silently ignored.
+## Result: an assertion on popup sizes, windowed only (CRLF file). Commands per the header: `godot --path .
+## _pickerpopup_probe.tscn -- --force-touch --vp 1080x2340 --tag phone` and `-- --vp 1600x1000 --tag desktop`. Flags:
+## `--vp WxH` (default 1080x2340), `--tag NAME` (default `cpp`), `--force-touch`; any other `--flag` aborts. Every line
+## is prefixed `[<tag>] `, ending `RESULT <tag> fail=<n>`. Exit 0 when no check failed, 1 otherwise, 2 for an unknown
+## flag, a malformed `--vp`, or `--headless` (`ABORT run WINDOWED`).
 
 var app: Node
 var bridge: EngineBridge

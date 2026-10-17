@@ -9,6 +9,11 @@ extends Node
 ##
 ## WINDOWED (the shell needs a real viewport to generate through):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _sp2cache_probe.tscn
+## Result: an assertion with a timing section. Header command: `Godot_v4.7.1-stable_win64_console.exe --path .
+## _sp2cache_probe.tscn` (no headless/windowed requirement named). Every line is prefixed `SP2C `: `ok  |FAIL  <name>  --
+## <detail>`, `SP2C dll mtime: <n>`, `SP2C world <w>x<h>, seed <n>`, per-scenario `hits+<n> misses+<n>` rows,
+## `journey_positions() warm/cached: median <ms> ms (min .. max)` and `cold/re-planned` timing rows, and `SP2C done: <n>
+## failure(s)`. Exit 0 when no check failed, 1 otherwise or when generation failed or no journey could be saved.
 
 var app: Node
 var wg

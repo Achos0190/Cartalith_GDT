@@ -52,6 +52,13 @@ extends Node
 ## filed under a name that claims a composition it is not.
 ##
 ## Read-only apart from the PNGs and the `--out` directory.
+## Result: a capture harness with a classification gate, headed (never `--headless`). Commands per the header:
+## `_sight3_probe.tscn -- --comp pc`, `-- --comp tablet --force-touch`, `-- --comp tablet --vp 1600x1000 --force-touch`,
+## `-- --comp phone --force-touch`; also reads `--out DIR` and `--generate`. Prints `=== comp=<comp> vp=<w>x<h> ===`,
+## `[IDENT] intrinsic=...`, `[FLAGS]`, `[BANDS]`, `[FLOOR]`, `[ROW]`, `[SHELL]` rows, `[CLIPPED]` / `[STRAY]` lists,
+## `[SHOT] <path>` and `### DONE ###`; it saves a PNG per leg into `--out`. Exit 0 after `### DONE ###`; 2 for a bad
+## `--comp` or a missing/forbidden `--force-touch`; 3 when the shell that booted is not the composition asked for (no PNG
+## saved); 4 for a null SubViewport texture (`was this run --headless?`). It asserts no check counts of its own.
 
 ## `_build_rail()`: `_scaled(DccTheme.W_RAIL_COLLAPSED)` on the `PanelContainer`,
 ## less the 1 px right border `DccTheme.panel("panel", {"right": 1})` draws.

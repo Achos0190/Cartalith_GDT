@@ -23,6 +23,12 @@ extends Node
 ## copy. If phase 2 never runs, `BACKUP` is the file to put back.
 ##
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row.
+## Result: an assertion in two processes, windowed, not `--headless`. Commands per the header: `--path .
+## _seedlayout_probe.tscn` (phase 1, which leaves the config on disk) then `... -- phase2` (a positional argument, not a
+## flag). Every line is prefixed `SEEDLAYOUT  `, ending `PASS|FAIL (<n> failed)`. The exit code is the failure count
+## itself (`quit(_fail)`): 0 when everything held, otherwise the number of failed checks; exit 2 when a leftover backup
+## of the settings file exists (`Copy it over cartalith_settings.cfg and delete it, then re-run.`), 3 from the watchdog
+## (`WATCHDOG`).
 
 const BACKUP := "user://_seedlayout_probe_backup.bin"
 

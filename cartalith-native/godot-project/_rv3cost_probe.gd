@@ -32,6 +32,12 @@ extends Node
 ## cross-section (`_relief`) against the same on a parallel control line
 ## `CONTROL_OFFSET` cells away. A channel the shading fills in reads flat
 ## inside its walls; a surviving trough reads its walls.
+## Result: a measurement; windowed only. Commands per the header: `_rv3cost_probe.tscn -- --mode cost --grid 2048x2048
+## --out DIR` and `-- --mode sculpt --out DIR` (also `--seed N`, `--reps N`). Prints `======== cost: seed <n> grid
+## <w>x<h> ========` or `======== sculpt: ... ========`, per-repetition timings with median (min..max), channel
+## cross-section and luma-range lines, and `PROBE-RESULT: DONE` or `PROBE-RESULT: ABORT <reason>` (no world, no valley
+## field, no site far from every river, no stamp landed). It writes `rv3cost_<w>x<h>.json` or `rv3sculpt.json` and PNGs
+## into `--out`. Exit code 2 for an abort, headless, an unknown argument or mode; otherwise 0 whatever it measured.
 
 const CHANNEL_CELLS := 40.0   ## sculpted channel length in cells; a labelled judgement:
                               ## long enough to read on screen at x4, short enough to

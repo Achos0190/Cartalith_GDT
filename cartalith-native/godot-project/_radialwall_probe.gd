@@ -28,6 +28,13 @@ extends Control
 ## Windowed, because `frame_post_draw` never delivers under `--headless`.
 ##
 ## Godot_v4.7.1-stable_win64_console.exe --path . _radialwall_probe.tscn
+## Result: an assertion on pixels, windowed only (`extends Control`; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . _radialwall_probe.tscn`). It needs `_radialwall_town<k>_before.json`
+## and `_radialwall_town<k>_after.json` for four towns, written by `cargo run -p cartalith-urban --example town_json` as
+## the header shows; those JSON files are not tracked in git. Prints `  PASS  |  FAIL  <what>` rows, per town `RADIALWALL
+## <town>: ... lots, ... buildings`, faubourg-by-distance, strip-coverage and changed-sample lines, and `RADIALWALL ALL
+## PASS|SOME FAILED (<n> failed)`. It writes `res://_radialwall_<town>_before.png`, `_after.png`, `_cluster_before.png`
+## and `_cluster_after.png` into the project folder. Exit 0 when no check failed, 1 otherwise.
 
 const TOWNS := 4
 ## The curtain's half-stroke (`WALL_W["curtain"]` 4.5 / 2), a literal.

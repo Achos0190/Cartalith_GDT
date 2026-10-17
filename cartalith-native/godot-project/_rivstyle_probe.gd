@@ -60,6 +60,13 @@ extends Node
 ##                 water_mask.png (for a build without the binding)
 ##
 ## Exit status: 0 every assertion held, 1 one failed, 2 could not run.
+## Result: an assertion with a JSON report, windowed only. Command per the header: `_rivstyle_probe.tscn -- --out DIR`;
+## options `--seed N` (default 483920), `--no-zoom`, `--presets a,b`, `--grid WxH` (default 1024x656), `--timing-only`,
+## `--screen-only`, `--mouth-only`, `--mouths FILE`, `--mask FILE`; an unknown argument aborts. Prints `RIVSTYLE  ok
+## |FAIL  <what>` rows, per-section measurement lines (`RIVSTYLE  E:`, `M1`, `M2`, `M3`, `S`, timing in ms) and `RIVSTYLE
+## === <n> failures ===`; stderr carries `PROBE-CANNOT-RUN: ...` (headless, bad argument, 1800 s watchdog, a binary
+## without `set_rivers_in_map`). It writes PNGs and `rivstyle.json` into `--out`. Exit 0 every assertion held, 1 one
+## failed, 2 could not run, as the header states.
 
 const PRESETS := ["Natural Vibrant", "Default", "Antique", "Ink", "Woodcut",
 	"Blueprint", "Ink wash", "Vintage atlas", "Night"]

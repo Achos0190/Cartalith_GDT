@@ -18,6 +18,11 @@ extends Node
 ## to run in light rather than measuring the wrong theme.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _setxvert_probe.tscn
+## Result: an assertion on pixels, windowed only and dark palette only. Header command:
+## `Godot_v4.7.1-stable_win64_console.exe --path . _setxvert_probe.tscn`. Every line is prefixed `SXV `: `ok  |FAIL
+## <name>`, `-- A. ... --` to `-- G. ... --` section lines and `=== ALL CHECKS PASSED ===` or `=== <n> CHECK(S) FAILED
+## ===`. Exit 0 when no check failed, 1 otherwise or when generation failed or there are no places, 2 when the dark
+## palette cannot be forced.
 
 const SEEDS := [483920, 77021, 4242]
 ## `SettlementExtras.dc.html`: `width:84px;height:84px` on the plan frame,

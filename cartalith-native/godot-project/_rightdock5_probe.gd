@@ -32,6 +32,11 @@ extends Node
 ## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
 ## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence
 ## for the passes that wrote them, not deleted after them.
+## Result: an assertion. Header command: `Godot_v4.7.1-stable_win64_console.exe --path . _rightdock5_probe.tscn` (no
+## headless/windowed requirement named). Every line is prefixed `RD5 `: `RD5 world generated: has_world=<b> (<n>
+## frames)`, check rows (`RD5 <tag> <name>  -- <detail>`), `RD5 info  land cell for the paint dab: ...` and `RD5
+## fail=<n>`. Exit 0 when no check failed, 1 otherwise or when generation failed (`RD5  !! generate failed`). The header
+## says an engine-side script error is judged by its absence on stderr, not by this probe's own counter.
 
 var app: Node
 var _fail := 0

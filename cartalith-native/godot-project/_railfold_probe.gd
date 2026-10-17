@@ -33,6 +33,11 @@ extends Node
 ## `select_domain_category`, `Workspace.open_category` — rather than reading
 ## state back out of the objects it just wrote to. A probe that asserts what it
 ## set is a probe that passes over a broken build.
+## Result: an assertion (CRLF file), windowed per the header's command (`--path . --resolution 1600x900
+## --rendering-driver opengl3 _railfold_probe.tscn`); the header names no explicit headless requirement. Prints `  ok
+## |FAIL  <name>   got= want=` rows, `[BOOT] shell up`, `=== 1: ... ===` to `=== 6: ... ===` banners (including `3a`), `
+## EXTRA` / `  MISSING` detail lines and `_railfold_probe: PASS|<n> FAILURE(S)`. Exit 0 when no check failed, 1 otherwise
+## (and on `[FATAL] extension did not load`).
 
 var _vp: SubViewport
 var _fail := 0
