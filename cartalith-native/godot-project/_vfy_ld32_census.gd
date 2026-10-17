@@ -8,6 +8,9 @@ extends Node
 ## second run, which made the first attempt at this diff meaningless.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _vfy_ld32_census.tscn
+## Result: a census with no assertions, run headless as the header shows (`--headless --path . _vfy_ld32_census.tscn`).
+## It uses only APIs present at HEAD and in the working tree so its output can be diffed across the two. Prints `CEN
+## world=<b>`, tab-separated `CEN CTRL`, `CEN CAT` and `CEN MODE` rows and `CEN DONE`, then exits 0.
 
 var app: Node
 

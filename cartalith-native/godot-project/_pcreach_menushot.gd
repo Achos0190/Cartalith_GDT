@@ -9,6 +9,11 @@ extends Node
 ## `position`/`size` include its drop-shadow margin, so a corner sample lands
 ## on the app behind the menu and reads `bg` no matter what the menu paints.
 ## That mis-sample is what this version exists to not repeat.
+## Result: a screenshot and colour-sampling tool that asserts nothing and exits 0. Windowed by its design (it captures a
+## SubViewport texture with the menu open); the header gives no command line. It reads `--out DIR` (default
+## `user://pcreach`). Prints `[MODE] bg=... panel=... sunken=... text=...`, `  (no menu)   band ground=...`, a
+## `declared=... rect=... ground=...` line per program menu and `### DONE ###`; it saves `light_menu_<menu>.png` into the
+## output directory.
 var app: Node
 var _vp: SubViewport
 

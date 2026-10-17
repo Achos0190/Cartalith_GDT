@@ -52,6 +52,13 @@ extends Node
 ## "after" shots were taken before that gate, with them on.
 ##
 ## Exit status: 0 both shots written; 1 a shot failed; 2 could not run.
+## Result: a screenshot tool with failure exits, windowed only. Command per the header:
+## `Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag before`; `--tag NAME` is required.
+## Optional: `--processes on|off`, `--age TAU`, `--relief on|off`, `--coastal on|off`, `--seed N`, `--zoom-at X,Y`
+## (repeatable), `--zoom-radius N`, `--zoom-size PX`; an unknown argument prints `[FATAL] unknown argument ...` and exits
+## 2. Prints `[SHOT] <tag> seed <n> processes ... -> <png>` and `[ZOOM] ...` per image, `[FAIL] ...` per missing texture
+## or refused crop, and `[FATAL] ...` for setup errors. Exit status as the header states: 0 both shots written, 1 a shot
+## failed, 2 could not run.
 
 ## The GF-0 harness's first and last seeds (§5.1).
 const SEEDS: Array[int] = [483920, 314159]

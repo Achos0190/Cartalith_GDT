@@ -8,6 +8,11 @@ extends Node
 ## register keeps finding. Deliberately skips rows that touch the filesystem
 ## (Clear caches, atlas import/export, Documentation) -- those are audited by
 ## reading their handler, not by firing them.
+## Result: an assertion that does not carry its verdict in the exit code. Header command: `godot --path . --resolution
+## 1600x900 _prefwinhelp_press.tscn` (no headless/windowed requirement named). Prints `  ok  |FAIL  <name>   got= want=`
+## rows, `[BOOT] shell up`, `=== WINDOW - ... ===`, `=== PREFERENCES - ... ===` and `=== HELP - the dialog rows ===`
+## sections with `     info` lines and `[RESULT] failures=<n>`. It exits 0 after the result line whatever the count; only
+## `[FATAL] extension did not load` exits 1.
 var _vp: SubViewport
 var _fail := 0
 var _app: Node

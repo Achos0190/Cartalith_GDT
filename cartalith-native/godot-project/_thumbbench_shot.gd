@@ -10,6 +10,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _thumbbench_shot.tscn
+## Result: a capture tool that asserts nothing, windowed only (header command `Godot_v4.7.1-stable_win64_console.exe
+## --path . --resolution 1600x1000 _thumbbench_shot.tscn`). Prints `SHOT  gallery <w>x<h>  theme=...  tiles=<n>` and
+## saves `user://_thumbbench/gallery.png`. Exit 0 on success, 1 when there is no dialog or the framebuffer is null (`SHOT
+## !! no dialog`, `SHOT  !! null framebuffer -- not a real renderer`).
 
 func _frames(n: int) -> void:
 	for i in n:

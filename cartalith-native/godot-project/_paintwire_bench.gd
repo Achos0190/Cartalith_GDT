@@ -11,6 +11,11 @@ extends Node
 ## and the answer would be a fiction.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _paintwire_bench.tscn
+## Result: a timing benchmark, windowed only ("refuses otherwise"; header command `Godot_v4.7.1-stable_win64_console.exe
+## --path . _paintwire_bench.tscn`). For each grid size it prints `<n>^2  window <w>x<h> = <pct>% of the grid  (<n> of
+## <n> dabs fell back to a full raster)`, `    full raster (before)  <ms> ms  (min..max)` and `    bounded patch (after)
+## <ms> ms  (min..max)`. When no real renderer is available (a texture update does not stick) it prints `BENCH REFUSED:
+## no real renderer (<driver>). Re-run without --headless.` and exits 2; otherwise it exits 0 whatever it measured.
 
 const SIZES := [512, 1024, 2048]
 const DABS := 20

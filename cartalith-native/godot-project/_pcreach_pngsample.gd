@@ -5,6 +5,10 @@ extends Node
 ## from a downscaled full-frame render.
 ##
 ##   Godot_v4.7.1 --headless --path . _pcreach_pngsample.tscn -- --dir <dir>
+## Result: a re-sampling tool that asserts nothing and exits 0. Run headless as the header shows (`--headless --path .
+## _pcreach_pngsample.tscn -- --dir <dir>`; it reads saved PNGs from disk). Prints `  <file> top5 in <rect>: ...` per
+## screenshot (or `  <file> LOAD FAILED`), `     crop -> CROP_<file>  <w>x<h>` and `### DONE ###`; it writes
+## `CROP_<file>` PNGs into `--dir`.
 
 func _hex(c: Color) -> String:
 	return "#%02x%02x%02x" % [int(round(c.r * 255)), int(round(c.g * 255)),

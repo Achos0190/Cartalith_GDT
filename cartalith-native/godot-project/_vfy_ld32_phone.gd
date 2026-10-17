@@ -5,6 +5,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . \
 ##     --resolution 1080x2340 _vfy_ld32_phone.tscn -- --force-touch
+## Result: an assertion (CRLF file), run headless as the header shows (`--headless --path . --resolution 1080x2340
+## _vfy_ld32_phone.tscn -- --force-touch`). Prints `VP32 ok  |FAIL  <name>  -- <detail>`, `VP32 force-touch=<b>`, `VP32
+## phone_scale=... segment size=... pill min=...` and `VP32 DONE  failures=<n>`. Exit 0 when no check failed, 1
+## otherwise.
 
 var app: Node
 var _fail := 0

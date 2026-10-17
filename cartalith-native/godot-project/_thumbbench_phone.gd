@@ -5,6 +5,11 @@ extends Node
 ## first attempt did the latter and captured the desktop dialog instead.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 393x852 ##       --force-touch _thumbbench_phone.tscn
+## Result: a capture tool that asserts nothing. Command per the header: `Godot_v4.7.1-stable_win64_console.exe --path .
+## --resolution 393x852 --force-touch _thumbbench_phone.tscn` (as written the header puts `--force-touch` before the
+## scene name, not after `--` where `dcc_shell.gd` reads it from the user arguments; not run here). Windowed, since it
+## grabs the main viewport. Prints `PHONE  <w>x<h>  is_phone=<b>  picker=<b>` and saves `user://_thumbbench/phone.png`;
+## `PHONE  !! null framebuffer` exits 1, otherwise 0.
 
 func _ready() -> void:
 	var app: Node = load("res://shell/app.tscn").instantiate()

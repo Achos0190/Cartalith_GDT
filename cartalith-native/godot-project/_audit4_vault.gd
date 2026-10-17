@@ -5,6 +5,11 @@ extends Node
 ## back as `1.0` and serde cannot read that into the `i64` `links.rs` declares.
 ##
 ##   godot --path . --headless _audit4_vault.tscn
+## Result: a diagnostic that asserts nothing and exits 0. Run headless as the header shows (`godot --path . --headless
+## _audit4_vault.tscn`). Prints `[A] engine's own vault_state_json() -> restore: <result>`, then, only if
+## `user://markdown_vault.json` exists, `[B]`, `[C]` and `[D]` restore results for the shipped sidecar as written, with
+## `entity_id` coerced to int, and with `source_modified`/`version` coerced too; otherwise `[B] no sidecar at <path>`. It
+## always ends with `get_tree().quit(0)`.
 
 func _ready() -> void:
 	var gen: Object = ClassDB.instantiate("WorldGen")

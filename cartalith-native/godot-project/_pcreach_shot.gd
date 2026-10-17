@@ -9,6 +9,10 @@ extends Node
 ## run. Read-only apart from the PNGs it writes to `--out`.
 ##
 ##   Godot_v4.7.1 --path . _pcreach_shot.tscn -- --vp 1920x1080 --out <dir>
+## Result: a capture tool that asserts nothing and exits 0; headed, not `--headless`. Command per the header:
+## `Godot_v4.7.1 --path . _pcreach_shot.tscn -- --vp 1920x1080 --out <dir>`. Prints `[MODE] vp=... theme=...
+## docks=.../...`, `[WORLD] generated`, `  shot -> <name>.png  <w>x<h>` per capture (or `  shot FAILED (null texture)
+## <name>`) and `### DONE ###`; it writes the PNGs into `--out` and is otherwise read-only.
 
 const SEED := 483920
 

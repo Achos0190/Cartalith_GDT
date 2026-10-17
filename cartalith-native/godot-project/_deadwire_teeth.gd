@@ -3,6 +3,10 @@ extends Node
 ## rules. A probe that passes proves nothing unless its failure path still
 ## fires, so this hands `_audit()` a synthetic tree with one control of each
 ## shape and checks the verdict is what the rules say it must be.
+## Result: a negative control for `_deadwire_probe.gd`, marked THROWAWAY by its header although tracked. It feeds
+## `_deadwire_probe.gd`'s `_audit()` a synthetic tree and prints `TEETH  fail=<n> expected=2  PASS|FAIL` (A and B must be
+## the only two failures); exit 0 when the count equals the expected 2, 1 otherwise. The header names no run command or
+## headless/windowed requirement.
 
 func _pressed_a() -> void:
 	pass

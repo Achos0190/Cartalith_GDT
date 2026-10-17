@@ -16,6 +16,12 @@ extends Control
 ## Each town gets its own clipped child Control, because a town's approach
 ## roads run to its 1.7 km box edge and would otherwise scribble across every
 ## neighbouring panel.
+## Result: a capture and timing tool that asserts nothing and exits 0 (`extends Control`). Header command:
+## `Godot_v4.7.1-stable_win64_console.exe --path . _roofshot.tscn`; the header's "Temporary, untracked" is stale, the
+## file is tracked. Prints `ROOF world <w>x<h>, <n> settlements`, `ROOF generated <n> layouts in <ms> ms`, per-town `ROOF
+## <name> pop=... blocks=... parcels=... bldg=... tone=[...] site=...` rows, `ROOF distinct first-tone across towns: <n>
+## of <n>`, `ROOF redraw (6 towns) <ms> ms` and `ROOF saved _roofshot.png <w>x<h>`; it writes `res://_roofshot.png` into
+## the project folder.
 
 const DRAW := preload("res://shell/urban_layout_draw.gd")
 const SEED := 483920

@@ -5,6 +5,9 @@ extends Node
 ## `DccApp`, in a real window, against the real GDExtension.
 ##
 ##   godot --path . _lifecycle_check.tscn
+## Result: an assertion, windowed (the header: "Non-headless verification"; command `godot --path .
+## _lifecycle_check.tscn`; CRLF file). Prints `  ok   |  FAIL <what>` rows and a closing `PASS` or `FAILED: [<failed
+## checks>]`. Exit 0 when no check failed, 1 otherwise.
 
 var app: Node
 var _fails: Array[String] = []

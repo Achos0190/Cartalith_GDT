@@ -27,6 +27,13 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _grpwrap_shot.tscn
+## Result: a measurement of pixel differences with a control, windowed only (CRLF file; header command
+## `Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _grpwrap_shot.tscn`). Prints `GW palette=...
+## is_laptop=... is_tablet=... left_w=... right_w=...`, `GW CONTROL toggle '<name>': px_differ=<n> / <n>`, per-surface
+## `GW <surface> headers=<n> px_differ=<n> / <n> floor=<n> stops shipped=... reverted=...` rows, `GW    !! NOT
+## byte-identical at the shipped dock width` where it is not, and `GW === all surfaces byte-identical|<n> problems ===`.
+## It exits 0 at that line whatever the problem count; exit 1 only when generation failed or no group header exists to
+## toggle.
 
 var app: Node
 var _fail := 0

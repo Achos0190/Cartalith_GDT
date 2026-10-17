@@ -30,6 +30,11 @@ extends Node
 ## carried `--drawer` and `--picker` in its header and its body for months after
 ## both surfaces were deleted, and a run passing either got a silent
 ## shell-at-rest capture saved under the ordinary filename.
+## Result: a capture harness that asserts nothing. Commands per the header: `godot --path . --resolution 393x852
+## _shot_phone.tscn -- --force-touch` (and 852x393). The accepted flags are the `ARGS` list: `--force-touch`,
+## `--generate`, `--nowelcome`, `--rotate`, `--search`, `--phoneoverflow`, `--overflow`, `--leftsheet`, `--rightsheet`;
+## an unknown one prints `_shot_phone: unknown argument(s) ...  -- accepted: ...` (and `push_error`) and exits 2. It
+## saves `user://shell_shot_phone_<portrait|landscape>.png`, prints `saved <absolute path>` and exits 0.
 
 ## The complete accepted set. `--force-touch` is not consumed here -- `DccShell
 ## ._ready()` reads it off the same `OS.get_cmdline_user_args()` -- but it is

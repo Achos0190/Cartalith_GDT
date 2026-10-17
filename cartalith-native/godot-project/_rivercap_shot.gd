@@ -12,6 +12,10 @@ extends Node
 ## At and below 50 km both `terrain_detail_k` and `river_coarse_ease` are
 ## already saturated, so the river NETWORK is identical at 1/5/10/50 km --
 ## which is exactly what makes this a clean test of width alone.
+## Result: a capture tool with a pixel count, run headless as the header shows (`godot --headless --path .
+## _rivercap_shot.tscn -- --tag cap16`); `--tag NAME` names the output files. For each map extent it prints `[SHOT] <tag>
+## <km> km -> <n> river px  <path>` and saves a PNG, or `[FAIL] no texture at <km> km`. Exit 0 when it finishes (a
+## `[FAIL]` line does not change the exit code); `[FATAL] extension did not load` exits 1.
 
 const EXTENTS: Array[float] = [50.0, 10.0, 5.0, 1.0]
 const GRID_W := 384

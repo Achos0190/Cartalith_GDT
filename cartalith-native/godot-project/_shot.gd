@@ -2,6 +2,9 @@ extends Node
 ## Development harness: boot the shell, optionally generate a small world, and
 ## capture one frame for visual review against `design/Cartalith DCC Shell.dc.html`.
 ## Run: godot --path . --resolution 1920x1080 _shot.tscn [-- --generate]
+## Result: a development capture harness that asserts nothing and exits 0. Header command: `godot --path . --resolution
+## 1920x1080 _shot.tscn [-- --generate]` (`--generate` makes it generate a small world first). It saves
+## `user://shell_shot.png` and prints `saved <absolute path>`.
 
 func _ready() -> void:
 	var app: Node = load("res://shell/app.tscn").instantiate()

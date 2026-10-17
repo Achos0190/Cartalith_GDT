@@ -15,6 +15,11 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _rdappend_shot.tscn
+## Result: a pixel-diff check, windowed only (header command `Godot_v4.7.1-stable_win64_console.exe --path . --resolution
+## 1600x1000 _rdappend_shot.tscn`). Prints `RDS dock rect=...  title=...`, `RDS palette: mean dock pixel before = (...)
+## -- <light|dark> theme`, `RDS title after arm = ...`, `RDS pixels changed inside the dock: <n> of <n> (<pct>%)` and
+## `RDS verdict: the appended section reached the screen` or `INERT -- 0 pixels moved`. Exit 0 when at least one pixel
+## moved, 1 when none did (INERT) or on a missing settlement or dock rect (`RDS  !! ...`).
 
 func _frames(n: int) -> void:
 	for i in n:

@@ -12,6 +12,12 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 \
 ##       _fillsweep_shot.tscn
+## Result: an assertion on pixels despite its name, windowed only (header command `Godot_v4.7.1-stable_win64_console.exe
+## --path . --resolution 1600x1000 _fillsweep_shot.tscn`). Prints `FILLSWEEP PASS|FAIL  <label>  <extra>` rows,
+## `FILLSWEEP SKIP    <leg> -- <reason>` lines (faction roster with too few factions, travel-library rail with too few
+## entries, place-editor traits with no mixed set, carto ramp-stops without the ramp API), `FILLSWEEP DEBUG` and
+## `FILLSWEEP INFO` lines and `FILLSWEEP TOTAL   <n> checks, <n> failed`. Exit 0 when no check failed, 1 otherwise; a
+## skipped leg does not fail the run.
 
 var fails := 0
 var checks := 0

@@ -5,6 +5,9 @@ extends Node
 ## ink=#23241f` (LIGHT). This measures which is right and when the divergence
 ## appears: the shell's own stored theme, then every MenuBar popup's panel
 ## stylebox and font colour beside `DccTheme.c()`.
+## Result: a measurement that asserts nothing and exits 0 (CRLF file). The header gives no command line or
+## headless/windowed requirement. Prints `[<tag>] DccTheme  bg=... panel=... text=... accent=...`, per menu `   menu
+## <name> panel=<hex>  font=<hex>`, popup-child and OptionButton-popup panel lines and `### DONE ###`.
 
 var app: Node
 var _vp: SubViewport
