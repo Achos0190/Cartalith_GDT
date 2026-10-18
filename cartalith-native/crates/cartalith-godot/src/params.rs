@@ -215,10 +215,8 @@ pub fn defaults() -> WorldParams {
     // of five app worlds: 41 -> 10). Off in `WorldParams::defaults`, the
     // goldens' baseline. See `VolcanismParams::fill_edifice_pits`.
     p.volc.fill_edifice_pits = true;
-    // The terrain-streak spike's two ablations, and the edifice follow-up's
-    // remaining variants (`StreakSpikeParams::edifice`, EDIFICE_AND_STREAKS_2026-10-18.md),
-    // stay OFF in the app: they are measurement-only and have no `PARAMS` row
-    // (`StreakSpikeParams`' doc).
+    // The terrain-streak spike's two ablations stay OFF in the app: they are
+    // measurement-only and have no `PARAMS` row (`StreakSpikeParams`' doc).
     // Written out, though it equals `WorldParams::defaults`.
     p.streak = cartalith_engine::StreakSpikeParams::default();
     p

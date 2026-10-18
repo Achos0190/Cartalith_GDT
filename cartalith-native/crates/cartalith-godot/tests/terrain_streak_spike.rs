@@ -21,12 +21,15 @@
 //! pass, the edifice (the dome streaks' source, now the edifice and zoom-law
 //! backlog row's measure-first input) and the rain up-sample.
 //!
-//! **The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`).** Eight more
-//! arms (`gully_off`, `lumps_off`, `a_km`, `c_fill`, `a_full`, `a_c`, and since Ruling CO `pits_unfilled`: the
-//! `cartalith_terrain::EdificeVariant` ablations and variants, off at both
-//! boundaries), two more worlds (71077345 at 3 000 km and 40 075 km), one
+//! **The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`).** Since
+//! Ruling CO (2026-10-18) one arm, `pits_unfilled` (the app before the
+//! shipped flank-pit fill, `volc.fill_edifice_pits`); the follow-up's
+//! variant and ablation arms (`gully_off`, `lumps_off`, `a_km`, `c_fill`,
+//! `c_late`, `a_full`, `a_late`, `a_c`) were retired with their code, and
+//! their numbers live only in that document. Two more worlds (71077345 at
+//! 3 000 km and 40 075 km, kept for the coarse-scale radius-floor row), one
 //! `EDIFICES` line per world (the edifices recovered from `volcanic_field`,
-//! their radii and each law's gully spacing in km), one `EDIFICE` line per arm
+//! their radii and the shipped gully spacing in km), one `EDIFICE` line per arm
 //! (closed depressions and 1-3-cell lakes on and off edifices, the dome's
 //! band-passed gradient energy), an optional `WINDOW` line (`SS_WINDOW=x,y,r`:
 //! [`ns_ratio`] and [`dir_ratio`] of height and luminance over one window,
@@ -365,7 +368,7 @@ fn metric_calibration() {
 /// `WorldParams::defaults`.
 #[test]
 fn every_streak_switch_is_off_at_both_boundaries() {
-    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, drop_gullies: false, drop_lumps: false, full_band: false } };
+    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false };
     assert_eq!(WorldParams::defaults(64, 40, 1).streak, off);
     assert_eq!(params::defaults().streak, off);
     assert!(params::defaults().climate.rain_bspline, "Ruling CM: the app runs the B-spline rain up-sample");
@@ -428,7 +431,7 @@ type Edit = fn(&mut WorldParams);
 /// `head` is the app as shipped (since Ruling CM, with the B-spline rain
 /// up-sample); the rest are ablations of it, and `rain_bilinear` is the app as
 /// it was before the ruling.
-const ARMS: [(&str, Edit); 14] = [
+const ARMS: [(&str, Edit); 8] = [
     ("head", |_| {}),
     ("carve_off", |p| p.carve_rivers = false),
     ("no_light", |p| p.streak.skip_light_pass = true),
@@ -440,26 +443,9 @@ const ARMS: [(&str, Edit); 14] = [
     ("edifice_off", |p| p.volc.edifice_model = false),
     // Ruling CM's before: the reference's bilinear rain up-sample.
     ("rain_bilinear", |p| p.climate.rain_bspline = false),
-    // The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`;
-    // `cartalith_terrain::EdificeVariant`, off at both boundaries): two
-    // ablations that attribute the pits and streaks to the flank's gully or
-    // lump term, variant (a) kilometre-keyed band-limited gullies, variant (c)
-    // the flank-pit fill, and the two together.
-    ("gully_off", |p| p.streak.edifice.drop_gullies = true),
-    ("lumps_off", |p| p.streak.edifice.drop_lumps = true),
-    ("a_km", |p| p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED)),
-    ("c_fill", |p| p.streak.edifice.fill_pits = true),
     // Ruling CO's before: the app as it was before the flank-pit fill
     // (variant (c-late)) shipped as `volc.fill_edifice_pits`.
     ("pits_unfilled", |p| p.volc.fill_edifice_pits = false),
-    ("a_full", |p| {
-        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
-        p.streak.edifice.full_band = true;
-    }),
-    ("a_c", |p| {
-        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
-        p.streak.edifice.fill_pits = true;
-    }),
 ];
 
 /// Every land cell's drainage outlet on the routing surface the app routes
@@ -887,9 +873,8 @@ fn streak_spike_measure() {
                     std::f64::consts::PI * e.r / g as f64 * cell_km
                 })
                 .collect();
-            let km_cells = cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED / cell_km;
             println!(
-                "EDIFICES {}: cell {:.3} km | recovered {} | radius km p10 {} p50 {} p90 {} | shipped spacing km p10 {} p50 {} p90 {} | km-law spacing {:.2} cells, octave-0 held {:.2}",
+                "EDIFICES {}: cell {:.3} km | recovered {} | radius km p10 {} p50 {} p90 {} | shipped spacing km p10 {} p50 {} p90 {}",
                 w.tag,
                 cell_km,
                 frame.edifices.len(),
@@ -899,8 +884,6 @@ fn streak_spike_measure() {
                 fmt(quantile(&mut sp_ship_km.clone(), 0.1)),
                 fmt(quantile(&mut sp_ship_km.clone(), 0.5)),
                 fmt(quantile(&mut sp_ship_km, 0.9)),
-                km_cells,
-                cartalith_terrain::edifice_resolved_weight(km_cells),
             );
         }
         // The dome population: land on an edifice footprint (an input), well

@@ -42,7 +42,45 @@ use cartalith_noise::pvnoise;
 use cartalith_spatial::FloatRegion;
 
 use crate::edifice_pits::EdificeFrame;
-use crate::{edifice_resolved_weight, EDIFICE_RIDGE_SQ_MEAN};
+
+/// The furrows' gully spacing at mid-flank, km. **A labelled judgement**, not
+/// a measurement of real volcanoes: it keeps the shipped stamp's look where
+/// the app generates (4 cells at 800 km / 2048 is 1.56 km), and it sits inside
+/// the order of radial-valley spacing seen on dissected stratocones and shield
+/// flanks (about 1-3 km between barrancas; no source opened in this pass).
+/// Moved here from the retired variant (a) (`EDIFICE_AND_STREAKS_2026-10-18.md`;
+/// Ruling CO), whose `EDIFICE_GULLY_SPACING_KM_PROPOSED` it was.
+pub const FURROW_SPACING_KM: f64 = 1.5;
+
+/// [`resolved_weight`]'s fade, in cells of **noise-lattice spacing**: weight 0
+/// at or below `LO`, 1 at or above `HI`. Value noise with a lattice spacing of
+/// `L` cells carries most of its energy at wavelengths of about `2L`, and a
+/// grid holds nothing shorter than two cells (Nyquist), so `L = 1` is the hard
+/// floor. `LO = 1.5` and `HI = 3` keep a margin above it. **A labelled
+/// judgement**, the same kind as the zoom law's one-octave Nyquist margin
+/// (`amplify::ZOOM_DETAIL_KM_NYQUIST_MARGIN`).
+const RESOLVE_LO_CELLS: f64 = 1.5;
+const RESOLVE_HI_CELLS: f64 = 3.0;
+
+/// How much of a noise octave with lattice spacing `l` (in grid or texel
+/// units) a raster with unit spacing can hold: a smoothstep from 0 at
+/// [`RESOLVE_LO_CELLS`] to 1 at [`RESOLVE_HI_CELLS`]. NaN reads 0 (nothing is
+/// resolved).
+pub fn resolved_weight(l: f64) -> f64 {
+    if l.is_nan() {
+        return 0.0;
+    }
+    let t = ((l - RESOLVE_LO_CELLS) / (RESOLVE_HI_CELLS - RESOLVE_LO_CELLS)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The mean of one ridged octave, `E[(1 - |2·n - 1|)^2]` with `n` a `pvnoise`
+/// sample. **Measured**, not derived: for a uniform `n` it would be `1/3`, but
+/// `pvnoise`'s smoothstep blend of four lattice values pulls `n` toward 0.5
+/// and raises it. `ridge_mean_is_the_measured_one` re-measures it over 2^20
+/// samples and fails if it moves by 0.005. Subtracted so a furrow octave is
+/// zero-mean and the flank's mean height does not move.
+pub const RIDGE_SQ_MEAN: f64 = 0.4701;
 
 /// The furrow law's knobs. Every field is required; there is no `Default`,
 /// because each one is a scale the caller must state.
@@ -50,8 +88,7 @@ use crate::{edifice_resolved_weight, EDIFICE_RIDGE_SQ_MEAN};
 pub struct FurrowOpts {
     /// Kilometres per coarse cell.
     pub km_per_cell: f64,
-    /// Gully spacing at mid-flank, km (variant (a)'s
-    /// [`crate::EDIFICE_GULLY_SPACING_KM_PROPOSED`]).
+    /// Gully spacing at mid-flank, km ([`FURROW_SPACING_KM`] in the app).
     pub spacing_km: f64,
     /// `WorldParams::peak_m`, the height that normalised 1.0 stands for.
     pub peak_m: f64,
@@ -84,7 +121,7 @@ pub const FURROW_T_TOP: f64 = 0.25;
 ///
 /// Octave `k` (spacing `s_k = spacing_km / 2^k`) is weighted by
 /// `max(0, w_tile − w_grid)`: the share the tile can hold beyond what the
-/// generation grid already holds, both from [`edifice_resolved_weight`] on the octave's
+/// generation grid already holds, both from [`resolved_weight`] on the octave's
 /// noise-lattice spacing (the smaller of its angular and radial spacing, in
 /// texels and in cells). So an octave the generated field already carries is
 /// never added twice, and one finer than the tile is never drawn.
@@ -108,7 +145,7 @@ pub fn edifice_furrow_at(frame: &EdificeFrame, cx: f64, cy: f64, texel_cells: f6
     for k in 0..FURROW_MAX_OCTAVES {
         let f = f64::powi(2.0, k);
         let lat = (std::f64::consts::TAU * d / (g as f64 * f)).min(e.r / (2.2 * f));
-        let w = (edifice_resolved_weight(lat / texel_cells) - edifice_resolved_weight(lat)).max(0.0);
+        let w = (resolved_weight(lat / texel_cells) - resolved_weight(lat)).max(0.0);
         if w <= 0.0 {
             continue;
         }
@@ -118,7 +155,7 @@ pub fn edifice_furrow_at(frame: &EdificeFrame, cx: f64, cy: f64, texel_cells: f6
         // ridge is a furrow floor. Zero-mean, so the flank's mean height
         // does not move.
         let relief_m = FURROW_DEPTH_PER_SPACING * (o.spacing_km / f) * 1000.0;
-        sum += -(ridge * ridge - EDIFICE_RIDGE_SQ_MEAN) * 2.0 * relief_m / o.peak_m * w;
+        sum += -(ridge * ridge - RIDGE_SQ_MEAN) * 2.0 * relief_m / o.peak_m * w;
     }
     sum * envelope
 }
@@ -176,6 +213,25 @@ mod tests {
 
     fn opts() -> FurrowOpts {
         FurrowOpts { km_per_cell: 800.0 / 2048.0, spacing_km: 1.5, peak_m: 4000.0, sea: 0.42 }
+    }
+
+    /// Protects: the mean subtracted from every furrow octave is the noise's
+    /// real mean (measured over 2^20 samples at incommensurate coordinates),
+    /// so the furrows do not shift the flank's mean height.
+    #[test]
+    fn ridge_mean_is_the_measured_one() {
+        let mut r = 0.0f64;
+        let n = 1usize << 20;
+        for k in 0..n {
+            let (x, y) = ((k % 1024) as f64 * 0.618_034 + 0.13, (k / 1024) as f64 * 0.414_214 + 0.71);
+            let q = 1.0 - (2.0 * pvnoise(x, y, 4242, 1 << 20) - 1.0).abs();
+            r += q * q;
+        }
+        let r = r / n as f64;
+        assert!((r - RIDGE_SQ_MEAN).abs() < 0.005, "ridge mean measured {r}");
+        assert_eq!(resolved_weight(1.5), 0.0);
+        assert_eq!(resolved_weight(3.0), 1.0);
+        assert_eq!(resolved_weight(f64::NAN), 0.0);
     }
 
     /// Protects: the band rule. At a texel spacing equal to the coarse cell

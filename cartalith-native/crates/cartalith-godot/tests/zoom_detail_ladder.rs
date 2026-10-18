@@ -126,10 +126,12 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     // `cartalith_engine::StreakSpikeParams` ablations `no_light` and `no_cut`,
     // `carve_off`, `edifice_off` (`volc.edifice_model`), and `rain_bil`, the
     // reference's bilinear rain up-sample the app ran before Ruling CM
-    // (`climate.rain_bspline` off). Unset = the shipped world. An unknown
-    // token is refused, so a typo cannot render the head world under an
-    // arm's name (the retired `rain_bs`, `sub<N>`, `rho8` and `plain_d8`
-    // tokens included).
+    // (`climate.rain_bspline` off), and `pits_unfilled`, the app before
+    // Ruling CO's flank-pit fill (`volc.fill_edifice_pits` off). Unset = the
+    // shipped world. An unknown token is refused, so a typo cannot render the
+    // head world under an arm's name (the retired `rain_bs`, `sub<N>`,
+    // `rho8`, `plain_d8`, `gully_off`, `lumps_off`, `a_km`, `c_fill` and
+    // `c_late` tokens included).
     if let Ok(v) = std::env::var("ZD_STREAK") {
         for t in v.split(',').filter(|t| !t.is_empty()) {
             match t {
@@ -138,13 +140,6 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
                 "no_cut" => p.streak.skip_channel_carve = true,
                 "carve_off" => p.carve_rivers = false,
                 "edifice_off" => p.volc.edifice_model = false,
-                // The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`):
-                // `cartalith_terrain::EdificeVariant`'s ablations and its
-                // variants (a) and (c), off at both boundaries.
-                "gully_off" => p.streak.edifice.drop_gullies = true,
-                "lumps_off" => p.streak.edifice.drop_lumps = true,
-                "a_km" => p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED),
-                "c_fill" => p.streak.edifice.fill_pits = true,
                 // Ruling CO's before: the shipped flank-pit fill off.
                 "pits_unfilled" => p.volc.fill_edifice_pits = false,
                 other => panic!("ZD_STREAK: unknown switch {other}"),
@@ -441,7 +436,7 @@ fn zoom_detail_ladder() {
             println!("FURROWS {}: {} edifices recovered", w.tag, fr.edifices.len());
             let fo = cartalith_terrain::edifice_furrows::FurrowOpts {
                 km_per_cell: p.map_width_km / gw as f64,
-                spacing_km: cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED,
+                spacing_km: cartalith_terrain::edifice_furrows::FURROW_SPACING_KM,
                 peak_m: p.peak_m,
                 sea: ws.sea_level,
             };

@@ -26,6 +26,20 @@ owner questions. It carries no status; status lives in
 >   reloads unfilled. Re-measured on the five worlds: the shipped `head` now
 >   reads exactly the (c-late) row's numbers below, and the new harness arm
 >   `pits_unfilled` reads the old `head` row's.
+> - **(a), (c) and the ablations are retired, code removed** (§7p):
+>   `EdificeVariant`, `StreakSpikeParams::edifice`, `Edifice::new_with` /
+>   `add_at_band`, `pridged_weighted`, `fbm_weighted`, the stamp-time flank
+>   mask and the `stamp_volcanoes_*_variant` entry points, their tests, and
+>   the harness arms `gully_off`, `lumps_off`, `a_km`, `c_fill`, `c_late`,
+>   `a_full`, `a_late` and `a_c` (and the matching `ZD_STREAK` tokens).
+>   `cartalith_terrain/src/lib.rs` is the pre-spike file again plus two module
+>   lines; parity, app and processes-on worlds hash identical before and after
+>   the removal. What (b) still needs from them (`resolved_weight`, the ridge
+>   mean, the 1.5 km spacing) moved into `edifice_furrows`. The design that
+>   replaces (a) is the `OUTSTANDING_WORK.md` row "Type-dependent gully spacing
+>   and a gully depth capped by the cone".
+> - **314159's streak row is folded into the river-comb row**, and the
+>   coarse-scale 2-cell radius floor is its own row (`OUTSTANDING_WORK.md`).
 
 **Nothing here is switched on.** Every variant sits behind
 `cartalith_engine::StreakSpikeParams::edifice`

@@ -977,10 +977,9 @@ pub struct WorldParams {
     /// (`HARDWARE_ACCELERATION.md` §27) -- which path each stage actually
     /// took is recorded on `WorldState.gpu_stages_used`, not hidden.
     pub use_gpu: bool,
-    /// The terrain-streak measurement spike's two remaining ablation switches,
-    /// and the volcano-edifice follow-up's variants (`StreakSpikeParams::edifice`)
+    /// The terrain-streak measurement spike's two remaining ablation switches
     /// (`TERRAIN_STREAK_SPIKE_2026-10-18.md`; owner, 2026-10-18, "measure a fix
-    /// first"; `EDIFICE_AND_STREAKS_2026-10-18.md`). **All off at both boundaries** -- here and in
+    /// first"). **Both off at both boundaries** -- here and in
     /// `cartalith-godot`'s `params::defaults()` -- so no golden, no shipped
     /// world and no save moves. See [`StreakSpikeParams`] for each switch and
     /// why it has no `PARAMS` row.
@@ -1003,6 +1002,13 @@ pub struct WorldParams {
 /// (measured no effect, 0.995-1.001 of head; its result is the spike
 /// document's record).
 ///
+/// **Nor the volcano-edifice follow-up's variants (Ruling CO, 2026-10-18;
+/// `EDIFICE_AND_STREAKS_2026-10-18.md`).** Its final-field pit fill (c-late)
+/// shipped as [`VolcanismParams::fill_edifice_pits`]; the kilometre-keyed
+/// gullies (a), the stamp-time fill (c) and the gully/lump ablations were
+/// retired and their code removed (§7p), so the stamps are their pre-spike
+/// selves again.
+///
 /// **Every field defaults to off** (`Default`), and every switch, off, takes
 /// the existing code by control flow, never by an arithmetic identity
 /// (`MISTAKES.md`, "Change generated output"); `cartalith-civ`'s
@@ -1023,14 +1029,6 @@ pub struct StreakSpikeParams {
     /// trench along the traced network), keeping the light pass, the trace,
     /// `river_mask` empty. Isolates the cell-centre channel cut.
     pub skip_channel_carve: bool,
-    /// The volcano-edifice follow-up's variants and ablations
-    /// (`EDIFICE_AND_STREAKS_2026-10-18.md`; Ruling CM item 1, "measure
-    /// first, no change yet"): kilometre-keyed, band-limited gullies (a), the
-    /// flank-pit fill (c), and dropping the gully or lump term. Only reaches
-    /// the stamp under `volc.edifice_model` (the morphological edifice); the
-    /// default is `cartalith_terrain::stamp_volcanoes_*_traced` by control
-    /// flow. See [`cartalith_terrain::EdificeVariant`].
-    pub edifice: cartalith_terrain::EdificeVariant,
 }
 
 impl WorldParams {
@@ -2455,7 +2453,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // stampVolcanoes() (reference HTML lines 3474-3478): dispatches on
         // state.volc.provinces, JS default true.
         if p.volc.provinces {
-            cartalith_terrain::stamp_volcanoes_provinces_variant(
+            cartalith_terrain::stamp_volcanoes_provinces_traced(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -2472,10 +2470,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut volcanic_field,
                 edifice,
                 volcano_trace.as_mut(),
-                &p.streak.edifice,
             );
         } else {
-            cartalith_terrain::stamp_volcanoes_simple_variant(
+            cartalith_terrain::stamp_volcanoes_simple_traced(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -2488,7 +2485,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut volcanic_field,
                 edifice,
                 volcano_trace.as_mut(),
-                &p.streak.edifice,
             );
         }
     }
@@ -3617,7 +3613,7 @@ mod tests {
     fn every_streak_switch_reaches_generation() {
         let mut base = WorldParams::defaults(192, 124, 314_159);
         base.integrate_drainage = true;
-        assert_eq!(base.streak, StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, drop_gullies: false, drop_lumps: false, full_band: false } });
+        assert_eq!(base.streak, StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
         assert!(!base.climate.rain_bspline, "the parity baseline is the reference's bilinear");
         let head = generate_terrain(&base);
         let arms: [(&str, fn(&mut WorldParams)); 3] = [
@@ -3633,39 +3629,6 @@ mod tests {
                 || ws.rainfall != head.rainfall
                 || ws.channels.as_ref().map(|c| &c.recv) != head.channels.as_ref().map(|c| &c.recv);
             assert!(moved, "{name} on moved nothing");
-        }
-    }
-
-    /// Protects: each of the edifice follow-up's five switches
-    /// (`StreakSpikeParams::edifice`, `EDIFICE_AND_STREAKS_2026-10-18.md`)
-    /// reaches the volcano stamp -- alone, each moves the height field of a
-    /// small world with the morphological edifice on and volcanoes placed --
-    /// and the default variant leaves the field byte-identical to one built
-    /// before the switch existed would (`head` is that world: the default
-    /// takes `stamp_volcanoes_*_traced`'s body by control flow). A lost wiring
-    /// would read as "no effect" in the measurement; this makes it a failure.
-    #[test]
-    fn every_edifice_switch_reaches_generation() {
-        let mut base = WorldParams::defaults(256, 164, 71_077_345);
-        base.volc.edifice_model = true;
-        base.volc.count = 12;
-        let head = generate_terrain(&base);
-        assert!(head.volcanic_field.iter().any(|&v| v > 0.0), "no volcano was placed; the test reaches nothing");
-        let arms: [(&str, fn(&mut WorldParams)); 5] = [
-            ("gully_spacing_km", |p| p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED)),
-            ("fill_pits", |p| p.streak.edifice.fill_pits = true),
-            ("fill_edifice_pits", |p| p.volc.fill_edifice_pits = true),
-            ("drop_gullies", |p| p.streak.edifice.drop_gullies = true),
-            ("drop_lumps", |p| p.streak.edifice.drop_lumps = true),
-        ];
-        for (name, on) in arms {
-            let mut p = base.clone();
-            on(&mut p);
-            let ws = generate_terrain(&p);
-            assert_ne!(ws.field, head.field, "{name} on moved nothing");
-            // Placement is not the variant's: the volcanic-field mark is a
-            // function of placement alone.
-            assert_eq!(ws.volcanic_field, head.volcanic_field, "{name} moved placement");
         }
     }
 
