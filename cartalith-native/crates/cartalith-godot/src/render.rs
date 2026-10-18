@@ -5259,9 +5259,11 @@ impl<'a> RenderCtx<'a> {
     pub(crate) fn paint_water(&self, c: Rgb, gx: f64, gy: f64, px_cells: f64) -> Rgb {
         match self.colour_paint {
             Some(l) if l.paints_water() => match self.colour_paint_query(gx, gy, px_cells, true) {
+                // Water is already lit, so an emissive mark's glow is
+                // simply added to its crust here.
                 Some((l, q)) => {
-                    let o = l.apply([c.0, c.1, c.2], q);
-                    (o[0], o[1], o[2])
+                    let (o, e) = l.apply_lit([c.0, c.1, c.2], q);
+                    (o[0] + e[0], o[1] + e[1], o[2] + e[2])
                 }
                 None => c,
             },
@@ -7099,9 +7101,20 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // paper, frame, local contrast, grade) so the paint is finished by the
     // look like the rest of the map. `None` -- every caller without an
     // attached layer -- skips this by control flow.
+    //
+    // An emissive mark (lava and its relatives,
+    // `cartalith_spatial::colour_paint::material`) also returns a glow,
+    // carried to the end of this function and added AFTER the light and the
+    // ambient occlusion so neither darkens it: the crust (in `c`) is lit like
+    // any ground, the glow lights itself. `None` whenever no emissive mark
+    // reaches this pixel, so a flat-colour layer is CP-1's arithmetic.
+    let mut emissive: Option<Rgb> = None;
     if let Some((layer, q)) = cpaint {
-        let o = layer.apply([c.0, c.1, c.2], q);
+        let (o, e) = layer.apply_lit([c.0, c.1, c.2], q);
         c = (o[0], o[1], o[2]);
+        if e != [0.0; 3] {
+            emissive = Some((e[0], e[1], e[2]));
+        }
     }
 
     // LOD-D5 stages 1 and 2. `None` is the pre-milestone expression by
@@ -7273,6 +7286,17 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         }
     }
 
+    // Emissive colour paint (lava): ADDED to the lit colour here -- after the
+    // light, the haze and the WORLD paint tint, before the Painter styles
+    // and the river symbol so hand-drawn styles act on the glow as on
+    // everything else and a river drawn over lava covers its glow. The
+    // `ao * vignette` below would darken it; that is undone for the glow
+    // alone there (`glow_ao`), so ambient occlusion never dims a self-lit
+    // surface while the vignette, a property of the sheet, still applies.
+    if let Some(e) = emissive {
+        l = (l.0 + e.0, l.1 + e.1, l.2 + e.2);
+    }
+
     // The "Painter" NPR block (7903-7962) — land only (`r > 0`), and exactly
     // here: after every colour and lighting step, before the final
     // `ao * vignette`. See `apply_npr`. Off at every default, and the whole
@@ -7327,7 +7351,26 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // by `fold_lighting_fields` -- and is still exactly `1.0` under
     // `js_reference()`, where all three strengths are `0.0`.
     let k = ao * vig;
-    (l.0 * k, l.1 * k, l.2 * k)
+    match emissive {
+        None => (l.0 * k, l.1 * k, l.2 * k),
+        // `glow_ao`: the glow was added at full strength above, so the ground
+        // under it is `l - e`; that part takes `ao * vignette` as every
+        // pixel does, and the glow only the vignette. The ground part is
+        // floored at 0 as a guard: `ao` is in `0..=1` (`build_ao` floors it
+        // at `1 - ao_strength`), but a Painter style between the add and
+        // here may move `l` so that `l - e` dips below zero, and a negative
+        // ground must never be subtracted from the glow. With a river, `ao` carries the river's coverage too and the glow
+        // was already covered by `river_over` (`rv + l * (1 - alpha)`), so
+        // the glow still in `l` is `e * (1 - alpha)`.
+        Some(e) => {
+            let left = match river {
+                Some(rv) => 1.0 - rv[3] as f64,
+                None => 1.0,
+            };
+            let e = (e.0 * left, e.1 * left, e.2 * left);
+            (((l.0 - e.0) * k).max(0.0) + e.0 * vig, ((l.1 - e.1) * k).max(0.0) + e.1 * vig, ((l.2 - e.2) * k).max(0.0) + e.2 * vig)
+        }
+    }
 }
 
 /// Width multiplier of a Tanaka contour on the **lit** side, relative to the

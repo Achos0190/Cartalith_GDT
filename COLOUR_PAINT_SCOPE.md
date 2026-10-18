@@ -345,6 +345,7 @@ undoable like any stroke. Feasible.
 | ID | What | Acceptance |
 |---|---|---|
 | **CP-1** | Engine: `cartalith_spatial::colour_paint` (marks, blend modes, caps, bucket index, document), composited by `render.rs` in `land_color` (land, before the light) and `RenderCtx::paint_water` (water, per-mark opt-in) at all three consumers' own pixel footprint: `cell_color` (1 cell), `BakeFields::pixel_at` (the export step), `render_biome_tile_rgba_water` (`cells_per_px`). Attached by `RenderCtx::with_colour_paint`; absent by default | Bars 1-10; frames read at x1/x4/x16/x64; mutation-tested |
+| **CP-1M** | Emissive **materials** (§18): `cartalith_spatial::colour_paint::material` -- lava (and the Ice / Toxic glow ramps it gives for free) as a crust lit like ground plus a glow added after the light; merged lava bodies; ragged km-keyed margins; halo; `heat_along` | §18's bars; frames read at x1/x4/x16/x64 on two worlds; mutation-tested |
 | **CP-2** | Binding and shell tool: `WorldGen` holds the layer (`Option<ColourPaint>`), `#[func]`s to set/get the document, append a mark, clear, show/hide; attached at the three producers (`build_color_texture`, `lod_worker::SnapshotInputs` with the document in `digest()`, `export_raster.rs::export_render_with` / `export_session.rs`'s parts); `CARTO ▸ Colours ▸ Paint colour`: ET-D1 stroke engine to a simplified kilometre polyline, picker with the gamut row, swatches, mode (Replace / Colour / Multiply / Erase), radius in km, hardness, opacity, land only, hide, clear, own undo. Engine addition: **Erase** mode (blend toward the unpainted colour the query was handed). Measure the local-contrast halo (§4) | Every producer moves bytes with a mark and none without (`MISTAKES.md`: attaching is not the consumer reading it); cache keys change on every edit, undo and redo; probes for the tool, and on glass for phone |
 | **CP-3** | Save slot `appearance_paint.json` (§9), **after GF-8 slice 3 lands** | Round trip byte-identical; an untouched project byte-identical to HEAD; a real prior-format archive opens unchanged; size at 5 000 marks reported |
 | **CP-4** | Phone and tablet forms (§14) | Thumb-reachable on glass; brush resize does not zoom the map |
@@ -360,3 +361,102 @@ undoable like any stroke. Feasible.
 4. **Paint water by default?** — No: `land_only` on per mark, off by a toggle (§5).
 5. **Map-width change with marks** — keep kilometres, notify (§5).
 6. **Long-press on phone** — button eyedropper until MAP_CONTEXT F1 is ruled (§14).
+7. **Lava defaults** (§18) — heat 0.75, plates medium (crack density 0.5,
+   0.71 km top cell), halo 1.5 km, crust `34,33,38`, cooling along a stroke
+   0.6. Keep?
+
+## 18. Emissive materials — lava (CP-1M)
+
+**Why.** The owner on CP-1's frames (2026-10-18): *"Currently it doesn't look
+convincing at all for lava/magma."* The use case was the inside of a volcano;
+a flat red, even shaded by the relief, reads as red paint. Lava is not a
+colour but a surface, so a mark can now carry a **material** in place of its
+flat colour (`ColourMark::emissive`, `cartalith_spatial::colour_paint::material`).
+
+**What real lava looks like** (the standard the frames are judged against):
+a chilled crust, near-black with a slight blue-grey cast, broken into plates;
+the incandescent interior shows only in the cracks between plates and at
+vents; colour is temperature — dull red, orange, yellow, white-yellow at the
+hottest. In daylight the crust reads dark and the cracks orange; at night the
+cracks dominate and the ground near the flow picks up a red glow. The crack
+network is self-similar over a wide range of scales.
+
+**Design** (per output pixel, from the mark's geometry and the pixel's km
+position and footprint only — the same pure function on the screen, the tiles
+and every export band):
+
+| Part | How | Why |
+|---|---|---|
+| Temperature `t` | `heat` x (1 − `heat_along` x along-fraction) x a rim-to-core profile (`s / depth`, depth = a stroke's radius or half an area's equivalent radius), plus low-frequency km noise at three plate sizes | Hot core inside, cooling to the rim and down a flow; hot channels and cooler rafts |
+| Crust | the mark's `rgb` (Lava preset `34,33,38`), plate-to-plate albedo ±11 %, applied **before the light** with the mark's blend | Sunlit crust is lit like ground: dark, with the crater's relief |
+| Cracks | multi-octave cellular (Voronoi-edge) network; top cell 2.0 → 0.25 km by `crack_density`; each octave 2.3x finer, narrower and dimmer, and needing a hotter crust to open (+0.08 `t` per octave); finer octaves drawn over only about half their edges (a km noise mask) and every crack's width wandering along its length; down to 4 m cells | A few wide seams between big plates on cool crust, fine broken fractures where hot; without the mask the octaves nested into even polygons and read as a mesh |
+| Zoom law | an octave is drawn once its cell spans 2.5 output pixels, fading in over one doubling (`CANOPY_NYQ_PX`'s rule); an octave not yet drawn contributes its **mean** open fraction | Detail arrives at every zoom; overall brightness does not jump |
+| Glow | ramp colour at `t` (Fire: black → dark red → red → orange → yellow → white-yellow) x open fraction (cracks ∪ molten core, `t` > 0.8), **added after the light**, after haze and WORLD paint, before Painter styles and rivers; the `ao x vignette` step applies to the ground part only, so occlusion never dims the glow | Self-lit; hillshade and AO cannot darken it |
+| Halo | outside the mark, `HALO_GAIN 0.9 x (1 − d/R)^3` of the ramp at the edge's heat, R = `glow_radius_km`; the mark's index reach widened by R | Glow spills a little onto the ground; per pixel, not a screen blur, so screen/tile/export agree |
+| Ragged margin | the signed distance moved by km-keyed value-noise lobes (wavelength 1.6 depths down to 4 m, amplitude 0.16 of each wavelength, octaves Nyquist-gated) | A flow's edge is lobate, not a pen stroke's parallel offset (the first flow frames read as a pipe) |
+| Lava bodies merge | consecutive emissive marks reaching a pixel form one group: coverage is the union, temperature the hottest mark's base heat; a covering flat mark flushes the group and hides its glow | A stroke over a fill no longer draws its own cool rim across a lake (seen in the first frames) |
+| Presets | the ramp is the only difference: **Fire** (lava, embers at low heat), **Ice**, **Toxic** | Falls out of the mechanism; nothing else widened |
+
+Options per mark: `heat` 0..1, `crack_density` 0..1, `glow_radius_km`,
+`heat_along` 0..1 (strokes), crust colour (`rgb`), `ramp`. Static (no
+animation, by the brief). A flat mark's saved JSON carries no `emissive` key,
+so CP-1's document bytes are unchanged.
+
+**Bars** (tests in `tests/colour_paint.rs` and the module's unit tests):
+identity — a lava mark reaching nothing draws the same bytes on all three
+paths, and flat documents keep their JSON
+(`an_unreached_lava_mark_draws_the_same_bytes_and_flat_docs_keep_their_json`;
+the absent case is CP-1's bar 1, unchanged); banded export = monolithic with
+lava at 1, 37 and 5 rows per band (`banded_export_with_lava_equals_monolithic`);
+no tile seam (`lava_opens_no_tile_seam`); same ground across grid sizes —
+footprint IoU 0.906 between a 61 x 43 and a 122 x 86 grid of one map at one
+export size, bar ≥ 0.9 (`lava_paints_the_same_ground_at_two_grid_sizes`);
+lighting independence — the glow over a fully covered flow moves 0.25 % under
+a 315°→135° sun flip and 0.26 % with AO and cast shadows at 1.0 (which darken
+the ground 7.1 %), bar ≤ 3 % (`the_glow_is_independent_of_sun_and_occlusion`);
+a flow cools along its length (vent 5 200 vs toe 725 glow levels,
+`a_flow_cools_along_its_length`); lava on water glows (`lava_on_water_glows`);
+the index equals brute force with lava (halo and margin reach), merge/order/halo
+rules, the ragged edge, zoom brightness conservation with structure at zoom,
+ramp order, heat and halo (unit tests).
+
+**Cost** (`colour_paint_tile_cost` cases e and f, release, this machine, two
+runs in separate processes, another lane's builds sharing the machine): 1 000
+strokes of which every tenth is lava (heat 0.75, cooling 0.6, 1.5 km halo),
+ratio of median tile times **1.12 / 1.14** over the x4 view (level 4) and
+**1.09 / 1.09** through level 6, against **1.07 / 1.09** and **1.09 / 1.07** for
+the same strokes all flat (cases a, b); bar ≤ 1.25x holds. Single tiles reach
+60-70 ms outliers in both arms (the shared machine), which the medians absorb.
+
+**Frames** (`colour_paint_lava_frames`, evidence
+`cartalith-native/docs/evidence/colour-paint-lava-2026-10-18/`): 71077345's
+snow-rimmed dome (click 1578,690: the crater fill + a 1 km grow ring + a 38.6 km
+flow down the flank, cooling along it) and 24601's crater (detector pick), at
+x1 / x4 / x16 / x64, a heat sweep (0.25 / 0.5 / 0.95) and the Ice and Toxic
+ramps. Read honestly:
+
+- **x64** reads as lava: near-black plates, orange seams, broken secondary
+  fractures, a yellow-white core, a ragged margin, a faint warm halo on the
+  snow and the green. The top-level seams are **still recognisably cellular**
+  — at full resolution it reads closer to a well-made stylised lava texture
+  than to a photograph of a lava lake, whose seams are more jagged and less
+  evenly polygonal (evidence 07; evidence 08 sets it beside CP-1's flat red).
+- **x16** reads as a glowing crater and a dark flow with orange seams; the
+  heat sweep reads as cooled crust → active lake → white-hot lake.
+- **x4** reads as a dark-red spot with a dark line — honest for its size (the
+  crater is a dozen pixels), but not visibly "lava" without context.
+- **x1** the crater is a few pixels; the mark is there and nothing more can be
+  said at that scale.
+- **heat 0.95** clips a large white core: reads as a molten lake, slightly
+  blown out.
+
+Mutation testing (CP-1M): 16 mutants, 16 killed (one, the halo showing
+through a covering lava mark, survived the first run and was killed by a test
+added for it) — the glow add removed; the glow put under AO; the water glow
+dropped; an unresolved octave's mean set to 0; the Nyquist gate removed; the
+rim-to-core profile flattened; `heat_along` ignored; the halo gain 0; `heat`
+not read; a ramp stop moved out of order; the index reach forgetting the
+ragged edge, then the halo; the merge taking the coolest mark; a flat mark not
+flushing the lava group under it; the ragged edge removed. Harness: exact
+literal, occurs-once, restored in `finally`, no residue (the files came back
+with LF line endings, which the repository's own storage is).

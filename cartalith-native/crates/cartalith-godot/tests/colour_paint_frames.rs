@@ -404,7 +404,7 @@ fn shoelace(r: &[[f64; 2]]) -> f64 {
 }
 
 fn mark(shape: MarkShape, rgb: [u8; 3], opacity: f64, hardness: f64, blend: ColourBlend) -> ColourMark {
-    ColourMark { shape, rgb, opacity, hardness, blend, land_only: true }
+    ColourMark { shape, rgb, opacity, hardness, blend, land_only: true, emissive: None }
 }
 
 fn appearance() -> TerrainAppearance {
@@ -655,9 +655,24 @@ fn colour_paint_tile_cost() {
     // The level-6 block at the centre of the level-4 block.
     let (c6, r6) = (c4 * 4 + 9, r4 * 4 + 6);
     let dense = block(6, c6, r6);
-    let cases: [(&str, i32, u32, u32, [f64; 4]); 3] = [("a: x4 view, level 4", 4, c4, r4, view), ("b: same strokes, level 6", 6, c6, r6, view), ("d: stress, level 6", 6, c6, r6, dense)];
-    for (name, z, c0, r0, area) in cases {
-        let layer = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: scatter(1000, area) }, 2.0 * kpc).unwrap();
+    // `e`/`f`: the lava bar (the owner's 2026-10-18 brief) -- the same 1 000
+    // strokes with every tenth an emissive Lava mark (heat 0.75, cooling
+    // along, a 1.5 km halo).
+    let cases: [(&str, i32, u32, u32, [f64; 4], bool); 5] = [
+        ("a: x4 view, level 4", 4, c4, r4, view, false),
+        ("b: same strokes, level 6", 6, c6, r6, view, false),
+        ("d: stress, level 6", 6, c6, r6, dense, false),
+        ("e: 1000 strokes, 100 of them lava, x4 view, level 4", 4, c4, r4, view, true),
+        ("f: the same, level 6", 6, c6, r6, view, true),
+    ];
+    for (name, z, c0, r0, area, with_lava) in cases {
+        let mut marks = scatter(1000, area);
+        if with_lava {
+            for m in marks.iter_mut().step_by(10) {
+                *m = lava_mark(m.shape.clone(), 0.75, 0.6, cartalith_spatial::colour_paint::GlowRamp::Fire);
+            }
+        }
+        let layer = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks }, 2.0 * kpc).unwrap();
         let tile_box = block(z, c0, r0);
         let od = overdraw(&layer, tile_box);
         let on = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), &pre).unwrap().with_colour_paint(Some(&layer));
@@ -760,4 +775,157 @@ fn colour_paint_profile() {
         println!("{:+4} {}", dy, row.join(""));
     }
     println!("fill from the lowest cell within 12: {:?}", crater_fill(&ws.field, gw, gh, cx, cy, 12, 20_000));
+}
+
+/// A lava material with the given heat (the frames' and the shell's Lava
+/// preset otherwise): near-black blue-grey crust, medium plates, a 1.5 km halo.
+fn lava_mark(shape: MarkShape, heat: f64, heat_along: f64, ramp: cartalith_spatial::colour_paint::GlowRamp) -> ColourMark {
+    let mut m = mark(shape, LAVA_CRUST, 1.0, 1.0, ColourBlend::Replace);
+    m.emissive = Some(cartalith_spatial::colour_paint::EmissiveMaterial { ramp, heat, crack_density: 0.5, glow_radius_km: 1.5, heat_along });
+    m
+}
+
+/// The Lava preset's crust colour: near-black with a slight blue-grey cast,
+/// the colour of chilled basalt glass. Labelled judgement.
+const LAVA_CRUST: [u8; 3] = [34, 33, 38];
+
+/// A flow's path down a volcano's flank: from `(cx, cy)` along the ray to
+/// the lowest point of the rim (the breach a flow would take), then steepest
+/// descent on the grid for up to `steps` cells, thinned and smoothed
+/// (Chaikin, twice), in km.
+fn flank_flow(f: &[f32], gw: usize, gh: usize, cx: usize, cy: usize, steps: usize, kpc: f64) -> Vec<[f64; 2]> {
+    let mut best = (f32::MAX, cx, cy);
+    for k in 0..32 {
+        let a = k as f64 * std::f64::consts::TAU / 32.0;
+        let mut top = (f32::MIN, cx, cy);
+        for r in 1..=16 {
+            let (x, y) = ((cx as f64 + r as f64 * a.cos()).round() as usize, (cy as f64 + r as f64 * a.sin()).round() as usize);
+            if f[y * gw + x] > top.0 {
+                top = (f[y * gw + x], x, y);
+            }
+        }
+        if top.0 < best.0 {
+            best = top;
+        }
+    }
+    let (mut x, mut y) = (best.1, best.2);
+    let mut path = vec![(cx, cy), (x, y)];
+    for _ in 0..steps {
+        let mut nb = (f[y * gw + x], x, y);
+        for (dx, dy) in [(-1i64, -1i64), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+            let (nx, ny) = ((x as i64 + dx) as usize, (y as i64 + dy) as usize);
+            if nx < 2 || ny < 2 || nx >= gw - 2 || ny >= gh - 2 {
+                continue;
+            }
+            // Outward only: a flow leaves the crater and runs down the flank.
+            let dist = |x: usize, y: usize| (x as f64 - cx as f64).hypot(y as f64 - cy as f64);
+            if dist(nx, ny) <= dist(x, y) {
+                continue;
+            }
+            if f[ny * gw + nx] <= nb.0 || (nb.1, nb.2) == (x, y) && f[ny * gw + nx] <= f[y * gw + x] + 0.002 {
+                nb = (f[ny * gw + nx], nx, ny);
+            }
+        }
+        if (nb.1, nb.2) == (x, y) {
+            break;
+        }
+        x = nb.1;
+        y = nb.2;
+        path.push((x, y));
+    }
+    let mut pts: Vec<[f64; 2]> = path.iter().step_by(2).map(|&(x, y)| [(x as f64 + 0.5) * kpc, (y as f64 + 0.5) * kpc]).collect();
+    for _ in 0..2 {
+        let mut s = vec![pts[0]];
+        for w in pts.windows(2) {
+            s.push([0.75 * w[0][0] + 0.25 * w[1][0], 0.75 * w[0][1] + 0.25 * w[1][1]]);
+            s.push([0.25 * w[0][0] + 0.75 * w[1][0], 0.25 * w[0][1] + 0.75 * w[1][1]]);
+        }
+        s.push(pts[pts.len() - 1]);
+        pts = s;
+    }
+    pts
+}
+
+/// The lava frames (the owner's 2026-10-18 feedback on CP-1): per world, the
+/// crater filled with lava and a flow down the flank whose heat falls along
+/// it, at x1 / x4 / x16 / x64, plus a heat sweep and the glow presets at x16
+/// and x64. `CP_CLICK` as in [`colour_paint_frames`]. Writes PNGs to
+/// `CP_OUT`; the judgement is made by reading them.
+#[test]
+#[ignore = "generates two 2048x1311 worlds and renders zoom frames; run explicitly with --release"]
+fn colour_paint_lava_frames() {
+    use cartalith_spatial::colour_paint::GlowRamp;
+    let out = std::env::var("CP_OUT").expect("set CP_OUT to an output directory");
+    std::fs::create_dir_all(&out).unwrap();
+    let only = std::env::var("CP_ONLY").ok();
+    let (gw, gh) = (2048usize, 1311usize);
+    for w in &WORLDS {
+        if only.as_deref().is_some_and(|o| !w.tag.starts_with(o)) {
+            continue;
+        }
+        let p = world_params(w, gw, gh);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let kpc = p.map_width_km / gw as f64;
+        let a = appearance();
+        let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+        let base = || RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), &pre).expect("context");
+        let clicks: Vec<(usize, usize)> = std::env::var("CP_CLICK").ok().into_iter().flat_map(|v| v.split(';').map(str::to_string).collect::<Vec<_>>()).filter_map(|e| {
+            let (t, xy) = e.split_once('=')?;
+            if !w.tag.starts_with(t) {
+                return None;
+            }
+            let (x, y) = xy.split_once(',')?;
+            Some((x.parse().ok()?, y.parse().ok()?))
+        }).collect();
+        let (vx, vy, rim, rim_d) = match clicks.first() {
+            Some(&(x, y)) => {
+                let (_, _, rim, d) = rays(&ws.field, gw, x, y);
+                (x, y, rim, d)
+            }
+            None => rimmed_pits(&ws, gw, gh)[0],
+        };
+        let ring = match crater_fill(&ws.field, gw, gh, vx, vy, 0, 20_000).filter(|c| c.1 >= 20).and_then(|(level, _, seed)| ring_around(&ws.field, gw, gh, seed, level - 1e-5, 80, kpc)) {
+            Some(r) => r,
+            None => capped_fill(&ws.field, gw, (vx, vy), rim - 0.01, 1.3 * rim_d, kpc).expect("a crater ring").0,
+        };
+        let mut closed = ring.clone();
+        closed.push(ring[0]);
+        let (fx, fy) = (ring.iter().map(|p| p[0]).sum::<f64>() / ring.len() as f64 / kpc - 0.5, ring.iter().map(|p| p[1]).sum::<f64>() / ring.len() as f64 / kpc - 0.5);
+        let flow = flank_flow(&ws.field, gw, gh, vx, vy, 70, kpc);
+        let flen: f64 = flow.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
+        println!("{}: crater at ({vx},{vy}), ring {} pts, area {:.1} km2; flow {} pts, {flen:.1} km", w.tag, ring.len(), shoelace(&ring).abs(), flow.len());
+        let lava = |heat: f64, ramp: GlowRamp| -> Vec<ColourMark> {
+            let mut grow = lava_mark(MarkShape::Line { points_km: closed.clone(), radius_km: 1.0 }, heat * 0.55, 0.0, ramp);
+            grow.land_only = false;
+            let mut fill = lava_mark(MarkShape::Area { ring_km: ring.clone(), edge_km: 0.0 }, heat, 0.0, ramp);
+            fill.land_only = false;
+            let flow_m = lava_mark(MarkShape::Line { points_km: flow.clone(), radius_km: 0.8 }, heat, 0.85, ramp);
+            vec![grow, fill, flow_m]
+        };
+        // The flow's first third, the second view.
+        let mid = flow[flow.len() / 3];
+        let (mx, my) = (mid[0] / kpc - 0.5, mid[1] / kpc - 0.5);
+        let arms: Vec<(&str, Option<ColourPaint>)> = vec![("none", None), ("lava", Some(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: lava(0.75, GlowRamp::Fire) }, 2.0 * kpc).unwrap()))];
+        for (name, layer) in &arms {
+            let ctx = base().with_colour_paint(layer.as_ref());
+            let tf = TileFields::new(&ctx, None);
+            write_png(&format!("{out}/{}_lava_x1_{name}.png", w.tag), base_frame(&ctx, gw as f64 / 2.0, gh as f64 / 2.0, SCREEN_W as f64 / gw as f64));
+            for &(rung, ppc) in &RUNGS {
+                write_png(&format!("{out}/{}_lava_crater_{rung}_{name}.png", w.tag), frame(&ctx, &tf, fx, fy, ppc, w.seed));
+                write_png(&format!("{out}/{}_lava_flow_{rung}_{name}.png", w.tag), frame(&ctx, &tf, mx, my, ppc, w.seed));
+            }
+        }
+        // The heat sweep and the glow presets, at x16 and x64 on the crater.
+        let mut sweep: Vec<(String, Vec<ColourMark>)> = [0.25, 0.5, 0.95].iter().map(|&h| (format!("heat{:02}", (h * 100.0) as i32), lava(h, GlowRamp::Fire))).collect();
+        sweep.push(("ice".into(), lava(0.75, GlowRamp::Ice)));
+        sweep.push(("toxic".into(), lava(0.75, GlowRamp::Toxic)));
+        for (name, marks) in sweep {
+            let layer = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks }, 2.0 * kpc).unwrap();
+            let ctx = base().with_colour_paint(Some(&layer));
+            let tf = TileFields::new(&ctx, None);
+            for &(rung, ppc) in &RUNGS[1..] {
+                write_png(&format!("{out}/{}_lava_crater_{rung}_{name}.png", w.tag), frame(&ctx, &tf, fx, fy, ppc, w.seed));
+            }
+        }
+    }
 }

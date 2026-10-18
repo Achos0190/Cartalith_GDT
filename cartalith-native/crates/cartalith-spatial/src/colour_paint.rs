@@ -46,6 +46,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod material;
+pub use material::{EmissiveMaterial, GlowRamp};
+
 /// Most marks one layer may hold. A labelled judgement sized from the scope's
 /// cost model (`COLOUR_PAINT_SCOPE.md` §10, and §9 for the save size): 5 000 marks at the measured save
 /// size and index build time are comfortably inside the bars; a layer that
@@ -215,6 +218,14 @@ pub struct ColourMark {
     /// stroke can include a lake and the next leave it.
     #[serde(default = "default_true")]
     pub land_only: bool,
+    /// An emissive **material** (lava and its relatives, [`material`]) in
+    /// place of a flat colour; `None` is the flat colour CP-1 shipped. With
+    /// a material, `rgb` is the crust colour and `blend` how the crust
+    /// combines with the ground before the light; the glow is added after the
+    /// light. Omitted from the saved JSON when `None`, so a flat mark's
+    /// document is the CP-1 bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emissive: Option<EmissiveMaterial>,
 }
 
 fn default_true() -> bool {
@@ -283,6 +294,11 @@ struct Prepared {
     half: f64,
     /// Bounding box `[x0, y0, x1, y1]` of the mark's ink in km.
     bbox: [f64; 4],
+    /// The resolved emissive material, or `None` for a flat colour.
+    emissive: Option<material::Resolved>,
+    /// A stroke's cumulative length at each point, km (for `heat_along`);
+    /// empty when nothing reads it.
+    cum: Vec<f64>,
 }
 
 /// One mark's entry in one bucket.
@@ -333,6 +349,7 @@ pub struct ColourPaint {
     marks: Vec<Prepared>,
     index: Option<BucketIndex>,
     any_water: bool,
+    any_emissive: bool,
 }
 
 /// The renderer's per-pixel query: where, how wide a pixel is, and whether
@@ -370,7 +387,8 @@ impl ColourPaint {
         let margin_km = if margin_km.is_finite() && margin_km > 0.0 { margin_km } else { 0.0 };
         let index = if marks.is_empty() { None } else { Some(build_index(&marks, margin_km)) };
         let any_water = marks.iter().any(|m| !m.land_only);
-        Ok(ColourPaint { doc, marks, index, any_water })
+        let any_emissive = marks.iter().any(|m| m.emissive.is_some());
+        Ok(ColourPaint { doc, marks, index, any_water, any_emissive })
     }
 
     /// The document this layer was built from (what a save writes).
@@ -402,15 +420,35 @@ impl ColourPaint {
     /// `c` after every mark that reaches `q`, in mark order (later marks
     /// over earlier ones). Returns `c` itself -- the same bits -- when no
     /// mark reaches, when the layer is inert, and for a water pixel no
-    /// water-painting mark covers.
+    /// water-painting mark covers. An emissive mark contributes its crust
+    /// here and its glow is dropped: the renderer calls
+    /// [`ColourPaint::apply_lit`], which returns the glow as well.
     pub fn apply(&self, c: [f64; 3], q: PaintQuery) -> [f64; 3] {
+        self.apply_lit(c, q).0
+    }
+
+    /// Whether any mark carries an emissive material.
+    pub fn has_emissive(&self) -> bool {
+        self.any_emissive && !self.is_inert()
+    }
+
+    /// The material colour after the marks (as [`ColourPaint::apply`]) and
+    /// the **emissive** colour (0-255 per channel) the renderer adds after
+    /// its light: the glow of every emissive mark reaching `q`, halos
+    /// included, each later mark covering the pixel at alpha `a` scaling the
+    /// glow beneath it by `1 - a` (a flat mark painted over lava hides the
+    /// glow it covers). The emissive part is exactly `[0.0; 3]` when no
+    /// emissive mark reaches.
+    pub fn apply_lit(&self, c: [f64; 3], q: PaintQuery) -> ([f64; 3], [f64; 3]) {
+        let mut emis = [0.0; 3];
         if self.is_inert() || (q.water && !self.any_water) {
-            return c;
+            return (c, emis);
         }
-        let Some(ix) = self.index.as_ref() else { return c };
+        let Some(ix) = self.index.as_ref() else { return (c, emis) };
         let p = [q.x_km, q.y_km];
         let px = if q.px_km.is_finite() && q.px_km > 0.0 { q.px_km } else { 0.0 };
         let mut out = c;
+        let mut group = LavaGroup::default();
         if px > ix.margin_km {
             // Wider than the index answers exactly: visit every mark.
             for m in &self.marks {
@@ -422,22 +460,20 @@ impl ColourPaint {
                     continue;
                 }
                 let s = signed_distance_full(m, p);
-                let a = coverage(s, m.half, m.band, px) * m.opacity;
-                if a > 0.0 {
-                    out = m.blend.apply(out, m.rgb, a);
-                }
+                composite(m, p, s, || along(m, p, 0..segment_count(m)), px, &mut out, &mut emis, &mut group);
             }
-            return out;
+            group.flush(p, px, &mut out, &mut emis);
+            return (out, emis);
         }
         let bx = ((p[0] - ix.x0) / ix.bw).floor();
         let by = ((p[1] - ix.y0) / ix.bh).floor();
         if bx < 0.0 || by < 0.0 || bx >= ix.nx as f64 || by >= ix.ny as f64 {
-            return c;
+            return (c, emis);
         }
         let (bx, by) = (bx as usize, by as usize);
         let (e0, e1) = ix.buckets[by * ix.nx + bx];
         if e0 == e1 {
-            return c;
+            return (c, emis);
         }
         let centre = [ix.x0 + (bx as f64 + 0.5) * ix.bw, ix.y0 + (by as f64 + 0.5) * ix.bh];
         for e in &ix.entries[e0 as usize..e1 as usize] {
@@ -447,12 +483,10 @@ impl ColourPaint {
             }
             let segs = &ix.segs[e.segs.0 as usize..e.segs.1 as usize];
             let s = signed_distance_local(m, p, centre, e.centre_inside, segs);
-            let a = coverage(s, m.half, m.band, px) * m.opacity;
-            if a > 0.0 {
-                out = m.blend.apply(out, m.rgb, a);
-            }
+            composite(m, p, s, || along(m, p, segs.iter().map(|&k| k as usize)), px, &mut out, &mut emis, &mut group);
         }
-        out
+        group.flush(p, px, &mut out, &mut emis);
+        (out, emis)
     }
 
     /// Diagnostics for the cost model: (buckets, entries, segment refs).
@@ -508,15 +542,175 @@ fn prepare(i: usize, m: &ColourMark) -> Result<Prepared, ColourPaintError> {
         bbox[3] = bbox[3].max(p[1]);
     }
     let rgb = [m.rgb[0] as f64, m.rgb[1] as f64, m.rgb[2] as f64];
-    Ok(Prepared { shape: m.shape.clone(), rgb, opacity, blend: m.blend, land_only: m.land_only, band, half, bbox })
+    let (emissive, cum) = match &m.emissive {
+        None => (None, Vec::new()),
+        Some(e) => {
+            // The interior depth the temperature rises over: a stroke's
+            // radius; an area's equivalent radius (of the disc of its area)
+            // halved, so a crater's hot core is its middle.
+            let depth = match &m.shape {
+                MarkShape::Line { radius_km, .. } => *radius_km,
+                MarkShape::Area { ring_km, .. } => {
+                    let n = ring_km.len();
+                    let a2: f64 = (0..n).map(|k| ring_km[k][0] * ring_km[(k + 1) % n][1] - ring_km[(k + 1) % n][0] * ring_km[k][1]).sum();
+                    0.5 * (0.5 * a2.abs() / std::f64::consts::PI).sqrt()
+                }
+            };
+            let r = material::Resolved::new(e, depth).ok_or(ColourPaintError::NotFinite(i))?;
+            let cum = match &m.shape {
+                MarkShape::Line { points_km, .. } if r.heat_along > 0.0 => {
+                    let mut c = Vec::with_capacity(points_km.len());
+                    let mut acc = 0.0;
+                    c.push(0.0);
+                    for w in points_km.windows(2) {
+                        acc += (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]);
+                        c.push(acc);
+                    }
+                    c
+                }
+                _ => Vec::new(),
+            };
+            (Some(r), cum)
+        }
+    };
+    Ok(Prepared { shape: m.shape.clone(), rgb, opacity, blend: m.blend, land_only: m.land_only, band, half, bbox, emissive, cum })
+}
+
+/// The emissive marks reaching one pixel since the last flat mark that
+/// covered it: **one body of lava**. Overlapping lava strokes and fills merge
+/// -- their coverage is the union, their temperature the hottest of their
+/// [`material::Resolved::base_heat`]s, their crust and cracks sampled once
+/// from the hottest mark's material -- so a stroke laid over a fill (or a
+/// "grow" ring around it) adds lava instead of drawing its own cool rim
+/// across the middle of a lake, which is what compositing them one by one
+/// drew (the first lava frames, 2026-10-18).
+///
+/// A flat mark that covers the pixel ends the group: the group is flushed
+/// under it, so later flat paint still covers lava (and its glow) in order.
+/// A flat mark *between* two lava marks therefore sits under the second, a
+/// deliberate simplification: lava over paint over lava is one lava body.
+#[derive(Default)]
+struct LavaGroup<'a> {
+    /// `prod(1 - a_i)` over the group's covering marks.
+    keep: f64,
+    /// The hottest covering mark and its base heat.
+    hottest: Option<(&'a Prepared, &'a material::Resolved, f64)>,
+    /// Halo glow from marks reaching the pixel without covering it.
+    halo: [f64; 3],
+    any: bool,
+}
+
+impl<'a> LavaGroup<'a> {
+    /// Composites the group into `out` and `emis` and empties it: the crust
+    /// at the union's coverage, the glow over the glow beneath it, the halo
+    /// where the group does not cover.
+    fn flush(&mut self, p: [f64; 2], px: f64, out: &mut [f64; 3], emis: &mut [f64; 3]) {
+        if !self.any {
+            return;
+        }
+        let cover = 1.0 - self.keep;
+        let mut e = [self.halo[0] * self.keep, self.halo[1] * self.keep, self.halo[2] * self.keep];
+        if let Some((m, r, base)) = self.hottest {
+            let (k, glow) = r.sample(p, base, px);
+            let crust = [(m.rgb[0] * k).clamp(0.0, 255.0), (m.rgb[1] * k).clamp(0.0, 255.0), (m.rgb[2] * k).clamp(0.0, 255.0)];
+            *out = m.blend.apply(*out, crust, cover);
+            e = [e[0] + glow[0] * cover, e[1] + glow[1] * cover, e[2] + glow[2] * cover];
+        }
+        for (v, add) in emis.iter_mut().zip(e) {
+            *v = *v * self.keep + add;
+        }
+        *self = LavaGroup::default();
+    }
+}
+
+/// One mark's contribution to a pixel `s` km inside its edge: the flat
+/// colour (CP-1's arithmetic, unchanged) into `out`, or an emissive mark into
+/// the pixel's [`LavaGroup`]. `along` yields the pixel's fraction along a
+/// stroke, evaluated only when the material reads it.
+#[allow(clippy::too_many_arguments)]
+fn composite<'a>(m: &'a Prepared, p: [f64; 2], s: f64, along: impl FnOnce() -> f64, px: f64, out: &mut [f64; 3], emis: &mut [f64; 3], group: &mut LavaGroup<'a>) {
+    let a = coverage(s, m.half, m.band, px) * m.opacity;
+    match &m.emissive {
+        None => {
+            if a > 0.0 {
+                group.flush(p, px, out, emis);
+                *out = m.blend.apply(*out, m.rgb, a);
+                if *emis != [0.0; 3] {
+                    // A flat mark over glow hides the glow it covers.
+                    for v in emis.iter_mut() {
+                        *v *= 1.0 - a;
+                    }
+                }
+            }
+        }
+        Some(r) => {
+            // The material's ragged edge: the signed distance moved by its
+            // km-keyed lobes before anything reads it.
+            let s = s + r.edge_offset(p, px);
+            let a = coverage(s, m.half, m.band, px) * m.opacity;
+            // km outside the half-coverage contour (negative inside).
+            let outside = m.half - s;
+            if a <= 0.0 && (outside <= 0.0 || outside >= r.glow_km) {
+                return;
+            }
+            if !group.any {
+                *group = LavaGroup { keep: 1.0, hottest: None, halo: [0.0; 3], any: true };
+            }
+            let u = if r.heat_along > 0.0 { along() } else { 0.0 };
+            if a > 0.0 {
+                group.keep *= 1.0 - a;
+                let base = r.base_heat(-outside, u);
+                if group.hottest.is_none_or(|h| base > h.2) {
+                    group.hottest = Some((m, r, base));
+                }
+            }
+            if a < m.opacity {
+                // The halo where the mark does not fully cover: outside its
+                // edge, falling to nothing at the glow radius.
+                let h = r.halo(outside.max(1e-9), u);
+                let w = m.opacity - a;
+                for (v, x) in group.halo.iter_mut().zip(h) {
+                    *v += x * w;
+                }
+            }
+        }
+    }
+}
+
+/// The fraction `0..=1` along a stroke of the point on it nearest `p`, over
+/// the segments `segs` (the bucket's own list, or every segment); `0` when
+/// the mark kept no lengths (an area, or a material that does not read it).
+fn along(m: &Prepared, p: [f64; 2], segs: impl Iterator<Item = usize>) -> f64 {
+    let total = m.cum.last().copied().unwrap_or(0.0);
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let mut best = (f64::INFINITY, 0.0);
+    for k in segs {
+        let (a, b) = segment(m, k);
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        let d2 = seg_dist2(p, a, b);
+        if d2 < best.0 {
+            best = (d2, m.cum[k] + t * (m.cum[k + 1] - m.cum[k]));
+        }
+    }
+    (best.1 / total).clamp(0.0, 1.0)
 }
 
 /// How far past its vertices' bounding box a mark's ink can reach, in km,
 /// before antialiasing: a stroke's radius; half an area's edge band.
 fn ink_extent(m: &Prepared) -> f64 {
-    match &m.shape {
+    let base = match &m.shape {
         MarkShape::Line { radius_km, .. } => *radius_km,
         MarkShape::Area { .. } => m.band / 2.0,
+    };
+    // An emissive mark's halo reaches past its ink by its glow radius; a
+    // flat mark's extent is CP-1's by control flow.
+    match &m.emissive {
+        Some(r) => base + r.glow_km + r.edge_reach(),
+        None => base,
     }
 }
 
@@ -751,7 +945,7 @@ mod tests {
     use super::*;
 
     fn line(pts: &[[f64; 2]], r: f64, rgb: [u8; 3], blend: ColourBlend) -> ColourMark {
-        ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km: r }, rgb, opacity: 1.0, hardness: 1.0, blend, land_only: true }
+        ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km: r }, rgb, opacity: 1.0, hardness: 1.0, blend, land_only: true, emissive: None }
     }
 
     fn layer(marks: Vec<ColourMark>) -> ColourPaint {
@@ -852,7 +1046,7 @@ mod tests {
             let r = 20.0 + 6.0 * (3.0 * a).sin();
             [40.0 + r * a.cos(), 50.0 + r * a.sin()]
         }).collect();
-        marks.push(ColourMark { shape: MarkShape::Area { ring_km: ring, edge_km: 0.7 }, rgb: [250, 20, 10], opacity: 0.8, hardness: 1.0, blend: ColourBlend::Colour, land_only: true });
+        marks.push(ColourMark { shape: MarkShape::Area { ring_km: ring, edge_km: 0.7 }, rgb: [250, 20, 10], opacity: 0.8, hardness: 1.0, blend: ColourBlend::Colour, land_only: true, emissive: None });
         let l = layer(marks);
         // The same document with a zero margin forces every query (px > 0)
         // through the brute-force path.
@@ -876,12 +1070,123 @@ mod tests {
         assert_eq!(differing, 0);
     }
 
+    fn lava(pts: &[[f64; 2]], r: f64, heat: f64, along: f64, glow: f64) -> ColourMark {
+        let mut m = line(pts, r, [34, 33, 38], ColourBlend::Replace);
+        m.emissive = Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat, crack_density: 0.5, glow_radius_km: glow, heat_along: along });
+        m
+    }
+
+    /// Protects: with emissive marks (their halo and ragged edge widening
+    /// each mark's reach) the index still answers exactly what the
+    /// brute-force path answers, crust and glow both -- a reach that forgot
+    /// the halo or the edge would cut them off at bucket borders.
+    #[test]
+    fn index_matches_brute_force_with_lava() {
+        let mut marks = vec![];
+        for k in 0..12 {
+            let y = k as f64 * 4.1;
+            marks.push(lava(&[[0.0, y], [20.0, y + 5.0], [40.0, y - 2.0]], 1.0 + (k % 3) as f64, 0.4 + 0.05 * k as f64, 0.5, 3.0));
+            if k % 4 == 0 {
+                marks.push(line(&[[10.0, y], [30.0, y]], 0.8, [200, 200, 0], ColourBlend::Colour));
+            }
+        }
+        let l = layer(marks);
+        let brute = ColourPaint::new(l.doc().clone(), 0.0).unwrap();
+        let (mut glowing, mut differing) = (0, 0);
+        for yi in 0..260 {
+            for xi in 0..200 {
+                let p = q(-6.0 + xi as f64 * 0.27, -6.0 + yi as f64 * 0.23, 0.05);
+                let (a, ea) = l.apply_lit(GREY, p);
+                let (b, eb) = brute.apply_lit(GREY, p);
+                if ea != [0.0; 3] {
+                    glowing += 1;
+                }
+                if a.iter().chain(&ea).zip(b.iter().chain(&eb)).any(|(x, y)| (x - y).abs() > 1e-9) {
+                    differing += 1;
+                }
+            }
+        }
+        assert!(glowing > 10_000, "premise: the fixture glows ({glowing})");
+        assert_eq!(differing, 0);
+    }
+
+    /// Protects the glow's order rules: a flat mark painted over lava hides
+    /// the glow it covers; overlapping lava marks merge (the hotter one sets
+    /// the temperature, so a cool stroke over a hot pool does not cool it);
+    /// and the halo reaches past the edge but not past its radius.
+    #[test]
+    fn glow_order_merge_and_halo() {
+        let pool = lava(&[[0.0, 0.0]], 5.0, 0.9, 0.0, 2.0);
+        let cool = lava(&[[-10.0, 0.0], [10.0, 0.0]], 1.0, 0.1, 0.0, 0.0);
+        let cover = line(&[[0.0, 0.0]], 6.0, [0, 0, 0], ColourBlend::Replace);
+        let mean_glow = |l: &ColourPaint| (0..200).map(|k| l.apply_lit(GREY, q(-2.0 + k as f64 * 0.02, 0.0, 0.01)).1[0]).sum::<f64>() / 200.0;
+        let hot = mean_glow(&layer(vec![pool.clone()]));
+        assert!(hot > 50.0, "premise: the pool glows ({hot})");
+        assert_eq!(mean_glow(&layer(vec![pool.clone(), cover])), 0.0, "an opaque flat mark hides the glow");
+        let merged = mean_glow(&layer(vec![pool.clone(), cool.clone()]));
+        assert!(merged > 0.8 * hot, "a cool stroke over a hot pool merges, not cools it: {merged} vs {hot}");
+        let l = layer(vec![pool]);
+        // The ragged edge moves the contour by at most `edge_reach`, here
+        // 2 * 0.16 * 1.6 * 5 = 2.56 km. Around the dab: some pixels the
+        // mark does not cover (the colour is untouched) still glow -- the
+        // halo -- and nothing glows past radius + reach + glow radius.
+        let (mut halo_only, mut beyond) = (0, 0);
+        for k in 0..720 {
+            let a = k as f64 / 720.0 * std::f64::consts::TAU;
+            for r in [5.5, 6.5, 7.5, 8.5] {
+                let (c, e) = l.apply_lit(GREY, q(r * a.cos(), r * a.sin(), 0.01));
+                if c == GREY && e[0] > 0.0 {
+                    halo_only += 1;
+                }
+            }
+            let (c, e) = l.apply_lit(GREY, q(9.6 * a.cos(), 9.6 * a.sin(), 0.01));
+            if c != GREY || e != [0.0; 3] {
+                beyond += 1;
+            }
+        }
+        assert!(halo_only > 200, "the halo reaches past the edge ({halo_only})");
+        assert_eq!(beyond, 0, "and stops at its radius");
+        // A halo lights the ground, not other lava: inside a cold crust
+        // beside a hot pool with a wide halo, the glow is the crust's own.
+        let mut wide = lava(&[[0.0, 0.0]], 5.0, 0.9, 0.0, 12.0);
+        wide.land_only = true;
+        let cold = lava(&[[14.0, 0.0]], 4.0, 0.0, 0.0, 0.0);
+        let alone = layer(vec![cold.clone()]);
+        let both = layer(vec![wide, cold]);
+        let at = q(15.0, 0.0, 0.01);
+        assert!(both.apply_lit(GREY, at).1[0] <= alone.apply_lit(GREY, at).1[0] + 1e-9, "a halo shows through a covering lava mark");
+        assert!(both.apply_lit(GREY, q(9.5, 3.0, 0.01)).1[0] > 0.0 || both.apply_lit(GREY, q(9.0, -3.0, 0.01)).1[0] > 0.0, "premise: the wide halo reaches the cold crust's side");
+    }
+
+    /// Protects the ragged edge: a lava dab's half-coverage radius varies
+    /// with direction by at least 15 % of its radius (lobes, not a pen's
+    /// circle), while a flat dab's is constant -- and the lava's edge stays
+    /// within `edge_reach` of the stroke's.
+    #[test]
+    fn a_lava_edge_is_ragged() {
+        let radius_at = |l: &ColourPaint, a: f64| {
+            let mut r = 0.0;
+            while r < 20.0 && l.apply_lit(GREY, q(r * a.cos(), r * a.sin(), 0.005)).0 != GREY {
+                r += 0.01;
+            }
+            r
+        };
+        let lv = layer(vec![lava(&[[0.0, 0.0]], 5.0, 0.6, 0.0, 0.0)]);
+        let fl = layer(vec![line(&[[0.0, 0.0]], 5.0, [0, 0, 0], ColourBlend::Replace)]);
+        let rs: Vec<f64> = (0..90).map(|k| radius_at(&lv, k as f64 * 0.0698)).collect();
+        let (lo, hi) = (rs.iter().cloned().fold(f64::MAX, f64::min), rs.iter().cloned().fold(0.0, f64::max));
+        assert!(hi - lo >= 0.75, "lava edge spread {lo:.2}..{hi:.2} km");
+        assert!(lo >= 5.0 - 2.57 && hi <= 5.0 + 2.57, "{lo:.2}..{hi:.2}");
+        let fr: Vec<f64> = (0..90).map(|k| radius_at(&fl, k as f64 * 0.0698)).collect();
+        assert!(fr.iter().all(|r| (r - fr[0]).abs() < 0.02), "a flat dab stays round");
+    }
+
     /// Protects: an area paints its interior (far from edges, via the
     /// bucket-centre state) and not its outside; a hole-free ring.
     #[test]
     fn area_fills_its_interior_only() {
         let sq = vec![[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]];
-        let l = layer(vec![ColourMark { shape: MarkShape::Area { ring_km: sq, edge_km: 0.0 }, rgb: [255, 0, 0], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Replace, land_only: true }]);
+        let l = layer(vec![ColourMark { shape: MarkShape::Area { ring_km: sq, edge_km: 0.0 }, rgb: [255, 0, 0], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Replace, land_only: true, emissive: None }]);
         assert_eq!(l.apply(GREY, q(20.0, 20.0, 0.1)), [255.0, 0.0, 0.0]);
         assert_eq!(l.apply(GREY, q(10.5, 29.5, 0.1)), [255.0, 0.0, 0.0]);
         assert_eq!(l.apply(GREY, q(5.0, 20.0, 0.1)), GREY);
