@@ -23296,6 +23296,58 @@ impl WorldGen {
         }
     }
 
+    /// AP-10's line-art conversion (Ruling CR; Ruling CQ Q7: a new variant,
+    /// never the original), `AssetLibrarySession::line_art_variant`.
+    ///
+    /// `ink` is the one colour the variant is drawn in (the shell passes a
+    /// Look swatch, Ruling CQ Q4; alpha is ignored). `weight` is the line
+    /// weight at map scale in output pixels (Ruling CR Q-L1, clamped to
+    /// 0.5-1.5). `closing` is the 1 px gap closing: 0 automatic (scans
+    /// only), 1 off, 2 on; anything else is refused rather than guessed.
+    ///
+    /// `{"ok": true, "index", "threshold", "scan", "closed", "illumination",
+    /// "grain", "specks", "pinholes", "shading", "components",
+    /// "ink_fraction", "sdf_top", "floor_px", "stroke_px"}` or
+    /// `{"ok": false, "error"}`. Undo is `as_remove_item(uid, index)`.
+    #[func]
+    fn as_line_art(&mut self, uid: GString, index: i32, ink: Color, weight: f64, closing: i32) -> VarDictionary {
+        use cartalith_assets::lineart::{GapClosing, LineArtOptions};
+        if index < 0 {
+            return vdict! { "ok" => false, "error" => "no such variant" };
+        }
+        let gap_closing = match closing {
+            0 => GapClosing::Auto,
+            1 => GapClosing::Off,
+            2 => GapClosing::On,
+            _ => return vdict! { "ok" => false, "error" => "gap closing must be 0 (auto), 1 (off) or 2 (on)" },
+        };
+        if !weight.is_finite() {
+            return vdict! { "ok" => false, "error" => "line weight is not a number" };
+        }
+        let to8 = |c: f32| (f64::from(c.clamp(0.0, 1.0)) * 255.0).round() as u8;
+        let opts = LineArtOptions { ink: [to8(ink.r), to8(ink.g), to8(ink.b)], line_weight: weight, gap_closing };
+        match self.asset_library.line_art_variant(&uid.to_string(), index as usize, &opts) {
+            Ok((r, i)) => vdict! {
+                "ok" => true,
+                "index" => i as i64,
+                "threshold" => r.clean.threshold,
+                "scan" => r.clean.evidence.is_scan(),
+                "closed" => r.clean.closed,
+                "illumination" => r.clean.evidence.illumination,
+                "grain" => r.clean.evidence.grain,
+                "specks" => r.clean.specks_removed as i64,
+                "pinholes" => r.clean.pinholes_filled as i64,
+                "shading" => r.clean.shading_rejected as i64,
+                "components" => r.clean.components as i64,
+                "ink_fraction" => r.clean.ink_fraction,
+                "sdf_top" => i64::from(r.sdf_top),
+                "floor_px" => r.floor_px,
+                "stroke_px" => r.stroke_p2_out,
+            },
+            Err(e) => vdict! { "ok" => false, "error" => e },
+        }
+    }
+
     /// Remove one item from a slot, keeping the pixel store in lockstep.
     #[func]
     fn as_remove_item(&mut self, uid: GString, index: i32) -> bool {

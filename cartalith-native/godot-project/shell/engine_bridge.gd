@@ -7135,6 +7135,24 @@ func as_make_seamless(uid: String, index: int) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## AP-10: convert one sprite variant's line art into a clean one-ink sprite as
+## a NEW variant (`WorldGen.as_line_art`, Ruling CR; Ruling CQ Q7). `ink` is
+## the Look swatch, `weight` the line weight at map scale (0.5-1.5 px),
+## `closing` 0 auto / 1 off / 2 on. `{"ok": true, "index", "components",
+## "closed", "scan", ...}` or `{"ok": false, "error"}`. Marks the world dirty
+## only when a variant was added.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_line_art(uid: String, index: int, ink: Color, weight: float, closing: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_line_art"):
+		return {"ok": false, "error": "as_line_art not available on this binary"}
+	var r: Dictionary = world_gen.as_line_art(uid, index, ink, weight, closing)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
 ## Removes one item from a slot.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_remove_item(uid: String, index: int) -> bool:

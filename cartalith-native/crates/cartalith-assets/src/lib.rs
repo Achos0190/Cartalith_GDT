@@ -126,6 +126,7 @@
 pub mod archive;
 pub mod coast;
 pub mod library;
+pub mod lineart;
 pub mod manifest;
 pub mod manual;
 pub mod ordered_map;

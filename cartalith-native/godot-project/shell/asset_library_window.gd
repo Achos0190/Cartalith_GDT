@@ -919,6 +919,11 @@ var _insp_seam_label: Label
 ## previewed variant is a seam by AP-2's measure, since a tile that already
 ## wraps is left untouched anyway.
 var _insp_seam_btn: Button
+## AP-4's seam row (button + Undo), hidden for sprite families, which have no
+## wrap; held so `_refresh_refine` can hide it beside the label.
+var _insp_seam_row: HBoxContainer
+## AP-10's line-art block (`shell/lineart_refine.gd`), sprite families only.
+var _lineart = null
 ## `Undo` for the last Make seamless: removes the variant it added. Shown only
 ## while that variant is still the one it made (`_seam_undo`).
 var _insp_seam_undo_btn: Button
@@ -3173,12 +3178,16 @@ func _build_inspector() -> Control:
 	var seam_row := HBoxContainer.new()
 	seam_row.add_theme_constant_override("separation", 5)
 	ref_col.add_child(seam_row)
+	_insp_seam_row = seam_row
 	_insp_seam_btn = _chip(seam_row, "Make seamless", func(): _on_make_seamless())
 	_insp_seam_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_insp_seam_undo_btn = _chip(seam_row, "Undo", func(): _on_undo_seamless())
 	_insp_seam_undo_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_insp_seam_undo_btn.tooltip_text = "Remove the seamless variant just made. The original was never changed."
 	_insp_seam_undo_btn.visible = false
+	# AP-10 (Ruling CR): line-art conversion, for sprite families.
+	_lineart = preload("res://shell/lineart_refine.gd").new()
+	_lineart.build(ref_col, self)
 
 	# -- VARIANTS -------------------------------------------------------------
 	_insp_detail.add_child(_rule_soft())
@@ -3420,8 +3429,11 @@ func _refresh_inspector() -> void:
 
 	_refresh_pack_info_fields(_bridge.as_pack_info())
 
-## AP-4: the REFINE section for the focused slot's previewed variant. Hidden
-## for sprite families. For a ground tile it shows `as_seam_check`'s numbers
+## AP-4 and AP-10: the REFINE section for the focused slot's previewed
+## variant. A sprite family shows AP-10's line-art block
+## (`shell/lineart_refine.gd`) and hides the seam rows; a ground tile shows
+## the seam rows and hides the line-art block. For a ground tile it shows
+## `as_seam_check`'s numbers
 ## (8-bit RGB levels: the mean difference across the wrap edges against the
 ## same across the centre lines, AP-2's measure on the bake) and enables Make
 ## seamless only on a seam, with the reason written whenever it is disabled.
@@ -3429,7 +3441,11 @@ func _refresh_refine(fam: Dictionary, item_count: int) -> void:
 	if _insp_refine == null:
 		return
 	var tex := bool(fam.get("texture", false))
-	_insp_refine.visible = tex
+	_insp_refine.visible = _focused_uid != ""
+	_insp_seam_label.visible = tex
+	_insp_seam_row.visible = tex
+	if _lineart != null:
+		_lineart.refresh(_focused_uid, _preview_index, fam, item_count)
 	if not _seam_undo.is_empty() and (String(_seam_undo.get("uid", "")) != _focused_uid
 			or int(_seam_undo.get("index", -1)) >= item_count):
 		_seam_undo = {}

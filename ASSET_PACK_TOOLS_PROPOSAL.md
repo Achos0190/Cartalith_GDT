@@ -741,3 +741,92 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   3.09 against 1.74 levels. Make seamless on such a tile still produces a
   ratio-1 result, so the cost is an unnecessary variant, not a broken tile.
 
+### AP-10: line-art conversion (Ruling CR)
+
+- **Where it lives.** `cartalith-assets::lineart` (`working_image`,
+  `clean_ink`, `SdfPyramid`, `render_coverage`, `convert_line_art`);
+  `AssetLibrarySession::line_art_variant`, bound as `WorldGen::as_line_art`
+  (ink colour, line weight, gap closing 0 auto / 1 off / 2 on). The shell
+  block is `shell/lineart_refine.gd`, preloaded into the inspector's REFINE
+  section, which now shows for sprite families (line art) as well as ground
+  families (seams). Everything was written from the papers and this
+  project's own lab; no PhotoCraft code was copied, and nothing traces
+  curves (potrace is not linked or ported).
+- **The pipeline as built**, in Ruling CR's order, at the source's own
+  resolution (its longer side clamped to 256–2048, with the item's transform
+  applied and its pan scaled from the 256² family canvas): composite over
+  white → paper flattening (15 % window) → Otsu → speck removal (< 24 px at
+  1024², scaled by area) → 1 px closing on scans only → pinhole fill (< 12 px)
+  → exact EDT (Felzenszwalb–Huttenlocher) of a 2× supersample → SDF levels
+  512² (by the 2-texel rule, clamped 128–512) halving to 32², each sampled
+  from the full field → render from the level with ≤ 4 texels per pixel,
+  `alpha = clamp(d + δ + 0.5)` with δ lifting the 2nd-percentile stroke to
+  the line weight → one ink colour where alpha > 0, black under alpha 0. The
+  stored variant is the 256² floor-tuned bake, named `<original> · line art`,
+  identity transform; its bake equals its pixels except `render_item`'s known
+  one-level RGB drift on soft alpha (alpha exact).
+- **Three changes to the lab's method, each measured and disclosed in the
+  code:**
+  - **Two-scale ink** (`ink_by_two_scales`). The generated pencil scan's fold
+    crease was read as a solid line and merged four hatch strokes (×16 and
+    ×64: 10 components against 14, ink mass 1.48). Thin ink is now luminance
+    against a grey closing over 2 % of the sprite (strokes on a shadow stay
+    ink, the shadow does not); dark areas wider than that are ink only when
+    their edge is sharp (mean boundary gradient ≥ 0.08: the castle's door
+    0.40, the scan's door 0.20, a test shadow 0.011). After: 14/14, mass
+    1.01–1.02. The three clean samples' numbers did not move; the bad scan's
+    moved by at most 0.011 in solidity and 0.02 in ink mass.
+  - **Otsu returns the bin's upper edge**, not its centre, so the dark class
+    keeps its own top half-bin.
+  - **Thin strokes survive the contour blur:** a mask pixel the σ 0.8 blur
+    takes below 0.5 keeps its 2 × 2 supersample block. Without this a 1 px
+    line (any 256² pack sprite) vanished from the SDF.
+- **Scan detection** (`GapClosing::Auto`) reads the paper estimate's
+  illumination range (> 0.05) or the paper's grain (MAD > 0.004). Measured:
+  digital samples 0 and 0; the bad scan 0.238 / 0.0087; the pencil scan
+  0.162 / 0.0108.
+- **Acceptance, measured 2026-10-19** on the four research samples
+  (pixel-identical to the lab's sources) and a fifth, generated pencil scan
+  (`scan2`: the hatched mountain in light graphite on cream paper, fold
+  crease, 1.5° skew, fibre, grain, vignette, blur, JPEG q50). Pinned by
+  `tests/lineart_ap10.rs` against the vector truth; figures from
+  `ap10_measure.py` over the Rust frames written by the
+  `lineart_frames` example (`cartalith-native/docs/evidence/lineart-ap10-2026-10-19/`:
+  `ap10_grid_<sample>.png` with today's chain above AP-10 at source, ×1
+  shown 5×, ×4, and 200 px crops at ×16 and ×64; `results_ap10.json`;
+  `rust_stats.jsonl`; `app_*_{desktop,phone}.png`, the inspector before and
+  after a conversion):
+  - (a) cleaned mask against truth: components equal on all five; IoU
+    ≥ 0.95 on the four research samples (the bad scan 0.971). **The pencil
+    scan misses by 0.001 (0.949)**: its light graphite puts Otsu's threshold
+    (0.792) above the stroke's half-contrast level, so the mask runs about a
+    pixel fat in places (29 175 shared, 1 106 extra, 452 missed). Recorded,
+    not tuned away; every render bar still holds on it.
+  - (b) ×1: solidity 0.725–0.754, stroke p5 1.0 px on all five.
+  - (c) ×16 and ×64: components equal to the floored target on all five;
+    holes ≥ target − 1 (castle 14/14 and 14/15, scan 14/15, scan2 0/1).
+    ×4: components ≤ target, holes ≥ target − 1.
+  - (d) edges ×1 1.40–1.84 px, ×4 0.91–1.37, ×16 0.69–0.78, ×64 0.56–0.70.
+  - (e) halo 0 on all five (one ink colour; tested per pixel).
+  - (f) ink mass ×16 0.99–1.03, ×64 0.99–1.02.
+  - (g) 512² + 128² levels as optimised PNG: 14.2–24.7 KB. Not stored
+    (Q-L3), so this is a size, not a cost.
+  - (h) two runs byte-identical; FNV-1a 64 golden per fixture over every SDF
+    level and the bake.
+  - Looked at, at every zoom: lines solid and unbroken at ×1 (the documented
+    darker tone; the pine's branches merge into a band, Q-L1's cost), crisp at
+    ×4, ×16 and ×64, windows open, the door solid, no paper fringe; today's
+    chain on the same frames is broken dots at ×1, 16–77 px blocks at ×16 and
+    ×64, and on the pencil scan an entirely opaque paper square (the corner
+    key fails under the vignette).
+- **What the map shows is unchanged until the user acts.** The verb writes a
+  new variant; no default, no switch and no pixel pin moved. The variant is
+  drawn on the map through today's paths (the AP-3 marker pre-filter, or
+  `blit_sprite` for feature icons), so the ×1 bars above are the SDF
+  renderer's, not today's blit's: drawing line-art variants from the SDF on
+  screen is AP-5's job (its SDF pass rebuilds the field from the original,
+  Q-L3); the variant itself carries no line-art flag yet (no save key was
+  added), so AP-5 has to decide how it finds them.
+- **Cost (release build, one run per sample, order of magnitude):** cleaning
+  0.1–0.2 s, the SDF 0.2–0.3 s, a whole conversion 0.3–0.5 s at 1024². It
+  runs on the main thread; the debug DLL is slower.

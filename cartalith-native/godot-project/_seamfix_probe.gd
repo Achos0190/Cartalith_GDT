@@ -14,7 +14,8 @@ extends Node
 ##   1. a 512² left-to-right ramp (a ground tile with a real seam) imported into
 ##      Splat ▸ grass through the real `as_import_item`; focusing it shows the
 ##      REFINE section with a seam readout in words and Make seamless enabled;
-##   2. a sprite slot hides REFINE (Make seamless has nothing to do there);
+##   2. a sprite slot hides the seam rows (Make seamless has nothing to do
+##      there; since AP-10 REFINE itself shows, for the line-art block);
 ##   3. pressing Make seamless (the button's own `pressed` signal) adds exactly
 ##      one variant, leaves variant 1's bytes and content hash as they were,
 ##      previews the new one, which reads "wraps cleanly" with the button
@@ -134,7 +135,10 @@ func _ready() -> void:
 	b.as_import_item("icons:mountain", "m.png", _flat_png())
 	w.focus_slot("icons:mountain")
 	await _frames(3)
-	_ok(not refine.is_visible_in_tree(), "REFINE is hidden for a sprite family")
+	## Since AP-10 a sprite slot shows REFINE for its line-art block
+	## (`_lineart_probe` covers that); what must still hold is that the
+	## seam readout and Make seamless are not offered on a sprite.
+	_ok(not label.is_visible_in_tree() and not btn.is_visible_in_tree(), "the seam rows are hidden for a sprite family")
 	w.focus_slot("textures:grass")
 	await _frames(3)
 

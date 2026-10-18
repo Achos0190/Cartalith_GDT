@@ -1,0 +1,742 @@
+{
+ "pine": {
+  "rust_stats": {
+   "name": "pine",
+   "work": 1024,
+   "threshold": 0.5578,
+   "illumination": 0.0,
+   "grain": 0.0,
+   "closed": false,
+   "specks": 0,
+   "pinholes": 0,
+   "components": 1,
+   "stroke_p2_mask_px": 5.0,
+   "sdf_top": 512,
+   "sdf_png_bytes": {
+    "512": 34393,
+    "256": 14798,
+    "128": 5271,
+    "64": 2020,
+    "32": 782
+   },
+   "floor_px_256": 0.0,
+   "ms_clean": 144,
+   "ms_sdf": 246,
+   "ms_convert": 346
+  },
+  "40": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 2,
+    "holes": 1,
+    "holes_T": 2,
+    "iou": 0.881,
+    "solidity": 0.734,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.84,
+    "halo": 0.0,
+    "mass": 4.38
+   },
+   "today": {
+    "comp": 15,
+    "comp_T": 2,
+    "holes": 0,
+    "holes_T": 2,
+    "iou": 0.083,
+    "solidity": 0.089,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 2.07,
+    "halo": 0.0006,
+    "mass": 0.37
+   }
+  },
+  "160": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 6,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.826,
+    "solidity": 0.838,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.37,
+    "halo": 0.0,
+    "mass": 1.27
+   },
+   "today": {
+    "comp": 15,
+    "comp_T": 6,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.07,
+    "solidity": 0.093,
+    "w_p5": 3.0,
+    "w_med": 3.0,
+    "edge_px": 2.76,
+    "halo": 0.0006,
+    "mass": 0.37
+   }
+  },
+  "640": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.935,
+    "solidity": 0.955,
+    "w_p5": 3.0,
+    "w_med": 3.0,
+    "edge_px": 0.77,
+    "halo": 0.0,
+    "mass": 1.03
+   },
+   "today": {
+    "comp": 15,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.069,
+    "solidity": 0.092,
+    "w_p5": 15.0,
+    "w_med": 15.0,
+    "edge_px": 8.82,
+    "halo": 0.0006,
+    "mass": 0.36
+   }
+  },
+  "2560": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.941,
+    "solidity": 0.986,
+    "w_p5": 13.56,
+    "w_med": 15.0,
+    "edge_px": 0.68,
+    "halo": 0.0,
+    "mass": 1.01
+   },
+   "today": {
+    "comp": 15,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.069,
+    "solidity": 0.092,
+    "w_p5": 63.0,
+    "w_med": 63.0,
+    "edge_px": 33.59,
+    "halo": 0.0006,
+    "mass": 0.35
+   }
+  },
+  "bake256": {
+   "alpha_mean": 0.0289,
+   "rgb_values": [
+    [
+     34,
+     28,
+     22
+    ]
+   ]
+  }
+ },
+ "castle": {
+  "rust_stats": {
+   "name": "castle",
+   "work": 1024,
+   "threshold": 0.5391,
+   "illumination": 0.0,
+   "grain": 0.0,
+   "closed": false,
+   "specks": 0,
+   "pinholes": 0,
+   "components": 7,
+   "stroke_p2_mask_px": 5.0,
+   "sdf_top": 512,
+   "sdf_png_bytes": {
+    "512": 16303,
+    "256": 8600,
+    "128": 3992,
+    "64": 1539,
+    "32": 564
+   },
+   "floor_px_256": 0.0,
+   "ms_clean": 122,
+   "ms_sdf": 212,
+   "ms_convert": 332
+  },
+  "40": {
+   "ap10": {
+    "comp": 5,
+    "comp_T": 8,
+    "holes": 7,
+    "holes_T": 2,
+    "iou": 0.742,
+    "solidity": 0.735,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.5,
+    "halo": 0.0,
+    "mass": 2.73
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 8,
+    "holes": 0,
+    "holes_T": 2,
+    "iou": 0.134,
+    "solidity": 0.147,
+    "w_p5": 1.0,
+    "w_med": 3.0,
+    "edge_px": 1.04,
+    "halo": 0.0006,
+    "mass": 0.36
+   }
+  },
+  "160": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 11,
+    "holes": 14,
+    "holes_T": 14,
+    "iou": 0.878,
+    "solidity": 0.939,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 0.98,
+    "halo": 0.0,
+    "mass": 1.15
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 11,
+    "holes": 0,
+    "holes_T": 14,
+    "iou": 0.284,
+    "solidity": 0.301,
+    "w_p5": 3.0,
+    "w_med": 15.0,
+    "edge_px": 2.67,
+    "halo": 0.0006,
+    "mass": 0.36
+   }
+  },
+  "640": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 7,
+    "holes": 14,
+    "holes_T": 14,
+    "iou": 0.946,
+    "solidity": 0.98,
+    "w_p5": 3.0,
+    "w_med": 5.0,
+    "edge_px": 0.69,
+    "halo": 0.0,
+    "mass": 1.02
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 7,
+    "holes": 0,
+    "holes_T": 14,
+    "iou": 0.282,
+    "solidity": 0.301,
+    "w_p5": 15.0,
+    "w_med": 63.0,
+    "edge_px": 9.68,
+    "halo": 0.0006,
+    "mass": 0.35
+   }
+  },
+  "2560": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 7,
+    "holes": 14,
+    "holes_T": 15,
+    "iou": 0.945,
+    "solidity": 0.993,
+    "w_p5": 17.0,
+    "w_med": 19.0,
+    "edge_px": 0.56,
+    "halo": 0.0,
+    "mass": 1.02
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 7,
+    "holes": 0,
+    "holes_T": 15,
+    "iou": 0.281,
+    "solidity": 0.3,
+    "w_p5": 63.0,
+    "w_med": 255.0,
+    "edge_px": 37.85,
+    "halo": 0.0006,
+    "mass": 0.35
+   }
+  },
+  "bake256": {
+   "alpha_mean": 0.0804,
+   "rgb_values": [
+    [
+     34,
+     28,
+     22
+    ]
+   ]
+  }
+ },
+ "mountain": {
+  "rust_stats": {
+   "name": "mountain",
+   "work": 1024,
+   "threshold": 0.5391,
+   "illumination": 0.0,
+   "grain": 0.0,
+   "closed": false,
+   "specks": 0,
+   "pinholes": 0,
+   "components": 14,
+   "stroke_p2_mask_px": 3.0,
+   "sdf_top": 512,
+   "sdf_png_bytes": {
+    "512": 38557,
+    "256": 14227,
+    "128": 5524,
+    "64": 2196,
+    "32": 827
+   },
+   "floor_px_256": 0.125,
+   "ms_clean": 127,
+   "ms_sdf": 213,
+   "ms_convert": 361
+  },
+  "40": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 1,
+    "holes": 23,
+    "holes_T": 13,
+    "iou": 0.837,
+    "solidity": 0.754,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.4,
+    "halo": 0.0,
+    "mass": 4.42
+   },
+   "today": {
+    "comp": 16,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 13,
+    "iou": 0.102,
+    "solidity": 0.098,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.27,
+    "halo": 0.0006,
+    "mass": 0.45
+   }
+  },
+  "160": {
+   "ap10": {
+    "comp": 13,
+    "comp_T": 13,
+    "holes": 1,
+    "holes_T": 0,
+    "iou": 0.775,
+    "solidity": 0.902,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.12,
+    "halo": 0.0,
+    "mass": 1.58
+   },
+   "today": {
+    "comp": 16,
+    "comp_T": 13,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.125,
+    "solidity": 0.145,
+    "w_p5": 3.0,
+    "w_med": 3.0,
+    "edge_px": 1.78,
+    "halo": 0.0006,
+    "mass": 0.47
+   }
+  },
+  "640": {
+   "ap10": {
+    "comp": 14,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.947,
+    "solidity": 0.942,
+    "w_p5": 1.83,
+    "w_med": 3.0,
+    "edge_px": 0.78,
+    "halo": 0.0,
+    "mass": 1.0
+   },
+   "today": {
+    "comp": 16,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.134,
+    "solidity": 0.159,
+    "w_p5": 15.0,
+    "w_med": 15.0,
+    "edge_px": 5.8,
+    "halo": 0.0006,
+    "mass": 0.46
+   }
+  },
+  "2560": {
+   "ap10": {
+    "comp": 14,
+    "comp_T": 14,
+    "holes": 1,
+    "holes_T": 0,
+    "iou": 0.945,
+    "solidity": 0.984,
+    "w_p5": 9.0,
+    "w_med": 16.94,
+    "edge_px": 0.7,
+    "halo": 0.0,
+    "mass": 1.01
+   },
+   "today": {
+    "comp": 16,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 0,
+    "iou": 0.136,
+    "solidity": 0.161,
+    "w_p5": 63.0,
+    "w_med": 63.0,
+    "edge_px": 22.17,
+    "halo": 0.0006,
+    "mass": 0.46
+   }
+  },
+  "bake256": {
+   "alpha_mean": 0.033,
+   "rgb_values": [
+    [
+     34,
+     28,
+     22
+    ]
+   ]
+  }
+ },
+ "scan": {
+  "rust_stats": {
+   "name": "scan",
+   "work": 1024,
+   "threshold": 0.5719,
+   "illumination": 0.238,
+   "grain": 0.0087,
+   "closed": true,
+   "specks": 55,
+   "pinholes": 0,
+   "components": 7,
+   "stroke_p2_mask_px": 5.0,
+   "sdf_top": 512,
+   "sdf_png_bytes": {
+    "512": 18739,
+    "256": 9669,
+    "128": 4274,
+    "64": 1591,
+    "32": 576
+   },
+   "floor_px_256": 0.0,
+   "ms_clean": 156,
+   "ms_sdf": 208,
+   "ms_convert": 397
+  },
+  "40": {
+   "ap10": {
+    "comp": 4,
+    "comp_T": 6,
+    "holes": 6,
+    "holes_T": 4,
+    "iou": 0.783,
+    "solidity": 0.725,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.51,
+    "halo": 0.0,
+    "mass": 2.69
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 6,
+    "holes": 0,
+    "holes_T": 4,
+    "iou": 0.117,
+    "solidity": 0.121,
+    "w_p5": 1.0,
+    "w_med": 3.0,
+    "edge_px": 2.08,
+    "halo": 0.2213,
+    "mass": 0.31
+   }
+  },
+  "160": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 9,
+    "holes": 14,
+    "holes_T": 14,
+    "iou": 0.854,
+    "solidity": 0.924,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 0.91,
+    "halo": 0.0,
+    "mass": 1.13
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 9,
+    "holes": 0,
+    "holes_T": 14,
+    "iou": 0.268,
+    "solidity": 0.249,
+    "w_p5": 3.0,
+    "w_med": 3.0,
+    "edge_px": 5.41,
+    "halo": 0.2213,
+    "mass": 0.31
+   }
+  },
+  "640": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 7,
+    "holes": 14,
+    "holes_T": 15,
+    "iou": 0.956,
+    "solidity": 0.968,
+    "w_p5": 3.0,
+    "w_med": 5.0,
+    "edge_px": 0.69,
+    "halo": 0.0,
+    "mass": 0.99
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 7,
+    "holes": 0,
+    "holes_T": 15,
+    "iou": 0.269,
+    "solidity": 0.252,
+    "w_p5": 15.0,
+    "w_med": 47.0,
+    "edge_px": 19.63,
+    "halo": 0.2213,
+    "mass": 0.3
+   }
+  },
+  "2560": {
+   "ap10": {
+    "comp": 7,
+    "comp_T": 7,
+    "holes": 14,
+    "holes_T": 15,
+    "iou": 0.947,
+    "solidity": 0.977,
+    "w_p5": 15.0,
+    "w_med": 19.0,
+    "edge_px": 0.57,
+    "halo": 0.0,
+    "mass": 0.99
+   },
+   "today": {
+    "comp": 4,
+    "comp_T": 7,
+    "holes": 0,
+    "holes_T": 15,
+    "iou": 0.268,
+    "solidity": 0.251,
+    "w_p5": 63.0,
+    "w_med": 191.0,
+    "edge_px": 76.76,
+    "halo": 0.2213,
+    "mass": 0.3
+   }
+  },
+  "bake256": {
+   "alpha_mean": 0.0786,
+   "rgb_values": [
+    [
+     34,
+     28,
+     22
+    ]
+   ]
+  }
+ },
+ "scan2": {
+  "rust_stats": {
+   "name": "scan2",
+   "work": 1024,
+   "threshold": 0.7922,
+   "illumination": 0.1619,
+   "grain": 0.0108,
+   "closed": true,
+   "specks": 0,
+   "pinholes": 0,
+   "components": 14,
+   "stroke_p2_mask_px": 3.0,
+   "sdf_top": 512,
+   "sdf_png_bytes": {
+    "512": 38791,
+    "256": 14260,
+    "128": 5507,
+    "64": 2193,
+    "32": 829
+   },
+   "floor_px_256": 0.125,
+   "ms_clean": 206,
+   "ms_sdf": 238,
+   "ms_convert": 387
+  },
+  "40": {
+   "ap10": {
+    "comp": 1,
+    "comp_T": 1,
+    "holes": 26,
+    "holes_T": 15,
+    "iou": 0.846,
+    "solidity": 0.753,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.4,
+    "halo": 0.0,
+    "mass": 4.42
+   },
+   "today": {
+    "comp": 0,
+    "comp_T": 1,
+    "holes": 0,
+    "holes_T": 15,
+    "iou": 0.0,
+    "solidity": 0.0,
+    "w_p5": 0.0,
+    "w_med": 0.0,
+    "edge_px": null,
+    "halo": 0.9237,
+    "mass": 0.0
+   }
+  },
+  "160": {
+   "ap10": {
+    "comp": 13,
+    "comp_T": 13,
+    "holes": 4,
+    "holes_T": 2,
+    "iou": 0.753,
+    "solidity": 0.899,
+    "w_p5": 1.0,
+    "w_med": 1.0,
+    "edge_px": 1.1,
+    "halo": 0.0,
+    "mass": 1.58
+   },
+   "today": {
+    "comp": 0,
+    "comp_T": 13,
+    "holes": 0,
+    "holes_T": 2,
+    "iou": 0.0,
+    "solidity": 0.0,
+    "w_p5": 0.0,
+    "w_med": 0.0,
+    "edge_px": null,
+    "halo": 0.9237,
+    "mass": 0.0
+   }
+  },
+  "640": {
+   "ap10": {
+    "comp": 14,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.938,
+    "solidity": 0.94,
+    "w_p5": 1.83,
+    "w_med": 3.0,
+    "edge_px": 0.76,
+    "halo": 0.0,
+    "mass": 1.01
+   },
+   "today": {
+    "comp": 0,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.0,
+    "solidity": 0.0,
+    "w_p5": 0.0,
+    "w_med": 0.0,
+    "edge_px": null,
+    "halo": 0.9237,
+    "mass": 0.0
+   }
+  },
+  "2560": {
+   "ap10": {
+    "comp": 14,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.922,
+    "solidity": 0.978,
+    "w_p5": 9.0,
+    "w_med": 15.0,
+    "edge_px": 0.69,
+    "halo": 0.0,
+    "mass": 1.02
+   },
+   "today": {
+    "comp": 0,
+    "comp_T": 14,
+    "holes": 0,
+    "holes_T": 1,
+    "iou": 0.0,
+    "solidity": 0.0,
+    "w_p5": 0.0,
+    "w_med": 0.0,
+    "edge_px": null,
+    "halo": 0.9237,
+    "mass": 0.0
+   }
+  },
+  "bake256": {
+   "alpha_mean": 0.033,
+   "rgb_values": [
+    [
+     34,
+     28,
+     22
+    ]
+   ]
+  }
+ }
+}

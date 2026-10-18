@@ -41,6 +41,8 @@ use cartalith_assets::{
     read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
 };
 
+use cartalith_assets::lineart::{LineArtOptions, LineArtResult, convert_line_art, working_image};
+
 use crate::pack::colour_import::{ColourReport, decode_png_managed};
 /// The plain (unmanaged) decode is used only by this file's tests since
 /// ET-E2 moved both import paths to `decode_png_managed`.
@@ -895,6 +897,44 @@ impl AssetLibrarySession {
         Ok((outcome, Some(self.db.items(uid).len() - 1)))
     }
 
+    // -- Line-art conversion (AP-10, Ruling CR) ------------------------------
+
+    /// AP-10: convert one sprite variant's line art into a clean, solid,
+    /// one-ink sprite (`cartalith_assets::lineart`) and store it as a **new
+    /// variant** named `<original> · line art` (Ruling CQ Q7: refine verbs
+    /// never replace the original; this never writes the original's record
+    /// or pixels).
+    ///
+    /// The source is the original's own pixels at their full resolution,
+    /// drawn with its transform (`working_image`, so the result lines up with
+    /// what the user framed), never the 256² bake: Ruling CR's "at full
+    /// source resolution". The stored variant is the family-size coverage
+    /// bake with the identity transform, so its own bake is those pixels
+    /// (tested below) and export ships what was converted. Its SDF is not
+    /// kept: Ruling CR Q-L3 makes it a derived cache, so there is no save or
+    /// pack key, and AP-5 rebuilds it from the original.
+    ///
+    /// Returns the result (with `image` emptied: it is in the store) and the
+    /// new index. `Err` in words for an unknown uid or index, a ground-texture
+    /// family (opaque tiles have no line art to key), or an image with no ink
+    /// or no paper. Undo is [`AssetLibrarySession::remove_item`].
+    pub fn line_art_variant(&mut self, uid: &str, index: usize, opts: &LineArtOptions) -> Result<(LineArtResult, usize), String> {
+        let Some(slot) = self.db.get(uid) else { return Err(format!("no such slot: {uid}")) };
+        let family = slot.family;
+        if family.is_texture() {
+            return Err(format!("{uid} is a ground texture: line-art conversion makes transparent sprites"));
+        }
+        let Some(item) = self.db.items(uid).get(index) else { return Err(format!("{uid} has no variant {}", index + 1)) };
+        let name = format!("{} · line art", item.name);
+        let transform = item.transform.clone();
+        let Some(img) = self.image(uid, index) else { return Err(format!("{uid} variant {} has no pixels", index + 1)) };
+        let work = working_image(img, &transform, family.size());
+        let mut result = convert_line_art(&work, opts, family.size()).map_err(|e| e.to_string())?;
+        let made = std::mem::replace(&mut result.image, DecodedImage { w: 0, h: 0, rgba: Vec::new() });
+        self.insert_decoded(uid, name, made)?;
+        Ok((result, self.db.items(uid).len() - 1))
+    }
+
     // -- Thumbnails ----------------------------------------------------------
 
     /// A `render_item`-baked, PNG-encoded thumbnail for one stored item —
@@ -1212,6 +1252,77 @@ mod tests {
         assert!(s.seam_check("icons:mountain", 0).is_none());
         assert!(s.make_seamless_variant("biomes:jungle", 5).is_err());
         assert!(s.make_seamless_variant("textures:nope", 0).is_err());
+    }
+
+    /// A 1024² white page with black strokes, as PNG bytes: a line drawing
+    /// an author would import (AP-10's tests).
+    fn line_drawing_png() -> Vec<u8> {
+        let n = 1024u32;
+        let mut data = vec![255u8; (n * n * 4) as usize];
+        for y in 0..n {
+            for x in 0..n {
+                let on = ((200..824).contains(&x) && (300..306).contains(&y)) || ((500..506).contains(&x) && (300..900).contains(&y));
+                if on {
+                    let i = ((y * n + x) * 4) as usize;
+                    data[i..i + 3].copy_from_slice(&[10, 10, 10]);
+                }
+            }
+        }
+        encode_png(&DecodedImage::new(n, n, data).unwrap()).unwrap()
+    }
+
+    /// Protects AP-10 through the session: the conversion adds exactly one
+    /// variant named `· line art` (Ruling CQ Q7), the original's pixels and
+    /// record are untouched, the new variant is one ink colour at the family
+    /// size, and its own bake (what export writes) equals its pixels except
+    /// for `render_item`'s known one-level RGB drift on soft alpha (AP-1's
+    /// finding, `ASSET_PACK_TOOLS_PROPOSAL.md` §10): alpha is exact and RGB
+    /// moves at most one level. Undo is `remove_item`.
+    #[test]
+    fn line_art_adds_a_new_variant_and_keeps_the_original() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("icons:mountain", "peak.png".to_string(), &line_drawing_png()).unwrap();
+        let before_px = s.image("icons:mountain", 0).unwrap().clone();
+        let before_rec = s.db.items("icons:mountain")[0].clone();
+        let opts = LineArtOptions { ink: [40, 30, 20], ..LineArtOptions::default() };
+        let (r, idx) = s.line_art_variant("icons:mountain", 0, &opts).unwrap();
+        assert_eq!(idx, 1);
+        assert!(r.image.rgba.is_empty(), "the image is moved into the store, not duplicated");
+        assert_eq!(r.clean.components, 1);
+        assert!(!r.clean.closed, "a clean drawing is not a scan");
+        assert_eq!(s.db.items("icons:mountain").len(), 2);
+        assert_eq!(s.image("icons:mountain", 0).unwrap(), &before_px, "original pixels untouched");
+        assert_eq!(s.db.items("icons:mountain")[0], before_rec, "original record untouched");
+        let rec = &s.db.items("icons:mountain")[1];
+        assert_eq!(rec.name, "peak.png · line art");
+        assert_eq!(rec.transform, ItemTransform::default());
+        let made = s.image("icons:mountain", 1).unwrap().clone();
+        assert_eq!((made.w, made.h), (256, 256));
+        assert!(made.rgba.chunks_exact(4).all(|p| p[3] == 0 || p[..3] == [40, 30, 20]));
+        let bake = render_item(&made, &rec.transform, 256, false);
+        for (a, b) in made.rgba.chunks_exact(4).zip(bake.rgba.chunks_exact(4)) {
+            assert_eq!(a[3], b[3], "alpha moved in the bake");
+            if a[3] > 0 {
+                assert!((0..3).all(|c| a[c].abs_diff(b[c]) <= 1), "{a:?} vs {b:?}");
+            }
+        }
+        assert!(s.remove_item("icons:mountain", 1));
+        assert_eq!(s.db.items("icons:mountain").len(), 1);
+    }
+
+    /// Protects AP-10's refusals: ground textures, blank art, unknown slots
+    /// and indexes answer in words and add nothing.
+    #[test]
+    fn line_art_refuses_textures_blank_art_and_bad_indexes() {
+        let mut s = AssetLibrarySession::new();
+        let o = LineArtOptions::default();
+        s.import_item("biomes:jungle", "j.png".to_string(), &png_bytes(512, 512, [30, 120, 40, 255])).unwrap();
+        assert!(s.line_art_variant("biomes:jungle", 0, &o).unwrap_err().contains("ground texture"));
+        s.import_item("icons:mountain", "blank.png".to_string(), &png_bytes(64, 64, [255, 255, 255, 255])).unwrap();
+        assert!(s.line_art_variant("icons:mountain", 0, &o).unwrap_err().contains("no ink"));
+        assert_eq!(s.db.items("icons:mountain").len(), 1);
+        assert!(s.line_art_variant("icons:mountain", 3, &o).is_err());
+        assert!(s.line_art_variant("icons:nope", 0, &o).is_err());
     }
 
     /// Protects: a settlement-family import is not fitted to the bottom: its `pan_y` stays 0.
