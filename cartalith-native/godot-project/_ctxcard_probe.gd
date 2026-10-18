@@ -381,13 +381,19 @@ func _run() -> void:
 	## same INFO section -- "Attach…" here since the fixture settlement has
 	## no vault link. The two faction rows come next, ahead of Delete (the card
 	## sorts a danger row last within its band).
+	## SM-4 (`STORY_MENUS_PROPOSAL.md` §4, A4): two renames (Open in city
+	## viewer…, Attach note to X…) and three story verbs -- Add event to
+	## timeline here (PLACE HERE, a submenu), Plan journey from here and
+	## Journey to here (GO, the second disabled until a route has a start).
 	var want_a := [
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
-		"Open city layout for %s… [OBJECT]" % _sname,
+		"Open in city viewer… [OBJECT]",
 		"Open %s… [OBJECT]" % a_fname, "Claim for %s [OBJECT]" % a_fname,
 		"Delete %s [OBJECT]" % _sname, "Drop settlement here [PLACE HERE]",
 		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
-		"Attach vault note to %s… [INFO]" % _sname,
+		"Add event to timeline here [PLACE HERE]",
+		"Plan journey from here [GO / MEASURE]", "Journey to here [GO / MEASURE] {disabled}",
+		"Attach note to %s… [INFO]" % _sname,
 		"Info here (settlement & ecology) [INFO]"]
 	var rows_a := _civ_rows()
 	_ok("A CX-01's five rows + CM-7's three + the vault note row: text, order, section, enabled", rows_a, want_a)
@@ -436,7 +442,9 @@ func _run() -> void:
 	_ok("B CIVIL on an empty cell", _civ_rows(),
 		["Open %s… [OBJECT]" % b_name, "Claim for %s [OBJECT]" % b_name,
 			"Drop settlement here [PLACE HERE]", "Start way here [PLACE HERE]",
-			"Start route here [PLACE HERE]", "Info here (settlement & ecology) [INFO]"])
+			"Start route here [PLACE HERE]", "Add event to timeline here [PLACE HERE]",
+			"Plan journey from here [GO / MEASURE]", "Journey to here [GO / MEASURE] {disabled}",
+			"Info here (settlement & ecology) [INFO]"])
 	var hb: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
 	_ok("B a bare cell's header is 'Here'", String(hb[0]["text"]) if not hb.is_empty() else "", "Here")
 	await _close()

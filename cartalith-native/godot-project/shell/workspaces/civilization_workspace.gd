@@ -786,8 +786,13 @@ func context_actions(req: Dictionary) -> Array:
 		## has no city-layout screen, so this is new-port surface, not a ported
 		## verb -- `app.open_city_viewer` is the same call the left dock's own
 		## settlement row already makes.
-		rows.append({"id": "civ.open_city_layout", "label": "Open city layout for %s…" % nm, "section": "object",
-			"enabled": true, "header": head, "callable": _run_ctx.bind(5, hit, gx, gy)})
+		## SM-4 (`STORY_MENUS_PROPOSAL.md` §4, A4): renamed from "Open city
+		## layout for X…" to the proposal's "Open in city viewer…" -- the
+		## window it opens is the City Viewer. Same id and call. `chip` is its
+		## place on the phone peek sheet (see `STORY_CHIP_NOTE`).
+		rows.append({"id": "civ.open_city_layout", "label": "Open in city viewer…", "section": "object",
+			"enabled": true, "header": head, "callable": _run_ctx.bind(5, hit, gx, gy),
+			"chip": STORY_CHIP_CITY, "chip_label": "City viewer"})
 		rows.append({"id": "civ.delete", "label": "Delete %s" % nm, "section": "object",
 			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy)})
 		## CM-2 residual (§4.3 CIVIL Info row): "Open vault note / Attach vault
@@ -802,11 +807,16 @@ func context_actions(req: Dictionary) -> Array:
 		## existing note" and "nothing linked yet, attach one" cases itself.
 		var tid := int(s.get("tid", hit))
 		var vsum := bridge.vault_entity_summary("settlement", tid)
-		var vlabel := ("Open vault note for %s" % nm) if int(vsum.get("link_count", 0)) > 0 \
-			else ("Attach vault note to %s…" % nm)
+		## SM-4 (§4, A4): the proposal's wording, "Open note for X", while a
+		## note is linked; "Attach note to X…" while none is (the window then
+		## offers the attach, so "open" would promise a note that does not
+		## exist). "vault" dropped from both, as the proposal draws it.
+		var linked := int(vsum.get("link_count", 0)) > 0
+		var vlabel := ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm)
 		rows.append({"id": "civ.vault_note", "label": vlabel, "section": "info",
 			"enabled": true, "header": head,
-			"callable": func() -> void: app.open_vault("settlement", tid, nm)})
+			"callable": func() -> void: app.open_vault("settlement", tid, nm),
+			"chip": STORY_CHIP_NOTE, "chip_label": "Open note" if linked else "Attach note"})
 	## §4.3's Landmark row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 1): the hit
 	## itself is already `map_overlay.gd::hits_at`'s own "landmark" kind (CM-1
 	## put it there for the hover/select pair, and a multi-hit hit list makes
@@ -944,6 +954,7 @@ func context_actions(req: Dictionary) -> Array:
 		"enabled": true, "callable": func() -> void:
 			app.arm_tool("route")
 			_infra._route_click(gx, gy)})
+	rows.append_array(_story_ctx_rows(req, gx, gy))
 	rows.append({"id": "civ.info_here", "label": "Info here (settlement & ecology)", "section": "info",
 		"enabled": true, "callable": _run_ctx.bind(4, hit, gx, gy)})
 	## CM-2 residual (§4.3 CIVIL Draft row): shown while Territory is the armed
@@ -968,6 +979,147 @@ func context_actions(req: Dictionary) -> Array:
 			"param": {"value": func() -> String: return String(_settlement_kind).capitalize(),
 				"step": _step_settlement_class}})
 	return rows
+
+# -- SM-4 story verbs on the card (`STORY_MENUS_PROPOSAL.md` §4, Ruling CK) --
+
+## The phone peek sheet shows the first four ENABLED rows as chips
+## (`phone_menu.gd::_rebuild_peek_chip_row`), which in card order would be
+## Edit · Move viewer · Open in city viewer · Delete for a town. A8 draws the
+## four story verbs there instead, in this order; a row's `chip` key is its
+## place, and rows without one follow in card order. Taken from the mockup
+## Ruling CK approved, not a separate ruling.
+const STORY_CHIP_NOTE := 1
+const STORY_CHIP_EVENT := 2  ## Add event (phone row).
+const STORY_CHIP_JOURNEY := 3  ## Plan journey from here.
+const STORY_CHIP_CITY := 4  ## Open in city viewer….
+
+## What Add event cannot record yet, on the row (Q7's default: "the tooltip
+## names the gap").
+const ADD_EVENT_TIP := "Records a conflict at the Timeline cursor's year: a battle or a siege here, or a front or an arrow starting here. Only these four kinds can be recorded -- free timeline events (a founding, a coronation) have no store yet."
+## Reason Add event is unavailable on a build without the conflict store.
+const ADD_EVENT_NO_API := "This build of the engine has no conflict store (conflict_add)."
+## Reason "Journey to here" is unavailable: no origin pending.
+const JOURNEY_TO_NO_ORIGIN := "Pick a start first: right-click it ▸ Plan journey from here (or arm the Route tool and click a first stop)."
+
+## SM-4's card rows: *Add event to timeline here* (Place here) and *Plan
+## journey from here* / *Journey to here* (Go). §4 adds no section: each verb
+## goes where `MAP_CONTEXT_SCOPE.md` §4.1's grammar puts it.
+##
+## **Add event** is a one-level submenu on the card (§4.2: one level only) of
+## the four conflict kinds. Battle and Siege are one point, so they are
+## recorded at once (`_add_marker_event`); Front and Arrow are lines, so they
+## arm the Conflict tool with that kind and this cell as the first point
+## (`_start_line_event`), and the user draws on and commits. The phone sheet
+## cannot draw `children` (`context_broker.gd` drops them there), so on the
+## phone it is ONE row that arms the Conflict tool at this cell with its
+## current kind -- the tool's own options row then offers all four.
+##
+## **Journeys**: the planner plans over a committed route
+## (`open_journey_planner_with_route`), so *Plan journey from here* starts a
+## route draft at this cell (the Route tool; `route_begin` runs as it arms)
+## and *Journey to here* adds this cell as the last stop, commits the route
+## and opens the planner on it. *Journey to here* is drawn disabled with its
+## reason until a route draft has a first stop.
+##
+## Never reaches the engine while a generation holds it: `conflict_add` and
+## the `route_*` wrappers refuse then (their bridge gates), and a refusal is
+## reported in the status line.
+func _story_ctx_rows(req: Dictionary, gx: float, gy: float) -> Array:
+	var rows: Array = []
+	var has_store: bool = bridge.world_gen != null and bridge.world_gen.has_method("conflict_add")
+	if not has_store:
+		rows.append({"id": "civ.add_event", "label": "Add event to timeline here", "section": "place",
+			"enabled": false, "reason": ADD_EVENT_NO_API})
+	## `context_broker.gd::card_form(req)`'s own test, inline: that script
+	## declares no `class_name` (project rule), so it cannot be named here.
+	elif String(req.get("form", "")) != "phone":
+		var kids: Array = []
+		for k in ["battle", "siege", "front", "arrow"]:
+			var kind := String(k)
+			var marker := kind == "battle" or kind == "siege"
+			kids.append({"id": "civ.add_event.%s" % kind, "label": String(CONFLICT_KIND_LABELS[kind]),
+				"section": "place", "enabled": true, "tip": ADD_EVENT_TIP,
+				"callable": _add_marker_event.bind(kind, gx, gy) if marker
+					else _start_line_event.bind(kind, gx, gy)})
+		rows.append({"id": "civ.add_event", "label": "Add event to timeline here", "section": "place",
+			"enabled": true, "tip": ADD_EVENT_TIP, "children": kids})
+	else:
+		rows.append({"id": "civ.add_event", "label": "Add event here", "section": "place",
+			"enabled": true, "chip": STORY_CHIP_EVENT, "chip_label": "Add event",
+			"callable": _start_line_event.bind("", gx, gy)})
+	rows.append({"id": "civ.journey_from", "label": "Plan journey from here", "section": "go",
+		"enabled": true, "chip": STORY_CHIP_JOURNEY, "chip_label": "Journey from here",
+		"tip": "Starts a route here. Right-click the destination ▸ Journey to here (or click more stops and Commit), and the Journey planner opens on it.",
+		"callable": _journey_from_here.bind(gx, gy)})
+	var pending := String(app.armed_tool) == "route" and _infra._route_points.size() >= 1
+	if pending:
+		rows.append({"id": "civ.journey_to", "label": "Journey to here", "section": "go",
+			"enabled": true, "callable": _journey_to_here.bind(gx, gy),
+			"tip": "Adds this as the last stop, commits the route and opens the Journey planner on it."})
+	else:
+		rows.append({"id": "civ.journey_to", "label": "Journey to here", "section": "go",
+			"enabled": false, "reason": JOURNEY_TO_NO_ORIGIN})
+	return rows
+
+## Add event ▸ Battle / Siege: records a one-point conflict of `kind` at this
+## cell and the cursor's year with the calls the Conflict tool's own commit
+## makes (`conflict_add`, then `refresh_conflicts` and `select_conflict`, so
+## the right dock opens it for its name, sides and years). Leaves any armed
+## tool and its draft alone.
+func _add_marker_event(kind: String, gx: float, gy: float) -> void:
+	var year := bridge.get_civ_year()
+	var r := bridge.conflict_add({"kind": kind, "points": PackedVector2Array([Vector2(gx, gy)]),
+		"start_year": year})
+	if not r.get("ok", false):
+		app.set_status("hint", String(r.get("error", "The event was refused.")), "text_ghost")
+		return
+	var id := int(r.get("id", 0))
+	refresh_conflicts()
+	select_conflict(id)
+	app.set_status("hint", "%s #%d recorded at year %d -- name it, set its sides and years in the right dock." % [
+		CONFLICT_KIND_LABELS.get(kind, "Conflict"), id, year], "text_ghost")
+
+## Add event ▸ Front / Arrow (and the phone's single Add event row, `kind`
+## ""): arms the Conflict tool with `kind` (the tool's current kind when "")
+## and places this cell as the first point. A draft already open on the tool
+## is committed first -- the tool's own Escape rule -- so it is never lost.
+func _start_line_event(kind: String, gx: float, gy: float) -> void:
+	if String(app.armed_tool) == "conflict":
+		if not _conflict_points.is_empty():
+			_commit_conflict()
+	else:
+		app.arm_tool("conflict")
+	if kind != "":
+		_set_conflict_kind(kind)
+	_conflict_click(gx, gy)
+	app.set_status("hint", "%s started here -- click to add points, then ✓ Commit in the tool options." %
+		String(CONFLICT_KIND_LABELS.get(_conflict_kind, "Conflict")), "text_ghost")
+
+## Plan journey from here: a fresh route draft whose first stop is this cell.
+## Arming Route from another tool commits that tool's draft
+## (`_on_infra_tool_armed`'s rule); a route draft already open is committed
+## too and a new one begun, so "from here" always starts here.
+func _journey_from_here(gx: float, gy: float) -> void:
+	if String(app.armed_tool) == "route":
+		if not _infra._route_points.is_empty():
+			_infra._commit_route()
+		bridge.route_begin("mixed")
+	else:
+		app.arm_tool("route")
+	_infra._route_click(gx, gy)
+	app.set_status("hint", "Journey starts here -- right-click the destination ▸ Journey to here.", "text_ghost")
+
+## Journey to here: this cell as the last stop, the route committed, and the
+## Journey planner opened on it. If the engine commits nothing (fewer than two
+## routable stops, or a generation started), says so and opens nothing.
+func _journey_to_here(gx: float, gy: float) -> void:
+	_infra._route_click(gx, gy)
+	var idx: int = _infra._commit_route()
+	if idx < 0:
+		app.set_status("hint", "The route could not be committed -- it needs two stops the map can route between.", "text_ghost")
+		return
+	app.arm_tool("inspect")
+	app.open_journey_planner_with_route(idx)
 
 ## Cycles `_settlement_kind` through `KIND_ORDER`, wrapping -- the card's own
 ## step convention (`world_workspace.gd::_step_paint_radius` and friends).

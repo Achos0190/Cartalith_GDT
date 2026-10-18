@@ -871,6 +871,18 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 	for c in _peek_chip_row.get_children():
 		c.queue_free()
 	var enabled: Array = actions.filter(func(a): return bool((a as Dictionary).get("enabled", true)))
+	## SM-4 (`STORY_MENUS_PROPOSAL.md` §6, A8): a row may carry `chip` (its
+	## place on this sheet) and `chip_label` (the pill's shorter text). Rows
+	## with a `chip` come first in that order, then the rest in card order --
+	## so a town's sheet shows Open note · Add event · Journey from here · City
+	## viewer rather than Edit · Move viewer · …. Stable: the rest keep their
+	## relative order. The full (half-detent) list is untouched.
+	var ranked: Array = []
+	for n in enabled.size():
+		var a: Dictionary = enabled[n]
+		ranked.append([int(a.get("chip", 1000)), n, a])
+	ranked.sort_custom(func(x, y): return x[0] < y[0] or (x[0] == y[0] and x[1] < y[1]))
+	enabled = ranked.map(func(x): return x[2])
 	var take := 4
 	if _peek_all_hits.size() >= 2:
 		take = 3
@@ -879,10 +891,26 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 	for a in enabled.slice(0, take):
 		var row: Dictionary = a
 		var cb: Callable = row.get("callable", Callable())
-		DccWidgets.chip(_peek_chip_row, String(row.get("label", "")), func() -> void:
+		DccWidgets.chip(_peek_chip_row, String(row.get("chip_label", row.get("label", ""))), func() -> void:
 			_dismiss_peek_card()
 			if cb.is_valid():
 				cb.call())
+	## Four chips share the row's width, eliding their text, rather than
+	## running off the right edge: before this, four full-width labels at
+	## 393 dp pushed the fourth chip off screen (seen on SM-4's own capture,
+	## `_storymenus_probe.gd` phone `peek`; the old Edit / Move viewer labels
+	## overran too). §8.1.2 keeps "one horizontal row", so the row stays one
+	## row. Every chip expands equally, so none collapses to nothing beside a
+	## wider sibling (`MISTAKES.md`, clip_text beside an EXPAND_FILL sibling);
+	## the full label stays on the tooltip.
+	for c in _peek_chip_row.get_children():
+		var b := c as Button
+		if b == null or b.is_queued_for_deletion():
+			continue
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.tooltip_text = b.text
 
 ## Rebuilds the `half` detent's list. In select mode: a Back row, up to
 ## `_ContextCard.SELECT_CAP` nearest hits and a disabled "... and N more" row. Otherwise
@@ -1001,8 +1029,15 @@ func _build_peek_row(a: Dictionary) -> Control:
 	wrap.add_child(b)
 	if not enabled:
 		var reason := DccTheme.mono_label(String(a.get("reason", "")), "text_faint", _ps(9), 0)
+		## Wrapped: a reason is a sentence, and unwrapped its one-line minimum
+		## width widened the whole sheet past the screen (SM-4's "Journey to
+		## here" reason measured the half card at 1598 px on a 1080 px screen,
+		## `_ctxphone_probe.gd` leg R). The VBox gives it the sheet's width.
+		reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		reason.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var rp := MarginContainer.new()
 		rp.add_theme_constant_override("margin_left", _ps(16))
+		rp.add_theme_constant_override("margin_right", _ps(16))
 		rp.add_theme_constant_override("margin_bottom", _ps(6))
 		rp.add_child(reason)
 		wrap.add_child(rp)

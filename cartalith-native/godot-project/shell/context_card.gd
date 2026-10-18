@@ -449,6 +449,11 @@ func _row_for(a: Dictionary, indent: bool = false) -> void:
 		hint = DccIcons.SYMBOLS["submenu"]
 	var ink := "block" if bool(a.get("danger", false)) else "text_bright"
 	var row := _action_row(label, hint, ink, false, false, indent)
+	## `tip` (SM-4): an enabled row's hover text, for a verb whose limits must
+	## be on the row itself -- Add event's "only the four conflict kinds"
+	## (`STORY_MENUS_PROPOSAL.md` Q7). A disabled row's `reason` is drawn
+	## inline instead (`_disabled_row`), never only as a tooltip (§4.2).
+	row.tooltip_text = String(a.get("tip", ""))
 	row.set_meta("card_row", {"kind": "action", "text": label, "id": String(a.get("id", "")),
 		"submenu": a.has("children")})
 	_nav.append({"node": row, "kind": "action", "action": a})

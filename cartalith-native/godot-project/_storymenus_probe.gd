@@ -28,6 +28,12 @@ extends Node
 ##         presets set the dialog's layer switches (Player: Journey routes off,
 ##         the rest on; DM: all on) and the Player row's tooltip says it hides
 ##         whole layers only.
+##   SM-4  the CIVIL context card: Open in city viewer… and Open/Attach note
+##         renamed; Add event to timeline here ▸ Battle · Siege · Front · Arrow
+##         (Battle recorded at once, Front arms the Conflict tool), its tip
+##         naming the gap; Plan journey from here / Journey to here driving a
+##         real route into the planner; on the phone one Add event row and the
+##         peek sheet's chips in A8's order. Screenshots of the card / sheet.
 ##
 ## The expected row lists are written here as literals (the proposal's §3
 ## tables), never read back from `menus.gd`, so a reordering or a dropped row
@@ -460,6 +466,142 @@ func _sm3_presets() -> void:
 		d2.hide()
 	await _frames(2)
 
+## The row of `rows` with id `id`, or `{}`.
+func _row_id(rows: Array, id: String) -> Dictionary:
+	for r in rows:
+		if String((r as Dictionary).get("id", "")) == id:
+			return r
+	return {}
+
+## The context request a right-click (or a phone long-press) on settlement
+## `i` makes, built through the broker so `form` and `armed_tool` are live.
+func _settlement_req(i: int) -> Dictionary:
+	var s: Dictionary = app.bridge.settlements()[i]
+	var raw := {"gx": float(s.get("x", 0)) + 0.5, "gy": float(s.get("y", 0)) + 0.5,
+		"screen_pos": Vector2(480, 320), "hits": [{"kind": "settlement", "id": i}], "source": "mouse"}
+	return app.context_broker.build_request(raw)
+
+## SM-4's checks (see the header) over the probe's generated world.
+func _sm4() -> void:
+	var bridge = app.bridge
+	var setts: Array = bridge.settlements()
+	if setts.size() < 2:
+		_check("SM-4 needs two settlements", false, str(setts.size()))
+		return
+	var civ: Node = null
+	for ws in app._workspaces:
+		if ws.has_method("_story_ctx_rows"):
+			civ = ws
+	_check("the CIVIL workspace provides the story rows", civ != null)
+	if civ == null:
+		return
+	app.select_domain("civilization")
+	app.arm_tool("inspect")
+	await _frames(3)
+	var phone := DccTheme.is_phone()
+	var req := _settlement_req(0)
+	var rows: Array = app.context_broker.collect(req)
+	var nm := String(setts[0].get("name", ""))
+	_check("card: Open in city viewer… replaces Open city layout",
+		String(_row_id(rows, "civ.open_city_layout").get("label", "")) == "Open in city viewer…",
+		String(_row_id(rows, "civ.open_city_layout").get("label", "")))
+	var vn := String(_row_id(rows, "civ.vault_note").get("label", ""))
+	_check("card: the note row reads Open note for / Attach note to (no 'vault')",
+		vn == "Open note for %s" % nm or vn == "Attach note to %s…" % nm, vn)
+	var ev := _row_id(rows, "civ.add_event")
+	_check("card: Add event is in Place here", String(ev.get("section", "")) == "place", str(ev.get("section")))
+	if not phone:
+		var kids: Array = ev.get("children", [])
+		_check("card: Add event to timeline here ▸ Battle · Siege · Front · Arrow",
+			kids.map(func(k): return String(k["label"])) == ["Battle", "Siege", "Front", "Arrow"],
+			str(kids.map(func(k): return String(k["label"]))))
+		_check("card: Add event's tooltip names the gap (Q7)",
+			String(ev.get("tip", "")).findn("free timeline events") >= 0, String(ev.get("tip", "")))
+		## Battle: recorded at once, at this cell, in the cursor's year.
+		var before: int = bridge.conflict_list().size()
+		if kids.size() == 4:
+			(kids[0]["callable"] as Callable).call()
+			await _frames(3)
+			var after: Array = bridge.conflict_list()
+			_check("Add event ▸ Battle records one battle at the cursor's year",
+				after.size() == before + 1 and String(after[after.size() - 1].get("kind", "")) == "battle"
+					and int(after[after.size() - 1].get("start_year", -999)) == int(bridge.get_civ_year()),
+				"%d -> %d %s" % [before, after.size(), str(after[after.size() - 1]) if not after.is_empty() else ""])
+			(kids[2]["callable"] as Callable).call()
+			await _frames(3)
+			_check("Add event ▸ Front arms the Conflict tool, kind front, first point placed",
+				String(app.armed_tool) == "conflict" and String(civ.get("_conflict_kind")) == "front"
+					and (civ.get("_conflict_points") as PackedVector2Array).size() == 1,
+				"%s %s %d" % [app.armed_tool, civ.get("_conflict_kind"), (civ.get("_conflict_points") as PackedVector2Array).size()])
+	else:
+		_check("phone: Add event is one row, no submenu, chip 2",
+			not ev.has("children") and int(ev.get("chip", 0)) == 2 and String(ev.get("chip_label", "")) == "Add event", str(ev.keys()))
+		(ev["callable"] as Callable).call()
+		await _frames(3)
+		_check("phone: Add event arms the Conflict tool with the first point here",
+			String(app.armed_tool) == "conflict" and (civ.get("_conflict_points") as PackedVector2Array).size() == 1)
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	var jf := _row_id(rows, "civ.journey_from")
+	var jt := _row_id(rows, "civ.journey_to")
+	_check("card: Plan journey from here is an enabled Go row",
+		bool(jf.get("enabled", false)) and String(jf.get("section", "")) == "go")
+	_check("card: Journey to here is disabled with its reason while no start is pending",
+		not bool(jt.get("enabled", true)) and String(jt.get("reason", "")).begins_with("Pick a start first"),
+		String(jt.get("reason", "")))
+
+	## Screenshot the card (desktop/tablet) or the phone peek sheet, for a
+	## settlement, before the journey legs change the armed tool.
+	if not phone:
+		app.context_broker.present(req, rows)
+		await _frames(6)
+		await _shot("card")
+		if app.context_broker.card != null:
+			app.context_broker.card.hide()
+		await _frames(2)
+	else:
+		var pm = app.get("_phone_menu")
+		pm.close()
+		await _frames(2)
+		pm.peek_card(req, rows, Callable())
+		await _frames(6)
+		var chips: PackedStringArray = pm.peek_chip_labels()
+		var note_chip := "Open note" if vn.begins_with("Open note") else "Attach note"
+		_check("phone peek chips are the four story verbs in A8's order",
+			Array(chips) == [note_chip, "Add event", "Journey from here", "City viewer"], str(chips))
+		await _shot("peek")
+		pm._dismiss_peek_card()
+		await _frames(3)
+
+	## Journey: from settlement 0 to its nearest other settlement.
+	var s0: Dictionary = setts[0]
+	var best := 1
+	var best_d := INF
+	for i in range(1, setts.size()):
+		var d := Vector2(float(setts[i]["x"]), float(setts[i]["y"])).distance_to(Vector2(float(s0["x"]), float(s0["y"])))
+		if d < best_d:
+			best_d = d
+			best = i
+	(jf["callable"] as Callable).call()
+	await _frames(3)
+	_check("Plan journey from here arms Route with this cell as its first stop",
+		String(app.armed_tool) == "route" and (civ._infra._route_points as PackedVector2Array).size() == 1,
+		"%s %d" % [app.armed_tool, (civ._infra._route_points as PackedVector2Array).size()])
+	var rows2: Array = app.context_broker.collect(_settlement_req(best))
+	var jt2 := _row_id(rows2, "civ.journey_to")
+	_check("with a start pending, Journey to here is enabled", bool(jt2.get("enabled", false)))
+	var rc: int = bridge.route_count()
+	if bool(jt2.get("enabled", false)):
+		(jt2["callable"] as Callable).call()
+		await _frames(4)
+		var civ_panel: Control = app._workspace_panels.get("civilization")
+		_check("Journey to here commits the route and opens the planner on it",
+			bridge.route_count() == rc + 1 and civ_panel != null and not civ_panel.visible,
+			"routes %d -> %d" % [rc, bridge.route_count()])
+	app.select_domain("world")
+	await _frames(3)
+
 ## SM-2's checks (see the header). Runs on every form factor; generates a
 ## small world (256x192, as `_vfy_batch0905_probe.gd` does) for the
 ## press-through legs.
@@ -549,6 +691,7 @@ func _sm2() -> void:
 	var setts: Array = bridge.settlements()
 	_check("the probe world has settlements", setts.size() > 0, str(setts.size()))
 	await _sm3_presets()
+	await _sm4()
 
 	story.about_to_popup.emit()
 	_check("world, nothing selected: Notes for this place is disabled with the no-place reason",

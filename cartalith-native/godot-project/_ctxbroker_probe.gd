@@ -259,15 +259,22 @@ func _run() -> void:
 	## reads "Attach…" here because the probe's fixture settlement has no
 	## vault link yet, plus the two faction rows the settlement's cell now
 	## offers (before Delete: the card sorts a danger row last in its band).
-	## Eleven rows and two separators: thirteen entries.
-	_ok("A eleven rows plus two separators", rows_a.size(), 13)
+	## Eleven rows and two separators: thirteen entries -- until SM-4
+	## (`STORY_MENUS_PROPOSAL.md` §4, Ruling CK, 2026-10-18), which renames two
+	## (Open in city viewer…, Attach note to X…) and adds three: Add event to
+	## timeline here (place), Plan journey from here and Journey to here (go;
+	## the second disabled with its reason while no route draft is open), so a
+	## third separator opens the go band. Fourteen rows, three separators.
+	_ok("A fourteen rows plus three separators (SM-4)", rows_a.size(), 17)
 	_ok("A row order", rows_a, [
 		"Edit %s" % sname, "Move viewer to %s" % sname,
-		"Open city layout for %s…" % sname,
+		"Open in city viewer…",
 		"Open %s…" % a_fname, "Claim for %s" % a_fname,
 		"Delete %s" % sname, "----",
-		"Drop settlement here", "Start way here", "Start route here", "----",
-		"Attach vault note to %s…" % sname, "Info here (settlement & ecology)"])
+		"Drop settlement here", "Start way here", "Start route here",
+		"Add event to timeline here", "----",
+		"Plan journey from here", "Journey to here {disabled}", "----",
+		"Attach note to %s…" % sname, "Info here (settlement & ecology)"])
 
 	# -- B ------------------------------------------------------------------
 	await _hide_popups()
@@ -285,9 +292,12 @@ func _run() -> void:
 	var b_name := String(b_cell.get("controlling_faction_name", ""))
 	await _rmb(ov, b_pos)
 	var rows_b := _dump("B_civ_empty")
+	## SM-4 adds Add event (place) and the two journey verbs (go) here too.
 	_ok("B row order", rows_b, ["Open %s…" % b_name, "Claim for %s" % b_name,
 		"----", "Drop settlement here", "Start way here",
-		"Start route here", "----", "Info here (settlement & ecology)"])
+		"Start route here", "Add event to timeline here", "----",
+		"Plan journey from here", "Journey to here {disabled}", "----",
+		"Info here (settlement & ecology)"])
 
 	# -- C ------------------------------------------------------------------
 	await _hide_popups()

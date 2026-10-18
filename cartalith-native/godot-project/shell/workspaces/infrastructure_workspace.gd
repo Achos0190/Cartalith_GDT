@@ -845,8 +845,10 @@ func _discard_way() -> void:
 ## draft is gone either way; only when the engine returns a valid index does it
 ## repaint the route layer, refresh the Hand-drawn list and post a status line with
 ## the solved length. Never assumes the route was long enough -- `route_commit`
-## decides that.
-func _commit_route() -> void:
+## decides that. Returns the committed route's index, or -1 when the engine
+## committed nothing (SM-4's *Journey to here* opens the planner on it; every
+## other caller ignores it).
+func _commit_route() -> int:
 	var idx := bridge.route_commit()
 	_route_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_route_points)
@@ -866,6 +868,7 @@ func _commit_route() -> void:
 	if _active_infra_tool == "route":
 		_tool_options_route()
 	_push_way_draft()
+	return idx
 
 
 ## The route layer's own repaint. Unlike `_refresh_map_ways` this does NOT go

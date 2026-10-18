@@ -370,7 +370,8 @@ func _run() -> void:
 		await _rmb(ov, sp2)
 		_dump("CL_settlement")
 		var nm := String(s.get("name", "(unnamed)"))
-		var cl_row := _row("Open city layout for %s" % nm)
+		## SM-4 renamed the row to the proposal's "Open in city viewer…".
+		var cl_row := _row("Open in city viewer")
 		_ok_true("CL the row is drawn for a settlement hit", cl_row != null)
 		await _click_row(cl_row)
 		_ok_true("CL clicking it opened the city viewer", app.city_viewer_window != null and app.city_viewer_window.visible)
