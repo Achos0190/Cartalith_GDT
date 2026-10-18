@@ -26,6 +26,7 @@
 //! definitions. `#[ignore]`d: it generates up to four 2048 x 1311 worlds
 //! (`ZD_WORLDS` picks them by tag prefix). Environment: `ZD_OUT` (required),
 //! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
+//! the terrain-streak spike's `ZD_STREAK` and `ZD_FLOW` (see `world_params`),
 //! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`.
 //!
 //! ```text
@@ -87,6 +88,28 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     p.tect.seed = w.seed;
     p.map_width_km = w.width_km;
     p.sea_level = 0.42;
+    // `ZD_STREAK` (the terrain-streak spike, `TERRAIN_STREAK_SPIKE_2026-10-18.md`):
+    // a comma list of `cartalith_engine::StreakSpikeParams` switches to turn
+    // on -- `rain_bs`, `sub<N>` (carve_subcell = N/10), `rho8`, `no_light`,
+    // `no_cut`, `plain_d8`, `carve_off`, and the existing `volc.edifice_model`
+    // as `edifice_off`. Unset = the shipped world. An unknown
+    // token is refused, so a typo cannot render the head world under a
+    // variant's name.
+    if let Ok(v) = std::env::var("ZD_STREAK") {
+        for t in v.split(',').filter(|t| !t.is_empty()) {
+            match t {
+                "rain_bs" => p.streak.rain_bspline = true,
+                "rho8" => p.streak.stream_rho8 = true,
+                "no_light" => p.streak.skip_light_pass = true,
+                "no_cut" => p.streak.skip_channel_carve = true,
+                "plain_d8" => p.streak.channel_plain_d8 = true,
+                "carve_off" => p.carve_rivers = false,
+                "edifice_off" => p.volc.edifice_model = false,
+                s if s.starts_with("sub") => p.streak.carve_subcell = s[3..].parse::<f64>().expect("ZD_STREAK sub<N>") / 10.0,
+                other => panic!("ZD_STREAK: unknown switch {other}"),
+            }
+        }
+    }
     if let Some(k) = w.archetype {
         p.world_structure = cartalith_engine::WorldStructureParams {
             enabled: true,
@@ -335,8 +358,16 @@ fn zoom_detail_ladder() {
         println!("TARGETS {} {} {:?}", w.tag, w.seed, tg);
         for &law in &laws {
             let a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(look) };
-            let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
-            let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context");
+            // `ZD_FLOW=mfd`: the streak spike's display-only flow (variant
+            // (c), `cartalith_hydrology::compute_flow_mfd`) in place of the
+            // D8 accumulation the render reads; unset = shipped.
+            let mfd = (std::env::var("ZD_FLOW").as_deref() == Ok("mfd")).then(|| {
+                let route = cartalith_hydrology::build_routing_surface(&ws.field, gw, gh, ws.sea_level as f64, p.world);
+                cartalith_hydrology::compute_flow_mfd(gw, gh, &route, &ws.rainfall, p.world, 1.1)
+            });
+            let flow: &[f32] = mfd.as_deref().unwrap_or(&ws.flow_discharge);
+            let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(flow), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+            let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(flow), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context");
             let tf = TileFields::new(&ctx, None);
             for &(name, gx, gy) in &tg {
                 for &(rung, ppc) in &RUNGS {

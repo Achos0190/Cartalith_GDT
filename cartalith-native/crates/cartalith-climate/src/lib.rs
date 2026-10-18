@@ -215,6 +215,74 @@ fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64
     top * (1.0 - ty) + bot * ty
 }
 
+/// How a coarse weather-grid field is brought up to the full grid: the three
+/// places [`finish_weather_grid`] and [`apply_climate_moisture_correctors`]
+/// sample the `ww x wh` grid at every full-resolution cell.
+///
+/// **Why it exists** (`TERRAIN_STREAK_SPIKE_2026-10-18.md`, a measurement
+/// spike; owner, 2026-10-18, "measure a fix first"): bilinear reconstruction
+/// is only C0 -- its gradient jumps on every coarse grid line -- so the
+/// up-sampled rain field carries a square lattice of creases about
+/// `gw / 240` cells apart, aligned with the axes (measured on the app's worlds
+/// there; the earlier report's 1.69-2.02 axis-over-diagonal ratio on 314159).
+/// A uniform cubic B-spline is C2 (de Boor, *A Practical Guide to Splines*,
+/// 1978, ch. IX), so it has no crease to align.
+///
+/// **What it must never do:** change [`CoarseUpsample::Bilinear`]'s numbers.
+/// That arm calls [`bil_c`], the reference's `bilC`, by control flow, and every
+/// public entry point that does not take this enum passes `Bilinear`
+/// (`golden_parity_weather.rs` and every JS golden downstream of rain).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CoarseUpsample {
+    /// The reference's `bilC`. The only value any golden or shipped path uses.
+    #[default]
+    Bilinear,
+    /// Uniform cubic B-spline over the 4 x 4 nodes around the sample. It is
+    /// an approximating kernel applied to the node values directly (no
+    /// prefilter), so it also smooths by the B-spline's own `[1, 4, 1] / 6`
+    /// at the nodes -- a labelled judgement: the field is already three box
+    /// blurs deep ([`finish_weather_grid`]), so the extra smoothing is small
+    /// beside the lattice it removes.
+    CubicBSpline,
+}
+
+/// [`bil_c`] or the cubic B-spline, by `up` -- the one dispatch point, so the
+/// bilinear arm is the reference's expression and nothing else.
+fn coarse_sample(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool, up: CoarseUpsample) -> f64 {
+    match up {
+        CoarseUpsample::Bilinear => bil_c(a, fx, fy, ww, wh, wrap_x),
+        CoarseUpsample::CubicBSpline => bspline_c(a, fx, fy, ww, wh, wrap_x),
+    }
+}
+
+/// Uniform cubic B-spline sample of the coarse grid at `(fx, fy)` with
+/// [`bil_c`]'s edge rules: `x` wraps when `wrap_x`, otherwise both axes clamp
+/// (the outside node repeats the edge value). The weights are the standard
+/// basis `(1-t)^3/6, (3t^3-6t^2+4)/6, (-3t^3+3t^2+3t+1)/6, t^3/6` (de Boor
+/// 1978), which sum to 1 and are non-negative, so the result stays inside the
+/// range of the 16 nodes it reads -- a rain field in `[0, 1]` stays there.
+fn bspline_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64 {
+    let fx = if wrap_x { ((fx % ww as f64) + ww as f64) % ww as f64 } else { fx.clamp(0.0, ww as f64 - 1.0) };
+    let fy = fy.clamp(0.0, wh as f64 - 1.0);
+    let (x0, y0) = (fx.floor() as i64, fy.floor() as i64);
+    let w = |t: f64| -> [f64; 4] {
+        let t2 = t * t;
+        let t3 = t2 * t;
+        [(1.0 - t).powi(3) / 6.0, (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0, (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0, t3 / 6.0]
+    };
+    let (wx, wy) = (w(fx - x0 as f64), w(fy - y0 as f64));
+    let ix = |x: i64| -> usize { if wrap_x { x.rem_euclid(ww as i64) as usize } else { x.clamp(0, ww as i64 - 1) as usize } };
+    let iy = |y: i64| -> usize { y.clamp(0, wh as i64 - 1) as usize };
+    let mut s = 0.0;
+    for (j, wyj) in wy.iter().enumerate() {
+        let row = iy(y0 - 1 + j as i64) * ww;
+        for (k, wxk) in wx.iter().enumerate() {
+            s += wyj * wxk * a[row + ix(x0 - 1 + k as i64)] as f64;
+        }
+    }
+    s
+}
+
 /// `sampleArr()` (reference HTML line 10242): bilinear sample on the
 /// full-resolution grid, clamp-only (no wrap — used for reading the
 /// height field at a coarse weather-grid position).
@@ -1188,6 +1256,24 @@ pub fn simulate_weather(
     decl: f64,
     p: &WeatherParams,
 ) -> Vec<f32> {
+    simulate_weather_with(gw, gh, field, iters, decl, p, CoarseUpsample::Bilinear)
+}
+
+/// [`simulate_weather`] with the final coarse-to-full reconstruction chosen by
+/// `up` ([`CoarseUpsample`]; the streak spike). `Bilinear` is
+/// [`simulate_weather`] itself -- that function is this one's delegation, so the
+/// two cannot drift. Must never be reached with anything but `Bilinear` from a
+/// golden or the shipped app (`cartalith_engine::StreakSpikeParams` is off at
+/// both boundaries).
+pub fn simulate_weather_with(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    iters: i32,
+    decl: f64,
+    p: &WeatherParams,
+    up: CoarseUpsample,
+) -> Vec<f32> {
     let grid = build_weather_grid(gw, gh, field, decl, p);
     let ww = grid.ww;
     let wh = grid.wh;
@@ -1278,7 +1364,7 @@ pub fn simulate_weather(
         });
     }
 
-    finish_weather_grid(eh, rain, ww, wh, wrap_x, sea, gw, gh)
+    finish_weather_grid_with(eh, rain, ww, wh, wrap_x, sea, gw, gh, up)
 }
 
 /// Everything `simulate_weather` computes ONCE before its `iters` loop:
@@ -1444,7 +1530,16 @@ pub fn build_weather_grid(gw: usize, gh: usize, field: &[f32], decl: f64, p: &We
 /// path (CPU loop or GPU kernel) produced `rain`/`eh` — this function
 /// doesn't know or care which.
 #[allow(clippy::too_many_arguments)]
-pub fn finish_weather_grid(eh: &[f32], mut rain: Vec<f32>, ww: usize, wh: usize, wrap_x: bool, sea: f64, gw: usize, gh: usize) -> Vec<f32> {
+pub fn finish_weather_grid(eh: &[f32], rain: Vec<f32>, ww: usize, wh: usize, wrap_x: bool, sea: f64, gw: usize, gh: usize) -> Vec<f32> {
+    finish_weather_grid_with(eh, rain, ww, wh, wrap_x, sea, gw, gh, CoarseUpsample::Bilinear)
+}
+
+/// [`finish_weather_grid`] with the up-sample chosen by `up`
+/// ([`CoarseUpsample`]). `Bilinear` is that function exactly (it delegates
+/// here). Only the final up-sample changes: the blur and the 82nd-percentile
+/// normalisation read the coarse grid and are the same either way.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_weather_grid_with(eh: &[f32], mut rain: Vec<f32>, ww: usize, wh: usize, wrap_x: bool, sea: f64, gw: usize, gh: usize, up: CoarseUpsample) -> Vec<f32> {
     let n = ww * wh;
     debug_assert_eq!(eh.len(), n);
     debug_assert_eq!(rain.len(), n);
@@ -1464,13 +1559,14 @@ pub fn finish_weather_grid(eh: &[f32], mut rain: Vec<f32>, ww: usize, wh: usize,
     let mut rain_field = vec![0f32; gw * gh];
     rain_field.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         for (x, rf) in row.iter_mut().enumerate() {
-            let r = bil_c(
+            let r = coarse_sample(
                 &rain,
                 x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
                 y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
                 ww,
                 wh,
                 wrap_x,
+                up,
             );
             let moisture = (r / reference).min(1.0);
             *rf = moisture as f32;
@@ -1516,6 +1612,27 @@ pub fn apply_climate_moisture_correctors(
     lat_s: f64,
     zonal_k: f64,
 ) {
+    apply_climate_moisture_correctors_with(gw, gh, field, flow_field, rain, sea, world, lat_n, lat_s, zonal_k, CoarseUpsample::Bilinear);
+}
+
+/// [`apply_climate_moisture_correctors`] with its two coarse-grid boosts (the
+/// coastal and the river-corridor one) up-sampled by `up` ([`CoarseUpsample`]).
+/// `Bilinear` is that function exactly (it delegates here); the latitude pass
+/// reads no coarse grid and is the same either way.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_climate_moisture_correctors_with(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    flow_field: &[f32],
+    rain: &mut [f32],
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    zonal_k: f64,
+    up: CoarseUpsample,
+) {
     let n = gw * gh;
     let ww = gw.min(240);
     let wh = (js_round(ww as f64 * gh as f64 / gw as f64) as usize).max(2);
@@ -1553,13 +1670,14 @@ pub fn apply_climate_moisture_correctors(
             if (field[i] as f64) < sea {
                 continue;
             }
-            let boost = bil_c(
+            let boost = coarse_sample(
                 &c_blur,
                 x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
                 y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
                 ww,
                 wh,
                 wrap_x,
+                up,
             ) * 0.38;
             *r = ((*r as f64 + boost).min(1.0)) as f32;
         }
@@ -1600,13 +1718,14 @@ pub fn apply_climate_moisture_correctors(
             if (field[i] as f64) < sea {
                 continue;
             }
-            let boost = bil_c(
+            let boost = coarse_sample(
                 &r_blur,
                 x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
                 y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
                 ww,
                 wh,
                 false,
+                up,
             ) * 0.38;
             *r = ((*r as f64 + boost).min(1.0)) as f32;
         }
@@ -1642,6 +1761,88 @@ mod tests {
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    /// A 12 x 9 coarse grid with one spike, the rest a gentle ramp: enough
+    /// structure that a wrong weight or a wrong node index moves a sample.
+    fn spike_grid() -> (Vec<f32>, usize, usize) {
+        let (ww, wh) = (12usize, 9usize);
+        let mut a: Vec<f32> = (0..ww * wh).map(|i| 0.1 + 0.02 * (i % ww) as f32 + 0.01 * (i / ww) as f32).collect();
+        a[4 * ww + 6] = 1.0;
+        (a, ww, wh)
+    }
+
+    /// Protects: the streak spike's `CoarseUpsample::Bilinear` arm is the
+    /// reference's `bilC` bit for bit, so every caller that passes it -- every
+    /// golden and the shipped app -- is unchanged by the dispatch; and the
+    /// three `_with` entry points at `Bilinear` are the originals exactly.
+    #[test]
+    fn the_bilinear_arm_is_the_reference_sampler_exactly() {
+        let (a, ww, wh) = spike_grid();
+        for k in 0..400 {
+            let (fx, fy) = (k as f64 * 0.137 - 3.0, k as f64 * 0.071 - 2.0);
+            for wrap in [false, true] {
+                assert_eq!(coarse_sample(&a, fx, fy, ww, wh, wrap, CoarseUpsample::Bilinear).to_bits(), bil_c(&a, fx, fy, ww, wh, wrap).to_bits());
+            }
+        }
+        let (gw, gh) = (40usize, 28usize);
+        let field: Vec<f32> = (0..gw * gh).map(|i| 0.3 + 0.5 * (((i % gw) as f32 * 0.31).sin() * ((i / gw) as f32 * 0.23).cos()).abs()).collect();
+        let p = WeatherParams {
+            world: false, lat_n: 55.0, lat_s: 5.0, pole_temp: -25.0, equator_temp: 30.0, tilt_deg: 23.4, rotation_hours: 24.0,
+            lapse_rate: 6.5, sea_level: 0.42, peak_m: 4000.0, wind_manual: false, wind_dir_deg: 0.0, press_k: 0.6,
+            ocean_hum: 1.0, evap: 0.12, ocean: 1.0, rain_k: 1.0, rain_dep: 0.35, bulk_evap: true,
+            terrain_wind_deflection: true, currents: false, current_k: 1.0,
+        };
+        let r0 = simulate_weather(gw, gh, &field, 5, 0.0, &p);
+        let r1 = simulate_weather_with(gw, gh, &field, 5, 0.0, &p, CoarseUpsample::Bilinear);
+        assert!(r0.iter().zip(&r1).all(|(a, b)| a.to_bits() == b.to_bits()));
+        let flow: Vec<f32> = (0..gw * gh).map(|i| (i % 7) as f32).collect();
+        let (mut c0, mut c1) = (r0.clone(), r0.clone());
+        apply_climate_moisture_correctors(gw, gh, &field, &flow, &mut c0, 0.42, false, 55.0, 5.0, 1.0);
+        apply_climate_moisture_correctors_with(gw, gh, &field, &flow, &mut c1, 0.42, false, 55.0, 5.0, 1.0, CoarseUpsample::Bilinear);
+        assert!(c0.iter().zip(&c1).all(|(a, b)| a.to_bits() == b.to_bits()));
+        // And the B-spline arm is actually a different field (the switch is
+        // not inert): positive control.
+        let r2 = simulate_weather_with(gw, gh, &field, 5, 0.0, &p, CoarseUpsample::CubicBSpline);
+        assert!(r0.iter().zip(&r2).any(|(a, b)| a != b));
+    }
+
+    /// Protects: what the cubic B-spline arm is FOR -- no crease on a coarse
+    /// grid line. Walking x across the node at `x = 6` (the spike's column),
+    /// the bilinear sample's slope jumps there (it is C0); the B-spline's does
+    /// not (C2). Also: weights sum to one (a constant grid samples to itself)
+    /// and the sample stays inside its nodes' range.
+    #[test]
+    fn the_bspline_has_no_crease_on_a_grid_line() {
+        let (a, ww, wh) = spike_grid();
+        let e = 1e-4;
+        let slope_jump = |up: CoarseUpsample| {
+            let s = |x: f64| coarse_sample(&a, x, 4.0, ww, wh, false, up);
+            let left = (s(6.0) - s(6.0 - e)) / e;
+            let right = (s(6.0 + e) - s(6.0)) / e;
+            (right - left).abs()
+        };
+        let bil = slope_jump(CoarseUpsample::Bilinear);
+        let bsp = slope_jump(CoarseUpsample::CubicBSpline);
+        assert!(bil > 1.0, "bilinear should crease at the spike's node: {bil}");
+        assert!(bsp < 1e-2, "the B-spline creased: {bsp}");
+        let flat = vec![0.37f32; ww * wh];
+        for k in 0..50 {
+            let v = coarse_sample(&flat, k as f64 * 0.23, k as f64 * 0.17, ww, wh, k % 2 == 0, CoarseUpsample::CubicBSpline);
+            assert!((v - 0.37).abs() < 1e-6, "{v}");
+        }
+        let (lo, hi) = (a.iter().copied().fold(f32::MAX, f32::min) as f64, a.iter().copied().fold(f32::MIN, f32::max) as f64);
+        for k in 0..200 {
+            let v = coarse_sample(&a, k as f64 * 0.061, k as f64 * 0.043, ww, wh, false, CoarseUpsample::CubicBSpline);
+            assert!(v >= lo - 1e-9 && v <= hi + 1e-9);
+        }
+        // The spike's node is smoothed, not reproduced: at a node the weights
+        // are [1, 4, 1] / 6 per axis, so the 1.0 spike keeps 16/36 and its
+        // eight ~0.26 neighbours fill the rest -- about 0.589, the labelled
+        // smoothing the enum's doc admits. Bilinear returns the node itself.
+        let at = coarse_sample(&a, 6.0, 4.0, ww, wh, false, CoarseUpsample::CubicBSpline);
+        assert!(at > 0.57 && at < 0.61, "{at}");
+        assert_eq!(coarse_sample(&a, 6.0, 4.0, ww, wh, false, CoarseUpsample::Bilinear), 1.0);
     }
 
     /// `current_wind_field` backs the port's new Wind debug view

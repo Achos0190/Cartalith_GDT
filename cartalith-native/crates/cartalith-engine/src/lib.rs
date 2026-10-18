@@ -191,8 +191,8 @@ pub mod geo_clock;
 pub mod preview;
 
 use cartalith_climate::{
-    apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
-    WeatherParams,
+    apply_climate_moisture_correctors_with, apply_ocean_currents, compute_temperature, simulate_weather_with,
+    ClimateParams, CoarseUpsample, WeatherParams,
 };
 use cartalith_climate::tides::{compute_tide_field, TideParams};
 use cartalith_erosion::{
@@ -910,6 +910,64 @@ pub struct WorldParams {
     /// (`HARDWARE_ACCELERATION.md` §27) -- which path each stage actually
     /// took is recorded on `WorldState.gpu_stages_used`, not hidden.
     pub use_gpu: bool,
+    /// The terrain-streak measurement spike's switches
+    /// (`TERRAIN_STREAK_SPIKE_2026-10-18.md`; owner, 2026-10-18, "measure a fix
+    /// first"). **All off at both boundaries** -- here and in `cartalith-godot`'s
+    /// `params::defaults()` -- so no golden, no shipped world and no save moves.
+    /// See [`StreakSpikeParams`] for each switch and why it has no `PARAMS` row.
+    pub streak: StreakSpikeParams,
+}
+
+/// The terrain-streak spike's ablation and variant switches
+/// (`TERRAIN_STREAK_SPIKE_2026-10-18.md`). Each one exists to answer one
+/// question about where the grid-aligned fine structure in a generated world
+/// comes from, or whether a principled change removes it; the spike document
+/// carries the measurements.
+///
+/// **Every field defaults to off** (`Default`), and every switch, off, takes
+/// the existing code by control flow, never by an arithmetic identity
+/// (`MISTAKES.md`, "Change generated output"); `cartalith-civ`'s
+/// `gf6_carve_identity_hashes` (13 arrays, run before and after) checks it.
+///
+/// **No `PARAMS`/`JS_PATHS` row, deliberately**: these are measurement
+/// switches the owner has not approved for the app. A row would make them
+/// settable from the shell and saved in a project, i.e. a shipped divergence
+/// by the back door. If the owner adopts a variant, that is when it gets a
+/// named parameter, a row and an app-boundary default.
+///
+/// Must never be read by anything but `generate_terrain`, and must never be
+/// switched on in `WorldParams::defaults` or `params::defaults()` without an
+/// owner ruling.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StreakSpikeParams {
+    /// Ablation: skip the carve block's light stream-power pass and its
+    /// isostatic rebound (`rock.stream_power`, `rock.rebound`), keeping the
+    /// channel trace and the channel carve. Isolates the D8-routed incision.
+    pub skip_light_pass: bool,
+    /// Ablation: skip [`cartalith_hydrology::carve_channel_network`] (the
+    /// trench along the traced network), keeping the light pass, the trace,
+    /// `river_mask` empty. Isolates the cell-centre channel cut.
+    pub skip_channel_carve: bool,
+    /// Ablation: the channel tree takes the plain steepest-descent (D8)
+    /// receiver everywhere instead of `build_channels_core`'s aspect-steered
+    /// one. Measures what the steering does to the carved pattern.
+    pub channel_plain_d8: bool,
+    /// Variant (a): rebuild the rain field's coarse-to-full up-sample with a
+    /// C2 cubic B-spline instead of bilinear
+    /// ([`cartalith_climate::CoarseUpsample::CubicBSpline`]) everywhere the
+    /// generation computes rain (priming, post-carve, `refresh_climate`).
+    pub rain_bspline: bool,
+    /// Variant (c), the simulation half: the carve block's light stream-power
+    /// pass picks each receiver by Rho8 (Fairfield & Leymarie 1991) instead
+    /// of D8 ([`cartalith_erosion::stream_power_kernel_rho8`]). Rock-blind
+    /// kernel only (the app's: `geology_processes` is off). Moves the drainage
+    /// topology; measured, not proposed for shipping without a ruling.
+    pub stream_rho8: bool,
+    /// Variant (b): the channel carve's cross-section is measured from a
+    /// smoothed, sub-cell channel line instead of disc stamps at cell centres
+    /// ([`cartalith_hydrology::carve_channel_network_subcell`]), with this many
+    /// cells as the minimum half-width. `0.0` = off (the shipped carve).
+    pub carve_subcell: f64,
 }
 
 impl WorldParams {
@@ -1063,6 +1121,9 @@ impl WorldParams {
                 garrison_exposure_scale: 1.0,
             },
             use_gpu: false,
+            // Off: the streak spike's switches are measurement-only; see
+            // `StreakSpikeParams`.
+            streak: StreakSpikeParams::default(),
         }
     }
 }
@@ -2157,6 +2218,13 @@ pub(crate) fn tectonic_substrate(
 /// `precarve_flow_skip_leaves_generation_bit_identical` passes `true`; it
 /// exists so that "the skip changes nothing" is a proof this crate can run
 /// rather than an argument in a comment.
+/// The rain field's coarse-to-full reconstruction for this world: the
+/// reference's bilinear unless the streak spike's variant (a) is on
+/// ([`StreakSpikeParams::rain_bspline`], off at both boundaries).
+fn rain_upsample(p: &WorldParams) -> CoarseUpsample {
+    if p.streak.rain_bspline { CoarseUpsample::CubicBSpline } else { CoarseUpsample::Bilinear }
+}
+
 fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
     // **Engine init** -- see this module's "CPU worker threads" section
     // above. Must run before any `par_iter()` this function (or anything it
@@ -2582,17 +2650,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         }) {
             Some((_w, rain)) => {
                 gpu_stages_used.push("weather".to_string());
-                cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh)
+                cartalith_climate::finish_weather_grid_with(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, rain_upsample(p))
             }
-            None => simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params),
+            None => simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, rain_upsample(p)),
         }
     } else {
-        simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params)
+        simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, rain_upsample(p))
     };
 
     // applyClimateMoistureCorrectors() -- unconditional, see
     // cartalith-climate's own doc comment on this function.
-    apply_climate_moisture_correctors(
+    apply_climate_moisture_correctors_with(
         gw,
         gh,
         &field,
@@ -2603,6 +2671,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         p.climate.lat_n,
         p.climate.lat_s,
         p.climate.zonal_k,
+        rain_upsample(p),
     );
     // applyOceanCurrents() (reference HTML lines 5270-5288): gated on
     // p.climate.currents, off by default in this port -- see
@@ -2718,8 +2787,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // uplift-driven stage, which §4.16 puts in their place, is not built
         // (Ruling BY item 1), so nothing replaces them. That is the arm
         // GF-11's pre-registered bars were measured on.
-        if !constructed {
-            rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
+        // `p.streak.skip_light_pass` is the streak spike's ablation (off at both
+        // boundaries; `StreakSpikeParams`): it removes exactly these two calls.
+        if !constructed && !p.streak.skip_light_pass {
+            // `p.streak.stream_rho8` (off at both boundaries) swaps the light
+            // pass's D8 receivers for Rho8's, on the rock-blind kernel only:
+            // with the GF-2 processes on, the rock kernel runs as shipped.
+            if p.streak.stream_rho8 && !rock.on {
+                cartalith_erosion::stream_power_kernel_rho8(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params, p.tect.seed as u64);
+            } else {
+                rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
+            }
             rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
         }
         // GF-3 (§4.3): the threshold hillslope, in §3.1's order -- after
@@ -2828,21 +2906,39 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         drop(runoff);
 
         // (2) vector network -> distance-field channel carve + lock
-        let mut ch = build_channels_routed(
-            &field,
-            &route,
-            &flow_for_network,
-            gw,
-            gh,
-            sea_level,
-            world,
-            p.river_density,
-            p.map_width_km,
-            // The integrated path drops the slope ease away from density 1
-            // (`build_channels_routed`'s `integrated` section, owner
-            // 2026-10-05); off, this is the reference's threshold.
-            integrate,
-        );
+        // `p.streak.channel_plain_d8` is the streak spike's ablation (off at
+        // both boundaries; `StreakSpikeParams`); off, this is
+        // `build_channels_routed` by control flow.
+        let mut ch = if p.streak.channel_plain_d8 {
+            cartalith_hydrology::build_channels_routed_plain_d8(
+                &field,
+                &route,
+                &flow_for_network,
+                gw,
+                gh,
+                sea_level,
+                world,
+                p.river_density,
+                p.map_width_km,
+                integrate,
+            )
+        } else {
+            build_channels_routed(
+                &field,
+                &route,
+                &flow_for_network,
+                gw,
+                gh,
+                sea_level,
+                world,
+                p.river_density,
+                p.map_width_km,
+                // The integrated path drops the slope ease away from density 1
+                // (`build_channels_routed`'s `integrated` section, owner
+                // 2026-10-05); off, this is the reference's threshold.
+                integrate,
+            )
+        };
         // Kept past the channel build for one more reader: the carve below
         // leaves the depressions this surface fills standing as lakes rather
         // than trenching their rims (`carve_channel_network`, Ruling BD). Only
@@ -2925,7 +3021,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // GF-2 (§4.9): the carve lowers the surface, so it strips regolith
         // before bedrock like any erosion.
         let pre_carve = rock.on.then(|| field.clone());
-        for i in carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006) {
+        // The streak spike (`StreakSpikeParams`, off at both boundaries):
+        // `skip_channel_carve` cuts nothing; `carve_subcell > 0` measures the
+        // cross-section from a smoothed sub-cell channel line. Both off, this
+        // is `carve_channel_network` by control flow.
+        let cut = if p.streak.skip_channel_carve {
+            Vec::new()
+        } else if p.streak.carve_subcell > 0.0 {
+            cartalith_hydrology::carve_channel_network_subcell(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006, p.streak.carve_subcell)
+        } else {
+            carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006)
+        };
+        for i in cut {
             rmask[i] = 1;
         }
         rock.strip(&mut geology, pre_carve.as_deref(), &field);
@@ -2987,14 +3094,14 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     if !gpu_stages_used.iter().any(|s| s == "weather") {
                         gpu_stages_used.push("weather".to_string());
                     }
-                    cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh)
+                    cartalith_climate::finish_weather_grid_with(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, rain_upsample(p))
                 }
-                None => simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params),
+                None => simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, rain_upsample(p)),
             }
         } else {
-            simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params)
+            simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, rain_upsample(p))
         };
-        apply_climate_moisture_correctors(
+        apply_climate_moisture_correctors_with(
             gw,
             gh,
             &field,
@@ -3005,6 +3112,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             p.climate.lat_n,
             p.climate.lat_s,
             p.climate.zonal_k,
+            rain_upsample(p),
         );
         // applyOceanCurrents() -- refreshClimate()'s own next step
         // (reference HTML line 8783: `computeFlow(true); refreshClimate();`).
@@ -3392,12 +3500,12 @@ pub fn refresh_climate(
 ) {
     let (gw, gh, world) = (p.gw, p.gh, p.world);
     *temperature = compute_temperature(gw, gh, field, None, climate_params);
-    *rainfall = simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, weather_params);
+    *rainfall = simulate_weather_with(gw, gh, field, p.climate.w_iters, 0.0, weather_params, rain_upsample(p));
     // Routed with the rainfall computed one line up, never the one this call
     // was handed -- see this function's own doc for why.
     *flow_discharge =
         compute_flow_routed(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage);
-    apply_climate_moisture_correctors(
+    apply_climate_moisture_correctors_with(
         gw,
         gh,
         field,
@@ -3408,6 +3516,7 @@ pub fn refresh_climate(
         p.climate.lat_n,
         p.climate.lat_s,
         p.climate.zonal_k,
+        rain_upsample(p),
     );
     if p.climate.currents {
         apply_ocean_currents(
@@ -3441,6 +3550,36 @@ pub fn refresh_climate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects: every streak-spike switch (`StreakSpikeParams`) reaches
+    /// generation -- each one, alone, moves the world it claims to move on a
+    /// small app-like world (integrated drainage on, as in the app) -- and the
+    /// all-off struct is the default. A switch whose wiring was lost would read
+    /// as "no effect" in the spike's measurements; this makes that a failure.
+    #[test]
+    fn every_streak_switch_reaches_generation() {
+        let mut base = WorldParams::defaults(192, 124, 314_159);
+        base.integrate_drainage = true;
+        assert_eq!(base.streak, StreakSpikeParams::default());
+        let head = generate_terrain(&base);
+        let arms: [(&str, fn(&mut StreakSpikeParams)); 6] = [
+            ("skip_light_pass", |s| s.skip_light_pass = true),
+            ("skip_channel_carve", |s| s.skip_channel_carve = true),
+            ("channel_plain_d8", |s| s.channel_plain_d8 = true),
+            ("rain_bspline", |s| s.rain_bspline = true),
+            ("stream_rho8", |s| s.stream_rho8 = true),
+            ("carve_subcell", |s| s.carve_subcell = 1.5),
+        ];
+        for (name, on) in arms {
+            let mut p = base.clone();
+            on(&mut p.streak);
+            let ws = generate_terrain(&p);
+            let moved = ws.field != head.field
+                || ws.rainfall != head.rainfall
+                || ws.channels.as_ref().map(|c| &c.recv) != head.channels.as_ref().map(|c| &c.recv);
+            assert!(moved, "{name} on moved nothing");
+        }
+    }
 
     /// GF-4's coastal fixture: a 10 x 6 coast, one bare single-layer rock
     /// everywhere; the left four columns sea at 0.05 (sea 0.1), the rest

@@ -169,6 +169,88 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     acc
 }
 
+/// A **multiple-flow-direction** accumulation for display only -- the
+/// terrain-streak spike's variant (c) (`TERRAIN_STREAK_SPIKE_2026-10-18.md`).
+///
+/// **What it does.** [`compute_flow`]'s seeding (rain, mean-normalised, floor
+/// `0.05`) and its descending-height visiting order, but each cell splits its
+/// accumulated flow over **every** strictly lower neighbour in proportion to
+/// `tan(β_j)^p · L_j`: `β_j` the drop to neighbour `j` over its distance, `p`
+/// the caller's exponent (Freeman 1991, *Computers & Geosciences* 17(3),
+/// recommends `p = 1.1`), `L_j` the contour length the flow crosses
+/// (Quinn et al. 1991, *Hydrological Processes* 5: `0.5` cell for a cardinal
+/// neighbour, `0.354` for a diagonal). Divergent ground spreads its water, so
+/// a planar slope no longer drains as D8's parallel one-cell strips.
+///
+/// **Why only for display.** The simulation needs a tree: the channel network,
+/// Strahler order, the traced rivers and the carve all follow single receivers.
+/// This field is what the renderer's TWI/wetness terms could read in place of
+/// the D8 accumulation; nothing in generation reads it, so it moves no
+/// drainage topology and no river.
+///
+/// **Must never** replace `compute_flow` in a simulation path, or be fed to
+/// [`build_channels_routed`]; and it must never be read where a river's
+/// identity (which cells carry it) matters.
+pub fn compute_flow_mfd(gw: usize, gh: usize, field: &[f32], rain: &[f32], world: bool, p: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let order = flow_sort_desc(field, n);
+    let mut acc = vec![0f64; n];
+    let mut sm = 0.0f64;
+    for i in 0..n {
+        let r = (rain[i] as f64).max(0.05);
+        acc[i] = r;
+        sm += r;
+    }
+    let k = n as f64 / sm.max(1e-6);
+    for v in acc.iter_mut() {
+        *v *= k;
+    }
+    // Quinn et al. (1991)'s effective contour lengths, in cells.
+    const L_CARD: f64 = 0.5;
+    const L_DIAG: f64 = 0.354;
+    let mut tgt = [(0usize, 0f64); 8];
+    for &i in &order {
+        let i = i as usize;
+        let (x, y) = ((i % gw) as i64, (i / gw) as i64);
+        let h = field[i] as f64;
+        let (mut m, mut wsum) = (0usize, 0f64);
+        for dy in -1i64..=1 {
+            for dx in -1i64..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let ny = y + dy;
+                if ny < 0 || ny >= gh as i64 {
+                    continue;
+                }
+                let mut nx = x + dx;
+                if world {
+                    nx = nx.rem_euclid(gw as i64);
+                } else if nx < 0 || nx >= gw as i64 {
+                    continue;
+                }
+                let j = (ny * gw as i64 + nx) as usize;
+                let diag = dx != 0 && dy != 0;
+                let tan_b = (h - field[j] as f64) / if diag { std::f64::consts::SQRT_2 } else { 1.0 };
+                if tan_b > 0.0 {
+                    let wgt = tan_b.powf(p) * if diag { L_DIAG } else { L_CARD };
+                    tgt[m] = (j, wgt);
+                    m += 1;
+                    wsum += wgt;
+                }
+            }
+        }
+        if m == 0 || wsum <= 0.0 {
+            continue;
+        }
+        let a = acc[i];
+        for &(j, wgt) in &tgt[..m] {
+            acc[j] += a * wgt / wsum;
+        }
+    }
+    acc.into_iter().map(|v| v as f32).collect()
+}
+
 /// The depression-filled **routing surface** that integrated drainage routes
 /// over (`RC_ENGINE_CHANGES.md` §6g, the source's `buildRoutingSurface`,
 /// v2.41; default-on in the source from v2.59, §6k).
@@ -585,7 +667,7 @@ pub fn build_channels_with_threshold(
     slope_w: usize,
     thresh: f64,
 ) -> ChannelResult {
-    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh, false)
+    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh, false, false)
 }
 
 /// [`build_channels`] with the receiver tree built over a separate routing
@@ -696,7 +778,33 @@ pub fn build_channels_routed(
     map_width_km: f64,
     integrated: bool,
 ) -> ChannelResult {
-    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated)
+    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated, false)
+}
+
+/// [`build_channels_routed`] with every channel cell's receiver the plain
+/// steepest-descent (D8) neighbour on `route` instead of the aspect-steered
+/// pick -- the terrain-streak spike's ablation
+/// (`TERRAIN_STREAK_SPIKE_2026-10-18.md`; `cartalith_engine::StreakSpikeParams::
+/// channel_plain_d8`, off at both boundaries). It answers one question: what
+/// the steering does to the pattern the carve cuts. The channel test and the
+/// slope field are [`build_channels_routed`]'s exactly; only `recv` differs.
+///
+/// Must never be called from a parity or shipped path; it moves the traced
+/// network and so every river golden downstream of it.
+#[allow(clippy::too_many_arguments)]
+pub fn build_channels_routed_plain_d8(
+    fld: &[f32],
+    route: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    integrated: bool,
+) -> ChannelResult {
+    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated, true)
 }
 
 /// The shared body [`build_channels_with_threshold`] and [`build_channels_routed`]
@@ -716,6 +824,11 @@ pub fn build_channels_routed(
 /// cell whose steered receiver is off the network or carries less discharge
 /// to its D8 receiver (Ruling CF addendum). Must never be `true` from a
 /// JS-parity caller.
+///
+/// `plain_d8`: `true` only from [`build_channels_routed_plain_d8`], the
+/// streak spike's ablation -- every channel cell takes its plain
+/// steepest-descent receiver. `false` everywhere else, where the receiver line
+/// is the shipped expression by control flow.
 #[allow(clippy::too_many_arguments)]
 fn build_channels_core(
     fld: &[f32],
@@ -729,6 +842,7 @@ fn build_channels_core(
     slope_w: usize,
     thresh: f64,
     integrated: bool,
+    plain_d8: bool,
 ) -> ChannelResult {
     let wrap = world;
     let n = w * h;
@@ -869,7 +983,16 @@ fn build_channels_core(
                 // `compute_flow` accumulated along. See
                 // `build_channels_routed` for why and what it measured.
                 let filled = route[i] > fld[i];
-                recv_row[x] = if best >= 0 && !filled { best as i32 } else { s_best as i32 };
+                // `plain_d8` is only ever `true` from the streak spike's
+                // ablation (`build_channels_routed_plain_d8`); `false`, this is
+                // the shipped expression by control flow.
+                recv_row[x] = if plain_d8 {
+                    s_best as i32
+                } else if best >= 0 && !filled {
+                    best as i32
+                } else {
+                    s_best as i32
+                };
                 if integrated {
                     steepest_row[x] = s_best as i32;
                 }
@@ -2299,6 +2422,70 @@ pub fn carve_channel_network(
     sea: f64,
     drop: f64,
 ) -> Vec<usize> {
+    carve_channel_network_core(fld, w, h, world, polys, half_ws, recv, lake_surface, sea, drop, 0.0)
+}
+
+/// [`carve_channel_network`] with its cross-section measured from a **smoothed,
+/// sub-cell channel line** -- the terrain-streak spike's variant (b)
+/// (`TERRAIN_STREAK_SPIKE_2026-10-18.md`; `cartalith_engine::StreakSpikeParams::
+/// carve_subcell`, off at both boundaries).
+///
+/// **What changes, and what does not.** Passes 1 and 1b -- every run's floor,
+/// the confluence, lake and drain-level rules -- are [`carve_channel_network`]'s
+/// unchanged, so each traced cell's floor is the same number. Pass 2 then:
+///
+/// 1. cuts every traced (D8) cell to its floor and every diagonal step's
+///    connector, exactly as the shipped pass does at a disc's centre: this is
+///    what keeps the channel a descending, 4-connected chain, so RV-1's
+///    hydrological guarantees are kept by construction;
+/// 2. replaces the disc stamps with a parabolic cross-section measured from
+///    the run's polyline after two rounds of Chaikin corner cutting (Chaikin
+///    1974, *Computer Graphics and Image Processing* 3(4)) -- a curve that
+///    stays within half a cell of the D8 staircase but follows its average
+///    direction -- at a continuous distance, with the floor interpolated along
+///    it and a half-width of at least `subcell` cells. A cell-centre disc of
+///    half-width 0.8 cuts only the centre cell, so there the trench IS the D8
+///    path; a sub-cell line at 1.5 lowers the cells either side by their true
+///    distance from the smoothed line.
+///
+/// The `subcell` floor is a labelled judgement swept by the spike.
+///
+/// Must never be called with `subcell <= 0` expecting the shipped carve (that
+/// is [`carve_channel_network`]), and must never lower a land cell below
+/// `sea + CARVE_LAND_MARGIN` (the same clamp as the shipped pass).
+#[allow(clippy::too_many_arguments)]
+pub fn carve_channel_network_subcell(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    world: bool,
+    polys: &[Vec<(f64, f64)>],
+    half_ws: &[f64],
+    recv: &[i32],
+    lake_surface: Option<&[f32]>,
+    sea: f64,
+    drop: f64,
+    subcell: f64,
+) -> Vec<usize> {
+    carve_channel_network_core(fld, w, h, world, polys, half_ws, recv, lake_surface, sea, drop, subcell.max(f64::MIN_POSITIVE))
+}
+
+/// The body of [`carve_channel_network`] (`subcell == 0.0`: by control flow
+/// the shipped carve) and [`carve_channel_network_subcell`] (`subcell > 0`).
+#[allow(clippy::too_many_arguments)]
+fn carve_channel_network_core(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    world: bool,
+    polys: &[Vec<(f64, f64)>],
+    half_ws: &[f64],
+    recv: &[i32],
+    lake_surface: Option<&[f32]>,
+    sea: f64,
+    drop: f64,
+    subcell: f64,
+) -> Vec<usize> {
     use std::collections::{HashMap, HashSet};
     // A point standing in a depression `lake_surface` fills deeper than
     // `CARVE_KEEP_LAKE_DEPTH` is in a lake that was there before the carve.
@@ -2425,6 +2612,11 @@ pub fn carve_channel_network(
         }
     }
 
+    // ---- pass 2 (the streak spike's sub-cell cross-section) ----
+    if subcell > 0.0 {
+        return carve_subcell_pass2(fld, w, h, world, polys, half_ws, &floor, &kept, sea, land_floor, subcell);
+    }
+
     // ---- pass 2: cut the discs and the diagonal connectors ----
     let mut out = Vec::new();
     for (pts, &half_w) in polys.iter().zip(half_ws) {
@@ -2478,6 +2670,135 @@ pub fn carve_channel_network(
                         fld[i] = target as f32;
                         out.push(i);
                     }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// One round of Chaikin (1974) corner cutting over a carve line of
+/// `(x, y, floor, kept)` vertices: the first and last vertex stay, and every
+/// segment is replaced by its 1/4 and 3/4 points, the floor interpolated the
+/// same way and a cut point kept if either parent is. A world-wrap step
+/// (`|dx| > 2`) is passed through uncut. Lines under three vertices come back
+/// unchanged (a single segment has no corner).
+fn chaikin_round(line: Vec<(f64, f64, f64, bool)>) -> Vec<(f64, f64, f64, bool)> {
+    if line.len() < 3 {
+        return line;
+    }
+    let mut next = Vec::with_capacity(line.len() * 2);
+    next.push(line[0]);
+    for k in 0..line.len() - 1 {
+        let (a, b) = (line[k], line[k + 1]);
+        if (a.0 - b.0).abs() > 2.0 {
+            next.push(a);
+            next.push(b);
+            continue;
+        }
+        let q = |t: f64| (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t, a.3 || b.3);
+        next.push(q(0.25));
+        next.push(q(0.75));
+    }
+    next.push(*line.last().expect("len >= 3"));
+    next
+}
+
+/// Pass 2 of [`carve_channel_network_subcell`]: step 1 (the traced cells and
+/// the diagonal connectors cut to their floors) then step 2 (the parabolic
+/// section from the Chaikin-smoothed line). See that function for the why.
+/// `floor` and `kept` are pass 1 and 1b's, unchanged.
+#[allow(clippy::too_many_arguments)]
+fn carve_subcell_pass2(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    world: bool,
+    polys: &[Vec<(f64, f64)>],
+    half_ws: &[f64],
+    floor: &std::collections::HashMap<usize, f64>,
+    kept: &std::collections::HashSet<usize>,
+    sea: f64,
+    land_floor: f64,
+    subcell: f64,
+) -> Vec<usize> {
+    let cell = |&(px_f, py_f): &(f64, f64)| -> (usize, usize) {
+        ((px_f as i64).clamp(0, w as i64 - 1) as usize, (py_f as i64).clamp(0, h as i64 - 1) as usize)
+    };
+    let mut out = Vec::new();
+    // The shipped pass's own clamp: land never below `land_floor`.
+    let lower = |fld: &mut [f32], i: usize, target: f64, out: &mut Vec<usize>| {
+        let cur = fld[i] as f64;
+        let target = if cur >= sea { target.max(land_floor) } else { target };
+        if target < cur {
+            fld[i] = target as f32;
+            out.push(i);
+        }
+    };
+    // Step 1: the traced chain, exactly the shipped pass's disc centre (`t = 0`,
+    // target = floor) and its diagonal-connector rule.
+    for pts in polys {
+        let mut prev_cell: Option<(usize, usize)> = None;
+        for p in pts {
+            let (px, py) = cell(p);
+            let f = floor[&(py * w + px)];
+            if let Some((ax, ay)) = prev_cell {
+                let dx = px as i64 - ax as i64;
+                let dy = py as i64 - ay as i64;
+                if dy.abs() == 1 && (dx.abs() == 1 || (world && dx.abs() == w as i64 - 1)) {
+                    let c1 = ay * w + px;
+                    let c2 = py * w + ax;
+                    let c = if fld[c2] < fld[c1] { c2 } else { c1 };
+                    lower(fld, c, f, &mut out);
+                }
+            }
+            prev_cell = Some((px, py));
+            if !kept.contains(&(py * w + px)) {
+                lower(fld, py * w + px, f, &mut out);
+            }
+        }
+    }
+    // Step 2: the section from the smoothed line. Each vertex carries its
+    // floor and whether it touches a kept lake; Chaikin's 1/4 and 3/4 points
+    // interpolate the floor, and a cut point is kept if either parent is.
+    for (pts, &half_w) in polys.iter().zip(half_ws) {
+        let mut line: Vec<(f64, f64, f64, bool)> = pts
+            .iter()
+            .map(|p| {
+                let (px, py) = cell(p);
+                let i = py * w + px;
+                (px as f64 + 0.5, py as f64 + 0.5, floor[&i], kept.contains(&i))
+            })
+            .collect();
+        for _ in 0..2 {
+            line = chaikin_round(line);
+        }
+        let hw = half_w.max(subcell);
+        let r = hw.ceil() as i64 + 1;
+        for k in 0..line.len().saturating_sub(1) {
+            let (a, b) = (line[k], line[k + 1]);
+            if a.3 || b.3 || (a.0 - b.0).abs() > 2.0 {
+                continue;
+            }
+            let (sx, sy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = sx * sx + sy * sy;
+            let x0 = ((a.0.min(b.0)) as i64 - r).max(0) as usize;
+            let x1 = ((a.0.max(b.0)) as i64 + r).min(w as i64 - 1) as usize;
+            let y0 = ((a.1.min(b.1)) as i64 - r).max(0) as usize;
+            let y1 = ((a.1.max(b.1)) as i64 + r).min(h as i64 - 1) as usize;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
+                    let t = if len2 > 0.0 { (((cx - a.0) * sx + (cy - a.1) * sy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                    let d = (cx - (a.0 + sx * t)).hypot(cy - (a.1 + sy * t));
+                    if d > hw {
+                        continue;
+                    }
+                    let f = a.2 + (b.2 - a.2) * t;
+                    let u = d / hw;
+                    let i = y * w + x;
+                    let cur = fld[i] as f64;
+                    lower(fld, i, f + (cur - f) * u * u, &mut out);
                 }
             }
         }
@@ -5502,5 +5823,247 @@ mod tests {
         let b = plan.bridge[2].expect("the lighter run arrives");
         assert!(plan.extension[1].contains(&b) || b.1 > 13.0, "and the lighter run's join is on that extension, not a second line down to the trunk: {b:?}");
         assert!(plan.extension[2].len() < 7, "it stopped at the first claimed cell within reach");
+    }
+
+    // ---- the terrain-streak spike (`TERRAIN_STREAK_SPIKE_2026-10-18.md`) ----
+
+    /// Protects: variant (b)'s sub-cell carve keeps every RV-1 guarantee the
+    /// shipped carve has, on the three fixtures that broke the old per-run
+    /// carve: no closed depression (diagonal steps, confluences), no land cut
+    /// under sea level (the lowland trunk), and every traced cell at least as
+    /// deep as the shipped carve leaves it (step 1 is the shipped disc centre),
+    /// so the channel descends exactly where it did.
+    #[test]
+    fn the_subcell_carve_keeps_rv1s_guarantees() {
+        for (name, (base, w, h, polys), hw) in [
+            ("diagonal", rv1_diagonal_fixture(), 0.5),
+            ("junction", rv1_junction_fixture(), 0.5),
+            ("lowland", rv1_lowland_fixture(), 1.2),
+        ] {
+            let hws = vec![hw; polys.len()];
+            let recv = rv1_recv(w, h, &polys);
+            let mut shipped = base.clone();
+            super::carve_channel_network(&mut shipped, w, h, false, &polys, &hws, &recv, None, RV1_SEA, 0.0006);
+            let mut sub = base.clone();
+            let cut = super::carve_channel_network_subcell(&mut sub, w, h, false, &polys, &hws, &recv, None, RV1_SEA, 0.0006, 1.5);
+            assert!(!cut.is_empty(), "{name}: the sub-cell carve cut nothing");
+            assert_eq!(rv1_pits(&sub, w, h, RV1_SEA), Vec::<usize>::new(), "{name}: a closed depression");
+            for i in 0..w * h {
+                if (base[i] as f64) >= RV1_SEA {
+                    assert!((sub[i] as f64) >= RV1_SEA, "{name}: land cell {i} under sea level");
+                }
+            }
+            for pts in &polys {
+                for &(x, y) in pts {
+                    let i = y as usize * w + x as usize;
+                    assert!(sub[i] <= shipped[i], "{name}: traced cell {i} shallower than the shipped carve ({} > {})", sub[i], shipped[i]);
+                }
+            }
+        }
+    }
+
+    /// Protects: what variant (b) is FOR. On a planar slope, a run traced as a
+    /// D8 staircase at a 2:1 heading (two east steps, one north-east, repeated)
+    /// is carved by the shipped pass at half-width 0.8 as the staircase itself:
+    /// only traced cells and diagonal connectors move. The sub-cell carve at
+    /// 1.5 also lowers the cells beside the line by their distance from the
+    /// smoothed curve, so the cell just inside each staircase corner -- on the
+    /// curve's side, off the traced path -- is lowered, and a cell more than
+    /// 2.5 cells from every traced cell is never touched.
+    #[test]
+    fn the_subcell_carve_follows_the_line_not_the_cells() {
+        let (w, h) = (40usize, 24usize);
+        let base: Vec<f32> = (0..w * h).map(|i| (0.80 - 0.004 * (i % w) as f64 - 0.002 * (i / w) as f64) as f32).collect();
+        let mut cells = Vec::new();
+        let (mut x, mut y) = (2usize, 18usize);
+        cells.push((x, y));
+        for k in 0..30 {
+            x += 1;
+            if k % 3 == 2 {
+                y -= 1;
+            }
+            cells.push((x, y));
+        }
+        let polys = vec![rv1_centres(&cells)];
+        let recv = rv1_recv(w, h, &polys);
+        let mut shipped = base.clone();
+        let s_cut = super::carve_channel_network(&mut shipped, w, h, false, &polys, &[0.8], &recv, None, RV1_SEA, 0.0006);
+        let mut sub = base.clone();
+        super::carve_channel_network_subcell(&mut sub, w, h, false, &polys, &[0.8], &recv, None, RV1_SEA, 0.0006, 1.5);
+        let traced: std::collections::HashSet<usize> = cells.iter().map(|&(x, y)| y * w + x).collect();
+        // The shipped pass at 0.8 moves only the staircase and its connectors.
+        for &i in &s_cut {
+            let (cx, cy) = (i % w, i / w);
+            let near = cells.iter().any(|&(x, y)| (x as i64 - cx as i64).abs() <= 1 && (y as i64 - cy as i64).abs() <= 1);
+            assert!(near, "shipped cut {i} away from the path");
+        }
+        // Off-path cells the sub-cell carve lowered: there are some, beside
+        // the line, and none far from it.
+        let mut beside = 0;
+        for i in 0..w * h {
+            if traced.contains(&i) {
+                continue;
+            }
+            let (cx, cy) = ((i % w) as f64, (i / w) as f64);
+            let dmin = cells.iter().map(|&(x, y)| (x as f64 - cx).hypot(y as f64 - cy)).fold(f64::MAX, f64::min);
+            if sub[i] < base[i] && shipped[i] == base[i] {
+                beside += 1;
+            }
+            if dmin > 2.5 {
+                assert_eq!(sub[i], base[i], "cell {i} at {dmin:.2} cells from the path was cut");
+            }
+        }
+        assert!(beside >= 20, "the sub-cell section lowered only {beside} off-path cells");
+        // The inside of a staircase corner: the run goes east to (x, y) then
+        // north-east to (x+1, y-1); the corner cell (x+1, y) lies outside the
+        // smoothed curve and (x, y-1) inside it. The smoothed curve passes
+        // closer to (x, y-1) than the straight cell-centre stamps did, so the
+        // sub-cell carve lowers it more than the shipped carve does.
+        let k = cells.iter().position(|&(_, yy)| yy == 17).expect("a step");
+        let (cx, cy) = cells[k - 1];
+        let inside = (cy - 1) * w + cx;
+        assert!(!traced.contains(&inside));
+        assert!(sub[inside] < shipped[inside], "the corner's inside cell was not lowered");
+    }
+
+    /// Protects: variant (c)'s display flow conserves water and spreads it.
+    /// On a rough tilted plane draining to its edges and pits, every unit of seeded
+    /// rain arrives at the cells with no lower neighbour (mass, to 1e-3), and
+    /// on a plane tilted at 30 degrees from the grid the MFD accumulation
+    /// along a row across the slope is far smoother than D8's, which drains
+    /// the plane as parallel one-cell strips.
+    #[test]
+    fn the_mfd_display_flow_conserves_and_spreads() {
+        let (w, h) = (48usize, 48usize);
+        let (c, s) = (30f64.to_radians().cos(), 30f64.to_radians().sin());
+        // A little cell-scale roughness (a fixed LCG, 0.3 of the per-cell
+        // drop): on a perfect plane every D8 line is parallel and carries only
+        // its own column, so the strips appear only where roughness lets D8
+        // lines merge -- as on any real slope.
+        let mut seed: u64 = 0x2545f4914f6cdd1d;
+        let fld: Vec<f32> = (0..w * h)
+            .map(|i| {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let r = (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+                (1.0 - 0.004 * ((i / w) as f64 * c + (i % w) as f64 * s) + 0.0012 * r) as f32
+            })
+            .collect();
+        let rain = vec![0.5f32; w * h];
+        let mfd = super::compute_flow_mfd(w, h, &fld, &rain, false, 1.1);
+        let d8 = super::compute_flow(w, h, &fld, Some(&rain), true, false);
+        let recv = super::flow_receivers(&fld, w, h, false);
+        let sinks: Vec<usize> = (0..w * h).filter(|&i| recv[i] < 0).collect();
+        assert!(!sinks.is_empty());
+        let total: f64 = sinks.iter().map(|&i| mfd[i] as f64).sum();
+        // Seeds are mean-normalised: total input is exactly w * h.
+        assert!((total - (w * h) as f64).abs() < 1e-3 * (w * h) as f64, "MFD lost or made water: {total} vs {}", w * h);
+        // Strip-iness: the mean jump between neighbouring cells of one row
+        // across the slope, over the row's mean. D8 on a plane alternates
+        // strips that carry the water with strips that carry none; a smooth
+        // spread has small neighbour-to-neighbour jumps. (The row's overall
+        // trend is the catchment's geometry, the same for both.)
+        let jump = |f: &[f32], y: usize| {
+            let v: Vec<f64> = (8..w - 8).map(|x| f[y * w + x] as f64).collect();
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            v.windows(2).map(|p| (p[1] - p[0]).abs()).sum::<f64>() / (v.len() - 1) as f64 / m
+        };
+        let (jm, jd) = (jump(&mfd, h / 2), jump(&d8, h / 2));
+        assert!(jd > 0.3, "positive control: D8 drains the plane as strips (jump {jd:.3})");
+        assert!(jm < 0.25 * jd, "MFD row not smoother than D8's: jump {jm:.3} vs {jd:.3}");
+    }
+
+    /// Protects: the sub-cell carve's smoothing is Chaikin's own 1/4-3/4 rule,
+    /// floors and the kept flag carried along -- literal points for one round
+    /// over a two-step staircase.
+    #[test]
+    fn chaikin_round_is_the_quarter_point_rule() {
+        let line = vec![(0.5, 0.5, 1.0, false), (1.5, 0.5, 0.9, false), (2.5, 1.5, 0.8, true)];
+        let got = super::chaikin_round(line);
+        let want = [(0.5, 0.5, 1.0, false), (0.75, 0.5, 0.975, false), (1.25, 0.5, 0.925, false), (1.75, 0.75, 0.875, true), (2.25, 1.25, 0.825, true), (2.5, 1.5, 0.8, true)];
+        assert_eq!(got.len(), want.len());
+        for (g, w) in got.iter().zip(&want) {
+            assert!((g.0 - w.0).abs() < 1e-12 && (g.1 - w.1).abs() < 1e-12 && (g.2 - w.2).abs() < 1e-12 && g.3 == w.3, "{g:?} vs {w:?}");
+        }
+    }
+
+    /// Protects: step 1 of the sub-cell carve -- every traced cell is cut to
+    /// its floor exactly as the shipped carve's disc centre cuts it. On a
+    /// "dam" (terrain rising downstream, the run ending in the sea) the floors
+    /// fall `drop` a step while the ground climbs, so the trench is deep and a
+    /// parabolic section alone, measured from a smoothed line a fraction of a
+    /// cell away, would leave the traced cells well above their floors.
+    #[test]
+    fn the_subcell_carve_cuts_every_traced_cell_to_its_floor() {
+        let (w, h) = (40usize, 20usize);
+        let mut base: Vec<f32> = (0..w * h).map(|i| (0.60 + 0.004 * (i % w) as f64 + 0.001 * (i / w) as f64) as f32).collect();
+        let mut cells = Vec::new();
+        let (mut x, mut y) = (2usize, 14usize);
+        cells.push((x, y));
+        for k in 0..33 {
+            x += 1;
+            if k % 3 == 2 {
+                y -= 1;
+            }
+            cells.push((x, y));
+        }
+        let &(ex, ey) = cells.last().unwrap();
+        base[ey * w + ex] = 0.30;
+        let polys = vec![rv1_centres(&cells)];
+        let recv = rv1_recv(w, h, &polys);
+        let mut shipped = base.clone();
+        super::carve_channel_network(&mut shipped, w, h, false, &polys, &[0.8], &recv, None, RV1_SEA, 0.0006);
+        let mut sub = base.clone();
+        super::carve_channel_network_subcell(&mut sub, w, h, false, &polys, &[0.8], &recv, None, RV1_SEA, 0.0006, 1.5);
+        let deep = cells.iter().filter(|&&(x, y)| base[y * w + x] - shipped[y * w + x] > 0.05).count();
+        assert!(deep > 10, "the fixture is not deep enough to test step 1 ({deep} deep cells)");
+        for &(x, y) in &cells[..cells.len() - 1] {
+            let i = y * w + x;
+            assert!(sub[i] <= shipped[i], "traced cell ({x}, {y}) left at {} above the shipped floor {}", sub[i], shipped[i]);
+        }
+    }
+
+    /// Protects: the MFD weights are Freeman's `tan(beta)^1.1` times Quinn's
+    /// contour lengths. A 3 x 3 grid, the centre one unit above eight sinks:
+    /// a cardinal neighbour's share over a diagonal one's is
+    /// `0.5 / ((1/sqrt 2)^1.1 * 0.354)` = 2.0679 (computed by hand), and the
+    /// centre's whole unit leaves it.
+    #[test]
+    fn the_mfd_weights_are_freeman_times_quinn() {
+        let fld = vec![0.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+        let rain = vec![0.5f32; 9];
+        let acc = super::compute_flow_mfd(3, 3, &fld, &rain, false, 1.1);
+        let (card, diag) = (acc[1] as f64 - 1.0, acc[0] as f64 - 1.0);
+        assert!((card / diag - 2.067917649640714).abs() < 1e-4, "ratio {}", card / diag);
+        assert!((card - 0.16851150240969548).abs() < 1e-5 && (diag - 0.0814884975903045).abs() < 1e-5, "{card} {diag}");
+    }
+
+    /// Protects: the plain-D8 ablation's receivers are exactly the steepest
+    /// descent ones (`flow_receivers` on the same surface) on every channel
+    /// cell, and the shipped build differs from it somewhere on a surface
+    /// where aspect steering matters (positive control: the ablation is not
+    /// inert).
+    #[test]
+    fn the_plain_d8_ablation_takes_the_steepest_receiver() {
+        let (w, h) = (40usize, 32usize);
+        let fld: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f64, (i / w) as f64);
+                (0.9 - 0.006 * x - 0.0023 * y + 0.01 * (x * 0.7).sin() * (y * 0.45).cos()) as f32
+            })
+            .collect();
+        let flow = super::compute_flow(w, h, &fld, None, false, false);
+        let plain = super::build_channels_routed_plain_d8(&fld, &fld, &flow, w, h, 0.42, false, 1.0, 800.0, true);
+        let shipped = super::build_channels_routed(&fld, &fld, &flow, w, h, 0.42, false, 1.0, 800.0, true);
+        let steepest = super::flow_receivers(&fld, w, h, false);
+        let mut chan = 0;
+        for i in 0..w * h {
+            if plain.chan[i] != 0 {
+                chan += 1;
+                assert_eq!(plain.recv[i], steepest[i], "cell {i}");
+            }
+        }
+        assert!(chan > 20, "the fixture channelised only {chan} cells");
+        assert_eq!(plain.chan, shipped.chan, "the channel test is the shipped one");
+        assert!((0..w * h).any(|i| shipped.chan[i] != 0 && shipped.recv[i] != plain.recv[i]), "steering never differed: the ablation is inert on this fixture");
     }
 }

@@ -267,6 +267,36 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-10-10
 
+- **Terrain-streak measurement spike (2026-10-18): measured, nothing switched on; the dome's radial streaks are the volcano edifice's 4-cell gullies, not the carve or D8 routing.** `TERRAIN_STREAK_SPIKE_2026-10-18.md` (root) holds the findings, the per-variant table and the owner questions; evidence is in `cartalith-native/docs/evidence/terrain-streaks-2026-10-18/` (01-09, all opened).
+  - **Harness:** `cartalith-godot/tests/terrain_streak_spike.rs` (ignored measurement plus a calibrated metric test) and `zoom_detail_ladder.rs`'s new `ZD_STREAK` / `ZD_FLOW`.
+  - **Worlds:** five seeds, app parameters, 2048 x 1311, 800 km.
+  - **Two corrections to the zoom-forest entry below:**
+    - its "diagonal fine structure 0.33-0.49" was mostly the metric: a plain high-pass reads white noise at 0.857. With a 1-3-cell band-pass the height field is median 0.935, and 0.813 with the carve off;
+    - the rendered map's 10x axis bias was the plate frame: luminance reads 0.975 with `border_width_frac` at 0, and 0.977 median with the frame band excluded.
+  - **Ablations:**
+    - removing the volcano edifice (`volc.edifice_model`) removes the dome's radial streaks (frame 01) and cuts steep-land across-slope energy to 0.917 of head (0.793-0.984);
+    - the carve block contributes 0.975 (0.821 on the dome), split between the light stream-power pass and the channel cut;
+    - aspect steering and the glacial pass have no effect;
+    - edifice off also drops 1-3-cell lakes from a median of 61 to 18, so the gullies leave pits.
+  - **Variants, all off at both boundaries (`cartalith_engine::StreakSpikeParams`, no `PARAMS` row):**
+    - (a) C2 B-spline rain up-sample (`rain_bspline`): removes a real weather-grid crease lattice (2.62 to 0.98), keeps rivers (outlets within 5 cells 99.996 %), changes no luminance;
+    - (b) sub-cell carve (`carve_subcell`): adds downslope energy (1.033);
+    - (c) display-only MFD flow (`compute_flow_mfd`): flow-field axis ratio 1.31 to 0.99, render unchanged;
+    - Rho8 light pass (`stream_rho8`): small lakes 61 to 119, outlets within 5 cells 93 %.
+    - Rejected for streaks: (b), (c) and Rho8.
+    - Generation cost: no difference established for any variant.
+  - **Identity:** parity, app and processes-on worlds (2 seeds, 512 x 328, 13 arrays, `gf6_carve_identity_hashes`) hash identical to `3f27e383`. No golden moved.
+  - **Tests and mutants:** 14 new tests; 17 mutants, 16 killed. The survivor is the sub-cell carve's step 1, redundant on every fixture.
+  - **Verified:**
+    - `cargo test --workspace --no-fail-fast -j 2` on `3f27e383` plus these files: 223 result lines, 6 188 passed, 0 failed, 111 ignored.
+    - Debug DLL built at 14:21, after the last `.rs` edit (14:07). From a `git archive` scratch copy with clean settings: `_gsw` 339 checks / 0 fail, `_tiledlod` PASS, `_zoomdetail` DONE (frames read).
+    - Rebased onto `465841aa` (no Rust overlap). Re-run there: `-p cartalith-climate -p cartalith-hydrology -p cartalith-erosion -p cartalith-engine` 563 passed, 0 failed; `-p cartalith-godot` 2 839 passed, 0 failed.
+  - **Owner questions** (`OUTSTANDING_WORK.md` row "Terrain streaks — spike measured, awaiting owner"):
+    - ship (a)? Default yes;
+    - re-scope the dome streaks as an edifice/zoom-law item? Default yes;
+    - retire (b) and Rho8? Default yes;
+    - locate 314159's coastal streaks with the river layer hidden? Default yes.
+
 - **Banded export fixed (2026-10-18): a 16K/32K `export_image` now equals the monolithic export pixel for pixel; `_exportoptions_probe.gd` check 4 was red since RV-5.** Measured on HEAD's debug DLL (`git archive` scratch copy, seed 20260906 at 2048 x 1311): the banded 16K PNG differed from `export_raster_png`'s 16K in 9 341 pixels (9 896 bytes; 9 891 by one level, 5 by two), all on painted-river antialiased edges, bands 1 and 3 only. Cause: each band placed its rivers by a band-relative `f32` offset (`RasterMap::tile(bx, by, ..)` in `export_raster::with_export_rivers`), so river positions rounded differently from the whole image's. Bisected with per-commit DLLs: `a185dca0^` passes, `a185dca0` (RV-5, 2026-09-28; stroked rivers) fails with 8 858 pixels; it stayed red through RIM-7's painted river, unnoticed because the probe exited 0 on a FAIL until `28d60e28`. Fix (Rust only): the whole image's map plus the band's integer origin -- `river_field::PaintSource::raster_at` (`Place` gains `px0`/`py0`; a pixel's position comes from its whole-image index) and `river_stroke::rasterize_with_at` (mesh built and culled in whole-image pixels, only the finished vertices moved by the origin; exactness limit disclosed in its doc). Origin 0 is the old code path, so the monolithic export, the tiles and every golden are unchanged: the fixed DLL's 16K monolithic PNG is byte-identical to HEAD's, and the banded one now equals it (probe 0 failures). Snapshot crops (`bake_crop`) also take the whole-image placement now. New `export_raster::band_identity_tests` (4): byte equality banded vs monolithic for painted and stroked rivers at 2048, and texel-for-texel river-layer equality in every window of the 16K band plan on a 2048 x 1311 grid (the pre-fix placement differs in 66 214 of 748 019 texels there); 4 mutants, 4 killed. `cargo test --workspace -j 2` on `73da17ae` plus these files: 221 result lines, 6 054 passed, 0 failed, 106 ignored (the adjust census's banded and crop hashes, Satellite relief included, did not move). `EXPORT_SCOPE.md` §4.2 has the rule.
 
 - **Combined-tree verification (2026-10-18, commit `820e0acd`): green.** Clean worktree of origin/main, own target dir: `cargo test --workspace --no-fail-fast -j 2` = 222 suites, 6121 passed, 0 failed, 108 ignored. Debug DLL built from the same commit; probes from a `git archive` copy with clean settings per run, all exit 0: `_gsw` 339 checks 0 fail, `_stylepresets` 0 failures, `_etf2` 534 checks 0 fail, `_lookstate` 23 checks 0 failed, `_oadjlook` 26 checks 0 fail, `_tiledlod` PASS, `_exportdialog` desktop and phone PASS, `_religionui` ALL PASS.

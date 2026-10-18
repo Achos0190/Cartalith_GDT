@@ -202,6 +202,11 @@ pub fn defaults() -> WorldParams {
     // `geology_processes` on, and GF-6's bars were measured on processes-on
     // worlds only. Written out, though it equals `WorldParams::defaults`.
     p.geology_carve = false;
+    // The terrain-streak spike's switches (`TERRAIN_STREAK_SPIKE_2026-10-18.md`)
+    // stay OFF in the app: they are measurement-only until the owner rules on
+    // a variant, and have no `PARAMS` row (`StreakSpikeParams`' doc). Written
+    // out, though it equals `WorldParams::defaults`.
+    p.streak = cartalith_engine::StreakSpikeParams::default();
     p
 }
 
