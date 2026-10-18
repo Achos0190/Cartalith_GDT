@@ -366,6 +366,11 @@ pub struct SnapshotInputs {
     /// byte-identical to before the field existed, and [`Self::fingerprint`]
     /// reads exactly what it read before.
     pub rock_detail: Option<Arc<render::RockDetail>>,
+    /// Ruling CN's colour-paint layer (`COLOUR_PAINT_SCOPE.md` CP-2), attached
+    /// to every tile's context (`RenderCtx::with_colour_paint`). `None` -- no
+    /// layer, or a hidden or empty one (`WorldGen::colour_paint_for_snapshot`)
+    /// -- attaches nothing and fingerprints exactly as before CP-2.
+    pub colour_paint: Option<Arc<cartalith_spatial::colour_paint::ColourPaint>>,
 }
 
 /// The word [`SnapshotInputs::fingerprint`] folds in when the tiles paint the
@@ -377,6 +382,11 @@ const PAINTED_RIVERS_TAG: u64 = 0x0054_4e50_374d_4952;
 /// [`SnapshotInputs::rock_detail`]. **Labelled judgement**: any fixed word
 /// does; this one spells `GF6ROCK ` in ASCII.
 const ROCK_DETAIL_TAG: u64 = 0x004b_434f_5236_4647;
+
+/// The separator [`SnapshotInputs::fingerprint`] folds in before a
+/// [`SnapshotInputs::colour_paint`] document. **Labelled judgement**: any
+/// fixed word does; this one spells `NPAINT ` and a space in ASCII.
+const COLOUR_PAINT_TAG: u64 = 0x0020_544e_4941_504e;
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
 ///
@@ -533,6 +543,7 @@ impl SnapshotInputs {
             river_paint,
             forced_lakes,
             rock_detail,
+            colour_paint,
         } = self;
         let mut d = Digest::new();
         d.word(*gw as u64);
@@ -581,6 +592,14 @@ impl SnapshotInputs {
             d.word(ROCK_DETAIL_TAG);
             d.bytes(&rd.cells);
             d.f64(rd.m_per_unit);
+        }
+        // Ruling CN's colour paint: only when present (no word when absent,
+        // so every snapshot without paint fingerprints as before CP-2); with
+        // it, a separator then the whole saved document, so a pyramid stored
+        // under one set of marks never seeds another.
+        if let Some(cp) = colour_paint {
+            d.word(COLOUR_PAINT_TAG);
+            d.bytes(serde_json::to_string(cp.doc()).unwrap_or_default().as_bytes());
         }
         d.tag(rivers.is_some());
         if let Some(g) = rivers {
@@ -735,6 +754,8 @@ pub struct LodSnapshot {
     /// GF-6 §4.10's rock styling input, carried from
     /// [`SnapshotInputs::rock_detail`] unchanged.
     rock_detail: Option<Arc<render::RockDetail>>,
+    /// Ruling CN's colour paint, carried from [`SnapshotInputs::colour_paint`].
+    colour_paint: Option<Arc<cartalith_spatial::colour_paint::ColourPaint>>,
     /// Ruling CO item 3: the world's edifices recovered from its
     /// `volcanic_field` (`SnapshotInputs::litho`), for the tiles' volcano
     /// furrows (`render::add_tile_furrows`). Built only when the look asks
@@ -851,6 +872,7 @@ impl LodSnapshot {
             river_paint,
             forced_lakes,
             rock_detail,
+            colour_paint,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
@@ -928,6 +950,7 @@ impl LodSnapshot {
             pre,
             lithology,
             rock_detail,
+            colour_paint,
             edifice_frame,
             fields,
             ink,
@@ -1016,6 +1039,9 @@ impl LodSnapshot {
         if let Some(rd) = self.rock_detail.as_deref() {
             ctx = ctx.with_rock_detail(rd);
         }
+        // Ruling CN's colour paint, the layer the base map attaches
+        // (`build_color_texture`), so a tile and the screen agree.
+        ctx = ctx.with_colour_paint(self.colour_paint.as_deref());
         // Ruling CO item 3: the volcano furrows, only for a world that has an
         // edifice frame (`LodSnapshot::edifice_frame`); `None` attaches
         // nothing.
@@ -1926,6 +1952,7 @@ mod tests {
             river_paint: None,
             forced_lakes: None,
             rock_detail: None,
+            colour_paint: None,
             }
     }
 
@@ -3138,5 +3165,55 @@ mod tests {
             LodSnapshot::build(j).expect("snapshot").render_tile(5, 16, 16).expect("tile").0
         };
         assert_eq!(reference(false), reference(true), "the reference schedule must ignore the rock detail");
+    }
+
+    /// A lava mark over the centre of the [`inputs`] world, as CP-2's binding
+    /// would hand the snapshot (`WorldGen::colour_paint_for_snapshot`).
+    fn centre_lava(i: &SnapshotInputs) -> Arc<cartalith_spatial::colour_paint::ColourPaint> {
+        use cartalith_spatial::colour_paint::*;
+        let kpc = i.map_width_km / i.gw as f64;
+        let (cx, cy) = (i.gw as f64 * 0.5 * kpc, i.gh as f64 * 0.5 * kpc);
+        let m = ColourMark {
+            shape: MarkShape::Line { points_km: vec![[cx - 8.0 * kpc, cy], [cx + 8.0 * kpc, cy]], radius_km: 4.0 * kpc },
+            rgb: [34, 33, 38],
+            opacity: 1.0,
+            hardness: 1.0,
+            blend: ColourBlend::Replace,
+            land_only: false,
+            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.9, crack_density: 0.5, glow_radius_km: kpc, heat_along: 0.0 }),
+        };
+        Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).expect("layer"))
+    }
+
+    /// Protects CP-2's tile producer (`MISTAKES.md`: attaching a capability is
+    /// not the consumer reading it): a snapshot with no colour paint carries
+    /// no [`COLOUR_PAINT_TAG`] (every app world keys as before CP-2); one with
+    /// a layer carries the tag, fingerprints differently (a stored unpainted
+    /// pyramid never seeds a painted world), and its centre tile is drawn
+    /// differently -- the layer reaches the pixels through `render_tile`.
+    /// Two different documents also fingerprint differently.
+    #[test]
+    fn a_snapshot_with_colour_paint_paints_and_keys_its_tiles() {
+        let (gw, gh) = (96usize, 72usize);
+        let plain_in = inputs(gw, gh);
+        let base = plain_in.fingerprint();
+        assert!(!plain_in.digest().log.contains(&COLOUR_PAINT_TAG), "no paint, no tag");
+        let mut i = inputs(gw, gh);
+        i.colour_paint = Some(centre_lava(&i));
+        assert!(i.digest().log.contains(&COLOUR_PAINT_TAG), "the paint section opens with its tag");
+        let painted_fp = i.fingerprint();
+        assert_ne!(painted_fp, base, "a painted snapshot must not seed from an unpainted pyramid");
+        let mut other = inputs(gw, gh);
+        let mut doc = centre_lava(&other).doc().clone();
+        doc.marks[0].rgb = [200, 30, 18];
+        other.colour_paint = Some(Arc::new(cartalith_spatial::colour_paint::ColourPaint::new(doc, 1.0).unwrap()));
+        assert_ne!(other.fingerprint(), painted_fp, "another document, another key");
+        let plain = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let painted = LodSnapshot::build(i).expect("snapshot");
+        let (a, _, _) = plain.render_tile(2, 2, 2).expect("tile");
+        let (b, _, _) = painted.render_tile(2, 2, 2).expect("tile");
+        assert!(a.iter().any(|&v| v != 0), "an empty tile proves nothing");
+        let moved = a.iter().zip(&b).filter(|(x, y)| x != y).count();
+        assert!(moved > 100, "the colour paint must reach the centre tile ({moved} bytes moved)");
     }
 }

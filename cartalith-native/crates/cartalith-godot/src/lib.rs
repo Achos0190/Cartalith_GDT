@@ -36,6 +36,7 @@ mod civ_religion_bridge;
 mod civ_tools_bridge;
 mod conflict_bridge;
 mod civ_trade_bridge;
+mod colour_paint_bridge;
 mod context_pick_bridge;
 mod ef9_bridge;
 mod rock_detail_bridge;
@@ -6430,6 +6431,16 @@ struct WorldGen {
     /// this a cached network or tile would go on drawing the world from
     /// before the press. Wrapping counter; only equality is ever asked of it.
     forced_lakes_epoch: u64,
+    /// Ruling CN's colour-paint layer (`COLOUR_PAINT_SCOPE.md` CP-2,
+    /// `colour_paint_bridge.rs`): presentation only, marks in map kilometres,
+    /// attached to the screen, tile and export contexts. `None` is no layer.
+    /// An `Arc` so the tile and export snapshots take a refcount.
+    colour_paint: Option<std::sync::Arc<cartalith_spatial::colour_paint::ColourPaint>>,
+    /// Moved on every colour-paint edit (`colour_paint_install`) and read by
+    /// the tile and grid cache keys (`lod_key_with`, through
+    /// `colour_paint_key_term`), so no cached tile outlives an edit, an undo
+    /// or a redo. Wrapping counter; only equality is asked of it.
+    colour_paint_epoch: u64,
     /// [`Self::drawn_water_classification`]'s cache: its key and the
     /// classification. One byte a cell -- the same size as
     /// `CivData::water_bodies`, which the drawn copy replaces as the source
@@ -7096,6 +7107,8 @@ impl IRefCounted for WorldGen {
             valley_shade_timing: std::cell::Cell::new(None),
             forced_lakes: None,
             forced_lakes_epoch: 0,
+            colour_paint: None,
+            colour_paint_epoch: 0,
             drawn_water_cache: std::cell::RefCell::new(None),
             prewarm_fill: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
@@ -7647,6 +7660,9 @@ impl WorldGen {
         // A new source is a new world: nothing is forced on it (Ruling BO;
         // `project_open` restores a saved mask after this).
         self.reset_forced_lakes();
+        // Ruling CN: the marks keep their kilometres across a new world (§5);
+        // only the index is rebuilt at the new grid's scale.
+        self.colour_paint_rescale();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
     }
 
@@ -7846,6 +7862,9 @@ impl WorldGen {
         // A new source is a new world: nothing is forced on it (Ruling BO;
         // `project_open` restores a saved mask after this).
         self.reset_forced_lakes();
+        // Ruling CN: the marks keep their kilometres across a new world (§5);
+        // only the index is rebuilt at the new grid's scale.
+        self.colour_paint_rescale();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
         // A fresh display name for this seed -- see the `world_name` field.
@@ -10247,6 +10266,9 @@ impl WorldGen {
         // A new source is a new world: nothing is forced on it (Ruling BO;
         // `project_open` restores a saved mask after this).
         self.reset_forced_lakes();
+        // Ruling CN: the marks keep their kilometres across a new world (§5);
+        // only the index is rebuilt at the new grid's scale.
+        self.colour_paint_rescale();
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -11841,6 +11863,9 @@ impl WorldGen {
         // BO: the forced lakes `lakes` already draws, so `sdf_biomes` bands
         // their shores as it bands a natural lake's.
         ctx = ctx.with_map_scale_forced(self.map_width_km, self.forced_lake_mask());
+        // Ruling CN's colour paint (CP-2): after the map scale, which its
+        // kilometres need; inert layers are not attached (`with_colour_paint`).
+        ctx = ctx.with_colour_paint(self.colour_paint_layer());
         // Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): attach real ground-texture
         // splat channels whenever a pack is loaded. `SplatTextures::default()`
         // (all `None`) is what a pack-less or textures-less pack produces --
@@ -14511,7 +14536,10 @@ impl WorldGen {
         // is the same picture with a drafted heightfield, so it has to take
         // the same stages or the preview stops predicting the commit.
         .with_map_scale_forced(self.map_width_km, self.forced_lake_mask())
-        .with_lakes(&lakes);
+        .with_lakes(&lakes)
+        // Ruling CN: the preview is the map with a drafted heightfield, so it
+        // carries the colour paint the map carries.
+        .with_colour_paint(self.colour_paint_layer());
         let mut bytes = vec![0u8; gw * gh * 3];
         bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
             for x in 0..gw {
@@ -19379,7 +19407,7 @@ impl WorldGen {
             // the view switch is on). A world regenerated with the processes
             // switched moves `e` already; this covers `set_params` and
             // `set_rock_lod_detail` without a regeneration.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}",
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -19403,6 +19431,10 @@ impl WorldGen {
             self.forced_lakes_epoch,
             u8::from(deltas_off),
             u8::from(self.rock_detail_wanted()),
+            // `cp`: Ruling CN's colour paint, which every tile and the grid
+            // raster draw. Empty with no visible marks, so every key without
+            // paint is the string it was before CP-2.
+            self.colour_paint_key_term(),
         )
     }
 
@@ -19558,6 +19590,9 @@ impl WorldGen {
             // base map, so a tile draws the same water.
             forced_lakes: self.forced_lake_mask().map(|m| m.to_vec()),
             rock_detail: self.rock_detail_for_tiles(),
+            // Ruling CN: the colour paint every tile composites (`None` with
+            // no visible marks, which fingerprints as before CP-2).
+            colour_paint: self.colour_paint_for_snapshot(),
         })
     }
 }

@@ -460,3 +460,47 @@ ragged edge, then the halo; the merge taking the coolest mark; a flat mark not
 flushing the lava group under it; the ragged edge removed. Harness: exact
 literal, occurs-once, restored in `finally`, no residue (the files came back
 with LF line endings, which the repository's own storage is).
+
+## 19. CP-2 as built (2026-10-18)
+
+**Engine binding** (`cartalith-godot/src/colour_paint_bridge.rs`):
+`WorldGen::colour_paint` (`Option<Arc<ColourPaint>>`) and
+`colour_paint_epoch`. `#[func]`s: `colour_paint_info` (`marks`, `visible`,
+`emissive`, `revision`, and `km_per_cell` -- absent with no map width),
+`colour_paint_document` (the v1 JSON, `""` for none), `colour_paint_set_document`
+(`""` removes; a refused document changes nothing and says why),
+`colour_paint_add_mark` (one `ColourMark` JSON), `colour_paint_set_visible`.
+Attached at every producer: `build_color_texture` and the sculpt preview,
+the tile snapshot (`SnapshotInputs::colour_paint`, hashed behind its own
+separator word only when present, attached in `render_tile_conformed_cached`),
+`export_render_with` and the export snapshot (`Parts::ctx`). The tile and grid
+cache keys gain `;cp<epoch>` only while the layer has visible marks, so every
+key without paint is the pre-CP-2 string. Marks keep their kilometres across a
+regenerate; the index is rebuilt at the new grid's scale
+(`colour_paint_rescale`, at each of the three source assignments).
+Producer tests: `lod_worker::a_snapshot_with_colour_paint_paints_and_keys_its_tiles`,
+`export_session::the_export_snapshot_draws_colour_paint`.
+
+**Shell** (`shell/colour_paint_tool.gd`, owned by `cartography_workspace.gd`,
+drawn last in CARTO ▸ Colours as "Paint colour"): "Paint on the map" arms tool
+`colour_paint`; a press-drag-release through the app's map dispatch is one
+stroke, sampled every quarter radius in km, simplified (RDP at a tenth of the
+radius) and appended as one mark. Controls: **Material** first (Colour, Lava,
+Embers, Ice glow, Toxic glow -- presets of §18's mechanism), the picker with
+the print-gamut row (`DccWidgets.confirmable_color`), §15's eight swatches,
+Blend (Replace first: the measured default of §3, unruled), Radius in km with a
+readout in cells and screen pixels at the current zoom, Hardness, Opacity, Land
+only, and for a material Heat, Crack density, Glow radius and Cool along stroke;
+Undo / Redo on the tool's own stack (whole documents; drops its oldest steps to
+stay inside what the app's undo budget has left, `undo_stats()`), Hide, Clear.
+The brush ring follows the cursor while armed. Every bridge call is gated on
+`generating`. Probe: `_colourpaint_probe.gd` (desktop, tablet and phone).
+
+**Not done in CP-2, and why:** the fill helper (CP-5) -- still feasible per §13,
+left for its own milestone; the local-contrast halo measurement at a Replace
+edge (§4) -- not measured; phone reachability -- the phone run proves the tool
+renders and operates through the app's dispatch, not that a thumb can find
+CARTO ▸ Colours behind the bottom bar (CP-4); the export dialog's "without
+paint" switch (CP-6). Session mode was not separately probed (§15 says CARTO
+stays visible there).
+

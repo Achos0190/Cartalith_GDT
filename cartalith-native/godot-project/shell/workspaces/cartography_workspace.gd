@@ -340,6 +340,25 @@ var _layer_checks: Dictionary = {}
 ## class doc and `RenderWorkspace`'s own class doc for the mechanism.
 var _render: RenderWorkspace
 
+## Ruling CN's colour-paint tool (`COLOUR_PAINT_SCOPE.md` CP-2): the brush,
+## its own undo stack and the CARTO ▸ Colours ▸ Paint colour section. Created
+## in `_build`; presentation only, like every other control in this dock.
+const ColourPaintTool := preload("res://shell/colour_paint_tool.gd")
+## The live tool (see `ColourPaintTool`); `null` until `_build` runs.
+var colour_paint
+
+## `DccApp` forwards every map cursor sample here (`_wire_selection`); the
+## colour brush draws its ring from it while armed.
+func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
+	if colour_paint != null:
+		colour_paint.on_cursor_sampled(gx, gy, valid)
+
+## `DccApp` forwards a world change here: the colour-paint undo stack describes
+## the layer of the world just replaced, so it is dropped.
+func on_world_changed() -> void:
+	if colour_paint != null:
+		colour_paint.on_world_changed()
+
 
 ## Builds the CARTO dock: the Icon/Label tool block, the nested RENDER panel
 ## (`_render`, set up first because the Style/Relief/Colours categories draw
@@ -387,9 +406,15 @@ func _build() -> void:
 	_render.build_relief_into(
 		DccWidgets.category(self, "Relief & light", categories))
 
-	## 3 -- COLOURS (gains Colour relief and the biome pair)
-	_render.build_colours_into(
-		DccWidgets.category(self, "Colours", categories))
+	## 3 -- COLOURS (gains Colour relief and the biome pair). Ruling CN's Paint
+	## colour section (`colour_paint_tool.gd`, CP-2) is appended last, after
+	## colour management: it is the one control here that draws on the map
+	## rather than restyling it, so it closes the category.
+	var colours_body := DccWidgets.category(self, "Colours", categories)
+	_render.build_colours_into(colours_body)
+	colour_paint = ColourPaintTool.new()
+	colour_paint.setup(app, bridge)
+	colour_paint.build_into(colours_body)
 
 	## 4 -- FEATURE STYLE: the style halves of the two categories that used to
 	## carry both their visibility rows and their styling rows. The visibility

@@ -621,6 +621,10 @@ impl WorldGen {
                 p.layer_cells(paint_bridge::PaintTarget::Splat),
             );
         }
+        // Ruling CN's colour paint (CP-2): the screen's layer, so an export
+        // shows the paint the screen shows (`COLOUR_PAINT_SCOPE.md` §7's
+        // default, "with paint"); inert layers are not attached.
+        ctx = ctx.with_colour_paint(self.colour_paint_layer());
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
         Some(with_export_rivers(geom.as_deref(), fans.as_deref(), paint.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
     }

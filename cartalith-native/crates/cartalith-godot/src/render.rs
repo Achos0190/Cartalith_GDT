@@ -5223,7 +5223,6 @@ impl<'a> RenderCtx<'a> {
     /// arithmetic that happens to return its input. The layer is read only
     /// through [`Self::colour_paint_query`], which also needs a map width
     /// (marks are in kilometres): a context with no scale paints nothing.
-    #[allow(dead_code)]
     pub fn with_colour_paint(mut self, layer: Option<&'a cartalith_spatial::colour_paint::ColourPaint>) -> Self {
         self.colour_paint = layer.filter(|l| !l.is_inert());
         self

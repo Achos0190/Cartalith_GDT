@@ -295,6 +295,11 @@ func _ready() -> void:
 		and _has("reset_biome_color") \
 		and _has("reset_biome_colors") \
 		and _has("get_biome_color")
+	colour_paint_api = _has("colour_paint_info") \
+		and _has("colour_paint_document") \
+		and _has("colour_paint_set_document") \
+		and _has("colour_paint_add_mark") \
+		and _has("colour_paint_set_visible")
 	ramp_api = _has("get_color_ramp") \
 		and _has("set_color_ramp") \
 		and _has("list_ramp_presets") \
@@ -1784,6 +1789,63 @@ func reset_biome_colors() -> int:
 	if n > 0:
 		mark_world_dirty()
 	return n
+
+
+# -- Colour paint (Ruling CN, `COLOUR_PAINT_SCOPE.md` CP-2) ---------------------
+#
+# The engine holds the layer (`WorldGen::colour_paint`, marks in map
+# kilometres) and composites it on the screen, the deep-zoom tiles and the
+# export. Every call here is gated on `colour_paint_api` (the binding exists)
+# and `generating` (the worker holds `WorldGen`; reaching a `#[func]` then is
+# the `bind() failed` panic), and every one degrades to an honest "nothing"
+# rather than a plausible value: `{}`, `""`, `false`.
+
+## `true` when the loaded extension has the colour-paint binding (set in `_ready`).
+var colour_paint_api := false
+
+## `{marks, visible, emissive, revision}` plus `km_per_cell` when the world has a
+## map width (absent otherwise: no scale, no paint). `{}` without the binding or
+## while generating.
+func colour_paint_info() -> Dictionary:
+	if not colour_paint_api or generating:
+		return {}
+	var d = world_gen.callv("colour_paint_info", [])
+	return d if d is Dictionary else {}
+
+## The layer as its saved JSON document (`ColourPaintDoc`), `""` when there is no
+## layer. The shell's undo keeps these strings.
+func colour_paint_document() -> String:
+	if not colour_paint_api or generating:
+		return ""
+	return String(world_gen.callv("colour_paint_document", []))
+
+## Replaces the layer with `json` (`""` removes it). `{ok: true, marks}` or
+## `{ok: false, error}`; a refused document changes nothing.
+func colour_paint_set_document(json: String) -> Dictionary:
+	if not colour_paint_api or generating:
+		return {}
+	var d = world_gen.callv("colour_paint_set_document", [json])
+	if d is Dictionary and bool((d as Dictionary).get("ok", false)):
+		mark_world_dirty()
+	return d if d is Dictionary else {}
+
+## Appends one mark (`ColourMark` JSON). Same reply shape as `colour_paint_set_document`.
+func colour_paint_add_mark(json: String) -> Dictionary:
+	if not colour_paint_api or generating:
+		return {}
+	var d = world_gen.callv("colour_paint_add_mark", [json])
+	if d is Dictionary and bool((d as Dictionary).get("ok", false)):
+		mark_world_dirty()
+	return d if d is Dictionary else {}
+
+## Shows or hides the layer. `true` when the flag changed.
+func colour_paint_set_visible(v: bool) -> bool:
+	if not colour_paint_api or generating:
+		return false
+	var changed := bool(world_gen.callv("colour_paint_set_visible", [v]))
+	if changed:
+		mark_world_dirty()
+	return changed
 
 
 # -- Colour ramp (`GUI_GAP_REGISTER.md` CA-02) ---------------------------------

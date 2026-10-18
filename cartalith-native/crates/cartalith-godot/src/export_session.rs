@@ -152,6 +152,9 @@ struct Parts {
     paint_biome: Option<Vec<u8>>,
     paint_terrain: Option<Vec<u8>>,
     paint_splat: Option<Vec<u8>>,
+    /// Ruling CN's colour paint ([`SnapshotInputs::colour_paint`]), attached
+    /// to every band's context so the export shows the screen's paint.
+    colour_paint: Option<Arc<cartalith_spatial::colour_paint::ColourPaint>>,
 }
 
 /// `lod_worker`'s compile-time check, for the same reason: [`BandFeed`]
@@ -196,6 +199,8 @@ impl Parts {
         if self.paint_present {
             ctx = ctx.with_paint(self.paint_biome.as_deref(), self.paint_terrain.as_deref(), self.paint_splat.as_deref());
         }
+        // Ruling CN: the colour paint, as `export_render_with` attaches it.
+        ctx = ctx.with_colour_paint(self.colour_paint.as_deref());
         Some(ctx)
     }
 }
@@ -268,6 +273,7 @@ impl ExportSnapshot {
             paint_biome: i.paint_biome,
             paint_terrain: i.paint_terrain,
             paint_splat: i.paint_splat,
+            colour_paint: i.colour_paint,
         };
         let (bake, grade_cells) = {
             let ctx = parts.ctx()?;
@@ -1001,6 +1007,7 @@ mod tests {
             river_paint: None,
             forced_lakes: None,
             rock_detail: None,
+            colour_paint: None,
         }
     }
 
@@ -1347,6 +1354,39 @@ mod tests {
         for (name, d) in [("lithology dropped", d_lith), ("lithology never built", d_lith_input), ("map width x4", d_km), ("ink dropped", d_ink), ("paint dropped", d_paint)] {
             assert!(d > 0, "{name}: the snapshot equality did not notice");
         }
+    }
+
+    /// Protects CP-2's export producer: an `ExportSnapshot` built from inputs
+    /// carrying a colour-paint layer draws it (bands move against the same
+    /// snapshot without), and its banded output is the same at 1 000 and at
+    /// 7 rows per band (the paint is a pure function of the pixel).
+    #[test]
+    fn the_export_snapshot_draws_colour_paint() {
+        use cartalith_spatial::colour_paint::*;
+        let w = world();
+        let p7 = plan(150, 7);
+        let p1000 = plan(150, 1000);
+        let bands = |s: &ExportSnapshot, p: &ExportBandPlan| -> Vec<u8> { p.bands().flat_map(|b| s.render_band(p, b, ColorSpace::Srgb).expect("band")).collect() };
+        let kpc = KM / GW as f64;
+        let m = ColourMark {
+            shape: MarkShape::Line { points_km: vec![[GW as f64 * 0.3 * kpc, GH as f64 * 0.5 * kpc], [GW as f64 * 0.7 * kpc, GH as f64 * 0.5 * kpc]], radius_km: 3.0 * kpc },
+            rgb: [200, 30, 18],
+            opacity: 1.0,
+            hardness: 1.0,
+            blend: ColourBlend::Replace,
+            land_only: false,
+            emissive: None,
+        };
+        let layer = Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).unwrap());
+        let plain = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
+        let mut i = inputs(&w, KM, true);
+        i.colour_paint = Some(layer);
+        let painted = ExportSnapshot::build_plain(i).expect("snapshot");
+        let (a, b) = (bands(&plain, &p7), bands(&painted, &p7));
+        assert!(!a.is_empty());
+        let moved = a.iter().zip(&b).filter(|(x, y)| x != y).count();
+        assert!(moved > 100, "the export must draw the colour paint ({moved} bytes moved)");
+        assert_eq!(bands(&painted, &p1000), b, "banded = monolithic with colour paint");
     }
 
     /// Protects: an above-sea lake reaching the export (2026-09-24). Both export paths
