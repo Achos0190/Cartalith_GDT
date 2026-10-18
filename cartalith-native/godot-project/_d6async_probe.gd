@@ -297,22 +297,51 @@ func _ready() -> void:
 	# the worker's own `built` counter, which only a real synthesis moves.
 	print("\n=== 6: a chunk that scrolls out and back is not synthesised twice ===")
 	_vh._lod_sync = false
-	await _await_settled(WAIT_FRAMES)
-	var before_park: int = (_vh._lod_cache as Dictionary).size()
-	var here: Vector2 = _vh._camera.position
-	_vh._camera.position = here + Vector2(-900.0, -700.0)
-	_vh._update_lod()
-	await _await_settled(WAIT_FRAMES)
-	var parked: int = (_vh._lod_cache as Dictionary).size()
-	_ok("panning away parks tiles rather than freeing them", parked > before_park, "%d -> %d parked" % [before_park, parked])
-	var built_before: int = int((_br.lod_worker_stats() as Dictionary).get("built", 0))
-	_vh._camera.position = here
-	_vh._update_lod()
-	await _frames(2)
-	var built_after: int = int((_br.lod_worker_stats() as Dictionary).get("built", 0))
-	var restored: int = (_vh._lod_tiles as Dictionary).size()
-	_ok("panning back restores them with no new synthesis", built_after == built_before and restored > 0,
-		"built %d -> %d, %d tiles live" % [built_before, built_after, restored])
+	## **Two legs, since Ruling CL (EF-9 on by default, 2026-10-18).** With
+	## EF-9 off the pre-Ruling-CL bar is unchanged and strict: panning back
+	## synthesises nothing. With it on (the default) the view also holds the
+	## `z0 + 1` layer over boosted ground -- measured here at ~60 live tiles of
+	## that layer against `cache_tiles` = 35 -- so a few of those tiles are
+	## evicted while away and are rebuilt on return. The bound asserted is that
+	## every rebuilt tile is attributable to that layer: at most as many builds
+	## as there were promoted tiles live before leaving (a loose bound: 4
+	## rebuilt against 54 promoted on the run that set it, 2026-10-18; the
+	## strict leg proves the parking mechanism itself, this leg only bounds
+	## the overflow and does not prove WHICH tiles were rebuilt).
+	for mode: int in [0, -1]:
+		var leg := "EF-9 off" if mode == 0 else "EF-9 default (on)"
+		_vh.set_ef9_refine(mode)
+		## An empty parked cache per leg: the earlier leg (and the sections
+		## above) leave it full at `cache_tiles`, and "parks tiles" is only
+		## observable as growth from a cache with room.
+		_vh._drop_lod_cache()
+		await _await_settled(WAIT_FRAMES)
+		var promoted_live := 0
+		for k: String in (_vh._ef9_roles as Dictionary).keys():
+			if (_vh._lod_tiles as Dictionary).has(k):
+				promoted_live += 1
+		var before_park: int = (_vh._lod_cache as Dictionary).size()
+		var here: Vector2 = _vh._camera.position
+		_vh._camera.position = here + Vector2(-900.0, -700.0)
+		_vh._update_lod()
+		await _await_settled(WAIT_FRAMES)
+		var parked: int = (_vh._lod_cache as Dictionary).size()
+		_ok("[%s] panning away parks tiles rather than freeing them" % leg, parked > before_park, "%d -> %d parked" % [before_park, parked])
+		var built_before: int = int((_br.lod_worker_stats() as Dictionary).get("built", 0))
+		_vh._camera.position = here
+		_vh._update_lod()
+		await _frames(2)
+		var built_after: int = int((_br.lod_worker_stats() as Dictionary).get("built", 0))
+		var restored: int = (_vh._lod_tiles as Dictionary).size()
+		if mode == 0:
+			_ok("[%s] panning back restores them with no new synthesis" % leg, built_after == built_before and restored > 0,
+				"built %d -> %d, %d tiles live" % [built_before, built_after, restored])
+		else:
+			_ok("[%s] panning back rebuilds only what the z0+1 layer overflowed (<= its %d live tiles)" % [leg, promoted_live],
+				built_after - built_before <= promoted_live and restored > 0,
+				"built %d -> %d, %d tiles live, %d promoted before leaving" % [built_before, built_after, restored, promoted_live])
+		await _await_settled(WAIT_FRAMES)
+	_vh.set_ef9_refine(-1)
 
 	# --- 7. the tier caps the level ---------------------------------------
 	#

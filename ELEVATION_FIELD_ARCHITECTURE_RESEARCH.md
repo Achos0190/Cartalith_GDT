@@ -1371,6 +1371,32 @@ change's. Also open: the camera-step and frame-time cost above (the `z0 + 1`
 layer is real extra tiles), and the boost field's first build on the main
 thread (not timed separately).
 
+**Update 2026-10-18 -- shipped ON (Ruling CL).** The owner ruled that EF-9 ships on
+by default. `LodBudget::ef9_refine` is `true` on Balanced, Quality and Ultra and
+`false` on Performance (the Android tier): Q5's recorded default keeps that tier
+off until a phone shows no frame over one vsync per level change, and no phone
+timing exists, so this is a labelled judgement, not a measurement. The two items
+this section left open are closed as follows.
+
+- **The boost field's first build** was timed (`_ef9firstbuild_probe.gd`, debug
+  DLL built with optimisation, this machine, three seeds per grid): 3.4 ms at
+  512x384, 44.5 ms at 2048x1311, **191 ms at 4096x2621** on the main thread, and
+  again after every sculpt or sea-level change. It now runs on its own thread
+  over an owned copy of its inputs and the shell polls (`ef9_bridge.rs::BoostSlot`,
+  `viewport_host.gd::_ef9_wait`); until it lands the view draws today's picture.
+  Main-thread cost of the first call: 0.1-0.3 ms / 0.8-0.9 ms / 2.5-2.8 ms; ready
+  after about 16 / 50-67 / 217-237 ms; a poll costs under 0.1 ms.
+- **Cost, default arm against `--ef9 off`, same session** (18 runs each; median of
+  run medians, min..max): frame 2.64 ms (1.49..3.46) against 1.49 ms
+  (1.27..1.76); camera step 35.0 ms (32.6..43.0) against 33.0 ms (32.8..33.1).
+  About +1.2 ms per frame and +2.0 ms per step, in line with §8.5's +0.9 / +2.4.
+- **A cost the table did not show:** the `z0 + 1` layer outgrows the parked-tile
+  cache (`cache_tiles` 32-35, bound by LOD-D6's memory bar): in `_d6async_probe`
+  section 6 about 54 promoted tiles were live against 35 parked, and panning away
+  and back re-synthesised 1-4 of them. With EF-9 off the strict "no synthesis on
+  return" bar holds. Whether to raise `cache_tiles` when EF-9 is on is a memory
+  decision, not taken here.
+
 ### 8.6 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below
@@ -1404,6 +1430,8 @@ thread (not timed separately).
    - Then on for the desktop tiers, and off for the Android Performance tier
      unless EF-9.4's phone timing shows no frame over one vsync per level
      change. That is LOD-D3's own phone budget.
+   - **Answered 2026-10-18 (Ruling CL):** ship on. Built as the tier default:
+     on for Balanced, Quality and Ultra, off for Performance (no phone timing).
 6. **Q6. Where the plan lives.**
    - **Default:** here, for the reasons in §8's opening paragraph.
    - A separate scope file only if EF-9.4's display work grows past this

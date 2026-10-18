@@ -50,7 +50,11 @@ extends Node
 ##                      force importance-driven refinement on or off for the
 ##                      session (`viewport_host.gd::set_ef9_refine`).  Default:
 ##                      neither -- the quality tier's own `ef9_refine`, which is
-##                      off on every tier.  Every run also records the deepest
+##                      ON on the desktop tiers and off on Performance (Ruling
+##                      CL, 2026-10-18).  The probe runs on the default tier
+##                      (Quality), so the default arm is the ON arm and ASSERTS
+##                      it (`_ef9_is_on`); `--ef9 off` is the toggle-off arm
+##                      (byte-identical to the pre-Ruling-CL default).  Every run also records the deepest
 ##                      live tile against the I3 cap and, with `on`, the frames
 ##                      that had mixed levels on screen and their seam ratios;
 ##                      `on` adds the payoff test (`_ef9_payoff`) and times the
@@ -385,7 +389,7 @@ func _run_baseline() -> void:
 				var r: Dictionary = await _run_test(t, seed_v, grid, pivot)
 				runs.append(r)
 				_print_run(r)
-			if _ef9 == 1:
+			if _ef9_is_on():
 				runs.append(await _ef9_payoff(seed_v, grid, pivot))
 			if _sheet:
 				var sheet: Dictionary = await _aletsch_sheet(seed_v, grid)
@@ -1202,7 +1206,7 @@ func _time_synthesis() -> Dictionary:
 			print("  z%-2d: no tile synthesised -- not timed" % z)
 		## EF-9.4: the same tiles conformed on all eight sides -- the most band
 		## a tile can carry, so an upper bound on what conforming costs.
-		if _ef9 == 1 and _br.has_method("lod_synthesize_tile_conformed"):
+		if _ef9_is_on() and _br.has_method("lod_synthesize_tile_conformed"):
 			var cs := PackedFloat64Array()
 			for i in 8:
 				var col: int = (n * (2 * i + 1)) / 16
@@ -1711,8 +1715,23 @@ func _summarise(runs: Array) -> void:
 		mixed += int(r.get("frames_mixed", 0))
 	print("  frames with a tile deeper than the I3 cap: %d   frames with EF-9.4 mixed levels: %d" % [over, mixed])
 	_expect(over == 0, "no live tile was ever deeper than the I3 cap")
-	if _ef9 == 1:
+	## The effective state, not the flag: the default arm must BE on (Ruling CL),
+	## `--ef9 off` must be off, and a forced `on` must be on -- a tier default
+	## that silently went back to off would otherwise run the off arm unnoticed.
+	var want_on := _ef9 != 0
+	var st: Dictionary = _vh.ef9_state() if _vh.has_method("ef9_state") else {}
+	_expect(bool(st.get("enabled", false)) == want_on,
+		"EF-9.4 effective state is %s for `--ef9 %s` (tier default is ON, Ruling CL)" % ["ON" if want_on else "OFF", ["tier default", "off", "on"][_ef9 + 1]])
+	if _ef9_is_on():
 		_expect(mixed > 0, "EF-9.4 on: mixed levels were on screen in at least one frame (teeth check on I4)")
+
+
+## Whether EF-9.4 draws this session: the forced flag, else the tier's own
+## `ef9_refine` budget value (the default arm since Ruling CL).
+func _ef9_is_on() -> bool:
+	if _ef9 >= 0:
+		return _ef9 == 1
+	return bool(_br.lod_budget().get("ef9_refine", false))
 
 
 func _write_json() -> void:

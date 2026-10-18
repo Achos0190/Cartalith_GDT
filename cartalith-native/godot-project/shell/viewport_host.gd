@@ -485,11 +485,12 @@ var _lod_parent_level := -1
 var _lod_parents_due := false
 
 ## **EF-9.4's toggle** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3): `-1`
-## follows the quality tier's `ef9_refine` budget value (`lod_budget()`, `false`
-## on every tier -- Q5's "off until EF-9.4 passes every bar"), `0` forces it off
-## and `1` on for this session. Set by `set_ef9_refine()`; the D0 harness
+## follows the quality tier's `ef9_refine` budget value (`lod_budget()`: `true`
+## on Balanced, Quality and Ultra, `false` on Performance -- Ruling CL,
+## 2026-10-18, `LodBudget::ef9_refine`), `0` forces it off and `1` on for this
+## session. Set by `set_ef9_refine()`; the D0 harness
 ## (`_lodsweep_probe.gd --ef9 on|off`) is its caller today -- no menu row draws
-## it yet, deliberately, while the default is off.
+## it yet.
 var _ef9_override := -1
 ## Per-call EF-9.4 roles, `key -> EF9_ROLE_PROMOTED`, rebuilt by every
 ## `_update_lod()`: the `z0 + 1` tiles the continuous model wants this call
@@ -501,6 +502,11 @@ var _ef9_roles: Dictionary = {}
 ## world with a boost field that boosts something, and a `.dll` that answers.
 ## `false` for the whole session while EF-9 is off.
 var _ef9_on := false
+## EF-9's boost field is being built on its own thread (`lod_ef9_boost()` answered
+## `pending`; Ruling CL item 4). Until it lands the view draws today's picture;
+## `_process()` polls and redraws the moment it is ready, and keeps itself
+## alive while this is true. Reset by every `_update_lod()`.
+var _ef9_wait := false
 ## The last plan's state for `ef9_state()` (probes): `basis`, `promoted`;
 ## `{}` when EF-9 did not run.
 var _ef9_last: Dictionary = {}
@@ -3496,7 +3502,7 @@ func _update_lod() -> void:
 
 	## **EF-9.4 -- importance-driven refinement, the continuous model**
 	## (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5), behind `_ef9_enabled()`.
-	## Off (the shipped default), nothing below runs, `_ef9_on` stays false and
+	## Off (Performance tier, or forced off), nothing below runs, `_ef9_on` stays false and
 	## every later step takes today's branch. On, the `z0` and `z0 - 1` sets above
 	## are unchanged and `_ef9_plan()` adds the `z0 + 1` tiles whose per-pixel
 	## weight is (or is about to be) above 0; every tile then fades by its own
@@ -3504,6 +3510,7 @@ func _update_lod() -> void:
 	_ef9_roles.clear()
 	_ef9_last = {}
 	_ef9_on = false
+	_ef9_wait = false
 	_ef9_wanted = {}
 	if _ef9_enabled():
 		_ef9_plan(z, z_cap, screen_px_per_cell, native_scale, Vector4(gx0, gx1, gy0, gy1), g, wanted)
@@ -3686,6 +3693,13 @@ func ef9_state() -> Dictionary:
 ## itself; never asks for a level past `z_cap` (I3, enforced again in Rust).
 func _ef9_plan(z: int, z_cap: int, px_per_cell: float, native_scale: float, view: Vector4, g: Vector2i, wanted: Dictionary) -> void:
 	var info: Dictionary = _bridge.lod_ef9_boost()
+	if bool(info.get("pending", false)):
+		## The first build per world (and after a sculpt) runs off the main
+		## thread, 191 ms at 4096x2621 (`ef9_bridge.rs::BoostSlot`). Draw
+		## today's picture meanwhile and let `_process()` redraw when it lands.
+		_ef9_wait = true
+		set_process(true)
+		return
 	if info.is_empty():
 		return
 	if not bool(info.get("any", false)):
@@ -4117,6 +4131,11 @@ func _process(_delta: float) -> void:
 	## Must never be reordered below the engine calls it guards.
 	if _generating():
 		return
+	## EF-9's boost field was still building when the last `_update_lod()` ran:
+	## poll it (no blocking, one dictionary) and redraw once it has landed.
+	if _ef9_wait and not bool(_bridge.lod_ef9_boost().get("pending", false)):
+		_ef9_wait = false
+		_update_lod()
 	## LOD-D7: the info tiles' drain and retry run on the same frame loop and
 	## keep it alive while any are outstanding.
 	var info_busy := false
@@ -4125,7 +4144,7 @@ func _process(_delta: float) -> void:
 			_sync_info_raster()
 		info_busy = _info.busy()
 	if _lod_backlog.is_empty() and _lod_pending.is_empty():
-		if not info_busy:
+		if not info_busy and not _ef9_wait:
 			set_process(false)
 		return
 	## **LOD-D6**: collect what the background synthesiser finished, first.

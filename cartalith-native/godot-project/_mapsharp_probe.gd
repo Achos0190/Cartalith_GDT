@@ -267,7 +267,7 @@ func _r2_debug_layer() -> void:
 		_vh.set_lod_debug(which, true)
 	var tiles_at_toggle: int = (_vh._lod_tiles as Dictionary).size()
 	await _zoom_to(8.0)
-	await _settle()
+	await _settle_quiet()
 	var user_order: Image = await _grab("loddebug_user_order")
 	var tiles_now: int = (_vh._lod_tiles as Dictionary).size()
 	print("  toggled ON at %d live tiles, then zoomed to %d tiles: overlay ink now %d px"
@@ -358,6 +358,23 @@ func _settle() -> void:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
+
+
+## `_settle()` plus: wait until the tile pyramid has nothing in flight (5 quiet
+## frames in a row, 20 s at most). Since Ruling CL (EF-9 on by default) the view
+## also builds the `z0 + 1` layer, which takes more than the 3 frames `_settle()`
+## waits; a grab taken while tiles are still landing is not "the overlay went
+## stale" evidence, it is the overlay correctly catching up afterwards, and the
+## `_expect(moved == 0, ...)` below would then fail for the wrong reason. A tile
+## landing AFTER this still moves the second capture, so a genuinely stale
+## overlay (nothing in flight, nothing redrawn) is still caught.
+func _settle_quiet() -> void:
+	var quiet := 0
+	var t0 := Time.get_ticks_msec()
+	while quiet < 5 and Time.get_ticks_msec() - t0 < 20000:
+		await RenderingServer.frame_post_draw
+		quiet = quiet + 1 if _vh.lod_pending() == 0 else 0
+	await _settle()
 
 
 func _grab(name: String) -> Image:

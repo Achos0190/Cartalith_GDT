@@ -33,7 +33,10 @@
 //! or erode that moved the height stage, a sea-level change, a civ recompute
 //! that moved the civ stage) rebuilds it whole on the next call.
 //! **Keeping it current incrementally after an edit is EF-9.5**, not this
-//! milestone: here an edit simply costs one rebuild.
+//! milestone: here an edit simply costs one rebuild. **The boost field the
+//! viewport draws from is built off the main thread** ([`BoostSlot`], Ruling
+//! CL item 4): the shell polls `lod_ef9_boost()` and draws today's picture
+//! until it lands.
 //!
 //! # What it must never do
 //!
@@ -73,10 +76,88 @@ pub(crate) struct Ef9Cache {
     /// `(z, col, row) -> (score, policy rank)`, filled as views are scored.
     /// Bounded by what the user has looked at: a view is a few dozen tiles.
     scores: HashMap<(u32, u32, u32), (Option<f64>, Option<u8>)>,
-    /// The continuous model's `b(x)` (`continuous_lod::BoostField::build` over
-    /// `field` with `FITTED_WEIGHTS`), built on first use and dropped with the
-    /// rest of the cache when the key moves.
+    /// The continuous model's `b(x)` and its background build; see
+    /// [`BoostSlot`]. **Carried across** when [`WorldGen::ef9_ensure`]
+    /// replaces the rest of the cache, because it is keyed and built
+    /// independently of `field`.
+    slot: BoostSlot,
+}
+
+/// The continuous model's boost field and the **background build** that
+/// produces it (Ruling CL item 4, 2026-10-18).
+///
+/// The first build per world is `WorldImportanceField::build` (four full-grid
+/// derivative passes) plus `BoostField::build`. Timed on the main thread it was
+/// 3.4 ms at 512x384, 44.5 ms at 2048x1311 and 191 ms at 4096x2621
+/// (`_ef9firstbuild_probe.gd`, debug-optimised DLL, this machine, three seeds
+/// each, spread under 3 ms) -- the last is a visible UI hitch, and every sculpt
+/// or sea-level change pays it again. So the build runs on its own thread over
+/// an owned copy of its inputs ([`BoostInputs`]) and the shell polls: while it
+/// runs the answer is [`BoostState::Pending`] and the shell draws today's
+/// picture, which is exactly the EF-9-off display.
+///
+/// Must never block the caller on the build, and never serve a boost field
+/// built for another world: `key` is [`Ef9Cache::key_for`] at the time the
+/// build was started, compared at every poll.
+#[derive(Default)]
+struct BoostSlot {
+    /// The cache key `boost`, `job` and `failed` belong to; empty = unused.
+    key: String,
     boost: Option<BoostField>,
+    /// The running build, which sends `Some(field)`.
+    job: Option<std::sync::mpsc::Receiver<Option<BoostField>>>,
+    /// The build for `key` finished without a field (its thread panicked or
+    /// could not start). Not retried until the key moves: a retry loop would
+    /// re-panic every frame.
+    failed: bool,
+}
+
+/// Where [`WorldGen::ef9_boost_poll`] found the boost field.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BoostState {
+    /// Built for the current key; `lod_ef9_boost*` serve it.
+    Ready,
+    /// A build is running; ask again.
+    Pending,
+    /// There is none and none is coming: no world, or the build failed.
+    Absent,
+}
+
+/// An owned copy of [`WorldImportanceField::build`]'s arguments, so a thread
+/// can outlive the borrow of `WorldGen`. The height field and the volcanic
+/// field are `Arc` clones (free); `stream_order` and `boundary_type` are
+/// plain `Vec`s in `WorldState`, so they are copied -- about 50 MB of memcpy at
+/// 4096x2621, the only main-thread cost of starting a build.
+struct BoostInputs {
+    field: std::sync::Arc<Vec<f32>>,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    map_km: f64,
+    stream_order: Option<Vec<i16>>,
+    boundary: Vec<u8>,
+    volcanic: Option<std::sync::Arc<Vec<f32>>>,
+}
+
+impl BoostInputs {
+    /// The importance field then the boost field, exactly the pair the
+    /// synchronous path built before this change (same arguments, same
+    /// `FITTED_WEIGHTS`), so the texture a world draws is unchanged.
+    fn build(&self) -> BoostField {
+        let f = WorldImportanceField::build(
+            &self.field,
+            self.gw,
+            self.gh,
+            self.sea,
+            self.world,
+            self.map_km,
+            self.stream_order.as_deref(),
+            &self.boundary,
+            self.volcanic.as_deref().map_or(&[][..], |v| v.as_slice()),
+        );
+        BoostField::build(&f, &FITTED_WEIGHTS)
+    }
 }
 
 impl Ef9Cache {
@@ -173,23 +254,98 @@ impl WorldGen {
             let ways: Vec<Vec<(f64, f64)>> = civ.ways.iter().filter(|w| !w.hidden).map(|w| w.pts.clone()).collect();
             PolicyField::new(gw, gh, settlements, &ways)
         });
-        *c = Ef9Cache { key, field: Some(field), policy, scores: HashMap::new(), boost: None };
+        let slot = std::mem::take(&mut c.slot);
+        *c = Ef9Cache { key, field: Some(field), policy, scores: HashMap::new(), slot };
         true
     }
 
-    /// [`Self::ef9_ensure`], then the boost field, built once per cache key.
-    /// `false` when there is no world (or no usable field).
-    fn ef9_boost_ready(&self) -> bool {
-        if !self.ef9_ensure() {
-            return false;
+    /// Copies out what the boost build needs, or `None` when there is no world
+    /// with a usable height field (the same two sources and the same
+    /// missing-term rule as [`Self::ef9_ensure`]: a terrain-only save carries no
+    /// stream order, boundary type or volcanic field, and those are passed as
+    /// absent, never as zero).
+    fn ef9_boost_inputs(&self) -> Option<BoostInputs> {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw < 2 || gh < 2 {
+            return None;
         }
+        match self.source.as_ref()? {
+            WorldSource::Generated(ws) if ws.field.len() == gw * gh => Some(BoostInputs {
+                field: std::sync::Arc::clone(&ws.field),
+                gw,
+                gh,
+                sea: self.sea_level,
+                world: self.world,
+                map_km: self.map_width_km,
+                stream_order: ws.stream_order.clone(),
+                boundary: ws.boundary_type.clone(),
+                volcanic: Some(std::sync::Arc::clone(&ws.volcanic_field)),
+            }),
+            WorldSource::Loaded(save) if save.fields.heightmap.len() == gw * gh => Some(BoostInputs {
+                field: std::sync::Arc::clone(&save.fields.heightmap),
+                gw,
+                gh,
+                sea: self.sea_level,
+                world: self.world,
+                map_km: self.map_width_km,
+                stream_order: None,
+                boundary: Vec::new(),
+                volcanic: None,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Starts the boost build for the current key if none is running or done,
+    /// collects it if it has finished, and says which of the three it is.
+    /// Never blocks: `try_recv`. A key that moved since the build started
+    /// (another world, a sculpt, a sea-level change) drops the old result and
+    /// starts afresh.
+    fn ef9_boost_poll(&self) -> BoostState {
+        use std::sync::mpsc::TryRecvError;
+        let key = Ef9Cache::key_for(self);
         let mut c = self.ef9.borrow_mut();
-        if c.boost.is_none() {
-            let Some(field) = c.field.as_ref() else { return false };
-            let b = BoostField::build(field, &FITTED_WEIGHTS);
-            c.boost = Some(b);
+        let slot = &mut c.slot;
+        if slot.key != key {
+            *slot = BoostSlot { key, ..BoostSlot::default() };
         }
-        true
+        if slot.boost.is_some() {
+            return BoostState::Ready;
+        }
+        if slot.failed {
+            return BoostState::Absent;
+        }
+        if slot.job.is_none() {
+            // No world yet is not a failure: nothing is recorded, so the next
+            // call (after a world exists) starts the build.
+            let Some(inputs) = self.ef9_boost_inputs() else { return BoostState::Absent };
+            let (tx, rx) = std::sync::mpsc::channel();
+            let spawned = std::thread::Builder::new().name("ef9-boost".into()).spawn(move || {
+                // A send error means the slot was reset (key moved): the
+                // result is stale and is dropped.
+                let _ = tx.send(Some(inputs.build()));
+            });
+            if spawned.is_err() {
+                slot.failed = true;
+                return BoostState::Absent;
+            }
+            slot.job = Some(rx);
+        }
+        let got = slot.job.as_ref().map(|rx| rx.try_recv());
+        match got {
+            Some(Ok(Some(b))) => {
+                slot.boost = Some(b);
+                slot.job = None;
+                BoostState::Ready
+            }
+            Some(Err(TryRecvError::Empty)) => BoostState::Pending,
+            // `Ok(None)`, or the thread panicked and dropped its sender.
+            _ => {
+                slot.job = None;
+                slot.failed = true;
+                BoostState::Absent
+            }
+        }
     }
 }
 
@@ -319,28 +475,35 @@ impl WorldGen {
     /// This world's boost field, described: `key` (the cache key it was built
     /// under -- the shell refetches the texture when it changes), `n` (texels
     /// per axis), `any` (whether any texel is boosted; `false` = EF-9 draws
-    /// today's picture). `{}` before a world.
+    /// today's picture). **`{"pending": true}` while the field is being built
+    /// on its own thread** (the first call per world starts it; ask again, the
+    /// shell does so from `_process` and redraws when it lands -- the main
+    /// thread never waits for it, see [`BoostSlot`]). `{}` before a world or
+    /// when the build failed.
     #[func]
     fn lod_ef9_boost(&self) -> VarDictionary {
-        if !self.ef9_boost_ready() {
-            return VarDictionary::new();
+        match self.ef9_boost_poll() {
+            BoostState::Pending => return dict! { "pending" => true },
+            BoostState::Absent => return VarDictionary::new(),
+            BoostState::Ready => {}
         }
         let c = self.ef9.borrow();
-        let Some(b) = c.boost.as_ref() else { return VarDictionary::new() };
-        dict! { "key" => c.key.as_str(), "n" => b.n() as i64, "any" => b.any() }
+        let Some(b) = c.slot.boost.as_ref() else { return VarDictionary::new() };
+        dict! { "key" => c.slot.key.as_str(), "n" => b.n() as i64, "any" => b.any() }
     }
 
     /// The boost field as an `n x n` `FORMAT_RF` texture, texel `(i, j)` at
     /// pyramid index-space `((i + 0.5) / n, (j + 0.5) / n)`, for
     /// `lod_tile.gdshader`'s `boost_tex` (which samples it with `texelFetch`, so
-    /// no filter enters). `null` before a world.
+    /// no filter enters). `null` before a world and while the field is still
+    /// being built (`lod_ef9_boost()` says which).
     #[func]
     fn lod_ef9_boost_texture(&self) -> Option<Gd<ImageTexture>> {
-        if !self.ef9_boost_ready() {
+        if self.ef9_boost_poll() != BoostState::Ready {
             return None;
         }
         let c = self.ef9.borrow();
-        let b = c.boost.as_ref()?;
+        let b = c.slot.boost.as_ref()?;
         let n = b.n() as i32;
         let bytes: Vec<u8> = b.values().iter().flat_map(|v| v.to_le_bytes()).collect();
         let image = Image::create_from_data(n, n, false, Format::RF, &PackedByteArray::from(bytes))?;
@@ -355,11 +518,11 @@ impl WorldGen {
     fn lod_ef9_boost_tiles(&self, z: i32, c0: i32, c1: i32, r0: i32, r1: i32, thr: f64) -> PackedInt32Array {
         let mut out = PackedInt32Array::new();
         let Some(v) = view_in_level(z, c0, c1, r0, r1) else { return out };
-        if !self.ef9_boost_ready() {
+        if self.ef9_boost_poll() != BoostState::Ready {
             return out;
         }
         let c = self.ef9.borrow();
-        let Some(b) = c.boost.as_ref() else { return out };
+        let Some(b) = c.slot.boost.as_ref() else { return out };
         for (col, row) in b.tiles_over(z as u32, v.c0, v.c1, v.r0, v.r1, thr) {
             out.push(col as i32);
             out.push(row as i32);
@@ -397,6 +560,38 @@ impl WorldGen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects: the background build produces exactly the boost field the
+    /// synchronous path produced (same arguments, same weights) -- the texture
+    /// a world draws must not depend on which thread built it. Compares
+    /// against a direct call of the two engine constructors on a small ramp-and-bump
+    /// world with a land mask, and checks the field is not trivially empty.
+    #[test]
+    fn the_background_boost_build_matches_the_direct_construction() {
+        let (gw, gh) = (96usize, 64usize);
+        let field: Vec<f32> = (0..gw * gh)
+            .map(|i| {
+                let (x, y) = ((i % gw) as f32, (i / gw) as f32);
+                0.2 + 0.6 * (x / gw as f32) + 0.2 * ((x * 0.4).sin() * (y * 0.3).cos())
+            })
+            .collect();
+        let inputs = BoostInputs {
+            field: std::sync::Arc::new(field.clone()),
+            gw,
+            gh,
+            sea: 0.42,
+            world: false,
+            map_km: 500.0,
+            stream_order: None,
+            boundary: Vec::new(),
+            volcanic: None,
+        };
+        let built = inputs.build();
+        let direct = BoostField::build(&WorldImportanceField::build(&field, gw, gh, 0.42, false, 500.0, None, &[], &[]), &FITTED_WEIGHTS);
+        assert_eq!(built.n(), direct.n());
+        assert_eq!(built.values(), direct.values());
+        assert!(built.n() > 0 && built.values().iter().any(|v| *v > 0.0), "teeth: the ramp world has some boosted texel");
+    }
 
     /// Protects: the view guard -- a rectangle reversed, negative, past the
     /// level's `2^z` edge or at a level outside `0..=MAX_LEVEL` is refused, and

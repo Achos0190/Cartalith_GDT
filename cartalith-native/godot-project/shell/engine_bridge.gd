@@ -8214,7 +8214,9 @@ func lod_ef9_plus_one_threshold(lam_zoom: float, gain: float, z0: int, z_cap: in
 	return world_gen.lod_ef9_plus_one_threshold(lam_zoom, gain, z0, z_cap)
 
 ## **EF-9.4, continuous model.** `{key, n, any}` describing this world's boost
-## field; `{}` before a world or against a `.dll` without it.
+## field; `{"pending": true}` while the field is being built on its own thread
+## (the main thread never waits for it -- ask again); `{}` before a world,
+## when the build failed, or against a `.dll` without it.
 func lod_ef9_boost() -> Dictionary:
 	if not _has("lod_ef9_boost"):
 		return {}

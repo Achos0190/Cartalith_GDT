@@ -106,11 +106,23 @@ pub struct LodBudget {
     /// (since 2026-10-18 the continuous effective level,
     /// `cartalith_engine::continuous_lod`: a per-pixel weight from importance
     /// plus zoom, with a `z0 + 1` layer over boosted ground) instead of one
-    /// level for the whole view. **`false` on every tier**: Q5's default
-    /// (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.6) is *"off until EF-9.4
-    /// passes every bar"*, and the bars are recorded in §8.4 rather than here.
-    /// The shell may override it per session (`viewport_host.gd`'s
-    /// `set_ef9_refine`), which is how the D0 harness measures both states.
+    /// level for the whole view.
+    ///
+    /// **`true` on Balanced, Quality and Ultra; `false` on Performance.**
+    /// Ruling CL (owner, 2026-10-18, `LARGE_ITEM_RULINGS.md`) ships EF-9 on
+    /// by default, with the cheapest tier allowed to stay off if its frame
+    /// budget needs it. The measured cost of "on" is about +0.9 ms per frame
+    /// and +2.4 ms per camera step (medians, desktop, windowed;
+    /// `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5), and the `z0 + 1`
+    /// layer more than doubles the live tiles at zoom 16 (105 against 41), each
+    /// one synthesis and one texture. Desktop absorbs that. **Performance is
+    /// the Android tier, and no phone timing exists**: §8.6 Q5's recorded
+    /// default is that it stays off unless a phone shows no frame over one
+    /// vsync per level change, and that measurement has not been taken, so
+    /// Performance keeps the toggle off by that default (a labelled
+    /// judgement, not a measurement). The shell may override it per session
+    /// (`viewport_host.gd`'s `set_ef9_refine`), which is how the D0 harness
+    /// measures both states.
     pub ef9_refine: bool,
 }
 
@@ -173,9 +185,9 @@ pub struct LodBudget {
 pub fn budget_for_tier(tier: QualityTier) -> LodBudget {
     match tier {
         QualityTier::Performance => LodBudget { tiles_per_update: 16, tiles_per_catchup: 3, max_level: lod_bridge::MAX_LEVEL - 1, cache_tiles: 32, max_in_flight: 2, ef9_refine: false },
-        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 32, max_in_flight: 3, ef9_refine: false },
-        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 4, ef9_refine: false },
-        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 6, ef9_refine: false },
+        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 32, max_in_flight: 3, ef9_refine: true },
+        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 4, ef9_refine: true },
+        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 6, ef9_refine: true },
     }
 }
 
@@ -2231,10 +2243,11 @@ mod tests {
         assert_eq!((q.tiles_per_update, q.tiles_per_catchup, q.cache_tiles, q.max_in_flight, q.max_level), (48, 6, 35, 4, 10));
         let u = budget_for_tier(QualityTier::Ultra);
         assert_eq!((u.tiles_per_update, u.tiles_per_catchup, u.cache_tiles, u.max_in_flight, u.max_level), (48, 8, 35, 6, 10));
-        // EF-9.4's toggle ships off on every tier (Q5's default, "off until
-        // EF-9.4 passes every bar") -- a literal per tier, so turning one on is
-        // a deliberate, test-visible edit.
-        assert_eq!([p.ef9_refine, b.ef9_refine, q.ef9_refine, u.ef9_refine], [false; 4]);
+        // EF-9.4's toggle (Ruling CL, 2026-10-18): on for the three desktop
+        // tiers, off for Performance (the Android tier, no phone timing yet;
+        // see `LodBudget::ef9_refine`) -- a literal per tier, so changing one
+        // is a deliberate, test-visible edit.
+        assert_eq!([p.ef9_refine, b.ef9_refine, q.ef9_refine, u.ef9_refine], [false, true, true, true]);
         // **The memory bar, as a test rather than as a comment.** 60 MiB is
         // 62 914 560 B; the snapshot at 2048x1311 measured 53 698 560 B
         // (`_d6async_probe.gd` section 9, 2026-09-21) and a parked tile is
