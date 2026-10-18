@@ -800,6 +800,32 @@ func _ready() -> void:
 	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())
 	bridge.world_loaded.connect(func(): TradeStore.clear())
 
+	## §2.5 Graphics ▸ Lighting rig defaults (and the Relief exaggeration
+	## default, `DccSettings.appearance_defaults()`), applied to each FRESH world.
+	##
+	## Deliberately `generation_finished` and **not** `world_loaded`: a project
+	## archive carries its own `appearance.json` slot (`project_bridge.rs:92`),
+	## so seeding a preference over a world someone saved would be this
+	## preference destroying their work. A Generate has no such record to
+	## respect -- it is the moment a new world's look is decided, which is
+	## exactly what a default is for.
+	##
+	## **Connected BEFORE `viewport.setup()`, on purpose** (fix 2026-10-18).
+	## Godot delivers a signal in connection order, and `ViewportHost.refresh()`
+	## (connected inside `setup()`) is what paints the generated map. Until this
+	## date the handler was connected *after* `setup()`, so the first paint used
+	## the tier's rig and relief (exag 3.4) and the stored defaults landed in the
+	## engine a moment later with no repaint: the map on screen disagreed with
+	## the engine's appearance until something else repainted it. Found by
+	## `_sealive_probe.gd` check 3 failing in a user-data dir holding `exag=2.0`
+	## (a Sea level round trip repaints, so its "restored" texture was the first
+	## correct one and differed from the stale base in 46 703 of 147 456 bytes).
+	## Also outside the repaint bracket below, which must enclose
+	## `ViewportHost`'s handler and nothing else (`_repaintbracket_probe.gd`).
+	bridge.generation_finished.connect(func(ok: bool):
+		if ok:
+			_apply_lighting_defaults())
+
 	## **`repaint NN ms`'s clock, and the bracket is the measurement.** See
 	## `_repaint_ms` in §11 for what the number means; this is where it is
 	## taken, and the position of these four lines is the whole mechanism.
@@ -842,17 +868,9 @@ func _ready() -> void:
 	## nothing behind it. The default is `true`, so this is a no-op for anyone
 	## who never touched it.
 	viewport.set_lod_auto(DccSettings.lod_auto())
-	## §2.5 Graphics ▸ Lighting rig defaults, applied to each FRESH world.
-	##
-	## Deliberately `generation_finished` and **not** `world_loaded`: a project
-	## archive carries its own `appearance.json` slot (`project_bridge.rs:92`),
-	## so seeding a preference over a world someone saved would be this
-	## preference destroying their work. A Generate has no such record to
-	## respect -- it is the moment a new world's look is decided, which is
-	## exactly what a default is for.
-	bridge.generation_finished.connect(func(ok: bool):
-		if ok:
-			_apply_lighting_defaults())
+	## (The Lighting rig / Relief defaults' `generation_finished` handler used
+	## to be connected here, after `viewport.setup()`; it now sits above the
+	## repaint bracket -- see the comment there for why its position matters.)
 
 	## `PARITY_AUDIT.md` §5 item 5, the reference's `#resOverlay` (Shift+D) --
 	## a top-right diagnostics HUD, not part of `ViewportHost`'s own "exactly

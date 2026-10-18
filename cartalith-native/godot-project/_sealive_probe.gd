@@ -33,12 +33,17 @@ extends Node
 ## Ends with `SEALIVE RESULT GREEN` or `SEALIVE RESULT FAIL (n)`; every failed
 ## check prints `PROBE-FAIL`. Exit code (Ruling BK probe pass): 0 only when every check passed (and for `--timing`,
 ## which runs no checks); 1 on any failed check or a missing slider; 2 headless; 3 watchdog.
-## Result: an assertion that does not carry its verdict in the exit code; windowed only. Commands per the header: `--path
+## Result: an assertion whose verdict is its exit code; windowed only. Commands per the header: `--path
 ## . --resolution 1600x1000 _sealive_probe.tscn` and `... -- --timing 2048` (an N x N world and a median timing instead
 ## of the checks). Prints `SEALIVE ok  |PROBE-FAIL  <what>`, `SEALIVE dll binding present: <b>`, `SEALIVE timing run <i>:
 ## ...`, `SEALIVE TIMING <n>x<n> live move ...; repaint (color_texture) ...`, and `SEALIVE RESULT GREEN|FAIL (<n>)`. It
-## exits 0 after the result line whatever the verdict (the header says to grep); under `--headless` it prints `SEALIVE
+## exits 0 on GREEN (or after `--timing`), 1 on FAIL or a missing slider; under `--headless` it prints `SEALIVE
 ## REFUSED: headless` and exits 2; the watchdog (`SEALIVE WATCHDOG`) exits 3.
+## Check 3's texture identity compares against the map painted right after Generate, so it also catches a first
+## paint that disagrees with the engine's appearance: on 2026-10-18 it failed in a user-data dir whose
+## `cartalith_settings.cfg` stored `[graphics] exag=2.0` (left by `_prefwinhelp_press.gd`'s Relief rung press),
+## because `app.gd` applied the stored lighting/relief defaults AFTER the first paint. Fixed in `app.gd` (the
+## defaults handler now connects before `viewport.setup()`); the check is right and was not loosened.
 
 var _fails := 0
 
