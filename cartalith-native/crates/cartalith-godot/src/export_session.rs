@@ -1000,6 +1000,7 @@ mod tests {
             river_fans: None,
             river_paint: None,
             forced_lakes: None,
+            rock_detail: None,
         }
     }
 

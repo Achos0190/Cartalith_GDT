@@ -799,6 +799,10 @@ style = ridged        where J is massive or columnar
   existing `refinement_never_moves_the_coastline_in_either_direction` test
   applies to it.
 - This ties into `LOD_DETAIL_SCOPE.md` EF-9 and BG's pinnacles.
+- Built 2026-10-18 with three departures, each read on frames (ridging
+  gated to grid slopes from 4 to 12 degrees, terraces band-passed in screen
+  pixels, ledges added on top of the fine relief rather than cut through
+  it). See §7, "GF-6 measured: rock-styled LOD detail, §4.10".
 
 ### 4.11 Landmarks (GF-6)
 
@@ -4731,6 +4735,198 @@ floor).
 
 **Not done in GF-6:** §4.10 (rock-styled LOD detail and its windowed probe),
 waiting on the zoom-detail re-key; RV-3's valley shade reading `ω`.
+
+### GF-6 measured: rock-styled LOD detail, §4.10 (2026-10-18)
+
+*Design and evidence, not status.* Opened at the symbols first: nothing in the
+deep-zoom tile path read the rock column. `render_biome_tile_rgba_water` lit
+and toned a tile from the kilometre law's heights alone, and
+`lod_snapshot_inputs` carried the legacy 7-class lithology (a colour input),
+not the GF-1 column. The zoom re-key (`1fc9208f`), the forest/rock fix
+(`6c7f5ea9`, `micro_relief_tone`) and EF-9 had landed, so nothing blocked it.
+§4.10 has no owner question in §9.
+
+**Built** (`cartalith-godot/src/render.rs`'s "GF-6 §4.10" block,
+`rock_detail_bridge.rs`, `lod_worker.rs`):
+
+- `build_rock_detail`: per cell, the rock that §2.5's exposure rule gives on
+  the finished field (regolith included), plus a **cap-edge** flag. A cell is
+  on a cap edge when it has a cap over a substrate and, among it and its
+  eight neighbours that also have one, at least one exposes its cap and at
+  least one its substrate. That is the reading of "within one coarse cell of
+  a cap edge" (a judgement).
+- `rock_style`, §4.10's table:
+  - `α = 0.6 + 0.6·s` (granite 1.11, limestone 1.02, shale 0.78,
+    unconsolidated 0.66). A judgement; Selby gives the direction.
+  - **Ridged** for massive or columnar jointing.
+  - **Terraced** for bedded rock on a cap edge. **Fissile rock (shale) is
+    read as bedded**, with steps a quarter of the ladder's.
+  - Everything else keeps the law's own relief (fbm), scaled by `α`.
+  - The weights are blended bilinearly between cells (`rock_style_at`), so no
+    cell boundary draws as a square (Ruling CG addendum 2's reason).
+- `rock_styled_height`: `r = h − c` is the sub-cell relief the law added.
+  - Ridged folds it to `−|r|`, and `α` scales it.
+  - The terraces then add the offset of a step function, read at
+    `c + 0.4·(h1 − c)`, on a ladder of 256, 64, 16 and 4 m.
+  - The step function (`terrace_height`) is benches with a 0.3 riser.
+- `rock_styled_tile` restyles every land pixel of the padded tile and clamps
+  a land pixel to stay at or above sea level.
+- In `render_biome_tile_rgba_water`, the styled tile is what the tile is
+  **lit and toned** from: the macro and meso normals, the R2 crest and the
+  micro-relief tone.
+  - Everything else keeps the unstyled tile: the water height `wt`, the
+    elevation colour `ht`, the cryosphere and micro-band residual, and every
+    material decision.
+  - So by construction a terrace **cannot move a coastline or a lake**.
+    That is §4.10's numeric bar, and a test asserts it on rendered pixels.
+
+**Departures from §4.10's formula, each made after looking at frames:**
+
+1. **Ridging is gated by slope.** It fades in from 4° to 12° of grid-scale
+   slope (`ROCK_RIDGE_SLOPE_DEG`).
+   - Massive rock is 55-75 % of land on these worlds. Folding every granite
+     cell drew a closed crease network over gentle lowland, like crazy
+     paving.
+   - Granite under gentle ground weathers to domes and grus, not crests
+     (Twidale 1982).
+   - Granite slopes measure p50 0.36-0.39°, p90 1.3-2.1°, p97 6.4-10.3° and
+     p99 28-32°. So the ridged style acts on roughly the steepest 3-5 % of
+     granite.
+2. **Terraces are band-passed in screen pixels.** An octave fades in as its
+   bench spacing grows from 6 to 14 px, and fades out from 40 to 120 px.
+   - Benches closer than about 6 px read as hatching. Benches far apart only
+     flatten a slope.
+   - So each zoom step draws the finest bench scale that reads, which suits
+     the detail-at-every-zoom requirement (Ruling CI item 1).
+3. **The ledges are added on top of the whole fine relief**, not cut through
+   it. Replacing the relief with the ledges read better on steep scarps. In
+   the shell, though, it smoothed gentle cap edges at x64, which loses detail
+   on zoom.
+
+**Gate, and identity.**
+- The tiles are styled only on a **generated world whose processes read
+  rock**: `geology_model` and `geology_processes`, read from
+  `recompute_params()`.
+  - This is GF-6's knickpoint gate, for the same reason: on a rock-blind
+    world the surface crosses the rock only by chance.
+  - App worlds have the processes off, so they get no `RockDetail`. Their
+    snapshot fingerprints and tiles are unchanged by control flow.
+  - A loaded save and an import have no column.
+- `WorldGen::set_rock_lod_detail` is a view switch: on by default, never
+  saved. It exists so that a probe can flip the styling on one world.
+- `lod_cache_key` gains `rd`, whether the tiles are styled.
+- The snapshot fingerprint folds in the detail, behind a separator word, only
+  when the detail is present.
+
+**Measured: the zoom ladder** (`cartalith-godot/tests/gf6_rock_ladder.rs`,
+`#[ignore]`d).
+
+- **World:** the app's `params::defaults()` with `geology_processes` on,
+  2048 × 1311, 800 km, Natural Vibrant, the shipped tile path.
+- **Seeds:** 483920, 24601 and 71077345.
+- **Targets:** four per seed, picked by inputs: the steepest inland granite,
+  the steepest bedded cap edge, the steepest fissile cap edge, and the
+  steepest unconsolidated or schist cell.
+- **Rungs:** x4, x16 and x64, with styling off and on.
+
+The statistics come from the PNGs (`stats.py` in the run's scratch, not
+committed):
+- the mean of |∇ luma|;
+- the number of unique RGB triples;
+- the **sub-cell share**: the variance of luma minus a box mean over one
+  coarse cell, over the total variance. This is **not** the assessment's
+  definition, so it is only compared between the two arms.
+
+Medians over the 12 crops:
+
+| Rung | Gradient, off → on | Unique colours, off → on | Sub-cell share, off → on |
+|---|---|---|---|
+| x4 | 1.97 → 1.98 | 44 874 → 45 054 | 0.24 % → 0.24 % |
+| x16 | 4.34 → 4.31 | 48 845 → 49 112 | 3.87 % → 3.90 % |
+| x64 | 7.77 → 8.45 | 71 274 → 69 387 | 57.36 % → 56.87 % |
+
+- **Detail still rises at every rung on every crop with styling on.** On,
+  x16/x4 is 1.69-2.47 and x64/x4 is 3.50-7.33. Off, they are 1.70-2.55 and
+  3.55-7.46.
+- Granite crops gain gradient at x64: 7.72 → 8.45, 6.57 → 7.00 and
+  6.42 → 7.02.
+- Two kinds of crop lose a little:
+  - the weak crops (11.27 → 10.79; `α` is 0.66 by design);
+  - one cap-edge crop (71077345: 5.33 → 5.19).
+- Unique colours at x64 fall by up to 3 %.
+- At x4 the styling moves 6-11 % of pixels, by a mean of 0.1 levels.
+- Shares of land:
+  - massive or columnar rock, before the slope gate: 55.7-75.5 %;
+  - cap edge: 0.77-1.01 %;
+  - terraced: 0.74-1.00 %.
+
+**Frames read** (`cartalith-native/docs/evidence/gf6-lod-2026-10-18/`; 01-07
+are from the Rust ladder):
+- **Steep granite** (the walls of the river carve) has crisper crags. At x64
+  on s24601 the crests form a cell-like crease network: stylised, and read
+  as such.
+- **Flat granite plains** are unchanged.
+- **Cap-edge walls** carry thin ledge lines along the wall on s24601 and
+  s483920. The s71077345 cap-edge crop barely changes.
+- **Near-flat fissile ground** is a problem. The shale's fine steps draw
+  closed contour rings (05, lower left). They read as a fingerprint, not as
+  strata. This is recorded, not tuned away.
+- **Unconsolidated ground** is visibly calmer.
+
+**The windowed probe** (`_gf6lod_probe.gd`, in the shell, seed 24601, 2048 ×
+1311) passes **15 checks with 0 failures**.
+- **Phase A**, the app's world (processes off):
+  - the styling is inactive;
+  - flipping the switch moves 0 px at x1, x16 and x64 on both targets;
+  - its six frames are pixel-identical to the same probe run on the HEAD DLL
+    (`26ac5156`).
+- **Phase B**, the same seed with the processes on, framing the engine's own
+  picks (`rock_lod_detail_stats`):
+  - the x1 base map is unmoved (0 px), since the styling acts in tiles only;
+  - x16 and x64 move 58-82 % of pixels: the positive control.
+
+Read honestly, **the effect in the shell is subtle** (08-09).
+- The shell's tiles shade RV-3's valley field, which fills in the carved
+  channel walls where the Rust ladder shows crags and ledges.
+- So the steepest granite and the cap edges the probe frames are gentle
+  ground. There the ridged style does not act (the slope gate), and the
+  ledges are small next to the law's relief.
+
+**Tests.**
+- `cartalith-godot/tests/gf6_rock_detail.rs`, 11 tests:
+  - the style table, by literal, for all 11 rocks;
+  - the terrace law: benches, risers, continuity and monotonicity;
+  - identity when neutral, and the ridged fold;
+  - terraces fading in with zoom, and out when far apart;
+  - monotone at every zoom;
+  - the cap-edge flag on a hand-built column;
+  - the ridge slope gate, worked by hand;
+  - a rendered km-law tile: rock moves, water never does;
+  - off without the km law: under `js_reference()` and at law 0;
+  - a mismatched detail is ignored.
+- `lod_worker::tests::a_snapshot_with_rock_detail_styles_and_keys_its_tiles`:
+  the fingerprint tag, the tile, and the reference schedule.
+- **Mutants: 19 run, 19 killed** (style table, ridge fold and slope gate, terrace riser, fade-in, fade-out and normalisation, cap-edge rule, fissile step, the styled-tile hand-over, the km-law gate, the builder's length check, the fingerprint tag, and the worker's attachment).
+
+**Not done:**
+- B9 (cost) was not measured. For each land pixel of a tile, the styling does
+  a bilinear style read, a coarse sample, a coarse gradient and up to four
+  terrace octaves. Only processes-on worlds pay for it.
+- `RockDetail` is rebuilt per snapshot (one exposure read per cell) and is
+  not cached.
+
+**Owner questions, each with a default:**
+1. **Strata colour banding at cap edges.** In the shell the ledges are faint
+   on gentle cap edges, and real bedded outcrops read mostly by colour bands
+   along the contour. A zero-mean tone band would make them legible without
+   touching relief. Default: **no**, not without a ruling, since §4.10
+   specifies relief styles only.
+2. **The fingerprint rings on near-flat shale.** Default: **leave them**.
+   Gate the terrace by a minimum slope only if the owner reads them as wrong.
+3. **The crease network on steep granite.** Keep it, or soften the fold (for
+   example half `−|r|`, half `r`)? Default: **keep it**. It is the scope's
+   ridged style, gated to steep ground.
+
 
 ---
 

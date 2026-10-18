@@ -4377,6 +4377,12 @@ pub struct RenderCtx<'a> {
     /// `None` there — the geology stages then do nothing rather than
     /// inventing a rock type.
     lithology: Option<&'a [u8]>,
+    /// GF-6 §4.10's rock input to the deep-zoom tiles ([`RockDetail`]),
+    /// `None` by construction -- attach with [`Self::with_rock_detail`].
+    /// `None` is every world whose landform processes do not read rock (the
+    /// app's default), a loaded save and an import: the tiles then draw
+    /// exactly as before, by control flow ([`rock_styled_tile`]).
+    rock_detail: Option<&'a RockDetail>,
     /// The three Cartography paint-override grids (`paintBiome`/
     /// `paintTerrain`/`paintSplat`, `0` = unpainted, else a 1-based palette
     /// index), `None` by construction — attach with [`Self::with_paint`].
@@ -4681,6 +4687,7 @@ impl<'a> RenderCtx<'a> {
             appearance,
             splat: None,
             lithology: None,
+            rock_detail: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -4755,6 +4762,7 @@ impl<'a> RenderCtx<'a> {
             appearance,
             splat: None,
             lithology: None,
+            rock_detail: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -4824,6 +4832,7 @@ impl<'a> RenderCtx<'a> {
             appearance,
             splat: None,
             lithology: None,
+            rock_detail: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -5072,6 +5081,17 @@ impl<'a> RenderCtx<'a> {
     pub fn with_lithology(mut self, lithology: &'a [u8]) -> Self {
         if lithology.len() == self.gw * self.gh {
             self.lithology = Some(lithology);
+        }
+        self
+    }
+
+    /// Attach GF-6 §4.10's rock input ([`RockDetail`]) for the deep-zoom
+    /// tiles. Ignored -- the tiles stay unstyled -- when its length does not
+    /// match the grid, so a mismatched field can never index out of bounds
+    /// inside the tile loop (a panic there crosses the gdext boundary).
+    pub fn with_rock_detail(mut self, rd: &'a RockDetail) -> Self {
+        if rd.cells.len() == self.gw * self.gh {
+            self.rock_detail = Some(rd);
         }
         self
     }
@@ -11841,6 +11861,342 @@ pub(crate) fn apply_micro_tone(c: Rgb, rock: Rgb, g: f64) -> Rgb {
     (c.0 + k * (rock.0 - c.0) + v * c.0, c.1 + k * (rock.1 - c.1) + v * c.1, c.2 + k * (rock.2 - c.2) + v * c.2)
 }
 
+// ---- GF-6 §4.10: rock-styled deep-zoom detail (`GEOLOGY_FIRST_SCOPE.md`) ----
+//
+// The scope's rule, applied to the sub-cell relief a kilometre-law tile adds
+// over the coarse field:
+//
+//   amp   = detail_amp · α(exposed rock)
+//   style = ridged   where the exposed rock's jointing is massive or columnar
+//           terraced where it is bedded (or fissile) and the cell is within
+//                    one coarse cell of a cap edge
+//           fbm      otherwise (the relief as the law made it)
+//
+// **Where it acts, and where it must never act.** Only on the deep-zoom tile
+// path (`render_biome_tile_rgba_water`), only under the kilometre law, and only
+// when a [`RockDetail`] is attached -- which `lib.rs` does only for a world
+// whose landform processes read rock (`geology_processes` on), the same gate
+// GF-6's knickpoints use (`cartalith_civ::landmark::RockView`). With no
+// [`RockDetail`] the tile is byte-identical to before this block existed, by
+// control flow. It changes the height the tile is **lit and toned** from, and
+// nothing else: water (`wt`), the elevation colour (`ht`) and every material
+// decision keep the unstyled tile, so a terrace can never move a coastline or
+// turn a lake into land (§4.10's numeric bar).
+
+/// Bit set in a [`RockDetail`] cell byte when the cell is within one coarse
+/// cell of a cap edge (see [`build_rock_detail`]). The low bits hold the
+/// exposed rock's `cartalith_terrain::geology::Rock` index (0-10).
+pub const ROCK_CAP_EDGE_BIT: u8 = 0x80;
+
+/// GF-6 §4.10's per-cell rock input to the deep-zoom tiles: the rock each cell
+/// exposes on the finished surface, with [`ROCK_CAP_EDGE_BIT`], plus the
+/// metres per normalised height unit the terrace steps are written in. Built by
+/// [`build_rock_detail`]; attached with [`RenderCtx::with_rock_detail`]. Never
+/// built for a world without a rock column, and never filled with a plausible
+/// rock where there is none (`MISTAKES.md`: never encode "no value" as a value).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RockDetail {
+    /// `gw * gh` bytes: rock index | [`ROCK_CAP_EDGE_BIT`].
+    pub cells: Vec<u8>,
+    /// `peak_m / (1 - sea_level)`: `cartalith_terrain::geology::m_to_norm`'s
+    /// own conversion, inverted.
+    pub m_per_unit: f64,
+}
+
+/// [`RockDetail`] for a world with a rock column: §2.5's exposure rule
+/// (`GeologyColumn::exposed`, regolith included) at each cell's surface
+/// height `field`, and the cap-edge flag.
+///
+/// **Cap edge**, as §4.10 means it: the cell has a cap over a substrate, and
+/// among it and its eight neighbours that also have one, at least one exposes
+/// its cap and at least one its substrate -- the escarpment where a caprock
+/// ends. A judgement of how to read "within one coarse cell of a cap edge"
+/// on a grid; no source found for a finer definition.
+///
+/// `None` -- never a guessed column -- when the lengths disagree, `peak_m`
+/// is not positive, or any cell's column holds no valid rock.
+pub fn build_rock_detail(column: &cartalith_terrain::geology::GeologyColumn, field: &[f32], sea_level: f64, peak_m: f64, gw: usize, gh: usize) -> Option<RockDetail> {
+    use cartalith_terrain::geology::{m_to_norm, R_EXPOSE_M};
+    let n = gw.checked_mul(gh)?;
+    if n == 0 || field.len() != n || column.len() != n || !(peak_m.is_finite() && peak_m > 0.0) || !(sea_level < 1.0) {
+        return None;
+    }
+    let r_expose = m_to_norm(R_EXPOSE_M, sea_level, peak_m) as f32;
+    // 0 = no substrate (single layer), 1 = cap exposed, 2 = substrate exposed,
+    // read at the bedrock rule `exposed` itself applies (regolith aside: a
+    // cap under regolith is still a cap for the edge test).
+    let mut layer = vec![0u8; n];
+    let mut cells = vec![0u8; n];
+    for i in 0..n {
+        let rock = column.exposed(i, field[i], r_expose)? as u8;
+        cells[i] = rock;
+        if let Some((_, c)) = column.substrate(i) {
+            layer[i] = if field[i] < c { 2 } else { 1 };
+        }
+    }
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if layer[i] == 0 {
+                continue;
+            }
+            let (mut cap, mut sub) = (false, false);
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    let (xx, yy) = (x as i64 + dx, y as i64 + dy);
+                    if xx < 0 || yy < 0 || xx >= gw as i64 || yy >= gh as i64 {
+                        continue;
+                    }
+                    match layer[yy as usize * gw + xx as usize] {
+                        1 => cap = true,
+                        2 => sub = true,
+                        _ => {}
+                    }
+                }
+            }
+            if cap && sub {
+                cells[i] |= ROCK_CAP_EDGE_BIT;
+            }
+        }
+    }
+    Some(RockDetail { cells, m_per_unit: peak_m / (1.0 - sea_level) })
+}
+
+/// α's intercept and slope over §2.3's strength `s`: `α = 0.6 + 0.6·s`, so
+/// granite (s 0.85) carries 1.11x the law's sub-cell relief and
+/// unconsolidated ground (s 0.10) 0.66x. A **labelled judgement** (§4.10:
+/// "`α` and the terrace step are judgements"): strong rock holds steeper
+/// small relief than weak rock (Selby 1980's rock-mass-strength / slope
+/// relation is the direction); no source found for the magnitude.
+pub const ROCK_DETAIL_ALPHA_BASE: f64 = 0.6;
+/// See [`ROCK_DETAIL_ALPHA_BASE`].
+pub const ROCK_DETAIL_ALPHA_S: f64 = 0.6;
+/// The terrace ladder's vertical steps, metres, coarse to fine: each a
+/// quarter of the last, so every x4 zoom step brings one more bench scale on
+/// screen (the owner's detail-at-every-zoom requirement), and the coarsest
+/// (256 m) is the order of a cliff-forming formation (the Grand Canyon's
+/// Redwall and Coconino are each of order 100-200 m thick). A **labelled
+/// judgement**; no source found for the ladder as such.
+pub const ROCK_TERRACE_STEPS_M: [f64; 4] = [256.0, 64.0, 16.0, 4.0];
+/// The fraction of each terrace step that is riser (the rest is bench). A
+/// **labelled judgement**, read on the 2026-10-18 frames.
+pub const ROCK_TERRACE_RISER: f64 = 0.3;
+/// A terrace octave fades in as its bench spacing on screen grows from the
+/// first to the second of these, in tile pixels: below about 6 px benches
+/// read as hatching rather than ledges (the 2026-10-18 frames at (3, 8) drew
+/// a fingerprint-like stripe), above 14 px they read as ledges. A **labelled
+/// judgement**.
+pub const ROCK_TERRACE_FADE_PX: (f64, f64) = (6.0, 14.0);
+/// How much of the sub-cell relief the ledges follow: the step function is
+/// read at `c + ROCK_TERRACE_ROUGH·(h1 - c)` and its offset ADDED to `h1`,
+/// so a ledge runs along the scarp's own contour roughened by a fraction of
+/// the fine relief (cutting the full relief drew closed swirls on the
+/// 2026-10-18 frames), while the fine relief itself is kept whole. Replacing
+/// the fine relief by the ledges read better on steep scarps but visibly
+/// smoothed gentle cap edges in the shell (`_gf6lod_probe.gd`, seed 24601,
+/// x64), which loses detail on zoom -- the owner's hard requirement
+/// (Ruling CI item 1) -- so it was not kept. A **labelled judgement** from
+/// those frames.
+pub const ROCK_TERRACE_ROUGH: f64 = 0.4;
+/// ...and fades out again as the spacing grows from the first to the second
+/// of these: benches more than a few dozen pixels apart no longer read as
+/// layering, only as a flattened slope, and leaving them on dilutes the
+/// octaves that do read. A **labelled judgement**, read on the 2026-10-18
+/// frames (all octaves on drew the cap edges as faint contour lines).
+pub const ROCK_TERRACE_FADE_OUT_PX: (f64, f64) = (40.0, 120.0);
+/// The grid-scale slope, degrees, over which the ridged style fades in: below
+/// the first, massive rock keeps the law's fbm relief; above the second it is
+/// fully ridged. Granite under gentle ground weathers to domes and grus, not
+/// crests (bornhardts and tors, Twidale 1982, *Granite Landforms*); crests are
+/// where the ground is steep. The degree values are a **labelled judgement**
+/// set on the 2026-10-18 slope percentiles of granite land
+/// (`tests/gf6_rock_ladder.rs` prints them) and frames: ridging every granite
+/// cell drew a closed crease network over 55-75 % of the land.
+pub const ROCK_RIDGE_SLOPE_DEG: (f64, f64) = (4.0, 12.0);
+/// The largest share of the step function the terrace takes (`< 1`, so the
+/// styled height stays monotone in the unstyled one and no bench tilts
+/// backwards). A **labelled judgement**.
+pub const ROCK_TERRACE_MIX: f64 = 0.85;
+/// Fissile rock (shale) splits along thinner beds: its steps are this times
+/// the ladder's. A **labelled judgement**; "fissile" is thin lamination by
+/// definition, and the scope's "bedded" is read as including it.
+pub const ROCK_FISSILE_STEP_K: f64 = 0.25;
+
+/// One rock's style weights (§4.10), blended bilinearly between cells by
+/// [`rock_style_at`] so no cell boundary draws as a square (Ruling CG
+/// addendum 2's reason for the lithology blend).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RockStyle {
+    /// `α`: the sub-cell relief's amplitude multiplier.
+    pub alpha: f64,
+    /// 1 for ridged (massive or columnar jointing), else 0.
+    pub ridge: f64,
+    /// 1 for terraced (bedded or fissile, on a cap edge), else 0.
+    pub terrace: f64,
+    /// The terrace ladder's step multiplier (1, or [`ROCK_FISSILE_STEP_K`]).
+    pub step_k: f64,
+}
+
+/// [`RockStyle`] for one [`RockDetail`] cell byte, or `None` for a byte
+/// that names no rock (which [`build_rock_detail`] never writes).
+pub fn rock_style(cell: u8) -> Option<RockStyle> {
+    use cartalith_terrain::geology::{Jointing, Rock};
+    let rock = Rock::from_u8(cell & !ROCK_CAP_EDGE_BIT)?;
+    let p = rock.props();
+    let edge = cell & ROCK_CAP_EDGE_BIT != 0;
+    let (ridge, bedded, step_k) = match p.jointing {
+        Jointing::Massive | Jointing::Columnar => (1.0, false, 1.0),
+        Jointing::Bedded => (0.0, true, 1.0),
+        Jointing::Fissile => (0.0, true, ROCK_FISSILE_STEP_K),
+        Jointing::Foliated | Jointing::Blocky | Jointing::None => (0.0, false, 1.0),
+    };
+    Some(RockStyle { alpha: ROCK_DETAIL_ALPHA_BASE + ROCK_DETAIL_ALPHA_S * p.s as f64, ridge, terrace: if bedded && edge { 1.0 } else { 0.0 }, step_k })
+}
+
+/// The bilinear blend of [`rock_style`] over the four cells around grid
+/// position `(fx, fy)`, clamped at the edges exactly as `sample_arr` clamps.
+/// A cell whose byte names no rock contributes nothing and the others are
+/// renormalised; `None` if none of the four names a rock.
+pub fn rock_style_at(rd: &RockDetail, gw: usize, gh: usize, fx: f64, fy: f64) -> Option<RockStyle> {
+    if gw == 0 || gh == 0 || rd.cells.len() < gw * gh {
+        return None;
+    }
+    let fx = fx.clamp(0.0, (gw - 1) as f64);
+    let fy = fy.clamp(0.0, (gh - 1) as f64);
+    let (x0, y0) = (fx as usize, fy as usize);
+    let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
+    let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
+    let mut acc = RockStyle { alpha: 0.0, ridge: 0.0, terrace: 0.0, step_k: 0.0 };
+    let mut wsum = 0.0;
+    for (x, y, w) in [(x0, y0, (1.0 - tx) * (1.0 - ty)), (x1, y0, tx * (1.0 - ty)), (x0, y1, (1.0 - tx) * ty), (x1, y1, tx * ty)] {
+        if w <= 0.0 {
+            continue;
+        }
+        if let Some(s) = rock_style(rd.cells[y * gw + x]) {
+            acc.alpha += w * s.alpha;
+            acc.ridge += w * s.ridge;
+            acc.terrace += w * s.terrace;
+            acc.step_k += w * s.step_k;
+            wsum += w;
+        }
+    }
+    if wsum <= 0.0 {
+        return None;
+    }
+    Some(RockStyle { alpha: acc.alpha / wsum, ridge: acc.ridge / wsum, terrace: acc.terrace / wsum, step_k: acc.step_k / wsum })
+}
+
+/// A terrace of height `h` at step `s` (both normalised): flat benches with a
+/// riser over the last [`ROCK_TERRACE_RISER`] of each step, continuous
+/// (`T(k·s) = k·s`) and monotone. `h` itself for a step that is not positive
+/// and finite.
+pub fn terrace_height(h: f64, s: f64) -> f64 {
+    if !(s.is_finite() && s > 0.0) || !h.is_finite() {
+        return h;
+    }
+    let q = h / s;
+    let k = q.floor();
+    s * (k + smoothstep(1.0 - ROCK_TERRACE_RISER, 1.0, q - k))
+}
+
+/// GF-6 §4.10: the styled height of one land tile pixel. `h` is the tile's
+/// height, `c` the coarse field's bilinear height at the same position,
+/// `slope` the coarse gradient's magnitude (height per cell), `cpp` coarse
+/// cells per tile pixel, `m_per_unit` the world's metres per height unit.
+///
+/// `r = h - c` is the sub-cell relief the kilometre law added. Ridged folds
+/// it (`-|r|`: sharp crests along its zero contours, which sharpen with every
+/// octave the law adds); `α` scales it; the terrace ladder then adds the
+/// offset of the step function read at `c + ROCK_TERRACE_ROUGH·(h1 - c)`,
+/// in absolute height, each octave weighted by how many pixels apart
+/// its benches fall on this slope (in over [`ROCK_TERRACE_FADE_PX`], out over
+/// [`ROCK_TERRACE_FADE_OUT_PX`]), so benches arrive as the view comes in
+/// rather than aliasing at x1, and the finest readable scale is the one drawn
+/// at each zoom. `st.ridge` arrives already gated by slope
+/// ([`ridge_slope_gate`]). With every weight zero and `α = 1` it returns `h`
+/// exactly.
+pub fn rock_styled_height(h: f64, c: f64, slope: f64, cpp: f64, m_per_unit: f64, st: RockStyle) -> f64 {
+    let r = h - c;
+    let r1 = (1.0 - st.ridge) * r + st.ridge * -r.abs();
+    let h1 = c + st.alpha * r1;
+    if st.terrace <= 0.0 || !(m_per_unit.is_finite() && m_per_unit > 0.0) || !(cpp.is_finite() && cpp > 0.0) {
+        return h1;
+    }
+    let (mut delta, mut wsum) = (0.0, 0.0);
+    let base = c + ROCK_TERRACE_ROUGH * (h1 - c);
+    for s_m in ROCK_TERRACE_STEPS_M {
+        let su = s_m * st.step_k / m_per_unit;
+        // Bench spacing on screen: `su / slope` cells, over `cpp` cells a pixel.
+        let spacing_px = if slope > 1e-12 { su / slope / cpp } else { f64::INFINITY };
+        let b = st.terrace
+            * smoothstep(ROCK_TERRACE_FADE_PX.0, ROCK_TERRACE_FADE_PX.1, spacing_px)
+            * (1.0 - smoothstep(ROCK_TERRACE_FADE_OUT_PX.0, ROCK_TERRACE_FADE_OUT_PX.1, spacing_px));
+        if b > 0.0 {
+            delta += b * (terrace_height(base, su) - base);
+            wsum += b;
+        }
+    }
+    if wsum <= 0.0 {
+        return h1;
+    }
+    // The ledges' offset, added on top of the whole fine relief; `delta`
+    // already carries each octave's weight (`b`, which includes the cell's
+    // terrace weight), so a partly-faded octave adds partly.
+    h1 + ROCK_TERRACE_MIX / wsum.max(1.0) * delta
+}
+
+/// The ridged style's weight at a grid-scale slope of `slope` height units
+/// per cell ([`ROCK_RIDGE_SLOPE_DEG`]), `m_per_unit` metres per unit and
+/// `cell_m` metres per cell. `0` for a non-finite or non-positive scale.
+pub fn ridge_slope_gate(slope: f64, m_per_unit: f64, cell_m: f64) -> f64 {
+    if !(m_per_unit.is_finite() && m_per_unit > 0.0 && cell_m.is_finite() && cell_m > 0.0 && slope.is_finite()) {
+        return 0.0;
+    }
+    let deg = (slope.abs() * m_per_unit / cell_m).atan().to_degrees();
+    smoothstep(ROCK_RIDGE_SLOPE_DEG.0, ROCK_RIDGE_SLOPE_DEG.1, deg)
+}
+
+/// The padded `pw x ph` tile `tile` restyled by [`rock_styled_height`] at
+/// every land pixel (`tile >= sea level`), clamped so a land pixel stays at or
+/// above sea level; water pixels are copied unchanged. `None` when the
+/// context has no [`RockDetail`] or the buffer is short, which the caller
+/// reads as "draw the tile as it is".
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn rock_styled_tile(ctx: &RenderCtx, tile: &[f32], pw: usize, ph: usize, pad: f64, bounds: TileBounds, cx: f64, cy: f64) -> Option<Vec<f32>> {
+    let rd = ctx.rock_detail?;
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if tile.len() < pw * ph || rd.cells.len() != gw * gh {
+        return None;
+    }
+    let sl = ctx.sea_level;
+    let cpp = (cx * cy).sqrt();
+    // Metres per coarse cell; the kilometre law that gates this call needs
+    // the same width, so `None` here is unreachable in practice and draws the
+    // tile unstyled rather than on a guessed scale.
+    let cell_m = ctx.map_width_km? * 1000.0 / gw as f64;
+    let mut out = tile[..pw * ph].to_vec();
+    out.par_chunks_mut(pw).enumerate().for_each(|(yy, row)| {
+        let wy = bounds.y + (yy as f64 - pad) * cy;
+        for (xx, v) in row.iter_mut().enumerate() {
+            let h = *v as f64;
+            if !(h >= sl) {
+                continue;
+            }
+            let wx = bounds.x + (xx as f64 - pad) * cx;
+            let Some(mut st) = rock_style_at(rd, gw, gh, wx, wy) else { continue };
+            let c = sample_arr(ctx.field, wx, wy, gw, gh);
+            let (gx, gy) = coarse_grad_f(ctx, wx, wy);
+            let slope = gx.hypot(gy);
+            st.ridge *= ridge_slope_gate(slope, rd.m_per_unit, cell_m);
+            let s = rock_styled_height(h, c, slope, cpp, rd.m_per_unit, st);
+            if s.is_finite() {
+                *v = s.max(sl) as f32;
+            }
+        }
+    });
+    Some(out)
+}
+
 /// Ruling CI's kilometre law for a world `gw` cells wide over `map_width_km`,
 /// at `strength` ([`TerrainAppearance::zoom_detail_km`]) -- or `None`, the
 /// reference schedule, when the strength is not above zero or the width is
@@ -12110,6 +12466,19 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     let wt: &[f32] = water.filter(|v| v.len() >= pw * ph).unwrap_or(tile);
     let a = &ctx.appearance;
     let sl = ctx.sea_level;
+    // GF-6 §4.10: the height this tile is LIT and TONED from, styled by the
+    // exposed rock, under the kilometre law and with a `RockDetail` attached
+    // only (`rock_styled_tile`; `None` otherwise, and then `tile` is the
+    // tile exactly as before). `wt` above was taken from the unstyled tile,
+    // so every water test is unchanged, and `base_tile` keeps the elevation
+    // colour and the cryosphere/micro-band residual on the unstyled height.
+    let base_tile = tile;
+    let styled = if zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km).is_some() && ctx.rock_detail.is_some() {
+        rock_styled_tile(ctx, tile, pw, ph, padf, bounds, bounds.w / (w.max(2) - 1) as f64, bounds.h / (h.max(2) - 1) as f64)
+    } else {
+        None
+    };
+    let tile: &[f32] = styled.as_deref().unwrap_or(tile);
     // v2.11's `ex = state.exag` (11670) under `js_reference()`; v2.25's
     // `ex = tileShadeExag(bounds, W)` otherwise. One `ex`, used by both the
     // macro normal and the meso normal below, exactly as the reference's one
@@ -12300,7 +12669,9 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
         for x in 0..w {
             let xp = x + pad;
             let i = ro + xp;
-            let ht = tile[i] as f64;
+            // The unstyled height (GF-6 §4.10: rock styling moves the light
+            // and the tone, never the elevation colour or the residual).
+            let ht = base_tile[i] as f64;
             // The water test's height (`wt`); `ht` shades.
             let hw = wt[i] as f64;
             let wx = bounds.x + x as f64 * cx;

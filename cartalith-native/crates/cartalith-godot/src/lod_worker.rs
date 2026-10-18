@@ -358,12 +358,25 @@ pub struct SnapshotInputs {
     /// an all-zero mask -- for a world where nothing was forced, which keeps
     /// its tiles byte-identical to before the field existed.
     pub forced_lakes: Option<Vec<u8>>,
+    /// **GF-6 §4.10**: the exposed rock per cell for rock-styled deep-zoom
+    /// detail (`render::RockDetail`), attached to every tile's context
+    /// (`RenderCtx::with_rock_detail`). `None` -- the absent state, never a
+    /// guessed rock -- for a world whose landform processes do not read rock
+    /// (the app's default), a loaded save and an import; the tiles are then
+    /// byte-identical to before the field existed, and [`Self::fingerprint`]
+    /// reads exactly what it read before.
+    pub rock_detail: Option<Arc<render::RockDetail>>,
 }
 
 /// The word [`SnapshotInputs::fingerprint`] folds in when the tiles paint the
 /// river (`river_paint`). **Labelled judgement**: any fixed word does; this
 /// one spells `RIM7PNT\0` in ASCII so it is recognisable in a stream dump.
 const PAINTED_RIVERS_TAG: u64 = 0x0054_4e50_374d_4952;
+
+/// The separator [`SnapshotInputs::fingerprint`] folds in before a
+/// [`SnapshotInputs::rock_detail`]. **Labelled judgement**: any fixed word
+/// does; this one spells `GF6ROCK ` in ASCII.
+const ROCK_DETAIL_TAG: u64 = 0x004b_434f_5236_4647;
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
 ///
@@ -519,6 +532,7 @@ impl SnapshotInputs {
             river_fans,
             river_paint,
             forced_lakes,
+            rock_detail,
         } = self;
         let mut d = Digest::new();
         d.word(*gw as u64);
@@ -557,6 +571,16 @@ impl SnapshotInputs {
         d.tag(forced_lakes.is_some());
         if let Some(m) = forced_lakes {
             d.bytes(m);
+        }
+        // GF-6 §4.10: the rock the tiles are styled by. Only when present (no
+        // word when absent), so every world without it -- the app's default --
+        // fingerprints exactly as before; with it, a separator word
+        // (`ROCK_DETAIL_TAG`) then every cell byte and the metres per unit, so
+        // a stored unstyled pyramid never seeds a styled world or the reverse.
+        if let Some(rd) = rock_detail {
+            d.word(ROCK_DETAIL_TAG);
+            d.bytes(&rd.cells);
+            d.f64(rd.m_per_unit);
         }
         d.tag(rivers.is_some());
         if let Some(g) = rivers {
@@ -708,6 +732,9 @@ pub struct LodSnapshot {
     color_space: ColorSpace,
     pre: GridPrecompute,
     lithology: Option<Vec<u8>>,
+    /// GF-6 §4.10's rock styling input, carried from
+    /// [`SnapshotInputs::rock_detail`] unchanged.
+    rock_detail: Option<Arc<render::RockDetail>>,
     fields: TileFields<'static>,
     ink: Option<OwnedInk>,
     splat: Option<OwnedSplat>,
@@ -814,6 +841,7 @@ impl LodSnapshot {
             river_fans,
             river_paint,
             forced_lakes,
+            rock_detail,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
@@ -886,6 +914,7 @@ impl LodSnapshot {
             color_space,
             pre,
             lithology,
+            rock_detail,
             fields,
             ink,
             splat,
@@ -967,6 +996,11 @@ impl LodSnapshot {
             .with_precomputed_water_height(&self.field);
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
+        }
+        // GF-6 §4.10: rock-styled deep-zoom detail, only for a world that has
+        // it (`SnapshotInputs::rock_detail`); `None` attaches nothing.
+        if let Some(rd) = self.rock_detail.as_deref() {
+            ctx = ctx.with_rock_detail(rd);
         }
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
@@ -1868,6 +1902,7 @@ mod tests {
             river_fans: None,
             river_paint: None,
             forced_lakes: None,
+            rock_detail: None,
             }
     }
 
@@ -3042,5 +3077,43 @@ mod tests {
         assert_ne!(a[c..c + 3], b[c..c + 3], "the forced block's centre must be drawn differently");
         let far = px(10.5, 10.5);
         assert_eq!(a[far..far + 4], b[far..far + 4], "far from the block nothing moves");
+    }
+
+    /// Protects: **GF-6 §4.10 in the worker path and the stored-pyramid
+    /// key.** A snapshot without a rock detail fingerprints with no
+    /// [`ROCK_DETAIL_TAG`] in its stream (so every app world keys exactly as
+    /// before the field existed); one with it carries the tag, fingerprints
+    /// differently (an unstyled stored pyramid never seeds a styled world),
+    /// and a deep tile over land is drawn differently -- the detail reaches
+    /// the tile through `render_tile`'s attachment. Under the reference
+    /// schedule (`zoom_detail_km` 0) the same detail draws nothing: the
+    /// styling is off by control flow there.
+    #[test]
+    fn a_snapshot_with_rock_detail_styles_and_keys_its_tiles() {
+        let (gw, gh) = (96usize, 72usize);
+        let plain_in = inputs(gw, gh);
+        let base = plain_in.fingerprint();
+        assert!(!plain_in.digest().log.contains(&ROCK_DETAIL_TAG), "no rock detail, no tag");
+        let mut i = inputs(gw, gh);
+        i.rock_detail = Some(Arc::new(render::RockDetail { cells: vec![cartalith_terrain::geology::Rock::Granite as u8; gw * gh], m_per_unit: 4000.0 / 0.58 }));
+        assert!(i.digest().log.contains(&ROCK_DETAIL_TAG), "the rock detail section opens with its tag");
+        assert_ne!(i.fingerprint(), base, "a styled snapshot must not seed from an unstyled pyramid");
+        let plain = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let styled = LodSnapshot::build(i).expect("snapshot");
+        // Level 5 over the land peak at the grid's centre: 32 x 32 tiles, so
+        // tile (16, 16) is land at several pixels per cell.
+        let (a, _, _) = plain.render_tile(5, 16, 16).expect("tile");
+        let (b, _, _) = styled.render_tile(5, 16, 16).expect("tile");
+        assert!(a.iter().any(|&v| v != 0), "an empty tile proves nothing");
+        assert_ne!(a, b, "the rock detail must reach a deep land tile");
+        let reference = |rd: bool| {
+            let mut j = inputs(gw, gh);
+            j.appearance = TerrainAppearance { zoom_detail_km: 0.0, ..TerrainAppearance::default() };
+            if rd {
+                j.rock_detail = Some(Arc::new(render::RockDetail { cells: vec![cartalith_terrain::geology::Rock::Granite as u8; gw * gh], m_per_unit: 4000.0 / 0.58 }));
+            }
+            LodSnapshot::build(j).expect("snapshot").render_tile(5, 16, 16).expect("tile").0
+        };
+        assert_eq!(reference(false), reference(true), "the reference schedule must ignore the rock detail");
     }
 }

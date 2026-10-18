@@ -38,6 +38,7 @@ mod conflict_bridge;
 mod civ_trade_bridge;
 mod context_pick_bridge;
 mod ef9_bridge;
+mod rock_detail_bridge;
 mod erode_bridge;
 mod export_options;
 mod export_raster;
@@ -6368,6 +6369,13 @@ struct WorldGen {
     /// fans ON, the default render path (`DECISIONS.md` 7p); a view setting,
     /// never a world field and never saved.
     river_delta_off: std::cell::Cell<bool>,
+    /// **GF-6 §4.10's off switch** (`set_rock_lod_detail`): when set, the
+    /// deep-zoom tiles are not styled by the exposed rock even on a world
+    /// whose processes read rock ([`Self::rock_detail_for_tiles`] returns
+    /// `None`). `false` = styling ON, the default. A view setting, never a
+    /// world field and never saved; it exists so a probe can flip the
+    /// styling on one world and diff the framebuffer (`_gf6lod_probe.gd`).
+    rock_lod_detail_off: std::cell::Cell<bool>,
     /// [`Self::river_delta_fans`]'s cache: the key (the network's, the
     /// preset's river width), the fans, what was done and the milliseconds the
     /// derivation took (`river_delta_stats`' `ms`, a probe's cost reading). A
@@ -7075,6 +7083,7 @@ impl IRefCounted for WorldGen {
             river_field_width: std::cell::Cell::new(1.0),
             river_paint_off: std::cell::Cell::new(false),
             river_delta_off: std::cell::Cell::new(false),
+            rock_lod_detail_off: std::cell::Cell::new(false),
             river_delta_cache: std::cell::RefCell::new(None),
             river_colour_cache: std::cell::RefCell::new(None),
             river_paint_cache: std::cell::RefCell::new(None),
@@ -18980,7 +18989,12 @@ impl WorldGen {
             // network (keyed above as the rivers are), the look's gate and
             // river width (the appearance fingerprint), the grid (`gw x gh`)
             // and this switch -- the one input not already in the key.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{}",
+            // `rd`: GF-6 §4.10 -- whether the tiles are styled by the exposed
+            // rock (`rock_detail_wanted`: the world's processes read rock and
+            // the view switch is on). A world regenerated with the processes
+            // switched moves `e` already; this covers `set_params` and
+            // `set_rock_lod_detail` without a regeneration.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -19003,6 +19017,7 @@ impl WorldGen {
             rivers,
             self.forced_lakes_epoch,
             u8::from(deltas_off),
+            u8::from(self.rock_detail_wanted()),
         )
     }
 
@@ -19157,6 +19172,7 @@ impl WorldGen {
             // Ruling BO: the forced lakes `drawn_water_bodies` applies to the
             // base map, so a tile draws the same water.
             forced_lakes: self.forced_lake_mask().map(|m| m.to_vec()),
+            rock_detail: self.rock_detail_for_tiles(),
         })
     }
 }
