@@ -302,6 +302,109 @@ const RAIL_FOOT_PAD_B := 8    ## `padding-bottom:8px` under the lower half.
 const RAIL_FOOT_RULE_W := 14  ## `width:14px` on the `--div` hairline.
 var _domain_buttons: Dictionary = {}   ## id -> Button
 var _domain_marks: Dictionary = {}     ## id -> {icon, label}
+## The 14 px hairline drawn ABOVE each rail mark but the first, keyed by that
+## mark's domain id (`_build_rail()`). Kept only so the Session-mode gate
+## (SM-7, `_apply_session_gate()`) can hide a separator that hiding a mark
+## would otherwise leave leading the column.
+var _rail_seps: Dictionary = {}
+## Each rail-expansion header's row and its subtitle row, keyed by domain id
+## (`_build_rail_expansion()`). Held for the same gate: the node rows are
+## already in `_rail_node_rows`, the headers above them were not keyed at all.
+var _rail_exp_heads: Dictionary = {}
+
+# -- Session mode (SM-7, `STORY_MENUS_PROPOSAL.md` §3.4, Ruling CK) -----------
+#
+# `Window ▸ Session mode` is a table-side switch: it hides the generator and
+# keeps the story tools. The **menu half** (the check row, the seeded
+# `Session` layout, the disabled rows) is `menus.gd::set_session_mode()`; this
+# half is the gate on the shell's own navigation, because every route into a
+# domain -- the rail, the node list, the phone tabs, `Window ▸ Workspace`, the
+# command index, every in-dock "→ WORLD ▸ …" jump -- lands on `_select_domain()`,
+# `select_domain_mode()` or `select_domain_category()`, and one guard there
+# covers them all.
+#
+# **What is hidden is a domain, not a list of widgets.** §3.4 asks to hide
+# "WORLD generation and sculpt controls and the pipeline readouts", and every
+# one of those is already scoped to the WORLD domain by code that predates
+# this: the WORLD dock is that domain's `_workspace_panels` entry, the tool
+# palette is rebuilt from `_domain_tools[active_domain()]` (`app.gd::
+# _strip_entries()`), and the right dock's pipeline/sculpt sections answer
+# `app.active_domain() == "world"` (`right_dock.gd::_tool_section()`,
+# `_draft_stack_live()`). So keeping WORLD from being the active domain hides
+# exactly those, and the only extra chrome to hide is the WORLD mark itself
+# (desktop/tablet rail, rail expansion, phone GENERATE tab).
+#
+# Hidden is never destroyed: no panel is freed, no mode is rewritten and no
+# engine call is made by the gate. Turning it off makes WORLD reachable again
+# exactly as it was.
+
+## Domains Session mode keeps out of reach. One entry, WORLD, for the reason in
+## the block above; an array so the separator rule in `_apply_session_gate()`
+## is written for the general case rather than for "the first mark".
+const SESSION_HIDDEN_DOMAINS: Array = ["world"]
+## What a refused route into a hidden domain prints on the status bar. Names
+## the way back, because the route the user just took is one that works again
+## once the mode is off.
+const SESSION_REFUSED := "Session mode is on, so WORLD (generation and sculpt) is hidden. Window ▸ Session mode, Ctrl+Shift+M, turns it off."
+## Whether the gate is up. Written only by `set_session_gate()`; boots `false`
+## and is never persisted (SM-7: a toggle for one table session, not a setting).
+var _session_mode := false
+## Emitted after the gate moves, with its new state.
+signal session_mode_changed(on: bool)
+
+## Whether Session mode's gate is up.
+func is_session_mode() -> bool:
+	return _session_mode
+
+## Whether Session mode currently keeps domain `id` out of reach.
+func session_hides_domain(id: String) -> bool:
+	return _session_mode and SESSION_HIDDEN_DOMAINS.has(id)
+
+## Raise or lower the gate. **Navigation only**: it must never switch domain
+## itself (the caller, `menus.gd::set_session_mode()`, moves the shell off a
+## hidden domain through the layout mechanism FIRST, then raises this), and it
+## must never call the engine -- it can run while a generation owns it.
+func set_session_gate(on: bool) -> void:
+	_session_mode = on
+	_apply_session_gate()
+	session_mode_changed.emit(on)
+
+## Shows or hides the chrome that names a hidden domain: its rail mark (on the
+## phone the same dictionary holds the GENERATE tab's button, `_build_phone_
+## bar()`), the hairline above a mark that would otherwise lead the column, and
+## the rail expansion's header, subtitle and node rows for it. Idempotent.
+func _apply_session_gate() -> void:
+	for id in _domain_buttons:
+		var b = _domain_buttons[id]
+		if b is Control and is_instance_valid(b):
+			(b as Control).visible = not session_hides_domain(String(id))
+	## A separator sits above every mark but the first. It is drawn only while
+	## its own mark is drawn AND some mark above it is, so hiding WORLD (the
+	## first) does not leave CIVIL's hairline floating at the top.
+	var any_above := false
+	for d in DOMAINS:
+		var did := String(d["id"])
+		var shown := not session_hides_domain(did)
+		var sep = _rail_seps.get(did)
+		if sep is Control and is_instance_valid(sep):
+			(sep as Control).visible = shown and any_above
+		any_above = any_above or shown
+	for did in _rail_exp_heads:
+		for row in _rail_exp_heads[did]:
+			if row is Control and is_instance_valid(row):
+				(row as Control).visible = not session_hides_domain(String(did))
+	for key in _rail_node_rows:
+		var r = _rail_node_rows[key]
+		if r is Control and is_instance_valid(r):
+			(r as Control).visible = not session_hides_domain(String(key).split("/")[0])
+
+## The refusal every navigation guard shares: prints `SESSION_REFUSED` and
+## answers true when `id` is hidden, so a caller can `return` on it.
+func _session_refuses(id: String) -> bool:
+	if not session_hides_domain(id):
+		return false
+	set_status("hint", SESSION_REFUSED, "warn")
+	return true
 ## Id of the active domain; initial `world` is the boot default, applied by
 ## `_select_domain()`.
 var _active_domain := "world"
@@ -3315,6 +3418,7 @@ func _build_rail() -> Control:
 			sep.custom_minimum_size = Vector2(14, 1)
 			sep.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			rail_column.add_child(sep)
+			_rail_seps[String(d.id)] = sep
 
 		var b := Button.new()
 		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
@@ -3475,9 +3579,13 @@ func _build_rail_expansion() -> Control:
 			hp.add_theme_constant_override("margin_bottom", 1)
 			hp.add_child(h)
 			col.add_child(hp)
+			var head_rows: Array = [hp]
 			var sub := _domain_subtitle(String(n["domain"]))
 			if sub != "":
-				col.add_child(_rail_header_subtitle(sub))
+				var sub_row := _rail_header_subtitle(sub)
+				col.add_child(sub_row)
+				head_rows.append(sub_row)
+			_rail_exp_heads[String(n["domain"])] = head_rows
 			continue
 
 		var b := Button.new()
@@ -3764,6 +3872,11 @@ func set_rail_foot(text: String) -> void:
 ## switches the visible workspace. Does not itself handle the re-click-expands-the-rail
 ## case; that is the press handler's job.
 func _select_domain(id: String) -> void:
+	## SM-7: Session mode's one choke point (see its block near the top of this
+	## file). Refused before anything is written, so a refused route leaves the
+	## domain, its mode and the rail exactly as they were.
+	if _session_refuses(id):
+		return
 	_active_domain = id
 	for key in _domain_buttons:
 		var b: Button = _domain_buttons[key]
@@ -3866,6 +3979,11 @@ func active_mode(id: String = "") -> String:
 ## mode-gated the way the prototype's is), so without it a node click would
 ## light the rail and change nothing the user can see.
 func select_domain_mode(id: String, mode: String) -> void:
+	## SM-7: refused here as well as in `_select_domain()`, because this writes
+	## `_domain_mode[id]` before it gets there -- a hidden domain's mode must
+	## come back untouched when Session mode is turned off.
+	if _session_refuses(id):
+		return
 	var node := rail_node(id, mode)
 	if node.is_empty():
 		push_warning("Cartalith: no rail node '%s/%s'." % [id, mode])
@@ -4069,6 +4187,9 @@ func select_domain(id: String) -> void:
 ## pointer must not swallow the domain switch the user asked for, and a
 ## `push_warning` is what a probe can assert on.
 func select_domain_category(id: String, category: String, mode: String = "") -> void:
+	## SM-7: same reason as `select_domain_mode()` -- this writes the mode first.
+	if _session_refuses(id):
+		return
 	var m := mode if not mode.is_empty() else mode_for_category(id, category)
 	## `""` means no node owns this category, which `_railfold_probe.gd` §3
 	## proves cannot happen for any category the three docks actually build. If
@@ -6556,6 +6677,12 @@ var _phone_tab := "gen"   ## Which of `PHONE_TABS` is lit.
 ## One tab press. A workspace tab selects its domain; the two that are not
 ## workspaces do their own thing.
 func _pick_phone_tab(id: String) -> void:
+	## SM-7: the GENERATE tab is hidden in Session mode, but a tab can still be
+	## picked by code; refuse before `_phone_tab` is written, or the bar would
+	## light a tab whose domain `_select_domain()` then refuses.
+	for t in PHONE_TABS:
+		if String(t.id) == id and String(t.domain) != "" and _session_refuses(String(t.domain)):
+			return
 	var was_tab := _phone_tab
 	_phone_tab = id
 	match id:

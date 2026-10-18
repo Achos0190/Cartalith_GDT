@@ -173,6 +173,15 @@ Two rows were settled when SM-2 was built (2026-10-18): *Journey planner* draws 
 |---|---|---|---|
 | Session mode (check) | Ctrl+Shift+M | P | It would hide WORLD generation and sculpt controls and the pipeline readouts. It would keep the map, notes, timeline bar and planner. **Built:** Layouts already snapshot the region toggles, the domain and the rail (`_build_layouts_menu`, including the seeded *Journey* layout). **New:** a gate that hides controls inside a dock |
 
+Settled when SM-7 was built (2026-10-18), following Q5's default:
+
+- **What is hidden is the WORLD domain, not a list of widgets.** Every control §3.4 names is already scoped to WORLD in code: the WORLD dock, the tool palette (rebuilt per active domain), the RUN bar, and the right dock's pipeline and sculpt-stack sections. So the gate keeps WORLD from being selected. It sits in `dcc_shell.gd` at `_select_domain`, `select_domain_mode`, `select_domain_category` and `_pick_phone_tab`, the routes every rail, menu and jump reaches. It also hides the WORLD rail mark, the hairline above CIVIL, the rail expansion's WORLD rows and the phone's GENERATE tab. A refused route prints the way back on the status bar. No dock gained a per-control gate.
+- **Disabled rows, with the reason:** File ▸ New world… and New world from selection…; Edit ▸ Reset generation parameters and Reset one stage; Window ▸ Workspace ▸ World. On a tablet, World ▸ Run pipeline, Generation pipeline, Sculpt and Seed & size… are disabled as well. `app.open_new_world()` refuses too, which covers the open-project and phone-picker tiles. Help ▸ Generation info… and World data tables… stay, because they only read.
+- **The layout:** an ordinary `Session` entry in Window ▸ Layouts, stored by `DccSettings.save_layout` (there is no second store). It is seeded the first time the mode comes on, not on first run. On desktop and tablet the seed is CIVIL ▸ Journey planner, the domain that draws the timeline bar. On the phone it is CARTO ▸ Style, the MAP tab, because CIVIL is not a phone tab. No artboard draws a Session layout, so this is a judgement. Turning the mode off stores the arrangement on screen as `Session` and then restores the previous arrangement exactly, including every domain's mode.
+- **Refused, with a reason,** while a generation runs: the draft check reads the engine. It is also refused over an uncommitted sculpt or paint draft. That draft's Commit and Discard live in WORLD, so refusing is the answer to risk 6 in §7.
+- **Not persisted.** The mode boots off. Quitting while it is on loses the remembered arrangement, and the app boots into its ordinary layout.
+- **Phone and tablet:** the row is in ☰ ▸ Window on a tablet and in MORE ▸ Window on a phone, where it is drawn as a switch.
+
 ### 3.5 Shortcuts
 
 The four new accelerators are Ctrl+Shift+T, Ctrl+Shift+N, Ctrl+Shift+E and

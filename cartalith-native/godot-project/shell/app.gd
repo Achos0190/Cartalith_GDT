@@ -3266,6 +3266,14 @@ func _refresh_rail_foot() -> void:
 ## Shows `new_world_dialog`: phone-presented full-screen via `DccWidgets.phone_present()` when that
 ## applies, otherwise `popup_centered()`. Does not generate anything; the dialog's own button does.
 func open_new_world() -> void:
+	## SM-7: the New world dialog is a generation entry point, and Session mode
+	## hides generation. Its menu rows are disabled with the reason
+	## (`menus.gd::SESSION_GATED_TIP`); this guard is for the routes that are not
+	## menu rows -- the open-project dialog's and the phone picker's new-world
+	## tiles -- so they refuse with the same way back instead of opening it.
+	if is_session_mode():
+		set_status("hint", "Session mode is on, so New world is hidden. Window ▸ Session mode, Ctrl+Shift+M, turns it off.", "warn")
+		return
 	## PH-06: on a phone the dialog fills the screen instead, and it has to be
 	## *opened* by that call rather than sized by it -- `DccWidgets
 	## .phone_present()`'s own doc comment carries why (an `AcceptDialog` lays

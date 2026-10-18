@@ -153,6 +153,10 @@ const ID_EXPORT_DM := 730  ## File ▸ Export ▸ DM / full map….
 const ID_PLACES_WITHOUT_NOTES := 731  ## World ▸ / Story ▸ Places without notes….
 const ID_SAVED_JOURNEYS := 732  ## Story ▸ JOURNEYS ▸ Saved journeys….
 const ID_CONFLICTS_LIST := 733  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Conflicts….
+## SM-7 (`STORY_MENUS_PROPOSAL.md` §3.4, Ruling CK): Window ▸ Session mode
+## (Ctrl+Shift+M). 734 was unused (`grep -rn ":= 73[4-9]"` over `shell/`,
+## 2026-10-18, no hits).
+const ID_WIN_SESSION_MODE := 734
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -621,6 +625,9 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## in `app.gd`'s `_ready` -- is built straight from the palette this has
 	## already swapped, so one pass here covers both halves.
 	_apply_theme_mode(_theme_mode)
+	## SM-7: after every builder, so the Session-mode re-apply is connected
+	## after each popup's own refreshers and runs last (`_connect_session_gate()`).
+	_connect_session_gate()
 
 ## Add an item the port cannot yet honour. Disabled, with the reason attached,
 ## so the menu never promises behaviour that does not exist.
@@ -766,6 +773,7 @@ const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belon
 ## `_on_file`. Must not assume a world or a saved path exists when it builds.
 func _file(p: PopupMenu) -> void:
 	_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)
+	_session_gate_row(p, p.item_count - 1)
 	_live(p, "Open project…", ID_OPEN_PROJECT, KEY_MASK_CTRL | KEY_O)
 
 	## A real submenu, per §2.1: "last 10 projects, path shown as secondary
@@ -790,6 +798,7 @@ func _file(p: PopupMenu) -> void:
 	_live(p, "New world from selection…", ID_NEW_WORLD_FROM_SELECTION)
 	var region_new_idx := p.item_count - 1
 	p.set_item_tooltip(region_new_idx, REGION_NEW_WORLD_TIP)
+	_session_gate_row(p, region_new_idx)
 
 	p.add_separator()
 	## All five were `_todo` rows reading "requires a save writer" until
@@ -1438,7 +1447,11 @@ func _build_reset_generation(p: PopupMenu) -> void:
 	_live(p, "Reset generation parameters", ID_EDIT_RESET_PARAMS)
 	var reset_idx := p.item_count - 1
 	p.set_item_tooltip(reset_idx, RESET_ALL_TIP)
+	_session_gate_row(p, reset_idx)
 	_build_reset_stage_menu(p)
+	## The `Reset one stage` submenu row `_build_reset_stage_menu()` just added:
+	## disabling the parent row is what keeps the ten stage rows closed.
+	_session_gate_row(p, p.item_count - 1)
 	## Both reset rows go dark for a generation, for `param_set`'s own
 	## reason: the worker thread holds the engine object mutably borrowed,
 	## and reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already
@@ -5886,6 +5899,25 @@ func _window(p: PopupMenu) -> void:
 				p.set_item_checked(wi, _host.is_region_shown(wid)))
 	p.add_separator()
 
+	## SM-7: Session mode, between the region toggles and Diagnostics overlay --
+	## the mockup's A2 Window list (`design/story-menus-2026-10-17/mockup.html`
+	## `P_WIN`) draws it exactly there. A check row like the region toggles,
+	## because it is an on/off state the user reads back, and through
+	## `_bind_accelerator` so Ctrl+Shift+M is rebindable and listed by Help ▸
+	## Keyboard shortcuts (which reads the live menus). Ctrl+Shift+M was free:
+	## `grep -rn "KEY_M\b" shell/` had no hits and `shortcuts_dialog.gd`'s
+	## `UNLISTED` names no M (2026-10-18, the §3.5 check re-run).
+	p.add_check_item("Session mode", ID_WIN_SESSION_MODE)
+	var sess_idx := p.item_count - 1
+	_bind_accelerator(p, sess_idx, ID_WIN_SESSION_MODE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_M)
+	p.set_item_tooltip(sess_idx, SESSION_MODE_TIP)
+	_session_check_rows.append([p, sess_idx])
+	p.about_to_popup.connect(func():
+		p.set_item_checked(sess_idx, _shell.is_session_mode()))
+	p.id_pressed.connect(func(id: int):
+		if id == ID_WIN_SESSION_MODE:
+			set_session_mode(not _shell.is_session_mode()))
+
 	## `PARITY_AUDIT.md` §5 item 5: the reference's `#resOverlay` (Shift+D) --
 	## a top-right diagnostics HUD (`resource_overlay.gd`'s own header
 	## comment explains why "Resource" is a misnomer). Off by default,
@@ -5912,6 +5944,10 @@ func _window(p: PopupMenu) -> void:
 	p.add_submenu_item("Workspace", "WorkspaceList")
 	for i in DccShell.DOMAINS.size():
 		_workspace_popup.add_radio_check_item(String(DccShell.DOMAINS[i].label), i)
+		## SM-7: a domain Session mode hides is drawn disabled with the reason,
+		## so the row stays visible and says how to get it back.
+		if DccShell.SESSION_HIDDEN_DOMAINS.has(String(DccShell.DOMAINS[i].id)):
+			_session_gate_row(_workspace_popup, i)
 	_workspace_popup.about_to_popup.connect(func():
 		for i in DccShell.DOMAINS.size():
 			_workspace_popup.set_item_checked(i, DccShell.DOMAINS[i].id == _shell.active_domain()))
@@ -6078,6 +6114,213 @@ func _seed_layouts_once() -> void:
 		})
 	DccSettings.mark_layouts_seeded()
 
+# -- Session mode (SM-7, `STORY_MENUS_PROPOSAL.md` §3.4 and §9 Q5) -------------
+#
+# Q5's default, taken by Ruling CK: **a toggle in Window that also seeds a
+# layout.** The toggle is `Window ▸ Session mode` (Ctrl+Shift+M); the layout
+# is an ordinary entry in `Window ▸ Layouts` named `Session`, stored by the
+# same `DccSettings.save_layout()` every other layout uses -- there is no
+# second store. What it does, in order:
+#
+#   on   refuse while a generation runs or a sculpt/paint draft is open
+#        (`session_mode_refusal()`); remember the arrangement on screen
+#        (`_capture_layout()`, plus every domain's mode); apply `Session`,
+#        seeding it the first time (`_session_seed()`); disarm a WORLD tool;
+#        raise the shell's gate (`DccShell.set_session_gate()`); disable the
+#        generation rows (`_session_gate_row()` registrations).
+#   off  store what is on screen as `Session` (so an arrangement adjusted at
+#        the table is kept); lower the gate; re-enable the rows exactly as
+#        they were; re-apply the remembered arrangement.
+#
+# **Never persisted.** The flag lives on `DccShell` and boots off; quitting
+# with the mode on loses the remembered arrangement, and the next boot is the
+# ordinary boot layout. That is SM-7's stated default (a toggle for one table
+# session, not a preference), not an omission.
+
+## The layout name Session mode seeds and restores. A user may forget it or
+## save over it in Window ▸ Layouts like any other; the next toggle re-seeds a
+## forgotten one.
+const SESSION_LAYOUT := "Session"
+
+## The row's tooltip, and the list of what the mode hides -- **derived from
+## §3.4** ("hide WORLD generation and sculpt controls and the pipeline
+## readouts; keep the map, notes, timeline bar and planner"), resolved to this
+## shell's surfaces by `dcc_shell.gd`'s Session-mode block. `_sessionmode_probe`
+## checks each named item against the live shell.
+const SESSION_MODE_TIP := "For running a game or a writing session at the table. Hides the WORLD domain -- its rail mark and the Generate and Sculpt nodes, its dock (Generate, Planet, Geology, Hydrology, Climate, Ecology, World data, Terrain, Biomes), its sculpt and paint tool palette and RUN bar, and the right dock's pipeline and sculpt-stack readouts -- and disables the rows that start or reshape a world: File ▸ New world… and New world from selection…, Edit ▸ Reset generation parameters and Reset one stage, Window ▸ Workspace ▸ World, and on a tablet World ▸ Run pipeline, Generation pipeline, Sculpt and Seed & size…; on a phone the GENERATE tab goes. Keeps the map, CIVIL and CARTO, the timeline bar, notes and the vault, the Journey planner and the Story menu. Switches to the layout named Session (seeded the first time) and back to the previous one when turned off; arrangement changes made meanwhile are kept as Session. The world, its generation settings and the undo history are not touched. Not remembered across restarts."
+## The reason every gated row carries while the mode is on.
+const SESSION_GATED_TIP := "Hidden by Session mode, which keeps generation out of reach at the table. Window ▸ Session mode, Ctrl+Shift+M, turns it off and brings this back."
+## Refusal: a generation owns the engine. The draft check below reads the
+## engine (`sculpt_stamp_count`, `paint_draft_count`), and reaching it now is
+## the `Gd<T>::bind() failed, already bound` panic (`engine_bridge.gd::_worker()`).
+const SESSION_BUSY := "A generation is running. Session mode waits for it: turn it on when the run finishes."
+## Refusal: an uncommitted draft. Its Commit and Discard live in WORLD, which
+## the mode hides -- §7 risk 6 ("the draft is stranded"), answered by refusing.
+const SESSION_DRAFT := "A sculpt or paint draft is not committed yet, and its Commit and Discard are in WORLD, which Session mode hides. Commit or discard it first."
+
+## Every row Session mode disables, as `{p, i}`, plus the state it had when the
+## mode came on (`dis`, `tip`), restored verbatim when it goes off.
+var _session_rows: Array = []
+## Every `Window ▸ Session mode` check row, as `[popup, index]` (one per built
+## Window menu), kept in step by `_sync_session_checks()`.
+var _session_check_rows: Array = []
+## What was on screen when the mode came on: `_capture_layout()`'s dictionary,
+## and every domain's mode (a layout records only the active domain's).
+var _session_prev_layout: Dictionary = {}
+var _session_prev_modes: Dictionary = {}
+
+## Registers row `i` of `p` as one Session mode disables. Called at build time
+## beside the row; `_connect_session_gate()` (end of `build()`) then re-applies
+## the gate after each popup's own refreshers, connected later so it runs last.
+func _session_gate_row(p: PopupMenu, i: int) -> void:
+	_session_rows.append({"p": p, "i": i})
+
+## Connects the re-apply to `about_to_popup` and `popup_hide` of every popup
+## holding a gated row, once, after every builder has connected its own
+## refreshers (signal handlers run in connection order). Without it, a refresher
+## such as `_build_reset_generation()`'s would re-enable its row on the next
+## open, and a hide handler could re-enable one for the keyboard.
+func _connect_session_gate() -> void:
+	var seen := {}
+	for r in _session_rows:
+		var p: PopupMenu = r["p"]
+		if seen.has(p):
+			continue
+		seen[p] = true
+		p.about_to_popup.connect(_reapply_session_rows)
+		p.popup_hide.connect(_reapply_session_rows)
+
+## While the mode is on, forces every gated row disabled with the reason.
+## A no-op while it is off: the rows' own refreshers own them then.
+func _reapply_session_rows() -> void:
+	if _shell == null or not _shell.is_session_mode():
+		return
+	for r in _session_rows:
+		var p: PopupMenu = r["p"]
+		var i := int(r["i"])
+		if is_instance_valid(p) and i < p.item_count:
+			p.set_item_disabled(i, true)
+			p.set_item_tooltip(i, SESSION_GATED_TIP)
+
+## Why the mode cannot come on now, or `""`. Busy is asked first and alone:
+## the draft counts are engine reads.
+func session_mode_refusal() -> String:
+	if _bridge == null:
+		return ""
+	if bool(_bridge.generating):
+		return SESSION_BUSY
+	if bool(_bridge.has_world) and (_bridge.sculpt_stamp_count() > 0 or _bridge.paint_draft_count() > 0):
+		return SESSION_DRAFT
+	return ""
+
+## The `Session` layout written the first time the mode comes on: every region
+## shown, the rail collapsed, and the domain the table needs. Desktop and
+## tablet open CIVIL ▸ Journey planner, which is the domain that draws the
+## timeline bar (`app.gd::_on_workspace_changed`: `timeline_bar.visible = id ==
+## "civilization"`) and holds Timeline, Travel and Factions. The phone opens
+## CARTO ▸ Style instead, its MAP tab: CIVIL is not a phone tab, and selecting
+## it lights MORE without the MORE screen open (`_phone_tab_for_domain()`).
+## Judgement, not design: no artboard draws the Session layout.
+func _session_seed() -> Dictionary:
+	var regions := {}
+	for rid in WIN_REGION_IDS:
+		regions[rid] = true
+	var phone: bool = _host != null and _host.has_method("is_phone") and _host.is_phone()
+	return {
+		"regions": regions,
+		"domain": "cartography" if phone else "civilization",
+		"mode": "style" if phone else "planner",
+		"rail_expanded": false,
+	}
+
+## Turn Session mode on or off. Returns whether the shell is now in the asked
+## state (false only when coming on was refused, with the reason on the status
+## bar). Never touches the world, its generation parameters or the undo
+## history; the only engine reads are the two draft counts, behind the busy
+## check.
+func set_session_mode(on: bool) -> bool:
+	if _shell == null:
+		return false
+	if on == _shell.is_session_mode():
+		_sync_session_checks()
+		return true
+	if on:
+		var why := session_mode_refusal()
+		if why != "":
+			_host.set_status("hint", why, "warn")
+			_sync_session_checks()
+			return false
+		_session_prev_layout = _capture_layout()
+		_session_prev_modes.clear()
+		for d in DccShell.DOMAINS:
+			_session_prev_modes[String(d["id"])] = _shell.active_mode(String(d["id"]))
+		if not DccSettings.layouts().has(SESSION_LAYOUT):
+			DccSettings.save_layout(SESSION_LAYOUT, _session_seed())
+		var data: Dictionary = DccSettings.layout(SESSION_LAYOUT).duplicate(true)
+		## A `Session` saved by hand from WORLD (Save layout as… while the mode
+		## was off) names a domain the mode is about to hide; take the seed's
+		## domain and mode for that one field pair, keep the rest as stored.
+		if DccShell.SESSION_HIDDEN_DOMAINS.has(String(data.get("domain", ""))):
+			var seed := _session_seed()
+			data["domain"] = seed["domain"]
+			data["mode"] = seed["mode"]
+		_apply_layout(data)
+		## A WORLD tool still armed would keep its map-click handler live over a
+		## domain the user can no longer see. Released through `arm_tool()`, the
+		## same call Escape makes.
+		if _host.has_method("arm_tool") and _world_tool_ids().has(String(_host.get("armed_tool"))):
+			_host.arm_tool("inspect")
+		_shell.set_session_gate(true)
+		for r in _session_rows:
+			var p: PopupMenu = r["p"]
+			var i := int(r["i"])
+			if is_instance_valid(p) and i < p.item_count:
+				r["dis"] = p.is_item_disabled(i)
+				r["tip"] = p.get_item_tooltip(i)
+		_reapply_session_rows()
+		_host.set_status("hint", "Session mode on: WORLD is hidden. Ctrl+Shift+M turns it off.", "text_dim")
+	else:
+		DccSettings.save_layout(SESSION_LAYOUT, _capture_layout())
+		_shell.set_session_gate(false)
+		for r in _session_rows:
+			var p: PopupMenu = r["p"]
+			var i := int(r["i"])
+			if is_instance_valid(p) and i < p.item_count and r.has("dis"):
+				p.set_item_disabled(i, bool(r["dis"]))
+				p.set_item_tooltip(i, String(r["tip"]))
+		## Every domain but the active one first, through `apply_domain_mode()`
+		## (writes the mode, switches nothing); the layout then restores the
+		## active domain and its mode, so the remembered arrangement is what
+		## comes back, not only the half a layout records.
+		var prev_dom := String(_session_prev_layout.get("domain", ""))
+		for id in _session_prev_modes:
+			var m := String(_session_prev_modes[id])
+			if id != prev_dom and m != "" and m != _shell.active_mode(String(id)):
+				_shell.apply_domain_mode(String(id), m)
+		_apply_layout(_session_prev_layout)
+		_host.set_status("hint", "Session mode off.", "text_dim")
+	_sync_session_checks()
+	return true
+
+## The tool ids WORLD registers on the palette (`app.gd::set_domain_tools()`),
+## plus `sculpt` and `paint`, which the sculpt/paint options bar also arms
+## (`tool_bar.gd`). Read from the live registry, not copied.
+func _world_tool_ids() -> Array:
+	var out: Array = ["sculpt", "paint"]
+	var reg = _host.get("_domain_tools")
+	if reg is Dictionary:
+		for e in (reg as Dictionary).get("world", []):
+			if e is Dictionary and (e as Dictionary).has("id"):
+				out.append(String(e["id"]))
+	return out
+
+## Moves every Session mode check row to the shell's real state.
+func _sync_session_checks() -> void:
+	for pair in _session_check_rows:
+		var p: PopupMenu = pair[0]
+		if is_instance_valid(p) and int(pair[1]) < p.item_count:
+			p.set_item_checked(int(pair[1]), _shell.is_session_mode())
+
 ## Everything §2.6 names, off the live shell. **No new API was added for
 ## this**: the five region flags are the Window menu's own check state, and the
 ## rest are `DccShell` accessors that already existed.
@@ -6139,10 +6382,18 @@ func _apply_layout(data: Dictionary) -> void:
 			_host.toggle_region(rid)
 			_sync_region_checks(_window_popup, rid)
 	var domain := String(data.get("domain", ""))
-	if domain != "" and domain != _shell.active_domain():
+	## SM-7: a layout naming a domain Session mode hides (any layout applied
+	## from Window ▸ Layouts while the mode is on) restores its regions and the
+	## rail but not its domain or mode -- `_shell.select_domain()` would refuse
+	## it anyway, and the mode that follows would then be written against the
+	## wrong domain. The shell's own refusal prints the way back.
+	var domain_hidden := domain != "" and _shell.session_hides_domain(domain)
+	if domain_hidden:
+		_shell.select_domain(domain)
+	elif domain != "" and domain != _shell.active_domain():
 		_shell.select_domain(domain)
 	var mode := String(data.get("mode", ""))
-	if mode != "" and mode != _shell.active_mode():
+	if not domain_hidden and mode != "" and mode != _shell.active_mode():
 		_shell.select_domain_mode(_shell.active_domain(), mode)
 	_shell.set_rail_expanded(bool(data.get("rail_expanded", false)))
 	if data.has("detent") and _shell.has_method("set_phone_detent"):
@@ -6986,6 +7237,7 @@ func _world(p: PopupMenu) -> void:
 	## `Ctrl+R` was free (grepped `KEY_R` across `shell/*.gd`, no hits) so
 	## this is a new binding, not a fix to an existing double one.
 	_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+	_session_gate_row(p, p.item_count - 1)
 	p.set_item_tooltip(p.item_count - 1,
 		## Same guarded path as `world_workspace.gd::_regenerate_live()`.
 		## "The engine has no partial recompute" removed 2026-09-24 (ALIGNMENT_
@@ -7005,6 +7257,8 @@ func _world(p: PopupMenu) -> void:
 	var mode_pipe_idx := p.item_count - 1
 	p.add_radio_check_item("Sculpt", ID_WORLD_MODE_SCULPT)
 	var mode_sculpt_idx := p.item_count - 1
+	_session_gate_row(p, mode_pipe_idx)
+	_session_gate_row(p, mode_sculpt_idx)
 	p.add_separator()
 	## Canvas: "Seed & size…" -> `new_world_dialog.gd::request()`. Opening the
 	## dialog is `_host.open_new_world()` -- the same call File ▸ New world…
@@ -7014,6 +7268,7 @@ func _world(p: PopupMenu) -> void:
 	## not a new one -- `Storage locations…` already does this from both File
 	## and Preferences.
 	_live(p, "Seed & size…", ID_WORLD_SEED_SIZE)
+	_session_gate_row(p, p.item_count - 1)
 	p.set_item_tooltip(p.item_count - 1,
 		"Opens New world -- seed, extent, resolution and archetype. The same dialog File ▸ New world… opens; Generate reads its fields when it runs.")
 	p.about_to_popup.connect(func():

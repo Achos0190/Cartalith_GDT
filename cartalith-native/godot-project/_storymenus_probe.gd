@@ -36,6 +36,8 @@ extends Node
 ##         naming the gap; Plan journey from here / Journey to here driving a
 ##         real route into the planner; on the phone one Add event row and the
 ##         peek sheet's chips in A8's order. Screenshots of the card / sheet.
+##   SM-7  Ctrl+Shift+M is used once on the bar, by Window ▸ Session mode, and
+##         is rebindable. The mode's behaviour is `_sessionmode_probe.gd`'s.
 ##
 ## The expected row lists are written here as literals (the proposal's §3
 ## tables), never read back from `menus.gd`, so a reordering or a dropped row
@@ -649,10 +651,17 @@ func _sm2() -> void:
 	for ch in app.menu_bar_row.get_children():
 		if ch is MenuButton:
 			_all_accels((ch as MenuButton).get_popup(), (ch as MenuButton).text, accs)
-	for k in [KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N]:
+	## SM-7's Ctrl+Shift+M joins the §3.5 set (Window ▸ Session mode; on the
+	## tablet under ☰ ▸ Window, which `_all_accels` walks).
+	for k in [KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N,
+			KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_M]:
 		var users := accs.filter(func(e): return int(e[1]) == k)
 		_check("%s is used by exactly one row on the whole bar" % OS.get_keycode_string(k),
 			users.size() == 1, str(users))
+	var sess_users := accs.filter(func(e): return int(e[1]) == (KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_M))
+	_check("Ctrl+Shift+M is Window ▸ Session mode (SM-7), rebindable",
+		sess_users.size() == 1 and String(sess_users[0][0]).ends_with("Window > Session mode")
+			and app.menus.is_rebindable_shortcut(DccMenus.ID_WIN_SESSION_MODE), str(sess_users))
 	## The shortcuts dialog reads the live menus: both new keys must be listed.
 	var listed: Array = app.shortcuts_dialog._collect_from_menus()
 	for t in ["Timeline", "Notes for this place"]:
