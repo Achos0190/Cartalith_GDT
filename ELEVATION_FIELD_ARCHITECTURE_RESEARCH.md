@@ -1102,6 +1102,97 @@ needs a colour/shading-side blend across the band (not only heights), which is
 new design work, not a tuning of this one. Also open: the first EF-9 call per
 world builds the importance rasters on the main thread (not timed separately).
 
+**EF-9.4 follow-up (2026-10-18): the colour half, two display fixes, a build
+gate -- I4 now passes wherever EF-9 off passes; D3 still fails; the toggle stays
+OFF.** Re-measured first, after the kilometre-keyed zoom detail (`1fc9208f`)
+landed: with EF-9 on, HEAD failed I4 on 7 of 18 configurations, not 1
+(24601/512 zoompan 1.947, sweep 1.624, pan 1.748; 71077345/512 all three;
+483920/512 sweep), and D3 on 9 of 12. EF-9 off also fails one I4 configuration
+now (24601/512 pan, 1.594) and 4-5 of 12 D3.
+
+What was built, each from a measurement:
+
+1. **The colour half of the geomorph** (`cartalith_engine::elevation::conform_colour_in_place`,
+   called from `lod_bridge::synthesize_tile_rgba_with_z_base`). Inside the same
+   band, with the same weight `m` as the height half, the conformed tile's
+   colour is cross-faded toward the PLAIN level-`(z-1)` tile under it, sampled
+   bilinearly as the shell's linear sprite draws it. Principle: the colouriser
+   shades at each level's own texel spacing, so equal heights never give equal
+   colour; the only quantity that can agree across a mixed edge is the drawn
+   one. No new constant: the colour band is the height band. On the unit
+   fixture the conformed edge is now the same-level edge exactly (0.0 levels,
+   was 3.21; plain 4.63). The parent synthesis roughly doubles a conformed
+   tile's cost (z10 8.7 -> 18.5 ms, `_lodsweep_probe` metric 5, n=8), so
+   `LodSnapshot` keeps the last 8 plain parents (`PLAIN_TILE_CACHE`, filled
+   only by conformed syntheses, so empty with EF-9 off).
+2. **The promoted child's blend mode** (`viewport_host.gd::_refresh_ef9_blend`).
+   In the entry band the children were alpha-blended over a fallback that was
+   itself already mixed with the base map, so the `z` level counted twice:
+   `m*C + (1-m)(m*P + (1-m)*base)` beside `m*N + (1-m)*base`. Seen in the
+   settled frame (24601/512, zoom 16, morph 0.34) as a straight line whose first
+   column sat about 5 levels off the EF-9-off picture. Children now use the
+   drawn level's own mode (alpha over a parent only when `parents_ready`).
+3. **The hold rule** (`_ef9_apply`, `_ef9_update_held`). A part-built region
+   drew its fallback opaque at morph 1 beside neighbours at morph `m`; in 30 of
+   56 bad frames (71077345/512 zoompan) the worst boundary was such a region.
+   A promoted region is now drawn only once its fallback and every listed child
+   are live; until then its plain tile is drawn in the ordinary role and the
+   promoted tiles are built hidden.
+4. **The build gate** (`_ef9_apply`, `_process`). Refinement upgrades a LIVE
+   plain tile; a promoted tile whose plain tile is not live is not promoted that
+   call, and the selection re-runs when the plain tile lands. Measured before:
+   during a zoom-while-pan build-up the plain tiles of promoted regions sat
+   behind 21 pending syntheses and their regions drew part-built refinement for
+   up to 20 frames (seam 2.1-3.9 against about 1.0 with EF-9 off on the same
+   frames). Same-frame comparison after (24601/512 zoompan, three runs, DLL at
+   `9b34b3aa` + this change): mixed
+   frames' seam median 1.153 / 1.187 / 1.153 against 1.083 off on the same
+   frames; before the gate, three runs of one build gave 1.499, 1.519 and 2.323.
+
+Measured windowed, scratch `git archive` copies of `b769ad0f`, debug DLLs built
+from `b769ad0f` and `b769ad0f` + this change; `_lodsweep_probe.gd --no-sheet
+--ef9 off|on`, one world per run, clean user directory per run:
+
+| Bar | HEAD, off | HEAD, on | This change, on | This change, off |
+|---|---|---|---|---|
+| Toggle off bit-identical (`--frames`, 24 settled captures vs HEAD) | -- | -- | -- | 24/24 (`--ef9 off` and tier default) |
+| I4 seam median <= 1.5 | 17/18 (24601/512 pan 1.594) | 11/18 (max 1.947) | **17/18** (24601/512 pan 1.724) | 17/18 (same run 1.834) |
+| D3 level-boundary ratio <= 1.5 | 7/12 (max 1.84) | 3/12 (max 2.70) | **4/12** (max 2.85) | 8/12 (max 1.84) |
+| I3 frames past the cap | 0 | 0 | 0 | 0 |
+| Pops (all 18 runs) | 13 | 10 | 13 | 11 |
+| Holey frames after the first built frame | 201 | 155 | 156 | 210 |
+| Payoff views with detail ratio >= 1 | -- | 36/36 (median 2.20) | 36/36 (median 1.95) | -- |
+| Frame time, median of run medians (min..max) | 1.63 ms (1.30..1.82) | 2.53 ms (1.51..3.84) | 2.77 ms (1.64..3.93) | 1.83 ms (1.61..2.16) |
+| Camera-step cost, same | 33.1 ms (32.7..33.4) | 38.0 ms (32.6..42.1) | 40.9 ms (32.7..48.5) | 33.0 ms (32.7..33.1) |
+
+The only I4 failure with this change is a configuration EF-9 off fails as well,
+and run-to-run spread on that one is wide (off: 1.594 and 1.834 in two runs of
+the same build). **I4 per-run figures move between identical runs** where tiles
+land at different frames -- by 0.24 for that configuration off, and by up to
+0.82 with EF-9 on before the build gate (1.499, 1.519, 2.323 in three runs of
+one build, 24601/512 zoompan) -- so a single-run value near 1.5 is not decisive either way.
+
+**Why it still stays off: D3.** At a level boundary the promoted set changes.
+A region promoted at level `z` shows level `z+1` at the end of the level
+(children at alpha `m -> 1`); one frame later, at level `z+1` with morph about 0,
+the same ground shows level `z` (seen in the dumped frames 19 -> 20 of 24601/512
+zoompan: the children `7,44..45,74..77` go from alpha 0.998 to 0.00002). A
+promoted region is always one effective level ahead, so any region whose
+promotion status changes jumps a whole level, and at a level boundary that
+happens to every region at once. No colour or edge rule removes that; it is a
+property of a discrete per-level selection. The candidate fix is a continuous
+per-position effective level (a smooth importance boost added to the zoom's
+level, with a per-pixel morph in the tile shader instead of one morph per
+level), i.e. CDLOD's distance morph with importance in place of distance. That
+is a display-model redesign and is not built.
+
+Read in the settled frames (24601/512, off / HEAD on / this change on): at zoom
+16 the straight vertical line at the promoted region's edge is gone; the region
+is still visibly more textured than its neighbours, which is the refinement
+itself, now reached through a 16-texel ramp rather than a step. At zoom 8 the
+promoted block is still readable as a rectangle of denser texture (softer
+edges than HEAD); at zoom 40 no edge is visible in either on state.
+
 ### 8.5 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below

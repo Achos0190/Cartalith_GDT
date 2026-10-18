@@ -509,6 +509,116 @@ pub fn conform_tile_in_place(
     true
 }
 
+/// **EF-9.4's colour half of the geomorph**: the same position rule as
+/// [`conform_tile_in_place`], applied to the *drawn colour* of a level-`id.z`
+/// tile instead of to its heights.
+///
+/// # Why heights alone were not enough (measured)
+///
+/// [`conform_tile_in_place`] makes a conformed tile's edge carry the coarser
+/// level's *elevation* bit for bit, but the colouriser does not see elevation
+/// alone: its shading stencils read neighbouring texels, so a slope or a crest
+/// is computed at the tile's own texel spacing, which halves per level. Two
+/// tiles holding the same heights along an edge therefore still shade it
+/// differently. `cartalith-godot`'s
+/// `a_conformed_tile_meets_its_coarser_neighbour_in_colour` measured the
+/// residual (2026-10-17): conforming heights took the mixed-level edge's colour
+/// jump from 4.63 to 3.21 levels, about a third of it; and the D0 sweep
+/// (`_lodsweep_probe.gd --ef9 on`) saw it on screen as a straight line where
+/// texture density changes (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.4).
+///
+/// # The rule
+///
+/// `out(p) = C_z(p) (1 - m) + C_{z-1}(p) m`, `m` exactly the weight
+/// [`conform_tile_in_place`] uses at the same texel (same coordinate
+/// expression, same [`rect_distance_texels`], same [`conform_weight`], same
+/// `band_texels`). `C_z` is this tile's own colour (`rgba`, already coloured
+/// from the conformed heights). `C_{z-1}` is the **plain** level-`(id.z - 1)`
+/// tile covering this one (`parent`, `pw x ph`, the quadtree parent
+/// `(id.col / 2, id.row / 2)`, coloured by the same colouriser with no
+/// conform), sampled *bilinearly* at this texel's ground position -- which is
+/// what the shell's `TEXTURE_FILTER_LINEAR` sprite draws between that tile's
+/// texels (`viewport_host.gd`, `_build_lod_tile`; the texel-centre-on-edge
+/// mapping its `lod_tile.gdshader` UV inset sets up).
+///
+/// So on the shared edge (`m == 1`) this tile draws the coarser level's own
+/// pixels, and the coarser level's tile on the far side of the edge draws the
+/// same ground from the same level -- same-level tiles already agree along an
+/// edge (the LOD-tile halo). Away from the band (`m == 0`) the texel is
+/// untouched, byte for byte. In between the change of texture density is a
+/// smoothstep ramp across the band rather than a step at the edge. No new
+/// constant is introduced: the colour rule is the height rule's own weight, so
+/// the two halves of the geomorph cannot drift apart.
+///
+/// Rounding: the blend is computed in `f64` and rounded to the nearest level,
+/// so a texel inside the band can differ from the GPU's own bilinear of the
+/// parent by at most one level (the GPU filters 8-bit texels too).
+///
+/// Returns whether anything could have changed: `false` (and `rgba` untouched)
+/// when `near` is empty, `id.z == 0`, `w`, `h`, `pw` or `ph` is below 2, the
+/// grid is degenerate, or either buffer is shorter than its stated size. Never
+/// panics: its live caller is on the far side of the gdext boundary.
+#[allow(clippy::too_many_arguments)]
+pub fn conform_colour_in_place(
+    cw: usize,
+    ch: usize,
+    id: ChunkId,
+    w: usize,
+    h: usize,
+    rgba: &mut [u8],
+    parent: &[u8],
+    pw: usize,
+    ph: usize,
+    near: &[cartalith_spatial::FloatRegion],
+    band_texels: f64,
+) -> bool {
+    use rayon::prelude::*;
+    if near.is_empty() || id.z == 0 || w < 2 || h < 2 || pw < 2 || ph < 2 || cw < 2 || ch < 2 {
+        return false;
+    }
+    if rgba.len() < w * h * 4 || parent.len() < pw * ph * 4 {
+        return false;
+    }
+    let b = pyramid_tile_bounds(cw, ch, id.z as i32, id.col, id.row);
+    let pb = pyramid_tile_bounds(cw, ch, id.z as i32 - 1, id.col / 2, id.row / 2);
+    let sx = (w as f64 - 1.0) / b.w;
+    let sy = (h as f64 - 1.0) / b.h;
+    // The parent's texels per coarse unit: texel `u` sits at `pb.x + u / (pw - 1) * pb.w`.
+    let psx = (pw as f64 - 1.0) / pb.w;
+    let psy = (ph as f64 - 1.0) / pb.h;
+    rgba[..w * h * 4].par_chunks_mut(w * 4).enumerate().for_each(|(j, row)| {
+        // `conform_tile_in_place`'s own expression at `pad == 0`.
+        let cy = b.y + (j as f64 / (h as f64 - 1.0)) * b.h;
+        let v = ((cy - pb.y) * psy).clamp(0.0, ph as f64 - 1.0);
+        let v0 = (v.floor() as usize).min(ph - 2);
+        let fv = v - v0 as f64;
+        for i in 0..w {
+            let cx = b.x + (i as f64 / (w as f64 - 1.0)) * b.w;
+            let mut dist = f64::INFINITY;
+            for r in near {
+                dist = f64::min(dist, rect_distance_texels(cx, cy, r, sx, sy));
+            }
+            let m = conform_weight(dist, band_texels);
+            if m <= 0.0 {
+                continue;
+            }
+            let u = ((cx - pb.x) * psx).clamp(0.0, pw as f64 - 1.0);
+            let u0 = (u.floor() as usize).min(pw - 2);
+            let fu = u - u0 as f64;
+            let at = |x: usize, y: usize, k: usize| f64::from(parent[(y * pw + x) * 4 + k]);
+            for k in 0..4 {
+                let top = at(u0, v0, k) * (1.0 - fu) + at(u0 + 1, v0, k) * fu;
+                let bot = at(u0, v0 + 1, k) * (1.0 - fu) + at(u0 + 1, v0 + 1, k) * fu;
+                let par = top * (1.0 - fv) + bot * fv;
+                let own = f64::from(row[i * 4 + k]);
+                let out = if m >= 1.0 { par } else { own * (1.0 - m) + par * m };
+                row[i * 4 + k] = out.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    });
+    true
+}
+
 /// Sum of squared discrete Laplacians over the interior of a `w x h` patch:
 /// how much curvature -- high-frequency content -- the patch carries.
 ///
@@ -1499,5 +1609,98 @@ mod tests {
         assert!(world_sample_elevation(&ws, &p, 1.0, 1.0, 4, TS).is_some());
         // Far outside the field: the coarse sampler clamps, it does not fail.
         assert!(world_sample_elevation(&ws, &p, -9e3, 9e3, 4, TS).is_some_and(|v| v.is_finite()));
+    }
+
+    /// The fixture for `conform_colour_in_place`: a 65x33 grid (not square, so
+    /// a swapped `x`/`y` scale cannot pass by symmetry), the level-2
+    /// tile `(2, 1)` (its quadtree parent is level-1 `(1, 0)`), and its west
+    /// neighbour one level coarser, level-1 `(0, 0)`, whose east edge is the
+    /// child's west edge. Both tiles are 17x17, so child texel `(i, j)` sits at
+    /// parent texel `(i / 2, j / 2)` -- exact on even indices. The colours are
+    /// position-coded and distinct per channel, so a swapped axis or channel
+    /// cannot pass by symmetry.
+    fn colour_fixture() -> (ChunkId, Vec<u8>, Vec<u8>, cartalith_spatial::FloatRegion) {
+        const N: usize = 17;
+        let id = ChunkId::new(2, 2, 1);
+        let own: Vec<u8> = (0..N * N).flat_map(|t| [200u8, 10 + (t % 7) as u8, 100, 255]).collect();
+        let parent: Vec<u8> =
+            (0..N * N).flat_map(|t| [(t % N * 8) as u8, (t / N * 8) as u8, 40 + (t % 3) as u8 * 30, 255]).collect();
+        let west = pyramid_tile_bounds(65, 33, 1, 0, 0);
+        (id, own, parent, west)
+    }
+
+    /// Protects: EF-9.4's colour rule at the shared edge -- the texel ON the
+    /// edge draws the coarser level's own pixel (`m == 1`), on even rows
+    /// exactly the coincident parent texel and on odd rows the rounded
+    /// midpoint of the two parent texels either side (what a bilinear sampler
+    /// draws there). A swapped `u`/`v`, a parent read at the wrong quadtree
+    /// child, or a blend weight that never reaches 1 all fail it.
+    #[test]
+    fn a_colour_conformed_edge_draws_the_coarser_levels_pixels() {
+        const N: usize = 17;
+        let (id, mut rgba, parent, west) = colour_fixture();
+        assert!(conform_colour_in_place(65, 33, id, N, N, &mut rgba, &parent, N, N, &[west], 4.0));
+        // Tile (2, 1) at level 2 is the SW child of level-1 (1, 0): col 2 = 2*1
+        // (west half), row 1 = 2*0 + 1 (south half). So child texel (i, j) sits
+        // at parent texel (i/2, 8 + j/2), and the west edge is parent column 0.
+        for j in 0..N {
+            let px = |x: usize, y: usize, k: usize| parent[(y * N + x) * 4 + k];
+            for k in 0..4 {
+                let got = rgba[(j * N) * 4 + k];
+                let want = if j % 2 == 0 {
+                    px(0, 8 + j / 2, k)
+                } else {
+                    ((f64::from(px(0, 8 + j / 2, k)) + f64::from(px(0, 9 + j / 2, k))) / 2.0).round() as u8
+                };
+                assert_eq!(got, want, "edge texel row {j} channel {k}");
+            }
+        }
+    }
+
+    /// Protects: the colour rule's weight is the HEIGHT rule's weight -- a
+    /// texel half a band in carries `conform_weight(0.5) == 0.5` of the parent
+    /// (literal 0.5: smoothstep at its midpoint), and every texel a full band
+    /// or more from the coarser rect is untouched byte for byte. A colour band
+    /// that drifted from `band_texels`, or a rule that wrote every texel, fails.
+    #[test]
+    fn the_colour_blend_uses_the_height_band_and_leaves_the_rest_alone() {
+        const N: usize = 17;
+        let (id, own, parent, west) = colour_fixture();
+        let mut rgba = own.clone();
+        conform_colour_in_place(65, 33, id, N, N, &mut rgba, &parent, N, N, &[west], 4.0);
+        for j in 0..N {
+            for i in 0..N {
+                let o = (j * N + i) * 4;
+                if i >= 4 {
+                    assert_eq!(&rgba[o..o + 4], &own[o..o + 4], "texel ({i},{j}) is past the band");
+                }
+            }
+            // Column 2 is 2 texels from the edge: m = 0.5. Its parent position
+            // is column 1 exactly; row j at parent row 8 + j/2 (even rows exact).
+            if j % 2 == 0 {
+                for k in 0..3 {
+                    let par = f64::from(parent[((8 + j / 2) * N + 1) * 4 + k]);
+                    let mine = f64::from(own[(j * N + 2) * 4 + k]);
+                    assert_eq!(rgba[(j * N + 2) * 4 + k], (0.5 * mine + 0.5 * par).round() as u8, "half-band texel row {j} ch {k}");
+                }
+            }
+        }
+    }
+
+    /// Protects: the refusals -- nothing near, level 0 (no coarser level),
+    /// a buffer shorter than its size, a degenerate parent -- return `false`
+    /// and leave the tile byte for byte, so a caller error on the gdext side
+    /// never panics and never half-writes a tile.
+    #[test]
+    fn colour_conform_refusals_leave_the_tile_untouched() {
+        const N: usize = 17;
+        let (id, own, parent, west) = colour_fixture();
+        let mut d = own.clone();
+        assert!(!conform_colour_in_place(65, 33, id, N, N, &mut d, &parent, N, N, &[], 4.0), "empty near");
+        assert!(!conform_colour_in_place(65, 33, ChunkId::new(0, 0, 0), N, N, &mut d, &parent, N, N, &[west], 4.0), "level 0");
+        assert!(!conform_colour_in_place(65, 33, id, N, N, &mut d, &parent[..10], N, N, &[west], 4.0), "short parent");
+        assert!(!conform_colour_in_place(65, 33, id, N, N, &mut d, &parent, 1, N, &[west], 4.0), "parent 1 wide");
+        assert!(!conform_colour_in_place(1, 33, id, N, N, &mut d, &parent, N, N, &[west], 4.0), "degenerate grid");
+        assert_eq!(d, own);
     }
 }

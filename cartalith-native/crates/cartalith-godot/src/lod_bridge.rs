@@ -412,7 +412,7 @@ pub fn synthesize_tile_rgba(
     row: i32,
     seed: i32,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None, None, None, 0)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None, None, None, 0, None)
 }
 
 /// [`synthesize_tile_rgba`] with the rivers drawn into the tile: `rivers` is
@@ -465,10 +465,14 @@ pub fn synthesize_tile_rgba_rivers(
 /// therefore a *different tile* from the plain one at the same `(z, col, row)`,
 /// and every cache that holds one keys on the mask as well
 /// (`lod_worker::LodWorker::request_conformed`, `viewport_host.gd`'s
-/// `_lod_key`). Colour is not conformed directly: it is recomputed from the
-/// conformed heights by the same colouriser, so the agreement EF-9.3 measured
-/// in elevation reaches the screen only as far as colour is a smooth function
-/// of height (the two levels' colour inputs off the coarse grid are shared).
+/// `_lod_key`). Colour is conformed in two steps: it is recomputed from the
+/// conformed heights by the same colouriser, and then -- because the
+/// colouriser shades at each level's own texel spacing, so equal heights do not
+/// give equal colour -- cross-faded inside the same band, with the same weight,
+/// toward the plain level-`(z - 1)` tile under this one
+/// (`cartalith_engine::elevation::conform_colour_in_place`, 2026-10-18). That
+/// second step synthesises the parent tile as well, so a conformed tile costs
+/// about two plain syntheses.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_tile_rgba_rivers_conformed(
     ctx: &RenderCtx,
@@ -482,7 +486,32 @@ pub fn synthesize_tile_rgba_rivers_conformed(
     paint: Option<&crate::river_field::PaintSource>,
     conform: u8,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans, paint, conform)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans, paint, conform, None)
+}
+
+/// [`synthesize_tile_rgba_rivers_conformed`] with the colour half's parent tile
+/// supplied: `parent` must be exactly what this function returns for
+/// `(z - 1, col / 2, row / 2)` with `conform == 0` and the same inputs -- the
+/// plain tile the colour is cross-faded toward. `lod_worker::LodSnapshot` keeps
+/// recent plain tiles and passes one here, so a region's four children and the
+/// plain tile the shell shows meanwhile share one synthesis of it. `None`
+/// synthesises it, which is [`synthesize_tile_rgba_rivers_conformed`]. Ignored
+/// when `conform == 0`.
+#[allow(clippy::too_many_arguments)]
+pub fn synthesize_tile_rgba_rivers_conformed_with_parent(
+    ctx: &RenderCtx,
+    tf: &TileFields,
+    z: i32,
+    col: i32,
+    row: i32,
+    seed: i32,
+    rivers: Option<&crate::river_stroke::RiverGeometry>,
+    fans: Option<&crate::river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
+    conform: u8,
+    parent: Option<(&[u8], usize, usize)>,
+) -> Option<(Vec<u8>, usize, usize)> {
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans, paint, conform, parent)
 }
 
 /// [`synthesize_tile_rgba`] with `opts.zBase` supplied rather than taken from
@@ -503,6 +532,7 @@ fn synthesize_tile_rgba_with_z_base(
     fans: Option<&crate::river_stroke::RiverGeometry>,
     paint: Option<&crate::river_field::PaintSource>,
     conform: u8,
+    parent: Option<(&[u8], usize, usize)>,
 ) -> Option<(Vec<u8>, usize, usize)> {
     let t = tile_heights(ctx, tf, z, col, row, seed, zb, conform)?;
     // The rivers at this tile's own pixels: pixel `x` sits at sample
@@ -518,11 +548,34 @@ fn synthesize_tile_rgba_with_z_base(
             None => crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, map),
         }
     });
-    let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
+    let mut rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
     // A `tf` built for another grid makes the colouriser return an empty Vec;
     // surface that as "no tile" (see `synthesize_tile_rgba`'s contract).
     if rgba.len() != t.w * t.h * 4 {
         return None;
+    }
+    // EF-9.4, the colour half of the geomorph (2026-10-18): conformed heights
+    // alone left two thirds of the mixed-level colour jump, because the
+    // colouriser shades at each level's own texel spacing
+    // (`cartalith_engine::elevation::conform_colour_in_place`'s doc has the
+    // measurement). Inside the same band, with the same weight, the colour is
+    // cross-faded toward the plain level-`(z - 1)` tile under this one -- the
+    // tile the coarser neighbour across the edge agrees with -- so the edge
+    // draws the coarser level's own pixels. Skipped by control flow for
+    // `conform == 0`, like the height half, so a plain tile is untouched.
+    if conform != 0 && z >= 1 {
+        let owned;
+        let (parent, pw, ph) = match parent {
+            Some(p) => p,
+            None => {
+                owned = synthesize_tile_rgba_with_z_base(ctx, tf, z - 1, col >> 1, row >> 1, seed, zb, rivers, fans, paint, 0, None)?;
+                (owned.0.as_slice(), owned.1, owned.2)
+            }
+        };
+        let id = ChunkId::new(z as u32, col as u32, row as u32);
+        let near = cartalith_engine::subdivision::neighbour_rects(ctx.gw, ctx.gh, id, conform);
+        let band = cartalith_engine::elevation::CONFORM_BAND_TEXELS;
+        cartalith_engine::elevation::conform_colour_in_place(ctx.gw, ctx.gh, id, t.w, t.h, &mut rgba, parent, pw, ph, &near, band);
     }
     Some((rgba, t.w, t.h))
 }
@@ -1550,11 +1603,12 @@ mod tests {
     ///
     /// Protects: the conform step reaching the drawn pixels -- the mask
     /// resolved to rects (`neighbour_rects`), the pull applied to the padded
-    /// shading tile, and the colouriser recomputed from it. A wiring that
-    /// conformed a copy and coloured the original leaves the seam where the
-    /// plain tile has it and fails the ratio (bar 0.8, measured 0.69); the
-    /// `plain > 1` bar shows the two levels really disagree here, so the
-    /// comparison is not vacuous. Also
+    /// shading tile, the colouriser recomputed from it, and the colour half
+    /// (`conform_colour_in_place` against the plain parent tile). The edge
+    /// must equal the SAME-level seam to the coarse tile exactly, so a colour
+    /// half that read the wrong parent, the wrong axis or never reached weight
+    /// 1 fails; the `plain > 1` bar shows the two levels really disagree here,
+    /// so the comparison is not vacuous. Also
     /// asserts `conform == 0` is the plain tile byte for byte (identity by
     /// control flow) and that pixels well inside the tile, past the band and
     /// the shading halo, are untouched.
@@ -1599,20 +1653,33 @@ mod tests {
         let nat = |t: &[u8], tw: usize, th: usize, a: usize, b: usize| -> f64 {
             (0..th).map(|y| (0..3).map(|c| (t[(y * tw + a) * 4 + c] as f64 - t[(y * tw + b) * 4 + c] as f64).abs()).fold(0.0, f64::max)).sum::<f64>() / th as f64
         };
+        // The independent reference the colour half aims at: the SAME-level
+        // seam between the coarse tile and the plain level-4 tile east of it,
+        // (12, 7) -- the conformed child's quadtree parent -- over the same
+        // rows. Child row `2k` sits exactly on that parent's row `k`, so with
+        // the edge weight at 1 the conformed child's edge texel IS the parent's
+        // edge texel and the two seams must be equal, not merely close.
+        let (east, _, _) = synthesize_tile_rgba(&ctx, &tf, zc, cc + 1, rc, 1234).unwrap();
+        let same_level = {
+            let mut acc = 0.0;
+            for k in 0..h.div_ceil(2) {
+                let (o, p) = ((k * w + w - 1) * 4, (k * w) * 4);
+                acc += (0..3).map(|c| (coarse[o + c] as f64 - east[p + c] as f64).abs()).fold(0.0, f64::max);
+            }
+            acc / h.div_ceil(2) as f64
+        };
         eprintln!("natural steps: coarse {:.4}, fine plain {:.4}, fine conformed {:.4}", nat(&coarse, w, h, w - 2, w - 1), nat(&plain, fw, fh, 0, 1), nat(&conf, fw, fh, 0, 1));
-        eprintln!("mixed-level edge colour delta, mean of per-texel max channel: conformed {s_conf:.4}, plain {s_plain:.4} levels");
-        // Measured on this fixture (2026-10-17): conformed 3.21, plain 4.63
-        // levels (ratio 0.69), against natural column steps of 14.9 (coarse)
-        // and 6.4 (fine) -- so the mixed edge is already below the texture's
-        // own step here, and what conforming buys in colour is a third of the
-        // remaining jump, not all of it: elevation agrees bit for bit at the
-        // coincident texels (EF-9.3), but the two levels SHADE at different
-        // texel spacings, which no height pull can reconcile. The 0.8 bar sits
-        // between the measured ratio and 1.0, so a wiring that does nothing
-        // (ratio 1.0) fails it. The on-screen bar is I4's seam ratio, measured
-        // by `_lodsweep_probe.gd --ef9 on`.
+        eprintln!("mixed-level edge colour delta, mean of per-texel max channel: conformed {s_conf:.4}, plain {s_plain:.4}, same-level {same_level:.4} levels");
+        // History (2026-10-17): with the HEIGHT half alone this measured
+        // conformed 3.21 vs plain 4.63 levels -- a third of the jump, because
+        // the two levels shade at different texel spacings. The colour half
+        // (2026-10-18, `conform_colour_in_place`) makes the conformed edge the
+        // same-level edge exactly; `s_plain > 1` keeps the fixture honest (the
+        // two levels really disagree here, so equality is not vacuous). The
+        // on-screen bar is I4's seam ratio (`_lodsweep_probe.gd --ef9 on`).
         assert!(s_plain > 1.0, "the fixture must show a mixed-level seam to be a test of anything: {s_plain:.3}");
-        assert!(s_conf < 0.8 * s_plain, "conformed seam {s_conf:.3} vs plain {s_plain:.3} levels");
+        assert_eq!(s_conf, same_level, "the conformed edge is the same-level edge (plain {s_plain:.3})");
+        assert!(s_conf < 0.5 * s_plain, "conformed seam {s_conf:.3} vs plain {s_plain:.3} levels");
         // Far from the W/SW edge -- the east half, beyond the 16-texel band plus
         // any shading halo -- the conformed tile is the plain one.
         for y in 0..fh {
@@ -1643,7 +1710,7 @@ mod tests {
         let tf = tw.fields(&ctx);
         let z = z_base() + 3;
         let (with, _, _) = synthesize_tile_rgba(&ctx, &tf, z, 1, 1, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None, None, None, 0).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None, None, None, 0, None).unwrap();
         assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
@@ -1660,7 +1727,7 @@ mod tests {
         let n = 1 << z;
         let (col, row) = (5 * n / 16, 7 * n / 16);
         let (with, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None, 0).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None, 0, None).unwrap();
         let moved = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a[..3] != b[..3]).count();
         assert!(moved > w * h / 10, "only {moved} of {} pixels moved when the octaves were switched on", w * h);
     }
@@ -1802,7 +1869,7 @@ mod tests {
             let (with, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
             // `zb == z` makes `add_zoom_detail`'s `extra` non-positive, i.e.
             // exactly the pre-2026-08-24 `amplify_region`-only content.
-            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None, 0).unwrap();
+            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None, 0, None).unwrap();
             // Pixels per coarse cell, from the tile's own bounds rather than
             // from `2^z` -- the two agree, and reading it off the addressing
             // is what makes this survive a `TILE_PX` change.

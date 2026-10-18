@@ -725,7 +725,27 @@ pub struct LodSnapshot {
     /// (`sample_bridge::flow_log_max`), scanned ONCE here so every tile shares
     /// one scale and no edge seams. The `1e-6` floor when there is no flow.
     flow_log_max: f64,
+    /// EF-9.4's colour half (2026-10-18): the last few PLAIN tiles this
+    /// snapshot coloured as a conformed tile's parent, `(z, col, row) ->
+    /// (rgba, w, h)`, newest last. A
+    /// conformed tile cross-fades toward its plain parent
+    /// (`lod_bridge::synthesize_tile_rgba_rivers_conformed_with_parent`), and
+    /// the shell asks for that same plain tile while the region is incomplete
+    /// (`viewport_host.gd`'s hold rule), so one synthesis serves the region's
+    /// four children and the shell. Per snapshot, so a world or look change
+    /// starts empty -- a cached tile is always this snapshot's own output, never
+    /// a stale one. Capacity [`PLAIN_TILE_CACHE`].
+    plain_rgba: Mutex<std::collections::VecDeque<((i32, i32, i32), Arc<(Vec<u8>, usize, usize)>)>>,
 }
+
+/// How many plain tiles [`LodSnapshot`] keeps for the colour half. A labelled
+/// judgement, not a measurement: one region needs one parent, and at most
+/// `LodBudget::max_in_flight` (6 at Ultra) syntheses run at once, so 8 covers
+/// every in-flight region with one to spare. 8 x 256 x 256 x 4 B = 2 MiB per
+/// snapshot at most, outside `cache_tiles`' budget (that guard counts the
+/// shell's textures). Only a conformed synthesis fills it, so with EF-9 off it
+/// stays empty and costs nothing.
+pub const PLAIN_TILE_CACHE: usize = 8;
 
 /// The whole safety argument for this module in one line the compiler checks.
 /// If a future field makes `LodSnapshot` un-`Send`, this fails to compile
@@ -869,6 +889,7 @@ impl LodSnapshot {
             age: info_age,
             resistance: info_resistance,
             flow_log_max: info_flow_log_max,
+            plain_rgba: Mutex::new(std::collections::VecDeque::new()),
         })
     }
 
@@ -913,9 +934,18 @@ impl LodSnapshot {
     /// level coarser, `conform` being its 8-neighbour mask
     /// (`lod_bridge::synthesize_tile_rgba_rivers_conformed`). `0` is
     /// `render_tile`; the attachments, their order and the coloriser are the
-    /// same call for both, so a conformed tile differs from a plain one only by
-    /// its heights.
+    /// same call for both, so a conformed tile differs from a plain one only
+    /// inside the conform band: its heights there, and its colour cross-faded
+    /// toward the plain parent tile (EF-9.4's colour half, 2026-10-18).
     pub fn render_tile_conformed(&self, z: i32, col: i32, row: i32, conform: u8) -> Option<(Vec<u8>, usize, usize)> {
+        self.render_tile_conformed_cached(z, col, row, conform, true)
+    }
+
+    /// [`Self::render_tile_conformed`] with the plain-tile cache switchable:
+    /// `use_cache == false` never reads or fills it, so the colour half's
+    /// parent is synthesised by `lod_bridge` itself -- the independent
+    /// reference the cache tests compare against.
+    fn render_tile_conformed_cached(&self, z: i32, col: i32, row: i32, conform: u8, use_cache: bool) -> Option<(Vec<u8>, usize, usize)> {
         // RV-3: shaded from `shade` when there is one, water from `field`,
         // exactly as `build` built the precompute.
         let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
@@ -936,7 +966,43 @@ impl LodSnapshot {
             tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref(), conform)
+        let (rivers, fans, paint) = (self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref());
+        if !use_cache {
+            return lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, conform);
+        }
+        if conform == 0 {
+            // A plain tile a conformed sibling already coloured is that very
+            // output (same snapshot, same function, `conform == 0`), so a hit
+            // is returned as is. Never inserts: see `PLAIN_TILE_CACHE`.
+            if let Some(hit) = self.plain_cached(z, col, row) {
+                return Some((*hit).clone());
+            }
+            return lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, 0);
+        }
+        let key = (z - 1, col >> 1, row >> 1);
+        let parent = match self.plain_cached(key.0, key.1, key.2) {
+            Some(p) => p,
+            None => {
+                let p = Arc::new(lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, key.0, key.1, key.2, self.seed, rivers, fans, paint, 0)?);
+                if let Ok(mut c) = self.plain_rgba.lock() {
+                    if c.len() >= PLAIN_TILE_CACHE {
+                        c.pop_front();
+                    }
+                    c.push_back((key, Arc::clone(&p)));
+                }
+                p
+            }
+        };
+        let pr = (parent.0.as_slice(), parent.1, parent.2);
+        lod_bridge::synthesize_tile_rgba_rivers_conformed_with_parent(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, conform, Some(pr))
+    }
+
+    /// The cached plain tile `(z, col, row)`, if [`Self::render_tile_conformed`]
+    /// coloured it as a parent recently. A poisoned lock reads as a miss: the
+    /// caller then synthesises, which is always correct, only slower.
+    fn plain_cached(&self, z: i32, col: i32, row: i32) -> Option<Arc<(Vec<u8>, usize, usize)>> {
+        let c = self.plain_rgba.lock().ok()?;
+        c.iter().rev().find(|(k, _)| *k == (z, col, row)).map(|(_, v)| Arc::clone(v))
     }
 
     /// The borrowed inputs an info tile reads (LOD-D7). One constructor, so the
@@ -1875,6 +1941,35 @@ mod tests {
             assert!(&t.rgba == want, "worker tile with mask {} differs from the main thread", t.conform);
         }
         assert_ne!(got[0].conform, got[1].conform);
+    }
+
+    /// Protects: the plain-tile cache EF-9.4's colour half reads
+    /// (`LodSnapshot::plain_rgba`). Every answer through the cache must be the
+    /// answer without it, byte for byte: a conformed child (cache miss, fills
+    /// its parent), its sibling (cache hit), and the parent itself asked as a
+    /// plain tile (cache hit) -- each against a snapshot whose cache is never
+    /// used, where `lod_bridge` synthesises the parent itself. A cache keyed on
+    /// the wrong tile, or one that returned another tile's pixels, fails; the
+    /// two siblings' parents are one tile, so the hit is really exercised
+    /// (asserted: the cache holds exactly that one tile afterwards).
+    #[test]
+    fn the_plain_tile_cache_never_changes_a_pixel() {
+        let snap = LodSnapshot::build(inputs(96, 72)).expect("snapshot");
+        let (z, mask) = (5, 0b0010_1001u8);
+        // (14, 10) and (15, 10) are siblings: both children of level-4 (7, 5).
+        let a = snap.render_tile_conformed(z, 14, 10, mask).expect("child a");
+        let b = snap.render_tile_conformed(z, 15, 10, mask).expect("child b");
+        let p = snap.render_tile(z - 1, 7, 5).expect("parent");
+        {
+            let c = snap.plain_rgba.lock().expect("cache lock");
+            assert_eq!(c.len(), 1, "two siblings share one cached parent");
+            assert_eq!(c[0].0, (4, 7, 5), "the cached tile is the quadtree parent");
+        }
+        assert_eq!(Some(a), snap.render_tile_conformed_cached(z, 14, 10, mask, false), "child a, cache miss");
+        assert_eq!(Some(b), snap.render_tile_conformed_cached(z, 15, 10, mask, false), "child b, cache hit");
+        assert_eq!(Some(p), snap.render_tile_conformed_cached(z - 1, 7, 5, 0, false), "the parent as a plain tile, cache hit");
+        // Its neighbour is NOT in the cache, and must not be served from it.
+        assert_eq!(snap.render_tile(z - 1, 6, 5), snap.render_tile_conformed_cached(z - 1, 6, 5, 0, false), "a neighbour of the cached tile");
     }
 
     // -----------------------------------------------------------------
