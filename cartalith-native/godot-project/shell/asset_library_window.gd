@@ -61,7 +61,9 @@ class_name AssetLibraryWindow
 ##
 ## - **Real**: the family list, slot ids/titles, anchor/bake-size/variant
 ##   metadata, search/sort, the zoom control, the preview-background swatches,
-##   Import asset pack .zip…, Import image… into the focused slot
+##   Import asset pack .zip… (which since AP-1 also opens the pack into this
+##   library, `as_import_pack`; Assets ▸ Open pack in library… does only that,
+##   leaving the map alone -- `open_pack_bytes`), Import image… into the focused slot
 ##   (`as_import_item`/`as_add_custom_slot`), per-slot fill state and a real
 ##   baked thumbnail for every filled slot (`as_family_slots`/
 ##   `as_thumbnail_png`), the inspector's file/scale/tags readout
@@ -1645,6 +1647,10 @@ func _build_family_rail() -> Control:
 	_refresh_import_button()
 	var import_pack := _chip(foot, "Import pack…", func(): _host.open_asset_pack_picker(),
 		false, 0, 5)
+	## AP-1 (Ruling CQ Q1): the reference's header import -- onto the map AND
+	## into this library. The menu's Open pack in library… is the library-only
+	## form; the tooltip says which is which.
+	import_pack.tooltip_text = "Loads a pack .zip onto the map and opens it in this library for editing. Assets ▸ Open pack in library… opens it here without changing the map. Slots that already hold art are only replaced after you confirm."
 	import_pack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	import_pack.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 
@@ -3581,6 +3587,215 @@ func _on_export_pack() -> void:
 				f.store_buffer(bytes)
 				f.close()
 				_host.set_status("hint", "exported %s (%d bytes)" % [path.get_file(), bytes.size()], "accent")))
+
+# ---------------------------------------------------------------------------
+# AP-1: opening a pack into the library (`ASSET_PACK_TOOLS_PROPOSAL.md`)
+# ---------------------------------------------------------------------------
+
+## The most rows a pack-import or report card lists before a quiet "N more"
+## tail; Copy report always carries all of them. A labelled judgement: about
+## two screens of rows at desktop density.
+const CARD_ROW_CAP := 40
+
+## Entry point from `app.gd::_import_asset_pack` once the engine's dry run has
+## read the archive under its caps. `dry` is that dry run's result: when it
+## names conflicts (slots that already hold art, or a pack name, author or
+## licence the pack would change) the user is asked before anything is
+## replaced; Cancel leaves the library exactly as it was. `applied_to_map`
+## only changes the wording: the map was already loaded by the caller.
+func open_pack_bytes(bytes: PackedByteArray, source: String, dry: Dictionary,
+		applied_to_map: bool) -> void:
+	var conflicts: PackedStringArray = dry.get("conflicts", PackedStringArray())
+	if conflicts.is_empty():
+		_finish_pack_import(bytes, source, "keep", applied_to_map)
+		return
+	## Variant B of `design/proposed-2026-09-05/Modal.dc.html`: replacing art
+	## is irreversible here (the library has no undo), so the block wash and
+	## a named destructive action, with Cancel as the quiet dismissal.
+	var card := DccWidgets.modal_card(_card_parent(), "Replace library art",
+		DccWidgets.MODAL_DESTRUCTIVE, _card_width(420))
+	DccWidgets.modal_prose(card["body"],
+		"%s would replace what the library already holds here:" % source)
+	var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], conflicts.size()))
+	for i in mini(conflicts.size(), CARD_ROW_CAP):
+		DccWidgets.modal_list_row(list, "block", String(conflicts[i]))
+	if conflicts.size() > CARD_ROW_CAP:
+		DccWidgets.modal_list_row(list, "", "%d more" % (conflicts.size() - CARD_ROW_CAP))
+	DccWidgets.modal_foot(card["body"],
+		"the map already uses this pack; Cancel leaves the library as it is" if applied_to_map
+		else "Cancel leaves the library and the map as they are")
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"on_cancel": func():
+			_host.set_status("hint", "pack not opened in the library — nothing replaced", "accent"),
+		"destructive": {"text": "Replace", "on": func():
+			_finish_pack_import(bytes, source, "replace", applied_to_map)},
+	})
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+## Shrinks a just-presented card to its content, once its labels know their
+## width. Measured 2026-10-18 (`_packopen_probe.gd` capture 02): the card was
+## drawn the full window height with its content in the top half. An
+## autowrapped label laid out at zero width first reports a minimum height of
+## one word per line, `AcceptDialog.wrap_controls` grows the window to that,
+## and it never shrinks. One frame later the widths are real, so
+## `reset_size()` returns it to its true minimum. Not on a phone, where
+## `phone_present()` sizes the card to the screen on purpose.
+func _settle_card(card: Dictionary) -> void:
+	if DccTheme.is_phone():
+		return
+	var dlg: AcceptDialog = card["dialog"]
+	await get_tree().process_frame
+	if is_instance_valid(dlg) and dlg.visible:
+		dlg.reset_size()
+		dlg.move_to_center()
+
+## A card's reference width: `desktop` everywhere but a phone, where it falls
+## back to the artboard's own `MODAL_W` (340). Measured 2026-10-18
+## (`_packopen_probe.gd --vp 1080x2400`): a 460-wide card times the phone
+## scale ran past the right edge of a 1080 px screen and cut off its Done
+## button.
+func _card_width(desktop: int) -> int:
+	return DccWidgets.MODAL_W if DccTheme.is_phone() else desktop
+
+## Where a card raised from this window parents: the window itself while it is
+## open, else the app. A subwindow of a hidden `Window` is not drawn, and
+## Import pack… reaches here from the menu with the library closed.
+func _card_parent() -> Node:
+	return self if visible else _host
+
+## Runs the real import (`mode` "keep" or "replace"), refreshes everything that
+## reads the library, and shows what happened per path: imported, skipped
+## (the slot kept its art) or refused, each with the engine's reason.
+func _finish_pack_import(bytes: PackedByteArray, source: String, mode: String,
+		applied_to_map: bool) -> void:
+	var r: Dictionary = _bridge.as_import_pack(bytes, source, mode)
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "pack not opened — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	_dirty = true
+	_refresh_pack_status()
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	var imported := int(r.get("imported", 0))
+	var skipped := int(r.get("skipped", 0))
+	var refused := int(r.get("refused", 0))
+	_host.set_status("hint", "%s: %d imported, %d skipped, %d refused" % [
+		source, imported, skipped, refused], "accent" if refused == 0 else "warn")
+	_show_pack_import_card(r, source, applied_to_map)
+
+## Variant C (a result, not a question): Done, plus Copy report so the list is
+## never the only record. One row per pack path; a row whose slot exists has
+## a Show button that closes the card and focuses that slot.
+func _show_pack_import_card(r: Dictionary, source: String, applied_to_map: bool) -> void:
+	var rows: Array = r.get("rows", [])
+	var notes: PackedStringArray = r.get("notes", PackedStringArray())
+	var imported := int(r.get("imported", 0))
+	var card := DccWidgets.modal_card(_card_parent(),
+		"Pack opened · %d imported" % imported, DccWidgets.MODAL_WARNINGS, _card_width(460))
+	var lines: Array[String] = []
+	var head := "%s: %d image%s imported, %d skipped, %d refused." % [source, imported,
+		"" if imported == 1 else "s", int(r.get("skipped", 0)), int(r.get("refused", 0))]
+	if r.has("name"):
+		head += " Pack \"%s\"." % String(r["name"])
+	DccWidgets.modal_prose(card["body"], head)
+	lines.append(head)
+	var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], rows.size() + notes.size()))
+	var dots := {"imported": "good", "skipped": "warn", "refused": "block"}
+	var shown := 0
+	for n in notes:
+		lines.append("note: " + String(n))
+		if shown < CARD_ROW_CAP:
+			DccWidgets.modal_list_row(list, "accent", String(n))
+			shown += 1
+	for row in rows:
+		var d: Dictionary = row
+		var status := String(d.get("status", ""))
+		var text := "%s/%s · %s · %s" % [String(d.get("section", "")), String(d.get("id", "")),
+			String(d.get("path", "")), status]
+		if String(d.get("reason", "")) != "":
+			text += " — " + String(d["reason"])
+		lines.append(text)
+		if shown < CARD_ROW_CAP:
+			var line := DccWidgets.modal_list_row(list, String(dots.get(status, "warn")), text)
+			_add_show_button(line, String(d.get("uid", "")), card)
+			shown += 1
+	if lines.size() - 1 > shown:
+		DccWidgets.modal_list_row(list, "", "%d more — Copy report has every row" % (lines.size() - 1 - shown))
+	DccWidgets.modal_legend(card["body"], list, {"good": "imported", "warn": "skipped: the slot kept its art",
+		"block": "refused", "accent": "note"})
+	DccWidgets.modal_foot(card["body"],
+		"also loaded onto the map" if applied_to_map
+		else "the map is unchanged: Apply to map uses the library's art")
+	var choices := DccWidgets.modal_choices(card, {"safe": {"text": "Done", "on": func(): pass}})
+	var actions: HBoxContainer = choices["row"]
+	var copy := DccWidgets.modal_quiet(actions, "Copy report", func():
+		DisplayServer.clipboard_set("\n".join(lines))
+		_host.set_status("hint", "pack import report copied", "accent"))
+	actions.move_child(copy, 0)
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+## A list long enough to overflow the card goes inside a vertical scroller of
+## bounded height. Vertical scrolling stays enabled (AUTO): a ScrollContainer
+## with an axis DISABLED folds its child's minimum size into its own on that
+## axis (`MISTAKES.md`), which is what the horizontal axis is meant to do here
+## so the card keeps its width.
+func _scrolled_list_parent(body: Control, row_count: int) -> Control:
+	if row_count <= 8:
+		return body
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	## A labelled judgement: about ten rows at desktop density.
+	sc.custom_minimum_size.y = 300
+	body.add_child(sc)
+	var inner := VBoxContainer.new()
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(inner)
+	return inner
+
+## A quiet Show button at the end of a card row, when `uid` names a slot that
+## exists: closes the card and focuses the slot (`focus_slot`).
+func _add_show_button(line: HBoxContainer, uid: String, card: Dictionary) -> void:
+	if uid == "":
+		return
+	var dlg: AcceptDialog = card["dialog"]
+	DccWidgets.modal_quiet(line, "Show", func():
+		if is_instance_valid(dlg):
+			dlg.hide()
+			dlg.queue_free()
+		focus_slot(uid))
+
+## Opens the window if needed and focuses one slot: picks its family on the
+## rail (the Unassigned imports row for that reserved set), selects the tile
+## and fills the inspector; on a phone, moves to the slot pane. Answers false,
+## changing nothing, when the engine does not know `uid`.
+func focus_slot(uid: String) -> bool:
+	var summary: Dictionary = _bridge.as_slot_summary(uid)
+	if not bool(summary.get("ok", false)):
+		return false
+	if not visible:
+		open()
+	var fam := String(summary.get("family", ""))
+	if fam == "custom" and String(summary.get("set", "")) == UNASSIGNED_SET:
+		_select_unassigned()
+	else:
+		_select_family(fam)
+	_selected = {uid: true}
+	_focused_uid = uid
+	_preview_index = 0
+	for i in _slot_order.size():
+		if String(_slot_order[i]["uid"]) == uid:
+			_last_index = i
+	_refresh_selection_visuals()
+	_refresh_inspector()
+	_refresh_import_button()
+	if _phone:
+		_show_phone_pane("slot")
+	return true
 
 ## Where a picker that reads a loose image should open. All three stock
 ## `FileDialog`s this window used to raise set no `current_dir`, and a

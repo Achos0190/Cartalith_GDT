@@ -6923,6 +6923,32 @@ func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> D
 	mark_world_dirty()
 	return world_gen.as_import_item(uid, item_name, bytes)
 
+## AP-1: open a pack `.zip`'s bytes into the library (`WorldGen.as_import_pack`).
+## `mode` is "dry_run" (report conflicts, change nothing), "keep" (fill empty
+## slots only) or "replace" (the user confirmed). See the Rust doc for the
+## returned keys. A dry run does not mark the world dirty; the other modes do.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_import_pack(bytes: PackedByteArray, source: String, mode: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_import_pack"):
+		return {"ok": false, "error": "as_import_pack not available on this binary"}
+	if mode != "dry_run":
+		mark_world_dirty()
+	return world_gen.as_import_pack(bytes, source, mode)
+
+## The largest pack file `as_import_pack` will read, in bytes, or -1 when this
+## binary cannot say (an older build, or mid-generation). The Rust cap is the
+## authority; the shell only uses this to avoid reading a larger file first.
+func as_pack_archive_cap() -> int:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return -1
+	if not _has("as_pack_archive_cap"):
+		return -1
+	return int(world_gen.as_pack_archive_cap())
+
 ## Add (or return the existing) custom slot. `{"ok": true, "uid": ...}`.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:

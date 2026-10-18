@@ -98,7 +98,8 @@ const UNDO_BUDGETS_MB: Array[int] = [64, 128, 256, 512, 1024]
 const ID_ASSET_LIBRARY := 30  ## Assets ▸ Asset library (Shift+A).
 const ID_SLICER := 31  ## Assets ▸ Sprite sheet slicer; opens the library window in slicer mode.
 const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….
-const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip….
+const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip…: onto the map AND into the library (AP-1, Ruling CQ Q1).
+const ID_OPEN_PACK_LIBRARY := 34  ## Assets ▸ Open pack in library…: into the library only (AP-1).
 const ID_APPLY_LIBRARY := 36  ## Assets ▸ Apply library to map.
 const ID_CLEAR_LIBRARY := 37  ## Assets ▸ Clear library… (destructive; its confirmation is not this row's).
 const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
@@ -2126,6 +2127,13 @@ func _assets(p: PopupMenu, full: bool = true) -> void:
 	## duplicating slot-selection at the menu level.
 	_live(p, "Import image…", ID_IMPORT_IMAGE)
 	_live(p, "Import asset pack .zip…", ID_IMPORT_PACK)
+	## AP-1 (`ASSET_PACK_TOOLS_PROPOSAL.md` §4, Ruling CQ Q1): the two rows do
+	## different things, so each says which in its tooltip.
+	p.set_item_tooltip(p.item_count - 1,
+		"Loads a pack onto the map and also opens it in the Asset library for editing.")
+	_live(p, "Open pack in library…", ID_OPEN_PACK_LIBRARY)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens a pack in the Asset library for editing. The map is not changed until Apply to map.")
 	p.add_separator()
 	_build_asset_pack_submenu(p)
 
@@ -2850,6 +2858,7 @@ func _open_pack_metadata() -> void:
 func _on_assets(id: int) -> void:
 	match id:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
+		ID_OPEN_PACK_LIBRARY: _host.open_pack_in_library_picker()
 		ID_IMPORT_IMAGE: _host.open_asset_library()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
 		ID_SLICER: _host.open_asset_library("", true)

@@ -4645,9 +4645,70 @@ func open_asset_pack_picker() -> void:
 	DccBrowseDialog.choose_file(self, "Import asset pack", PackedStringArray(["zip"]),
 		DccSettings.storage_root("asset_packs"),
 		"asset packs read from %s" % DccSettings.storage_root("asset_packs"),
-		func(path: String):
-			if not bridge.load_asset_pack(path):
-				set_status("hint", "asset pack failed — see console", "accent"))
+		func(path: String): _import_asset_pack(path, true))
+
+## Assets ▸ Open pack in library… (AP-1, Ruling CQ Q1): the same picker, but
+## the pack goes into the Asset library only and the map is left as it is.
+## The library window opens first so the result has somewhere to land.
+func open_pack_in_library_picker() -> void:
+	open_asset_library()
+	DccBrowseDialog.choose_file(self, "Open pack in library", PackedStringArray(["zip"]),
+		DccSettings.storage_root("asset_packs"),
+		"opens into the Asset library for editing; the map is not changed",
+		func(path: String): _import_asset_pack(path, false))
+
+## Reads a picked pack and routes it (AP-1). `apply_to_map` true is Import
+## pack…: the reference's header import, which loads the pack onto the map
+## AND fills the library (`_alImportPackZip`, v2.11 line 12307; Ruling CQ
+## Q1). False is Open pack in library….
+##
+## Order matters. The library's dry run reads the archive under the
+## engine's caps (`cartalith_assets::ImportLimits`) before anything else, so
+## a hostile archive (a zip bomb, a path-traversal entry) is refused before
+## `load_asset_pack`, whose own reader has no caps, ever sees it. A binary
+## without `as_import_pack` keeps the old map-only behaviour.
+func _import_asset_pack(path: String, apply_to_map: bool) -> void:
+	var can_library: bool = bridge.world_gen != null \
+		and bridge.world_gen.has_method("as_import_pack")
+	if not can_library:
+		if apply_to_map and not bridge.load_asset_pack(path):
+			set_status("hint", "asset pack failed — see console", "accent")
+		elif not apply_to_map:
+			set_status("hint", "this build cannot open a pack in the library", "warn")
+		return
+	var bytes := _read_pack_file(path)
+	if bytes.is_empty():
+		return
+	var dry: Dictionary = bridge.as_import_pack(bytes, path.get_file(), "dry_run")
+	if not bool(dry.get("ok", false)):
+		set_status("hint", "asset pack not opened — %s" % String(dry.get("error", "unknown error")), "warn")
+		return
+	if apply_to_map and not bridge.load_asset_pack(path):
+		set_status("hint", "asset pack failed — see console", "accent")
+		return
+	asset_library_window.open_pack_bytes(bytes, path.get_file(), dry, apply_to_map)
+
+## The picked file's bytes, or empty after saying why on the status line. A
+## file over the engine's archive cap is refused before it is read, so a huge
+## file is never pulled into memory only to be refused (the cap itself is
+## `as_pack_archive_cap()`, the engine's; -1 means this build cannot say).
+func _read_pack_file(path: String) -> PackedByteArray:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		set_status("hint", "could not read %s" % path.get_file(), "warn")
+		return PackedByteArray()
+	var cap: int = bridge.as_pack_archive_cap()
+	var length: int = f.get_length()
+	if cap > 0 and length > cap:
+		f.close()
+		set_status("hint", "asset pack refused — %s is %d MiB, over the %d MiB limit" % [
+			path.get_file(), length / 1048576, cap / 1048576], "warn")
+		return PackedByteArray()
+	var bytes := f.get_buffer(length)
+	f.close()
+	if bytes.is_empty():
+		set_status("hint", "%s is empty" % path.get_file(), "warn")
+	return bytes
 
 ## `tab`, if given, opens `world_data_window` scoped straight to that tab
 ## ("Settlements" / "Provinces" / "Economy") -- `right_dock.gd`'s RD-03

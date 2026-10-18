@@ -3,7 +3,8 @@
 **A proposal of 2026-10-18, from an owner request.** Q1–Q10 were approved at
 their defaults the same day (Ruling CQ, `LARGE_ITEM_RULINGS.md`). §9, the
 line-art research, was added later that day; it proposes AP-10 and asks
-Q-L1…Q-L6, which are not yet answered. It defines milestones (AP-1…AP-10) and
+Q-L1…Q-L6, approved at their defaults the same day (Ruling CR). §10 records
+what building AP-1 and AP-2 settled. It defines milestones (AP-1…AP-10) and
 the reasoning behind them. It has no status
 column: status lives in `cartalith-native/docs/STATUS.md` and nowhere else.
 
@@ -31,6 +32,8 @@ summary of it.
   an owner question, not a design choice. The one precedent is `seamarks`,
   which an owner ruling added (`manifest.rs`, `RawManifest::seamarks` doc).
 - **Ruling AP (2026-09-23):** library images are embedded in the project save.
+  *(Ruled, not yet built: Ruling AP itself calls it "real save-format work";
+  see §10's last item.)*
   Refinement state can therefore live in the project's `library.json`
   (`AssetDB::to_library_json`) without touching the pack format.
 
@@ -154,7 +157,8 @@ The table leads to three facts that shape this proposal:
 
 ### 1.4 Getting a pack in, and back out
 
-- **Import pack… loads a pack into the renderer, not into the library.** The
+- *(As read on 2026-10-18 before AP-1; §10 has what was built.)*
+  **Import pack… loads a pack into the renderer, not into the library.** The
   window's footer chip calls `app.open_asset_pack_picker()`, which calls
   `WorldGen::load_asset_pack`. That decodes into `self.asset_pack` and never
   touches `AssetLibrarySession`. No `as_*` binding reads a pack. The reference
@@ -559,3 +563,64 @@ PhotoCraft has **no** Sauvola or Bradley, no thinning and no SDF asset output
 | Q-L4 | A pack re-opened from a `.zip` has only 256² sprites, which caps SDF quality (strokes of 1–2 px). Should export also accept a larger bake (512² or 1024²) for line-art variants? That is a size change, not a key, but the HTML app's 256² families would downscale it | **Keep 256²** (Ruling F). The project keeps the original; a pack is a portable copy |
 | Q-L5 | Vector tracing to SVG (PhotoCraft's `trace.rs` design, permissive) as a later export? | **Later, not in AP-10.** The SDF already meets the ×64 bar |
 | Q-L6 | Should the conversion also offer "even line weight" (skeleton re-stroke at a chosen width) as a stylistic verb? | **Yes, optional and off by default.** It measured worse as storage, but it is a legitimate look for icon sets |
+
+---
+
+## 10. Settled while building (2026-10-18)
+
+What building AP-1 decided or found, so the next milestone does not have to
+rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
+
+### AP-1: opening a pack into the library
+
+- **Where it lives.** `cartalith-assets::pack_import` (`read_pack_entries_limited`,
+  `check_png_header`, `plan_pack_import`) does everything that needs no
+  pixels; `cartalith-godot`'s `AssetLibrarySession::import_pack` decodes
+  (`decode_png_managed`, so ET-E2's colour conversion applies) and writes the
+  store. The `#[func]` is `WorldGen::as_import_pack(bytes, source, mode)`.
+- **Q1 as built.** *Import asset pack .zip…* loads the map (`load_asset_pack`,
+  unchanged) and then opens the same bytes into the library; *Open pack in
+  library…* (Assets menu, directly below it) does only the second. Both share
+  `app.gd::_import_asset_pack`.
+- **Routing follows the reference's raw-manifest walk**, not the renderer's
+  validator: an unknown id in a frozen section goes to a custom slot in the
+  `Imported` set with the reference's own warning text; items are named after
+  their slot id; bottom-anchored families are fitted on intake. **Sea marks
+  are imported too** (the reference predates them; the exporter writes them).
+- **Never overwrite unasked.** The reference replaced single-image slots and
+  appended to multi-variant ones, so importing a pack twice doubled its icons.
+  Here a filled slot, or a pack name, author or licence that differs from the
+  library's, is a conflict: a dry run lists them and the shell asks
+  *Replace* / *Cancel*. Replace empties a conflicting slot before filling it,
+  so a second import of the same pack leaves the same items.
+- **Provenance** goes into existing `library.json` fields only:
+  `SlotMeta::source` = `"<file> (<section>/<id>)"` and, when the pack has
+  one, the pack licence into `SlotMeta::license`, each only where the slot's
+  own field is blank or the slot was replaced. No save key was added.
+- **Caps (labelled judgements, `ImportLimits::DEFAULT`).** Archive 256 MiB;
+  4 096 entries; 64 MiB per entry and 512 MiB in total, decompressed, read
+  through `take()` so a size header that lies still stops at the cap; manifest
+  4 MiB; images ≤ 8 192 px a side and ≤ 4 096² pixels, checked from the IHDR
+  before any decode. An entry name that is absolute, names a drive, carries a
+  control character or climbs with `..` refuses the whole pack. A non-PNG,
+  oversize or undecodable image refuses only its own row, with a reason.
+- **The renderer's reader is not capped**; `load_asset_pack` is unchanged
+  (switch-off identity). Instead the shell runs the library's capped dry run
+  first and does not call `load_asset_pack` on a pack it refuses. Per-image
+  IHDR caps apply to the library path only.
+- **Finding: the bake is not a fixed point for soft edges.** `render_item`
+  composites with `imageops::overlay` onto a transparent canvas; for any
+  alpha strictly between 0 and 255 that moves RGB by one level on every bake
+  (measured 1, 1, 1 over three export/import cycles), and it zeroes RGB under
+  alpha 0. So export → open → export is byte-identical only for sprites with
+  binary alpha (the reference fixture, and the round-trip test's synthetic
+  pack). Pinned by `the_bake_drifts_semi_transparent_rgb_by_one_level`;
+  the fix belongs with Ruling CR's switched `render_item` change.
+- **Library pixels are not in the project save yet.** Ruling AP (2026-09-23)
+  ruled that they should be and called it "real save-format work"; this
+  file's header read as if it were done. Today
+  `project_bridge.rs::asset_library_document_json` writes `library.json`
+  (slots, metadata, collections, rules) and its own doc states that item
+  pixels are not written and a restore brings back no items. So a pack
+  opened into the library survives a save only as metadata, and AP-1 does
+  not change that (save format unchanged).

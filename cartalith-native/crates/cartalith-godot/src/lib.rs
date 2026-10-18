@@ -22805,6 +22805,76 @@ impl WorldGen {
         }
     }
 
+    /// AP-1 (`ASSET_PACK_TOOLS_PROPOSAL.md`, Ruling CQ Q1): open a pack
+    /// `.zip`'s bytes into the library -- the reference's
+    /// `AssetImporter.importPackZip`, through
+    /// `asset_bridge::AssetLibrarySession::import_pack`, which documents the
+    /// routing, the caps and the departures. Never touches the renderer's
+    /// pack (`load_asset_pack` does that).
+    ///
+    /// `mode` is `"dry_run"` (plan and report conflicts, change nothing),
+    /// `"keep"` (import into empty slots, keep filled ones) or `"replace"`
+    /// (the user confirmed: filled slots are emptied first). `source` is the
+    /// picked file's name, recorded as provenance.
+    ///
+    /// Returns `{"ok": false, "error"}` for an unknown mode or a refused
+    /// archive, else `{"ok": true, "imported", "skipped", "refused",
+    /// "rows": [{section, id, uid, path, status, reason}], "notes",
+    /// "conflicts", "conflict_uids"}`, plus `"name"` only when the manifest
+    /// has a non-empty one (omitted, never defaulted).
+    #[func]
+    fn as_import_pack(&mut self, bytes: PackedByteArray, source: GString, mode: GString) -> VarDictionary {
+        let mode = match mode.to_string().as_str() {
+            "dry_run" => asset_bridge::PackImportMode::DryRun,
+            "keep" => asset_bridge::PackImportMode::KeepExisting,
+            "replace" => asset_bridge::PackImportMode::Replace,
+            other => return vdict! { "ok" => false, "error" => format!("unknown pack import mode \"{other}\"") },
+        };
+        let out = match self.asset_library.import_pack(bytes.as_slice(), &source.to_string(), mode) {
+            Ok(o) => o,
+            Err(e) => return vdict! { "ok" => false, "error" => e },
+        };
+        let rows: Array<VarDictionary> = out
+            .rows
+            .iter()
+            .map(|r| {
+                vdict! {
+                    "section" => r.section.as_str(),
+                    "id" => r.manifest_id.as_str(),
+                    "uid" => r.uid.as_str(),
+                    "path" => r.path.as_str(),
+                    "status" => r.status.key(),
+                    "reason" => r.reason.as_str(),
+                }
+            })
+            .collect();
+        let strings = |v: &[String]| -> PackedStringArray { v.iter().map(GString::from).collect() };
+        let mut d = vdict! {
+            "ok" => true,
+            "error" => "",
+            "imported" => out.count(asset_bridge::PackRowStatus::Imported) as i64,
+            "skipped" => out.count(asset_bridge::PackRowStatus::Skipped) as i64,
+            "refused" => out.count(asset_bridge::PackRowStatus::Refused) as i64,
+            "rows" => &rows,
+            "notes" => &strings(&out.notes),
+            "conflicts" => &strings(&out.conflicts),
+            "conflict_uids" => &strings(&out.conflict_uids),
+        };
+        if let Some(name) = &out.pack_name {
+            d.set("name", name.as_str());
+        }
+        d
+    }
+
+    /// The largest pack file `as_import_pack` reads
+    /// (`cartalith_assets::ImportLimits::DEFAULT.max_archive_bytes`), so the
+    /// shell can refuse a larger file before reading it into memory. The
+    /// Rust cap stays the authority; this only lets the shell avoid the read.
+    #[func]
+    fn as_pack_archive_cap(&self) -> i64 {
+        cartalith_assets::ImportLimits::DEFAULT.max_archive_bytes as i64
+    }
+
     /// Add (or return the existing) custom slot -- `AssetDB::addCustomSlot`
     /// (AS-01, AS-12's own "Unassigned imports" note: this is the real
     /// engine call a future such bucket would sit on top of). `set_name`

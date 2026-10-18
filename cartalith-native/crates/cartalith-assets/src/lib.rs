@@ -109,6 +109,10 @@
 //! `DCC_SHELL_SPEC.md` §8 asks for that the reference does not have (a
 //! disclosed port-side addition; see that module's docs).
 //!
+//! `ASSET_PACK_TOOLS_PROPOSAL.md` AP-1 added [`pack_import`] (2026-10-18,
+//! Ruling CQ): the reference's `importPackZip` routing over the raw manifest,
+//! plus a size-capped archive reader for packs opened for editing.
+//!
 //! What this crate does not hold: the library UI and the sprite-sheet slicer's
 //! canvas interaction (pan/zoom, draggable grid lines, click-to-select) live in
 //! the Godot shell (`asset_library_window.gd`), and sprite compositing into the
@@ -124,6 +128,8 @@ pub mod library;
 pub mod manifest;
 pub mod manual;
 pub mod ordered_map;
+#[cfg(feature = "zip")]
+pub mod pack_import;
 pub mod placement;
 pub mod raster;
 pub mod scatter;
@@ -150,6 +156,11 @@ pub use manifest::{
     Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
 pub use ordered_map::OrderedMap;
+#[cfg(feature = "zip")]
+pub use pack_import::{
+    IMPORTED_SET, ImportLimits, ImportPlan, ImportRefusal, PlannedPath, PlannedSlot, SlotTarget,
+    check_png_header, plan_pack_import, read_pack_entries_limited, unsafe_path_reason,
+};
 pub use placement::{
     IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, TRAIT_BADGES_SHOWN_MAX,
     TraitBadge, icon_slot_for_item, place_map_icons_ruled, sprite_draw_rect, trait_badge_drop,

@@ -31,13 +31,13 @@
 //! save-format-adjacent feature `SAVEFILE_COMPAT.md` territory owns and this
 //! dispatch was not asked to wire).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cartalith_assets::{
-    AssetDB, Anchor, ChromaKey, DecodedImage, Family, GridRect, ItemTransform, LibraryItem,
-    PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, archive, compute_cells, count_cells,
-    encode_png, fit_to_bottom, item_hash, library, render_item, sheet_base_name,
-    slice_sheet,
+    AssetDB, Anchor, ChromaKey, DecodedImage, Family, GridRect, ImportLimits, ItemTransform, LibraryItem,
+    PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive, check_png_header,
+    compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
+    read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
 };
 
 use crate::pack::colour_import::{ColourReport, decode_png_managed};
@@ -133,6 +133,92 @@ pub struct SliceOutcome {
     pub unplaced: usize,
     /// Every slot uid the slice wrote to, in write order.
     pub uids: Vec<String>,
+}
+
+/// How [`AssetLibrarySession::import_pack`] treats a library slot that
+/// already holds art (`ASSET_PACK_TOOLS_PROPOSAL.md` AP-1: "never overwrite
+/// existing slots without confirm").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackImportMode {
+    /// Read and plan the pack, report the conflicts, change nothing. The
+    /// shell calls this first and only asks the user when it reports any.
+    DryRun,
+    /// Import into empty slots only; a slot that already holds art keeps it
+    /// and its pack paths are reported as skipped. Also keeps a library pack
+    /// name, author or licence the pack would change.
+    KeepExisting,
+    /// The user confirmed: a slot that already holds art is emptied and then
+    /// filled from the pack, and the pack's name, author and licence win.
+    Replace,
+}
+
+/// What happened to one pack path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackRowStatus {
+    /// Decoded and stored as a new item.
+    Imported,
+    /// Readable, but not stored, because its slot already held art and the
+    /// mode was [`PackImportMode::KeepExisting`].
+    Skipped,
+    /// Not stored, for the reason on the row (missing, not a PNG, oversize,
+    /// undecodable, unsafe path).
+    Refused,
+}
+
+impl PackRowStatus {
+    /// The lowercase word the shell shows and keys its dot colour on.
+    pub fn key(self) -> &'static str {
+        match self {
+            PackRowStatus::Imported => "imported",
+            PackRowStatus::Skipped => "skipped",
+            PackRowStatus::Refused => "refused",
+        }
+    }
+}
+
+/// One row of a pack import's report: one manifest path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackImportRow {
+    /// The manifest section (`"icons"`, `"structures.poi"`, `"custom"`, ...).
+    pub section: String,
+    /// The slot id as the manifest spells it.
+    pub manifest_id: String,
+    /// The library slot it landed in or would have, `""` when none exists
+    /// (a custom slot is only created once one of its images imports).
+    pub uid: String,
+    /// The archive path.
+    pub path: String,
+    /// What happened.
+    pub status: PackRowStatus,
+    /// Why, for a skipped or refused row; `""` for an imported one.
+    pub reason: String,
+}
+
+/// Everything [`AssetLibrarySession::import_pack`] reports.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PackImportOutcome {
+    /// The pack's own name, when its manifest has a non-empty one.
+    pub pack_name: Option<String>,
+    /// One row per manifest path, in the reference's visit order. Empty for
+    /// a dry run.
+    pub rows: Vec<PackImportRow>,
+    /// The reference's own reroute warnings (`unknown slot "x" →
+    /// Custom/Imported`) and any kept pack field, in order.
+    pub notes: Vec<String>,
+    /// What the pack would overwrite, in words, one entry per slot or pack
+    /// field. A dry run fills this; the other modes report what they did
+    /// about it in `rows` and `notes`.
+    pub conflicts: Vec<String>,
+    /// The library slots behind `conflicts`, for a caller that wants to
+    /// point at them.
+    pub conflict_uids: Vec<String>,
+}
+
+impl PackImportOutcome {
+    /// How many rows have `status`.
+    pub fn count(&self, status: PackRowStatus) -> usize {
+        self.rows.iter().filter(|r| r.status == status).count()
+    }
 }
 
 /// The reference's `(E('alSlSet').value||'Default').trim()||'Default'` (line
@@ -234,6 +320,205 @@ impl AssetLibrarySession {
         }
         self.images.entry(uid.to_string()).or_default().push(decoded);
         Ok(())
+    }
+
+    // -- Pack import (`AssetImporter.importPackZip`, AP-1) ---------------
+
+    /// Open a pack `.zip` into the library — the reference's
+    /// `AssetImporter.importPackZip` (v2.11 line 27715), which
+    /// `ASSET_PACK_TOOLS_PROPOSAL.md` §1.4 found unported. `source` is the
+    /// file name the user picked; it goes into each filled slot's
+    /// `SlotMeta::source` as provenance.
+    ///
+    /// Faithful to the reference: the raw manifest's sections are visited in
+    /// its order, an id outside a frozen family's vocabulary goes to a custom
+    /// slot in the `Imported` set with the reference's own warning, a custom
+    /// set keeps its name, every item is named after its slot id (the
+    /// reference's `label`), and a bottom-anchored family is fitted on intake
+    /// (`insert_decoded`, the reference's `fitToBottom`).
+    ///
+    /// **Deliberate departures, each from an owner instruction:**
+    ///
+    /// - **A slot that already holds art is never overwritten unasked.** The
+    ///   reference replaces a single-image slot and *appends* to a
+    ///   multi-variant one, so importing the same pack twice doubled every
+    ///   icon. Here a filled slot is a conflict ([`PackImportMode`]); with
+    ///   [`PackImportMode::Replace`] it is emptied first, so a second import
+    ///   of the same pack is a no-op on content.
+    /// - **The same rule covers the pack name, author and licence.** The
+    ///   reference overwrites the library's fields whenever the manifest has
+    ///   a value.
+    /// - **The archive is read under [`ImportLimits::DEFAULT`]**, and each
+    ///   image's PNG header is checked before it is decoded
+    ///   ([`check_png_header`]), because a pack opened for editing is
+    ///   somebody else's file. A refusal is a row with a reason, never a
+    ///   panic; a hostile archive (`ImportRefusal`) refuses the whole pack.
+    /// - **Sea marks are imported.** The reference predates that family; this
+    ///   port's exporter writes it (owner ruling 2026-09-02).
+    /// - **Provenance.** Each slot filled here gets `SlotMeta::source`
+    ///   (`"<file> (<section>/<id>)"`) and, when the pack has one, the pack
+    ///   licence in `SlotMeta::license`, both only where the slot's own field
+    ///   is blank or the slot was replaced. The reference writes neither.
+    ///   Both are existing `library.json` fields, so no save key is added.
+    ///
+    /// Images are decoded with `decode_png_managed` (ET-E2), so a tagged
+    /// non-sRGB image is converted on the way in, exactly as Import image…
+    /// does.
+    pub fn import_pack(&mut self, bytes: &[u8], source: &str, mode: PackImportMode) -> Result<PackImportOutcome, String> {
+        let limits = ImportLimits::DEFAULT;
+        let entries = read_pack_entries_limited(bytes, &limits).map_err(|e| e.to_string())?;
+        let plan = {
+            let db = &self.db;
+            plan_pack_import(&entries, &limits, |family, id| {
+                db.slots_in_family(family).iter().any(|s| s.id == id)
+            })
+            .map_err(|e| e.to_string())?
+        };
+        let mut out = PackImportOutcome { pack_name: plan.name.clone(), ..Default::default() };
+
+        // Resolve every planned slot to its library uid without creating
+        // anything: a custom slot's uid comes from `add_custom_slot` on a
+        // metadata-only copy, so the real registry is untouched by a dry run
+        // and by a slot whose every image is refused.
+        let mut scratch = self.db.clone();
+        let uids: Vec<String> = plan
+            .slots
+            .iter()
+            .map(|s| match &s.target {
+                SlotTarget::Frozen { family, id } => scratch
+                    .slots_in_family(*family)
+                    .into_iter()
+                    .find(|slot| &slot.id == id)
+                    .map(|slot| slot.uid.clone())
+                    .unwrap_or_default(),
+                SlotTarget::Custom { id, set } => scratch.add_custom_slot(id, Some(set)).uid.clone(),
+            })
+            .collect();
+
+        // Conflicts: slots that hold art now and that this pack would write
+        // to, and pack fields it would change.
+        let mut conflicted: HashSet<String> = HashSet::new();
+        for (slot, uid) in plan.slots.iter().zip(&uids) {
+            let writes = slot.paths.iter().any(|p| p.refusal.is_none());
+            let held = self.db.items(uid).len();
+            if writes && held > 0 && conflicted.insert(uid.clone()) {
+                let name = self.db.get(uid).map(|s| s.name.clone()).unwrap_or_else(|| uid.clone());
+                out.conflicts.push(format!(
+                    "{name} ({}) holds {held} item{}",
+                    self.db.get(uid).map(|s| s.family.key()).unwrap_or(""),
+                    if held == 1 { "" } else { "s" }
+                ));
+                out.conflict_uids.push(uid.clone());
+            }
+        }
+        let fields: [(&str, &Option<String>, String); 3] = [
+            ("name", &plan.name, self.db.pack.name.trim().to_string()),
+            ("author", &plan.author, self.db.pack.author.trim().to_string()),
+            ("licence", &plan.license, self.db.pack.license.trim().to_string()),
+        ];
+        for (label, theirs, ours) in &fields {
+            if let Some(t) = theirs
+                && !ours.is_empty()
+                && ours != t.trim()
+            {
+                out.conflicts.push(format!("pack {label}: the library has \"{ours}\", the pack has \"{t}\""));
+            }
+        }
+        if mode == PackImportMode::DryRun {
+            return Ok(out);
+        }
+
+        // Pack fields: the reference's `if(m.name) E('alPackName').value=m.name`,
+        // minus the unasked overwrite.
+        for (label, theirs, ours) in fields {
+            let Some(t) = theirs.clone() else { continue };
+            if ours.is_empty() || ours == t.trim() || mode == PackImportMode::Replace {
+                match label {
+                    "name" => self.db.pack.name = t,
+                    "author" => self.db.pack.author = t,
+                    _ => self.db.pack.license = t,
+                }
+            } else {
+                out.notes.push(format!("kept the library's pack {label} \"{ours}\"; the pack's is \"{t}\""));
+            }
+        }
+
+        let mut cleared: HashSet<String> = HashSet::new();
+        for (slot, uid) in plan.slots.iter().zip(&uids) {
+            if let Some(note) = &slot.note {
+                out.notes.push(note.clone());
+            }
+            let is_conflict = conflicted.contains(uid);
+            for planned in &slot.paths {
+                let mut row = PackImportRow {
+                    section: slot.section.clone(),
+                    manifest_id: slot.manifest_id.clone(),
+                    uid: if self.db.get(uid).is_some() { uid.clone() } else { String::new() },
+                    path: planned.path.clone(),
+                    status: PackRowStatus::Refused,
+                    reason: String::new(),
+                };
+                if let Some(why) = &planned.refusal {
+                    row.reason = why.clone();
+                    out.rows.push(row);
+                    continue;
+                }
+                if is_conflict && mode == PackImportMode::KeepExisting {
+                    row.status = PackRowStatus::Skipped;
+                    row.reason = format!("the slot already held {} item(s); kept them", self.db.items(uid).len());
+                    out.rows.push(row);
+                    continue;
+                }
+                let png = entries.get(&planned.path).map(Vec::as_slice).unwrap_or_default();
+                if let Err(why) = check_png_header(png, &limits) {
+                    row.reason = why;
+                    out.rows.push(row);
+                    continue;
+                }
+                let decoded = match decode_png_managed(png) {
+                    Ok((img, _colour)) => img,
+                    Err(e) => {
+                        row.reason = format!("not a readable PNG ({e})");
+                        out.rows.push(row);
+                        continue;
+                    }
+                };
+                // Create a custom slot only now that something lands in it.
+                let target_uid = match &slot.target {
+                    SlotTarget::Custom { id, set } => self.add_custom_slot(id, Some(set)),
+                    SlotTarget::Frozen { .. } => uid.clone(),
+                };
+                let first_write = cleared.insert(target_uid.clone());
+                if first_write && is_conflict {
+                    self.clear_slot_items(&target_uid);
+                }
+                let family = self.db.get(&target_uid).map(|s| s.family);
+                // A single-image family holds one item: a later path replaces
+                // it, the reference's `store[uid]=[item]`.
+                if family.is_some_and(|f| !f.is_multi()) {
+                    self.clear_slot_items(&target_uid);
+                }
+                if let Err(e) = self.insert_decoded(&target_uid, slot.manifest_id.clone(), decoded) {
+                    row.reason = e;
+                    out.rows.push(row);
+                    continue;
+                }
+                if first_write && let Some(meta) = self.db.slot_meta_mut(&target_uid) {
+                    if meta.source.trim().is_empty() || is_conflict {
+                        meta.source = format!("{source} ({}/{})", slot.section, slot.manifest_id);
+                    }
+                    if let Some(lic) = &plan.license
+                        && (meta.license.trim().is_empty() || is_conflict)
+                    {
+                        meta.license = lic.clone();
+                    }
+                }
+                row.uid = target_uid;
+                row.status = PackRowStatus::Imported;
+                out.rows.push(row);
+            }
+        }
+        Ok(out)
     }
 
     /// Add (or return the existing) custom slot — `AssetDB::add_custom_slot`,
@@ -1178,6 +1463,319 @@ mod tests {
         let preview = s.slice_preview(&p).unwrap();
         assert_eq!(preview.col_spans.len(), 3);
         assert_eq!(preview.col_spans[0], (0.0, 4.0 / 3.0));
+    }
+
+    // -- AP-1: opening a pack into the library ----------------------------
+
+    /// The reference pack fixture `cartalith-assets` ships (17 PNGs and a
+    /// schema-2 `pack.json`; `ASSET_PACK_TOOLS_PROPOSAL.md` §1.5).
+    fn reference_pack() -> Vec<u8> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../cartalith-assets/tests/fixtures/reference_pack.zip");
+        std::fs::read(path).expect("reference_pack.zip fixture")
+    }
+
+    /// Everything a pack round trip must preserve, per filled slot in store
+    /// order: uid, family, custom set, metadata, and each item's name,
+    /// transform and decoded RGBA. Pack info rides along. **Asserts it is not
+    /// empty**, so a helper mutated to return nothing cannot pass an
+    /// equality check vacuously.
+    #[allow(clippy::type_complexity)]
+    fn snapshot(s: &AssetLibrarySession) -> (library::PackInfo, Vec<(String, String, Option<String>, library::SlotMeta, Vec<(String, ItemTransform, Vec<u8>)>)>) {
+        let mut out = Vec::new();
+        for uid in s.db.uids_in_order() {
+            let items = s.db.items(&uid);
+            if items.is_empty() {
+                continue;
+            }
+            let slot = s.db.get(&uid).unwrap();
+            let rows = items
+                .iter()
+                .enumerate()
+                .map(|(i, it)| (it.name.clone(), it.transform.clone(), s.image(&uid, i).unwrap().rgba.clone()))
+                .collect();
+            out.push((uid.clone(), slot.family.key().to_string(), slot.set.clone(), slot.meta.clone(), rows));
+        }
+        assert!(!out.is_empty(), "snapshot of an empty library proves nothing");
+        (s.db.pack.clone(), out)
+    }
+
+    /// A pack's images keyed by path, decoded to RGBA, plus its manifest.
+    fn decoded_pack(bytes: &[u8]) -> (cartalith_assets::PackManifest, std::collections::BTreeMap<String, (u32, u32, Vec<u8>)>) {
+        let (manifest, entries) = cartalith_assets::read_pack(std::io::Cursor::new(bytes)).unwrap();
+        let images = entries
+            .iter()
+            .filter(|(k, _)| k.ends_with(".png"))
+            .map(|(k, v)| {
+                let d = decode_png(v).unwrap();
+                (k.clone(), (d.w, d.h, d.rgba))
+            })
+            .collect();
+        (manifest, images)
+    }
+
+    /// Protects: AP-1 bar (a) -- `reference_pack.zip` opens to exactly 17
+    /// items in 12 slots, with the pack's name, author and licence, every row
+    /// imported and no warning.
+    #[test]
+    fn the_reference_pack_opens_into_the_library() {
+        let mut s = AssetLibrarySession::new();
+        let out = s.import_pack(&reference_pack(), "reference_pack.zip", PackImportMode::KeepExisting).unwrap();
+        assert_eq!(s.db.total_items(), 17);
+        let filled = s.db.uids_in_order().into_iter().filter(|u| !s.db.items(u).is_empty()).count();
+        assert_eq!(filled, 12);
+        assert_eq!(s.db.pack.name, "Reference Round-Trip Pack");
+        assert_eq!(s.db.pack.author, "Cartalith Gen1");
+        assert_eq!(s.db.pack.license, "CC0-1.0");
+        assert_eq!(out.count(PackRowStatus::Imported), 17);
+        assert_eq!(out.rows.len(), 17);
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
+        assert_eq!(s.db.items("icons:mountain").len(), 3);
+        assert_eq!(s.db.items("icons:mountain")[0].name, "mountain", "items take the slot id, the reference's label");
+        let naval = s.db.get("custom:naval/lighthouse").expect("custom set kept");
+        assert_eq!(naval.set.as_deref(), Some("Naval"));
+        assert_eq!(naval.meta.source, "reference_pack.zip (custom/lighthouse)");
+        assert_eq!(naval.meta.license, "CC0-1.0");
+    }
+
+    /// Protects: AP-1 bar (b) -- re-exporting the opened reference pack
+    /// unchanged gives a `pack.json` with the same entries and every PNG
+    /// decodes to identical RGBA bytes.
+    #[test]
+    fn reexporting_the_reference_pack_keeps_entries_and_pixels() {
+        let original = reference_pack();
+        let mut s = AssetLibrarySession::new();
+        s.import_pack(&original, "reference_pack.zip", PackImportMode::KeepExisting).unwrap();
+        let (_, exported) = s.export_pack_bytes().unwrap();
+        let (m0, img0) = decoded_pack(&original);
+        let (m1, img1) = decoded_pack(&exported);
+        assert_eq!(m1.textures, m0.textures);
+        assert_eq!(m1.biomes, m0.biomes);
+        assert_eq!(m1.terrains, m0.terrains);
+        assert_eq!(m1.icons, m0.icons);
+        assert_eq!(m1.structures, m0.structures);
+        assert_eq!(m1.custom, m0.custom);
+        assert_eq!((m1.name.as_str(), m1.author.as_str(), m1.license.as_str()), (m0.name.as_str(), m0.author.as_str(), m0.license.as_str()));
+        assert_eq!(img0.len(), 17);
+        assert_eq!(img1, img0, "every PNG decodes to the same RGBA");
+    }
+
+    /// A synthetic pack, made for the test: sprites with an RGB gradient and
+    /// a checker of fully transparent holes (so a bake that resampled or
+    /// shifted them would move bytes) in icons, sea marks, POI and a custom
+    /// set, plus an opaque texture, each at its family's bake size.
+    fn synthetic_pack() -> Vec<u8> {
+        let mut s = AssetLibrarySession::new();
+        s.db.pack.name = "Synthetic".into();
+        s.db.pack.author = "test".into();
+        s.db.pack.license = "MIT".into();
+        let sprite = |seed: u8| {
+            let mut v = Vec::with_capacity(256 * 256 * 4);
+            for y in 0..256u32 {
+                for x in 0..256u32 {
+                    // Binary alpha: a checker of transparent holes. See
+                    // `the_bake_drifts_semi_transparent_rgb_by_one_level`
+                    // for why a fractional alpha is not round-tripped.
+                    let a = if (x / 16 + y / 16) % 2 == 0 { 255 } else { 0 };
+                    v.extend_from_slice(&[(x as u8).wrapping_add(seed), y as u8, seed, a]);
+                }
+            }
+            encode_png(&DecodedImage::new(256, 256, v).unwrap()).unwrap()
+        };
+        s.import_item("icons:hill", "a".into(), &sprite(3)).unwrap();
+        s.import_item("icons:hill", "b".into(), &sprite(9)).unwrap();
+        s.import_item("seamarks:buoy", "c".into(), &sprite(17)).unwrap();
+        s.import_item("poi:ruin", "d".into(), &sprite(30)).unwrap();
+        let cuid = s.add_custom_slot("Windmill", Some("Farm Things"));
+        s.import_item(&cuid, "e".into(), &sprite(44)).unwrap();
+        s.import_item("textures:grass", "f".into(), &png_bytes(512, 512, [10, 120, 30, 255])).unwrap();
+        s.export_pack_bytes().unwrap().1
+    }
+
+    /// Protects: the library round trip -- open a pack, export it, open the
+    /// export into a fresh library: the two libraries are equal (slots, sets,
+    /// metadata, item names, transforms and byte-equal pixels), for the
+    /// reference fixture and for a synthetic pack with alpha gradients and a
+    /// sea-mark slot. Both opens use the same `source` label, since it is
+    /// recorded as provenance.
+    #[test]
+    fn export_then_import_gives_an_equal_library() {
+        for (label, pack) in [("reference", reference_pack()), ("synthetic", synthetic_pack())] {
+            let mut a = AssetLibrarySession::new();
+            a.import_pack(&pack, "p.zip", PackImportMode::KeepExisting).unwrap();
+            let (_, exported) = a.export_pack_bytes().unwrap();
+            let mut b = AssetLibrarySession::new();
+            let out = b.import_pack(&exported, "p.zip", PackImportMode::KeepExisting).unwrap();
+            assert_eq!(out.count(PackRowStatus::Refused), 0, "{label}: {:?}", out.rows);
+            assert_eq!(snapshot(&b), snapshot(&a), "{label}");
+        }
+        // The synthetic pack really did carry a sea mark and a custom set.
+        let mut s = AssetLibrarySession::new();
+        s.import_pack(&synthetic_pack(), "p.zip", PackImportMode::KeepExisting).unwrap();
+        assert_eq!(s.db.items("seamarks:buoy").len(), 1);
+        assert_eq!(s.db.get("custom:farm_things/windmill").and_then(|x| x.set.clone()).as_deref(), Some("Farm Things"));
+    }
+
+    /// Measures, and pins, a finding of this pass (2026-10-18) rather than a
+    /// wanted behaviour: `render_item` composites with `imageops::overlay`
+    /// (source-over) onto a transparent canvas, and for a pixel whose alpha
+    /// is strictly between 0 and 255 that moves RGB by one level per bake,
+    /// on every bake (measured: worst 1, 1, 1 over three cycles), and it
+    /// zeroes the invisible RGB under alpha 0. So a sprite with soft edges is
+    /// NOT byte-identical after export, re-import and export, however
+    /// unchanged it is. Alpha is untouched. Fixing it changes Apply-to-map pixels, so it is left to
+    /// Ruling CR's separate, switched bake fix (`render_item`), not AP-1.
+    /// If that fix lands, this test should fail and be replaced.
+    #[test]
+    fn the_bake_drifts_semi_transparent_rgb_by_one_level() {
+        let mut v = Vec::with_capacity(256 * 256 * 4);
+        for y in 0..256u32 {
+            for x in 0..256u32 {
+                v.extend_from_slice(&[x as u8, y as u8, 200, ((x + y) / 2) as u8]);
+            }
+        }
+        let original = DecodedImage::new(256, 256, v).unwrap();
+        let mut s = AssetLibrarySession::new();
+        s.import_item("icons:hill", "h".into(), &encode_png(&original).unwrap()).unwrap();
+        let mut worst_per_cycle = Vec::new();
+        let mut prev = original.rgba.clone();
+        for _ in 0..3 {
+            let (_, bytes) = s.export_pack_bytes().unwrap();
+            let mut next = AssetLibrarySession::new();
+            next.import_pack(&bytes, "p.zip", PackImportMode::KeepExisting).unwrap();
+            let now = next.image("icons:hill", 0).unwrap().rgba.clone();
+            // RGB under alpha 0 is invisible and the bake zeroes it; only
+            // visible pixels count.
+            let worst = prev
+                .chunks_exact(4)
+                .zip(now.chunks_exact(4))
+                .filter(|(a, _)| a[3] > 0)
+                .flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c])))
+                .max()
+                .unwrap();
+            let alpha_same = prev.chunks_exact(4).zip(now.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
+            assert!(alpha_same, "alpha must survive the bake byte for byte");
+            worst_per_cycle.push(worst);
+            prev = now;
+            s = next;
+        }
+        assert_eq!(worst_per_cycle, vec![1, 1, 1], "one level per bake, every bake");
+    }
+
+    /// A pack zip of `manifest` plus `files`, written with this crate's own
+    /// pack writer so names and methods are what an exporter produces.
+    fn pack_zip(manifest: &str, files: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut entries: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (*n, d.as_slice())).collect();
+        entries.push(("pack.json", manifest.as_bytes()));
+        archive::zip_store_bytes(&entries).unwrap()
+    }
+
+    /// Protects: AP-1 bar (c) -- an unknown slot id goes to Custom/Imported
+    /// with one warning per unknown slot, in the reference's own words, and
+    /// the import still succeeds for the known slot beside it.
+    #[test]
+    fn an_unknown_slot_lands_in_custom_imported_with_a_warning() {
+        let png = png_bytes(4, 4, [1, 2, 3, 255]);
+        let z = pack_zip(
+            r#"{"icons":{"mountain":["m.png"],"volcano":["v.png"]},"structures":{"poi":{"obelisk":["o.png"]}}}"#,
+            &[("m.png", png.clone()), ("v.png", png.clone()), ("o.png", png)],
+        );
+        let mut s = AssetLibrarySession::new();
+        let out = s.import_pack(&z, "x.zip", PackImportMode::KeepExisting).unwrap();
+        assert_eq!(
+            out.notes,
+            vec!["unknown slot \"volcano\" → Custom/Imported".to_string(), "unknown slot \"obelisk\" → Custom/Imported".to_string()]
+        );
+        assert_eq!(s.db.items("icons:mountain").len(), 1);
+        assert_eq!(s.db.items("custom:imported/volcano").len(), 1);
+        assert_eq!(s.db.items("custom:imported/obelisk").len(), 1);
+    }
+
+    /// Protects: "never overwrite existing slots without confirm" -- a dry
+    /// run names the filled slot and the differing licence and changes
+    /// nothing; KeepExisting skips the filled slot (with the reason) and the
+    /// licence; Replace empties the slot first, so importing the same pack
+    /// twice leaves the same three variants, not six.
+    #[test]
+    fn a_filled_slot_is_a_conflict_until_the_user_replaces_it() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("icons:mountain", "mine.png".into(), &png_bytes(4, 4, [9, 9, 9, 255])).unwrap();
+        s.db.pack.license = "All rights reserved".into();
+        let pack = reference_pack();
+
+        let dry = s.import_pack(&pack, "r.zip", PackImportMode::DryRun).unwrap();
+        assert_eq!(dry.conflict_uids, vec!["icons:mountain".to_string()]);
+        assert_eq!(dry.conflicts.len(), 2, "{:?}", dry.conflicts);
+        assert!(dry.conflicts[1].contains("All rights reserved"), "{:?}", dry.conflicts);
+        assert!(dry.rows.is_empty());
+        assert_eq!(s.db.total_items(), 1, "a dry run changes nothing");
+        assert!(s.db.get("custom:naval/lighthouse").is_none(), "a dry run creates no custom slot");
+
+        let keep = s.import_pack(&pack, "r.zip", PackImportMode::KeepExisting).unwrap();
+        assert_eq!(keep.count(PackRowStatus::Skipped), 3);
+        assert!(keep.rows.iter().filter(|r| r.status == PackRowStatus::Skipped).all(|r| r.reason.contains("kept")));
+        assert_eq!(s.db.items("icons:mountain")[0].name, "mine.png");
+        assert_eq!(s.db.pack.license, "All rights reserved");
+        assert_eq!(s.db.total_items(), 1 + 14);
+
+        s.import_pack(&pack, "r.zip", PackImportMode::Replace).unwrap();
+        assert_eq!(s.db.items("icons:mountain").len(), 3);
+        assert_eq!(s.db.items("icons:mountain")[0].name, "mountain");
+        assert_eq!(s.db.pack.license, "CC0-1.0");
+        s.import_pack(&pack, "r.zip", PackImportMode::Replace).unwrap();
+        assert_eq!(s.db.total_items(), 17, "a second Replace is idempotent");
+    }
+
+    /// Protects: hostile and invalid archives. A path-traversal entry and a
+    /// deflate bomb refuse the whole pack with a reason and change nothing;
+    /// a non-PNG, an oversize IHDR and a corrupt PNG each refuse just their
+    /// own row, with a reason, while a good image beside them still imports.
+    #[test]
+    fn hostile_and_invalid_packs_are_refused_with_reasons() {
+        let png = png_bytes(4, 4, [1, 2, 3, 255]);
+        let mut s = AssetLibrarySession::new();
+
+        let traversal = pack_zip(r#"{"icons":{"hill":["h.png"]}}"#, &[("h.png", png.clone()), ("../evil.png", png.clone())]);
+        let err = s.import_pack(&traversal, "t.zip", PackImportMode::KeepExisting).unwrap_err();
+        assert!(err.contains("../evil.png") && err.contains(".."), "{err}");
+
+        // 80 MiB of spaces deflates to well under 1 MiB: the entry cap
+        // (64 MiB decompressed), not the archive size, must catch it.
+        let spaces = vec![b' '; 80 * 1024 * 1024];
+        let bomb = archive::zip_store_bytes(&[("pack.json", spaces.as_slice())]).unwrap();
+        assert!(bomb.len() < 1024 * 1024, "the fixture is a bomb: {} bytes", bomb.len());
+        let err = s.import_pack(&bomb, "b.zip", PackImportMode::KeepExisting).unwrap_err();
+        assert!(err.contains("pack.json") && err.contains("64 MiB"), "{err}");
+        assert_eq!(s.db.total_items(), 0);
+
+        // An IHDR claiming 9000 x 9000: 24 real header bytes, no pixels.
+        let mut huge = png[..24].to_vec();
+        huge[16..20].copy_from_slice(&9000u32.to_be_bytes());
+        huge[20..24].copy_from_slice(&9000u32.to_be_bytes());
+        let mut corrupt = png[..33].to_vec();
+        corrupt.extend_from_slice(b"garbage, not an IDAT");
+        let z = pack_zip(
+            r#"{"icons":{"hill":["gif.png","huge.png","bad.png","ok.png"]}}"#,
+            &[("gif.png", b"GIF89a-and-then-some-bytes".to_vec()), ("huge.png", huge), ("bad.png", corrupt), ("ok.png", png)],
+        );
+        let out = s.import_pack(&z, "m.zip", PackImportMode::KeepExisting).unwrap();
+        let reasons: Vec<&str> = out.rows.iter().map(|r| r.reason.as_str()).collect();
+        assert!(reasons[0].contains("not a PNG"), "{reasons:?}");
+        assert!(reasons[1].contains("8192"), "{reasons:?}");
+        assert!(reasons[2].contains("not a readable PNG"), "{reasons:?}");
+        assert_eq!(out.rows[3].status, PackRowStatus::Imported);
+        assert_eq!(out.count(PackRowStatus::Refused), 3);
+        assert_eq!(s.db.items("icons:hill").len(), 1);
+    }
+
+    /// Protects: a custom slot whose every image is refused is never created
+    /// (it would otherwise trip the validator's "Empty custom slot").
+    #[test]
+    fn a_custom_slot_with_nothing_importable_is_not_created() {
+        let z = pack_zip(r#"{"custom":{"Naval":{"wreck":["missing.png"]}}}"#, &[]);
+        let mut s = AssetLibrarySession::new();
+        let out = s.import_pack(&z, "w.zip", PackImportMode::KeepExisting).unwrap();
+        assert_eq!(out.rows[0].reason, "missing file: missing.png");
+        assert!(s.db.get("custom:naval/wreck").is_none());
     }
 
     /// Protects: `clear` empties the library: items, custom slots and decoded pixels.
