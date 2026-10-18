@@ -250,6 +250,10 @@ pub struct ReligionDomain {
 /// FH-R2 R2-1 appended seven on 2026-10-12, still key and label only).
 /// Reading "Sea Lords" as maritime is parsing authored content; inventing a
 /// `C_ritual` for it is fabrication. That line is where this table stops.
+/// (Since 2026-10-18 each religion also has an owner-approved structural
+/// profile, [`crate::religion_profile`] — exclusivity, membership and so on,
+/// Ruling CJ — but that table carries no terrain verdict either, so this
+/// one's evidence is still the label.)
 ///
 /// **The seven R2-1 religions are absent too**, on their own source's word:
 /// the research document's table gives every one of them the terrain verdict
@@ -522,14 +526,23 @@ pub fn compat_value(religion_key: &str, culture_key: &str) -> f64 {
 //    diffusion has not been run" — [`belief_any_faith`] exists so a surface
 //    can tell them apart. (Corrected 2026-10-12, FH-R2 R2-0; the old text
 //    was routed by `FH_R2_PLAN.md` §3.)
-// 2. **There is no stable mixture.** §14's `p^k` with `k > 1` is a fixation
-//    dynamic, so every settlement converges to one religion holding
-//    essentially all of it — measured at >99 % even for a town placed
-//    exactly between two equal rival neighbours in a culture favouring
-//    neither. Coexistence is §18's `Competition` and §22's separate
-//    retention function, both later milestones with no input in this port.
-//    A breakdown widget designed around an imagined five-way split would be
-//    designed against a model that does not exist yet.
+// 2. **Roads alone still give no stable mixture; trade does (FH-R2 R2-2,
+//    2026-10-18, Ruling CJ).** §14's `p^k` with `k > 1` is a fixation
+//    dynamic, so a settlement fed only by the road network converges to one
+//    religion holding essentially all of it — measured at >99 % even for a
+//    town placed exactly between two equal rival neighbours in a culture
+//    favouring neither (`roads_alone_still_fix_a_single_faith`). Until R2-2
+//    that was the whole model, and a surface could assume one winner per
+//    settlement. **It no longer can.** R2-2 added the research document's
+//    Mechanism B (`RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md`): a retention
+//    split by membership mode ([`belief_retention`]), axis-derived
+//    competition ([`belief_competition_weight`]) and a trade-diaspora influx
+//    over `trade::TradeFlow` ([`BeliefNetwork::with_trade`]). Influx is the
+//    term that holds a minority: a settlement with steady trade contact
+//    keeps a community near `influx / (influx + out-flow)`
+//    (`influx_holds_a_minority_near_the_analytic_steady_state`), while an
+//    isolated village with no trade still converges. A breakdown widget
+//    must now expect two or more faiths in a trading town.
 //
 // ## No RNG stream, and why that is the stronger answer
 //
@@ -622,9 +635,178 @@ pub const BELIEF_CONFORMITY_K: f64 = 2.0;
 ///
 /// **The measured range is 17-25 years where conversion happens at all, and
 /// "never" where it does not** — see that test and
-/// `belief_has_no_syncretic_equilibrium` for why there is no slow-but-
-/// eventual middle, and why that is §14 rather than a defect.
+/// `roads_alone_still_fix_a_single_faith` for why there is no slow-but-
+/// eventual middle over roads alone, and why that is §14 rather than a
+/// defect. (Those fixtures hold one religion against the unaffiliated slot,
+/// which R2-2's retention and competition terms leave untouched: `none` has no
+/// profile, so it retains nothing and competes with nothing, and both
+/// literals are unchanged by R2-2.)
 pub const BELIEF_STEP_RATE: f64 = 0.05;
+
+// ===========================================================================
+// FH-R2 R2-2 — the research document's Mechanism B (S2), Ruling CJ
+// ===========================================================================
+//
+// Three terms, each the research document's (`RELIGION_GOVERNMENT_EXPANSION_
+// RESEARCH.md`, "Mechanism B: inter-religion coexistence") and each with a
+// slot in the owner-supplied paper (`RELIGION_DIFFUSION_SCOPE.md` §1):
+//
+// 1. **Retention split** (paper §22, "conversion and retention should be
+//    modelled separately"): of the yearly `rate` that re-chooses its faith, a
+//    religion's adherents sit out a fraction [`belief_retention`] derived from
+//    its membership mode, so out-flow is `rate · (1 − retention) · share`.
+// 2. **Competition** (paper §18-§19, `− βX·Competition`): a religion's pull
+//    in a settlement is lowered by the local share of each rival, weighted by
+//    [`belief_competition_weight`], derived from the two profiles' exclusivity
+//    and membership — never a hand-typed matrix, the same discipline as
+//    [`compat`].
+// 3. **Trade-diaspora influx** (paper §20, `MigrationIn − MigrationOut`):
+//    each year a settlement exchanges a fraction of its people for its trade
+//    partners' faith mix, in proportion to its trade contact
+//    ([`BeliefNetwork::with_trade`]).
+//
+// **Every weight below is a labelled judgement.** The research document
+// supplies orderings (birth > universal > initiatory > folk; additive ×
+// additive weak, exclusive × proselytising strong, birth weak toward
+// everyone), not numbers, and says so ("authored orderings, not fitted
+// values", `FH_R2_PLAN.md` §8). The numbers are evenly spaced placements of
+// those orderings, and the tests pin them by literal and by behaviour.
+//
+// **Each term is zero by control flow or arithmetic at weight zero**, and that
+// was measured, not argued: with every R2-2 weight set to `0.0` the M1 harness
+// (`cartalith-godot` `fh_r2_baseline`) reproduced the M0 belief hashes on all
+// 20 worlds (2026-10-18, STATUS.md's R2-2 entry). That is why the step below
+// writes retention as `1 − rate·(1 − ret)` and the freed mass as
+// `rate·(1 − Σ ret·share)`: at `ret == 0` both are bit-exact to the pre-R2-2
+// `(1 − rate)` and `rate`.
+
+/// S2 term 1's retention for a **birth / ethnic** membership: the highest
+/// tier ("birth religions are sticky", research document axis 3). Labelled
+/// judgement: the top of four evenly spaced tiers (0.75 / 0.5 / 0.25 / 0).
+pub const BELIEF_RETENTION_BIRTH: f64 = 0.75;
+/// Retention for a **universal / missionary** membership — the research
+/// document's "universal-doctrinal", second of four. Labelled judgement.
+pub const BELIEF_RETENTION_UNIVERSAL: f64 = 0.5;
+/// Retention for an **initiatory** membership, third of four. Labelled
+/// judgement.
+pub const BELIEF_RETENTION_INITIATORY: f64 = 0.25;
+
+/// S2 term 1: the fraction of a religion's yearly re-choosers who stay,
+/// derived from its [`crate::religion_profile::Membership`] alone.
+///
+/// The research document's ordering is "birth > universal-doctrinal >
+/// initiatory > folk". **The folk tier is `0.0`, which is the pre-R2-2 model
+/// exactly**: every adherent in the re-choosing `rate` re-chooses. Civic
+/// membership, an unclassified membership (the reference's seven religions,
+/// whose approved draft has no membership column), `none` and an unknown key
+/// all take the folk tier — the ordering names no place for civic, and an
+/// unclassified religion must not be guessed upward into a stickier tier.
+/// Because every reference religion is unclassified, **a world holding only
+/// the reference's religions (every fresh world, `civ_default_religion`)
+/// sees no retention change at all**.
+///
+/// Never returns 1.0: a religion that retained everyone would be immune to
+/// conversion, which the paper's §22 ("easy to retain" is not "impossible to
+/// leave") does not describe.
+pub fn belief_retention(religion_key: &str) -> f64 {
+    use crate::religion_profile::{religion_profile, Membership};
+    match religion_profile(religion_key).and_then(|p| p.membership) {
+        Some(Membership::Birth) => BELIEF_RETENTION_BIRTH,
+        Some(Membership::Universal) => BELIEF_RETENTION_UNIVERSAL,
+        Some(Membership::Initiatory) => BELIEF_RETENTION_INITIATORY,
+        Some(Membership::Civic) | None => 0.0,
+    }
+}
+
+/// §19's `βX`, the competition weight in the conversion logistic. Labelled
+/// judgement: equal to [`BELIEF_BF`], the smallest of the existing three, so a
+/// fully competed religion (`Competition = 1`) loses as much pull as full
+/// conformity adds. [`BELIEF_B0`] is **not** re-centred for it: competition is
+/// a one-sided penalty, zero wherever a settlement holds a single faith, and
+/// re-centring would move every single-faith settlement's pull to make room
+/// for a term that is absent there.
+pub const BELIEF_BX: f64 = 1.0;
+/// Competition weight `w_rq` for the **weak** tier: additive meets additive
+/// ("absorption/syncretism, low competition"), or a birth religion as the
+/// rival ("they don't proselytise"). Labelled judgement, a quarter of strong.
+pub const BELIEF_COMPETITION_WEAK: f64 = 0.25;
+/// Weight for the **medium** tier: every pair neither weak nor strong.
+/// Labelled judgement, half of strong.
+pub const BELIEF_COMPETITION_MEDIUM: f64 = 0.5;
+/// Weight for the **strong** tier: a boundary religion on either side and a
+/// proselytising (universal) rival ("exclusive meets anything → boundary,
+/// strong competition"; "exclusive × proselytising → strong"). Labelled
+/// judgement: the unit.
+pub const BELIEF_COMPETITION_STRONG: f64 = 1.0;
+
+/// S2 term 2: how strongly rival `q` competes with religion `r` (`w_rq` in
+/// the paper's §18 `Competition_R = Σ_{q≠R} w_Rq · p_q`), derived from the two
+/// profiles.
+///
+/// In order, first match wins:
+///
+/// 1. `0.0` when `r == q`, or either is `none` or has no profile: the
+///    unaffiliated are not a rival faith (the same silence `relations.rs`'
+///    `religion_term` gives `none`), and a religion does not compete with
+///    itself.
+/// 2. **Weak** when `q` is a birth religion (it does not seek converts), or
+///    both are additive.
+/// 3. **Strong** when either side is exclusive (or exclusive-leaning) and `q`
+///    is universal (it does seek converts).
+/// 4. **Medium** otherwise — which includes every pair with `flame_creed` (the
+///    one exclusive-leaning reference religion, membership unclassified) and
+///    every pair with `the_path`'s mixed exclusivity against a non-additive.
+///
+/// Asymmetric by design: `w(r, q)` reads `q`'s membership, so a universal
+/// religion presses on a birth religion harder than the reverse.
+pub fn belief_competition_weight(r_key: &str, q_key: &str) -> f64 {
+    use crate::religion_profile::{religion_profile, Membership};
+    if r_key == q_key {
+        return 0.0;
+    }
+    let (Some(r), Some(q)) = (religion_profile(r_key), religion_profile(q_key)) else {
+        return 0.0;
+    };
+    if q.membership == Some(Membership::Birth) || (r.exclusivity.is_additive() && q.exclusivity.is_additive()) {
+        BELIEF_COMPETITION_WEAK
+    } else if (r.exclusivity.is_exclusive() || q.exclusivity.is_exclusive())
+        && q.membership == Some(Membership::Universal)
+    {
+        BELIEF_COMPETITION_STRONG
+    } else {
+        BELIEF_COMPETITION_MEDIUM
+    }
+}
+
+/// S2 term 3's ceiling: the largest fraction of a settlement's people
+/// exchanged with its trade partners in one year, reached only as trade
+/// contact grows without bound. Labelled judgement, calibrated against
+/// `FH_R2_PLAN.md` §6's hub bar on the M2 harness (STATUS.md's R2-2 entry
+/// records the measurement it was chosen from).
+pub const BELIEF_INFLUX_MAX: f64 = 0.02;
+
+/// The per-religion retention and the `CIV_RELIGION_COUNT²` competition
+/// matrix, resolved from the profile table **once per process** and cached:
+/// both are pure functions of compile-time tables, so caching changes no
+/// value. Measured reason (M2 cost bar, 2026-10-18): resolving them once per
+/// [`belief_step`] call (225 key lookups per year) tripled a 100-year run's
+/// cost on the harness worlds; see STATUS.md's R2-2 entry.
+fn belief_profile_terms() -> &'static ([f64; CIV_RELIGION_COUNT], [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT]) {
+    static TERMS: std::sync::OnceLock<([f64; CIV_RELIGION_COUNT], [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT])> =
+        std::sync::OnceLock::new();
+    TERMS.get_or_init(|| {
+        let mut ret = [0.0f64; CIV_RELIGION_COUNT];
+        let mut w = [[0.0f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT];
+        for r in 0..CIV_RELIGION_COUNT {
+            let rk = religion_key(r).unwrap_or("");
+            ret[r] = belief_retention(rk);
+            for q in 0..CIV_RELIGION_COUNT {
+                w[r][q] = belief_competition_weight(rk, religion_key(q).unwrap_or(""));
+            }
+        }
+        (ret, w)
+    })
+}
 
 /// §19's `σ(x) = 1/(1+e^−x)`.
 ///
@@ -776,7 +958,11 @@ pub struct BeliefLink {
 /// index to build a link from without re-deriving one by nearest-point
 /// search, which is a real piece of work and belongs to whichever milestone
 /// wants a maritime term, not to a helper. So this port's religion spreads
-/// overland only, and that is a stated limitation rather than a silent one.
+/// overland only *by exposure*, and that is a stated limitation rather than a
+/// silent one. **Since FH-R2 R2-2 (2026-10-18) a faith does cross the sea by
+/// another route**: [`BeliefNetwork::with_trade`]'s influx reads
+/// `trade::TradeFlow`, whose sea-mode flows do carry endpoint indices, so a
+/// port receives its sea partners' faith mix as migrants, not as exposure.
 pub fn belief_links_from_ways(ways: &[crate::Way]) -> Vec<BeliefLink> {
     ways.iter()
         .filter(|w| w.a_idx != w.b_idx)
@@ -817,6 +1003,13 @@ pub fn belief_links_from_ways(ways: &[crate::Way]) -> Vec<BeliefLink> {
 pub struct BeliefNetwork {
     /// `adj[i]` = `(j, w_ij)`, including `(i, pop_i)`.
     adj: Vec<Vec<(usize, f64)>>,
+    /// FH-R2 R2-2's trade partners: `partners[i]` = `(j, weight)`, weights
+    /// normalised to sum to 1 per settlement. Empty for every settlement until
+    /// [`Self::with_trade`] is called, and empty for a settlement with no flow.
+    partners: Vec<Vec<(usize, f64)>>,
+    /// FH-R2 R2-2's yearly exchanged fraction `m_i` per settlement, in
+    /// `[0, BELIEF_INFLUX_MAX)`. `0.0` everywhere until [`Self::with_trade`].
+    influx: Vec<f64>,
 }
 
 impl BeliefNetwork {
@@ -844,7 +1037,69 @@ impl BeliefNetwork {
             adj[l.a].push((l.b, pops[l.b] as f64 * w));
             adj[l.b].push((l.a, pops[l.a] as f64 * w));
         }
-        BeliefNetwork { adj }
+        BeliefNetwork { adj, partners: vec![Vec::new(); n], influx: vec![0.0; n] }
+    }
+
+    /// FH-R2 R2-2 (S2 term 3): attach the trade-diaspora influx from the
+    /// world's trade flows.
+    ///
+    /// **Contact is two-way.** Every flow `from → to` of volume `v` makes each
+    /// end the other's partner with weight `v`: merchants travel with the goods
+    /// and factors settle at both ends (the research document's Quanzhou and
+    /// Karakorum evidence is of foreign communities at the trading town, the
+    /// research document's "trade-diaspora"). Sea flows count like any other —
+    /// `TradeFlow` carries endpoint indices for them, the research document's
+    /// "useful find", so a port's sea partners reach it although
+    /// [`belief_links_from_ways`] has no sea lanes.
+    ///
+    /// **The exchanged fraction** is `m_i = BELIEF_INFLUX_MAX · τ/(1 + τ)`,
+    /// with `τ = Σ v / pop_i` the settlement's trade contact in units of its own
+    /// population (`TradeFlow::volume` is "people's worth of demand"). The
+    /// saturating form is a labelled judgement: it is linear for light trade
+    /// (`m ≈ κ·τ`) and can never exceed the ceiling, so no amount of trade
+    /// replaces a town's population in a year. A settlement of population zero
+    /// or with no flow keeps `m_i = 0`, and the step skips it by control flow.
+    ///
+    /// Out-of-range indices, self-flows and non-positive or NaN volumes are
+    /// skipped, as [`Self::build`] skips bad links.
+    pub fn with_trade(mut self, pops: &[u32], flows: &[crate::trade::TradeFlow]) -> Self {
+        let n = self.adj.len();
+        // One entry per distinct partner (a `BTreeMap`, so the order is the
+        // partner index and not the flow order): a hub's flows are one per
+        // good, and summing them first keeps the step's per-year pass to the
+        // partners, not the flows.
+        let mut raw: Vec<std::collections::BTreeMap<usize, f64>> = vec![Default::default(); n];
+        for f in flows {
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
+            if f.from >= n || f.to >= n || f.from == f.to || !(f.volume > 0.0) {
+                continue;
+            }
+            *raw[f.to].entry(f.from).or_insert(0.0) += f.volume;
+            *raw[f.from].entry(f.to).or_insert(0.0) += f.volume;
+        }
+        for i in 0..n {
+            let total: f64 = raw[i].values().sum();
+            let pop = pops.get(i).copied().unwrap_or(0) as f64;
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
+            if !(total > 0.0) || !(pop > 0.0) {
+                continue;
+            }
+            let tau = total / pop;
+            self.influx[i] = BELIEF_INFLUX_MAX * tau / (1.0 + tau);
+            self.partners[i] = raw[i].iter().map(|(&j, &v)| (j, v / total)).collect();
+        }
+        self
+    }
+
+    /// Settlement `i`'s yearly exchanged fraction `m_i` (`0.0` with no trade).
+    pub fn influx(&self, i: usize) -> f64 {
+        self.influx.get(i).copied().unwrap_or(0.0)
+    }
+
+    /// How many distinct trade partners settlement `i` draws its influx mix
+    /// from (`0` with no trade).
+    pub fn trade_partner_count(&self, i: usize) -> usize {
+        self.partners.get(i).map_or(0, |v| v.len())
     }
 
     /// Settlement count the network was built over.
@@ -917,9 +1172,19 @@ fn belief_exposure(
 /// `Freq = share_i[r]^k` (§14):
 ///
 /// ```text
-/// attract_r = E_r · σ(β0 + βE·E_r + βC·Compat_r + βF·Freq_r)
-/// share'_r  = (1 − rate)·share_r + rate·(attract_r / Σ attract)
+/// Comp_r    = Σ_q w_rq · share_q                                  (R2-2, §18)
+/// attract_r = E_r · σ(β0 + βE·E_r + βC·Compat_r + βF·Freq_r − βX·Comp_r)
+/// freed     = rate · (1 − Σ_r ret_r · share_r)                    (R2-2, §22)
+/// next_r    = (1 − rate·(1 − ret_r))·share_r + freed·(attract_r / Σ attract)
+/// share'_r  = (1 − m)·next_r + m·mix_r                            (R2-2, §20)
 /// ```
+///
+/// with `ret_r` from [`belief_retention`], `w_rq` from
+/// [`belief_competition_weight`], and `m`/`mix` the settlement's trade
+/// influx and its partners' faith mix ([`BeliefNetwork::with_trade`]; `m = 0`
+/// on a network built without trade). Before FH-R2 R2-2 (2026-10-18) the
+/// model was the `ret = 0`, `βX = 0`, `m = 0` case of this, which is also what
+/// every folk-tier, single-faith, tradeless settlement still computes.
 ///
 /// **The leading `E_r` factor is the part that is not decoration.** §19's
 /// logistic never returns zero anywhere this model can reach — its whole
@@ -930,15 +1195,14 @@ fn belief_exposure(
 /// §17's own shape (`P_conv = 1 − e^{−kE}` is likewise zero at zero
 /// exposure) and it makes "nobody here has heard of it" mean what it says.
 ///
-/// # Read this before calibrating: three terms, not nine
+/// # Read this before calibrating: four terms of nine, plus retention and migration
 ///
-/// §19 lists nine. This has three, exactly the three milestone 1 names, and
-/// the six that are missing are missing because this port has no input for
-/// them, not because they were judged unimportant. In particular
-/// `Competition` is absent, so competition here is only whatever the shared
-/// `Σ attract` denominator provides — a religion is crowded out by rivals
-/// but is never specifically *hostile* to one, which is what §18's `w_Rq`
-/// would add.
+/// §19 lists nine conversion terms. This has four: milestone 1's three, and
+/// R2-2's `Competition` (§18's `w_Rq`, so a religion is now specifically
+/// pressed by a rival and not only crowded out through the shared
+/// `Σ attract` denominator). The five still missing (utility, social
+/// reinforcement, prestige, institutions, cost) are missing because this port
+/// has no input for them, not because they were judged unimportant.
 ///
 /// And [`compat_value`]'s own disclosure applies with full force: **80 of
 /// the 105 (religion, culture) pairs return the stated neutral** (31 of 56
@@ -947,19 +1211,23 @@ fn belief_exposure(
 /// from moving `β0`. Anyone calibrating `βC` against this model is
 /// calibrating a term that is flat over half of it.
 ///
-/// # Conversion and retention are one number here, on purpose
+/// # Conversion and retention are split (FH-R2 R2-2)
 ///
-/// The paper's §2 insists exposure ≠ conversion ≠ retention, and this
-/// collapses the last two into a single net `rate`. That is milestone 1's
-/// own stated simplification, *"acceptable only because this milestone
-/// exists to prove the network-diffusion mechanic before spending complexity
-/// budget on the split."* Milestone 2 is the split. Nothing here should be
-/// read as a claim about retention.
+/// The paper's §2 insists exposure ≠ conversion ≠ retention. Milestone 1
+/// collapsed the last two into one net `rate` as its own stated
+/// simplification; R2-2 is the split the research document's Mechanism B
+/// asks for: a religion's out-flow is `rate·(1 − ret)·share`, with `ret` read
+/// from its membership mode, while conversion stays the logistic above. The
+/// retention here is the research document's axis-derived one, not
+/// `RELIGION_DIFFUSION_SCOPE.md` milestone 2's institutional `Inst_{i,R}`
+/// (which needs a clergy count this port does not compute); the single net
+/// rate is gone, and its behaviour survives only as the folk tier's `ret = 0`.
 ///
 /// # Synchronous, not in place
 ///
-/// Exposure for every settlement is read from the *old* state before any
-/// share is written, so the result does not depend on settlement order. An
+/// Exposure, competition and the trade partners' mix for every settlement
+/// are read from the *old* state before any share is written, so the result
+/// does not depend on settlement order. An
 /// in-place sweep would let a religion cross three towns in one year at one
 /// end of the list and one town at the other.
 ///
@@ -980,11 +1248,24 @@ pub fn belief_step(
     }
     let rate = rate.clamp(0.0, 1.0);
     let prev: Vec<SettlementReligionState> = states[..n].to_vec();
+    let (ret, w) = belief_profile_terms();
     for i in 0..n {
         let e = belief_exposure(net, &prev, i);
         let culture = culture_of.get(i).copied().unwrap_or("");
         let mut attract = [0.0f64; CIV_RELIGION_COUNT];
         let mut total = 0.0f64;
+        // The religions this settlement actually holds, for the competition
+        // sum below: a zero share contributes exactly `w · 0 = 0`, so skipping
+        // it changes no value, and most settlements hold one to three faiths
+        // (measured reason: the full 15 x 15 sum was most of a step's cost).
+        let mut held = [0usize; CIV_RELIGION_COUNT];
+        let mut held_n = 0usize;
+        for q in 0..CIV_RELIGION_COUNT {
+            if prev[i].share[q] > 0.0 {
+                held[held_n] = q;
+                held_n += 1;
+            }
+        }
         for (r, slot) in attract.iter_mut().enumerate() {
             if e[r] <= 0.0 {
                 continue;
@@ -992,8 +1273,16 @@ pub fn belief_step(
             let key = religion_key(r).unwrap_or("");
             let c = compat_value(key, culture);
             let freq = prev[i].share[r].max(0.0).powf(BELIEF_CONFORMITY_K);
+            // R2-2 term 2: §18's `Competition_r = Σ_q w_rq · p_q` over this
+            // settlement's own shares. Zero for a single-faith settlement.
+            let mut comp = 0.0f64;
+            for &q in held[..held_n].iter() {
+                comp += w[r][q] * prev[i].share[q];
+            }
             let a = e[r]
-                * belief_logistic(BELIEF_B0 + BELIEF_BE * e[r] + BELIEF_BC * c + BELIEF_BF * freq);
+                * belief_logistic(
+                    BELIEF_B0 + BELIEF_BE * e[r] + BELIEF_BC * c + BELIEF_BF * freq - BELIEF_BX * comp,
+                );
             *slot = a;
             total += a;
         }
@@ -1007,9 +1296,41 @@ pub fn belief_step(
             // into every downstream share.
             continue;
         }
+        // R2-2 term 1: each religion keeps `ret[r]` of its share of the
+        // re-choosing `rate`; the rest, `freed`, re-chooses by attraction. At
+        // `ret == 0` both factors are bit-exact to the pre-R2-2 `(1 − rate)`
+        // and `rate` (see the R2-2 header), and `Σ` of the result is still
+        // `Σ share` algebraically, so population is conserved.
+        let mut kept = 0.0f64;
+        for r in 0..CIV_RELIGION_COUNT {
+            kept += ret[r] * prev[i].share[r];
+        }
+        let freed = rate * (1.0 - kept);
+        let mut next = [0.0f64; CIV_RELIGION_COUNT];
+        for r in 0..CIV_RELIGION_COUNT {
+            next[r] = (1.0 - rate * (1.0 - ret[r])) * prev[i].share[r] + freed * (attract[r] / total);
+        }
+        // R2-2 term 3: §20's migration, `m` of the people exchanged for the
+        // trade partners' mix (read from the old state, like exposure).
+        // Skipped by control flow for a settlement with no trade.
+        let m = net.influx(i);
+        if m > 0.0 {
+            let mut mix = [0.0f64; CIV_RELIGION_COUNT];
+            for &(j, wj) in net.partners[i].iter() {
+                // A state list shorter than the network: a partner past it
+                // contributes nothing rather than indexing out of bounds.
+                let Some(pj) = prev.get(j) else { continue };
+                for r in 0..CIV_RELIGION_COUNT {
+                    mix[r] += wj * pj.share[r];
+                }
+            }
+            for r in 0..CIV_RELIGION_COUNT {
+                next[r] = (1.0 - m) * next[r] + m * mix[r];
+            }
+        }
         let mut sum = 0.0f64;
         for (r, slot) in states[i].share.iter_mut().enumerate() {
-            let v = (1.0 - rate) * prev[i].share[r] + rate * (attract[r] / total);
+            let v = next[r];
             *slot = v;
             sum += v;
         }
@@ -2132,10 +2453,10 @@ mod diffusion_tests {
         // And it does not merely stall -- it goes to zero. §14's `p^k` with
         // `k > 1` is a positive frequency-dependent bias, which is a
         // fixation dynamic by construction: below a threshold the minority's
-        // own conformity term works against it. `belief_has_no_syncretic_
-        // equilibrium` is where that is stated as the model-wide property it
-        // is, because it is not obvious from the milestone's prose and a
-        // surface built on it needs to know.
+        // own conformity term works against it. `roads_alone_still_fix_a_
+        // single_faith` (which replaced `belief_has_no_syncretic_equilibrium`
+        // under Ruling CJ) states that as the property it still is over roads
+        // alone; with trade, FH-R2 R2-2's influx holds minorities instead.
         assert!(
             held < 1e-30,
             "the minority did not merely stall, it vanished -- it holds {held}"
@@ -2143,34 +2464,27 @@ mod diffusion_tests {
         assert!(held >= 0.0 && held.is_finite(), "and it decayed to zero without going negative");
     }
 
-    /// The property a screen designer needs before drawing anything, and the
-    /// one this milestone's own prose does not lead a reader to expect:
-    /// **there is no stable mixture in this model.** Every settlement
-    /// converges to one religion holding essentially all of it.
+    /// The half of the retired `belief_has_no_syncretic_equilibrium` claim that
+    /// is historically right, kept under a name that says what it now means:
+    /// **over roads alone there is still no stable mixture.** A town exactly
+    /// between two equal neighbours of different faiths, in a culture that
+    /// favours neither, converges to one faith -- with every R2-2 term active
+    /// (retention and competition read the two profiles; there is no trade, so
+    /// no influx). §14's `p^k` with `k > 1` is a fixation dynamic, and neither
+    /// retention nor competition changes that by itself.
     ///
-    /// That is §14 behaving exactly as §14 says it does — positive
-    /// frequency-dependent transmission with `k > 1` is a fixation dynamic,
-    /// and *"can generate rapid changes in cultural prevalence and S-shaped
-    /// diffusion curves"* is what a fixation dynamic looks like. Coexistence
-    /// is what the paper's §18 (`Competition`, with an explicit *"multiple
-    /// religions can coexist within a settlement"*) and §22 (retention as its
-    /// own function) are for, and both are later milestones with no input in
-    /// this port today.
+    /// *Replaced 2026-10-18 under Ruling CJ*, which approved `FH_R2_PLAN.md`
+    /// Q4 "including replacing `belief_has_no_syncretic_equilibrium`". That
+    /// test's own message asked for exactly this: "if this ever drops below
+    /// 0.99, a coexistence mechanism has arrived and every surface that
+    /// assumed a single winner needs revisiting". The coexistence half now
+    /// lives in `a_trading_town_between_two_faiths_keeps_both` and
+    /// `influx_holds_a_minority_near_the_analytic_steady_state`.
     ///
-    /// So: a settlement inspector fed by this milestone will show one faith
-    /// at ~100 % and the other seven at ~0 %, not a pie chart. Designing a
-    /// breakdown widget against an imagined five-way split would be
-    /// designing against a model that does not exist yet.
-    ///
-    /// Protects: even the most balanced fixture this model can be given
-    /// converges to a single dominant faith, while the state stays a valid
-    /// distribution throughout.
+    /// Protects: roads alone fix one faith (> 0.99) in the most balanced
+    /// fixture, and the state stays a distribution.
     #[test]
-    fn belief_has_no_syncretic_equilibrium() {
-        // The most balanced case available: a town exactly between two equal
-        // neighbours of different faiths, at equal distance, in a culture
-        // that favours neither (`imperial` is unthemed, so both religions
-        // get the stated neutral).
+    fn roads_alone_still_fix_a_single_faith() {
         let sun = religion_index("sun_cult").unwrap();
         let sea = religion_index("sea_lords").unwrap();
         let net = BeliefNetwork::build(&[3000, 3000, 3000], &[
@@ -2188,16 +2502,361 @@ mod diffusion_tests {
         }
         let middle = &states[1];
         let top = middle.share.iter().copied().fold(0.0f64, f64::max);
-        assert!(
-            top > 0.99,
-            "even the most balanced settlement this model can be given converges to a single \
-             faith at {top}; if this ever drops below 0.99, a coexistence mechanism has \
-             arrived and every surface that assumed a single winner needs revisiting"
+        assert!(top > 0.99, "roads alone must still fix one faith; the middle town's top share is {top}");
+        assert!((middle.share.iter().sum::<f64>() - 1.0).abs() < 1e-9, "and it is still a distribution");
+
+    }
+
+    /// A trade flow fixture: `from` exports one good of `volume` to `to`.
+    /// Only the endpoint indices and the volume are read by the belief model.
+    fn flow(from: usize, to: usize, volume: f64) -> crate::trade::TradeFlow {
+        crate::trade::TradeFlow {
+            from,
+            to,
+            good: "grain",
+            mode: crate::trade::TradeMode::Sea,
+            reach: crate::trade::Reach::Long,
+            distance_km: 300.0,
+            deliverable: 0.5,
+            volume,
+            from_faction: 1,
+            to_faction: 2,
+            price: 1.0,
+            tariff: 0.0,
+        }
+    }
+
+    /// The research document's headline case, run: an `old_gods` port with no
+    /// road to its two sea partners, a `sun_cult` and a `sea_lords` town of the
+    /// same size, **holds communities of both partners' faiths** once it trades
+    /// with them ("hubs hold communities"), and each partner holds an
+    /// `old_gods` community in turn. With no trade the three stay wholly their
+    /// own faith (`an_unexposed_religion_never_gains_a_single_adherent`).
+    ///
+    /// *Why no roads:* a first draft linked the three by road as well, and the
+    /// middle town's faith then converted both neighbours outright (measured:
+    /// `old_gods` 0.9989 in all three after 200 years) -- a road-network
+    /// takeover by the best-connected town, which is exposure doing its job,
+    /// not a coexistence test. Sea trade with no road is the Quanzhou/Ostia
+    /// case the research document cites.
+    ///
+    /// Protects: the influx term (S2 term 3) produces coexistence in a trading
+    /// town, measured at 200 years against `FH_R2_PLAN.md` §6's 5 % floor for
+    /// each faith counted.
+    #[test]
+    fn a_trading_town_between_two_faiths_keeps_both() {
+        let sun = religion_index("sun_cult").unwrap();
+        let sea = religion_index("sea_lords").unwrap();
+        let old = religion_index("old_gods").unwrap();
+        let pops = [3000, 3000, 3000];
+        let net = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[flow(0, 1, 1500.0), flow(2, 1, 1500.0)]);
+        let cultures = vec!["imperial"; 3];
+        let mut states = vec![
+            SettlementReligionState::wholly(sun),
+            SettlementReligionState::wholly(old),
+            SettlementReligionState::wholly(sea),
+        ];
+        for _ in 0..200 {
+            belief_step(&mut states, &net, &cultures, BELIEF_STEP_RATE);
+        }
+        let m = &states[1];
+        println!(
+            "trading middle town after 200 y: old_gods {:.4} sun {:.4} sea {:.4} none {:.4}",
+            m.share[old], m.share[sun], m.share[sea], m.share[RELIGION_NONE]
         );
         assert!(
-            (middle.share.iter().sum::<f64>() - 1.0).abs() < 1e-9,
-            "and it is still a distribution"
+            m.share[sun] >= 0.05 && m.share[sea] >= 0.05 && m.share[old] >= 0.05,
+            "a town trading with both rivals must hold all three faiths at >= 5 %: {:?}",
+            m.share
         );
+        assert!(
+            states[0].share[old] >= 0.05 && states[2].share[old] >= 0.05,
+            "each partner holds an old_gods community: {} {}",
+            states[0].share[old],
+            states[2].share[old]
+        );
+        assert!((m.share.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+
+    /// `FH_R2_PLAN.md` §6's analytic check: with constant influx `I` of a pure
+    /// minority and an out-flow rate `o`, the steady minority share is about
+    /// `I / (I + o)` (the research document: "a stable minority share roughly
+    /// equal to influx over out-flow"). Bar: within ±10 %.
+    ///
+    /// The fixture holds the formula's one omission small, and says so: the
+    /// formula ignores re-conversion *into* the minority, so the minority here
+    /// clashes with the receiving culture (`sea_lords` in a `desert` town,
+    /// `Compat = 0`) while the majority matches it (`sun_cult`, `Compat = 1`).
+    /// The source is a city a thousand times the receiver's size, so the
+    /// receiver's own migrants barely dilute it. There is no road: exposure is
+    /// the town's own mix.
+    ///
+    /// Protects: the influx term's exchanged fraction `m` and its migration
+    /// arithmetic, against an independent closed form.
+    #[test]
+    fn influx_holds_a_minority_near_the_analytic_steady_state() {
+        let sun = religion_index("sun_cult").unwrap();
+        let sea = religion_index("sea_lords").unwrap();
+        let pops = [1_000_000, 1000];
+        let net = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[flow(0, 1, 1000.0)]);
+        // tau = 1000 / 1000 = 1, so m = κ · 1 / 2.
+        let i_flux = net.influx(1);
+        assert_eq!(i_flux, 0.02 * 0.5, "τ = 1 gives half the 0.02 ceiling");
+        let cultures = vec!["desert", "desert"];
+        let mut states = vec![SettlementReligionState::wholly(sea), SettlementReligionState::wholly(sun)];
+        for _ in 0..3000 {
+            belief_step(&mut states, &net, &cultures, BELIEF_STEP_RATE);
+        }
+        let o = BELIEF_STEP_RATE * (1.0 - belief_retention("sea_lords"));
+        let analytic = i_flux / (i_flux + o);
+        let got = states[1].share[sea];
+        let rel = (got - analytic) / analytic;
+        println!("analytic {analytic:.5} simulated {got:.5} relative {rel:+.4}");
+        assert!(rel.abs() <= 0.10, "steady minority {got} is {rel:+.3} from I/(I+o) = {analytic}");
+        assert!(got > 0.0 && got < 0.5, "a minority, not a takeover");
+    }
+
+    /// Protects: a network built without trade has zero influx everywhere,
+    /// and `with_trade` skips malformed flows (self-flow, out-of-range index,
+    /// zero, negative and NaN volume) rather than producing a NaN `m`.
+    #[test]
+    fn influx_is_zero_without_trade_and_ignores_bad_flows() {
+        let pops = [2000, 2000, 0];
+        let plain = BeliefNetwork::build(&pops, &[]);
+        assert!((0..3).all(|i| plain.influx(i) == 0.0 && plain.trade_partner_count(i) == 0));
+        let bad = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[
+            flow(0, 0, 500.0),
+            flow(0, 9, 500.0),
+            flow(0, 1, 0.0),
+            flow(0, 1, -3.0),
+            flow(0, 1, f64::NAN),
+        ]);
+        assert!((0..3).all(|i| bad.influx(i) == 0.0), "no valid flow, no influx");
+        // A zero-population settlement with a valid flow keeps m = 0.
+        let ghost = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[flow(0, 2, 500.0)]);
+        assert_eq!(ghost.influx(2), 0.0);
+        assert!(ghost.influx(0) > 0.0 && ghost.influx(0) < BELIEF_INFLUX_MAX);
+        // The ceiling is approached, never reached.
+        let flood = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[flow(0, 1, 1e12)]);
+        assert!(flood.influx(1) < BELIEF_INFLUX_MAX && flood.influx(1) > 0.999 * BELIEF_INFLUX_MAX);
+    }
+
+    /// Protects: the retention tiers as literals (not read back from the
+    /// constants), including the folk tier's 0.0 for every reference religion
+    /// and for `none`, and the research document's ordering.
+    #[test]
+    fn retention_follows_the_membership_ordering() {
+        assert_eq!(belief_retention("covenant_folk"), 0.75, "birth");
+        assert_eq!(belief_retention("spirit_ways"), 0.75, "birth");
+        assert_eq!(belief_retention("one_god"), 0.5, "universal");
+        assert_eq!(belief_retention("revealed_law"), 0.5, "universal");
+        assert_eq!(belief_retention("the_path"), 0.5, "universal");
+        assert_eq!(belief_retention("mysteries"), 0.25, "initiatory");
+        assert_eq!(belief_retention("god_king"), 0.0, "civic takes the folk tier");
+        for (k, _) in CIV_RELIGIONS[..crate::roster::CIV_RELIGIONS_REFERENCE_LEN].iter() {
+            assert_eq!(belief_retention(k), 0.0, "{k}: unclassified membership is the folk tier");
+        }
+        assert_eq!(belief_retention("no_such_faith"), 0.0);
+    }
+
+    /// Protects: retention changes behaviour, not only a table. Two minorities
+    /// with the same compatibility (both unthemed in an unthemed culture) in
+    /// one sealed town against a 70 % `sun_cult` majority: the birth religion
+    /// (`covenant_folk`, retention 0.75) keeps more after 60 years than the
+    /// folk-tier `ancestor_rites` (retention 0), although its competition is
+    /// the harsher of the two (medium against weak).
+    #[test]
+    fn a_birth_minority_outlasts_a_folk_minority() {
+        let sun = religion_index("sun_cult").unwrap();
+        let run = |minority: &str| -> f64 {
+            let x = religion_index(minority).unwrap();
+            let net = BeliefNetwork::build(&[5000], &[]);
+            let mut share = [0.0; CIV_RELIGION_COUNT];
+            share[sun] = 0.7;
+            share[x] = 0.3;
+            let mut states = vec![SettlementReligionState { share }];
+            for _ in 0..60 {
+                belief_step(&mut states, &net, &["imperial"], BELIEF_STEP_RATE);
+            }
+            states[0].share[x]
+        };
+        let birth = run("covenant_folk");
+        let folk = run("ancestor_rites");
+        println!("after 60 y: covenant_folk {birth:.5} ancestor_rites {folk:.5}");
+        assert!(birth > folk, "birth {birth} must outlast folk {folk}");
+    }
+
+    /// Protects: every branch of the competition derivation, by literal, and
+    /// its asymmetry.
+    #[test]
+    fn competition_is_derived_from_the_two_profiles() {
+        // Rule 1: self, `none` and unknown keys compete with nothing.
+        assert_eq!(belief_competition_weight("sun_cult", "sun_cult"), 0.0);
+        assert_eq!(belief_competition_weight("sun_cult", "none"), 0.0);
+        assert_eq!(belief_competition_weight("none", "one_god"), 0.0);
+        assert_eq!(belief_competition_weight("sun_cult", "no_such_faith"), 0.0);
+        // Rule 2: additive x additive, and a birth rival, are weak.
+        assert_eq!(belief_competition_weight("sun_cult", "sea_lords"), 0.25);
+        assert_eq!(belief_competition_weight("one_god", "covenant_folk"), 0.25);
+        // Rule 3: a boundary on either side and a universal rival is strong.
+        assert_eq!(belief_competition_weight("sun_cult", "one_god"), 1.0);
+        assert_eq!(belief_competition_weight("flame_creed", "the_path"), 1.0);
+        // Rule 4: otherwise medium -- flame_creed's pairs, and a universal
+        // pressed by an additive non-birth rival.
+        assert_eq!(belief_competition_weight("sun_cult", "flame_creed"), 0.5);
+        assert_eq!(belief_competition_weight("flame_creed", "sun_cult"), 0.5);
+        assert_eq!(belief_competition_weight("one_god", "sun_cult"), 0.5);
+        // Asymmetric: the universal religion presses the birth one harder.
+        assert!(
+            belief_competition_weight("covenant_folk", "one_god")
+                > belief_competition_weight("one_god", "covenant_folk")
+        );
+    }
+
+    /// Protects: competition changes behaviour. The same sealed town, a 30 %
+    /// minority of a folk religion against a 70 % majority: the minority
+    /// keeps less under a strong (exclusive, proselytising) majority than
+    /// under a weak (additive) one of the same compatibility.
+    #[test]
+    fn a_proselytising_majority_presses_a_minority_harder() {
+        let anc = religion_index("ancestor_rites").unwrap();
+        let run = |majority: &str| -> f64 {
+            let mj = religion_index(majority).unwrap();
+            let net = BeliefNetwork::build(&[5000], &[]);
+            let mut share = [0.0; CIV_RELIGION_COUNT];
+            share[mj] = 0.7;
+            share[anc] = 0.3;
+            let mut states = vec![SettlementReligionState { share }];
+            for _ in 0..40 {
+                belief_step(&mut states, &net, &["imperial"], BELIEF_STEP_RATE);
+            }
+            states[0].share[anc]
+        };
+        // Both majorities are unthemed in `imperial` (Compat 0.5); one_god is
+        // exclusive and universal (strong against ancestor_rites), old_gods is
+        // additive (weak). one_god also retains more, which only strengthens
+        // the majority; the assertion is the direction.
+        let strong = run("one_god");
+        let weak = run("old_gods");
+        println!("minority after 40 y: under one_god {strong:.5} under old_gods {weak:.5}");
+        assert!(strong < weak, "under a proselytising majority {strong} must be below {weak}");
+    }
+
+    /// `FH_R2_PLAN.md` §6's distribution-and-determinism bar with every R2-2
+    /// term live (trade influx included; the two pre-R2-2 property tests run
+    /// without trade and are kept unchanged): a 4-chain whose two ends trade
+    /// with each other, its mirror, and a re-run. Shares sum to 1 within
+    /// `1e-9`, the mirrored chain agrees within `1e-12`, and two runs agree
+    /// bit for bit.
+    ///
+    /// Protects: synchronous reads of the partners' mix (an in-place read
+    /// would break the mirror) and the absence of any order-dependent state in
+    /// `with_trade`.
+    #[test]
+    fn with_trade_the_step_is_still_synchronous_and_deterministic() {
+        let cultures = vec!["sylvan"; 4];
+        let old = religion_index("old_gods").unwrap();
+        let one = religion_index("one_god").unwrap();
+        let pops = [3000, 2000, 2000, 3000];
+        let fwd = BeliefNetwork::build(&pops, &[
+            BeliefLink { a: 0, b: 1, km: 30.0 },
+            BeliefLink { a: 1, b: 2, km: 30.0 },
+            BeliefLink { a: 2, b: 3, km: 30.0 },
+        ])
+        .with_trade(&pops, &[flow(0, 3, 900.0), flow(1, 0, 300.0)]);
+        let rev = BeliefNetwork::build(&pops, &[
+            BeliefLink { a: 3, b: 2, km: 30.0 },
+            BeliefLink { a: 2, b: 1, km: 30.0 },
+            BeliefLink { a: 1, b: 0, km: 30.0 },
+        ])
+        .with_trade(&pops, &[flow(3, 0, 900.0), flow(2, 3, 300.0)]);
+        let seed = |first: usize, last: usize| -> Vec<SettlementReligionState> {
+            (0..4)
+                .map(|i| {
+                    SettlementReligionState::wholly(if i == first {
+                        old
+                    } else if i == last {
+                        one
+                    } else {
+                        RELIGION_NONE
+                    })
+                })
+                .collect()
+        };
+        let run = |net: &BeliefNetwork, mut s: Vec<SettlementReligionState>| {
+            for _ in 0..80 {
+                belief_step(&mut s, net, &cultures, BELIEF_STEP_RATE);
+                for st in s.iter() {
+                    assert!((sum(st) - 1.0).abs() < 1e-9, "a share vector drifted off 1: {}", sum(st));
+                }
+            }
+            s
+        };
+        let a = run(&fwd, seed(0, 3));
+        let b = run(&rev, seed(3, 0));
+        let again = run(&fwd, seed(0, 3));
+        assert_eq!(a, again, "two runs of the same inputs disagree");
+        for i in 0..4 {
+            for r in 0..CIV_RELIGION_COUNT {
+                assert!(
+                    (a[i].share[r] - b[3 - i].share[r]).abs() < 1e-12,
+                    "mirror diverged at settlement {i}, religion {r}: {} vs {}",
+                    a[i].share[r],
+                    b[3 - i].share[r]
+                );
+            }
+        }
+        assert!(a[3].share[old] > 0.0 && a[0].share[one] > 0.0, "the trade link must carry each faith");
+    }
+
+    /// Protects: [`belief_step`]'s composition of the three R2-2 terms against
+    /// the formula its doc writes out, computed here by hand for one step of
+    /// one settlement (`1e-12`). The renormalisation at the end of a step hides
+    /// two kinds of slip from every population-conservation test -- a freed
+    /// mass that ignores retention, and a migration that adds the newcomers
+    /// without removing the leavers -- because both still sum to a positive
+    /// number that is then divided back to 1. This test is what catches them
+    /// (both were live mutants before it existed, 2026-10-18).
+    ///
+    /// Fixture: a sealed `imperial` town (no road, so exposure is its own mix)
+    /// half `sun_cult` (folk tier, retention 0) and half `covenant_folk` (birth,
+    /// retention 0.75), trading with a wholly `sea_lords` city.
+    #[test]
+    fn one_step_matches_the_written_formula() {
+        let sun = religion_index("sun_cult").unwrap();
+        let cov = religion_index("covenant_folk").unwrap();
+        let sea = religion_index("sea_lords").unwrap();
+        let pops = [50_000, 2000];
+        let net = BeliefNetwork::build(&pops, &[]).with_trade(&pops, &[flow(0, 1, 1000.0)]);
+        let mut share = [0.0; CIV_RELIGION_COUNT];
+        share[sun] = 0.5;
+        share[cov] = 0.5;
+        let mut states = vec![SettlementReligionState::wholly(sea), SettlementReligionState { share }];
+        belief_step(&mut states, &net, &["imperial", "imperial"], BELIEF_STEP_RATE);
+
+        // By hand. Every religion here is unthemed in `imperial`: Compat 0.5.
+        let rate = BELIEF_STEP_RATE;
+        let sigma = |e: f64, freq: f64, comp: f64| {
+            belief_logistic(BELIEF_B0 + BELIEF_BE * e + BELIEF_BC * 0.5 + BELIEF_BF * freq - BELIEF_BX * comp)
+        };
+        // w(sun, covenant) = weak 0.25 (a birth rival); w(covenant, sun) =
+        // medium 0.5 (an exclusive religion against a non-universal one).
+        let a_sun = 0.5 * sigma(0.5, 0.25, 0.25 * 0.5);
+        let a_cov = 0.5 * sigma(0.5, 0.25, 0.5 * 0.5);
+        let total = a_sun + a_cov;
+        let freed = rate * (1.0 - 0.75 * 0.5);
+        let next_sun = (1.0 - rate) * 0.5 + freed * a_sun / total;
+        let next_cov = (1.0 - rate * 0.25) * 0.5 + freed * a_cov / total;
+        let tau = 1000.0 / 2000.0;
+        let m = 0.02 * tau / (1.0 + tau);
+        let want = [(sun, (1.0 - m) * next_sun), (cov, (1.0 - m) * next_cov), (sea, m)];
+        for (r, v) in want {
+            assert!(
+                (states[1].share[r] - v).abs() < 1e-12,
+                "religion {r}: step gave {} where the written formula gives {v}",
+                states[1].share[r]
+            );
+        }
     }
 
     /// Protects: order independence, which is what "synchronous" buys and

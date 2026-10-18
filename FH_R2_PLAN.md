@@ -7,6 +7,9 @@ No code has been written for it.** This document carries no status column; wheth
 **Built so far (pointer added 2026-10-12, Ruling CG item 3 approved Q0 and Q2):** R2-0 and the vocabulary half
 of R2-1 were built on 2026-10-12; read `cartalith-native/docs/STATUS.md` (its 2026-10-12 FH-R2 entry) for what
 was built, measured and left out. Not a status column; the rest of this document is the plan as written.
+**Later pointer (2026-10-18, Ruling CJ approved Q1 and Q4):** the rest of R2-1 (the `ReligionProfile` table, the
+Religion screen's TYPE column) and R2-2 (S2 coexistence) were built; `STATUS.md`'s 2026-10-18 FH-R2 entry has what
+was measured against §6's M1/M2 bars, including one bar not met.
 
 Every number below names its source: a symbol opened on 2026-10-12, the research document, or a **labelled
 judgement** (Ruling BK). Every code citation names a symbol; line numbers are given only as a search aid and

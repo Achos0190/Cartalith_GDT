@@ -92,7 +92,11 @@ const CARAVAN_ROWS_MAX: usize = 2000;
 impl WorldGen {
     /// Run the match, or `None` when there is no generated world with a
     /// civilisation layer and at least one settlement.
-    fn trade_network(&self) -> Option<(TradeNetwork, u128)> {
+    ///
+    /// `pub(crate)` since FH-R2 R2-2 (2026-10-18): `lib.rs`'s
+    /// `civ_belief_run` `#[func]` feeds these flows to the belief model's
+    /// trade-diaspora influx, so the run and the trade dock read one match.
+    pub(crate) fn trade_network(&self) -> Option<(TradeNetwork, u128)> {
         let (Some(WorldSource::Generated(ws)), Some(civ)) =
             (self.source.as_ref(), self.civ.as_ref())
         else {

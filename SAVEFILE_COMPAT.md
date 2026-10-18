@@ -1594,6 +1594,21 @@ Fresh worlds never default to the seven (`civ_default_religion`), so neither
 happens without a user's pick. An unknown member on a row is ignored. A document that
 does not parse costs itself only, with a warning.
 
+**Religion profiles and coexistence, 2026-10-18 (FH-R2 R2-1 remainder and
+R2-2, Ruling CJ). Nothing in this document changes.** Each built-in religion
+now has a structural profile (`cartalith_civ::religion_profile`: exclusivity,
+membership mode, locus, institutional form, the canvas TYPE), and the belief
+model reads it (retention by membership mode, competition by exclusivity and
+membership, a trade-diaspora influx). The profile is **engine vocabulary, not
+saved data**: no member is added to a `religions[]` row or to the roster, and
+an archive written before or after is byte-identical. A custom religion still
+behaves exactly as its `base_key`, profile included (giving a custom religion
+its own axis values is `FH_R2_PLAN.md` R2-3, not built). The belief layer
+itself is still **not persisted** (`project_bridge.rs` restores
+`belief: Vec::new()`), so R2-2's changed diffusion output reaches no saved
+file; an older build opening an archive simply runs its own (single-winner)
+model when the user next presses Run.
+
 **A dangling reference** — a faction whose `religion` is `custom:<id>` with no
 such row (or a malformed `custom:` key) — MUST be preserved on write-back, MUST
 NOT be re-pointed at a built-in, and behaves as `"none"` (no religion) in the

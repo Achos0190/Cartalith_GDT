@@ -177,16 +177,38 @@ func _ready() -> void:
 	_table_rows(body, rows)
 	print("table rows drawn: ", rows.size(), "  expected ", row_n)
 	_chk(rows.size() == row_n, "one row per faith present, unaffiliated slot included")
-	var dashed_type := 0
+	## FH-R2 R2-1 (Ruling CJ, 2026-10-18): TYPE is now the engine's profile
+	## word. Expected values are the approved classification as LITERALS
+	## (`RELIGION_PROFILES`' reference rows), never read back from
+	## `civ_religion_vocabulary()`, so a wrong engine row fails here. The
+	## unaffiliated row has no profile and stays dashed. This replaces the
+	## pre-R2-1 check "every TYPE cell is dashed".
+	var want_type := {"none": "—", "sun_cult": "organized", "earth_mother": "folk",
+		"sea_lords": "folk", "sky_pantheon": "organized", "ancestor_rites": "folk",
+		"flame_creed": "organized", "old_gods": "folk"}
+	var type_ok := 0
+	var type_known := 0
 	var dashed_trend := 0
 	for r in rows:
-		if String((r.get_child(2) as Label).text) == "—":
-			dashed_type += 1
+		var name := String((r.get_child(1) as Label).text)
+		var key := ""
+		for k in want_type.keys():
+			if ws._religion_label(String(k)) == name:
+				key = String(k)
+		var cell := String((r.get_child(2) as Label).text)
+		if key != "":
+			type_known += 1
+			if cell == String(want_type[key]):
+				type_ok += 1
+			else:
+				print("  TYPE mismatch: ", name, " drew '", cell, "' want '", want_type[key], "'")
 		if String((r.get_child(4) as Label).text) == "—":
 			dashed_trend += 1
-	print("TYPE cells dashed: ", dashed_type, "/", rows.size(),
-		"   TREND cells dashed: ", dashed_trend, "/", rows.size())
-	_chk(dashed_type == rows.size(), "every TYPE cell is dashed -- CIV_RELIGIONS has no type")
+	print("TYPE cells matching the approved classification: ", type_ok, "/", type_known,
+		" (of ", rows.size(), " rows)   TREND cells dashed: ", dashed_trend, "/", rows.size())
+	_chk(type_known == rows.size() and rows.size() > 0,
+		"every drawn row is a reference religion or the unaffiliated row (this world's premise)")
+	_chk(type_ok == type_known, "every TYPE cell is the approved profile word (none dashed)")
 	_chk(dashed_trend == rows.size(), "every TREND cell is dashed -- no belief history exists")
 	if rows.size() > 0:
 		var r0: HBoxContainer = rows[0]

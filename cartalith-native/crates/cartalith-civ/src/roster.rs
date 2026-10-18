@@ -191,10 +191,12 @@ pub const CIV_SPECIALISATIONS: [(&str, &str); 10] = [
 /// reordered -- saves store keys by string)"), with that table's keys and
 /// labels verbatim and in its order. **Append only**: indices 0-7 are
 /// unchanged, so every `share` array position and every saved key keeps its
-/// meaning. These are vocabulary and nothing more today -- a key and a label.
-/// The research document's axis profile for them (exclusivity, membership,
-/// locus, institution, TYPE) is **not** carried here: that is `FH_R2_PLAN.md`
-/// question Q1, not approved by Ruling CG. They are never a fresh faction's
+/// meaning. This table stays a key and a label. The research document's axis
+/// profile (object, exclusivity, membership, locus, institution, TYPE) for
+/// every entry but `none` is the parallel table
+/// [`crate::religion_profile::RELIGION_PROFILES`] (FH-R2 R2-1 remainder,
+/// Ruling CJ approved `FH_R2_PLAN.md` Q1 on 2026-10-18), which the belief
+/// model's R2-2 terms read. They are never a fresh faction's
 /// default ([`civ_default_religion`]); a user reaches them only by picking
 /// one. In the belief model they are unthemed (no terrain verdict, as the
 /// research document's own "Terrain verdict: None" column says), so

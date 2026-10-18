@@ -88,6 +88,9 @@ pub mod roster;
 /// (`FACTION_HUB_DESIGN.md` §6 R1): the record, the library, and the
 /// boundary resolver every engine consumer reads a faction's religion through.
 pub mod religion_library;
+/// FH-R2 R2-1: each built-in religion's structural axes (research document
+/// axes 1-5) and the canvas TYPE, as a parallel table keyed by religion key.
+pub mod religion_profile;
 /// Per-faction currency conversion (Rulings R/AR/AU): the engine converts
 /// at a user-set rate and derives none. Nothing in the simulation reads it.
 pub mod currency;

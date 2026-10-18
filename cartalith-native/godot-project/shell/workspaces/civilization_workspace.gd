@@ -4066,21 +4066,22 @@ func _religion_strip_cell(parent: Control, value: String, caption: String,
 ## The shape is taken from Azgaar's Fantasy Map Generator Religions editor,
 ## which is the closest comparable that already works over this data.
 ##
-## # Two of its five columns have no source in this engine, and are dashed
+## # TYPE is the engine's; TREND has no source and is dashed
 ##
-## - **TYPE** (organized / folk / cult / heresy). There is no such field.
-##   `cartalith_civ::roster::CIV_RELIGIONS` is `[(&str, &str); 15]` -- a key and
-##   a label, nothing else (the reference's eight plus FH-R2 R2-1's seven,
-##   2026-10-12; the research document's TYPE column for them is owner question
-##   Q1 of `FH_R2_PLAN.md`, not approved, so it is still not carried) -- and `belief.rs`'s own module doc says so in as
-##   many words (*"`CIV_RELIGIONS` is eight names and nothing else"*), in the
-##   passage that refuses to read "Sea Lords" as maritime because *"reading the
-##   label is parsing authored content; inventing a `C_ritual` for it is
-##   fabrication"*. A four-way taxonomy inferred from eight proper nouns is the
-##   same fabrication one step further on. Every row's TYPE is `—`.
-##   **What would supply it:** a `kind` (or equivalent) column on
-##   `CIV_RELIGIONS` plus a key for it in `civ_religion_vocabulary()`. That is
-##   authored content and an owner decision, not a shell one.
+## - **TYPE** (organized / folk / cult / heresy) is read from
+##   `civ_religion_vocabulary()`'s `type` key, which is
+##   `cartalith_civ::religion_profile::RELIGION_PROFILES`' `kind` (FH-R2 R2-1,
+##   Ruling CJ, 2026-10-18: the research document's draft classification of the
+##   reference's seven, approved, and a stated derivation for the seven R2-1
+##   religions). Until then this column was dashed on every row, because
+##   `CIV_RELIGIONS` was a key and a label and a taxonomy inferred from the
+##   labels would have been fabrication; the taxonomy now exists as authored
+##   content in the engine, and this shell still infers nothing. **The engine
+##   omits `type` where the profile has none** -- the unaffiliated row (`none`
+##   has no profile) and `covenant_folk` (its source row names no
+##   institution) -- and those cells stay `—`, with the reason in the note
+##   below the table. A custom religion's row is keyed by its base (the belief
+##   layer reports engine keys), so it shows its base's TYPE.
 ## - **TREND** (`▲ 2.1`). A trend needs two observations. `civ_belief_run()`
 ##   returns `{years, settlements, seeded, ...}` for the run just made and the
 ##   layer keeps no history -- `CivData::belief` is a single current state, it
@@ -4093,10 +4094,13 @@ func _religion_strip_cell(parent: Control, value: String, caption: String,
 ##   a belief history in `CivData` that `civ_belief_run` appends to. The second
 ##   is the real answer and it is engine work.
 ##
-## Both headings are drawn dim and are **not** pressable, because a sort
+## Both headings are drawn dim and are **not** pressable: TREND because a sort
 ## control over a column with no values is an affordance that cannot do
-## anything. FAITH and SHARE are the two that sort.
+## anything, TYPE because FH-R2 R2-1 filled its values and added no sort over
+## them (the artboard carries its one caret on SHARE). FAITH and SHARE are the
+## two that sort.
 func _religion_table(parent: Control, rows: Array, total: int) -> void:
+	var types := _religion_types()
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4134,10 +4138,15 @@ func _religion_table(parent: Control, rows: Array, total: int) -> void:
 			"text_bright" if i == 0 else "text_secondary", DccTheme.FS_TINY, 0)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		line.add_child(name_label)
-		## Dashed, with its reason in this function's header. `text_ghost` is
-		## `--dis`, the ink the artboard already gives a `— 0.0` trend cell.
-		line.add_child(_religion_col_label("—", "text_ghost", COL_TYPE_PX,
-			HORIZONTAL_ALIGNMENT_LEFT, DccTheme.FS_MICRO, 0))
+		## The engine's TYPE word, inked `--dim` as the artboard's TYPE cells
+		## are; dashed in `text_ghost` (`--dis`, the artboard's `— 0.0` ink)
+		## only where the engine omitted the key (this function's header).
+		if types.has(key):
+			line.add_child(_religion_col_label(String(types[key]), "text_dim", COL_TYPE_PX,
+				HORIZONTAL_ALIGNMENT_LEFT, DccTheme.FS_MICRO, 0))
+		else:
+			line.add_child(_religion_col_label("—", "text_ghost", COL_TYPE_PX,
+				HORIZONTAL_ALIGNMENT_LEFT, DccTheme.FS_MICRO, 0))
 		line.add_child(_religion_col_label(_religion_pct(int(r[0]), total),
 			"text_secondary", COL_SHARE_PX, HORIZONTAL_ALIGNMENT_RIGHT,
 			DccTheme.FS_TINY, 0))
@@ -4145,11 +4154,25 @@ func _religion_table(parent: Control, rows: Array, total: int) -> void:
 			HORIZONTAL_ALIGNMENT_RIGHT, DccTheme.FS_TINY, 0))
 		parent.add_child(line)
 		parent.add_child(_religion_hairline())
-	DccWidgets.note(parent, "TYPE and TREND are dashed because this engine has no source for "
-		+ "either: cartalith_civ::roster::CIV_RELIGIONS is a key and a label per faith and "
-		+ "carries no category, and the belief layer keeps no history to compare a share "
-		+ "against — civ_belief_run() reports the run it just made and a Timeline snapshot "
-		+ "restores territory only. Neither is a zero and neither is guessed.")
+	DccWidgets.note(parent, "TYPE is each faith's category from the engine's religion profile "
+		+ "table; it is dashed for the unaffiliated row and for a faith whose profile names "
+		+ "no category (The Covenant: its source names no institution). TREND is dashed "
+		+ "because the belief layer keeps no history to compare a share against — "
+		+ "civ_belief_run() reports the run it just made and a Timeline snapshot restores "
+		+ "territory only. Neither dash is a zero and neither is guessed.")
+
+## Key -> the engine's TYPE word, for every built-in religion whose profile has
+## one (`civ_religion_vocabulary()`'s `type`, omitted by the engine where there
+## is none). Empty without the API or mid-generation (`engine_bridge.gd`
+## answers `[]`), which dashes every TYPE cell -- the honest reading of "no
+## engine answer", not a guess.
+func _religion_types() -> Dictionary:
+	var out := {}
+	for e in bridge.civ_religion_vocabulary():
+		var d: Dictionary = e
+		if d.has("type"):
+			out[String(d.get("key", ""))] = String(d["type"])
+	return out
 
 ## The table's own row rule, at `--div` rather than `--hair`.
 ##

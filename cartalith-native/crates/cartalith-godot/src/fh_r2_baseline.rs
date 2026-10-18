@@ -31,7 +31,12 @@
 //!   reference's eight religions) by `f64::to_bits`. Slots past eight exist only
 //!   after R2-1; the harness asserts every one of them is exactly `0.0` rather
 //!   than hashing them, so the fingerprint is the same function before and
-//!   after the vocabulary grows.
+//!   after the vocabulary grows. **Since FH-R2 R2-2 (2026-10-18, Ruling CJ)**
+//!   the run is fed the world's trade flows (`harness_flows`, the app's
+//!   `trade_network` match) and its hashes are pinned by `M2_BELIEF`, a
+//!   deliberate re-baseline; the other three columns still compare to M0.
+//!   The same file holds R2-2's M2 bars (`fh_r2_m2_coexistence_bars`) and its
+//!   cost measurement (`fh_r2_m2_belief_cost`).
 //! - **urban** -- `run_layout` for the three most populous settlements (ties
 //!   by index), every `Building` by `Debug` (kind, district, polygon, ridge,
 //!   age). This is where a faith site's rite would show; `run_layout` passes
@@ -57,7 +62,26 @@
 //! `cargo test -p cartalith-godot --lib fh_r2_baseline -j 2 -- --ignored --nocapture`
 
 use cartalith_civ::relations::{civ_faction_relations, FactionRelationsInput};
+use cartalith_civ::trade::{trade_flows, TradeFlow, TradeInput};
 use cartalith_civ::urban_adapter::{run_layout, um_place_context, UrbanWorld};
+
+/// The world's trade flows, built exactly as `WorldGen::trade_network` builds
+/// them for the `civ_belief_run` `#[func]` (same `TradeInput` members, the
+/// roster's tariff rows), so the belief run here is the app's. The traced
+/// `river_polys` in `uw` are not consulted by `trade_flows` (its own caller's
+/// comment in `civ_trade_bridge.rs`), so passing them changes nothing.
+fn harness_flows(civ: &crate::CivData, uw: &UrbanWorld) -> Vec<TradeFlow> {
+    let tariffs = civ.faction_roster.tariff_rows();
+    let input = TradeInput {
+        settlements: &civ.settlements,
+        balances: &civ.trade_balances,
+        ways: &civ.ways,
+        map_width_km: uw.map_width_km,
+        gw: uw.gw,
+        tariffs: &tariffs,
+    };
+    trade_flows(&input, uw).flows
+}
 
 /// Grid width for every harness world (see the module doc).
 const GW: usize = 384;
@@ -139,20 +163,33 @@ struct Print {
     buildings: usize,
 }
 
-/// Generates one world through the app's parameters and fingerprints it.
-fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
+/// Generates one world through the app's parameters (`params::defaults()`,
+/// CPU path), `gw` cells wide: the terrain, its civilisation layer, the grid
+/// height and the parameters used.
+fn generate_world(
+    seed: i32,
+    width_km: f64,
+    factions: i32,
+    gw: usize,
+) -> (cartalith_engine::WorldState, crate::CivData, usize, cartalith_engine::WorldParams) {
     let world = width_km >= 40_075.0;
-    let gh = crate::reference_grid_h(GW, world);
-    let mut p = crate::with_call_args(crate::params::defaults(), seed, width_km, GW, gh);
+    let gh = crate::reference_grid_h(gw, world);
+    let mut p = crate::with_call_args(crate::params::defaults(), seed, width_km, gw, gh);
     p.world = world;
     p.civ.factions = factions;
     p.use_gpu = false;
     let ws = cartalith_engine::generate_terrain(&p);
-    let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, GW, gh, p.world, ws.sea_level, &p);
-    let mut civ = crate::compute_civilisation(
-        &ws, GW, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
+    let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
+    let civ = crate::compute_civilisation(
+        &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
         &mut Vec::new(), None,
     );
+    (ws, civ, gh, p)
+}
+
+/// Generates one world through the app's parameters and fingerprints it.
+fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
+    let (ws, mut civ, gh, p) = generate_world(seed, width_km, factions, GW);
 
     // roster
     let mut h = Fnv::new();
@@ -230,8 +267,11 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
     }
     let urban = h.0;
 
-    // belief
-    civ.civ_belief_run(100);
+    // belief -- since FH-R2 R2-2 a run reads the world's trade flows (the
+    // influx term), computed the way `WorldGen::trade_network` does, so the
+    // harness measures what the app runs.
+    let flows = harness_flows(&civ, &uw);
+    civ.civ_belief_run(100, &flows);
     let mut h = Fnv::new();
     for s in civ.belief.iter() {
         for (r, v) in s.share.iter().enumerate() {
@@ -257,10 +297,47 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
     }
 }
 
+/// The belief column after FH-R2 R2-2, one per [`M0`] row in the same order.
+///
+/// RE-BASELINED 2026-10-18 under Ruling CJ (which approved `FH_R2_PLAN.md` Q4,
+/// S2's coexistence terms, and M2's bars): R2-2 changes what every belief run
+/// produces by design, so all 20 belief hashes moved, M0 -> this table, while
+/// the roster, relations and urban columns stay on [`M0`] byte for byte. The
+/// M0 belief literals are kept in [`M0`] as the pre-R2-2 record. Recorded by
+/// this test's own printout on the R2-2 tree (every weight at its committed
+/// value, trade flows from [`harness_flows`]). Before recording, every R2-2
+/// weight was set to `0.0` and all 20 belief hashes reproduced [`M0`]
+/// (STATUS.md's R2-2 entry): the terms vanish by arithmetic at weight zero, so
+/// this move is the terms' and nothing else's.
+const M2_BELIEF: [u64; 20] = [
+    0x97467380a4a39565, // 12345 800 6     (M0 0xd019daca6ee60c84)
+    0xe5363e50d332b709, // 12345 800 24    (M0 0xc6b267da00dd815a)
+    0xbf122e5cc156bb2a, // 12345 40075 6   (M0 0xb840116a07e00732)
+    0xa77dc6df2bb72045, // 12345 40075 24  (M0 0xc57f15bef9f2112b)
+    0x50ee36e2ed6a55b4, // 314159 800 6    (M0 0xe6f99b77944d6f4a)
+    0x97dece3e0f56467e, // 314159 800 24   (M0 0x091233403d7f5883)
+    0xd5354a151d119921, // 314159 40075 6  (M0 0x2fdf851701a0ba74)
+    0xb668cae81cdddf5e, // 314159 40075 24 (M0 0x49881b58cd8d4f16)
+    0x0aad938cf041c1b3, // 404 800 6       (M0 0x3d004e55ae482930)
+    0x48dd5f0e9b822783, // 404 800 24      (M0 0xd0d808a29f65e726)
+    0xe550ba63c7f10ed6, // 404 40075 6     (M0 0x61699fa797a43be0)
+    0xa098d8b994dd413b, // 404 40075 24    (M0 0xf0c094c4637f8535)
+    0x1e3de270b41aa491, // 707 800 6       (M0 0x07c1a044c129cb85)
+    0xea076a454f1ef412, // 707 800 24      (M0 0xea17b82042d1490b)
+    0x96c3916cdae4b33c, // 707 40075 6     (M0 0xb7180f53ce9df9c7)
+    0x450a6f629450882f, // 707 40075 24    (M0 0x28c543fa25fc8d13)
+    0x019604d20d730ba5, // 24601 800 6     (M0 0x4b564592bd5bdfcc)
+    0xab5d184ee2a15f01, // 24601 800 24    (M0 0x67664ae2df2f9e93)
+    0x651045b294da1d9f, // 24601 40075 6   (M0 0xea826840a949e010)
+    0xb7e5e03852df7746, // 24601 40075 24  (M0 0x87a829e2db67aa25)
+];
+
 /// Protects: R2-1 (`FH_R2_PLAN.md` M1) moves zero bytes of the roster's
-/// religion/government picks, the relations they feed, a 100-year belief run,
-/// and the three largest towns' buildings, on 20 real worlds, against the M0
-/// literals recorded before the change. Ignored: it generates 20 worlds.
+/// religion/government picks, the relations they feed and the three largest
+/// towns' buildings on 20 real worlds against the M0 literals recorded before
+/// the change, and (since R2-2) that a 100-year belief run equals the
+/// re-baselined [`M2_BELIEF`] column. The name is kept because STATUS.md
+/// cites it; its belief half is now an M2 pin. Ignored: it generates 20 worlds.
 #[test]
 #[ignore = "M0/M1 measurement over 20 generated worlds; run alone with --ignored"]
 fn fh_r2_m1_moves_zero_bytes_against_m0() {
@@ -284,10 +361,195 @@ fn fh_r2_m1_moves_zero_bytes_against_m0() {
         }
     }
     let mut moved = Vec::new();
-    for (got, want) in rows.iter().zip(M0.iter()) {
-        if got != want {
+    for ((got, want), &belief) in rows.iter().zip(M0.iter()).zip(M2_BELIEF.iter()) {
+        let want = (want.0, want.1, want.2, want.3, want.4, belief, want.6);
+        if *got != want {
             moved.push(format!("got {got:?} want {want:?}"));
         }
     }
-    assert!(moved.is_empty(), "M1: {} of 20 worlds moved:\n{}", moved.len(), moved.join("\n"));
+    assert!(moved.is_empty(), "M1/M2: {} of 20 worlds moved:\n{}", moved.len(), moved.join("\n"));
+}
+
+/// One world's `UrbanWorld` for `trade_flows`, with no traced river polylines
+/// (`trade_flows` does not consult them; `WorldGen::trade_network` passes none
+/// either).
+fn trade_world<'a>(
+    ws: &'a cartalith_engine::WorldState,
+    civ: &'a crate::CivData,
+    gw: usize,
+    gh: usize,
+    p: &cartalith_engine::WorldParams,
+    seed: i32,
+    no_polys: &'a [Vec<(f64, f64)>],
+) -> UrbanWorld<'a> {
+    UrbanWorld {
+        field: &ws.field,
+        flow: &ws.flow_discharge,
+        water_bodies: &civ.water_bodies,
+        order: ws.stream_order.as_deref(),
+        river_polys: no_polys,
+        gw,
+        gh,
+        sea_level: ws.sea_level,
+        map_width_km: p.map_width_km,
+        flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+        world_seed: seed,
+    }
+}
+
+/// FH-R2 R2-2's **M2 coexistence bars** (`FH_R2_PLAN.md` §6, approved by
+/// Ruling CJ), measured on the twenty M0 worlds after a 200-year
+/// `civ_belief_run` fed by each world's own trade flows:
+///
+/// - *Hubs hold minorities*: of the settlements in each world's top decile of
+///   trade volume (`ceil(n / 10)` by volume, both flow ends counted, ties by
+///   index, zero-volume settlements never hubs), **at least 50 %** hold two
+///   or more faiths (the unaffiliated slot excluded) each at >= 5 %.
+/// - *Isolated villages still converge*: of the settlements with at most one
+///   distinct road neighbour and no trade flow, **at least 90 %** hold one
+///   affiliation (the unaffiliated slot counted, since an isolated Unclaimed
+///   village is wholly unaffiliated) at >= 95 %.
+///
+/// Both thresholds are the plan's labelled judgements. The populations are
+/// printed and asserted non-empty, so a vacuous pass is a failure.
+///
+/// Protects: that the calibrated R2-2 weights meet the approved bars on real
+/// worlds, not only on fixtures.
+#[test]
+#[ignore = "M2 measurement over 20 generated worlds; run alone with --ignored"]
+fn fh_r2_m2_coexistence_bars() {
+    use cartalith_civ::belief::RELIGION_NONE;
+    let (mut hubs, mut hubs_plural, mut hubs_plural_with_none) = (0usize, 0usize, 0usize);
+    let (mut iso, mut iso_fixed) = (0usize, 0usize);
+    let (mut all, mut all_plural) = (0usize, 0usize);
+    for &seed in SEEDS.iter() {
+        for &width in [800u32, 40_075].iter() {
+            for &factions in [6i32, 24].iter() {
+                let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
+                let no_polys: Vec<Vec<(f64, f64)>> = Vec::new();
+                let flows = {
+                    let uw = trade_world(&ws, &civ, GW, gh, &p, seed, &no_polys);
+                    harness_flows(&civ, &uw)
+                };
+                civ.civ_belief_run(200, &flows);
+                let n = civ.settlements.len();
+                assert_eq!(civ.belief.len(), n, "the run covers every settlement");
+                let mut vol = vec![0.0f64; n];
+                for f in flows.iter() {
+                    if f.from < n && f.to < n && f.from != f.to && f.volume > 0.0 {
+                        vol[f.from] += f.volume;
+                        vol[f.to] += f.volume;
+                    }
+                }
+                let mut nb: Vec<std::collections::BTreeSet<usize>> = vec![Default::default(); n];
+                for w in civ.ways.iter() {
+                    if w.a_idx != w.b_idx && w.a_idx < n && w.b_idx < n {
+                        nb[w.a_idx].insert(w.b_idx);
+                        nb[w.b_idx].insert(w.a_idx);
+                    }
+                }
+                let faiths = |i: usize, with_none: bool| -> usize {
+                    civ.belief[i]
+                        .share
+                        .iter()
+                        .enumerate()
+                        .filter(|&(r, &v)| (with_none || r != RELIGION_NONE) && v >= 0.05)
+                        .count()
+                };
+                let mut order: Vec<usize> = (0..n).filter(|&i| vol[i] > 0.0).collect();
+                order.sort_by(|&a, &b| vol[b].partial_cmp(&vol[a]).unwrap().then(a.cmp(&b)));
+                let k = n.div_ceil(10).min(order.len());
+                let (mut wh, mut whp) = (0usize, 0usize);
+                for &i in order.iter().take(k) {
+                    wh += 1;
+                    if faiths(i, false) >= 2 {
+                        whp += 1;
+                    }
+                    if faiths(i, true) >= 2 {
+                        hubs_plural_with_none += 1;
+                    }
+                }
+                let (mut wi, mut wif) = (0usize, 0usize);
+                for i in 0..n {
+                    if faiths(i, false) >= 2 {
+                        all_plural += 1;
+                    }
+                    if nb[i].len() <= 1 && vol[i] == 0.0 {
+                        wi += 1;
+                        let top = civ.belief[i].share.iter().copied().fold(0.0f64, f64::max);
+                        if top >= 0.95 {
+                            wif += 1;
+                        }
+                    }
+                }
+                all += n;
+                println!(
+                    "M2 seed {seed} {width} km {factions} f: {n} settlements, {} flows; hubs {whp}/{wh} \
+                     plural; isolated {wif}/{wi} converged",
+                    flows.len()
+                );
+                hubs += wh;
+                hubs_plural += whp;
+                iso += wi;
+                iso_fixed += wif;
+            }
+        }
+    }
+    let hub_pct = 100.0 * hubs_plural as f64 / hubs.max(1) as f64;
+    let iso_pct = 100.0 * iso_fixed as f64 / iso.max(1) as f64;
+    println!(
+        "M2 TOTAL: hubs {hubs_plural}/{hubs} = {hub_pct:.1} % plural (>= 2 faiths at >= 5 %; \
+         {hubs_plural_with_none}/{hubs} counting the unaffiliated slot); isolated {iso_fixed}/{iso} = \
+         {iso_pct:.1} % converged (>= 95 %); all settlements plural {all_plural}/{all}"
+    );
+    assert!(hubs > 0 && iso > 0, "both populations must be non-empty: hubs {hubs}, isolated {iso}");
+    assert!(hub_pct >= 50.0, "hub bar: {hub_pct:.1} % < 50 %");
+    assert!(iso_pct >= 90.0, "isolated-village bar: {iso_pct:.1} % < 90 %");
+}
+
+/// FH-R2 R2-2's **M2 cost bar** (`FH_R2_PLAN.md` §6): a 100-year
+/// `civ_belief_run` (seed plus 100 steps, re-seeded each run by clearing the
+/// layer), median with min..max over five runs, run alone, against the
+/// pre-R2-2 median measured on the same worlds at `b769ad0f` (STATUS.md's R2-2
+/// entry). Prints the trade-flow match's own cost separately, because the
+/// `#[func]` now computes it once per run. No assertion: a timing is a
+/// measurement to read, not a pin (`MISTAKES.md`, "Quote a timing").
+#[test]
+#[ignore = "M2 timing; run alone with --ignored --release"]
+fn fh_r2_m2_belief_cost() {
+    for &gw in [GW, 1024].iter() {
+        let (ws, mut civ, gh, p) = generate_world(12345, 800.0, 24, gw);
+        let no_polys: Vec<Vec<(f64, f64)>> = Vec::new();
+        let mut tf = Vec::new();
+        let mut flows = Vec::new();
+        {
+            let uw = trade_world(&ws, &civ, gw, gh, &p, 12345, &no_polys);
+            for _ in 0..5 {
+                let t0 = std::time::Instant::now();
+                flows = harness_flows(&civ, &uw);
+                tf.push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        let mut tb = Vec::new();
+        for _ in 0..5 {
+            civ.belief.clear();
+            let t0 = std::time::Instant::now();
+            civ.civ_belief_run(100, &flows);
+            tb.push(t0.elapsed().as_secs_f64() * 1e3);
+        }
+        tf.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        tb.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "COST gw {gw}: {} settlements, {} flows; belief run median {:.3} ms ({:.3}..{:.3}); \
+             trade_flows median {:.3} ms ({:.3}..{:.3})",
+            civ.settlements.len(),
+            flows.len(),
+            tb[2],
+            tb[0],
+            tb[4],
+            tf[2],
+            tf[0],
+            tf[4]
+        );
+    }
 }

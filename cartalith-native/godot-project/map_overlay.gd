@@ -2389,9 +2389,12 @@ func _faction_color(faction: int) -> Color:
 # **The one thing the map can say about religion that a panel cannot, and the
 # reason this is not a religion wash.**
 #
-# `cartalith_civ::belief`'s own header records that the model has no stable
-# mixture -- §14's `p^k` with `k > 1` is a fixation dynamic, so every
-# settlement converges on one faith holding essentially all of it. And
+# `cartalith_civ::belief`'s own header records that over roads alone the model
+# has no stable mixture -- §14's `p^k` with `k > 1` is a fixation dynamic, so a
+# settlement with no trade converges on one faith holding essentially all of
+# it. (Since FH-R2 R2-2, 2026-10-18, a TRADING settlement can hold minorities
+# through the trade-diaspora influx; the ring below still reads only the
+# plurality, so a minority never breaks it -- only a changed plurality does.) And
 # `belief_seed` starts every settlement wholly in its founding faction's
 # state religion. Put together: at year 0 a per-settlement religion tint is a
 # recolour of the faction wash `territory_view` already draws, and after
@@ -7143,7 +7146,8 @@ func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
 ## What this must never do is show one faith name as though it were the
 ## settlement's population. `belief.rs`'s own module doc warns that adherence
 ## is a distribution, and the model's fixation dynamic makes a plurality
-## typically dominant but not exclusive, so the share is always printed
+## typically dominant but not exclusive (and, since FH-R2 R2-2's trade influx,
+## a trading town holds real minorities of several percent), so the share is always printed
 ## beside the name and every other faith present is listed after it.
 ##
 ## **`"none"` reads "no religion", never blank and never a faith.**

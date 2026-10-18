@@ -2927,7 +2927,18 @@ impl CivData {
     /// resolved on this side and handed in as slices. That is also why the
     /// engine functions take `&[&str]` rather than a `NamedSettlement`: they
     /// cannot see a roster and must not learn to.
-    fn civ_belief_run(&mut self, years: u32) -> (usize, bool, bool) {
+    ///
+    /// # Trade flows feed FH-R2 R2-2's influx, and are the caller's
+    ///
+    /// `flows` is `cartalith_civ::trade::trade_flows`' output for this world
+    /// (the `#[func]` computes it through `WorldGen::trade_network`, which needs
+    /// the terrain fields this struct does not hold). It feeds
+    /// `BeliefNetwork::with_trade`; an empty slice means no influx (an imported
+    /// world with no trade network, or a caller that has none), which is the
+    /// honest reading of "no trade", not a default. Like culture, it is read on
+    /// every step and is not part of [`Self::belief_key`]: it does not change
+    /// the seed.
+    fn civ_belief_run(&mut self, years: u32, flows: &[cartalith_civ::trade::TradeFlow]) -> (usize, bool, bool) {
         use cartalith_civ::belief;
         let seeded = self.belief_current().is_none();
         if seeded {
@@ -2940,7 +2951,7 @@ impl CivData {
         if !self.belief.is_empty() && years > 0 {
             let pops: Vec<u32> = self.settlements.iter().map(|s| s.pop).collect();
             let links = belief::belief_links_from_ways(&self.ways);
-            let net = belief::BeliefNetwork::build(&pops, &links);
+            let net = belief::BeliefNetwork::build(&pops, &links).with_trade(&pops, flows);
             // A settlement in a faction the roster has no row for keeps the
             // empty key, which `compat` routes to its own stated neutral --
             // the same treatment `belief_seed` gives an unresolvable faction.
@@ -3542,7 +3553,7 @@ mod civ_timeline_tests {
     fn the_shipped_roster_now_seeds_real_faith_from_its_wired_default() {
         let mut civ = linked_pair();
         assert_eq!(civ.faction_roster.0[1].religion, "earth_mother");
-        let (n, seeded, any_faith) = civ.civ_belief_run(50);
+        let (n, seeded, any_faith) = civ.civ_belief_run(50, &[]);
         assert_eq!(n, 2);
         assert!(seeded, "the first run seeds");
         assert!(any_faith, "the wired default religion gives faction 1 real faith to spread");
@@ -3565,7 +3576,7 @@ mod civ_timeline_tests {
     fn an_all_none_roster_still_reports_no_faith_rather_than_an_empty_result() {
         let mut civ = linked_pair();
         assert!(civ.faction_roster.set_field(1, "religion", "none"));
-        let (n, seeded, any_faith) = civ.civ_belief_run(50);
+        let (n, seeded, any_faith) = civ.civ_belief_run(50, &[]);
         assert_eq!(n, 2);
         assert!(seeded, "the first run seeds");
         assert!(
@@ -3593,14 +3604,14 @@ mod civ_timeline_tests {
         assert!(civ.faction_roster.set_field(1, "culture", "desert"));
         assert!(civ.faction_roster.set_field(2, "culture", "desert"));
 
-        let (_, _, any_faith) = civ.civ_belief_run(0);
+        let (_, _, any_faith) = civ.civ_belief_run(0, &[]);
         assert!(any_faith, "faction 1's settlement seeds wholly into the sun cult");
         let sun = cartalith_civ::belief::religion_index("sun_cult").unwrap();
         assert_eq!(civ.belief[0].share[sun], 1.0);
         assert_eq!(civ.belief[1].share[sun], 0.0, "faction 2 starts unaffiliated");
 
         // Now let it run. The road is the only thing connecting them.
-        civ.civ_belief_run(40);
+        civ.civ_belief_run(40, &[]);
         assert!(
             civ.belief[1].share[sun] > 0.0,
             "the faith must cross the road into the neighbouring faction's town"
@@ -3613,7 +3624,7 @@ mod civ_timeline_tests {
         isolated.settlements[1].placement.faction = 2;
         assert!(isolated.faction_roster.set_field(1, "religion", "sun_cult"));
         isolated.ways.clear();
-        isolated.civ_belief_run(40);
+        isolated.civ_belief_run(40, &[]);
         assert_eq!(
             isolated.belief[1].share[sun], 0.0,
             "with no way between them there is no exposure, so no conversion"
@@ -3658,7 +3669,7 @@ mod civ_timeline_tests {
         assert_eq!(custom.belief_key(), plain.belief_key());
 
         // And the model's answer is identical, seed and 40 years of diffusion.
-        assert_eq!(custom.civ_belief_run(40), plain.civ_belief_run(40));
+        assert_eq!(custom.civ_belief_run(40, &[]), plain.civ_belief_run(40, &[]));
         assert_eq!(custom.belief, plain.belief);
         let sun = cartalith_civ::belief::religion_index("sun_cult").unwrap();
         assert!(custom.belief[0].share[sun] > 0.5, "the custom religion's faction seeds its BASE faith");
@@ -3674,7 +3685,7 @@ mod civ_timeline_tests {
         // Changing the custom religion's base IS a change of engine input.
         custom.religions.edit(id, None, Some("flame_creed"), None, None).unwrap();
         assert!(custom.belief_current().is_none(), "a base edit makes the layer stale");
-        let (_, seeded, _) = custom.civ_belief_run(0);
+        let (_, seeded, _) = custom.civ_belief_run(0, &[]);
         assert!(seeded);
         let flame = cartalith_civ::belief::religion_index("flame_creed").unwrap();
         assert_eq!(custom.belief[0].share[flame], 1.0);
@@ -3697,7 +3708,7 @@ mod civ_timeline_tests {
             none.faction_roster.engine_religions(&none.religions)
         );
         assert_eq!(dangling.faction_roster.has_religion_flags(&dangling.religions)[1], false);
-        assert_eq!(dangling.civ_belief_run(10), none.civ_belief_run(10));
+        assert_eq!(dangling.civ_belief_run(10, &[]), none.civ_belief_run(10, &[]));
         assert_eq!(dangling.belief, none.belief);
         assert_eq!(dangling.religions.display_name("custom:41"), "Missing religion (custom:41)");
     }
@@ -3766,7 +3777,7 @@ mod civ_timeline_tests {
         // and this test's own claim is about re-seeding on a religion
         // CHANGE, not about what a fresh roster happens to start at.
         assert!(civ.faction_roster.set_field(1, "religion", "none"));
-        let (_, _, any_faith) = civ.civ_belief_run(50);
+        let (_, _, any_faith) = civ.civ_belief_run(50, &[]);
         assert!(!any_faith, "faction 1 was explicitly set to no religion");
 
         // The user opens the Faction Inspector and picks a religion.
@@ -3777,7 +3788,7 @@ mod civ_timeline_tests {
              must see `no layer` rather than the world's previous faith"
         );
 
-        let (_, seeded, any_faith) = civ.civ_belief_run(50);
+        let (_, seeded, any_faith) = civ.civ_belief_run(50, &[]);
         assert!(seeded, "a religion change must force a re-seed");
         assert!(any_faith, "and the new religion must actually reach the model");
         let sun = cartalith_civ::belief::religion_index("sun_cult").unwrap();
@@ -3787,18 +3798,18 @@ mod civ_timeline_tests {
         // not on a one-way "has ever been edited" flag.
         assert!(civ.faction_roster.set_field(1, "religion", "none"));
         assert!(civ.belief_current().is_none());
-        let (_, _, any_faith) = civ.civ_belief_run(10);
+        let (_, _, any_faith) = civ.civ_belief_run(10, &[]);
         assert!(!any_faith);
 
         // A field that is not `religion` must NOT invalidate: re-seeding on
         // every roster touch would silently reset the simulation whenever
         // somebody renamed a faction.
         assert!(civ.faction_roster.set_field(1, "religion", "old_gods"));
-        civ.civ_belief_run(5);
+        civ.civ_belief_run(5, &[]);
         let before = civ.belief.clone();
         assert!(civ.faction_roster.set_field(1, "name", "The Concord"));
         assert!(civ.belief_current().is_some(), "a rename is not a religion change");
-        let (_, seeded, _) = civ.civ_belief_run(0);
+        let (_, seeded, _) = civ.civ_belief_run(0, &[]);
         assert!(!seeded);
         assert_eq!(civ.belief, before, "a rename must not restart the simulation");
     }
@@ -3810,7 +3821,7 @@ mod civ_timeline_tests {
     fn editing_the_settlement_list_invalidates_a_finished_run() {
         let mut civ = linked_pair();
         assert!(civ.faction_roster.set_field(1, "religion", "old_gods"));
-        civ.civ_belief_run(10);
+        civ.civ_belief_run(10, &[]);
         assert!(civ.belief_current().is_some());
 
         // The Settlement tool appends. The layer is now one row short and
@@ -3824,7 +3835,7 @@ mod civ_timeline_tests {
 
         // A re-run re-seeds rather than extending, so nothing carries over
         // from a settlement list that no longer exists.
-        let (n, seeded, _) = civ.civ_belief_run(0);
+        let (n, seeded, _) = civ.civ_belief_run(0, &[]);
         assert_eq!(n, 3);
         assert!(seeded, "the length mismatch must force a re-seed");
         assert!(civ.belief_current().is_some());
@@ -3839,14 +3850,14 @@ mod civ_timeline_tests {
             let mut civ = linked_pair();
             civ.settlements[1].placement.faction = 2;
             civ.faction_roster.set_field(1, "religion", "sun_cult");
-            civ.civ_belief_run(years);
+            civ.civ_belief_run(years, &[]);
             civ.belief[1].share[sun]
         };
         let mut split = linked_pair();
         split.settlements[1].placement.faction = 2;
         split.faction_roster.set_field(1, "religion", "sun_cult");
-        split.civ_belief_run(12);
-        let (_, seeded_again, _) = split.civ_belief_run(8);
+        split.civ_belief_run(12, &[]);
+        let (_, seeded_again, _) = split.civ_belief_run(8, &[]);
         assert!(!seeded_again, "the second call must not re-seed");
         assert_eq!(
             split.belief[1].share[sun],
@@ -3966,7 +3977,7 @@ mod civ_timeline_tests {
         civ.settlements[1].placement.faction = 2;
         civ.faction_roster.set_field(1, "religion", "sun_cult");
         civ.faction_roster.set_field(2, "religion", "old_gods");
-        civ.civ_belief_run(40);
+        civ.civ_belief_run(40, &[]);
         let shares = super::religion_shares(&civ.belief[1]);
         assert!(
             shares.iter().any(|&(k, v)| k == "sun_cult" && v > 0.0),
@@ -3994,7 +4005,7 @@ mod civ_timeline_tests {
         civ.settlements[1].placement.faction = 2;
         civ.faction_roster.set_field(1, "religion", "sun_cult");
         civ.faction_roster.set_field(2, "religion", "old_gods");
-        civ.civ_belief_run(40);
+        civ.civ_belief_run(40, &[]);
         for (i, state) in civ.belief.iter().enumerate() {
             let emitted: f64 = super::religion_shares(state).iter().map(|(_, v)| v).sum();
             assert!(
@@ -12305,6 +12316,10 @@ impl WorldGen {
     ///   Unclaimed; a fresh roster has had real defaults since 2026-09-23, so
     ///   this is a hand-edited roster), and the fix is in the Faction
     ///   Inspector's Religion dropdown.
+    /// - `trade_flows` (int) — how many `trade_flows` rows this run's
+    ///   trade-diaspora influx read (FH-R2 R2-2, 2026-10-18). `0` means the
+    ///   run had no trade network (no generated world, or no flows), so no
+    ///   settlement received migrants and minorities persist only by retention.
     /// - `reason` (String) — **present only when `any_faith` is false**, and
     ///   carrying the sentence a surface should show instead of an empty
     ///   breakdown. Omitted, not blanked, on the normal path.
@@ -12317,16 +12332,21 @@ impl WorldGen {
     #[func]
     fn civ_belief_run(&mut self, years: i64) -> VarDictionary {
         let years = years.clamp(0, 100_000) as u32;
+        // FH-R2 R2-2: the trade-diaspora influx reads this world's trade
+        // flows. `trade_network` is `None` with no generated world or no
+        // settlements; then there is no influx, and `trade_flows` reports 0.
+        let flows = self.trade_network().map(|(net, _)| net.flows).unwrap_or_default();
         let Some(civ) = self.civ.as_mut() else {
             return vdict! { "settlements" => 0, "seeded" => false, "years" => 0, "any_faith" => false,
                             "reason" => "No world has been generated yet." };
         };
-        let (n, seeded, any_faith) = civ.civ_belief_run(years);
+        let (n, seeded, any_faith) = civ.civ_belief_run(years, &flows);
         let mut d = vdict! {
             "settlements" => n as i64,
             "seeded" => seeded,
             "years" => years as i64,
             "any_faith" => any_faith,
+            "trade_flows" => flows.len() as i64,
         };
         if !any_faith {
             d.set(
@@ -23007,10 +23027,24 @@ impl WorldGen {
         key_label_array(&cartalith_civ::roster::CIV_SPECIALISATIONS)
     }
 
-    /// `CIV_RELIGIONS` as `{key, label}`.
+    /// `CIV_RELIGIONS` as `{key, label}`, plus `type` (FH-R2 R2-1, Ruling CJ):
+    /// the design canvas's TYPE word (`"organized"` / `"folk"` / `"cult"` /
+    /// `"heresy"`) from `cartalith_civ::religion_profile`. **`type` is omitted,
+    /// never blanked**, where the profile has none: `none` (no profile at
+    /// all) and `covenant_folk` (its source row names no institution); a
+    /// reader dashes those with that reason.
     #[func]
     fn civ_religion_vocabulary(&self) -> Array<VarDictionary> {
-        key_label_array(&cartalith_civ::roster::CIV_RELIGIONS)
+        cartalith_civ::roster::CIV_RELIGIONS
+            .iter()
+            .map(|&(key, label)| {
+                let mut d = vdict! { "key" => key, "label" => label };
+                if let Some(t) = cartalith_civ::religion_profile::religion_profile(key).and_then(|p| p.kind) {
+                    d.set("type", t.key());
+                }
+                d
+            })
+            .collect()
     }
 
     /// `CIV_GOVERNMENTS` as `{key, label}`.
