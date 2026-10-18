@@ -267,6 +267,10 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-10-10
 
+- **Asset pack tools proposal written (2026-10-18, owner request): documents and captures only; nothing built.** It is `ASSET_PACK_TOOLS_PROPOSAL.md` (root), with four Asset library captures in `cartalith-native/docs/evidence/asset-library-2026-10-18/` (scratch copy of `2446ed81`, DLL of 2026-10-17 21:47). It proposes AP-1…AP-9 and asks Q1–Q10. Two findings were read at the symbols and are not fixed:
+  - *Import pack…* loads into the renderer only (`WorldGen::load_asset_pack`). The reference's `importPackZip` into the library is not ported, so a pack cannot be opened for editing.
+  - `LoadedPack` decodes no settlement, POI, sea-mark or custom art, so none of it is drawn on the map. Feature icons are blitted into the grid-resolution raster (`pack::composite_map_icons`), and no deep-zoom tile path draws them.
+
 - **Edifice gullies and 314159's streaks measured (2026-10-18), Ruling CM items 1 and 4. Nothing is switched on; owner questions are open.** Details: `EDIFICE_AND_STREAKS_2026-10-18.md`; frames in `cartalith-native/docs/evidence/edifice-streaks-2026-10-18/`.
   - **Built, measurement-only:** `cartalith_terrain::EdificeVariant`, reached through `StreakSpikeParams::edifice`, off at both boundaries, no `PARAMS` row. It carries (a) kilometre-keyed, band-limited gullies, (c) a flank-pit fill at the stamp, (c-late) the same fill on the final field, and the ablations. `cartalith_terrain::edifice_furrows` is (b): tile-time radial furrows, not wired into the app.
   - **Identity:** `gf6_carve_identity_hashes` gives the same 13-array hashes as origin tip `a984b2c8`.

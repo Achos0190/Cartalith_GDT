@@ -97,6 +97,18 @@ draws pack sprites; the vector glyphs are the *fallback*. Also confirmed:
 Phase 5's urban morphology does **not** consume asset packs, so the two are
 independent.
 
+**Asset pack tools (owner request, 2026-10-18; a proposal, not scheduled).**
+These are tools for refining a pack someone already has: open it in the
+library, a pack report, seam fixing for ground textures, near-duplicates,
+refine verbs that write new variants, folder import adapters, and diff and
+merge. The milestones are AP-1…AP-9, and the owner questions are in
+`ASSET_PACK_TOOLS_PROPOSAL.md`.
+
+The proposal also narrows the sentence above. "The renderer genuinely draws
+pack sprites" holds for feature icons and trait badges only. Settlement, POI,
+sea-mark and custom art is not drawn on the map. Feature icons are baked at
+grid resolution, so they do not stay sharp at deep zoom.
+
 ## Phase 5 — Urban morphology
 
 Block 4, procedural city layouts. Already a self-contained DOM-free engine in the
