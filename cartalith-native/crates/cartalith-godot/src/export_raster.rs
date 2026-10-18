@@ -3150,26 +3150,47 @@ mod adjust_census_tests {
     /// width and the row a peak altitude). The four rows above did NOT move,
     /// pixels or fingerprint: the look's five new fields are left out of the
     /// serialized appearance at `0.0` (`render.rs`'s `is_zero_f64`).
+    ///
+    /// **RE-BASELINED 2026-10-18 under Ruling CI's square-mottle fix and
+    /// canopy texture** (`land_grain_warp`, `1.0` in `default()` and so in
+    /// every look built on it; `canopy_texture`, `1.0` in Satellite relief
+    /// only): every column of "default", "graded", "antique" and "satellite"
+    /// moved (land pixels, and the fingerprint, since `land_grain_warp` is
+    /// always serialized). "js_reference" pins `land_grain_warp` at `0.0`:
+    /// its eight pixel hashes did NOT move; only its fingerprint did, by the
+    /// new serialized key (`0x8c59eab2f6ee4305` -> `0x0d17851d99e571dd`). The
+    /// old rows, in [`looks`] order, were: default `[a3d12df5e0e726cd,
+    /// e1c6867c1f35d71f, 4f3245d15687bd75, eefe6a4e9d5f1c4f, e909cb087849684d,
+    /// e909cb087849684d, d9e0a589f252b630, 1529424941caaa58, 3ae68caf0cc64d0e]`;
+    /// graded `[8ea4fd42575c918c, 370b8d5ca0dd36ae, 30e6a46775a72de5,
+    /// 82e42e1defe70a94, da8203896589efdd, da8203896589efdd, 5c125e1f51dd61ce,
+    /// 3ec6dd185af837d1, 5c4b177db1ce9572]`; antique `[6e52ce623837583d,
+    /// 2886ed234fd1e12a, 08bb3a954427c2da, 8e8b2ff792ee83a3, 1fe1e88c276a680b,
+    /// 1fe1e88c276a680b, 329fe2a3c648b742, f6dccf528d383567, 155dcc21713e6655]`;
+    /// satellite `[da3ea89f54988cc1, d1e7a930f10c389f, 5b5c5bd2a75a4bd3,
+    /// ebb6d8bf236558e9, 38078d6a1356b23b, 38078d6a1356b23b, 516eee72efd7b603,
+    /// 1ac1cf3a765d9392, f27d5b7b9a8f07be]`. The new values are this tree's
+    /// own output, pasted as change detectors.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0xa3d12df5e0e726cd, 0xe1c6867c1f35d71f, 0x4f3245d15687bd75, 0xeefe6a4e9d5f1c4f, 0xe909cb087849684d, 0xe909cb087849684d, 0xd9e0a589f252b630, 0x1529424941caaa58, 0x3ae68caf0cc64d0e],
+            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x5b8c1ce3d960ca3d],
         ),
         (
             "graded",
-            [0x8ea4fd42575c918c, 0x370b8d5ca0dd36ae, 0x30e6a46775a72de5, 0x82e42e1defe70a94, 0xda8203896589efdd, 0xda8203896589efdd, 0x5c125e1f51dd61ce, 0x3ec6dd185af837d1, 0x5c4b177db1ce9572],
+            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0x7c2129f09b378261],
         ),
         (
             "antique",
-            [0x6e52ce623837583d, 0x2886ed234fd1e12a, 0x08bb3a954427c2da, 0x8e8b2ff792ee83a3, 0x1fe1e88c276a680b, 0x1fe1e88c276a680b, 0x329fe2a3c648b742, 0xf6dccf528d383567, 0x155dcc21713e6655],
+            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xd79526c5a1f53164],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x8c59eab2f6ee4305],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x0d17851d99e571dd],
         ),
         (
             "satellite",
-            [0xda3ea89f54988cc1, 0xd1e7a930f10c389f, 0x5b5c5bd2a75a4bd3, 0xebb6d8bf236558e9, 0x38078d6a1356b23b, 0x38078d6a1356b23b, 0x516eee72efd7b603, 0x1ac1cf3a765d9392, 0xf27d5b7b9a8f07be],
+            [0x6b743b6ac80447b0, 0xc885eac8a218db59, 0x1e5d1a45e62445f6, 0x3fcc3fa81e55d853, 0xbbfabdaf9d88b06d, 0xbbfabdaf9d88b06d, 0xf70c9b0fb003febd, 0x2c6f6528b28e02b0, 0xbb1eb7034b49ee1c],
         ),
     ];
 

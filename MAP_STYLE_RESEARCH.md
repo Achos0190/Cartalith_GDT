@@ -494,7 +494,12 @@ inventoried in §1.
    All five new appearance fields are `0.0` in `default()`, in every other look
    and in `js_reference()`, off by control flow, and left out of the
    serialized appearance at `0.0`, so no other look's pixels or fingerprint
-   moved. Forest canopy is not in it (deferred). Measurements and frames:
+   moved. **Forest canopy (added 2026-10-18):** `canopy_texture` 1 -- a
+   kilometre-keyed canopy texture on the forest material (lit crowns, shadowed
+   gaps, octaves 4 km down to 8 m that arrive with zoom), with the deep-zoom
+   tiles' materials reading the grid-scale slope so the forest stays forest at
+   x16-x64; `0.0` in every other look. See `STATUS.md`'s 2026-10-18 entry and
+   `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`. Measurements and frames:
    `cartalith-native/docs/evidence/satellite-relief-2026-10-18/` and
    `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`'s 2026-10-18 "after" note.
 

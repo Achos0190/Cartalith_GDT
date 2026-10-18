@@ -179,6 +179,15 @@ with zoom, but lower than Natural Vibrant at every rung. Frames, numbers and the
 reading of them: `cartalith-native/docs/evidence/satellite-relief-2026-10-18/`
 and `STATUS.md`'s 2026-10-18 entry.
 
+**After (2026-10-18, §6 rows 4 and 5):** the square mottle's cause is now
+isolated by an on/off test (the four land jitter lattices; their contribution
+read 1.46-1.86x axis-aligned, 0.83-0.90 after `land_grain_warp`, on in every
+look), and the Satellite relief look has a kilometre-keyed forest canopy
+texture (`canopy_texture`) that keeps arriving to x64; its forest is still
+brighter and greener than the target's. Numbers and frames: `STATUS.md`'s
+2026-10-18 entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`. The numbers above are left as
+they were measured.
+
 ## 5. Root causes, as far as I verified them
 
 | Gap | Verified cause | Evidence quality |

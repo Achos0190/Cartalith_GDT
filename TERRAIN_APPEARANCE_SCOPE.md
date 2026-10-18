@@ -824,6 +824,20 @@ generator, 40 ms, so in the ordinary sweep): `quality_tier_is_exactly_the_defaul
 the mutation itself was incomplete: **a mutation test only tests what the mutation
 actually changed.**
 
+## Ruling CI follow-ups: the land lattice and the forest canopy (2026-10-18)
+
+Milestone 4 fixed the stipple's halftone screen and milestone 6 the ocean's
+quilt by rotating and warping their value-noise lattices. The land colour's own
+four jitter lattices (`bio_jitter`'s two octaves, `n_low`, `n_hi`) kept the
+reference's axis-aligned lattice, and showed as a square mottle about 14 cells
+across at fit and x4 (`RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §5). An
+on/off test confirmed them as the cause; `land_grain_warp` (on in every shipped
+look, `0.0` in `js_reference()`) gives them the same treatment. Milestone 4's
+stipple is a fixed per-cell texture and cannot add detail under zoom; the
+Satellite relief look gets a kilometre-keyed canopy texture instead
+(`canopy_texture`). Numbers, re-baselines and frames: `STATUS.md`'s 2026-10-18
+entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`.
+
 ## What the milestones deferred, and where each went
 
 Each milestone recorded what it left for later; the lists overlapped, so they

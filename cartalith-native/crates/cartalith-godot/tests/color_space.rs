@@ -148,7 +148,9 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// was `0x1aaf_e711_c277_6ed6`): the shipped look takes curvature and AO from a
 /// lightly low-passed height (`TerrainAppearance::relief_lowpass`);
 /// `js_reference()` pins it off.
-const FINISHED_RENDER_FNV1A: u64 = 0x48f3_344c_024f_3af8;
+/// **Re-baselined 2026-10-18 for Ruling CI's square-mottle fix (2026-10-18, `land_grain_warp` 0 -> 1 in `default()`: the land jitter lattices rotated and warped, R3's texture fbm rotated)** (was `0x48f3_344c_024f_3af8`);
+/// `js_reference()` pins `land_grain_warp` at `0.0`.
+const FINISHED_RENDER_FNV1A: u64 = 0xad04_34bd_2ef2_6af5;
 
 /// Protects: Ruling AS's `sea_grain_warp` is literally 1.0 in the shipped look and 0.0 in `js_reference()`, so the golden-parity path cannot pick up the ocean lattice fix.
 ///
@@ -235,7 +237,11 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
     // (Ruling BZ item 2), moved the shipped image (default P3 was 5057,
     // Antique sRGB 5028, Antique P3 9293, strong grade sRGB 5197; worst moves
     // unchanged).
-    let want = [("default sRGB", 0, 0), ("default P3", 5077, 1), ("Antique sRGB", 5033, 2), ("Antique P3", 9290, 3), ("strong grade sRGB", 5221, 2)];
+    // Re-measured 2026-10-18 after Ruling CI's square-mottle fix
+    // (`land_grain_warp` 0 -> 1) moved the shipped land colour (default P3
+    // was 5077, Antique sRGB 5033, Antique P3 9290, strong grade sRGB 5221;
+    // worst moves unchanged).
+    let want = [("default sRGB", 0, 0), ("default P3", 5050, 1), ("Antique sRGB", 5041, 2), ("Antique P3", 9320, 3), ("strong grade sRGB", 5202, 2)];
     for ((label, a, space), (wl, wpx, wworst)) in cases.into_iter().zip(want) {
         assert_eq!(label, wl);
         let (fused, chained) = (finished_render_in(&a, space), chained_render_in(&a, space));
@@ -265,8 +271,10 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
 /// Re-baselined 2026-09-24 for Ruling AP's snow aspect term (was
 /// `0xf96d_1e67_6c25_daae`), and again for Ruling AS's ocean lattice fix
 /// (was `0x0647_711d_8f36_5fea`), and again 2026-10-10 for hatching candidate
-/// (b), `TerrainAppearance::relief_lowpass` (was `0x0318_b14c_5f5a_ccd7`).
-const ANTIQUE_P3_FNV1A: u64 = 0x85e9_4e45_411f_b03f;
+/// (b), `TerrainAppearance::relief_lowpass` (was `0x0318_b14c_5f5a_ccd7`), and
+/// again 2026-10-18 for Ruling CI's square-mottle fix, `land_grain_warp`
+/// (was `0x85e9_4e45_411f_b03f`).
+const ANTIQUE_P3_FNV1A: u64 = 0xa2d4_1ee2_940d_917e;
 
 /// Protects: the Antique + Display P3 render (all three stages running) hashes to `ANTIQUE_P3_FNV1A`, and the old chained path still produces its own pinned hash, so the two paths stay distinguishable and each is pinned.
 #[test]
@@ -277,7 +285,9 @@ fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
     // (2026-09-24; was `0x6c83_b198_b39e_4d68`), and again with Ruling AS's
     // ocean lattice fix (was `0x3b64_bc1d_2eac_1a1c`), and again 2026-10-10 with
     // hatching candidate (b), `relief_lowpass` (was `0x198b_ab94_3143_e5aa`).
-    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0xc024_a352_a972_a921);
+    // And again 2026-10-18 with Ruling CI's square-mottle fix (was
+    // `0xc024_a352_a972_a921`).
+    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0x5b08_5829_a52e_1470);
 }
 
 /// Mean absolute distance, in levels, between `got` and the **continuous**

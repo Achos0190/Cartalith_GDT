@@ -218,9 +218,15 @@ fn a_zoomed_tiles_relief_contrast_tracks_the_main_maps() {
         }
     }
     let b = TileBounds { x: x0 as f64, y: y0 as f64, w: k as f64, h: k as f64 };
-    let shipped = TerrainAppearance::default();
-    let flat = TerrainAppearance { exag: 0.0, ..TerrainAppearance::default() };
-    let before = TerrainAppearance { tile_shade_exag_scaled: false, ..TerrainAppearance::default() };
+    // `land_grain_warp = 0` (2026-10-18): the table above was measured on
+    // the reference's land lattices; Ruling CI's square-mottle fix moves the
+    // land colour, and with it this fixture's 8 px/cell "before" ratio from
+    // 0.155 to 0.1567, just past the `1.25 / ppc` bound -- a colour change,
+    // not a change to the shade scaling this test is about.
+    let base = TerrainAppearance { land_grain_warp: 0.0, ..TerrainAppearance::default() };
+    let shipped = base.clone();
+    let flat = TerrainAppearance { exag: 0.0, ..base.clone() };
+    let before = TerrainAppearance { tile_shade_exag_scaled: false, ..base };
 
     let map = relief(&map_luma(&f, &t, &r, shipped.clone(), x0, y0, k), &map_luma(&f, &t, &r, flat.clone(), x0, y0, k));
     assert!(map > 1.0, "the map's own relief signal is {map:.4} luma levels -- the fixture has no relief to compare");

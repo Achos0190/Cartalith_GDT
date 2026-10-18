@@ -1102,7 +1102,7 @@ const APPEARANCE_GROUPS := [
 		"crest_strength", "curve_shade", "ridged_strength",
 		"toon_strength", "toon_outline"]],
 	["The sheet", ["paper_strength", "paper_grain", "paper_mottle", "paper_wash",
-		"stipple_strength", "border_width_frac"]],
+		"stipple_strength", "canopy_texture", "border_width_frac"]],
 	## `rock_slope`, `wetness` and `sea_grain_warp` joined this group 2026-09-03
 	## (`OUTSTANDING_WORK.md` §2.5); `geo_micro` and `sdf_coast` joined it later
 	## the same day, and `sdf_rivers`/`sdf_biomes` on the pass after that. The
@@ -1116,6 +1116,12 @@ const APPEARANCE_GROUPS := [
 	## panel order, because they are the land tints keyed on distance rather
 	## than on climate. All seven are `0.0` in the shipped default, so the
 	## panel opens on the same picture it always did.
+	## `land_grain_warp` (Ruling CI, 2026-10-18) sits beside `sea_grain_warp`
+	## because it is the same fix on land -- the square mottle -- and is `1.0`
+	## in every shipped look, like its sibling. `canopy_texture` joined "The
+	## sheet" beside `stipple_strength`, the other forest texture; it is `0.0`
+	## except in the Satellite relief look. Both rows are derived from their
+	## sibling row by the ruling below, not designed.
 	##
 	## **Derived from the `sdf_coast` row, not designed.** Owner ruling
 	## 2026-08-25: where no canvas exists, derive from the DCC vocabulary. The
@@ -1128,7 +1134,7 @@ const APPEARANCE_GROUPS := [
 		"litho_strength", "litho_exposure", "geo_micro",
 		"hydro_wet_strength", "wetness",
 		"sdf_coast", "sdf_rivers", "sdf_biomes",
-		"local_contrast", "splat_strength", "sea_grain_warp"]],
+		"local_contrast", "splat_strength", "sea_grain_warp", "land_grain_warp"]],
 	## `LOD_DETAIL_SCOPE.md` LOD-D4's own GUI line: *"one 'Ice & snow' group in
 	## the render workspace"*. It is the scope that asks for a group of its
 	## own rather than a row inside Materials, and the group is one row
@@ -1267,6 +1273,8 @@ const APPEARANCE_HELP := {
 	"sdf_coast": "Coast bands: a bright wet shore-sand band and a lusher coastal plain behind it, keyed on distance from the coastline itself rather than on elevation, so both hold a constant width whatever the relief does and at whatever resolution the map was generated. The reference's SDF coastlines, and the first of its three distance-keyed rows -- the two below are its siblings. Costs one whole-grid distance transform when on and nothing when off.",
 	"sdf_rivers": "River bands: a damp bank, a wetland green behind it and a wide pale floodplain behind that, in three widening rings out from every watercourse. Measured from the channels themselves rather than from height or rainfall, so a river reads as a valley floor at any resolution instead of a coloured line. Same family as Coast bands above, keyed on rivers instead of the shore. Nothing on a loaded save, which stores no flow field and therefore knows where no rivers are. Costs one whole-grid distance transform when on and nothing when off.",
 	"sdf_biomes": "Biome blend: widens the noise that ragged the boundary between two biomes, in proportion to how close the ground is to that boundary -- so grassland dissolves into forest over a band rather than at a line, while each biome's interior stays as crisp as it was. Not a tint: it moves where the materials meet, not what colour they are. Costs a water-body pass and one whole-grid distance transform when on, and nothing when off.",
+	"land_grain_warp": "Breaks up the square mottle on land at low zoom -- blotches about fourteen cells across, caused by the land colour's jitter noise being sampled on grid-aligned lattices. The default, 1, rotates and warps those lattices so the mottle stays but loses its squares; 0 draws the original grid-aligned lattices.",
+	"canopy_texture": "Forest canopy texture -- lit crowns and shadowed gaps over forest, on a kilometre scale, so finer detail keeps arriving as you zoom in. Needs the map's width; on in the Satellite relief look, 0 (off) elsewhere.",
 	"sea_grain_warp": "Breaks up the rectangular quilt visible in open ocean at low zoom -- squares about eighty cells across, caused by the sea's colour noise being sampled on a grid-aligned lattice. The default, 1, rotates and warps that lattice so no straight seam survives; lower values fade the warp out, and 0 draws the original grid-aligned lattice, squares included.",
 	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
 	"atmo_desaturation": "How far the outer plate loses colour toward the haze above, same distance as the sky tint. 0 keeps material colour equally saturated everywhere.",

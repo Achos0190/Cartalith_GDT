@@ -522,7 +522,15 @@ fn every_tunable_is_load_bearing() {
     // `tests/satellite_relief.rs`: `the_shelf_brightens_the_coast_and_touches_only_the_sea`,
     // `snow_sheds_from_the_steep_ridge_only` and
     // `the_degree_knee_tints_rock_where_the_ported_knee_barely_does`.
-    const EXEMPT: [&str; 22] = [
+    //
+    // `canopy_texture` (Ruling CI, 2026-10-18) is the twenty-third: a
+    // kilometre lattice needs the map width, which this fixture's context
+    // does not carry, so it is off by control flow here (the "never a
+    // guessed scale" rule). Its replacement proofs are in
+    // `tests/canopy_and_mottle.rs`:
+    // `canopy_is_off_without_strength_or_scale_and_touches_only_forest` and
+    // `the_export_agrees_with_the_screen_and_adds_octaves_when_finer`.
+    const EXEMPT: [&str; 23] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -545,6 +553,7 @@ fn every_tunable_is_load_bearing() {
         "snow_shed",
         "snow_shed_deg",
         "rock_slope_deg",
+        "canopy_texture",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

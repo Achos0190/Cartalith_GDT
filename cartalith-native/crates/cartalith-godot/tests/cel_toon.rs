@@ -194,11 +194,20 @@ fn default_js_reference_and_the_looks_are_bit_identical_to_the_pre_toon_tree() {
     // `0x6d8f_bf38_494d_371d`, `0x535d_0476_94d8_ce78`; Natural Vibrant
     // `0x3e87_bd1d_5a74_680d`, `0x4ee9_d0af_55cf_9452`; Antique Parchment
     // `0xf60f_8061_e3be_d498`, `0xea39_d899_30e4_2d54`.
+    //
+    // RE-BASELINED 2026-10-18 under Ruling CI's square-mottle fix (2026-10-18, `land_grain_warp` 0 -> 1 in `default()`: the land jitter lattices rotated and warped, R3's texture fbm rotated).
+    // The three shipped looks' grid, bake and tile digests all moved (land
+    // pixels); `js_reference` pins the field at 0.0 and did not move. Was
+    // (grid, bake, tile): default `0x7348_b737_eca8_99d0`,
+    // `0xc255_ba7f_d515_e5e8`, `0x5024_d80f_58c1_4507`; Natural Vibrant
+    // `0x9393_ae22_dc01_0b63`, `0xfbed_7584_644c_c2ef`, `0x19ba_1576_98aa_5f55`;
+    // Antique Parchment `0xc9cc_f427_a9f0_734f`, `0xb116_cc54_53e6_2372`,
+    // `0x4902_d41c_2a3d_1775`.
     let pinned: [(&str, TerrainAppearance, u64, u64, u64); 4] = [
-        ("default", TerrainAppearance::default(), 0x7348_b737_eca8_99d0, 0xc255_ba7f_d515_e5e8, 0x5024_d80f_58c1_4507),
+        ("default", TerrainAppearance::default(), 0xae5d_fa30_6ce4_7318, 0x5180_5269_7c77_be2b, 0x9882_95c8_1204_7ed5),
         ("js_reference", TerrainAppearance::js_reference(), 0x5599_a657_c30e_4029, 0x6c8d_5b5b_8c05_f0ba, 0x730d_4ccc_05c5_da94),
-        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x9393_ae22_dc01_0b63, 0xfbed_7584_644c_c2ef, 0x19ba_1576_98aa_5f55),
-        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xc9cc_f427_a9f0_734f, 0xb116_cc54_53e6_2372, 0x4902_d41c_2a3d_1775),
+        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xba06_790b_1d47_a841, 0x1480_e699_4c15_e955, 0xe0c9_910e_98e9_9851),
+        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x5317_49d9_ce38_56f7, 0x7230_f8a2_e6f9_5b0d, 0xb79c_ec07_9617_25b3),
     ];
     for (name, a, g, b, t) in pinned {
         assert_eq!(fnv1a(&grid(&s, &a)), g, "{name}: the screen (cell_color) render moved");

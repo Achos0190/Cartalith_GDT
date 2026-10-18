@@ -274,11 +274,14 @@ fn the_default_stack_renders_the_pre_change_image() {
         // the shipped looks take curvature and AO from a lightly low-passed
         // height. `js_reference()` pins it off and did not move. Default screen
         // was `0x81b0_0811_c277_6ed6`, bake `0x1f68_a1f5_72a0_07e1`.
-        ("default", TerrainAppearance::default(), 0xa387_8f4c_024f_3af8u64, 0xa180_8837_eca8_99d0u64),
+        // Default, Vibrant and Antique re-baselined 2026-10-18 for Ruling CI's square-mottle fix (2026-10-18, `land_grain_warp` 0 -> 1 in `default()`: the land jitter lattices rotated and warped, R3's texture fbm rotated); `js_reference()` pins 0.0 and did not move. Default
+        // screen was `0xa387_8f4c_024f_3af8`, bake `0xa180_8837_eca8_99d0`.
+        ("default", TerrainAppearance::default(), 0x9c67_0abd_2ef2_6af5u64, 0x31ae_5e30_6ce4_7318u64),
         // Vibrant re-baselined 2026-09-24, Ruling AP (screen was `0xeb64_802f_ae20_df7b`, bake `0x66cf_b547_b3b7_9dcc`).
         // Ruling AS: screen was `0xfb6a_cace_306d_8beb`, bake `0x9d3f_a5b1_d6a8_e398`.
         // Ruling BZ item 2 (`relief_lowpass`): screen was `0x3924_8927_030b_3252`, bake `0xdd7f_bad0_bdf5_58b3`.
-        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x9e80_b92c_2456_7059, 0xfb00_4c22_dc01_0b63),
+        // Ruling CI square-mottle fix (2026-10-18): screen was `0x9e80_b92c_2456_7059`, bake `0xfb00_4c22_dc01_0b63`.
+        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xdd2d_9320_3745_fd23, 0x694a_890b_1d47_a841),
         // Screen re-derived 2026-09-23 for Ruling AN (was `0xae24_83aa_9cb4_63bf`):
         // Antique is the one look here whose grade is not at rest, so it is
         // the one whose local-contrast -> grade hand-off lost its intermediate
@@ -287,7 +290,8 @@ fn the_default_stack_renders_the_pre_change_image() {
         // `0x4427_8798_5bad_05ae`, bake `0x5cc8_aa1d_c354_b557`).
         // Ruling AS: screen was `0x6c64_1fa3_e8e9_633c`, bake `0x5468_5194_1b63_1d0d`.
         // Ruling BZ item 2 (`relief_lowpass`): screen was `0x64fc_5461_901f_eda2`, bake `0x90aa_6b83_172e_4d90`.
-        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xbe7a_6dd1_b76e_f58b, 0x7fe2_8a27_a9f0_734f),
+        // Ruling CI square-mottle fix (2026-10-18): screen was `0xbe7a_6dd1_b76e_f58b`, bake `0x7fe2_8a27_a9f0_734f`.
+        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xdc8f_2461_197f_67a0, 0xf9e8_15d9_ce38_56f7),
         ("js_reference", TerrainAppearance::js_reference(), 0x4cba_6557_c30e_4029, 0x4cba_6557_c30e_4029),
     ] {
         assert!(a.layers.is_default(), "{name} did not start on the default stack");

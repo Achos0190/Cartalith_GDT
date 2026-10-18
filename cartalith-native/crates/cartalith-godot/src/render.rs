@@ -2051,6 +2051,32 @@ pub struct TerrainAppearance {
     /// strength [`sea_grain`] was written to reach — half a lattice cell of
     /// warp, its "fully broken-up" end of the slider.
     pub sea_grain_warp: f64,
+    /// **Ruling CI** (owner order, 2026-10-18: after mountain relief, the
+    /// square mottle): how far the land colour's four value-noise jitter
+    /// lattices -- `n_low` (16.7 cells), `n_hi` (`gw/96`), and
+    /// [`bio_jitter`]'s two octaves (`gw/44` and `gw/150`, 46.5 and 13.7
+    /// cells at 2048) -- are rotated off the grid axes and domain-warped, and
+    /// R3's surface-texture fbm rotated with them. **On in every shipped look**
+    /// (`1.0` in `default()`); `0.0` is the reference's own axis-aligned
+    /// lattices exactly, by a dedicated branch in [`land_grain`], and is what
+    /// `js_reference()` pins.
+    ///
+    /// Why: `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §5 found an
+    /// axis-aligned square mottle about 14 cells across on land at fit and x4
+    /// in every look. The 2026-10-18 on/off test
+    /// (`docs/evidence/canopy-mottle-2026-10-18/`) isolated it: switched off,
+    /// the blotches go; what the four lattices add to the land colour carries
+    /// 1.46-1.86x as much band-passed (8-35 cell) gradient energy on the grid
+    /// axes as on the diagonals on three worlds (1.0 is isotropic), and
+    /// 0.83-0.90 with this fix on. Each lattice still matters -- the jitter is what makes a
+    /// biome edge ragged and a material vary across its own ramp -- so the
+    /// fix keeps every octave's frequency and amplitude and changes only the
+    /// lattice's orientation and regularity: the treatment the stipple
+    /// (milestone 4) and the sea grain ([`Self::sea_grain_warp`]) already
+    /// had. `1.0` is half a lattice cell of warp, `sea_grain`'s own full
+    /// strength. Under `DECISIONS.md` §7p this is a deliberate app-side
+    /// pixel change; parity stays verified on `js_reference()`.
+    pub land_grain_warp: f64,
     /// **Ruling BI** (`LARGE_ITEM_RULINGS.md`, 2026-09-27), the "Nautical"
     /// preset's own small renderer addition, flagged by
     /// `MAP_STYLE_RESEARCH.md` §3/§4 as the one genuinely new table among the
@@ -2132,6 +2158,25 @@ pub struct TerrainAppearance {
     /// `0.0`, which is `default()`'s and `js_reference()`'s value.
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub rock_slope_deg: f64,
+    /// **Ruling CI** (owner order, 2026-10-18: after the square mottle, the
+    /// forest canopy): the strength of [`canopy_relief`]'s tree-canopy
+    /// texture over forest, `0..=1`. Fine light/dark broken-up variation --
+    /// clumped crowns lit from the sun azimuth with shadowed gaps -- on a
+    /// **kilometre** lattice, so it keeps arriving as the view zooms in
+    /// (octaves from [`CANOPY_BASE_KM`] down to [`CANOPY_MIN_KM`], each drawn
+    /// only once it spans a few output pixels, by the zoom-detail law's rule)
+    /// and the screen, the export and the deep-zoom tiles draw the same
+    /// texture at the same footprint. Driven by `material_weights`' own
+    /// canopy fraction; no new world data.
+    ///
+    /// Why: `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §3 ("Forest canopy
+    /// texture: no canopy texture at any zoom") against the target's dark,
+    /// granular canopy. **`0.0` -- `default()`, every look but Satellite
+    /// relief, and `js_reference()` -- is off by control flow**, and so is a
+    /// context with no map width ([`RenderCtx::canopy_scale`] is `None`; a
+    /// kilometre lattice without kilometres would be a guess).
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub canopy_texture: f64,
     /// **The river symbol's style** (owner, 2026-09-27: *"the only issue I
     /// have with the rivers: they're drawn on top of the style"*). Since then
     /// a generated world's rivers take the style: the deep-zoom tiles
@@ -2526,6 +2571,10 @@ impl Default for TerrainAppearance {
             // full strength `sea_grain` was written for. `js_reference()` pins
             // `0.0`, the reference's own lattice.
             sea_grain_warp: 1.0,
+            // Ruling CI's square-mottle fix, on: the land lattices rotated and
+            // warped at `sea_grain_warp`'s own full strength. `js_reference()`
+            // pins `0.0`. See the field's doc.
+            land_grain_warp: 1.0,
             // Ruling BI: off by default, exactly as `js_reference()` pins it
             // below -- see the field's own doc comment.
             sea_ramp_strength: 0.0,
@@ -2537,6 +2586,8 @@ impl Default for TerrainAppearance {
             snow_shed: 0.0,
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
+            // Ruling CI's canopy texture: Satellite relief only.
+            canopy_texture: 0.0,
             // The river symbol at RV-2's own look: its width, opaque, its
             // palette untouched, under the Painter styles.
             river_width: 1.0,
@@ -2818,6 +2869,10 @@ impl TerrainAppearance {
             // lattice here rather than inheriting it. `sea_grain` returns the
             // reference expression from a dedicated branch at `0.0`.
             sea_grain_warp: 0.0,
+            // Ruling CI: `default()` rotates and warps the land jitter
+            // lattices; the parity path keeps the reference's axis-aligned
+            // ones (`land_grain`'s dedicated branch at `0.0`).
+            land_grain_warp: 0.0,
             // Ruling BI: the bathymetric ramp is a shipped-look addition, not
             // a reference row -- `0.0` here too, so `sea_color_core` takes
             // the reference path exactly.
@@ -2830,6 +2885,8 @@ impl TerrainAppearance {
             snow_shed: 0.0,
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
+            // Ruling CI's canopy texture: port-only, off by control flow.
+            canopy_texture: 0.0,
             // The reference draws no river symbol into its map at all
             // (`drawRiverWays` is a separate canvas pass), and nothing here
             // attaches a `RiverLayer`, so these five are unread on the parity
@@ -3043,6 +3100,9 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         snow_shed_deg: 8.0,
         rock_slope: 1.0,
         rock_slope_deg: 6.0,
+        // Ruling CI's forest canopy (2026-10-18). Full strength is
+        // [`canopy_relief`]'s own scale; see the field's doc.
+        canopy_texture: 1.0,
         ..base
     }
 }
@@ -3189,6 +3249,9 @@ tunables! {
     //    at `1.0` in the shipped look; `0.0` is the reference exactly. See
     //    the field's doc comment --
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
+    // -- Not a reference row (Ruling CI, 2026-10-18): the land's square-mottle
+    //    fix, on at `1.0` in every shipped look; `0.0` is the reference --
+    "land_grain_warp"       => land_grain_warp,       0.0,   1.0,  "Land grain warp";
     // Ruling BI's "Nautical" preset -- see the field's own doc comment.
     "sea_ramp_strength"     => sea_ramp_strength,     0.0,   1.0,  "Bathymetric sea ramp";
     // -- Not reference rows (Ruling CI item 2 and its 2026-10-18 addendum):
@@ -3200,6 +3263,7 @@ tunables! {
     "snow_shed"             => snow_shed,             0.0,   1.0,  "Snow sheds on steep ground";
     "snow_shed_deg"         => snow_shed_deg,         0.0,  90.0,  "Snow shed slope (deg)";
     "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
+    "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
     // -- The river symbol (owner, 2026-09-27: rivers must go through the
     //    style, not sit on top of it). Inert without a river layer, which
     //    only the base view's colour field and the LOD tiles build -- see the
@@ -4872,6 +4936,21 @@ impl<'a> RenderCtx<'a> {
         (peak.is_finite() && peak > 0.0 && denom > 1e-9).then(|| (peak / denom) / cell_m)
     }
 
+    /// [`land_color`]'s canopy-texture input for an output raster whose
+    /// neighbouring pixels are `cells_per_px` grid cells apart: `None` --
+    /// the stage off, by control flow -- unless
+    /// [`TerrainAppearance::canopy_texture`] is on and the map width is known
+    /// ([`Self::km_per_cell`]; a kilometre lattice is never built on a
+    /// guessed scale) and the footprint is a positive finite number.
+    pub fn canopy_scale(&self, cells_per_px: f64) -> Option<CanopyScale> {
+        if self.appearance.canopy_texture <= 0.0 || !(cells_per_px.is_finite() && cells_per_px > 0.0) {
+            return None;
+        }
+        let km_per_cell = self.km_per_cell()?;
+        let az = self.appearance.sun_az_deg.to_radians();
+        Some(CanopyScale { strength: self.appearance.canopy_texture, km_per_cell, px_km: cells_per_px * km_per_cell, light: (az.sin(), -az.cos()) })
+    }
+
     /// Distance to the nearest land in **km** at the integer cell `i`, for
     /// [`sea_color_core`]'s coast shelf: `None` unless the shelf is on, its
     /// field was built and the map width is known (each "off", never a guess).
@@ -5868,6 +5947,194 @@ pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp
     Weights { snow, rock, sand, wetland, canopy, grass, c, meff, is_mangrove }
 }
 
+/// The rotation [`land_grain`] turns the land lattices by: the stipple's and
+/// [`sea_grain`]'s own `(cos, sin)` pair, about 34 degrees -- far from every
+/// multiple of 45, so neither an axis- nor a diagonal-aligned seam survives.
+/// Copied rather than shared for `sea_grain`'s reason (hoisting would edit
+/// stages this row may not move).
+const LAND_ROT: (f64, f64) = (0.8290, 0.5592);
+
+/// The period, in grid cells, of the one warp field [`land_grain`] shares
+/// between its four lattices. A labelled judgement: between the finest
+/// lattice it bends (`bio_jitter`'s 13.7 cells at 2048) and the coarsest
+/// (46.5), so it bends every one of them within a lattice cell or two.
+const LAND_WARP_CELLS: f64 = 24.0;
+
+/// The land colour's three jitter samples `(n_low, n_hi, n_bio)` at grid
+/// position `(x, y)`, for [`land_color`].
+///
+/// **At `land_grain_warp <= 0.0` these are the reference's three
+/// expressions and nothing else** -- `vnoise(x·0.06, y·0.06, 11)`,
+/// `vnoise(x·96/GW, y·96/GW, 23)` and [`bio_jitter`] -- returned from a
+/// dedicated branch, so `js_reference()` cannot drift on a float
+/// reassociation.
+///
+/// Above zero (every shipped look, Ruling CI) each of the four lattices is
+/// sampled in coordinates rotated by [`LAND_ROT`] and displaced by one shared
+/// warp field, `land_grain_warp · 0.5` of **its own** lattice cell at most --
+/// [`sea_grain`]'s treatment with one warp field instead of one per lattice
+/// (two `vnoise` calls per pixel instead of eight). Frequencies, seeds and
+/// the `0.6`/`0.4` octave mix are the reference's, so each sample keeps its
+/// amplitude and scale and loses only its square, axis-aligned cells.
+///
+/// Must never be read by anything but [`land_color`]: the jitter's whole
+/// meaning is the colour it moves.
+pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> (f64, f64, f64) {
+    if a.land_grain_warp <= 0.0 {
+        return (vnoise(x * 0.06, y * 0.06, 11), vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23), bio_jitter(x, y, gw));
+    }
+    let g = gw as f64;
+    let (rx, ry) = (x * LAND_ROT.0 + y * LAND_ROT.1, -x * LAND_ROT.1 + y * LAND_ROT.0);
+    // Seeds 45/47: unused by any other land stage (`grep vnoise` in this
+    // file); 41/43 are the sea warp's.
+    let k = a.land_grain_warp * 0.5;
+    let wu = (vnoise(rx / LAND_WARP_CELLS, ry / LAND_WARP_CELLS, 45) - 0.5) * k;
+    let wv = (vnoise(ry / LAND_WARP_CELLS, rx / LAND_WARP_CELLS, 47) - 0.5) * k;
+    // Each lattice at its own frequency `f` (cycles per cell), displaced by
+    // the shared warp in units of its own cell.
+    let at = |f: f64, seed: i32| vnoise(rx * f + wu, ry * f + wv, seed);
+    let n_low = at(0.06, 11);
+    let n_hi = at(96.0 / g, 23);
+    let n_bio = 0.6 * at(44.0 / g, 31) + 0.4 * at(150.0 / g, 33);
+    (n_low, n_hi, n_bio)
+}
+
+/// [`land_color`]'s per-raster input to the forest canopy texture
+/// ([`TerrainAppearance::canopy_texture`]), resolved once per raster or tile
+/// by [`RenderCtx::canopy_scale`]. Its existence is the stage's gate: no
+/// value, no texture.
+#[derive(Clone, Copy, Debug)]
+pub struct CanopyScale {
+    /// [`TerrainAppearance::canopy_texture`], `> 0`.
+    pub strength: f64,
+    /// Kilometres per grid cell (the map width over the grid width).
+    pub km_per_cell: f64,
+    /// Kilometres between neighbouring **output** pixels: the screen raster's
+    /// one cell, an export's step, a tile texel. Decides how many octaves can
+    /// be drawn without aliasing.
+    pub px_km: f64,
+    /// The sun's direction in grid axes (`x` right, `y` down), the relief
+    /// rig's own `(sin az, -cos az)` convention: crowns are lit on this side.
+    pub light: (f64, f64),
+}
+
+/// The coarsest canopy octave's wavelength, in km. A labelled judgement from
+/// the target image (`design/vision-render-2026-10-17/target_map_render.webp`):
+/// its forest reads as clumps 2-4 px across on an 803 px map, about 2-4 km if
+/// that map is the app's default 800 km wide (its real scale is unknown) --
+/// so the texture starts at stand scale and refines from there.
+pub(crate) const CANOPY_BASE_KM: f64 = 4.0;
+/// The finest octave's wavelength floor, in km: 8 m, about one tree crown
+/// (broadleaf crowns are typically 5-15 m across; a labelled judgement, no
+/// source cited). Below this there is nothing a canopy texture should invent.
+pub(crate) const CANOPY_MIN_KM: f64 = 0.008;
+/// Amplitude ratio between neighbouring octaves (finer over coarser). A
+/// labelled judgement, tuned on the 2026-10-18 ladders: at 0.85 the shell's
+/// x16 and x64 forest crops gained almost nothing over HEAD (mean gradient
+/// 4.17 -> 4.34 and 2.22 -> 2.31 on 71077345), the "detail stops arriving"
+/// failure the owner's requirement forbids; at 1.0 the deep crops stayed soft;
+/// at 1.25 the harness's forest crop gradient rises x4 -> x16 -> x64
+/// (4.54 -> 5.44 -> 6.48), i.e. crown-scale texture strengthens as it comes
+/// into view, as a real canopy's does. The total is clamped in
+/// [`apply_canopy`], so the growing sum cannot run away.
+pub(crate) const CANOPY_GAIN: f64 = 1.25;
+/// An octave is drawn only once its wavelength spans this many output pixels,
+/// fading in over one octave (`smoothstep(n·px, 2n·px, λ)`): the zoom-detail
+/// law's own Nyquist rule (`cartalith_terrain::amplify`'s `nyquist_margin`
+/// idea), so nothing finer than the raster can resolve is drawn to alias.
+pub(crate) const CANOPY_NYQ_PX: f64 = 2.5;
+/// The per-octave lattice rotations, as `(cos, sin)`: 22.5, 67.5, 112.5 and
+/// 157.5 degrees, each as far as possible from every multiple of 45 so no
+/// octave's value-noise cells line up with the grid or the diagonals -- the
+/// square-mottle lesson ([`land_grain`]) applied from the start.
+const CANOPY_ROT: [(f64, f64); 4] = [(0.923_879_5, 0.382_683_4), (0.382_683_4, 0.923_879_5), (-0.382_683_4, 0.923_879_5), (-0.923_879_5, 0.382_683_4)];
+/// Divides the octave sum so the texture's spread at one pixel per cell is
+/// about one half (0.56 measured at the shipped gain). Measured, not derived: `tests/canopy_and_mottle.rs`'
+/// `canopy_relief_has_unit_scale_spread` prints the standard deviation of the
+/// unnormalised sum over a 512 x 512 patch of a 0.39 km-per-cell map (the
+/// app's default 800 km / 2048) and pins the normalised one to `0.30..0.60`.
+const CANOPY_NORM: f64 = 0.94;
+/// The mean of the billow height `|2n - 1|` over value noise, subtracted so
+/// the texture is zero-mean. Measured, not derived (value noise's smoothstep
+/// interpolation piles its values toward the middle, so the mean is well
+/// under the uniform distribution's 0.5): `canopy_relief_has_unit_scale_spread`
+/// asserts the result's mean is within 0.08 of zero.
+const CANOPY_BILLOW_MEAN: f64 = 0.357;
+/// The colour modulation at full strength, per unit of shaped relief. A
+/// labelled judgement, tuned on the 2026-10-18 shell frames: 0.30 was barely
+/// visible at any zoom; 0.55 brings the fit-view forest crop's pixel detail
+/// (`hf`) to 13.9 on 71077345 against an estimated 11.9-14.3 in the target's
+/// forest (`docs/evidence/canopy-mottle-2026-10-18/`).
+const CANOPY_K: f64 = 0.55;
+
+/// The forest canopy's relief at grid position `(x, y)`: a signed value about
+/// zero (light crown tops positive, shadowed gaps negative) for
+/// [`apply_canopy`].
+///
+/// Octaves on a **kilometre** lattice from [`CANOPY_BASE_KM`] halving down to
+/// [`CANOPY_MIN_KM`], each faded in by the output pixel's footprint
+/// (`cs.px_km`, [`CANOPY_NYQ_PX`]) -- so a raster draws every octave it can
+/// resolve and no finer, the export and the tiles draw the screen's octaves
+/// plus their own finer ones at their own footprint, and the texture keeps
+/// arriving as the view zooms in. Each octave is value noise on its own
+/// rotated lattice ([`CANOPY_ROT`]), domain-warped by the octave above it
+/// (free: that sample is already taken), and contributes both its height and
+/// its slope toward the sun (`n(p) - n(p + 0.35λ·L)`), which is what makes a
+/// clump read as a lit crown with a shadowed side rather than a flat dot.
+///
+/// Must never read world data: the canopy *fraction* gates it in
+/// [`apply_canopy`]; this is texture only.
+pub(crate) fn canopy_relief(x: f64, y: f64, cs: CanopyScale) -> f64 {
+    let (px, py) = (x * cs.km_per_cell, y * cs.km_per_cell);
+    let lo = CANOPY_NYQ_PX * cs.px_km;
+    let (mut lam, mut amp, mut sum, mut warp) = (CANOPY_BASE_KM, 1.0, 0.0, (0.0, 0.0));
+    let mut k = 0usize;
+    while lam >= CANOPY_MIN_KM {
+        let vis = smoothstep(lo, 2.0 * lo, lam);
+        if vis <= 0.0 {
+            // Every finer octave is finer still: none can be visible.
+            break;
+        }
+        let (c, s) = CANOPY_ROT[k % CANOPY_ROT.len()];
+        let f = 1.0 / lam;
+        let (u, v) = ((px * c + py * s) * f + warp.0, (-px * s + py * c) * f + warp.1);
+        // The sun offset in this octave's lattice units (0.35 of a cell).
+        let (lu, lv) = ((cs.light.0 * c + cs.light.1 * s) * 0.35, (-cs.light.0 * s + cs.light.1 * c) * 0.35);
+        // Seeds 301.. step by 2: unused by any other stage in this file.
+        let seed = 301 + 2 * k as i32;
+        let n = vnoise(u, v, seed);
+        let nl = vnoise(u + lu, v + lv, seed);
+        // "Billow" height `|2n - 1|`: rounded crowns meeting in sharp
+        // V-shaped gaps where the noise crosses its middle -- a canopy seen
+        // from above, rather than value noise's soft symmetric hills.
+        let (b, bl) = ((2.0 * n - 1.0).abs(), (2.0 * nl - 1.0).abs());
+        sum += amp * vis * (0.5 * (b - CANOPY_BILLOW_MEAN) + 1.2 * (b - bl));
+        warp = ((n - 0.5) * 0.8, (nl - 0.5) * 0.8);
+        amp *= CANOPY_GAIN;
+        lam *= 0.5;
+        k += 1;
+    }
+    sum / CANOPY_NORM
+}
+
+/// Blend [`canopy_relief`] into the forest material colour `c`: pushed toward
+/// its extremes (`|d|^0.8`) so it clumps into crowns rather than reading as a
+/// soft wobble, and applied as a hue-shifted multiply: crowns lift toward
+/// yellow-green, gaps sink toward blue-green (red moves most, blue least --
+/// the stipple's own channel ordering). Zero-mean, like the stipple, so a
+/// forest gains texture without the whole stand going darker. [`land_color`]
+/// applies it to `forest_col` before the material blend, so it reaches a
+/// pixel only by the forest's own weight and no biome border is hard.
+///
+/// Must never lift a channel below zero: the relief is clamped to `±1.5`, so
+/// the deepest multiply is `1 - 0.30·1.5^0.8·1.10 ≈ 0.54` at full strength.
+pub(crate) fn apply_canopy(c: Rgb, cs: CanopyScale, x: f64, y: f64) -> Rgb {
+    let d = canopy_relief(x, y, cs).clamp(-1.5, 1.5);
+    let d = d.signum() * d.abs().powf(0.8);
+    let s = clamp01(cs.strength) * CANOPY_K * d;
+    (c.0 * (1.0 + s * 1.10), c.1 * (1.0 + s * 0.95), c.2 * (1.0 + s * 0.80))
+}
+
 /// `bioJitter` (7715-7719) at `state.viz.sharpBiomes`'s default (`true`).
 fn bio_jitter(x: f64, y: f64, gw: usize) -> f64 {
     let (xf, yf) = (x, y);
@@ -6153,16 +6420,14 @@ pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
     // why that identity has to be a branch and not a formula.
     let stack_default = appearance.layers.is_default();
 
-    let n_low = vnoise(x * 0.06, y * 0.06, 11);
-    let n_hi = vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23);
-    let n_bio = bio_jitter(x, y, gw);
+    let (n_low, n_hi, n_bio) = land_grain(appearance, x, y, gw);
 
     // B4's ecotone widener (`eK`, reference 7763-7765). `1.0` is the
     // reference's own "off" and the value every caller passed before the
@@ -6266,7 +6531,18 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         c.0 += 20.0 * understory;
         c.1 += 43.0 * understory;
         c.2 += 25.0 * understory;
-        add(&mut c, forest_col(appearance, te, w.meff, tt), w.canopy - understory);
+        // Ruling CI's forest canopy (2026-10-18): a texture of the forest
+        // MATERIAL, so it reaches the pixel only by the forest's own weight
+        // and every later stage (beach rim, slope rock, crest, the light)
+        // covers or lights it as it does the plain material. `None` (every
+        // look but Satellite relief, `js_reference()`, a context without a
+        // map width) is the plain material by control flow.
+        let fc = forest_col(appearance, te, w.meff, tt);
+        let fc = match canopy {
+            Some(cs) => apply_canopy(fc, cs, x, y),
+            None => fc,
+        };
+        add(&mut c, fc, w.canopy - understory);
     }
 
     add(&mut c, grass_col(appearance, te, me, r, tt), w.grass);
@@ -6588,6 +6864,13 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // for constant; skipped at `0.0`.
     if appearance.tex_strength > 0.0 {
         let (fx, fy) = (x / gw as f64, y / gw as f64);
+        // Ruling CI's square-mottle fix rotates this stack's lattice too
+        // (its finest octave is an 8-cell axis-aligned grid at 2048, seen in
+        // the 2026-10-18 ablation once the four jitter lattices were off).
+        // Rotation only: six fbm octaves already break the period, and a
+        // warp would add twelve `vnoise` calls per pixel. `0.0` keeps the
+        // reference's coordinates by the branch.
+        let (fx, fy) = if appearance.land_grain_warp > 0.0 { (fx * LAND_ROT.0 + fy * LAND_ROT.1, -fx * LAND_ROT.1 + fy * LAND_ROT.0) } else { (fx, fy) };
         let tt2 = 0.5 * fbm(fx * 16.0, fy * 16.0, 71) + 0.3 * fbm(fx * 64.0, fy * 64.0, 73) + 0.2 * fbm(fx * 256.0, fy * 256.0, 77);
         let m = 1.0 + 0.2 * appearance.tex_strength * (tt2 - 0.5);
         c.0 *= m;
@@ -8873,7 +9156,9 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             river,
             // Ruling CI's Satellite relief slope stages: the real-slope factor,
             // `None` (stages off) without a map width and peak altitude.
-            ctx.slope_rise_k());
+            ctx.slope_rise_k(),
+            // Ruling CI's canopy texture at one pixel per cell.
+            ctx.canopy_scale(1.0));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -9388,6 +9673,10 @@ impl BakeFields {
                 river,
                 // Ruling CI's Satellite relief slope stages, as `cell_color`.
                 ctx.slope_rise_k(),
+                // Ruling CI's canopy texture at this export's own footprint
+                // (the coarser axis, so no octave finer than either axis can
+                // resolve is drawn).
+                ctx.canopy_scale(step.0.max(step.1)),
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -11399,6 +11688,25 @@ pub fn tile_amplify_opts(ctx: &RenderCtx, seed: i32, z_base: i32) -> cartalith_t
     cartalith_terrain::amplify::AmplifyOpts { seed, sea: ctx.sea_level, z_base, km, ..cartalith_terrain::amplify::AmplifyOpts::default() }
 }
 
+/// The grid-scale slope at a fractional grid position: the central difference
+/// over one cell either side of `(gx, gy)` of the **coarse** field, sampled
+/// bilinearly ([`sample_arr`]) and clamped at the edges -- at an integer
+/// position exactly [`RenderCtx::slope_at`]'s non-wrapping value, so a tile at
+/// one pixel per cell and the screen agree. For the deep-zoom tiles'
+/// materials under the kilometre law (see its call site); must never feed the
+/// light, which is what the tile's own finer slope is for.
+pub(crate) fn coarse_slope_f(ctx: &RenderCtx, gx: f64, gy: f64) -> f64 {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let (mx, my) = ((gw - 1) as f64, (gh - 1) as f64);
+    let h = |x: f64, y: f64| sample_arr(ctx.field, x.clamp(0.0, mx), y.clamp(0.0, my), gw, gh);
+    let (xl, xr) = ((gx - 1.0).max(0.0), (gx + 1.0).min(mx));
+    let (yu, yd) = ((gy - 1.0).max(0.0), (gy + 1.0).min(my));
+    // Divide by the span actually used, as `slope_at` does with its
+    // edge-clamped neighbours (there the span shrinks to one cell and the
+    // reference still halves; matching that at the edge is deliberate).
+    ((h(xr, gy) - h(xl, gy)) * 0.5).hypot((h(gx, yd) - h(gx, yu)) * 0.5)
+}
+
 /// Ruling CI's kilometre law for a world `gw` cells wide over `map_width_km`,
 /// at `strength` ([`TerrainAppearance::zoom_detail_km`]) -- or `None`, the
 /// reference schedule, when the strength is not above zero or the width is
@@ -11832,6 +12140,13 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
 
     // Ruling CI's real-slope factor, once per tile (`None` = stages off).
     let slope_k = ctx.slope_rise_k();
+    // Ruling CI's canopy texture at this tile's texel footprint (`None` =
+    // off), once per tile.
+    let canopy_k = ctx.canopy_scale(cx.max(cy));
+    // Whether this tile's heights carry the kilometre zoom-detail law -- the
+    // same test `tile_amplify_opts` makes -- which decides the slope the
+    // materials read below.
+    let km_tile = zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km).is_some();
     let mut rgb = vec![0u8; w * h * 3];
     // Per-tile grade influence, sampled from the grid's. Built only when the
     // grid's exists, so the flat-grade fast path in `apply_color_grade` is
@@ -11950,10 +12265,32 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                     // thresholds classify rock at a tile exactly as they do on
                     // the map. The reference says so itself at 11748.
                     let slope = cartalith_jsmath::js_hypot((r - l) / (2.0 * cx), (d - u) / (2.0 * cy));
+                    // The slope the MATERIALS read (Ruling CI, 2026-10-18), in
+                    // the canopy-texture look only. Under the kilometre
+                    // zoom-detail law the tile's own slope grows with every
+                    // octave the law adds, so `material_weights` reads
+                    // ever-steeper ground as the view zooms in: on the
+                    // 2026-10-18 harness ladder a forest at x16 went patchy
+                    // and at x64 classified as bare rock (frames in
+                    // `docs/evidence/canopy-mottle-2026-10-18/`), which leaves
+                    // the canopy texture no forest to draw on. There the
+                    // materials read the grid-scale slope ([`coarse_slope_f`])
+                    // while the light keeps the tile's (`sh`, `sh_m` above).
+                    //
+                    // Not in the other looks, deliberately: measured on the
+                    // shell's Natural Vibrant ladder, the same change cut the
+                    // deep crops' per-pixel detail by 10-25 % (the fine-slope
+                    // rock and grass flecks were their only sub-cell texture)
+                    // -- the forest-to-rock drift there is recorded as its own
+                    // finding rather than traded against the owner's
+                    // detail-at-every-zoom requirement. The reference schedule
+                    // (`km_tile` false: `js_reference()`, a context without a
+                    // map width) keeps the tile slope by the branch either way.
+                    let slope_m = if km_tile && canopy_k.is_some() { coarse_slope_f(ctx, wx, wy) } else { slope };
                     let r_frac = (ht - sl) / denom;
                     let flow = ctx.flow.map(|f| sample_arr(f, wx, wy, gw, gh)).unwrap_or(0.0);
                     let acc = (flow / (gw * gh) as f64).max(1e-4);
-                    let beta = slope.max(0.002);
+                    let beta = slope_m.max(0.002);
                     let twi = (acc / beta).ln();
                     let asp = ctx.aspect_factor_f(wx, wy);
                     let curv = ctx.curvature_at_f(wx, wy);
@@ -11967,7 +12304,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         a,
                         t,
                         m,
-                        slope,
+                        slope_m,
                         r_frac,
                         twi,
                         asp,
@@ -12021,6 +12358,9 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // Ruling CI's Satellite relief slope stages, on the
                         // tile's own coarse-unit `slope` above.
                         slope_k,
+                        // Ruling CI's canopy texture at the tile texel's
+                        // footprint, resolved once per tile.
+                        canopy_k,
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and
