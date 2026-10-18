@@ -402,6 +402,8 @@ const _NEAREST_TIP := "The closest settlement to the cursor's cell, computed on 
 var app: DccApp
 ## The engine facade every section reads; its `generating` flag gates rebuilds.
 var bridge: EngineBridge
+## GF-8: the Rock paint target's shared vocabulary (`rock_paint_ui.gd`).
+const RockPaintUI := preload("res://shell/rock_paint_ui.gd")
 
 ## Which `CTX_*` the dock is drawing; it follows the selection.
 var _context := CTX_SAMPLE
@@ -5851,6 +5853,11 @@ func _build_paint(body: Control) -> void:
 		DccWidgets.note(DccWidgets.section(body, "Paint"),
 			"No paint editor for this world -- one opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session, same ceiling as Sculpt.")
 		return
+	## GF-8: a Rock layer is not in `get_paint_layers()` (it bakes into the geology
+	## column rather than an override array), so it is accepted here by name.
+	if RockPaintUI.is_rock(_paint_ctx_layer) and bool(bridge.rock_paint_status().get("available", false)):
+		_build_rock_paint(body, _paint_ctx_layer)
+		return
 	var layer: String = _paint_ctx_layer if layers.has(_paint_ctx_layer) else String(layers[0])
 
 	## §1.3's own right-dock title for this tool, `PAINT · BIOME`/`· TERRAIN`/
@@ -5899,6 +5906,56 @@ func _build_paint(body: Control) -> void:
 		"Commit writes every layer's pending dabs into their own override arrays and refreshes the map -- which " +
 		"stages that marks stale depends on the layer (paint_bridge.rs's own reason string per target); the " +
 		"status bar names them once you press it.")
+
+## GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13): the right dock for the **Rock** target --
+## "the painted-cell count, the rock legend with painted counts per class, the
+## re-erosion window's size, and Commit / Discard". The counts are the **draft's**
+## (committed rock is in the column, counted separately as `painted_cells`); the
+## window is the padding before a commit and the last commit's real `W` after one,
+## with its skips and not-re-run list (`RockPaintUI.commit_status`); and the save
+## caveat is always drawn. Same Commit / Discard handlers as the other layers, so the
+## one draft has one pair of buttons everywhere.
+func _build_rock_paint(body: Control, layer: String) -> void:
+	var st := bridge.rock_paint_status()
+	var sec := DccWidgets.section(body, "Paint · Rock · %s" % RockPaintUI.layer_label(st, layer))
+	var counts: Dictionary = bridge.paint_painted_counts()
+	var total := int(counts.get("total", 0))
+	_accent_readout(sec, "Painted in draft", _thousands(float(total)),
+		"Cells this Rock layer's uncommitted draft covers. Committed rock is baked into the geology column.", true)
+	if st.has("painted_cells"):
+		_accent_readout(sec, "Committed rock", _thousands(float(int(st["painted_cells"]))),
+			"Cells of this world's geology column marked painted (GeologyColumn::painted).", false)
+	var pending := bridge.paint_draft_count()
+	DccWidgets.note(sec, "Nothing pending across any layer." if pending == 0 else
+		"%d dab%s pending across every layer -- Commit/Discard below act on all of them at once." % [pending, "" if pending == 1 else "s"])
+	var legend := DccWidgets.group(sec, "Legend · painted counts")
+	if layer == "rock_cap":
+		DccWidgets.note(legend, "%s cells given a cap thickness (10 m classes)." % _thousands(float(total)))
+	else:
+		var by_index: Dictionary = counts.get("counts", {})
+		for pd in bridge.get_paint_palette(layer):
+			var d: Dictionary = pd
+			var idx := int(d.get("index", 0))
+			_paint_legend_row(legend, String(d.get("label", "?")), int(by_index.get(idx, 0)), {}, idx)
+	var ws = app._workspace_panels.get("world") if app != null else null
+	var last: Dictionary = ws.rock_last_commit if ws != null and "rock_last_commit" in ws else {}
+	if last.is_empty():
+		DccWidgets.note(sec, "Re-erosion window: the painted cells' box plus %d cells each side (shown here after a commit)." % int(st.get("pad_cells", 16)))
+	else:
+		var s := RockPaintUI.commit_status({"rock": last})
+		var l := DccWidgets.note(sec, "Last commit: " + String(s[0]))
+		l.tooltip_text = l.text
+	var commit_group := DccWidgets.group(sec, "Commit")
+	var commit_btn := DccWidgets.action(commit_group, "%s Commit" % DccIcons.SYMBOLS["tick"], _on_paint_commit_from_dock, true)
+	commit_btn.disabled = pending == 0
+	var discard_btn := DccWidgets.action(commit_group, "Discard draft", _on_paint_discard_from_dock)
+	discard_btn.disabled = pending == 0
+	if pending == 0:
+		commit_btn.tooltip_text = "Nothing pending. Paint rock on the map to enable this."
+		discard_btn.tooltip_text = commit_btn.tooltip_text
+	var save := DccWidgets.note(sec, "Not saved with the project yet.")
+	save.tooltip_text = String(st.get("save_note", EngineBridge.ROCK_PAINT_SAVE_NOTE_FALLBACK))
+	save.mouse_filter = Control.MOUSE_FILTER_STOP
 
 ## Real per-value colour for the Biome and Terrain palettes, pulled from
 ## `bridge.debug_layers()`'s own "Biomes"/"Terrain" legend rows (`"bclass"`/
@@ -5992,6 +6049,10 @@ func _on_paint_commit_from_dock() -> void:
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	if app != null:
 		app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
+		## GF-8: a commit that carried Rock dabs reports its bake and re-erosion instead.
+		var ws = app._workspace_panels.get("world")
+		if ws != null and ws.has_method("note_paint_commit"):
+			ws.note_paint_commit(summary)
 	show_paint(_paint_ctx_layer, _paint_on_pick)
 
 ## Dock Paint `Discard`: `bridge.paint_discard()` and re-installs the paint preview texture

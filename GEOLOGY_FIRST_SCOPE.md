@@ -5008,6 +5008,105 @@ killed**.
 each): the change against `531a2477`, built in the same worktree, **18 of 18
 lines identical**.
 
+### GF-8 measured: the shell half (2026-10-18)
+
+*Design and evidence, not status.* `rock_paint::commit` now has its one app
+caller, `WorldGen::paint_commit_rock` (`cartalith-godot/src/lib.rs`), reached
+from the one paint Commit.
+
+What this slice adds:
+- **Three Rock layers in `PaintEditor`** (`paint_bridge::PaintTarget::RockTop`
+  / `RockSub` / `RockCap`, keys `rock_top` / `rock_sub` / `rock_cap`). They are
+  drafts only: `take_rock_commit` commits them into whole-world byte grids for
+  the bake, so there is no committed Rock layer to render or save.
+  `PaintTarget::ALL` stays the three override layers, so `get_paint_layers`,
+  `drafts/paint.json` and the renderer did not move. `pending_stamps` and
+  `discard_all` include the Rock drafts (one Commit / Discard). Values:
+  `rock_sub` keeps 255 = none; `rock_cap` takes 1..255. **Erase is stored
+  `false` on a Rock layer** in `set_brush`, which both the Erase latch and the
+  Shift modifier pass through.
+- **The gate** `WorldGen::rock_paint_gate`, read by `rock_paint_status`,
+  `paint_set_layer` and the commit. It refuses when there is no generated world,
+  no column, `geology_processes` off, `carve_rivers` off, or a finalized world.
+  **App worlds have the processes off, so the Rock target is disabled by
+  default**, with the engine's sentence as its reason. The column exists on app
+  worlds (`geology_available()` is true), but erosion would not respond to it.
+- **The commit's Rock branch.** Gate → undo step with the column
+  (`push_with_column`), redo tail cleared, one `HeightSnapshot` ledger row
+  (`"geology"`, *"Rock paint commit"*) → `rock_paint::commit` with `P` =
+  `REERODE_PAD_CELLS` → `Civ` marked over the painted tiles and `Height` over
+  `W`'s tiles, then one recompute. A refused gate keeps the Rock drafts. A
+  refused bake pops the step it pushed.
+- **Bindings:** `rock_paint_status` (`available`, `reason` only when
+  unavailable, `layers`, `cap_class_m`, `cap_max_m`, `sub_none`, `pad_cells`,
+  `painted_cells` only when a mask exists, `save_note`), `geology_available`,
+  `get_rock_classes` (the `ROCK_PROPS` rows), `get_paint_palette("rock_*")`
+  (each rock's label carries `s` and `κ`; entries also carry `s`, `kappa`,
+  `theta_c`, `selby`), and `geology_digest`, a probe-only diagnostic. The shell
+  reaches the new ones through `has_method` + `call`, so an older DLL does not
+  break parsing.
+- **Shell** (`rock_paint_ui.gd`, the shared wording, plus four surfaces). The
+  tool bar (desktop and tablet) gains a Rock segment and a `PAINT · ROCK` options
+  row. The WORLD dock's Target field gains a Rock item with Rock controls. The
+  right dock gains a Rock context. The phone Paint column gains a Rock chip, layer
+  chips, a thickness slider and notes. Every Rock surface does three things: it
+  draws the Rock target **disabled with the engine's reason** when it is
+  unavailable; it disables Erase with §4.13's reason; and it says **"not saved
+  with the project yet"**, because the column is not in the save format.
+  `_authored_inventory()` lists painted rock, and the regenerate prompt adds the
+  save caveat when painted rock is at stake. The status line (a note on a phone)
+  reports each commit: the window, the cells moved, the ring step, every skip
+  count and the not-re-run list. `paint_original.gd` gives Rock an honest
+  no-Original reason.
+- **Not built (slice 3):** the save set (§2.6's column rasters,
+  `rock_painted.u8`, `geology.painted`, the three draft layers in
+  `drafts/paint.json`). Until it exists, reopening a project loses the column,
+  and with it the painted rock. The UI says so.
+
+**Decision taken here, labelled.** When a regenerate replaces the engine's
+`PaintEditor`, the engine goes back to Biome but the shell keeps its selection.
+`world_workspace.gd::rock_status()` drops a stale Rock selection back to Biome,
+and `_paint_ensure_rock_layer()` re-selects the Rock layer in the engine before
+each Rock stroke. **The override layers were left exactly as they were**, which
+includes the same pre-existing mismatch after a regenerate (reported, not
+fixed).
+
+**Measured** (`_gf8rock_probe.gd`, windowed, scratch copy, debug DLL built
+from this change; seed 483920, 512 x 328, 800 km). The engine's app world first,
+then the same seed with `geology_processes` set on; a radius-6 shale disc at
+(256, 192), with Land only off:
+- Leg A (app world): the Rock target is drawn disabled with the
+  processes-off reason, and the save caveat is on it; the engine and the shell
+  both refuse the layer. Field and column digests are unchanged.
+- Leg B: `W` = (234, 170, 45 x 45), which is the predicted disc box + 16.
+  113 cells were baked; 2 025 cells moved (all of `W`); the ring step was 0.020 %
+  of relief. The commit took 29.7–34.4 ms in the debug build (one run per form,
+  not a benchmark). Field and column digests outside `W` were unchanged; inside,
+  both moved (the positive control). The painted mask went from absent to present.
+  **Undo restored both, byte for byte, and Redo reapplied both.**
+- Desktop 1600 x 900: 35 of 35. Phone 393 x 852 `--force-touch`: 35 of 35.
+  Tablet `--force-touch`: 35 of 35, at **1600 x 1031** (the window was clamped to
+  the screen, not 1600 x 2560).
+- **Tests:** 6 in `paint_bridge::tests` (literal values, Erase refused, the
+  draft routing, the "none" slot, the swatch literals) and 1 end-to-end in
+  `lib.rs` (`rock_paint_commit_tests`: a generated processes-on world, field
+  and column outside `W` untouched, undo and redo exact). 7 mutants were run; 7
+  were killed (Discard skipping the cap draft first survived, and the test now
+  discards one dab per Rock layer). `gf5_identity_hashes`: 6 of 6 lines
+  identical to `55fa1607`.
+
+**Found on the way: a shell defect, fixed.** `paint_original.gd::decorate`
+read the options row as "the column's last child". ET-D5 (`e05a5445`) appended
+the brush row, which is an `HFlowContainer`, so the cast was `null` and the
+**Original slider had not been drawn on the Paint bar since then**. That was
+`_paintorig_probe.gd`'s long-failing check. The fix reads the last
+`HBoxContainer`. Desktop `_paintorig` now passes 0 failures. On a phone the probe
+now reaches a later check, *"returning to 0 restores the original pixels
+exactly"*, which fails. Its frames show deep-zoom LOD tile detail arriving
+between the two captures (the land is blocky in the first frame and detailed in
+the second). That is a probe timing issue the old failure hid. It is reported and
+not fixed.
+
 ## 8. Constraints any lane on this scope must carry
 
 These are from `MISTAKES.md`'s preflight table, matched to this work:

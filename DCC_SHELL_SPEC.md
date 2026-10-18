@@ -484,9 +484,26 @@ All three are lazily-allocated `u8` grids where **0 means unpainted** and the
 render falls through to the procedural pipeline; any other value is a 1-based
 palette index. They differ only in which palette the value indexes, which is why
 one `PaintStamp` serves all three and the caller owns which array it writes.
-Soil and lithology are *computed* fields with no override array behind them, so
-offering them would be inventing a feature rather than surfacing one. **The
-target selector lists exactly those three.**
+Soil is a *computed* field with no override array behind it, so offering it
+would be inventing a feature rather than surfacing one. Lithology was in the same
+position until owner Ruling BJ made it a feature (`GEOLOGY_FIRST_SCOPE.md`
+§4.13, GF-8): **the target selector lists those three and a fourth, Rock**,
+which is not an override array but a paint baked into the geology column.
+
+| Target | Layers | What a Commit does |
+|---|---|---|
+| Rock (GF-8) | Surface (`rock_top`, the 11 rocks, each shown with its strength `s` and erodibility `κ`) · Beneath (`rock_sub`, the 11 rocks or *none — single layer*) · Cap thickness (`rock_cap`, 10 m classes, 10–2 550 m) | Bakes the rock into the column, re-erodes the painted cells' box plus 16 cells each side with the generation's own erosion (the difference of two runs, so earlier edits are kept), and pushes one undo step holding the field **and** the column |
+
+The Rock row of the tool options reads `PAINT · ROCK` · layer · rock (or
+thickness in m) · size · land only · ✓ Commit; the right dock shows the draft's
+painted count and per-rock legend, the re-erosion window, the last commit's
+report (skipped cells and the stages it does not re-run) and Commit / Discard.
+**Erase (⇧) is disabled for Rock**, with the reason on the control: a committed
+rock is reverted with Undo; the column has no unpainted state to fall back to.
+The Rock target is **drawn disabled, with the engine's reason**, on any world
+whose erosion does not read rock (geology processes off — the app's default) or
+that has no geology column. Painted rock is **not saved with the project yet**
+(the geology save set is GF-8's next slice), and every Rock surface says so.
 
 ### 4.5.3 CIVIL tools
 

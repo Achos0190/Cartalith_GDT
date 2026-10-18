@@ -79,6 +79,8 @@ var app: DccApp
 ## The engine bridge (world presence, generation state). Set by `install()`; the
 ## bar reads `has_world` to disable Sculpt and Paint.
 var bridge: EngineBridge
+## GF-8: the Rock paint target's shared vocabulary (`rock_paint_ui.gd`).
+const RockPaintUI := preload("res://shell/rock_paint_ui.gd")
 
 ## Which of the three the bar is drawing. Follows `app.armed_tool` when that
 ## is one of the three, and otherwise stays on whatever it last showed so the
@@ -476,11 +478,23 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 	if layers.is_empty():
 		_note(row, "no paint editor for this world", "A world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session -- the same ceiling Sculpt has.")
 		return
+	## GF-8: read first, because it drops a stale Rock selection back to Biome.
+	var rock_st := _rock_status()
 	var current := String(_paint_state().get("layer", "biome"))
 	for l in layers:
 		var key := String(l)
 		_tool_segment(row, key.capitalize(), key == current,
 			"Paint into the %s override layer." % key, _on_paint_layer.bind(key))
+	## §4.13: the fourth target, **Rock**, after the three override layers. Always
+	## drawn so it can be found; disabled with the engine's reason (and the save
+	## caveat) when this world cannot take it -- the app's default, since erosion does
+	## not read rock with the geology processes off.
+	var rock_on := RockPaintUI.is_rock(current)
+	var rock_ok := bool(rock_st.get("available", false))
+	var rock_seg := _tool_segment(row, "Rock", rock_on,
+		RockPaintUI.enabled_tip(rock_st) if rock_ok else bridge.rock_paint_unavailable_reason(rock_st),
+		_on_paint_rock)
+	rock_seg.disabled = not rock_ok
 	var st := _paint_state()
 	var erase := DccWidgets.segment(row, "Erase", func():
 		if _busy("Erase"):
@@ -490,9 +504,17 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 		rebuild())
 	erase.custom_minimum_size.y = 22
 	erase.tooltip_text = "Every dab writes 0 (unpainted) regardless of the class. Holding ⇧ while painting does the same without latching this."
-	DccWidgets.set_segment_on(erase, bool(st.get("erase", false)))
+	DccWidgets.set_segment_on(erase, bool(st.get("erase", false)) and not rock_on)
+	if rock_on:
+		## §4.13: "Erase (⇧) is disabled for the Rock target", with the reason on the
+		## control. The latch keeps its value for the other layers.
+		erase.disabled = true
+		erase.tooltip_text = RockPaintUI.ERASE_DISABLED
+		_note(row, "rock paint re-erodes the painted window -- " + RockPaintUI.SAVE_SHORT,
+			RockPaintUI.enabled_tip(rock_st))
+		return
 	_note(row, "painting a classification never changes elevation",
-		"The canvas's Water and Lithology are not paintable layers -- neither has an override array for a dab to write into -- and Mask has no engine channel. These three are `PaintTarget`'s own list, read live.")
+		"The canvas's Water is not a paintable layer -- it has no override array for a dab to write into -- and Mask has no engine channel. These three are `PaintTarget`'s own list, read live; Rock (GF-8) bakes into the geology column instead, and is drawn beside them.")
 
 ## The bar's own copy of the brush, mirrored for the same reason
 ## `world_workspace.gd` mirrors it: `paint_set_brush` applies and echoes back,
@@ -532,6 +554,28 @@ func _sync_paint() -> void:
 		float(st.get("hardness", 1.0)), float(st.get("softness", 0.0)),
 		bool(st.get("erase", false)), bool(st.get("land_only", true)))
 
+## GF-8: the Rock status through the WORLD workspace's `rock_status()` (which also
+## puts a stale Rock selection back on Biome), or straight from the bridge when the
+## workspace is absent. `{}` on a pre-GF-8 binary or while generating.
+func _rock_status() -> Dictionary:
+	var ws = _world_workspace()
+	if ws != null and ws.has_method("rock_status"):
+		return ws.rock_status()
+	return bridge.rock_paint_status()
+
+## The Rock segment: selects the last Rock layer used through the WORLD workspace's
+## `select_paint_layer` (the one writer of a Rock selection, which asks the engine and
+## refuses with the reason), arms Paint and redraws. Skipped while generating.
+func _on_paint_rock() -> void:
+	if _busy("changing the paint layer"):
+		return
+	var ws = _world_workspace()
+	if ws == null or not ws.has_method("select_paint_layer"):
+		return
+	if ws.select_paint_layer(String(ws._rock_layer_last)):
+		app.arm_tool("paint")
+	rebuild()
+
 ## Layer segment handler: records the layer, resets the class value to 1, selects the layer in the engine, syncs the brush, arms Paint and redraws. Skipped while generating (`_busy`).
 func _on_paint_layer(key: String) -> void:
 	if _busy("changing the paint layer"):
@@ -549,6 +593,9 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		return
 	var st := _paint_state()
 	var layer := String(st.get("layer", "biome"))
+	if RockPaintUI.is_rock(layer):
+		_build_rock_options(row, st, layer)
+		return
 	var palette := bridge.get_paint_palette(layer)
 	if palette.is_empty():
 		return
@@ -616,6 +663,87 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		commit.tooltip_text = why
 		discard.tooltip_text = why
 
+## GF-8: the Paint options row for the **Rock** target, in §4.13's grammar:
+## `PAINT · ROCK` · layer (Surface / Beneath / Cap thickness) · the rock picker, each
+## entry carrying its strength `s` and erodibility `κ` (Beneath adds "none -- single
+## layer"), or the thickness in metres on Cap thickness · Size · Land only · the
+## draft's painted count · Commit / Discard · the save caveat. Hardness and Softness
+## stay in the WORLD dock, as for the other layers (owner ruling 2026-08-31). Every
+## write goes through the WORLD workspace's own handlers and state, as `_paint_state`
+## documents; nothing is stored here.
+func _build_rock_options(row: HBoxContainer, st: Dictionary, layer: String) -> void:
+	var rst := _rock_status()
+	if not bool(rst.get("available", false)):
+		return
+	var ws = _world_workspace()
+	row.add_child(DccTheme.mono_label("PAINT · ROCK", "accent", DccTheme.FS_SMALL, 2, true))
+	var keys := RockPaintUI.layer_keys(rst)
+	var labels: Array = []
+	var sel := 0
+	for i in keys.size():
+		labels.append(RockPaintUI.layer_label(rst, keys[i]))
+		if keys[i] == layer:
+			sel = i
+	_narrow(DccWidgets.choice(row, "Layer", labels, sel, func(i: int):
+		if _busy("changing the rock layer"):
+			return
+		if ws != null and ws.select_paint_layer(String(keys[i])):
+			app.arm_tool("paint")
+		rebuild()))
+	if layer == "rock_cap":
+		_fit(DccWidgets.slider(row, "Thickness", RockPaintUI.cap_class_m(rst), float(rst.get("cap_max_m", 2550.0)),
+			RockPaintUI.cap_class_m(rst), RockPaintUI.cap_metres(rst, int(st.get("value", 1))), " m", func(v: float):
+				if _busy("changing the cap thickness"):
+					return
+				_write_paint_state("value", RockPaintUI.cap_value(rst, v))
+				_sync_paint(),
+			"The surface rock's thickness above the rock beneath, 10 m classes. A cell with no rock beneath is skipped and counted."))
+	else:
+		var palette := bridge.get_paint_palette(layer)
+		var options: Array = []
+		var selected := 0
+		for i in palette.size():
+			var pd: Dictionary = palette[i]
+			options.append(String(pd.get("label", "?")))
+			if int(pd.get("index", -1)) == int(st.get("value", 1)):
+				selected = i
+		var ob := DccWidgets.choice(row, "Rock", options, selected, func(i: int):
+			if _busy("changing the rock"):
+				return
+			var pd: Dictionary = palette[i]
+			_write_paint_state("value", int(pd.get("index", 1)))
+			_sync_paint(),
+			"s = strength (0-1), κ = stream-power erodibility, from the engine's rock table. Lower s and higher κ wear down faster.")
+		## The picker's labels carry `s` and `κ`, which makes them longer than a biome
+		## name: the button must not size itself to the longest one, or it widens the
+		## whole bar (`_note`'s own reason for clipping).
+		ob.fit_to_longest_item = false
+		ob.clip_text = true
+		ob.custom_minimum_size.x = 170
+		_narrow(ob)
+	_fit(DccWidgets.slider(row, "Size", 1.0, 40.0, 1.0, float(st.get("radius", 6.0)), " c", func(v: float):
+		if _busy("changing the brush size"):
+			return
+		_write_paint_state("radius", v)
+		_sync_paint()))
+	_narrow(DccWidgets.toggle(row, "Land only", bool(st.get("land_only", true)), func(v: bool):
+		if _busy("changing Land only"):
+			return
+		_write_paint_state("land_only", v)
+		_sync_paint()))
+	row.add_child(DccTheme.spacer())
+	var total := int(bridge.paint_painted_counts().get("total", 0))
+	row.add_child(DccTheme.mono_label("%d in draft" % total, "text_dim", DccTheme.FS_SMALL))
+	var pending := bridge.paint_draft_count()
+	var commit := DccWidgets.chip(row, "Commit", _on_paint_commit, true)
+	commit.disabled = pending == 0
+	commit.tooltip_text = ("Bake the rock and re-erode the painted box plus %d cells each side. Undo reverts both. %s" % [
+		int(rst.get("pad_cells", 16)), String(rst.get("save_note", ""))]) if pending > 0 else "Nothing pending. Paint rock on the map to enable this."
+	var discard := DccWidgets.chip(row, "Discard", _on_paint_discard)
+	discard.disabled = pending == 0
+	if pending == 0:
+		discard.tooltip_text = commit.tooltip_text
+
 ## Commit button on the Paint row: commits the paint draft, re-fetches the colour texture (the engine composites committed layers into it), invalidates LOD tiles, clears the draft overlay, reports any stale stages in the status line and redraws all three surfaces over the one draft (this bar, the WORLD dock's paint panel and the right dock's paint context). Skipped while generating (`_busy`).
 func _on_paint_commit() -> void:
 	if _busy("Commit paint"):
@@ -634,6 +762,10 @@ func _on_paint_commit() -> void:
 	app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
+	## GF-8: a commit that carried Rock dabs reports its bake and re-erosion instead.
+	var wsn = _world_workspace()
+	if wsn != null and wsn.has_method("note_paint_commit"):
+		wsn.note_paint_commit(summary)
 	rebuild()
 	## **All three surfaces over the one draft**, matching `_on_paint_discard`
 	## below exactly: this bar (`rebuild()` above), the WORLD dock's Biome paint

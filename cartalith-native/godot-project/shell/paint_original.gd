@@ -109,6 +109,12 @@ func _showing() -> bool:
 func unavailable_reason(layer: String) -> String:
 	if layer == "":
 		return "no paint layer"
+	## GF-8: a Rock layer has a generated original (the geology column), but no debug
+	## view draws it -- `lith` is the seven legacy classes, not the eleven-rock column --
+	## so there is nothing to show under the paint. Said rather than "no generated
+	## raster", which would be false for rock.
+	if layer.begins_with("rock_"):
+		return "no view draws the generated rock column yet (the Lithology view shows the 7 legacy classes)"
 	var view := String(ORIGINAL_VIEW.get(layer, ""))
 	if view == "":
 		return "%s has no generated raster" % layer.capitalize()
@@ -188,7 +194,16 @@ func decorate(row: HBoxContainer, build: Callable) -> void:
 	if col == null or col.get_child_count() == 0:
 		return
 	var tools := col.get_child(0) as HBoxContainer
-	var options := col.get_child(col.get_child_count() - 1) as HBoxContainer
+	## The options row is the LAST `HBoxContainer` of the column, not its last child:
+	## ET-D5 (`e05a5445`) appended a third, brush row that is an `HFlowContainer`, and
+	## reading "the last child" cast that to `null`, so this returned early and the
+	## Original slider vanished from the bar (found 2026-10-18 at the symbol, from
+	## `_paintorig_probe.gd`'s long-failing "drawn on the Paint bar" check).
+	var options: HBoxContainer = null
+	for i in range(col.get_child_count() - 1, 0, -1):
+		if col.get_child(i) is HBoxContainer:
+			options = col.get_child(i)
+			break
 	## `_build_paint_options` returns early with an empty row when there is no
 	## world or no palette; there is nothing to compare against then.
 	if tools == null or options == null or options.get_child_count() == 0:

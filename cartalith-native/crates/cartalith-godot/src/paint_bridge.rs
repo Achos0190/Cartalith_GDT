@@ -159,29 +159,96 @@ pub enum PaintTarget {
     Terrain,
     /// The ground-texture splat override array (`paintSplat` in the reference).
     Splat,
+    /// GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13, Ruling BJ): the **surface rock**
+    /// a commit bakes into the geology column's `rock_top`. Value = rock index
+    /// + 1 (`1 ..= 11`). Not an override array: see [`PaintTarget::ROCK`].
+    RockTop,
+    /// GF-8: the **rock beneath** (`rock_sub`). Value = rock index + 1, or
+    /// [`cartalith_engine::rock_paint::SUB_NONE`] (255) for "none: single layer".
+    RockSub,
+    /// GF-8: the **cap thickness**, in classes of
+    /// [`cartalith_engine::rock_paint::CAP_CLASS_M`] (10 m): value `k`
+    /// (`1 ..= 255`) is `10·k` m. Sets the column's `contact`.
+    RockCap,
 }
 
 impl PaintTarget {
-    /// Every layer, in declaration order; [`PaintTarget::from_key`] searches this list,
-    /// so a new variant must be added here or it is unreachable by key.
+    /// The three **override-array** layers, in declaration order: what
+    /// `get_paint_layers` lists, what `drafts/paint.json` saves
+    /// (`project_bridge.rs::paint_document_json`) and what the renderer
+    /// composites. The Rock layers are deliberately not in it (see
+    /// [`PaintTarget::ROCK`]), so adding them moved neither the save document
+    /// nor the target list an older shell reads.
     pub const ALL: [PaintTarget; 3] = [PaintTarget::Biome, PaintTarget::Terrain, PaintTarget::Splat];
 
+    /// GF-8's three Rock layers (§4.13: "three new `PaintLayer`s in
+    /// `PaintEditor`"). They are **drafts only**: a commit bakes them into the
+    /// geology column (`cartalith_engine::rock_paint::commit`), as a sculpt
+    /// commit bakes into the heightmap, so there is no committed Rock layer to
+    /// render, save or composite. Their drafts are not saved yet either: the
+    /// whole geology save set is GF-8's third slice (the scope's §7 "GF-8
+    /// measured: the engine half").
+    pub const ROCK: [PaintTarget; 3] = [PaintTarget::RockTop, PaintTarget::RockSub, PaintTarget::RockCap];
+
     /// The key a caller passes to `paint_set_layer` / receives from
-    /// `get_paint_layers`.
+    /// `get_paint_layers` (the three override layers) or
+    /// `rock_paint_status` (the three Rock layers).
     pub fn key(self) -> &'static str {
         match self {
             PaintTarget::Biome => "biome",
             PaintTarget::Terrain => "terrain",
             PaintTarget::Splat => "splat",
+            PaintTarget::RockTop => "rock_top",
+            PaintTarget::RockSub => "rock_sub",
+            PaintTarget::RockCap => "rock_cap",
         }
     }
 
     /// The inverse of [`PaintTarget::key`]: `None` for any string that is not one of
-    /// the three keys, so a stale or mistyped key from the shell is rejected rather
+    /// the six keys, so a stale or mistyped key from the shell is rejected rather
     /// than defaulted (defaulting to Biome would silently paint the wrong layer).
     /// Must never panic: the key arrives from GDScript.
     pub fn from_key(key: &str) -> Option<Self> {
-        PaintTarget::ALL.into_iter().find(|t| t.key() == key)
+        PaintTarget::ALL.into_iter().chain(PaintTarget::ROCK).find(|t| t.key() == key)
+    }
+
+    /// Whether this is one of GF-8's Rock layers ([`PaintTarget::ROCK`]).
+    pub fn is_rock(self) -> bool {
+        PaintTarget::ROCK.contains(&self)
+    }
+
+    /// Every legal non-zero value this layer's dabs may write, in legend
+    /// order. For the override layers and `RockTop` that is `1 ..=
+    /// palette().len()`; `RockSub` adds `SUB_NONE` (255) after the eleven
+    /// rocks; `RockCap` is every class `1 ..= 255` (it has no palette of
+    /// names). [`PaintEditor::set_brush`] clamps into this set and
+    /// [`PaintEditor::painted_counts`] counts by it, so the two cannot
+    /// disagree about what a layer may hold.
+    pub fn legal_values(self) -> Vec<u8> {
+        match self {
+            PaintTarget::RockCap => (1..=255u8).collect(),
+            PaintTarget::RockSub => {
+                let mut v: Vec<u8> = (1..=self.palette().len() as u8).collect();
+                v.push(cartalith_engine::rock_paint::SUB_NONE);
+                v
+            }
+            _ => (1..=self.palette().len() as u8).collect(),
+        }
+    }
+
+    /// `value` mapped onto [`PaintTarget::legal_values`]: kept when legal,
+    /// otherwise clamped into `1 ..= max` of the contiguous part (so a
+    /// `RockSub` 200 becomes 11, never a silent `SUB_NONE`). Never `0`: that
+    /// means erase, which is the separate `erase` flag.
+    pub fn legal_value(self, value: i64) -> u8 {
+        if self == PaintTarget::RockSub && value == cartalith_engine::rock_paint::SUB_NONE as i64 {
+            return cartalith_engine::rock_paint::SUB_NONE;
+        }
+        let max = match self {
+            PaintTarget::RockCap => 255,
+            _ => self.palette().len().max(1) as i64,
+        };
+        value.clamp(1, max) as u8
     }
 
     /// This layer's legal palette, 1-based (`palette()[0]` is legal index
@@ -205,11 +272,19 @@ impl PaintTarget {
     /// would be exactly the hand-copy `sculpt_bridge`'s own doc warns
     /// against — this reads the live arrays instead, so it cannot drift
     /// from them.
+    ///
+    /// **Rock** (GF-8): `RockTop` and `RockSub` name the eleven rocks of
+    /// `cartalith_terrain::geology::ROCK_PROPS`, read live in `Rock::ALL`
+    /// order (index `i + 1` is rock `i`); `RockSub`'s "none" (255) is not a
+    /// palette position (see [`PaintTarget::legal_values`]). `RockCap` has no
+    /// names, only thickness classes, so it is empty.
     pub fn palette(self) -> Vec<&'static str> {
         match self {
             PaintTarget::Biome => CART_BIOMES[..13].to_vec(),
             PaintTarget::Terrain => CART_TERRAINS.to_vec(),
             PaintTarget::Splat => SPLAT_PAINT_SLOTS.to_vec(),
+            PaintTarget::RockTop | PaintTarget::RockSub => cartalith_terrain::geology::ROCK_PROPS.iter().map(|r| r.name).collect(),
+            PaintTarget::RockCap => Vec::new(),
         }
     }
 
@@ -223,8 +298,26 @@ impl PaintTarget {
             PaintTarget::Biome => "biome_painted",
             PaintTarget::Terrain => "terrain_painted",
             PaintTarget::Splat => "splat_painted",
+            PaintTarget::RockTop => "rock_top_painted",
+            PaintTarget::RockSub => "rock_sub_painted",
+            PaintTarget::RockCap => "rock_cap_painted",
         }
     }
+}
+
+/// GF-8: the three Rock drafts, committed into whole-world byte grids for
+/// [`cartalith_engine::rock_paint::commit`] to bake
+/// ([`PaintEditor::take_rock_commit`]). `0` is "not painted" on every layer.
+pub struct RockCommit {
+    /// Surface rock, `rock index + 1`.
+    pub top: Vec<u8>,
+    /// Rock beneath, `rock index + 1` or `SUB_NONE`.
+    pub sub: Vec<u8>,
+    /// Cap thickness class `k` (`10·k` m).
+    pub cap: Vec<u8>,
+    /// One summary per Rock layer, `[top, sub, cap]`; `tiles_marked` are the
+    /// painted tiles (the shared [`DirtyTracker`]'s tile ids).
+    pub summaries: [CommitSummary; 3],
 }
 
 /// The brush parameters `DCC_SHELL_SPEC.md` §4.5.2's `PAINT · BIOME` tool
@@ -369,6 +462,16 @@ pub struct PaintEditor {
     draft_biome: PassBuffer<PaintStamp>,
     draft_terrain: PassBuffer<PaintStamp>,
     draft_splat: PassBuffer<PaintStamp>,
+    /// GF-8's three Rock drafts ([`PaintTarget::ROCK`]). Drafts only: a
+    /// commit takes them out through [`Self::take_rock_commit`] and the
+    /// engine bakes them into the geology column, so they have no committed
+    /// [`PaintLayer`] of their own.
+    draft_rock_top: PassBuffer<PaintStamp>,
+    draft_rock_sub: PassBuffer<PaintStamp>,
+    draft_rock_cap: PassBuffer<PaintStamp>,
+    /// The always-unallocated layer [`Self::active_layer`] answers for a Rock
+    /// target: committed rock lives in the column, never here. Never written.
+    no_layer: PaintLayer,
     /// How many times a **committed** layer has changed — see [`Self::epoch`].
     epoch: u64,
     /// The open ET-D2 stroke, if any ([`PaintEditor::stroke_begin`] to [`PaintEditor::stroke_end`]).
@@ -401,6 +504,10 @@ impl PaintEditor {
             draft_biome,
             draft_terrain,
             draft_splat,
+            draft_rock_top: PassBuffer::new(gw, gh, PAINT_TILE_SIZE),
+            draft_rock_sub: PassBuffer::new(gw, gh, PAINT_TILE_SIZE),
+            draft_rock_cap: PassBuffer::new(gw, gh, PAINT_TILE_SIZE),
+            no_layer: PaintLayer::new(),
             epoch: 0,
             stroke: None,
         }
@@ -430,11 +537,15 @@ impl PaintEditor {
     /// The *committed* [`PaintLayer`] of the currently selected layer. Committed
     /// state only: the layer's pending dabs are in [`PaintEditor::active_draft`],
     /// and neither accessor ever shows the other's content.
+    ///
+    /// A Rock target answers the always-unallocated `no_layer`: committed rock
+    /// is in the geology column, which this editor never holds.
     pub fn active_layer(&self) -> &PaintLayer {
         match self.layer {
             PaintTarget::Biome => &self.biome,
             PaintTarget::Terrain => &self.terrain,
             PaintTarget::Splat => &self.splat,
+            PaintTarget::RockTop | PaintTarget::RockSub | PaintTarget::RockCap => &self.no_layer,
         }
     }
 
@@ -446,11 +557,15 @@ impl PaintEditor {
     /// `landColorCore` blends Biome and Terrain in the same pixel and lets
     /// Splat force a ground texture under both, so the renderer needs all
     /// three at once regardless of which one the brush is pointed at.
+    ///
+    /// `None` for every Rock target, always: there is no committed Rock layer
+    /// (see [`PaintTarget::ROCK`]).
     pub fn layer_cells(&self, target: PaintTarget) -> Option<&[u8]> {
         match target {
             PaintTarget::Biome => self.biome.cells(),
             PaintTarget::Terrain => self.terrain.cells(),
             PaintTarget::Splat => self.splat.cells(),
+            PaintTarget::RockTop | PaintTarget::RockSub | PaintTarget::RockCap => None,
         }
     }
 
@@ -462,6 +577,9 @@ impl PaintEditor {
             PaintTarget::Biome => &self.draft_biome,
             PaintTarget::Terrain => &self.draft_terrain,
             PaintTarget::Splat => &self.draft_splat,
+            PaintTarget::RockTop => &self.draft_rock_top,
+            PaintTarget::RockSub => &self.draft_rock_sub,
+            PaintTarget::RockCap => &self.draft_rock_cap,
         }
     }
 
@@ -482,8 +600,18 @@ impl PaintEditor {
     /// `commit_all` covers all three: a layer switch does not discard the
     /// layer left behind, so a pending dab on Terrain must keep Commit live
     /// while the panel is showing Biome.
+    ///
+    /// GF-8: the Rock drafts count too, because the one Commit / Discard pair
+    /// acts on them as well (`WorldGen::paint_commit`'s Rock branch,
+    /// [`Self::discard_all`]).
     pub fn pending_stamps(&self) -> usize {
-        self.draft_biome.len() + self.draft_terrain.len() + self.draft_splat.len()
+        self.draft_biome.len() + self.draft_terrain.len() + self.draft_splat.len() + self.rock_pending()
+    }
+
+    /// GF-8: pending dabs across the three Rock drafts only — what the next
+    /// commit hands the engine's rock bake.
+    pub fn rock_pending(&self) -> usize {
+        self.draft_rock_top.len() + self.draft_rock_sub.len() + self.draft_rock_cap.len()
     }
 
     /// Mutable twin of [`PaintEditor::active_draft`] and the one place
@@ -491,11 +619,8 @@ impl PaintEditor {
     /// must stay in step with `active_draft`'s, or previews would read a different
     /// layer's draft than the one the brush is writing.
     fn active_draft_mut(&mut self) -> &mut PassBuffer<PaintStamp> {
-        match self.layer {
-            PaintTarget::Biome => &mut self.draft_biome,
-            PaintTarget::Terrain => &mut self.draft_terrain,
-            PaintTarget::Splat => &mut self.draft_splat,
-        }
+        let layer = self.layer;
+        self.draft_of_mut(layer)
     }
 
     /// Replaces the cached land-only gate with a fresh classification —
@@ -559,6 +684,13 @@ impl PaintEditor {
         self.draft_biome.discard();
         self.draft_terrain.discard();
         self.draft_splat.discard();
+        // GF-8: a restore replaces the world's state, so a pending Rock dab
+        // would bake into a column it was never painted over. (The Rock
+        // drafts themselves are not saved yet: the geology save set is
+        // GF-8's third slice.)
+        self.draft_rock_top.discard();
+        self.draft_rock_sub.discard();
+        self.draft_rock_cap.discard();
         self.epoch = self.epoch.wrapping_add(1);
         let painted = |l: &PaintLayer| l.cells().map_or(0, |c| c.iter().filter(|&&v| v != 0).count());
         (painted(&self.biome), painted(&self.terrain), painted(&self.splat))
@@ -573,11 +705,23 @@ impl PaintEditor {
     /// persist as an out-of-range Biome index (13 slots) after a switch,
     /// and the next dab would write a value `PaintTarget::palette` cannot
     /// explain.
+    ///
+    /// The value check reads [`PaintTarget::legal_values`], so `RockSub`'s
+    /// 255 ("none") and `RockCap`'s `1 ..= 255` survive a switch and anything
+    /// else illegal for the new layer resets to `1`. Switching to a Rock layer
+    /// also drops `erase`: Erase is disabled for Rock (§4.13; see
+    /// [`Self::set_brush`]).
+    ///
+    /// **Whether Rock may be selected at all is the caller's gate**
+    /// (`WorldGen::paint_set_layer` refuses it when the world has no column
+    /// or erosion does not read rock); this editor has no world to ask.
     pub fn set_layer(&mut self, target: PaintTarget) {
         self.layer = target;
-        let max = target.palette().len() as u8;
-        if self.brush.value == 0 || self.brush.value > max {
+        if !target.legal_values().contains(&self.brush.value) {
             self.brush.value = 1;
+        }
+        if target.is_rock() {
+            self.brush.erase = false;
         }
     }
 
@@ -592,9 +736,17 @@ impl PaintEditor {
     /// (leaves the previous value in place) rather than clamped — the same
     /// "a NaN must never reach a stamp's own math" policy
     /// `sculpt_bridge::set_global`'s own doc comment defends.
+    ///
+    /// GF-8: on a Rock layer `value` is mapped by [`PaintTarget::legal_value`]
+    /// (so `RockSub` keeps 255 = "none" and `RockCap` takes any class
+    /// `1 ..= 255`), and **`erase` is always stored `false`**: §4.13 disables
+    /// Erase (⇧) for Rock because "a committed rock is reverted with Undo; the
+    /// column has no unpainted state to fall back to". The shell's momentary
+    /// Shift-erase reaches here too, so it is refused at the one place both
+    /// the latch and the modifier pass through.
     pub fn set_brush(&mut self, value: i64, radius: f64, hardness: f64, softness: f64, erase: bool, land_only: bool) -> Brush {
-        let max = self.layer.palette().len().max(1) as i64;
-        let value = value.clamp(1, max) as u8;
+        let value = self.layer.legal_value(value);
+        let erase = erase && !self.layer.is_rock();
         let radius = if radius.is_finite() { radius.clamp(PAINT_RADIUS_RANGE.0, PAINT_RADIUS_RANGE.1) } else { self.brush.radius };
         let hardness = if hardness.is_finite() { hardness.clamp(0.0, 1.0) } else { self.brush.hardness };
         let softness = if softness.is_finite() { softness.clamp(0.0, 1.0) } else { self.brush.softness };
@@ -643,6 +795,9 @@ impl PaintEditor {
             PaintTarget::Biome => &mut self.draft_biome,
             PaintTarget::Terrain => &mut self.draft_terrain,
             PaintTarget::Splat => &mut self.draft_splat,
+            PaintTarget::RockTop => &mut self.draft_rock_top,
+            PaintTarget::RockSub => &mut self.draft_rock_sub,
+            PaintTarget::RockCap => &mut self.draft_rock_cap,
         }
     }
 
@@ -773,19 +928,27 @@ impl PaintEditor {
     /// one entry per legal index of the active layer's own palette —
     /// zero-count entries included, so a legend can render every class
     /// every time rather than only the ones currently painted.
+    ///
+    /// GF-8: `by_class` is aligned with [`PaintTarget::legal_values`], not
+    /// with the palette, so for the override layers and `RockTop` it is the
+    /// same `index - 1` list as before, `RockSub` gains a twelfth entry for
+    /// "none" (255) and `RockCap` has 255 (one per thickness class). A Rock
+    /// layer counts its **draft only**: committed rock is in the column.
     pub fn painted_counts(&self, n: usize) -> (i64, Vec<i64>) {
         let base: Vec<u8> = self.active_layer().cells().map(<[u8]>::to_vec).unwrap_or_else(|| vec![0u8; n]);
         let mut scratch = vec![0u8; n];
         self.active_draft().preview_into(&base, &mut scratch);
 
-        let palette_len = self.layer.palette().len();
-        let mut by_class = vec![0i64; palette_len];
+        let legal = self.layer.legal_values();
+        // value -> slot in `legal`; 0 and illegal values map to none.
+        let mut slot = [usize::MAX; 256];
+        for (i, &v) in legal.iter().enumerate() {
+            slot[v as usize] = i;
+        }
+        let mut by_class = vec![0i64; legal.len()];
         for &v in &scratch {
-            if v != 0 {
-                let idx = v as usize;
-                if idx <= palette_len {
-                    by_class[idx - 1] += 1;
-                }
+            if v != 0 && slot[v as usize] != usize::MAX {
+                by_class[slot[v as usize]] += 1;
             }
         }
         let total = by_class.iter().sum();
@@ -842,6 +1005,42 @@ impl PaintEditor {
         // missed bump costs a wrong picture. See `epoch`.
         self.epoch = self.epoch.wrapping_add(1);
         [biome, terrain, splat]
+    }
+
+    /// GF-8: commits the three Rock drafts into fresh whole-world byte grids
+    /// and clears them, for `WorldGen::paint_commit`'s Rock branch to hand to
+    /// `cartalith_engine::rock_paint::commit` in the same press as
+    /// [`Self::commit_all`]. `None` (and nothing touched) when no Rock dab is
+    /// pending.
+    ///
+    /// Separate from `commit_all` because the Rock half is **gated** and the
+    /// override half is not: the caller takes the Rock drafts only once it has
+    /// checked the world can take them (a column, erosion that reads rock, a
+    /// world not finalized), so a refused Rock commit leaves the Rock drafts
+    /// pending instead of dropping the user's paint. `n` must be `gw * gh`.
+    ///
+    /// Never moves [`Self::epoch`]: no committed override layer changes. The
+    /// field and column the bake moves are keyed by the pipeline's height
+    /// stage version, which the caller marks.
+    pub fn take_rock_commit(&mut self, n: usize) -> Option<RockCommit> {
+        if self.rock_pending() == 0 {
+            return None;
+        }
+        self.abort_stroke();
+        let mut top = vec![0u8; n];
+        let mut sub = vec![0u8; n];
+        let mut cap = vec![0u8; n];
+        let mut one = |draft: &mut PassBuffer<PaintStamp>, buf: &mut [u8], t: PaintTarget| {
+            if draft.is_empty() {
+                CommitSummary { stamps_applied: 0, stamps_skipped: 0, tiles_marked: Vec::new() }
+            } else {
+                draft.commit(buf, &mut self.tracker, t.commit_reason())
+            }
+        };
+        let s_top = one(&mut self.draft_rock_top, &mut top, PaintTarget::RockTop);
+        let s_sub = one(&mut self.draft_rock_sub, &mut sub, PaintTarget::RockSub);
+        let s_cap = one(&mut self.draft_rock_cap, &mut cap, PaintTarget::RockCap);
+        Some(RockCommit { top, sub, cap, summaries: [s_top, s_sub, s_cap] })
     }
 
     /// Whether any **committed** layer holds an allocated array at all --
@@ -902,10 +1101,17 @@ impl PaintEditor {
     }
 
     /// Drops every layer's pending draft, touching nothing committed.
-    /// Returns how many dabs were dropped in total, across all three.
+    /// Returns how many dabs were dropped in total, across all six (the three
+    /// override layers and GF-8's three Rock layers: one Discard for the one
+    /// Commit, §4.13).
     pub fn discard_all(&mut self) -> usize {
         self.abort_stroke();
-        self.draft_biome.discard() + self.draft_terrain.discard() + self.draft_splat.discard()
+        self.draft_biome.discard()
+            + self.draft_terrain.discard()
+            + self.draft_splat.discard()
+            + self.draft_rock_top.discard()
+            + self.draft_rock_sub.discard()
+            + self.draft_rock_cap.discard()
     }
 
     // ---- preview rasters ----
@@ -1113,7 +1319,27 @@ pub fn swatch_color(target: PaintTarget, index: u8, palette_len: usize) -> (u8, 
 ///
 /// Terrain and Splat are unaffected — CA-19 is scoped to the biome table
 /// alone, matching `render.rs`'s own `TerrainAppearance::biome_cols`.
+///
+/// **Rock (GF-8) has no reference colour either**, so it takes the same
+/// generated-hue rule as Splat, over the eleven rocks; `RockSub`'s "none"
+/// (255) is a neutral grey `(150, 150, 150)`; `RockCap` is a ramp from light
+/// sand `(235, 215, 170)` at 10 m to dark brown `(90, 60, 30)` at 2 550 m,
+/// linear in the class. All three are **labelled judgements** (legible over
+/// the map, ordered for the cap), not measurements: this is the in-flight
+/// draft's overlay only, and a committed rock is drawn by the renderer's own
+/// lithology colours.
 pub fn swatch_color_with(target: PaintTarget, index: u8, palette_len: usize, biome_cols: &[(u8, u8, u8); 15]) -> (u8, u8, u8) {
+    if index != 0 {
+        match target {
+            PaintTarget::RockSub if index == cartalith_engine::rock_paint::SUB_NONE => return (150, 150, 150),
+            PaintTarget::RockCap => {
+                let t = (index - 1) as f64 / 254.0;
+                let lerp = |a: f64, b: f64| (a + (b - a) * t).round() as u8;
+                return (lerp(235.0, 90.0), lerp(215.0, 60.0), lerp(170.0, 30.0));
+            }
+            _ => {}
+        }
+    }
     if index == 0 || palette_len == 0 || index as usize > palette_len {
         return (0, 0, 0);
     }
@@ -1124,7 +1350,11 @@ pub fn swatch_color_with(target: PaintTarget, index: u8, palette_len: usize, bio
         // Equal hue steps around the wheel so neighbouring classes differ. Saturation 0.65 and
         // value 0.95 are a labelled judgement (legible over the map), not a measurement: Splat
         // has no reference colour (see this function's doc), so there is nothing to match.
-        PaintTarget::Splat => hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95),
+        PaintTarget::Splat | PaintTarget::RockTop | PaintTarget::RockSub => {
+            hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95)
+        }
+        // Reached only for index 0, which returned above; kept total.
+        PaintTarget::RockCap => (0, 0, 0),
     }
 }
 
@@ -1988,5 +2218,131 @@ mod tests {
         assert_eq!(run(7), run(7));
         assert_ne!(run(7), run(8));
         assert!(run(7).len() > 30, "scatter 3 over a spaced stroke");
+    }
+
+    // ---- GF-8: the Rock layers ----
+
+    /// Protects: the six keys resolve, and the Rock layers are NOT in `ALL`,
+    /// which `get_paint_layers`, `drafts/paint.json` and the renderer read --
+    /// so adding them moved neither the save document nor the old target list.
+    #[test]
+    fn rock_keys_resolve_and_stay_out_of_the_override_list() {
+        for (t, k) in [(PaintTarget::RockTop, "rock_top"), (PaintTarget::RockSub, "rock_sub"), (PaintTarget::RockCap, "rock_cap")] {
+            assert_eq!(t.key(), k);
+            assert_eq!(PaintTarget::from_key(k), Some(t));
+            assert!(t.is_rock());
+            assert!(!PaintTarget::ALL.contains(&t));
+        }
+        assert_eq!(PaintTarget::ALL.len(), 3);
+        assert!(!PaintTarget::Biome.is_rock());
+        // The rock palette is the eleven names of ROCK_PROPS, in order.
+        let pal = PaintTarget::RockTop.palette();
+        assert_eq!(pal.len(), 11);
+        assert_eq!(pal[0], "Granite / granitoid");
+        assert_eq!(PaintTarget::RockSub.palette(), pal);
+        assert!(PaintTarget::RockCap.palette().is_empty());
+    }
+
+    /// Protects: each Rock layer's legal value set, with literals: `rock_top`
+    /// 1..=11, `rock_sub` 1..=11 plus 255 ("none"), `rock_cap` 1..=255; an
+    /// illegal value clamps into the contiguous part, never onto 255.
+    #[test]
+    fn rock_values_clamp_to_their_layer() {
+        assert_eq!(PaintTarget::RockTop.legal_value(12), 11);
+        assert_eq!(PaintTarget::RockTop.legal_value(255), 11);
+        assert_eq!(PaintTarget::RockSub.legal_value(255), 255);
+        assert_eq!(PaintTarget::RockSub.legal_value(200), 11);
+        assert_eq!(PaintTarget::RockCap.legal_value(255), 255);
+        assert_eq!(PaintTarget::RockCap.legal_value(300), 255);
+        assert_eq!(PaintTarget::RockCap.legal_value(0), 1);
+        assert_eq!(PaintTarget::RockSub.legal_values().len(), 12);
+        assert_eq!(*PaintTarget::RockSub.legal_values().last().unwrap(), 255);
+        assert_eq!(PaintTarget::RockCap.legal_values().len(), 255);
+        // The override layers are unchanged: Biome 1..=13.
+        assert_eq!(PaintTarget::Biome.legal_value(255), 13);
+        let mut e = PaintEditor::new(8, 8, land_mask(64));
+        e.set_layer(PaintTarget::RockSub);
+        assert_eq!(e.set_brush(255, 2.0, 1.0, 0.0, false, true).value, 255, "none survives set_brush");
+        e.set_layer(PaintTarget::RockCap);
+        assert_eq!(e.brush.value, 255, "255 is a legal cap class (2 550 m): kept across the switch");
+        e.set_layer(PaintTarget::RockTop);
+        assert_eq!(e.brush.value, 1, "255 is not a rock index: reset to 1");
+    }
+
+    /// Protects: §4.13's "Erase (⇧) is disabled for the Rock target" at the
+    /// one place both the latch and the Shift modifier pass: `set_brush`
+    /// stores `erase = false` on a Rock layer and a dab writes the value.
+    #[test]
+    fn erase_is_refused_on_a_rock_layer() {
+        let n = 32 * 32;
+        let mut e = PaintEditor::new(32, 32, land_mask(n));
+        e.set_layer(PaintTarget::RockTop);
+        let b = e.set_brush(10, 3.0, 1.0, 0.0, true, true);
+        assert!(!b.erase, "erase stored on a Rock layer");
+        e.stroke_at(16.0, 16.0);
+        let rc = e.take_rock_commit(n).unwrap();
+        assert_eq!(rc.top[16 * 32 + 16], 10, "the dab wrote the rock, not 0");
+        // Back on Biome, erase is honoured again.
+        e.set_layer(PaintTarget::Biome);
+        assert!(e.set_brush(1, 3.0, 1.0, 0.0, true, true).erase);
+    }
+
+    /// Protects: the Rock drafts ride the one Commit / Discard pair --
+    /// counted in `pending_stamps`, untouched by `commit_all` (the gated Rock
+    /// half is the caller's), dropped by `discard_all` -- and
+    /// `take_rock_commit` routes each layer's draft into its own grid.
+    #[test]
+    fn rock_drafts_share_the_one_commit_and_discard() {
+        let n = 32 * 32;
+        let mut e = PaintEditor::new(32, 32, land_mask(n));
+        assert!(e.take_rock_commit(n).is_none(), "nothing pending: no take");
+        for (t, v, x) in [(PaintTarget::RockTop, 3, 6.0), (PaintTarget::RockSub, 255, 16.0), (PaintTarget::RockCap, 7, 26.0)] {
+            e.set_layer(t);
+            e.set_brush(v, 2.0, 1.0, 0.0, false, true);
+            e.stroke_at(x, 16.0);
+        }
+        assert_eq!((e.rock_pending(), e.pending_stamps()), (3, 3));
+        e.commit_all(n);
+        assert_eq!(e.rock_pending(), 3, "commit_all leaves the Rock drafts to the gated caller");
+        let rc = e.take_rock_commit(n).unwrap();
+        assert_eq!((rc.top[16 * 32 + 6], rc.sub[16 * 32 + 16], rc.cap[16 * 32 + 26]), (3, 255, 7));
+        assert_eq!((rc.top[16 * 32 + 16], rc.sub[16 * 32 + 26], rc.cap[16 * 32 + 6]), (0, 0, 0), "each layer only its own dab");
+        assert!(rc.summaries.iter().all(|s| s.stamps_applied == 1));
+        assert!(rc.summaries[0].tiles_marked.contains(&0), "the painted tile is reported");
+        assert!(e.layer_cells(PaintTarget::RockTop).is_none(), "no committed Rock layer exists");
+        // One dab on each Rock layer: Discard drops all three.
+        for t in PaintTarget::ROCK {
+            e.set_layer(t);
+            e.stroke_at(6.0, 6.0);
+        }
+        assert_eq!(e.discard_all(), 3);
+        assert_eq!(e.rock_pending(), 0);
+    }
+
+    /// Protects: `painted_counts` on `rock_sub` counts "none" (255) in the
+    /// twelfth slot, which the `index - 1` layout could not hold.
+    #[test]
+    fn rock_sub_counts_none_in_its_own_slot() {
+        let n = 32 * 32;
+        let mut e = PaintEditor::new(32, 32, land_mask(n));
+        e.set_layer(PaintTarget::RockSub);
+        e.set_brush(255, 1.0, 1.0, 0.0, false, true);
+        e.stroke_at(16.0, 16.0);
+        let (total, by) = e.painted_counts(n);
+        assert_eq!(by.len(), 12);
+        assert!(total > 0);
+        assert_eq!(by[11], total, "every painted cell is 'none'");
+        assert_eq!(by[..11].iter().sum::<i64>(), 0);
+    }
+
+    /// Protects: the Rock draft overlay's labelled colours, as literals: the
+    /// "none" grey and the cap ramp's two ends; a rock takes the hue wheel.
+    #[test]
+    fn rock_swatches_are_the_labelled_literals() {
+        assert_eq!(swatch_color(PaintTarget::RockSub, 255, 11), (150, 150, 150));
+        assert_eq!(swatch_color(PaintTarget::RockCap, 1, 0), (235, 215, 170));
+        assert_eq!(swatch_color(PaintTarget::RockCap, 255, 0), (90, 60, 30));
+        assert_eq!(swatch_color(PaintTarget::RockTop, 1, 11), hsv_to_rgb(0.0, 0.65, 0.95));
+        assert_eq!(swatch_color(PaintTarget::RockTop, 0, 11), (0, 0, 0));
     }
 }

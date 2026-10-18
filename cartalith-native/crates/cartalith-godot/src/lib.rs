@@ -15493,16 +15493,181 @@ impl WorldGen {
     /// entries, not `CART_BIOMES`'s full 15 (`paint_bridge::PaintTarget::
     /// palette`'s own doc: water is excluded, "the brush never touches
     /// water"). Empty `Array` for an unrecognised `layer` key.
+    ///
+    /// **GF-8 Rock layers** (`"rock_top"`, `"rock_sub"`): one entry per rock
+    /// of `ROCK_PROPS`, and each entry also carries that rock's resistance
+    /// values read live from the table (`"name"`, `"s"` strength, `"kappa"`
+    /// stream-power multiplier, `"theta_c"` critical slope in degrees,
+    /// `"selby"` class) — the picker shows what painting it will do to
+    /// erosion, and the `label` itself carries `s` and `κ` so every surface
+    /// that draws only the label still shows them. `"rock_sub"` ends with
+    /// `{index: 255, label: "none — single layer"}` (§4.13). `"rock_cap"` is
+    /// empty: it is a thickness, not a class list (see `rock_paint_status`).
     #[func]
     fn get_paint_palette(&self, layer: GString) -> Array<VarDictionary> {
         let Some(target) = paint_bridge::PaintTarget::from_key(&layer.to_string()) else {
             return Array::new();
         };
+        if target.is_rock() {
+            let mut out: Array<VarDictionary> = cartalith_terrain::geology::ROCK_PROPS
+                .iter()
+                .enumerate()
+                .filter(|_| target != paint_bridge::PaintTarget::RockCap)
+                .map(|(i, r)| {
+                    vdict! {
+                        "index" => (i + 1) as i32,
+                        "label" => rock_picker_label(r),
+                        "name" => r.name,
+                        "s" => r.s as f64,
+                        "kappa" => r.kappa as f64,
+                        "theta_c" => r.theta_c_deg as f64,
+                        "selby" => r.selby.name(),
+                    }
+                })
+                .collect();
+            if target == paint_bridge::PaintTarget::RockSub {
+                out.push(&vdict! {
+                    "index" => cartalith_engine::rock_paint::SUB_NONE as i32,
+                    "label" => "none — single layer",
+                });
+            }
+            return out;
+        }
         target
             .palette()
             .into_iter()
             .enumerate()
             .map(|(i, label)| vdict! { "index" => (i + 1) as i32, "label" => label })
+            .collect()
+    }
+
+    /// GF-8: whether this world can take a Rock paint at all, and why not
+    /// (`GEOLOGY_FIRST_SCOPE.md` §4.13, §2.6's reader rule). The shell draws
+    /// the Rock target **disabled with `reason`** whenever `available` is
+    /// false, and `paint_set_layer` refuses a Rock layer under the same gate,
+    /// so the two cannot disagree.
+    ///
+    /// Keys: `available` (bool); `reason` (String, **only** when not
+    /// available: no world, no geology column with the column's own absence
+    /// reason, erosion that does not read rock on this world, or a finalized
+    /// world); `layers` (the three Rock layer keys with their labels, always);
+    /// `cap_class_m` (10.0, one thickness class) and `cap_max_m` (2 550.0);
+    /// `sub_none` (255); `pad_cells` (the re-erosion padding `P`, 16);
+    /// `painted_cells` (cells the column marks painted, **only** when the
+    /// column has a painted mask); `save_note` (always: the honest sentence
+    /// that a painted rock does not survive save and reopen yet).
+    #[func]
+    fn rock_paint_status(&self) -> VarDictionary {
+        let mut d = vdict! {
+            "available" => false,
+            "cap_class_m" => cartalith_engine::rock_paint::CAP_CLASS_M,
+            "cap_max_m" => cartalith_engine::rock_paint::CAP_CLASS_M * 255.0,
+            "sub_none" => cartalith_engine::rock_paint::SUB_NONE as i32,
+            "pad_cells" => cartalith_engine::rock_paint::REERODE_PAD_CELLS as i64,
+            "save_note" => ROCK_PAINT_SAVE_NOTE,
+        };
+        let layers: Array<VarDictionary> = paint_bridge::PaintTarget::ROCK
+            .iter()
+            .map(|t| vdict! { "key" => t.key(), "label" => rock_layer_label(*t) })
+            .collect();
+        d.set("layers", &layers);
+        if let Some(n) = self.rock_painted_cells() {
+            d.set("painted_cells", n as i64);
+        }
+        match self.rock_paint_gate() {
+            Ok(()) => d.set("available", true),
+            Err(why) => d.set("reason", why.as_str()),
+        }
+        d
+    }
+
+    /// GF-8: `true` when the live world carries a geology column (§2.6),
+    /// whatever else the Rock gate says. `false` with no world, on a
+    /// parity-model world, an import or a reopened save (the column is not
+    /// saved yet). `rock_paint_status` is the full gate; this is the one-bit
+    /// question for a reader that only needs the column.
+    #[func]
+    fn geology_available(&self) -> bool {
+        matches!(self.source.as_ref(), Some(WorldSource::Generated(ws)) if ws.geology.column().is_some())
+    }
+
+    /// GF-8 diagnostic for probes: FNV-1a hashes (hex strings) of the live
+    /// height field and geology column, split into the cells **inside** the
+    /// rectangle `x, y, w, h` (clipped to the map) and the cells **outside**
+    /// it, so a probe can assert a Rock commit's locality ("nothing outside
+    /// `W` moved") and that Undo / Redo restore both arrays byte for byte,
+    /// without shipping whole fields across the boundary.
+    ///
+    /// Keys: `field_in`, `field_out`, `column_in`, `column_out` (the column
+    /// hash covers `rock_top`, `rock_sub`, `contact` and `regolith` bits and
+    /// the `painted` mask per cell, an absent mask reading `0` per cell so a
+    /// first commit does not "move" every cell outside `W`), `painted_mask`
+    /// (`"absent"` / `"present"`: whether the mask exists at all, which is the
+    /// one thing the per-cell hash cannot see), and `rock_top_centre` (the
+    /// rock index at the rectangle's centre cell). Empty with no generated
+    /// world or no column. Read-only; the shell never calls it.
+    #[func]
+    fn geology_digest(&self, x: i32, y: i32, w: i32, h: i32) -> VarDictionary {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return VarDictionary::new() };
+        let Some(c) = ws.geology.column() else { return VarDictionary::new() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw * gh != ws.field.len() || c.len() != ws.field.len() {
+            return VarDictionary::new();
+        }
+        let (x0, y0) = (x.max(0) as usize, y.max(0) as usize);
+        let (x1, y1) = (((x as i64 + w as i64).max(0) as usize).min(gw), ((y as i64 + h as i64).max(0) as usize).min(gh));
+        /// One FNV-1a 64 step per byte.
+        fn feed(h: &mut u64, bytes: &[u8]) {
+            for &b in bytes {
+                *h ^= b as u64;
+                *h = h.wrapping_mul(0x100000001b3);
+            }
+        }
+        let seed = 0xcbf29ce484222325u64;
+        let (mut fi, mut fo, mut ci, mut co) = (seed, seed, seed, seed);
+        for i in 0..gw * gh {
+            let (cx, cy) = (i % gw, i / gw);
+            let inside = cx >= x0 && cx < x1 && cy >= y0 && cy < y1;
+            let (f, k) = if inside { (&mut fi, &mut ci) } else { (&mut fo, &mut co) };
+            feed(f, &ws.field[i].to_bits().to_le_bytes());
+            feed(k, &[c.rock_top[i], c.rock_sub[i]]);
+            feed(k, &c.contact[i].to_bits().to_le_bytes());
+            feed(k, &c.regolith[i].to_bits().to_le_bytes());
+            feed(k, &[c.painted.as_ref().map_or(0, |m| m[i])]);
+        }
+        let centre = ((y0 + y1) / 2).min(gh - 1) * gw + ((x0 + x1) / 2).min(gw - 1);
+        vdict! {
+            "field_in" => format!("{fi:016x}"),
+            "field_out" => format!("{fo:016x}"),
+            "column_in" => format!("{ci:016x}"),
+            "column_out" => format!("{co:016x}"),
+            "painted_mask" => if c.painted.is_some() { "present" } else { "absent" },
+            "rock_top_centre" => c.rock_top[centre] as i32,
+        }
+    }
+
+    /// GF-8: the eleven rock classes with their full `ROCK_PROPS` row, for a
+    /// picker or a legend: `index` (rock index + 1, the paint value), `name`,
+    /// `s`, `kappa`, `theta_c`, `gamma`, `rho`, `selby`, `soluble`. Read from
+    /// the one table, never restated. Needs no world.
+    #[func]
+    fn get_rock_classes(&self) -> Array<VarDictionary> {
+        cartalith_terrain::geology::ROCK_PROPS
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                vdict! {
+                    "index" => (i + 1) as i32,
+                    "name" => r.name,
+                    "s" => r.s as f64,
+                    "kappa" => r.kappa as f64,
+                    "theta_c" => r.theta_c_deg as f64,
+                    "gamma" => r.gamma as f64,
+                    "rho" => r.rho as f64,
+                    "selby" => r.selby.name(),
+                    "soluble" => r.soluble,
+                }
+            })
             .collect()
     }
 
@@ -15513,9 +15678,16 @@ impl WorldGen {
     /// brush's stored value into the new layer's own palette range).
     /// `false` for an unrecognised key or before any `generate()` call —
     /// the active layer is left unchanged either way.
+    ///
+    /// GF-8: a Rock layer (`"rock_top"`/`"rock_sub"`/`"rock_cap"`) is refused
+    /// with `false` whenever `rock_paint_status().available` is false, so no
+    /// Rock dab can be drafted on a world that could not commit it.
     #[func]
     fn paint_set_layer(&mut self, layer: GString) -> bool {
         let Some(target) = paint_bridge::PaintTarget::from_key(&layer.to_string()) else { return false };
+        if target.is_rock() && self.rock_paint_gate().is_err() {
+            return false;
+        }
         let Some(p) = self.paint.as_mut() else { return false };
         p.set_layer(target);
         true
@@ -15857,8 +16029,10 @@ impl WorldGen {
         let n = (self.gw as usize) * (self.gh as usize);
         let (total, by_class) = p.painted_counts(n);
         let mut counts = VarDictionary::new();
-        for (i, &c) in by_class.iter().enumerate() {
-            counts.set((i + 1) as i32, c);
+        // Keyed by the real value (`PaintTarget::legal_values`), which is
+        // `i + 1` for every layer except `rock_sub`'s trailing 255 ("none").
+        for (&v, &c) in p.layer.legal_values().iter().zip(by_class.iter()) {
+            counts.set(v as i32, c);
         }
         vdict! { "layer" => p.layer.key(), "total" => total, "counts" => &counts }
     }
@@ -15907,6 +16081,11 @@ impl WorldGen {
     /// `["ecology_biomes", "resources_soils"]` when anything was actually
     /// painted this commit, empty otherwise). Empty `Dictionary` before
     /// any `generate()` call.
+    ///
+    /// **GF-8:** when a Rock dab was pending, the result also carries
+    /// `"rock"`, [`WorldGen::paint_commit_rock`]'s dictionary (the bake, the
+    /// differential re-erosion or why it did not run, and what it does not
+    /// re-run); the key is absent when no Rock dab was pending.
     #[func]
     fn paint_commit(&mut self) -> VarDictionary {
         let Some(p) = self.paint.as_mut() else { return VarDictionary::new() };
@@ -15947,6 +16126,11 @@ impl WorldGen {
         // names the two civ *sub*-stages `DCC_SHELL_SPEC.md` §4.5.2 calls
         // out, which this four-stage graph does not resolve separately.
         let tiles: Vec<usize> = tiles_marked.as_slice().iter().map(|&t| t as usize).collect();
+        // GF-8's Rock branch, in the same press (§4.13: one Commit for every
+        // layer). It runs before the override layers' recompute so that one
+        // `recompute_stale` sees both sets of marks. `None` when no Rock dab
+        // was pending, and the `"rock"` key is then absent.
+        let rock = self.paint_commit_rock(n);
         let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Civ, tiles, "paint");
         let stale_stages: PackedStringArray = if any_applied {
             ["ecology_biomes", "resources_soils"].iter().map(|s| GString::from(*s)).collect()
@@ -15959,7 +16143,7 @@ impl WorldGen {
         fn summary_dict(s: &cartalith_spatial::CommitSummary) -> VarDictionary {
             vdict! { "stamps_applied" => s.stamps_applied as i64, "stamps_skipped" => s.stamps_skipped as i64 }
         }
-        vdict! {
+        let mut out = vdict! {
             "biome" => &summary_dict(&biome),
             "terrain" => &summary_dict(&terrain),
             "splat" => &summary_dict(&splat),
@@ -15967,7 +16151,11 @@ impl WorldGen {
             "stale_stages" => &stale_stages,
             "recomputed" => &recomputed,
             "still_stale" => &still_stale,
+        };
+        if let Some(r) = rock {
+            out.set("rock", &r);
         }
+        out
     }
 
     /// Drops every layer's pending draft, touching nothing committed
@@ -15992,6 +16180,184 @@ impl WorldGen {
         let mut reply = if dabs > 0 { self.build_paint_preview_patch() } else { VarDictionary::new() };
         reply.set("dabs", dabs as i64);
         reply
+    }
+
+    /// GF-8: why this world cannot take a Rock paint, or `Ok`. The single
+    /// gate `rock_paint_status`, `paint_set_layer` and the commit's Rock
+    /// branch all read, so the Rock target's disabled reason is the commit's
+    /// refusal, word for word. In order:
+    /// - no generated world in memory (the commit re-erodes the live fields);
+    /// - no geology column (`Geology::absent_reason`: parity model, import, or
+    ///   a reopened save, since the column is not saved yet);
+    /// - `geology_processes` off: erosion does not read rock on this world, so
+    ///   a painted rock would change no landform (the app's default today, so
+    ///   the Rock target is disabled by default; `rock_paint::ReerodeSkip`'s
+    ///   own sentence);
+    /// - `carve_rivers` off: generation ran no light erosion pass to repeat;
+    /// - finalized (`bake.check(HeightEdit)`, like every height edit).
+    fn rock_paint_gate(&self) -> Result<(), String> {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
+            return Err(format!("Rock paint needs a generated world in memory: {}.", self.full_world_refusal()));
+        };
+        if let Some(why) = ws.geology.absent_reason() {
+            return Err(format!("This world has no geology column ({why})."));
+        }
+        if self.paint.is_none() {
+            return Err("This world has no paint editor.".to_string());
+        }
+        let p = self.recompute_params();
+        if !p.geology_processes {
+            return Err(format!("Rock paint is off on this world: {}.", cartalith_engine::rock_paint::ReerodeSkip::ProcessesOff.reason()));
+        }
+        if !p.carve_rivers {
+            return Err(format!("Rock paint is off on this world: {}.", cartalith_engine::rock_paint::ReerodeSkip::CarveRiversOff.reason()));
+        }
+        self.bake.check(cartalith_engine::bake::Mutation::HeightEdit).map_err(str::to_string)
+    }
+
+    /// GF-8: cells the live column marks painted (`GeologyColumn::painted`),
+    /// or `None` when there is no column or nobody has painted (absent mask:
+    /// absent recorded absent, never a `0`).
+    fn rock_painted_cells(&self) -> Option<usize> {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
+        let m = ws.geology.column()?.painted.as_ref()?;
+        Some(m.iter().filter(|&&v| v != 0).count())
+    }
+
+    /// GF-8, `GEOLOGY_FIRST_SCOPE.md` §4.13's commit, the Rock branch of
+    /// [`WorldGen::paint_commit`]; `rock_paint::commit` is called from here
+    /// and nowhere else in the app. `None` when no Rock dab is pending.
+    ///
+    /// 1. **Gate** ([`Self::rock_paint_gate`]). A refusal returns
+    ///    `{ok: false, reason, pending}` and **keeps the Rock drafts**, so the
+    ///    user's paint is not dropped by a state change (e.g. finalizing).
+    /// 2. **Undo first**: one step holding the field and the column
+    ///    (`undo::HeightUndo::push_with_column`), the redo tail truncated, and
+    ///    one `HeightSnapshot` ledger row, `"geology"` / *"Rock paint
+    ///    commit"*. A refused bake (an illegal value; it writes nothing) pops
+    ///    that step again and records no row.
+    /// 3. **Bake and re-erode** (`rock_paint::commit`, `P` =
+    ///    `REERODE_PAD_CELLS`).
+    /// 4. **Refresh**: `Civ` marked over the painted tiles (lithology feeds
+    ///    soil and resources) and `Height` over `W`'s tiles (or the painted
+    ///    tiles when the re-erosion did not run, since the column every rock
+    ///    reader uses still changed), then one recompute, as the Erode op does.
+    ///
+    /// Keys on success: `ok` true; `cells_baked`, `cells_changed`,
+    /// `cap_skipped`, `sub_skipped` (`rock_paint::BakeReport`); `stamps` (Rock
+    /// dabs applied); `reerode`: `{ran: true, window: {x, y, w, h},
+    /// cells_moved, ring_step, relief, ring_step_pct (only when relief > 0),
+    /// stages, not_rerun}` or `{ran: false, reason}`; `ms`; `recomputed` /
+    /// `still_stale`; `save_note`.
+    fn paint_commit_rock(&mut self, n: usize) -> Option<VarDictionary> {
+        let pending = self.paint.as_ref().map_or(0, |p| p.rock_pending());
+        if pending == 0 {
+            return None;
+        }
+        if let Err(why) = self.rock_paint_gate() {
+            return Some(vdict! { "ok" => false, "reason" => why.as_str(), "pending" => pending as i64 });
+        }
+        let t0 = std::time::Instant::now();
+        let rc = self.paint.as_mut()?.take_rock_commit(n)?;
+        let p = self.recompute_params();
+        let (gw, gh) = (p.gw, p.gh);
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
+            return Some(vdict! { "ok" => false, "reason" => "no generated world", "pending" => 0i64 });
+        };
+        let snap = ws.geology.column().map(undo::ColumnSnapshot::of);
+        self.undo.push_with_column("Rock paint commit", &ws.field, snap);
+        let paint = cartalith_engine::rock_paint::RockPaint { top: &rc.top, sub: &rc.sub, cap: &rc.cap };
+        let rep = match cartalith_engine::rock_paint::commit(ws, &p, gw, gh, &paint, cartalith_engine::rock_paint::REERODE_PAD_CELLS) {
+            Ok(r) => r,
+            Err(refusal) => {
+                // Nothing was written (the bake validates before any write):
+                // pop the step just pushed, which writes the same bytes back.
+                let _ = self.undo.restore_with(std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), ws.geology.column_mut());
+                return Some(vdict! { "ok" => false, "reason" => refusal.reason().as_str(), "pending" => 0i64 });
+            }
+        };
+        // A new operation truncates the redo tail -- see `carve_fjords`.
+        self.redo.clear();
+        let stamps: usize = rc.summaries.iter().map(|s| s.stamps_applied).sum();
+        self.ledger.record(
+            "geology",
+            "Rock paint commit",
+            format!("{} cells baked, {} changed", rep.bake.cells_baked, rep.bake.cells_changed),
+            undo::EntryKind::HeightSnapshot,
+        );
+
+        let painted_tiles: std::collections::BTreeSet<usize> = rc.summaries.iter().flat_map(|s| s.tiles_marked.iter().copied()).collect();
+        let ts = paint_bridge::PAINT_TILE_SIZE;
+        let tiles_x = gw.div_ceil(ts);
+        let reerode = match &rep.reerode {
+            Ok(r) => {
+                let w = r.window;
+                let mut d = vdict! {
+                    "ran" => true,
+                    "window" => &vdict! { "x" => w.x0 as i64, "y" => w.y0 as i64, "w" => w.w as i64, "h" => w.h as i64 },
+                    "cells_moved" => r.cells_moved as i64,
+                    "ring_step" => r.ring_step,
+                    "relief" => r.relief,
+                    "stages" => &r.stages.iter().map(|s| GString::from(*s)).collect::<PackedStringArray>(),
+                    "not_rerun" => &r.not_rerun.iter().map(|s| GString::from(*s)).collect::<PackedStringArray>(),
+                };
+                if r.relief > 0.0 {
+                    d.set("ring_step_pct", 100.0 * r.ring_step / r.relief);
+                }
+                d
+            }
+            Err(skip) => vdict! { "ran" => false, "reason" => skip.reason() },
+        };
+        let height_tiles: Vec<usize> = match &rep.reerode {
+            Ok(r) => {
+                let w = r.window;
+                let (tx0, ty0, tx1, ty1) = (w.x0 / ts, w.y0 / ts, (w.x0 + w.w - 1) / ts, (w.y0 + w.h - 1) / ts);
+                (ty0..=ty1).flat_map(|ty| (tx0..=tx1).map(move |tx| ty * tiles_x + tx)).collect()
+            }
+            Err(_) => painted_tiles.iter().copied().collect(),
+        };
+        let nt = self.stages.tile_count();
+        self.stages.mark_changed_tiles(PipelineStage::Civ.id(), painted_tiles.iter().copied().filter(|&t| t < nt), "rock_paint");
+        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, height_tiles, "rock_paint");
+        Some(vdict! {
+            "ok" => true,
+            "cells_baked" => rep.bake.cells_baked as i64,
+            "cells_changed" => rep.bake.cells_changed as i64,
+            "cap_skipped" => rep.bake.cap_skipped as i64,
+            "sub_skipped" => rep.bake.sub_skipped as i64,
+            "stamps" => stamps as i64,
+            "reerode" => &reerode,
+            "ms" => t0.elapsed().as_secs_f64() * 1000.0,
+            "recomputed" => &recomputed,
+            "still_stale" => &still_stale,
+            "save_note" => ROCK_PAINT_SAVE_NOTE,
+        })
+    }
+}
+
+/// GF-8: the sentence every Rock-paint surface carries until the geology save
+/// set exists (GF-8's third slice). Measured at its symbol: no column raster
+/// is written (`GeologyAbsent::Restored`, *"opened from a save: rock columns
+/// are not saved yet"*), so a reopened project has no column and the painted
+/// rock, with the rest of the column, is gone.
+pub(crate) const ROCK_PAINT_SAVE_NOTE: &str = "Rock paint is not saved with the project yet: the geology column is not in the save format, so reopening the project loses the painted rock (and the whole column). Saving the column is GF-8's next slice.";
+
+/// The Rock picker's label for one rock: its name with its strength `s` and
+/// stream-power multiplier `κ` from `ROCK_PROPS` (the two numbers that most
+/// decide how it erodes, §2.3), so a surface that draws only the label still
+/// shows the resistance. Format: `"Granite / granitoid · s 0.85 · κ 0.30"`.
+fn rock_picker_label(r: &cartalith_terrain::geology::RockProps) -> String {
+    format!("{} · s {:.2} · κ {:.2}", r.name, r.s, r.kappa)
+}
+
+/// The user-facing name of a Rock layer (§4.13's tool-options row: Surface /
+/// Beneath / Cap thickness). Empty for a non-Rock target.
+fn rock_layer_label(t: paint_bridge::PaintTarget) -> &'static str {
+    match t {
+        paint_bridge::PaintTarget::RockTop => "Surface",
+        paint_bridge::PaintTarget::RockSub => "Beneath",
+        paint_bridge::PaintTarget::RockCap => "Cap thickness",
+        _ => "",
     }
 }
 
@@ -26014,5 +26380,119 @@ mod rock_undo_cursor_tests {
         assert_eq!(bits(&f), bits(&[0.55; 8]));
         assert!(undo.is_empty());
         assert_eq!(redo_one_with(&mut undo, &mut redo, &mut f, None), None);
+    }
+}
+
+/// GF-8 slice 2 (`GEOLOGY_FIRST_SCOPE.md` §4.13): the shell's Rock commit
+/// path end to end without a Godot runtime, in the order
+/// `WorldGen::paint_commit_rock` runs it: a Rock dab drafted in
+/// `PaintEditor`, taken out by `take_rock_commit`, the undo step pushed with
+/// the column, `rock_paint::commit`, then undo and redo through the same
+/// cursor functions the shell's Edit menu calls.
+#[cfg(test)]
+mod rock_paint_commit_tests {
+    use super::*;
+    use cartalith_engine::{rock_paint, WorldState};
+
+    /// A 512 x 328 app world with the geology processes on (the Rock target's
+    /// gate), at `seed`.
+    fn world(seed: i32) -> (WorldParams, WorldState) {
+        let mut p = params::defaults();
+        p.gw = 512;
+        p.gh = 328;
+        p.tect.seed = seed;
+        p.geology_processes = true;
+        let ws = generate_terrain(&p);
+        (p, ws)
+    }
+
+    /// Bit view of a field, so NaN and -0.0 compare exactly.
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// Every array a Rock commit may write, as bits.
+    fn column_key(ws: &WorldState) -> (Vec<u8>, Vec<u8>, Vec<u32>, Vec<u32>, Option<Vec<u8>>) {
+        let c = ws.geology.column().expect("column");
+        (c.rock_top.clone(), c.rock_sub.clone(), bits(&c.contact), bits(&c.regolith), c.painted.clone())
+    }
+
+    /// The land cell nearest the map centre at least 48 cells from every
+    /// edge (so `W` = disc + 16 lies inside the map) and 0.05 above sea.
+    fn land_centre(ws: &WorldState, gw: usize, gh: usize) -> (usize, usize) {
+        let sea = ws.sea_level as f32;
+        let mut best = None;
+        for y in 48..gh - 48 {
+            for x in 48..gw - 48 {
+                if ws.field[y * gw + x] > sea + 0.05 {
+                    let d = (x as i64 - gw as i64 / 2).pow(2) + (y as i64 - gh as i64 / 2).pow(2);
+                    if best.is_none_or(|(bd, _, _)| d < bd) {
+                        best = Some((d, x, y));
+                    }
+                }
+            }
+        }
+        let (_, x, y) = best.expect("premise: the world has interior land");
+        (x, y)
+    }
+
+    #[test]
+    fn a_rock_commit_moves_only_its_window_and_undo_redo_restore_field_and_column_exactly() {
+        // Protects: the slice's whole contract on a generated world -- the
+        // draft reaches the bake through `take_rock_commit`, the field moves
+        // only inside `W`, and Edit > Undo / Redo restore BOTH the field and
+        // the column byte for byte (§4.13 step 1, "undo_one and redo_one
+        // restore both, or neither").
+        let (p, mut ws) = world(483_920);
+        let (gw, gh) = (p.gw, p.gh);
+        let n = gw * gh;
+        let (cx, cy) = land_centre(&ws, gw, gh);
+        let here = ws.geology.column().unwrap().rock_top[cy * gw + cx];
+        // A different rock from the one already there (shale, or granite on shale).
+        let value = if here == cartalith_terrain::geology::Rock::Shale as u8 { 1 } else { 10 };
+
+        let mut e = paint_bridge::PaintEditor::new(gw, gh, std::sync::Arc::from(vec![0u8; n].as_slice()));
+        e.set_layer(paint_bridge::PaintTarget::RockTop);
+        e.set_brush(value, 6.0, 1.0, 0.0, false, false);
+        e.stroke_at(cx as f64, cy as f64);
+        assert_eq!(e.rock_pending(), 1);
+        let rc = e.take_rock_commit(n).expect("a Rock dab was pending");
+        assert_eq!(e.rock_pending(), 0, "the take empties the Rock drafts");
+        assert_eq!(rc.top[cy * gw + cx], value as u8);
+        assert!(rc.sub.iter().chain(rc.cap.iter()).all(|&v| v == 0), "only the surface layer was painted");
+
+        let (f_pre, c_pre) = (bits(&ws.field), column_key(&ws));
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        undo.push_with_column("Rock paint commit", &ws.field, ws.geology.column().map(undo::ColumnSnapshot::of));
+        redo.clear();
+        let rep = rock_paint::commit(&mut ws, &p, gw, gh, &rock_paint::RockPaint { top: &rc.top, sub: &rc.sub, cap: &rc.cap }, rock_paint::REERODE_PAD_CELLS)
+            .expect("the column exists");
+        assert!(rep.bake.cells_changed > 0, "premise: the painted rock differs");
+        let r = rep.reerode.as_ref().expect("processes on: the window re-erodes");
+        let w = r.window;
+        assert!(r.cells_moved > 0, "erosion responded to the painted rock");
+        let (f_post, c_post) = (bits(&ws.field), column_key(&ws));
+        for i in 0..n {
+            let (x, y) = (i % gw, i / gw);
+            let inside = x >= w.x0 && x < w.x0 + w.w && y >= w.y0 && y < w.y0 + w.h;
+            if !inside {
+                assert_eq!(f_post[i], f_pre[i], "field moved outside W at ({x}, {y})");
+                assert_eq!(c_post.0[i], c_pre.0[i], "rock_top moved outside W at ({x}, {y})");
+                assert_eq!(c_post.3[i], c_pre.3[i], "regolith moved outside W at ({x}, {y})");
+            }
+        }
+
+        // Undo: both restored. `field` and `geology` are disjoint fields of
+        // `ws`, borrowed separately, as the shell's `undo_last` does.
+        let ws_field = std::sync::Arc::make_mut(&mut ws.field);
+        assert_eq!(undo_one_with(&mut undo, &mut redo, ws_field.as_mut_slice(), ws.geology.column_mut()).as_deref(), Some("Rock paint commit"));
+        assert_eq!(bits(&ws.field), f_pre, "undo restored the field byte for byte");
+        assert_eq!(column_key(&ws), c_pre, "undo restored the column byte for byte (painted mask included)");
+        // Redo: both reapplied.
+        let ws_field = std::sync::Arc::make_mut(&mut ws.field);
+        assert_eq!(redo_one_with(&mut undo, &mut redo, ws_field.as_mut_slice(), ws.geology.column_mut()).as_deref(), Some("Rock paint commit"));
+        assert_eq!(bits(&ws.field), f_post, "redo reapplied the field byte for byte");
+        assert_eq!(column_key(&ws), c_post, "redo reapplied the column byte for byte");
     }
 }

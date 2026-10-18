@@ -5317,8 +5317,57 @@ func paint_draft_count() -> int:
 		return 0
 	return world_gen.paint_draft_count()
 
+## GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13): whether this world can take a Rock paint, and
+## why not (`WorldGen.rock_paint_status`): `available`, `reason` (only when not
+## available), `layers` (`[{key, label}]` for Surface / Beneath / Cap thickness),
+## `cap_class_m`, `cap_max_m`, `sub_none`, `pad_cells`, `painted_cells` (only when the
+## column has a painted mask) and `save_note`. **`{}` while `generating` or when the
+## loaded extension predates GF-8** -- callers treat `{}` as "Rock is not offered" and
+## say why with `rock_paint_unavailable_reason()`. Checked with `has_method` and called
+## with `call()`, not `_has()` plus a direct call: every paint surface reads it on every
+## rebuild, so a pre-GF-8 binary must neither warn per rebuild nor fail to parse.
+func rock_paint_status() -> Dictionary:
+	if generating or world_gen == null or not world_gen.has_method("rock_paint_status"):
+		return {}
+	return world_gen.call("rock_paint_status")
+
+## The sentence a disabled Rock target carries: the engine's own refusal when it gave
+## one, else why the shell could not ask. Always ends with the save caveat, so the user
+## is told before painting that a painted rock does not survive a save and reopen yet.
+func rock_paint_unavailable_reason(st: Dictionary) -> String:
+	var why: String
+	if generating:
+		why = "A world is being generated."
+	elif st.is_empty():
+		why = "This build of the engine has no Rock paint (GF-8)."
+	else:
+		why = String(st.get("reason", ""))
+	var note := String(st.get("save_note", ROCK_PAINT_SAVE_NOTE_FALLBACK))
+	return (why + " " + note).strip_edges()
+
+## The save caveat for a binary too old to send its own (`ROCK_PAINT_SAVE_NOTE` in
+## `lib.rs`, which wins whenever the engine answers). Same meaning, same words.
+const ROCK_PAINT_SAVE_NOTE_FALLBACK := "Rock paint is not saved with the project yet: the geology column is not in the save format, so reopening the project loses the painted rock (and the whole column). Saving the column is GF-8's next slice."
+
+## GF-8: the eleven rock classes with their `ROCK_PROPS` resistance values
+## (`WorldGen.get_rock_classes`: `index`, `name`, `s`, `kappa`, `theta_c`, `gamma`,
+## `rho`, `selby`, `soluble`). `[]` while `generating` or on a pre-GF-8 binary.
+func get_rock_classes() -> Array:
+	if generating or world_gen == null or not world_gen.has_method("get_rock_classes"):
+		return []
+	return world_gen.call("get_rock_classes")
+
+## GF-8: whether the live world carries a geology column (`WorldGen.geology_available`).
+## `false` while `generating` or on a pre-GF-8 binary -- never a guess that it does.
+func geology_available() -> bool:
+	if generating or world_gen == null or not world_gen.has_method("geology_available"):
+		return false
+	return bool(world_gen.call("geology_available"))
+
 ## Bakes every layer's draft into its override array (`WorldGen.paint_commit`); returns
-## the engine's summary, `{}` without the API. Marks the world dirty first.
+## the engine's summary, `{}` without the API. Marks the world dirty first. With GF-8
+## Rock dabs pending the summary also carries `rock` (the bake and the re-erosion of
+## the painted window, or `{ok: false, reason}`; absent when no Rock dab was pending).
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
 func paint_commit() -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
