@@ -204,14 +204,50 @@ func _check_toast_legible(img: Image, wrap: Control, label: Label, tag: String) 
 	_check(close_to_theme,
 		"%s background sample %s is close to a theme 'raised' token (nothing painted over/through it)" % [tag, bg])
 
+## Hermetic settings (2026-10-18): this probe clears `[coach_marks]` in
+## `user://cartalith_settings.cfg` so it sees a first launch, and the shell then
+## writes `coach_marks.*=true` as the marks are shown -- left behind, that
+## suppresses (or forces) the marks in every later phone probe sharing the
+## user-data dir. `_stash_coach_marks()` records the section (and whether it
+## existed) just before the erase; `_quit()` is the single exit that puts it
+## back, so no `quit()` path leaves the setting changed. A no-op until stashed.
+var _coach_stashed := false
+var _coach_had := false
+var _coach_prior: Dictionary = {}
+
+func _stash_coach_marks(cfg: ConfigFile) -> void:
+	_coach_stashed = true
+	_coach_had = cfg.has_section("coach_marks")
+	if _coach_had:
+		for k in cfg.get_section_keys("coach_marks"):
+			_coach_prior[k] = cfg.get_value("coach_marks", k)
+
+func _quit(code: int) -> void:
+	if _coach_stashed:
+		var cfg := ConfigFile.new()
+		cfg.load(DccSettings.CONFIG_PATH)
+		if cfg.has_section("coach_marks"):
+			cfg.erase_section("coach_marks")
+		for k in _coach_prior:
+			cfg.set_value("coach_marks", k, _coach_prior[k])
+		cfg.save(DccSettings.CONFIG_PATH)
+		_coach_stashed = false
+	get_tree().quit(code)
+
 func _ready() -> void:
+	## Stash BEFORE the app boots: the shell marks `bottombar_tabs` seen on its own
+	## during boot, so a stash taken at the later erase would record the shell-written
+	## flag as if it were the user's (the first proof run did exactly that).
+	var stash_cfg := ConfigFile.new()
+	stash_cfg.load(DccSettings.CONFIG_PATH)
+	_stash_coach_marks(stash_cfg)
 	var wd := Timer.new()
 	wd.wait_time = 60.0
 	wd.one_shot = true
 	add_child(wd)
 	wd.timeout.connect(func():
 		print("WATCHDOG TIMEOUT")
-		get_tree().quit(3))
+		_quit(3))
 	wd.start()
 
 	var want := Vector2i(1080, 2340)
@@ -233,7 +269,7 @@ func _ready() -> void:
 
 	if not app.is_phone():
 		_log("ABORT not phone -- pass --force-touch")
-		get_tree().quit(2)
+		_quit(2)
 		return
 
 	_check(app._coach_mark_ids().has("pan_drag_hint"),
@@ -346,4 +382,4 @@ func _ready() -> void:
 		"pan_drag_hint is persisted as seen after its toast finished")
 
 	_log("RESULT %s failures=%d" % ["PASS" if _fail == 0 else "FAIL", _fail])
-	get_tree().quit(1 if _fail > 0 else 0)
+	_quit(1 if _fail > 0 else 0)

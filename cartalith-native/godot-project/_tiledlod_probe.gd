@@ -54,6 +54,7 @@ func _ready() -> void:
 	var pop := _find_popup(app, 160)
 	_ok("a menu carries the Tiled LOD submenu", pop != null, true)
 	if pop == null:
+		DccSettings.set_lod_auto(was)    ## hermetic settings: undo the entry write above
 		get_tree().quit(1); return
 	_ok("Auto on zoom row", pop.get_item_index(160) >= 0, true)
 	_ok("Manual row", pop.get_item_index(161) >= 0, true)

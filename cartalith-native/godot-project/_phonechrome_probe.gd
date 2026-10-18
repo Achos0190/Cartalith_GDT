@@ -244,6 +244,36 @@ func _fit_walk(root: Node, floor_px: float) -> Array:
 		violations, "  (hidden=", hidden, " never-fitted=", unfitted, ")")
 	return [checked, violations]
 
+## Hermetic settings (2026-10-18): this probe clears `[coach_marks]` in
+## `user://cartalith_settings.cfg` so it sees a first launch, and the shell then
+## writes `coach_marks.*=true` as the marks are shown -- left behind, that
+## suppresses (or forces) the marks in every later phone probe sharing the
+## user-data dir. `_stash_coach_marks()` records the section (and whether it
+## existed) just before the erase; `_quit()` is the single exit that puts it
+## back, so no `quit()` path leaves the setting changed. A no-op until stashed.
+var _coach_stashed := false
+var _coach_had := false
+var _coach_prior: Dictionary = {}
+
+func _stash_coach_marks(cfg: ConfigFile) -> void:
+	_coach_stashed = true
+	_coach_had = cfg.has_section("coach_marks")
+	if _coach_had:
+		for k in cfg.get_section_keys("coach_marks"):
+			_coach_prior[k] = cfg.get_value("coach_marks", k)
+
+func _quit(code: int) -> void:
+	if _coach_stashed:
+		var cfg := ConfigFile.new()
+		cfg.load(DccSettings.CONFIG_PATH)
+		if cfg.has_section("coach_marks"):
+			cfg.erase_section("coach_marks")
+		for k in _coach_prior:
+			cfg.set_value("coach_marks", k, _coach_prior[k])
+		cfg.save(DccSettings.CONFIG_PATH)
+		_coach_stashed = false
+	get_tree().quit(code)
+
 func _ready() -> void:
 	## A clean slate for the coach-mark assertions below: this repo's own
 	## `user://cartalith_settings.cfg` may already carry `coach_marks.*=true`
@@ -258,16 +288,17 @@ func _ready() -> void:
 	## gets another chance to touch anything.
 	var cfg := ConfigFile.new()
 	cfg.load(DccSettings.CONFIG_PATH)
+	_stash_coach_marks(cfg)
 	if cfg.has_section("coach_marks"):
 		cfg.erase_section("coach_marks")
 		cfg.save(DccSettings.CONFIG_PATH)
 
 	await _frames(2)
 	if not ClassDB.class_exists("WorldGen"):
-		print("[FATAL] extension did not load"); get_tree().quit(1); return
+		print("[FATAL] extension did not load"); _quit(1); return
 	if not ("--force-touch" in OS.get_cmdline_user_args()):
 		print("[FATAL] run with `-- --force-touch` -- _phone can never be true without it")
-		get_tree().quit(1); return
+		_quit(1); return
 
 	var vp := SubViewport.new()
 	vp.size = Vector2i(1080, 2340)
@@ -281,7 +312,7 @@ func _ready() -> void:
 	if not bool(app.is_phone()):
 		print("[FATAL] booted into the desktop/tablet composition, not phone -- ",
 			"the 1080x2340 SubViewport should have forced it")
-		get_tree().quit(1); return
+		_quit(1); return
 
 	print("\n=== 1: the app bar has a ⌕ cell, and only because the index exists ===")
 	_ok("place_search.gd exists in this checkout", app.call("_has_place_search"), true)
@@ -530,4 +561,4 @@ func _ready() -> void:
 		_ok("coach mark '%s' is marked seen" % id, app.call("_coach_mark_seen", id), true)
 
 	print("\n_phonechrome_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
-	get_tree().quit(1 if _fail > 0 else 0)
+	_quit(1 if _fail > 0 else 0)

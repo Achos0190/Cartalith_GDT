@@ -102,6 +102,8 @@ func _ready() -> void:
 	print("\n=== 1: the dialog exists and is wired ===")
 	_ok("shortcuts_dialog constructed", dlg != null, true)
 	if dlg == null:
+		## Hermetic settings: drop the SEEDED rebind written before the boot.
+		DccSettings.reset_shortcuts(DccSettings.SHORTCUT_CONTEXT_MENU)
 		get_tree().quit(1); return
 	_ok("app exposes open_shortcuts()", app.has_method("open_shortcuts"), true)
 

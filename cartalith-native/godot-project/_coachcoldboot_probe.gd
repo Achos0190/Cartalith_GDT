@@ -94,6 +94,36 @@ func _shot(app: Node, tag: String) -> void:
 	img.save_png(dir.path_join("coachcoldboot_%s.png" % tag))
 	_log("saved screenshot: %s" % dir.path_join("coachcoldboot_%s.png" % tag))
 
+## Hermetic settings (2026-10-18): this probe clears `[coach_marks]` in
+## `user://cartalith_settings.cfg` so it sees a first launch, and the shell then
+## writes `coach_marks.*=true` as the marks are shown -- left behind, that
+## suppresses (or forces) the marks in every later phone probe sharing the
+## user-data dir. `_stash_coach_marks()` records the section (and whether it
+## existed) just before the erase; `_quit()` is the single exit that puts it
+## back, so no `quit()` path leaves the setting changed. A no-op until stashed.
+var _coach_stashed := false
+var _coach_had := false
+var _coach_prior: Dictionary = {}
+
+func _stash_coach_marks(cfg: ConfigFile) -> void:
+	_coach_stashed = true
+	_coach_had = cfg.has_section("coach_marks")
+	if _coach_had:
+		for k in cfg.get_section_keys("coach_marks"):
+			_coach_prior[k] = cfg.get_value("coach_marks", k)
+
+func _quit(code: int) -> void:
+	if _coach_stashed:
+		var cfg := ConfigFile.new()
+		cfg.load(DccSettings.CONFIG_PATH)
+		if cfg.has_section("coach_marks"):
+			cfg.erase_section("coach_marks")
+		for k in _coach_prior:
+			cfg.set_value("coach_marks", k, _coach_prior[k])
+		cfg.save(DccSettings.CONFIG_PATH)
+		_coach_stashed = false
+	get_tree().quit(code)
+
 func _ready() -> void:
 	var wd := Timer.new()
 	wd.wait_time = 60.0
@@ -101,7 +131,7 @@ func _ready() -> void:
 	add_child(wd)
 	wd.timeout.connect(func():
 		print("WATCHDOG TIMEOUT")
-		get_tree().quit(3))
+		_quit(3))
 	wd.start()
 
 	var vp_size := Vector2i(1080, 2340)
@@ -118,7 +148,7 @@ func _ready() -> void:
 			i += 1
 			continue
 		print("### COACHCOLDBOOT ABORT: unknown argument '%s' ###" % a)
-		get_tree().quit(2)
+		_quit(2)
 		return
 
 	DisplayServer.window_set_size(vp_size)
@@ -134,6 +164,7 @@ func _ready() -> void:
 	var settings_script = load("res://shell/dcc_settings.gd")
 	var cfg := ConfigFile.new()
 	cfg.load(settings_script.CONFIG_PATH)
+	_stash_coach_marks(cfg)
 	if cfg.has_section("coach_marks"):
 		cfg.erase_section("coach_marks")
 	cfg.save(settings_script.CONFIG_PATH)
@@ -149,13 +180,13 @@ func _ready() -> void:
 
 	if not app.is_phone():
 		_log("ABORT not phone -- pass --force-touch")
-		get_tree().quit(2)
+		_quit(2)
 		return
 
 	var picker: Node = app.phone_project_picker
 	_check(picker != null, "phone_project_picker exists on a phone boot")
 	if picker == null:
-		get_tree().quit(1)
+		_quit(1)
 		return
 
 	## Fixture precondition, not the finding: this only tests the real bug if
@@ -197,4 +228,4 @@ func _ready() -> void:
 	await _shot(app, "02_after_dismiss_coach_mark_started")
 
 	_log("RESULT %s failures=%d" % ["PASS" if _fail == 0 else "FAIL", _fail])
-	get_tree().quit(1 if _fail > 0 else 0)
+	_quit(1 if _fail > 0 else 0)

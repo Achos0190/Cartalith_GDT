@@ -133,7 +133,11 @@ func _ready() -> void:
 	_ok("suffix is the symbol, not the key", DccUnits.suffix(), "nm")
 	un.id_pressed.emit(54)
 	await _frames(2)
-	_ok("Kilometres restored", DccSettings.units_mode(), "km")
+	_ok("Kilometres selected", DccSettings.units_mode(), "km")
+	## Restore the mode the run STARTED with (not a hard-coded km), via the same
+	## radio rows, so a shared user-data dir that began on mi/nmi is left as found.
+	un.id_pressed.emit({"km": 54, "mi": 55, "nmi": 604}[u0])
+	await _frames(2)
 	_ok("mode restored to what it was", DccSettings.units_mode(), u0)
 
 	print("\n=== PREFERENCES - Theme radio (51/52/58) ===")
@@ -182,9 +186,24 @@ func _ready() -> void:
 	print("     info budget %s -> %s" % [b0.get("budget_bytes"), b1.get("budget_bytes")])
 	var ex := _sub(pref, "Relief exaggeration")
 	print("     info relief exag before: ", ("%s" % DccSettings.relief_exaggeration_default()) if DccSettings.has_relief_exaggeration_default() else "(unset)")
+	## Hermetic settings (2026-10-18): rung 621 persists `[graphics] exag` to
+	## `user://cartalith_settings.cfg`, and this probe used to leave it there --
+	## the stale `exag=2.0` made `_sealive_probe` fail in a shared user-data dir.
+	## Capture the PRESENCE as well as the value (an unset key is the engine's
+	## 3.4, which is not a rung, so rewriting a value would not restore it) and put
+	## it back right after the press; no `quit()` sits between the two.
+	var exag_had := DccSettings.has_relief_exaggeration_default()
+	var exag_prior := DccSettings.relief_exaggeration_default()
 	ex.id_pressed.emit(621)
 	await _frames(2)
 	print("     info relief exag after rung 621: ", ("%s" % DccSettings.relief_exaggeration_default()) if DccSettings.has_relief_exaggeration_default() else "(unset)")
+	if exag_had:
+		DccSettings.set_relief_exaggeration_default(exag_prior)
+	else:
+		DccSettings.clear_relief_exaggeration_default()
+	_ok("relief exaggeration setting restored to its pre-press presence and value",
+		[DccSettings.has_relief_exaggeration_default(), DccSettings.relief_exaggeration_default()],
+		[exag_had, exag_prior])
 
 	print("\n=== PREFERENCES - GPU acceleration checkbox (50) ===")
 	var gi := pref.get_item_index(50)

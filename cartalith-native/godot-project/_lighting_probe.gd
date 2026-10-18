@@ -43,10 +43,31 @@ func _find_popup(app: Node, id: int) -> PopupMenu:
 				return c as PopupMenu
 	return null
 
+## Hermetic settings (2026-10-18): this probe starts from a clean rig
+## (`reset_lighting_defaults()` erases the whole `[lighting]` section) and the
+## menu presses below write more keys; ending on step 5's Reset left the section
+## ERASED, destroying any rig the user-data dir already carried. `_stash_lighting()`
+## records which keys were stored (presence AND value: a stored copy of a default
+## is a different statement from an absent key) and `_quit()` -- the only exit
+## after the stash -- erases the section and writes those keys back.
+var _lit_prior: Dictionary = {}
+
+func _stash_lighting() -> void:
+	for k in DccSettings.LIGHTING_DEFAULTS:
+		if DccSettings.has_lighting_default(String(k)):
+			_lit_prior[String(k)] = float(DccSettings.lighting_defaults()[k])
+
+func _quit(code: int) -> void:
+	DccSettings.reset_lighting_defaults()
+	for k in _lit_prior:
+		DccSettings.set_lighting_default(k, _lit_prior[k])
+	get_tree().quit(code)
+
 func _ready() -> void:
 	await _frames(2)
 	if not ClassDB.class_exists("WorldGen"):
 		print("[FATAL] extension did not load"); get_tree().quit(1); return
+	_stash_lighting()
 	DccSettings.reset_lighting_defaults()
 	var app: Node = load("res://shell/app.tscn").instantiate()
 	add_child(app)
@@ -65,7 +86,7 @@ func _ready() -> void:
 	_ok("Ambient ladder", amb != null, true)
 	_ok("Multidirectional ladder", num != null, true)
 	if az == null or alt == null or amb == null or num == null:
-		get_tree().quit(1); return
+		_quit(1); return
 	var any_disabled := false
 	for pair in [[az, 170, 8], [alt, 190, 7], [amb, 210, 6], [num, 230, 6]]:
 		var pm: PopupMenu = pair[0]
@@ -123,4 +144,4 @@ func _ready() -> void:
 
 	print("")
 	print("_lighting_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
-	get_tree().quit(1 if _fail > 0 else 0)
+	_quit(1 if _fail > 0 else 0)

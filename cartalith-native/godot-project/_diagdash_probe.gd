@@ -8,7 +8,7 @@ extends Node
 ##
 ## Result: lines prefixed `PROBE`: `settlements=<n> cards=<n>`, `rendered=<n>  bare 'Strahler order 0'=<n>
 ## dashed-with-reason=<n>  blank fields=<n>`, sample card lines, then `PROBE CPU ...` lines for the CPU thread
-## setting (boot state, rungs, a `set(2)` and its readout, armed/disarmed). Exit 0 only when both the bare
+## setting (boot state, rungs, a `set(2)` and its readout, then restored to the boot value; `-- --arm-cpu` instead leaves 4 stored for the two-run startup-restore check). Exit 0 only when both the bare
 ## `Strahler order 0` count and the blank-field count are 0, else 1; exit 2 with `PROBE FAIL: no
 ## CivilizationWorkspace`; a watchdog prints `WATCHDOG TIMEOUT` and exits 3.
 
@@ -121,11 +121,17 @@ func _ready() -> void:
 			## what the pool actually came up at, then clears it so a probe
 			## run does not silently reconfigure the developer's install.
 			## `boot_configured` is read before any set above.
-			if boot_configured == 0:
+			##
+			## Hermetic settings (2026-10-18): the arming used to happen on EVERY
+			## first run, leaving `[cpu] threads=4` (and `set(2)` above persists
+			## too) in a shared user-data dir. Now the stored value is put back to
+			## what this run booted with, and the leave-4-behind arm is opt-in
+			## (`-- --arm-cpu`), for the deliberate two-run startup-restore check.
+			if "--arm-cpu" in OS.get_cmdline_user_args() and boot_configured == 0:
 				DccSettings.set_cpu_thread_count(4)
 				print("PROBE CPU armed: stored 4 -- run again to see the startup restore")
 			else:
-				DccSettings.set_cpu_thread_count(0)
-				print("PROBE CPU disarmed: stored back to 0 (automatic)")
+				DccSettings.set_cpu_thread_count(boot_configured)
+				print("PROBE CPU restored: stored back to the boot value ", boot_configured)
 
 	get_tree().quit(0 if bare_zero == 0 and blank_field == 0 else 1)

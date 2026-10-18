@@ -297,6 +297,10 @@ files it does not own.
   plus `shell/app.gd`, graded only on stderr containing "Parse Error" /
   "Failed to load script" — the exit code is unreliable. A commit once reported
   2 821 passed while the application root would not compile.
+- **Probes are hermetic about settings.** Give each probe run a fresh user-data dir
+  (a project copy with a unique `config/name`; Godot 4.7.1 has no `--user-data-dir`), and
+  a probe must restore any persisted `cartalith_settings.cfg` setting it changes — at
+  every exit path, presence as well as value (2026-10-18: a leaked `exag=2.0` failed `_sealive_probe`).
 - **A golden re-baseline needs an owner ruling.** Divergence ships `false` in
   `cartalith_engine::WorldParams::defaults()`, `true` in
   `cartalith_godot::params::defaults()`; new params need `PARAMS` + `JS_PATHS`
