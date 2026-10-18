@@ -197,8 +197,7 @@ An unknown `version` or blend key is refused, not guessed; a missing
 `land_only` reads as `true`. CP-3 writes coordinates rounded to the metre (3
 decimals of km). Measured: 5 000 marks × 40 points = 6.03 MB at full precision,
 3.98 MB metre-rounded, before the archive's deflate; the layer builds in
-31.7 ms (`colour_paint_save_size`). **Not added in CP-1**: GF-8 slice 3 owns the
-save/io files now; CP-3 adds the slot after it lands.
+31.7 ms (`colour_paint_save_size`). Added by CP-3 (2026-10-18, §20).
 
 ## 10. Cost (measured 2026-10-18, release, this machine, two independent runs)
 
@@ -504,3 +503,19 @@ CARTO ▸ Colours behind the bottom bar (CP-4); the export dialog's "without
 paint" switch (CP-6). Session mode was not separately probed (§15 says CARTO
 stays visible there).
 
+## 20. CP-3 as built (2026-10-18)
+
+`appearance_paint.json` is registered in `cartalith-io`'s `DOCUMENT_SLOTS` and
+is **engine-owned** (`project_bridge.rs` `ENGINE_OWNED_SLOTS`). The save writes
+`colour_paint_save_doc` -- the layer's document with every coordinate, radius,
+edge and glow radius rounded to the metre -- only when the layer has marks;
+the open reads it with `colour_paint_from_data` after `load_save` has dropped
+the previous project's layer. The format, the reading rules and the forward
+compatibility note are `SAVEFILE_COMPAT.md`'s "`appearance_paint.json`"
+section. Tests (`project_bridge.rs`): `colour_paint_survives_a_real_archive_round_trip`
+(round trip equal, re-save byte-identical, engine-owned, size delta printed:
++459 bytes for two marks), `a_project_without_colour_paint_opens_and_saves_without_the_slot`
+(a real pre-slot archive opens with no paint and no warning; no layer or an
+empty one writes no slot), `a_damaged_colour_paint_member_warns_and_opens_without_paint`.
+Probe: `_colourpaint_probe.gd` leg 7 saves through `EngineBridge.save_project`,
+clears, reopens through `load_save`, and finds both marks and the material.

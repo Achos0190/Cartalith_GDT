@@ -582,6 +582,18 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// omitted when there is no variant (a base preset, Custom, an untouched
 /// project), so older archives and untouched projects carry no such member and
 /// stay byte-identical.
+///
+/// # `appearance_paint.json` is engine-owned
+///
+/// Registered 2026-10-18 (`COLOUR_PAINT_SCOPE.md` CP-3, Ruling CN). The
+/// payload is the colour-paint layer's `ColourPaintDoc`
+/// (`cartalith_spatial::colour_paint`: version, visible, marks in map
+/// kilometres, each a flat colour or an emissive material), held by
+/// `WorldGen::colour_paint`, so `project_bridge.rs` writes and reads it --
+/// the conflicts slot's arrangement. Additive: written only when the layer
+/// has marks, so older archives and untouched projects carry no such member
+/// and stay byte-identical; an older build ignores it (§14.3's unknown-member
+/// rule) and opens the project without the paint.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -604,6 +616,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "drafts/sculpt.json",
     "appearance_overlay_adjust.json",
     "appearance_style.json",
+    "appearance_paint.json",
     "appearance.json",
     "vault.json",
 ];

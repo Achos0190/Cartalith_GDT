@@ -214,6 +214,9 @@ const SLOT_CONFLICTS: &str = "entities/conflicts.json";
 /// `FACTION_HUB_DESIGN.md` §6 R1, `SAVEFILE_COMPAT.md` §9.9: the custom
 /// religion library (`CivData::religions`).
 const SLOT_RELIGIONS: &str = "entities/religions.json";
+/// `COLOUR_PAINT_SCOPE.md` CP-3 (Ruling CN): the colour-paint layer
+/// (`WorldGen::colour_paint`), written only when it has marks.
+const SLOT_COLOUR_PAINT: &str = "appearance_paint.json";
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -265,6 +268,10 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // which GDScript only reaches through the `civ_*_religion` funcs -- the
     // landmarks slot's reason again.
     SLOT_RELIGIONS,
+    // CP-3: the payload is `WorldGen::colour_paint`, engine state the shell
+    // reaches only through the `colour_paint_*` funcs -- the landmarks
+    // slot's reason.
+    SLOT_COLOUR_PAINT,
 ];
 
 // ===================== the document schemas =====================
@@ -2523,6 +2530,62 @@ fn civ_rasters(civ: &CivData, n: usize, write: &mut ProjectWrite<'_>) {
 }
 
 /// Serialises `value` as pretty JSON into `out[slot]`. A serialisation failure leaves the slot absent rather than panicking (see the inline note); callers must not read absence as "empty document".
+/// CP-3's saved form of the colour-paint layer: `None` with no layer or no
+/// marks (the slot is then absent, so an untouched project's archive does
+/// not change), else the document with every coordinate, radius and edge
+/// rounded to the metre (`COLOUR_PAINT_SCOPE.md` §9: 3 decimals of km). The
+/// rounding is idempotent, so re-saving an opened project writes the same
+/// bytes. A hidden layer with marks is saved (with `visible: false`).
+pub(crate) fn colour_paint_save_doc(layer: Option<&cartalith_spatial::colour_paint::ColourPaint>) -> Option<cartalith_spatial::colour_paint::ColourPaintDoc> {
+    use cartalith_spatial::colour_paint::MarkShape;
+    let r = |v: f64| (v * 1000.0).round() / 1000.0;
+    let mut doc = layer.filter(|l| !l.is_empty())?.doc().clone();
+    for m in &mut doc.marks {
+        match &mut m.shape {
+            MarkShape::Line { points_km, radius_km } => {
+                for p in points_km.iter_mut() {
+                    *p = [r(p[0]), r(p[1])];
+                }
+                // Never rounded below the layer's own minimum, so a saved
+                // stroke always reopens.
+                *radius_km = r(*radius_km).max(cartalith_spatial::colour_paint::MIN_RADIUS_KM);
+            }
+            MarkShape::Area { ring_km, edge_km } => {
+                for p in ring_km.iter_mut() {
+                    *p = [r(p[0]), r(p[1])];
+                }
+                *edge_km = r(*edge_km);
+            }
+        }
+        if let Some(e) = m.emissive.as_mut() {
+            e.glow_radius_km = r(e.glow_radius_km);
+        }
+    }
+    Some(doc)
+}
+
+/// Reads CP-3's slot back. Absent is `None` with no warning (every archive
+/// written before the slot, and every untouched project); a member that is
+/// not a colour-paint document, or one the layer refuses (an unknown version
+/// or blend, a cap, a non-finite value), is a warning and `None` -- the rest
+/// of the project opens.
+pub(crate) fn colour_paint_from_data(data: &project::ProjectData, warnings: &mut Vec<String>) -> Option<cartalith_spatial::colour_paint::ColourPaintDoc> {
+    use cartalith_spatial::colour_paint::{ColourPaint, ColourPaintDoc};
+    match data.parse::<ColourPaintDoc>(SLOT_COLOUR_PAINT)? {
+        Err(_) => {
+            warnings.push(format!("{SLOT_COLOUR_PAINT}: unreadable -- the colour paint was not restored"));
+            None
+        }
+        Ok(doc) => match ColourPaint::new(doc.clone(), 0.0) {
+            Ok(_) => Some(doc),
+            Err(e) => {
+                warnings.push(format!("{SLOT_COLOUR_PAINT}: {e} -- the colour paint was not restored"));
+                None
+            }
+        },
+    }
+}
+
 fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, value: &T) {
     // `to_string_pretty` cannot fail for these shapes (no non-string map
     // keys, no non-finite floats reachable from them), and a failure here
@@ -3369,6 +3432,10 @@ impl WorldGen {
                 water_adjust: adjust_member(self.appearance_water_adjust.as_ref()),
             },
         );
+        // CP-3: the colour paint, only when the layer has marks.
+        if let Some(doc) = colour_paint_save_doc(self.colour_paint_layer()) {
+            insert_doc(&mut documents, SLOT_COLOUR_PAINT, &doc);
+        }
 
         // The Landmark dock's settings. Unconditional, unlike the editors
         // above: `LandmarkSettings::default()` is not "nothing" -- it is
@@ -3955,6 +4022,15 @@ impl WorldGen {
                     conflicts,
                 };
                 restored.push("conflicts");
+            }
+        }
+
+        // CP-3: the colour paint. `load_save` (run first) removed the
+        // previous project's layer; an archive without the slot opens with
+        // none, a damaged one warns and opens with none.
+        if let Some(doc) = colour_paint_from_data(&data, &mut restore_warnings) {
+            if self.colour_paint_install(Some(doc)).is_ok() {
+                restored.push("colour_paint");
             }
         }
 
@@ -7064,6 +7140,121 @@ mod tests {
         let mut fresh = BTreeMap::new();
         civ_documents(&sample_civ(), None, &mut fresh);
         assert!(!fresh.contains_key(SLOT_RELIGIONS), "an untouched civ writes none either");
+    }
+
+    /// A small colour-paint layer: a flat stroke with sub-metre coordinates
+    /// and a lava area, so the save's rounding and the material both show.
+    fn sample_colour_paint() -> cartalith_spatial::colour_paint::ColourPaint {
+        use cartalith_spatial::colour_paint::*;
+        let flat = ColourMark {
+            shape: MarkShape::Line { points_km: vec![[100.123456, 200.98765], [140.5, 210.25]], radius_km: 2.000_4 },
+            rgb: [200, 30, 18],
+            opacity: 0.8,
+            hardness: 0.5,
+            blend: ColourBlend::Replace,
+            land_only: true,
+            emissive: None,
+        };
+        let lava = ColourMark {
+            shape: MarkShape::Area { ring_km: vec![[300.0, 300.0], [320.000_7, 300.0], [310.0, 318.3]], edge_km: 0.25 },
+            rgb: [34, 33, 38],
+            opacity: 1.0,
+            hardness: 1.0,
+            blend: ColourBlend::Replace,
+            land_only: false,
+            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.75, crack_density: 0.5, glow_radius_km: 1.5, heat_along: 0.0 }),
+        };
+        ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: false, marks: vec![flat, lava] }, 1.0).unwrap()
+    }
+
+    /// Writes a real archive holding `docs` beside the civ documents and reads it back.
+    fn round_trip_with(docs: BTreeMap<String, String>) -> (cartalith_io::ProjectData, usize) {
+        let (gw, gh) = (4usize, 3usize);
+        let n = gw * gh;
+        let params = cartalith_io::SaveParams { gw, gh, seed: 4242, map_width_km: 800.0, sea_level: 0.42, world: false, origin: None, name: None };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
+            volcanic_field: vec![0.0; n],
+            impact_field: vec![0.0; n],
+            strahler_order: vec![0; n],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.documents = docs;
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write_project should succeed");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read_project should succeed");
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        (data, buf.len())
+    }
+
+    /// Protects CP-3 (`COLOUR_PAINT_SCOPE.md` §9): the colour paint survives a
+    /// real archive round trip -- marks, material, the hidden flag -- equal
+    /// to the metre-rounded document written; re-saving the opened document
+    /// writes the same bytes (the rounding is idempotent); and the slot is
+    /// engine-owned (a caller cannot write it). Prints the archive size with
+    /// and without the paint (the size delta).
+    #[test]
+    fn colour_paint_survives_a_real_archive_round_trip() {
+        let layer = sample_colour_paint();
+        let saved = colour_paint_save_doc(Some(&layer)).expect("a layer with marks is saved");
+        if let cartalith_spatial::colour_paint::MarkShape::Line { points_km, radius_km } = &saved.marks[0].shape {
+            assert_eq!(points_km[0], [100.123, 200.988], "metre-rounded");
+            assert_eq!(*radius_km, 2.0);
+        } else {
+            panic!("the first mark is a stroke");
+        }
+        let mut docs = BTreeMap::new();
+        insert_doc(&mut docs, SLOT_COLOUR_PAINT, &saved);
+        let text = docs[SLOT_COLOUR_PAINT].clone();
+        let (data, with_len) = round_trip_with(docs);
+        let (_, without_len) = round_trip_with(BTreeMap::new());
+        let mut warnings = Vec::new();
+        let back = colour_paint_from_data(&data, &mut warnings).expect("restored");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(back, saved);
+        assert!(!back.visible && back.marks[1].emissive.is_some(), "the hidden flag and the material come back");
+        let reopened = cartalith_spatial::colour_paint::ColourPaint::new(back, 1.0).unwrap();
+        let mut again = BTreeMap::new();
+        insert_doc(&mut again, SLOT_COLOUR_PAINT, &colour_paint_save_doc(Some(&reopened)).unwrap());
+        assert_eq!(again[SLOT_COLOUR_PAINT], text, "re-saving an opened project writes the same bytes");
+        assert!(caller_slot_refusal(SLOT_COLOUR_PAINT).is_some(), "engine-owned: a caller may not write it");
+        eprintln!("archive with the 2-mark colour paint {with_len} bytes, without {without_len} bytes (+{})", with_len as i64 - without_len as i64);
+    }
+
+    /// Protects CP-3's additivity: a real archive written before the slot
+    /// existed opens with no paint and no warning; a project with no layer, or
+    /// an empty one, writes no slot at all (absent, not empty).
+    #[test]
+    fn a_project_without_colour_paint_opens_and_saves_without_the_slot() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+        let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+        assert!(data.text_of(SLOT_COLOUR_PAINT).is_none(), "premise: written before the slot existed");
+        let mut warnings = Vec::new();
+        assert!(colour_paint_from_data(&data, &mut warnings).is_none());
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(colour_paint_save_doc(None).is_none(), "no layer, no slot");
+        let empty = cartalith_spatial::colour_paint::ColourPaint::new(cartalith_spatial::colour_paint::ColourPaintDoc { version: 1, visible: true, marks: vec![] }, 1.0).unwrap();
+        assert!(colour_paint_save_doc(Some(&empty)).is_none(), "an empty layer, no slot");
+    }
+
+    /// Protects: a damaged colour-paint member costs only itself -- not a
+    /// document, an unknown version, an unknown blend -- each a warning and no
+    /// paint, never a failed open or a guessed layer.
+    #[test]
+    fn a_damaged_colour_paint_member_warns_and_opens_without_paint() {
+        let (mut data, _) = round_trip_with(BTreeMap::new());
+        for bad in [
+            serde_json::json!([1, 2, 3]),
+            serde_json::json!({"version": 2, "visible": true, "marks": []}),
+            serde_json::json!({"version": 1, "visible": true, "marks": [{"shape": {"kind": "line", "points_km": [[0, 0]], "radius_km": 1}, "rgb": [1, 2, 3], "opacity": 1, "hardness": 1, "blend": "glow"}]}),
+        ] {
+            data.documents.insert(SLOT_COLOUR_PAINT.to_string(), bad.clone());
+            let mut warnings = Vec::new();
+            assert!(colour_paint_from_data(&data, &mut warnings).is_none(), "{bad}");
+            assert_eq!(warnings.len(), 1, "{bad}: {warnings:?}");
+        }
     }
 
     /// Protects: damage costs only itself. A faction pointing at a custom

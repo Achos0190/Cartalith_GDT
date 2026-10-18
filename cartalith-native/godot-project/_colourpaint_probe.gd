@@ -16,7 +16,8 @@ extends Node
 ##      everywhere; show; clear -> 0 marks and the unpainted raster; undo -> 2;
 ##   6. while a regenerate holds the engine, every tool action returns without
 ##      calling it (no panic, the marks unchanged after it finishes) and the
-##      marks survive the regenerate (kilometres, §5).
+##      marks survive the regenerate (kilometres, §5);
+##   7. CP-3: saved with the project, cleared, reopened -- both marks come back.
 ##
 ## Pixel readback, so WINDOWED, never `--headless`:
 ##   godot --path <copy> res://_colourpaint_probe.tscn -- --tag desktop --out DIR
@@ -328,4 +329,15 @@ func _ready() -> void:
 	info = bridge.colour_paint_info()
 	_check(int(info.get("marks", -1)) == 2 and bool(info.get("visible", false)), "the marks survive a regenerate, visible (%s)" % str(info))
 	_shot("3_after_regenerate")
+	## 7. CP-3: the paint is saved with the project and comes back on open.
+	var path := OS.get_user_data_dir().path_join("cp_probe_save.zip")
+	var saved: bool = bridge.save_project(path)
+	tool.clear()
+	_check(int(bridge.colour_paint_info().get("marks", -1)) == 0, "premise: cleared before reopening")
+	var opened: bool = bridge.load_save(path)
+	await _frames(20)
+	info = bridge.colour_paint_info()
+	_check(saved and opened and int(info.get("marks", -1)) == 2 and int(info.get("emissive", -1)) == 1,
+		"saved and reopened: both marks and the lava material come back (saved=%s opened=%s %s)" % [saved, opened, str(info)])
+	DirAccess.remove_absolute(path)
 	_finish()

@@ -10126,6 +10126,12 @@ impl WorldGen {
         // an archive without them opens with none.
         self.appearance_terrain_adjust = None;
         self.appearance_water_adjust = None;
+        // Ruling CN's colour paint is this project's annotation
+        // (`COLOUR_PAINT_SCOPE.md` §7): it must not follow the user into the
+        // next project. `project_open` restores the archive's own
+        // (`appearance_paint.json`, CP-3) after this.
+        self.colour_paint = None;
+        self.colour_paint_epoch = self.colour_paint_epoch.wrapping_add(1);
         // The *settings* half, which `invalidate()` deliberately leaves alone
         // and which `absorb()` deliberately does not touch either: a cap
         // table describes what the user wants placed, so it rightly survives

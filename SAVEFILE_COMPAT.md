@@ -3344,6 +3344,16 @@ A caller-owned document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`) n
 
 A saved-look file (`cartalith-appearance` v1) gains the same record as an optional **top-level** `"style": {"preset", "variant"}`, outside `appearance`, written by `WorldGen::save_appearance_preset_styled` and read by `peek_appearance_preset_style` (`export_options::parse_preset_style`, the one reader). Omitted with no variant, so such a file has exactly the four pre-ET-F3 keys. The appearance parser never reads it, so an older build loads a styled look unchanged.
 
+## `appearance_paint.json` (2026-10-18, CP-3, Ruling CN)
+
+An **engine-owned** document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`, listed in `project_bridge.rs`'s `ENGINE_OWNED_SLOTS`, so a caller-supplied copy is refused) holding the colour-paint layer (`COLOUR_PAINT_SCOPE.md` §9): `ColourPaintDoc` `{"version":1,"visible":bool,"marks":[{"shape":{"kind":"line","points_km":[[x,y],...],"radius_km":r}|{"kind":"area","ring_km":[...],"edge_km":e},"rgb":[r,g,b],"opacity":o,"hardness":h,"blend":"colour"|"replace"|"multiply","land_only":bool,"emissive":{"ramp":"fire"|"ice"|"toxic","heat":h,"crack_density":d,"glow_radius_km":g,"heat_along":a}}]}`. Coordinates are map kilometres from the map's top-left edge. `emissive` is omitted for a flat colour; a missing `land_only` reads `true`, a missing `ramp` `fire`, a missing `heat_along` `0`.
+
+- **Written only when the layer has marks** (a hidden layer with marks is written with `visible: false`), so older archives and untouched projects carry no such member and stay byte-identical. Coordinates, radii, edges and glow radii are rounded to the metre on write; the rounding is idempotent, so re-saving an opened project writes the same text (`project_bridge.rs` `colour_paint_survives_a_real_archive_round_trip`).
+- **Reading**: absent means no paint, with no warning (a real pre-slot archive, `project_pre_substrate_2026-09-24.zip`, opens so). A member that is not a document, an unknown `version`, an unknown blend or ramp key, a cap (5 000 marks, 4 096 points per mark, 250 000 points) or a non-finite value is refused whole: one warning on `project_open`'s `warnings`, no paint, the rest of the project opens.
+- Opening another project drops the previous project's paint (`load_save`); a regenerate keeps it (marks stay at their kilometres).
+- **Forward compatibility**: an older build ignores the unknown member (§14.3) and opens the project without the paint; saving from that build drops the slot. A future `version` 2 is refused by this build rather than guessed at.
+- Size: measured 2026-10-18, a two-mark layer added 459 bytes to a small test archive; 5 000 strokes of 40 points measure 3.98 MB of metre-rounded JSON before the archive's deflate (`COLOUR_PAINT_SCOPE.md` §9).
+
 ## Exported PNG colour tags (2026-10-11, ET-E1, Ruling CB item 1)
 
 Exported picture PNGs carry exactly one `sRGB` chunk (13 bytes straight after IHDR, rendering intent perceptual) by default, or exactly one `iCCP` (the embedded Display P3 profile, ICC v4.3 with a `cicp` tag) when the `color_space` export option is `Display P3`; never both. Pixels are unchanged. The 16-bit heightmap PNG, the channel atlas PNG and BigTIFF output stay untagged, and BigTIFF in Display P3 is refused. This is an export-file format change, not a save-file change.
