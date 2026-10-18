@@ -7153,6 +7153,51 @@ func as_line_art(uid: String, index: int, ink: Color, weight: float, closing: in
 		mark_world_dirty()
 	return r
 
+## AP-7: which REFINE verbs apply to `uid`'s family (`WorldGen.as_refine_verbs`):
+## `[{"verb", "ok", "reason"?}]`, `reason` only when `ok` is false. `[]` for an
+## unknown uid or an older binary (the window then disables every verb, saying so).
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
+func as_refine_verbs(uid: String) -> Array:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return []
+	if not _has("as_refine_verbs"):
+		return []
+	return world_gen.as_refine_verbs(uid)
+
+## AP-7: one REFINE verb on one variant, written as a NEW variant
+## (`WorldGen.as_refine`, Ruling CQ Q7). `{"ok": true, "changed", "note",
+## "index"?, ...}` or `{"ok": false, "error"}`. Marks the world dirty only when
+## a variant was added.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_refine(uid: String, index: int, verb: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_refine"):
+		return {"ok": false, "error": "as_refine not available on this binary"}
+	var r: Dictionary = world_gen.as_refine(uid, index, verb)
+	if bool(r.get("changed", false)):
+		mark_world_dirty()
+	return r
+
+## AP-7's Fit all (`WorldGen.as_fit_all`): every variant of every listed slot
+## gets the inspector's Fit transform, in place (no pixel written).
+## `{"ok": true, "moved": [{"uid", "index", "hash", "scale", "pan_x", "pan_y"}]}`
+## with each moved item's OLD transform, for Undo. Marks the world dirty only
+## when something moved.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_fit_all(uids: PackedStringArray) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_fit_all"):
+		return {"ok": false, "error": "as_fit_all not available on this binary"}
+	var r: Dictionary = world_gen.as_fit_all(uids)
+	if not (r.get("moved", []) as Array).is_empty():
+		mark_world_dirty()
+	return r
+
 ## Removes one item from a slot.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_remove_item(uid: String, index: int) -> bool:

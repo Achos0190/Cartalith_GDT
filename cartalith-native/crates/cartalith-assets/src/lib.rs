@@ -113,6 +113,8 @@
 //! Ruling CQ): the reference's `importPackZip` routing over the raw manifest,
 //! plus a size-capped archive reader for packs opened for editing. AP-2 added
 //! [`pack_report`]: the pack report's findings, read-only over the library.
+//! AP-4 added [`seamless`]; AP-6 [`near_dupes`], the near-duplicate finder
+//! the report uses; AP-7 [`refine`], the REFINE verbs' pixel operations.
 //!
 //! What this crate does not hold: the library UI and the sprite-sheet slicer's
 //! canvas interaction (pan/zoom, draggable grid lines, click-to-select) live in
@@ -129,12 +131,14 @@ pub mod library;
 pub mod lineart;
 pub mod manifest;
 pub mod manual;
+pub mod near_dupes;
 pub mod ordered_map;
 #[cfg(feature = "zip")]
 pub mod pack_import;
 pub mod pack_report;
 pub mod placement;
 pub mod raster;
+pub mod refine;
 pub mod scatter;
 pub mod seamless;
 pub mod slicer;
@@ -159,6 +163,7 @@ pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,
     Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
+pub use near_dupes::{MAX_HAMMING, MAX_MEAN_DELTA, NearEntry, NearHash, near_duplicate_groups, near_hash};
 pub use ordered_map::OrderedMap;
 #[cfg(feature = "zip")]
 pub use pack_import::{
@@ -179,6 +184,10 @@ pub use slicer::{
     SliceGrid, SliceOptions, SlicedCell, apply_chroma, cell_source_rect, clamp_grid_count,
     compute_cells, count_cells, crop_cell, is_blank, move_line, sheet_base_name, slice_sheet,
     trim_transparent_edges, uniform_lines,
+};
+pub use refine::{
+    HarmoniseRefusal, Harmonised, Jitter, drop_shadow, flip_horizontal, harmonise, mean_hue, outline, pad,
+    tint_jitter, trim,
 };
 pub use scatter::{
     ScatterMode, ScatterRule, ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,

@@ -15,7 +15,8 @@ extends Node
 ##      Splat ▸ grass through the real `as_import_item`; focusing it shows the
 ##      REFINE section with a seam readout in words and Make seamless enabled;
 ##   2. a sprite slot hides the seam rows (Make seamless has nothing to do
-##      there; since AP-10 REFINE itself shows, for the line-art block);
+##      there); since AP-7 and AP-10 REFINE itself stays, for the sprite
+##      verbs and the line-art block;
 ##   3. pressing Make seamless (the button's own `pressed` signal) adds exactly
 ##      one variant, leaves variant 1's bytes and content hash as they were,
 ##      previews the new one, which reads "wraps cleanly" with the button
@@ -123,7 +124,8 @@ func _ready() -> void:
 	var refine: Control = w.get("_insp_refine")
 	var label: Label = w.get("_insp_seam_label")
 	var btn: Button = w.get("_insp_seam_btn")
-	var undo: Button = w.get("_insp_seam_undo_btn")
+	var undo: Button = w.get("_insp_refine_undo_btn")
+	var seam_box: Control = w.get("_insp_seam_box")
 	_ok(refine != null and refine.is_visible_in_tree(), "REFINE is shown for a ground texture")
 	_ok(label.text.contains("visible line"), "the readout says the tile has a seam", label.text)
 	_ok(not btn.disabled, "Make seamless is enabled on a seam")
@@ -135,10 +137,12 @@ func _ready() -> void:
 	b.as_import_item("icons:mountain", "m.png", _flat_png())
 	w.focus_slot("icons:mountain")
 	await _frames(3)
-	## Since AP-10 a sprite slot shows REFINE for its line-art block
-	## (`_lineart_probe` covers that); what must still hold is that the
-	## seam readout and Make seamless are not offered on a sprite.
-	_ok(not label.is_visible_in_tree() and not btn.is_visible_in_tree(), "the seam rows are hidden for a sprite family")
+	## Since AP-7 and AP-10 a sprite slot shows REFINE for its verbs and
+	## line-art block (`_refine_probe`, `_lineart_probe`); what must still
+	## hold is that the seam readout and Make seamless are not offered.
+	_ok(not seam_box.is_visible_in_tree() and not label.is_visible_in_tree() and not btn.is_visible_in_tree(),
+		"the seam rows are hidden for a sprite family")
+	_ok(refine.is_visible_in_tree(), "REFINE itself stays, for the sprite verbs")
 	w.focus_slot("textures:grass")
 	await _frames(3)
 

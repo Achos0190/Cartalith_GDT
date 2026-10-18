@@ -10790,6 +10790,26 @@ impl WorldGen {
         self.appearance_rebased(None, None)
     }
 
+    /// AP-7's *Harmonise to Look* target (Ruling CQ Q4): the material
+    /// palette of the session's current appearance -- the middle stop of each
+    /// of its 31 land and water ramps (`TerrainAppearance`'s `[Rgb; 3]`
+    /// fields, which are what a Look preset re-pitches, `with_look`) --
+    /// rounded to 8 bits. Grey entries (snow, some rock) stay in the list;
+    /// `refine::harmonise` skips any swatch without a hue. Not the final
+    /// on-screen colour: grade and the adjustment stacks act after the
+    /// ramps and are not folded in (a labelled simplification).
+    fn look_palette(&self) -> Vec<[u8; 3]> {
+        let a = self.appearance();
+        let ramps = [
+            a.w_abyss, a.w_deep, a.w_shelf, a.w_trop, a.w_glac, a.sand_beach, a.sand_trop, a.sand_desert, a.sand_red,
+            a.grass_dry, a.grass_temp, a.grass_boreal, a.grass_sav, a.wood_temp, a.wood_dense, a.wood_boreal, a.wood_trop,
+            a.rock_granite, a.rock_sandstone, a.rock_scree, a.rock_basalt, a.rock_andesite, a.rock_limestone, a.rock_shale,
+            a.rock_metamorphic, a.snow_seas, a.snow_perm, a.snow_glac, a.wetland_temp, a.wetland_trop, a.mangrove,
+        ];
+        let q = |v: f64| v.round().clamp(0.0, 255.0) as u8;
+        ramps.iter().map(|r| [q(r[1].0), q(r[1].1), q(r[1].2)]).collect()
+    }
+
     /// [`Self::appearance`] with its **base** swapped, computed on a copy —
     /// the export's style override (`EXPORT_SCOPE.md` §7 E3), which must layer
     /// over the session's appearance without writing to it. `&self`, so it
@@ -23346,6 +23366,91 @@ impl WorldGen {
             },
             Err(e) => vdict! { "ok" => false, "error" => e },
         }
+    }
+
+    /// AP-7: which REFINE verbs apply to `uid`'s family, in the order the
+    /// inspector draws them: `[{"verb", "ok": bool, "reason"?}]`, `reason`
+    /// present **only** when `ok` is false (`RefineVerb::refusal`'s words).
+    /// Family rules only; what a verb finds in one image (nothing to trim,
+    /// grey art) is answered when it runs. Empty for an unknown uid.
+    #[func]
+    fn as_refine_verbs(&self, uid: GString) -> Array<VarDictionary> {
+        let Some(slot) = self.asset_library.db.get(&uid.to_string()) else { return Array::new() };
+        let family = slot.family;
+        ["trim", "pad", "flip", "tint", "outline", "shadow", "harmonise"]
+            .iter()
+            .filter_map(|k| asset_bridge::RefineVerb::from_key(k).map(|v| (*k, v)))
+            .map(|(k, v)| match v.refusal(family) {
+                None => vdict! { "verb" => k, "ok" => true },
+                Some(why) => vdict! { "verb" => k, "ok" => false, "reason" => why },
+            })
+            .collect()
+    }
+
+    /// AP-7: one REFINE verb (`"trim"`, `"pad"`, `"flip"`, `"tint"`,
+    /// `"outline"`, `"shadow"` or `"harmonise"`) on variant `index` of `uid`,
+    /// written as a NEW variant (Ruling CQ Q7: the original is never
+    /// written), `AssetLibrarySession::refine_variant`. Harmonise's target
+    /// is [`WorldGen::look_palette`].
+    ///
+    /// `{"ok": true, "changed": bool, "note"}` plus `index` **only when**
+    /// `changed`; for harmonise also `hue_before`, `hue_after`, `target_hue`
+    /// and `target` (a `Color`); for tint `hue_deg`, `sat`, `val`.
+    /// `{"ok": false, "error"}` otherwise, in words. Undo is
+    /// `as_remove_item(uid, index)`.
+    #[func]
+    fn as_refine(&mut self, uid: GString, index: i32, verb: GString) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false, "error" => "no such variant" };
+        }
+        let Some(v) = asset_bridge::RefineVerb::from_key(&verb.to_string()) else {
+            return vdict! { "ok" => false, "error" => format!("unknown refine verb: {verb}") };
+        };
+        let palette = if v == asset_bridge::RefineVerb::Harmonise { self.look_palette() } else { Vec::new() };
+        match self.asset_library.refine_variant(&uid.to_string(), index as usize, v, &palette) {
+            Ok(out) => {
+                let mut d = vdict! { "ok" => true, "changed" => out.index.is_some(), "note" => out.note.as_str() };
+                if let Some(i) = out.index {
+                    d.set("index", i as i64);
+                }
+                if let Some(h) = &out.harmonised {
+                    d.set("hue_before", h.hue_before);
+                    d.set("hue_after", h.hue_after);
+                    d.set("target_hue", h.target_hue);
+                    let [r, g, b] = h.target_rgb;
+                    d.set("target", Color::from_rgba8(r, g, b, 255));
+                }
+                if let Some(j) = out.jitter {
+                    d.set("hue_deg", j.hue_deg);
+                    d.set("sat", j.sat);
+                    d.set("val", j.val);
+                }
+                d
+            }
+            Err(e) => vdict! { "ok" => false, "error" => e },
+        }
+    }
+
+    /// AP-7's *Fit all* (`AssetLibrarySession::fit_all`): every variant of
+    /// every slot in `uids` gets the inspector's *Fit* transform, in place
+    /// (transform-only: no pixel is written). `{"ok": true, "moved":
+    /// [{"uid", "index", "hash", "scale", "pan_x", "pan_y"}]}`, one row per
+    /// item that actually moved, carrying its OLD transform and its content
+    /// hash so the shell's Undo can put each back with
+    /// `as_set_item_transform` after checking the item is still the same
+    /// image.
+    #[func]
+    fn as_fit_all(&mut self, uids: PackedStringArray) -> VarDictionary {
+        let list: Vec<String> = uids.as_slice().iter().map(|u| u.to_string()).collect();
+        let moved = self.asset_library.fit_all(&list);
+        let rows: Array<VarDictionary> = moved
+            .iter()
+            .map(|(uid, i, t)| {
+                let hash = self.asset_library.db.items(uid).get(*i).map(|it| it.hash.clone()).unwrap_or_default();
+                vdict! { "uid" => uid.as_str(), "index" => *i as i64, "hash" => hash.as_str(), "scale" => t.scale, "pan_x" => t.pan_x, "pan_y" => t.pan_y }
+            })
+            .collect();
+        vdict! { "ok" => true, "moved" => &rows }
     }
 
     /// Remove one item from a slot, keeping the pixel store in lockstep.

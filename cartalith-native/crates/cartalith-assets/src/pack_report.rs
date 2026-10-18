@@ -9,8 +9,10 @@
 //!
 //! What it deliberately does **not** report yet:
 //!
-//! - near-duplicates (flipped, tinted, shifted copies): AP-6. Only exact
-//!   duplicates ([`crate::duplicate_groups`], the reference's hash) are named;
+//! - *(Since AP-6, 2026-10-19, near-duplicates are reported: flipped,
+//!   tinted or shifted copies, [`crate::near_duplicate_groups`], one row per
+//!   group after the exact duplicates. Until then only exact duplicates,
+//!   [`crate::duplicate_groups`], the reference's hash, were named.)*
 //! - "looks like line art on an opaque or keyed background": §9.3 adds it with
 //!   AP-10, whose detector does not exist yet;
 //! - colour conversions: the library model is pixel-free and never sees a
@@ -21,6 +23,7 @@
 //! a number. A finding's `text` states what was measured and what follows.
 
 use crate::library::{AssetDB, duplicate_groups, run};
+use crate::near_dupes::near_duplicate_groups;
 use crate::raster::{DecodedImage, render_item};
 use crate::slicer::is_blank;
 use crate::slots::Family;
@@ -66,6 +69,9 @@ pub enum FindingKind {
     Seam,
     /// An exact duplicate image (the reference's hash).
     Duplicate,
+    /// A group of near-duplicate images: mirrored, slightly tinted or
+    /// shifted copies (AP-6, [`crate::near_duplicate_groups`]).
+    NearDuplicate,
     /// A colour conversion or colour warning at import (added by the session).
     Colour,
     /// A frozen family with no art at all.
@@ -85,6 +91,7 @@ impl FindingKind {
             FindingKind::NonSquare => "non_square",
             FindingKind::Seam => "seam",
             FindingKind::Duplicate => "duplicate",
+            FindingKind::NearDuplicate => "near_duplicate",
             FindingKind::Colour => "colour",
             FindingKind::EmptyFamily => "empty_family",
         }
@@ -313,6 +320,29 @@ pub fn pack_report<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a 
         });
     }
 
+    // AP-6: near-duplicate groups, one row per group, after the exact ones.
+    // An Info, not a Warn: a mirrored or recoloured copy is often a variant on
+    // purpose (AS-14 weights variants at render time), so the row says what
+    // was measured and leaves the judgement to the user.
+    for group in near_duplicate_groups(db, &pixels) {
+        let names: Vec<String> = group
+            .iter()
+            .map(|e| format!("{} #{}", db.get(&e.uid).map(|s| s.name.as_str()).unwrap_or(e.uid.as_str()), e.idx + 1))
+            .collect();
+        let first = &group[0];
+        out.push(Finding {
+            kind: FindingKind::NearDuplicate,
+            severity: Severity::Info,
+            uid: Some(first.uid.clone()),
+            index: Some(first.idx),
+            label: names[0].clone(),
+            text: format!(
+                "near-duplicates (the same drawing mirrored, slightly tinted or shifted): {}",
+                names.join(" ~ ")
+            ),
+        });
+    }
+
     if db.total_items() > 0 {
         for family in Family::ALL {
             if family == Family::Custom || db.filled_count(family) > 0 {
@@ -488,5 +518,48 @@ mod tests {
         let lic: Vec<Finding> = l.report().into_iter().filter(|f| f.kind == FindingKind::BlankLicence).collect();
         assert_eq!(lic.len(), 1);
         assert!(lic[0].text.contains("CC0"));
+    }
+
+    /// A 256² sprite with real structure: a disc whose shade ramps left to
+    /// right, so it has a direction a mirror reverses.
+    fn ramp_disc(r: u8) -> DecodedImage {
+        img(256, 256, |x, y| {
+            let (dx, dy) = (x as i32 - 128, y as i32 - 128);
+            if dx * dx + dy * dy < 100 * 100 { [r, (40 + x / 2) as u8, 90, 255] } else { [0, 0, 0, 0] }
+        })
+    }
+
+    /// Protects: AP-6 in the report. A sprite and its mirror in two slots
+    /// give exactly one near-duplicate row (Info, naming both, jumping to the
+    /// first), after the exact-duplicate rows; a pair of exact copies alone
+    /// gives an exact row and no near row; a clearly different colour of the
+    /// same drawing gives none.
+    #[test]
+    fn near_duplicates_are_one_row_per_group_after_exact_ones() {
+        let mut l = Lib::new();
+        let a = ramp_disc(30);
+        let mut mirror = a.clone();
+        for y in 0..256usize {
+            for x in 0..256usize {
+                let (s, d) = ((y * 256 + x) * 4, (y * 256 + 255 - x) * 4);
+                mirror.rgba[d..d + 4].copy_from_slice(&a.rgba[s..s + 4]);
+            }
+        }
+        l.add("icons:hill", a.clone());
+        l.add("icons:mountain", mirror);
+        l.add("icons:shrub", ramp_disc(220));
+        l.add("icons:shrub", ramp_disc(220));
+        let r = l.report();
+        let near: Vec<&Finding> = r.iter().filter(|f| f.kind == FindingKind::NearDuplicate).collect();
+        assert_eq!(near.len(), 1, "{near:?}");
+        assert_eq!(near[0].severity, Severity::Info);
+        assert_eq!(near[0].kind.key(), "near_duplicate");
+        let first_uid = near[0].uid.clone().unwrap();
+        assert!(first_uid == "icons:hill" || first_uid == "icons:mountain");
+        assert!(near[0].text.contains("Hill #1") && near[0].text.contains("Mountain #1"), "{}", near[0].text);
+        assert!(!near[0].text.contains("Shrub"), "the exact pair and the other colour are not in it");
+        let dup_at = r.iter().position(|f| f.kind == FindingKind::Duplicate).unwrap();
+        let near_at = r.iter().position(|f| f.kind == FindingKind::NearDuplicate).unwrap();
+        assert!(dup_at < near_at, "exact duplicates come first");
     }
 }

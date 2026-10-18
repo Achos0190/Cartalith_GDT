@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet};
 
 use cartalith_assets::{
     AssetDB, Anchor, ChromaKey, DecodedImage, Family, Finding, FindingKind, GridRect, ImportLimits, ItemTransform,
-    LibraryItem, SeamScore, SeamlessOutcome, Severity, make_seamless, seam_score,
+    LibraryItem, SeamScore, SeamlessOutcome, Severity, make_seamless, refine, seam_score,
     PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive, check_png_header,
     compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
     read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
@@ -233,6 +233,105 @@ impl PackImportOutcome {
 fn set_or_none(set: &str) -> Option<&str> {
     let t = set.trim();
     (!t.is_empty()).then_some(t)
+}
+
+/// AP-7's pixel REFINE verbs (`ASSET_PACK_TOOLS_PROPOSAL.md` §6 and §4,
+/// Ruling CQ Q7: each writes a new variant). *Fit all* is the eighth verb and
+/// is transform-only, so it is [`AssetLibrarySession::fit_all`], not a member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefineVerb {
+    /// Crop to the inked box ([`refine::trim`]).
+    Trim,
+    /// Add a transparent margin ([`refine::pad`]).
+    Pad,
+    /// Mirror left to right ([`refine::flip_horizontal`]).
+    Flip,
+    /// A small seeded hue/saturation/value change ([`refine::tint_jitter`]).
+    Tint,
+    /// An ink outline behind the art ([`refine::outline`]).
+    Outline,
+    /// A drop shadow behind the art ([`refine::drop_shadow`]).
+    Shadow,
+    /// Move the art's hue to the Look's nearest swatch ([`refine::harmonise`]).
+    Harmonise,
+}
+
+impl RefineVerb {
+    /// The verb for the shell's key (`"trim"`, `"pad"`, `"flip"`, `"tint"`,
+    /// `"outline"`, `"shadow"`, `"harmonise"`), or `None`.
+    pub fn from_key(key: &str) -> Option<RefineVerb> {
+        Some(match key {
+            "trim" => RefineVerb::Trim,
+            "pad" => RefineVerb::Pad,
+            "flip" => RefineVerb::Flip,
+            "tint" => RefineVerb::Tint,
+            "outline" => RefineVerb::Outline,
+            "shadow" => RefineVerb::Shadow,
+            "harmonise" => RefineVerb::Harmonise,
+            _ => return None,
+        })
+    }
+
+    /// What the new variant's name gets after `·`.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            RefineVerb::Trim => "trimmed",
+            RefineVerb::Pad => "padded",
+            RefineVerb::Flip => "flipped",
+            RefineVerb::Tint => "tinted",
+            RefineVerb::Outline => "outlined",
+            RefineVerb::Shadow => "shadowed",
+            RefineVerb::Harmonise => "harmonised",
+        }
+    }
+
+    /// Why this verb does not apply to `family`, in words, or `None` when it
+    /// does. Two rules:
+    ///
+    /// - trim, pad, outline and shadow are for sprites: a ground tile is
+    ///   tiled edge to edge, so it has no margin to trim or pad and no edge
+    ///   to outline or shade;
+    /// - tint and harmonise are refused for the splat `textures` family:
+    ///   the map takes a splat texture's colour from its own ramp and draws
+    ///   only the texture's variation about its per-channel mean
+    ///   (`finalize_pack_texture_inv_mean`, proposal §1.3 fact 3), so a
+    ///   recolour there would not show.
+    pub fn refusal(self, family: Family) -> Option<&'static str> {
+        match self {
+            RefineVerb::Trim | RefineVerb::Pad | RefineVerb::Outline | RefineVerb::Shadow if family.is_texture() => {
+                Some("a ground tile is tiled edge to edge: it has no margin to trim or pad and no edge to outline or shade")
+            }
+            RefineVerb::Tint | RefineVerb::Harmonise if family == Family::Textures => Some(
+                "splat textures take their colour from the map's own ramp; only their variation about their mean is drawn, so a recolour would not show",
+            ),
+            _ => None,
+        }
+    }
+}
+
+/// What [`AssetLibrarySession::refine_variant`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefineOutcome {
+    /// The new variant's index, or `None` when nothing was written.
+    pub index: Option<usize>,
+    /// One line for the status bar: what was done, or why nothing was.
+    pub note: String,
+    /// *Tint*: the jitter applied.
+    pub jitter: Option<refine::Jitter>,
+    /// *Harmonise*: the hues measured and the target swatch.
+    pub harmonised: Option<refine::Harmonised>,
+}
+
+/// FNV-1a, 64-bit (the published offset basis and prime), for *Tint*'s seed.
+/// Not a content hash of record (that is [`item_hash`]); only a stable way to
+/// turn a string into a seed.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 /// The live Asset Library: `AssetDB`'s metadata registry plus the decoded
@@ -933,6 +1032,161 @@ impl AssetLibrarySession {
         let made = std::mem::replace(&mut result.image, DecodedImage { w: 0, h: 0, rgba: Vec::new() });
         self.insert_decoded(uid, name, made)?;
         Ok((result, self.db.items(uid).len() - 1))
+    }
+
+    // -- REFINE verbs (AP-7) -----------------------------------------------------
+
+    /// The transform the inspector's *Fit* button gives one item -- the
+    /// default (scale 1, no pan) plus, for a bottom-anchored family, the
+    /// reference's `fitToBottom` -- the same arithmetic as
+    /// `WorldGen::as_reset_item_transform(fit = true)`. `None` for an unknown
+    /// uid or index, or an item without pixels.
+    fn fitted_transform(&self, uid: &str, index: usize) -> Option<ItemTransform> {
+        let slot = self.db.get(uid)?;
+        let img = self.image(uid, index)?;
+        let mut t = ItemTransform::default();
+        if slot.family.anchor() == Anchor::Bottom {
+            fit_to_bottom(&mut t, img.w, img.h, slot.family.size());
+        }
+        Some(t)
+    }
+
+    /// AP-7's *Fit all*: give every variant of every slot in `uids` its
+    /// fitted transform ([`AssetLibrarySession::fitted_transform`]).
+    ///
+    /// **Transform-only**, the one REFINE verb that writes no new variant:
+    /// a fit changes where the stored pixels are placed in the bake, never
+    /// the pixels, and the per-item *Fit* it batches has always edited the
+    /// item in place. The original's bytes are therefore unchanged (AP-7's
+    /// bar), and the undo record is what this returns: `(uid, index, old
+    /// transform)` for each item that actually moved, in `uids` then store
+    /// order. An item already fitted is not listed. Unknown uids are skipped.
+    pub fn fit_all(&mut self, uids: &[String]) -> Vec<(String, usize, ItemTransform)> {
+        let mut changed = Vec::new();
+        for uid in uids {
+            for index in 0..self.db.items(uid).len() {
+                let Some(t) = self.fitted_transform(uid, index) else { continue };
+                let Some(item) = self.db.item_mut(uid, index) else { continue };
+                if item.transform != t {
+                    changed.push((uid.clone(), index, item.transform.clone()));
+                    item.transform = t;
+                }
+            }
+        }
+        changed
+    }
+
+    /// The item's sprite bake (`render_item` at the family size over
+    /// transparency): what export writes for it, and the pixels *Outline* and
+    /// *Shadow* draw around, since their widths only mean something at the
+    /// size the art ships at.
+    fn sprite_bake(&self, uid: &str, index: usize) -> Option<DecodedImage> {
+        let slot = self.db.get(uid)?;
+        let item = self.db.items(uid).get(index)?;
+        let img = self.image(uid, index)?;
+        Some(render_item(img, &item.transform, slot.family.size(), slot.family.opaque()))
+    }
+
+    /// AP-7: apply one REFINE verb to variant `index` of `uid` and store the
+    /// result as a **new variant** of the same slot (Ruling CQ Q7), named
+    /// `<original> · <verb's suffix>`; the original item and its pixels are
+    /// never written. `palette` is the target for [`RefineVerb::Harmonise`]
+    /// (the caller's Look) and is ignored by the other verbs.
+    ///
+    /// Which pixels each verb takes, and the new variant's transform:
+    ///
+    /// - Trim, Pad: the **source**, losslessly cropped or extended; the new
+    ///   variant gets the family's intake transform (default, fitted to the
+    ///   bottom for a bottom-anchored family), because the old pan was
+    ///   relative to the old geometry;
+    /// - Flip: the source, mirrored; the transform is copied with `pan_x`
+    ///   negated, so the new bake is the mirror of the old one;
+    /// - Tint, Harmonise: the source, recoloured; the transform is copied;
+    /// - Outline, Shadow: the **bake** (see [`Self::sprite_bake`]), with the
+    ///   identity transform, so the new variant's own bake is its pixels (up
+    ///   to the bake's known one-level RGB drift on soft edges, AP-1's
+    ///   finding, which Ruling CR's switched `render_item` fix will remove).
+    ///
+    /// Returns what was done; `index: None` (nothing written) when the verb
+    /// had nothing to do (nothing to trim, blank art for outline or shadow).
+    /// `Err` in words for an unknown uid or index, or a verb that does not
+    /// apply to the family ([`RefineVerb::refusal`]), or a harmonise refused
+    /// for grey art or a grey palette. Undo is
+    /// [`AssetLibrarySession::remove_item`] on the returned index.
+    pub fn refine_variant(&mut self, uid: &str, index: usize, verb: RefineVerb, palette: &[[u8; 3]]) -> Result<RefineOutcome, String> {
+        let Some(slot) = self.db.get(uid) else { return Err(format!("no such slot: {uid}")) };
+        let family = slot.family;
+        if let Some(why) = verb.refusal(family) {
+            return Err(why.to_string());
+        }
+        let Some(item) = self.db.items(uid).get(index).cloned() else { return Err(format!("{uid} has no variant {}", index + 1)) };
+        let Some(src) = self.image(uid, index).cloned() else { return Err(format!("{uid} variant {} has no pixels", index + 1)) };
+        let mut out = RefineOutcome { index: None, note: String::new(), jitter: None, harmonised: None };
+        // (pixels, transform or None for the family's intake transform)
+        let made: Option<(DecodedImage, Option<ItemTransform>)> = match verb {
+            RefineVerb::Trim => match refine::trim(&src) {
+                Some(t) => {
+                    out.note = format!("trimmed {}×{} to {}×{}", src.w, src.h, t.w, t.h);
+                    Some((t, None))
+                }
+                None => {
+                    out.note = "nothing to trim: the art already reaches every edge (or is blank)".to_string();
+                    None
+                }
+            },
+            RefineVerb::Pad => {
+                let p = refine::pad(&src);
+                out.note = format!("padded {}×{} to {}×{}", src.w, src.h, p.w, p.h);
+                Some((p, None))
+            }
+            RefineVerb::Flip => {
+                let mut t = item.transform.clone();
+                t.pan_x = -t.pan_x;
+                out.note = "mirrored left to right".to_string();
+                Some((refine::flip_horizontal(&src), Some(t)))
+            }
+            RefineVerb::Tint => {
+                // Seeded by the original's content hash and how many variants
+                // the slot holds, so pressing it again makes a different
+                // variant, and the same library state always makes the same one.
+                let seed = fnv1a64(format!("{}:{}", item.hash, self.db.items(uid).len()).as_bytes());
+                let j = refine::Jitter::from_seed(seed);
+                out.note = format!("hue {:+.1}°, saturation ×{:.3}, value ×{:.3}", j.hue_deg, j.sat, j.val);
+                out.jitter = Some(j);
+                Some((refine::tint_jitter(&src, j), Some(item.transform.clone())))
+            }
+            RefineVerb::Harmonise => {
+                let h = refine::harmonise(&src, palette).map_err(|r| r.text().to_string())?;
+                out.note = format!("mean hue {:.0}° moved to {:.0}° (the Look's nearest swatch)", h.hue_before, h.hue_after);
+                let img = h.image.clone();
+                out.harmonised = Some(h);
+                Some((img, Some(item.transform.clone())))
+            }
+            RefineVerb::Outline | RefineVerb::Shadow => {
+                let Some(bake) = self.sprite_bake(uid, index) else { return Err(format!("{uid} variant {} has no pixels", index + 1)) };
+                if !refine::has_ink(&bake) {
+                    out.note = "nothing to draw around: the art is blank".to_string();
+                    None
+                } else if verb == RefineVerb::Outline {
+                    out.note = format!("{} px outline drawn behind the art at the {}² bake", refine::OUTLINE_PX, family.size());
+                    Some((refine::outline(&bake), Some(ItemTransform::default())))
+                } else {
+                    out.note = format!("drop shadow drawn behind the art at the {}² bake", family.size());
+                    Some((refine::drop_shadow(&bake), Some(ItemTransform::default())))
+                }
+            }
+        };
+        let Some((img, transform)) = made else { return Ok(out) };
+        let name = format!("{} · {}", item.name, verb.suffix());
+        self.insert_decoded(uid, name, img)?;
+        let new_index = self.db.items(uid).len() - 1;
+        if let Some(t) = transform
+            && let Some(it) = self.db.item_mut(uid, new_index)
+        {
+            it.transform = t;
+        }
+        out.index = Some(new_index);
+        Ok(out)
     }
 
     // -- Thumbnails ----------------------------------------------------------
@@ -2151,6 +2405,179 @@ mod tests {
                 assert!(s.db.get(u).is_some(), "{u}");
             }
         }
+    }
+
+    /// A 200x160 PNG sprite: an orange disc shaded left to right, with a soft
+    /// edge, off centre on transparency -- art with a margin to trim, a hue
+    /// to harmonise and an edge to outline.
+    fn disc_png() -> Vec<u8> {
+        let (w, h) = (200u32, 160u32);
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let d = ((x as f64 - 90.0).powi(2) + (y as f64 - 70.0).powi(2)).sqrt();
+                let a = (50.0 - d).clamp(0.0, 1.0);
+                data.extend_from_slice(&[(150 + x / 3) as u8, (60 + x / 6) as u8, 30, (a * 255.0).round() as u8]);
+            }
+        }
+        encode_png(&DecodedImage::new(w, h, data).unwrap()).unwrap()
+    }
+
+    /// Protects: AP-7's bar through the session, verb by verb. Each verb that
+    /// has something to do adds exactly one new variant, named after the
+    /// verb; the original's pixels and record are byte-identical afterwards;
+    /// and undo (`remove_item` on the returned index) takes the slot back to
+    /// one item with the original intact.
+    #[test]
+    fn every_refine_verb_adds_one_variant_and_keeps_the_original() {
+        let palette = [[60, 140, 50], [40, 80, 200], [222, 172, 78]];
+        for verb in [RefineVerb::Trim, RefineVerb::Pad, RefineVerb::Flip, RefineVerb::Tint, RefineVerb::Outline, RefineVerb::Shadow, RefineVerb::Harmonise] {
+            let mut s = AssetLibrarySession::new();
+            s.import_item("icons:mountain", "m.png".to_string(), &disc_png()).unwrap();
+            let (px, rec) = (s.image("icons:mountain", 0).unwrap().clone(), s.db.items("icons:mountain")[0].clone());
+            let out = s.refine_variant("icons:mountain", 0, verb, &palette).unwrap();
+            assert_eq!(out.index, Some(1), "{verb:?}: {}", out.note);
+            assert_eq!(s.db.items("icons:mountain").len(), 2);
+            assert_eq!(s.db.items("icons:mountain")[1].name, format!("m.png · {}", verb.suffix()));
+            assert_ne!(s.image("icons:mountain", 1).unwrap(), &px, "{verb:?} changed something");
+            assert_eq!(s.image("icons:mountain", 0).unwrap(), &px, "{verb:?}: original pixels untouched");
+            assert_eq!(s.db.items("icons:mountain")[0], rec, "{verb:?}: original record untouched");
+            assert!(!out.note.is_empty());
+            assert!(s.remove_item("icons:mountain", 1));
+            assert_eq!(s.db.items("icons:mountain").len(), 1);
+            assert_eq!(s.image("icons:mountain", 0).unwrap(), &px);
+        }
+    }
+
+    /// Protects: the per-verb pixel source and transform rules
+    /// (`refine_variant`'s doc). Trim and pad keep the source's pixels
+    /// (no resampling) and take the intake fit; flip negates `pan_x`; outline
+    /// and shadow are drawn on the 256² bake with the identity transform, so
+    /// their own bake is their pixels; tint and harmonise keep alpha
+    /// byte-equal and the transform; harmonise meets AP-7's 10° bar.
+    #[test]
+    fn refine_verbs_take_the_documented_pixels_and_transforms() {
+        let palette = [[60, 140, 50], [40, 80, 200], [222, 172, 78]];
+        let mut s = AssetLibrarySession::new();
+        s.import_item("icons:mountain", "m.png".to_string(), &disc_png()).unwrap();
+        let src = s.image("icons:mountain", 0).unwrap().clone();
+        let alpha = |im: &DecodedImage| im.rgba.chunks_exact(4).map(|p| p[3]).collect::<Vec<u8>>();
+        s.db.item_mut("icons:mountain", 0).unwrap().transform.pan_x = 7.0;
+        let t0 = s.db.items("icons:mountain")[0].transform.clone();
+
+        let i = s.refine_variant("icons:mountain", 0, RefineVerb::Trim, &palette).unwrap().index.unwrap();
+        let t = s.image("icons:mountain", i).unwrap().clone();
+        assert!(t.w <= 102 && t.h <= 102 && t.w >= 98, "{}x{}", t.w, t.h);
+        assert_eq!(s.db.items("icons:mountain")[i].transform.pan_x, 0.0, "intake transform, not the old pan");
+        assert!(s.db.items("icons:mountain")[i].transform.pan_y > 0.0 || t.h == t.w, "bottom family: fitted on intake");
+
+        let i = s.refine_variant("icons:mountain", 0, RefineVerb::Flip, &palette).unwrap().index.unwrap();
+        assert_eq!(s.db.items("icons:mountain")[i].transform.pan_x, -7.0);
+        assert_eq!(s.db.items("icons:mountain")[i].transform.pan_y, t0.pan_y);
+
+        let i = s.refine_variant("icons:mountain", 0, RefineVerb::Outline, &palette).unwrap().index.unwrap();
+        let o = s.image("icons:mountain", i).unwrap().clone();
+        assert_eq!((o.w, o.h), (256, 256), "drawn at the bake size");
+        assert_eq!(s.db.items("icons:mountain")[i].transform, ItemTransform::default());
+        // Its own bake is its pixels, up to the bake's known drift on soft
+        // edges (AP-1's finding, `the_bake_drifts_semi_transparent_rgb_by_one_level`):
+        // alpha exact, RGB within one level wherever alpha is not 0.
+        let rebake = s.sprite_bake("icons:mountain", i).unwrap();
+        assert_eq!(alpha(&rebake), alpha(&o));
+        for (a, b) in rebake.rgba.chunks_exact(4).zip(o.rgba.chunks_exact(4)).filter(|(_, b)| b[3] > 0) {
+            assert!((0..3).all(|c| a[c].abs_diff(b[c]) <= 1), "{a:?} vs {b:?}");
+        }
+
+        let i = s.refine_variant("icons:mountain", 0, RefineVerb::Harmonise, &palette).unwrap();
+        let h = i.harmonised.as_ref().unwrap();
+        assert_eq!(h.target_rgb, [222, 172, 78], "the gold is the nearest hue to the orange disc");
+        let d = (h.hue_after - h.target_hue + 540.0).rem_euclid(360.0) - 180.0;
+        assert!(d.abs() <= 10.0, "AP-7 bar: {h:?}");
+        let hi = s.image("icons:mountain", i.index.unwrap()).unwrap();
+        assert_eq!(alpha(hi), alpha(&src), "alpha byte-equal");
+        assert_eq!(s.db.items("icons:mountain")[i.index.unwrap()].transform, t0);
+
+        let i = s.refine_variant("icons:mountain", 0, RefineVerb::Tint, &palette).unwrap().index.unwrap();
+        assert_eq!(alpha(s.image("icons:mountain", i).unwrap()), alpha(&src));
+        let j = s.refine_variant("icons:mountain", 0, RefineVerb::Tint, &palette).unwrap().index.unwrap();
+        assert_ne!(s.image("icons:mountain", i).unwrap(), s.image("icons:mountain", j).unwrap(), "a second tint is a different variant");
+    }
+
+    /// Protects: the family rules and the nothing-to-do answers. Trim, pad,
+    /// outline and shadow refuse a ground tile; tint and harmonise refuse a
+    /// splat texture but run on a biome tile; trim on art that already
+    /// reaches every edge, and harmonise on grey art, write nothing; an
+    /// unknown uid or index is an error in words, never a panic.
+    #[test]
+    fn refine_refusals_are_in_words_and_write_nothing() {
+        let palette = [[222, 172, 78]];
+        let mut s = AssetLibrarySession::new();
+        s.import_item("textures:grass", "g.png".to_string(), &png_bytes(64, 64, [40, 120, 40, 255])).unwrap();
+        s.import_item("biomes:jungle", "j.png".to_string(), &png_bytes(64, 64, [40, 120, 40, 255])).unwrap();
+        s.import_item("icons:hill", "grey.png".to_string(), &png_bytes(32, 32, [90, 90, 90, 255])).unwrap();
+        for v in [RefineVerb::Trim, RefineVerb::Pad, RefineVerb::Outline, RefineVerb::Shadow] {
+            assert!(s.refine_variant("biomes:jungle", 0, v, &palette).unwrap_err().contains("tiled edge to edge"), "{v:?}");
+        }
+        for v in [RefineVerb::Tint, RefineVerb::Harmonise] {
+            assert!(s.refine_variant("textures:grass", 0, v, &palette).unwrap_err().contains("splat"), "{v:?}");
+        }
+        assert_eq!(s.refine_variant("biomes:jungle", 0, RefineVerb::Harmonise, &palette).unwrap().index, Some(1));
+        assert_eq!(s.refine_variant("textures:grass", 0, RefineVerb::Flip, &palette).unwrap().index, Some(1));
+        let r = s.refine_variant("icons:hill", 0, RefineVerb::Trim, &palette).unwrap();
+        assert_eq!(r.index, None, "opaque to every edge: nothing to trim");
+        assert!(r.note.contains("nothing to trim"));
+        assert!(s.refine_variant("icons:hill", 0, RefineVerb::Harmonise, &palette).unwrap_err().contains("grey"));
+        assert_eq!(s.db.items("icons:hill").len(), 1);
+        assert!(s.refine_variant("icons:hill", 3, RefineVerb::Flip, &palette).is_err());
+        assert!(s.refine_variant("icons:nope", 0, RefineVerb::Flip, &palette).is_err());
+    }
+
+    /// Protects: *Fit all* is transform-only and undoable. It moves every
+    /// variant of every listed slot to its Fit transform, reports each
+    /// item's OLD transform (and only the items that moved), writes no pixel
+    /// and adds no variant; a second call moves nothing; restoring the
+    /// reported transforms puts the library back exactly.
+    #[test]
+    fn fit_all_moves_transforms_only_and_reports_the_old_ones() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("icons:mountain", "a.png".to_string(), &disc_png()).unwrap();
+        s.import_item("icons:mountain", "b.png".to_string(), &disc_png()).unwrap();
+        s.import_item("settlement:city", "c.png".to_string(), &disc_png()).unwrap();
+        s.db.item_mut("icons:mountain", 1).unwrap().transform = ItemTransform { scale: 1.4, pan_x: 5.0, pan_y: -3.0 };
+        s.db.item_mut("settlement:city", 0).unwrap().transform = ItemTransform { scale: 0.8, pan_x: 0.0, pan_y: 2.0 };
+        let before: Vec<LibraryItem> = ["icons:mountain", "settlement:city"].iter().flat_map(|u| s.db.items(u).to_vec()).collect();
+        let px: Vec<DecodedImage> = vec![s.image("icons:mountain", 0).unwrap().clone(), s.image("icons:mountain", 1).unwrap().clone()];
+        let moved = s.fit_all(&["icons:mountain".to_string(), "settlement:city".to_string(), "icons:nope".to_string()]);
+        assert_eq!(moved.len(), 2, "variant 0 was already fitted on intake: {moved:?}");
+        assert_eq!((moved[0].0.as_str(), moved[0].1), ("icons:mountain", 1));
+        assert_eq!(moved[0].2, ItemTransform { scale: 1.4, pan_x: 5.0, pan_y: -3.0 });
+        assert_eq!(s.db.items("settlement:city")[0].transform, ItemTransform::default(), "a centre-anchored family fits to the default");
+        assert_eq!(s.db.items("icons:mountain")[1].transform, s.db.items("icons:mountain")[0].transform);
+        assert_eq!(s.db.items("icons:mountain").len(), 2, "no variant added");
+        assert_eq!(s.image("icons:mountain", 1).unwrap(), &px[1], "no pixel written");
+        assert!(s.fit_all(&["icons:mountain".to_string(), "settlement:city".to_string()]).is_empty());
+        for (uid, i, t) in moved {
+            s.db.item_mut(&uid, i).unwrap().transform = t;
+        }
+        let after: Vec<LibraryItem> = ["icons:mountain", "settlement:city"].iter().flat_map(|u| s.db.items(u).to_vec()).collect();
+        assert_eq!(after, before, "undo restores every record");
+    }
+
+    /// Protects: AP-6 on the reference pack, a format fixture of flat
+    /// swatches. No near-duplicate row: the identical mountains, conifers and
+    /// lighthouses are exact groups (reported as such), and the swatches of
+    /// similar colour (rock and paved road; village, city and ruin, all
+    /// within 32 levels) are flat images, which the finder leaves out
+    /// (`NearHash::is_flat`). Measured while building: without that rule it
+    /// gave two groups, and without the sprite/ground split as well, one
+    /// six-member group.
+    #[test]
+    fn the_reference_pack_has_no_near_duplicate_row() {
+        let mut s = AssetLibrarySession::new();
+        s.import_pack(&reference_pack(), "r.zip", PackImportMode::KeepExisting).unwrap();
+        let r: Vec<Finding> = s.pack_report().into_iter().map(|(f, _)| f).collect();
+        let near: Vec<&Finding> = r.iter().filter(|f| f.kind == FindingKind::NearDuplicate).collect();
+        assert!(near.is_empty(), "{near:?}");
     }
 
     /// Protects: `clear` empties the library: items, custom slots and decoded pixels.

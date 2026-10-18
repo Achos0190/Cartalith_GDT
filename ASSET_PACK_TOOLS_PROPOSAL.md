@@ -830,3 +830,70 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
 - **Cost (release build, one run per sample, order of magnitude):** cleaning
   0.1–0.2 s, the SDF 0.2–0.3 s, a whole conversion 0.3–0.5 s at 1024². It
   runs on the main thread; the debug DLL is slower.
+
+### AP-6: the near-duplicate finder
+
+- **Where it lives.** `cartalith-assets::near_dupes` (`near_hash`,
+  `NearHash::{distance, is_near, is_flat}`, `near_duplicate_groups`), read
+  by AP-2's `pack_report` as a new finding kind, `near_duplicate` (Info, one
+  row per group, after the exact-duplicate rows, jumping to the first
+  member). No new binding: the report card and *Assets ▸ Pack report…* show it.
+- **Method.** A 64-bit dHash of each item's **bake** (what ships), over its
+  content box (alpha > 8, so a 1 px shift or a pad hashes the same drawing),
+  reduced to 9 × 8 by exact area averaging, also compared mirrored.
+  Near = Hamming ≤ 10 **and** mean colour within 32 levels per channel.
+  A cell's grey value is the ink's shading plus 0.2 × 255 × its coverage
+  (`SILHOUETTE_WEIGHT`, a labelled judgement chosen on the fixture: the
+  measured margins are in its doc comment). Two designs were measured and
+  rejected while building: luma over mid-grey (a ±10 % tint flipped 12 bits)
+  and lifted luma over black (the outline swamped the shading).
+- **Bar, measured.** On ten distinct generated 256² drawings, each also
+  mirrored, tinted ±10 % and shifted 1 px: worst distance between two forms
+  of one drawing 2 bits; closest distinct pair 11 bits by hash alone, so the
+  margin over 10 is one bit and the colour gate stays part of the rule.
+- **Two rules found on the reference pack**, which first reported its flat
+  rock texture, road tile and four flat settlement and POI sprites as one
+  six-member group: ground tiles are compared only with ground tiles and
+  sprites with sprites, and flat images (no gradient at all) are left out.
+  With both, the reference pack reports no near-duplicate row.
+- **Read-only.** Nothing is merged or deleted; the row names the group.
+
+### AP-7: the REFINE verbs
+
+- **Where it lives.** `cartalith-assets::refine` (`trim`, `pad`,
+  `flip_horizontal`, `tint_jitter` with a seeded `Jitter`, `outline`,
+  `drop_shadow`, `harmonise`, `mean_hue`); `AssetLibrarySession::refine_variant`
+  and `fit_all`, bound as `WorldGen::as_refine`, `as_refine_verbs` and
+  `as_fit_all`; the Look palette for *Harmonise* is `WorldGen::look_palette`
+  (the middle stop of the current appearance's 31 material ramps).
+- **Q7 as built.** Every pixel verb writes a NEW variant `<name> · <verb>`;
+  the original's pixels and record are never written (tested per verb).
+  **Fit all is the exception, deliberately:** it is placement only (the
+  per-item *Fit* it batches always edited the transform in place), writes no
+  pixel and adds no variant, so it does not double every slot; its Undo puts
+  each old placement back where the item is still the same image.
+- **Which pixels.** Trim, pad and flip work losslessly on the source at its
+  full resolution; tint and harmonise recolour the source (alpha byte-equal);
+  outline (6 px) and shadow (offset 6, 6; three 4 px box passes; 45 %) are
+  drawn on the 256² bake, where their widths mean what they show. Trim and
+  pad take the family's intake transform; flip negates `pan_x`.
+- **Family rules** (`RefineVerb::refusal`, shown as the disabled chip's
+  tooltip): trim, pad, outline and shadow are for sprites only; tint and
+  harmonise are refused on splat `textures`, whose colour the map takes from
+  its own ramp (§1.3 fact 3).
+- **Harmonise.** The nearest coloured swatch by hue (grey swatches skipped;
+  grey art refused in words), a uniform hue rotation, saturation halfway to
+  the swatch's, value untouched. Measured in the app's own Look: an orange
+  disc at 17.9° landed at 18.2° against a 18.2° target.
+- **Shell.** The inspector's REFINE section now shows for every family: the
+  seam rows for ground tiles only, then eight chips (Fit all, Trim, Pad, Flip,
+  Tint, Outline, Shadow, Harmonise), a line saying what the last action did,
+  and one *Undo <verb>* for the last REFINE action (AP-4's Make seamless now
+  uses the same Undo). Fit all acts on the BATCH selection when there is one.
+- **Found, not fixed (outside AP-7):** the slot tiles and the inspector
+  preview stretch every thumbnail to their non-square box
+  (`SlotCell._draw`'s `draw_texture_rect`), so a disc draws as an ellipse;
+  and a thumbnail applies the item's pan in family-size pixels at thumbnail
+  size (`render_item` does not scale `pan_x`/`pan_y`), so a bottom-fitted
+  sprite sits low in its thumbnail. Neither was checked against the
+  reference. The outline's soft edge also shows AP-1's one-level bake drift.

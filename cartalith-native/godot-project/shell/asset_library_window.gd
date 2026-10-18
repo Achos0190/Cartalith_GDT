@@ -907,11 +907,13 @@ var _insp_variants_head: Label
 var _insp_variants: HBoxContainer
 ## Wrapped explanatory note at the foot of the inspector.
 var _insp_note: Label
-## AP-4: the inspector's REFINE section (`ASSET_PACK_TOOLS_PROPOSAL.md` §4,
-## "under Tags"). Shown for the tiled ground families only, because its one
-## verb so far -- Make seamless -- has nothing to do on a sprite; AP-7 adds
-## the sprite verbs here.
+## AP-4/AP-7: the inspector's REFINE section (`ASSET_PACK_TOOLS_PROPOSAL.md`
+## §4, "under Tags"). Shown for every family since AP-7: the seam rows only
+## for the tiled ground families (`_insp_seam_box`), the verb chips for all,
+## each disabled with its reason where it does not apply.
 var _insp_refine: Control
+## AP-4's seam readout and Make seamless row; ground textures only.
+var _insp_seam_box: Control
 ## The seam readout for the previewed variant (`as_seam_check`): the wrap and
 ## centre-line differences and the verdict, or the reason there are none.
 var _insp_seam_label: Label
@@ -919,18 +921,41 @@ var _insp_seam_label: Label
 ## previewed variant is a seam by AP-2's measure, since a tile that already
 ## wraps is left untouched anyway.
 var _insp_seam_btn: Button
-## AP-4's seam row (button + Undo), hidden for sprite families, which have no
-## wrap; held so `_refresh_refine` can hide it beside the label.
-var _insp_seam_row: HBoxContainer
 ## AP-10's line-art block (`shell/lineart_refine.gd`), sprite families only.
 var _lineart = null
-## `Undo` for the last Make seamless: removes the variant it added. Shown only
-## while that variant is still the one it made (`_seam_undo`).
-var _insp_seam_undo_btn: Button
-## `{uid, index, hash}` of the variant the last Make seamless added, or `{}`.
-## Cleared by Undo and by any other edit to that slot's variant list
-## (`_refresh_refine` drops it when the slot no longer has that index).
-var _seam_undo: Dictionary = {}
+## AP-7's verb chips, keyed `fit_all`, `trim`, `pad`, `flip`, `tint`,
+## `outline`, `shadow`, `harmonise` (`REFINE_VERBS`).
+var _refine_btns: Dictionary = {}
+## What the last REFINE action did, in words (its `note`), or empty.
+var _insp_refine_note: Label
+## The slot `_insp_refine_note` speaks about; the note is hidden when the
+## inspector moves to another slot, so it never describes the wrong art.
+var _refine_note_uid := ""
+## `Undo` for the last REFINE action (Make seamless, a verb, or Fit all).
+## Shown only while `_refine_undo` still describes something to undo.
+var _insp_refine_undo_btn: Button
+## The last REFINE action's undo record, or `{}`:
+## `{kind: "variant", uid, index, hash, what}` for a verb or Make seamless
+## (Undo removes that variant, only while its content hash still matches), or
+## `{kind: "fit", rows: [{uid, index, hash, scale, pan_x, pan_y}], what}` for
+## Fit all (Undo puts each OLD transform back, only where the item is still
+## the same image). A variant record is dropped by `_refresh_refine` when its
+## slot no longer has that index.
+var _refine_undo: Dictionary = {}
+## AP-7's verbs in the order the REFINE section draws them: key, chip text,
+## tooltip. The key is what `as_refine` takes (`fit_all` goes to `as_fit_all`).
+## Every tooltip says the original stays as it was, because that is the
+## promise (Ruling CQ Q7) a user most needs before pressing one.
+const REFINE_VERBS := [
+	["fit_all", "Fit all", "Give every variant of the selected slots (or, with nothing selected, of this slot) the Fit placement. Placement only: no pixel changes and no variant is added; Undo puts the old placements back."],
+	["trim", "Trim", "Crop away the transparent margin, as a new variant. The original stays as it was."],
+	["pad", "Pad", "Add a transparent margin a tenth of the longer side on every side, as a new variant. The original stays as it was."],
+	["flip", "Flip", "Mirror left to right, as a new variant. The original stays as it was."],
+	["tint", "Tint", "A small random change of hue, saturation and value, as a new variant; each press makes a different one. The original stays as it was."],
+	["outline", "Outline", "Draw a dark outline behind the art at the 256² size the pack ships, as a new variant. The original stays as it was."],
+	["shadow", "Shadow", "Draw a soft drop shadow below-right of the art at the 256² size the pack ships, as a new variant. The original stays as it was."],
+	["harmonise", "Harmonise", "Turn the art's hue to the nearest colour of the current Look's palette, and its saturation halfway there, as a new variant. Value and transparency are untouched. The original stays as it was."],
+]
 
 ## Status-line readout: `library edited — apply to map to use it` while `_dirty`, else
 ## `in sync with the map`.
@@ -2789,6 +2814,10 @@ func _refresh_batch_buttons() -> void:
 		var b: Button = _batch_buttons[key]
 		b.disabled = not has_sel
 		b.tooltip_text = "" if has_sel else "Select at least one slot in the grid first."
+	## AP-7: Fit all acts on the selection when there is one, so its chip's
+	## state and tooltip follow the selection too.
+	if _insp_refine != null and _focused_uid != "":
+		_refresh_refine_verbs(int(_bridge.as_slot_summary(_focused_uid).get("item_count", 0)))
 
 ## The current multi-selection as a `PackedStringArray`, in dictionary order (not grid order). Callers needing grid order must use `_slot_order`.
 func _selected_uids() -> PackedStringArray:
@@ -3158,7 +3187,7 @@ func _build_inspector() -> Control:
 	_insp_note.custom_minimum_size.x = W_INSPECTOR - 52
 	rows.add_child(_insp_note)
 
-	# -- REFINE (AP-4; textures only for now) -----------------------------------
+	# -- REFINE (AP-4 seam rows; AP-7 verbs) ------------------------------------
 	_insp_refine = VBoxContainer.new()
 	_insp_refine.add_theme_constant_override("separation", 0)
 	_insp_detail.add_child(_insp_refine)
@@ -3171,21 +3200,43 @@ func _build_inspector() -> Control:
 	ref_head.tooltip_text = "Tools that fix the art itself. Each writes a new variant and leaves the original as it was (Ruling CQ Q7)."
 	ref_head.mouse_filter = Control.MOUSE_FILTER_STOP
 	ref_col.add_child(ref_head)
+	var seam_box := VBoxContainer.new()
+	seam_box.add_theme_constant_override("separation", 7)
+	ref_col.add_child(seam_box)
+	_insp_seam_box = seam_box
 	_insp_seam_label = DccTheme.label("", "text_dim", DccTheme.FS_MICRO)
 	_insp_seam_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_insp_seam_label.custom_minimum_size.x = W_INSPECTOR - 52
-	ref_col.add_child(_insp_seam_label)
+	seam_box.add_child(_insp_seam_label)
 	var seam_row := HBoxContainer.new()
 	seam_row.add_theme_constant_override("separation", 5)
-	ref_col.add_child(seam_row)
-	_insp_seam_row = seam_row
+	seam_box.add_child(seam_row)
 	_insp_seam_btn = _chip(seam_row, "Make seamless", func(): _on_make_seamless())
 	_insp_seam_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	_insp_seam_undo_btn = _chip(seam_row, "Undo", func(): _on_undo_seamless())
-	_insp_seam_undo_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	_insp_seam_undo_btn.tooltip_text = "Remove the seamless variant just made. The original was never changed."
-	_insp_seam_undo_btn.visible = false
-	# AP-10 (Ruling CR): line-art conversion, for sprite families.
+	## AP-7: the verbs wrap rather than hold the inspector open (an
+	## `HFlowContainer`, like the tag chips above).
+	var verbs := HFlowContainer.new()
+	verbs.add_theme_constant_override("h_separation", 5)
+	verbs.add_theme_constant_override("v_separation", 5)
+	verbs.custom_minimum_size.x = W_INSPECTOR - 52
+	ref_col.add_child(verbs)
+	for v in REFINE_VERBS:
+		var key := String(v[0])
+		var b := _chip(verbs, String(v[1]), func(): _on_refine_verb(key))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+		_refine_btns[key] = b
+	_insp_refine_note = DccTheme.label("", "text_dim", DccTheme.FS_MICRO)
+	_insp_refine_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_insp_refine_note.custom_minimum_size.x = W_INSPECTOR - 52
+	_insp_refine_note.visible = false
+	ref_col.add_child(_insp_refine_note)
+	var undo_row := HBoxContainer.new()
+	ref_col.add_child(undo_row)
+	_insp_refine_undo_btn = _chip(undo_row, "Undo", func(): _on_refine_undo())
+	_insp_refine_undo_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_refine_undo_btn.visible = false
+	# AP-10 (Ruling CR): line-art conversion, for sprite families. It keeps
+	# its own Convert / Undo pair (`shell/lineart_refine.gd`).
 	_lineart = preload("res://shell/lineart_refine.gd").new()
 	_lineart.build(ref_col, self)
 
@@ -3429,27 +3480,35 @@ func _refresh_inspector() -> void:
 
 	_refresh_pack_info_fields(_bridge.as_pack_info())
 
-## AP-4 and AP-10: the REFINE section for the focused slot's previewed
-## variant. A sprite family shows AP-10's line-art block
-## (`shell/lineart_refine.gd`) and hides the seam rows; a ground tile shows
-## the seam rows and hides the line-art block. For a ground tile it shows
-## `as_seam_check`'s numbers
-## (8-bit RGB levels: the mean difference across the wrap edges against the
-## same across the centre lines, AP-2's measure on the bake) and enables Make
-## seamless only on a seam, with the reason written whenever it is disabled.
+## AP-4/AP-7/AP-10: the REFINE section for the focused slot's previewed
+## variant. The seam rows show for ground tiles only: `as_seam_check`'s
+## numbers (8-bit RGB levels: the mean difference across the wrap edges
+## against the same across the centre lines, AP-2's measure on the bake) with
+## Make seamless enabled only on a seam. The AP-7 verb chips show for every
+## family, each enabled per `as_refine_verbs` (the family rules) and disabled
+## with its reason in the tooltip otherwise; with no art in the slot every
+## verb is disabled. AP-10's line-art block (`shell/lineart_refine.gd`)
+## refreshes itself and shows for sprite families only.
 func _refresh_refine(fam: Dictionary, item_count: int) -> void:
 	if _insp_refine == null:
 		return
 	var tex := bool(fam.get("texture", false))
 	_insp_refine.visible = _focused_uid != ""
-	_insp_seam_label.visible = tex
-	_insp_seam_row.visible = tex
 	if _lineart != null:
 		_lineart.refresh(_focused_uid, _preview_index, fam, item_count)
-	if not _seam_undo.is_empty() and (String(_seam_undo.get("uid", "")) != _focused_uid
-			or int(_seam_undo.get("index", -1)) >= item_count):
-		_seam_undo = {}
-	_insp_seam_undo_btn.visible = not _seam_undo.is_empty()
+	if _refine_note_uid != _focused_uid:
+		_insp_refine_note.visible = false
+	if not _refine_undo.is_empty() and String(_refine_undo.get("kind", "")) == "variant" \
+			and String(_refine_undo.get("uid", "")) == _focused_uid \
+			and int(_refine_undo.get("index", -1)) >= item_count:
+		_refine_undo = {}
+	_insp_refine_undo_btn.visible = not _refine_undo.is_empty()
+	if not _refine_undo.is_empty():
+		_insp_refine_undo_btn.text = "Undo %s" % String(_refine_undo.get("what", ""))
+		_insp_refine_undo_btn.tooltip_text = ("Put back the placements Fit all changed. No pixel was changed." if String(_refine_undo.get("kind", "")) == "fit"
+			else "Remove the variant just made. The original was never changed.")
+	_refresh_refine_verbs(item_count)
+	_insp_seam_box.visible = tex
 	if not tex:
 		return
 	if item_count == 0:
@@ -3475,6 +3534,62 @@ func _refresh_refine(fam: Dictionary, item_count: int) -> void:
 		else "This variant already wraps by the report's measure (wrap difference within 1.25× the centre's), so there is nothing to fix.")
 
 
+## AP-7: enable each verb chip from `as_refine_verbs` (the family rules), or
+## disable it with the reason written into its tooltip. Fit all also runs on
+## the BATCH selection, so it stays enabled with no art in this slot when
+## something is selected.
+func _refresh_refine_verbs(item_count: int) -> void:
+	var rules := {}
+	for r in _bridge.as_refine_verbs(_focused_uid):
+		rules[String(r.get("verb", ""))] = r
+	for v in REFINE_VERBS:
+		var key := String(v[0])
+		var b: Button = _refine_btns.get(key)
+		if b == null:
+			continue
+		var why := ""
+		if key == "fit_all":
+			if item_count == 0 and _selected.is_empty():
+				why = "No art in this slot, and nothing selected."
+		elif item_count == 0:
+			why = "No art in this slot yet."
+		elif not rules.has(key):
+			why = "Not available on this binary."
+		elif not bool(rules[key].get("ok", false)):
+			why = String(rules[key].get("reason", "Does not apply to this family."))
+			why = why.substr(0, 1).to_upper() + why.substr(1) + "."
+		b.disabled = why != ""
+		var tip := String(v[2])
+		if key == "fit_all" and not _selected.is_empty():
+			tip = "Give every variant of the %d selected slot(s) the Fit placement. Placement only: no pixel changes and no variant is added; Undo puts the old placements back." % _selected.size()
+		b.tooltip_text = why if why != "" else tip
+
+
+## Show what the last REFINE action did (or why it did nothing) under the
+## chips, and on the status line.
+func _refine_say(text: String, tone: String) -> void:
+	_refine_note_uid = _focused_uid
+	_insp_refine_note.text = text
+	_insp_refine_note.visible = text != ""
+	_insp_refine_note.add_theme_color_override("font_color", DccTheme.c("warn" if tone == "warn" else "text_dim"))
+	_host.set_status("hint", text, tone)
+
+
+## After a REFINE action that added variant `index` to the focused slot:
+## remember it for Undo (with its content hash, so Undo can refuse a
+## different image if the slot's list has shifted since), preview it, and
+## refresh everything that shows counts.
+func _refine_added(index: int, what: String) -> void:
+	_dirty = true
+	var made: Dictionary = _bridge.as_item_summary(_focused_uid, index)
+	_refine_undo = {"kind": "variant", "uid": _focused_uid, "index": index, "hash": String(made.get("hash", "")), "what": what}
+	_preview_index = index
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_rail_counts()
+	_refresh_status_line()
+
+
 ## AP-4: Make seamless on the previewed variant. Writes a new variant and
 ## previews it; a tile that already wraps writes nothing and says so.
 func _on_make_seamless() -> void:
@@ -3482,45 +3597,103 @@ func _on_make_seamless() -> void:
 		return
 	var r: Dictionary = _bridge.as_make_seamless(_focused_uid, _preview_index)
 	if not bool(r.get("ok", false)):
-		_host.set_status("hint", "make seamless failed — %s" % String(r.get("error", "unknown error")), "warn")
+		_refine_say("make seamless failed — %s" % String(r.get("error", "unknown error")), "warn")
 		return
 	if not bool(r.get("changed", false)):
-		_host.set_status("hint", "already wraps — nothing written", "accent")
+		_refine_say("already wraps — nothing written", "accent")
 		_refresh_inspector()
 		return
-	_dirty = true
-	## The new variant's content hash, so Undo can refuse to remove a different
-	## image if the slot's variant list has shifted since.
-	var made: Dictionary = _bridge.as_item_summary(_focused_uid, int(r["index"]))
-	_seam_undo = {"uid": _focused_uid, "index": int(r["index"]), "hash": String(made.get("hash", ""))}
-	_preview_index = int(r["index"])
-	_host.set_status("hint", "seamless variant %d added — wrap %.1f → %.1f levels; the original is unchanged" % [
+	_refine_say("seamless variant %d added — wrap %.1f → %.1f levels; the original is unchanged" % [
 		int(r["index"]) + 1, float(r["before_edge"]), float(r["after_edge"])], "accent")
+	_refine_added(int(r["index"]), "seamless")
+
+
+## AP-7: one REFINE verb on the previewed variant (`as_refine`), or Fit all
+## (`as_fit_all`) on the selection or this slot. A verb writes a new variant
+## and previews it; one with nothing to do writes nothing and says why.
+func _on_refine_verb(key: String) -> void:
+	if key == "fit_all":
+		_on_fit_all()
+		return
+	if _focused_uid == "":
+		return
+	var r: Dictionary = _bridge.as_refine(_focused_uid, _preview_index, key)
+	if not bool(r.get("ok", false)):
+		_refine_say("%s: %s" % [key, String(r.get("error", "unknown error"))], "warn")
+		return
+	var note := String(r.get("note", ""))
+	if not bool(r.get("changed", false)):
+		_refine_say("%s — %s; nothing written" % [key, note], "accent")
+		return
+	_refine_say("variant %d added (%s) — %s; the original is unchanged" % [int(r["index"]) + 1, key, note], "accent")
+	_refine_added(int(r["index"]), key)
+
+
+## AP-7's Fit all: the BATCH selection when there is one, else the focused
+## slot. Placement only; Undo restores the old placements it reports.
+func _on_fit_all() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty() and _focused_uid != "":
+		uids.append(_focused_uid)
+	if uids.is_empty():
+		return
+	var r: Dictionary = _bridge.as_fit_all(uids)
+	if not bool(r.get("ok", false)):
+		_refine_say("fit all failed — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	var moved: Array = r.get("moved", [])
+	if moved.is_empty():
+		_refine_say("fit all — every variant is already fitted; nothing changed", "accent")
+		return
+	_dirty = true
+	_refine_undo = {"kind": "fit", "rows": moved, "what": "fit all"}
+	_refine_say("fit all — %d variant(s) re-placed across %d slot(s); no pixel changed" % [moved.size(), uids.size()], "accent")
 	_refresh_grid()
 	_refresh_inspector()
-	_refresh_rail_counts()
 	_refresh_status_line()
 
 
-## AP-4's Undo: removes the variant the last Make seamless added.
-func _on_undo_seamless() -> void:
-	if _seam_undo.is_empty():
+## Undo the last REFINE action (`_refine_undo`). A variant is removed only
+## while its content hash still matches; a Fit all puts back each OLD
+## placement only where the item is still the same image, and says how many
+## it skipped.
+func _on_refine_undo() -> void:
+	if _refine_undo.is_empty():
 		return
-	var uid := String(_seam_undo["uid"])
-	var idx := int(_seam_undo["index"])
-	var want := String(_seam_undo.get("hash", ""))
-	_seam_undo = {}
-	var now: Dictionary = _bridge.as_item_summary(uid, idx)
-	if want == "" or String(now.get("hash", "")) != want:
-		_host.set_status("hint", "undo skipped — that variant has moved or changed since", "warn")
-		_refresh_inspector()
-		return
-	if _bridge.as_remove_item(uid, idx):
+	var rec := _refine_undo
+	_refine_undo = {}
+	if String(rec.get("kind", "")) == "fit":
+		var put := 0
+		var skipped := 0
+		for row in rec.get("rows", []):
+			var uid := String(row["uid"])
+			var idx := int(row["index"])
+			var now: Dictionary = _bridge.as_item_summary(uid, idx)
+			if String(now.get("hash", "")) != String(row.get("hash", "")) or String(row.get("hash", "")) == "":
+				skipped += 1
+				continue
+			if _bridge.as_set_item_transform(uid, idx, float(row["scale"]), float(row["pan_x"]), float(row["pan_y"])):
+				put += 1
+			else:
+				skipped += 1
 		_dirty = true
-		_preview_index = maxi(0, idx - 1)
-		_host.set_status("hint", "seamless variant removed", "accent")
+		_refine_say("fit all undone — %d placement(s) put back%s" % [put,
+			(", %d skipped (moved or changed since)" % skipped) if skipped > 0 else ""], "warn" if skipped > 0 else "accent")
 	else:
-		_host.set_status("hint", "undo failed — that variant is gone", "warn")
+		var uid := String(rec["uid"])
+		var idx := int(rec["index"])
+		var want := String(rec.get("hash", ""))
+		var now: Dictionary = _bridge.as_item_summary(uid, idx)
+		if want == "" or String(now.get("hash", "")) != want:
+			_refine_say("undo skipped — that variant has moved or changed since", "warn")
+			_refresh_inspector()
+			return
+		if _bridge.as_remove_item(uid, idx):
+			_dirty = true
+			_preview_index = maxi(0, idx - 1)
+			_refine_say("%s variant removed; the original is as it was" % String(rec.get("what", "")), "accent")
+		else:
+			_refine_say("undo failed — that variant is gone", "warn")
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_rail_counts()
