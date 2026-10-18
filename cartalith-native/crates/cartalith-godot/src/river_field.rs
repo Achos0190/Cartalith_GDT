@@ -239,15 +239,38 @@ fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
 }
 
 /// Where a raster's pixels sit in river space, for [`eval_window`]: pixel
-/// `(i, j)` is sampled at `((i - ox) / sx, (j - oy) / sy)` -- the inverse of
-/// `river_stroke::RasterMap`'s `raster = offset + point * scale`. The
-/// texture's texel `i` (centre `(i + 0.5) / s`) is `sx = s, ox = -0.5`.
+/// `(i, j)` is pixel `(px0 + i, py0 + j)` of a whole image placed by
+/// `river_stroke::RasterMap`'s `raster = offset + point * scale`, and is
+/// sampled at `((px0 + i - ox) / sx, (py0 + j - oy) / sy)` -- that map's
+/// inverse. The texture's texel `i` (centre `(i + 0.5) / s`) is `sx = s, ox =
+/// -0.5`, origin `(0, 0)`.
+///
+/// **Why the origin is a pixel count and not folded into `ox`/`oy`**
+/// (2026-10-18, `_exportoptions_probe.gd` check 4): a banded export used to
+/// place each band by a band-relative `f32` offset (`RasterMap::tile` at the
+/// band's own origin), so the same image pixel's river-space position was
+/// rounded differently in a band than in the whole image, and 9 341 river-edge
+/// pixels of the 16K export came out one or two levels off the monolithic
+/// export.
+/// With the whole image's offset and an integer origin, a pixel's position is
+/// computed from its whole-image index -- exact in `f32` below 2^24 -- by the
+/// same arithmetic in every band and in the monolithic render, so the two
+/// are identical by construction. Must never be folded back into the offset.
 #[derive(Clone, Copy, Debug)]
 struct Place {
     sx: f32,
     sy: f32,
     ox: f32,
     oy: f32,
+    px0: usize,
+    py0: usize,
+}
+
+impl Place {
+    /// River-space position of window pixel `(i, j)` (see the type's doc).
+    fn at(&self, i: usize, j: usize) -> (f32, f32) {
+        (((self.px0 + i) as f32 - self.ox) / self.sx, ((self.py0 + j) as f32 - self.oy) / self.sy)
+    }
 }
 
 /// **The one per-texel decision** (RIM-1, shared since RIM-7): for every
@@ -278,15 +301,23 @@ fn eval_window(segs: &[Seg], ids: &[u32], pl: Place, raster: (usize, usize), win
     for &si in ids {
         let sg = &segs[si as usize];
         let r = band_cells(sg.hwa.max(sg.hwb), river_width);
+        // The reach box in WHOLE-image pixels (the same arithmetic whatever
+        // the window's origin, so a band visits exactly the pixels the whole
+        // image does), then shifted into this raster and clipped to it.
         let x0 = (((sg.a.0.min(sg.b.0) - r) * pl.sx + pl.ox).floor().max(0.0)) as usize;
-        let x1 = ((((sg.a.0.max(sg.b.0) + r) * pl.sx + pl.ox).ceil()).max(0.0) as usize).min(w - 1);
+        let x1 = (((sg.a.0.max(sg.b.0) + r) * pl.sx + pl.ox).ceil()).max(0.0) as usize;
         let y0 = (((sg.a.1.min(sg.b.1) - r) * pl.sy + pl.oy).floor().max(0.0)) as usize;
-        let y1 = ((((sg.a.1.max(sg.b.1) + r) * pl.sy + pl.oy).ceil()).max(0.0) as usize).min(h - 1);
+        let y1 = (((sg.a.1.max(sg.b.1) + r) * pl.sy + pl.oy).ceil()).max(0.0) as usize;
+        if x1 < pl.px0 || y1 < pl.py0 {
+            continue;
+        }
+        let (x0, x1) = (x0.saturating_sub(pl.px0), (x1 - pl.px0).min(w - 1));
+        let (y0, y1) = (y0.saturating_sub(pl.py0), (y1 - pl.py0).min(h - 1));
         for j in y0.max(wy0)..=y1.min(wy0 + wh - 1) {
-            let qy = (j as f32 - pl.oy) / pl.sy;
+            let qy = pl.at(0, j).1;
             let base = (j - wy0) * ww;
             for i in x0.max(wx0)..=x1.min(wx0 + ww - 1) {
-                let (d, hw) = sg.nearest(((i as f32 - pl.ox) / pl.sx, qy));
+                let (d, hw) = sg.nearest((pl.at(i, j).0, qy));
                 if d > band_cells(hw, river_width) {
                     continue;
                 }
@@ -386,7 +417,7 @@ pub fn build_with(
     let sentinel_bits = crate::render::f16_bits(SENTINEL);
     let mut bits = vec![0u16; w * h * CHANNELS];
     // Texel `i`'s centre is river-space `(i + 0.5) / s` (see `Place`).
-    let pl = Place { sx: sf, sy: sf, ox: -0.5, oy: -0.5 };
+    let pl = Place { sx: sf, sy: sf, ox: -0.5, oy: -0.5, px0: 0, py0: 0 };
     bits.par_chunks_mut(CHUNK_ROWS * w * CHANNELS).zip(bins.par_iter()).enumerate().for_each(|(c, (out, bin))| {
         let rows = out.len() / (w * CHANNELS);
         let row0 = c * CHUNK_ROWS;
@@ -645,8 +676,7 @@ impl PaintSource {
             return None;
         }
         let (ww, wh) = (B.min(w - wx0), B.min(h - wy0));
-        let q = |i: f32, j: f32| ((i - pl.ox) / pl.sx, (j - pl.oy) / pl.sy);
-        let (lo, hi) = (q(wx0 as f32, wy0 as f32), q((wx0 + ww - 1) as f32, (wy0 + wh - 1) as f32));
+        let (lo, hi) = (pl.at(wx0, wy0), pl.at(wx0 + ww - 1, wy0 + wh - 1));
         let ids = self.ids_in(lo.0, lo.1, hi.0, hi.1);
         if ids.is_empty() {
             return None;
@@ -663,7 +693,7 @@ impl PaintSource {
     #[cfg(test)]
     pub fn texels(&self, map: crate::river_stroke::RasterMap, w: usize, h: usize) -> Vec<Option<[f32; 3]>> {
         use crate::render::RIVER_BLOCK as B;
-        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1 };
+        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1, px0: 0, py0: 0 };
         let mut out = vec![None; w * h];
         for by in 0..h.div_ceil(B) {
             for bx in 0..w.div_ceil(B) {
@@ -697,10 +727,21 @@ impl PaintSource {
     /// cell would read as coverage. Parallel over [`crate::render::RIVER_BLOCK`]
     /// blocks; deterministic (each block's segments in draw order).
     pub fn raster(&self, map: crate::river_stroke::RasterMap, w: usize, h: usize) -> crate::render::RiverLayer {
+        self.raster_at(map, (0, 0), w, h)
+    }
+
+    /// [`Self::raster`] for the `w x h` window at pixel `origin` of a whole
+    /// image placed by `map` -- an export band or a snapshot crop. Pixel
+    /// `(i, j)` of the result is whole-image pixel `origin + (i, j)`, placed
+    /// from that whole-image index ([`Place`]'s doc), so a window paints
+    /// exactly the pixels the whole image paints there: the banded export's
+    /// identity with the monolithic one (`export_raster::band_identity_tests`).
+    /// `origin = (0, 0)` is [`Self::raster`] exactly.
+    pub fn raster_at(&self, map: crate::river_stroke::RasterMap, origin: (usize, usize), w: usize, h: usize) -> crate::render::RiverLayer {
         use crate::render::RIVER_BLOCK as B;
         let mut layer = crate::render::RiverLayer::new(w, h);
         layer.set_bank_rgb(self.bank_rgb);
-        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1 };
+        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1, px0: origin.0, py0: origin.1 };
         if w == 0 || h == 0 || !(pl.sx > 0.0 && pl.sy > 0.0 && pl.ox.is_finite() && pl.oy.is_finite()) {
             return layer;
         }
@@ -714,7 +755,6 @@ impl PaintSource {
                 let (bx, by) = (bi % nbx, bi / nbx);
                 let (wx0, wy0) = (bx * B, by * B);
                 let (ww, wh, best, val) = self.block_texels(pl, w, h, bx, by)?;
-                let q = |i: f32, j: f32| ((i - pl.ox) / pl.sx, (j - pl.oy) / pl.sy);
                 let mut col: Option<Box<[[f32; 4]]>> = None;
                 let mut post: Option<Box<[[f32; 2]]>> = None;
                 for ly in 0..wh {
@@ -724,7 +764,7 @@ impl PaintSource {
                             continue;
                         }
                         let v = val[k];
-                        let p = q((wx0 + lx) as f32, (wy0 + ly) as f32);
+                        let p = pl.at(wx0 + lx, wy0 + ly);
                         // The frame weight at the pixel's own cell-index
                         // position, as `build_with` stores it per texel.
                         let fw = (1.0 - crate::render::border_cover_f(&self.appearance, p.0 as f64 - 0.5, p.1 as f64 - 0.5, self.gw, self.gh)).clamp(0.0, 1.0) as f32;

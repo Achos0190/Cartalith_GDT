@@ -1515,20 +1515,68 @@ pub fn rasterize(geom: &RiverGeometry, a: &render::TerrainAppearance, w: usize, 
 /// is `river_delta::fans_drawn`; callers take them from
 /// `WorldGen::delta_fans_for`).
 pub fn rasterize_with(geom: &RiverGeometry, fans: Option<&RiverGeometry>, a: &render::TerrainAppearance, w: usize, h: usize, map: RasterMap) -> render::RiverLayer {
+    rasterize_with_at(geom, fans, a, w, h, map, (0, 0))
+}
+
+/// [`rasterize_with`] for the `w x h` window at pixel `origin` of a whole
+/// image placed by `map` -- an export band or a snapshot crop
+/// (`export_raster::with_export_rivers`). `origin = (0, 0)` is
+/// [`rasterize_with`] exactly (subtracting `0.0` is exact).
+///
+/// **Why an origin rather than a window-relative `map`** (2026-10-18,
+/// `_exportoptions_probe.gd` check 4): every mesh vertex is placed in the
+/// WHOLE image's pixels first, by the arithmetic the whole-image render uses
+/// (centreline, normal and offset alike -- moving the centreline before the
+/// offsets were added was measured still 4 pixels off in
+/// `export_raster::band_identity_tests`), and only then moved into the window
+/// by the integer `origin`. A window-relative offset (`RasterMap::tile` at
+/// the band's own origin, as before) rounds each vertex differently from the
+/// whole image, so a band's antialiased edge pixels came out a level off the
+/// monolithic export.
+///
+/// The move is exact (Sterbenz-style: `v - n` with `n` an integer below 2^24
+/// is representable whenever `n <= 2v`), so a window fills exactly the
+/// pixels, weights and order the whole image fills there
+/// (`render::RiverLayer::fill_triangles` works on coordinate differences in
+/// `f64`), with one disclosed limit: a vertex at a whole-image coordinate
+/// below half the origin's (or above the image's top or left edge) is
+/// rounded by the move, and it matters only if its segment reaches the
+/// window. That needs an origin smaller than about twice a stroke's reach
+/// (half-width, fringe and one render step: tens of pixels), which no
+/// shipped band plan produces -- a band starts at a multiple of its rows
+/// minus the apron, hundreds of rows at 16K and 32K
+/// (`render::ExportBandPlan::for_budget`), and every band spans the full
+/// width (origin `x = 0`).
+#[allow(clippy::too_many_arguments)]
+pub fn rasterize_with_at(geom: &RiverGeometry, fans: Option<&RiverGeometry>, a: &render::TerrainAppearance, w: usize, h: usize, map: RasterMap, origin: (usize, usize)) -> render::RiverLayer {
     let mut layer = render::RiverLayer::new(w, h);
     if w == 0 || h == 0 {
         return layer;
     }
-    let view = Some((0.0f32, 0.0f32, (w - 1) as f32, (h - 1) as f32));
     let style = |k: [f32; 4], am: f32| {
         let c = render::river_style_color(a, k);
         [c[0], c[1], c[2], c[3] * am]
     };
+    // The mesh -- centreline, normals and every offset vertex -- is built and
+    // culled in WHOLE-image pixels (the window is the view), and only the
+    // finished vertices are moved into the window: moving the centreline
+    // first would round each `p + n * d` at the window's magnitude instead of
+    // the image's.
+    let (ox, oy) = (origin.0 as f32, origin.1 as f32);
+    let view = Some((ox, oy, (w - 1) as f32, (h - 1) as f32));
     let to = |q: (f32, f32)| (map.offset.0 + q.0 * map.scale.0, map.offset.1 + q.1 * map.scale.1);
+    let mut fill = |mut m: StripMesh| {
+        if origin != (0, 0) {
+            for p in m.pts.iter_mut() {
+                *p = (p.0 - ox, p.1 - oy);
+            }
+        }
+        layer.fill_triangles(&m.pts, &m.colors, &m.indices);
+    };
     if let Some(f) = fans {
-        for_each_span(f, a, map.px_per_cell(), 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span(f, a, map.px_per_cell(), 0.0, to, style, view, &mut fill);
     }
-    for_each_span(geom, a, map.px_per_cell(), 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    for_each_span(geom, a, map.px_per_cell(), 0.0, to, style, view, &mut fill);
     layer
 }
 

@@ -369,6 +369,29 @@ Two further details a re-implementation must not miss:
   computed its own would boost harder band by band, and every seam would show as
   a step in local contrast.
 
+A third, added 2026-10-18 after it shipped wrong: **the vector rivers (RV-5,
+RIM-7) must be placed from the WHOLE image's pixel index, never from a
+band-relative offset.** Each band used to rasterize its rivers through
+`RasterMap::tile` at the band's own origin, an `f32` offset; the same image
+pixel's river position then rounded differently in a band than in the whole
+image, and the 16K banded export differed from the monolithic one in 9 341
+river-edge pixels (9 896 bytes, one level, five by two) — `_exportoptions_probe.gd`
+check 4, red since RV-5 (`a185dca0`; its parent passes) and printed but not
+failed until `28d60e28` gave probes a failing exit code. The fix keeps the
+whole image's map and passes the band's integer origin
+(`river_field::PaintSource::raster_at`, `river_stroke::rasterize_with_at`,
+called from `export_raster::with_export_rivers`): a painted pixel's position is
+computed from its whole-image index, and a stroke's mesh is built in
+whole-image pixels and only its finished vertices moved into the band. The
+monolithic export is unchanged byte for byte (origin 0); the 16K banded export
+now equals it. Bar: `export_raster::band_identity_tests` (byte equality through
+`bake_and_finish` / `bake_export_band` for both river laws, and texel-for-texel
+layer equality in every window of the 16K plan). One disclosed limit, in
+`rasterize_with_at`'s doc: moving a stroke vertex by the origin is exact only
+for a vertex at or beyond half the origin's coordinate, which every segment
+reaching a band satisfies unless the band starts within a few tens of rows of
+the top — no shipped plan does.
+
 ### 4.3 What was actually measured
 
 A `tests/export_bands.rs` was written against `src/render.rs` (the same

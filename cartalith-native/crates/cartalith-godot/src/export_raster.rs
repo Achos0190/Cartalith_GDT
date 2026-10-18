@@ -703,9 +703,10 @@ pub(crate) fn bake_crop(ctx: &RenderCtx<'_>, bf: &BakeFields, rivers: ExportRive
 
 /// **RV-5: hand `run` the [`ExportRivers`] for a world** -- `geom` rasterized
 /// per export rectangle by `river_stroke::rasterize` (the deep-zoom tiles'
-/// own rasterizer, placed by `RasterMap::tile` from the rectangle's
-/// [`RasterRect`], so an export pixel and a tile pixel at the same grid
-/// position draw the same river), and `save_flag` as it is. A closure rather
+/// own rasterizer; since 2026-10-18 placed by the WHOLE export image's
+/// `RasterMap::tile(0, 0, ..)` and the rectangle's integer pixel origin --
+/// `river_stroke::rasterize_with_at` -- so a band or a crop draws exactly the
+/// river pixels the whole image draws there), and `save_flag` as it is. A closure rather
 /// than a returned value because [`render::VectorRivers`] borrows the
 /// rasterizing closure, which has to live somewhere for the call.
 ///
@@ -720,9 +721,8 @@ pub(crate) fn bake_crop(ctx: &RenderCtx<'_>, bf: &BakeFields, rivers: ExportRive
 /// **RIM-7, the painted river** (2026-10-05): with `paint` (a look that paints
 /// its rivers, [`WorldGen::river_paint_source`] -- built from this `geom` and
 /// these `fans` under the export's own look) every rectangle PAINTS the river
-/// by the screen's law instead (`river_field::PaintSource::raster` at the
-/// export's resolution, `RasterMap::tile` placing it exactly as the stroke
-/// was placed), and the floodplain tint and bank line it carries are drawn
+/// by the screen's law instead (`river_field::PaintSource::raster_at` at the
+/// export's resolution, placed exactly as the stroke is), and the floodplain tint and bank line it carries are drawn
 /// over the finished rectangle (`render::RiverPost::apply`). So an export
 /// matches the deep-zoom tile at the same scale, which paints with the same
 /// source. `paint` is ignored without a network.
@@ -736,10 +736,22 @@ pub(crate) fn with_export_rivers<T>(
     match geom {
         Some(g) => {
             let raster = move |a: &TerrainAppearance, r: RasterRect| {
-                let map = river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy);
+                // The WHOLE image's map (origin 0, as the monolithic export
+                // places it) plus the rectangle's integer pixel origin, never
+                // a rectangle-relative map: a band placed by its own `f32`
+                // offset rounds every river position differently from the
+                // whole image, which put 9 341 river-edge pixels of the 16K
+                // banded export one level off the monolithic one
+                // (2026-10-18, `_exportoptions_probe.gd` check 4;
+                // `band_identity_tests` below). `bake_steps` built `bx` as
+                // `x0 * cx`, so the division recovers the integer `x0` to
+                // well under half a pixel at any export width.
+                let map = river_stroke::RasterMap::tile(0.0, 0.0, r.cx, r.cy);
+                let origin = |b: f64, c: f64| if c > 0.0 && b > 0.0 { (b / c).round() as usize } else { 0 };
+                let at = (origin(r.bx, r.cx), origin(r.by, r.cy));
                 match paint {
-                    Some(p) => p.raster(map, r.w, r.h),
-                    None => river_stroke::rasterize_with(g, fans, a, r.w, r.h, map),
+                    Some(p) => p.raster_at(map, at, r.w, r.h),
+                    None => river_stroke::rasterize_with_at(g, fans, a, r.w, r.h, map, at),
                 }
             };
             run(ExportRivers { vector: Some(&raster), save_flag })
@@ -3737,5 +3749,219 @@ mod ete1_label_tests {
         assert_eq!(labels(&png), (1, 0));
         let d = cartalith_assets::raster::decode_png(&png).unwrap();
         assert_eq!(d.rgba.chunks_exact(4).flat_map(|q| [q[0], q[1], q[2]]).collect::<Vec<_>>(), crop);
+    }
+}
+
+/// **A banded export equals the monolithic one pixel for pixel, rivers and
+/// all** (`EXPORT_SCOPE.md` §4.2's bar, measured through the shipped
+/// functions). `tests/export_bands.rs` proves the identity for the terrain
+/// stages with a stand-in river closure; this module drives the REAL river
+/// rasterizers -- `river_field::PaintSource::raster` for a look that paints
+/// its rivers (the shipped default) and `river_stroke::rasterize_with` for
+/// one that strokes them -- through [`with_export_rivers`], the closure every
+/// export uses, into `render::bake_and_finish` (what `export_raster_png`
+/// runs) and `render::bake_export_band` (what `export_image` runs at 16K/32K).
+///
+/// Found 2026-10-18 by `_exportoptions_probe.gd` check 4: the 16K banded
+/// export differed from the monolithic one in 9 341 pixels (9 896 bytes, by
+/// one level; five by two), every one on a painted river's antialiased edge,
+/// in bands 1 and 3 only -- because each band placed its river raster with a
+/// band-relative `f32` offset (`RasterMap::tile(bx, by, ..)`), so a pixel's
+/// cell position was rounded differently from the whole image's. Red since
+/// RV-5 (`a185dca0`, 2026-09-28, the stroked river, 8 858 pixels then; the
+/// commit before it passes the probe), and through RIM-7's painted river
+/// (`32285b26`); the probe printed the FAIL but exited 0 until `28d60e28`.
+#[cfg(test)]
+mod band_identity_tests {
+    use super::rv5_parity_tests::{river, setup, world, GH, GW, SEA};
+    use super::with_export_rivers;
+    use crate::render::{self, BakeFields, ColorSpace, ExportBandPlan, TerrainAppearance};
+    use crate::river_stroke;
+    use std::sync::Arc;
+
+    /// Export width. Judgement: wide enough that pixel rows run past 1 000,
+    /// where a band-relative `f32` origin and the image's own round a cell
+    /// position differently (the defect this module pins went red here), and
+    /// small enough for the debug suite.
+    const OUT_W: usize = 2048;
+
+    /// Band heights. Judgement: three unrelated row counts, none a multiple of
+    /// the river layer's 32-px block or of each other, so band origins land at
+    /// many offsets across the river (which runs at rows ~1 040-1 340 here).
+    const BAND_ROWS: [usize; 3] = [300, 517, 641];
+
+    /// The monolithic and every banded export of the fixture world under `a`,
+    /// and the monolithic one with no rivers (the silent-empty control), as
+    /// `(mono, [banded per BAND_ROWS], dry)`; asserts the paint source exists
+    /// exactly when `paints`.
+    fn renders(a: &TerrainAppearance, paints: bool) -> (Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
+        let w = world();
+        let g = Arc::new(river());
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let ctx = setup(&w, a, &wb.classification);
+        let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+        let colour = Arc::new(river_stroke::rasterize_colour_field_with(&g, None, a, GW, GH));
+        let paint = crate::river_field::PaintSource::new(&g, None, GW, GH, a, colour);
+        assert_eq!(paint.is_some(), paints, "premise: the look decides whether the river is painted");
+        let (ow, oh) = render::bake_dims(OUT_W, GW, GH);
+        let inf = render::build_grade_influence(&ctx, ow, oh);
+        let dry = with_export_rivers(None, None, None, None, |r| render::bake_and_finish(&ctx, &bf, r, ow, oh, &inf, ColorSpace::Srgb));
+        let (mono, banded) = with_export_rivers(Some(&g), None, paint.as_ref(), None, |r| {
+            let mono = render::bake_and_finish(&ctx, &bf, r, ow, oh, &inf, ColorSpace::Srgb);
+            let cells = render::build_grade_influence_cells(&ctx);
+            let banded = BAND_ROWS
+                .iter()
+                .map(|&rows| {
+                    let plan = ExportBandPlan::with_rows(a, ow, oh, rows);
+                    assert!(plan.band_count() > 1 && plan.apron > 0, "premise: a real banded plan, apron and all");
+                    plan.bands().flat_map(|b| render::bake_export_band(&ctx, &bf, r, &plan, b, &cells, ColorSpace::Srgb)).collect()
+                })
+                .collect();
+            (mono, banded)
+        });
+        (mono, banded, dry)
+    }
+
+    /// Pixels of `b` differing from `a` (RGB8 rasters of the same size).
+    fn differing_px(a: &[u8], b: &[u8]) -> usize {
+        a.chunks_exact(3).zip(b.chunks_exact(3)).filter(|(p, q)| p != q).count()
+    }
+
+    /// Protects: the shipped look's painted river is placed at the WHOLE
+    /// image's pixel positions in every band, so a 16K/32K banded export is
+    /// the monolithic picture exactly (`_exportoptions_probe.gd` check 4).
+    #[test]
+    fn a_painted_river_bands_identically() {
+        let a = TerrainAppearance { smooth_shores: true, rivers_as_water: true, ..TerrainAppearance::default() };
+        let (mono, banded, no_river) = renders(&a, true);
+        assert!(differing_px(&mono, &no_river) > 1_000, "silent-empty guard: the painted river must reach the raster");
+        for (rows, b) in BAND_ROWS.iter().zip(&banded) {
+            assert_eq!(b.len(), mono.len());
+            assert_eq!(differing_px(&mono, b), 0, "{rows}-row bands differ from the monolithic export");
+        }
+    }
+
+    /// Protects: the same for a look that strokes its rivers
+    /// (`river_stroke::rasterize_with`), whose mesh and fill must also be
+    /// built at the whole image's pixel positions.
+    #[test]
+    fn a_stroked_river_bands_identically() {
+        let a = TerrainAppearance { smooth_shores: true, rivers_as_water: false, ..TerrainAppearance::default() };
+        let (mono, banded, no_river) = renders(&a, false);
+        assert!(differing_px(&mono, &no_river) > 1_000, "silent-empty guard: the stroked river must reach the raster");
+        for (rows, b) in BAND_ROWS.iter().zip(&banded) {
+            assert_eq!(b.len(), mono.len());
+            assert_eq!(differing_px(&mono, b), 0, "{rows}-row bands differ from the monolithic export");
+        }
+    }
+
+    /// The app's own grid (2048 x 1311), where the 16K export puts ~8 pixels
+    /// on a cell -- the density the defect was measured at.
+    const BIG_GRID: (usize, usize) = (2048, 1311);
+
+    /// A long river meandering down the whole `gw x gh` map, so the layer
+    /// check sees river texels in every 16K band.
+    fn long_river(gw: usize, gh: usize) -> river_stroke::RiverGeometry {
+        let n = 4001;
+        let pts: Vec<(f32, f32)> = (0..n)
+            .map(|k| {
+                let t = k as f32 / (n - 1) as f32;
+                (gw as f32 * (0.1 + 0.8 * t) + 40.0 * (t * 37.0).sin(), gh as f32 * (0.03 + 0.94 * t) + 25.0 * (t * 23.0).cos())
+            })
+            .collect();
+        river_stroke::RiverGeometry {
+            runs: vec![river_stroke::DrawnRun {
+                pts,
+                widths: vec![1.4; n],
+                colors: vec![[0.22, 0.42, 0.86, 1.0]; n],
+                orders: vec![3; n],
+                discharge: vec![12.0; n],
+                pieces: vec![(0, n)],
+                reach: Vec::new(),
+                own_order: 3,
+            }],
+        }
+    }
+
+    /// Layer-level check width. Judgement: the 16K export's own width, where
+    /// the defect was found; only the sparse river layers are built at it
+    /// (16 KB per 32-px block a river touches), so it stays cheap.
+    const LAYER_W: usize = 16384;
+
+    /// Band height and apron for the layer-level check: the 16K plan's own
+    /// figures as `_exportoptions_probe.gd` check 3 pins them (2 294 rows,
+    /// 164-row apron), so the windows start where a real 16K band's do.
+    const LAYER_BAND: (usize, usize) = (2294, 164);
+
+    /// Every window of a 16K-plan banding of the `w x h` river layer that
+    /// `raster(origin, rows)` draws, compared texel for texel -- the colour
+    /// plane and the post plane, as bit patterns -- with the whole layer.
+    /// Returns `(texels compared that hold river, texels that differ)`.
+    fn layer_mismatch(w: usize, h: usize, raster: impl Fn((usize, usize), usize) -> render::RiverLayer) -> (usize, usize) {
+        let whole = raster((0, 0), h);
+        let bits = |v: Option<[f32; 4]>| v.map(|c| c.map(f32::to_bits));
+        let post = |v: Option<[f32; 2]>| v.map(|c| c.map(f32::to_bits));
+        let (rows, apron) = LAYER_BAND;
+        let (mut river, mut differ) = (0usize, 0usize);
+        let mut y0 = 0usize;
+        while y0 < h {
+            let top = apron.min(y0);
+            let oy = y0 - top;
+            let n = (rows + top + apron).min(h - oy);
+            let band = raster((0, oy), n);
+            for y in 0..n {
+                for x in 0..w {
+                    let (a, b) = ((bits(whole.at(x, oy + y)), post(whole.post_at(x, oy + y))), (bits(band.at(x, y)), post(band.post_at(x, y))));
+                    if a.0.is_some() || a.1.is_some() {
+                        river += 1;
+                    }
+                    if a != b {
+                        differ += 1;
+                    }
+                }
+            }
+            y0 += rows;
+        }
+        (river, differ)
+    }
+
+    /// Protects: the painted river's own layer (`PaintSource::raster_at`) is
+    /// bit-identical in every 16K band window to the whole image's -- the
+    /// per-texel `f32` coverage, colour, floodplain and bank, which are far
+    /// more sensitive than the bytes the byte-level tests above compare (at
+    /// 2048 px a band-relative placement flips no byte of the small fixture;
+    /// at 16K it is the measured 9 341 pixels). Measured when written: the
+    /// pre-fix band-relative placement (`RasterMap::tile` at each band's own
+    /// origin) differs in 66 214 of this fixture's 748 019 river texels; the
+    /// fix in none.
+    #[test]
+    fn a_painted_river_layer_is_bit_identical_in_every_16k_band() {
+        let a = TerrainAppearance { smooth_shores: true, rivers_as_water: true, ..TerrainAppearance::default() };
+        let (gw, gh) = BIG_GRID;
+        let g = Arc::new(long_river(gw, gh));
+        let colour = Arc::new(river_stroke::rasterize_colour_field_with(&g, None, &a, gw, gh));
+        let paint = crate::river_field::PaintSource::new(&g, None, gw, gh, &a, colour).expect("premise: the look paints");
+        let (w, h) = render::bake_dims(LAYER_W, gw, gh);
+        let (cx, cy) = ((gw - 1) as f64 / (w - 1) as f64, (gh - 1) as f64 / (h - 1) as f64);
+        let map = river_stroke::RasterMap::tile(0.0, 0.0, cx, cy);
+        let (river, differ) = layer_mismatch(w, h, |o, n| paint.raster_at(map, o, w, n));
+        assert!(river > 10_000, "silent-empty guard: only {river} river texels at 16K");
+        assert_eq!(differ, 0, "{differ} of {river} painted-river texels differ between a band and the whole image");
+    }
+
+    /// Protects: the same for the stroked river's layer
+    /// (`river_stroke::rasterize_with_at`).
+    #[test]
+    fn a_stroked_river_layer_is_bit_identical_in_every_16k_band() {
+        let a = TerrainAppearance { smooth_shores: true, rivers_as_water: false, ..TerrainAppearance::default() };
+        let (gw, gh) = BIG_GRID;
+        let g = long_river(gw, gh);
+        let (w, h) = render::bake_dims(LAYER_W, gw, gh);
+        let (cx, cy) = ((gw - 1) as f64 / (w - 1) as f64, (gh - 1) as f64 / (h - 1) as f64);
+        let map = river_stroke::RasterMap::tile(0.0, 0.0, cx, cy);
+        let (river, differ) = layer_mismatch(w, h, |o, n| river_stroke::rasterize_with_at(&g, None, &a, w, n, map, o));
+        assert!(river > 10_000, "silent-empty guard: only {river} river texels at 16K");
+        assert_eq!(differ, 0, "{differ} of {river} stroked-river texels differ between a band and the whole image");
     }
 }
