@@ -440,7 +440,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Sixteen exemptions (the `EXEMPT` list in the body; the first six were the
+/// Twenty-two exemptions (the `EXEMPT` list in the body; the first six were the
 /// original set), all real and all stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
 /// attaches none, exactly as a pack-less session does); `border_width_frac` is
@@ -462,7 +462,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 #[test]
 fn every_tunable_is_load_bearing() {
     /// Controls the pixel sweep in `every_tunable_is_load_bearing` skips, each
-    /// with its replacement proof stated in the comments above it. Seventeen
+    /// with its replacement proof stated in the comments above it. Twenty-two
     /// entries; the array length is part of the type, so the count cannot drift
     /// silently.
     // Every exemption here owes a replacement proof at the bottom of this
@@ -510,7 +510,19 @@ fn every_tunable_is_load_bearing() {
     // only the deep-zoom tiles run -- the grid path never amplifies. Its
     // replacement proof is at the bottom of this function, through
     // `render::tile_amplify_opts` and the amplifier itself.
-    const EXEMPT: [&str; 17] = [
+    //
+    // The five Satellite relief fields (Ruling CI item 2 and its 2026-10-18
+    // addendum) are the eighteenth to twenty-second, for a reason of their own:
+    // each is one half of a pair, and neither half moves the image alone --
+    // the shelf needs a width and a strength, snow shedding a strength and a
+    // slope, and the degree rock knee needs `rock_slope`, which is `0.0` here
+    // -- and the slope stages also need a peak altitude this fixture's
+    // `Npr::default()` does not carry (`0`, which the renderer treats as
+    // unknown rather than guessing). Their replacement proofs are in
+    // `tests/satellite_relief.rs`: `the_shelf_brightens_the_coast_and_touches_only_the_sea`,
+    // `snow_sheds_from_the_steep_ridge_only` and
+    // `the_degree_knee_tints_rock_where_the_ported_knee_barely_does`.
+    const EXEMPT: [&str; 22] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -528,6 +540,11 @@ fn every_tunable_is_load_bearing() {
         "river_through",
         "river_bank",
         "zoom_detail_km",
+        "sea_shelf",
+        "sea_shelf_km",
+        "snow_shed",
+        "snow_shed_deg",
+        "rock_slope_deg",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

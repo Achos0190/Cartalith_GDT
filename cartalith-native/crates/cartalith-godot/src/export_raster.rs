@@ -3091,7 +3091,8 @@ mod adjust_census_tests {
 
     /// The census looks: the shipped default, a graded look (grade on and
     /// field-weighted, so the weighted grade path runs beside the stacks),
-    /// Antique Parchment, and the reference look.
+    /// Antique Parchment, the reference look, and (since 2026-10-18) Ruling
+    /// CI's Satellite relief.
     fn looks() -> Vec<(&'static str, TerrainAppearance)> {
         let graded = TerrainAppearance { grade_exposure: 0.3, grade_saturation: 0.4, grade_field_biome: 0.5, ..TerrainAppearance::default() };
         vec![
@@ -3099,7 +3100,19 @@ mod adjust_census_tests {
             ("graded", graded),
             ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE)),
             ("js_reference", TerrainAppearance::js_reference()),
+            ("satellite", satellite()),
         ]
+    }
+
+    /// Ruling CI item 2's "Satellite relief" look as the app hands it over:
+    /// the world's peak altitude filled in (`WorldGen::appearance_rebased`
+    /// does it from the world's parameters), which its two slope stages need
+    /// -- `Npr::default()`'s `0` would leave them off and the row would pin
+    /// less than the look draws.
+    fn satellite() -> TerrainAppearance {
+        let mut a = TerrainAppearance::default().with_look(render::LOOK_SATELLITE);
+        a.npr.peak_m = 4000.0;
+        a
     }
 
     /// HEAD (`373f9f8b`) hashes, per look in [`looks`] order: screen sRGB,
@@ -3116,7 +3129,16 @@ mod adjust_census_tests {
     /// `fb1b2e64b074ba0f` -> `8c59eab2f6ee4305`. Every pixel hash (32 of
     /// them) is unchanged: this census's tile carries no map width, so it
     /// runs the reference zoom schedule under every look.
-    const HEAD: [(&str, [u64; 9]); 4] = [
+    ///
+    /// **A fifth row, ADDED 2026-10-18 (Ruling CI item 2): "satellite", the
+    /// Satellite relief look.** Not a HEAD measurement -- the look did not
+    /// exist at `373f9f8b` -- but this tree's own output, pasted as a change
+    /// detector for the new look (screen, river, export, banded, crop and tile
+    /// all carry its coast shelf and slope stages: the fixture has a map
+    /// width and the row a peak altitude). The four rows above did NOT move,
+    /// pixels or fingerprint: the look's five new fields are left out of the
+    /// serialized appearance at `0.0` (`render.rs`'s `is_zero_f64`).
+    const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
             [0xa3d12df5e0e726cd, 0xe1c6867c1f35d71f, 0x4f3245d15687bd75, 0xeefe6a4e9d5f1c4f, 0xe909cb087849684d, 0xe909cb087849684d, 0xd9e0a589f252b630, 0x1529424941caaa58, 0x3ae68caf0cc64d0e],
@@ -3132,6 +3154,10 @@ mod adjust_census_tests {
         (
             "js_reference",
             [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x8c59eab2f6ee4305],
+        ),
+        (
+            "satellite",
+            [0xda3ea89f54988cc1, 0xd1e7a930f10c389f, 0x5b5c5bd2a75a4bd3, 0xebb6d8bf236558e9, 0x38078d6a1356b23b, 0x38078d6a1356b23b, 0x516eee72efd7b603, 0x1ac1cf3a765d9392, 0xf27d5b7b9a8f07be],
         ),
     ];
 

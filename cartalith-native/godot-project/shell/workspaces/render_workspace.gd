@@ -124,8 +124,9 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ##
 ## **2026-09-27, Ruling BI** (`LARGE_ITEM_RULINGS.md`, `MAP_STYLE_RESEARCH.md`
 ## §4): eight researched map graphic styles, each following the research
-## document's own knob values. "Tanaka relief", appended after them, is the one
-## entry whose numbers are this port's own labelled judgement (see its comment). `entry[4]`, present on every one of the eight
+## document's own knob values. "Tanaka relief", appended after them, carries this
+## port's own labelled judgements (see its comment); "Satellite relief" (Ruling CI
+## item 2, 2026-10-18), last, is the owner's target render as a look. `entry[4]`, present on every one of the eight
 ## that names a ramp, is the elevation ramp preset name
 ## (`bridge.load_ramp_preset()`'s own list) -- absolute like every other
 ## element: `_apply_preset` loads it (or resets to "Earth" when a preset
@@ -386,14 +387,78 @@ const STYLE_PRESETS := [
 			"river_width": 0.9,
 			## 0.35: a printed hairline, level with Ink wash's.
 			"river_bank": 0.35}, "Atlas"],
+	## **Satellite relief** (Ruling CI item 2, owner 2026-10-17, and its 2026-10-18
+	## addendum): the owner's photoreal target render
+	## (`design/vision-render-2026-10-17/target_map_render.webp`) as a style. The
+	## picture lives in the engine's own look of the same name
+	## (`render.rs::satellite_relief`): no frame or paper, the measured navy-to-
+	## turquoise sea with its coast shelf and shore halo, snow shed and rock on
+	## steep ground. This row adds only what a look does not own:
+	## * Painter: `multi_sun`, as Natural Vibrant's own row.
+	## * Rivers: thin dark-blue lines, as the target draws them. `river_width` 0.6
+	##   and the ink are labelled judgements against the target's strokes (about
+	##   one pixel on an 803 px map, a deep teal-blue); keys every other preset
+	##   already writes, so `_preset_appearance_keys()` does not grow.
+	## * The overlays: see `PRESET_LAYERS_OFF` -- the target is a bare base layer.
+	## Natural Vibrant stays the default look; this tile is opt-in.
+	["Satellite relief", "Satellite relief", {"multi_sun": true},
+		{"river_width": 0.6, "river_ink": 0.7, "river_ink_r": 24.0, "river_ink_g": 82.0, "river_ink_b": 128.0}],
 ]
+
+## **Overlay layers a preset turns off** (Ruling CI item 2; the gap assessment's
+## question 5, answered by its recommended default: "leave the shell's default;
+## let the new look's preset turn them off"). Keyed by preset name; the values
+## are `ViewportHost.set_layer_visible()` layer ids. Pressing the tile hides
+## those layers and remembers how each one was set; pressing ANY other tile
+## restores them (`_restore_preset_layers`), so the bundle stays absolute like
+## every other element of a preset. A layer the user turns back on by hand is
+## theirs: the restore touches only a layer that is still hidden.
+##
+## Not part of the look history or of a saved project/look: undo restores the
+## picture, not the layers, and opening a project does not re-hide them. The
+## Layers popover follows, through `layer_visibility_changed`.
+##
+## What it cannot hide, stated rather than hidden: the generated region and
+## province **names** have no layer switch of their own in the shell
+## (`MapOverlay.set_labels`), so they stay; the settlement names go with the
+## `settlements` layer.
+const PRESET_LAYERS_OFF := {
+	"Satellite relief": ["territory", "provinces", "settlements", "roads", "sea_routes", "landmarks"],
+}
+
+## What `_hide_preset_layers` turned off, layer id -> its visibility before. Empty
+## when the lit preset hid nothing.
+var _preset_layers_saved: Dictionary = {}
+
+## Puts back every layer the previous preset hid that is STILL hidden (one the
+## user re-showed by hand is left alone), then forgets them. No viewport: nothing.
+func _restore_preset_layers() -> void:
+	if app == null or app.viewport == null:
+		_preset_layers_saved.clear()
+		return
+	for layer in _preset_layers_saved:
+		if not app.viewport.layer_visible(String(layer)):
+			app.viewport.set_layer_visible(String(layer), bool(_preset_layers_saved[layer]))
+	_preset_layers_saved.clear()
+
+## Hides `PRESET_LAYERS_OFF[preset_name]`'s layers, remembering each one's prior
+## state for `_restore_preset_layers`. A preset with no row hides nothing.
+func _hide_preset_layers(preset_name: String) -> void:
+	if app == null or app.viewport == null:
+		return
+	for layer in PRESET_LAYERS_OFF.get(preset_name, []):
+		_preset_layers_saved[String(layer)] = app.viewport.layer_visible(String(layer))
+		app.viewport.set_layer_visible(String(layer), false)
 
 ## One optional sentence appended to a style tile's tooltip, keyed by preset
 ## name: what the bundle line cannot say, because it is derived from the keys
-## and a key list has no room for a limit. Today only "Tanaka relief" has one --
-## its effect is a deep-zoom look (see that preset's own comment above).
+## and a key list has no room for a limit. "Tanaka relief"'s effect is a deep-zoom
+## look (see that preset's own comment above); "Satellite relief" hides overlay
+## layers (`PRESET_LAYERS_OFF`), which a bundle line derived from appearance keys
+## cannot say.
 const STYLE_TIPS := {
 	"Tanaka relief": "Best zoomed in: at whole-map zoom the lit and shadowed contour lines read as fine speckle.",
+	"Satellite relief": "Hides territory, borders, settlements, roads, sea lanes and landmarks; any other style brings them back.",
 }
 
 ## **The overlay treatment per preset** (owner, 2026-09-27: roads, sea lanes,
@@ -1927,6 +1992,10 @@ func _apply_preset(index: int, variant: String = "") -> void:
 		## which clears the previous preset's treatment rather than leaving it.
 		## ET-F2: `variant_treatment_for` returns the base row itself for `""`.
 		app.viewport.set_overlay_treatment(variant_treatment_for(String(STYLE_PRESETS[index][0]), variant))
+	## Ruling CI item 2: the overlay layers a preset turns off (`PRESET_LAYERS_OFF`),
+	## absolute like the rest -- the previous preset's hidden layers come back first.
+	_restore_preset_layers()
+	_hide_preset_layers(String(STYLE_PRESETS[index][0]))
 	look_commit("Style: %s" % shown, ["style", "ramp", _LookHistory.PRESET_PART])
 
 ## The name a preset is shown and undone under: the tile's own name for the base,

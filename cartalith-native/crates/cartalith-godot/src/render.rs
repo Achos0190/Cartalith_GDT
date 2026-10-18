@@ -587,7 +587,12 @@ pub struct Npr {
 
 /// `serde`'s `skip_serializing_if` predicate for [`Npr::tanaka`]: a bare `0.0`
 /// is the field's "off" state, and `-0.0` compares equal to it, which is the
-/// intended reading.
+/// intended reading. Also used by the five Satellite relief fields of
+/// [`TerrainAppearance`] (Ruling CI, 2026-10-18) for the same reason: a look
+/// that leaves them at `0.0` serializes -- and fingerprints
+/// (`lod_bridge::appearance_fingerprint`, which keys the tile cache) -- exactly
+/// as it did before they existed. Lossless only on a field whose `default()`
+/// is `0.0`, which `#[serde(default)]` reads a missing key back as.
 fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
@@ -893,6 +898,35 @@ pub const SEA_RAMP_NAUTICAL: &[(f64, (u8, u8, u8))] = &[
     (0.15, (36, 78, 138)),
     (0.45, (118, 176, 214)),
     (1.00, (238, 246, 250)),
+];
+
+/// **Ruling CI item 2's sea ramp** ("Satellite relief"), sampled by
+/// [`sea_color_core`] at `distance to land / sea_shelf_km` (`0` the shoreline,
+/// `1` the navy open sea; flat beyond).
+///
+/// Source, **measured** 2026-10-18 from the owner's target image
+/// (`design/vision-render-2026-10-17/target_map_render.webp`, 803 x 524):
+/// water pixels (`b > r + 25 && b >= g - 5`, 54.7 % of the image), a chamfer
+/// distance to the nearest non-water pixel, and the median RGB per distance
+/// band. Each stop sits at its band's midpoint in px divided by 48
+/// ([`TerrainAppearance::sea_shelf_km`]'s labelled 1 km per target pixel):
+/// 2-4 px (18, 112, 146), 4-7 (5, 98, 135), 7-10 (2, 84, 123), 10-15
+/// (1, 71, 112), 15-20 (0, 61, 102), 20-30 (0, 53, 93), 30-45 (0, 45, 83),
+/// 45-70 (0, 41, 78). **The `0.0` stop is a labelled judgement**: the 0-2 px
+/// band's median (62, 128, 142) is diluted by antialiased land pixels and its
+/// upper quartile is (99, 157, 169); (84, 150, 160) sits between them as the
+/// bright shore halo. The values are the target's *finished* pixels;
+/// [`sea_color_core`]'s grain and bathymetric shade still apply on top.
+pub const SEA_RAMP_SATELLITE: &[(f64, (u8, u8, u8))] = &[
+    (0.00, (84, 150, 160)),
+    (0.06, (18, 112, 146)),
+    (0.115, (5, 98, 135)),
+    (0.18, (2, 84, 123)),
+    (0.26, (1, 71, 112)),
+    (0.365, (0, 61, 102)),
+    (0.52, (0, 53, 93)),
+    (0.78, (0, 45, 83)),
+    (1.00, (0, 41, 78)),
 ];
 
 /// Linear interpolation over a static `(position, RGB)` stop table — the same
@@ -2032,6 +2066,72 @@ pub struct TerrainAppearance {
     /// [`SEA_RAMP_NAUTICAL`] sampled at the same `depth` it already carries,
     /// by this fraction.
     pub sea_ramp_strength: f64,
+    /// **Ruling CI item 2** (owner, 2026-10-17; "Satellite relief"): how much
+    /// of the sea's base colour is replaced by [`SEA_RAMP_SATELLITE`] sampled
+    /// at the **distance to the nearest land**, in units of
+    /// [`Self::sea_shelf_km`]: a bright shore halo, a turquoise shelf, then
+    /// navy open water. `0..=1`.
+    ///
+    /// Why a distance term and not the depth ramp: the assessment
+    /// (`RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §5) verified that
+    /// [`sea_color_core`] read the smoothed bathymetry alone, so water beside a
+    /// coast was often as dark as open sea, where the target hugs every coast
+    /// with a bright band. The distance is the world's chamfer distance to land
+    /// ([`coast_distance`], built **once per world** in [`GridPrecompute`] when
+    /// this is above zero) times the cell size in km, sampled bilinearly by the
+    /// screen, the export and the deep-zoom tiles alike, so the three agree.
+    ///
+    /// **`0.0` -- `default()`, every shipped look but Satellite relief, and
+    /// [`Self::js_reference`] -- is off by control flow**: the field is not
+    /// built and `sea_color_core` never enters the branch. It is also off, not
+    /// guessed, when the context knows no map width ([`RenderCtx::map_width_km`]
+    /// is `None`) or [`Self::sea_shelf_km`] is not positive. Must never move a
+    /// lake: [`lake_color`] passes no distance.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub sea_shelf: f64,
+    /// The width in km over which [`Self::sea_shelf`]'s ramp runs from the
+    /// shore to its navy end. Read only while `sea_shelf > 0`. `0.0` in
+    /// `default()` (unread there). Satellite relief's `48` is a labelled
+    /// judgement: the target image's ramp reaches its navy median by about
+    /// 45-70 px from land on an 803 px map (measured 2026-10-18, see
+    /// [`SEA_RAMP_SATELLITE`]), read onto the app's default 800 km map width,
+    /// i.e. about 1 km per target pixel. The target's real scale is unknown.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub sea_shelf_km: f64,
+    /// **Ruling CI addendum item 2** (2026-10-18), the mountain investigation's
+    /// R1: steep ground sheds snow. The fraction of the snow weight moved onto
+    /// bare rock at full shedding, `0..=1`; shedding ramps in from 40 % of
+    /// [`Self::snow_shed_deg`] to all of it, by real ground slope in degrees.
+    ///
+    /// Why: `material_weights`' snow is temperature-only and multiplies rock
+    /// out at any slope, so high ground read as a snow blob
+    /// (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` §2.3: snow fraction
+    /// 0.93-0.97 on a plateau, the target 0.01-0.04).
+    ///
+    /// The slope is `atan(slope · m_per_unit / cell_m)`: it needs the map
+    /// width ([`RenderCtx::map_width_km`]) and the world's peak altitude
+    /// (`Npr::peak_m`, which `WorldGen` fills from the world's own parameters
+    /// on every render); without either the stage is **off**, never computed
+    /// from a guessed scale. `0.0` (default, every other look,
+    /// `js_reference()`) is off by control flow. Must never add snow, and must
+    /// keep the weights summing to one (it moves weight, it does not create
+    /// it).
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub snow_shed: f64,
+    /// The real ground slope, in degrees, at which [`Self::snow_shed`] is
+    /// complete. Unread while `snow_shed` is `0`.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub snow_shed_deg: f64,
+    /// R2 of the same investigation: the knee of the [`Self::rock_slope`] tint
+    /// in **real degrees** instead of the reference's per-cell `slope / 0.08`,
+    /// which on the 2048-wide grid means 21-69 degrees of real slope and so
+    /// never fires (the investigation measured a top-decile `rock_slope_mix`
+    /// p90 of 0.012-0.095). `0.0` keeps the ported knee exactly (a branch),
+    /// and so does a context with no map width or peak altitude -- the ported
+    /// knee is the reference's, never a guess. Inert while `rock_slope` is
+    /// `0.0`, which is `default()`'s and `js_reference()`'s value.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub rock_slope_deg: f64,
     /// **The river symbol's style** (owner, 2026-09-27: *"the only issue I
     /// have with the rivers: they're drawn on top of the style"*). Since then
     /// a generated world's rivers take the style: the deep-zoom tiles
@@ -2429,6 +2529,14 @@ impl Default for TerrainAppearance {
             // Ruling BI: off by default, exactly as `js_reference()` pins it
             // below -- see the field's own doc comment.
             sea_ramp_strength: 0.0,
+            // Ruling CI item 2 and its addendum: the Satellite relief look's
+            // four terms, all off here (each field's doc says what `0.0`
+            // means); `with_look(LOOK_SATELLITE)` turns them on.
+            sea_shelf: 0.0,
+            sea_shelf_km: 0.0,
+            snow_shed: 0.0,
+            snow_shed_deg: 0.0,
+            rock_slope_deg: 0.0,
             // The river symbol at RV-2's own look: its width, opaque, its
             // palette untouched, under the Painter styles.
             river_width: 1.0,
@@ -2714,6 +2822,14 @@ impl TerrainAppearance {
             // a reference row -- `0.0` here too, so `sea_color_core` takes
             // the reference path exactly.
             sea_ramp_strength: 0.0,
+            // Ruling CI item 2 and its addendum: port-only terms of the
+            // Satellite relief look, pinned off here explicitly (the toon
+            // keys' rule), each off by control flow at `0.0`.
+            sea_shelf: 0.0,
+            sea_shelf_km: 0.0,
+            snow_shed: 0.0,
+            snow_shed_deg: 0.0,
+            rock_slope_deg: 0.0,
             // The reference draws no river symbol into its map at all
             // (`drawRiverWays` is a separate canvas pass), and nothing here
             // attaches a `RiverLayer`, so these five are unread on the parity
@@ -2844,6 +2960,7 @@ impl TerrainAppearance {
                 grade_shadow_tint: 0.18,
                 ..self
             },
+            LOOK_SATELLITE => satellite_relief(self.with_look(LOOK_VIBRANT)),
             _ => self,
         }
     }
@@ -2857,6 +2974,78 @@ pub const LOOK_TIER: &str = "Quality tier";
 pub const LOOK_VIBRANT: &str = "Natural Vibrant";
 /// The hand-illustrated parchment plate.
 pub const LOOK_ANTIQUE: &str = "Antique Parchment";
+/// The owner's photoreal target as a named look (Ruling CI item 2) -- see
+/// [`satellite_relief`].
+pub const LOOK_SATELLITE: &str = "Satellite relief";
+
+/// **"Satellite relief"** (Ruling CI item 2, owner 2026-10-17, and its
+/// 2026-10-18 addendum): the owner's second target render
+/// (`design/vision-render-2026-10-17/target_map_render.webp`) as a named look,
+/// layered over Natural Vibrant's re-pitched palettes (`base` is
+/// `with_look(LOOK_VIBRANT)` over the tier). **Natural Vibrant stays the
+/// default** until this look passes its own zoom ladder (the ruling's words).
+///
+/// What it changes, and why each:
+/// * **No frame, no paper** (`border_width_frac`, `paper_strength` 0): the
+///   target is a bare base layer; the assessment found the plate border and
+///   paper tone in every export (§3, "No clutter").
+/// * **The sea**: [`TerrainAppearance::sea_shelf`] at full strength over
+///   [`SEA_RAMP_SATELLITE`], a ramp measured from the target, across 48 km
+///   (see `sea_shelf_km`'s doc). The three depth palettes go navy and
+///   turquoise too -- [`SEA_RAMP_SATELLITE`]'s own end stops -- so a render
+///   with no map width (where the distance term is off) and the lakes, which
+///   take the depth palettes, still read as the same water.
+/// * **Snow sheds on steep ground, and slope rock** (the investigation's R1 and
+///   R2): see [`TerrainAppearance::snow_shed`] and
+///   [`TerrainAppearance::rock_slope_deg`]. Their knees are labelled
+///   judgements set against the slopes this engine's mountains actually have
+///   (the investigation's §2.1: median 0.3-2.8 degrees, p90 near 10, on the top
+///   decile of land), **not physical avalanche angles** (snow holds to roughly
+///   30-50 degrees on real slopes): at a physical knee neither stage would fire
+///   anywhere on today's height field. That is a stylisation, disclosed here;
+///   real ranges are the parked H1 row (addendum item 1).
+/// * **Haze off**: the target has no plate-edge fade.
+///
+/// Not in it: forest canopy (deferred by the brief), and anything a cheap
+/// tier switched off -- this sets colours and strengths only, like the other
+/// looks ([`TerrainAppearance::with_look`]'s "why a layer" note). The new
+/// stages are cheap: one chamfer pass per world for the distance and two
+/// smoothsteps per pixel.
+///
+/// Must never be the default look, and must never change what the other looks
+/// draw: every field it sets is either new and `0.0` elsewhere, or a value
+/// the other looks already set for themselves.
+fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
+    // The three depth palettes from SEA_RAMP_SATELLITE's own stops, each a
+    // flat-ish three-stop ramp (the grain `n_low` walks along it) so the
+    // within-band mottle stays as subtle as the target's (p25-p75 spread of
+    // about 10-20 levels per band in the measurement above).
+    let navy = [(0.0, 38.0, 74.0), (0.0, 41.0, 78.0), (2.0, 46.0, 85.0)];
+    // Cold water: a steel blue a little lighter than the navy (a labelled
+    // judgement; the target's polar sea, beside its ice, is navy-to-steel).
+    // The shipped pale `w_glac` drew cloud-like pale patches over open water.
+    // Read only where the shelf term is off (lakes, a context with no map
+    // width), since the shelf replaces the glacial tint.
+    let glac = [(14.0, 56.0, 92.0), (22.0, 66.0, 102.0), (34.0, 80.0, 114.0)];
+    let mid = [(0.0, 50.0, 90.0), (1.0, 58.0, 99.0), (2.0, 66.0, 108.0)];
+    let shelf = [(3.0, 92.0, 128.0), (10.0, 106.0, 140.0), (24.0, 120.0, 152.0)];
+    TerrainAppearance {
+        paper_strength: 0.0,
+        border_width_frac: 0.0,
+        haze_strength: 0.0,
+        w_abyss: navy,
+        w_deep: mid,
+        w_shelf: shelf,
+        w_glac: glac,
+        sea_shelf: 1.0,
+        sea_shelf_km: 48.0,
+        snow_shed: 1.0,
+        snow_shed_deg: 8.0,
+        rock_slope: 1.0,
+        rock_slope_deg: 6.0,
+        ..base
+    }
+}
 
 /// Every named look, in the order a picker should show them. The **first entry
 /// is not the default** — `WorldGen` opens on [`LOOK_VIBRANT`]; this list is
@@ -2864,7 +3053,7 @@ pub const LOOK_ANTIQUE: &str = "Antique Parchment";
 /// for "off".
 // The golden-parity and tier targets `#[path]`-include this file standalone.
 #[allow(dead_code)]
-pub const LOOK_PRESETS: &[&str] = &[LOOK_TIER, LOOK_VIBRANT, LOOK_ANTIQUE];
+pub const LOOK_PRESETS: &[&str] = &[LOOK_TIER, LOOK_VIBRANT, LOOK_ANTIQUE, LOOK_SATELLITE];
 
 /// Declares the scalar fields a UI may read and write **by name**, together
 /// with the range each one is meaningful over, from a single list — so the
@@ -3002,6 +3191,15 @@ tunables! {
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
     // Ruling BI's "Nautical" preset -- see the field's own doc comment.
     "sea_ramp_strength"     => sea_ramp_strength,     0.0,   1.0,  "Bathymetric sea ramp";
+    // -- Not reference rows (Ruling CI item 2 and its 2026-10-18 addendum):
+    //    the Satellite relief look's terms; see each field's doc. Ranges are
+    //    labelled judgements: a 300 km shelf is wider than any real one
+    //    (most are under 100 km), and 90 degrees is vertical --
+    "sea_shelf"             => sea_shelf,             0.0,   1.0,  "Coast shelf and halo";
+    "sea_shelf_km"          => sea_shelf_km,          0.0, 300.0,  "Shelf width (km)";
+    "snow_shed"             => snow_shed,             0.0,   1.0,  "Snow sheds on steep ground";
+    "snow_shed_deg"         => snow_shed_deg,         0.0,  90.0,  "Snow shed slope (deg)";
+    "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
     // -- The river symbol (owner, 2026-09-27: rivers must go through the
     //    style, not sit on top of it). Inert without a river layer, which
     //    only the base view's colour field and the LOD tiles build -- see the
@@ -4078,10 +4276,12 @@ pub struct RenderCtx<'a> {
     /// Precomputed weighted light directions (`build_lights`).
     lights: Cow<'a, [(f64, f64, f64, f64)]>,
     /// `_coastDCache` (8440) — per-cell distance in cells to the nearest
-    /// land, for the wave/foam contours. **Empty** unless `npr.waves` is on,
-    /// which is what makes the whole stage free at the default settings
-    /// (`cell_color` tests the length, not a flag, so the two can never
-    /// disagree).
+    /// land, for the wave/foam contours and (since Ruling CI item 2, 2026-10-18)
+    /// [`TerrainAppearance::sea_shelf`]'s coast shelf. **Empty** unless one of
+    /// the two is on, which is what makes both stages free at the default
+    /// settings. Because two stages share it, each consumer tests its own flag
+    /// **and** the length: the field being present no longer means waves are
+    /// on.
     coast_d: Cow<'a, [f32]>,
     /// `_crestField` (8434) — per-cell ridge-crest stroke strength
     /// (`build_crest`). **Empty** unless `crest_strength > 0`, on `coast_d`'s
@@ -4307,7 +4507,10 @@ impl GridPrecompute {
         fold_lighting_fields(&mut ao, relief, gw, gh, appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, appearance);
         let lights = build_lights(appearance);
-        let coast_d = if appearance.npr.waves { coast_distance(water, gw, gh, sea_level) } else { Vec::new() };
+        // Two readers: the wave contours (`npr.waves`) and Ruling CI's
+        // coast shelf (`sea_shelf`). Each consumer also tests its own flag,
+        // because the field being present no longer means waves are on.
+        let coast_d = if appearance.npr.waves || appearance.sea_shelf > 0.0 { coast_distance(water, gw, gh, sea_level) } else { Vec::new() };
         // The reference builds its SDFs in `renderNow` (8446) rather than in
         // the material path, and only while the slider is up — `_coastSDF`'s
         // own comment is "null ⇒ off ⇒ render unchanged". A JFA over the whole
@@ -4639,6 +4842,54 @@ impl<'a> RenderCtx<'a> {
     /// [`Self::water_field`]) or, when none is, the shaded `field` itself.
     pub fn water_height(&self) -> &'a [f32] {
         self.water_field.unwrap_or(self.field)
+    }
+
+    /// Kilometres per grid cell, from the map width the caller attached
+    /// ([`Self::map_width_km`]); `None` when no width is known or it is not a
+    /// positive finite number -- never a guessed scale.
+    pub fn km_per_cell(&self) -> Option<f64> {
+        let km = self.map_width_km?;
+        (km.is_finite() && km > 0.0 && self.gw > 0).then(|| km / self.gw as f64)
+    }
+
+    /// The factor that turns a slope in height units per grid cell (what
+    /// `slope_at` and the tiles' own coarse-unit slope give) into rise over
+    /// run: `m_per_unit / cell_m`, with `m_per_unit = peak_m / (1 - sea_level)`
+    /// (`sample_bridge::slope_k`'s relation, which the Sample panel's
+    /// `slope_deg` uses). `peak_m` is `appearance.npr.peak_m`, which `WorldGen`
+    /// fills from the world's own parameters on every render
+    /// (`appearance_rebased`).
+    ///
+    /// `None` -- and the Satellite relief slope stages then off -- when the map
+    /// width is unknown, `peak_m` is not positive (`Npr::default()`'s `0`, the
+    /// state of every golden fixture), or sea level is at the top of the range.
+    /// Must never fall back to the reference's `|| 4000`: that literal is a
+    /// contour-interval default, not a fact about this world.
+    pub fn slope_rise_k(&self) -> Option<f64> {
+        let cell_m = self.km_per_cell()? * 1000.0;
+        let peak = self.appearance.npr.peak_m;
+        let denom = 1.0 - self.sea_level;
+        (peak.is_finite() && peak > 0.0 && denom > 1e-9).then(|| (peak / denom) / cell_m)
+    }
+
+    /// Distance to the nearest land in **km** at the integer cell `i`, for
+    /// [`sea_color_core`]'s coast shelf: `None` unless the shelf is on, its
+    /// field was built and the map width is known (each "off", never a guess).
+    fn shelf_km_at(&self, i: usize) -> Option<f64> {
+        if self.appearance.sea_shelf <= 0.0 || self.coast_d.is_empty() {
+            return None;
+        }
+        Some(self.coast_d[i] as f64 * self.km_per_cell()?)
+    }
+
+    /// [`Self::shelf_km_at`] at a fractional grid position, sampled bilinearly
+    /// ([`sample_arr`]) -- the export's and the deep-zoom tiles' read, so all
+    /// three paths draw the shelf from one field and agree at integer cells.
+    fn shelf_km_at_f(&self, gx: f64, gy: f64) -> Option<f64> {
+        if self.appearance.sea_shelf <= 0.0 || self.coast_d.is_empty() {
+            return None;
+        }
+        Some(sample_arr(&self.coast_d, gx, gy, self.gw, self.gh) * self.km_per_cell()?)
     }
 
     /// Attach the world's own height (RV-3), for a context whose `field` is
@@ -5643,6 +5894,38 @@ pub(crate) fn rock_slope_mix(slope: f64, k: f64) -> f64 {
     clamp01((slope / 0.08).min(1.0).powf(1.5) * k)
 }
 
+/// [`rock_slope_mix`] with its knee in **real degrees** (Ruling CI addendum
+/// item 2, the mountain investigation's R2): `clamp01(min(1, deg / knee)^1.5 ·
+/// k)` -- the reference's own curve and exponent, with `slope / 0.08` replaced
+/// by `deg / knee_deg`, because on the 2048-wide grid the per-cell knee means
+/// 21-69 degrees of real slope and the tint never fired. `knee_deg <= 0`
+/// returns `0` (no knee is no tint, never a division by zero).
+pub(crate) fn rock_slope_mix_deg(deg: f64, knee_deg: f64, k: f64) -> f64 {
+    if knee_deg <= 0.0 {
+        return 0.0;
+    }
+    clamp01((deg / knee_deg).min(1.0).powf(1.5) * k)
+}
+
+/// The share of the snow weight steep ground sheds (R1, Ruling CI addendum
+/// item 2): `strength · smoothstep(0.4 · full_deg, full_deg, deg)`. The `0.4`
+/// start is a labelled judgement -- shedding begins well before the slope at
+/// which it is complete, as a real snowpack thins before it fails -- not a
+/// measurement. `0` on flat ground, `strength` at and beyond `full_deg`.
+pub(crate) fn snow_shed_frac(deg: f64, strength: f64, full_deg: f64) -> f64 {
+    clamp01(strength) * smoothstep(0.4 * full_deg, full_deg, deg)
+}
+
+/// Move `frac` of the snow weight onto rock: steep ground that sheds its snow
+/// shows the bare rock under it. The weights' sum is unchanged (moved, never
+/// created), and nothing but snow and rock is touched.
+pub(crate) fn shed_snow(mut w: Weights, frac: f64) -> Weights {
+    let moved = w.snow * clamp01(frac);
+    w.snow -= moved;
+    w.rock += moved;
+    w
+}
+
 /// The R5 wetness multiply (reference HTML 7797-7798), whole: a common `dk`
 /// darken from the topographic wetness index plus the fixed `0.95 / 1.00 /
 /// 1.05` channel tilt that is the difference between *wet* and merely *dark*.
@@ -5870,7 +6153,7 @@ pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -5951,6 +6234,15 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // the branch rather than evaluated to a no-op. See [`apply_ice_cover`] for
     // why the slope term is `geo_exposure`'s and not a new one.
     let (w, ice) = if glacier > 0.0 { apply_ice_cover(w, glacier, slope) } else { (w, 0.0) };
+    // Ruling CI addendum item 2 (R1): steep ground sheds snow onto bare rock,
+    // in the Satellite relief look only. After the ice cover, so a glacier
+    // sheds on its steep faces as snow does. `0.0` (every other look) and an
+    // unknown scale both skip it by control flow.
+    let slope_deg = slope_k.map(|k| (slope * k).atan().to_degrees());
+    let w = match slope_deg {
+        Some(deg) if appearance.snow_shed > 0.0 && appearance.snow_shed_deg > 0.0 => shed_snow(w, snow_shed_frac(deg, appearance.snow_shed, appearance.snow_shed_deg)),
+        _ => w,
+    };
 
     let mut c = (0.0, 0.0, 0.0);
     let add = |c: &mut Rgb, m: Rgb, w: f64| {
@@ -6088,7 +6380,13 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // already the land branch — the same "the reference tests it and so does
     // this" note `ridged_strength` below carries.
     if appearance.rock_slope > 0.0 && r > 0.0 {
-        let k = rock_slope_mix(slope, appearance.rock_slope);
+        // R2 (Ruling CI addendum item 2): the knee in real degrees when the
+        // look sets one and the scale is known; the ported per-cell knee
+        // otherwise, which is the reference's own expression.
+        let k = match slope_deg {
+            Some(deg) if appearance.rock_slope_deg > 0.0 => rock_slope_mix_deg(deg, appearance.rock_slope_deg, appearance.rock_slope),
+            _ => rock_slope_mix(slope, appearance.rock_slope),
+        };
         if k > 0.0 {
             let mc = rock_material_col(appearance, te, me, r, tt, lith);
             c.0 += (mc.0 - c.0) * k;
@@ -7097,12 +7395,21 @@ fn sea_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> f64 {
 /// ruling moved them to a Strahler-order palette (`lib.rs`'s
 /// `RIVER_ORDER_RGB`).
 fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
-    let lc = sea_color_core(a, 0.30, t, n_low, 0.95, vig);
+    // No coast distance: a lake is not the sea's shelf (Ruling CI's term is
+    // the sea's alone).
+    let lc = sea_color_core(a, 0.30, t, n_low, 0.95, vig, None);
     ((lc.0 * 0.9 + 12.0).min(255.0), (lc.1 * 0.96 + 16.0).min(255.0), (lc.2 * 0.94 + 6.0).min(255.0))
 }
 
-/// `seaColorCore` (8122-8130).
-fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64, sh: f64, vig: f64) -> Rgb {
+/// `seaColorCore` (8122-8130), plus Ruling CI item 2's coast shelf.
+///
+/// `shelf_km` is the distance to the nearest land in km
+/// ([`RenderCtx::shelf_km_at`]), `None` whenever
+/// [`TerrainAppearance::sea_shelf`] is off or the scale is unknown -- and
+/// `None` takes the reference expression by control flow. `pub(crate)` for
+/// `tests/satellite_relief.rs`, which checks the shelf's order against the
+/// surf and tint stages directly.
+pub(crate) fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64, sh: f64, vig: f64, shelf_km: Option<f64>) -> Rgb {
     let mut wc = if depth < 0.2 {
         ramp3(&appearance.w_shelf, n_low)
     } else if depth < 0.55 {
@@ -7116,11 +7423,31 @@ fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64
     if t < 5.0 {
         wc = mix(wc, ramp3(&appearance.w_glac, n_low), smoothstep(5.0, -3.0, t) * 0.7);
     }
+    // Ruling CI item 2: the coast shelf and shore halo. After the tropical and
+    // glacial tints, which it replaces at full strength -- measured
+    // 2026-10-18 on three worlds, those two left open water up to (46, 97, 109)
+    // where the target's open sea is (0, 41, 78), and the target's sea is the
+    // same navy at every latitude -- but BEFORE the sea-ice tint, so frozen
+    // sea still reads white, and before the grain and the bathymetric shade,
+    // which still texture it. See `sea_shelf`'s doc.
+    let shelf_on = match shelf_km {
+        Some(d_km) if appearance.sea_shelf > 0.0 && appearance.sea_shelf_km > 0.0 => {
+            let sat = sample_ramp_table(SEA_RAMP_SATELLITE, d_km / appearance.sea_shelf_km);
+            wc = mix(wc, sat, clamp01(appearance.sea_shelf));
+            true
+        }
+        _ => false,
+    };
     if t < -2.0 {
         wc = mix(wc, (226.0, 233.0, 239.0), clamp01((-2.0 - t) / 6.0) * 0.85);
     }
+    // The reference's surf whitening at the shallowest water. Skipped under
+    // the shelf, whose own first stop is the shore halo: both together drew
+    // the coast band (66, 136, 150) against the target's (18, 112, 146),
+    // measured 2026-10-18. A branch, so every other look is the reference
+    // order exactly (tints, ice, surf).
     let surf = smoothstep(0.03, 0.0, depth);
-    if surf > 0.0 {
+    if surf > 0.0 && !shelf_on {
         wc = mix(wc, (176.0, 214.0, 221.0), surf * 0.5);
     }
     // Ruling BI's "Nautical" preset -- see `sea_ramp_strength`'s own doc.
@@ -8498,7 +8825,7 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         let shw = ctx.sea_shade[i] as f64;
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
         let n_low = sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw);
-        sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y))
+        sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y), ctx.shelf_km_at(i))
     } else if ctx.lake_class.is_some_and(|l| l[i] == 2) {
         // v0.103 (8580): an above-sea lake is flat freshwater -- `lakeColor`
         // (8324), which is [`lake_color`], the same surface the tile draws.
@@ -8543,7 +8870,10 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             if slope > 1e-9 { asp / slope } else { 0.0 },
             // The river symbol at this cell, when the screen texture attached
             // its layer (`RenderCtx::with_river_layer`); `None` everywhere else.
-            river);
+            river,
+            // Ruling CI's Satellite relief slope stages: the real-slope factor,
+            // `None` (stages off) without a map width and peak altitude.
+            ctx.slope_rise_k());
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -8572,9 +8902,10 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
     // B4 coastal wave lines (8555-8558): foam contours hugging the shore and
     // fading into deep water, brighter near the shore. Water cells only, and
     // in the reference's own slot — after the colour branches, before the
-    // parchment. `coast_d` is empty unless `npr.waves` is on, so this is a
-    // single length test on every other path.
-    let (r, g, b) = if hw < ctx.sea_level && !ctx.coast_d.is_empty() {
+    // parchment. `coast_d` is empty unless `npr.waves` (or Ruling CI's
+    // `sea_shelf`, which shares the field) is on, so this is a cheap test on
+    // every other path; the flag keeps the shelf from switching waves on.
+    let (r, g, b) = if hw < ctx.sea_level && ctx.appearance.npr.waves && !ctx.coast_d.is_empty() {
         apply_waves(&ctx.appearance, (r, g, b), ctx.coast_d[i] as f64, ctx.gw)
     } else {
         (r, g, b)
@@ -8981,8 +9312,9 @@ impl BakeFields {
         let shw = sample_arr(&ctx.sea_shade, gx, gy, gw, gh);
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
         let n_low = sea_grain(&ctx.appearance, gx, gy, gw);
-        let c = sea_color_core(&ctx.appearance, depth, t, n_low, shw, vig);
-        if ctx.coast_d.is_empty() { c } else { apply_waves(&ctx.appearance, c, sample_arr(&ctx.coast_d, gx, gy, gw, gh), gw) }
+        let c = sea_color_core(&ctx.appearance, depth, t, n_low, shw, vig, ctx.shelf_km_at_f(gx, gy));
+        // Waves only when asked: `coast_d` is shared with Ruling CI's shelf.
+        if !ctx.appearance.npr.waves || ctx.coast_d.is_empty() { c } else { apply_waves(&ctx.appearance, c, sample_arr(&ctx.coast_d, gx, gy, gw, gh), gw) }
     }
 
     /// The land colour at a bake pixel (the pre-RV-5 bake's land branch),
@@ -9054,6 +9386,8 @@ impl BakeFields {
                 // ([`paint_vector_rivers`]), in the tile's slot; `None` for
                 // the terrain-only pass and every golden.
                 river,
+                // Ruling CI's Satellite relief slope stages, as `cell_color`.
+                ctx.slope_rise_k(),
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -11496,6 +11830,8 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     let knee = a.local_contrast_knee.max(1e-3);
     let inv_knee2 = 1.0 / (knee * knee);
 
+    // Ruling CI's real-slope factor, once per tile (`None` = stages off).
+    let slope_k = ctx.slope_rise_k();
     let mut rgb = vec![0u8; w * h * 3];
     // Per-tile grade influence, sampled from the grid's. Built only when the
     // grid's exists, so the flat-grade fast path in `apply_color_grade` is
@@ -11544,7 +11880,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                 let hs = sample_arr(&ctx.sea_h, wx, wy, gw, gh);
                 let shw = sample_arr(&ctx.sea_shade, wx, wy, gw, gh);
                 let depth = if sl <= 0.0 { 0.0 } else { clamp01((sl - hs) / sl) };
-                Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig))
+                Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig, ctx.shelf_km_at_f(wx, wy)))
             } else if class == TILE_LAKE {
                 // v1.05 lake (11741-11742) -- see [`lake_color`].
                 Some(lake_color(a, t, sea_grain(a, wx, wy, gw), vig))
@@ -11682,6 +12018,9 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // the tile's own resolution. Land only, as the
                         // `water` branch above already decided.
                         rivers.and_then(|l| l.at(x, y)),
+                        // Ruling CI's Satellite relief slope stages, on the
+                        // tile's own coarse-unit `slope` above.
+                        slope_k,
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and
@@ -11705,9 +12044,10 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
             };
 
             // --- 4. the port-only per-pixel stages, in `cell_color`'s order --
-            // Waves: water only, and `coast_d` is empty unless `npr.waves` is
-            // on, so this is one length test on every other path.
-            let (cr, cg, cb) = if hw < sl && !ctx.coast_d.is_empty() { apply_waves(a, (cr, cg, cb), sample_arr(&ctx.coast_d, wx, wy, gw, gh), gw) } else { (cr, cg, cb) };
+            // Waves: water only, and `coast_d` is empty unless `npr.waves` (or
+            // Ruling CI's `sea_shelf`, which shares it) is on; the flag keeps
+            // the shelf from switching waves on.
+            let (cr, cg, cb) = if hw < sl && a.npr.waves && !ctx.coast_d.is_empty() { apply_waves(a, (cr, cg, cb), sample_arr(&ctx.coast_d, wx, wy, gw, gh), gw) } else { (cr, cg, cb) };
             let tone = paper_tone(a, wx, wy, gw);
             let (cr, cg, cb) = apply_paper(a, (cr, cg, cb), tone);
             let (cr, cg, cb) = apply_border(a, (cr, cg, cb), tone, wx, wy, gw, gh);

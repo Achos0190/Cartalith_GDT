@@ -161,6 +161,24 @@ frames in `cartalith-native/docs/evidence/zoom-detail-2026-10-17/`). Median grad
 ×4 → ×64 now 1.58 → 2.89 (1.58 → 0.41 on the same crops before); sub-cell share at
 ×64 9.45 %. The numbers above are left as they were measured.
 
+**After (2026-10-18, Ruling CI item 2 and its addendum):** the "Satellite relief"
+look (`render.rs::satellite_relief`; described in `MAP_STYLE_RESEARCH.md` §4
+item 9) addresses this document's §6 rows 3 and 9 and part of row 2, in that look
+only. Measured with this section's method on 24601 archipelago, 314159 earth and
+71077345 classic (800 km, 2048 × 1311), Natural Vibrant → Satellite relief: sea
+colour per distance-to-land band against the target's bands, mean abs RGB error
+64.5 / 68.0 / 46.1 → 7.9 / 7.1 / 8.4; whole-map luminance std 26.3 / 24.9 / 36.8 →
+43.1 / 50.6 / 58.7 (target 42.3); mean gradient magnitude 4.9 / 5.7 / 6.6 →
+4.4 / 5.0 / 6.0 (target 19.3, so edge energy did not improve); top-decile-of-land
+grey-rock fraction 0.119 / 0.001 / 0.000 → 0.127 / 0.077 / 0.122 and bright-snow
+fraction 0.108 / 0.252 / 0.215 → 0.243 / 0.211 / 0.182 (target estimate 0.23-0.52
+rock, 0.01-0.04 snow: **not reached** — most of the snow sits on flat high ground,
+which slope shedding cannot touch). Zoom ladder medians (12 crops) ×4 / ×16 / ×64:
+gradient 1.21 / 1.90 / 2.07 (Natural Vibrant 1.58 / 2.39 / 2.52) — still rising
+with zoom, but lower than Natural Vibrant at every rung. Frames, numbers and the
+reading of them: `cartalith-native/docs/evidence/satellite-relief-2026-10-18/`
+and `STATUS.md`'s 2026-10-18 entry.
+
 ## 5. Root causes, as far as I verified them
 
 | Gap | Verified cause | Evidence quality |

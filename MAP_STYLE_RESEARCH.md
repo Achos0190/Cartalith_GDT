@@ -40,7 +40,9 @@ applying itself: `watercolor`, `contours`, `contour_m`, `ink`, `hachure`,
 
 ### 1.2 The engine's looks
 
-`crates/cartalith-godot/src/render.rs`'s `LOOK_PRESETS` — three names:
+`crates/cartalith-godot/src/render.rs`'s `LOOK_PRESETS` — three names when
+this was written (a fourth, `"Satellite relief"`, was added 2026-10-18; see §4
+item 9):
 `"Quality tier"` (`LOOK_TIER`), `"Natural Vibrant"` (`LOOK_VIBRANT`, the
 default), `"Antique Parchment"` (`LOOK_ANTIQUE`). `TerrainAppearance::with_look`
 is a struct-update over whatever the quality tier produced, and only ever
@@ -459,6 +461,42 @@ inventoried in §1.
    `atmo_desaturation` up. *Intended look:* a legible dark-mode map for a
    low-light viewing context, matching the shell's own future dark theme
    rather than depicting a night sky.
+
+9. **"Satellite relief"** (Ruling CI item 2, owner 2026-10-17, and its
+   2026-10-18 addendum; **built 2026-10-18**, so this entry is the look's
+   description, not a proposal; `STATUS.md` holds its state). The owner's
+   photoreal target (`design/vision-render-2026-10-17/target_map_render.webp`)
+   as an engine look of the same name (`render.rs::satellite_relief`, in
+   `LOOK_PRESETS`) and a gallery tile (`STYLE_PRESETS`, last). Natural Vibrant
+   stays the default look. Over Natural Vibrant's palettes it sets:
+   - **no frame, paper or haze** (`border_width_frac`, `paper_strength`,
+     `haze_strength` 0);
+   - **the sea**: `sea_shelf` 1 over `SEA_RAMP_SATELLITE`, a ramp **measured from
+     the target** (median water colour per distance-to-land band, 0-70 px), read
+     at the distance to land in km over `sea_shelf_km` 48 (a labelled 1 km per
+     target pixel on the 800 km default map). The distance is the world's
+     chamfer distance to land, built once per world, and the screen, the export
+     and the deep-zoom tiles sample the same field. Navy depth palettes and a
+     steel-blue `w_glac` for the places the distance is not read (lakes, a
+     context with no map width);
+   - **snow shed on steep ground** (`snow_shed` 1, complete at `snow_shed_deg`
+     8, starting at 40 % of it) and **slope rock keyed to real degrees**
+     (`rock_slope` 1, knee `rock_slope_deg` 6). Both knees are labelled
+     judgements set against the slopes this engine's mountains have (top
+     decile of land: median 0.4-2.7 degrees, p90 6-12), **not** physical
+     avalanche angles;
+   - **thin dark-blue rivers** (tile bundle: `river_width` 0.6, ink
+     (24, 82, 128) at 0.7);
+   - **overlays off**: the tile hides territory, borders, settlements, roads,
+     sea lanes and landmarks (`PRESET_LAYERS_OFF`) and any other tile restores
+     them; the generated region names have no layer switch and stay.
+
+   All five new appearance fields are `0.0` in `default()`, in every other look
+   and in `js_reference()`, off by control flow, and left out of the
+   serialized appearance at `0.0`, so no other look's pixels or fingerprint
+   moved. Forest canopy is not in it (deferred). Measurements and frames:
+   `cartalith-native/docs/evidence/satellite-relief-2026-10-18/` and
+   `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`'s 2026-10-18 "after" note.
 
 Every number above is this document's own proposal, not a measured or
 owner-approved constant — none of these eight has been built, and none
