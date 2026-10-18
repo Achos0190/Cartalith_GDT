@@ -3432,6 +3432,56 @@ Ruling BM: *"They re-baseline app worlds when switched on, with disclosure."*
   against the previous floor.
 - `STATUS.md` is updated.
 
+#### GF-9 opened at its symbols (2026-10-18): what it waits on
+
+Checked on origin tip `a8681328`, before any build. Nothing of GF-9 exists:
+no `pre_bh_world` fixture (the 16 civ suites still pin `pre_rv1_world`); no
+projection from the column to the 7 legacy classes (`cartalith_civ::
+compute_affordance_fields` always calls `build_lithology`); `DECISIONS.md`
+has no stage-order entry; `tect.dynamic_lithology` still has its `PARAMS` and
+`JS_PATHS` (`tect.dynamicLithology`) rows and its readers in
+`generate_terrain`; and every switch is still there. In
+`cartalith_godot::params::defaults()`, `geology_model` is on, while
+`geology_processes`, `relief_model`, `geology_karst` and `geology_carve` are
+all off.
+
+**Why it cannot be built now.** GF-9 is the *final* disposition: it assumes the
+geology pipeline is what the app ships. §6.2's route A deletes the switch so
+`generate_terrain` has one path, the one with the processes. In today's tree
+the processes are off in the app by owner ruling (Ruling CG: GF-13 stays off;
+revised B4 holds on 2 of 5 seeds), and GF-4's coastal flip waits on them. That
+leaves two ways to delete the switches, and neither is an agent's call:
+- turn the processes on everywhere, which re-baselines every app world and
+  is exactly the switch-on the owner withheld;
+- delete the mechanisms GF-2 to GF-8 built, which the scope never proposes.
+
+Route B, keeping the split for good, is not the default (§9 Q6), so taking it
+is also the owner's choice. The other GF-9 items depend on the same thing:
+- **Re-recording goldens:** there is nothing to re-record while no shipped
+  world moves.
+- **The projection:** wiring it moves app-world soil, resources, render and
+  export, because the app already builds the column.
+- **Removing `dynamic_lithology` (Q9):** this would remove a reference feature
+  with nothing replacing it in the app while the processes are off.
+
+Two predecessor items are also still open:
+- GF-6's RV-3 valley shade does not read `ω`: `valley_shade.rs` has no
+  `carve_width` reader.
+- GF-8's Rock draft layers are not in `drafts/paint.json`.
+
+**Owner questions** (defaults):
+- **G9-1:** does GF-9 wait for a switch-on of the processes? **Default: yes,
+  wait.** Route A stays the plan (§9 Q6) and runs after the switch-on. The
+  alternative is route B now: document the permanent split, with no code
+  change.
+- **G9-2:** build the civ projection early, behind its own switch that is off
+  at both boundaries, with a measurement of how often it agrees with
+  `build_lithology` per class on app worlds? **Default: no**, because the
+  scope ties it to the re-baseline.
+- **G9-3:** remove `tect.dynamic_lithology` before the switch-on? **Default:
+  no.** Q9's "yes, at GF-9" stands, but only once the column replaces it in
+  the app.
+
 *Ruling BJ moved lithology painting into this build as GF-8, above; §9 Q2
 records the answer.*
 
