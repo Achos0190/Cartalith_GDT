@@ -109,11 +109,32 @@ tiff = { version = "0.11.3", default-features = false, features = ["deflate"] }
 # `image` 0.25.10 (with the same default features), so this only makes it
 # direct. BSD-3-Clause OR Apache-2.0, pure Rust. Owner-authorised 2026-10-11.
 moxcms = "0.8.1"
+# `EXPORT_SCOPE.md` E5 (Ruling AZ: "offer JPEG alongside PNG"): the baseline
+# JPEG writer in `export_stream::write_jpeg`. **New to the tree, one package,
+# no dependencies of its own.** Chosen because its `ImageBuffer` trait asks for
+# the image one row at a time, in order (`fill_buffers(y)`, read in 0.7.1's
+# `encoder.rs::encode_image_interleaved`), so a 16K/32K raster can be fed band
+# by band without being held; it embeds an ICC profile as APP2 segments
+# (`add_icc_profile`) and takes a 1-100 quality. Pure Rust, so the Android
+# cross-build is unaffected. Licence `(MIT OR Apache-2.0) AND IJG`: the IJG
+# part is its forward DCT (`fdct.rs`, ported from mozjpeg), a permissive
+# licence whose one condition is an acknowledgement, which `credits.gd` gives;
+# `deny.toml` allows `IJG` on that basis. Default features only (`std`): the
+# `simd` feature's AVX2 path is not taken, so the bytes do not depend on the
+# CPU the export runs on.
+jpeg-encoder = "0.7.1"
 
 [dev-dependencies]
 # `tests/export_stream.rs`' own PNG and BigTIFF decoders inflate with it;
 # already in the lockfile through `png`/`zip`.
 flate2 = "1"
+# `tests/export_stream.rs`' JPEG checks (E5) decode with the image-rs
+# project's decoder, not the encoder's own author's code -- E2's "decode with a
+# different decoder than the encoder" bar -- and read the embedded ICC profile
+# back through its `icc_profile()`. Test-only and new to the tree; MIT OR
+# Apache-2.0. `default-features = false` drops its `rayon` feature, which a
+# decode of a test fixture does not need.
+jpeg-decoder = { version = "0.3.2", default-features = false }
 # `tests/gf0_geology_harness.rs` (GEOLOGY_FIRST_SCOPE.md GF-0, bar B6)
 # re-runs `glacial_kernel` alone on the pre-glacial field, so it measures the
 # kernel's lowering without the isostatic rebound that follows it, and checks

@@ -42,6 +42,13 @@ allow = [
     # Pulled in transitively via `zip`'s optional bzip2 support
     # (libbz2-rs-sys) — see credits.gd.
     "bzip2-1.0.6",
+    # The Independent JPEG Group licence: permissive (use for any purpose, no
+    # fee), its one condition an acknowledgement in the documentation that the
+    # program uses IJG code -- which credits.gd gives. Pulled in by
+    # `jpeg-encoder` 0.7.1 (`(MIT OR Apache-2.0) AND IJG`), whose forward DCT
+    # is ported from mozjpeg; added 2026-10-18 for EXPORT_SCOPE.md E5's JPEG
+    # export, on the same disclose-and-allow footing as bzip2 above.
+    "IJG",
 ]
 
 # Everything not explicitly allowed above is denied — no blanket exception

@@ -30,17 +30,56 @@ use crate::export_stream::StreamFormat;
 use crate::render::{self, ColorSpace, ElevationRamp, ExportBandPlan, TerrainAppearance};
 
 /// The file formats `export_banded` streams, by the names the options
-/// dictionary carries. PNG first: ruling 26's format and the default.
-pub const FORMAT_NAMES: [(&str, StreamFormat); 2] = [("png", StreamFormat::Png), ("bigtiff", StreamFormat::BigTiff)];
+/// dictionary carries. PNG first: ruling 26's format and the default. `"jpeg"`
+/// (E5, Ruling AZ) names the JPEG at its default quality; [`format_with_quality`]
+/// applies a `quality` option. One spelling per format: `"jpg"` is the file
+/// extension the shell writes, not a second format name.
+pub const FORMAT_NAMES: [(&str, StreamFormat); 3] = [("png", StreamFormat::Png), ("bigtiff", StreamFormat::BigTiff), ("jpeg", StreamFormat::JPEG)];
 
 /// Parses a file-format name from the options dictionary, case-insensitively; `None` for an unknown name so the caller can refuse it rather than silently default to PNG.
 pub fn format_from_name(name: &str) -> Option<StreamFormat> {
     FORMAT_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|&(_, f)| f)
 }
 
-/// The canonical option name of a format, the inverse of [`format_from_name`]. The `"png"` fallback is unreachable while `FORMAT_NAMES` lists every `StreamFormat`; it exists only so this stays total.
+/// The canonical option name of a format, the inverse of [`format_from_name`]:
+/// every JPEG quality is `"jpeg"` (matched by kind, so a non-default quality
+/// does not fall through). The `"png"` fallback is unreachable while
+/// `FORMAT_NAMES` lists every `StreamFormat` kind; it exists only so this
+/// stays total.
 pub fn format_name(f: StreamFormat) -> &'static str {
-    FORMAT_NAMES.iter().find(|(_, g)| *g == f).map_or("png", |(n, _)| n)
+    FORMAT_NAMES.iter().find(|(_, g)| std::mem::discriminant(g) == std::mem::discriminant(&f)).map_or("png", |(n, _)| n)
+}
+
+/// The format after the options' `quality` (E5): `None` leaves `format` as
+/// parsed (a JPEG keeps [`crate::export_stream::JPEG_QUALITY_DEFAULT`]); a
+/// quality on a JPEG must lie in [`crate::export_stream::JPEG_QUALITY_RANGE`]
+/// and is **refused, not clamped**, outside it; a quality on PNG or BigTIFF is
+/// a contradiction (both are lossless), refused like a settlement tier with
+/// settlements off, so the dialog cannot believe it set something it did not.
+/// Pure so `tests/export_options.rs` reaches it; `export_raster.rs`' dictionary
+/// reader is its one caller.
+pub fn format_with_quality(format: StreamFormat, quality: Option<i64>) -> Result<StreamFormat, String> {
+    let Some(q) = quality else {
+        return Ok(format);
+    };
+    if !format.is_jpeg() {
+        return Err(format!("quality applies to JPEG only -- {} is lossless", format_name(format)));
+    }
+    let range = crate::export_stream::JPEG_QUALITY_RANGE;
+    match u8::try_from(q) {
+        Ok(q) if range.contains(&q) => Ok(StreamFormat::Jpeg { quality: q }),
+        _ => Err(format!("JPEG quality {q} is outside {}..={}", range.start(), range.end())),
+    }
+}
+
+/// The JPEG quality of `format`, or `None` for a lossless format -- for the
+/// result dictionaries, which report `quality` only for a JPEG (a `0` or
+/// `100` there for a PNG would read as a setting it never had).
+pub fn format_quality(format: StreamFormat) -> Option<u8> {
+    match format {
+        StreamFormat::Jpeg { quality } => Some(quality),
+        _ => None,
+    }
 }
 
 /// Parses the `color_space` export option (ET-E1, "Export colour space: sRGB /
@@ -142,8 +181,9 @@ pub fn settlements_from(flag: Option<bool>, tier: Option<SettlementTier>) -> Res
 ///
 /// ```text
 /// { width: 16384,                      # required, a BAKE_WIDTHS rung
-///   format: "png" | "bigtiff",         # default "png"
-///   color_space: "sRGB" | "Display P3", # default "sRGB" (ET-E1); P3 is PNG only
+///   format: "png" | "bigtiff" | "jpeg", # default "png"
+///   quality: 1..100,                   # JPEG only, default 90 (E5)
+///   color_space: "sRGB" | "Display P3", # default "sRGB" (ET-E1); P3 is PNG or JPEG
 ///   style: { look, preset, ramp, tunables: {key: value} },   # all optional
 ///   content: { rivers, settlements, settlement_tier,
 ///              routes, ways, labels, territory, icons } }    # all optional
@@ -154,6 +194,7 @@ pub fn settlements_from(flag: Option<bool>, tier: Option<SettlementTier>) -> Res
 #[derive(Clone)]
 pub struct ExportOptions {
     pub width: i64,
+    /// The file format, a JPEG's quality included ([`format_with_quality`]).
     pub format: StreamFormat,
     /// The export's colour space (ET-E1): the pixels' encoding and the PNG's
     /// label. Default [`ColorSpace::Srgb`]; never read from the session's
@@ -164,7 +205,7 @@ pub struct ExportOptions {
 }
 
 impl ExportOptions {
-    pub const KEYS: [&'static str; 5] = ["width", "format", "color_space", "style", "content"];
+    pub const KEYS: [&'static str; 6] = ["width", "format", "quality", "color_space", "style", "content"];
     pub const STYLE_KEYS: [&'static str; 4] = ["look", "preset", "ramp", "tunables"];
     pub const CONTENT_KEYS: [&'static str; 8] = ["rivers", "settlements", "settlement_tier", "routes", "ways", "labels", "territory", "icons"];
 }

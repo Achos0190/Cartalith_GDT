@@ -70,6 +70,10 @@ func _bbcode() -> String:
 	s += "• The overwhelming majority ([b]~194 of the 203 third-party[/b] packages) are permissively licensed -- MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, ISC, Unlicense, CC0-1.0, MIT-0, or 0BSD, individually or dual/tri-licensed. This covers every core dependency: rayon (CPU parallelism), wgpu/naga (GPU compute), serde/serde_json (save format), zip/flate2/crc32fast (the .zip save format), glam (vector math), and the Android logging path (android_logger, android_log-sys, env_filter).\n"
 	s += "• [b]godot / gdext[/b] (godot, godot-core, godot-ffi, godot-macros, godot-codegen, godot-cell, godot-bindings, gdextension-api) -- [b]MPL-2.0[/b] (Mozilla Public License 2.0), a file-level weak-copyleft license. Used here as an unmodified upstream dependency (the Rust-Godot binding this whole port is built on) -- MPL-2.0's copyleft applies to modifications of MPL-licensed files themselves, not to separate code that merely links against them.\n"
 	s += "• [b]libbz2-rs-sys[/b] -- the original bzip2 license (Julian Seward), a permissive BSD-style license, pulled in transitively via the zip crate's optional bzip2 support.\n"
+	## Added 2026-10-18 with the JPEG export (EXPORT_SCOPE.md E5), after the
+	## audit above: the IJG licence's one condition is this acknowledgement, in
+	## the IJG's own words (deny.toml allows `IJG` on that basis).
+	s += "• [b]jpeg-encoder[/b] (the JPEG map export) -- MIT OR Apache-2.0, with its forward DCT, ported from mozjpeg, under the Independent JPEG Group licence: this software is based in part on the work of the Independent JPEG Group.\n"
 	s += "No GPL, LGPL, AGPL, or other strong-copyleft dependency was found anywhere in the workspace (all features, all platforms).\n\n"
 
 	s += "[i]Detailed, per-method citations and derivations: docs/research/ in the reference project. Algorithms studied, not copied -- original implementations throughout, in both the original HTML app and this port.[/i]"

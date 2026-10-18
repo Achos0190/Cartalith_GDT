@@ -29,13 +29,21 @@ extends Node
 ##      byte-identical and starts nothing; confirmed replaces it;
 ##   7. the STYLE picker: Current look (default) sends no `style` key; a named
 ##      engine look sends `style.look`, changes the exported pixels, and leaves
-##      the live map's look unchanged.
+##      the live map's look unchanged;
+##   8. JPEG (E5 remainder, 2026-10-18): PNG is the default and sends no
+##      `quality`; choosing JPEG shows the QUALITY row, sends `format: jpeg` and
+##      `quality: 90`, re-prices the sizes with an "(estimate)" file size, and
+##      turns the chosen `.png` destination into `.jpg`; a 2048 px JPEG export
+##      end to end is a baseline JFIF (SOI, SOF0) that decodes at 2048 px wide
+##      and carries no ICC profile in sRGB; in Display P3 it carries an APP2
+##      `ICC_PROFILE` whose profile is a real ICC (`acsp` at byte 36); and the
+##      file grows with quality (40 < 90 < 95). **Never 32K.**
 ## Writes a screenshot `user://_exportdialog_<mode>.png` and prints its path.
 ## Result: an assertion with screenshots, windowed only (CRLF file). Commands per the header: `--path . --resolution
 ## 1600x1000 _exportdialog_probe.tscn` (desktop) and `--resolution 393x852 _exportdialog_probe.tscn -- --force-touch`
 ## (phone); `--force-touch` is the only argument read and anything else prints `ABORT: unrecognised argument <a> -- this
 ## probe reads --force-touch only` and exits 2. Prints `  ok    |  FAIL  <what>` rows, `== mode <mode>, viewport <size>
-## ==`, `== 1. menu row ==` to `== 7. look override ==` banners, `  size  <item>` rows, `SHOT <path>` per saved
+## ==`, `== 1. menu row ==` to `== 8. jpeg ==` banners, `  size  <item>` rows, `SHOT <path>` per saved
 ## screenshot and `RESULT: PASS|FAIL (<n> failed)`. It writes a real 2048 export to disk (section 5). Exit 0 when no
 ## check failed, 1 otherwise or when the menu row or the dialog is missing, 2 from the watchdog (`WATCHDOG: the probe did
 ## not finish`).
@@ -58,6 +66,31 @@ func _find_row(n: Node, text: String) -> Array:
 		if not r.is_empty():
 			return r
 	return []
+
+## The JPEG header facts section 8 asserts, read by walking the segments from SOI
+## to SOS (ITU-T T.81 B.1: `FF xx`, a big-endian length counting itself):
+## `{soi, sof0, sof2, icc_segments, icc_acsp}`. `icc_acsp` is whether the first
+## `ICC_PROFILE` chunk's profile has the ICC signature `acsp` at its byte 36.
+func _jpeg_facts(b: PackedByteArray) -> Dictionary:
+	var out := {"soi": b.size() > 2 and b[0] == 0xFF and b[1] == 0xD8, "sof0": false, "sof2": false,
+		"icc_segments": 0, "icc_acsp": false}
+	var p := 2
+	while p + 4 <= b.size() and b[p] == 0xFF:
+		var m: int = b[p + 1]
+		var n: int = (b[p + 2] << 8) | b[p + 3]
+		if m == 0xC0:
+			out["sof0"] = true
+		elif m == 0xC2:
+			out["sof2"] = true
+		elif m == 0xE2 and n >= 16 and b.slice(p + 4, p + 16).get_string_from_ascii() == "ICC_PROFILE":
+			if int(out["icc_segments"]) == 0:
+				var prof := p + 4 + 14
+				out["icc_acsp"] = b.slice(prof + 36, prof + 40).get_string_from_ascii() == "acsp"
+			out["icc_segments"] = int(out["icc_segments"]) + 1
+		if m == 0xDA:
+			break
+		p += 2 + n
+	return out
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -245,6 +278,88 @@ func _ready() -> void:
 	var lshot := "user://_exportdialog_look_%s.png" % mode
 	get_viewport().get_texture().get_image().save_png(lshot)
 	print("SHOT %s" % ProjectSettings.globalize_path(lshot))
+
+	print("== 8. jpeg ==")
+	lk.select(0)
+	var fmt: OptionButton = d.get("_format")
+	var qrow: Control = d.get("_quality_row")
+	var qs: HSlider = d.get("_quality")
+	_ok(fmt != null and fmt.item_count == 2 and fmt.get_item_text(0) == "PNG" and fmt.get_item_text(1) == "JPEG"
+		and fmt.selected == 0, "FORMAT: PNG (default) and JPEG")
+	_ok(not qrow.visible and d.options().get("format") == "png" and not d.options().has("quality"),
+		"PNG: quality hidden, sends format png and no quality: %s" % d.options())
+	var jpath := dir.path_join("dlg_%s_j.png" % mode)
+	d.set_destination(jpath)
+	fmt.select(1)
+	fmt.item_selected.emit(1)
+	for _f in 3:
+		await get_tree().process_frame
+	var o8: Dictionary = d.options()
+	_ok(qrow.visible and o8.get("format") == "jpeg" and int(o8.get("quality", -1)) == 90,
+		"JPEG: quality row shown, sends format jpeg quality 90: %s / %s" % [o8.get("format"), o8.get("quality")])
+	jpath = String(d.get("_path"))
+	_ok(jpath.ends_with("dlg_%s_j.jpg" % mode), "the destination became .jpg: %s" % jpath)
+	_ok(sizes.get_item_text(i2048).contains("(estimate)"), "2048 is priced as a JPEG: '%s'" % sizes.get_item_text(i2048))
+	sizes.select(i2048)
+	await get_tree().create_timer(0.4).timeout
+	var jshot := "user://_exportdialog_jpeg_%s.png" % mode
+	get_viewport().get_texture().get_image().save_png(jshot)
+	print("SHOT %s" % ProjectSettings.globalize_path(jshot))
+	var jsizes := {}
+	for q in [90, 40, 95]:
+		qs.value = q
+		var qpath := dir.path_join("dlg_%s_q%d.jpg" % [mode, q])
+		if FileAccess.file_exists(qpath):
+			DirAccess.remove_absolute(qpath)
+		d.set_destination(qpath)
+		d.start_export()
+		var rj: Dictionary = await d.export_finished
+		var jb := FileAccess.get_file_as_bytes(qpath)
+		jsizes[q] = jb.size()
+		_ok(bool(rj.get("ok", false)) and rj.get("format") == "jpeg" and int(rj.get("quality", -1)) == q,
+			"q%d export ok, reports jpeg q%d: %s" % [q, q, rj])
+		if q == 90:
+			var facts := _jpeg_facts(jb)
+			_ok(bool(facts["soi"]) and bool(facts["sof0"]) and not bool(facts["sof2"]), "baseline JFIF: %s" % facts)
+			_ok(int(facts["icc_segments"]) == 0, "sRGB JPEG carries no ICC profile")
+			var jimg := Image.new()
+			var err := jimg.load_jpg_from_buffer(jb)
+			_ok(err == OK and jimg.get_width() == 2048, "decodes at 2048 px wide (%s, %s)" % [err, jimg.get_size()])
+			if err == OK:
+				var crop := jimg.get_region(Rect2i(jimg.get_width() / 2 - 256, jimg.get_height() / 2 - 160, 512, 320))
+				var cshot := "user://_exportdialog_jpegcrop_%s.png" % mode
+				crop.save_png(cshot)
+				print("SHOT %s" % ProjectSettings.globalize_path(cshot))
+		DirAccess.remove_absolute(qpath)
+	print("  jpeg sizes at 2048: %s" % jsizes)
+	_ok(int(jsizes[40]) < int(jsizes[90]) and int(jsizes[90]) < int(jsizes[95]), "file grows with quality: %s" % jsizes)
+	qs.value = 90
+	var p3 := -1
+	var sp: OptionButton = d.get("_space")
+	for k in sp.item_count:
+		if sp.get_item_text(k) == "Display P3":
+			p3 = k
+	_ok(p3 >= 0, "Display P3 is offered")
+	if p3 >= 0:
+		sp.select(p3)
+		var ppath := dir.path_join("dlg_%s_p3.jpg" % mode)
+		if FileAccess.file_exists(ppath):
+			DirAccess.remove_absolute(ppath)
+		d.set_destination(ppath)
+		d.start_export()
+		var rp: Dictionary = await d.export_finished
+		var pb := FileAccess.get_file_as_bytes(ppath)
+		var pf := _jpeg_facts(pb)
+		_ok(bool(rp.get("ok", false)) and rp.get("color_space") == "Display P3", "P3 JPEG export ok: %s" % rp)
+		_ok(int(pf["icc_segments"]) >= 1 and bool(pf["icc_acsp"]), "P3 JPEG embeds an ICC profile (APP2): %s" % pf)
+		var pimg := Image.new()
+		_ok(pimg.load_jpg_from_buffer(pb) == OK and pimg.get_width() == 2048, "P3 JPEG decodes at 2048 px")
+		DirAccess.remove_absolute(ppath)
+		sp.select(0)
+	fmt.select(0)
+	fmt.item_selected.emit(0)
+	_ok(not qrow.visible and not d.options().has("quality"), "back to PNG: quality hidden and not sent")
+
 	for p2 in [path, cpath, spath]:
 		if FileAccess.file_exists(p2):
 			DirAccess.remove_absolute(p2)

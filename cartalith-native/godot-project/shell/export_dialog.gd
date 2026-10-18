@@ -2,7 +2,7 @@ extends AcceptDialog
 ## **The single-image export dialog** (`EXPORT_SCOPE.md` §7, milestone E5):
 ## `File ▸ Export ▸ Export map image…` (`menus.gd`, `ID_EXPORT_MAP_IMAGE`; also
 ## `Player map…` / `DM / full map…`, which open it with a layer preset, SM-3),
-## opened by `DccApp.open_export_dialog()`. One flat PNG of the whole map --
+## opened by `DccApp.open_export_dialog()`. One flat PNG or JPEG of the whole map --
 ## the owner's *"a user generated monolithic image of the map ... just to be
 ## used outside of Cartalith in an image viewer"* (2026-09-06, top of the
 ## scope) -- at a ladder width, with the overlays Ruling AZ lists, in the
@@ -28,9 +28,16 @@ extends AcceptDialog
 ## `DccWidgets.phone_window` decides, a phone gets a titled header and a
 ## scrolling body, and `DccWidgets.phone_present` opens it full-screen.
 ##
-## **Not in this slice** (E5 remainder, `OUTSTANDING_WORK.md`): JPEG
-## (Ruling AZ amended ruling 26 to offer it; the streaming writer has PNG and
-## BigTIFF only, `export_options.rs::FORMAT_NAMES`).
+## **FORMAT (2026-10-18, E5 remainder).** PNG (default, ruling 26) or JPEG
+## (Ruling AZ: "offer JPEG alongside PNG"), sent as `format`; a JPEG also sends
+## `quality` from the QUALITY slider, which is shown only for JPEG (a quality on
+## a PNG is refused by the engine, `export_options.rs::format_with_quality`).
+## Every size is re-priced for the chosen format and quality: the engine's
+## `file_bytes` for JPEG comes from measured JPEG exports
+## (`export_raster.rs::estimate_jpeg_file_bytes`) and is labelled an estimate.
+## The destination's extension follows the format (`.png` / `.jpg`). BigTIFF,
+## which the engine also writes, is not offered: no owner asked for it in the
+## dialog and it cannot carry Display P3 (labelled judgement).
 ##
 ## **Look override (2026-10-13).** The STYLE picker lists `Current look` plus
 ## `EngineBridge.looks()` (`WorldGen::list_looks`, the engine's own names,
@@ -63,6 +70,19 @@ const FALLBACK_WIDTHS: Array[int] = [2048, 4096, 8192, 16384, 32768]
 ## judgement -- the request names both; 16K is the cheaper of the two.
 const DEFAULT_WIDTH := 16384
 
+## The FORMAT picker's rows, `[engine name, label, note]`, PNG first (ruling 26's
+## format, the default). The engine names are `export_options.rs::FORMAT_NAMES`'.
+const FORMATS := [
+	["png", "PNG", "Lossless: every line and letter exactly as rendered. The larger file."],
+	["jpeg", "JPEG", "Smaller, and lossy: fine lines and lettering soften slightly, more at lower quality. Full-resolution colour (no 4:2:0 subsampling), so thin coloured routes keep their hue."],
+]
+## The file extension each format's destination gets.
+const FORMAT_EXT := {"png": "png", "jpeg": "jpg"}
+## Must equal `export_stream.rs::JPEG_QUALITY_DEFAULT` (90, a labelled judgement
+## there); the slider starts here and the engine applies the same default when
+## no `quality` is sent.
+const JPEG_DEFAULT_QUALITY := 90
+
 ## What `EXPORT_SCOPE.md` §5 "E4 batches C and D" measured for a whole export
 ## with overlays (seed 20260906, 2048 x 1311 grid, towns, ways, labels, icons,
 ## borders; one run each on the dev desktop, RX 7800 XT): wall time, and the
@@ -72,6 +92,13 @@ const DEFAULT_WIDTH := 16384
 const MEASURED := {
 	16384: "Measured once on a desktop: 17.4 s, 68.6 MB file.",
 	32768: "Measured once on a desktop: 112.2 s, 170.1 MB file.",
+}
+## The same run for a JPEG at quality 90 (`_exportfull_probe.gd -- --format
+## jpeg`, seed 20260906, 2048 x 1311, the same content; 2026-10-18, median of
+## three runs (18.0 .. 18.3 s), dev desktop). 32K was not run for JPEG, so no
+## line is shown there.
+const MEASURED_JPEG := {
+	16384: "Measured once on a desktop (JPEG, quality 90): 18.2 s, 14.2 MB file.",
 }
 
 ## `export_options.rs::SettlementTier::ALL`'s names, largest first, with the
@@ -127,6 +154,11 @@ var _settle: CheckBox
 var _tier: OptionButton
 var _layer_boxes: Dictionary = {}
 var _space: OptionButton
+var _format: OptionButton
+var _format_note: Label
+## The QUALITY row (`DccWidgets.slider`'s parts); the row is visible only for JPEG.
+var _quality_row: Control
+var _quality: HSlider
 var _look: OptionButton
 ## The names behind `_look`'s rows after the first ("Current look"), from
 ## `EngineBridge.looks()` at build time.
@@ -163,9 +195,26 @@ func setup(app: Node) -> void:
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if _phone:
-		DccWidgets.phone_head(host, "Export map image", "one flat PNG of the whole map")
+		DccWidgets.phone_head(host, "Export map image", "one flat PNG or JPEG of the whole map")
 	host.add_child(scroll)
 	scroll.add_child(body)
+
+	body.add_child(_heading("FORMAT"))
+	_format = OptionButton.new()
+	_format.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for f in FORMATS:
+		_format.add_item(String(f[1]))
+	_format.select(0)
+	_format.item_selected.connect(func(_i: int): _on_format_changed())
+	body.add_child(_format)
+	var q := DccWidgets.slider(body, "Quality", 1.0, 100.0, 1.0, float(JPEG_DEFAULT_QUALITY), "",
+		func(_v: float): refresh(),
+		"JPEG quality, 1 to 100. Higher keeps more detail and makes a larger file; 90 is the default.")
+	_quality_row = q["row"]
+	_quality = q["slider"]
+	_quality_row.visible = false
+	_format_note = _note(String(FORMATS[0][2]))
+	body.add_child(_format_note)
 
 	body.add_child(_heading("SIZE"))
 	_sizes = OptionButton.new()
@@ -323,7 +372,40 @@ func _estimate(width: int) -> Dictionary:
 		return {}
 	if not _bridge.world_gen.has_method("export_image_estimate"):
 		return {}
-	return _bridge.world_gen.export_image_estimate({"width": width})
+	var o := {"width": width}
+	o.merge(_format_options())
+	return _bridge.world_gen.export_image_estimate(o)
+
+## The engine name of the chosen format (`FORMATS`), `"png"` before setup.
+func format_name() -> String:
+	if _format == null or _format.selected < 0:
+		return "png"
+	return String(FORMATS[_format.selected][0])
+
+## The `format` / `quality` keys for the chosen format: `quality` only for a
+## JPEG (the engine refuses it on a PNG).
+func _format_options() -> Dictionary:
+	var f := format_name()
+	var o := {"format": f}
+	if f == "jpeg":
+		o["quality"] = int(_quality.value)
+	return o
+
+## Shows the quality row for JPEG only, swaps the destination's extension to the
+## format's, and re-prices every size for the new format.
+func _on_format_changed() -> void:
+	var f := format_name()
+	_quality_row.visible = f == "jpeg"
+	_format_note.text = String(FORMATS[_format.selected][2])
+	if _path != "":
+		var ext := _path.get_extension().to_lower()
+		if ext in ["png", "jpg", "jpeg"] and ext != FORMAT_EXT[f] and not (f == "jpeg" and ext == "jpeg"):
+			set_destination(_path.get_basename() + "." + String(FORMAT_EXT[f]))
+	refresh()
+
+## The measured-run line for `width` in the chosen format, or `""`.
+func _measured(width: int) -> String:
+	return String((MEASURED_JPEG if format_name() == "jpeg" else MEASURED).get(width, ""))
 
 ## Why an export priced by `est` (`export_image_estimate`) cannot run on this
 ## device, or `""`. The session renders band by band, so the bound is the
@@ -349,7 +431,13 @@ static func size_text(width: int, est: Dictionary) -> String:
 		return "%s px wide  --  not priced" % _thousands(width)
 	var file := "file size --  (no model for this format)"
 	if est.has("file_bytes"):
-		file = "about %.0f MB" % (float(est["file_bytes"]) / 1e6)
+		## `file_bytes_extrapolated`: the engine's JPEG model was not measured at
+		## this width (32K on the default grid); say so rather than present it
+		## like the measured rungs.
+		## One decimal under 10 MB: a small JPEG rounded to "0 MB" reads as empty.
+		var mb := float(est["file_bytes"]) / 1e6
+		file = ("about %.1f MB (estimate%s)" if mb < 10.0 else "about %.0f MB (estimate%s)") % [mb,
+			", extrapolated" if bool(est.get("file_bytes_extrapolated", false)) else ""]
 	return "%s x %s px  ·  %s" % [_thousands(int(est["width"])), _thousands(int(est["height"])), file]
 
 static func _thousands(n: int) -> String:
@@ -379,7 +467,7 @@ func refresh() -> void:
 		_sizes.add_item(size_text(w, est))
 		var why := size_refusal(est)
 		_sizes.set_item_disabled(i, why != "")
-		_sizes.set_item_tooltip(i, why if why != "" else String(MEASURED.get(w, "")))
+		_sizes.set_item_tooltip(i, why if why != "" else _measured(w))
 	## The kept (else default) width when enabled; else the largest enabled
 	## width below it; else the smallest enabled one.
 	var want := keep if keep > 0 else DEFAULT_WIDTH
@@ -414,6 +502,7 @@ func options() -> Dictionary:
 		content["settlement_tier"] = String(TIERS[_tier.selected][0])
 	var o := {"width": _selected_width(), "color_space": _space.get_item_text(_space.selected),
 		"content": content}
+	o.merge(_format_options())
 	## Omit the key for "Current look" (MISTAKES.md: absent is not a value).
 	if _look.selected > 0 and _look.selected - 1 < _look_names.size():
 		o["style"] = {"look": String(_look_names[_look.selected - 1])}
@@ -446,13 +535,16 @@ func _redraw_state() -> void:
 	_go.disabled = why != ""
 	_go.tooltip_text = why
 	_stop.disabled = not _running
-	for c in [_sizes, _settle, _space, _look]:
+	for c in [_sizes, _settle, _space, _look, _format]:
 		c.disabled = _running
+	_quality.editable = not _running
 	_tier.disabled = _running or not _settle.button_pressed
 	for k in _layer_boxes:
 		(_layer_boxes[k] as CheckBox).disabled = _running
 	var w := _selected_width()
-	var note := String(MEASURED.get(w, "Not measured at this width."))
+	var note := _measured(w)
+	if note == "":
+		note = "Not measured at this width%s." % (" as a JPEG" if format_name() == "jpeg" else "")
 	var est: Dictionary = _estimates.get(w, {})
 	if est.has("bands"):
 		note = "%d band%s, largest band about %.2f GB in memory. %s" % [int(est["bands"]),
@@ -479,13 +571,15 @@ func _process(_d: float) -> void:
 ## Opens the shell's save picker (`DccBrowseDialog.choose_save_path`, as
 ## `menus.gd::_export_atlas` does) under the `exports` storage root.
 func _choose_path() -> void:
-	var fname := "map_%d.png" % _selected_width()
-	DccBrowseDialog.choose_save_path(_app, "Export map image", "png",
+	var ext: String = FORMAT_EXT[format_name()]
+	var fname := "map_%d.%s" % [_selected_width(), ext]
+	DccBrowseDialog.choose_save_path(_app, "Export map image", ext,
 		DccSettings.storage_root("exports"),
-		"One PNG of the whole map. You are asked before an existing file is replaced.",
+		"One %s of the whole map. You are asked before an existing file is replaced." % ("JPEG" if ext == "jpg" else "PNG"),
 		fname, func(p: String): set_destination(p))
 
-## Sets the file the export writes (an absolute OS path ending `.png`).
+## Sets the file the export writes (an absolute OS path; its extension is the
+## chosen format's, `FORMAT_EXT`, and follows a later format change).
 func set_destination(p: String) -> void:
 	_path = p
 	_path_label.text = p if p != "" else "No file chosen"

@@ -252,6 +252,112 @@ fn estimate_file_bytes(w: usize, h: usize, gw: usize) -> u64 {
     ((w as f64) * (h as f64) * per_px) as u64
 }
 
+/// **The JPEG file-size model (E5)**, quality 90, on the same footing as
+/// [`FILE_BYTES_AT_GRID_WIDTH`]'s PNG model: bytes/px = this ×
+/// `(width / gw)^-`[`JPEG_Q90_UPSAMPLE_DECAY`].
+///
+/// Fitted 2026-10-18 by least squares on `log` of the medians of three worlds
+/// (seeds 20260906 / 7 / 991733, the PNG table's, `2048 x 1311` grid, default
+/// appearance, terrain-only `export_image`, measured with
+/// `_exportjpeg_probe.gd`):
+///
+/// | width | bytes/px, median (min .. max) |
+/// |---|---|
+/// | 2 048 | 0.2294 (0.2171 .. 0.2431) |
+/// | 4 096 | 0.1533 (0.1447 .. 0.1608) |
+/// | 8 192 | 0.1057 (0.1002 .. 0.1100) |
+/// | 16 384 | 0.0778 (0.0745 .. 0.0800) |
+///
+/// The fit gives 0.2243 and an exponent of −0.5214, rounded here to 0.224 and
+/// 0.521. Residuals against the four medians: **−2.3 %, +1.9 %, +2.9 %,
+/// −2.6 %**, inside the world-to-world spread (up to ±8 %). JPEG's bytes/px
+/// falls with upsampling for PNG's reason (the picture's information is bounded
+/// by the grid), a little faster. **32K was not measured**: there the model
+/// extrapolates, and the estimate says so ([`jpeg_estimate_is_extrapolated`]).
+/// **Fitted at one grid width (2048)**, like the PNG model: on a 384 x 288
+/// grid a 2048 px q90 export with overlays measured 0.70-0.78 MB against an
+/// estimate of 0.3 MB (`_exportdialog_probe.gd` section 8, 2026-10-18), so
+/// small grids are under-estimated by about 2.5x. Recorded, not corrected.
+/// `jpeg_file_bytes_track_the_measured_exports` re-checks every residual.
+const JPEG_Q90_BYTES_AT_GRID_WIDTH: f64 = 0.224;
+
+/// The exponent of [`JPEG_Q90_BYTES_AT_GRID_WIDTH`]'s power law.
+const JPEG_Q90_UPSAMPLE_DECAY: f64 = 0.521;
+
+/// **How a JPEG's size moves with quality**, relative to quality 90:
+/// `(quality, factor at 1× upsample, factor at 4× upsample)`, each the
+/// measured file at that quality over the measured file at 90 for seed
+/// 20260906 at 2048 px (1×) and 8192 px (4×), 2026-10-18,
+/// `_exportjpeg_probe.gd -- --widths 2048,8192 --qualities 10,30,...,100`.
+///
+/// The factor depends on the upsample, most at low quality (q10: 0.18 at 1×,
+/// 0.31 at 4×): an upsampled picture is smooth, so coarse quantisation saves
+/// less of it. So [`jpeg_quality_factor`] interpolates between the two
+/// columns in `log2(upsample)`, geometrically, and continues the line beyond
+/// 4×; between rows it interpolates geometrically in quality. Held-out check
+/// (measured the same day, not used to build the table): qualities 30 / 75 /
+/// 95 at 4096 and 16384 px land at **+2.8 / +3.1 / +2.7 %** and **−2.5 / −2.7
+/// / −3.1 %** of the measured files. Below quality 10 nothing was measured and
+/// the q10 factor is used, which **over**-estimates (a lower quality is never
+/// a larger file on this measurement).
+const JPEG_QUALITY_FACTORS: [(u8, f64, f64); 10] = [
+    (10, 0.18355, 0.30529),
+    (30, 0.30352, 0.39907),
+    (50, 0.39839, 0.47411),
+    (60, 0.45004, 0.51221),
+    (70, 0.53000, 0.57400),
+    (80, 0.66793, 0.68716),
+    (85, 0.78918, 0.79646),
+    (90, 1.0, 1.0),
+    (95, 1.50277, 1.53545),
+    (100, 4.00517, 4.65370),
+];
+
+/// The upsample range the JPEG model was measured over: 2048 to 16384 px on a
+/// 2048-wide grid. Outside it the estimate is an extrapolation.
+const JPEG_MEASURED_UPSAMPLE: std::ops::RangeInclusive<f64> = 1.0..=8.0;
+
+/// [`JPEG_QUALITY_FACTORS`] at `quality` and `upsample` (see its doc for the
+/// interpolation). Never panics: a quality past either end of the table takes
+/// that end's row, and an upsample below 1× takes the 1× column.
+fn jpeg_quality_factor(quality: u8, upsample: f64) -> f64 {
+    let t = upsample.max(1.0).log2() / 2.0;
+    let col = |r: &(u8, f64, f64)| ((1.0 - t) * r.1.ln() + t * r.2.ln()).exp();
+    let rows = &JPEG_QUALITY_FACTORS;
+    if quality <= rows[0].0 {
+        return col(&rows[0]);
+    }
+    for pair in rows.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        if quality <= b.0 {
+            let s = (quality - a.0) as f64 / (b.0 - a.0) as f64;
+            return ((1.0 - s) * col(a).ln() + s * col(b).ln()).exp();
+        }
+    }
+    col(&rows[rows.len() - 1])
+}
+
+/// The estimated size on disk of a JPEG export at `quality`, from
+/// [`JPEG_Q90_BYTES_AT_GRID_WIDTH`]'s power law times
+/// [`jpeg_quality_factor`]. `0` for a degenerate input, as
+/// [`estimate_file_bytes`] does.
+fn estimate_jpeg_file_bytes(w: usize, h: usize, gw: usize, quality: u8) -> u64 {
+    if w == 0 || h == 0 || gw == 0 {
+        return 0;
+    }
+    let upsample = w as f64 / gw as f64;
+    let per_px = JPEG_Q90_BYTES_AT_GRID_WIDTH * upsample.powf(-JPEG_Q90_UPSAMPLE_DECAY) * jpeg_quality_factor(quality, upsample);
+    ((w as f64) * (h as f64) * per_px) as u64
+}
+
+/// Whether a JPEG estimate at `w` over a `gw`-wide grid lies outside the
+/// upsamples it was measured at ([`JPEG_MEASURED_UPSAMPLE`]) -- 32K on the
+/// default grid -- so the dialog can say "extrapolated" rather than present it
+/// like the measured rungs.
+fn jpeg_estimate_is_extrapolated(w: usize, gw: usize) -> bool {
+    gw == 0 || !JPEG_MEASURED_UPSAMPLE.contains(&(w as f64 / gw as f64))
+}
+
 /// What the platform says is available to allocate right now, or `None` when
 /// it will not say.
 ///
@@ -563,10 +669,21 @@ impl WorldGen {
             "apron_rows" => plan.apron as i64,
             "band_peak_bytes" => band_peak as i64,
         };
-        // The fitted model is of PNG only; a BigTIFF size is omitted rather
-        // than guessed (no BigTIFF export has been measured).
-        if format == StreamFormat::Png {
-            out.set("file_bytes", estimate_file_bytes(w, h, gw) as i64);
+        // A size from a fitted model of measured files: PNG's, and since E5
+        // JPEG's (with `file_bytes_extrapolated: true` outside the measured
+        // upsamples -- absent, never `false`, inside them). A BigTIFF size is
+        // omitted rather than guessed (no BigTIFF export has been measured).
+        match format {
+            StreamFormat::Png => {
+                out.set("file_bytes", estimate_file_bytes(w, h, gw) as i64);
+            }
+            StreamFormat::Jpeg { quality } => {
+                out.set("file_bytes", estimate_jpeg_file_bytes(w, h, gw, quality) as i64);
+                if jpeg_estimate_is_extrapolated(w, gw) {
+                    out.set("file_bytes_extrapolated", true);
+                }
+            }
+            StreamFormat::BigTiff => {}
         }
         if let Some(avail) = avail {
             out.set("memory_available", avail as i64);
@@ -767,9 +884,19 @@ fn fail(msg: impl Into<String>) -> VarDictionary {
     dict! { "ok" => false, "error" => msg.as_str() }
 }
 
+/// Adds `quality` to a result dictionary when `format` is a JPEG (E5), and
+/// nothing otherwise: a lossless file has no quality, and a number there would
+/// read as a setting (callers use `has()`).
+fn with_quality(mut d: VarDictionary, format: StreamFormat) -> VarDictionary {
+    if let Some(q) = export_options::format_quality(format) {
+        d.set("quality", q as i64);
+    }
+    d
+}
+
 /// `export_session_finish` / `export_session_close`'s success dictionary.
 fn session_done_dict(d: &export_session::SessionDone) -> VarDictionary {
-    dict! {
+    with_quality(dict! {
         "ok" => true,
         "path" => d.path.display().to_string().as_str(),
         "width" => d.width as i64,
@@ -779,7 +906,7 @@ fn session_done_dict(d: &export_session::SessionDone) -> VarDictionary {
         "bytes" => d.bytes as i64,
         "bands" => d.bands as i64,
         "ms" => d.ms,
-    }
+    }, d.format)
 }
 
 /// Write one file, creating its parent directory. `FileAccess` is not used
@@ -841,8 +968,10 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
     let width = opt_of::<i64>(opts, "width", "an integer")?.ok_or("width is required -- see export_raster_widths()")?;
     let format = match opt_string(opts, "format")? {
         None => StreamFormat::Png,
-        Some(f) => export_options::format_from_name(&f).ok_or_else(|| format!("unknown format {f:?} -- \"png\" or \"bigtiff\""))?,
+        Some(f) => export_options::format_from_name(&f).ok_or_else(|| format!("unknown format {f:?} -- \"png\", \"bigtiff\" or \"jpeg\""))?,
     };
+    // E5: a JPEG's quality; refused on a lossless format and outside 1..=100.
+    let format = export_options::format_with_quality(format, opt_of::<i64>(opts, "quality", "an integer")?)?;
     // ET-E1: the export's colour space, refused when unknown like `format`.
     let color_space = match opt_string(opts, "color_space")? {
         None => render::ColorSpace::Srgb,
@@ -1055,7 +1184,10 @@ impl WorldGen {
     /// options' style, plus `ok`, `format`, `color_space` (ET-E1), and `overlays_pending` — the
     /// requested content only E4's overlay session could draw, present only
     /// when non-empty, since [`Self::export_image`] refuses those. No
-    /// `file_bytes` for `bigtiff`: there is no measured model for it.
+    /// `file_bytes` for `bigtiff`: there is no measured model for it. For
+    /// `jpeg` (E5): `quality`, and `file_bytes` from
+    /// [`estimate_jpeg_file_bytes`], plus `file_bytes_extrapolated: true` when
+    /// the width is outside the sizes that model was measured at.
     ///
     /// `{ok: false, error}` for options `export_image` would refuse to parse.
     /// Answers for any width, as the width-only estimate does.
@@ -1071,6 +1203,7 @@ impl WorldGen {
         }
         out.set("ok", true);
         out.set("format", export_options::format_name(o.format));
+        out = with_quality(out, o.format);
         out.set("color_space", o.color_space.name());
         let pending = o.content.overlays();
         if !pending.is_empty() {
@@ -1097,10 +1230,14 @@ impl WorldGen {
     ///
     /// `color_space` (ET-E1, default `"sRGB"`): `"Display P3"` re-encodes the
     /// pixels with the screen's own P3 stage and embeds a Display P3 profile;
-    /// PNG only.
+    /// PNG or JPEG (E5: as APP2 segments), never BigTIFF.
+    ///
+    /// `format: "jpeg"` (E5) writes a baseline 4:4:4 JPEG at `quality`
+    /// (1..=100, default 90; refused on PNG/BigTIFF), and the result then
+    /// carries `quality` too.
     ///
     /// Returns `{ok, path, width, height, format, color_space, bytes, bands,
-    /// ms}`, or `{ok: false, error}`.
+    /// ms}` (plus `quality` for a JPEG), or `{ok: false, error}`.
     #[func]
     fn export_image(&self, path: GString, opts: VarDictionary) -> VarDictionary {
         let started = std::time::Instant::now();
@@ -1112,7 +1249,7 @@ impl WorldGen {
             return fail("could not assemble the render context");
         };
         match result {
-            Ok(bytes) => dict! {
+            Ok(bytes) => with_quality(dict! {
                 "ok" => true,
                 "path" => path.display().to_string().as_str(),
                 "width" => w as i64,
@@ -1122,7 +1259,7 @@ impl WorldGen {
                 "bytes" => bytes as i64,
                 "bands" => plan.band_count() as i64,
                 "ms" => started.elapsed().as_secs_f64() * 1000.0,
-            },
+            }, o.format),
             Err(e) => fail(e),
         }
     }
@@ -1161,7 +1298,7 @@ impl WorldGen {
         if let Err(e) = self.export_session.begin_with(build, p.plan, p.o.format, p.o.color_space, &p.path) {
             return fail(e);
         }
-        dict! {
+        with_quality(dict! {
             "ok" => true,
             "path" => p.path.display().to_string().as_str(),
             "width" => p.w as i64,
@@ -1171,7 +1308,7 @@ impl WorldGen {
             "bands" => p.plan.band_count() as i64,
             "band_rows" => p.plan.rows_per_band as i64,
             "apron_rows" => p.plan.apron as i64,
-        }
+        }, p.o.format)
     }
 
     /// One overlay tile for the open session: `rgba` is `w·h·4` bytes of
@@ -2053,6 +2190,73 @@ mod tests {
         (16384, 10488, 80_383_779),
         (32768, 20976, 213_925_342),
     ];
+
+    /// The q90 JPEG exports [`JPEG_Q90_BYTES_AT_GRID_WIDTH`]'s doc tabulates,
+    /// as `(width, height, measured bytes)`: the median of the three worlds at
+    /// each width, `_exportjpeg_probe.gd`, 2026-10-18. Measurements, not model
+    /// outputs.
+    const MEASURED_JPEG_Q90: [(usize, usize, u64); 4] = [(2048, 1311, 615_804), (4096, 2622, 1_645_956), (8192, 5244, 4_541_565), (16384, 10488, 13_370_870)];
+
+    /// Held-out JPEG exports at other qualities and widths -- `(width, height,
+    /// quality, measured bytes)`, seed 20260906, 2026-10-18 -- none of which
+    /// built [`JPEG_QUALITY_FACTORS`] (that table came from 2048 and 8192 px).
+    const MEASURED_JPEG_HELD_OUT: [(usize, usize, u8, u64); 6] = [
+        (4096, 2622, 30, 567_512),
+        (4096, 2622, 75, 993_862),
+        (4096, 2622, 95, 2_479_855),
+        (16384, 10488, 30, 6_114_152),
+        (16384, 10488, 75, 8_637_012),
+        (16384, 10488, 95, 20_863_531),
+    ];
+
+    /// Protects: the JPEG file-size model (E5) against measured files -- the
+    /// four q90 medians within 3.5 % (residuals -2.3 / +1.9 / +2.9 / -2.6 %)
+    /// and the six held-out quality points within 3.5 % (+2.8 / +3.1 / +2.7 /
+    /// -2.5 / -2.7 / -3.1 %); the 3.5 % bar is a labelled judgement just
+    /// outside the largest residual, inside the ±8 % world-to-world spread.
+    /// Mutating either power-law constant, a table row used by a held-out
+    /// point, or the upsample interpolation turns this red.
+    #[test]
+    fn jpeg_file_bytes_track_the_measured_exports() {
+        for (w, h, measured) in MEASURED_JPEG_Q90 {
+            let got = estimate_jpeg_file_bytes(w, h, 2048, 90) as f64;
+            let r = got / measured as f64 - 1.0;
+            println!("q90 {w}: model {got:.0} vs measured {measured} ({:+.1} %)", r * 100.0);
+            assert!(r.abs() < 0.035, "q90 at {w}: {:+.1} %", r * 100.0);
+        }
+        for (w, h, q, measured) in MEASURED_JPEG_HELD_OUT {
+            let got = estimate_jpeg_file_bytes(w, h, 2048, q) as f64;
+            let r = got / measured as f64 - 1.0;
+            println!("q{q} {w}: model {got:.0} vs measured {measured} ({:+.1} %)", r * 100.0);
+            assert!(r.abs() < 0.035, "q{q} at {w}: {:+.1} %", r * 100.0);
+        }
+    }
+
+    /// Protects: the JPEG model's shape -- size rises strictly with quality at
+    /// every measured upsample; below the table's lowest quality the estimate
+    /// is held at q10's (it over-estimates rather than inventing a smaller
+    /// number); the measured widths are not flagged as extrapolated and 32K on
+    /// the default grid is; degenerate inputs give 0.
+    #[test]
+    fn the_jpeg_model_is_monotone_and_flags_what_it_did_not_measure() {
+        for w in [2048usize, 8192, 16384, 32768] {
+            let h = w * 1311 / 2048;
+            let mut prev = 0u64;
+            for q in (10u8..=100).step_by(5) {
+                let b = estimate_jpeg_file_bytes(w, h, 2048, q);
+                assert!(b > prev, "{w} px: q{q} is {b} bytes, not above the previous {prev}");
+                prev = b;
+            }
+            assert_eq!(estimate_jpeg_file_bytes(w, h, 2048, 1), estimate_jpeg_file_bytes(w, h, 2048, 10));
+        }
+        for w in [2048usize, 4096, 8192, 16384] {
+            assert!(!jpeg_estimate_is_extrapolated(w, 2048), "{w} was measured");
+        }
+        assert!(jpeg_estimate_is_extrapolated(32768, 2048), "32K was not measured");
+        assert!(jpeg_estimate_is_extrapolated(1024, 2048), "below the grid was not measured");
+        assert_eq!(estimate_jpeg_file_bytes(0, 5244, 2048, 90), 0);
+        assert_eq!(estimate_jpeg_file_bytes(8192, 5244, 0, 90), 0);
+    }
 
     /// Protects: that the file-size model stays within 5.5 % of all five measured
     /// exports (`MEASURED`), an independent check rather than the constant

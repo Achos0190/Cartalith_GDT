@@ -1409,7 +1409,8 @@ mod tests {
     // -- property 1: a terrain-only session is export_banded --------------
 
     /// Protects: property 1 -- a session fed fully transparent tiles writes the same
-    /// file as `export_banded`, in PNG and BigTIFF, across band plans with an exact
+    /// file as `export_banded`, in PNG, BigTIFF and JPEG (E5; a non-default
+    /// quality, so the session is shown to carry the quality to the writer), across band plans with an exact
     /// division, short final bands and single-row bands, for any tile cut.
     #[test]
     fn a_transparent_session_writes_export_banded_byte_for_byte() {
@@ -1420,8 +1421,10 @@ mod tests {
         // an exact division (106 = 2 · 53); a single-row band plan.
         for (i, (p, tw, th)) in [(plan(150, 1000), 64, 40), (plan(150, 7), 50, 3), (plan(150, 17), 150, 5), (plan(150, 53), 33, 53), (plan(150, 1), 37, 1)].into_iter().enumerate() {
             assert_eq!(p.h, 106, "the fixture's height, which the band arithmetic above assumes");
-            for format in [StreamFormat::Png, StreamFormat::BigTiff] {
-                let (a, b) = (scratch(&format!("banded_{i}_{format:?}")), scratch(&format!("session_{i}_{format:?}")));
+            for format in [StreamFormat::Png, StreamFormat::BigTiff, StreamFormat::Jpeg { quality: 73 }] {
+                // By name: a JPEG's `Debug` form has a colon, which Windows refuses in a path.
+                let name = crate::export_options::format_name(format);
+                let (a, b) = (scratch(&format!("banded_{i}_{name}")), scratch(&format!("session_{i}_{name}")));
                 let want_bytes = direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, format, ColorSpace::Srgb, &a)).expect("export_banded");
                 let mut core = ExportSessionCore::default();
                 core.begin(Arc::clone(&snap), p, format, ColorSpace::Srgb, &b).expect("begin");

@@ -148,6 +148,35 @@ fn names_are_validated_not_defaulted() {
     assert_eq!(export_options::format_name(StreamFormat::BigTiff), "bigtiff");
 }
 
+/// Protects: E5's JPEG vocabulary. `"jpeg"` (any case) is the JPEG at quality
+/// 90, `"jpg"` is not a format name; every quality names back as `"jpeg"`; a
+/// quality inside 1..=100 is applied to a JPEG, one outside is refused (not
+/// clamped), and a quality on PNG or BigTIFF is refused; `format_quality` is
+/// `None` for the lossless formats; and `"CMYK"` is not an export colour space
+/// (E5 refuses a CMYK JPEG by having no such space).
+#[test]
+fn jpeg_format_and_quality_are_validated() {
+    assert_eq!(export_options::format_from_name("JPEG"), Some(StreamFormat::Jpeg { quality: 90 }));
+    assert_eq!(export_options::format_from_name("jpg"), None);
+    assert_eq!(export_options::format_name(StreamFormat::Jpeg { quality: 37 }), "jpeg");
+    assert_eq!(export_options::format_name(StreamFormat::Png), "png");
+    let jpeg = StreamFormat::JPEG;
+    assert_eq!(export_options::format_with_quality(jpeg, None), Ok(jpeg));
+    assert_eq!(export_options::format_with_quality(jpeg, Some(1)), Ok(StreamFormat::Jpeg { quality: 1 }));
+    assert_eq!(export_options::format_with_quality(jpeg, Some(100)), Ok(StreamFormat::Jpeg { quality: 100 }));
+    for bad in [0i64, 101, -5, 256 + 90] {
+        assert!(export_options::format_with_quality(jpeg, Some(bad)).is_err(), "quality {bad} was accepted");
+    }
+    assert!(export_options::format_with_quality(StreamFormat::Png, Some(90)).is_err());
+    assert!(export_options::format_with_quality(StreamFormat::BigTiff, Some(90)).is_err());
+    assert_eq!(export_options::format_with_quality(StreamFormat::Png, None), Ok(StreamFormat::Png));
+    assert_eq!(export_options::format_quality(StreamFormat::Jpeg { quality: 64 }), Some(64));
+    assert_eq!(export_options::format_quality(StreamFormat::Png), None);
+    assert_eq!(export_options::format_quality(StreamFormat::BigTiff), None);
+    assert_eq!(export_options::color_space_from_name("CMYK"), None);
+    assert!(export_options::ExportOptions::KEYS.contains(&"quality"), "the dictionary reader would refuse `quality` as unknown");
+}
+
 /// Protects: `parse_appearance_preset` round-trips the document `save_appearance_preset` writes, and each malformed shape (bad JSON, wrong format tag, missing appearance block, unopenable file) is an error with its own message.
 ///
 /// The preset parser `load_appearance_preset` and the export now share:

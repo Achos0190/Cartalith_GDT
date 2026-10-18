@@ -6,8 +6,10 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _exportfull_probe.tscn -- --width 16384
 ##
 ## `--width` is required (a `BAKE_WIDTHS` rung); `--seed` (default 20260906, the
-## seed `_exportbig_probe.gd` measured) and `--tile` (default `TILE_MAX`) are
-## optional; anything else aborts with exit 2.
+## seed `_exportbig_probe.gd` measured), `--tile` (default `TILE_MAX`),
+## `--format` (`png`, the default, or `jpeg`; E5, 2026-10-18) and `--quality`
+## (a JPEG's 1..100; omitted = the engine's default 90) are optional; anything
+## else aborts with exit 2.
 ##
 ## **Windowed, never `--headless`**: the overlay tiles are `SubViewport`
 ## readbacks, and the dummy display driver draws nothing (`MISTAKES.md`, "Write
@@ -30,7 +32,7 @@ extends Node
 ## Result: a measurement with one gate (the export wrote its file). Prints `  seed <n> generated <w>x<h> in <s> s; <n> settlements`,
 ## `  estimate: ...`, `PID <n>`, `  run: ok, <w> x <h>, <n> bands, <MB> MB`, `  wall <s> s; frames <n>, median <ms> ms, longest <ms> ms,
 ## <n> over 50 ms, <n> over 100 ms`, `  longest main-thread step of each kind (ms): ...`, `BANDROWS <n>`, `FILE <path>` and
-## `RESULT: PASS|FAIL`. The file is `user://_exportfull_probe/full_<width>.png`. Exit 0 on PASS, 1 on FAIL or
+## `RESULT: PASS|FAIL`. The file is `user://_exportfull_probe/full_<width>.png` (`.jpg` for `--format jpeg`). Exit 0 on PASS, 1 on FAIL or
 ## `RESULT: FAIL -- no live overlay with a world`, 2 after an `ABORT:` (unrecognised argument, missing `--width`) or `WATCHDOG:`.
 
 const EXPORT_OVERLAY := preload("res://shell/export_overlay.gd")
@@ -59,6 +61,8 @@ func _ready() -> void:
 	var width := -1
 	var seed_value := 20260906
 	var tile := EXPORT_OVERLAY.TILE_MAX
+	var format := "png"
+	var quality := -1
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
@@ -72,12 +76,22 @@ func _ready() -> void:
 			"--tile":
 				tile = int(args[i + 1]) if i + 1 < args.size() else -1
 				i += 2
+			"--format":
+				format = args[i + 1] if i + 1 < args.size() else ""
+				i += 2
+			"--quality":
+				quality = int(args[i + 1]) if i + 1 < args.size() else -1
+				i += 2
 			_:
-				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed and --tile only" % args[i])
+				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed, --tile, --format and --quality only" % args[i])
 				get_tree().quit(2)
 				return
 	if width <= 0:
 		print("ABORT: --width is required, e.g. -- --width 16384")
+		get_tree().quit(2)
+		return
+	if not (format in ["png", "jpeg"]) or (quality != -1 and format != "jpeg"):
+		print("ABORT: --format is png or jpeg, and --quality needs --format jpeg")
 		get_tree().quit(2)
 		return
 	get_tree().create_timer(3600.0).timeout.connect(func() -> void:
@@ -110,7 +124,9 @@ func _ready() -> void:
 
 	var content := {"settlements": true, "settlement_tier": "town", "ways": true, "labels": true,
 		"icons": true, "territory": true}
-	var opts := {"width": width, "content": content}
+	var opts := {"width": width, "content": content, "format": format}
+	if quality != -1:
+		opts["quality"] = quality
 	var est: Dictionary = bridge.world_gen.export_image_estimate(opts)
 	print("  estimate: %s x %s, %s bands of %s rows (apron %s), band peak %.0f MB, monolithic peak %.0f MB, memory_available %s" % [
 		est.get("width"), est.get("height"), est.get("bands"), est.get("band_rows"), est.get("apron_rows"),
@@ -121,7 +137,7 @@ func _ready() -> void:
 	add_child(runner)
 	var watch := _FrameWatch.new()
 	add_child(watch)
-	var path := dir.path_join("full_%d.png" % width)
+	var path := dir.path_join("full_%d.%s" % [width, "jpg" if format == "jpeg" else "png"])
 	print("PID %d" % OS.get_process_id())
 	await get_tree().create_timer(2.0).timeout   ## the host's poller attaches
 	watch.on = true

@@ -674,9 +674,92 @@ Where it stands is `STATUS.md`'s; this records the design the slice chose.
   `EngineBridge.looks()`, sent as `style: {look}`; the Render workspace's
   `STYLE_PRESETS` are not offered because they also set Painter state that
   `ExportStyle` cannot carry. Picking a look never changes the live map.
-- **Not in this slice:** JPEG (Ruling AZ; the streaming writer has PNG and
-  BigTIFF only), and the menu row's phone/command-index check
-  beyond the Data popup it lives in.
+- **Not in this slice:** ~~JPEG (Ruling AZ; the streaming writer has PNG and
+  BigTIFF only)~~ (built 2026-10-18, next section), and the menu row's
+  phone/command-index check beyond the Data popup it lives in.
+
+### E5 JPEG as built, 2026-10-18
+
+Where it stands is `STATUS.md`'s; this records the design and the measurements.
+All figures are the dev desktop (RX 7800 XT, gl_compatibility), debug DLL.
+
+- **The encoder: `jpeg-encoder` 0.7.1**, one new package with no dependencies,
+  pure Rust. Chosen because its `ImageBuffer` trait asks for the image one row
+  at a time, in order (`fill_buffers(y)` from `encode_image_interleaved`), so
+  `export_stream.rs::write_jpeg` feeds it band by band (`JpegRows` holds one
+  band and drops it once its last row is read) -- no in-repo encoder was
+  needed. It embeds an ICC profile as APP2 `ICC_PROFILE` segments and takes a
+  1-100 quality. Licence `(MIT OR Apache-2.0) AND IJG`: the IJG part is its
+  forward DCT (ported from mozjpeg); the IJG licence is permissive with one
+  condition, an acknowledgement, which `credits.gd` now gives, and `deny.toml`
+  allows `IJG` on that footing (as it did bzip2). `cargo deny check licenses`:
+  ok; with the `IJG` line removed it fails on `jpeg-encoder`, so the line is
+  what admits it. Default features only (no `simd` AVX2 path), so the bytes do
+  not depend on the CPU. Test-only: `jpeg-decoder` 0.3.2 (image-rs, MIT OR
+  Apache-2.0) decodes in `tests/export_stream.rs`.
+- **Settings.** Baseline (SOF0, one interleaved scan, standard Huffman tables;
+  progressive and optimised tables would make the crate collect every block
+  first, so they are never set). **4:4:4 chroma at every quality** (the crate
+  defaults to 4:2:0 below 90): a 1 px red line on green keeps R-G 132.7 of its
+  135 at 4:4:4 and decodes at -120.0 (greener than red) at 4:2:0
+  (`jpeg_444_keeps_a_one_pixel_coloured_line`). **Quality default 90**
+  (`JPEG_QUALITY_DEFAULT`, labelled judgement), options key `quality`
+  (1..=100, refused outside and refused on PNG/BigTIFF). sRGB is plain JFIF
+  with no profile (read as sRGB by colour-managed viewers; labelled judgement:
+  JPEG has no `sRGB` chunk); Display P3 embeds the P3 PNG's profile byte for
+  byte. **CMYK is refused**: there is no CMYK export colour space, so
+  `"CMYK"` fails as an unknown `color_space`.
+- **Band independence.** The file is byte-identical at six band plans, four of
+  them not multiples of the 8-row MCU (`a_jpeg_export_decodes_within_its_
+  measured_error_at_every_band_geometry`), and a transparent overlay session
+  writes `export_banded`'s JPEG byte for byte at a non-default quality. Error at
+  q90 on the 512 x 361 fixture: MAE 1.034, PSNR 43.44 dB (bars 1.2 / 42.0).
+- **Size and time against PNG, terrain only** (`_exportjpeg_probe.gd`, three
+  worlds, seeds 20260906 / 7 / 991733, 2048 x 1311 grid, q90; median (min ..
+  max)):
+
+  | width | PNG B/px | JPEG q90 B/px | JPEG / PNG | wall PNG / JPEG, seed 20260906 |
+  |---|---|---|---|---|
+  | 2 048 | 1.1181 (1.1018 .. 1.1517) | 0.2294 (0.2171 .. 0.2431) | 0.21 | 2.0 / 1.1 s |
+  | 4 096 | 0.8691 (0.8612 .. 0.9017) | 0.1533 (0.1447 .. 0.1608) | 0.18 | 2.0 / 1.9 s |
+  | 8 192 | 0.6562 (0.6521 .. 0.6910) | 0.1057 (0.1002 .. 0.1100) | 0.16 | 5.5 / 5.1 s |
+  | 16 384 | 0.4628 (0.4579 .. 0.4951) | 0.0778 (0.0745 .. 0.0800) | 0.17 | 22.0 / 22.1 s |
+
+  The wall time is the render's; the encoder adds nothing measurable at this
+  spread. **32K was not run.**
+- **Whole dialog-path exports with overlays and host-polled memory**
+  (`_exportfull_probe.gd -- --format png|jpeg`, seed 20260906, towns, ways,
+  labels, icons, borders; windowed; the probe's working-set rise from its
+  `PID` line to the largest 200 ms sample; three runs each):
+
+  | | 8 192: file / wall / rise | 16 384: file / wall / rise |
+  |---|---|---|
+  | PNG | 25.7 MB / 5.8 s (5.7 .. 5.8) / 962 MB (960 .. 1 025) | 69.4 MB / 18.4 s (18.3 .. 18.6) / 1 108 MB (1 102 .. 1 125), 4 runs |
+  | JPEG q90 | 4.9 MB / 5.5 s (5.4 .. 5.5) / 943 MB (901 .. 1 020) | 14.2 MB / 18.2 s (18.0 .. 18.3) / 1 119 MB (1 108 .. 1 133) |
+
+  **No memory difference is established** at either width: the JPEG ranges
+  overlap PNG's. The first build held each band while the next was awaited and
+  rose ~100 MB more than PNG at 16K (1 198 .. 1 210 MB over three runs, about
+  one 16 384 x 2 294 RGB band); dropping a band at its last row is the fix,
+  measured above. Frames: no frame over 120 ms in the fixed runs (the 50-110 ms
+  class is the tile composite, as for PNG).
+- **The size estimate** (`export_raster.rs::estimate_jpeg_file_bytes`): a
+  power law fitted to the q90 medians (0.224 x (w/gw)^-0.521; residuals -2.3 /
+  +1.9 / +2.9 / -2.6 %) times a measured quality table interpolated in quality
+  and in log upsample; six held-out points (q30 / 75 / 95 at 4K and 16K) land
+  within 3.1 %. 32K is flagged `file_bytes_extrapolated` and the dialog says
+  so. **Known limit: fitted at one grid width**, like the PNG model. On the
+  probe's 384 x 288 world a 2048 px q90 JPEG with overlays measured 0.70-0.78 MB
+  against an estimate of 0.3 MB: small grids under-estimate by ~2.5x. Not
+  fixed here; the label says "estimate".
+- **The dialog.** A FORMAT row (PNG default / JPEG) above SIZE; a QUALITY
+  slider (1-100, default 90) shown only for JPEG; every size re-priced for the
+  format and quality ("about N MB (estimate)"; one decimal under 10 MB;
+  ", extrapolated" at 32K); the destination's extension follows the format
+  (`.png` / `.jpg`); format and quality are disabled while an export runs;
+  16K shows the JPEG run above as "measured once on a desktop". BigTIFF is not
+  offered in the dialog (labelled judgement: no owner asked for it there and it
+  cannot carry Display P3).
 
 ---
 
@@ -702,7 +785,7 @@ the image incrementally**. That eliminates more candidates than quality does:
 | WebP | **16 383** | — | **impossible, not merely unsuitable.** WebP is VP8-bitstream-compatible and encodes its dimensions in 14 bits, so 16 383 is a hard format maximum. That fails 32 768 outright and fails **16 384 by one pixel**. Confirmed against Google's WebP FAQ and RFC 9649. Written down because it is otherwise the obvious-looking choice and will be suggested again. |
 | **JPEG XL** | 2³⁰ | no streaming API | **eliminated on licensing, before the FFI question arises.** The one usable pure-Rust encoder, `jxl-encoder` 0.3.1 (2026-07-11), is **AGPL-3.0-only or commercial** — which this workspace's `MIT OR Apache-2.0` cannot take. `jxl-oxide` is decoder-only; `zune-jpegxl` describes itself as a small proof-of-concept encoder. The libjxl-FFI-on-Android question was never reached. |
 | AVIF | large | no | coordinator's analysis: encoding ~688 megapixels would be extraordinarily slow and large-image decoder support is uneven. Not investigated further. |
-| JPEG | 65 535 | in principle | fits, but coordinator's analysis is that chroma subsampling and DCT ringing land on exactly the thin coloured linework a map is full of — routes, borders, labels, settlement pins. Terrain gradients would survive; the linework would not. |
+| JPEG | 65 535 | in principle | fits, but coordinator's analysis is that chroma subsampling and DCT ringing land on exactly the thin coloured linework a map is full of — routes, borders, labels, settlement pins. Terrain gradients would survive; the linework would not. *(2026-10-18: offered anyway by Ruling AZ and built; the subsampling half is avoided by writing 4:4:4, measured on a 1 px line, and it does stream -- see "E5 JPEG as built" in §5.)* |
 
 ### 6.2 The dependency cost, if BigTIFF is taken
 
@@ -769,7 +852,8 @@ file size per format** alongside the peak memory, clearly labelled an estimate,
 so a long export is chosen against a number rather than discovered. With two
 formats in E3's options, that is one model: `file_bytes` is given for PNG and
 omitted for BigTIFF, for which nothing has been measured
-(`export_image_estimate`'s doc comment).
+(`export_image_estimate`'s doc comment). *(2026-10-18: JPEG, the third format,
+has its own measured model; see "E5 JPEG as built".)*
 
 ---
 

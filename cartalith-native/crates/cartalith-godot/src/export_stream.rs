@@ -7,14 +7,17 @@
 //! in memory**. Peak memory is one band (plus its apron) through the finishing
 //! passes, not the image.
 //!
-//! Two formats, both `EXPORT_SCOPE.md` §6.1's survivors of the streaming
-//! constraint: PNG (ruling 26's format) and BigTIFF + Deflate.
+//! Three formats, each a survivor of `EXPORT_SCOPE.md` §6.1's streaming
+//! constraint: PNG (ruling 26's format), BigTIFF + Deflate, and since E5
+//! baseline JPEG (Ruling AZ, 2026-09-28: "offer JPEG alongside PNG"; written
+//! by [`write_jpeg`] through the `jpeg-encoder` crate).
 //!
 //! Since ET-E1 (`LARGE_ITEM_RULINGS.md` Ruling CB item 1) every PNG written
 //! here carries a colour label: one `sRGB` chunk by default, or one `iCCP`
 //! with the embedded Display P3 profile ([`display_p3_icc`]) for an export in
 //! Display P3. The BigTIFF stays untagged and refuses Display P3
-//! ([`check_format_space`]).
+//! ([`check_format_space`]). A JPEG is untagged JFIF in sRGB and carries the
+//! same Display P3 profile as APP2 segments in Display P3 ([`write_jpeg`]).
 //!
 //! # Not yet the user-facing path
 //!
@@ -26,10 +29,12 @@
 //!
 //! # The output does not depend on the band size
 //!
-//! Neither encoder sees band boundaries. `png::StreamWriter` filters and
-//! compresses per completed **row** whatever the `write` calls look like, and
-//! the TIFF strips are a fixed number of rows ([`TIFF_STRIP_TARGET_BYTES`])
-//! re-cut from the band stream. So one export yields the same file bytes at
+//! No encoder sees band boundaries. `png::StreamWriter` filters and
+//! compresses per completed **row** whatever the `write` calls look like, the
+//! TIFF strips are a fixed number of rows ([`TIFF_STRIP_TARGET_BYTES`])
+//! re-cut from the band stream, and the JPEG encoder asks for one row at a
+//! time ([`JpegRows`]) and cuts its own 8-row MCU rows from them, so a band
+//! need not be a multiple of 8 rows. So one export yields the same file bytes at
 //! every band plan — `tests/export_stream.rs` asserts that, not only that the
 //! pixels decode back.
 //!
@@ -147,15 +152,38 @@ pub fn png_colour(space: ColorSpace) -> Result<cartalith_assets::raster::PngColo
 /// without a colour tag (ET-E1 covers PNG; TIFF's ICC tag 34675 is not
 /// written), so Display P3 numbers in one would be read as sRGB by every
 /// consumer: refused rather than written mislabelled. sRGB BigTIFF stays as it
-/// shipped (an untagged TIFF is conventionally read as sRGB).
+/// shipped (an untagged TIFF is conventionally read as sRGB). PNG and JPEG
+/// carry both spaces ([`write_png`], [`write_jpeg`]).
+///
+/// There is no CMYK case to refuse here: `render::ColorSpace` has no CMYK
+/// member, so a `"CMYK"` colour space is refused by the options parser as an
+/// unknown name before it reaches a writer. A CMYK JPEG (Adobe APP14, four
+/// components) is out of scope for E5; Ruling CB item 6's CMYK work is a
+/// print-gamut *warning*, not a CMYK export.
 pub fn check_format_space(format: StreamFormat, space: ColorSpace) -> Result<(), String> {
     if format == StreamFormat::BigTiff && space == ColorSpace::DisplayP3 {
-        return Err("a Display P3 export must be PNG -- this BigTIFF writer embeds no colour profile, so P3 numbers in it would be read as sRGB".into());
+        return Err("a Display P3 export must be PNG or JPEG -- this BigTIFF writer embeds no colour profile, so P3 numbers in it would be read as sRGB".into());
     }
     Ok(())
 }
 
-/// The two file formats [`write_bands`] can stream.
+/// The JPEG quality an export gets when the options name none: **90**, a
+/// **labelled judgement**. It is the lowest quality at which `jpeg-encoder`
+/// 0.7.1's own `Encoder::new` keeps full chroma (it switches to 4:2:0 below
+/// 90, a choice [`write_jpeg`] overrides anyway), and on the IJG scale the
+/// crate's quantisation tables use (`quantization.rs::get_with_quality`: the
+/// Annex K tables scaled by `200 - 2q` percent) it divides every Annex K step
+/// by five. What it costs in size and error on a real export is measured in
+/// `EXPORT_SCOPE.md` E5; the number itself was not derived from those
+/// measurements.
+pub const JPEG_QUALITY_DEFAULT: u8 = 90;
+
+/// The qualities a JPEG export accepts: `jpeg-encoder`'s own 1..=100 (its
+/// `Encoder::new` doc). Anything outside is refused by the options parser, not
+/// clamped, so a mistyped quality cannot become a plausible one.
+pub const JPEG_QUALITY_RANGE: std::ops::RangeInclusive<u8> = 1..=100;
+
+/// The file formats [`write_bands`] can stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamFormat {
     /// RGB8 PNG, at the settings the shipped `export_raster_png` gets from
@@ -167,6 +195,22 @@ pub enum StreamFormat {
     Png,
     /// RGB8 BigTIFF, Deflate-compressed with the horizontal predictor.
     BigTiff,
+    /// Baseline JPEG (one interleaved sequential scan, standard Huffman
+    /// tables, 4:4:4 chroma) at `quality` ([`JPEG_QUALITY_RANGE`]), written
+    /// by [`write_jpeg`]. Lossy: the one format here whose pixels do not
+    /// decode back to the bands.
+    Jpeg { quality: u8 },
+}
+
+impl StreamFormat {
+    /// The JPEG format at [`JPEG_QUALITY_DEFAULT`], what `"format": "jpeg"`
+    /// with no `quality` means.
+    pub const JPEG: StreamFormat = StreamFormat::Jpeg { quality: JPEG_QUALITY_DEFAULT };
+
+    /// True for every JPEG quality: the format's kind, ignoring its setting.
+    pub fn is_jpeg(self) -> bool {
+        matches!(self, StreamFormat::Jpeg { .. })
+    }
 }
 
 /// Uncompressed bytes per TIFF strip, the tiff crate's own default order of
@@ -369,6 +413,7 @@ pub fn write_bands<W: Write + Seek>(out: W, format: StreamFormat, space: ColorSp
     match format {
         StreamFormat::Png => write_png(out, w32, h32, space, &mut checked)?,
         StreamFormat::BigTiff => write_bigtiff(out, w, w32, h32, &mut checked)?,
+        StreamFormat::Jpeg { quality } => write_jpeg(out, w, h, quality, space, &mut checked)?,
     }
     drop(checked);
     if seen != total {
@@ -418,6 +463,216 @@ fn write_png<W: Write>(out: W, w: u32, h: u32, space: ColorSpace, bands: &mut dy
     // Writes IEND. Explicit rather than left to `Drop`, which would swallow
     // an I/O error on the last chunk.
     writer.finish().map_err(png_err)
+}
+
+/// Baseline JPEG from a band stream, through `jpeg-encoder` 0.7.1, holding
+/// one band and one 8-row MCU row at a time -- never the image.
+///
+/// # How it streams
+///
+/// `jpeg_encoder::Encoder::encode_image` takes an `ImageBuffer` and, on the
+/// interleaved path this function forces (no progressive scans, no optimised
+/// Huffman tables, a sampling factor that `supports_interleaved`), asks it for
+/// rows **in increasing order**, eight per MCU row, repeating the last row to
+/// pad the final MCU row (`encoder.rs::encode_image_interleaved`, read
+/// 2026-10-18). [`JpegRows`] answers each request from the current band and
+/// pulls the next band only when the request passes its end, so the bands are
+/// consumed as the PNG writer consumes them. The crate's other two paths
+/// (`encode_image_sequential`, `encode_image_progressive`) collect every block
+/// of the image first; they are what `set_progressive(true)` or
+/// `set_optimized_huffman_tables(true)` would select, and **must never be
+/// turned on here** -- at 32K that is gigabytes of coefficients.
+///
+/// # The settings, and why
+///
+/// - **4:4:4 chroma** (`SamplingFactor::R_4_4_4`), at every quality. The
+///   crate's own default is 4:2:0 below quality 90; a map's routes, borders,
+///   label text and pins are 1-2 px coloured lines, and 4:2:0 stores one
+///   chroma sample per 2 x 2 pixels, so a 1 px red route over green land is
+///   averaged with its neighbours' hue. `tests/export_stream.rs`
+///   (`jpeg_444_keeps_a_one_pixel_coloured_line`) measures the difference on
+///   such a line rather than leaving this as an argument.
+/// - **Quality** as given (`StreamFormat::Jpeg`), default
+///   [`JPEG_QUALITY_DEFAULT`].
+/// - **Colour label:** [`ColorSpace::Srgb`] writes plain JFIF with no ICC
+///   profile, which colour-managed readers take as sRGB -- the same convention
+///   [`check_format_space`] relies on for an untagged BigTIFF. JPEG has no
+///   equivalent of PNG's `sRGB` chunk, so this is a **labelled judgement**,
+///   not a specification rule; embedding an sRGB profile instead would need
+///   its own profile check like [`display_p3_icc`]'s. [`ColorSpace::DisplayP3`]
+///   embeds [`display_p3_icc`] -- the profile a P3 PNG carries, byte for byte
+///   -- as `ICC_PROFILE` APP2 segments (`Encoder::add_icc_profile`, which its
+///   comment says follows the ICC's "Embedding ICC profiles in JFIF files"
+///   layout; not re-read against the ICC text here).
+/// - **Deterministic bytes:** the crate's scalar DCT, never the `simd`
+///   feature's AVX2 one (`Cargo.toml`), no restart markers, no clock.
+///
+/// # Failures
+///
+/// A JPEG frame header holds 16-bit dimensions, so a side over 65 535 px is
+/// refused before anything is written (no `BAKE_WIDTHS` rung reaches it). A
+/// band error, or bands that end early, cannot be returned from
+/// `fill_buffers`; [`JpegRows`] records it and answers with filler, and the
+/// [`JpegOut`] writer then fails the next write, so the encoder stops within
+/// one buffered write instead of encoding the rest of a 32K image. The
+/// recorded message is what this returns.
+fn write_jpeg<W: Write>(out: W, w: usize, h: usize, quality: u8, space: ColorSpace, bands: &mut dyn Iterator<Item = Result<Vec<u8>, String>>) -> Result<(), String> {
+    let (Ok(w16), Ok(h16)) = (u16::try_from(w), u16::try_from(h)) else {
+        return Err(format!("{w}x{h} is too large for a JPEG -- its frame header holds at most 65535 px a side"));
+    };
+    if !JPEG_QUALITY_RANGE.contains(&quality) {
+        return Err(format!("JPEG quality {quality} is outside {JPEG_QUALITY_RANGE:?}"));
+    }
+    let failed: Failure = Default::default();
+    let jpeg_err = |e: jpeg_encoder::EncodingError| format!("JPEG encode failed: {e}");
+    let mut enc = jpeg_encoder::Encoder::new(JpegOut { inner: out, failed: failed.clone() }, quality);
+    enc.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_4_4);
+    enc.set_progressive(false);
+    enc.set_optimized_huffman_tables(false);
+    if space == ColorSpace::DisplayP3 {
+        enc.add_icc_profile(display_p3_icc()?).map_err(jpeg_err)?;
+    }
+    let rows = JpegRows { w, w16, h16, feed: std::cell::RefCell::new(JpegFeed { bands: &mut *bands, band: Vec::new(), first_row: 0 }), failed: failed.clone() };
+    let encoded = enc.encode_image(rows);
+    // The band stream's own error outranks the I/O error `JpegOut` raised
+    // because of it.
+    if let Some(e) = failed.borrow_mut().take() {
+        return Err(e);
+    }
+    encoded.map_err(jpeg_err)?;
+    // Pull whatever the encoder did not need, so a band past the image's last
+    // row reaches `write_bands`' "run past the image" check as it does for PNG.
+    for band in bands {
+        band?;
+    }
+    Ok(())
+}
+
+/// The first error of a JPEG encode, shared by [`JpegRows`] (which records
+/// it) and [`JpegOut`] (which then refuses every write). `Rc`, not `Arc`: the
+/// whole encode runs on one thread.
+type Failure = std::rc::Rc<std::cell::RefCell<Option<String>>>;
+
+/// The row source [`write_jpeg`] hands the encoder: answers
+/// `fill_buffers(y)` from the band holding row `y`, pulling bands from the
+/// stream only as the rows pass their end and dropping each band once its
+/// last row is read, so it holds at most one band and none while it waits. `RefCell` because `ImageBuffer::
+/// fill_buffers` takes `&self`.
+struct JpegRows<'a> {
+    w: usize,
+    w16: u16,
+    h16: u16,
+    feed: std::cell::RefCell<JpegFeed<'a>>,
+    failed: Failure,
+}
+
+/// [`JpegRows`]' mutable half: the band stream, the band now held, and the
+/// image row its first row is.
+struct JpegFeed<'a> {
+    bands: &'a mut dyn Iterator<Item = Result<Vec<u8>, String>>,
+    band: Vec<u8>,
+    first_row: usize,
+}
+
+impl jpeg_encoder::ImageBuffer for JpegRows<'_> {
+    /// RGB is encoded as YCbCr, as a JFIF file's three components are.
+    fn get_jpeg_color_type(&self) -> jpeg_encoder::JpegColorType {
+        jpeg_encoder::JpegColorType::Ycbcr
+    }
+
+    /// The image width, already checked to fit the frame header.
+    fn width(&self) -> u16 {
+        self.w16
+    }
+
+    /// The image height, already checked to fit the frame header.
+    fn height(&self) -> u16 {
+        self.h16
+    }
+
+    /// Row `y` as Y, Cb and Cr samples (`jpeg_encoder::rgb_to_ycbcr`, the
+    /// crate's own fixed-point full-range BT.601 conversion), one per pixel
+    /// per plane. After a failure, filler (Y 0, Cb and Cr 128) so the buffers
+    /// keep the length the encoder indexes by; that output is never kept
+    /// ([`write_jpeg`]'s doc). Never panics on a short or failed stream.
+    fn fill_buffers(&self, y: u16, buffers: &mut [Vec<u8>; 4]) {
+        let mut feed = self.feed.borrow_mut();
+        let row_bytes = self.w * 3;
+        let y = y as usize;
+        let mut ok = self.failed.borrow().is_none();
+        while ok {
+            let held = feed.band.len() / row_bytes;
+            if y < feed.first_row {
+                *self.failed.borrow_mut() = Some(format!("the JPEG encoder asked for row {y} after row {}", feed.first_row));
+                ok = false;
+            } else if y < feed.first_row + held {
+                break;
+            } else {
+                match feed.bands.next() {
+                    Some(Ok(band)) => {
+                        feed.first_row += held;
+                        feed.band = band;
+                    }
+                    Some(Err(e)) => {
+                        *self.failed.borrow_mut() = Some(e);
+                        ok = false;
+                    }
+                    None => {
+                        *self.failed.borrow_mut() = Some(format!("the bands cover {} of the image's {} rows", feed.first_row + held, self.h16));
+                        ok = false;
+                    }
+                }
+            }
+        }
+        if !ok {
+            buffers[0].extend(std::iter::repeat_n(0, self.w));
+            buffers[1].extend(std::iter::repeat_n(128, self.w));
+            buffers[2].extend(std::iter::repeat_n(128, self.w));
+            return;
+        }
+        let at = (y - feed.first_row) * row_bytes;
+        for px in feed.band[at..at + row_bytes].chunks_exact(3) {
+            let (luma, cb, cr) = jpeg_encoder::rgb_to_ycbcr(px[0], px[1], px[2]);
+            buffers[0].push(luma);
+            buffers[1].push(cb);
+            buffers[2].push(cr);
+        }
+        // Drop a band as soon as its last row is read (unless it holds the
+        // image's last row, which the encoder repeats to pad the final MCU
+        // row): otherwise it stays alive while the next band is waited for,
+        // one band more than the PNG writer holds. Measured 2026-10-18 at
+        // 16K through the overlay session: without this, the export's host
+        // working-set rise was ~100 MB (about one 16384 x 2294 RGB band)
+        // above PNG's (`EXPORT_SCOPE.md` E5).
+        let held = feed.band.len() / row_bytes;
+        if y + 1 == feed.first_row + held && y + 1 < self.h16 as usize {
+            feed.first_row += held;
+            feed.band = Vec::new();
+        }
+    }
+}
+
+/// The encoder's output, which fails every write once [`JpegRows`] has
+/// recorded an error -- the only way to stop `encode_image` early, since
+/// `fill_buffers` cannot return one.
+struct JpegOut<W> {
+    inner: W,
+    failed: Failure,
+}
+
+impl<W: Write> Write for JpegOut<W> {
+    /// Forwards to the file unless the band stream has failed.
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.failed.borrow().is_some() {
+            return Err(std::io::Error::other("the export's band stream failed"));
+        }
+        self.inner.write(buf)
+    }
+
+    /// Forwards to the file.
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 /// BigTIFF, Deflate, horizontal predictor, fixed-height strips.

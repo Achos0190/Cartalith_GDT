@@ -7,7 +7,11 @@
 //! encoder and compare every byte at several band geometries including a
 //! short final band."*
 //!
-//! - **A different decoder.** Both formats are read back by decoders written
+//! - **JPEG (E5)** is lossy, so it is held to a measured error bound against
+//!   the same monolithic render instead of byte equality, decoded by
+//!   `jpeg-decoder` (image-rs), not by the encoder's code; its *file* is still
+//!   byte-identical at every band plan.
+//! - **A different decoder.** Both lossless formats are read back by decoders written
 //!   in this file, sharing no code with the encoders: PNG chunks, CRCs and all
 //!   five row filters; BigTIFF header, IFD, strips and the horizontal
 //!   predictor. The one shared piece is DEFLATE itself, inflated with
@@ -284,6 +288,7 @@ fn decode(format: StreamFormat, bytes: &[u8]) -> Result<(usize, usize, Vec<u8>),
     match format {
         StreamFormat::Png => decode_png(bytes),
         StreamFormat::BigTiff => decode_bigtiff(bytes).map(|(w, h, px, _)| (w, h, px)),
+        StreamFormat::Jpeg { .. } => decode_jpeg(bytes).map(|(w, h, px, _)| (w, h, px)),
     }
 }
 
@@ -477,7 +482,7 @@ fn the_independent_decoders_are_not_vacuous() {
     assert!(decode_bigtiff(&bad).map_or(true, |d| d.2 != px), "a flipped byte in the BigTIFF went unnoticed");
 }
 
-/// Protects: `write_bands` returns an error (no panic, no short or padded file) for bands that are too few rows, too many rows, ragged within a row, or empty, accepts an exact tiling, and `export_banded` errors on an unwritable destination.
+/// Protects: `write_bands` returns an error (no panic, no short or padded file) in every format, JPEG included (E5), for bands that are too few rows, too many rows, ragged within a row, empty, or followed by a band past the last row; the ragged band's own message survives; it accepts an exact tiling, and `export_banded` errors on an unwritable destination.
 ///
 /// Bands that do not tile the image are refused with a message, never
 /// written as a short or padded file, and never a panic.
@@ -485,14 +490,20 @@ fn the_independent_decoders_are_not_vacuous() {
 fn bands_that_do_not_tile_the_image_are_refused() {
     let (w, h) = (16usize, 10usize);
     let row = w * 3;
-    for format in [StreamFormat::Png, StreamFormat::BigTiff] {
+    for format in [StreamFormat::Png, StreamFormat::BigTiff, StreamFormat::JPEG] {
         let sink = || std::io::Cursor::new(Vec::new());
         let short = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row], vec![0u8; 5 * row]]);
         let long = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 6 * row], vec![0u8; 5 * row]]);
         let ragged = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row + 3], vec![0u8; 6 * row - 3]]);
         let empty = write_bands(sink(), format, ColorSpace::Srgb, 0, h, Vec::<Vec<u8>>::new());
-        println!("{format:?}: short {short:?} / long {long:?} / ragged {ragged:?} / empty {empty:?}");
-        assert!(short.is_err() && long.is_err() && ragged.is_err() && empty.is_err());
+        // E5: a band after the image is complete. The JPEG encoder stops
+        // pulling at the last row, so only its writer's drain can see this.
+        let trailing = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 10 * row], vec![0u8; row]]);
+        println!("{format:?}: short {short:?} / long {long:?} / ragged {ragged:?} / empty {empty:?} / trailing {trailing:?}");
+        assert!(short.is_err() && long.is_err() && ragged.is_err() && empty.is_err() && trailing.is_err());
+        // The band stream's own message reaches the caller, not the I/O error
+        // the JPEG writer raises to stop its encoder.
+        assert!(ragged.unwrap_err().contains("whole number"), "{format:?}: the ragged band's own message was lost");
         assert!(write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row], vec![0u8; 6 * row]]).is_ok());
     }
     // An unwritable destination: a path *under a file*.
@@ -725,4 +736,268 @@ fn the_p3_export_is_the_screen_s_p3_encode_byte_for_byte() {
     }
     let moved = differing(&seen[0], &seen[1]);
     assert!(moved > 0, "Display P3 moved no byte -- the P3 leg would pass vacuously");
+}
+
+// ---------------------------------------------------------------------------
+// E5: the JPEG writer (Ruling AZ, `EXPORT_SCOPE.md` E5)
+// ---------------------------------------------------------------------------
+
+/// What [`jpeg_markers`] read from a JPEG's header segments.
+struct JpegInfo {
+    /// Every marker byte before the scan, in file order (`0xC0` = SOF0).
+    markers: Vec<u8>,
+    /// The APP2 `ICC_PROFILE` payloads reassembled in sequence order, or
+    /// `None` when the file has none.
+    icc: Option<Vec<u8>>,
+    /// Each component's `(id, horizontal, vertical)` sampling from the SOF.
+    sampling: Vec<(u8, u8, u8)>,
+}
+
+/// Walk a JPEG's segments from SOI to SOS by the ITU-T T.81 B.1 layout --
+/// `FF xx`, a big-endian length that counts itself, the payload -- written
+/// against the standard, sharing no code with the encoder or `jpeg-decoder`.
+/// Reassembles APP2 `ICC_PROFILE\0` chunks by their 1-based sequence number
+/// (ICC.1 B.4). Panics on a malformed header; asserts at least one marker.
+fn jpeg_markers(b: &[u8]) -> JpegInfo {
+    assert_eq!(&b[..2], &[0xFF, 0xD8], "no SOI");
+    assert_eq!(&b[b.len() - 2..], &[0xFF, 0xD9], "no EOI at the end");
+    let (mut p, mut markers, mut chunks, mut sampling) = (2usize, Vec::new(), Vec::<(u8, u8, Vec<u8>)>::new(), Vec::new());
+    loop {
+        assert_eq!(b[p], 0xFF, "segment at {p} does not start with FF");
+        let m = b[p + 1];
+        let len = u16::from_be_bytes([b[p + 2], b[p + 3]]) as usize;
+        let body = &b[p + 4..p + 2 + len];
+        markers.push(m);
+        if m == 0xE2 && body.starts_with(b"ICC_PROFILE\0") {
+            chunks.push((body[12], body[13], body[14..].to_vec()));
+        }
+        if (0xC0..=0xC2).contains(&m) {
+            for c in 0..body[5] as usize {
+                let at = 6 + 3 * c;
+                sampling.push((body[at], body[at + 1] >> 4, body[at + 1] & 0x0F));
+            }
+        }
+        if m == 0xDA {
+            break;
+        }
+        p += 2 + len;
+    }
+    assert!(!markers.is_empty(), "a JPEG with no segments proves nothing");
+    chunks.sort_by_key(|c| c.0);
+    let icc = (!chunks.is_empty()).then(|| {
+        let n = chunks[0].1 as usize;
+        assert_eq!(chunks.len(), n, "ICC chunk count disagrees with the chunks' own total");
+        for (i, c) in chunks.iter().enumerate() {
+            assert_eq!((c.0 as usize, c.1 as usize), (i + 1, n), "ICC chunks out of sequence");
+        }
+        chunks.into_iter().flat_map(|c| c.2).collect()
+    });
+    JpegInfo { markers, icc, sampling }
+}
+
+/// Decode a JPEG with `jpeg-decoder` (image-rs; not the encoder's code) to
+/// `(width, height, RGB8, embedded ICC profile)`.
+fn decode_jpeg(b: &[u8]) -> Result<(usize, usize, Vec<u8>, Option<Vec<u8>>), String> {
+    let mut d = jpeg_decoder::Decoder::new(std::io::Cursor::new(b));
+    let px = d.decode().map_err(|e| format!("jpeg-decoder: {e}"))?;
+    let info = d.info().ok_or("no frame info")?;
+    if info.pixel_format != jpeg_decoder::PixelFormat::RGB24 {
+        return Err(format!("decoded as {:?}, not RGB24", info.pixel_format));
+    }
+    Ok((info.width as usize, info.height as usize, px, d.icc_profile()))
+}
+
+/// `(mean absolute error per channel byte, PSNR in dB, largest single error)`
+/// of `got` against `want`; asserts equal non-zero lengths.
+fn jpeg_error(got: &[u8], want: &[u8]) -> (f64, f64, u8) {
+    assert!(!want.is_empty() && got.len() == want.len(), "{} vs {} bytes", got.len(), want.len());
+    let (mut abs, mut sq, mut max) = (0u64, 0u64, 0u8);
+    for (&g, &w) in got.iter().zip(want) {
+        let d = g.abs_diff(w);
+        abs += d as u64;
+        sq += (d as u64) * (d as u64);
+        max = max.max(d);
+    }
+    let n = want.len() as f64;
+    let mse = sq as f64 / n;
+    let psnr = if mse == 0.0 { f64::INFINITY } else { 10.0 * (255.0f64 * 255.0 / mse).log10() };
+    (abs as f64 / n, psnr, max)
+}
+
+/// The JPEG bars [`a_jpeg_export_decodes_within_its_measured_error_at_every_band_geometry`]
+/// holds the q90 fixture export to: mean absolute error at most this many
+/// levels per channel byte, and PSNR at least [`JPEG_Q90_MIN_PSNR`]. **Measured,
+/// then given margin** -- see that test's doc for the run that set them.
+const JPEG_Q90_MAX_MAE: f64 = 1.2;
+
+/// The PSNR floor, in dB, beside [`JPEG_Q90_MAX_MAE`].
+const JPEG_Q90_MIN_PSNR: f64 = 42.0;
+
+/// Protects: the JPEG export (q90, sRGB) decodes, with an independent
+/// decoder, to the monolithic render's size and within a measured error bound,
+/// at six band plans of which four are not multiples of the 8-row MCU (100,
+/// 37, 19, 5) and most end short; **and the file is the same bytes at every
+/// plan** -- the encoder pulls rows, so band boundaries cannot reach it
+/// (`export_stream.rs` module doc). Also: baseline (SOF0, never progressive
+/// SOF2), one scan, 4:4:4 (every component 1x1), JFIF APP0, no ICC in sRGB.
+///
+/// The bars: measured 2026-10-18 by this test's first run -- 512 x 361, 45 445
+/// bytes (0.246 B/px), **MAE 1.034, PSNR 43.44 dB, largest error 40 levels**,
+/// identical at all six plans -- then [`JPEG_Q90_MAX_MAE`] 1.2 and
+/// [`JPEG_Q90_MIN_PSNR`] 42.0 set with a margin around it (labelled judgement,
+/// not derived from the JPEG standard). The largest single error is not bounded:
+/// DCT ringing at a hard edge is what JPEG does, and the mean is the claim.
+#[test]
+fn a_jpeg_export_decodes_within_its_measured_error_at_every_band_geometry() {
+    let (field, temp, rain, flow) = fixture(GW, GH);
+    let a = appearance();
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, true, 55.0, 5.0, a.clone());
+    let mask = river_mask();
+    let ink = ExportRivers { save_flag: Some(&mask), vector: None };
+    let (w, h) = render::bake_dims(512, GW, GH);
+    let whole = monolithic(&ctx, &a, ink, w, h);
+    let mut first: Option<Vec<u8>> = None;
+    for rows in [usize::MAX, 100, 64, 37, 19, 5] {
+        let plan = ExportBandPlan::with_rows(&a, w, h, rows);
+        let path = scratch(&format!("jpeg_{rows}"));
+        let written = export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, StreamFormat::JPEG, ColorSpace::Srgb, &path).unwrap();
+        let file = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(written, file.len() as u64);
+        let (dw, dh, px, icc) = decode_jpeg(&file).unwrap();
+        assert_eq!((dw, dh), (w, h));
+        assert!(icc.is_none(), "an sRGB JPEG carries an ICC profile");
+        let (mae, psnr, max) = jpeg_error(&px, &whole);
+        println!("JPEG q90 {w}x{h}: {} bands of {} rows, {} bytes ({:.3} B/px), MAE {mae:.3}, PSNR {psnr:.2} dB, max {max}", plan.band_count(), plan.rows_per_band, file.len(), file.len() as f64 / (w * h) as f64);
+        assert!(mae <= JPEG_Q90_MAX_MAE && psnr >= JPEG_Q90_MIN_PSNR, "q90 error MAE {mae:.3} / PSNR {psnr:.2} outside the measured bar");
+        match &first {
+            None => {
+                assert_eq!(plan.band_count(), 1, "the first plan is the single-band control");
+                let info = jpeg_markers(&file);
+                assert!(info.markers.contains(&0xC0) && !info.markers.contains(&0xC2), "not baseline: {:x?}", info.markers);
+                assert_eq!(info.markers.iter().filter(|&&m| m == 0xDA).count(), 1);
+                assert_eq!(info.markers.first(), Some(&0xE0), "no JFIF APP0 first");
+                // Factors only: `jpeg-encoder` numbers its components 0, 1, 2
+                // (T.81 allows any ids; JFIF's 1, 2, 3 is a convention decoders do not need).
+                assert_eq!(info.sampling.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(), vec![(1, 1); 3], "not 4:4:4: {:?}", info.sampling);
+                first = Some(file);
+            }
+            Some(f) => assert!(file == *f, "the JPEG at {rows} rows/band is not the single-band file's bytes"),
+        }
+    }
+}
+
+/// Protects: quality is honoured and monotone on the fixture: higher quality
+/// gives a strictly larger file and a strictly smaller error, across
+/// 30 / 60 / 90 / 100 (measured 2026-10-18 on 512 x 361: 13 891 / 19 307 /
+/// 38 212 / 138 753 bytes, MAE 2.59 / 1.65 / 0.89 / 0.43); and the default
+/// `StreamFormat::JPEG` is quality 90 (the literal, so mutating
+/// `JPEG_QUALITY_DEFAULT` turns this red).
+#[test]
+fn jpeg_quality_moves_size_up_and_error_down() {
+    assert_eq!(StreamFormat::JPEG, StreamFormat::Jpeg { quality: 90 }, "the default JPEG quality is 90");
+    let (field, temp, rain, flow) = fixture(GW, GH);
+    let a = appearance();
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
+    let (w, h) = render::bake_dims(512, GW, GH);
+    let whole = monolithic(&ctx, &a, ExportRivers::default(), w, h);
+    let mut prev: Option<(usize, f64)> = None;
+    for q in [30u8, 60, 90, 100] {
+        let mut out = std::io::Cursor::new(Vec::new());
+        write_bands(&mut out, StreamFormat::Jpeg { quality: q }, ColorSpace::Srgb, w, h, [whole.clone()]).unwrap();
+        let file = out.into_inner();
+        let (mae, psnr, _) = jpeg_error(&decode_jpeg(&file).unwrap().2, &whole);
+        println!("q{q}: {} bytes, MAE {mae:.3}, PSNR {psnr:.2}", file.len());
+        if let Some((len, e)) = prev {
+            assert!(file.len() > len && mae < e, "q{q}: {} bytes / MAE {mae:.3} against the previous {len} / {e:.3}", file.len());
+        }
+        prev = Some((file.len(), mae));
+    }
+}
+
+/// Protects: the 4:4:4 choice (`write_jpeg`'s doc): a 1 px red line on green
+/// survives a q90 export with its hue, where 4:2:0 at the same quality --
+/// encoded here straight through `jpeg-encoder` -- does not. Measured on the
+/// line's pixels only (selected by the INPUT geometry, not by the error):
+/// mean |R - G| of the decoded line, which is 255 - 120 = 135 in the source.
+/// Measured 2026-10-18: **4:4:4 keeps 132.7; 4:2:0 gives -120.0** -- the red
+/// line decodes greener than red, its hue averaged into the green around it.
+/// Bars: 4:4:4 keeps at least 100 and beats 4:2:0 by at least 20; judgement
+/// bounds far inside the measured gap.
+#[test]
+fn jpeg_444_keeps_a_one_pixel_coloured_line() {
+    let (w, h) = (96usize, 64usize);
+    let mut px = vec![0u8; w * h * 3];
+    let line = |x: usize, y: usize| x == 37 || y == 21;
+    for y in 0..h {
+        for x in 0..w {
+            let c = if line(x, y) { [255, 120, 0] } else { [40, 160, 60] };
+            px[(y * w + x) * 3..][..3].copy_from_slice(&c);
+        }
+    }
+    let hue = |dec: &[u8]| {
+        let (mut sum, mut n) = (0f64, 0f64);
+        for y in 0..h {
+            for x in 0..w {
+                if line(x, y) {
+                    let p = &dec[(y * w + x) * 3..][..3];
+                    sum += p[0] as f64 - p[1] as f64;
+                    n += 1.0;
+                }
+            }
+        }
+        sum / n
+    };
+    let mut ours = std::io::Cursor::new(Vec::new());
+    write_bands(&mut ours, StreamFormat::JPEG, ColorSpace::Srgb, w, h, [px.clone()]).unwrap();
+    let mut sub = Vec::new();
+    let mut enc = jpeg_encoder::Encoder::new(&mut sub, 90);
+    enc.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_2_0);
+    enc.encode(&px, w as u16, h as u16, jpeg_encoder::ColorType::Rgb).unwrap();
+    let (keep, lose) = (hue(&decode_jpeg(ours.get_ref()).unwrap().2), hue(&decode_jpeg(&sub).unwrap().2));
+    println!("1 px line R-G (source 135): 4:4:4 {keep:.1}, 4:2:0 {lose:.1}");
+    assert!(keep >= 100.0, "4:4:4 kept only {keep:.1} of the line's 135 R-G");
+    assert!(keep - lose >= 20.0, "4:2:0 ({lose:.1}) is not measurably worse than 4:4:4 ({keep:.1}) -- the reason for 4:4:4 would be unsupported");
+}
+
+/// Protects: a Display P3 JPEG embeds exactly the P3 PNG's profile
+/// (`display_p3_icc`, byte for byte) as APP2 `ICC_PROFILE` segments -- read
+/// both by this file's own segment walker and by `jpeg-decoder` -- which parses
+/// as Display P3; an sRGB JPEG has none; the pixels' encoding is the caller's
+/// (the writer converts nothing: the same bands give the same scan in both
+/// spaces); two P3 encodes are the same bytes.
+#[test]
+fn a_p3_jpeg_embeds_the_display_p3_profile() {
+    let (w, h, px) = label_fixture();
+    let enc = |space| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        write_bands(&mut out, StreamFormat::JPEG, space, w, h, [px.clone()]).unwrap();
+        out.into_inner()
+    };
+    let (srgb, p3) = (enc(ColorSpace::Srgb), enc(ColorSpace::DisplayP3));
+    assert!(jpeg_markers(&srgb).icc.is_none(), "an sRGB JPEG carries a profile");
+    let icc = jpeg_markers(&p3).icc.expect("a P3 JPEG has no ICC_PROFILE");
+    assert_eq!(icc.as_slice(), export_stream::display_p3_icc().unwrap(), "the embedded profile is not the P3 profile");
+    assert_display_p3_profile(&icc);
+    let (_, _, p3_px, p3_icc) = decode_jpeg(&p3).unwrap();
+    assert_eq!(p3_icc.as_deref(), Some(icc.as_slice()), "jpeg-decoder reads a different profile");
+    assert_eq!(p3_px, decode_jpeg(&srgb).unwrap().2, "the label changed the encoded pixels");
+    assert!(enc(ColorSpace::DisplayP3) == p3, "two identical P3 JPEGs differ");
+}
+
+/// Protects: a JPEG wider or taller than its 16-bit frame header can hold is
+/// refused before anything is written (no band is pulled), and so is a quality
+/// outside 1..=100; 65 535 itself is not refused by the size check.
+#[test]
+fn jpeg_limits_are_refused_up_front() {
+    let mut out = std::io::Cursor::new(Vec::new());
+    let wide = write_bands(&mut out, StreamFormat::JPEG, ColorSpace::Srgb, 65_536, 8, Vec::<Vec<u8>>::new());
+    assert!(wide.as_ref().is_err_and(|e| e.contains("65535")), "{wide:?}");
+    assert!(out.get_ref().is_empty(), "a refused JPEG wrote bytes");
+    for q in [0u8, 101] {
+        let r = write_bands(std::io::Cursor::new(Vec::new()), StreamFormat::Jpeg { quality: q }, ColorSpace::Srgb, 8, 8, [vec![0u8; 8 * 8 * 3]]);
+        assert!(r.is_err(), "quality {q} was accepted");
+    }
+    // 65 535 x 1 encodes: the bound is the header's, not one less.
+    assert!(write_bands(std::io::Cursor::new(Vec::new()), StreamFormat::JPEG, ColorSpace::Srgb, 65_535, 1, [vec![0u8; 65_535 * 3]]).is_ok());
 }
