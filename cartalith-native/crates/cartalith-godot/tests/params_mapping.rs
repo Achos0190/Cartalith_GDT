@@ -724,6 +724,29 @@ fn a_save_without_the_geology_karst_key_reloads_with_it_off() {
     }
 }
 
+/// Protects: a save lacking `geology_carve` reloading with it OFF even when the session had it
+/// on, while a saved true/false round-trips (GF-6, `GEOLOGY_FIRST_SCOPE.md` §4.7; the same rule
+/// as `geology_karst`), and the switch shipping off in the app. The session is forced on first,
+/// because the shipped default is already off and a test starting there could not fail.
+#[test]
+fn a_save_without_the_geology_carve_key_reloads_with_it_off() {
+    assert!(!params::defaults().geology_carve, "GF-6's carve switch ships off in the app");
+    let mut p = params::defaults();
+    p.geology_carve = true;
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert!(!p.geology_carve, "a save without the key must not silently gain the rock-dependent carve");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.geology_carve = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["geology_carve"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.geology_carve = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.geology_carve, on);
+    }
+}
+
 /// Protects: a save lacking `geo.age` reloading at the identity age 1.0 even when the session
 /// held another, a saved age round-tripping, and the row clamping to 0.25..=4.0.
 ///

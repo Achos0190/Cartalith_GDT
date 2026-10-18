@@ -7717,7 +7717,11 @@ mod tests {
         inp.recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
         inp.order = ws.stream_order.as_deref();
         inp.volcanism = Some(&ws.volcanic_field);
-        inp.resistance = Some(&ws.resistance_field);
+        // GF-6: rock formation reads the column's `s` (`RockView`); these
+        // parity defaults build no column, so the view refuses and rock
+        // formation reports `NoTerrain` in this fixture.
+        let rock = cartalith_civ::landmark::RockView::for_world(&ws, &p).ok();
+        inp.rock = rock.as_ref();
         let r = cartalith_civ::landmark::generate(&inp, &LandmarkSettings::default(), WORLD_SEED);
         (r, WORLD_SEED)
     }

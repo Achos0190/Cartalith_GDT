@@ -25053,7 +25053,6 @@ impl WorldGen {
         let resource_pairs: Vec<(&str, &[f32])> =
             geology.as_ref().map(|(rp, _, _)| landmark_resource_pairs(rp)).unwrap_or_default();
         let corridors: Option<&[f32]> = geology.as_ref().map(|(_, c, _)| c.as_slice());
-        let lithology: Option<&[u8]> = geology.as_ref().map(|(_, _, l)| l.as_slice());
         let sites: Vec<cartalith_civ::landmark::LandmarkSite> = self
             .civ
             .as_ref()
@@ -25125,9 +25124,7 @@ impl WorldGen {
         // pipeline-ordering question, since it is the same struct field.
         inputs.territory = self.civ.as_ref().map(|c| c.territory.as_slice());
         inputs.corridors = corridors;
-        inputs.lithology = lithology;
         inputs.volcanism = Some(&ws.volcanic_field);
-        inputs.resistance = Some(&ws.resistance_field);
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
         // The pass's only obstacle input, and the one input on this list that
@@ -25178,6 +25175,17 @@ impl WorldGen {
         // if it had been.
         let karst = cartalith_civ::landmark::KarstView::for_world(ws, &self.recompute_params()).ok();
         inputs.karst = karst.as_ref();
+        // GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.7, §4.11): rock formation's whole
+        // input (the exposed rock's strength `s`, which replaces
+        // `resistance_field`) and waterfall's knickpoints. Every app world
+        // has a column (`geology_model` ships on), so rock formation reads
+        // rock there; the knickpoints are present only for a world generated
+        // with `geology_processes` on (off in the app), so waterfall is its
+        // rock-blind self. A refusal (no column: a save from before the
+        // model) leaves `rock` absent and rock formation `no_terrain`. Same
+        // `recompute_params()` reading as `karst` above.
+        let rock = cartalith_civ::landmark::RockView::for_world(ws, &self.recompute_params()).ok();
+        inputs.rock = rock.as_ref();
         // The stored refined viewshed (Ruling AT) is deliberately NOT set here:
         // `LandmarkStore::run` lends it itself, and `compute` must see the
         // coarse inputs only.

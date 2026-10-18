@@ -1,12 +1,16 @@
-//! GF-6's switch-off identity check: app worlds (`cartalith-godot`'s
-//! `params::defaults()`, `geology_karst` off, so no `KarstView`) give the same
-//! landmark result before and after GF-6, apart from cave's own funnel row,
-//! which changes from `not_buildable` to `no_terrain` because the kind is now
-//! built and its input is absent.
+//! GF-6's switch-off identity check for the landmark pass: app worlds
+//! (`cartalith-godot`'s `params::defaults()`, `geology_karst` off, so no
+//! `KarstView`) through the full default landmark pass.
 //!
-//! Deliberately uses only API that predates GF-6, so the same file builds
-//! against the commit before it: run it on both builds and diff the printed
-//! lines (`GEOLOGY_FIRST_SCOPE.md` §7 "GF-6 measured" records the result).
+//! Recorded in `GEOLOGY_FIRST_SCOPE.md` §7. **The cave half** (`bfadd3fb`)
+//! moved nothing but cave's own funnel row. **The rock half** moves rock
+//! formation on every app world by design (it reads the column's `s`, which
+//! every app world has, in place of `resistance_field`; §4.11), and through
+//! cross-kind spacing the kinds near it. So the hash is printed with and
+//! without rock formation's row, plus every kind's placed count, and the
+//! comparison against the build before the rock half is per kind. Waterfall
+//! reads no knickpoint on an app world (processes off), so its rule is the
+//! rock-blind one there.
 //!
 //! `cargo test -j 2 --release -p cartalith-civ --test gf6_identity_hashes -- --ignored --nocapture`
 
@@ -18,9 +22,10 @@ use cartalith_engine::generate_terrain;
 use std::hash::{Hash, Hasher};
 
 /// Prints, per seed, a hash of every placement and every funnel row except
-/// cave's, then cave's row on its own. Protects the claim that GF-6 moves
-/// nothing an app world shows; it asserts nothing itself, because the
-/// comparison is between two builds.
+/// cave's, every kind's placed count, then cave's row on its own. Protects
+/// the record of what GF-6 moves on an app world (module doc); it asserts
+/// nothing about the other build itself, because the comparison is between
+/// two builds.
 #[test]
 #[ignore]
 fn gf6_identity_hashes() {
@@ -40,7 +45,9 @@ fn gf6_identity_hashes() {
         inp.order = ws.stream_order.as_deref();
         inp.water = Some(&wb.classification);
         inp.volcanism = Some(&ws.volcanic_field);
-        inp.resistance = Some(&ws.resistance_field);
+        let rock = landmark::RockView::for_world(&ws, &p).ok();
+        assert!(rock.as_ref().is_some_and(|v| v.knickpoints.is_none()), "an app world: a column, no knickpoints");
+        inp.rock = rock.as_ref();
         let r = landmark::generate(&inp, &LandmarkSettings::default(), seed as u64);
         let mut h = std::collections::hash_map::DefaultHasher::new();
         for l in &r.landmarks {
@@ -49,6 +56,10 @@ fn gf6_identity_hashes() {
         for f in r.funnels.iter().filter(|f| f.kind != "cave") {
             (&f.kind, f.candidates, f.rejected_constraint, f.rejected_score, f.rejected_spacing, f.rejected_cap, f.cap, f.placed, f.limit.as_str()).hash(&mut h);
         }
+        let mut per: Vec<String> = r.funnels.iter().filter(|f| f.placed > 0).map(|f| format!("{}={}", f.kind, f.placed)).collect();
+        per.sort();
+        println!("GF6KINDS seed {seed}: {}", per.join(" "));
+        println!("GF6RF seed {seed}: {:?}", r.funnel("rock_formation"));
         let c = r.funnel("cave").unwrap();
         println!(
             "GF6ID seed {seed}: {} landmarks, hash {:016x}; cave {}/{}/{}",

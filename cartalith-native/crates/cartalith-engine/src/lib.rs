@@ -858,6 +858,22 @@ pub struct WorldParams {
     /// bars compare the two on one binary. A save without the key reloads
     /// with it off (`params::apply_saved_state`). No GUI control.
     pub geology_karst: bool,
+    /// GF-6's carve switch (`GEOLOGY_FIRST_SCOPE.md` §4.7, §7 GF-6; owner
+    /// Ruling BH): each run's carve half-width is multiplied by `ω(run)`, the
+    /// median over its land points of a per-rock valley-width factor
+    /// (`cartalith_erosion::carve_width`), so valleys are narrower in strong
+    /// rock and wider in weak. The carve's `drop`, `CARVE_LAND_MARGIN` and
+    /// `CARVE_KEEP_LAKE_DEPTH` do not change. Acts only with
+    /// [`Self::geology_model`] and [`Self::geology_processes`] on as well, and
+    /// only on the `carve_rivers` path; otherwise every statement is today's,
+    /// by control flow.
+    ///
+    /// **`false` here and `false` in the shipped app**: the app's processes
+    /// are off, so it would be inert there anyway. Its own switch so that a
+    /// processes-on world without it stays the pre-GF-6 world, and GF-6's
+    /// bars compare the two on one binary. A save without the key reloads
+    /// with it off (`params::apply_saved_state`). No GUI control.
+    pub geology_carve: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -919,6 +935,8 @@ impl WorldParams {
             relief_model: false,
             // GF-5 (§4.6): off at both boundaries; see the field's doc comment.
             geology_karst: false,
+            // GF-6 (§4.7): off at both boundaries; see the field's doc comment.
+            geology_carve: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -1471,8 +1489,9 @@ pub(crate) fn compute_stress_gpu(
 ///
 /// Must never be `on` without a column (the constructor derives `on` from
 /// the column's presence), and must never make a process read rock that its
-/// milestone has not reached: the carve only *strips* regolith here and
-/// reads rock at GF-6. The coastal and glacial passes read rock since GF-4
+/// milestone has not reached. The carve strips regolith, and since GF-6 its
+/// half-widths read rock behind their own switch ([`RockContext::carve_widths`]).
+/// The coastal and glacial passes read rock since GF-4
 /// ([`RockContext::coastal`], [`RockContext::glacial`]; Ruling CH).
 struct RockContext {
     on: bool,
@@ -1738,7 +1757,21 @@ impl RockContext {
         }
     }
 
-    /// A lowering process that does not read rock yet: strip regolith first
+    /// GF-6 (§4.7): multiplies each run's carve half-width by `ω(run)`
+    /// (`cartalith_erosion::carve_width::scale_half_widths`), reading the
+    /// exposed rock on `field`, the surface the carve is handed. `carve` is
+    /// GF-6's switch, [`WorldParams::geology_carve`], and it acts only with
+    /// this context `on` as well. Off it returns without touching `half_ws`,
+    /// so every world without the switch is the pre-GF-6 world by control flow.
+    #[allow(clippy::too_many_arguments)]
+    fn carve_widths(&self, carve: bool, geology: &Geology, field: &[f32], gw: usize, gh: usize, sea: f64, polys: &[Vec<(f64, f64)>], half_ws: &mut [f64]) {
+        let Some(column) = geology.column().filter(|_| self.on && carve) else {
+            return;
+        };
+        cartalith_erosion::carve_width::scale_half_widths(polys, half_ws, column, field, gw, gh, sea, self.r_expose);
+    }
+
+    /// A lowering process that does not read rock: strip regolith first
     /// (§4.9). `before` is `None` exactly when off (the caller skips the
     /// snapshot then), so off costs nothing.
     fn strip(&self, geology: &mut Geology, before: Option<&[f32]>, after: &[f32]) {
@@ -2862,7 +2895,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let half_w_cap = 4.0 * width_k;
         let mut rmask = vec![0u8; gw * gh];
         let mut rfloor = vec![0f32; gw * gh];
-        let half_ws: Vec<f64> = polys
+        let mut half_ws: Vec<f64> = polys
             .iter()
             .map(|poly| {
                 let &(lx, ly) = poly.last().expect("trace_river_polylines only returns polylines with >=2 points");
@@ -2878,8 +2911,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // loop left pits at confluences, on every diagonal step and wherever a
         // lowland floor walked under sea level, and `build_water_bodies`
         // classified each one as a lake. See `carve_channel_network`.
+        // GF-6 (§4.7): with `geology_carve` and the rock gate on, each run's
+        // half-width takes its `ω`; off, nothing here runs.
+        rock.carve_widths(p.geology_carve, &geology, &field, gw, gh, sea_level, &polys, &mut half_ws);
         // GF-2 (§4.9): the carve lowers the surface, so it strips regolith
-        // before bedrock like any erosion. It does not read rock yet (GF-6).
+        // before bedrock like any erosion.
         let pre_carve = rock.on.then(|| field.clone());
         for i in carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006) {
             rmask[i] = 1;

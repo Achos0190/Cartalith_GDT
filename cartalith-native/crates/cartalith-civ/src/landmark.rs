@@ -110,6 +110,12 @@ pub use refined_view::{
 pub mod karst_view;
 pub use karst_view::{KarstAbsent, KarstView};
 
+/// GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.7, §4.11): the exposed rock's strength
+/// and the knickpoints, derived from a generated world for *rock formation*
+/// and *waterfall*. Must never produce a view for a world without a column.
+pub mod rock_view;
+pub use rock_view::{RockAbsent, RockView};
+
 // ===========================================================================
 // §23 — hierarchical landmark classes
 // ===========================================================================
@@ -1432,20 +1438,21 @@ pub struct LandmarkInputs<'a> {
     /// `DECISIONS.md` §7i measured. Mountain passes read this and nothing else
     /// can substitute for it.
     pub corridors: Option<&'a [f32]>,
-    /// `build_lithology`'s categorical rock type, `0..=6` indexing
-    /// `crate::LITH_NAMES`. Rock formation reads this for its causal fact
-    /// string only — nothing scores on it, since a bare category says
-    /// nothing about contrast with its neighbours.
-    pub lithology: Option<&'a [u8]>,
     /// `WorldState::volcanic_field`, raw — not the `> 0.35` cut
     /// `build_lithology` reduces it to. Volcanic feature (built) scores on it
     /// together with the viewshed, [`Derived::vis`].
     pub volcanism: Option<&'a [f32]>,
-    /// `WorldState::resistance_field`, `[0,1]` — `compute_resistance`'s
-    /// erosion resistance. Rock formation's whole domain is differential
-    /// erosion, resistant rock standing proud of soft rock, and this is the
-    /// "resistant" half of that test.
-    pub resistance: Option<&'a [f32]>,
+    /// **The rock at the surface** ([`RockView`], GF-6): §2.3's strength `s`
+    /// of the exposed rock, and §4.7's knickpoints when the world's processes
+    /// read rock. Rock formation's whole domain is differential erosion,
+    /// strong rock standing proud of weak rock, and `s` is the "strong" half
+    /// of that test (`GEOLOGY_FIRST_SCOPE.md` §4.11: it reads `s` instead of
+    /// `resistance_field`, which it read until GF-6). Waterfall's knickpoint
+    /// term reads the knickpoints. `None` (a world with no column, the parity
+    /// path) leaves rock formation `NoTerrain` and waterfall its rock-blind
+    /// self, by control flow. A view whose grid is not `gw * gh` reads as
+    /// `None`, like every raster here.
+    pub rock: Option<&'a RockView>,
     /// `assign_territory`'s per-cell faction-id output (`cartalith-civ/src/
     /// lib.rs`) — `> 0` a faction id, `0` unowned (water, or unreachable from
     /// any capital; `assign_territory`'s own tests pin this, e.g.
@@ -1593,9 +1600,8 @@ impl<'a> LandmarkInputs<'a> {
             order: None,
             water: None,
             corridors: None,
-            lithology: None,
             volcanism: None,
-            resistance: None,
+            rock: None,
             territory: None,
             resources: &[],
             settlements: &[],
@@ -2781,6 +2787,22 @@ const WATERFALL_TERMS: [(&str, f64); 4] = [
     ("flow magnitude", 0.20),
     ("channel confinement", 0.15),
 ];
+/// GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.7, §4.11, "Waterfall: reads the
+/// knickpoints"): waterfall scoring with §4.7's knickpoints present
+/// ([`RockView::knickpoints`]). §7's dropped `R` (lithological contrast)
+/// returns as the knickpoint, where a river leaves a stronger cap for its
+/// weaker substrate (1 on a knickpoint, 0 off it), at 0.30, and the four
+/// [`WATERFALL_TERMS`] are scaled to 0.70, as [`SPRING_TERMS_KARST`] does for
+/// the spring line. Weights sum to 1.0. Category C: a judgement, source not
+/// recorded. That a resistant cap over weak rock holds a falls is the
+/// textbook form (Niagara); no source was verified here for the weight.
+const WATERFALL_TERMS_ROCK: [(&str, f64); 5] = [
+    ("river gradient", 0.245),
+    ("vertical drop", 0.21),
+    ("flow magnitude", 0.14),
+    ("channel confinement", 0.105),
+    ("resistant cap over weaker rock", 0.30),
+];
 
 /// A spring is a headwater, and a headwater on flat ground is a puddle.
 const SPRING_MIN_RELIEF_M: f64 = 60.0;
@@ -2891,21 +2913,37 @@ const RIDGE_MIN_RELIEF_M: f64 = 100.0;
 const RIDGE_TERMS: [(&str, f64); 3] =
     [("topographic position", 0.40), ("crest relief", 0.35), ("flank slope", 0.25)];
 
-/// **Category C**, echoing `build_lithology`'s own inline `res_hard` cut
-/// (`cartalith-civ/src/lib.rs`) at the same value: no basis exists to call a
-/// cell "resistant" here by any different line than the one that already
-/// decides granite/metamorphic there.
+/// **Category C.** The value is kept from before GF-6, when it read
+/// `resistance_field` and echoed `build_lithology`'s inline `res_hard` cut
+/// (`cartalith-civ/src/lib.rs`); since GF-6 it reads §2.3's strength `s`
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.11 names this constant and keeps it). On
+/// `s` it admits §2.3's strong and moderate rocks (sandstone and schist at
+/// 0.60 and above) and refuses tuff (0.35), shale (0.30) and unconsolidated
+/// material (0.10).
 const ROCK_FORMATION_MIN_RESISTANCE: f64 = 0.55;
 /// **Category C.** The neighbour-contrast this kind's own `not_built` reason
-/// named as the missing half even with resistance wired in — uniformly hard
-/// ground is not a formation, a hard patch inside soft ground is.
+/// named as the missing half — uniformly hard ground is not a formation, a
+/// hard patch inside soft ground is. Kept from before GF-6; on `s` it is a
+/// step of at least one §2.3 Selby class (moderate 0.60 over weak 0.35, or
+/// strong 0.85 over moderate 0.60).
 const ROCK_FORMATION_MIN_CONTRAST: f64 = 0.20;
+/// How much more one unit of `s` weighs than one metre of TPI in the key
+/// rock formation's domain maximises (see [`pool_rock_formation`]). Not a
+/// tuning value: it only has to make the smallest `s` step in §2.3's table
+/// (0.05) outweigh the whole clamped TPI range ([`ROCK_FORMATION_KEY_TPI_M`]
+/// either side), so the key is strength first and TPI only among equal
+/// strength. 0.05 x 1e6 = 50 000 > 2 x 9 999.
+const ROCK_FORMATION_KEY_S_PER_UNIT: f64 = 1.0e6;
+/// The TPI clamp inside the domain key, metres. Arithmetic, not a judgement:
+/// any TPI on a 4 000 m world lies inside it, and the clamp only guards the
+/// strength-first ordering above.
+const ROCK_FORMATION_KEY_TPI_M: f64 = 9_999.0;
 /// **Category C**, smaller than [`RIDGE_MIN_TPI_M`]: an outcrop is a point
 /// feature, not a crest line, and reads as "standing proud" at a smaller
 /// rise than a whole ridge needs.
 const ROCK_FORMATION_MIN_TPI_M: f64 = 30.0;
 const ROCK_FORMATION_TERMS: [(&str, f64); 3] = [
-    ("resistance contrast", 0.45),
+    ("strength contrast", 0.45),
     ("stands above its surroundings", 0.30),
     ("local relief", 0.25),
 ];
@@ -3388,8 +3426,8 @@ struct Ctx<'a> {
     order: Option<&'a [i16]>,
     water: Option<&'a [u8]>,
     corridors: Option<&'a [f32]>,
-    lithology: Option<&'a [u8]>,
-    resistance: Option<&'a [f32]>,
+    /// [`LandmarkInputs::rock`], `None` unless it fits the grid.
+    rock: Option<&'a RockView>,
     territory: Option<&'a [i32]>,
     /// [`LandmarkInputs::karst`], `None` unless it fits the grid.
     karst: Option<&'a KarstView>,
@@ -3461,8 +3499,7 @@ impl<'a> Ctx<'a> {
             order: inp.grid(inp.order),
             water: inp.grid(inp.water),
             corridors: inp.grid(inp.corridors),
-            lithology: inp.grid(inp.lithology),
-            resistance: inp.grid(inp.resistance),
+            rock: inp.rock.filter(|r| r.fits(n)),
             territory: inp.grid(inp.territory),
             karst: inp.karst.filter(|k| k.fits(n)),
             up,
@@ -3642,12 +3679,21 @@ impl<'a> Ctx<'a> {
 
 /// §7's constraint block, verbatim: `river = true AND gradient > threshold AND
 /// vertical drop > threshold AND flow accumulation > minimum`.
+///
+/// **GF-6** (`GEOLOGY_FIRST_SCOPE.md` §4.11, "Waterfall: reads the
+/// knickpoints"): with [`RockView::knickpoints`] present (a world whose
+/// processes read rock), a fifth term scores a candidate on a knickpoint
+/// ([`WATERFALL_TERMS_ROCK`]) and its facts name the two rocks. The domain
+/// and the constraints are unchanged: a knickpoint with no drop is not a
+/// waterfall. **Without knickpoints nothing here differs from before GF-6**
+/// by control flow: the facts and the terms are the old ones.
 fn pool_waterfall(c: &Ctx<'_>) -> Option<Pool> {
     let chan = c.chan?;
     let flow = c.flow?;
     let recv = c.recv?;
+    let knick = c.rock.and_then(|r| r.knickpoints.as_deref().map(|k| (r, k)));
     let mut p = Pool::new();
-    let (mut t_g, mut t_d, mut t_q, mut t_c) = (vec![], vec![], vec![], vec![]);
+    let (mut t_g, mut t_d, mut t_q, mut t_c, mut t_k) = (vec![], vec![], vec![], vec![], vec![]);
     let min_flow = c.flow_thresh * WATERFALL_MIN_FLOW_MULT;
     for i in 0..c.n {
         if chan[i] == 0 || !c.is_land(i) {
@@ -3670,28 +3716,44 @@ fn pool_waterfall(c: &Ctx<'_>) -> Option<Pool> {
         }
         let relief = c.relief_m(i);
         let (x, y) = (i % c.inp.gw, i / c.inp.gw);
-        p.cands.push(Cand {
-            i,
-            x,
-            y,
-            facts: vec![
-                format!("high local relief {}", fmt_m(relief)),
-                format!("steep river gradient {}", fmt_pct(grad)),
-                format!("vertical drop {}", fmt_m(drop_m)),
-                format!("flow {} cells", thousands(q)),
-            ],
-        });
+        let mut facts = Vec::with_capacity(5);
+        let on_knick = knick.is_some_and(|(_, k)| k[i]);
+        if on_knick {
+            // A knickpoint has a land receiver (`knickpoints`' own rule).
+            let (rv, _) = knick.expect("on_knick implies the view");
+            facts.push(format!(
+                "where the river leaves {} for weaker {}",
+                rv.exposed_name(i),
+                rv.exposed_name(r as usize)
+            ));
+        }
+        facts.push(format!("high local relief {}", fmt_m(relief)));
+        facts.push(format!("steep river gradient {}", fmt_pct(grad)));
+        facts.push(format!("vertical drop {}", fmt_m(drop_m)));
+        facts.push(format!("flow {} cells", thousands(q)));
+        p.cands.push(Cand { i, x, y, facts });
         t_g.push(grad as f32);
         t_d.push(drop_m as f32);
         t_q.push(q as f32);
         t_c.push(relief as f32);
+        t_k.push(if on_knick { 1.0 } else { 0.0 });
     }
-    p.terms = vec![
-        (WATERFALL_TERMS[0].0, WATERFALL_TERMS[0].1, t_g),
-        (WATERFALL_TERMS[1].0, WATERFALL_TERMS[1].1, t_d),
-        (WATERFALL_TERMS[2].0, WATERFALL_TERMS[2].1, t_q),
-        (WATERFALL_TERMS[3].0, WATERFALL_TERMS[3].1, t_c),
-    ];
+    p.terms = if knick.is_some() {
+        vec![
+            (WATERFALL_TERMS_ROCK[0].0, WATERFALL_TERMS_ROCK[0].1, t_g),
+            (WATERFALL_TERMS_ROCK[1].0, WATERFALL_TERMS_ROCK[1].1, t_d),
+            (WATERFALL_TERMS_ROCK[2].0, WATERFALL_TERMS_ROCK[2].1, t_q),
+            (WATERFALL_TERMS_ROCK[3].0, WATERFALL_TERMS_ROCK[3].1, t_c),
+            (WATERFALL_TERMS_ROCK[4].0, WATERFALL_TERMS_ROCK[4].1, t_k),
+        ]
+    } else {
+        vec![
+            (WATERFALL_TERMS[0].0, WATERFALL_TERMS[0].1, t_g),
+            (WATERFALL_TERMS[1].0, WATERFALL_TERMS[1].1, t_d),
+            (WATERFALL_TERMS[2].0, WATERFALL_TERMS[2].1, t_q),
+            (WATERFALL_TERMS[3].0, WATERFALL_TERMS[3].1, t_c),
+        ]
+    };
     Some(p)
 }
 
@@ -4108,44 +4170,57 @@ fn pool_ridge(c: &Ctx<'_>) -> Option<Pool> {
 /// **Category C** — §29 gives Rock formation a name and no formula, the same
 /// position `resource_extraction_site` was in (see that kind's own doc
 /// comment). The domain is the phrase this kind's own `not_built` reason used
-/// before this pass closed it: **resistant rock standing proud of soft
-/// rock**. Both halves are load-bearing constraints, not one scoring the
-/// other:
+/// before it was built: **resistant rock standing proud of soft rock**. Both
+/// halves are load-bearing constraints, not one scoring the other:
 ///
-/// - **resistant**: this cell's own [`Ctx::resistance`] is the local maximum
-///   of its window *and* meaningfully higher than that window's minimum —
-///   the neighbour-contrast the `not_built` reason named as missing even
-///   with resistance wired in. Uniformly hard ground the whole way across a
-///   window is not a formation.
+/// - **strong**: since GF-6 (`GEOLOGY_FIRST_SCOPE.md` §4.11) this reads
+///   §2.3's strength `s` of the exposed rock ([`RockView::strength`]) in
+///   place of `resistance_field`. The cell's `s` must be the strongest in its
+///   window *and* meaningfully above that window's weakest: uniformly hard
+///   ground the whole way across a window is not a formation.
 /// - **standing proud**: positive TPI at the fine scale, the same signal
 ///   [`pool_ridge`]/[`pool_peak`] read — differential erosion means the
-///   softer rock around it eroded away, so the resistant patch reads as
+///   weaker rock around it eroded away, so the strong patch reads as
 ///   topography, not just as a geology-map anomaly with no expression.
 ///
-/// [`Ctx::lithology`] is read only for the causal fact string, when present —
-/// it degrades to a generic description rather than gating the kind, since a
-/// bare rock-type category says nothing about contrast on its own.
+/// `s` is categorical (one value per rock), so a whole outcrop ties for its
+/// window's maximum. The domain is therefore the maximum of a key that is
+/// strength first and fine TPI second ([`ROCK_FORMATION_KEY_S_PER_UNIT`]):
+/// the highest cell of the strongest rock in the window represents the
+/// outcrop, as the steepest cell represents a face for cliff.
+///
+/// `None` (`NoTerrain`, nothing placed) without [`LandmarkInputs::rock`]: a
+/// world with no column records no rock to stand proud, and this detector
+/// does not fall back to `resistance_field`, the input §4.11 replaces.
 fn pool_rock_formation(c: &Ctx<'_>) -> Option<Pool> {
-    let resist = c.resistance?;
+    let rock = c.rock?;
     if c.d.tpi_fine.is_empty() {
         return None;
     }
     let gw = c.inp.gw;
-    let (rmin, rmax) = sep_min_max(resist, gw, c.inp.gh, c.d.r_fine, c.inp.world);
+    let s = &rock.strength;
+    let (smin, _) = sep_min_max(s, gw, c.inp.gh, c.d.r_fine, c.inp.world);
+    let tpi_m = |i: usize| c.inp.dh_m(c.d.tpi_fine(i) as f64);
+    let key: Vec<f32> = (0..c.n)
+        .map(|i| {
+            (s[i] as f64 * ROCK_FORMATION_KEY_S_PER_UNIT
+                + tpi_m(i).clamp(-ROCK_FORMATION_KEY_TPI_M, ROCK_FORMATION_KEY_TPI_M)) as f32
+        })
+        .collect();
+    let (_, kmax) = sep_min_max(&key, gw, c.inp.gh, c.d.r_fine, c.inp.world);
     let mut p = Pool::new();
     let (mut t_c, mut t_t, mut t_r) = (vec![], vec![], vec![]);
     for i in 0..c.n {
-        // Domain: the local maximum of resistance represents the outcrop —
-        // without this every hard-rock cell on its flank is its own
-        // candidate, the same reasoning `pool_resource`'s own comment gives
-        // for a deposit.
-        if !c.is_land(i) || resist[i] < rmax[i] {
+        // Domain: the key's local maximum represents the outcrop — without
+        // it every strong-rock cell on its flank is its own candidate, the
+        // same reasoning `pool_resource`'s own comment gives for a deposit.
+        if !c.is_land(i) || key[i] < kmax[i] {
             continue;
         }
-        let contrast = resist[i] as f64 - rmin[i] as f64;
-        let tpi = c.inp.dh_m(c.d.tpi_fine(i) as f64);
+        let contrast = s[i] as f64 - smin[i] as f64;
+        let tpi = tpi_m(i);
         let relief = c.relief_m(i);
-        if (resist[i] as f64) < ROCK_FORMATION_MIN_RESISTANCE
+        if (s[i] as f64) < ROCK_FORMATION_MIN_RESISTANCE
             || contrast < ROCK_FORMATION_MIN_CONTRAST
             || tpi < ROCK_FORMATION_MIN_TPI_M
         {
@@ -4153,18 +4228,13 @@ fn pool_rock_formation(c: &Ctx<'_>) -> Option<Pool> {
             continue;
         }
         let (x, y) = (i % gw, i / gw);
-        let rock_name = c.lithology.and_then(|l| crate::LITH_NAMES.get(l[i] as usize)).copied();
-        let headline = match rock_name {
-            Some(name) => format!("{name}, standing proud of its softer surroundings"),
-            None => "resistant rock standing proud of its softer surroundings".to_string(),
-        };
         p.cands.push(Cand {
             i,
             x,
             y,
             facts: vec![
-                headline,
-                format!("resistance {:.2} against {:.2} nearby", resist[i], rmin[i]),
+                format!("{}, standing proud of weaker rock around it", rock.exposed_name(i)),
+                format!("rock strength {:.2} against {:.2} nearby", s[i], smin[i]),
                 format!("stands {} above its surroundings", fmt_m(tpi)),
             ],
         });
@@ -6145,12 +6215,13 @@ mod tests {
         /// fixtures get `iron`/`stone`, so Resource extraction site needs its
         /// own so `every_buildable_kind_can_actually_place_one` can reach it.
         timber: Vec<f32>,
-        /// A tight, high-contrast patch centred on `test_field`'s own first
-        /// summit blob (cell ~(26,42) at this fixture's size) — an outcrop
-        /// with real topographic expression, standing well above the
-        /// uniform low background everywhere else. Rock formation's whole
-        /// domain; nothing else reads this field.
-        resistance: Vec<f32>,
+        /// A tight strong-rock outcrop (granite, `s` 0.85) centred on
+        /// `test_field`'s own first summit blob (cell ~(26,42) at this
+        /// fixture's size), in shale (`s` 0.30) everywhere else: an outcrop
+        /// with real topographic expression. Rock formation's whole domain
+        /// (GF-6: it reads `s`); no knickpoints, as on a world whose
+        /// processes are off.
+        rock: RockView,
         /// Two vents on the western belt, standing in for
         /// `WorldState::volcanic_field`. Volcanic feature's whole domain is a
         /// local maximum of this above `VOLCANIC_MIN_ACTIVITY`, and the
@@ -6322,25 +6393,23 @@ mod tests {
                 }
                 v
             },
-            resistance: {
+            rock: {
                 // Centred on `test_field`'s first summit blob (px=0.10,
                 // py=0.22) so the outcrop has genuine positive TPI, not just
                 // a geology-map anomaly with no topographic expression.
-                // sigma=1 cell: within `r_fine` (2 cells at this fixture's
-                // resolution) the value has already fallen most of the way
-                // back to baseline, so the contrast is real, not smoothed
-                // away by too wide a window -- the failure
-                // `rock_formation_needs_contrast_not_just_high_resistance`
+                // Radius sqrt(2) cells: inside `r_fine` (2 cells at this
+                // fixture's resolution), so the window holds shale and the
+                // contrast is real -- the failure
+                // `rock_formation_needs_contrast_not_just_high_strength`
                 // pins directly.
                 let (cx, cy) = ((0.10 * gw as f64).round(), (0.22 * gh as f64).round());
-                let mut v = vec![0f32; gw * gh];
-                for y in 0..gh {
-                    for x in 0..gw {
-                        let d2 = (x as f64 - cx).powi(2) + (y as f64 - cy).powi(2);
-                        v[y * gw + x] = (0.10 + 0.85 * (-d2 / 2.0).exp()) as f32;
-                    }
-                }
-                v
+                let granite: Vec<bool> = (0..gw * gh)
+                    .map(|i| {
+                        let (x, y) = ((i % gw) as f64, (i / gw) as f64);
+                        (x - cx).powi(2) + (y - cy).powi(2) <= 2.0
+                    })
+                    .collect();
+                rock_fixture(gw, gh, |i| granite[i])
             },
             volcanism: {
                 // Both centres sit on the land strip west of `fx = 0.38` and
@@ -6378,7 +6447,7 @@ mod tests {
         i.order = Some(&w.order);
         i.water = Some(&w.water);
         i.corridors = Some(&w.corridors);
-        i.resistance = Some(&w.resistance);
+        i.rock = Some(&w.rock);
         i.volcanism = Some(&w.volcanism);
         i.territory = Some(&w.territory);
         i.resources = res;
@@ -6408,7 +6477,6 @@ mod tests {
         ws: cartalith_engine::WorldState,
         wb: Vec<u8>,
         corridors: Vec<f32>,
-        lithology: Vec<u8>,
         order: Vec<i16>,
         sites: Vec<LandmarkSite>,
         /// `assign_territory`'s real per-cell faction-id output over the six
@@ -6416,6 +6484,8 @@ mod tests {
         territory: Vec<i32>,
         ways: Vec<crate::Way>,
         resources: crate::ResourcePotentials,
+        /// [`RockView::for_world`] on `ws`, `None` when it refuses.
+        rock: Option<RockView>,
     }
 
     /// Runs `generate_terrain` (bounded map, `WorldParams::defaults`) and the civ
@@ -6598,7 +6668,11 @@ mod tests {
             let travel_cost = crate::build_travel_cost(&ws.field, gw, gh, sea);
             crate::assign_territory(&settlements, &travel_cost, gw, gh, world)
         };
+        // GF-6: the rock view this world's column gives (`None` here: the
+        // parity defaults build no column).
+        let rock = RockView::for_world(&ws, &p).ok();
         RealWorld {
+            rock,
             gw,
             gh,
             width_km,
@@ -6606,7 +6680,6 @@ mod tests {
             world,
             wb: wb.classification,
             corridors,
-            lithology,
             order,
             sites,
             territory,
@@ -6652,9 +6725,11 @@ mod tests {
         i.order = Some(&r.order);
         i.water = Some(&r.wb);
         i.corridors = Some(&r.corridors);
-        i.lithology = Some(&r.lithology);
         i.volcanism = Some(&r.ws.volcanic_field);
-        i.resistance = Some(&r.ws.resistance_field);
+        // GF-6: rock formation reads the column's `s`; this world is
+        // `WorldParams::defaults` (no column), so the view refuses and rock
+        // formation reports `NoTerrain` here.
+        i.rock = r.rock.as_ref();
         i.territory = Some(&r.territory);
         i.resources = res;
         i.settlements = &r.sites;
@@ -7980,14 +8055,14 @@ mod tests {
     }
 
     /// **The whole justification for closing `rock_formation`'s `not_built`
-    /// reason rather than just relaxing it**: uniformly hard rock is not a
-    /// formation, only a hard patch standing out from its own neighbourhood
-    /// is — the neighbour-contrast the reason named as missing even with
-    /// resistance wired in. Pinned directly, by mutation of the fixture
-    /// rather than trusted from the doc comment: flatten the contrast and
-    /// the kind must fall silent, restore it and it must fire again.
+    /// reason rather than just relaxing it**: uniformly strong rock is not a
+    /// formation, only a strong patch standing out from its own
+    /// neighbourhood is. Pinned directly, by mutation of the fixture rather
+    /// than trusted from the doc comment: flatten the contrast and the kind
+    /// must fall silent, restore it and it must fire again. Since GF-6 the
+    /// strength is §2.3's `s` ([`RockView::strength`]).
     #[test]
-    fn rock_formation_needs_contrast_not_just_high_resistance() {
+    fn rock_formation_needs_contrast_not_just_high_strength() {
         // Protects: rock formation needs neighbour contrast: flatten it and the kind falls
         // silent, restore it and it fires again.
         let w = world(256, 192, 1000.0);
@@ -7998,11 +8073,11 @@ mod tests {
         // own turn — testing spacing order, not the contrast constraint.
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
 
-        // Uniformly high resistance: every land cell ties for its own
-        // window's maximum, and none of them contrast with it.
-        let flat = vec![0.95f32; w.gw * w.gh];
+        // Uniformly granite: every land cell's strength ties with its
+        // window's, and none of them contrast with it.
+        let flat = rock_fixture(w.gw, w.gh, |_| true);
         let mut inp = inputs(&w, &[]);
-        inp.resistance = Some(&flat);
+        inp.rock = Some(&flat);
         let r = generate(&inp, &s, 5);
         assert_eq!(
             r.placed("rock_formation"),
@@ -8016,7 +8091,7 @@ mod tests {
             f
         );
 
-        // The fixture's own resistance field — one outcrop standing out from
+        // The fixture's own rock — one granite outcrop standing out from
         // a low background, over real topography — places at least one.
         let inp2 = inputs(&w, &[]);
         let r2 = generate(&inp2, &s, 5);
@@ -10050,6 +10125,23 @@ mod tests {
 
     /// A hand-built [`KarstView`]: limestone exposed everywhere, no spring
     /// line, single-layer columns, and `diss(i)` metres of dissolution.
+    /// A [`RockView`] that is granite (`s` 0.85) where `granite(i)` and shale
+    /// (`s` 0.30) elsewhere, with no knickpoints (the processes-off reason).
+    /// §2.3's own values, as literals, so a change to the table does not
+    /// silently move these fixtures.
+    fn rock_fixture(gw: usize, gh: usize, granite: impl Fn(usize) -> bool) -> RockView {
+        use cartalith_terrain::geology::Rock;
+        let g: Vec<bool> = (0..gw * gh).map(granite).collect();
+        RockView {
+            gw,
+            gh,
+            strength: g.iter().map(|&b| if b { 0.85 } else { 0.30 }).collect(),
+            exposed: g.iter().map(|&b| if b { Rock::Granite as u8 } else { Rock::Shale as u8 }).collect(),
+            knickpoints: None,
+            knick_absent: Some(rock_view::KNICK_PROCESSES_OFF),
+        }
+    }
+
     fn karst_fixture(gw: usize, gh: usize, diss: impl Fn(usize) -> f32) -> KarstView {
         let n = gw * gh;
         KarstView {
@@ -10131,5 +10223,115 @@ mod tests {
         for t in [&SPRING_TERMS_KARST[..], &CAVE_TERMS[..]] {
             assert!((w(t).iter().sum::<f64>() - 1.0).abs() < 1e-12);
         }
+    }
+
+    /// Rock formation reads only the rock view since GF-6: without it, or
+    /// with one for another grid, it is `NoTerrain` with no candidates, and
+    /// it never falls back to `resistance_field`.
+    #[test]
+    fn rock_formation_refuses_without_the_rock_view() {
+        // Protects: the honest refusal (GEOLOGY_FIRST_SCOPE.md §4.11): no
+        // column, no rock formation, and a mis-sized view reads as absent.
+        let w = world(256, 192, 1000.0);
+        let mut inp = inputs(&w, &[]);
+        inp.rock = None;
+        let f = generate(&inp, &only("rock_formation"), 5).funnel("rock_formation").unwrap().clone();
+        assert_eq!((f.candidates, f.placed, f.limit), (0, 0, LandmarkLimit::NoTerrain), "{f:?}");
+        let wrong = rock_fixture(w.gw / 2, w.gh, |_| true);
+        inp.rock = Some(&wrong);
+        let f = generate(&inp, &only("rock_formation"), 5).funnel("rock_formation").unwrap().clone();
+        assert_eq!((f.candidates, f.limit), (0, LandmarkLimit::NoTerrain), "{f:?}");
+        // And the fixture's own outcrop places, naming the rock.
+        let r = generate(&inputs(&w, &[]), &LandmarkSettings { cross_type_competition: false, ..only("rock_formation") }, 5);
+        let l = r.landmarks.iter().find(|l| l.kind == "rock_formation").expect("the outcrop places");
+        assert_eq!(l.causal[0], "Granite / granitoid, standing proud of weaker rock around it");
+        assert_eq!(l.causal[1], "rock strength 0.85 against 0.30 nearby");
+    }
+
+    /// The strength floor (0.55 on `s`) is a constraint of its own: a weak
+    /// outcrop standing proud of weaker ground (tuff, `s` 0.35, in
+    /// unconsolidated material, 0.10: a contrast of 0.25, above the 0.20
+    /// minimum) is refused, while the same geometry in granite places.
+    #[test]
+    fn a_weak_outcrop_in_weaker_ground_is_not_a_rock_formation() {
+        // Protects: `ROCK_FORMATION_MIN_RESISTANCE` is applied to `s`
+        // (dropping the floor places the tuff outcrop and goes red).
+        use cartalith_terrain::geology::Rock;
+        let w = world(256, 192, 1000.0);
+        let s = LandmarkSettings { cross_type_competition: false, ..only("rock_formation") };
+        let mut weak = w.rock.clone();
+        for i in 0..weak.strength.len() {
+            let granite = weak.exposed[i] == Rock::Granite as u8;
+            weak.strength[i] = if granite { 0.35 } else { 0.10 };
+            weak.exposed[i] = if granite { Rock::Tuff as u8 } else { Rock::Unconsolidated as u8 };
+        }
+        let mut inp = inputs(&w, &[]);
+        inp.rock = Some(&weak);
+        let r = generate(&inp, &s, 5);
+        let f = r.funnel("rock_formation").unwrap();
+        assert_eq!(f.placed, 0, "a tuff outcrop placed: {f:?}");
+        assert!(f.rejected_constraint > 0, "{f:?}");
+        assert!(generate(&inputs(&w, &[]), &s, 5).placed("rock_formation") > 0, "the granite outcrop must place");
+    }
+
+    /// Waterfall with knickpoints (GF-6, §4.7/§4.11): the domain and the
+    /// constraints do not change, only the score and the facts. Knickpoints
+    /// on every channel cell except the rock-blind placements' own pull
+    /// placements onto them (the fixture's 18 passing candidates sit in a few
+    /// clusters, so the spacing-rejected neighbours are what can move), and
+    /// each one placed there names the rocks.
+    #[test]
+    fn a_waterfall_on_a_knickpoint_outranks_one_off_it() {
+        // Protects: the knickpoint term is read (removing it, or zeroing its
+        // weight, leaves the rock-blind ranking, so nothing lands on a
+        // knickpoint and this goes red), and it never admits a candidate the
+        // constraints refuse.
+        let w = world(256, 192, 1000.0);
+        let s = LandmarkSettings { cross_type_competition: false, ..only("waterfall") };
+        let base = generate(&inputs(&w, &[]), &s, 9);
+        let f0 = base.funnel("waterfall").unwrap().clone();
+        let placed0: Vec<(i64, i64)> =
+            base.landmarks.iter().filter(|l| l.kind == "waterfall").map(|l| (l.x as i64, l.y as i64)).collect();
+        assert!(!placed0.is_empty() && f0.candidates > f0.placed, "the fixture must leave candidates unplaced: {f0:?}");
+        let far = |i: usize| {
+            let (x, y) = ((i % w.gw) as i64, (i / w.gw) as i64);
+            placed0.iter().all(|&(px, py)| (px, py) != (x, y))
+        };
+        let mut view = rock_fixture(w.gw, w.gh, |_| false);
+        view.knickpoints = Some((0..w.gw * w.gh).map(|i| w.chan[i] != 0 && far(i)).collect());
+        view.knick_absent = None;
+        let mut inp = inputs(&w, &[]);
+        inp.rock = Some(&view);
+        let r = generate(&inp, &s, 9);
+        let f1 = r.funnel("waterfall").unwrap().clone();
+        assert_eq!((f1.candidates, f1.rejected_constraint), (f0.candidates, f0.rejected_constraint), "the domain moved");
+        let on: Vec<_> = r
+            .landmarks
+            .iter()
+            .filter(|l| l.kind == "waterfall" && l.causal[0].starts_with("where the river leaves"))
+            .collect();
+        println!("waterfall {f0:?} -> {f1:?}, on a knickpoint {}, knick cells {}", on.len(), view.knickpoints.as_ref().unwrap().iter().filter(|&&b| b).count());
+        assert!(!on.is_empty(), "no waterfall moved onto a knickpoint");
+        for l in on {
+            assert_eq!(l.causal[0], "where the river leaves Shale / mudstone for weaker Shale / mudstone");
+        }
+    }
+
+    /// Pins GF-6's rock weights and kept thresholds by literal: waterfall
+    /// with knickpoints scales the old four by 0.70 and gives the knickpoint
+    /// 0.30; rock formation keeps 0.55 and 0.20, now on `s`.
+    #[test]
+    fn the_gf6_rock_weights_are_the_recorded_judgements() {
+        let w = |t: &[(&str, f64)]| t.iter().map(|(_, w)| *w).collect::<Vec<_>>();
+        assert_eq!(w(&WATERFALL_TERMS_ROCK), vec![0.245, 0.21, 0.14, 0.105, 0.30]);
+        for (old, new) in WATERFALL_TERMS.iter().zip(&WATERFALL_TERMS_ROCK) {
+            assert_eq!(old.0, new.0);
+            assert!((old.1 * 0.70 - new.1).abs() < 1e-12, "{} not scaled by 0.70", old.0);
+        }
+        assert!((w(&WATERFALL_TERMS_ROCK).iter().sum::<f64>() - 1.0).abs() < 1e-12);
+        assert_eq!(ROCK_FORMATION_MIN_RESISTANCE, 0.55);
+        assert_eq!(ROCK_FORMATION_MIN_CONTRAST, 0.20);
+        assert_eq!(ROCK_FORMATION_KEY_S_PER_UNIT, 1.0e6);
+        assert_eq!(ROCK_FORMATION_KEY_TPI_M, 9_999.0);
     }
 }

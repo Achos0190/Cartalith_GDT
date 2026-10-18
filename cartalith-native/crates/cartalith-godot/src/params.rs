@@ -197,6 +197,11 @@ pub fn defaults() -> WorldParams {
     // GF-5's bars were measured on processes-on worlds only. Written out,
     // though it equals `WorldParams::defaults`.
     p.geology_karst = false;
+    // GF-6's carve switch (rock-dependent valley width, `GEOLOGY_FIRST_SCOPE.md`
+    // §4.7) stays OFF in the app for the same reason: it acts only with
+    // `geology_processes` on, and GF-6's bars were measured on processes-on
+    // worlds only. Written out, though it equals `WorldParams::defaults`.
+    p.geology_carve = false;
     p
 }
 
@@ -253,6 +258,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "geology_karst", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Karst dissolution and permeable runoff", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.geology_karst), set_fn: |p, v| p.geology_karst = v != 0.0 },
+    // GF-6's carve switch (`GEOLOGY_FIRST_SCOPE.md` §4.7): OFF at both
+    // boundaries. A row so a save records whether its valleys were cut to a
+    // rock-dependent width; no GUI control, like `geology_karst`.
+    ParamSpec { key: "geology_carve", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Valley width reads rock", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.geology_carve), set_fn: |p, v| p.geology_carve = v != 0.0 },
     ParamSpec { key: "use_gpu", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "GPU acceleration", unit: "", reference_control: "gpuToggle",
         get_fn: |p| Value::Bool(p.use_gpu), set_fn: |p, v| p.use_gpu = v != 0.0 },
@@ -764,6 +775,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("relief_model", ""),
     // Port-only (GF-5); the reference has no lithology model.
     ("geology_karst", ""),
+    // Port-only (GF-6); the reference has no lithology model.
+    ("geology_carve", ""),
     // Port-only (GF-7); the reference has no geological clock.
     ("geo.age", ""),
     // No reference equivalent: this port's own GPU switch.
@@ -1054,6 +1067,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // And GF-5's karst switch, the same way: a save without the key was
     // generated with no dissolution and the rain itself seeding its rivers.
     p.geology_karst = false;
+    // And GF-6's carve switch, the same way: a save without the key was
+    // generated with every valley at the rock-blind width.
+    p.geology_carve = false;
     // And GF-7's geological age: a save without the key was generated before
     // the clock, and τ = 1 reproduces exactly those pass counts by control
     // flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").

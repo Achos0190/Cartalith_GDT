@@ -24,6 +24,10 @@ pub mod tile;
 /// (`GEOLOGY_FIRST_SCOPE.md` §4.6): run by the engine only with
 /// `geology_karst` on. See the module's own header.
 pub mod karst;
+/// GF-6's rock-dependent river carve (`GEOLOGY_FIRST_SCOPE.md` §4.7): the
+/// valley-width factor `ω` the engine applies only with `geology_carve` on,
+/// and the knickpoints *waterfall* reads. See the module's own header.
+pub mod carve_width;
 
 pub use construction::{construct_relief, ConstructionInputs, ConstructionReport};
 pub use passes::{

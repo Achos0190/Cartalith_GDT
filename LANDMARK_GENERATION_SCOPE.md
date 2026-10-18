@@ -393,6 +393,20 @@ cave reports `no_terrain` with no candidates. *Spring* also reads GF-5's
 spring line on such a world. The design, the measurement and the app wiring
 are in `GEOLOGY_FIRST_SCOPE.md` §7 "GF-6 measured".
 
+**Rock formation and waterfall read the rock column, 2026-10-18 (GF-6's rock
+half; `landmark/rock_view.rs`).** *Rock formation* reads the strength `s` of
+the rock the column exposes, in place of `resistance_field`, with the same
+0.55 floor and 0.20 contrast; a world with no column (the parity path, a
+save from before the model) refuses it as `no_terrain` rather than falling
+back. Every app world has a column, so rock formation now places there. This
+also answers the row above on research §7's `R`: the input is the GF-1
+lithology model's `s`, not `compute_resistance`. *Waterfall* gains §7's
+dropped `R` as a knickpoint term (a river leaving a stronger cap for its
+weaker substrate), only for a world generated with the landform processes
+reading rock; app worlds keep the rock-blind waterfall. The design and the
+measurement are in `GEOLOGY_FIRST_SCOPE.md` §7 "GF-6 measured: the carve and
+rock half".
+
 ### M9 — Cultural interpretation and temporal state (research §24-26)
 
 One physical feature, several civilisations' readings of it (research §26);

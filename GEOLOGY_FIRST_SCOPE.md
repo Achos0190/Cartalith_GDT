@@ -174,7 +174,7 @@ The new stage order in §3 removes it either way.
 |---|---|---|---|
 | `crust_field` | `base_raw` in `generate_terrain_inner`: `plates[plate_id].base` per cell, unblurred | Plate crust sign and magnitude. `< 0` is oceanic. Continental values are 0.55–1.0 | `build_lithology` (oceanic → basalt); Sample (`plate_oceanic`) |
 | `age_field` | `build_age_field(gw, gh, boundary_mask)` | **Not an age.** It is a two-pass chamfer distance from the nearest plate-boundary cell, divided by the map's own maximum, so it runs 0 at a boundary to 1 at the cell furthest from any. It is relative per map, changes with plate count, and does not wrap in x | `compute_heterogeneity` (`low_n·(0.3 + 0.7·age)`); `compute_height` (roughness damping `rug = exp(−age·(1 + 6·age_inf))`); `compute_resistance`; `build_lithology` (`age_old = 0.6`); `build_soil_fertility` (`0.4 + 0.6·age`); `build_resource_potentials` |
-| `resistance_field` | `compute_resistance`: `min(1, 0.6·max(base, 0) + 0.4·age)` | Erodibility proxy. On oceanic plates it is `0.4·age`, so 0–0.4. On continental plates it is 0.33–1.0 (arithmetic from `base` ∈ 0.55–1.0) | `stream_power_kernel` (the only shaping reader); `build_lithology` (`res_hard = 0.55`); landmark *rock formation* (`ROCK_FORMATION_MIN_RESISTANCE = 0.55`); Sample; the EF-3 tile re-erosion test (`ef3_tile_erosion.rs`) |
+| `resistance_field` | `compute_resistance`: `min(1, 0.6·max(base, 0) + 0.4·age)` | Erodibility proxy. On oceanic plates it is `0.4·age`, so 0–0.4. On continental plates it is 0.33–1.0 (arithmetic from `base` ∈ 0.55–1.0) | `stream_power_kernel` (the only shaping reader); `build_lithology` (`res_hard = 0.55`); landmark *rock formation* (`ROCK_FORMATION_MIN_RESISTANCE = 0.55`; it reads `s` instead since GF-6, §7); Sample; the EF-3 tile re-erosion test (`ef3_tile_erosion.rs`) |
 | `resistance_field`, mutated | `recompute_resistance_after_erosion(resist, pre, post, k = 6.0)`: `r ← min(1, r + k·(pre − post))` wherever erosion lowered the cell. Gated on `tect.dynamic_lithology`, which is **false at both boundaries** | The reference's *"exhumation exposes harder basement"* heuristic | On the default path it runs **after** the only stream-power call. So it shapes nothing, and only changes the stored field that `build_lithology` later reads. It feeds back into terrain only through `evolve_cycles` or `sediment_fill` |
 | lithology (`Vec<u8>`, **not stored**) | `cartalith_civ::build_lithology(field, age, volc, crust, resist, rain, sea)`. Called after generation by `compute_affordance_fields`, `sample_bridge`, `lod_worker` (`LodSnapshot::build`), `export_raster`, the civ bridges and landmarks | Seven classes (`LITH_NAMES`). It is **derived from the finished terrain and climate.** Limestone, sandstone and shale are defined as *post-erosion* lowland (`r < 0.30`), split by *present* rainfall. Every volcano is andesite, including hotspot and rift basalt | Soil (`LITH_WEATHER`); resource potentials (copper, tin, iron and others key on class indices); render (`litho_palette`, `litho_microtexture`); landmarks (the rock name in the causal text); Sample; export; the channel atlas. **No shaping process reads it** |
 | `boundary_type` | `compute_stress` → `classify_boundary` → `btype::{NONE, COLLISION, SUBDUCTION_OC, ARC_OO, RIFT, TRANSFORM}`. Set on boundary cells only | Tectonic setting at the margin | Volcano placement (`exclude_transform`); orogeny tagging; resource potentials; Sample |
@@ -265,7 +265,8 @@ These consumers already read rock, and will read the new model instead:
   limestone karst pitting, sandstone and shale strata banded by elevation).
 - The Sample panel shows `lithology` and `resistance`.
 - The landmark generator's *rock formation* kind is a differential-erosion
-  landmark. It reads `resistance ≥ 0.55` and a contrast of ≥ 0.20.
+  landmark. It reads `resistance ≥ 0.55` and a contrast of ≥ 0.20 (the
+  same thresholds on `s` since GF-6, §7).
 - The *cave* kind is unbuilt, because *"nothing in it carves hollows"*.
 - The sculpt presets include a "Karst" stamp (`sculpt.rs`), which is an
   ordinary hills stamp.
@@ -4559,7 +4560,177 @@ app world's cave always reports.
 **Not done in GF-6:**
 - §4.7 (the carve's `ω`, and knickpoints for *waterfall*), §4.10 (rock-styled
   LOD detail, and its windowed probe) and §4.11's *rock formation* reading
-  `s`. None is built.
+  `s`. None was built by that change. §4.7 and rock formation are built in
+  the next section; §4.10 is still open.
+
+### GF-6 measured: the carve and rock half (2026-10-18)
+
+*Design and evidence, not status.* Opened at the symbols first. Before this
+change the carve's half-widths (`generate_terrain`, `half_ws`) read only
+Strahler order and `width_k`, and nothing computed a knickpoint.
+`pool_rock_formation` read `LandmarkInputs::resistance` (`resistance_field`).
+`pool_waterfall`'s `WATERFALL_TERMS` comment said §7's `R` (lithological
+contrast) was dropped because no contrast field existed. So §4.7 and §4.11's
+rock formation and waterfall rows were unbuilt. Nothing blocked them: GF-6
+has no owner question in §9, and its done-means names B8 and RV-1's tests as
+the only carve gates. **§4.10 (rock-styled LOD detail and its windowed
+probe) was not touched.** It lives in the renderer's tiled-detail code, which
+another lane is re-keying for zoom detail; it waits on that re-key.
+
+**Built: the carve's `ω`** (`cartalith-erosion/src/carve_width.rs`, wired as
+`RockContext::carve_widths` in `cartalith-engine`).
+
+- `valley_width_factor(rock) = 1 + 1.0·(0.60 − s)`, read from §2.3's `s` (so
+  there is no second property table). It runs from 0.75 (granite) to 1.50
+  (unconsolidated): schist and sandstone 1.00, limestone and andesite 0.90,
+  basalts 0.85, gneiss 0.80, tuff 1.25, shale 1.30. The pivot and the slope
+  are **judgements**. Montgomery & Gran (2001) is §4.7's citation for the
+  direction; no source was found for the magnitude.
+- `ω(run)` is the median of the factor over the run's **land** points, read
+  on the surface handed to the carve. A run with no land point keeps its
+  half-width (there is no rock to read, and 1.0 would stand in for "no
+  value").
+- §4.7's formula is applied as written: `ω` multiplies the capped
+  half-width, so a weak-rock valley can exceed `4·width_k`.
+- `drop`, `CARVE_LAND_MARGIN` and `CARVE_KEEP_LAKE_DEPTH` are untouched:
+  `carve_channel_network` itself did not change.
+- **Behind a new switch, `WorldParams::geology_carve`, off at both
+  boundaries**, acting only under the rock gate (`geology_model` and
+  `geology_processes`) on the `carve_rivers` path. `PARAMS` and `JS_PATHS`
+  rows; a save without the key reloads off.
+- RV-3's smooth valley shade (`cartalith-godot/src/valley_shade.rs`) reads
+  the drawn runs' widths, not the carve's `half_ws`, so it does **not** use
+  `ω` yet. §4.7 says it should. It is not built here: it is renderer code,
+  and with the switch off in the app nothing it shades has moved.
+
+**Built: knickpoints** (`carve_width::knickpoints`). A land channel cell
+that exposes its column's cap, whose receiver is land exposing its own
+column's substrate, where the cap's `s` is above that substrate's. The
+strength condition is a **judgement**: §4.7 says only "crosses from cap to
+substrate", and a weak cap over strong rock gives no reason for a step. It
+is derived on demand, like GF-5's spring line, so it cannot disagree with the
+column. It does not depend on `ω`.
+
+**Built: rock formation reads `s`, and waterfall reads the knickpoints**
+(`cartalith-civ/src/landmark/rock_view.rs`, `landmark.rs` `pool_rock_formation`,
+`pool_waterfall`).
+
+- `RockView::for_world(ws, p)` gives the exposed rock's `s` on any world with
+  a column, the app's included, and the knickpoints only when the world was
+  generated with `geology_processes` on. Without the processes the erosion
+  never cut weak rock back faster than strong, so no step at a contact is
+  claimed; the reason is kept (`KNICK_PROCESSES_OFF`). With no column the
+  view refuses (`RockAbsent::NoColumn`, with the column's own reason).
+- **Rock formation** now reads the view only. `LandmarkInputs::resistance`
+  is removed, and so is `LandmarkInputs::lithology`, whose only reader was
+  rock formation's fact string. With no view it is `NoTerrain` with 0
+  candidates; it does not fall back to `resistance_field`. The domain is the
+  local maximum of a key that is strength first and fine TPI second, because
+  `s` is categorical and a whole outcrop ties on it. The thresholds keep
+  their values: `ROCK_FORMATION_MIN_RESISTANCE` 0.55 (on `s` this admits
+  moderate and strong rock and refuses tuff, shale and unconsolidated) and
+  contrast 0.20 (one Selby class).
+- **Waterfall** keeps its domain and constraints. With knickpoints, a fifth
+  term (1 on a knickpoint) takes 0.30 and the old four are scaled by 0.70
+  (`WATERFALL_TERMS_ROCK`; a judgement, as GF-6's spring weight is). A
+  waterfall on a knickpoint names both rocks. Without knickpoints (every app
+  world) it is the old detector by control flow.
+- `cartalith-godot`'s `with_landmark_inputs` passes the view
+  (`recompute_params()`, as for `KarstView`).
+
+**Measured, the carve** (`cartalith-civ/tests/gf6_carve.rs` `gf6_carve_bars`;
+the app's parameters at 2048 × 1311, 800 km, processes on, relief off,
+control `geology_carve` off):
+
+| Seed | B8 ocean on paths | B8 lake % of path | B8 1–3-cell lakes | Field cells moved | Carved cells, strong rock (ω < 1) | Carved cells, weak rock (ω > 1) | Knickpoints off → on |
+|---|---|---|---|---|---|---|---|
+| 483920 | 0 → 0 | 0.977 → 0.952 | 43 → 45 | 56 133 | 58 749 → 40 454 (−31.1 %) | 9 073 → 8 006 (−11.8 %) | 76 → 73 |
+| 24601 | 0 → 0 | 1.966 → 1.953 | 49 → 58 | 48 888 | 65 988 → 52 197 (−20.9 %) | 11 046 → 9 916 (−10.2 %) | 90 → 90 |
+| 71077345 | 0 → 0 | 0.660 → 0.640 | 27 → 26 | 53 580 | 59 279 → 42 081 (−29.0 %) | 11 221 → 10 284 (−8.4 %) | 91 → 92 |
+| 12345 | 0 → 0 | 3.855 → 3.891 | 87 → 88 | 43 809 | 44 221 → 31 894 (−27.9 %) | 11 464 → 12 261 (+7.0 %) | 103 → 103 |
+| 314159 | 0 → 0 | 10.049 → 10.025 | 37 → 46 | 54 521 | 58 053 → 43 857 (−24.5 %) | 10 670 → 10 108 (−5.3 %) | 99 → 101 |
+
+- **B8 passes on all five seeds.** The worst small-lake ratio is 314159's
+  1.24× against the 1.25× bar, which is close. RV-1's `carve_network_*`
+  tests are green (workspace run below).
+- Carved cells are counted per exposed rock on the control world's surface.
+  **Strong-rock valleys narrow on every seed (−21 to −31 %). Weak-rock carved
+  cells grow on only 1 of 5 seeds**, and shrink 5–12 % on the other four.
+  That follows from the median: the rivers here run mostly through granite
+  (ω 0.75), so a shale or alluvial reach inside a granite run takes the
+  run's narrow width. Per-rock widths would need a per-point factor, which
+  §4.7 does not specify. At 512 × 328 on seeds 12345 and 483920 together the
+  weak-rock count rises (935 → 1 215), which is what
+  `geology_gf6.rs` asserts.
+- The pivot at s = 0.60 therefore narrows the average valley on these worlds:
+  carved cells fall overall. Re-centring the pivot on a world's own
+  river-rock median would keep the average width and only redistribute it.
+  That is an owner question (below); the switch is off, so nothing ships
+  either way.
+- B9 (cost) was not measured. The change adds one median per run.
+
+**Measured, the landmarks** (`cartalith-civ/tests/gf6_rock_landmarks.rs`
+`gf6_rock_measure`; 2048 × 1311, 800 km, default landmark settings):
+
+| Seed | Rock formation, app world: cand / constraint / placed | Rocks it names | Knickpoints, processes on | Waterfall passing constraints | Waterfalls on a knickpoint, term off → on (placed unchanged) |
+|---|---|---|---|---|---|
+| 483920 | 2 972 / 2 800 / 20 (cap) | granite, oceanic basalt | 76 | 255 | 1 → 1 (10) |
+| 24601 | 4 389 / 4 177 / 20 (cap) | granite, oceanic basalt | 90 | 149 | 1 → 1 (10) |
+| 71077345 | 2 818 / 2 603 / 20 (cap) | granite | 91 | 106 | 0 → 1 (8) |
+| 12345 | 2 243 / 2 097 / 20 (cap) | granite, oceanic basalt | 103 | 158 | 4 → 4 (9) |
+| 314159 | 3 778 / 3 557 / 20 (cap) | granite | 99 | 311 | 0 → 0 (19) |
+
+- **Rock formation now places on app worlds.** At 512 × 328 (the identity
+  check below) it placed 0 before this change (all 94 and 102 candidates
+  failed the resistance constraints) and places 14 and 15 after.
+- **The knickpoint term barely moves waterfalls**: on one seed of five it
+  moves one placement onto a knickpoint. Knickpoints are 76–103 cells a
+  world, and few of them pass waterfall's 40 m drop and 6 % gradient at
+  about 0.4 km a cell. That is the measured state, not a tuning target; the
+  constraints were not relaxed.
+
+**Identity.** `gf6_carve_identity_hashes` printed the same thirteen-array
+hashes for the parity, app and processes-on worlds (seeds 483920 and 314159,
+512 × 328) at `bfadd3fb` and with this change, so the switch off moves no
+array and **no golden can move**. The landmark identity
+(`gf6_identity_hashes.rs`, app worlds) moves **by design**, because rock
+formation reads `s` on every app world: 483920 goes from 170 to 184
+landmarks (rock formation 0 → 14), 314159 from 168 to 183 (0 → 15). Every
+other kind's placed count is unchanged on both seeds; the hashes are
+`5c6025b745ecfd41` and `0e7bc85117cc1e9a` (were `603d785fc1edf96e` and
+`936d88e055902d42`). Landmarks are parity-exempt (`DECISIONS.md` §7q).
+
+**A measurement hazard met on the way.** A second worktree at HEAD built into
+the same `CARGO_TARGET_DIR` as the change's worktree, and cargo then reused
+one test binary for both, so a run of the change printed HEAD's numbers
+until the sources were touched. The figures above come from runs after a
+forced rebuild. Two worktrees need two target directories.
+
+**Tests.** `carve_width::tests` 4 (every rock's factor by literal; the
+median, the land filter and the refusal; the scaling; every knickpoint
+condition), `cartalith-engine/tests/geology_gf6.rs` 2 (the gate; weak
+widens and strong narrows, deterministic), `params_mapping.rs` 1 (the save
+key), `landmark::tests` 4 (rock formation refuses without the view;
+a weak outcrop is refused; a waterfall on a knickpoint outranks one off it;
+the weights and thresholds by literal), `gf6_rock_landmarks.rs` 2 (the view
+by gate; formations on a real world stand on rock of `s` ≥ 0.55). The
+fixture test `rock_formation_needs_contrast_not_just_high_strength` now uses
+a granite-in-shale view. **Mutants: 15 run, 15 killed** (two survived first
+and were killed by new tests: the same-rock receiver column and the strength
+floor).
+
+**Owner questions, each with a default:**
+1. **Re-centre `ω` on each world's river-rock median?** Today's pivot
+   (s = 0.60) narrows the average valley 21–31 % in strong rock on these
+   worlds. Default: **leave it**; the switch is off, and the scope's own
+   formula has a fixed per-rock factor.
+2. **A per-point `ω` instead of the run median**, so a shale reach widens
+   inside a granite run? Default: **no**; §4.7 specifies the median.
+3. **Switch `geology_carve` on with the processes** when they are switched
+   on? Default: **yes, together**; it acts only with them, and B8 passes.
+
+**Not done in GF-6:** §4.10 (rock-styled LOD detail and its windowed probe),
+waiting on the zoom-detail re-key; RV-3's valley shade reading `ω`.
 
 ---
 
