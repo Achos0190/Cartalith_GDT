@@ -50,8 +50,8 @@
 //!   [`infer_tectonics`].
 
 use cartalith_climate::{
-    apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
-    WeatherParams,
+    apply_climate_moisture_correctors_with, apply_ocean_currents, compute_temperature, simulate_weather_with,
+    ClimateParams, WeatherParams,
 };
 use cartalith_hydrology::compute_flow_routed;
 use cartalith_terrain::infer::{
@@ -276,13 +276,15 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         currents: p.climate.currents,
         current_k: p.climate.current_k,
     };
-    let mut rainfall = simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params);
+    // The B-spline up-sample when the app asked for it (Ruling CM,
+    // `ClimateInputParams::rain_bspline`); off, the reference's bilinear.
+    let mut rainfall = simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample());
 
     // The zero flow field the correctors genuinely see on this path. Named
     // rather than inlined so it cannot be mistaken for an oversight -- see
     // this module's doc comment for why it is zero and must stay zero.
     let flow_field_at_corrector_time = vec![0f32; n];
-    apply_climate_moisture_correctors(
+    apply_climate_moisture_correctors_with(
         gw,
         gh,
         &field,
@@ -293,6 +295,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         p.climate.lat_n,
         p.climate.lat_s,
         p.climate.zonal_k,
+        p.climate.rain_upsample(),
     );
     if p.climate.currents {
         apply_ocean_currents(

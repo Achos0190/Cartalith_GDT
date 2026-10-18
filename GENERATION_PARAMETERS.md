@@ -29,7 +29,7 @@ tables — `PARAMS` (key, group, kind, range, step, label, unit,
 in the reference's own `state` object, `""` when it does not) — not retyped
 by hand or copied from an earlier revision of this file. To regenerate it:
 `grep -c "ParamSpec { key:" crates/cartalith-godot/src/params.rs` for the row
-count (**100** on 2026-09-24; 99 on 2026-09-23, before `tect.narrow_plate_base_blur` landed in `a74b35c`), then walk `PARAMS` in file order for the
+count (**108** on 2026-10-18, after `climate.rain_bspline` (Ruling CM); **100** on 2026-09-24; 99 on 2026-09-23, before `tect.narrow_plate_base_blur` landed in `a74b35c`), then walk `PARAMS` in file order for the
 per-row facts and `JS_PATHS` for which keys are genuinely this port's own.
 
 **The two "has no reference" signals are not the same question**, and both
@@ -37,8 +37,13 @@ are recorded per row rather than collapsed into one. `reference_control: ""`
 means the reference never gave a user a *control* for the field (the field
 can still exist in `state`, e.g. `climate.current_k` does). `JS_PATHS`
 carrying `""` means the reference's saved `state` has **no path** for the
-key — the stronger claim. **31** keys carry `""` (the `JS_PATHS` entries
-with an empty path, counted 2026-09-24): `integrate_drainage`, `use_gpu`,
+key — the stronger claim. **39** keys carry `""` on 2026-10-18
+(`grep -cE '^\s*\("[^"]+", ""\),' crates/cartalith-godot/src/params.rs`); the
+list that follows is the **31** counted 2026-09-24, and the eight added since
+are the six geology-first keys (`geology_model`, `geology_processes`,
+`relief_model`, `geology_karst`, `geology_carve`, `geo.age`; the reference has
+no lithology model), `civ.garrison_exposure_scale` and `climate.rain_bspline`
+(Ruling CM; the reference has `bilC` and no choice): `integrate_drainage`, `use_gpu`,
 `tect.narrow_plate_base_blur`, `volc.exclude_transform`, `volc.edifice_model`, `crater.physical_model`,
 `crater.surface_age_myr`, nine `passes.*` keys (`velocity`, `glacial`,
 `coastal`, `hillslope`, `diffuse_d`, `diffuse_passes`, `sediment_fill`,
@@ -271,10 +276,12 @@ is non-empty, that is a bug in the caller, not user error.
 to be the same call and no longer are, see below), and `generate()` overwrites
 only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
 An instance nobody calls a setter on therefore builds a `WorldParams`
-byte-identical to the one the old code built inline, **except for the six
+byte-identical to the one the old code built inline, **except for the eight
 fields below**.
 
-**The six deliberate divergences**, each an owner ruling, all turned on in
+**The eight deliberate divergences** (this table listed six until
+2026-10-18; `geology_model`, Ruling BH, was already enumerated by the test
+below but missing here), each an owner ruling, all turned on in
 `params::defaults()` and all left `false` in `WorldParams::defaults` — the
 goldens' own parity baseline:
 
@@ -286,12 +293,14 @@ goldens' own parity baseline:
 | `integrate_drainage` | owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k) | flow and the channel tree route over the depression-filled surface, so water reaching a local pit carries on to the sea — the source's own default since v2.59 |
 | `tect.narrow_plate_base_blur` | `DECISIONS.md` §7n, carried under Ruling AP (`a74b35c`, 2026-09-24; `RC_ENGINE_CHANGES.md` §6i) | the plate-base blur radius is `max(2, blur_r·0.18)` (source v2.57 `PLATE_BASE_BLUR_K`) instead of `blur_r·0.35`, so coastlines leave the plate polygons |
 | `passes.glacial` | owner Ruling AU (2026-09-24; `LOD_DETAIL_SCOPE.md` question 3) | the glacial erosion pass runs inside every new generation, carving U-shaped troughs above the snowline where it is below freezing. The reference runs `glacialKernel` only from its `#glacBtn` button. **Cost, measured 2026-09-24** (`tests/lod_d4_ice_and_snow.rs::measure_the_glacial_default`, release build, CPU path, 2048×1311, seed 24601, five alternating runs a leg, no other build running): `generate_terrain` median 2.60 s (2.58..2.64) without it, 3.28 s (3.22..3.30) with it; an independent re-run gave 2.59 s (2.57..2.66) and 3.25 s (3.23..3.26). The shell turns `use_gpu` on at boot, which this does not measure |
+| `geology_model` | owner Ruling BH (2026-09-27; `GEOLOGY_FIRST_SCOPE.md` §6.1) | the geology-first lithology column is built and stored with every new world; no process reads it while `geology_processes` is off |
+| `climate.rain_bspline` | owner Ruling CM (2026-10-18; `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)) | the rain field and the two moisture boosts are up-sampled from the weather grid by a C2 cubic B-spline instead of the reference's bilinear `bilC`, removing a square crease lattice about `gw / 240` cells apart (lattice index 2.617 → 0.984 on five app worlds). It moves every app world's rain and everything downstream of it (flow, rivers, biomes); before/after measurements in `STATUS.md`, 2026-10-18 |
 
 Those defaults live at this one boundary specifically so the parity baseline
 underneath them stays untouched. Every other parameter is unaffected, and
 `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
-asserts that — it neutralises exactly these six and requires the result to
-equal `WorldParams::defaults`, so a seventh divergence added without a ruling
+asserts that — it neutralises exactly these eight and requires the result to
+equal `WorldParams::defaults`, so a ninth divergence added without a ruling
 fails there rather than being discovered later.
 
 **One further change of 2026-09-02 is not a divergence but does change behaviour**:
@@ -320,7 +329,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   `state` literal wherever the reference has one — with one exception,
   `passes.evolve_cycles` (`0` = off here; the reference's `stream.cycles` is
   `5`, the slider value for a button). It is **not** what the shipped app
-  generates with at the six ruled divergences above, which
+  generates with at the eight ruled divergences above, which
   `params::defaults()` turns on, nor for `use_gpu`, which
   `engine_bridge.gd`'s `_ready` turns on at boot. (Qualified 2026-09-24; this
   said "in every case".)
@@ -333,7 +342,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   violation, because the default reproduces reference behaviour exactly — but
   the distinction is recorded, not blurred. That holds at
   `WorldParams::defaults`, not at the app boundary: a `—` row that is one of
-  the six ruled divergences, or that only a ruled divergence reads
+  the eight ruled divergences, or that only a ruled divergence reads
   (`crater.surface_age_myr` under `crater.physical_model`), does not
   reproduce the reference in the shipped app.
 
@@ -444,11 +453,11 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
 | `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
-¹ All six ¹-marked flags (`integrate_drainage` in the `world` group,
+¹ All seven ¹-marked flags (`integrate_drainage` in the `world` group, `climate.rain_bspline` in `weather`,
 `tect.narrow_plate_base_blur` in `tectonics`, `passes.glacial` in `erosion`, and the three above) share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
 reference's own path byte-for-byte and is the goldens' parity baseline, while
-the **shipped app** defaults all six `true` at the
+the **shipped app** defaults all seven `true` at the
 `cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
 defaults" above for why the two differ, and
 `exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).
@@ -573,6 +582,7 @@ deplete.
 | `climate.zonal_k` | `climate.zonal_k` | float | `0.50` | 0.0 .. 1.5, step 0.05 | `zonalK`, raw 0-150 step 5, `v/100` | Strength of the ITCZ-wet / subtropical-dry latitude correction applied on top of the emergent wind structure. | Climate | Hydrology → `refresh_climate` |
 | `climate.ocean_hum` | `climate.ocean_hum` | float | `1.00` | 0.0 .. 2.0, step 0.01 | **—** | Sea-surface humidity floor: the moisture level cells over water are seeded and re-topped to. Stored in the reference's `state.climate` and read throughout `simulateWeather`, but never given a control; range is this port's own judgement. | Climate | Hydrology → `refresh_climate` |
 | `climate.bulk_evap` | `climate.bulk_evap` | bool | `true` | — | **—** | Bulk-aerodynamic evaporation (`E = Ce·U·(qs−q)`) instead of a flat rate — makes evaporation respond to wind speed and saturation deficit. On in the reference, with no control. | Climate | Hydrology → `refresh_climate` |
+| `climate.rain_bspline` | `climate.rain_bspline` | bool | `false`¹ | — | **—** | How the rain field and the coastal and river-corridor moisture boosts are brought from the weather grid (at most 240 nodes wide) to the full grid: `false` = the reference's bilinear `bilC`, whose slope jumps on every weather-grid line and so creases the rain in a square lattice about `gw / 240` cells apart; `true` = a C2 uniform cubic B-spline (de Boor 1978), which has no crease. Owner Ruling CM (2026-10-18; `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)). **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`** and for any save that does not carry the key, so a project saved before the ruling regenerates with the rain it was saved with. No GUI control (no workspace lists it); the row exists so a save records which up-sample its world used. Also read by the heightmap import and the Köppen debug view's two solstice runs. Added 2026-10-18 | Climate (`simulate_weather_with`, `apply_climate_moisture_correctors_with`, `compute_seasons_with`) | Hydrology → `refresh_climate` |
 
 ## Group `civ` — Civilisation (auto-populate)
 

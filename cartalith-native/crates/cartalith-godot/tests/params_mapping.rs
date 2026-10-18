@@ -625,6 +625,42 @@ fn a_save_without_the_v2_57_blur_reloads_without_it() {
     }
 }
 
+/// Protects: a save lacking the `climate.rain_bspline` key reloading with the reference's
+/// bilinear rain up-sample (Ruling CM, 2026-10-18), while a saved true/false round-trips.
+///
+/// Every project saved before the ruling was generated with bilinear rain, so a regenerate from
+/// its parameters must reproduce that rain (and the rivers and biomes downstream of it) rather
+/// than gain the B-spline silently. The fixture's native block is the shape a pre-ruling save
+/// wrote: every row of the table except the new one (`save_state` of the old app defaults with
+/// the key removed), not an empty object (`MISTAKES.md`, "Write a backward-compatibility test").
+#[test]
+fn a_save_without_the_rain_bspline_key_reloads_bilinear() {
+    assert!(params::defaults().climate.rain_bspline, "the shipped app generates with it on");
+
+    let mut old = params::defaults();
+    old.climate.rain_bspline = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("climate.rain_bspline").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &state);
+    assert_eq!(n, rows, "every other row of a pre-ruling save still applies");
+    assert!(!p.climate.rain_bspline, "a pre-existing save must not silently gain the B-spline rain");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.climate.rain_bspline = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["climate.rain_bspline"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.climate.rain_bspline = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.climate.rain_bspline, on);
+    }
+}
+
 /// Protects: a save lacking the `passes.glacial` key reloading with the pass OFF (owner Ruling
 /// AU), while a saved true/false round-trips.
 ///
@@ -826,6 +862,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And the geology model (Ruling BH): a save without the key predates it.
     expect.geology_model = false;
     expect.geology_processes = false;
+    // And the rain up-sample (Ruling CM): a reference export's rain is bilinear
+    // (`a_save_without_the_rain_bspline_key_reloads_bilinear`).
+    expect.climate.rain_bspline = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -864,13 +903,15 @@ use cartalith_engine::{WorldParams, WorldState};
 /// quietly appeared in `WorldParams::defaults` instead would break sixteen
 /// `cartalith-civ` suites. Listing them here makes either failure loud.
 ///
-/// Seven today: `crater.physical_model` (§7l) and the two volcano flags
+/// Eight today: `crater.physical_model` (§7l) and the two volcano flags
 /// (§7l-ii, owner ruling 1), all 2026-09-02; `integrate_drainage`
 /// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k);
 /// `tect.narrow_plate_base_blur` (source v2.57, `RC_ENGINE_CHANGES.md` §6i --
-/// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24); and
+/// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24);
 /// `passes.glacial` (owner Ruling AU, 2026-09-24, `LOD_DETAIL_SCOPE.md`
-/// question 3); and `geology_model` (Ruling BH, `GEOLOGY_FIRST_SCOPE.md` §6.1).
+/// question 3); `geology_model` (Ruling BH, `GEOLOGY_FIRST_SCOPE.md` §6.1);
+/// and `climate.rain_bspline` (Ruling CM, 2026-10-18,
+/// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)).
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -886,6 +927,10 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     );
     assert!(app.passes.glacial && !parity.passes.glacial, "glacial pass on for new worlds, Ruling AU");
     assert!(app.geology_model && !parity.geology_model, "geology-first model, Ruling BH (GEOLOGY_FIRST_SCOPE.md §6.1)");
+    assert!(app.climate.rain_bspline && !parity.climate.rain_bspline, "B-spline rain up-sample, Ruling CM");
+    // The streak spike's two ablations are NOT divergences: off at both
+    // boundaries (`StreakSpikeParams`). Literals, not `Default`.
+    assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
     // GF-2's processes are NOT a divergence yet: off at both boundaries until
     // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
     assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");
@@ -896,8 +941,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the seven must make the two identical --
-    // which catches a seventh divergence added without a ruling, in either
+    // And nothing else. Neutralising the eight must make the two identical --
+    // which catches a ninth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -907,10 +952,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
+    neutral.climate.rain_bspline = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         seven authorised fields"
+         eight authorised fields"
     );
 }
 
@@ -918,12 +964,14 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the seven shipped divergences -- the volcanism/crater ones -- are
+/// Three of the eight shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other four, `integrate_drainage`,
-/// `tect.narrow_plate_base_blur`, `passes.glacial` and `geology_model`, are left on in both
-/// worlds here, so this measures only the three it names. (The blur flag's own
+/// path behind it is dead. The other five, `integrate_drainage`,
+/// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model` and `climate.rain_bspline`,
+/// are left on in both worlds here, so this measures only the three it names. (The rain
+/// up-sample's reach is `cartalith-engine`'s `every_streak_switch_reaches_generation` and
+/// `rain_bspline_reaches_refresh_climate`.) (The blur flag's own
 /// reach is `cartalith-engine`'s
 /// `narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream`; the
 /// glacial pass's is `the_glacial_default_carves_a_default_world` below.)

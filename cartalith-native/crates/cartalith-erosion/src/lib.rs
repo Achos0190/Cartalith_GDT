@@ -667,58 +667,7 @@ pub fn stream_power_kernel_bounded(
     pinned: Option<&[bool]>,
     area_seed: Option<&[f32]>,
 ) {
-    stream_power_core(fld, stress, resist, rain, w, h, p, pinned, area_seed, None, None, None);
-}
-
-/// [`stream_power_kernel`] with **Rho8** receivers (Fairfield & Leymarie
-/// 1991, *Water Resources Research* 27(5), 709-717) -- the terrain-streak
-/// spike's variant (`TERRAIN_STREAK_SPIKE_2026-10-18.md`;
-/// `cartalith_engine::StreakSpikeParams::stream_rho8`, off at both
-/// boundaries).
-///
-/// **What changes.** Only how each cell picks its single receiver. D8 divides
-/// a diagonal drop by `sqrt(2)`, so on a plane whose true aspect lies between
-/// two of the eight directions every cell picks the same one, and the
-/// incision runs as parallel straight gullies in that direction -- the
-/// "streaks" this spike measures. Rho8 multiplies a diagonal drop by
-/// `rho = 1 / (2 - r)` with `r` uniform on `[0, 1)` drawn per cell, whose mean
-/// `ln 2 = 0.693` matches `1/sqrt(2) = 0.707`: the expected path follows the
-/// true aspect while each single step stays on the grid. `r` is a hash of the
-/// cell index and `seed` ([`rho8_factor`]), so a world stays deterministic.
-///
-/// **What does not.** The fill, the order, the Freeman (1991) area, `Cc`'s
-/// formula, the implicit update and deposition are the shipped kernel's; the
-/// receiver is still a strictly lower neighbour of the filled surface, so the
-/// low-to-high order still updates every receiver before its donors. The
-/// receiver distance is the real one (`1` or `sqrt 2`).
-///
-/// Must never be reached from a golden or the shipped app: it moves the
-/// incision pattern and so every array downstream of the light pass.
-#[allow(clippy::too_many_arguments)]
-pub fn stream_power_kernel_rho8(
-    fld: &mut [f32],
-    stress: &[f32],
-    resist: &[f32],
-    rain: &[f32],
-    w: usize,
-    h: usize,
-    p: &StreamPowerParams,
-    seed: u64,
-) {
-    stream_power_core(fld, stress, resist, rain, w, h, p, None, None, None, None, Some(seed));
-}
-
-/// Rho8's diagonal factor `1 / (2 - r)` for cell `i`, `r` in `[0, 1)` from a
-/// SplitMix64 finaliser (Steele, Lea & Flood 2014) of `seed` and `i`: cheap,
-/// stateless, and the same for a cell however the receiver pass is scheduled
-/// across threads.
-pub(crate) fn rho8_factor(seed: u64, i: usize) -> f64 {
-    let mut z = seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    z ^= z >> 31;
-    let r = (z >> 11) as f64 / (1u64 << 53) as f64;
-    1.0 / (2.0 - r)
+    stream_power_core(fld, stress, resist, rain, w, h, p, pinned, area_seed, None, None);
 }
 
 /// GF-2's rock input to stream power (`GEOLOGY_FIRST_SCOPE.md` §4.1, owner
@@ -803,7 +752,7 @@ pub fn stream_power_kernel_rock(
     rock: &mut StreamPowerRock,
 ) {
     assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
-    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), None, None);
+    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), None);
 }
 
 /// [`stream_power_kernel`] with its drainage routing rebuilt from the current
@@ -841,7 +790,7 @@ pub fn stream_power_kernel_refreshed(
     p: &StreamPowerParams,
     refresh_every: std::num::NonZeroUsize,
 ) {
-    stream_power_core(fld, stress, resist, rain, w, h, p, None, None, None, Some(refresh_every), None);
+    stream_power_core(fld, stress, resist, rain, w, h, p, None, None, None, Some(refresh_every));
 }
 
 /// [`stream_power_kernel_rock`] with the routing refreshed every
@@ -872,7 +821,7 @@ pub fn stream_power_kernel_rock_refreshed(
     refresh_every: std::num::NonZeroUsize,
 ) {
     assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
-    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), Some(refresh_every), None);
+    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), Some(refresh_every));
 }
 
 /// The body shared by [`stream_power_kernel_bounded`] (legacy, `rock =
@@ -898,7 +847,6 @@ fn stream_power_core(
     area_seed: Option<&[f32]>,
     mut rock: Option<&mut StreamPowerRock>,
     refresh_every: Option<std::num::NonZeroUsize>,
-    rho8: Option<u64>,
 ) {
     let n = w * h;
     if let Some(m) = pinned {
@@ -963,7 +911,7 @@ fn stream_power_core(
     // (`None` never rebuilds, so the legacy and GF-2 callers are the frozen
     // kernel by control flow).
     let StreamPowerRouting { mut order, mut rcv, mut rdist, mut area, mut cc } =
-        stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some(), rho8);
+        stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
     // The rock multiplier at cell `i`, read at its current height through
     // §2.5's exposure rule (`GeologyColumn::exposed`). A column always has a
     // top rock (GF-1 writes one per cell). An out-of-range code is refused
@@ -986,7 +934,7 @@ fn stream_power_core(
         if let Some(every) = refresh_every {
             if it > 0 && it as usize % every.get() == 0 {
                 StreamPowerRouting { order, rcv, rdist, area, cc } =
-                    stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some(), rho8);
+                    stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
             }
         }
         let old_h: Option<Vec<f32>> = if dep > 0.0 { Some(fld.to_vec()) } else { None };
@@ -1127,7 +1075,6 @@ fn stream_power_routing(
     p: &StreamPowerParams,
     area_seed: Option<&[f32]>,
     rock_on: bool,
-    rho8: Option<u64>,
 ) -> StreamPowerRouting {
     let n = w * h;
     let wrap = p.world;
@@ -1236,13 +1183,7 @@ fn stream_power_routing(
                 }
                 let j = (ny * w as i64 + nx) as usize;
                 let d = d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                // `rho8` is only ever `Some` from `stream_power_kernel_rho8`
-                // (the streak spike's variant); `None`, this is the ported
-                // expression by control flow.
-                let sl = match rho8 {
-                    Some(seed) if dx != 0 && dy != 0 => (hh - filled[j] as f64) * rho8_factor(seed, i),
-                    _ => (hh - filled[j] as f64) / d,
-                };
+                let sl = (hh - filled[j] as f64) / d;
                 if sl > best_s {
                     best_s = sl;
                     best = j as i32;
@@ -1456,7 +1397,6 @@ pub fn recompute_resistance_after_erosion(resist: &mut [f32], pre: &[f32], post:
 #[cfg(test)]
 mod tests {
     use super::recompute_resistance_after_erosion;
-    use super::{rho8_factor, stream_power_routing, StreamPowerParams};
 
     /// A trivial smoke test with no relationship to erosion arithmetic.
     #[test]
@@ -1492,75 +1432,5 @@ mod tests {
         assert!((resist[2] - 0.5).abs() < 1e-6);
         // ex = 1.0, 0.9 + 2.0*1.0 = 2.9 -> clamped to the basement max of 1.0
         assert!((resist[3] - 1.0).abs() < 1e-6);
-    }
-
-    // ---- the terrain-streak spike's Rho8 variant ----
-
-    /// Protects: Rho8's diagonal factor is `1 / (2 - r)` with `r` uniform on
-    /// `[0, 1)`: every value in `[0.5, 1)`, and over many cells the mean is
-    /// `ln 2` (Fairfield & Leymarie 1991's design value, close to `1/sqrt 2`),
-    /// the property that makes the expected path follow the true aspect.
-    #[test]
-    fn rho8_factor_has_the_published_distribution() {
-        let n = 200_000;
-        let mut sum = 0.0;
-        for i in 0..n {
-            let f = rho8_factor(42, i);
-            assert!((0.5..1.0).contains(&f), "{f}");
-            sum += f;
-        }
-        let mean = sum / n as f64;
-        assert!((mean - std::f64::consts::LN_2).abs() < 0.003, "mean {mean}");
-        assert_ne!(rho8_factor(42, 7), rho8_factor(43, 7), "the seed reaches the draw");
-    }
-
-    /// Protects: what the Rho8 variant is FOR. On a plane whose aspect is
-    /// `atan(1/2)` = 26.57 degrees off the x axis, D8 sends every interior
-    /// cell to its diagonal neighbour (a 3/sqrt2 = 2.12 slope beats the
-    /// cardinal 2), so every gully runs at 45 degrees. Rho8 sends about half
-    /// diagonally (where `3 rho > 2`, i.e. `r > 0.5`) and half east, and the
-    /// mean step points within 3 degrees of the true aspect. With `None` the
-    /// receivers are the D8 ones, bit for bit.
-    #[test]
-    fn rho8_receivers_follow_the_true_aspect() {
-        let (w, h) = (64usize, 64usize);
-        let fld: Vec<f32> = (0..w * h).map(|i| (0.9 - 0.004 * (2.0 * (i % w) as f64 + (i / w) as f64)) as f32).collect();
-        let resist = vec![0.0f32; w * h];
-        let rain = vec![0.5f32; w * h];
-        let p = StreamPowerParams { k: 1.0, uplift: 0.0, deposit: 0.0, climate_k: 0.0, iters: 1, resist: 0.0, g: 1.0, world: false, sea: 0.0 };
-        let d8 = stream_power_routing(&fld, &resist, &rain, w, h, &p, None, false, None);
-        let r8 = stream_power_routing(&fld, &resist, &rain, w, h, &p, None, false, Some(7));
-        let (mut diag_d8, mut diag_r8, mut sx, mut sy, mut cnt) = (0usize, 0usize, 0.0f64, 0.0f64, 0usize);
-        for y in 4..h - 4 {
-            for x in 4..w - 4 {
-                let i = y * w + x;
-                let (a, b) = (d8.rcv[i] as usize, r8.rcv[i] as usize);
-                let step = |j: usize| ((j % w) as f64 - x as f64, (j / w) as f64 - y as f64);
-                let (ax, ay) = step(a);
-                let (bx, by) = step(b);
-                if ax != 0.0 && ay != 0.0 {
-                    diag_d8 += 1;
-                }
-                if bx != 0.0 && by != 0.0 {
-                    diag_r8 += 1;
-                }
-                sx += bx;
-                sy += by;
-                cnt += 1;
-            }
-        }
-        assert_eq!(diag_d8, cnt, "D8 should pick the diagonal everywhere on this plane");
-        let frac = diag_r8 as f64 / cnt as f64;
-        assert!((0.42..0.58).contains(&frac), "Rho8 diagonal fraction {frac}");
-        let ang = sy.atan2(sx).to_degrees();
-        assert!((ang - 26.565).abs() < 3.0, "Rho8 mean step at {ang} degrees");
-        // The real distance rides with the receiver.
-        for i in 0..w * h {
-            if r8.rcv[i] >= 0 {
-                let j = r8.rcv[i] as usize;
-                let diag = (j % w) != (i % w) && (j / w) != (i / w);
-                assert_eq!(r8.rdist[i], if diag { std::f64::consts::SQRT_2 as f32 } else { 1.0 });
-            }
-        }
     }
 }

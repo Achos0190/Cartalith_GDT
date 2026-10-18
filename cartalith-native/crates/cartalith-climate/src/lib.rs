@@ -228,16 +228,23 @@ fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64
 /// A uniform cubic B-spline is C2 (de Boor, *A Practical Guide to Splines*,
 /// 1978, ch. IX), so it has no crease to align.
 ///
+/// **Who picks which (owner Ruling CM, 2026-10-18).** The shipped app runs
+/// [`CoarseUpsample::CubicBSpline`] (`cartalith_engine::ClimateInputParams::
+/// rain_bspline`, on in `cartalith-godot`'s `params::defaults()`); the parity
+/// baseline (`WorldParams::defaults`, `js_reference`) and every JS golden run
+/// [`CoarseUpsample::Bilinear`].
+///
 /// **What it must never do:** change [`CoarseUpsample::Bilinear`]'s numbers.
 /// That arm calls [`bil_c`], the reference's `bilC`, by control flow, and every
 /// public entry point that does not take this enum passes `Bilinear`
 /// (`golden_parity_weather.rs` and every JS golden downstream of rain).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CoarseUpsample {
-    /// The reference's `bilC`. The only value any golden or shipped path uses.
+    /// The reference's `bilC`: every golden and the parity baseline.
     #[default]
     Bilinear,
-    /// Uniform cubic B-spline over the 4 x 4 nodes around the sample. It is
+    /// Uniform cubic B-spline over the 4 x 4 nodes around the sample: the
+    /// shipped app's (Ruling CM). It is
     /// an approximating kernel applied to the node values directly (no
     /// prefilter), so it also smooths by the B-spline's own `[1, 4, 1] / 6`
     /// at the nodes -- a labelled judgement: the field is already three box
@@ -1260,11 +1267,10 @@ pub fn simulate_weather(
 }
 
 /// [`simulate_weather`] with the final coarse-to-full reconstruction chosen by
-/// `up` ([`CoarseUpsample`]; the streak spike). `Bilinear` is
-/// [`simulate_weather`] itself -- that function is this one's delegation, so the
-/// two cannot drift. Must never be reached with anything but `Bilinear` from a
-/// golden or the shipped app (`cartalith_engine::StreakSpikeParams` is off at
-/// both boundaries).
+/// `up` ([`CoarseUpsample`]). `Bilinear` is [`simulate_weather`] itself --
+/// that function is this one's delegation, so the two cannot drift. Must never
+/// be reached with anything but `Bilinear` from a golden; the shipped app
+/// passes `CubicBSpline` (Ruling CM, `ClimateInputParams::rain_bspline`).
 pub fn simulate_weather_with(
     gw: usize,
     gh: usize,
@@ -1772,9 +1778,9 @@ mod tests {
         (a, ww, wh)
     }
 
-    /// Protects: the streak spike's `CoarseUpsample::Bilinear` arm is the
-    /// reference's `bilC` bit for bit, so every caller that passes it -- every
-    /// golden and the shipped app -- is unchanged by the dispatch; and the
+    /// Protects: the `CoarseUpsample::Bilinear` arm is the reference's `bilC`
+    /// bit for bit, so every caller that passes it -- every golden and the
+    /// parity baseline -- is unchanged by the dispatch; and the
     /// three `_with` entry points at `Bilinear` are the originals exactly.
     #[test]
     fn the_bilinear_arm_is_the_reference_sampler_exactly() {

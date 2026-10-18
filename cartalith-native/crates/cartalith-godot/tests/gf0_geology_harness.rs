@@ -2405,8 +2405,8 @@ fn priming_climate(p: &WorldParams, sea: f64, field: &[f32]) -> (Vec<f32>, Vec<f
     let cp = cartalith_engine::climate_params_for(p, sea);
     let mut temp = cartalith_climate::compute_temperature(gw, gh, field, None, &cp);
     let wp = cartalith_engine::weather_params_for(p, sea);
-    let mut rain = cartalith_climate::simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, &wp);
-    cartalith_climate::apply_climate_moisture_correctors(gw, gh, field, &flow_area, &mut rain, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+    let mut rain = cartalith_climate::simulate_weather_with(gw, gh, field, p.climate.w_iters, 0.0, &wp, p.climate.rain_upsample());
+    cartalith_climate::apply_climate_moisture_correctors_with(gw, gh, field, &flow_area, &mut rain, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, p.climate.rain_upsample());
     currents(p, sea, field, &mut temp, &mut rain);
     (temp, rain)
 }
@@ -2565,8 +2565,8 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     let cp = cartalith_engine::climate_params_for(p, sea);
     let wp = cartalith_engine::weather_params_for(p, sea);
     let mut temperature = cartalith_climate::compute_temperature(gw, gh, &field, None, &cp);
-    let mut rainfall = cartalith_climate::simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &wp);
-    cartalith_climate::apply_climate_moisture_correctors(gw, gh, &field, &flow, &mut rainfall, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+    let mut rainfall = cartalith_climate::simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &wp, p.climate.rain_upsample());
+    cartalith_climate::apply_climate_moisture_correctors_with(gw, gh, &field, &flow, &mut rainfall, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, p.climate.rain_upsample());
     currents(p, sea, &field, &mut temperature, &mut rainfall);
     // The processes-off path: glacial after the trace, rock-blind, as before GF-4.
     if q.glacial && col.is_none() {

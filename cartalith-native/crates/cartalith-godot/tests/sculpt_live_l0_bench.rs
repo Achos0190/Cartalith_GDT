@@ -70,7 +70,7 @@ use rayon::prelude::*;
 #[path = "../src/render.rs"]
 mod render;
 
-use cartalith_climate::{apply_climate_moisture_correctors, compute_temperature, simulate_weather, ClimateParams, WeatherParams};
+use cartalith_climate::{apply_climate_moisture_correctors_with, compute_temperature, simulate_weather_with, ClimateParams, WeatherParams};
 use cartalith_engine::sculpt_commit::{commit_sculpt_pass, WaterState};
 use cartalith_engine::{generate_terrain, WorldParams};
 use cartalith_hydrology::{compute_flow, enforce_channel_descent, enforce_river_channels};
@@ -440,8 +440,8 @@ fn bench_flow_and_climate(p: &WorldParams, ws: &cartalith_engine::WorldState, gw
         || (),
         |_| {
             let mut temperature = compute_temperature(gw, gh, field, None, &climate_params);
-            let mut rainfall = simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, &weather_params);
-            apply_climate_moisture_correctors(gw, gh, field, &flow_area, &mut rainfall, sea_level, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+            let mut rainfall = simulate_weather_with(gw, gh, field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample());
+            apply_climate_moisture_correctors_with(gw, gh, field, &flow_area, &mut rainfall, sea_level, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, p.climate.rain_upsample());
             std::hint::black_box(&mut temperature);
         },
     );
@@ -457,8 +457,8 @@ fn bench_flow_and_climate(p: &WorldParams, ws: &cartalith_engine::WorldState, gw
                     gpu, &grid.eh, &grid.tc, &grid.sst_evap, &grid.wx, &grid.wy, &grid.w_init, grid.ww as u32, grid.wh as u32, p.climate.w_iters, grid.sea as f32, grid.ocean_hum as f32,
                     grid.evap as f32, grid.ocean as f32, grid.rain_k as f32, grid.dry as f32, grid.step as f32, grid.bulk_evap, grid.wrap_x,
                 ).expect("weather loop must complete on this device");
-                let mut rainfall = cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh);
-                apply_climate_moisture_correctors(gw, gh, field, &flow_area, &mut rainfall, sea_level, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+                let mut rainfall = cartalith_climate::finish_weather_grid_with(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, p.climate.rain_upsample());
+                apply_climate_moisture_correctors_with(gw, gh, field, &flow_area, &mut rainfall, sea_level, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, p.climate.rain_upsample());
                 std::hint::black_box(&mut temperature);
             },
         );

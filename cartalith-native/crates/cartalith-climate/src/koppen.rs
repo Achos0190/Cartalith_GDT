@@ -294,10 +294,33 @@ pub fn compute_seasons(
     wp: &WeatherParams,
     kp: &KoppenParams,
 ) -> Seasons {
+    compute_seasons_with(gw, gh, field, geo_field, tilt_deg, w_iters, cp, wp, kp, crate::CoarseUpsample::Bilinear)
+}
+
+/// [`compute_seasons`] with the two solstice rain fields up-sampled by `up`
+/// ([`crate::CoarseUpsample`]). `Bilinear` is [`compute_seasons`] itself (it
+/// delegates here), so the reference path cannot drift. The app's Köppen view
+/// passes the world's own choice (`cartalith_engine::ClimateInputParams::
+/// rain_bspline`, Ruling CM), so its seasonal rain carries no weather-grid
+/// crease lattice when the annual rain does not. The temperature half and the
+/// classifier are the same either way.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_seasons_with(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    geo_field: Option<&[f32]>,
+    tilt_deg: f64,
+    w_iters: i32,
+    cp: &ClimateParams,
+    wp: &WeatherParams,
+    kp: &KoppenParams,
+    up: crate::CoarseUpsample,
+) -> Seasons {
     let temp_jul = compute_temp_into(gw, gh, field, geo_field, tilt_deg, cp);
     let temp_jan = compute_temp_into(gw, gh, field, geo_field, -tilt_deg, cp);
-    let rain_jul = crate::simulate_weather(gw, gh, field, w_iters, tilt_deg, wp);
-    let rain_jan = crate::simulate_weather(gw, gh, field, w_iters, -tilt_deg, wp);
+    let rain_jul = crate::simulate_weather_with(gw, gh, field, w_iters, tilt_deg, wp, up);
+    let rain_jan = crate::simulate_weather_with(gw, gh, field, w_iters, -tilt_deg, wp, up);
     let koppen = build_koppen(gw, gh, field, geo_field, &temp_jul, &temp_jan, &rain_jul, &rain_jan, kp);
     Seasons {
         temp_jul,
@@ -429,5 +452,37 @@ mod tests {
         assert_eq!(out[0], 0);
         assert_eq!(out[3], 0);
         assert_eq!(out[1], koppen_index("Af").unwrap());
+    }
+
+    /// Protects: `compute_seasons_with` (Ruling CM): at `Bilinear` it is
+    /// `compute_seasons` bit for bit (the reference path, and every golden
+    /// behind it, cannot drift), and the `up` it is handed reaches both
+    /// solstice rain fields -- at `CubicBSpline` both differ, while the two
+    /// temperature fields, which read no coarse grid, do not.
+    #[test]
+    fn compute_seasons_with_passes_the_upsample_to_both_solstices() {
+        let (gw, gh) = (40usize, 28usize);
+        let field: Vec<f32> = (0..gw * gh).map(|i| 0.3 + 0.5 * (((i % gw) as f32 * 0.31).sin() * ((i / gw) as f32 * 0.23).cos()).abs()).collect();
+        let cp = ClimateParams {
+            world: false, lat_n: 55.0, lat_s: 5.0, pole_temp: -25.0, equator_temp: 30.0, tilt_deg: 23.4,
+            rotation_hours: 24.0, lapse_rate: 6.5, g: 9.81, sea_level: 0.42, peak_m: 4000.0, albedo_k: 0.0,
+        };
+        let wp = WeatherParams {
+            world: false, lat_n: 55.0, lat_s: 5.0, pole_temp: -25.0, equator_temp: 30.0, tilt_deg: 23.4, rotation_hours: 24.0,
+            lapse_rate: 6.5, sea_level: 0.42, peak_m: 4000.0, wind_manual: false, wind_dir_deg: 0.0, press_k: 0.6,
+            ocean_hum: 1.0, evap: 0.12, ocean: 1.0, rain_k: 1.0, rain_dep: 0.35, bulk_evap: true,
+            terrain_wind_deflection: true, currents: false, current_k: 1.0,
+        };
+        let k = KoppenParams { world: false, lat_n: 55.0, lat_s: 5.0, sea_level: 0.42, max_rain_mm: 3000.0 };
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        let a = compute_seasons(gw, gh, &field, None, 23.4, 5, &cp, &wp, &k);
+        let b = compute_seasons_with(gw, gh, &field, None, 23.4, 5, &cp, &wp, &k, crate::CoarseUpsample::Bilinear);
+        assert_eq!(bits(&a.rain_jul), bits(&b.rain_jul));
+        assert_eq!(bits(&a.rain_jan), bits(&b.rain_jan));
+        assert_eq!(a.koppen, b.koppen);
+        let c = compute_seasons_with(gw, gh, &field, None, 23.4, 5, &cp, &wp, &k, crate::CoarseUpsample::CubicBSpline);
+        assert_ne!(bits(&a.rain_jul), bits(&c.rain_jul), "the B-spline never reached the July rain");
+        assert_ne!(bits(&a.rain_jan), bits(&c.rain_jan), "the B-spline never reached the January rain");
+        assert_eq!(bits(&a.temp_jul), bits(&c.temp_jul));
     }
 }

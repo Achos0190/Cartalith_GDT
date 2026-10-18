@@ -132,8 +132,9 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is six flags, each independently
-/// revertible by deleting its own line.
+/// baseline underneath it. Today that is eight flags (enumerated by
+/// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
+/// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
     let mut p = WorldParams::defaults(0, 0, 0);
     // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
@@ -202,10 +203,15 @@ pub fn defaults() -> WorldParams {
     // `geology_processes` on, and GF-6's bars were measured on processes-on
     // worlds only. Written out, though it equals `WorldParams::defaults`.
     p.geology_carve = false;
-    // The terrain-streak spike's switches (`TERRAIN_STREAK_SPIKE_2026-10-18.md`)
-    // stay OFF in the app: they are measurement-only until the owner rules on
-    // a variant, and have no `PARAMS` row (`StreakSpikeParams`' doc). Written
-    // out, though it equals `WorldParams::defaults`.
+    // Owner Ruling CM (2026-10-18, `TERRAIN_STREAK_SPIKE_2026-10-18.md`
+    // variant (a)): the rain field is brought up from the coarse weather grid
+    // by a C2 cubic B-spline instead of the reference's bilinear, which creased
+    // it on every weather-grid line (lattice index 2.617 -> 0.984, five app
+    // worlds). Off in `WorldParams::defaults`, the goldens' baseline.
+    p.climate.rain_bspline = true;
+    // The terrain-streak spike's two ablations stay OFF in the app: they are
+    // measurement-only and have no `PARAMS` row (`StreakSpikeParams`' doc).
+    // Written out, though it equals `WorldParams::defaults`.
     p.streak = cartalith_engine::StreakSpikeParams::default();
     p
 }
@@ -586,6 +592,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "climate.bulk_evap", group: "weather", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Bulk aerodynamic evaporation", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.climate.bulk_evap), set_fn: |p, v| p.climate.bulk_evap = v != 0.0 },
+    // Owner Ruling CM (2026-10-18): the rain field's coarse-to-full up-sample,
+    // C2 B-spline instead of the reference's bilinear. ON at the app boundary,
+    // OFF in `WorldParams::defaults`. A row so a save records which up-sample
+    // its world was generated with; a save without the key reloads OFF
+    // (`apply_saved_state`). No GUI control: no workspace lists this key.
+    ParamSpec { key: "climate.rain_bspline", group: "weather", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Smooth (B-spline) rain up-sample", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.climate.rain_bspline), set_fn: |p, v| p.climate.rain_bspline = v != 0.0 },
 
     // ---- civilisation ----------------------------------------------------
     // `LARGE_ITEM_RULINGS.md`, owner 2026-08-31: "five re-entrant `#[func]`s
@@ -894,6 +908,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("climate.zonal_k", "climate.zonalK"),
     ("climate.ocean_hum", "climate.oceanHum"),
     ("climate.bulk_evap", "climate.bulkEvap"),
+    // Port-only (Ruling CM): the reference has `bilC` and no choice, so there
+    // is no `state.climate` key to write it to.
+    ("climate.rain_bspline", ""),
 
     // No reference path for any of the seven. The four flags are module-level
     // `let`s the reference itself marks *not serialized* / *transient UI
@@ -1079,13 +1096,20 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // the clock, and τ = 1 reproduces exactly those pass counts by control
     // flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").
     p.geo_age = cartalith_engine::geo_clock::GEO_AGE_DEFAULT;
+    // And the rain up-sample (Ruling CM, 2026-10-18), like the plate-base blur
+    // and the geology model rather than like `integrate_drainage`: every save
+    // without the key was generated with the reference's bilinear rain, so it
+    // reloads with it, and a regenerate from its parameters reproduces the
+    // rain, rivers and biomes it was saved with. A save from this change on
+    // always carries the key (`save_state` writes every row).
+    p.climate.rain_bspline = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --
     // both predate this key, so this line's default and
     // `project_bridge.rs`'s `resolve_garrison_exposure_scale` (which reads
     // the 382945a-era `factions.json` fallback) are what actually decide
-    // that value. Unlike the three lines above, this one's default is not
+    // that value. Unlike the boolean lines above, this one's default is not
     // `false` -- it is `cartalith_civ::garrison::EXPOSURE_SCALE`'s own
     // `1.0`, duplicated as a literal for the reason
     // `CivParams::garrison_exposure_scale`'s own doc comment gives.

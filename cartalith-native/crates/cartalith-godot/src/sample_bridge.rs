@@ -147,7 +147,7 @@ use cartalith_civ::{
     classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES, CART_TERRAINS, LITH_NAMES,
 };
 use cartalith_climate::geoid::current_geoid_preview;
-use cartalith_climate::koppen::{KOPPEN_KEYS, KoppenParams, compute_seasons, koppen_color};
+use cartalith_climate::koppen::{KOPPEN_KEYS, KoppenParams, compute_seasons_with, koppen_color};
 use cartalith_climate::tides::{TideParams, current_tide_field};
 use cartalith_climate::windthrow::build_wind_throw_field;
 use cartalith_climate::{ClimateParams, WeatherParams};
@@ -2796,8 +2796,11 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
                 sea_level: sea,
                 max_rain_mm: 3000.0,
             };
-            let s = compute_seasons(
-                f.gw, f.gh, f.field, None, f.tilt_deg, c.w_iters, &cp, &wp, &kp,
+            // The world's own rain up-sample (Ruling CM): the app's B-spline,
+            // so the seasonal rain carries no weather-grid crease lattice when
+            // the annual rain does not; `false` is the reference's bilinear.
+            let s = compute_seasons_with(
+                f.gw, f.gh, f.field, None, f.tilt_deg, c.w_iters, &cp, &wp, &kp, c.rain_upsample(),
             );
             // Reference line 8509: the standard palette over land, the
             // shared dark blue over water.
@@ -2904,6 +2907,7 @@ mod tests {
             terrain_wind_deflection: false,
             currents: false,
             current_k: 1.0,
+            rain_bspline: false,
         };
 
     /// A tiny, deterministic world: a diagonal ramp with a low corner, so

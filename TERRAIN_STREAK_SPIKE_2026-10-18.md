@@ -15,6 +15,40 @@ and at x1 (fit view).
 
 This is a findings document. It holds no status; status lives in `STATUS.md`.
 
+> **Note, 2026-10-18 (after Ruling CM).** The owner answered the four
+> questions below at their defaults. What that changed in the tree, so the
+> rest of this document is read as the record of the spike rather than as a
+> description of today's code:
+>
+> - **(a) shipped.** The B-spline rain up-sample is no longer a spike switch:
+>   it is the named parameter `climate.rain_bspline`
+>   (`cartalith_engine::ClimateInputParams::rain_bspline`, a `PARAMS` row with
+>   no GUI control), **on in the app's `params::defaults()`** and off in
+>   `WorldParams::defaults` / under every JS golden. A save without the key
+>   reloads bilinear, so an older project regenerates as it was saved.
+> - **(b), (c) and the display-only MFD flow are retired.**
+>   `carve_channel_network_subcell`, `chaikin_round`, `compute_flow_mfd`,
+>   `stream_power_kernel_rho8` and `rho8_factor` are removed, with their
+>   tests and the `carve_subcell` / `stream_rho8` switches. So is the plain-D8
+>   channel ablation (`build_channels_routed_plain_d8`, `channel_plain_d8`),
+>   which measured no effect (0.995-1.001 of head). Removing them moved no
+>   array of the parity, app or processes-on worlds
+>   (`gf6_carve_identity_hashes`, identical to `86ae9d0a` before (a) was
+>   switched on).
+> - **What is left of the harness.** `StreakSpikeParams` keeps the two
+>   ablations that still measure something (`skip_light_pass`,
+>   `skip_channel_carve`); `terrain_streak_spike.rs` keeps `head`,
+>   `carve_off`, `no_light`, `no_cut`, `no_glacial`, `edifice_off` and a new
+>   `rain_bilinear` arm (the app before the ruling), and now also prints
+>   river counts and land biome fractions. The tables below quote arms that
+>   no longer exist (`a_rain_bs`, `b_sub*`, `c_rho8`, the combos, `plain_d8`,
+>   `DISPLAY`); their numbers stand as measured on `df64f48c`.
+> - **Follow-ups** are two `OUTSTANDING_WORK.md` rows: the edifice gullies
+>   (kilometre spacing, sub-cell gullies at zoom, the pits; measure first)
+>   and locating 314159's streaks with the river layer hidden.
+> - The before/after measurements of shipping (a) are in `STATUS.md`,
+>   2026-10-18 (Ruling CM).
+
 ## How it was measured
 
 - **Harness:** `cartalith-native/crates/cartalith-godot/tests/terrain_streak_spike.rs`
