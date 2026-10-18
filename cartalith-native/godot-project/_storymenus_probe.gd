@@ -10,6 +10,17 @@ extends Node
 ##         `DataManagerWindow.ROUTES` row exactly once, Places… and Timeline
 ##         pressing through to CIVIL, and Places without notes… disabled with a
 ##         reason. Tablet: one World menu, pipeline rows first, Data's rows below.
+##   SM-2  an eighth menu, Story, after World (tablet ☰ · File · World · Story):
+##         TIME / JOURNEYS / CONFLICTS & CAMPAIGNS / NOTES with the proposal's
+##         §3.3 rows; the three unbuilt rows disabled with their milestone in
+##         the reason; Ctrl+Shift+T and Ctrl+Shift+N bound through
+##         `_bind_accelerator` (rebindable, listed by the shortcuts dialog, no
+##         collision anywhere on the bar); Travel library moved here from World;
+##         every enabled row pressed through to its destination over a small
+##         generated world; the "this place" rows disabled with a reason until a
+##         settlement is current, and the campaigns readout and place rows
+##         answering "generating" mid-generation rather than reading the engine.
+##         Phone: the MORE root's STORY section and its four band screens.
 ##
 ## The expected row lists are written here as literals (the proposal's §3
 ## tables), never read back from `menus.gd`, so a reordering or a dropped row
@@ -40,19 +51,29 @@ var _out := ""
 var _form := "desktop"
 
 ## World's rows below the head row, as the proposal's §3.2 table lists them
-## (separators by caption). Travel library… closes RECORDS until SM-2 moves it.
+## (separators by caption). Travel library… closed RECORDS until SM-2 moved it.
 const WORLD_ROWS: Array = ["⧉ Data manager", "|RECORDS", "Factions…", "Places…",
 	"Markdown vault…", "Browse & edit a note…", "Places without notes…", "Timeline",
-	"Travel library…", "|TECHNICAL", "World data tables…", "Import", "Export",
+	"|TECHNICAL", "World data tables…", "Import", "Export",
 	"Sources & validation"]
+
+## Story's rows, the proposal's §3.3 table in the mockup's (A2) order. The
+## campaigns row is a live readout; its text is normalised to `Campaigns*`.
+const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of this place…",
+	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
+	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
+	"|NOTES", "Notes for this place", "Places without notes…"]
+## Row -> the milestone its disabled reason must name.
+const STORY_TODO: Dictionary = {"Saved journeys…": "SM-6", "Conflicts…": "SM-6",
+	"Places without notes…": "SM-5"}
 
 ## The tablet canvas's own World rows (`menus.gd::_world`), which must stay on
 ## top and unchanged (Q2: "nothing already in the tablet World menu moves").
 const TABLET_WORLD_HEAD: Array = ["Run pipeline", "|", "Reset generation parameters",
 	"Reset one stage", "|", "Generation pipeline", "Sculpt", "|", "Seed & size…", "|"]
 
-const DESKTOP_TITLES: Array = ["File", "Edit", "Assets", "World", "Preferences", "Window", "Help"]
-const TABLET_TITLES: Array = ["☰", "File", "World"]
+const DESKTOP_TITLES: Array = ["File", "Edit", "Assets", "World", "Story", "Preferences", "Window", "Help"]
+const TABLET_TITLES: Array = ["☰", "File", "World", "Story"]
 
 func _frames(n: int) -> void:
 	for i in n:
@@ -241,6 +262,8 @@ func _ready() -> void:
 	app.select_domain("world")
 	await _frames(3)
 
+	await _sm2()
+
 	## Screenshots: the World menu open, then its Import ▸ submenu beside it.
 	if not DccTheme.is_phone():
 		world_mb.show_popup()
@@ -253,6 +276,13 @@ func _ready() -> void:
 			await _shot("world_import")
 		_close_popups(app)
 		await _frames(3)
+		var story_mb := _menu_button("Story")
+		if story_mb != null:
+			story_mb.show_popup()
+			await _frames(4)
+			await _shot("story")
+			_close_popups(app)
+			await _frames(3)
 	else:
 		var pm = app.get("_phone_menu")
 		_check("the phone has a PhoneMenu", pm != null)
@@ -260,12 +290,210 @@ func _ready() -> void:
 			pm.open()
 			await _frames(4)
 			await _shot("more")
+			## SM-2: the root carries a STORY head and its four band rows.
+			var root_txt: Array = []
+			_labels(pm._screen_body, root_txt)
+			for r in pm.STORY_ROWS:
+				_check("phone MORE root draws the STORY row '%s'" % r["label"],
+					root_txt.has(String(r["label"])), str(root_txt))
 			pm._push_screen("data")
 			await _frames(4)
 			await _shot("more_data")
+			## Every Story row lands on its band's screen.
+			var smb := _menu_button("Story")
+			var story_p: PopupMenu = smb.get_popup() if smb != null else null
+			var band_txt: Array = []
+			for r in pm.STORY_ROWS:
+				pm.open()
+				pm._push_screen("story", String(r["band"]))
+				await _frames(4)
+				_labels(pm._screen_body, band_txt)
+				if String(r["band"]) == "JOURNEYS":
+					await _shot("more_story_journeys")
+			if story_p != null:
+				for i in story_p.item_count:
+					if story_p.is_item_separator(i):
+						continue
+					var t := story_p.get_item_text(i)
+					_check("phone STORY screens draw '%s'" % t, band_txt.has(t), "")
 			pm.close()
 			await _frames(3)
 	_finish()
+
+## Every Label and Button text under `n`, depth first.
+func _labels(n: Node, out: Array) -> void:
+	if n is Label:
+		out.append((n as Label).text)
+	elif n is Button:
+		out.append((n as Button).text)
+	for c in n.get_children():
+		_labels(c, out)
+
+## A popup's rows with the campaigns readout normalised (its text is live).
+func _story_rows(p: PopupMenu) -> Array:
+	return _rows(p).map(func(s): return "Campaigns*" if String(s).begins_with("Campaigns") else s)
+
+## Every accelerator under `p`, deep: `[menu path, accel]`.
+func _all_accels(p: PopupMenu, path: String, out: Array) -> void:
+	for i in p.item_count:
+		var a := p.get_item_accelerator(i)
+		if a != 0:
+			out.append([path + " > " + p.get_item_text(i), a])
+		var sub := p.get_item_submenu(i)
+		if sub != "":
+			var sp := p.get_node_or_null(NodePath(sub)) as PopupMenu
+			if sp != null:
+				_all_accels(sp, path + " > " + p.get_item_text(i), out)
+
+## SM-2's checks (see the header). Runs on every form factor; generates a
+## small world (256x192, as `_vfy_batch0905_probe.gd` does) for the
+## press-through legs.
+func _sm2() -> void:
+	var story_mb := _menu_button("Story")
+	_check("a Story menu exists", story_mb != null)
+	if story_mb == null:
+		return
+	var story := story_mb.get_popup()
+	story.about_to_popup.emit()
+	_check("Story's rows are the proposal's §3.3 list, in order",
+		_story_rows(story) == STORY_ROWS, str(_story_rows(story)))
+	for t in STORY_TODO:
+		var i := _index_of(story, String(t))
+		_check("Story ▸ %s is disabled with its %s reason" % [t, STORY_TODO[t]],
+			i >= 0 and story.is_item_disabled(i) and story.get_item_tooltip(i).findn(String(STORY_TODO[t])) >= 0,
+			story.get_item_tooltip(i) if i >= 0 else "missing")
+	var world := _menu_button("World").get_popup()
+	_check("Travel library left World (SM-2 moved it to Story)",
+		_index_of(world, "Travel library…") < 0)
+
+	## Accelerators: the two new ones are Ctrl+Shift+T / Ctrl+Shift+N, through
+	## `_bind_accelerator` (so rebindable); Travel library keeps Shift+L; Journey
+	## planner draws none (Shift+J is `app.gd`'s, listed in UNLISTED).
+	var want_acc := {"Timeline": KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T,
+		"Notes for this place": KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N,
+		"Travel library…": KEY_MASK_SHIFT | KEY_L, "Journey planner": 0}
+	for t in want_acc:
+		var i := _index_of(story, String(t))
+		_check("Story ▸ %s accelerator is %s" % [t, OS.get_keycode_string(int(want_acc[t]))],
+			i >= 0 and story.get_item_accelerator(i) == int(want_acc[t]),
+			OS.get_keycode_string(story.get_item_accelerator(i)) if i >= 0 else "missing")
+	for id in [DccMenus.ID_STORY_TIMELINE, DccMenus.ID_STORY_NOTES_HERE]:
+		_check("id %d is rebindable (went through _bind_accelerator)" % id,
+			app.menus.is_rebindable_shortcut(id))
+	var accs: Array = []
+	for ch in app.menu_bar_row.get_children():
+		if ch is MenuButton:
+			_all_accels((ch as MenuButton).get_popup(), (ch as MenuButton).text, accs)
+	for k in [KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N]:
+		var users := accs.filter(func(e): return int(e[1]) == k)
+		_check("%s is used by exactly one row on the whole bar" % OS.get_keycode_string(k),
+			users.size() == 1, str(users))
+	## The shortcuts dialog reads the live menus: both new keys must be listed.
+	var listed: Array = app.shortcuts_dialog._collect_from_menus()
+	for t in ["Timeline", "Notes for this place"]:
+		_check("Help ▸ Keyboard shortcuts lists Story ▸ %s" % t,
+			listed.any(func(e): return String(e[0]) == "Story" and String(e[2]) == t), str(listed.size()))
+
+	## No world yet: the place rows say so, and the readout prints no count.
+	story.about_to_popup.emit()
+	var pi := _index_of(story, "Political history of this place…")
+	var ni := _index_of(story, "Notes for this place")
+	_check("no world: the place rows are disabled with a reason",
+		story.is_item_disabled(pi) and story.is_item_disabled(ni)
+			and story.get_item_tooltip(ni) != "", story.get_item_tooltip(ni))
+	var ci := -1
+	for i in story.item_count:
+		if story.get_item_text(i).begins_with("Campaigns"):
+			ci = i
+	_check("no world: the campaigns readout prints no count",
+		ci >= 0 and story.get_item_text(ci).findn("no world") >= 0,
+		story.get_item_text(ci) if ci >= 0 else "")
+	## Closing the menu re-enables the accelerator rows (`menus.gd::_story`).
+	story.popup_hide.emit()
+	_check("closing Story re-enables the accelerator rows for the keyboard",
+		not story.is_item_disabled(ni) and not story.is_item_disabled(pi))
+
+	var bridge = app.bridge
+	bridge.generate({"seed": 4242, "width_km": 2400.0, "grid_w": 256, "grid_h": 192,
+		"archetype": "", "villages": true, "sea_level": 0.45})
+	## Mid-generation gate: nothing may read the engine.
+	await _frames(1)
+	if bool(bridge.generating):
+		story.about_to_popup.emit()
+		_check("generating: the campaigns readout says so",
+			story.get_item_text(ci).findn("generating") >= 0, story.get_item_text(ci))
+		_check("generating: the place rows say a generation is running",
+			story.is_item_disabled(ni) and story.get_item_tooltip(ni).findn("generation") >= 0,
+			story.get_item_tooltip(ni))
+		story.popup_hide.emit()
+	else:
+		_check("the generation was still running one frame in (gate leg reachable)", false)
+	while bool(bridge.generating):
+		await get_tree().create_timer(0.25).timeout
+	await _frames(4)
+	var setts: Array = bridge.settlements()
+	_check("the probe world has settlements", setts.size() > 0, str(setts.size()))
+
+	story.about_to_popup.emit()
+	_check("world, nothing selected: Notes for this place is disabled with the no-place reason",
+		story.is_item_disabled(ni) and story.get_item_tooltip(ni).findn("Nothing selected") >= 0,
+		story.get_item_tooltip(ni))
+	_check("world: the campaigns readout counts this year",
+		story.get_item_text(ci).begins_with("Campaigns in year"), story.get_item_text(ci))
+	story.popup_hide.emit()
+
+	## Select the first settlement the way a map pick does.
+	if setts.size() > 0:
+		app.right_dock_ctrl.on_settlement_selected(setts[0], 0)
+		await _frames(2)
+		story.about_to_popup.emit()
+		_check("a settlement is current: both place rows are enabled",
+			not story.is_item_disabled(pi) and not story.is_item_disabled(ni))
+		story.popup_hide.emit()
+		story.id_pressed.emit(DccMenus.ID_STORY_POLITICAL)
+		await _frames(4)
+		_check("Political history… opens the Place editor on its Political tab",
+			app.place_editor_window.visible and String(app.place_editor_window.get("_active_tab")) == "political",
+			"visible=%s tab=%s" % [app.place_editor_window.visible, app.place_editor_window.get("_active_tab")])
+		app.place_editor_window.hide()
+		story.id_pressed.emit(DccMenus.ID_STORY_NOTES_HERE)
+		await _frames(4)
+		_check("Notes for this place opens the vault window", app.vault_window.visible)
+		app.vault_window.hide()
+		app.right_dock_ctrl.on_settlement_selected(null, -1)
+		await _frames(2)
+
+	story.id_pressed.emit(DccMenus.ID_STORY_FACTION_HISTORY)
+	await _frames(4)
+	_check("Faction history… opens the Factions window", app.faction_roster_window.visible)
+	app.faction_roster_window.hide()
+	app.select_domain("world")
+	await _frames(3)
+	story.id_pressed.emit(DccMenus.ID_STORY_TIMELINE)
+	await _frames(4)
+	_check("Story ▸ Timeline switches to CIVIL", app.active_domain() == "civilization", app.active_domain())
+	app.select_domain("world")
+	await _frames(3)
+	story.id_pressed.emit(DccMenus.ID_STORY_DRAW_CONFLICT)
+	await _frames(4)
+	_check("Draw a conflict arms the CIVIL Conflict tool",
+		app.active_domain() == "civilization" and String(app.armed_tool) == "conflict",
+		"%s / %s" % [app.active_domain(), app.armed_tool])
+	app.arm_tool("inspect")
+	await _frames(2)
+	story.id_pressed.emit(DccMenus.ID_TRAVEL_LIBRARY)
+	await _frames(4)
+	_check("Travel library… opens its window", app.travel_library_window.visible)
+	app.travel_library_window.hide()
+	story.id_pressed.emit(DccMenus.ID_STORY_JOURNEY_PLANNER)
+	await _frames(4)
+	var civ_panel: Control = app._workspace_panels.get("civilization")
+	_check("Journey planner opens the planner (CIVIL, the planner swaps the dock panel out)",
+		app.active_domain() == "civilization" and civ_panel != null and not civ_panel.visible,
+		app.active_domain())
+	app.select_domain("world")
+	await _frames(3)
+
 
 func _finish() -> void:
 	print("STORY RESULT %d checks, %d failed (%s)" % [_checks, _fails, _form])

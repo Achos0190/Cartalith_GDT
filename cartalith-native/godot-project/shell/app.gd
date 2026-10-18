@@ -4774,7 +4774,7 @@ func open_data_manager_route(route_id: String) -> void:
 func open_asset_library(family_key: String = "", open_slicer: bool = false) -> void:
 	asset_library_window.open(family_key, open_slicer)
 
-## Data ▸ Travel library… (⇧L, `TRAVEL_LIBRARY_SPEC.md`). `kind` optionally
+## Story ▸ Travel library… (⇧L, `TRAVEL_LIBRARY_SPEC.md`; Data ▸ until SM-1, World ▸ until SM-2). `kind` optionally
 ## scopes the initial tab ("animal"/"vehicle"/"vessel"/"preset"), empty opens
 ## on whichever tab was last selected (or Animals & mounts, the first time).
 func open_travel_library(kind: String = "") -> void:

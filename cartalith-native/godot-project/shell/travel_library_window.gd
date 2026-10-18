@@ -345,7 +345,7 @@ func _build() -> void:
 		head_row.add_child(DccTheme.spacer())
 	else:
 		head_row.add_child(DccTheme.mono_label("⧉ TRAVEL LIBRARY", "accent", DccTheme.FS_HEADER, 2, true))
-		head_row.add_child(DccTheme.label("World ▸ Travel library", "text_ghost", DccTheme.FS_TINY))
+		head_row.add_child(DccTheme.label("Story ▸ Travel library", "text_ghost", DccTheme.FS_TINY))
 		head_row.add_child(DccTheme.spacer())
 		head_row.add_child(DccTheme.label("definitions only · read by the planner at plan time", "text_ghost", DccTheme.FS_TINY))
 	var close_btn := Button.new()

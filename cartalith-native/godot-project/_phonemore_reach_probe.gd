@@ -87,10 +87,10 @@ func _labels(n: Node, out: Array) -> void:
 		_labels(c, out)
 
 ## Render one screen and return every string it drew.
-func _screen_texts(id: String) -> Array:
+func _screen_texts(id: String, arg: String = "") -> Array:
 	pm.open()
 	if id != "more":
-		pm._push_screen(id)
+		pm._push_screen(id, arg)
 	await _frames(2)
 	var out: Array = []
 	_labels(pm._screen_body, out)
@@ -230,7 +230,26 @@ func _ready() -> void:
 			covered = _has(root, "Asset library")
 		if String(m) == "Help":
 			covered = _has(root, "Help & about")
+		## SM-2: Story is re-presented by the root's STORY section, one row
+		## per band (`phone_menu.gd::STORY_ROWS`) -- covered only when every
+		## band row was drawn on the root.
+		if String(m) == "Story":
+			covered = pm.STORY_ROWS.all(func(r): return _has(root, String(r["label"])))
 		_check("menu '%s' is reachable from the phone" % m, covered)
+
+	## -- SM-2: every Story row reaches one of the four band screens ----------
+	var story := _menu_popup("Story")
+	_check("Story menu exists", story != null)
+	if story != null:
+		var story_texts: Array = []
+		for r in pm.STORY_ROWS:
+			story_texts.append_array(await _screen_texts("story", String(r["band"])))
+		var story_lost := PackedStringArray()
+		for entry in _top_items(story):
+			if not _has(story_texts, String(entry[0])):
+				story_lost.append(String(entry[0]))
+		_check("Story: every top-level row reaches a STORY band screen (%d rows)" % _top_items(story).size(),
+			story_lost.is_empty(), "missing: %s" % " | ".join(story_lost))
 
 	## -- Every top-level row of a screen-owned menu is drawn ------------------
 	for sid in SCREEN_COVERS:

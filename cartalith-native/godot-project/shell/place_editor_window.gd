@@ -571,6 +571,17 @@ func _switch_tab(tab: String) -> void:
 	_active_tab = tab
 	_rebuild()
 
+## `open_for(index)`, then straight to `tab` (one of `TAB_ORDER`) -- SM-2's
+## Story ▸ Political history of this place… (`menus.gd::_on_story`) lands on
+## `"political"`. Through `_switch_tab()`, so the PE-01 focus commit runs as it
+## does for a click on the tab strip. An unknown key leaves the editor on
+## Overview rather than on a tab that does not exist; a negative index opens
+## nothing (`open_for`'s own rule).
+func open_for_tab(index: int, tab: String) -> void:
+	open_for(index)
+	if _index >= 0 and TAB_ORDER.has(tab):
+		_switch_tab(tab)
+
 
 # -- Timeline / Political history placeholders ---------------------------------
 

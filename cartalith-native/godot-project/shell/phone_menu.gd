@@ -1194,6 +1194,8 @@ func open() -> void:
 func _screen_title(id: String, arg: String = "") -> String:
 	if id == "lm-fam" and arg != "":
 		return CivilizationWorkspace._lm_pretty(arg).capitalize()
+	if id == "story":
+		return String(_story_row(arg).get("label", "Story"))
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[0]) if row.size() == 2 and String(row[0]) != "" else id
 
@@ -1208,6 +1210,8 @@ func _screen_sub(id: String, arg: String = "") -> String:
 			return _slot_subtitle(arg)
 		"travel-item":
 			return _travel_entry_name(arg)
+		"story":
+			return String(_story_row(arg).get("sub", ""))
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[1]) if row.size() == 2 else ""
 
@@ -1574,6 +1578,7 @@ func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 		"help": _fill_help(body)
 		"gestures": _fill_gestures(body)
 		"data-tiles": _fill_data_tiles(body)
+		"story": _fill_story(body, arg)
 		_:
 			## No case for this id in `_fill_screen()`.
 			body.add_child(_missing_row("Unknown screen '%s'." % id,
@@ -1596,6 +1601,11 @@ func _fill_root(body: VBoxContainer) -> void:
 				var badge: Control = _root_badge(target)
 				_add(body, _row(label, sub, badge, _chevron(),
 					func(): _push_screen(target), false, glyph))
+				## SM-2 (A8): the STORY section follows Civilization, and a
+				## `World` head re-opens the program rows after it so they do
+				## not read as part of Story.
+				if target == "civ":
+					_fill_story_section(body)
 			"menu":
 				var p := _menu_popup(String(spec.id), false)
 				if p == null:
@@ -1657,6 +1667,72 @@ func _fill_root(body: VBoxContainer) -> void:
 		for mb in rest:
 			_add(body, _menu_row(mb))
 
+## SM-2 (`STORY_MENUS_PROPOSAL.md` §6, mockup A8): the MORE root's STORY
+## section, one row per band of the desktop `Story` menu (`menus.gd::_story()`).
+## `band` is that menu's separator caption, which is how `_fill_story()` finds
+## the band's rows -- so the rows each screen draws are read off the live popup,
+## never copied here. `label` and `glyph` are A8's; `sub` names the band's own
+## rows (A8 wrote `vault` for Notes, which this build's band does not hold, so
+## the subtitle says what it does hold).
+const STORY_ROWS: Array = [
+	{"band": "TIME", "glyph": "◷", "label": "Timeline",
+		"sub": "timeline · political · faction history"},
+	{"band": "JOURNEYS", "glyph": "→", "label": "Journeys",
+		"sub": "planner · saved journeys · travel library"},
+	{"band": "CONFLICTS & CAMPAIGNS", "glyph": "◇", "label": "Conflicts & campaigns",
+		"sub": "list · draw · this year"},
+	{"band": "NOTES", "glyph": "▤", "label": "Notes",
+		"sub": "this place · places without notes"},
+]
+
+## The `STORY_ROWS` entry for `band`, or `{}`.
+func _story_row(band: String) -> Dictionary:
+	for r in STORY_ROWS:
+		if String(r["band"]) == band:
+			return r
+	return {}
+
+## Draws the root's STORY head and its four rows, then the `World` head the
+## rest of the root list sits under (A8 draws `WORLD (was data)` there). Each
+## row drills into `_fill_story(band)`.
+func _fill_story_section(body: VBoxContainer) -> void:
+	_head(body, "Story")
+	for r in STORY_ROWS:
+		var band := String(r["band"])
+		_add(body, _row(String(r["label"]), String(r["sub"]), null, _chevron(),
+			func(): _push_screen("story", band), false, _glyph(String(r["glyph"]))))
+	_head(body, "World")
+
+## One Story band as a screen: the `Story` popup's rows between the separator
+## captioned `band` and the next separator, drawn by `_rest_of()` in the popup's
+## own order (so a disabled row arrives with its reason, and a readout as a
+## readout). Refreshes the popup once (`_menu_popup`), which is what fills its
+## "this place" rows and the campaigns count.
+func _fill_story(body: VBoxContainer, band: String) -> void:
+	var p := _menu_popup("Story")
+	if p == null:
+		_add(body, _missing_row("Story", "The Story menu is not on this build's menu bar."))
+		return
+	var start := -1
+	var stop := p.item_count
+	for i in p.item_count:
+		if not p.is_item_separator(i):
+			continue
+		if start < 0 and _clean(p.get_item_text(i)) == band:
+			start = i
+		elif start >= 0:
+			stop = i
+			break
+	if start < 0:
+		_add(body, _missing_row(band.capitalize(),
+			"The Story menu has no %s band in this build." % band))
+		return
+	var drawn := {}
+	for i in p.item_count:
+		if i <= start or i >= stop:
+			drawn[i] = true
+	_rest_of(body, p, drawn)
+
 ## Is this program menu already reached by one of `ROOT_ROWS`, or by one of the
 ## bespoke screens? Drives the fallback band, so a menu can never go silently
 ## missing from the phone -- including an eighth one a future `menus.gd` adds,
@@ -1677,7 +1753,8 @@ func _fill_root(body: VBoxContainer) -> void:
 func _named_in_root(menu_title: String) -> bool:
 	## "World" was "Data" until SM-1 renamed the menu (Ruling CK); the `data`
 	## screen still re-presents it.
-	if ["File", "World", "Preferences", "Assets", "Help"].has(menu_title):
+	## "Story" since SM-2: the root's STORY section re-presents it band by band.
+	if ["File", "World", "Story", "Preferences", "Assets", "Help"].has(menu_title):
 		return true
 	for spec in ROOT_ROWS:
 		if String(spec.t) == "menu" and String(spec.id) == menu_title:

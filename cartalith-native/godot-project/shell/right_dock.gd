@@ -409,6 +409,16 @@ var _context := CTX_SAMPLE
 var _settlement_data: Variant = null
 ## Index of the selected settlement in the engine's places list; -1 when none.
 var _settlement_index := -1
+
+## The settlement this dock is showing, as an index into `bridge.settlements()`,
+## or -1 when the dock is on any other context. SM-2's Story rows (Political
+## history of this place…, Notes for this place) read it as "the current
+## place" (`STORY_MENUS_PROPOSAL.md` §3.3). Gated on `CTX_SETTLEMENT`, not on
+## `_settlement_index` alone: other contexts (a route, a conflict) replace the
+## view without clearing the index, and a row naming a place the dock no longer
+## shows would act on something the user is not looking at. Reads only.
+func current_settlement_index() -> int:
+	return _settlement_index if _context == CTX_SETTLEMENT else -1
 ## The selected route's entry; its `points` feed the length readout.
 var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"

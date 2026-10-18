@@ -163,6 +163,8 @@ Travel library… moves to Story.
 | **NOTES** Notes for this place | Ctrl+Shift+N | B | `app.open_vault("settlement", tid, name)`, the card's own call. Disabled with a reason when nothing is current |
 | Places without notes… | — | P | the same row as in World |
 
+Two rows were settled when SM-2 was built (2026-10-18): *Journey planner* draws no accelerator column, because ⇧J is `app.gd`'s key and a drawn one would read as rebindable (the tooltip names it); and *Campaigns this year* is a readout row counted off `conflict_campaigns` for the cursor's year, since no world-wide right-dock readout of it exists.
+
 ### 3.4 Window: Session mode (A2)
 
 | Row | Key | Mark | Backing / gap |

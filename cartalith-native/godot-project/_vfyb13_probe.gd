@@ -87,8 +87,9 @@ func _menu_popup(title: String) -> PopupMenu:
 			return p
 	return null
 
-## "World" was "Data" until SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK).
-const MENUS: Array = ["File", "Edit", "Assets", "World", "Preferences", "Window", "Help"]
+## "World" was "Data" until SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK);
+## "Story" is SM-2's eighth menu, re-presented by the MORE root's STORY section.
+const MENUS: Array = ["File", "Edit", "Assets", "World", "Story", "Preferences", "Window", "Help"]
 
 func _ready() -> void:
 	var wd := Timer.new()
@@ -134,6 +135,17 @@ func _ready() -> void:
 		_labels(pm._screen_body, t)
 		union.append_array(t)
 		body_min[String(s)] = pm._screen_body.get_combined_minimum_size()
+	## SM-2: the four STORY band screens the root drills into
+	## (`phone_menu.gd::STORY_ROWS`), read off the live constant so a band
+	## added there is pushed here too.
+	for r in pm.STORY_ROWS:
+		pm.open()
+		pm._push_screen("story", String(r["band"]))
+		await _frames(3)
+		var st0: Array = []
+		_labels(pm._screen_body, st0)
+		union.append_array(st0)
+		body_min["story:" + String(r["band"])] = pm._screen_body.get_combined_minimum_size()
 
 	## Every menu drill **the root actually routes to**, pushed for real.
 	##
@@ -194,7 +206,7 @@ func _ready() -> void:
 				missing_top.append("%s > %s" % [m, txt])
 		if missing_top.size() == before:
 			reachable_menus.append(String(m))
-	_check("every top-level row of all SEVEN menus is drawn somewhere (%d rows)" % total_top,
+	_check("every top-level row of all EIGHT menus is drawn somewhere (%d rows)" % total_top,
 		missing_top.is_empty(), ", ".join(missing_top))
 	print("VFY menus fully covered: [%s]" % ", ".join(reachable_menus))
 

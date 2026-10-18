@@ -531,9 +531,10 @@ func _ready() -> void:
 	## `else` branch in `menus.gd::build()` is the original seven calls,
 	## untouched by this batch.
 	## SM-1 (Ruling CK, 2026-10-18): the fourth desktop menu is titled World.
-	_ok("desktop has its seven menus, Data titled World since SM-1",
+	## SM-2 (same ruling, Q1): an eighth menu, Story, follows it.
+	_ok("desktop has its eight menus (World since SM-1, Story since SM-2)",
 		",".join(PackedStringArray(d_titles)),
-		"File,Edit,Assets,World,Preferences,Window,Help")
+		"File,Edit,Assets,World,Story,Preferences,Window,Help")
 	## **Tablet's own menu bar is re-specified to the canvas, not restated.**
 	## `Cartalith Tablet.dc.html` / `TABLET_UI_SPEC.md` §2.1 draw exactly the
 	## overflow square then File, World, Data -- four top-level menus, not
@@ -544,8 +545,9 @@ func _ready() -> void:
 	## the overflow square, File and World. The owner's ruling overrides the
 	## canvas here; SS13's reach check below still holds every Data row to
 	## being reachable on tablet.
-	_ok("tablet's top-level menus are overflow, File, World (Data merged into World, SM-1)",
-		",".join(PackedStringArray(t_titles)), "☰,File,World")
+	## SM-2 adds Story on both form factors (A7: ☰ · File · World · Story).
+	_ok("tablet's top-level menus are overflow, File, World, Story (SM-1 merge, SM-2 Story)",
+		",".join(PackedStringArray(t_titles)), "☰,File,World,Story")
 
 	print("")
 	print("-- every command title reachable on desktop is still reachable on tablet --")

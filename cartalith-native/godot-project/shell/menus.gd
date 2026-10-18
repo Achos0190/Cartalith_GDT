@@ -131,6 +131,15 @@ const ID_PLACES := 721
 ## because only Story's row carries the accelerator, and `_bind_accelerator`
 ## keys a rebind by id.
 const ID_WORLD_TIMELINE := 722
+## SM-2 (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK): the Story menu's command
+## rows. 723-728 were unused (`grep -rn ":= 72"` over `shell/`, 2026-10-18,
+## found only 720-722). The readout and the three disabled rows take no id.
+const ID_STORY_TIMELINE := 723  ## Story ▸ TIME ▸ Timeline (Ctrl+Shift+T).
+const ID_STORY_POLITICAL := 724  ## Story ▸ Political history of this place….
+const ID_STORY_FACTION_HISTORY := 725  ## Story ▸ Faction history….
+const ID_STORY_JOURNEY_PLANNER := 726  ## Story ▸ JOURNEYS ▸ Journey planner (Shift+J is `app.gd`'s key).
+const ID_STORY_DRAW_CONFLICT := 727  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Draw a conflict.
+const ID_STORY_NOTES_HERE := 728  ## Story ▸ NOTES ▸ Notes for this place (Ctrl+Shift+N).
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -573,15 +582,23 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## into it, below the pipeline rows (`_tablet_world()`), which drops the
 	## tablet bar from ☰ · File · World · Data to ☰ · File · World. That is a
 	## departure from DS-03's "match the canvas 100%", taken by Ruling CK.
+	##
+	## **SM-2 (§3.3, Q1's default): an eighth menu, Story**, after World on
+	## every form factor -- desktop File · Edit · Assets · World · Story ·
+	## Preferences · Window · Help (the mockup's A2), tablet ☰ · File · World ·
+	## Story (A7). The phone builds it too; `phone_menu.gd` re-presents it as the
+	## MORE screen's STORY section (A8).
 	if DccTheme.is_tablet():
 		shell.add_menu("☰", _overflow)
 		shell.add_menu("File", _file)
 		shell.add_menu("World", _tablet_world)
+		shell.add_menu("Story", _story)
 	else:
 		shell.add_menu("File", _file)
 		shell.add_menu("Edit", _edit)
 		shell.add_menu("Assets", _assets)
 		shell.add_menu("World", _data)
+		shell.add_menu("Story", _story)
 		shell.add_menu("Preferences", _preferences)
 		shell.add_menu("Window", _window)
 		shell.add_menu("Help", _help)
@@ -2852,8 +2869,8 @@ func _on_assets(id: int) -> void:
 ##     `app.open_journey_planner()` and are untouched.
 ##
 ## Travel library (⇧L, `TRAVEL_LIBRARY_SPEC.md`) stayed then: it opens its own
-## window, which is what every other row in this menu does. Since SM-1 it closes
-## the RECORDS band, until SM-2 moves it to the Story menu (§3.3).
+## window, which is what every other row in this menu does. SM-1 put it at the
+## end of the RECORDS band; SM-2 (2026-10-18) moved it to Story ▸ JOURNEYS (§3.3).
 ## **Conversion is deliberately absent** (owner decision, 2026-08-20). The
 ## row used to read "Conversion ▸ Coordinate systems · Formats" and open the
 ## Data manager on a three-route group of disclosed gaps. `GUI_GAP_REGISTER
@@ -2938,7 +2955,8 @@ func _on_assets(id: int) -> void:
 ## the old Data menu, row by row (`MISTAKES.md` "Delete a surface"): Data
 ## manager, World data tables, Factions, Travel library, the 15 route rows,
 ## Export map image, Markdown vault and Browse & edit a note -- every one is
-## still in this popup or one of its three submenus; none was dropped. Two rows
+## still in this popup or one of its three submenus; none was dropped (Travel
+## library has since moved on to Story, SM-2). Two rows
 ## are new over built targets (Places…, Timeline) and one is drawn disabled
 ## with its reason (Places without notes…, milestone SM-5).
 func _data(p: PopupMenu) -> void:
@@ -2969,15 +2987,11 @@ func _data(p: PopupMenu) -> void:
 	## SM-5 is not built; drawn with its reason, per `_todo()`. Both routes named
 	## in the reason exist: the card's `civ.vault_note` row and the Place
 	## editor's `vault` tab (`place_editor_window.gd::TAB_LABELS`).
-	_todo(p, "Places without notes…",
-		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-5): nothing lists the "
-		+ "places that have no linked note. Today a place's note is reached one place "
-		+ "at a time -- right-click it ▸ Open note, or the Place editor's Vault notes tab.")
+	_todo(p, "Places without notes…", PLACES_WITHOUT_NOTES_WHY)
 	_live(p, "Timeline", ID_WORLD_TIMELINE)
 	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
-	## Moves to the Story menu with SM-2 (§3.3); kept here until that menu
-	## exists so the row is never homeless between the two commits.
-	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
+	## Travel library… (⇧L) closed this band until SM-2, which moved it to
+	## Story ▸ JOURNEYS (`_story()`), the same id and accelerator.
 
 	p.add_separator("TECHNICAL")
 	_live(p, "World data tables…", ID_WORLD_DATA)
@@ -3057,7 +3071,6 @@ func _on_data(id: int) -> void:
 		ID_FACTIONS: _host.open_faction_roster()
 		ID_PLACES: _shell.select_domain_category("civilization", "Settlements")
 		ID_WORLD_TIMELINE: _open_timeline()
-		ID_TRAVEL_LIBRARY: _host.open_travel_library()
 		ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
 		ID_VAULT: _host.open_vault_overview()
 		ID_VAULT_BROWSE: _host.open_vault_browse()
@@ -3085,6 +3098,216 @@ func _tablet_world(p: PopupMenu) -> void:
 	_world(p)
 	p.add_separator()
 	_data(p)
+
+# -- Story (SM-2, Ruling CK) ---------------------------------------------------
+
+## Disabled-row reason for the two "this place" rows while nothing is current.
+## Names both ways to make a place current that exist today: a map pick (the
+## right dock's Settlement context, `right_dock.gd::current_settlement_index`)
+## and the context card's own Open note row (`civilization_workspace.gd`).
+const STORY_NO_PLACE := "Nothing selected. Select a settlement on the map (it opens in the right dock), or right-click one ▸ Open note."
+## Disabled-row reason while a generation holds the engine: `bridge.settlements()`
+## answers `[]` then, so the selected place cannot be read (the 2026-10-12 gate).
+const STORY_BUSY := "A generation is running. The place list is read when it finishes."
+## Disabled-row reason with no world at all.
+const STORY_NO_WORLD := "No world yet. Generate or open one first."
+
+## Which rows `_story()` refreshes on every popup, by index: the two "this
+## place" rows and the campaigns readout. Kept on the instance (not captured in
+## a lambda) because the accelerator path re-checks through `_story_place()`.
+var _story_popup: PopupMenu
+var _story_political_idx := -1
+var _story_notes_idx := -1
+var _story_campaigns_idx := -1
+
+## **The Story menu** (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK, owner
+## 2026-10-18; mockup `design/story-menus-2026-10-17/` A2). It gathers the
+## tools a writer or a DM uses to plot -- time, journeys, conflicts, notes --
+## which were scattered over a rail node, an `app.gd` key, a window region, a
+## dock category and three windows. Four labelled bands, in the mockup's order.
+##
+## Every enabled row calls something already built; it is a new entry point,
+## never a second implementation:
+##   TIME       Timeline (Ctrl+Shift+T, `_open_timeline()`, World's own row's
+##              action) · Political history of this place… (`place_editor_
+##              window.gd::open_for_tab(i, "political")`) · Faction history…
+##              (`app.open_faction_roster(-1, "history")`, FH-8's tab)
+##   JOURNEYS   Journey planner (`app.open_journey_planner()`) · Saved
+##              journeys… (SM-6, disabled with its reason) · Travel library…
+##              (⇧L, moved here from World by this milestone, same id)
+##   CONFLICTS  Conflicts… (SM-6, disabled) · Draw a conflict (arms CIVIL's
+##   & CAMPAIGNS Conflict tool, SP-4) · Campaigns this year (a readout over
+##              `conflict_campaigns(year)`, one row per active conflict)
+##   NOTES      Notes for this place (Ctrl+Shift+N, `app.open_vault(
+##              "settlement", tid, name)`, the card's own call) · Places
+##              without notes… (SM-5, disabled -- the same row as World's)
+##
+## **Journey planner carries no accelerator column, on purpose.** ⇧J is an
+## `app.gd::_unhandled_key_input` key (it outlived the row Ruling 4 retired on
+## 2026-09-05) and is listed in `shortcuts_dialog.gd::UNLISTED`; drawing it here
+## through `_bind_accelerator` would make it look rebindable while `app.gd`
+## kept answering the old key, and a bare `set_item_accelerator` is what this
+## file's rule forbids. The tooltip names the key instead. This row reverses
+## nothing in Ruling 4: the rail node stays; this is an additional entry point
+## (§7 risk 4).
+##
+## **Campaigns this year has no world-wide readout anywhere else** --
+## `conflict_campaigns` is read per selected siege in the right dock
+## (`_build_siege_garrison`) and by the CARTO layer -- so the row is a
+## `_readout()` whose text is counted off that same call for the Timeline
+## cursor's year, refreshed on every popup. Nothing is invented: before a world
+## or during a generation it says which, and never prints a count it did not read.
+##
+## Must never call the engine while `bridge.generating` (the worker holds
+## `WorldGen`): every refresh and handler asks `generating` first, which matters
+## for `conflict_campaigns` in particular because its bridge wrapper has no
+## gate of its own.
+func _story(p: PopupMenu) -> void:
+	_story_popup = p
+	p.add_separator("TIME")
+	_live(p, "Timeline", ID_STORY_TIMELINE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T)
+	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
+	_live(p, "Political history of this place…", ID_STORY_POLITICAL)
+	_story_political_idx = p.item_count - 1
+	p.set_item_tooltip(_story_political_idx, STORY_POLITICAL_TIP)
+	_live(p, "Faction history…", ID_STORY_FACTION_HISTORY)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the Factions window on its History tab: each faction's recorded years, territory and conflicts.")
+
+	p.add_separator("JOURNEYS")
+	_live(p, "Journey planner", ID_STORY_JOURNEY_PLANNER)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route.")
+	_todo(p, "Saved journeys…",
+		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-6): no window lists saved journeys. "
+		+ "Today they are saved from the Journey planner and listed in the left dock's Journeys list.")
+	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
+	p.set_item_tooltip(p.item_count - 1,
+		"Animals, vehicles, vessels and parties: the classifications and constraints the Journey planner reads.")
+
+	p.add_separator("CONFLICTS & CAMPAIGNS")
+	_todo(p, "Conflicts…",
+		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-6): no window lists every conflict. "
+		+ "Today they are listed under CIVIL ▸ Military ▸ Conflicts and drawn by the CARTO Conflict layer.")
+	_live(p, "Draw a conflict", ID_STORY_DRAW_CONFLICT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Arms the CIVIL Conflict tool: click to draw a front, an arrow, a siege or a battle, then Commit and fill in its sides and years in the right dock.")
+	_story_campaigns_idx = _readout(p, "Campaigns this year", "")
+
+	p.add_separator("NOTES")
+	_live(p, "Notes for this place", ID_STORY_NOTES_HERE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N)
+	_story_notes_idx = p.item_count - 1
+	p.set_item_tooltip(_story_notes_idx, STORY_NOTES_TIP)
+	## The same disabled row as World ▸ RECORDS (§3.3: "the same row as in
+	## World"), with the same reason until SM-5 builds the view.
+	_todo(p, "Places without notes…", PLACES_WITHOUT_NOTES_WHY)
+
+	_refresh_story_menu()
+	p.about_to_popup.connect(_refresh_story_menu)
+	## The two gated rows are disabled only while the menu is OPEN. A popup's
+	## accelerator is skipped while its row is disabled, so a row left disabled
+	## after the menu closed would swallow Ctrl+Shift+N for good once the user
+	## had opened Story with nothing selected. Re-enabled on close; the handler
+	## re-checks (`_story_place()`) and says why in the status line instead.
+	p.popup_hide.connect(func() -> void:
+		for i in [_story_political_idx, _story_notes_idx]:
+			p.set_item_disabled(i, false))
+	p.id_pressed.connect(_on_story)
+
+## Tooltip of Political history of this place… while a place is current.
+const STORY_POLITICAL_TIP := "Opens the Place editor on the selected settlement's Political history tab: who held it, year by year, with its conflicts lane."
+## Tooltip of Notes for this place while a place is current.
+const STORY_NOTES_TIP := "Opens the selected settlement's linked vault note, or attaches one."
+## The Places without notes… reason, shared by World ▸ RECORDS and Story ▸ NOTES.
+const PLACES_WITHOUT_NOTES_WHY := "Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-5): nothing lists the places that have no linked note. Today a place's note is reached one place at a time -- right-click it ▸ Open note, or the Place editor's Vault notes tab."
+
+## The current place for the two "this place" rows: `{index, tid, name}`, or
+## `{why}` with the reason it cannot be read. Asks `generating` before any
+## engine read (`bridge.settlements()` answers `[]` then, which would read as
+## "nothing selected" -- the wrong reason).
+func _story_place() -> Dictionary:
+	if bool(_bridge.generating):
+		return {"why": STORY_BUSY}
+	if not bool(_bridge.has_world):
+		return {"why": STORY_NO_WORLD}
+	var dock = _host.get("right_dock_ctrl")
+	var idx := -1
+	if dock != null and dock.has_method("current_settlement_index"):
+		idx = int(dock.current_settlement_index())
+	var all: Array = _bridge.settlements()
+	if idx < 0 or idx >= all.size():
+		return {"why": STORY_NO_PLACE}
+	var s: Dictionary = all[idx]
+	return {"index": idx, "tid": int(s.get("tid", idx)), "name": String(s.get("name", "(unnamed)"))}
+
+## Refreshes the Story menu's live rows: the two "this place" rows (enabled,
+## and named, only while a settlement is current) and the campaigns readout.
+func _refresh_story_menu() -> void:
+	var p := _story_popup
+	if p == null:
+		return
+	var place := _story_place()
+	var ok := not place.has("why")
+	for pair in [[_story_political_idx, STORY_POLITICAL_TIP], [_story_notes_idx, STORY_NOTES_TIP]]:
+		p.set_item_disabled(int(pair[0]), not ok)
+		p.set_item_tooltip(int(pair[0]), String(pair[1]) if ok else String(place["why"]))
+	var text := "Campaigns this year"
+	var tip := ""
+	if bool(_bridge.generating):
+		text += " — generating"
+		tip = "A generation is running; the conflict store is read when it finishes."
+	elif not bool(_bridge.has_world):
+		text += " — no world"
+		tip = STORY_NO_WORLD
+	elif not _engine_has("conflict_campaigns"):
+		text += " — not in this build"
+		tip = "This build of the engine has no conflict_campaigns binding."
+	else:
+		var year := int(_bridge.get_civ_year())
+		var rows: Array = _bridge.conflict_campaigns(year)
+		## A conflict's `name` can be blank until the user fills it in (the
+		## Conflict tool commits first, names later), so the id stands in.
+		var names: Array = []
+		for r in rows:
+			var nm := String((r as Dictionary).get("name", ""))
+			names.append(nm if nm != "" else "#%d" % int((r as Dictionary).get("id", 0)))
+		text = "Campaigns in year %d: %d" % [year, rows.size()]
+		if names.is_empty():
+			tip = "No conflict is active in the Timeline cursor's year. "
+		else:
+			## Six names keep the tooltip to a few lines; the rest are counted.
+			tip = "Conflicts active in the Timeline cursor's year: %s" % ", ".join(names.slice(0, 6))
+			tip += (", and %d more. " % (names.size() - 6)) if names.size() > 6 else ". "
+		tip += "The CARTO Conflict layer draws them; select one under CIVIL ▸ Military ▸ Conflicts for its sides and manpower."
+	p.set_item_text(_story_campaigns_idx, text)
+	p.set_item_tooltip(_story_campaigns_idx, tip)
+
+## The Story menu's dispatcher. Ignores every id it does not own.
+func _on_story(id: int) -> void:
+	match id:
+		ID_STORY_TIMELINE: _open_timeline()
+		ID_STORY_FACTION_HISTORY: _host.open_faction_roster(-1, "history")
+		ID_STORY_JOURNEY_PLANNER: _host.open_journey_planner()
+		ID_TRAVEL_LIBRARY: _host.open_travel_library()
+		ID_STORY_DRAW_CONFLICT:
+			if not bool(_bridge.has_world):
+				_host.set_status("hint", STORY_NO_WORLD, "text_ghost")
+				return
+			## `select_domain` first: the Conflict tool belongs to the CIVIL
+			## workspace, whose `_on_civ_tool_armed` fills the options row
+			## only while CIVIL is the domain (`phone_menu.gd::_arm_civ_tool`
+			## does the same two calls in the same order).
+			_shell.select_domain("civilization")
+			_host.arm_tool("conflict")
+		ID_STORY_POLITICAL, ID_STORY_NOTES_HERE:
+			var place := _story_place()
+			if place.has("why"):
+				_host.set_status("hint", String(place["why"]), "text_ghost")
+				return
+			if id == ID_STORY_POLITICAL:
+				_host.place_editor_window.open_for_tab(int(place["index"]), "political")
+			else:
+				_host.open_vault("settlement", int(place["tid"]), String(place["name"]))
 
 ## **The Markdown vault's program-scope entry point** (2026-08-24, `design/
 ## Cartalith Menu Structure v3.dc.html`).

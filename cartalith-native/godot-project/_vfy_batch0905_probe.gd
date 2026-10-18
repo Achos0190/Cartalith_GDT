@@ -139,12 +139,19 @@ func _ready() -> void:
 	## The whole MenuBar, deep. A row that moved to another menu instead of the
 	## rail would show up here and would NOT be a vanished command.
 	var all_menu_rows: Array = []
-	for t in ["File", "Edit", "View", "World", "Assets", "Generate", "Preferences", "Window", "Help"]:
+	for t in ["File", "Edit", "View", "World", "Story", "Assets", "Generate", "Preferences", "Window", "Help"]:
 		var m := _menu(t)
 		if m != null:
 			_rows_deep(m, all_menu_rows)
-	_ok("A1 gone (whole menu bar): `Journey planner` is in no menu at all",
-		_count_containing(all_menu_rows, "Journey planner") == 0)
+	## **Reversed 2026-10-18, SM-2 (Ruling CK).** The 2026-09-05 move took the
+	## planner off the Data menu and onto the CIVIL rail; SM-2 gives it ONE
+	## menu row again, in Story ▸ JOURNEYS, as an additional entry point (the
+	## rail node stays -- `_structmove_probe.gd` 1b still asserts it). So the
+	## whole bar must now carry exactly one such row, and it must be Story's.
+	_ok("A1 (whole menu bar, SM-2): `Journey planner` is exactly one row, in Story",
+		_count_containing(all_menu_rows, "Journey planner") == 1
+			and _count_containing(_rows_deep(_menu("Story"), []), "Journey planner") == 1,
+		str(_count_containing(all_menu_rows, "Journey planner")))
 	## **Reversed 2026-09-21, owner Ruling U.** `Refine detail` moved back onto
 	## `Preferences ▸ Tiles & LOD ▸ Atlas cache` (`LARGE_ITEM_RULINGS.md`), so
 	## it is now expected to show up in the whole-menu-bar walk again -- the

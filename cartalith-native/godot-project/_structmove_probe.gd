@@ -141,8 +141,12 @@ func _ready() -> void:
 			not _has_row(data, "Journey planner"), "rows=%s" % [_rows(data)])
 		## The neighbours it sat between must survive -- a deletion that took
 		## the wrong row would also satisfy the check above.
-		_check("1a control: World still has World data tables and Travel library",
-			_has_row(data, "World data tables") and _has_row(data, "Travel library"))
+		## Travel library moved on to Story ▸ JOURNEYS with SM-2 (Ruling CK), so
+		## its half of the control is asserted in its new home.
+		var story := _menu("Story")
+		_check("1a control: World still has World data tables; Travel library is in Story (SM-2)",
+			_has_row(data, "World data tables") and story != null and _has_row(story, "Travel library")
+				and not _has_row(data, "Travel library"))
 
 	var node_rows: Dictionary = app.get("_rail_node_rows")
 	_check("1b NEW HOME: a civilization/planner rail row exists",

@@ -102,8 +102,12 @@ class_name CommandIndex
 ## it is a real `Preferences ▸ Tiles & LOD ▸ Atlas cache` `PopupMenu` row again
 ## (`menus.gd::_build_atlas_cache_menu()`), so `_add_menu_commands()`'s own walk
 ## finds it for free and an `EXTRAS` entry would be a second, driftable copy of
-## a title the walk already owns. `Journey planner` stays: that ruling was not
-## revisited, and it is still a rail node with no menu row underneath it.
+## a title the walk already owns. `Journey planner` stayed for the same
+## reason in reverse until **SM-2 (2026-10-18, Ruling CK)** gave it a real row
+## again, `Story ▸ JOURNEYS ▸ Journey planner` (`menus.gd::_story()`): the walk
+## now finds it, so its `EXTRAS` entry came out for the same reason
+## `Refine detail`'s did. The rail node stays as well (Ruling 4 is not reversed;
+## the menu row is an additional entry point).
 ##
 ## **The Asset-pack flattening (same day) is the mirror case, decided the other
 ## way -- zero rows, checked rather than assumed.** Its fifteen dropped rows
@@ -135,7 +139,6 @@ class_name CommandIndex
 const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
-	{"title": "Journey planner", "blurb": "Plan a route: party, season, carriage, stages and cost. CIVIL rail ▸ Travel, or Shift+J", "group": "Civilization"},
 	{"title": "Theme", "blurb": "Dark, Light or Follow system. Preferences ▸ Theme -- ☰ ▸ Preferences ▸ Theme on tablet, which also has a one-tap dark/light flip at ☰ ▸ Toggle theme", "group": "Preferences"},
 ]
 
