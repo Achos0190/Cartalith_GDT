@@ -906,11 +906,12 @@ mod tests {
         }
     }
 
+    /// Protects: `ROCK_PROPS`'s Selby class, solubility flag, permeability,
+    /// jointing, formation and legacy-class projection, row for row against a
+    /// literal table, and that exactly one rock (limestone, the soluble row) is
+    /// flagged soluble.
     #[test]
     fn rock_table_classes_flags_and_projection() {
-        // Protects: `ROCK_PROPS`'s Selby class, solubility flag, permeability,
-        // jointing, formation and legacy-class projection, row for row, and
-        // that limestone is the only soluble rock.
         use Jointing as J;
         use Permeability as P;
         use SelbyClass as S;
@@ -977,11 +978,13 @@ mod tests {
         }
     }
 
+    /// Protects: `Rock::ALL`'s order equals the `as usize` index and
+    /// `Rock::from_u8` returns each rock back, that `NO_LAYER` (255) and the
+    /// first out-of-range index (11) are not rocks, and that `ROCK_COUNT` (11)
+    /// and `R_EXPOSE_M` (5.0) still equal their literals. Only those two
+    /// non-rock indices are sampled, not every value from 11 to 254.
     #[test]
     fn rock_indices_round_trip_and_no_layer_is_not_a_rock() {
-        // Protects: `Rock::from_u8`/`as u8` round-trip for every real rock,
-        // and that `NO_LAYER` and any out-of-range index are never mistaken
-        // for one.
         for (k, r) in Rock::ALL.iter().enumerate() {
             assert_eq!(*r as usize, k);
             assert_eq!(Rock::from_u8(k as u8), Some(*r));
@@ -993,10 +996,13 @@ mod tests {
         assert_eq!(R_EXPOSE_M, 5.0);
     }
 
+    /// Protects: the fifteen public derivation-width, cover and facies constants
+    /// (`W_*`, `LOW_DEPTH_M`, `COVER_*`, `CAP_FRACTION`, `RIFT_CAP_M`, `V_TH`,
+    /// `ARC_CORE_T`, `CARBONATE_LAT_DEG`, `FACIES_CYCLES`) against literals, so
+    /// changing any one turns this red. The private `FACIES_SALT` is not pinned
+    /// here.
     #[test]
     fn derivation_constants_are_pinned() {
-        // Protects: every derivation-width and cover constant §2.4 relies on,
-        // against literals — mutating any one must turn this test red.
         assert_eq!(
             [W_CORE, W_OROGEN, W_ARC, W_SHEAR, W_RIFT, W_LOW_BLUR],
             [1.0, 3.0, 4.0, 1.0, 2.5, 4.0]
@@ -1045,11 +1051,13 @@ mod tests {
         assert_eq!(r.exposed(0, 0.6, 0.01), Some(Rock::Unconsolidated));
     }
 
+    /// Protects: three of `Beneath`'s four arms as the Sample panel reads them:
+    /// a real unit with its depth (including depth 0.0 at the contact),
+    /// `CapEroded`, and `SingleLayer`, and that a sub code whose contact is NaN
+    /// is not treated as a layer. The fourth arm, `NoData` (a column shorter than
+    /// the grid), is not exercised here.
     #[test]
     fn beneath_reports_a_reason_where_there_is_no_unit() {
-        // Protects: every `Beneath` arm the Sample panel reads — a real unit
-        // with its depth, `CapEroded`, `SingleLayer`, and that a NaN-contact
-        // sub code is never treated as a layer.
         let c = column(&[3, 0], &[9, NO_LAYER], &[0.5, f32::NAN], &[0.0, 0.0]);
         assert_eq!(c.beneath(0, 0.625, 0.01), Beneath::Unit { rock: Rock::Shale, depth: 0.125 });
         assert_eq!(c.beneath(0, 0.4, 0.01), Beneath::CapEroded);
@@ -1064,20 +1072,23 @@ mod tests {
         assert_eq!(bad.beneath(0, 0.5, 0.01), Beneath::SingleLayer);
     }
 
+    /// Protects: `m_to_norm`'s `metersPerUnit` anchoring arithmetic, for one
+    /// input, against a hand-computed value (5 m at sea 0.42, peak 4000 m). The
+    /// `peak_m <= 0` branch is not exercised.
     #[test]
     fn m_to_norm_uses_the_sea_anchored_scale() {
-        // Protects: `m_to_norm`'s `metersPerUnit` anchoring arithmetic
-        // against a hand-computed value.
         // 5 m at sea 0.42, peak 4000 m: 5 * 0.58 / 4000.
         assert!((m_to_norm(5.0, 0.42, 4000.0) - 0.000725).abs() < 1e-12);
     }
 
+    /// Protects: `labelled_boundary_distance`'s chamfer distance and
+    /// nearest-source index (checked over every cell for one source), the
+    /// diagonal-step cost (sqrt 2), x-wrap when `world` is true in both seam
+    /// directions (source at x 1 reaching x 9, source at x 8 reaching x 0) and no
+    /// wrap when it is false, and the no-boundary case (infinite distance,
+    /// `u32::MAX` source).
     #[test]
     fn labelled_distance_carries_the_nearest_boundary_and_wraps() {
-        // Protects: `labelled_boundary_distance`'s chamfer distance and
-        // nearest-source index, the diagonal-step cost, x-wrap when `world`
-        // (in both seam directions) and never otherwise, and the no-boundary
-        // (infinite distance, `u32::MAX` source) case.
         let (gw, gh) = (10usize, 3usize);
         let mut mask = vec![0u8; gw * gh];
         mask[gw + 1] = 1; // (1, 1)
@@ -1149,12 +1160,15 @@ mod tests {
         0.6
     }
 
+    /// Protects: section 2.4 step 2's basement branch at the width cutoffs:
+    /// collision (gneiss, schist, then granite beyond the orogen width),
+    /// transform (schist, then granite), oceanic subduction (granite at d 1),
+    /// and rift (sandstone over shale with the 150 m cap contact, granite from
+    /// d 5); and that crust below zero is oceanic basalt (checked with a
+    /// collision margin only) with the single-layer sentinels (NaN contact,
+    /// `NO_LAYER` sub, zero regolith) on that column.
     #[test]
     fn basement_follows_the_nearest_boundary_type() {
-        // Protects: §2.4 step 2's basement branch — collision/transform/rift
-        // widths measured against distance, oceanic crust always basalt, and
-        // a single-layer cell's `contact`/`rock_sub`/`regolith` at their
-        // "no second layer" sentinels.
         // blur_r 2: core < 2 cells, orogen < 6, shear < 2, rift < 5.
         let c = derive(0.8, btype::COLLISION, 0, flat, None, 0.0, 45.0);
         assert_eq!(c.top(1), Some(Rock::Gneiss)); // d 1
@@ -1230,13 +1244,15 @@ mod tests {
         t
     }
 
+    /// Protects: section 2.4 step 4: hotspot and rift edifices cap with plateau
+    /// basalt over the previous top (checked at the core), an arc caps with
+    /// andesite at the core and tuff on the flank, every setting records its
+    /// code even when the intensity is just below `V_TH` (no cap then), a hotspot
+    /// on oceanic crust adds no unit over oceanic basalt, an unclassified
+    /// edifice reads the margin (rift gives basalt, collision gives andesite;
+    /// other margin types are not sampled), and no trace records no setting.
     #[test]
     fn volcanic_overlay_keeps_the_setting() {
-        // Protects: §2.4 step 4 — every volcanic setting caps with the right
-        // rock (basalt for hotspot/rift, andesite/tuff for arc by radial
-        // position), records its setting code even below the intensity
-        // threshold, adds no unit over oceanic basalt, and the unclassified
-        // case reads the margin type.
         use crate::VolcanicSetting as V;
         let i_core = 8 * 64 + 41; // t = 0.1
         let i_flank = 8 * 64 + 47; // t = 0.7

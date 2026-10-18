@@ -6739,12 +6739,14 @@ mod tests {
 
     // -- the table ----------------------------------------------------------
 
+    /// Protects: the kind table: 49 unique keys with labels, a `not_built` reason
+    /// on exactly the unbuilt kinds, the per-family counts (15/8/6/6/8/6), the
+    /// seven viewshed-reading kinds, which must also agree with `Needs::of`, the
+    /// 31 buildable kinds (cave since GF-6), and `buildable` agreeing with a
+    /// hand-listed set of detector keys (a literal `matches!` in this test, not
+    /// a call into `detect`, so a new detector arm needs this list edited too).
     #[test]
     fn the_kind_table_matches_the_research_and_the_design() {
-        // Protects: the kind table: 49 unique keys with labels, a `not_built` reason on exactly the
-        // unbuilt kinds, the per-family counts, the seven viewshed-reading kinds agreeing
-        // with `Needs::of`, the 31 buildable kinds (cave since GF-6), and `buildable` agreeing with the
-        // detector arms.
         let ks = kinds();
         assert_eq!(ks.len(), 49, "§29 lists 49 types");
         let mut seen = std::collections::HashSet::new();
@@ -6886,10 +6888,10 @@ mod tests {
         }
     }
 
+    /// Protects: the default settings arm exactly the buildable kinds at their default caps,
+    /// with crowding 1.0 and a 34 km regional radius.
     #[test]
     fn default_settings_arm_exactly_the_buildable_kinds() {
-        // Protects: the default settings arm exactly the buildable kinds at their default caps,
-        // with crowding 1.0 and a 34 km regional radius.
         let s = LandmarkSettings::default();
         for k in kinds() {
             assert_eq!(s.is_armed(k.key), k.buildable, "{}", k.key);
@@ -6901,9 +6903,9 @@ mod tests {
         assert_eq!(s.radius_km(LandmarkClass::Regional), 34.0);
     }
 
+    /// Protects: an unknown key reads as cap 0, disarmed and no spec, never a panic.
     #[test]
     fn an_unknown_key_falls_back_rather_than_panicking() {
-        // Protects: an unknown key reads as cap 0, disarmed and no spec, never a panic.
         let s = LandmarkSettings::default();
         assert_eq!(s.cap("no_such_kind"), 0);
         assert!(!s.is_armed("no_such_kind"));
@@ -6913,10 +6915,10 @@ mod tests {
 
     // -- the analysis module ------------------------------------------------
 
+    /// Protects: the separable min/max relief here agrees with `analysis::local_relief` to
+    /// 1e-6, bounded and wrapped, at three radii.
     #[test]
     fn relief_agrees_with_the_analysis_module() {
-        // Protects: the separable min/max relief here agrees with `analysis::local_relief` to
-        // 1e-6, bounded and wrapped, at three radii.
         for world_wrap in [false, true] {
             let (gw, gh) = (48usize, 32usize);
             let f = test_field(gw, gh);
@@ -6941,10 +6943,10 @@ mod tests {
 
     // -- the funnel ---------------------------------------------------------
 
+    /// Protects: every kind's funnel closes (candidates = rejects + placed); cap rejects only
+    /// appear under `AtCap` at or above the cap; and the pass is not all-empty.
     #[test]
     fn funnel_arithmetic_closes_on_every_kind() {
-        // Protects: every kind's funnel closes (candidates = rejects + placed); cap rejects only
-        // appear under `AtCap` at or above the cap; and the pass is not all-empty.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![
             ("iron", w.iron.as_slice()),
@@ -7012,11 +7014,11 @@ mod tests {
         assert!(total > 0, "no kind produced a single candidate");
     }
 
+    /// Protects: a whole fixture world places over 100 landmarks of at least 10 kinds, each
+    /// in bounds with unique ids, scores in 0..1 and a causal chain ending in its
+    /// kind's label; only buildable kinds appear.
     #[test]
     fn a_real_world_places_landmarks_of_several_kinds() {
-        // Protects: a whole fixture world places over 100 landmarks of at least 10 kinds, each
-        // in bounds with unique ids, scores in 0..1 and a causal chain ending in its
-        // kind's label; only buildable kinds appear.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![
             ("iron", w.iron.as_slice()),
@@ -8146,10 +8148,11 @@ mod tests {
         assert_eq!(r2.placed("quarry"), 0);
     }
 
+    /// Protects: causal chains carry measured values: the first two waterfalls
+    /// placed (cross-type competition off) do not share one canned chain, and the
+    /// first one's chain has a measured drop in metres.
     #[test]
     fn causal_chains_carry_measured_values_not_a_fixed_string_per_kind() {
-        // Protects: causal chains carry measured values: two waterfalls do not share one canned
-        // chain, and a measured drop in metres appears.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
@@ -8169,10 +8172,10 @@ mod tests {
 
     // -- determinism (§27) --------------------------------------------------
 
+    /// Protects: determinism: the landmark list, the funnels and the reject list are
+    /// identical across two runs with the same seed.
     #[test]
     fn two_runs_of_the_same_world_are_identical() {
-        // Protects: determinism: the landmark list, the funnels and the reject list are
-        // identical across two runs with the same seed.
         let w = world(192, 144, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -8185,9 +8188,12 @@ mod tests {
         assert!(!a.landmarks.is_empty());
     }
 
+    /// Protects: section 27: a peak's seed does not move when only the peak cap
+    /// changes (cap 4 against cap 8, same world and seed): every peak placed at
+    /// cap 4 is found at the same cell at cap 8 with the same seed. Only the
+    /// peak kind is checked.
     #[test]
     fn a_landmark_seed_survives_a_cap_change() {
-        // Protects: section 27: a landmark's seed does not move when only a cap changes.
         let w = world(192, 144, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -8419,10 +8425,10 @@ mod tests {
 
     // -- honest degradation -------------------------------------------------
 
+    /// Protects: with height only, kinds needing channels, water, corridors, ore or territory
+    /// report `NoTerrain` and place nothing, while peak still places.
     #[test]
     fn a_kind_whose_input_is_absent_reports_no_terrain_and_places_none() {
-        // Protects: with height only, kinds needing channels, water, corridors, ore or territory
-        // report `NoTerrain` and place nothing, while peak still places.
         let w = world(192, 144, 1000.0);
         // Height only: no channels, no water bodies, no corridors, no ore.
         let mut inp = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
@@ -8452,10 +8458,10 @@ mod tests {
         );
     }
 
+    /// Protects: a channel raster of the wrong length degrades the waterfall to `NoTerrain`,
+    /// not a panic.
     #[test]
     fn a_wrongly_sized_optional_input_degrades_rather_than_panicking() {
-        // Protects: a channel raster of the wrong length degrades the waterfall to `NoTerrain`,
-        // not a panic.
         let w = world(128, 96, 1000.0);
         let short: Vec<u8> = vec![1; 10];
         let mut inp = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
@@ -8466,10 +8472,10 @@ mod tests {
         assert_eq!(r.funnel("waterfall").unwrap().limit, LandmarkLimit::NoTerrain);
     }
 
+    /// Protects: a disarmed or zero-cap kind reports `Disarmed`, and an unbuilt kind reports
+    /// `NotBuildable`; Battlefield with no battles is `NoTerrain`, a different answer.
     #[test]
     fn a_disarmed_or_unbuildable_kind_says_so() {
-        // Protects: a disarmed or zero-cap kind reports `Disarmed`, and an unbuilt kind reports
-        // `NotBuildable`; Battlefield with no battles is `NoTerrain`, a different answer.
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -8491,9 +8497,9 @@ mod tests {
         assert_eq!(r2.funnel("peak").unwrap().limit, LandmarkLimit::Disarmed);
     }
 
+    /// Protects: arming an unbuilt kind still reports `NotBuildable` and places nothing.
     #[test]
     fn an_arming_a_kind_this_engine_does_not_build_still_reports_not_buildable() {
-        // Protects: arming an unbuilt kind still reports `NotBuildable` and places nothing.
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -8675,10 +8681,11 @@ mod tests {
         assert_eq!((f2.placed, f2.rejected_spacing), (1, 0), "an icon beside the battle: {:?}", f2);
     }
 
+    /// Protects: a battle drawn one map-width east is rejected by a constraint
+    /// (placed 0) on a bounded map and lands on its own land cell on a world
+    /// map.
     #[test]
     fn a_battle_across_the_seam_wraps_only_on_a_world_map() {
-        // Protects: a battle drawn one map-width east lands on its land cell on a world map and
-        // is off the grid on a bounded one.
         let w = world(192, 144, 1000.0);
         let (bx, by) = (w.gw / 4, w.gh / 3);
         let battles = [BattleMark { x: (bx + w.gw) as f64, ..battle_at(bx, by, "Seam") }];
@@ -8694,10 +8701,10 @@ mod tests {
         assert_eq!((l.x, l.y), (bx, by));
     }
 
+    /// Protects: only a Battle conflict becomes a `BattleMark`, it follows its settlement
+    /// anchor, and an empty point list is absent rather than a panic.
     #[test]
     fn only_a_battle_becomes_a_battle_mark_and_it_follows_its_anchor() {
-        // Protects: only a Battle conflict becomes a `BattleMark`, it follows its settlement
-        // anchor, and an empty point list is absent rather than a panic.
         use crate::conflict::{Conflict, ConflictAnchor, ConflictKind};
         let mut c = Conflict {
             id: 1,
@@ -8725,10 +8732,12 @@ mod tests {
         assert!(BattleMark::from_conflict(&Conflict { points: vec![], ..c }, None).is_none());
     }
 
+    /// Protects: empty, one-cell, all-ocean, wrong-length and zero-width inputs
+    /// do not panic. The funnel-closes check runs for the one-cell, all-ocean and
+    /// zero-width cases; the empty and wrong-length cases assert only that no
+    /// landmarks come out (the empty case also that every kind has a funnel).
     #[test]
     fn degenerate_grids_do_not_panic() {
-        // Protects: empty, one-cell, all-ocean, wrong-length and zero-width inputs do not panic
-        // and every funnel still closes.
         let s = LandmarkSettings::default();
         // Empty.
         let empty: Vec<f32> = Vec::new();
@@ -8802,10 +8811,10 @@ mod tests {
         s
     }
 
+    /// Protects: section 16: of two cones inside one radius the taller wins, and the loser is
+    /// counted as a spacing reject.
     #[test]
     fn spacing_rejects_the_weaker_of_two_candidates_inside_one_radius() {
-        // Protects: section 16: of two cones inside one radius the taller wins, and the loser is
-        // counted as a spacing reject.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -9012,10 +9021,12 @@ mod tests {
         );
     }
 
+    /// Protects: cap and spacing report different limits: cap 1 is `AtCap` with
+    /// one placed, and with crowding 3 (radius under the gap between the cones)
+    /// both cones place, nothing is spacing-rejected and the limit is
+    /// `Candidates`.
     #[test]
     fn at_cap_and_spacing_are_different_answers() {
-        // Protects: cap and spacing report different limits: cap 1 is `AtCap`, and a loose radius
-        // with room to spare is `Candidates`.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -9289,9 +9300,9 @@ mod tests {
         assert!((d2 - 4.0).abs() < 1e-9, "the seam was measured the long way round: {}", d2);
     }
 
+    /// Protects: a higher crowding places more landmarks (2.5 over 0.5).
     #[test]
     fn crowding_higher_packs_tighter() {
-        // Protects: a higher crowding places more landmarks (2.5 over 0.5).
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let sparse = LandmarkSettings { crowding: 0.5, ..Default::default() };
@@ -9301,10 +9312,12 @@ mod tests {
         assert!(b > a, "crowding 2.5 placed {} and crowding 0.5 placed {}", b, a);
     }
 
+    /// Protects: a crowding of 0 gives a finite regional radius, NaN falls back
+    /// to 34 km, and a run with NaN crowding on the two-cone fixture still has a
+    /// peak funnel that closes. A zero crowding is checked for the radius only,
+    /// not run through `generate`.
     #[test]
     fn a_zero_or_nan_crowding_does_not_take_the_map_with_it() {
-        // Protects: a crowding of 0 or NaN gives a finite radius (34 km for NaN) and a funnel
-        // that still closes.
         let s_zero = LandmarkSettings { crowding: 0.0, ..Default::default() };
         assert!(s_zero.radius_km(LandmarkClass::Regional).is_finite());
         let s_nan = LandmarkSettings { crowding: f64::NAN, ..Default::default() };
@@ -9318,10 +9331,10 @@ mod tests {
         assert!(r.funnel("peak").unwrap().closes());
     }
 
+    /// Protects: turning cross-type competition off never places fewer landmarks, and funnels
+    /// close either way.
     #[test]
     fn cross_type_competition_changes_the_answer() {
-        // Protects: turning cross-type competition off never places fewer landmarks, and funnels
-        // close either way.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -9340,9 +9353,9 @@ mod tests {
         }
     }
 
+    /// Protects: every placed pair is at least the smaller of their two class radii apart.
     #[test]
     fn a_placed_landmark_is_never_inside_its_own_exclusion_radius() {
-        // Protects: every placed pair is at least the smaller of their two class radii apart.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings::default();
@@ -9430,10 +9443,10 @@ mod tests {
         r.funnel("waterfall").cloned().expect("waterfall has a funnel")
     }
 
+    /// Protects: each waterfall constraint is load-bearing: the step places one, half the
+    /// flow, a gentle step and no step each place none, with exact counts.
     #[test]
     fn each_waterfall_constraint_is_load_bearing() {
-        // Protects: each waterfall constraint is load-bearing: the step places one, half the
-        // flow, a gentle step and no step each place none, with exact counts.
         // A 414 m step on a channel carrying four times the channel threshold
         // is a waterfall, and exactly one cell in the grid is that step.
         let ok = run_one_channel(0.06, 4.0);
@@ -9467,10 +9480,12 @@ mod tests {
 
     // -- scoring ------------------------------------------------------------
 
+    /// Protects: `norm_term` maps a term with no variation (equal values, or a
+    /// single candidate) to 0.5 rather than 0, and a varied term to 0..1. The
+    /// reason given below (a zero would send a single-candidate pool under the
+    /// score floor) is not itself exercised here, only the 0.5.
     #[test]
     fn a_degenerate_term_is_neutral_rather_than_zero() {
-        // Protects: a term with no variation normalises to 0.5, not 0, so a single-candidate
-        // pool is not scored below the floor.
         // `analysis::normalise` answers "no variation" with zeros, which would
         // send a single-candidate pool below the score floor and report a
         // landmark-free world as `no terrain`.
@@ -9483,10 +9498,10 @@ mod tests {
         assert_eq!(varied[2], 1.0);
     }
 
+    /// Protects: `weighted_sum` renormalises over present terms, so an absent one does not
+    /// drag the score.
     #[test]
     fn an_absent_term_renormalises_instead_of_scoring_zero() {
-        // Protects: `weighted_sum` renormalises over present terms, so an absent one does not
-        // drag the score.
         let terms_both: Vec<(&'static str, f64, Vec<f32>)> =
             vec![("a", 0.5, vec![0.0, 1.0]), ("b", 0.5, vec![0.0, 1.0])];
         let terms_one: Vec<(&'static str, f64, Vec<f32>)> =
@@ -9495,10 +9510,10 @@ mod tests {
         assert_eq!(weighted_sum(&terms_one, 2)[1], 1.0);
     }
 
+    /// Protects: without the stream-order raster confluences still place, and no order fact
+    /// appears in their causal chains.
     #[test]
     fn dropping_the_strahler_field_still_places_confluences() {
-        // Protects: without the stream-order raster confluences still place, and no order fact
-        // appears in their causal chains.
         let w = world(256, 192, 1000.0);
         let mut with = inputs(&w, &[]);
         let a = generate(&with, &LandmarkSettings::default(), 6);
@@ -9519,9 +9534,9 @@ mod tests {
         }
     }
 
+    /// Protects: importance varies across landmarks (spread over 0.05) rather than being a constant.
     #[test]
     fn importance_is_emergent_and_not_a_constant() {
-        // Protects: importance varies across landmarks (spread over 0.05) rather than being a constant.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -9534,9 +9549,9 @@ mod tests {
 
     // -- the seed (§27) -----------------------------------------------------
 
+    /// Protects: `landmark_seed` changes with each of its four inputs and is stable for equal ones.
     #[test]
     fn the_seed_depends_on_every_one_of_its_four_inputs() {
-        // Protects: `landmark_seed` changes with each of its four inputs and is stable for equal ones.
         let base = landmark_seed(1, 2, LandmarkClass::Regional, 1);
         assert_ne!(base, landmark_seed(2, 2, LandmarkClass::Regional, 1));
         assert_ne!(base, landmark_seed(1, 3, LandmarkClass::Regional, 1));
@@ -9547,9 +9562,9 @@ mod tests {
 
     // -- the store ----------------------------------------------------------
 
+    /// Protects: the store holds a run, reports `caps_total`, and `invalidate` forgets it.
     #[test]
     fn the_store_retains_a_run_and_can_forget_it() {
-        // Protects: the store holds a run, reports `caps_total`, and `invalidate` forgets it.
         let w = world(192, 144, 1000.0);
         let inp = inputs(&w, &[]);
         let mut store = LandmarkStore::new();
@@ -9562,10 +9577,10 @@ mod tests {
         assert!(store.last.is_none());
     }
 
+    /// Protects: family summaries' armed counts equal the buildable kinds per family and
+    /// their placed counts sum to the landmark list.
     #[test]
     fn family_summaries_add_up_to_the_landmark_list() {
-        // Protects: family summaries' armed counts equal the buildable kinds per family and
-        // their placed counts sum to the landmark list.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings::default();
@@ -9584,9 +9599,9 @@ mod tests {
 
 
 
+    /// Protects: `thousands` groups with a space ("12 400") and handles 0 and negatives.
     #[test]
     fn thousands_groups_the_way_the_design_writes_it() {
-        // Protects: `thousands` groups with a space ("12 400") and handles 0 and negatives.
         assert_eq!(thousands(12400.0), "12 400");
         assert_eq!(thousands(84.0), "84");
         assert_eq!(thousands(1000.0), "1 000");
@@ -9769,14 +9784,14 @@ mod tests {
         generate(&inp, &only_portages(), 1)
     }
 
+    /// Protects: the positive case — two navigable heads 4 km apart in
+    /// different basins, 29 km each from the sea, place exactly one
+    /// portage, on the carry's midpoint (the divide), with the measured
+    /// carry and round-by-water figures in its causal chain. Both heads
+    /// are candidates; the second lands on the same midpoint and loses on
+    /// spacing, so one landmark marks one carry.
     #[test]
     fn a_portage_carries_between_two_basins_at_the_divide() {
-        // Protects: the positive case — two navigable heads 4 km apart in
-        // different basins, 29 km each from the sea, place exactly one
-        // portage, on the carry's midpoint (the divide), with the measured
-        // carry and round-by-water figures in its causal chain. Both heads
-        // are candidates; the second lands on the same midpoint and loses on
-        // spacing, so one landmark marks one carry.
         let r = run_two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
         let f = r.funnel("portage").expect("portage has a funnel");
         assert_eq!(f.candidates, 2, "both heads of navigation are candidates: {f:?}");
@@ -9789,12 +9804,12 @@ mod tests {
         assert!(chain.contains("at least 58 km round by water"), "{chain}");
     }
 
+    /// Protects: the basin test is load-bearing. Re-routing the east river
+    /// to drain west through the gap into the west river's outlet leaves
+    /// navigable channel on both sides of the old divide, all in one
+    /// basin, and nothing is placed.
     #[test]
     fn one_basin_is_not_a_portage() {
-        // Protects: the basin test is load-bearing. Re-routing the east river
-        // to drain west through the gap into the west river's outlet leaves
-        // navigable channel on both sides of the old divide, all in one
-        // basin, and nothing is placed.
         let (field, mut chan, mut recv, mut order, gw, gh) =
             two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
         let row = gh / 2;
@@ -9813,17 +9828,20 @@ mod tests {
         assert_eq!(r.placed("portage"), 0, "{:?}", r.funnel("portage"));
     }
 
+    /// Protects: each portage rejection against the positive fixture, and each
+    /// numeric bound from both sides. Water below navigable order is no domain at
+    /// all (0 candidates). Sea in the gap floods the carry (that case sets the
+    /// midpoint cell, so it trips the ocean test and the midpoint test together;
+    /// `the_ocean_test_and_the_midpoint_test_each_refuse_on_their_own` separates
+    /// them). Then the two numbers, as literals rather than against their
+    /// constants: a 20 km carry places and a 21 km one does not
+    /// (`PORTAGE_MAX_CARRY_KM`), and over a 20 km carry 116 km round places while
+    /// 114 km does not, the 28 / 4.9 ~ 5.714 ratio landing at 114.3 km between
+    /// them (`PORTAGE_MIN_DETOUR_RATIO`). The ratio is also probed over a 4 km
+    /// carry (22 km refused, 24 km placed). Every reject still counts both heads
+    /// as candidates lost to a constraint.
     #[test]
     fn each_portage_constraint_is_load_bearing() {
-        // Protects: each hard constraint, one at a time, against the positive
-        // fixture, and each numeric bound from both sides. Water below
-        // navigable order is no domain at all (0 candidates). Sea in the gap
-        // floods the carry. Then the two numbers, as literals rather than
-        // against their constants: a 20 km carry places and a 21 km one does
-        // not (`PORTAGE_MAX_CARRY_KM`), and over a 20 km carry 116 km round
-        // places while 114 km does not, the 28 / 4.9 ≈ 5.714 ratio landing at
-        // 114.3 km between them (`PORTAGE_MIN_DETOUR_RATIO`). Every reject
-        // still counts both heads as candidates lost to a constraint.
         let nav = crate::river_class::NAVIGABLE_ORDER;
         let low = run_two_basins(4, 30, nav - 1, false);
         let f = low.funnel("portage").unwrap();
@@ -9850,14 +9868,14 @@ mod tests {
         }
     }
 
+    /// Protects: the two carry constraints separately, each on a fixture
+    /// the other passes (a mutation run found the shared "sea in the gap"
+    /// case killed neither alone). A 6 km carry with one ocean cell beside
+    /// the west landing, not at the midpoint: refused by the ocean test.
+    /// The same carry with no ocean but a lake at the midpoint (water mask
+    /// 2, neither land nor ocean): refused by the midpoint test only.
     #[test]
     fn the_ocean_test_and_the_midpoint_test_each_refuse_on_their_own() {
-        // Protects: the two carry constraints separately, each on a fixture
-        // the other passes (a mutation run found the shared "sea in the gap"
-        // case killed neither alone). A 6 km carry with one ocean cell beside
-        // the west landing, not at the midpoint: refused by the ocean test.
-        // The same carry with no ocean but a lake at the midpoint (water mask
-        // 2, neither land nor ocean): refused by the midpoint test only.
         let nav = crate::river_class::NAVIGABLE_ORDER;
         let (len, gap) = (40usize, 6usize);
         let run = |field: &[f32], water: Option<&[u8]>, chan: &[u8], recv: &[i32], order: &[i16], gw: usize, gh: usize| {
@@ -9880,11 +9898,11 @@ mod tests {
         assert_eq!(run(&field, Some(&water), &chan, &recv, &order, gw, gh), 0, "a lake at the midpoint");
     }
 
+    /// Protects: navigability is never guessed from flow — with no order
+    /// raster the kind is `NoTerrain` with zero candidates, not a run over
+    /// every channel.
     #[test]
     fn portage_degrades_without_strahler_order() {
-        // Protects: navigability is never guessed from flow — with no order
-        // raster the kind is `NoTerrain` with zero candidates, not a run over
-        // every channel.
         let (field, chan, recv, _order, gw, gh) =
             two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
         let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, gw as f64);
@@ -9896,11 +9914,11 @@ mod tests {
         assert_eq!(f.limit, LandmarkLimit::NoTerrain);
     }
 
+    /// Protects: `drainage_basins` on a broken tree — a two-cell receiver
+    /// cycle on the west river — terminates rather than looping forever (a
+    /// hang on Godot's worker thread), and the run still completes.
     #[test]
     fn a_receiver_cycle_ends_a_basin_walk_instead_of_hanging() {
-        // Protects: `drainage_basins` on a broken tree — a two-cell receiver
-        // cycle on the west river — terminates rather than looping forever (a
-        // hang on Godot's worker thread), and the run still completes.
         let (field, chan, mut recv, order, gw, gh) =
             two_basins(4, 30, crate::river_class::NAVIGABLE_ORDER, false);
         let row = gh / 2;
@@ -9915,12 +9933,12 @@ mod tests {
         assert!(r.funnel("portage").is_some());
     }
 
+    /// Protects: Portage places on real generated worlds, not only on the
+    /// hand-built fixture — the `UNWIRED_FUNCTIONS.md` failure of a flag
+    /// flipped to buildable on a kind that never fires. Prints each seed's
+    /// funnel, the measurement behind the constants.
     #[test]
     fn portages_place_on_a_world_generate_terrain_really_made() {
-        // Protects: Portage places on real generated worlds, not only on the
-        // hand-built fixture — the `UNWIRED_FUNCTIONS.md` failure of a flag
-        // flipped to buildable on a kind that never fires. Prints each seed's
-        // funnel, the measurement behind the constants.
         let mut total = 0;
         for seed in [24601, 483920, 71077345] {
             let r = real_world(256, 192, seed);
@@ -9985,15 +10003,15 @@ mod tests {
         w
     }
 
+    /// Protects: `LandmarkHistory::from_timeline`'s whole contract, each
+    /// clause by its own record. Live year 25. tid 5 was recorded in 10 and
+    /// 20 (moved between them) and is gone: former, at its year-20 place.
+    /// tid 6 appears only in year 30, after the cursor: not history. tid 7
+    /// is live: not former. tid 0 is unassigned: skipped. Way 50 is gone:
+    /// former. Way 51 was hidden when recorded: skipped. Way 52 is live
+    /// only as a hidden way: still present. Output in tid order.
     #[test]
     fn history_is_what_an_earlier_year_had_and_the_live_world_lacks() {
-        // Protects: `LandmarkHistory::from_timeline`'s whole contract, each
-        // clause by its own record. Live year 25. tid 5 was recorded in 10 and
-        // 20 (moved between them) and is gone: former, at its year-20 place.
-        // tid 6 appears only in year 30, after the cursor: not history. tid 7
-        // is live: not former. tid 0 is unassigned: skipped. Way 50 is gone:
-        // former. Way 51 was hidden when recorded: skipped. Way 52 is live
-        // only as a hidden way: still present. Output in tid order.
         let timeline = vec![
             year(30, vec![named(6, 9, 9, 50, "Later")], vec![]),
             year(
@@ -10043,14 +10061,14 @@ mod tests {
         s
     }
 
+    /// Protects: Abandoned settlement's domain and both constraints, sampled on
+    /// either side of the 5 km clearance (`ABANDONED_CLEAR_KM`), not at it. On
+    /// the 4 km-cell flat world with one live town at (64, 32): a former site 2
+    /// cells (8 km) away places; one 1 cell (4 km) away is inside the clearance
+    /// and is refused; one off the grid and one whose cell is now sea are
+    /// refused. The chain names the place and its last year.
     #[test]
     fn an_abandoned_settlement_is_a_former_site_nobody_lives_near() {
-        // Protects: Abandoned settlement's domain and both constraints, at
-        // their bounds. On the 4 km-cell flat world with one live town at
-        // (64, 32): a former site 2 cells (8 km) away places; one 1 cell
-        // (4 km) away is inside the 5 km clearance and is refused; one off
-        // the grid and one whose cell is now sea are refused. The chain names
-        // the place and its last year.
         let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
         let field = flat(gw, gh);
         let sites = [LandmarkSite { x: 64, y: 32, population: 1000.0 }];
@@ -10080,15 +10098,15 @@ mod tests {
         assert!(chain.contains("nearest settlement now 8 km"), "{chain}");
     }
 
+    /// Protects: Ancient road's placement rule and its one constraint. A
+    /// former road (20, 10) -> (60, 10) whose middle third is under a live
+    /// road gets its mark on the old course, off the live road, at the
+    /// abandoned cell nearest its half-way point (x = 40 is live, so the
+    /// nearest free cell is where the live stretch ends). A former road
+    /// entirely under a live one is refused. Without a history both
+    /// ancient-road and abandoned-settlement are `NoTerrain`.
     #[test]
     fn an_ancient_road_is_marked_on_its_old_course_off_every_live_road() {
-        // Protects: Ancient road's placement rule and its one constraint. A
-        // former road (20, 10) -> (60, 10) whose middle third is under a live
-        // road gets its mark on the old course, off the live road, at the
-        // abandoned cell nearest its half-way point (x = 40 is live, so the
-        // nearest free cell is where the live stretch ends). A former road
-        // entirely under a live one is refused. Without a history both
-        // ancient-road and abandoned-settlement are `NoTerrain`.
         let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
         let field = flat(gw, gh);
         let live = [straight((33, 10), (47, 10), crate::WayType::Road), straight((10, 40), (60, 40), crate::WayType::Road)];

@@ -2550,8 +2550,10 @@ mod tests {
     // tiles, the export's cell rule, the export's smooth shore or its
     // sea-or-lake kind -- so the valley may reshape the land beside water
     // (the unfrozen ring) and not one water pixel moves. The shaded field here
-    // lifts the land beside the sea and fills the mouth, which moves the
-    // sub-cell sea-level contour of every bilinear cell on the coast.
+    // lifts the two columns of land beside the sea by 0.1 and fills the mouth
+    // channel, and the positive control checks that deciding water from it
+    // instead DOES change the tiles' and the cell rule's water pixels (it
+    // asserts they differ, not that every coastal cell's contour moved).
     #[test]
     fn the_water_mask_is_the_same_whatever_the_shaded_field_holds() {
         let (f, s, gw, gh) = mouth_world();
@@ -2610,8 +2612,10 @@ mod tests {
 
     // Protects: on a real generated world, RV-3's valley field -- with the
     // ring of land beside water no longer frozen -- moves no water pixel in
-    // any tile of levels 0-3 or anywhere in the export, while it does change
-    // land beside water (the step at the mouths is gone). A small grid, so it
+    // any tile of levels 0-3 or in the export's cell-rule cover, smooth-shore
+    // cover or fully-water colours. The premise asserts only that the valley
+    // field changes at least one land cell beside water bit-for-bit; it does
+    // not assert that the step at the mouths is gone. A small grid, so it
     // runs with the suite.
     #[test]
     fn a_generated_world_draws_the_same_water_with_the_valley_field() {
