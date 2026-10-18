@@ -1264,6 +1264,7 @@ fn rock_fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
         construction: cartalith_terrain::geology::Construction::Off,
+        painted: None,
     };
     let (mut s, mut pre) = (vec![0f32; n], vec![0f32; n]);
     for y in 0..gh {
@@ -2922,6 +2923,7 @@ fn b13_the_prototype_stage_reaches_the_stream_power_steady_state() {
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
         construction: cartalith_terrain::geology::Construction::Off,
+        painted: None,
     };
     let z0: Vec<f32> = (0..n).map(|i| (0.3 + 0.004 * (i / gw) as f64) as f32).collect();
     let rain = vec![0f32; n];
@@ -3027,7 +3029,7 @@ fn b14_construction_keeps_the_column_and_makes_no_inland_pits() {
             contact[i] = (z0[i] as f64 - m(h)) as f32;
         }
     }
-    let col = GeologyColumn { rock_top: top, rock_sub: sub, contact: contact.clone(), regolith: vec![0.0; n], volcanic_setting: vec![0; n], construction: cartalith_terrain::geology::Construction::Off };
+    let col = GeologyColumn { rock_top: top, rock_sub: sub, contact: contact.clone(), regolith: vec![0.0; n], volcanic_setting: vec![0; n], construction: cartalith_terrain::geology::Construction::Off, painted: None };
     let pre = fixture_world(z0.clone(), col, sea);
     let ocean0: Vec<bool> = (0..n).map(|i| (z0[i] as f64) < sea).collect();
     let shape = vec![1.0f64; n];

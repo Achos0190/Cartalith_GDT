@@ -184,6 +184,14 @@ pub mod channel_atlas;
 /// and τ ≠ 1; see the module's own doc for what it must never do.
 pub mod geo_clock;
 
+/// GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13, Ruling BJ): lithology painting's
+/// bake and the differential re-erosion of the painted window. **No
+/// production caller yet**: the shell's Rock paint target (GF-8's second
+/// slice) is to call [`rock_paint::commit`] from `WorldGen::paint_commit`;
+/// today only `tests/gf8_rock_paint.rs` does. Nothing in `generate_terrain`
+/// calls it, so it cannot move a generated world.
+pub mod rock_paint;
+
 /// **NWP-1** (`NEW_WORLD_PREVIEW_PROPOSAL.md`, Ruling CE): the New World
 /// dialog's seed preview -- a coarse land/ocean mask from the same
 /// [`tectonic_substrate`] generation runs, with two cell-unit corrections.
@@ -3629,6 +3637,7 @@ mod tests {
             regolith: vec![0.0; n],
             volcanic_setting: vec![0; n],
             construction: cartalith_terrain::geology::Construction::Off,
+            painted: None,
         };
         let f = (0..n).map(|i| if i % 10 < 4 { 0.05 } else { 0.15 + 0.02 * (i % 10 - 4) as f32 }).collect();
         (Geology::Column(Box::new(col)), f)
@@ -3711,6 +3720,7 @@ mod tests {
             regolith: vec![0.0005; n],
             volcanic_setting: vec![0; n],
             construction: cartalith_terrain::geology::Construction::Off,
+            painted: None,
         };
         let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0) };
         let gp = GlacialParams { kg: 5.0, mg: p.passes.glacial_mg, snowline: 0.0, u_factor: p.passes.glacial_u_factor, passes: 1, g: p.planet.g, sea: 0.1, world: false };
@@ -3755,6 +3765,7 @@ mod tests {
             regolith: vec![0.0, 0.0],
             volcanic_setting: vec![0; 2],
             construction: cartalith_terrain::geology::Construction::Off,
+            painted: None,
         };
         (Geology::Column(Box::new(col)), vec![0.6, 0.5])
     }
@@ -3824,6 +3835,7 @@ mod tests {
                 regolith: vec![0.0; 3],
                 volcanic_setting: vec![0; 3],
                 construction: cartalith_terrain::geology::Construction::Off,
+                painted: None,
             };
             let mut geo = Geology::Column(Box::new(col));
             let mut f = vec![0.5f32, 0.5, 0.6];

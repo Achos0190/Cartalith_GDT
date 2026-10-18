@@ -258,6 +258,7 @@ mod tests {
             regolith: vec![0.0; tops.len()],
             volcanic_setting: vec![0; tops.len()],
             construction: Construction::Off,
+            painted: None,
         }
     }
 

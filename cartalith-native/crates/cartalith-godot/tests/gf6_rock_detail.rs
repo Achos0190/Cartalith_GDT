@@ -150,6 +150,7 @@ fn column(top: Rock, sub: Option<(Rock, f32)>, n: usize) -> GeologyColumn {
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
         construction: Construction::Off,
+        painted: None,
     }
 }
 

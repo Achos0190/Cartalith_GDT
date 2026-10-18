@@ -728,8 +728,9 @@ pub fn kappa_multiplier(rock: cartalith_terrain::geology::Rock, contrast: f64) -
 /// body is a golden-verified port (`tests/golden_parity_streampower.rs`), and
 /// with no rock input the shared core takes the legacy arithmetic **by
 /// control flow**, never by an identity of arithmetic (`MISTAKES.md`,
-/// "Change generated output"). The whole-world path only: `tile_erode` gains
-/// a rock input when EF-3 gains a production caller (§4.1).
+/// "Change generated output"). The whole-world path only; the tile-bounded
+/// rock entry is [`crate::tile::tile_erode_rock`] (GF-8, §4.13), which §4.1
+/// deferred until `tile_erode` had a production caller.
 ///
 /// Inside the iterations, per cell:
 /// - the coefficient is `K·g·κ(exposed)^c·(1 + 2·ck·rain)·dt·A^m/L`, the

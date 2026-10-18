@@ -24082,10 +24082,27 @@ impl RedoTail {
 /// every `#[func]` here needs a live Godot engine (see this file's
 /// `landmark_dict_tests` for the same constraint, stated at length), and the
 /// cursor invariant is the part worth testing.
+#[cfg(test)]
 fn undo_one(
     undo: &mut undo::HeightUndo,
     redo: &mut RedoTail,
     field: &mut [f32],
+) -> Option<String> {
+    undo_one_with(undo, redo, field, None)
+}
+
+/// [`undo_one`] that also carries the geology column (GF-8,
+/// `GEOLOGY_FIRST_SCOPE.md` §4.13): when the step being undone holds a
+/// column snapshot, the live column is snapshotted onto the redo tail beside
+/// the field and the step's snapshot is written back over it, both or
+/// neither. With `column` `None` a column step is refused (popped, as a
+/// length mismatch is) and nothing is written. Every production undo goes
+/// through here; the column-free form is the unit tests'.
+fn undo_one_with(
+    undo: &mut undo::HeightUndo,
+    redo: &mut RedoTail,
+    field: &mut [f32],
+    mut column: Option<&mut cartalith_terrain::geology::GeologyColumn>,
 ) -> Option<String> {
     if !redo.is_current(undo.depth()) {
         // Something was pushed since the last undo: the tail is unreachable
@@ -24094,14 +24111,16 @@ fn undo_one(
     }
     let label = undo.next_label()?.to_string();
     // Captured *before* the restore, which is the only moment this state
-    // exists anywhere: `HeightUndo::restore` overwrites it in place.
-    redo.steps.push(&label, field);
-    if undo.restore(field).is_none() {
-        // A length mismatch -- `undo.rs` refuses and drops the step. The tail
-        // entry pushed a line ago describes a field that was never left, so
-        // take it straight back off; the write it performs is the bytes that
-        // are already there.
-        redo.steps.restore(field);
+    // exists anywhere: `HeightUndo::restore` overwrites it in place. A
+    // column is captured only for a step that will restore one.
+    let snap = if undo.next_has_column() { column.as_deref().map(undo::ColumnSnapshot::of) } else { None };
+    redo.steps.push_with_column(&label, field, snap);
+    if undo.restore_with(field, column.as_deref_mut()).is_none() {
+        // A length mismatch (or a column step with no column) -- `undo.rs`
+        // refuses and drops the step. The tail entry pushed a line ago
+        // describes a state that was never left, so take it straight back
+        // off; the write it performs is the bytes that are already there.
+        redo.steps.restore_with(field, column);
         redo.at_undo_depth = undo.depth();
         return None;
     }
@@ -24112,20 +24131,35 @@ fn undo_one(
 /// One step forward: re-apply the newest tail entry and put the state it
 /// replaces back on the undo stack, so the pair is walkable in both
 /// directions any number of times.
+#[cfg(test)]
 fn redo_one(
     undo: &mut undo::HeightUndo,
     redo: &mut RedoTail,
     field: &mut [f32],
+) -> Option<String> {
+    redo_one_with(undo, redo, field, None)
+}
+
+/// [`redo_one`] carrying the geology column, as [`undo_one_with`] does for
+/// undo: a tail entry with a column snapshot re-applies field and column
+/// together and puts the live column back on the undo stack beside the
+/// field.
+fn redo_one_with(
+    undo: &mut undo::HeightUndo,
+    redo: &mut RedoTail,
+    field: &mut [f32],
+    mut column: Option<&mut cartalith_terrain::geology::GeologyColumn>,
 ) -> Option<String> {
     if !redo.is_current(undo.depth()) {
         redo.clear();
         return None;
     }
     let label = redo.steps.next_label()?.to_string();
-    undo.push(&label, field);
-    if redo.steps.restore(field).is_none() {
-        // Same refusal, same repair as `undo_one`.
-        undo.restore(field);
+    let snap = if redo.steps.next_has_column() { column.as_deref().map(undo::ColumnSnapshot::of) } else { None };
+    undo.push_with_column(&label, field, snap);
+    if redo.steps.restore_with(field, column.as_deref_mut()).is_none() {
+        // Same refusal, same repair as `undo_one_with`.
+        undo.restore_with(field, column);
         redo.clear();
         return None;
     }
@@ -24244,7 +24278,7 @@ impl WorldGen {
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
             return GString::new();
         };
-        let Some(label) = undo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()) else {
+        let Some(label) = undo_one_with(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), ws.geology.column_mut()) else {
             return GString::new();
         };
         // ED-02: the ledger's row for that operation goes with it.
@@ -24391,7 +24425,7 @@ impl WorldGen {
             return self.redo_drag_step().is_some();
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
-        let Some(label) = redo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()) else {
+        let Some(label) = redo_one_with(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), ws.geology.column_mut()) else {
             return false;
         };
         let seq_before = self.ledger.last_seq();
@@ -24509,7 +24543,7 @@ impl WorldGen {
             let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { break };
             // Through the cursor, so a multi-step rollback is as redoable as
             // a single `undo_last()` is -- one `redo_last()` per step.
-            if undo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()).is_none() {
+            if undo_one_with(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), ws.geology.column_mut()).is_none() {
                 break;
             }
             // The row goes with the snapshot, as in `undo_last()`, so the next
@@ -25900,5 +25934,85 @@ mod global_redo_tests {
         assert_eq!(undo_one(&mut undo, &mut redo, &mut resized), None);
         assert_eq!(resized, vec![5.0f32; 3], "a refused undo must not write");
         assert!(!redo.is_current(undo.depth()), "a step that did not happen is not redoable");
+    }
+}
+
+/// GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13, §7 GF-8): the undo cursor carrying
+/// the geology column -- undo then redo of a Rock paint step is exact for the
+/// field and the column, any number of times, and a plain height step in the
+/// same stack still leaves the column alone.
+#[cfg(test)]
+mod rock_undo_cursor_tests {
+    use super::*;
+    use cartalith_terrain::geology::{Construction, GeologyColumn, NO_LAYER};
+
+    /// An 8-cell column with every paintable array set from `v`.
+    fn col(v: u8) -> GeologyColumn {
+        GeologyColumn {
+            rock_top: vec![v; 8],
+            rock_sub: vec![NO_LAYER; 8],
+            contact: vec![f32::NAN; 8],
+            regolith: vec![v as f32 * 0.01; 8],
+            volcanic_setting: vec![0; 8],
+            construction: Construction::Off,
+            painted: (v > 0).then(|| vec![1; 8]),
+        }
+    }
+
+    /// Bit view, NaN included.
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// The paintable part of a column, comparable.
+    fn key(c: &GeologyColumn) -> (Vec<u8>, Vec<u8>, Vec<u32>, Vec<u32>, Option<Vec<u8>>) {
+        (c.rock_top.clone(), c.rock_sub.clone(), bits(&c.contact), bits(&c.regolith), c.painted.clone())
+    }
+
+    #[test]
+    fn rock_paint_undo_and_redo_are_exact_for_field_and_column() {
+        // Protects: §7 GF-8 "undo and redo are exact for the field and the
+        // column", walked three times.
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = vec![0.5f32; 8];
+        let mut c = col(0);
+        // A plain sculpt step first, then the rock paint step on top.
+        undo.push("Sculpt commit", &f);
+        redo.clear();
+        f.iter_mut().for_each(|v| *v = 0.6);
+        undo.push_with_column("Rock paint commit", &f, Some(undo::ColumnSnapshot::of(&c)));
+        redo.clear();
+        let (f_pre, c_pre) = (bits(&f), key(&c));
+        f.iter_mut().for_each(|v| *v = 0.55);
+        c = col(9);
+        let (f_post, c_post) = (bits(&f), key(&c));
+        for _ in 0..3 {
+            assert_eq!(undo_one_with(&mut undo, &mut redo, &mut f, Some(&mut c)).as_deref(), Some("Rock paint commit"));
+            assert_eq!((bits(&f), key(&c)), (f_pre.clone(), c_pre.clone()));
+            assert_eq!(redo_one_with(&mut undo, &mut redo, &mut f, Some(&mut c)).as_deref(), Some("Rock paint commit"));
+            assert_eq!((bits(&f), key(&c)), (f_post.clone(), c_post.clone()));
+        }
+        // Back past both: the sculpt step restores the field and leaves the
+        // column at the rock step's pre-state.
+        undo_one_with(&mut undo, &mut redo, &mut f, Some(&mut c));
+        assert_eq!(undo_one_with(&mut undo, &mut redo, &mut f, Some(&mut c)).as_deref(), Some("Sculpt commit"));
+        assert_eq!(bits(&f), bits(&[0.5; 8]));
+        assert_eq!(key(&c), c_pre);
+    }
+
+    #[test]
+    fn a_rock_step_with_no_column_is_refused_and_writes_nothing() {
+        // Protects: both-or-neither through the cursor.
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = vec![0.6f32; 8];
+        undo.push_with_column("Rock paint commit", &f, Some(undo::ColumnSnapshot::of(&col(0))));
+        redo.clear();
+        f.iter_mut().for_each(|v| *v = 0.55);
+        assert_eq!(undo_one_with(&mut undo, &mut redo, &mut f, None), None);
+        assert_eq!(bits(&f), bits(&[0.55; 8]));
+        assert!(undo.is_empty());
+        assert_eq!(redo_one_with(&mut undo, &mut redo, &mut f, None), None);
     }
 }

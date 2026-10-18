@@ -503,6 +503,17 @@ pub struct GeologyColumn {
     /// [`Construction::Off`]; only `cartalith_erosion::construct_relief`
     /// writes anything else.
     pub construction: Construction,
+    /// GF-8's provenance mask (`GEOLOGY_FIRST_SCOPE.md` §2.6's
+    /// `rock_painted.u8` row, §4.13; owner Ruling BJ): `1` where the user
+    /// painted any of rock, substrate or cap thickness, `0` where the column
+    /// is as generated. **`None` means nobody has painted this world**, and it
+    /// is recorded absent rather than as an all-zero mask (§2.6: "a reader
+    /// MUST NOT substitute an all-zero one on re-save"). Only
+    /// `cartalith_engine::rock_paint::bake` writes `Some` (an undo step
+    /// restores whatever it snapshotted); [`build_geology`] always writes
+    /// `None`. It is provenance only: no process reads it, so
+    /// it can never move generated output.
+    pub painted: Option<Vec<u8>>,
 }
 
 /// GF-11's record on the column (`GEOLOGY_FIRST_SCOPE.md` §4.14, §7 GF-11;
@@ -783,6 +794,7 @@ pub fn build_geology(inp: &GeologyInputs) -> GeologyColumn {
         regolith: vec![0.0; n],
         volcanic_setting: vec![setting_code::NONE; n],
         construction: Construction::Off,
+        painted: None,
     };
 
     for i in 0..n {
@@ -1026,6 +1038,7 @@ mod tests {
             regolith: regolith.to_vec(),
             volcanic_setting: vec![0; top.len()],
             construction: Construction::Off,
+            painted: None,
         }
     }
 

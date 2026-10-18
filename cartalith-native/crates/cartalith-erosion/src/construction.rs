@@ -777,6 +777,7 @@ mod tests {
             regolith: vec![0.0; n],
             volcanic_setting: vec![0; n],
             construction: Construction::Off,
+            painted: None,
         };
         Fix { gw, gh, z0, col, contact, sea, mpu }
     }
@@ -1039,6 +1040,7 @@ mod tests {
             regolith: vec![0.0; n],
             volcanic_setting: vec![0; n],
             construction: Construction::Off,
+            painted: None,
         };
         // A gentle eastward rise well above sea, so no fill touches the edge.
         let z0: Vec<f32> = (0..n).map(|i| (sea + 0.2 + 0.001 * (i % gw) as f64) as f32).collect();

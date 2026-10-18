@@ -1534,6 +1534,7 @@ mod gf4_rock_tests {
             regolith: vec![0.0; n],
             volcanic_setting: vec![0; n],
             construction: Construction::Off,
+            painted: None,
         }
     }
 

@@ -98,8 +98,76 @@
 //! longer carved. That is the reference's own behaviour, and matching it
 //! costs 0 MB where diverging costs +130 % per step (a `u8` mask plus a
 //! second `f32` field). Stated rather than fixed.
+//!
+//! ## The rock column, on a GF-8 step only
+//!
+//! A Rock paint commit (`GEOLOGY_FIRST_SCOPE.md` §4.13, owner Ruling BJ)
+//! changes the geology column as well as the field, so its step carries a
+//! [`ColumnSnapshot`]: `rock_top`, `rock_sub`, `contact`, `regolith` and the
+//! `painted` mask, 10 or 11 B per cell on top of the field's 4 (40.3 MB per
+//! step at 2048 × 1311 with the mask, arithmetic). It is charged to the same
+//! byte budget. [`HeightUndo::restore_with`] restores both or neither. A step
+//! without a column (every other kind) is exactly the step it always was.
 
 use std::collections::VecDeque;
+
+use cartalith_terrain::geology::GeologyColumn;
+
+/// The part of a geology column a Rock paint commit can change (GF-8,
+/// `GEOLOGY_FIRST_SCOPE.md` §4.13 step 1): what an undo step restores beside
+/// the field. `volcanic_setting` and `construction` are not snapshotted
+/// because no paint commit writes them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnSnapshot {
+    pub rock_top: Vec<u8>,
+    pub rock_sub: Vec<u8>,
+    pub contact: Vec<f32>,
+    pub regolith: Vec<f32>,
+    /// `None` exactly when the column's own mask is absent, so an undo back
+    /// past the first paint restores "nobody painted", not an all-zero mask.
+    pub painted: Option<Vec<u8>>,
+}
+
+impl ColumnSnapshot {
+    /// A copy of `c`'s paintable part.
+    pub fn of(c: &GeologyColumn) -> Self {
+        ColumnSnapshot {
+            rock_top: c.rock_top.clone(),
+            rock_sub: c.rock_sub.clone(),
+            contact: c.contact.clone(),
+            regolith: c.regolith.clone(),
+            painted: c.painted.clone(),
+        }
+    }
+
+    /// Cells covered.
+    pub fn len(&self) -> usize {
+        self.rock_top.len()
+    }
+
+    /// `true` if it covers no cells.
+    pub fn is_empty(&self) -> bool {
+        self.rock_top.is_empty()
+    }
+
+    /// Heap bytes held: 1 + 1 + 4 + 4 per cell, plus 1 with the mask.
+    fn bytes(&self) -> usize {
+        self.rock_top.len()
+            + self.rock_sub.len()
+            + std::mem::size_of_val(self.contact.as_slice())
+            + std::mem::size_of_val(self.regolith.as_slice())
+            + self.painted.as_ref().map_or(0, Vec::len)
+    }
+
+    /// Writes this snapshot over `c`. The caller has checked the length.
+    fn write_into(&self, c: &mut GeologyColumn) {
+        c.rock_top.copy_from_slice(&self.rock_top);
+        c.rock_sub.copy_from_slice(&self.rock_sub);
+        c.contact.copy_from_slice(&self.contact);
+        c.regolith.copy_from_slice(&self.regolith);
+        c.painted = self.painted.clone();
+    }
+}
 
 /// The reference's `MAX_UNDO`. Kept literally; the byte budget is what
 /// actually binds on a large world.
@@ -120,6 +188,9 @@ pub struct UndoStep {
     pub label: String,
     /// The height field as it was *before* that operation.
     pub field: Vec<f32>,
+    /// GF-8: the geology column as it was before a Rock paint commit;
+    /// `None` on every other step.
+    pub column: Option<ColumnSnapshot>,
 }
 
 impl UndoStep {
@@ -127,7 +198,7 @@ impl UndoStep {
     /// total in [`HeightUndo`] and the budget check in `evict`; it must stay in step
     /// with how `push` adds and `restore`/`evict` subtract, or the total drifts.
     fn bytes(&self) -> usize {
-        self.field.len() * std::mem::size_of::<f32>()
+        self.field.len() * std::mem::size_of::<f32>() + self.column.as_ref().map_or(0, ColumnSnapshot::bytes)
     }
 }
 
@@ -163,10 +234,16 @@ impl HeightUndo {
     /// A zero-length field is not pushed: there is no world to revert to, and
     /// an empty step would occupy a slot that a real one could use.
     pub fn push(&mut self, label: &str, field: &[f32]) {
+        self.push_with_column(label, field, None);
+    }
+
+    /// [`Self::push`] with a column snapshot on the step (GF-8's Rock paint
+    /// commit). `None` is exactly [`Self::push`].
+    pub fn push_with_column(&mut self, label: &str, field: &[f32], column: Option<ColumnSnapshot>) {
         if field.is_empty() {
             return;
         }
-        let step = UndoStep { label: label.to_string(), field: field.to_vec() };
+        let step = UndoStep { label: label.to_string(), field: field.to_vec(), column };
         self.bytes += step.bytes();
         self.stack.push_back(step);
         self.evict();
@@ -191,13 +268,34 @@ impl HeightUndo {
     /// be worse than refusing. A refused step is still popped: it can never
     /// become valid again, and leaving it would wedge the stack.
     pub fn restore(&mut self, field: &mut [f32]) -> Option<String> {
+        self.restore_with(field, None)
+    }
+
+    /// [`Self::restore`], also writing the step's column snapshot back over
+    /// `column` (GF-8). **Both or neither**: a step that carries a snapshot
+    /// is refused (and popped, as a length mismatch is) when `column` is
+    /// `None` or a different length, and nothing is written. A step without
+    /// a snapshot leaves `column` untouched.
+    pub fn restore_with(&mut self, field: &mut [f32], column: Option<&mut GeologyColumn>) -> Option<String> {
         let step = self.stack.pop_back()?;
         self.bytes -= step.bytes();
         if step.field.len() != field.len() {
             return None;
         }
+        match (&step.column, column) {
+            (None, _) => {}
+            (Some(snap), Some(c)) if snap.len() == c.len() => snap.write_into(c),
+            (Some(_), _) => return None,
+        }
         field.copy_from_slice(&step.field);
         Some(step.label)
+    }
+
+    /// Whether the step [`Self::restore_with`] would pop next carries a
+    /// column snapshot, so a caller can snapshot the live column onto the
+    /// redo tail before the restore overwrites it.
+    pub fn next_has_column(&self) -> bool {
+        self.stack.back().is_some_and(|s| s.column.is_some())
     }
 
     /// Drop everything. Called on generate/load — see the module doc.
@@ -1315,5 +1413,95 @@ mod ledger_tests {
         let b = l.record("world", "Generate", "", EntryKind::Floor);
         let c = l.record("height", "c", "", EntryKind::HeightSnapshot);
         assert!(a < b && b < c);
+    }
+}
+
+/// GF-8's column snapshot on an undo step (`GEOLOGY_FIRST_SCOPE.md` §4.13
+/// step 1): both-or-neither restore, the refusal without a column, and the
+/// byte charge. The pre-GF-8 tests above are untouched, which is §7 GF-8's
+/// "the existing undo tests are unchanged".
+#[cfg(test)]
+mod column_tests {
+    use super::*;
+    use cartalith_terrain::geology::{Construction, NO_LAYER};
+
+    /// A 4-cell column whose every paintable byte is `v`-derived, so two
+    /// columns built from different `v` differ in every array.
+    fn col(v: u8) -> GeologyColumn {
+        GeologyColumn {
+            rock_top: vec![v; 4],
+            rock_sub: vec![NO_LAYER; 4],
+            contact: vec![f32::NAN; 4],
+            regolith: vec![v as f32 * 0.001; 4],
+            volcanic_setting: vec![0; 4],
+            construction: Construction::Off,
+            painted: (v > 0).then(|| vec![1; 4]),
+        }
+    }
+
+    /// Bit view, NaN included.
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    #[test]
+    fn a_column_step_restores_the_field_and_the_column_together() {
+        // Protects: "undo restores the field and the column byte-identically".
+        let mut u = HeightUndo::new();
+        let before = col(0);
+        u.push_with_column("Rock paint commit", &[0.1; 4], Some(ColumnSnapshot::of(&before)));
+        assert!(u.next_has_column());
+        let mut field = vec![0.2f32; 4];
+        let mut c = col(9);
+        assert_eq!(u.restore_with(&mut field, Some(&mut c)).as_deref(), Some("Rock paint commit"));
+        assert_eq!(bits(&field), bits(&[0.1; 4]));
+        assert_eq!(c.rock_top, before.rock_top);
+        assert_eq!(bits(&c.regolith), bits(&before.regolith));
+        assert_eq!(bits(&c.contact), bits(&before.contact));
+        assert_eq!(c.painted, None, "undo past the first paint restores an absent mask");
+    }
+
+    #[test]
+    fn a_column_step_without_a_column_writes_neither() {
+        // Protects: both-or-neither -- a refused step writes no field byte.
+        let mut u = HeightUndo::new();
+        u.push_with_column("Rock paint commit", &[0.1; 4], Some(ColumnSnapshot::of(&col(0))));
+        let mut field = vec![0.2f32; 4];
+        assert_eq!(u.restore_with(&mut field, None), None);
+        assert_eq!(bits(&field), bits(&[0.2; 4]));
+        assert!(u.is_empty(), "a refused step is popped, as a length mismatch is");
+        // A column of the wrong length is refused the same way.
+        u.push_with_column("Rock paint commit", &[0.1; 4], Some(ColumnSnapshot::of(&col(0))));
+        let mut short = col(9);
+        short.rock_top.pop();
+        assert_eq!(u.restore_with(&mut field, Some(&mut short)), None);
+        assert_eq!(bits(&field), bits(&[0.2; 4]));
+    }
+
+    #[test]
+    fn a_plain_step_leaves_the_column_alone() {
+        // Protects: every pre-GF-8 step kind is unchanged by the column arm.
+        let mut u = HeightUndo::new();
+        u.push("Sculpt commit", &[0.1; 4]);
+        assert!(!u.next_has_column());
+        let mut field = vec![0.2f32; 4];
+        let mut c = col(9);
+        assert!(u.restore_with(&mut field, Some(&mut c)).is_some());
+        assert_eq!(c.rock_top, vec![9; 4]);
+    }
+
+    #[test]
+    fn a_column_step_is_charged_to_the_byte_budget() {
+        // Protects: the 4 + 11 B per cell of §4.13 (literal: 4 cells x 15 B
+        // with a mask = 60; without the mask 4 x 14 = 56).
+        let mut u = HeightUndo::new();
+        u.push_with_column("a", &[0.0; 4], Some(ColumnSnapshot::of(&col(1))));
+        assert_eq!(u.bytes(), 60);
+        u.push_with_column("b", &[0.0; 4], Some(ColumnSnapshot::of(&col(0))));
+        assert_eq!(u.bytes(), 116);
+        let mut f = vec![0.0f32; 4];
+        let mut c = col(5);
+        u.restore_with(&mut f, Some(&mut c));
+        assert_eq!(u.bytes(), 60);
     }
 }

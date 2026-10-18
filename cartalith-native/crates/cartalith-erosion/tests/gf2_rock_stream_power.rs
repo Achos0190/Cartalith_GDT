@@ -38,6 +38,7 @@ fn column(top: Rock, sub: Option<(Rock, f32)>, regolith_c: f32) -> GeologyColumn
         regolith: vec![0.0; 9],
         volcanic_setting: vec![0; 9],
         construction: cartalith_terrain::geology::Construction::Off,
+        painted: None,
     };
     if let Some((s, c)) = sub {
         col.rock_sub[C] = s as u8;
@@ -190,6 +191,7 @@ fn at_contrast_zero_the_rock_kernel_is_the_legacy_kernel() {
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
         construction: cartalith_terrain::geology::Construction::Off,
+        painted: None,
     };
     let mut f = pre.clone();
     stream_power_kernel_rock(&mut f, &zeros, &rain, w, h, &p, &mut StreamPowerRock { column: &mut col, contrast: 0.0, r_expose: 0.01 });

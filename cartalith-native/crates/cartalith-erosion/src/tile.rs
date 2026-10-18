@@ -410,7 +410,10 @@ pub fn uniform_area_seed(w: usize, h: usize, refine: usize) -> Vec<f32> {
 /// explicit that a panic crossing the gdext boundary takes the Godot process
 /// with it. **A future bridge validates before calling this**, the same way
 /// `world_elevation_tile` does; it does not hand a `#[func]` straight through.
-/// Nothing in this module is called by shipping code yet.
+/// This entry has no shipping caller; its rock sibling [`tile_erode_rock`] is
+/// called by GF-8's painted-window re-erosion (`cartalith_engine::rock_paint`),
+/// which validates the window before calling and which itself has no shell
+/// caller until GF-8's Rock paint target is built.
 #[allow(clippy::too_many_arguments)]
 pub fn tile_erode(
     refined: &mut [f32],
@@ -438,6 +441,67 @@ pub fn tile_erode(
     let pinned = ring_mask(w, h);
     let tile_p = StreamPowerParams { k: p.k * refine as f64, ..*p };
     stream_power_kernel_bounded(refined, stress, resist, rain, w, h, &tile_p, Some(&pinned), Some(area_seed));
+}
+
+/// [`tile_erode`] reading the GF-2 rock column instead of the legacy
+/// resistance factor: the **κ slice** of `GEOLOGY_FIRST_SCOPE.md` §4.13 step 3
+/// (owner Rulings BH, BJ). GF-8's painted-window re-erosion
+/// (`cartalith_engine::rock_paint::reerode`) is its caller.
+///
+/// **What it does.** The same pinned ring and seeded drainage area as
+/// [`tile_erode`], and the same `k · refine` correction, with the per-cell
+/// strength term taken from `rock` exactly as
+/// [`crate::stream_power_kernel_rock`] takes it: `κ(exposed)^c`, the exposed
+/// rock re-read at the cell's current height every iteration (§4.1's in-loop
+/// contact switch). `rock.column` must be the column **of this window**, cut
+/// to `w × h`, not the world's.
+///
+/// **Why a second entry rather than a flag.** `tile_erode` is EF-3's measured
+/// entry and its tests pin its arithmetic; a rock input goes through the
+/// shared core's separate rock arm (`stream_power_core`), so neither entry can
+/// change the other's output. §4.1 said `tile_erode` "gains a rock input when
+/// EF-3 gains a production caller"; this is that input.
+///
+/// **What it must never do.** Write `regolith` (§4.9: the caller accounts the
+/// call's net change, as every rock-kernel caller does), wrap (`p.world`
+/// refused, as in `tile_erode`), or move a ring cell: the ring comes back
+/// bit-identical, which is what makes GF-8's differential leave the window's
+/// edge where it was.
+///
+/// # Panics
+///
+/// As [`tile_erode`], and if `rock.column` is not `w * h` cells.
+#[allow(clippy::too_many_arguments)]
+pub fn tile_erode_rock(
+    refined: &mut [f32],
+    stress: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    refine: usize,
+    area_seed: &[f32],
+    rock: &mut crate::StreamPowerRock,
+) {
+    assert!(w > 0 && h > 0, "tile_erode_rock needs a non-empty tile, got {w}x{h}");
+    assert!(refine > 0, "refine must be at least 1 (a same-resolution re-run), got 0");
+    let n = w * h;
+    assert!(
+        !p.world,
+        "tile_erode_rock is a sub-rectangle of the world, so it cannot wrap: p.world must be false"
+    );
+    for (name, len) in [
+        ("refined", refined.len()),
+        ("stress", stress.len()),
+        ("rain", rain.len()),
+        ("area_seed", area_seed.len()),
+        ("rock column", rock.column.len()),
+    ] {
+        assert!(len == n, "{name} is {len} cells, needs exactly {n} ({w}x{h})");
+    }
+    let pinned = ring_mask(w, h);
+    let tile_p = StreamPowerParams { k: p.k * refine as f64, ..*p };
+    crate::stream_power_core(refined, stress, &[], rain, w, h, &tile_p, Some(&pinned), Some(area_seed), Some(rock), None);
 }
 
 /// Unit tests for [`tile_erode`] and its supporting helpers ([`ring_mask`],

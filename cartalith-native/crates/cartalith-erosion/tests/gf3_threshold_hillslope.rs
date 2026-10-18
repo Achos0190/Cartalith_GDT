@@ -44,6 +44,7 @@ fn column(n: usize, top: Rock) -> GeologyColumn {
         regolith: vec![0.0; n],
         volcanic_setting: vec![0; n],
         construction: cartalith_terrain::geology::Construction::Off,
+        painted: None,
     }
 }
 

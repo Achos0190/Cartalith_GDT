@@ -4930,6 +4930,84 @@ Read honestly, **the effect in the shell is subtle** (08-09).
 
 ---
 
+### GF-8 measured: the engine half (2026-10-18)
+
+*Design and evidence, not status.* Opened at the symbols first: no Rock
+target in `paint_bridge`, no `rock_painted` anywhere, `tile_erode` with no
+production caller, and **no geology save set at all**: `GeologyAbsent::Restored`
+still reads *"opened from a save: rock columns are not saved yet"*, so §2.6's
+five column rasters and the `geology` manifest member, which GF-1 was to
+write, do not exist. GF-8's persistence row therefore needs the whole set,
+not only `rock_painted.u8`.
+
+What this slice adds, and what it leaves for the next two:
+- `GeologyColumn::painted: Option<Vec<u8>>`, §2.6's mask in memory. `None`
+  means nobody painted (absent recorded absent); `build_geology` writes
+  `None`; nothing in any process reads it.
+- `cartalith_erosion::tile::tile_erode_rock`: `tile_erode`'s pinned ring and
+  seeded area through the shared core's rock arm, the κ slice of §4.13.
+- `cartalith_engine::rock_paint`: `bake` (§4.13 step 2, values validated
+  before any write) and `reerode`/`commit` (step 3, the differential over
+  `W`). The chain is stream power via `tile_erode_rock` plus its rebound, the
+  threshold hillslope, karst, glacial and coastal, each through the same
+  `RockContext` method generation calls, with the clock's counts.
+  `cell_m` is kept the world's by scaling `map_width_km` by the window's
+  share of `gw`.
+- `undo::ColumnSnapshot` on `UndoStep`, `HeightUndo::push_with_column` /
+  `restore_with` (both or neither), and `undo_one_with`/`redo_one_with`,
+  which the three production undo/redo call sites now use with
+  `ws.geology.column_mut()`. The pre-GF-8 undo tests are unchanged and pass.
+- **Not built:** the shell's Rock target, the three `PaintEditor` layers,
+  `WorldGen::paint_commit`'s Rock branch, `_authored_inventory()`, the
+  `DCC_SHELL_SPEC.md` §4.5.2 sentence, and the save set. `rock_paint::commit`
+  has no caller outside its tests.
+
+Three decisions taken here, each labelled:
+- **A substrate dab on a single-layer cell with no cap thickness in the same
+  commit is skipped and counted** (`BakeReport::sub_skipped`). The scope is
+  silent; inventing a contact elevation would be the silent choice §4.13
+  refuses for caps. Judgement.
+- **Skips are counted per cell**, not as `CommitSummary::stamps_skipped`: the
+  bake runs on the committed layers, after the stamps are merged.
+- **`P` = 16 cells** (`REERODE_PAD_CELLS`), twice the hillslope's 8-pass
+  reach. Judgement; the ring step it leaves is measured below.
+- **`W` is padded from the baked cells' bounding box**, not the dirty
+  tiles': the cells are what changed, and the tile box only adds unpainted
+  ground. The window is clipped at the map edge and does not wrap.
+
+Not re-run by the chain, each named in `ReerodeReport::not_rerun`: the carve
+and channel network (the recompute's), GF-11's construction delta on a
+constructed world (the windowed delta is not built), and the passes block
+(evolve cycles, sediment fill, velocity, diffusion). With
+`geology_processes` off the bake stands and `reerode` returns
+`ProcessesOff`: erosion does not read rock on that world.
+
+**Measured** (`cartalith-engine/tests/gf8_rock_paint.rs`, release, 512 x 328
+at 800 km, app params with model, processes, karst and glacial on; a radius-8
+disc of shale painted into the granite interior nearest the map centre):
+
+| seed | W | cells moved | painted mean lowering | unpainted mean | ring step / relief | commit |
+|---|---|---|---|---|---|---|
+| 12345 | 49 x 49 | 2401 | 6.602e-4 | -4.486e-5 | 0.0054 % of 0.5116 | 3.9 ms |
+| 483920 | 49 x 49 | 2401 | 2.342e-4 | -1.510e-5 | 0.0061 % of 0.1408 | 4.0 ms |
+
+Commit times are one run each, not a benchmark. Every cell of `W` moves,
+because the rebound is a blur; the unpainted cells rise slightly for the same
+reason. No cell outside `W` moved on either seed. B11's identity holds on both
+seeds: repainting the rock already there moved the field by 0 bytes and the
+column by 0 bytes apart from `painted`.
+
+**Mutations** (Python, exact literal replace, restored in `finally`): the
+before-run reading other rock, the before-run at contrast 0 (the κ slice
+dropped from one run), `CAP_CLASS_M` 10 → 11, the `rock_sub` and `rock_top`
+index off by one, and the window's index shifted by one cell: **6 of 6
+killed**.
+
+**Identity** (`cartalith-godot/tests/gf5_karst.rs` `gf5_identity_hashes`,
+512 x 328, seeds 483920 and 314159, parity / app / processes-on, 13 arrays
+each): the change against `531a2477`, built in the same worktree, **18 of 18
+lines identical**.
+
 ## 8. Constraints any lane on this scope must carry
 
 These are from `MISTAKES.md`'s preflight table, matched to this work:
