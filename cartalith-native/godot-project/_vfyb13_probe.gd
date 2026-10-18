@@ -126,7 +126,18 @@ func _ready() -> void:
 	# ---- 1. the union of every string the phone MORE surface can draw --------
 	var union: Array = []
 	var body_min: Dictionary = {}
-	for s in ["more", "project", "civ", "data", "sim", "prefs"]:
+	## **`assets` and `help` added 2026-10-18.** They are `phone_menu.gd`
+	## `ROOT_ROWS` screens (`_fill_assets`, `_fill_help`) that carry the whole
+	## Assets and Help popups (`_rest_of()`, see that file's coverage table), but
+	## this list predated them, so the exhaustive check below reported 15 real,
+	## drawn rows as undrawn -- probe stale, not the shell. Derived from
+	## `ROOT_ROWS` rather than a second written list so the next screen cannot
+	## be missed the same way; `more` is the root itself.
+	var screens: Array = ["more"]
+	for spec in pm.ROOT_ROWS:
+		if String(spec["t"]) == "screen":
+			screens.append(String(spec["id"]))
+	for s in screens:
 		pm.open()
 		if s != "more":
 			pm._push_screen(String(s))

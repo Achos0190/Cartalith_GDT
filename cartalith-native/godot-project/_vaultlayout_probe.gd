@@ -354,17 +354,28 @@ func _ready() -> void:
 			_ok("outline row reads at the mockup's 12px (DccTheme.FS_BODY)", fs == 12,
 				"live font_size=%d text=%s" % [fs, outline_row.text])
 
-		var excerpt_row: Label = null
+		## **Re-derived 2026-10-18 (probe stale, not the shell).** This used to take
+		## the excerpt column's first non-caption Label and require FS_BODY. Since
+		## Ruling BE the excerpt prose is built ONLY when the note read FAILED
+		## (`vault_window.gd::_build_browse_preview`, the comment above
+		## `if not bool(read.get("ok", false))`): once the read succeeds the full
+		## render below carries the same words, so the excerpt text is dropped as
+		## a redundant second copy. The first Label left in the column is then the
+		## backlinks line (a 9 px `note()`), which the old locator mistook for the
+		## excerpt. The intent now asserted: on a readable note the redundant
+		## excerpt (caption "Excerpt" or "Could not read") is NOT drawn and the
+		## rendered note IS. The FS_BODY token on the failure-path excerpt is not
+		## reachable from this fixture (every fixture note reads), so it is not
+		## asserted here.
+		var excerpt_text_rows := 0
 		for c in (excerpt_col as Node).get_children():
-			if c is Label and String((c as Label).text).strip_edges() != "" \
-					and String((c as Label).text).strip_edges() != "Excerpt":
-				excerpt_row = c as Label
-				break
-		_ok("an excerpt content row is drawn", excerpt_row != null)
-		if excerpt_row != null:
-			var fs2 := excerpt_row.get_theme_font_size("font_size")
-			_ok("excerpt row reads at the closest DccTheme token to the mockup's 13.5px (FS_BODY=12)",
-				fs2 == 12, "live font_size=%d text=%s" % [fs2, excerpt_row.text])
+			if c is Label:
+				var tx := String((c as Label).text).strip_edges()
+				if tx == "Excerpt" or tx.begins_with("Could not read"):
+					excerpt_text_rows += 1
+		_ok("a readable note draws no redundant excerpt text (Ruling BE)",
+			excerpt_text_rows == 0, "%d excerpt rows" % excerpt_text_rows)
+		_ok("the full rendered note is drawn instead", _find_named(vw, "VaultNoteRendered") != null)
 
 	# == screenshot, for a human to compare against the mockup ================
 	await RenderingServer.frame_post_draw

@@ -321,7 +321,26 @@ func _ready() -> void:
 			if wanted != "" and live:
 				_ok(bd.contains(wanted),
 					"tile %d names its %s override" % [i, String(key)])
-		if over.is_empty():
+		## **Re-derived 2026-10-18 (probe stale, not the shell).** This treated
+		## "empty Painter override" as "empty bundle". Cel / Toon's two defining
+		## keys live in the APPEARANCE bundle (`STYLE_PRESETS[i][3]`, surfaced via
+		## `TOON_LABEL`), so its Painter override is empty yet its tile truthfully
+		## reads "Toon light bands ...": `_bundle_line`'s own comment says showing
+		## "No Painter styles" there "is false". So: a tile with nothing in EITHER
+		## bundle says what that produces; a tile with an appearance (toon) key
+		## on names it, and must not claim "No Painter styles".
+		var entry: Array = RenderWorkspace.STYLE_PRESETS[i]
+		var app_over: Dictionary = (entry[3] if entry.size() > 3 else {})
+		var toon_on := false
+		for tkey in RenderWorkspace.TOON_LABEL:
+			if float(app_over.get(tkey, 0.0)) > 0.0:
+				toon_on = true
+				_ok(bd.contains(String(RenderWorkspace.TOON_LABEL[tkey])),
+					"tile %d names its appearance override %s" % [i, String(tkey)])
+		if over.is_empty() and toon_on:
+			_ok(not bd.contains("No Painter styles"),
+				"tile %d does not claim an empty bundle while a toon key is on" % i)
+		elif over.is_empty():
 			_ok(bd.contains("No Painter styles"),
 				"tile %d says what an empty bundle produces, rather than nothing" % i)
 

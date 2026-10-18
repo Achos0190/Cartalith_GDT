@@ -90,8 +90,20 @@ func _nodes_of(root: Node, out: Array, pred: Callable) -> Array:
 func _browsers(host: Node) -> Array:
 	return _nodes_of(host, [], func(n): return n is DccBrowseDialog)
 
+## Every visible confirmation card under `host`. Since 2026-09-05 the shell's
+## confirmations (`app.gd::_confirm`, `asset_library_window.gd::_on_clear_library`)
+## are `DccWidgets.modal_card(...)` -- a borderless `AcceptDialog`, never a
+## `ConfirmationDialog` -- so this used to find nothing and every check built
+## on it failed against a shell that was behaving (probe stale, found
+## 2026-10-18). A card that was dismissed is `queue_free`d, so a card that is
+## hidden or queued for deletion is not "up".
 func _confirms(host: Node) -> Array:
-	return _nodes_of(host, [], func(n): return n is ConfirmationDialog)
+	return _nodes_of(host, [], func(n): return n is AcceptDialog \
+		and (n as AcceptDialog).visible and not n.is_queued_for_deletion())
+
+## A card's button by its drawn text (the card has no `ok_button_text`).
+func _card_button(card: Node, text: String) -> Button:
+	return _button_named(card, text)
 
 func _button_named(root: Node, text: String) -> Button:
 	for b in _nodes_of(root, [], func(n): return n is Button):
@@ -177,9 +189,25 @@ func _ready() -> void:
 	for kept in ["validate pack", "export pack", "pack metadata", "clear library"]:
 		_ok("A control: `%s` is still indexed" % kept, _title_hits(idx, kept) > 0)
 	## Nine EDIT/BATCH search terms the flatten dropped. Sampled, not all nine.
-	for term in ["sprite sheet slicer", "collect into set", "slot transform", "duplicate"]:
-		_ok("A3 index: `%s` still findable" % term, _title_hits(idx, term) > 0,
-			"%d title matches" % _title_hits(idx, term))
+	## **Re-derived 2026-10-18 from `menus.gd`'s recorded 2026-09-05 decision**
+	## (the "What this costs the command index" section above
+	## `_build_asset_pack_submenu`): of the dropped rows only `Sprite sheet
+	## slicer` and `Clear library` survive under their own title; `Collect into
+	## set`, `Slot transform` and `Duplicate` measure a literal ZERO title
+	## matches and were deliberately given no `EXTRAS` row (each is one click
+	## past `⧉ Asset library`, which the index does find). This check used to
+	## demand all four be findable, so it failed against a shell doing what the
+	## decision says -- probe stale, not the shell. It now asserts the
+	## survivor, and for the three that the window they live in is findable
+	## (the decision's stated recourse); it does NOT assert their absence, so
+	## adding an `EXTRAS` row later is not a failure.
+	_ok("A3 index: `sprite sheet slicer` still findable",
+		_title_hits(idx, "sprite sheet slicer") > 0,
+		"%d title matches" % _title_hits(idx, "sprite sheet slicer"))
+	for term in ["collect into set", "slot transform", "duplicate"]:
+		_ok("A3 index: `%s` is covered by the window row `asset library` (decision: no own row)" % term,
+			_title_hits(idx, "asset library") > 0,
+			"%d title matches for `asset library`" % _title_hits(idx, "asset library"))
 
 	## --- Help > Keyboard shortcuts -----------------------------------------
 	app.shortcuts_dialog.open()
@@ -309,12 +337,12 @@ func _ready() -> void:
 		assets.id_pressed.emit(assets.get_item_id(ci))
 		await _frames(3)
 		var cd := _confirms(app.asset_library_window)
-		_ok("A4: pressing it raises a ConfirmationDialog", cd.size() >= 1, "%d dialogs" % cd.size())
+		_ok("A4: pressing it raises a confirmation card", cd.size() >= 1, "%d dialogs" % cd.size())
 		_ok("A4: and clears NOTHING until it is answered",
 			int(bridge.as_pack_info().get("total_items", -1)) == before_items,
 			"%d -> %d" % [before_items, int(bridge.as_pack_info().get("total_items", -1))])
 		for d in cd:
-			(d as ConfirmationDialog).hide()
+			(d as AcceptDialog).canceled.emit()  ## the card's Cancel/Esc path
 		await _frames(2)
 		_ok("A4: dismissing it still clears nothing",
 			int(bridge.as_pack_info().get("total_items", -1)) == before_items)
@@ -393,6 +421,11 @@ func _ready() -> void:
 
 	## --- CANCEL must not hand the caller a path ------------------------------
 	var runs_before: int = dm._runs.size()
+	## The scratch dir legitimately holds `vfy_asset.png` (this probe's own
+	## fixture, written above), so "no file appeared" compares against this
+	## snapshot rather than demanding an empty directory -- the old `size() == 0`
+	## failed against its own fixture (probe stale, found 2026-10-18).
+	var files_before: Array = Array(DirAccess.get_files_at(scratch))
 	dm._pick_geojson_destination()
 	await _frames(3)
 	var bs2 := _browsers(dm)
@@ -408,8 +441,8 @@ func _ready() -> void:
 		_ok("B cancel: nothing was exported", dm._runs.size() == runs_before,
 			"%d -> %d" % [runs_before, dm._runs.size()])
 		_ok("B cancel: no file appeared in the scratch dir",
-			DirAccess.get_files_at(scratch).size() == 0,
-			str(DirAccess.get_files_at(scratch)))
+			Array(DirAccess.get_files_at(scratch)) == files_before,
+			"before=%s now=%s" % [str(files_before), str(DirAccess.get_files_at(scratch))])
 		_ok("B cancel: the browser freed itself", _browsers(dm).size() == 0)
 
 	## --- OVERWRITE: an existing file must interpose a confirm ---------------
@@ -431,12 +464,12 @@ func _ready() -> void:
 		d3._confirm()
 		await _frames(4)
 		var cds := _confirms(app)
-		var overwrite_prompt: ConfirmationDialog = null
+		var overwrite_prompt: AcceptDialog = null
 		for c in cds:
-			if String((c as ConfirmationDialog).title).find("Overwrite") >= 0:
+			if String((c as AcceptDialog).title).find("Overwrite") >= 0:
 				overwrite_prompt = c
 		_ok("B overwrite: a confirm interposed", overwrite_prompt != null,
-			"%d ConfirmationDialogs on the app, none titled Overwrite" % cds.size())
+			"%d confirmation cards on the app, none titled Overwrite" % cds.size())
 		_ok("B overwrite: the export did NOT run yet", dm._runs.size() == runs_b2,
 			"%d -> %d" % [runs_b2, dm._runs.size()])
 		var still := FileAccess.open(victim, FileAccess.READ)
@@ -445,11 +478,10 @@ func _ready() -> void:
 		_ok("B overwrite: the file is untouched while the prompt is up",
 			body == "ORIGINAL-CONTENT-MUST-SURVIVE", body.substr(0, 40))
 		if overwrite_prompt != null:
-			_ok("B overwrite: its OK button says Overwrite",
-				String(overwrite_prompt.ok_button_text) == "Overwrite",
-				String(overwrite_prompt.ok_button_text))
+			_ok("B overwrite: its action button says Overwrite",
+				_card_button(overwrite_prompt, "Overwrite") != null)
 			## dismiss -> nothing happens
-			overwrite_prompt.hide()
+			overwrite_prompt.canceled.emit()
 			await _frames(3)
 			var s2 := FileAccess.open(victim, FileAccess.READ)
 			var b2 := s2.get_as_text()
@@ -468,18 +500,36 @@ func _ready() -> void:
 			d4._refresh_primary()
 			d4._confirm()
 			await _frames(4)
-			var pr: ConfirmationDialog = null
+			var pr: AcceptDialog = null
 			for c in _confirms(app):
-				if String((c as ConfirmationDialog).title).find("Overwrite") >= 0:
+				if String((c as AcceptDialog).title).find("Overwrite") >= 0:
 					pr = c
 			if pr != null:
-				pr.confirmed.emit()
+				_card_button(pr, "Overwrite").pressed.emit()
 				await _frames(5)
+			## **Re-derived 2026-10-18 from `data_manager_window.gd::
+			## _pick_geojson_destination`:** the picker's callback only ADOPTS
+			## the destination (`_gis_dest`); its own hint says "nothing is
+			## written until you press Export". The old check demanded the file
+			## be replaced by the confirm alone, which is the pre-redesign shape
+			## (probe stale). So: confirming must adopt the path and still leave
+			## the file alone; the footer's Export (`_run_geojson_export_here`)
+			## is what replaces it.
 			var s3 := FileAccess.open(victim, FileAccess.READ)
 			var b3 := s3.get_as_text()
 			s3.close()
-			_ok("B overwrite: confirming DOES replace it", b3 != "ORIGINAL-CONTENT-MUST-SURVIVE",
-				"file unchanged after confirming")
+			_ok("B overwrite: confirming adopts the destination",
+				String(dm._gis_dest).get_file() == "vfy_overwrite.geojson",
+				"_gis_dest=%s" % String(dm._gis_dest))
+			_ok("B overwrite: confirming alone writes nothing (Export does)",
+				b3 == "ORIGINAL-CONTENT-MUST-SURVIVE", b3.substr(0, 40))
+			dm._run_geojson_export_here()
+			await _frames(4)
+			var s4 := FileAccess.open(victim, FileAccess.READ)
+			var b4 := s4.get_as_text()
+			s4.close()
+			_ok("B overwrite: Export then DOES replace it", b4 != "ORIGINAL-CONTENT-MUST-SURVIVE",
+				"file unchanged after Export")
 
 	# =====================================================================
 	# LANE C -- three snapshot states, deleting the PNG myself

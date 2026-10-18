@@ -143,8 +143,15 @@ func _ready() -> void:
 	_ok("lists the layer digits", joined.find("1 – 8") >= 0, true)
 	_ok("lists space-to-pan", joined.find("Space") >= 0, true)
 	_ok("has the 'Not on a menu' group", joined.findn("NOT ON A MENU") >= 0, true)
-	_ok("names the file that owns a non-menu shortcut",
-		joined.find("layers_popover.gd") >= 0, true)
+	## **Re-derived 2026-10-18.** This asked for the source file name
+	## (`layers_popover.gd`), but `shortcuts_dialog.gd::UNLISTED` shows a USER
+	## the surface that owns the key, in words ("Layers popover", "the map
+	## view", "the main window") -- a file name in a user-facing dialog would be
+	## the defect. Probe stale (the wording moved), not the shell. The intent
+	## "each non-menu row says what owns it" is kept, one literal per owner kind.
+	_ok("names the surface that owns a non-menu shortcut",
+		joined.find("(Layers popover)") >= 0 and joined.find("(the map view)") >= 0
+		and joined.find("(the main window)") >= 0, true)
 
 	print("\n=== 5: reopening re-reads rather than accumulating ===")
 	var first := rows.size()

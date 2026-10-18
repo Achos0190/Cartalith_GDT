@@ -319,7 +319,7 @@ func _ready() -> void:
 				_count_rows(assets, "Clear library") == 1,
 				"count=%d" % _count_rows(assets, "Clear library"))
 		## The confirmation, checked rather than assumed to have survived: press
-		## the row and assert a ConfirmationDialog appears and the library is
+		## the row and assert the confirmation card appears and the library is
 		## still intact until it is answered.
 		var before: int = int(app.bridge.as_pack_info().get("total_items", 0))
 		assets.id_pressed.emit(assets.get_item_id(ci))
@@ -330,7 +330,7 @@ func _ready() -> void:
 		_check("4: and clears nothing until it is answered",
 			int(app.bridge.as_pack_info().get("total_items", 0)) == before)
 		if dlg != null:
-			dlg.get_cancel_button().pressed.emit()
+			dlg.canceled.emit()  ## the card's Cancel / Esc path (`modal_choices`)
 			await _frames(4)
 
 	print("\nSM %d failure(s)" % _fail)
@@ -343,9 +343,15 @@ func _count_rows(p: PopupMenu, needle: String) -> int:
 			n += 1
 	return n
 
-func _find_confirm(n: Node) -> ConfirmationDialog:
-	if n is ConfirmationDialog and (n as ConfirmationDialog).visible:
-		return n as ConfirmationDialog
+## The visible "Clear library" confirmation. Since 2026-09-05 it is a
+## `DccWidgets.modal_card(...)` -- a borderless `AcceptDialog`, not a
+## `ConfirmationDialog` (`asset_library_window.gd::_on_clear_library`; the
+## 2026-09-07 correction in `menus.gd` says the same). This helper still
+## looked for the old class, so the check could never pass: probe stale, not
+## the shell (found 2026-10-18).
+func _find_confirm(n: Node) -> AcceptDialog:
+	if n is AcceptDialog and (n as AcceptDialog).visible and (n as AcceptDialog).title == "Clear library":
+		return n as AcceptDialog
 	for c in n.get_children(true):
 		var r := _find_confirm(c)
 		if r != null:

@@ -657,8 +657,18 @@ func _run_ways(ov: Control) -> void:
 	_ok("WY Delete removed one drawn road (engine)", bridge.roads().size(), n_roads - 1)
 	_ok("WY Delete removed one drawn road (overlay re-read)", (ov.get("_roads") as Array).size(), n_drawn - 1)
 	var after_del: Dictionary = bridge.way_get(store, widx)
+	## **Re-derived 2026-10-18 (probe fragility, not a shell defect).** Deleting
+	## splices the store, so this index now holds the NEXT way. That next way can
+	## legitimately share the deleted way's control points: at this probe's seed
+	## the generated store holds two ways with identical geometry, name and km
+	## that differ only in `tid` (240 and 241), so comparing points alone failed
+	## on a correct delete. "A different way" is therefore points OR `tid`.
+	## (Whether the engine should generate such duplicate roads is a separate
+	## question -- reported, not decided here.) The count checks above are what
+	## prove one road was removed.
 	_ok_true("WY the index now holds a different way (or none)", after_del.is_empty() or
-		(after_del["points"] as PackedVector2Array) != (before["points"] as PackedVector2Array))
+		(after_del["points"] as PackedVector2Array) != (before["points"] as PackedVector2Array)
+		or int(after_del.get("tid", -1)) != int(before.get("tid", -2)))
 	var rows: Array = bridge.undo_ledger()
 	var last: Dictionary = rows[rows.size() - 1] if rows.size() > 0 else {}
 	_ok("WY the ledger's newest row is a way row", String(last.get("kind", "")), "way")

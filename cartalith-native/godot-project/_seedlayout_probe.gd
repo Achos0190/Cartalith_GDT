@@ -194,9 +194,18 @@ func _phase_one(titles: Array) -> void:
 	# 2 -- every seed names a REAL rail node, checked against RAIL_NODES' own
 	#      labels rather than against the constant that produced it. This is
 	#      the assertion the artboard's `pipeline`/`sculpt` would have failed.
+	## **Re-derived 2026-10-18 (probe stale, not the shell).** These were the
+	## pre-Ruling-L labels. Ruling L (2026-09-21, `LARGE_ITEM_RULINGS.md`)
+	## re-sorted the rail: WORLD's `a` node is labelled `Generate` (the
+	## `dcc_shell.gd` RAIL_NODES comment says so explicitly) and the old
+	## "Layers & style" node became CARTO's separate `Style` and `Layers`
+	## nodes. `SEED_LAYOUTS`' Cartography seed points at `style`, the node that
+	## still holds the style controls the seed's name promises. The literals
+	## below are `RAIL_NODES`' own labels, kept independent of the constant that
+	## produced the seed.
 	var want_labels := {
-		"Generate": "Generation pipeline", "Sculpt": "Sculpt",
-		"Cartography": "Layers & style", "Journey": "Journey planner",
+		"Generate": "Generate", "Sculpt": "Sculpt",
+		"Cartography": "Style", "Journey": "Journey planner",
 	}
 	for row in DccMenus.SEED_LAYOUTS:
 		var name := String(row["name"])

@@ -618,6 +618,14 @@ func _run() -> void:
 	var li: int = bridge.label_create(float(s_k["x"]) + 0.5, float(s_k["y"]) + 0.5, "CTX FIXTURE")
 	var pack_path: String = ProjectSettings.globalize_path("res://") \
 		+ "../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
+	## FIXTURE, not a shell fact: `reference_pack.zip` is tracked under the
+	## repository's `cartalith-native/crates/cartalith-assets/tests/fixtures/` and is
+	## reached as `res://../crates/...`. A scratch copy of `godot-project/` alone
+	## (e.g. a `git archive` of that folder) does not contain it, which used to
+	## surface as an unexplained "the fixture pack loaded" failure (found
+	## 2026-10-18). Say so, and how to provide it, instead.
+	if not FileAccess.file_exists(pack_path):
+		printerr("FIXTURE MISSING: %s -- a scratch copy must lay out <root>/godot-project and <root>/crates/cartalith-assets/tests/fixtures/reference_pack.zip" % pack_path)
 	var pack_ok: bool = bridge.world_gen.load_asset_pack(pack_path)
 	var ii := -1
 	if pack_ok and bridge.icon_arm("feature", 0, 1.0, 0.0, 0.0):

@@ -441,9 +441,20 @@ func open_browse() -> void:
 	_reset_note_state()
 	_browse_phone_pane = "tree"
 	_selected_fields = {}
-	_rebuild()
-	if not DccWidgets.phone_present(self, app):
+	## **Size BEFORE the build (2026-10-18).** `_rebuild()` chooses the layout from
+	## `_one_pane()`, i.e. from `size.x` at that instant. This used to size the
+	## window AFTER `_rebuild()`, so the first open on a desktop built the
+	## folded one-pane layout against the window's default 560 px width, and
+	## `_on_size_changed()` cannot repair it (it returns while the window is not
+	## yet visible, and no further size change comes once it is shown) -- the
+	## split with its `VaultTreeCol` only appeared after some later rebuild
+	## (a note pick). Found by `_vaultlayout_probe.gd`'s "tree column exists
+	## (desktop split)" check, which had been failing at HEAD.
+	var as_window := not DccWidgets.phone_present(self, app)
+	if as_window:
 		_size_as_browser()
+	_rebuild()
+	if as_window:
 		popup_centered()
 
 

@@ -41,6 +41,20 @@ func _ready() -> void:
 	if app.open_project_dialog:
 		app.open_project_dialog.hide()
 	await _frames(4)
+	## **Force the light palette, and refuse to run if it did not take
+	## (2026-10-18; `MISTAKES.md`, "Assert on pixels").** The pixel check below
+	## compares against the light canvas's `--pan` literal #fbfaf7, which is
+	## palette-bound; the probe used to rely on "this machine boots light", and
+	## a clean settings dir boots DARK, so all eight popups "failed" against a
+	## correct dark popup (probe stale, not the shell). `_apply_theme_mode` is
+	## the in-memory path the Preferences menu uses -- it does not write the
+	## settings file, which a measurement probe must not do.
+	app.menus._apply_theme_mode("light")
+	await _frames(4)
+	if DccTheme.is_dark():
+		print("MENUPOP ABORT: could not force the light palette")
+		get_tree().quit(2)
+		return
 	print("MENUPOP palette %s  panel token %s" % ["dark" if DccTheme.is_dark() else "light", DccTheme.c("panel")])
 	var shell: Node = app.shell if "shell" in app else app
 	var row: Node = null
