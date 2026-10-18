@@ -133,7 +133,8 @@ const ID_PLACES := 721
 const ID_WORLD_TIMELINE := 722
 ## SM-2 (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK): the Story menu's command
 ## rows. 723-728 were unused (`grep -rn ":= 72"` over `shell/`, 2026-10-18,
-## found only 720-722). The readout and the three disabled rows take no id.
+## found only 720-722). The readout takes no id; the three rows SM-2 drew
+## disabled got theirs when SM-5/SM-6 built them (731-733, below).
 const ID_STORY_TIMELINE := 723  ## Story ▸ TIME ▸ Timeline (Ctrl+Shift+T).
 const ID_STORY_POLITICAL := 724  ## Story ▸ Political history of this place….
 const ID_STORY_FACTION_HISTORY := 725  ## Story ▸ Faction history….
@@ -145,6 +146,13 @@ const ID_STORY_NOTES_HERE := 728  ## Story ▸ NOTES ▸ Notes for this place (C
 ## (`grep -rn ":= 7[23]"` over `shell/`, 2026-10-18).
 const ID_EXPORT_PLAYER := 729  ## File ▸ Export ▸ Player map… (Ctrl+Shift+E).
 const ID_EXPORT_DM := 730  ## File ▸ Export ▸ DM / full map….
+## SM-5 and SM-6 (`STORY_MENUS_PROPOSAL.md` §3.2, §3.3 and §5, Ruling CK): the
+## three rows SM-1/SM-2 drew disabled. 731-733 were unused (`grep -rn ":= 73"`
+## over `shell/`, 2026-10-18, found only 730). Places without notes… is one id
+## on two menus (World ▸ RECORDS and Story ▸ NOTES), one destination.
+const ID_PLACES_WITHOUT_NOTES := 731  ## World ▸ / Story ▸ Places without notes….
+const ID_SAVED_JOURNEYS := 732  ## Story ▸ JOURNEYS ▸ Saved journeys….
+const ID_CONFLICTS_LIST := 733  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Conflicts….
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -2965,8 +2973,8 @@ func _on_assets(id: int) -> void:
 ## Export map image, Markdown vault and Browse & edit a note -- every one is
 ## still in this popup or one of its three submenus; none was dropped (Travel
 ## library has since moved on to Story, SM-2). Two rows
-## are new over built targets (Places…, Timeline) and one is drawn disabled
-## with its reason (Places without notes…, milestone SM-5).
+## are new over built targets (Places…, Timeline), and Places without notes…
+## (drawn disabled until SM-5, 2026-10-18) opens the vault panel's view of it.
 func _data(p: PopupMenu) -> void:
 	## The canvas's own head row: `⧉ DATA MANAGER`, the window this whole menu
 	## is a shortcut into. It had no row at all here -- the four group rows were
@@ -2992,10 +3000,10 @@ func _data(p: PopupMenu) -> void:
 		"Opens the CIVIL dock's Settlements category: the place list, its "
 		+ "filters and each place's editor.")
 	_build_vault_rows(p)
-	## SM-5 is not built; drawn with its reason, per `_todo()`. Both routes named
-	## in the reason exist: the card's `civ.vault_note` row and the Place
-	## editor's `vault` tab (`place_editor_window.gd::TAB_LABELS`).
-	_todo(p, "Places without notes…", PLACES_WITHOUT_NOTES_WHY)
+	## SM-5: the vault panel's Places without notes section
+	## (`vault_window.gd::open_places_without_notes`).
+	_live(p, "Places without notes…", ID_PLACES_WITHOUT_NOTES)
+	p.set_item_tooltip(p.item_count - 1, PLACES_WITHOUT_NOTES_TIP)
 	_live(p, "Timeline", ID_WORLD_TIMELINE)
 	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
 	## Travel library… (⇧L) closed this band until SM-2, which moved it to
@@ -3161,6 +3169,7 @@ func _on_data(id: int) -> void:
 		ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
 		ID_VAULT: _host.open_vault_overview()
 		ID_VAULT_BROWSE: _host.open_vault_browse()
+		ID_PLACES_WITHOUT_NOTES: _host.open_places_without_notes()
 
 ## Both Timeline rows' action: open CIVIL ▸ Timeline (the year snapshots,
 ## `civilization_workspace.gd`'s `"Timeline"` category) and, on PC and tablet,
@@ -3220,14 +3229,14 @@ var _story_campaigns_idx := -1
 ##              window.gd::open_for_tab(i, "political")`) · Faction history…
 ##              (`app.open_faction_roster(-1, "history")`, FH-8's tab)
 ##   JOURNEYS   Journey planner (`app.open_journey_planner()`) · Saved
-##              journeys… (SM-6, disabled with its reason) · Travel library…
+##              journeys… (SM-6, `saved_journeys_window.gd`) · Travel library…
 ##              (⇧L, moved here from World by this milestone, same id)
-##   CONFLICTS  Conflicts… (SM-6, disabled) · Draw a conflict (arms CIVIL's
+##   CONFLICTS  Conflicts… (SM-6, `conflicts_window.gd`) · Draw a conflict (arms CIVIL's
 ##   & CAMPAIGNS Conflict tool, SP-4) · Campaigns this year (a readout over
 ##              `conflict_campaigns(year)`, one row per active conflict)
 ##   NOTES      Notes for this place (Ctrl+Shift+N, `app.open_vault(
 ##              "settlement", tid, name)`, the card's own call) · Places
-##              without notes… (SM-5, disabled -- the same row as World's)
+##              without notes… (SM-5, the same row and id as World's)
 ##
 ## **Journey planner carries no accelerator column, on purpose.** ⇧J is an
 ## `app.gd::_unhandled_key_input` key (it outlived the row Ruling 4 retired on
@@ -3265,17 +3274,17 @@ func _story(p: PopupMenu) -> void:
 	_live(p, "Journey planner", ID_STORY_JOURNEY_PLANNER)
 	p.set_item_tooltip(p.item_count - 1,
 		"Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route.")
-	_todo(p, "Saved journeys…",
-		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-6): no window lists saved journeys. "
-		+ "Today they are saved from the Journey planner and listed in the left dock's Journeys list.")
+	_live(p, "Saved journeys…", ID_SAVED_JOURNEYS)
+	p.set_item_tooltip(p.item_count - 1,
+		"Lists every journey saved in this world (name, party, start year, length, mode); a row opens it in the Journey planner. Journeys are saved from the planner.")
 	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
 	p.set_item_tooltip(p.item_count - 1,
 		"Animals, vehicles, vessels and parties: the classifications and constraints the Journey planner reads.")
 
 	p.add_separator("CONFLICTS & CAMPAIGNS")
-	_todo(p, "Conflicts…",
-		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-6): no window lists every conflict. "
-		+ "Today they are listed under CIVIL ▸ Military ▸ Conflicts and drawn by the CARTO Conflict layer.")
+	_live(p, "Conflicts…", ID_CONFLICTS_LIST)
+	p.set_item_tooltip(p.item_count - 1,
+		"Lists every conflict in this world with its kind, years and sides, active or not in the Timeline cursor's year; a row selects it on the map and opens it in the right dock.")
 	_live(p, "Draw a conflict", ID_STORY_DRAW_CONFLICT)
 	p.set_item_tooltip(p.item_count - 1,
 		"Arms the CIVIL Conflict tool: click to draw a front, an arrow, a siege or a battle, then Commit and fill in its sides and years in the right dock.")
@@ -3285,9 +3294,10 @@ func _story(p: PopupMenu) -> void:
 	_live(p, "Notes for this place", ID_STORY_NOTES_HERE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N)
 	_story_notes_idx = p.item_count - 1
 	p.set_item_tooltip(_story_notes_idx, STORY_NOTES_TIP)
-	## The same disabled row as World ▸ RECORDS (§3.3: "the same row as in
-	## World"), with the same reason until SM-5 builds the view.
-	_todo(p, "Places without notes…", PLACES_WITHOUT_NOTES_WHY)
+	## The same row as World ▸ RECORDS (§3.3: "the same row as in World"):
+	## one id, one destination.
+	_live(p, "Places without notes…", ID_PLACES_WITHOUT_NOTES)
+	p.set_item_tooltip(p.item_count - 1, PLACES_WITHOUT_NOTES_TIP)
 
 	_refresh_story_menu()
 	p.about_to_popup.connect(_refresh_story_menu)
@@ -3305,8 +3315,8 @@ func _story(p: PopupMenu) -> void:
 const STORY_POLITICAL_TIP := "Opens the Place editor on the selected settlement's Political history tab: who held it, year by year, with its conflicts lane."
 ## Tooltip of Notes for this place while a place is current.
 const STORY_NOTES_TIP := "Opens the selected settlement's linked vault note, or attaches one."
-## The Places without notes… reason, shared by World ▸ RECORDS and Story ▸ NOTES.
-const PLACES_WITHOUT_NOTES_WHY := "Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-5): nothing lists the places that have no linked note. Today a place's note is reached one place at a time -- right-click it ▸ Open note, or the Place editor's Vault notes tab."
+## The Places without notes… tooltip, shared by World ▸ RECORDS and Story ▸ NOTES.
+const PLACES_WITHOUT_NOTES_TIP := "Opens the Markdown vault panel on the places that have no linked note -- settlements, provinces, continents or factions -- each with New from template… and Attach existing…."
 
 ## The current place for the two "this place" rows: `{index, tid, name}`, or
 ## `{why}` with the reason it cannot be read. Asks `generating` before any
@@ -3376,6 +3386,9 @@ func _on_story(id: int) -> void:
 		ID_STORY_FACTION_HISTORY: _host.open_faction_roster(-1, "history")
 		ID_STORY_JOURNEY_PLANNER: _host.open_journey_planner()
 		ID_TRAVEL_LIBRARY: _host.open_travel_library()
+		ID_PLACES_WITHOUT_NOTES: _host.open_places_without_notes()
+		ID_SAVED_JOURNEYS: _host.open_saved_journeys()
+		ID_CONFLICTS_LIST: _host.open_conflicts_list()
 		ID_STORY_DRAW_CONFLICT:
 			if not bool(_bridge.has_world):
 				_host.set_status("hint", STORY_NO_WORLD, "text_ghost")

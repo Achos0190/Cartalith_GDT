@@ -8,12 +8,14 @@ extends Node
 ##   SM-1  the Data menu is titled World, with RECORDS / TECHNICAL bands, the
 ##         Import ▸ / Export ▸ / Sources & validation ▸ submenus holding every
 ##         `DataManagerWindow.ROUTES` row exactly once, Places… and Timeline
-##         pressing through to CIVIL, and Places without notes… disabled with a
-##         reason. Tablet: one World menu, pipeline rows first, Data's rows below.
+##         pressing through to CIVIL, and Places without notes… live (SM-5) and
+##         opening the vault panel's section. Tablet: one World menu, pipeline
+##         rows first, Data's rows below.
 ##   SM-2  an eighth menu, Story, after World (tablet ☰ · File · World · Story):
 ##         TIME / JOURNEYS / CONFLICTS & CAMPAIGNS / NOTES with the proposal's
-##         §3.3 rows; the three unbuilt rows disabled with their milestone in
-##         the reason; Ctrl+Shift+T and Ctrl+Shift+N bound through
+##         §3.3 rows; the three rows SM-2 drew disabled now live with their ids
+##         (SM-5 Places without notes…, SM-6 Saved journeys… and Conflicts…),
+##         each pressed through to its window over the generated world; Ctrl+Shift+T and Ctrl+Shift+N bound through
 ##         `_bind_accelerator` (rebindable, listed by the shortcuts dialog, no
 ##         collision anywhere on the bar); Travel library moved here from World;
 ##         every enabled row pressed through to its destination over a small
@@ -62,6 +64,8 @@ var _checks := 0
 var _fails := 0
 var _out := ""
 var _form := "desktop"
+## The World popup, kept by `_sm2` for its Places without notes… press.
+var world_p: PopupMenu
 
 ## World's rows below the head row, as the proposal's §3.2 table lists them
 ## (separators by caption). Travel library… closed RECORDS until SM-2 moved it.
@@ -82,9 +86,10 @@ const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of this place
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
 	"|NOTES", "Notes for this place", "Places without notes…"]
-## Row -> the milestone its disabled reason must name.
-const STORY_TODO: Dictionary = {"Saved journeys…": "SM-6", "Conflicts…": "SM-6",
-	"Places without notes…": "SM-5"}
+## The rows SM-2 drew disabled, built by SM-5/SM-6: row -> the id it must carry
+## (written as literals, not read from `DccMenus`, so a renumbered id fails here).
+const STORY_BUILT: Dictionary = {"Saved journeys…": 732, "Conflicts…": 733,
+	"Places without notes…": 731}
 
 ## The tablet canvas's own World rows (`menus.gd::_world`), which must stay on
 ## top and unchanged (Q2: "nothing already in the tablet World menu moves").
@@ -272,8 +277,9 @@ func _ready() -> void:
 		await _sm3(fexp)
 
 	var pwn := _index_of(world, "Places without notes…")
-	_check("Places without notes… is disabled with its reason (SM-5 not built)",
-		pwn >= 0 and world.is_item_disabled(pwn) and world.get_item_tooltip(pwn).findn("SM-5") >= 0,
+	_check("World ▸ Places without notes… is live (SM-5), id 731, with a tooltip",
+		pwn >= 0 and not world.is_item_disabled(pwn) and world.get_item_id(pwn) == 731
+			and world.get_item_tooltip(pwn).findn("Not built") < 0 and world.get_item_tooltip(pwn) != "",
 		world.get_item_tooltip(pwn) if pwn >= 0 else "missing")
 
 	## Places… and Timeline press through to CIVIL. Start from WORLD so the
@@ -614,12 +620,14 @@ func _sm2() -> void:
 	story.about_to_popup.emit()
 	_check("Story's rows are the proposal's §3.3 list, in order",
 		_story_rows(story) == STORY_ROWS, str(_story_rows(story)))
-	for t in STORY_TODO:
+	for t in STORY_BUILT:
 		var i := _index_of(story, String(t))
-		_check("Story ▸ %s is disabled with its %s reason" % [t, STORY_TODO[t]],
-			i >= 0 and story.is_item_disabled(i) and story.get_item_tooltip(i).findn(String(STORY_TODO[t])) >= 0,
+		_check("Story ▸ %s is live with id %d and a tooltip (SM-5/SM-6)" % [t, STORY_BUILT[t]],
+			i >= 0 and not story.is_item_disabled(i) and story.get_item_id(i) == int(STORY_BUILT[t])
+				and story.get_item_tooltip(i) != "" and story.get_item_tooltip(i).findn("Not built") < 0,
 			story.get_item_tooltip(i) if i >= 0 else "missing")
 	var world := _menu_button("World").get_popup()
+	world_p = world
 	_check("Travel library left World (SM-2 moved it to Story)",
 		_index_of(world, "Travel library…") < 0)
 
@@ -744,6 +752,32 @@ func _sm2() -> void:
 	await _frames(4)
 	_check("Travel library… opens its window", app.travel_library_window.visible)
 	app.travel_library_window.hide()
+	## SM-5 / SM-6: the three rows SM-2 drew disabled, pressed through.
+	story.id_pressed.emit(DccMenus.ID_PLACES_WITHOUT_NOTES)
+	await _frames(4)
+	_check("Story ▸ Places without notes… opens the vault panel on its section",
+		app.vault_window.visible and app.vault_window.find_child("PlacesWithoutNotes", true, false) != null)
+	app.vault_window.hide()
+	world_p.id_pressed.emit(DccMenus.ID_PLACES_WITHOUT_NOTES)
+	await _frames(4)
+	_check("World ▸ Places without notes… opens the same section",
+		app.vault_window.visible and app.vault_window.find_child("PlacesWithoutNotes", true, false) != null)
+	app.vault_window.hide()
+	story.id_pressed.emit(DccMenus.ID_SAVED_JOURNEYS)
+	await _frames(4)
+	_check("Story ▸ Saved journeys… opens its window",
+		app.saved_journeys_window != null and app.saved_journeys_window.visible)
+	if app.saved_journeys_window != null:
+		app.saved_journeys_window.hide()
+	story.id_pressed.emit(DccMenus.ID_CONFLICTS_LIST)
+	await _frames(4)
+	## SM-4's Battle leg recorded at least one conflict on desktop and tablet.
+	var cw = app.conflicts_window
+	var cf_rows: int = 0 if cw == null else cw.find_children("*", "BoxContainer", true, false).filter(func(n): return n.has_meta("conflict_id")).size()
+	_check("Story ▸ Conflicts… opens its window listing every conflict (%d in the store)" % bridge.conflict_list().size(),
+		cw != null and cw.visible and cf_rows == bridge.conflict_list().size(), "rows=%d" % cf_rows)
+	if cw != null:
+		cw.hide()
 	story.id_pressed.emit(DccMenus.ID_STORY_JOURNEY_PLANNER)
 	await _frames(4)
 	var civ_panel: Control = app._workspace_panels.get("civilization")

@@ -4780,6 +4780,42 @@ func open_asset_library(family_key: String = "", open_slicer: bool = false) -> v
 func open_travel_library(kind: String = "") -> void:
 	travel_library_window.open(kind)
 
+## SM-5 (`STORY_MENUS_PROPOSAL.md` §5, Ruling CK): World ▸ / Story ▸ Places
+## without notes…, the vault panel's overview scrolled to that section.
+func open_places_without_notes() -> void:
+	vault_window.open_places_without_notes()
+
+## SM-6's two list windows (`STORY_MENUS_PROPOSAL.md` §3.3). Preloaded rather
+## than `class_name`d, so adding them needs no `--headless --import` pass
+## (CLAUDE.md: it strips `project.godot`'s `;` comments) -- `EXPORT_DIALOG`'s
+## precedent below.
+const SAVED_JOURNEYS_WINDOW := preload("res://shell/saved_journeys_window.gd")
+const CONFLICTS_WINDOW := preload("res://shell/conflicts_window.gd")
+## Story ▸ Saved journeys…'s window, built on first open and kept (it holds no
+## state worth discarding, and a second instance would be a second window).
+var saved_journeys_window: AcceptDialog = null
+## Story ▸ Conflicts…'s window, built on first open and kept (its filter chip
+## survives between opens).
+var conflicts_window: AcceptDialog = null
+
+## Story ▸ JOURNEYS ▸ Saved journeys… (SM-6): every saved journey; a row opens
+## it in the planner.
+func open_saved_journeys() -> void:
+	if saved_journeys_window == null:
+		saved_journeys_window = SAVED_JOURNEYS_WINDOW.new()
+		add_child(saved_journeys_window)
+		saved_journeys_window.setup(self, bridge)
+	saved_journeys_window.open()
+
+## Story ▸ CONFLICTS & CAMPAIGNS ▸ Conflicts… (SM-6): every conflict with its
+## years; a row selects it on the map and in the right dock.
+func open_conflicts_list() -> void:
+	if conflicts_window == null:
+		conflicts_window = CONFLICTS_WINDOW.new()
+		add_child(conflicts_window)
+		conflicts_window.setup(self, bridge)
+	conflicts_window.open()
+
 ## `shell/export_dialog.gd`, preloaded rather than a `class_name` so adding it
 ## needs no `--headless --import` pass (which strips `project.godot`'s `;`
 ## comments, CLAUDE.md).

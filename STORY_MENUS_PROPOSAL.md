@@ -163,6 +163,8 @@ Travel library… moves to Story.
 | **NOTES** Notes for this place | Ctrl+Shift+N | B | `app.open_vault("settlement", tid, name)`, the card's own call. Disabled with a reason when nothing is current |
 | Places without notes… | — | P | the same row as in World |
 
+Two rows were settled when SM-6 was built (2026-10-18). No artboard draws either window, so both take the travel library window's DCC vocabulary. *Saved journeys…* lists `journey_list()`'s stored fields only: name, party preset, start year, length and mode. No duration or cost is shown, because the planner computes those and nothing stores them. A row opens that journey in the planner through the planner's own load. *Conflicts…* lists every `conflict_list()` row: kind, years ("ongoing" when there is no end year), sides by faction name, and the anchor place. ALL / ACTIVE IN year chips filter the list. A row selects the conflict through `app.open_conflict` and centres the map on it.
+
 Two rows were settled when SM-2 was built (2026-10-18): *Journey planner* draws no accelerator column, because ⇧J is `app.gd`'s key and a drawn one would read as rebindable (the tooltip names it); and *Campaigns this year* is a readout row counted off `conflict_campaigns` for the cursor's year, since no world-wide right-dock readout of it exists.
 
 ### 3.4 Window: Session mode (A2)
@@ -233,6 +235,22 @@ Four states are drawn:
 **Cost to measure before building:** opening the group makes one
 `vault_entity_summary` call per entity, and the largest world should be timed
 before choosing between a live list and a cached one.
+
+Settled when SM-5 was built (2026-10-18). The list reads `vault_all_links()`
+once and the kind's own entity list, which gives the same answer as one
+`vault_entity_summary` per entity; `_pwnotes_probe` checks the two agree place
+by place. Settlement count does not grow with the grid: the placement model
+caps it (`cartalith-civ` `max_places`, 8 to 40, plus village add-ons), and a
+4096 × 2048 world held 240 settlements, as a 2048 × 1311 one did. On that
+world the read took 1.7 ms and opening the whole panel took 38 ms (medians of
+five, debug build), so the list is live, not cached. The section sits in the
+overview above the Index. The class chips show only the classes the world
+holds. *On a journey* and *In a conflict* are drawn disabled, with a reason,
+while the store holds no journey or no conflict. Rows come in pages of 40, and
+*Show more* adds the next page. *New from template…* and *Attach existing…*
+open the place's own vault view, which is the existing VA-02 and attach flow.
+A5 draws the empty-state borders dashed; Godot's flat style box cannot draw a
+dashed line, so they are solid.
 
 ## 6. Tablet and phone
 

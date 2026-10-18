@@ -531,6 +531,26 @@ func open_with_route(route_index: int) -> void:
 	_refresh_route_choice()
 	_compute()
 
+## SM-6 (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK): Story ▸ Saved journeys…'s
+## row press. Opens the planner as every entry point does (`app.open_journey_
+## planner()`), then loads the journey
+## whose engine id is `engine_id` through `_load_journey` -- the same restore
+## the left dock's Journeys list does on a press, so a journey opened from the
+## window and one opened from the list are the same state. Returns `false`, and
+## loads nothing, when this session's list holds no entry with that id (it is
+## rebuilt from the engine on every project open and cleared on regenerate, so
+## that means the two stores disagree) -- never a different journey.
+func open_saved(engine_id: int) -> bool:
+	## Through the app's entry point, not bare `open()`: that one only arms
+	## the tool, and from WORLD or CARTO the planner would not show
+	## (`app.gd::open_journey_planner`'s header; `_storylists_probe` caught it).
+	app.open_journey_planner()
+	for i in _journeys.size():
+		if int((_journeys[i] as Dictionary).get("engine_id", -1)) == engine_id:
+			_load_journey(i)
+			return true
+	return false
+
 ## The single place that decides whether the planner is showing, and routes the change to `_show()`, `_hide()` or `_reassert_shown()`.
 ## Driven by `app.tool_armed` and `app.workspace_changed`. Must keep `active_mode("civilization") == "planner"` in the formula: domain plus armed tool alone re-covers other CIVIL destinations (REARM row B, details in the body).
 func _recompute_visibility() -> void:

@@ -466,6 +466,9 @@ func _clear() -> void:
 	## live filter) is reached from a `LineEdit.text_changed` callback the
 	## field's own owner keeps firing after a `_rebuild()` has freed this.
 	_browse_tree_col = null
+	## Same reason: `_scroll_to_pwn()` runs deferred, after a rebuild may
+	## have freed the section it would scroll to.
+	_pwn_section = null
 
 
 ## Rebuilds the whole body from the bridge's current state: the title, the
@@ -3041,6 +3044,9 @@ func _save_prefs() -> void:
 ## The unscoped body: the index, the entity picker and the "All linked notes" list, one button per
 ## link that opens that entity's note via `open_for`. Shows a note when nothing is linked.
 func _build_overview() -> void:
+	## SM-5 (`STORY_MENUS_PROPOSAL.md` §5): above the Index, so above its
+	## Missing & orphan notes group, as A5 draws it.
+	_build_places_without_notes(_body)
 	_build_index(_body)
 	_build_pick_entity()
 	var sec := DccWidgets.section(_body, "All linked notes")
@@ -3143,6 +3149,438 @@ func _build_pick_entity() -> void:
 			var b := DccWidgets.action(cg, cname, func(): open_for("continent", cid, cname))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+
+# -- Places without notes (SM-5, Ruling CK) -----------------------------------
+#
+# `STORY_MENUS_PROPOSAL.md` §5, mockup `design/story-menus-2026-10-17/` A5:
+# the places that have no linked note, so a writer can see what is still
+# undocumented. The vault's Index (VA-01) answers the opposite question -- links
+# that point at no note, notes nothing points at -- and neither answers this.
+#
+# **How the list is built.** §5 named one `vault_entity_summary(kind, id)` call
+# per entity. A link store row already carries `entity_kind` and `entity_id`
+# (`vault_bridge.rs::vault_all_links`), and `vault_entity_summary`'s
+# `link_count` is `links_for(kind, id).len()` over that same store, so one
+# `vault_all_links()` read plus the kind's own entity list gives the same
+# answer. `_pwnotes_probe` asserts the two agree entity by entity, before and
+# after a real attach. Neither is costly: measured 2026-10-18 (`_pwnotes_probe`,
+# debug DLL, medians of 5 across three runs) at 1.7 ms (1.63..1.98) for this
+# route and 0.8 ms (0.74..0.88) for the per-entity count alone, on worlds of 215
+# and 240 settlements -- the placement model caps the count
+# (`cartalith-civ::lib.rs` `max_places`, clamped 8..40, plus village add-ons),
+# so a 4096x2048 world held the same 240 as a 2048 one. The whole overview
+# opening, this section included, measured 38.4 ms (37.7..38.7) on that world.
+#
+# **Never off the main thread, and it does not need to be.** `WorldGen` is owned
+# by the main thread except while `bridge.generating`, when the worker owns it;
+# no other thread may call it. At the cost above, the read stays synchronous;
+# every read asks `generating` first, and the list is built only while the
+# overview is drawn -- never per frame.
+
+## Entity kinds the view offers, in A5's chip order: `[vault kind, chip label,
+## plural noun]`. Filtered at draw time against `bridge.vault_entity_kinds()`, so
+## a build whose vault cannot link a kind never offers it.
+const PWN_KINDS: Array = [["settlement", "Settlements", "settlements"],
+	["province", "Provinces", "provinces"], ["continent", "Continents", "continents"],
+	["faction", "Factions", "factions"]]
+## Settlement classes, largest first: the engine's own vocabulary
+## (`journey_bridge.rs::settlement_kind_key`). The rank is the list's sort key
+## (A5: "Sorted by class, then population"); the chip row draws only the classes
+## the current world holds, so no chip can filter to a class that is not there.
+const PWN_CLASSES: Array = ["metropolis", "capital", "city", "town", "village", "hamlet"]
+## Chip captions for `PWN_CLASSES`, index-parallel (A5's plural, upper-case).
+const PWN_CLASS_CHIPS: Array = ["METROPOLISES", "CAPITALS", "CITIES", "TOWNS", "VILLAGES", "HAMLETS"]
+## Rows drawn before "Show more". A labelled judgement: a page a reader scans in
+## one scroll, and a bound on the controls one rebuild creates (each row is a
+## label and two buttons; a world's hamlets alone can run to hundreds).
+const PWN_PAGE := 40
+
+## The kind the view lists (one of `PWN_KINDS`' first column).
+var _pwn_kind := "settlement"
+## The class filter, `""` for All (settlements only).
+var _pwn_class := ""
+## The "On a journey" filter (settlements only): keep places a saved journey passes.
+var _pwn_journey := false
+## The "In a conflict" filter (settlements only): keep places a conflict touches.
+var _pwn_conflict := false
+## Rows drawn so far; grows by `PWN_PAGE` per "Show more", reset by a filter change.
+var _pwn_shown := PWN_PAGE
+## Set by `open_places_without_notes()`: scroll the section into view once drawn.
+var _pwn_focus := false
+## The section body, held so `_pwn_focus` can scroll to it; nulled by `_clear`'s
+## rebuild (re-made on every draw).
+var _pwn_section: Control
+## The last list built over a world (`_pwn_compute`'s answer plus `kind`), kept
+## so the generating state can draw it DASHED rather than empty (A5: "The list is
+## dashed, not emptied"). Never read for anything but that state.
+var _pwn_last: Dictionary = {}
+
+## The menu entry (World ▸ RECORDS and Story ▸ NOTES, `menus.gd::ID_PLACES_
+## WITHOUT_NOTES`): the overview, scrolled to this section, at a width the
+## table fits (A5's 720 px frame, never more than 90% of the screen).
+func open_places_without_notes() -> void:
+	_pwn_focus = true
+	_pwn_shown = PWN_PAGE
+	open_overview()
+	if not _phone:
+		var room: Vector2 = app.get_viewport_rect().size * 0.9
+		size = Vector2i(maxi(size.x, mini(760, int(room.x))), size.y)
+
+## `{total, rows}` for one entity kind: `total` is how many entities of `kind`
+## the world holds, `rows` those with no link in the store, each `{id, name,
+## faction}` plus, for settlements, `class`, `population`, `x`, `y` and `index`
+## (into `bridge.settlements()`). `faction` is the engine's id (`0` = none) and
+## `faction_name` its roster name, read here once so the dashed (generating)
+## redraw needs no engine read to name it. Three engine reads per call.
+## Must not be called while `bridge.generating` -- the wrappers answer `[]` then,
+## which would read as "this world has no places".
+func _pwn_compute(kind: String) -> Dictionary:
+	var linked := {}
+	for l in bridge.vault_all_links():
+		var d: Dictionary = l
+		if String(d.get("entity_kind", "")) == kind:
+			linked[int(d.get("entity_id", 0))] = true
+	var rows: Array = []
+	var total := 0
+	var fnames := {}
+	for f in bridge.get_factions():
+		fnames[int((f as Dictionary).get("id", -1))] = String((f as Dictionary).get("name", ""))
+	match kind:
+		"settlement":
+			var ss := bridge.settlements()
+			for i in ss.size():
+				var s: Dictionary = ss[i]
+				total += 1
+				var tid := int(s.get("tid", -1))
+				if linked.has(tid):
+					continue
+				rows.append({"id": tid, "name": String(s.get("name", "")),
+					"class": String(s.get("kind", "")), "population": int(s.get("population", 0)),
+					"faction": int(s.get("faction", 0)), "x": float(s.get("x", 0)),
+					"y": float(s.get("y", 0)), "index": i})
+			## A5: "Sorted by class, then population" (largest first), then name
+			## so equal rows keep one order between rebuilds.
+			rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+				var ra := PWN_CLASSES.find(String(a["class"]))
+				var rb := PWN_CLASSES.find(String(b["class"]))
+				if ra != rb:
+					return ra < rb
+				if int(a["population"]) != int(b["population"]):
+					return int(a["population"]) > int(b["population"])
+				return String(a["name"]) < String(b["name"]))
+		"province", "continent", "faction":
+			var src: Array = bridge.provinces() if kind == "province" \
+				else (bridge.continents() if kind == "continent" else bridge.get_factions())
+			for e in src:
+				var d: Dictionary = e
+				var id := int(d.get("id", 0))
+				## Faction 0 is the engine's "held by no faction" sentinel
+				## (`_faction_name`), not a faction a note could be about.
+				if kind == "faction" and id <= 0:
+					continue
+				total += 1
+				if linked.has(id):
+					continue
+				var row := {"id": id, "name": String(d.get("name", ""))}
+				if kind == "faction":
+					row["faction"] = id
+				elif d.has("faction"):
+					row["faction"] = int(d["faction"])
+				if kind == "continent" and d.has("cx"):
+					row["x"] = float(d["cx"])
+					row["y"] = float(d.get("cy", 0.0))
+				rows.append(row)
+			rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+				return String(a["name"]) < String(b["name"]))
+	## `_faction_name`'s own wording for 0 and for an id the roster lacks.
+	for r in rows:
+		if (r as Dictionary).has("faction"):
+			var fid := int(r["faction"])
+			r["faction_name"] = "no faction" if fid <= 0 else String(fnames.get(fid, "faction %d" % fid))
+	return {"total": total, "rows": rows}
+
+## The section: readout, filter chips, the table, and its four states (A5): no
+## vault connected (with the connect button -- every place would be "without a
+## note"), no world, generating (the last list dashed, its buttons disabled),
+## and every place linked. Reads the engine only when no generation is running.
+func _build_places_without_notes(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Places without notes")
+	sec.name = "PlacesWithoutNotes"
+	_pwn_section = sec
+	if _pwn_focus:
+		_pwn_focus = false
+		_scroll_to_pwn.call_deferred()
+	var bound := bool(bridge.vault_info().get("bound", false))
+	if not bound:
+		_pwn_state(sec, "No vault connected",
+			"Connect a folder of .md files first. Any folder works; Obsidian is one. Until then every place is \"without a note\", and the list would be the whole world.")
+		var b := DccWidgets.action(_pwn_last_card, "Connect a vault folder…", _browse_vault, true)
+		b.name = "PwnConnect"
+		## A5 draws it as a compact button centred in the card, not a full-width bar.
+		b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		## `action()` wraps its label, which drops its minimum width to 0; shrunk
+		## to its minimum, the phone drew it one letter per line. One line.
+		b.autowrap_mode = TextServer.AUTOWRAP_OFF
+		return
+	if bool(bridge.generating):
+		_pwn_state(sec, "While a generation runs",
+			"The list is read when the generation finishes: the engine object belongs to the worker until then. Shown below is the last list, dashed.")
+		if not _pwn_last.is_empty():
+			_pwn_table(sec, _pwn_last, true)
+		return
+	if not bool(bridge.has_world):
+		_pwn_state(sec, "No world yet",
+			"Generate or open one. Generating places its settlements; CIVIL ▸ Populate re-runs the placement.")
+		return
+	var kinds := bridge.vault_entity_kinds()
+	if not Array(kinds).has(_pwn_kind):
+		_pwn_kind = "settlement"
+	var t0 := Time.get_ticks_usec()
+	var got := _pwn_compute(_pwn_kind)
+	## Kept as a meta, not printed: `_pwnotes_probe` reads it to time the
+	## live path; nothing in the shell reads it.
+	set_meta("pwn_compute_usec", Time.get_ticks_usec() - t0)
+	got["kind"] = _pwn_kind
+	_pwn_last = got
+	_pwn_filters(sec, kinds)
+	_pwn_table(sec, got, false)
+
+## The column of the card `_pwn_state` drew last, so a caller can put a button
+## inside it (the unbound card's Connect). Nulled with the rest by `_clear`'s rebuild.
+var _pwn_last_card: VBoxContainer
+
+## One empty-state card: a title and its sentence, centred (A5's right column;
+## A5 draws the border dashed, which a `StyleBoxFlat` cannot, so it is solid).
+func _pwn_state(parent: Control, title: String, text: String) -> void:
+	var card := PanelContainer.new()
+	card.name = "PwnState"
+	var sb := DccWidgets.box("border", "", 14, 10)
+	sb.set_border_width_all(1)
+	card.add_theme_stylebox_override("panel", sb)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	card.add_child(col)
+	_pwn_last_card = col
+	var t := DccTheme.label(title, "text_bright", DccTheme.FS_BODY)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(t)
+	var l := DccTheme.label(text, "text_dim", DccTheme.FS_SMALL)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 160
+	col.add_child(l)
+	parent.add_child(card)
+
+## The two chip rows (A5): class (settlements only, the classes this world
+## holds) and kind, plus On a journey / In a conflict (settlements only, each
+## disabled with its reason when the store holds no journey or no conflict --
+## a filter that can only answer "none" is not offered as live).
+func _pwn_filters(sec: Control, kinds: PackedStringArray) -> void:
+	if _pwn_kind == "settlement":
+		var present := {}
+		for s in bridge.settlements():
+			present[String((s as Dictionary).get("kind", ""))] = true
+		var crow := HFlowContainer.new()
+		crow.name = "PwnClassChips"
+		crow.add_theme_constant_override("h_separation", 4)
+		crow.add_theme_constant_override("v_separation", 4)
+		sec.add_child(crow)
+		var all := DccWidgets.segment(crow, "ALL", func(): _pwn_set("class", ""))
+		DccWidgets.set_segment_on(all, _pwn_class == "")
+		for ci in PWN_CLASSES.size():
+			var cc := String(PWN_CLASSES[ci])
+			if not present.has(cc):
+				continue
+			var b := DccWidgets.segment(crow, String(PWN_CLASS_CHIPS[ci]), func(): _pwn_set("class", cc))
+			DccWidgets.set_segment_on(b, _pwn_class == cc)
+	var krow := HFlowContainer.new()
+	krow.name = "PwnKindChips"
+	krow.add_theme_constant_override("h_separation", 4)
+	krow.add_theme_constant_override("v_separation", 4)
+	sec.add_child(krow)
+	for k in PWN_KINDS:
+		if not Array(kinds).has(String(k[0])):
+			continue
+		var kk := String(k[0])
+		var b := DccWidgets.segment(krow, String(k[1]).to_upper(), func(): _pwn_set("kind", kk))
+		DccWidgets.set_segment_on(b, _pwn_kind == kk)
+	if _pwn_kind != "settlement":
+		return
+	var has_journeys := not bridge.journey_list().is_empty()
+	var has_conflicts := not bridge.conflict_list().is_empty()
+	if not has_journeys:
+		_pwn_journey = false
+	if not has_conflicts:
+		_pwn_conflict = false
+	var jb := DccWidgets.segment(krow, "ON A JOURNEY", func(): _pwn_set("journey", not _pwn_journey))
+	jb.name = "PwnJourneyChip"
+	DccWidgets.set_segment_on(jb, _pwn_journey)
+	jb.disabled = not has_journeys
+	jb.tooltip_text = "Keeps the places a saved journey passes (the planner's own stop test, civ_settlement_journey_passes)." \
+		if has_journeys else "No journey is saved in this world, so no place is on one. Save one from the Journey planner."
+	var cb := DccWidgets.segment(krow, "IN A CONFLICT", func(): _pwn_set("conflict", not _pwn_conflict))
+	cb.name = "PwnConflictChip"
+	DccWidgets.set_segment_on(cb, _pwn_conflict)
+	cb.disabled = not has_conflicts
+	cb.tooltip_text = "Keeps the places a conflict is attached to, directly or through their province (conflicts_touching_settlement)." \
+		if has_conflicts else "No conflict is recorded in this world. Draw one with Story ▸ Draw a conflict."
+
+## A chip press: sets one filter, resets the page, rebuilds.
+func _pwn_set(what: String, value) -> void:
+	match what:
+		"kind": _pwn_kind = String(value)
+		"class": _pwn_class = String(value)
+		"journey": _pwn_journey = bool(value)
+		"conflict": _pwn_conflict = bool(value)
+	_pwn_shown = PWN_PAGE
+	_rebuild()
+	_scroll_to_pwn.call_deferred()
+
+## Scrolls the window to the section once it has a layout (deferred by callers).
+func _scroll_to_pwn() -> void:
+	if _pwn_section != null and is_instance_valid(_pwn_section) and _scroll != null:
+		_scroll.ensure_control_visible(_pwn_section)
+
+## The readout and the rows of `got` (`_pwn_compute`'s answer plus `kind`), after
+## the class / journey / conflict filters. `dashed` draws them disabled (the
+## generating state), and then reads nothing from the engine.
+func _pwn_table(sec: Control, got: Dictionary, dashed: bool) -> void:
+	var kind := String(got.get("kind", "settlement"))
+	var noun := "places"
+	for k in PWN_KINDS:
+		if String(k[0]) == kind:
+			noun = String(k[2])
+	var rows: Array = got.get("rows", [])
+	var total := int(got.get("total", 0))
+	if not dashed and kind == "settlement":
+		rows = rows.filter(func(r: Dictionary) -> bool:
+			if _pwn_class != "" and String(r["class"]) != _pwn_class:
+				return false
+			if _pwn_journey and bridge.civ_settlement_journey_passes(int(r["id"])).is_empty():
+				return false
+			if _pwn_conflict and bridge.conflicts_touching_settlement(int(r["id"])).is_empty():
+				return false
+			return true)
+	var without := int(got.get("rows", []).size())
+	var readout := DccTheme.mono_label("%d of %d %s have no linked note" % [without, total, noun],
+		"text", DccTheme.FS_SMALL, 0)
+	readout.name = "PwnReadout"
+	sec.add_child(readout)
+	if total == 0:
+		_pwn_state(sec, "No %s in this world" % noun,
+			"This world holds no %s, so there is nothing to list." % noun)
+		return
+	if without == 0:
+		_pwn_state(sec, "Every place has a note",
+			"%d of %d %s are linked. Other kinds are counted separately; switch the filter above to see them." % [total, total, noun])
+		return
+	if rows.is_empty():
+		DccWidgets.note(sec, "No %s without a note matches these filters." % noun)
+		return
+	var templates_ok := (not dashed) and not bridge.vault_templates().is_empty()
+	var list := VBoxContainer.new()
+	list.name = "PwnRows"
+	list.add_theme_constant_override("separation", 0)
+	sec.add_child(list)
+	if not _phone:
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 8)
+		list.add_child(head)
+		var hn := DccTheme.mono_label("PLACE", "text_faint", DccTheme.FS_MICRO, 2)
+		hn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(hn)
+		if kind == "settlement":
+			var hc := DccTheme.mono_label("CLASS", "text_faint", DccTheme.FS_MICRO, 2)
+			hc.custom_minimum_size.x = 76
+			head.add_child(hc)
+		if kind != "faction":
+			var hf := DccTheme.mono_label("FACTION", "text_faint", DccTheme.FS_MICRO, 2)
+			hf.custom_minimum_size.x = 120
+			head.add_child(hf)
+		var hl := DccTheme.mono_label("LINK", "text_faint", DccTheme.FS_MICRO, 2)
+		hl.custom_minimum_size.x = 250
+		head.add_child(hl)
+	var shown := mini(rows.size(), _pwn_shown)
+	for i in shown:
+		_pwn_row(list, kind, rows[i], templates_ok, dashed)
+	if rows.size() > shown:
+		var more := DccWidgets.action(sec, "Show %d more (%d not shown)" % [mini(PWN_PAGE, rows.size() - shown), rows.size() - shown],
+			func():
+				_pwn_shown += PWN_PAGE
+				_rebuild()
+				_scroll_to_pwn.call_deferred())
+		more.name = "PwnMore"
+		more.disabled = dashed
+	DccWidgets.note(sec,
+		"New from template… writes Settlements/{name}.md (or the kind's own folder) from one of your templates and links it (the existing VA-02 flow). Attach existing… opens the place's own view, where any note in the tree can be attached. A row leaves this list once a link exists.")
+
+## One table row: the name (a press moves the map to it, when the place has a
+## position), class and faction, then the two link actions. Phone: two lines
+## and the actions under them, so nothing runs past a 393 dp column.
+func _pwn_row(list: Control, kind: String, r: Dictionary, templates_ok: bool, dashed: bool) -> void:
+	var nm := String(r.get("name", ""))
+	if nm == "":
+		nm = "(unnamed #%d)" % int(r.get("id", 0))
+	var id := int(r.get("id", 0))
+	var cls := String(r.get("class", ""))
+	var fac := String(r.get("faction_name", "")) if kind != "faction" else ""
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.name = "PwnRow"
+	row.set_meta("pwn_id", id)
+	row.add_theme_constant_override("separation", 8 if not _phone else 2)
+	list.add_child(row)
+	var name_ctl: Control
+	if r.has("x") and not dashed:
+		var nb := DccWidgets.text_button(row, nm, func():
+			app.viewport.move_view_to(float(r["x"]), float(r["y"]))
+			if _phone:
+				hide())
+		nb.tooltip_text = "Moves the map view to %s." % nm
+		## A5 draws the name flush left, as a table cell; `text_button`
+		## centres by default.
+		nb.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_ctl = nb
+	else:
+		var nl := DccTheme.label(nm, "text_dim" if dashed else "text", DccTheme.FS_SMALL)
+		nl.tooltip_text = "" if dashed else "This %s has no map position this list reads." % kind
+		row.add_child(nl)
+		name_ctl = nl
+	name_ctl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if _phone:
+		var sub := " · ".join(PackedStringArray([cls, fac].filter(func(s): return s != "")))
+		if sub != "":
+			row.add_child(DccTheme.mono_label(sub, "text_ghost", DccTheme.FS_TINY, 0))
+	else:
+		if kind == "settlement":
+			var cl := DccTheme.mono_label(cls, "text_dim", DccTheme.FS_TINY, 0)
+			cl.custom_minimum_size.x = 76
+			row.add_child(cl)
+		if kind != "faction":
+			var fl := DccTheme.mono_label(fac, "text_ghost", DccTheme.FS_TINY, 0)
+			fl.custom_minimum_size.x = 120
+			row.add_child(fl)
+	var acts := HBoxContainer.new()
+	acts.add_theme_constant_override("separation", 6)
+	row.add_child(acts)
+	var newb := DccWidgets.chip(acts, "New from template…", func(): open_for(kind, id, nm))
+	newb.name = "PwnNew"
+	newb.disabled = dashed or not templates_ok
+	newb.tooltip_text = "Opens %s's own view on its New-note-from-a-template block." % nm if templates_ok \
+		else ("A generation is running." if dashed else
+			"Your vault has no templates: Cartalith ships none, and looks in the template folder your Obsidian settings name, or at any .md whose path contains \"template\".")
+	var att := DccWidgets.chip(acts, "Attach existing…", func():
+		open_for(kind, id, nm)
+		## The phone's one-pane fold opens an entity on its note pane; to
+		## attach, the user needs the tree.
+		if _phone:
+			_browse_phone_pane = "tree"
+			_rebuild())
+	att.name = "PwnAttach"
+	att.disabled = dashed
+	att.tooltip_text = "A generation is running." if dashed \
+		else "Opens %s's own view: pick a note in the tree, then Attach to %s." % [nm, nm]
+	if not _phone:
+		list.add_child(DccTheme.rule())
 
 # -- The backlink index (`GUI_GAP_REGISTER.md` VA-01) ------------------------
 
