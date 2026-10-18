@@ -12,6 +12,21 @@ This document holds findings, a table per variant, a recommendation and
 owner questions. It carries no status; status lives in
 `cartalith-native/docs/STATUS.md`.
 
+> **Note, 2026-10-18 (after Ruling CO).** The owner answered the five
+> questions below at their defaults. What that changed in the tree, so the
+> rest of this document is read as the record of the measurement rather than
+> as a description of today's code:
+>
+> - **(c-late) shipped.** The final-field flank-pit fill is no longer a spike
+>   switch: it is the named parameter `volc.fill_edifice_pits`
+>   (`cartalith_engine::VolcanismParams::fill_edifice_pits`, a `PARAMS` row
+>   with no GUI control), implemented in `cartalith_terrain::edifice_pits`,
+>   **on in the app's `params::defaults()`** and off in
+>   `WorldParams::defaults` / under every JS golden. A save without the key
+>   reloads unfilled. Re-measured on the five worlds: the shipped `head` now
+>   reads exactly the (c-late) row's numbers below, and the new harness arm
+>   `pits_unfilled` reads the old `head` row's.
+
 **Nothing here is switched on.** Every variant sits behind
 `cartalith_engine::StreakSpikeParams::edifice`
 (`cartalith_terrain::EdificeVariant`). That switch is off in

@@ -6,10 +6,13 @@ use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
+use edifice_pits::{fill_edifice_flank_pits, FLANK_CALDERA, FLANK_FLANK, FLANK_NONE};
+
 pub mod amplify;
 pub mod analysis;
 pub mod center;
 pub mod edifice_furrows;
+pub mod edifice_pits;
 pub mod fjord;
 pub mod geology;
 pub mod infer;
@@ -1510,9 +1513,9 @@ struct Edifice {
 ///   closed depression on the edifice **flanks** to its spill level plus one
 ///   `f32` step per cell ([`fill_edifice_flank_pits`]), so the gullies drain
 ///   to the flank base. Calderas are kept: they are real closed basins.
-/// - `fill_pits_final` — **variant (c-late)**: the same fill on the final
-///   field, after erosion and the carve, which re-cut hollows the stamp-time
-///   fill had removed.
+/// - Variant (c-late), the same fill on the final field, shipped under owner
+///   Ruling CO as `cartalith_engine::VolcanismParams::fill_edifice_pits`
+///   ([`edifice_pits`]); it is no longer a variant here.
 /// - `drop_gullies` / `drop_lumps` — **ablations**: replace the gully or the
 ///   lump term by its mean, to attribute the pits and the streaks.
 ///
@@ -1531,11 +1534,6 @@ pub struct EdificeVariant {
     /// Variant (c): fill the closed depressions left on edifice flanks, at
     /// the stamp.
     pub fill_pits: bool,
-    /// Variant (c-late): the same fill on the **final** height field, after
-    /// every later stage (applied by `cartalith_engine::generate_terrain`, not
-    /// by the stamps; the flank mask comes from
-    /// [`edifice_furrows::flank_mask_from_volcanic_field`]).
-    pub fill_pits_final: bool,
     /// Ablation: the gully term at its mean.
     pub drop_gullies: bool,
     /// Ablation: the lump term at its mean.
@@ -1648,91 +1646,6 @@ struct FlankBand {
     gully_w: [f64; 6],
     drop_gullies: bool,
     drop_lumps: bool,
-}
-
-/// What [`fill_edifice_flank_pits`] reads per cell: no edifice, an edifice's
-/// flank, or a caldera (which is never filled).
-pub const FLANK_NONE: u8 = 0;
-pub const FLANK_FLANK: u8 = 1;
-pub const FLANK_CALDERA: u8 = 2;
-
-/// **Variant (c)**: fill every closed depression on edifice **flanks** to its
-/// spill level, so a gully end drains to the flank base instead of holding a
-/// 1-3-cell pond. Priority-Flood+ε (Barnes, Lehman & Mulla, *Priority-flood:
-/// An optimal depression-filling and watershed-labeling algorithm for digital
-/// elevation models*, Computers & Geosciences 62, 2014 — cited from memory,
-/// not opened in this pass): seeded from every flank cell that touches a
-/// non-flank cell or the map edge, it raises a flank cell no higher than one
-/// `f32` step above the cell it was reached from, so every filled cell has a
-/// strictly lower **orthogonal** neighbour and water routes out (see the
-/// connectivity note in the body).
-///
-/// `flank[i]` is [`FLANK_FLANK`] on a flank, [`FLANK_CALDERA`] inside a summit
-/// depression (never filled: a caldera is a real closed basin) and
-/// [`FLANK_NONE`] elsewhere. Returns `(cells raised, largest raise)`.
-///
-/// What it must never do: lower a cell, touch a cell that is not a flank, or
-/// run on a shipped path (only `EdificeVariant::fill_pits` reaches it).
-pub fn fill_edifice_flank_pits(gw: usize, gh: usize, field: &mut [f32], flank: &[u8]) -> (usize, f32) {
-    use std::cmp::Reverse;
-    use std::collections::BinaryHeap;
-    let n = gw * gh;
-    assert!(field.len() >= n && flank.len() >= n, "fill_edifice_flank_pits: short field");
-    let mut closed = vec![false; n];
-    // Heights are non-negative after the stamps' clamp, so the bit pattern
-    // orders them as `f32` does; the index breaks ties deterministically.
-    let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
-    // **4-connected**, the water-body classifier's own connectivity
-    // (`cartalith_civ::build_water_bodies`' priority flood visits the four
-    // orthogonal neighbours). Measured: an 8-connected fill left a cell whose
-    // only lower neighbour was diagonal, which the classifier still pooled --
-    // flank pits on 24601 fell 372 -> 39 but its 1-3-cell edifice lakes only
-    // 170 -> 103. A 4-connected drain also drains 8-connected.
-    let nb = |i: usize| -> [Option<usize>; 4] {
-        let (x, y) = (i % gw, i / gw);
-        [
-            (x > 0).then(|| i - 1),
-            (x + 1 < gw).then(|| i + 1),
-            (y > 0).then(|| i - gw),
-            (y + 1 < gh).then(|| i + gw),
-        ]
-    };
-    // Seeds: the fixed ground around the region -- every non-flank cell that
-    // touches a flank (the plain at the toe, a caldera inside the rim) -- and
-    // flank cells on the map edge, which drain off the map. Seeding the
-    // region's own border cells instead would leave a toe cell that sits
-    // below the plain as a pit (measured on the flat-plane stratocone: 18).
-    for i in 0..n {
-        let ns = nb(i);
-        let seed = if flank[i] == FLANK_FLANK {
-            ns.iter().any(|j| j.is_none())
-        } else {
-            ns.iter().flatten().any(|&j| flank[j] == FLANK_FLANK)
-        };
-        if seed {
-            closed[i] = true;
-            heap.push(Reverse((field[i].max(0.0).to_bits(), i)));
-        }
-    }
-    let (mut raised, mut most) = (0usize, 0f32);
-    while let Some(Reverse((hb, c))) = heap.pop() {
-        let hc = f32::from_bits(hb);
-        for j in nb(c).into_iter().flatten() {
-            if closed[j] || flank[j] != FLANK_FLANK {
-                continue;
-            }
-            closed[j] = true;
-            if field[j] <= hc {
-                // The next representable `f32` above `hc` (positive, finite).
-                let up = f32::from_bits(hc.to_bits() + 1);
-                most = most.max(up - field[j]);
-                field[j] = up;
-                raised += 1;
-            }
-            heap.push(Reverse((field[j].max(0.0).to_bits(), j)));
-        }
-    }
-    (raised, most)
 }
 
 impl Edifice {

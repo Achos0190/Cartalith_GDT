@@ -132,7 +132,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is eight flags (enumerated by
+/// baseline underneath it. Today that is nine flags (enumerated by
 /// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
 /// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
@@ -209,8 +209,14 @@ pub fn defaults() -> WorldParams {
     // it on every weather-grid line (lattice index 2.617 -> 0.984, five app
     // worlds). Off in `WorldParams::defaults`, the goldens' baseline.
     p.climate.rain_bspline = true;
+    // Owner Ruling CO (2026-10-18, `EDIFICE_AND_STREAKS_2026-10-18.md`
+    // variant (c-late)): fill the closed hollows the edifice gullies leave on
+    // volcano flanks, in the final field (1-3-cell lakes on edifices, median
+    // of five app worlds: 41 -> 10). Off in `WorldParams::defaults`, the
+    // goldens' baseline. See `VolcanismParams::fill_edifice_pits`.
+    p.volc.fill_edifice_pits = true;
     // The terrain-streak spike's two ablations, and the edifice follow-up's
-    // variants (`StreakSpikeParams::edifice`, EDIFICE_AND_STREAKS_2026-10-18.md),
+    // remaining variants (`StreakSpikeParams::edifice`, EDIFICE_AND_STREAKS_2026-10-18.md),
     // stay OFF in the app: they are measurement-only and have no `PARAMS` row
     // (`StreakSpikeParams`' doc).
     // Written out, though it equals `WorldParams::defaults`.
@@ -383,6 +389,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.edifice_model", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Shaped edifices (shield/strato/cone)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.edifice_model), set_fn: |p, v| p.volc.edifice_model = v != 0.0 },
+    // Owner Ruling CO (2026-10-18): fill the closed hollows on edifice flanks
+    // in the final field. ON at the app boundary, OFF in
+    // `WorldParams::defaults`. A row so a save records whether its world was
+    // filled; a save without the key reloads OFF (`apply_saved_state`). No
+    // GUI control: no workspace lists this key.
+    ParamSpec { key: "volc.fill_edifice_pits", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Drain volcano flank pits", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.fill_edifice_pits), set_fn: |p, v| p.volc.fill_edifice_pits = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -838,6 +852,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // No reference path: `stampOneVolcano` has one profile, so there is nothing
     // in `state.volc` to map this onto.
     ("volc.edifice_model", ""),
+    // Port-only (Ruling CO): the reference's cone has no gullies and so no
+    // flank pits to fill; there is no `state.volc` key to write it to.
+    ("volc.fill_edifice_pits", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1105,6 +1122,11 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // rain, rivers and biomes it was saved with. A save from this change on
     // always carries the key (`save_state` writes every row).
     p.climate.rain_bspline = false;
+    // And the edifice flank-pit fill (Ruling CO, 2026-10-18), the same way:
+    // every save without the key was generated with the pits unfilled, so a
+    // regenerate from its parameters reproduces the small volcano lakes it
+    // was saved with. A save from this change on always carries the key.
+    p.volc.fill_edifice_pits = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

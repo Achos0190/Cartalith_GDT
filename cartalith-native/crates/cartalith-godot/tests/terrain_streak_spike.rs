@@ -22,7 +22,7 @@
 //! backlog row's measure-first input) and the rain up-sample.
 //!
 //! **The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`).** Eight more
-//! arms (`gully_off`, `lumps_off`, `a_km`, `c_fill`, `c_late`, `a_full`, `a_late`, `a_c`: the
+//! arms (`gully_off`, `lumps_off`, `a_km`, `c_fill`, `a_full`, `a_c`, and since Ruling CO `pits_unfilled`: the
 //! `cartalith_terrain::EdificeVariant` ablations and variants, off at both
 //! boundaries), two more worlds (71077345 at 3 000 km and 40 075 km), one
 //! `EDIFICES` line per world (the edifices recovered from `volcanic_field`,
@@ -365,7 +365,7 @@ fn metric_calibration() {
 /// `WorldParams::defaults`.
 #[test]
 fn every_streak_switch_is_off_at_both_boundaries() {
-    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, fill_pits_final: false, drop_gullies: false, drop_lumps: false, full_band: false } };
+    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, drop_gullies: false, drop_lumps: false, full_band: false } };
     assert_eq!(WorldParams::defaults(64, 40, 1).streak, off);
     assert_eq!(params::defaults().streak, off);
     assert!(params::defaults().climate.rain_bspline, "Ruling CM: the app runs the B-spline rain up-sample");
@@ -428,7 +428,7 @@ type Edit = fn(&mut WorldParams);
 /// `head` is the app as shipped (since Ruling CM, with the B-spline rain
 /// up-sample); the rest are ablations of it, and `rain_bilinear` is the app as
 /// it was before the ruling.
-const ARMS: [(&str, Edit); 15] = [
+const ARMS: [(&str, Edit); 14] = [
     ("head", |_| {}),
     ("carve_off", |p| p.carve_rivers = false),
     ("no_light", |p| p.streak.skip_light_pass = true),
@@ -449,14 +449,12 @@ const ARMS: [(&str, Edit); 15] = [
     ("lumps_off", |p| p.streak.edifice.drop_lumps = true),
     ("a_km", |p| p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED)),
     ("c_fill", |p| p.streak.edifice.fill_pits = true),
-    ("c_late", |p| p.streak.edifice.fill_pits_final = true),
+    // Ruling CO's before: the app as it was before the flank-pit fill
+    // (variant (c-late)) shipped as `volc.fill_edifice_pits`.
+    ("pits_unfilled", |p| p.volc.fill_edifice_pits = false),
     ("a_full", |p| {
         p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
         p.streak.edifice.full_band = true;
-    }),
-    ("a_late", |p| {
-        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
-        p.streak.edifice.fill_pits_final = true;
     }),
     ("a_c", |p| {
         p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
@@ -782,7 +780,7 @@ fn depressions(f: &[f32], sea: f64, gw: usize, gh: usize, volc: &[f32], class: &
 /// edifice footprint: `(on, off, on the summit)`. "Summit" = the lake's first
 /// cell within 30 % of its recovered edifice's radius from the centre
 /// (`frame`): where the summit depression is, which is a real closed basin.
-fn small_lakes_split(class: &[u8], volc: &[f32], gw: usize, gh: usize, frame: &cartalith_terrain::edifice_furrows::EdificeFrame) -> (usize, usize, usize) {
+fn small_lakes_split(class: &[u8], volc: &[f32], gw: usize, gh: usize, frame: &cartalith_terrain::edifice_pits::EdificeFrame) -> (usize, usize, usize) {
     let mut seen = vec![false; gw * gh];
     let (mut on, mut off, mut summit, mut stack) = (0usize, 0usize, 0usize, Vec::new());
     for s0 in 0..gw * gh {
@@ -807,7 +805,7 @@ fn small_lakes_split(class: &[u8], volc: &[f32], gw: usize, gh: usize, frame: &c
             if ed {
                 on += 1;
                 let o = frame.owner[s0];
-                if o != cartalith_terrain::edifice_furrows::EdificeFrame::NONE {
+                if o != cartalith_terrain::edifice_pits::EdificeFrame::NONE {
                     let e = &frame.edifices[o as usize];
                     if ((s0 % gw) as f64 - e.cx).hypot((s0 / gw) as f64 - e.cy) < 0.3 * e.r {
                         summit += 1;
@@ -877,7 +875,7 @@ fn streak_spike_measure() {
         // (placement only, so the same in every arm), their size on the
         // ground, and the gully spacing each law gives them at mid-flank.
         let cell_km = base.map_width_km / gw as f64;
-        let frame = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&rws.volcanic_field, gw, gh);
+        let frame = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&rws.volcanic_field, gw, gh);
         {
             let mut r_km: Vec<f64> = frame.edifices.iter().map(|e| e.r * cell_km).collect();
             // The shipped law: `round(pi * r / 4).clamp(6, 48)` gullies.

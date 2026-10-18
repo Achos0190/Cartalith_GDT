@@ -145,7 +145,8 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
                 "lumps_off" => p.streak.edifice.drop_lumps = true,
                 "a_km" => p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED),
                 "c_fill" => p.streak.edifice.fill_pits = true,
-                "c_late" => p.streak.edifice.fill_pits_final = true,
+                // Ruling CO's before: the shipped flank-pit fill off.
+                "pits_unfilled" => p.volc.fill_edifice_pits = false,
                 other => panic!("ZD_STREAK: unknown switch {other}"),
             }
         }
@@ -250,13 +251,13 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
     }
     // And a mid-flank point of the edifices under the volcano and mountain
     // picks: 0.6 of the recovered radius north of the recovered centre
-    // (`edifice_furrows::EdificeFrame`, from `volcanic_field` alone), where
+    // (`edifice_pits::EdificeFrame`, from `volcanic_field` alone), where
     // the gullies are. The summit picks above sit inside the summit depression
     // at x64, where no gully is cut.
-    let fr = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+    let fr = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
     for (name, px, py) in [("volcano_flank", best_v.1, best_v.2), ("mountain_flank", best_h.1, best_h.2)] {
         let o = fr.owner[py * gw + px];
-        if o != cartalith_terrain::edifice_furrows::EdificeFrame::NONE {
+        if o != cartalith_terrain::edifice_pits::EdificeFrame::NONE {
             let e = &fr.edifices[o as usize];
             let y = (e.cy - 0.6 * e.r).max(m as f64);
             out.push((name, e.cx, y));
@@ -293,7 +294,7 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
 /// Variant (b)'s inputs, when `ZD_FURROWS` is set: the edifices recovered
 /// from the world's `volcanic_field` and the furrow law's scales
 /// (`cartalith_terrain::edifice_furrows`). Not wired into the app.
-type Furrows = (cartalith_terrain::edifice_furrows::EdificeFrame, cartalith_terrain::edifice_furrows::FurrowOpts);
+type Furrows = (cartalith_terrain::edifice_pits::EdificeFrame, cartalith_terrain::edifice_furrows::FurrowOpts);
 
 fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32, fur: Option<&Furrows>) -> (Vec<u8>, usize, usize, TileBounds) {
     let (gw, gh) = (ctx.gw, ctx.gh);
@@ -436,7 +437,7 @@ fn zoom_detail_ladder() {
         // `ZD_FURROWS=1`: variant (b), tile-time radial furrows on edifice
         // flanks at the proposed 1.5 km spacing (`edifice_furrows`).
         let fur: Option<Furrows> = std::env::var("ZD_FURROWS").ok().filter(|v| v == "1").map(|_| {
-            let fr = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+            let fr = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
             println!("FURROWS {}: {} edifices recovered", w.tag, fr.edifices.len());
             let fo = cartalith_terrain::edifice_furrows::FurrowOpts {
                 km_per_cell: p.map_width_km / gw as f64,

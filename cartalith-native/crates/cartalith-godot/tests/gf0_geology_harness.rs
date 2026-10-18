@@ -2458,7 +2458,8 @@ fn hillslope(p: &WorldParams, sea: f64, field: &mut [f32], col: &mut GeologyColu
 /// The rest of `generate_terrain_inner` after the erosion stage, replayed from
 /// public functions: routing, channels, Strahler order, the trace, the
 /// river-intensity stamp, the carve (RV-1), the climate refresh, the glacial
-/// pass and its rebound, the passes' clamp and the final refresh. `rain` and
+/// pass and its rebound, the passes' clamp, the final refresh and Ruling CO's
+/// flank-pit fill. `rain` and
 /// `temp` are the priming rainfall and temperature the pipeline still holds
 /// at that point. With the processes on (`col` is `Some`), glacial runs
 /// first instead, ahead of the trace, on the rock kernel and `temp` (GF-4,
@@ -2609,6 +2610,12 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         }
         cartalith_engine::refresh_climate(p, sea, &field, &cp, &wp, &mut temperature, &mut rainfall, &mut flow);
     }
+    // Ruling CO's flank-pit fill, last, as `generate_terrain_inner` runs it
+    // (`VolcanismParams::fill_edifice_pits`, on in the app): it moves only
+    // `field`, after every stage above.
+    if p.volc.fill_edifice_pits && p.volc.edifice_model {
+        cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &pre.volcanic_field);
+    }
     let column = match col {
         Some(c) => c,
         None => pre.geology.column().expect("column").clone(),
@@ -2648,6 +2655,9 @@ fn pre_erosion(p: &WorldParams) -> WorldState {
     let mut pp = p.clone();
     pp.carve_rivers = false;
     pp.passes = cartalith_engine::ErosionPassParams::off();
+    // Ruling CO's pit fill writes `field` at the very end of generation, so it
+    // is off here (this must be the structural surface); [`tail`] applies it.
+    pp.volc.fill_edifice_pits = false;
     generate_terrain(&pp)
 }
 

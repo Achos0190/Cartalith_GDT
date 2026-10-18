@@ -358,6 +358,36 @@ pub struct VolcanismParams {
     /// it has, as owner ruling 1 of 2026-09-02 (`DECISIONS.md` §7l-ii). It
     /// ships at the app boundary and this function stays the parity baseline.
     pub edifice_model: bool,
+
+    /// **Fill the closed hollows on edifice flanks in the final height
+    /// field** (owner Ruling CO, 2026-10-18; measured as variant (c-late) in
+    /// `EDIFICE_AND_STREAKS_2026-10-18.md`), after every stage that can re-cut
+    /// them. See `cartalith_terrain::edifice_pits`.
+    ///
+    /// Why: the morphological edifice's radial gullies shallow faster than a
+    /// concave cone falls on the lower flank, which leaves about 600 closed
+    /// hollows of a few metres per 800 km world; the lake classifier pooled a
+    /// median 41 of them into 1-3-cell lakes on volcanoes. With the fill: 10,
+    /// with outlets agreeing within five cells on 99.93 % of land (five app
+    /// worlds; before/after in `cartalith-native/docs/STATUS.md`, 2026-10-18).
+    ///
+    /// Acts only with [`Self::edifice_model`] on (the reference's single cone
+    /// has no gullies to leave pits); summits inside
+    /// `cartalith_terrain::edifice_pits::SUMMIT_T` of the radius are kept,
+    /// because a caldera is a real closed basin. It moves only `field`, and
+    /// what is derived from it later (water bodies, the render): flow,
+    /// channels and climate are not recomputed, because integrated drainage
+    /// already routes over a depression-filled surface. With
+    /// `geology_processes` on, the raised metres are not booked as regolith
+    /// (no process runs after this step to read it).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**, the
+    /// same split as the flag above: it moves every app world's height in
+    /// those hollows, so it ships at the app boundary as a disclosed
+    /// re-baseline (`DECISIONS.md` §7p) and this function stays the parity
+    /// baseline. A save without the key reloads `false`, so a project saved
+    /// before the ruling regenerates as it was saved.
+    pub fill_edifice_pits: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -1078,6 +1108,9 @@ impl WorldParams {
                 provinces: true,
                 exclude_transform: false,
                 edifice_model: false,
+                // Ruling CO's pit fill: off on the parity path, like the
+                // edifice it fills. See `VolcanismParams::fill_edifice_pits`.
+                fill_edifice_pits: false,
             },
             // `physical_model: false` HERE and `true` in the shipped app, on
             // purpose. `WorldParams::defaults` is what ~28 golden suites mean
@@ -3353,19 +3386,16 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         );
     }
 
-    // The edifice follow-up's variant (c-late), measurement only and off at
-    // both boundaries (`StreakSpikeParams::edifice`,
-    // `EDIFICE_AND_STREAKS_2026-10-18.md`): fill the closed hollows left on
-    // edifice flanks in the FINAL field, after every stage that can re-cut
-    // them. Added because the stamp-time fill (variant (c)) removed most
-    // flank pits from the final field but measured almost no change in the
-    // 1-3-cell lakes on edifices: those form downstream of the stamp. Flow,
+    // Owner Ruling CO (2026-10-18): fill the closed hollows left on edifice
+    // flanks in the FINAL field, after every stage that can re-cut them (a
+    // stamp-time fill measured almost no change in the 1-3-cell lakes on
+    // edifices: erosion and the carve cut them again downstream). Flow,
     // channels and climate are not recomputed -- integrated drainage already
-    // routes over a filled surface -- so this moves only `field` (and what is
-    // derived from it later, such as water bodies).
-    if p.streak.edifice.fill_pits_final && p.volc.edifice_model {
-        let m = cartalith_terrain::edifice_furrows::flank_mask_from_volcanic_field(&volcanic_field, gw, gh);
-        cartalith_terrain::fill_edifice_flank_pits(gw, gh, &mut field, &m);
+    // routes over a filled surface -- so this moves only `field` and what is
+    // derived from it later. See `VolcanismParams::fill_edifice_pits`; off in
+    // `WorldParams::defaults`, so the parity path skips it by control flow.
+    if p.volc.fill_edifice_pits && p.volc.edifice_model {
+        cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &volcanic_field);
     }
 
     // PR-04: record each active device's real allocation total *before* the
@@ -3587,7 +3617,7 @@ mod tests {
     fn every_streak_switch_reaches_generation() {
         let mut base = WorldParams::defaults(192, 124, 314_159);
         base.integrate_drainage = true;
-        assert_eq!(base.streak, StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, fill_pits_final: false, drop_gullies: false, drop_lumps: false, full_band: false } });
+        assert_eq!(base.streak, StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, drop_gullies: false, drop_lumps: false, full_band: false } });
         assert!(!base.climate.rain_bspline, "the parity baseline is the reference's bilinear");
         let head = generate_terrain(&base);
         let arms: [(&str, fn(&mut WorldParams)); 3] = [
@@ -3624,7 +3654,7 @@ mod tests {
         let arms: [(&str, fn(&mut WorldParams)); 5] = [
             ("gully_spacing_km", |p| p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED)),
             ("fill_pits", |p| p.streak.edifice.fill_pits = true),
-            ("fill_pits_final", |p| p.streak.edifice.fill_pits_final = true),
+            ("fill_edifice_pits", |p| p.volc.fill_edifice_pits = true),
             ("drop_gullies", |p| p.streak.edifice.drop_gullies = true),
             ("drop_lumps", |p| p.streak.edifice.drop_lumps = true),
         ];
@@ -3637,6 +3667,47 @@ mod tests {
             // function of placement alone.
             assert_eq!(ws.volcanic_field, head.volcanic_field, "{name} moved placement");
         }
+    }
+
+    /// Protects: Ruling CO's `VolcanismParams::fill_edifice_pits` reaching
+    /// generation and doing only what it says: on a small morphological-edifice
+    /// world it moves the height field, only upward, only on edifice ground
+    /// (`volcanic_field > 0`), and leaves every other output (placement,
+    /// flow, channels, climate) bit-identical, because it runs after them. With
+    /// `edifice_model` off it is inert (the gate the doc states). And it is off
+    /// in `WorldParams::defaults`, a literal.
+    #[test]
+    fn fill_edifice_pits_raises_only_edifice_ground() {
+        let mut base = WorldParams::defaults(256, 164, 71_077_345);
+        assert!(!base.volc.fill_edifice_pits, "the parity baseline must not fill");
+        base.volc.edifice_model = true;
+        base.volc.count = 12;
+        base.integrate_drainage = true;
+        let off = generate_terrain(&base);
+        let mut p = base.clone();
+        p.volc.fill_edifice_pits = true;
+        let on = generate_terrain(&p);
+        assert!(off.volcanic_field.iter().any(|&v| v > 0.0), "no volcano was placed; the test reaches nothing");
+        let mut moved = 0usize;
+        for i in 0..on.field.len() {
+            if on.field[i].to_bits() != off.field[i].to_bits() {
+                moved += 1;
+                assert!(on.field[i] > off.field[i], "cell {i} was lowered");
+                assert!(off.volcanic_field[i] > 0.0, "cell {i} off every edifice moved");
+            }
+        }
+        assert!(moved > 0, "the fill moved nothing");
+        assert_eq!(on.volcanic_field, off.volcanic_field, "placement moved");
+        assert_eq!(on.flow_discharge, off.flow_discharge, "flow is computed before the fill");
+        assert_eq!(on.rainfall, off.rainfall, "climate is computed before the fill");
+        let ch = |w: &WorldState| w.channels.as_ref().map(|c| (c.recv.clone(), c.chan.clone()));
+        assert_eq!(ch(&on), ch(&off), "channels are computed before the fill");
+        let mut cone = base.clone();
+        cone.volc.edifice_model = false;
+        let a = generate_terrain(&cone);
+        cone.volc.fill_edifice_pits = true;
+        let b = generate_terrain(&cone);
+        assert_eq!(a.field, b.field, "without the morphological edifice the fill must be inert");
     }
 
     /// Protects: `ClimateInputParams::rain_bspline` reaches the recompute

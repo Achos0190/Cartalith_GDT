@@ -661,6 +661,42 @@ fn a_save_without_the_rain_bspline_key_reloads_bilinear() {
     }
 }
 
+/// Protects: a save lacking the `volc.fill_edifice_pits` key reloading with the pits unfilled
+/// (Ruling CO, 2026-10-18), while a saved true/false round-trips.
+///
+/// Every project saved before the ruling was generated without the fill, so a regenerate from
+/// its parameters must reproduce its small volcano lakes rather than drain them silently. The
+/// fixture's native block is the shape a pre-ruling save wrote: every row of the table except
+/// the new one (`save_state` of the old app defaults with the key removed), not an empty object
+/// (`MISTAKES.md`, "Write a backward-compatibility test").
+#[test]
+fn a_save_without_the_fill_edifice_pits_key_reloads_unfilled() {
+    assert!(params::defaults().volc.fill_edifice_pits, "the shipped app generates with it on");
+
+    let mut old = params::defaults();
+    old.volc.fill_edifice_pits = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("volc.fill_edifice_pits").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &state);
+    assert_eq!(n, rows, "every other row of a pre-ruling save still applies");
+    assert!(!p.volc.fill_edifice_pits, "a pre-existing save must not silently gain the pit fill");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.volc.fill_edifice_pits = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["volc.fill_edifice_pits"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.volc.fill_edifice_pits = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.volc.fill_edifice_pits, on);
+    }
+}
+
 /// Protects: a save lacking the `passes.glacial` key reloading with the pass OFF (owner Ruling
 /// AU), while a saved true/false round-trips.
 ///
@@ -865,6 +901,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And the rain up-sample (Ruling CM): a reference export's rain is bilinear
     // (`a_save_without_the_rain_bspline_key_reloads_bilinear`).
     expect.climate.rain_bspline = false;
+    // And the edifice pit fill (Ruling CO): a reference export never filled
+    // (`a_save_without_the_fill_edifice_pits_key_reloads_unfilled`).
+    expect.volc.fill_edifice_pits = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -903,15 +942,17 @@ use cartalith_engine::{WorldParams, WorldState};
 /// quietly appeared in `WorldParams::defaults` instead would break sixteen
 /// `cartalith-civ` suites. Listing them here makes either failure loud.
 ///
-/// Eight today: `crater.physical_model` (§7l) and the two volcano flags
+/// Nine today: `crater.physical_model` (§7l) and the two volcano flags
 /// (§7l-ii, owner ruling 1), all 2026-09-02; `integrate_drainage`
 /// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k);
 /// `tect.narrow_plate_base_blur` (source v2.57, `RC_ENGINE_CHANGES.md` §6i --
 /// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24);
 /// `passes.glacial` (owner Ruling AU, 2026-09-24, `LOD_DETAIL_SCOPE.md`
 /// question 3); `geology_model` (Ruling BH, `GEOLOGY_FIRST_SCOPE.md` §6.1);
-/// and `climate.rain_bspline` (Ruling CM, 2026-10-18,
-/// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)).
+/// `climate.rain_bspline` (Ruling CM, 2026-10-18,
+/// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)); and
+/// `volc.fill_edifice_pits` (Ruling CO, 2026-10-18,
+/// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)).
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -928,9 +969,10 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.passes.glacial && !parity.passes.glacial, "glacial pass on for new worlds, Ruling AU");
     assert!(app.geology_model && !parity.geology_model, "geology-first model, Ruling BH (GEOLOGY_FIRST_SCOPE.md §6.1)");
     assert!(app.climate.rain_bspline && !parity.climate.rain_bspline, "B-spline rain up-sample, Ruling CM");
+    assert!(app.volc.fill_edifice_pits && !parity.volc.fill_edifice_pits, "edifice flank-pit fill, Ruling CO");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
-    assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, fill_pits_final: false, drop_gullies: false, drop_lumps: false, full_band: false } });
+    assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, drop_gullies: false, drop_lumps: false, full_band: false } });
     // GF-2's processes are NOT a divergence yet: off at both boundaries until
     // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
     assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");
@@ -941,7 +983,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the eight must make the two identical --
+    // And nothing else. Neutralising the nine must make the two identical --
     // which catches a ninth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
@@ -953,10 +995,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.passes.glacial = false;
     neutral.geology_model = false;
     neutral.climate.rain_bspline = false;
+    neutral.volc.fill_edifice_pits = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         eight authorised fields"
+         nine authorised fields"
     );
 }
 
@@ -964,12 +1007,14 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the eight shipped divergences -- the volcanism/crater ones -- are
+/// Three of the nine shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other five, `integrate_drainage`,
-/// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model` and `climate.rain_bspline`,
-/// are left on in both worlds here, so this measures only the three it names. (The rain
+/// path behind it is dead. The other six, `integrate_drainage`,
+/// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model`, `climate.rain_bspline` and
+/// `volc.fill_edifice_pits`, are left on in both worlds here (the pit fill is inert on the
+/// parity side, whose edifice model is off), so this measures only the three it names. (The pit
+/// fill's reach is `cartalith-engine`'s `fill_edifice_pits_raises_only_edifice_ground`.) (The rain
 /// up-sample's reach is `cartalith-engine`'s `every_streak_switch_reaches_generation` and
 /// `rain_bspline_reaches_refresh_climate`.) (The blur flag's own
 /// reach is `cartalith-engine`'s
