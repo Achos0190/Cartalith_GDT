@@ -468,7 +468,7 @@ pub struct PolicyInputs {
     pub way_length: Option<f64>,
 }
 
-/// **Q2's policy bias** (§8.5, default): `Some(1)` if any *present* term is
+/// **Q2's policy bias** (§8.6, default): `Some(1)` if any *present* term is
 /// positive, `Some(0)` if terms are present and all zero, `None` if both are
 /// absent.
 ///

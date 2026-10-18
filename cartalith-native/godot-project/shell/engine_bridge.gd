@@ -8187,6 +8187,54 @@ func lod_ef9_select(z0: int, z_cap: int, c0: int, c1: int, r0: int, r1: int) -> 
 		return {}
 	return world_gen.lod_ef9_select(z0, z_cap, c0, c1, r0, r1)
 
+## **EF-9.4, continuous model** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5).
+## The zoom's unrounded pyramid level (`lod_bridge::continuous_level`), the
+## number `lod_level_for_zoom` rounds. `-1.0` against a `.dll` without it, which
+## no real level is; the viewport reads it as "no continuous model" and draws
+## today's way.
+func lod_continuous_level(px_per_cell: float) -> float:
+	if not _has("lod_continuous_level"):
+		return -1.0
+	return world_gen.lod_continuous_level(px_per_cell)
+
+## **EF-9.4, continuous model.** The boost's fade-in after LOD entry
+## (`continuous_lod::entry_gain`): 0 at `zoom_entry`, 1 one octave past it.
+## `0.0` (no boost) against a `.dll` without it.
+func lod_ef9_gain(zoom: float, zoom_entry: float) -> float:
+	if not _has("lod_ef9_gain"):
+		return 0.0
+	return world_gen.lod_ef9_gain(zoom, zoom_entry)
+
+## **EF-9.4, continuous model.** The boost above which a `z0 + 1` tile must be
+## live, or `null` when none is needed (`continuous_lod::plus_one_threshold`).
+## `null` against a `.dll` without it.
+func lod_ef9_plus_one_threshold(lam_zoom: float, gain: float, z0: int, z_cap: int) -> Variant:
+	if not _has("lod_ef9_plus_one_threshold"):
+		return null
+	return world_gen.lod_ef9_plus_one_threshold(lam_zoom, gain, z0, z_cap)
+
+## **EF-9.4, continuous model.** `{key, n, any}` describing this world's boost
+## field; `{}` before a world or against a `.dll` without it.
+func lod_ef9_boost() -> Dictionary:
+	if not _has("lod_ef9_boost"):
+		return {}
+	return world_gen.lod_ef9_boost()
+
+## **EF-9.4, continuous model.** The boost field as an `n x n` `FORMAT_RF`
+## texture for `lod_tile.gdshader`'s `boost_tex`; `null` before a world or
+## against a `.dll` without it.
+func lod_ef9_boost_texture() -> Texture2D:
+	if not _has("lod_ef9_boost_texture"):
+		return null
+	return world_gen.lod_ef9_boost_texture()
+
+## **EF-9.4, continuous model.** `col, row` pairs of the level-`z` tiles in the
+## range whose boost exceeds `thr` somewhere; empty against a `.dll` without it.
+func lod_ef9_boost_tiles(z: int, c0: int, c1: int, r0: int, r1: int, thr: float) -> PackedInt32Array:
+	if not _has("lod_ef9_boost_tiles"):
+		return PackedInt32Array()
+	return world_gen.lod_ef9_boost_tiles(z, c0, c1, r0, r1, thr)
+
 ## Collect up to `max` finished tiles as `{z, col, row, tex}`. The textures
 ## are created inside the engine call, on the calling (main) thread -- the
 ## scope's *"the main thread uploads the texture"*.

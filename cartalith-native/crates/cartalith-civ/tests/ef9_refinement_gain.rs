@@ -74,7 +74,7 @@ const DEFAULT_WINDOW: u32 = 16;
 const DEFAULT_K: u32 = 3;
 /// The plan's three budgets, as integer percent of a window's tiles.
 const BUDGETS: [u32; 3] = [10, 25, 50];
-/// Q3's default gate (§8.5): GO if the oracle captures at least this multiple
+/// Q3's default gate (§8.6): GO if the oracle captures at least this multiple
 /// of today's order at the 25 % budget, median across worlds.
 const GATE_RATIO: f64 = 1.5;
 /// Bin edge in cells for the way-segment index. Judgement (speed only; the

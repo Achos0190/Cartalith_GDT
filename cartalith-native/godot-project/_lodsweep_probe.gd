@@ -60,6 +60,11 @@ extends Node
 ##                      per (world, zoom) to DIR as PNG and stop -- the
 ##                      toggle-off identity check runs this on two builds and
 ##                      compares the two DIRs byte for byte.
+##   --dump-run DIR     during the baseline run, ALSO write every measured frame
+##                      of every test to DIR as `<seed>_<grid>_<test>_<frame>.png`,
+##                      and print each frame's drawn level -- so the frames around
+##                      a level boundary can be opened and read.  Changes no
+##                      number: the capture is the one already measured.
 ##
 ## ## Exit status (this project's convention)
 ##   0  every assertion held
@@ -69,7 +74,7 @@ extends Node
 ## C:/some/scratch/dir`. Flags (an unknown one aborts): `--out DIR`, `--seeds a,b,c` (default 483920,24601,71077345),
 ## `--grids WxH,...` (default 2048x1311,512x384), `--vp WxH` (default 1600x1000), `--width-km F`, `--zoom-step F`
 ## (default 1.02), `--tests sweep|pan|zoompan`, `--theme dark|light`, `--plant`, `--no-sheet`, `--rivers-on`, `--ef9
-## on|off`, `--frames DIR`. Prints `out: <dir>`, `palette forced: ...`, per world `================ seed <n>   grid
+## on|off`, `--frames DIR`, `--dump-run DIR`. Prints `out: <dir>`, `palette forced: ...`, per world `================ seed <n>   grid
 ## <w>x<h> ================`, the zoom-ladder readings, `wrote <path>` for its JSON report and `PROBE-RESULT: PASS|FAIL`;
 ## failures go to stderr as `ASSERT-FAILED: <what>` and setup failures as `PROBE-CANNOT-RUN: ...`. Exit status as the
 ## header states: 0 every assertion held, 1 an assertion failed, 2 could not run.
@@ -151,6 +156,8 @@ var _rivers_on := false
 var _ef9 := -1
 ## `--frames`: where the settled identity captures go; `""` = the normal run.
 var _frames_dir := ""
+## `--dump-run`: where every measured frame goes; `""` = not written.
+var _dump_dir := ""
 var _report: Dictionary = {}
 
 
@@ -293,6 +300,12 @@ func _parse_args() -> bool:
 				if not has_next: return _argfail(a)
 				_frames_dir = args[i + 1]
 				if not _frames_dir.ends_with("/"): _frames_dir += "/"
+				i += 1
+			"--dump-run":
+				if not has_next: return _argfail(a)
+				_dump_dir = args[i + 1]
+				if not _dump_dir.ends_with("/"): _dump_dir += "/"
+				DirAccess.make_dir_recursive_absolute(_dump_dir)
 				i += 1
 			_:
 				printerr("PROBE-CANNOT-RUN: unknown argument '%s'. See this file's header." % a)
@@ -681,6 +694,9 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 			break
 		zooms.append(cap["zoom"])
 		levels.append(_br.lod_level_for_zoom(native0 * float(cap["zoom"])))
+		if _dump_dir != "":
+			(cap["img"] as Image).save_png("%s%d_%dx%d_%s_%03d.png" % [_dump_dir, seed_v, grid.x, grid.y, kind, n])
+			print("     dump frame %d  zoom %.4f  level %d" % [n, float(cap["zoom"]), levels[levels.size() - 1]])
 
 		var d: Dictionary = _m.call("detail", cap["data"], cap["w"], cap["h"])
 		if d.get("ok", false):
@@ -692,6 +708,8 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 				prev_cap["campos"], prev_cap["zoom"], cap["campos"], cap["zoom"])
 			if t.get("ok", false):
 				ti.append(t["mean_dlstar"])
+				if _dump_dir != "":
+					print("     dump T_i %d->%d  %.4f" % [n - 1, n, float(t["mean_dlstar"])])
 
 		var active: bool = _vh.lod_active()
 		if active and not was_active and entry_frame < 0:

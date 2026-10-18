@@ -2,11 +2,16 @@
 //! and in what order to synthesise them, given per-tile *importance*
 //! (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3, milestone EF-9.2).
 //!
-//! This is the *engine-side* rule. Since **EF-9.4** (2026-10-17) the viewport
-//! calls it through `cartalith_godot`'s `ef9_bridge.rs`
+//! This is the *engine-side* rule. From **EF-9.4** (2026-10-17) the viewport
+//! called it through `cartalith_godot`'s `ef9_bridge.rs`
 //! (`WorldGen::lod_ef9_select`), behind a toggle that ships off, together with
-//! [`conform_plan`] (which edges of a mixed-level selection are conformed); no
-//! generation code calls it. It reads scores (`crate::importance`, EF-9.1) and
+//! [`conform_plan`] (which edges of a mixed-level selection are conformed).
+//! **Since 2026-10-18 the viewport no longer calls it**: a per-level selection
+//! made the drawn level jump at every level boundary (D3), and EF-9.4 now draws
+//! through `crate::continuous_lod` (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
+//! §8.5). This module stays as tested library code (`PROMOTE_PERCENT` and
+//! `SCORE_FLOOR` are still read by `continuous_lod`); removing the rest is an open
+//! row. No generation code calls it. It reads scores (`crate::importance`, EF-9.1) and
 //! returns a [`Selection`]; it synthesises no texel and moves no golden.
 //!
 //! # What it replaces, and what "today" is
@@ -29,7 +34,7 @@
 //!
 //! # The rule
 //!
-//! Q1's default (§8.5): **promote only, at most one level, never below `z0`.**
+//! Q1's default (§8.6): **promote only, at most one level, never below `z0`.**
 //! A tile at `z0` may be replaced by its four children at `z0 + 1`
 //! ([`cartalith_spatial::pyramid::chunk_children`]). Promotions are taken in
 //! importance order. Three limits apply, in this order of authority:

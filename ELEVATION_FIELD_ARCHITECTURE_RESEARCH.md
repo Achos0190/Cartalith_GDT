@@ -1184,7 +1184,7 @@ property of a discrete per-level selection. The candidate fix is a continuous
 per-position effective level (a smooth importance boost added to the zoom's
 level, with a per-pixel morph in the tile shader instead of one morph per
 level), i.e. CDLOD's distance morph with importance in place of distance. That
-is a display-model redesign and is not built.
+is a display-model redesign; built 2026-10-18, §8.5.
 
 Read in the settled frames (24601/512, off / HEAD on / this change on): at zoom
 16 the straight vertical line at the promoted region's edge is gone; the region
@@ -1193,7 +1193,185 @@ itself, now reached through a 16-texel ramp rather than a step. At zoom 8 the
 promoted block is still readable as a rectangle of denser texture (softer
 edges than HEAD); at zoom 40 no edge is visible in either on state.
 
-### 8.5 Owner questions — each with the default the plan assumes
+### 8.5 The continuous effective level -- EF-9.4's display model, redesigned (2026-10-18)
+
+**Why.** §8.4's last entry measured the cause of D3: the first display model
+promoted whole `z0` tiles to their `z0 + 1` children, re-selected at every
+level, so a region promoted at `z` showed `z + 1` by the end of the level and
+fell back to `z` one frame after the switch (children from alpha 0.998 to
+0.00002, seed 24601, 512x384, zoom-while-pan, frames 19 -> 20). A promotion
+decided per level makes the drawn level jump wherever the decision changes, and
+at a level boundary it is re-taken everywhere at once. No edge or colour rule
+reaches that.
+
+**Principle.** Strugar's CDLOD (*Continuous Distance-Dependent Level of Detail
+for Rendering Heightmaps*, JGGT 14(4), 2009; cited in `docs/research/lod extra
+info.md` §3.3 and `TERRAIN_ARCHITECTURE_RESEARCH.md`) picks every vertex's level
+from a continuous function of position (distance) and morphs over the end of
+each level's range, so neighbouring nodes of different levels agree where they
+meet. EF-9.4 now does the same with **importance in place of distance**, in
+level units, per pixel.
+
+**The effective level.** With `lam_zoom = log2(max(1, gw · px_per_cell /
+TILE_PX))` (the unrounded number `level_for_zoom` rounds and LOD-D3's morph fades
+over; `lod_bridge::continuous_level`):
+
+```text
+L(x, zoom) = lam_zoom + gain(zoom) · BOOST_LEVELS · b(x)        BOOST_LEVELS = 1
+w_k(x)     = smoothstep01(L - k + 0.5)                          (LOD-D3's morph at b = 0)
+```
+
+- `b(x)` in `[0, 1]` is **zoom-independent**: EF-9.1's fitted score
+  (`FITTED_WEIGHTS`, unchanged) evaluated once per world on the tiles of a fixed
+  level whose footprint is about 8 coarse cells (`boost_level`: z6 at 512 wide,
+  z8 at 2048), mapped by a smoothstep ramp from the 62.5th to the 87.5th
+  percentile of the world's scores (centred on EF-9.2's 25 % cut; the low end
+  raised to `SCORE_FLOOR` 0), stored as an `n x n` texture with texel `(i, j)` at
+  pyramid index-space `((i + 0.5)/n, (j + 0.5)/n)`, and interpolated bilinearly
+  between texel centres. Index space is used because a tile `(z, c, r)` is
+  exactly `[c, c+1]/2^z x [r, r+1]/2^z` at every level, so one texture serves
+  every level. An absent score gives `b = 0` (today's picture), never a guess.
+- `gain(zoom) = smoothstep01(log2(zoom / zoom_entry))`, with `zoom_entry`
+  `_update_lod()`'s own entry gates (`max(LOD_AUTO_ZOOM, 1 / native_scale)`):
+  0 at LOD entry, 1 one octave later, so the layer comes up exactly as without
+  EF-9.
+- **Drawn layers**, back to front: `z0 - 1` (or the base map in the entry band),
+  `z0`, `z0 + 1`, where `z0 = round_half_up(lam_zoom)` is today's level, and the
+  `z0` and `z0 - 1` sets are today's sets unchanged. Each tile's alpha is its
+  own level's `w_k` at the pixel. The `z0 + 1` tiles drawn are those whose
+  boost can lift their weight above 0 within `PREFETCH_LEVELS` = 0.25 of the
+  current zoom (`plus_one_threshold`, `BoostField::tiles_over`, a conservative
+  bound: a bilinear value never exceeds the largest of its four texels).
+
+**The continuity condition.** A pixel's colour is continuous in zoom and in
+position iff (1) `L` is continuous in `(x, zoom)` -- true, since `lam_zoom`,
+`gain` and `b` each are and none depends on `z0`; (2) the composite is a
+function of `L` alone wherever two choices of `z0` are both valid; and (3)
+every tile with a non-zero weight in view is live (otherwise it is a hole in
+LOD-D3's existing sense, which `PREFETCH_LEVELS` exists to avoid).
+
+**Proof of (2).** Stack `z0` composites to `C = a1·T(z0+1) + (1-a1)·(a0·T(z0) +
+(1-a0)·T(z0-1))` with `a_k = w_k(L)`. Since `lam_zoom` is in `[z0 - 0.5, z0 + 0.5)`
+and `0 <= gain·b <= 1`, `L` is in `[z0 - 0.5, z0 + 1.5)`. If `L <= z0 + 0.5` then
+`a1 = 0` and `C = mix(T(z0-1), T(z0), a0)`; if `L >= z0 + 0.5` then `a0 = 1` and
+`C = mix(T(z0), T(z0+1), a1)`. Both are `P(L) = mix(T(k-1), T(k),
+smoothstep01(L - k + 0.5))` with `k = round(L)`, a function of `L` only, and
+`P` is continuous at `L = k + 0.5` because the weight there is exactly 1 and
+`P` hands over to `mix(T(k), T(k+1), 0) = T(k)` -- LOD-D3's own invariant. At
+the switch `lam_zoom = z0 + 0.5` every pixel has `L >= z0 + 0.5`; the old stack
+shows `mix(T(z0), T(z0+1), a1)` and the new stack `z0 + 1` the same expression
+(its bottom `T(z0)` is covered where `w_{z0+1} = 1`, its `z0 + 2` layer has
+weight `w_{z0+2}(L) = 0` because `L < z0 + 1.5`). Zooming out is the mirror
+case. So the switch changes no pixel, and every weight moves by at most
+`max smoothstep' = 1.5` per level of `L`. `BOOST_LEVELS <= 1` is part of the
+condition: a larger boost would need a fourth layer. Spatially, a `z0 + 1` tile
+next to one that is not wanted has weight 0 along their shared edge (the
+neighbour's boost is below the threshold everywhere, so on the edge too), so no
+tile edge carries a step; the conformed tiles and the colour-blend half of
+§8.4 are not needed on this path.
+
+**Tested** (`cartalith_engine::continuous_lod`, 12 tests; 10 mutants of its weights, rounding, clamps, prefetch, bound and ramp all killed): no level's
+contribution moves by more than `3 x step` over a sweep of `lam_zoom` through
+four level boundaries in steps of 1e-4 at seven boosts from 0 to 1; old and new
+stacks composite identically at the boundary for 21 boosts; Lipschitz in `b`;
+`b = 0` is LOD-D3's morph exactly; partition of unity and the cap; the boost
+field's bilinear sampling, its conservative `max_over` and `tiles_over`, and the
+score ramp on hand values; the literal constants. `lod_bridge`'s
+`the_continuous_level_is_what_the_level_switch_rounds` pins that the shell's
+level is `round(lam_zoom)` over a dense sweep.
+
+**What the shader samples.** `lod_tile.gdshader` gains `per_pixel` (default
+false: the off path is `morph` exactly as before, by control flow), `lam_zoom`,
+`boost_gain`, `tile_level`, the tile's index-space footprint and the boost
+texture, read with four `texelFetch`es and interpolated by hand so no GPU
+filter enters (`BoostField::sample`'s arithmetic). Both adjacent levels are
+available because the shell keeps today's `z0 - 1` / `z0` sets and adds the
+`z0 + 1` tiles over them; each tile is drawn once with its own weight, so no
+shader needs two tiles' textures.
+
+**Cost and memory.** One `n x n` `FORMAT_RF` texture per world (16 KB at 512
+wide, 256 KB at 2048), built once per cache key on the main thread (`4^level`
+footprint aggregations; not timed separately). Main thread per camera step,
+measured windowed (seed 24601, 512x384, relief pivot, 60 steps per state, two
+runs each): `_update_lod()` 0.58-0.85 ms on against 0.24-0.43 ms off;
+`_refresh_lod_blend()` 0.12-0.20 ms against 0.03-0.05 ms. The real cost is
+tiles: the `z0 + 1` layer adds its tiles on top of today's set (zoom 16: 105 live
+tiles on against 41 off; zoom 40: 80 against 26), each one synthesis and one
+texture.
+
+**Interaction with §8.4's work.** The discrete model's viewport code (roles,
+fallbacks, stand-ins, the hold rule, the build gate, conformed keys) is removed
+from `viewport_host.gd`; its engine side (`select_tiles`, `conform_plan`,
+`conform_tile_in_place`, `conform_colour_in_place`) and its three `#[func]`s
+stay callable and tested but the viewport no longer calls them -- removing them
+is an open row. Nothing here changes a tile's content (I1), a river threshold
+(I2) or the cap (I3, `plus_one_threshold` is `None` when `z0 + 1 > z_cap`).
+
+**Toggle.** Unchanged: `LodBudget::ef9_refine`, `false` on every tier;
+`set_ef9_refine` overrides per session. Off, `_ef9_on` is false and every branch
+is today's; the materials' `per_pixel` is reset on live and parked tiles the
+first blend after EF-9 stops.
+
+**One fix found by reading frames.** The first measurement of this model failed
+D3 on 10 of 12 runs, worst 5.71 (seed 71077345, 512x384, sweep, level 8 -> 9:
+T_i 5.84 and 5.87 on the two frames either side of the switch against about 1.0
+around them). Frame 221 showed the right half of the view washed to the base
+map for one frame. Instrumented: on the switch frame no tile was blending over
+its parent, because a level-9 tile requested earlier as a `z0 + 1` tile landed
+after the switch outside the view, its level-8 parent was not in the new parent
+set, and `_refresh_lod_blend()`'s all-or-none rule sent the whole level to the
+base-map blend. With EF-9 on, the drain now installs only what the last plan
+wanted (`viewport_host.gd::_ef9_wanted`); with EF-9 off nothing is requested a
+level ahead, so today's drain is unchanged. After it, that boundary reads 1.35.
+
+**Measured** (2026-10-18). Windowed, scratch `git archive` roots of `de1a07ff`,
+debug DLLs built from `de1a07ff` and from `de1a07ff` + this change in separate
+worktrees with separate target dirs; `_lodsweep_probe.gd --no-sheet --ef9
+on|off`, one world per run, clean user directory per run, each run alone.
+Off: one run per world. On: one run per world after the drain fix. Near-bar
+configurations re-run twice more in each state (values listed).
+
+| Bar | EF-9 off | EF-9 on (continuous) |
+|---|---|---|
+| Toggle off byte-identical (`--frames`, 24 settled captures vs `de1a07ff`) | 24/24 (`--ef9 off`), 24/24 (tier default) | -- |
+| I4 seam median <= 1.5 over mixed-level frames | (all frames) 17/18, 24601/512 pan 1.565 | **18/18**, max 1.415 (24601/512 zoompan; 1.327 in an earlier run) |
+| D3 level-boundary ratio <= 1.5 | 8/12 | **8/12** (was 4/12 for the discrete model) |
+| D3 runs near or over the bar, three runs each | 24601/2048 zp 1.58 1.58 1.58; 483920/2048 sweep 1.83 1.83 1.83; 483920/512 zp 1.99 1.54 1.54 (1.54 in a fourth); 71077345/2048 sweep 1.50 1.50 1.50 | 1.58 1.58 1.58; 1.83 1.83 1.83; 1.64 1.68 1.64 (1.88 in a fourth); 1.51 1.51 1.51 |
+| I3 frames past the cap | 0 | 0 (deepest 10 at cap 10) |
+| Pops, all 18 runs | 13 | **0** |
+| Holey frames after the first built frame, all runs | 258 | 217 |
+| Payoff: views with detail ratio over the `z0 + 1` tiles >= 1 | -- | 33/34 (median 1.54, 0.997..2.98; the one below is 483920/512 river view, zoom 40, 0.9973) |
+| Frame time, median of run medians (min..max) | 1.74 ms (1.31..2.14) | 2.60 ms (1.49..3.57) |
+| Camera-step cost, same | 33.0 ms (32.7..33.3) | 35.4 ms (32.5..41.3) |
+
+**Reading.** I4 now passes everywhere, including the one configuration EF-9 off
+fails. D3 is 8/12 in both states and is **not met**; the four failing runs are
+the same configurations in both states, two of them at identical values
+(1.58, 1.83: those are today's display path, which the toggle-off identity
+requires this change not to touch). On 483920/512 zoom-while-pan both states
+alternate large and small T_i frame to frame through the whole run (dumped,
+off: 2.60 at the boundary beside 2.76 two frames later, not at a boundary; on:
+4.46 beside 4.21), so the boundary frame is not special there; EF-9 raises all
+T_i there by about 1.5x (more detail under the same pan) and the ratio moves
+with it. 71077345/2048 sweep is 1.51 on against 1.50 off in all three runs. So
+the remaining D3 failures are not a level dropping at a switch.
+
+**Frames read** (24601/512 zoom-while-pan, the former failing configuration,
+frames 18-21 across the level-6 -> 7 switch at frame 20; and 71077345/512 sweep
+219-222 before and after the drain fix; and 483920/512 zoom-while-pan 19-22):
+the same ground keeps the same detail across the switch, moving only with the
+pan; no region falls back a level, no straight edge at a tile boundary.
+Before the drain fix the 71077345 frame 221 showed the one-frame wash
+described above; after it, it does not.
+
+**Why it stays off.** D3 is 8/12 with EF-9 on, which is not every bar; it is
+the same 8/12 as EF-9 off, and the four failures belong to today's display
+path. Whether that is enough to ship EF-9 on is the owner's (Q5), not this
+change's. Also open: the camera-step and frame-time cost above (the `z0 + 1`
+layer is real extra tiles), and the boost field's first build on the main
+thread (not timed separately).
+
+### 8.6 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below
    today's level frees budget for important tiles. It also draws less than

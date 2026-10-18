@@ -2,7 +2,17 @@
 //! (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3, milestone EF-9.4).
 //!
 //! Its own file with a `#[godot_api(secondary)]` block, like
-//! `campaign_bridge.rs`. Three `#[func]`s:
+//! `campaign_bridge.rs`.
+//!
+//! **Since 2026-10-18 the viewport draws EF-9 through the continuous effective
+//! level** (`cartalith_engine::continuous_lod`, §8.5): the `#[func]`s it calls
+//! are [`WorldGen::lod_continuous_level`], [`WorldGen::lod_ef9_gain`],
+//! [`WorldGen::lod_ef9_plus_one_threshold`], [`WorldGen::lod_ef9_boost`],
+//! [`WorldGen::lod_ef9_boost_texture`] and [`WorldGen::lod_ef9_boost_tiles`].
+//! The three below belong to the first, discrete display model (per-level
+//! promotion), which the shell no longer calls; they remain callable, with
+//! their engine functions and tests, and `_lodsweep_probe.gd` still times the
+//! conformed synthesis. Removing them is an open row, not done here:
 //!
 //! - [`WorldGen::lod_ef9_select`] -- EF-9.2's selection
 //!   (`cartalith_engine::subdivision::select_tiles`) for the view the shell
@@ -36,6 +46,7 @@
 
 use std::collections::HashMap;
 
+use cartalith_engine::continuous_lod::{entry_gain, plus_one_threshold, BoostField};
 use cartalith_engine::importance::{importance, policy_rank, tile_features, PolicyField, WorldImportanceField, FITTED_WEIGHTS};
 use cartalith_engine::staleness::PipelineStage;
 use cartalith_engine::subdivision::{conform_plan, select_tiles, Basis, ViewImportance, ViewRange};
@@ -62,6 +73,10 @@ pub(crate) struct Ef9Cache {
     /// `(z, col, row) -> (score, policy rank)`, filled as views are scored.
     /// Bounded by what the user has looked at: a view is a few dozen tiles.
     scores: HashMap<(u32, u32, u32), (Option<f64>, Option<u8>)>,
+    /// The continuous model's `b(x)` (`continuous_lod::BoostField::build` over
+    /// `field` with `FITTED_WEIGHTS`), built on first use and dropped with the
+    /// rest of the cache when the key moves.
+    boost: Option<BoostField>,
 }
 
 impl Ef9Cache {
@@ -158,7 +173,22 @@ impl WorldGen {
             let ways: Vec<Vec<(f64, f64)>> = civ.ways.iter().filter(|w| !w.hidden).map(|w| w.pts.clone()).collect();
             PolicyField::new(gw, gh, settlements, &ways)
         });
-        *c = Ef9Cache { key, field: Some(field), policy, scores: HashMap::new() };
+        *c = Ef9Cache { key, field: Some(field), policy, scores: HashMap::new(), boost: None };
+        true
+    }
+
+    /// [`Self::ef9_ensure`], then the boost field, built once per cache key.
+    /// `false` when there is no world (or no usable field).
+    fn ef9_boost_ready(&self) -> bool {
+        if !self.ef9_ensure() {
+            return false;
+        }
+        let mut c = self.ef9.borrow_mut();
+        if c.boost.is_none() {
+            let Some(field) = c.field.as_ref() else { return false };
+            let b = BoostField::build(field, &FITTED_WEIGHTS);
+            c.boost = Some(b);
+        }
         true
     }
 }
@@ -257,6 +287,84 @@ impl WorldGen {
             "terms_missing" => &missing,
             "policy" => policy.is_some(),
         }
+    }
+
+    /// **The zoom's continuous pyramid level** (`lod_bridge::continuous_level`
+    /// for this world's width): the unrounded number `lod_level_for_zoom`
+    /// rounds and `lod_morph` fades over, which the continuous model adds its
+    /// boost to. `0.0` before a world.
+    #[func]
+    fn lod_continuous_level(&self, px_per_cell: f64) -> f64 {
+        lod_bridge::continuous_level(px_per_cell, self.gw.max(0) as usize)
+    }
+
+    /// The boost's fade-in after LOD entry (`continuous_lod::entry_gain`):
+    /// `0` at `zoom_entry`, `1` one zoom octave past it, `0` for an unknown
+    /// entry zoom.
+    #[func]
+    fn lod_ef9_gain(&self, zoom: f64, zoom_entry: f64) -> f64 {
+        entry_gain(zoom, zoom_entry)
+    }
+
+    /// The boost above which a `z0 + 1` tile must be live
+    /// (`continuous_lod::plus_one_threshold`), or `null` when none is needed
+    /// (at the cap -- I3 --, before any gain, or past every boost). `null`,
+    /// never a sentinel number: every value in `[0, 1)` is a real threshold.
+    #[func]
+    fn lod_ef9_plus_one_threshold(&self, lam_zoom: f64, gain: f64, z0: i32, z_cap: i32) -> Variant {
+        let cap = z_cap.min(lod_bridge::MAX_LEVEL);
+        plus_one_threshold(lam_zoom, gain, z0, cap).map_or(Variant::nil(), |t| t.to_variant())
+    }
+
+    /// This world's boost field, described: `key` (the cache key it was built
+    /// under -- the shell refetches the texture when it changes), `n` (texels
+    /// per axis), `any` (whether any texel is boosted; `false` = EF-9 draws
+    /// today's picture). `{}` before a world.
+    #[func]
+    fn lod_ef9_boost(&self) -> VarDictionary {
+        if !self.ef9_boost_ready() {
+            return VarDictionary::new();
+        }
+        let c = self.ef9.borrow();
+        let Some(b) = c.boost.as_ref() else { return VarDictionary::new() };
+        dict! { "key" => c.key.as_str(), "n" => b.n() as i64, "any" => b.any() }
+    }
+
+    /// The boost field as an `n x n` `FORMAT_RF` texture, texel `(i, j)` at
+    /// pyramid index-space `((i + 0.5) / n, (j + 0.5) / n)`, for
+    /// `lod_tile.gdshader`'s `boost_tex` (which samples it with `texelFetch`, so
+    /// no filter enters). `null` before a world.
+    #[func]
+    fn lod_ef9_boost_texture(&self) -> Option<Gd<ImageTexture>> {
+        if !self.ef9_boost_ready() {
+            return None;
+        }
+        let c = self.ef9.borrow();
+        let b = c.boost.as_ref()?;
+        let n = b.n() as i32;
+        let bytes: Vec<u8> = b.values().iter().flat_map(|v| v.to_le_bytes()).collect();
+        let image = Image::create_from_data(n, n, false, Format::RF, &PackedByteArray::from(bytes))?;
+        ImageTexture::create_from_image(&image)
+    }
+
+    /// The level-`z` tiles in `c0..=c1 x r0..=r1` whose boost is above `thr`
+    /// somewhere in their footprint (`BoostField::tiles_over`, a conservative
+    /// bound), as `col, row` pairs. Empty before a world or for a view outside
+    /// level `z` (`view_in_level`'s guard).
+    #[func]
+    fn lod_ef9_boost_tiles(&self, z: i32, c0: i32, c1: i32, r0: i32, r1: i32, thr: f64) -> PackedInt32Array {
+        let mut out = PackedInt32Array::new();
+        let Some(v) = view_in_level(z, c0, c1, r0, r1) else { return out };
+        if !self.ef9_boost_ready() {
+            return out;
+        }
+        let c = self.ef9.borrow();
+        let Some(b) = c.boost.as_ref() else { return out };
+        for (col, row) in b.tiles_over(z as u32, v.c0, v.c1, v.r0, v.r1, thr) {
+            out.push(col as i32);
+            out.push(row as i32);
+        }
+        out
     }
 
     /// [`WorldGen::lod_request_tile`] for EF-9.4's conformed tile: `conform`

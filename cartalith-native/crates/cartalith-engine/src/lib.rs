@@ -164,6 +164,14 @@ pub mod importance;
 /// absent or uniform it returns today's selection and order exactly.
 pub mod subdivision;
 
+/// **EF-9.4's continuous effective level** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
+/// §8.5) -- importance as a smooth per-position boost to the zoom's continuous
+/// level, with a per-pixel morph (CDLOD's distance morph with importance in
+/// place of distance): the weight arithmetic the tile shader runs, its
+/// continuity tests, and the once-per-world boost field. Display only; no
+/// generation code calls it.
+pub mod continuous_lod;
+
 /// The channel atlas — the world's affordance fields packed three to an RGB8
 /// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
 /// 14). Data, not a picture: the export raster it ships alongside is

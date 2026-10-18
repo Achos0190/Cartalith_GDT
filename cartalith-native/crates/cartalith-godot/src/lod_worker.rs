@@ -103,9 +103,11 @@ pub struct LodBudget {
     pub max_in_flight: usize,
     /// **EF-9.4's toggle**, beside the budget values it spends: whether the
     /// viewport draws importance-driven refinement
-    /// (`cartalith_engine::subdivision::select_tiles`) instead of one level for
-    /// the whole view. **`false` on every tier**: Q5's default
-    /// (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5) is *"off until EF-9.4
+    /// (since 2026-10-18 the continuous effective level,
+    /// `cartalith_engine::continuous_lod`: a per-pixel weight from importance
+    /// plus zoom, with a `z0 + 1` layer over boosted ground) instead of one
+    /// level for the whole view. **`false` on every tier**: Q5's default
+    /// (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.6) is *"off until EF-9.4
     /// passes every bar"*, and the bars are recorded in §8.4 rather than here.
     /// The shell may override it per session (`viewport_host.gd`'s
     /// `set_ef9_refine`), which is how the D0 harness measures both states.

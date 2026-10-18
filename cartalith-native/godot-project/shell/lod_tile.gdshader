@@ -91,6 +91,60 @@ uniform float morph : hint_range(0.0, 1.0) = 1.0;
 // detail at every level change.
 uniform bool under_parent = false;
 
+// **EF-9.4's continuous effective level** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
+// §8.5; `cartalith_engine::continuous_lod`). Off (`per_pixel = false`, the
+// default, and every tile while EF-9 is off) the fragment uses `morph` exactly
+// as above, so today's picture is today's by control flow. On, the weight is
+// computed here per pixel instead of once per level:
+//
+//   L = lam_zoom + boost_gain * b(x)          (continuous_lod::effective_level)
+//   w = smoothstep(0, 1, L - tile_level + 0.5) (continuous_lod::level_weight)
+//
+// `b(x)` is a zoom-independent importance field over the map, so a pixel's
+// weight is a continuous function of zoom and position and no level switch or
+// tile edge can make it jump (the module's proof). `BOOST_LEVELS` is 1.0
+// (`continuous_lod::BOOST_LEVELS`, pinned by its own test) and is folded in
+// here as the absent factor; changing it means changing this line too.
+uniform bool per_pixel = false;
+// `lod_bridge::continuous_level` at the current zoom: the unrounded level the
+// level switch rounds and `morph` fades over.
+uniform float lam_zoom = 0.0;
+// `continuous_lod::entry_gain`: 0 at LOD entry, 1 one zoom octave past it.
+uniform float boost_gain = 0.0;
+// This tile's own pyramid level.
+uniform float tile_level = 0.0;
+// This tile's footprint in pyramid INDEX space, `[col, col + 1] / 2^z` x
+// `[row, row + 1] / 2^z` -- the same at every level, so one boost texture serves
+// them all and a parent's footprint is the union of its children's. `UV` spans
+// the sprite's rect, which is exactly that footprint (`_lod_tile_rect`).
+uniform vec2 index_uv0;
+uniform vec2 index_uv1;
+// The boost field, `boost_n x boost_n` `FORMAT_RF` texels, texel `(i, j)` at
+// index space `((i + 0.5) / n, (j + 0.5) / n)` (`continuous_lod::BoostField`).
+// Read with `texelFetch` and interpolated below by hand, so the filter (and any
+// GPU's 8-bit filter weights) never enters: the field is exactly
+// `BoostField::sample`, which is continuous.
+uniform sampler2D boost_tex : filter_nearest, repeat_disable;
+uniform int boost_n = 0;
+
+// `BoostField::sample`: bilinear between texel centres, edges clamped.
+float boost_at(vec2 u) {
+	if (boost_n <= 0) {
+		return 0.0;
+	}
+	vec2 p = u * float(boost_n) - 0.5;
+	vec2 i0 = floor(p);
+	vec2 f = p - i0;
+	ivec2 m = ivec2(boost_n - 1);
+	ivec2 a = clamp(ivec2(i0), ivec2(0), m);
+	ivec2 b = clamp(ivec2(i0) + ivec2(1), ivec2(0), m);
+	float v00 = texelFetch(boost_tex, ivec2(a.x, a.y), 0).r;
+	float v10 = texelFetch(boost_tex, ivec2(b.x, a.y), 0).r;
+	float v01 = texelFetch(boost_tex, ivec2(a.x, b.y), 0).r;
+	float v11 = texelFetch(boost_tex, ivec2(b.x, b.y), 0).r;
+	return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+}
+
 void fragment() {
 	// The sprite's rect is the chunk's SAMPLE span (`viewport_host.gd`'s
 	// `_lod_tile_rect`, and `journey_planner_view.gd`'s crop), so UV 0 and 1 are
@@ -110,7 +164,12 @@ void fragment() {
 	// ghost a cell wide around the crisp stroke. The base partner is the map
 	// the map texture, which holds no river (the base view's rivers are the
 	// overlay's textured stroke, `map_overlay.gd::_draw_rivers`).
-	float k = mix(morph, 1.0, 1.0 - tile.a);
+	float w = morph;
+	if (per_pixel) {
+		float lam = lam_zoom + boost_gain * boost_at(mix(index_uv0, index_uv1, UV));
+		w = smoothstep(0.0, 1.0, lam - tile_level + 0.5);
+	}
+	float k = mix(w, 1.0, 1.0 - tile.a);
 	if (under_parent) {
 		COLOR = vec4(tile.rgb, k);
 	} else {

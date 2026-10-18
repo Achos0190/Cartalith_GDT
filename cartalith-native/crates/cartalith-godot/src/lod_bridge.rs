@@ -309,8 +309,23 @@ pub fn morph_for_zoom(px_per_cell: f64, gw: usize, z: i32) -> f64 {
     if gw < 2 {
         return 1.0;
     }
+    smoothstep01(continuous_level(px_per_cell, gw) - z as f64 + 0.5)
+}
+
+/// The zoom's **continuous** pyramid level, `log2(max(1, gw · px_per_cell /
+/// TILE_PX))`: the quantity [`level_for_zoom`] rounds and [`morph_for_zoom`]
+/// fades over, factored out (2026-10-18) so EF-9.4's continuous effective level
+/// (`cartalith_engine::continuous_lod`, `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`
+/// §8.5) adds its boost to exactly the number the morph and the level switch
+/// already agree on. The same `f64` operations in the same order as the
+/// expression it replaced in [`morph_for_zoom`], so that function's results are
+/// unchanged bit for bit. `0.0` for a degenerate world (`gw < 2`).
+pub fn continuous_level(px_per_cell: f64, gw: usize) -> f64 {
+    if gw < 2 {
+        return 0.0;
+    }
     let want = f64::max(1.0, (gw as f64 * f64::max(0.01, px_per_cell)) / TILE_PX as f64);
-    smoothstep01(want.log2() - z as f64 + 0.5)
+    want.log2()
 }
 
 /// GLSL `smoothstep(0.0, 1.0, x)` — clamp, then `x²(3 − 2x)`.
@@ -1120,6 +1135,27 @@ mod tests {
                 assert!(inc.abs() < 1e-9, "gw {gw}, z {z}: incoming level at {inc}, not fully its parent");
             }
         }
+    }
+
+    /// Protects: EF-9.4's continuous level is the number the level switch
+    /// rounds -- `level_for_zoom` equals `js_round(continuous_level)` (clamped to
+    /// `0..=MAX_LEVEL`) over a dense sweep, so the boost the shader adds lands on
+    /// the same boundary the shell switches at -- and its literal values:
+    /// `512 · 2 / 256 = 4` gives level 2.0 exactly, below one tile per screen
+    /// (`want < 1`) gives 0, and no world gives 0.
+    #[test]
+    fn the_continuous_level_is_what_the_level_switch_rounds() {
+        for gw in [512usize, 2048] {
+            for i in 0..4000 {
+                let px = 0.05 * 1.003f64.powi(i);
+                let lam = continuous_level(px, gw);
+                let want = cartalith_jsmath::js_round(lam).clamp(0.0, f64::from(MAX_LEVEL)) as i32;
+                assert_eq!(level_for_zoom(px, gw), want, "gw {gw}, px {px}");
+            }
+        }
+        assert_eq!(continuous_level(2.0, 512), 2.0);
+        assert_eq!(continuous_level(0.1, 512), 0.0);
+        assert_eq!(continuous_level(4.0, 1), 0.0);
     }
 
     /// The curve is `smoothstep`, not a ramp. Both agree at the ends and at
