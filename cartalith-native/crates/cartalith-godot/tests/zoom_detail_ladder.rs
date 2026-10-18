@@ -26,7 +26,8 @@
 //! definitions. `#[ignore]`d: it generates up to four 2048 x 1311 worlds
 //! (`ZD_WORLDS` picks them by tag prefix). Environment: `ZD_OUT` (required),
 //! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
-//! the terrain-streak spike's `ZD_STREAK` (see `world_params`),
+//! the terrain-streak spike's `ZD_STREAK` (see `world_params`), Ruling CO's
+//! `ZD_FURROWS=<strength>` (the volcano tile furrows; `0` = before),
 //! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`.
 //!
 //! ```text
@@ -286,12 +287,10 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
 /// `synthesize_tile_rgba_with_z_base` build it minus the river layer and the
 /// RV-3 water tile (this harness's context has no valley field, so the shaded
 /// and the water heights are the same field).
-/// Variant (b)'s inputs, when `ZD_FURROWS` is set: the edifices recovered
-/// from the world's `volcanic_field` and the furrow law's scales
-/// (`cartalith_terrain::edifice_furrows`). Not wired into the app.
-type Furrows = (cartalith_terrain::edifice_pits::EdificeFrame, cartalith_terrain::edifice_furrows::FurrowOpts);
+/// Since Ruling CO item 3 it includes the tile's volcano furrows, through the
+/// same `render::add_tile_furrows` call `tile_heights` makes.
 
-fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32, fur: Option<&Furrows>) -> (Vec<u8>, usize, usize, TileBounds) {
+fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32) -> (Vec<u8>, usize, usize, TileBounds) {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let b = pyramid_tile_bounds(gw, gh, z, col, row);
     let n = pyramid_dims(z).cols as usize;
@@ -313,9 +312,7 @@ fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32,
         }
     }
     let (w, h, mut data) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col, row), TILE_PX, pad, &opts);
-    if let Some((fr, fo)) = fur {
-        cartalith_terrain::edifice_furrows::add_edifice_furrows_padded(&mut data, w, h, pad, fr, &b, fo);
-    }
+    render::add_tile_furrows(ctx, &mut data, w, h, pad, tb);
     let rgba = render::render_biome_tile_rgba_water(ctx, &data, None, w, h, pad, tb, tf, None);
     assert_eq!(rgba.len(), w * h * 4, "the colouriser refused the tile");
     (rgba, w, h, tb)
@@ -324,7 +321,7 @@ fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32,
 /// A `SCREEN_W x SCREEN_H` frame centred on cell `(gx, gy)` at `ppc` screen
 /// pixels per cell: every pixel samples the tile of the level the shell would
 /// pick, bilinearly, at its own coarse coordinate. Returns RGB.
-fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, fur: Option<&Furrows>) -> Vec<u8> {
+fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32) -> Vec<u8> {
     let z = pyramid_level_for_zoom(ppc, ctx.gw as f64, TILE_PX as f64, Some(MAX_LEVEL));
     // LOD-D3's morph, as `lod_tile.gdshader` applies it: the level's tile over
     // its parent at `smoothstep(log2(want) − z + 0.5)` (`lod_bridge::
@@ -332,16 +329,16 @@ fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32
     let want = f64::max(1.0, ctx.gw as f64 * ppc / TILE_PX as f64);
     let t = (want.log2() - z as f64 + 0.5).clamp(0.0, 1.0);
     let morph = t * t * (3.0 - 2.0 * t);
-    let child = level_frame(ctx, tf, gx, gy, ppc, seed, z, fur);
+    let child = level_frame(ctx, tf, gx, gy, ppc, seed, z);
     if z == 0 || morph >= 1.0 {
         return child;
     }
-    let parent = level_frame(ctx, tf, gx, gy, ppc, seed, z - 1, fur);
+    let parent = level_frame(ctx, tf, gx, gy, ppc, seed, z - 1);
     child.iter().zip(&parent).map(|(&c, &p)| (p as f64 + (c as f64 - p as f64) * morph).round() as u8).collect()
 }
 
 /// One level's tiles composited to the screen frame (see [`frame`]).
-fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, z: i32, fur: Option<&Furrows>) -> Vec<u8> {
+fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, z: i32) -> Vec<u8> {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let n = pyramid_dims(z).cols;
     let step_x = (gw - 1) as f64 / n as f64;
@@ -354,7 +351,7 @@ fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, see
         for sx in 0..SCREEN_W {
             let cx = (gx + (sx as f64 + 0.5 - SCREEN_W as f64 / 2.0) / ppc).clamp(0.0, (gw - 1) as f64);
             let col = ((cx / step_x) as u32).min(n - 1);
-            let t = cache.entry((col, row)).or_insert_with(|| tile(ctx, tf, z, col, row, seed, fur));
+            let t = cache.entry((col, row)).or_insert_with(|| tile(ctx, tf, z, col, row, seed));
             let (rgba, w, h, tb) = (&t.0, t.1, t.2, t.3);
             let fx = ((cx - tb.x) / tb.w * (w - 1) as f64).clamp(0.0, (w - 1) as f64);
             let fy = ((cy - tb.y) / tb.h * (h - 1) as f64).clamp(0.0, (h - 1) as f64);
@@ -429,19 +426,14 @@ fn zoom_detail_ladder() {
         // One line per world the windowed probe's `--targets` file is built
         // from, so the two ladders frame the same cells.
         println!("TARGETS {} {} {:?}", w.tag, w.seed, tg);
-        // `ZD_FURROWS=1`: variant (b), tile-time radial furrows on edifice
-        // flanks at the proposed 1.5 km spacing (`edifice_furrows`).
-        let fur: Option<Furrows> = std::env::var("ZD_FURROWS").ok().filter(|v| v == "1").map(|_| {
-            let fr = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
-            println!("FURROWS {}: {} edifices recovered", w.tag, fr.edifices.len());
-            let fo = cartalith_terrain::edifice_furrows::FurrowOpts {
-                km_per_cell: p.map_width_km / gw as f64,
-                spacing_km: cartalith_terrain::edifice_furrows::FURROW_SPACING_KM,
-                peak_m: p.peak_m,
-                sea: ws.sea_level,
-            };
-            (fr, fo)
-        });
+        // Ruling CO item 3: the world's edifice frame, attached to every
+        // context as `LodSnapshot` attaches it, so the shipped look draws the
+        // tile furrows. `ZD_FURROWS=<strength>` overrides the look's
+        // `edifice_furrows` (`0` = the tiles before the ruling); unset = the
+        // shipped look. A value that does not parse is refused.
+        let frame_v = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+        println!("FURROWS {}: {} edifices recovered", w.tag, frame_v.edifices.len());
+        let fur_strength: Option<f64> = std::env::var("ZD_FURROWS").ok().map(|v| v.parse().expect("ZD_FURROWS: expected a number"));
         let x1 = std::env::var("ZD_X1").ok().is_some_and(|v| v == "1");
         let rungs: Vec<(&str, f64)> = x1.then_some(("x1", 0.0)).into_iter().chain(RUNGS.iter().copied()).collect();
         // `ZD_ONLY=<target,...>` keeps those targets only.
@@ -449,14 +441,17 @@ fn zoom_detail_ladder() {
             tg.retain(|t| o.split(',').any(|n| n == t.0));
         }
         for &law in &laws {
-            let a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(look) };
+            let mut a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(look) };
+            if let Some(f) = fur_strength {
+                a.edifice_furrows = f;
+            }
             let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
-            let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context");
+            let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context").with_edifice_frame(&frame_v, p.peak_m);
             let tf = TileFields::new(&ctx, None);
             for &(name, gx, gy) in &tg {
                 for &(rung, ppc) in &rungs {
                     let t1 = std::time::Instant::now();
-                    let rgb = if rung == "x1" { fit_frame(&ctx) } else { frame(&ctx, &tf, gx, gy, ppc, w.seed, fur.as_ref()) };
+                    let rgb = if rung == "x1" { fit_frame(&ctx) } else { frame(&ctx, &tf, gx, gy, ppc, w.seed) };
                     assert!(rgb.iter().any(|&v| v != rgb[0]), "an empty frame");
                     let png = cartalith_assets::raster::encode_png_rgb8(SCREEN_W as u32, SCREEN_H as u32, rgb, cartalith_assets::raster::PngColour::Data).unwrap();
                     let tag = std::env::var("ZD_TAG").unwrap_or_default();
@@ -506,7 +501,56 @@ fn zoom_detail_tile_cost() {
             let (col, row) = ((c0 + k % 6).min(n - 1), (r0 + k / 6).min(n - 1));
             for arm in 0..2 {
                 let t0 = std::time::Instant::now();
-                let _ = tile(&ctxs[arm], &tfs[arm], z, col, row, w.seed, None);
+                let _ = tile(&ctxs[arm], &tfs[arm], z, col, row, w.seed);
+                t[arm].push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        for (arm, v) in t.iter_mut().enumerate() {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!("COST z{z} {}: median {:.2} ms ({:.2}..{:.2}) over {}", arms[arm].0, v[v.len() / 2], v[0], v[v.len() - 1], v.len());
+        }
+    }
+}
+
+/// Ruling CO item 3's cost: one deep-zoom tile with the volcano furrows off
+/// (`edifice_furrows = 0`) and at the shipped strength, at levels 6 and 8,
+/// over 24 tiles on 314159's largest volcano (the land block round cell
+/// 322, 522, the ladder's `volcano` pick), alternated so drift hits both
+/// arms. Prints median and min..max per arm. Run **alone** (`MISTAKES.md`,
+/// "Quote a timing").
+///
+/// Protects: nothing (a measurement, `#[ignore]`d).
+#[test]
+#[ignore = "generates a 2048x1311 world and times tile synthesis; run explicitly and alone"]
+fn furrow_tile_cost() {
+    let (gw, gh) = (2048usize, 1311usize);
+    let w = WorldSpec { tag: "s314159_earth_800km", seed: 314159, archetype: Some(EARTH), width_km: 800.0 };
+    let p = world_params(&w, gw, gh);
+    let ws = cartalith_engine::generate_terrain(&p);
+    let fr = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+    let shipped = TerrainAppearance::for_tier(QualityTier::Quality).with_look(render::LOOK_VIBRANT);
+    assert!(shipped.edifice_furrows > 0.0, "the shipped look draws furrows");
+    let arms = [("furrows_off", TerrainAppearance { edifice_furrows: 0.0, ..shipped.clone() }), ("furrows_on", shipped.clone())];
+    let built: Vec<_> = arms
+        .iter()
+        .map(|(_, a)| GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, a, Some(p.map_width_km)))
+        .collect();
+    let ctxs: Vec<_> = arms
+        .iter()
+        .zip(&built)
+        .map(|((_, a), pre)| RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), pre).unwrap().with_edifice_frame(&fr, p.peak_m))
+        .collect();
+    let tfs: Vec<_> = ctxs.iter().map(|c| TileFields::new(c, None)).collect();
+    for z in [6i32, 8] {
+        let n = pyramid_dims(z).cols;
+        let mut t = [Vec::new(), Vec::new()];
+        for k in 0..24u32 {
+            let step = (gw - 1) as f64 / n as f64;
+            let (c0, r0) = ((316.0 / step) as u32, (516.0 / step) as u32);
+            let (col, row) = ((c0 + k % 6).min(n - 1), (r0 + k / 6).min(n - 1));
+            for arm in 0..2 {
+                let t0 = std::time::Instant::now();
+                let _ = tile(&ctxs[arm], &tfs[arm], z, col, row, w.seed);
                 t[arm].push(t0.elapsed().as_secs_f64() * 1e3);
             }
         }

@@ -40,6 +40,15 @@ owner questions. It carries no status; status lives in
 >   and a gully depth capped by the cone".
 > - **314159's streak row is folded into the river-comb row**, and the
 >   coarse-scale 2-cell radius floor is its own row (`OUTSTANDING_WORK.md`).
+> - **(b) passed a believability pass and is wired into the deep-zoom
+>   tiles**, behind the look tunable `edifice_furrows` (`1.0` in the app's
+>   looks, `0.0` in `js_reference`; tiles only). The pass replaced the
+>   radius-keyed radial lattice with a fixed rill aspect (6), added a gentle
+>   meander (0.3 of a spacing) and corrected the metres conversion to
+>   `peak_m / (1 - sea)`; the frames below that say "slightly combed" are
+>   the measured build's. Before/after in `STATUS.md`, 2026-10-18 Ruling CO
+>   (3) entry, and `cartalith-native/docs/evidence/pitfill-2026-10-18/`
+>   04-08.
 
 **Nothing here is switched on.** Every variant sits behind
 `cartalith_engine::StreakSpikeParams::edifice`

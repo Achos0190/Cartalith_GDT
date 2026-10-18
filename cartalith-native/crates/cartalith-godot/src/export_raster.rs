@@ -3375,26 +3375,37 @@ mod adjust_census_tests {
     /// ebb6d8bf236558e9, 38078d6a1356b23b, 38078d6a1356b23b, 516eee72efd7b603,
     /// 1ac1cf3a765d9392, f27d5b7b9a8f07be]`. The new values are this tree's
     /// own output, pasted as change detectors.
+    ///
+    /// **RE-BASELINED 2026-10-18 under Ruling CO** (item 3, the tile-time
+    /// volcano furrows, `TerrainAppearance::edifice_furrows`): the
+    /// fingerprint column only, on all five looks, by the new serialized key
+    /// (`1.0` in the four app looks, `0.0` in js_reference). No pixel column
+    /// moved: this fixture's context carries no edifice frame, so its tile
+    /// draws no furrows. Old -> new: default `5b8c1ce3d960ca3d` ->
+    /// `13e236a0defa978c`; graded `7c2129f09b378261` -> `f25c565258bdab0c`;
+    /// antique `d79526c5a1f53164` -> `efc2f081641c45fb`; js_reference
+    /// `0d17851d99e571dd` -> `afd3940a0c5c8b27`; satellite
+    /// `bb1eb7034b49ee1c` -> `630662dc06e64fff`.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x5b8c1ce3d960ca3d],
+            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x13e236a0defa978c],
         ),
         (
             "graded",
-            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0x7c2129f09b378261],
+            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0xf25c565258bdab0c],
         ),
         (
             "antique",
-            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xd79526c5a1f53164],
+            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xefc2f081641c45fb],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x0d17851d99e571dd],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xafd3940a0c5c8b27],
         ),
         (
             "satellite",
-            [0x6b743b6ac80447b0, 0xc885eac8a218db59, 0x1e5d1a45e62445f6, 0x3fcc3fa81e55d853, 0xbbfabdaf9d88b06d, 0xbbfabdaf9d88b06d, 0xf70c9b0fb003febd, 0x2c6f6528b28e02b0, 0xbb1eb7034b49ee1c],
+            [0x6b743b6ac80447b0, 0xc885eac8a218db59, 0x1e5d1a45e62445f6, 0x3fcc3fa81e55d853, 0xbbfabdaf9d88b06d, 0xbbfabdaf9d88b06d, 0xf70c9b0fb003febd, 0x2c6f6528b28e02b0, 0x630662dc06e64fff],
         ),
     ];
 

@@ -735,6 +735,15 @@ pub struct LodSnapshot {
     /// GF-6 §4.10's rock styling input, carried from
     /// [`SnapshotInputs::rock_detail`] unchanged.
     rock_detail: Option<Arc<render::RockDetail>>,
+    /// Ruling CO item 3: the world's edifices recovered from its
+    /// `volcanic_field` (`SnapshotInputs::litho`), for the tiles' volcano
+    /// furrows (`render::add_tile_furrows`). Built only when the look asks
+    /// for furrows (`TerrainAppearance::edifice_furrows > 0`) and a
+    /// generated world supplied the field; `None` otherwise (a loaded save,
+    /// the parity look), which draws none. Derived from inputs already in
+    /// [`SnapshotInputs::fingerprint`] (the volcanic grid and the
+    /// appearance), so it adds no cache-key word.
+    edifice_frame: Option<cartalith_terrain::edifice_pits::EdificeFrame>,
     fields: TileFields<'static>,
     ink: Option<OwnedInk>,
     splat: Option<OwnedSplat>,
@@ -862,6 +871,10 @@ impl LodSnapshot {
         // caller hands us no `LithoSource` at all.
         let lithology = litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &rainfall, sea_level));
         // LOD-D7: the two rasters the info views read, kept as `Arc` clones.
+        let edifice_frame = litho
+            .as_ref()
+            .filter(|l| appearance.edifice_furrows > 0.0 && l.volcanic.len() >= gw * gh)
+            .map(|l| cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&l.volcanic, gw, gh));
         let info_age = litho.as_ref().map(|l| Arc::clone(&l.age));
         let info_resistance = litho.as_ref().map(|l| Arc::clone(&l.resistance));
         let info_flow_log_max = crate::sample_bridge::flow_log_max(flow.as_ref().map_or(&[][..], |v| v.as_slice()));
@@ -915,6 +928,7 @@ impl LodSnapshot {
             pre,
             lithology,
             rock_detail,
+            edifice_frame,
             fields,
             ink,
             splat,
@@ -1001,6 +1015,12 @@ impl LodSnapshot {
         // it (`SnapshotInputs::rock_detail`); `None` attaches nothing.
         if let Some(rd) = self.rock_detail.as_deref() {
             ctx = ctx.with_rock_detail(rd);
+        }
+        // Ruling CO item 3: the volcano furrows, only for a world that has an
+        // edifice frame (`LodSnapshot::edifice_frame`); `None` attaches
+        // nothing.
+        if let Some(fr) = self.edifice_frame.as_ref() {
+            ctx = ctx.with_edifice_frame(fr, self.peak_m);
         }
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
@@ -1158,7 +1178,10 @@ impl LodSnapshot {
     /// `Arc`s shared with `WorldState` now and add nothing to steady memory,
     /// so counting them would report bytes that are not there. `pre`,
     /// `lithology` and `fields` were already retained by LOD-D2's cache and
-    /// were never counted, for the same reason. A pack's textures are counted
+    /// were never counted, for the same reason; nor is Ruling CO's
+    /// `edifice_frame` (4 bytes of owner index per cell, about 10.7 MB at
+    /// 2048 x 1311, when the look draws furrows), which is derived per
+    /// snapshot like `lithology`. A pack's textures are counted
     /// because that clone is still real. Reported rather than estimated from
     /// a formula, so the shell can show the real number.
     ///

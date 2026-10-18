@@ -1520,6 +1520,25 @@ pub struct TerrainAppearance {
     /// width ([`RenderCtx::map_width_km`]); a context without one keeps the
     /// reference schedule rather than guessing a width.
     pub zoom_detail_km: f64,
+    /// **Tile-time radial furrows on volcano flanks** (owner Ruling CO item 3,
+    /// 2026-10-18): the erosion rills the generation grid cannot hold, added
+    /// to a deep-zoom tile's heights on edifice flanks by
+    /// `cartalith_terrain::edifice_furrows` ([`add_tile_furrows`]), scaled by
+    /// this number. Why: on volcano flanks the tiles otherwise magnify the
+    /// grid's 4-cell gullies into soft bands with nothing inside them at x16
+    /// and x64 (`EDIFICE_AND_STREAKS_2026-10-18.md`), against the owner's
+    /// requirement that zoom gains detail at every level.
+    ///
+    /// **`0.0` adds nothing by control flow** (`add_edifice_furrows_padded`
+    /// returns before touching a texel), and [`Self::js_reference`] pins it,
+    /// so every tile golden is unchanged. `default()` ships `1.0`: the
+    /// furrow law's own depth (`FURROW_DEPTH_PER_SPACING`), chosen in the
+    /// believability pass; the range is `0..=2`, a labelled judgement (twice
+    /// the shipped depth). A tile stage only: the base raster, the fit view,
+    /// the export bake and the info tiles never call it. It needs the
+    /// world's edifice frame and map width ([`RenderCtx::with_edifice_frame`]);
+    /// a context without them adds nothing rather than guessing.
+    pub edifice_furrows: f64,
     /// **v2.25's `tileShadeExag(bounds, W)`** (`RC_ENGINE_CHANGES.md` §4,
     /// followed under Ruling AP): a tile's hillshade exaggeration is scaled
     /// by tile pixels per coarse cell, `(W - 1) / bounds.w`, clamped at `1`
@@ -2490,6 +2509,10 @@ impl Default for TerrainAppearance {
             // (see the field). `js_reference()` pins `0.0` (the reference
             // schedule, by control flow).
             zoom_detail_km: 2.0,
+            // Ruling CO item 3: the tile-time volcano furrows, on in the
+            // shipped look at the furrow law's own depth (see the field).
+            // `js_reference()` pins `0.0` (no furrows, by control flow).
+            edifice_furrows: 1.0,
             // v2.25 `tileShadeExag` (RC_ENGINE_CHANGES.md §4, Ruling AP): on
             // in the shipped look. `js_reference()` pins `false`.
             tile_shade_exag_scaled: true,
@@ -2864,6 +2887,9 @@ impl TerrainAppearance {
             // per-cell octave schedule, and `0.0` keeps `AmplifyOpts::km` at
             // `None` so `add_zoom_detail` takes that branch by control flow.
             zoom_detail_km: 0.0,
+            // Ruling CO item 3, same rule: the reference's tile has no
+            // furrows; `0.0` skips them by control flow.
+            edifice_furrows: 0.0,
             // Ruling AS: `default()` turns the ocean lattice fix on, so the
             // parity path pins the reference's own axis-aligned sea-grain
             // lattice here rather than inheriting it. `sea_grain` returns the
@@ -3176,6 +3202,10 @@ tunables! {
     //    to kilometres; `0.0` is the reference's per-cell schedule exactly.
     //    `4.0` is a labelled judgement: twice the shipped `2.0` --
     "zoom_detail_km"        => zoom_detail_km,        0.0,   4.0,  "Zoom detail (km)";
+    // -- Not a reference row (Ruling CO item 3): tile-time furrows on volcano
+    //    flanks; `0.0` adds none. `2.0` is a labelled judgement: twice the
+    //    furrow law's own depth --
+    "edifice_furrows"       => edifice_furrows,       0.0,   2.0,  "Volcano flank furrows";
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
@@ -4383,6 +4413,12 @@ pub struct RenderCtx<'a> {
     /// app's default), a loaded save and an import: the tiles then draw
     /// exactly as before, by control flow ([`rock_styled_tile`]).
     rock_detail: Option<&'a RockDetail>,
+    /// Ruling CO item 3: the world's edifices recovered from `volcanic_field`
+    /// and its `peak_m`, for [`add_tile_furrows`]. `None` by construction --
+    /// attach with [`Self::with_edifice_frame`]; a context without it (a
+    /// loaded save carries no `volcanic_field`, every test context) draws no
+    /// furrows.
+    edifice_frame: Option<(&'a cartalith_terrain::edifice_pits::EdificeFrame, f64)>,
     /// The three Cartography paint-override grids (`paintBiome`/
     /// `paintTerrain`/`paintSplat`, `0` = unpainted, else a 1-based palette
     /// index), `None` by construction — attach with [`Self::with_paint`].
@@ -4696,6 +4732,7 @@ impl<'a> RenderCtx<'a> {
             splat: None,
             lithology: None,
             rock_detail: None,
+            edifice_frame: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -4772,6 +4809,7 @@ impl<'a> RenderCtx<'a> {
             splat: None,
             lithology: None,
             rock_detail: None,
+            edifice_frame: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -4843,6 +4881,7 @@ impl<'a> RenderCtx<'a> {
             splat: None,
             lithology: None,
             rock_detail: None,
+            edifice_frame: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -5092,6 +5131,19 @@ impl<'a> RenderCtx<'a> {
     pub fn with_lithology(mut self, lithology: &'a [u8]) -> Self {
         if lithology.len() == self.gw * self.gh {
             self.lithology = Some(lithology);
+        }
+        self
+    }
+
+    /// Attach the world's recovered edifices and `peak_m` for the deep-zoom
+    /// tiles' volcano furrows (Ruling CO item 3, [`add_tile_furrows`]).
+    /// Ignored -- no furrows -- when the frame's grid does not match the
+    /// context's or `peak_m` is not positive, so a stale frame can never
+    /// index out of bounds inside the tile loop (a panic there crosses the
+    /// gdext boundary).
+    pub fn with_edifice_frame(mut self, frame: &'a cartalith_terrain::edifice_pits::EdificeFrame, peak_m: f64) -> Self {
+        if frame.gw == self.gw && frame.gh == self.gh && frame.owner.len() == self.gw * self.gh && peak_m > 0.0 {
+            self.edifice_frame = Some((frame, peak_m));
         }
         self
     }
@@ -11785,6 +11837,40 @@ pub fn tile_river_seeds(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds)
         }
     }
     (mask, thresh)
+}
+
+/// **Ruling CO item 3: the tile-time volcano furrows**, added in place to a
+/// padded deep-zoom tile's heights (`data`, `w x h` plus `pad` texels each
+/// side, covering `bounds`) by `cartalith_terrain::edifice_furrows`. The one
+/// call `lod_bridge::tile_heights` and the zoom-ladder harness make, so the
+/// drawn tile and the measurement cannot disagree.
+///
+/// Adds nothing -- by control flow -- unless the look's
+/// [`TerrainAppearance::edifice_furrows`] is above zero, the context carries
+/// the world's map width and its edifice frame
+/// ([`RenderCtx::with_edifice_frame`]). The furrow spacing is
+/// `edifice_furrows::FURROW_SPACING_KM`.
+///
+/// Must never run on the base raster, the fit view, the export bake or the
+/// info tiles (none of them calls it), and never on the parity look
+/// (`js_reference()` pins `0.0`).
+pub fn add_tile_furrows(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, pad: usize, bounds: TileBounds) {
+    let strength = ctx.appearance.edifice_furrows;
+    let (Some((frame, peak_m)), Some(km)) = (ctx.edifice_frame, ctx.map_width_km) else { return };
+    // A zero or NaN strength returns inside `add_edifice_furrows_padded`, and
+    // a non-positive width inside `edifice_furrow_at`; only the division
+    // below needs its own guard.
+    if ctx.gw == 0 {
+        return;
+    }
+    let o = cartalith_terrain::edifice_furrows::FurrowOpts {
+        km_per_cell: km / ctx.gw as f64,
+        spacing_km: cartalith_terrain::edifice_furrows::FURROW_SPACING_KM,
+        peak_m,
+        sea: ctx.sea_level,
+    };
+    let b = cartalith_spatial::FloatRegion { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
+    cartalith_terrain::edifice_furrows::add_edifice_furrows_padded(data, w, h, pad, frame, &b, &o, strength);
 }
 
 /// **The amplify options a deep-zoom tile is synthesised with** -- the one

@@ -530,7 +530,14 @@ fn every_tunable_is_load_bearing() {
     // `tests/canopy_and_mottle.rs`:
     // `canopy_is_off_without_strength_or_scale_and_touches_only_forest` and
     // `the_export_agrees_with_the_screen_and_adds_octaves_when_finer`.
-    const EXEMPT: [&str; 23] = [
+    //
+    // `edifice_furrows` (Ruling CO, 2026-10-18) is the twenty-fourth: a
+    // deep-zoom tile stage that needs the world's edifice frame and map
+    // width, neither of which this fixture's context carries, so it is off by
+    // control flow here. Its replacement proofs are in
+    // `tests/edifice_furrow_tiles.rs`:
+    // `every_gate_leaves_the_tile_untouched_and_all_three_move_it`.
+    const EXEMPT: [&str; 24] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -554,6 +561,7 @@ fn every_tunable_is_load_bearing() {
         "snow_shed_deg",
         "rock_slope_deg",
         "canopy_texture",
+        "edifice_furrows",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

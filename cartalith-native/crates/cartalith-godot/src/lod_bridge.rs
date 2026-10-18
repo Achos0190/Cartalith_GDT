@@ -661,8 +661,15 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
     if (tw, th) != (out_w, out_h) {
         return None;
     }
+    // Ruling CO item 3: the volcano flank furrows, after the amplifier and
+    // before any conform pass, on the shaded tile and on the water tile alike
+    // so the two stay the same function of their own fields. A no-op by
+    // control flow unless the look's `edifice_furrows` is above zero and the
+    // context carries the world's edifice frame (`render::add_tile_furrows`).
+    render::add_tile_furrows(ctx, &mut tile, out_w, out_h, pad, tb);
     let mut water = if render::tile_water_differs(ctx, tf, tb, out_w, out_h, pad) {
-        let (ww, wh, wt) = pyramid_tile_padded(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts);
+        let (ww, wh, mut wt) = pyramid_tile_padded(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts);
+        render::add_tile_furrows(ctx, &mut wt, out_w, out_h, pad, tb);
         ((ww, wh) == (out_w, out_h)).then_some(wt)
     } else {
         None
@@ -1318,6 +1325,53 @@ mod tests {
     /// rather than colour.
     fn luma(px: &[u8]) -> f64 {
         0.2126 * px[0] as f64 + 0.7152 * px[1] as f64 + 0.0722 * px[2] as f64
+    }
+
+    /// Protects: Ruling CO item 3's wiring -- `tile_heights` runs the volcano
+    /// furrows (`render::add_tile_furrows`). A deep tile over a cone's flank
+    /// differs with the world's edifice frame attached, and is byte-identical
+    /// to the frame-less tile when the look's `edifice_furrows` is 0.
+    #[test]
+    fn tile_heights_draws_the_volcano_furrows() {
+        let (gw, gh) = (128usize, 128usize);
+        let mut field = vec![0.5f32; gw * gh];
+        let mut volc = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let d = (x as f64 - 64.0).hypot(y as f64 - 64.0);
+                if d <= 40.0 {
+                    field[y * gw + x] = (0.5 + 0.3 * (1.0 - d / 40.0)) as f32;
+                    volc[y * gw + x] = (1.0 - d / 40.0) as f32;
+                }
+            }
+        }
+        let frame = cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&volc, gw, gh);
+        let w = TestWorld::new(field, gw, gh);
+        // Level 5: 32 x 32 tiles, about 4 cells each; (22, 16) covers the
+        // cone's east flank at t ~ 0.6.
+        let (z, col, row) = (5, 22, 16);
+        let plain = {
+            let c = w.ctx();
+            synthesize_tile_rgba(&c, &w.fields(&c), z, col, row, 7).expect("tile")
+        };
+        let with = {
+            let c = w.ctx().with_edifice_frame(&frame, 4000.0);
+            synthesize_tile_rgba(&c, &w.fields(&c), z, col, row, 7).expect("tile")
+        };
+        assert_ne!(with.0, plain.0, "the furrows did not reach the tile");
+        let zero = {
+            let mut a = TestWorld::appearance();
+            a.edifice_furrows = 0.0;
+            let c = render::RenderCtx::from_precomputed(&w.field, &w.temp, &w.rain, Some(&w.field), w.gw, w.gh, TEST_SEA, false, 55.0, 5.0, a, &w.pre).expect("ctx").with_edifice_frame(&frame, 4000.0);
+            synthesize_tile_rgba(&c, &w.fields(&c), z, col, row, 7).expect("tile")
+        };
+        let plain0 = {
+            let mut a = TestWorld::appearance();
+            a.edifice_furrows = 0.0;
+            let c = render::RenderCtx::from_precomputed(&w.field, &w.temp, &w.rain, Some(&w.field), w.gw, w.gh, TEST_SEA, false, 55.0, 5.0, a, &w.pre).expect("ctx");
+            synthesize_tile_rgba(&c, &w.fields(&c), z, col, row, 7).expect("tile")
+        };
+        assert_eq!(zero.0, plain0.0, "strength 0 must be the frame-less tile");
     }
 
     /// Protects: a context whose field is shorter than `gw * gh` yields `None`, not

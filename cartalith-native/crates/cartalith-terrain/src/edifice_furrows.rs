@@ -1,8 +1,8 @@
-//! **Variant (b)** of the volcano-edifice follow-up
-//! (`EDIFICE_AND_STREAKS_2026-10-18.md` at the repository root; owner, Ruling
-//! CM item 1: "measure first, no change yet"): radial erosion furrows on
-//! edifice flanks, synthesised **at tile time** by the deep-zoom path rather
-//! than at generation.
+//! **Tile-time radial furrows on volcano flanks** (owner Ruling CO item 3,
+//! 2026-10-18; measured as variant (b) in `EDIFICE_AND_STREAKS_2026-10-18.md`
+//! at the repository root): the erosion rills the generation grid cannot
+//! hold, synthesised by the deep-zoom tile path as the tile's own resolution
+//! can carry them.
 //!
 //! # Why
 //!
@@ -11,28 +11,59 @@
 //! bilinear up-sample shows them as soft radial bands with no gully inside,
 //! and the kilometre zoom-detail law (`amplify::KmZoomDetail`) adds isotropic
 //! value noise there, not furrows. This module adds the furrows the grid could
-//! not hold, octave by octave, as the tile's own resolution can carry them:
-//! the same "complete the spectrum at the scale that can hold it" rule the
-//! zoom law follows, with oriented (radial) noise instead of isotropic.
+//! not hold, octave by octave, as the tile can carry them: the same "complete
+//! the spectrum at the scale that can hold it" rule the zoom law follows, with
+//! oriented (downslope) noise instead of isotropic. Owner requirement: zoom
+//! gains detail at every level.
+//!
+//! # The believability pass (Ruling CO item 3)
+//!
+//! The measured variant (b) read "slightly combed": dense, evenly spaced,
+//! straight radial hairlines; and on small cones (a radius of a few cells) its
+//! radial noise lattice was no longer than its angular one, so the ridged
+//! noise drew short isotropic strokes. Candidate laws were compared on
+//! 71077345 (the dome and a small cone), 24601 and 314159 at x16 and x64
+//! against tiles without furrows (`STATUS.md`, 2026-10-18 Ruling CO (3)
+//! entry; frames in `cartalith-native/docs/evidence/pitfill-2026-10-18/`).
+//! What was kept:
+//!
+//! - **A fixed rill aspect** ([`FURROW_ASPECT`]): each octave's radial noise
+//!   lattice is a fixed multiple of its own angular spacing instead of a
+//!   fixed fraction of the edifice radius, so a rill is long and thin on a
+//!   small cone and on a shield alike, and is broken into dashes on a large
+//!   shield rather than drawn as a ray across the whole flank.
+//! - **A gentle meander** ([`FURROW_WARP`], [`FURROW_WARP_RFREQ`]): the
+//!   angular coordinate is displaced by a fraction of the octave's own
+//!   spacing, varying slowly downslope, so lines wander instead of radiating
+//!   as straight spokes.
+//! - **Metres converted with `peak_m / (1 - sea)`**, the engine's own metres
+//!   per normalised unit, not `peak_m` (the measured build over-scaled every
+//!   furrow by `1 / (1 - sea)`, 1.72x at the app's sea level 0.42).
+//!
+//! Tried and dropped (no dual path, `DECISIONS.md` §7p): a steeper octave
+//! fall-off (relief per octave `2^-1.25k` and `2^-1.5k`: the furrows all but
+//! vanished), a slope gate (shield flanks are gentle, so it removed the dome's
+//! furrows), random on/off masking along each rill (less detail, no visible
+//! gain) and a strong, fast warp (it turned small-cone rills into loops).
 //!
 //! # What it reads, and why only that
 //!
-//! Only `volcanic_field` -- which `WorldState` keeps and the LOD path already
-//! has -- because the per-edifice records the stamps make are transient
-//! (`VolcanoTrace`, dropped after the geology stage). The stamp writes
-//! `volcanic_field = max over edifices of (1 - t)(1 - age)`, a cone per
-//! edifice, so [`EdificeFrame::from_volcanic_field`] recovers each edifice's
-//! centre (the cone's peak), and its radius from `t = 1 - v / v_peak` and the
-//! distance to the centre. That recovery is approximate (the centre to the
-//! nearest cell, the radius as a median), which is fine for **new** detail: it
-//! fixes where furrows run (radially, from the recovered centre), not the
-//! generated gullies' exact phase.
+//! Only the [`EdificeFrame`] recovered from `volcanic_field` -- which
+//! `WorldState` keeps and the LOD path already has -- because the per-edifice
+//! records the stamps make are transient. That recovery is approximate (the
+//! centre to the nearest cell, the radius as a median), which is fine for
+//! **new** detail: it fixes where furrows run (downslope from the recovered
+//! centre), not the generated gullies' exact phase.
 //!
 //! # What it must never do
 //!
-//! - Run on any shipped or parity path. Nothing in the app calls it; the only
-//!   caller is `cartalith-godot`'s `tests/zoom_detail_ladder.rs` under
-//!   `ZD_FURROWS`. Wiring it into `lod_bridge` is the owner's call.
+//! - Run on the parity path or outside the deep-zoom tiles: its only app
+//!   caller is `cartalith-godot`'s `render::add_tile_furrows`, from
+//!   `lod_bridge::tile_heights`, scaled by the look's `edifice_furrows`
+//!   tunable, which `TerrainAppearance::js_reference` pins at `0.0`. The base
+//!   raster, the fit view, the export bake and the info tiles do not call it.
+//! - Add an octave the generation grid already holds, or one finer than the
+//!   tile can hold ([`resolved_weight`] on both).
 //! - Move the coastline: water texels are skipped and an excursion toward sea
 //!   level is capped by `amplify`'s own `clamp_toward_sea`.
 //! - Depend on anything but the texel's coarse coordinate, the frame and the
@@ -115,19 +146,40 @@ pub const FURROW_MAX_OCTAVES: i32 = 9;
 /// **A labelled judgement**: between the shipped shapes' rims (0.12-0.38).
 pub const FURROW_T_TOP: f64 = 0.25;
 
-/// The furrow height at coarse coordinate `(cx, cy)` for a tile whose texels
-/// are `texel_cells` coarse cells apart. Zero off every recovered edifice,
-/// on the summit and at the toe.
+/// The rill aspect: each octave's radial noise lattice is `FURROW_ASPECT`
+/// times the furrow spacing at that octave, so a rill is about that many
+/// times longer than it is wide whatever the edifice's size. **A labelled
+/// judgement** from the believability pass (4 and 6 both read as rills; 6
+/// kept the shield's dashes longer). The measured build's radius-keyed
+/// lattice gave aspects from about 0.8 (a 7-cell cone: short isotropic
+/// strokes) to about 24 (the 83 km dome: straight rays).
+pub const FURROW_ASPECT: f64 = 6.0;
+
+/// The meander: the angular coordinate is displaced by up to `FURROW_WARP`
+/// of the octave's own angular lattice, by a noise whose radial frequency is
+/// `FURROW_WARP_RFREQ` of the rill's own, so a line wanders by about a third
+/// of a spacing over two rill lengths. **A labelled judgement**: a warp of
+/// 1.2 at three times the rill's radial frequency drew loops on small cones;
+/// 0.3 at half its frequency kept the lines running downslope.
+pub const FURROW_WARP: f64 = 0.3;
+/// See [`FURROW_WARP`].
+pub const FURROW_WARP_RFREQ: f64 = 0.5;
+
+/// The furrow height (normalised units, zero-mean) at coarse coordinate
+/// `(cx, cy)` for a tile whose texels are `texel_cells` coarse cells apart.
+/// Zero off every recovered edifice, on the summit (`t < FURROW_T_TOP`) and
+/// at the toe.
 ///
-/// Octave `k` (spacing `s_k = spacing_km / 2^k`) is weighted by
-/// `max(0, w_tile − w_grid)`: the share the tile can hold beyond what the
-/// generation grid already holds, both from [`resolved_weight`] on the octave's
-/// noise-lattice spacing (the smaller of its angular and radial spacing, in
-/// texels and in cells). So an octave the generated field already carries is
-/// never added twice, and one finer than the tile is never drawn.
+/// Octave `k` (spacing `s_k = spacing_km / 2^k`, relief
+/// `FURROW_DEPTH_PER_SPACING * s_k`) is weighted by `max(0, w_tile - w_grid)`:
+/// the share the tile can hold beyond what the generation grid already holds,
+/// both from [`resolved_weight`] on the octave's noise-lattice spacing (the
+/// smaller of its angular and radial spacing, in texels and in cells). So an
+/// octave the generated field already carries is never added twice, and one
+/// finer than the tile is never drawn.
 pub fn edifice_furrow_at(frame: &EdificeFrame, cx: f64, cy: f64, texel_cells: f64, o: &FurrowOpts) -> f64 {
     let Some(e) = frame.owner_near(cx, cy) else { return 0.0 };
-    if !(o.km_per_cell > 0.0 && o.spacing_km > 0.0 && o.peak_m > 0.0 && texel_cells > 0.0) {
+    if !(o.km_per_cell > 0.0 && o.spacing_km > 0.0 && o.peak_m > 0.0 && texel_cells > 0.0 && o.sea < 1.0) {
         return 0.0;
     }
     let (dx, dy) = (cx - e.cx, cy - e.cy);
@@ -138,24 +190,36 @@ pub fn edifice_furrow_at(frame: &EdificeFrame, cx: f64, cy: f64, texel_cells: f6
     }
     let u = (t - FURROW_T_TOP) / (1.0 - FURROW_T_TOP);
     let envelope = 4.0 * u * (1.0 - u);
+    // The engine's metres per normalised unit (`metresPerUnit = peakM / (1 -
+    // seaLevel)`), so `relief_m` below is metres on the ground.
+    let mpu = o.peak_m / (1.0 - o.sea);
     let sp_cells = o.spacing_km / o.km_per_cell;
     let g = ((std::f64::consts::PI * e.r / sp_cells).round().clamp(6.0, 1.0e6)) as i32;
     let ang = (dy.atan2(dx) * std::f64::consts::FRAC_1_PI * 0.5 + 0.5) * g as f64;
     let mut sum = 0.0;
     for k in 0..FURROW_MAX_OCTAVES {
         let f = f64::powi(2.0, k);
-        let lat = (std::f64::consts::TAU * d / (g as f64 * f)).min(e.r / (2.2 * f));
+        // The octave's radial lattice: FURROW_ASPECT times its spacing, so a
+        // rill's length is a fixed multiple of its width (module doc).
+        let rad_lat = FURROW_ASPECT * sp_cells / f;
+        let yk = d / (FURROW_ASPECT * sp_cells) * f;
+        let lat = (std::f64::consts::TAU * d / (g as f64 * f)).min(rad_lat);
         let w = (resolved_weight(lat / texel_cells) - resolved_weight(lat)).max(0.0);
         if w <= 0.0 {
             continue;
         }
-        let n = pvnoise(ang * f, t * 2.2 * f, e.salt.wrapping_add(k.wrapping_mul(131)), (g as f64 * f).min(i32::MAX as f64) as i32);
+        // The angular period is the octave's gully count, so the noise closes
+        // across the bearing's +/-pi seam (`furrows_close_across_the_seam`).
+        let per = (g as f64 * f).min(i32::MAX as f64) as i32;
+        let salt = e.salt.wrapping_add(k.wrapping_mul(131));
+        let x = ang * f + FURROW_WARP * (2.0 * pvnoise(ang * f, yk * FURROW_WARP_RFREQ + 7.1, salt ^ 0x3c1, per) - 1.0);
+        let n = pvnoise(x, yk, salt, per);
         let ridge = 1.0 - (2.0 * n - 1.0).abs();
         // Incised, like the shipped gully term (`1 - 2·pridged`): a high
-        // ridge is a furrow floor. Zero-mean, so the flank's mean height
-        // does not move.
+        // ridge is a furrow floor. Zero-mean, so the flank's mean height does
+        // not move.
         let relief_m = FURROW_DEPTH_PER_SPACING * (o.spacing_km / f) * 1000.0;
-        sum += -(ridge * ridge - RIDGE_SQ_MEAN) * 2.0 * relief_m / o.peak_m * w;
+        sum += -(ridge * ridge - RIDGE_SQ_MEAN) * 2.0 * relief_m / mpu * w;
     }
     sum * envelope
 }
@@ -164,9 +228,15 @@ pub fn edifice_furrow_at(frame: &EdificeFrame, cx: f64, cy: f64, texel_cells: f6
 /// halo, in place, with `add_zoom_detail_padded`'s own texel-to-coarse mapping
 /// (`b` is the tile's coarse footprint, `w`/`h` the tile without the halo).
 /// Water texels are skipped; an excursion toward sea level is capped at half
-/// the headroom (`amplify::clamp_toward_sea`).
+/// the headroom (`amplify::clamp_toward_sea`). `strength` scales the furrows
+/// (the look's `edifice_furrows`); `0.0`, or NaN, returns before touching a
+/// texel, so a tile with the tunable at zero is the tile without furrows by
+/// control flow.
 #[allow(clippy::too_many_arguments)]
-pub fn add_edifice_furrows_padded(data: &mut [f32], w: usize, h: usize, pad: usize, frame: &EdificeFrame, b: &FloatRegion, o: &FurrowOpts) {
+pub fn add_edifice_furrows_padded(data: &mut [f32], w: usize, h: usize, pad: usize, frame: &EdificeFrame, b: &FloatRegion, o: &FurrowOpts, strength: f64) {
+    if !(strength > 0.0) {
+        return;
+    }
     let (pw, ph) = (w + 2 * pad, h + 2 * pad);
     assert!(data.len() >= pw * ph, "add_edifice_furrows_padded: data is too short");
     let texel_cells = if w > 1 { b.w / (w as f64 - 1.0) } else { b.w };
@@ -180,7 +250,7 @@ pub fn add_edifice_furrows_padded(data: &mut [f32], w: usize, h: usize, pad: usi
                 continue;
             }
             let cx = b.x + if w > 1 { (ox as f64 - padf) / (w as f64 - 1.0) * b.w } else { 0.0 };
-            let s = edifice_furrow_at(frame, cx, cy, texel_cells, o);
+            let s = strength * edifice_furrow_at(frame, cx, cy, texel_cells, o);
             if s != 0.0 {
                 data[i] = (base + crate::amplify::clamp_toward_sea(base, s, o.sea)) as f32;
             }
@@ -243,11 +313,19 @@ mod tests {
         let (gw, gh) = (160usize, 110usize);
         let f = EdificeFrame::from_volcanic_field(&two_cones(gw, gh), gw, gh);
         let o = opts();
+        // Eleven rings across the mid-flank (t = 0.4..0.73), 720 bearings
+        // each: one ring is too few independent rills to test a mean on.
         let ring = |texel: f64| -> Vec<f64> {
-            (0..720).map(|k| {
-                let a = k as f64 / 720.0 * std::f64::consts::TAU;
-                edifice_furrow_at(&f, 40.0 + 18.0 * a.cos(), 40.0 + 18.0 * a.sin(), texel, &o)
-            }).collect()
+            (0..11)
+                .flat_map(|j| {
+                    let r = 12.0 + 1.0 * j as f64;
+                    (0..720).map(move |k| {
+                        let a = k as f64 / 720.0 * std::f64::consts::TAU;
+                        (r, a)
+                    })
+                })
+                .map(|(r, a)| edifice_furrow_at(&f, 40.0 + r * a.cos(), 40.0 + r * a.sin(), texel, &o))
+                .collect()
         };
         assert!(ring(1.0).iter().all(|&s| s == 0.0), "a cell-sized texel must add nothing");
         let fine = ring(1.0 / 16.0);
@@ -301,5 +379,84 @@ mod tests {
             across += (p(r0, 0.05 / r0) - p(r0, 0.0)).powi(2);
         }
         assert!(across > 4.0 * along, "across {across} vs along {along}");
+    }
+
+    /// One cone of radius `r` cells at `(cx, cy)` on a `gw x gh` grid.
+    fn one_cone(gw: usize, gh: usize, cx: f64, cy: f64, r: f64) -> Vec<f32> {
+        (0..gw * gh)
+            .map(|i| {
+                let d = ((i % gw) as f64 - cx).hypot((i / gw) as f64 - cy);
+                if d <= r { (1.0 - d / r) as f32 } else { 0.0 }
+            })
+            .collect()
+    }
+
+    /// Protects: the believability pass's fixed rill aspect. On a small cone
+    /// (radius 8 cells, about 3 km at the app's 800 km cell) the furrows still
+    /// run downslope -- the height varies far less along a ray than across it
+    /// -- where the measured build's radius-keyed radial lattice (`r / 2.2`)
+    /// was no longer than the angular one and drew short isotropic strokes.
+    #[test]
+    fn small_cone_furrows_still_run_downslope() {
+        let (gw, gh) = (40usize, 40usize);
+        let f = EdificeFrame::from_volcanic_field(&one_cone(gw, gh, 20.0, 20.0, 8.0), gw, gh);
+        assert_eq!(f.edifices.len(), 1, "{:?}", f.edifices);
+        let o = opts();
+        let tex = 1.0 / 32.0;
+        let (mut along, mut across) = (0.0, 0.0);
+        for k in 0..720 {
+            let a = k as f64 * std::f64::consts::TAU / 720.0;
+            let r0 = 4.6;
+            let p = |r: f64, da: f64| edifice_furrow_at(&f, 20.0 + r * (a + da).cos(), 20.0 + r * (a + da).sin(), tex, &o);
+            along += (p(r0 + 0.03, 0.0) - p(r0, 0.0)).powi(2);
+            across += (p(r0, 0.03 / r0) - p(r0, 0.0)).powi(2);
+        }
+        assert!(across > 0.0, "no furrow on the small cone");
+        assert!(across > 4.0 * along, "small cone: across {across} vs along {along}");
+    }
+
+    /// Protects: furrow relief is metres on the ground, converted with the
+    /// engine's own metres per unit `peak_m / (1 - sea)`: the same point at
+    /// sea 0.42 carries 0.58 of the normalised relief it carries at sea 0 (the
+    /// measured build divided by `peak_m` alone, which made the ratio 1).
+    #[test]
+    fn relief_uses_the_engines_metres_per_unit() {
+        let (gw, gh) = (160usize, 110usize);
+        let f = EdificeFrame::from_volcanic_field(&two_cones(gw, gh), gw, gh);
+        let at = |sea: f64| -> f64 {
+            let o = FurrowOpts { sea, ..opts() };
+            (0..360).map(|k| {
+                let a = k as f64 * 0.0174;
+                edifice_furrow_at(&f, 40.0 + 17.0 * a.cos(), 40.0 + 17.0 * a.sin(), 1.0 / 16.0, &o).abs()
+            }).sum()
+        };
+        let (s0, s42) = (at(0.0), at(0.42));
+        assert!(s0 > 0.0);
+        assert!((s42 / s0 - 0.58).abs() < 1e-9, "ratio {}", s42 / s0);
+    }
+
+    /// Protects: `strength` 0 (the parity look) and NaN return before
+    /// touching a texel, so such a tile is the furrow-free tile by control
+    /// flow; strength 1 moves land texels on the flank and no water texel.
+    #[test]
+    fn zero_strength_moves_no_texel() {
+        let (gw, gh) = (160usize, 110usize);
+        let f = EdificeFrame::from_volcanic_field(&two_cones(gw, gh), gw, gh);
+        let o = opts();
+        let (w, h, pad) = (64usize, 64usize, 2usize);
+        let b = FloatRegion { x: 50.0, y: 32.0, w: 4.0, h: 4.0 };
+        let mut base: Vec<f32> = vec![0.6; (w + 2 * pad) * (h + 2 * pad)];
+        for v in base.iter_mut().step_by(7) {
+            *v = 0.3; // some water texels
+        }
+        for st in [0.0, f64::NAN, -1.0] {
+            let mut d = base.clone();
+            add_edifice_furrows_padded(&mut d, w, h, pad, &f, &b, &o, st);
+            assert_eq!(d, base, "strength {st} moved a texel");
+        }
+        let mut d = base.clone();
+        add_edifice_furrows_padded(&mut d, w, h, pad, &f, &b, &o, 1.0);
+        assert!(d.iter().zip(&base).any(|(a, b)| a != b), "strength 1 moved nothing");
+        assert!(d.iter().zip(&base).all(|(a, b)| *b >= 0.42 || a == b), "a water texel moved");
     }
 }
