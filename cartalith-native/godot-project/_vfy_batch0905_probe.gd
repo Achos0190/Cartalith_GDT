@@ -127,18 +127,19 @@ func _ready() -> void:
 	# =====================================================================
 	# LANE A
 	# =====================================================================
-	var data := _menu("Data")
-	_ok("A: a Data menu exists at all", data != null)
+	## The Data menu is titled World since SM-1 (Ruling CK); same builder.
+	var data := _menu("World")
+	_ok("A: a World (was Data) menu exists at all", data != null)
 	var data_rows := _rows_deep(data, [])
-	_ok("A1 gone: no `Journey planner` row anywhere under Data (incl. submenus)",
+	_ok("A1 gone: no `Journey planner` row anywhere under World (incl. submenus)",
 		_count_containing(data_rows, "Journey planner") == 0, str(data_rows))
-	_ok("A1 control: Data still carries World data tables",
+	_ok("A1 control: World still carries World data tables",
 		_count_containing(data_rows, "World data") >= 1)
 
 	## The whole MenuBar, deep. A row that moved to another menu instead of the
 	## rail would show up here and would NOT be a vanished command.
 	var all_menu_rows: Array = []
-	for t in ["File", "Edit", "View", "Data", "Assets", "Generate", "Preferences", "Window", "Help"]:
+	for t in ["File", "Edit", "View", "World", "Assets", "Generate", "Preferences", "Window", "Help"]:
 		var m := _menu(t)
 		if m != null:
 			_rows_deep(m, all_menu_rows)

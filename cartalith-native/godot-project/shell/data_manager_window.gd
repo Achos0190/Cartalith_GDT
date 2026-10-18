@@ -484,7 +484,7 @@ const PRESET_NOTE := "No export-preset store exists: DccSettings has no preset s
 ## vault's `EntityKind` has six (settlement, province, continent, faction,
 ## culture, landmark). Still open is DM-14's export half; two-way sync is
 ## MARKDOWN_VAULT_INTEGRATION.md §33's V1 non-goal.
-const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vault): it indexes a folder of .md files and links settlements, provinces, continents, factions, cultures and landmarks to notes in it. Not built yet is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which is deliberately left out of this first version. The three checkboxes below are those three items."
+const VAULT_NOTE := "The vault connection itself is live (World ▸ Markdown vault): it indexes a folder of .md files and links settlements, provinces, continents, factions, cultures and landmarks to notes in it. Not built yet is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which is deliberately left out of this first version. The three checkboxes below are those three items."
 
 ## The disabled reason for the three checkboxes specifically, which is a
 ## narrower statement than `VAULT_NOTE`: these three are unbuilt, not the
@@ -2350,7 +2350,7 @@ func _checks_run() -> Dictionary:
 				"message": ("%d constraint field%s unset — every one is named in FIELDS."
 						% [missing.size(), "" if missing.size() == 1 else "s"]
 					if state == "incomplete" else " ".join(conflicts)),
-				"resolution": "Data ▸ Travel library ⇧L ▸ %s" % _checks_tab_label(kind),
+				"resolution": "World ▸ Travel library ⇧L ▸ %s" % _checks_tab_label(kind),
 			})
 	var pack: Dictionary = _bridge.as_pack_info()
 	var pack_name := String(pack.get("name", ""))
@@ -3565,7 +3565,7 @@ func _build_vault_block(col: Control) -> void:
 	block.add_child(head)
 
 	var prose := DccTheme.label(
-		("Settlements, provinces and continents link to notes in this folder; the panel that owns those links is Data ▸ Markdown vault. What is missing HERE is the export half -- exported tiles carry no obsidian:// link and exported GeoJSON carries no note property (DM-14)."
+		("Settlements, provinces and continents link to notes in this folder; the panel that owns those links is World ▸ Markdown vault. What is missing HERE is the export half -- exported tiles carry no obsidian:// link and exported GeoJSON carries no note property (DM-14)."
 			if bound else
 			"Connect any folder of .md files -- Obsidian is one such folder, and nothing requires it -- and settlements, provinces and continents can be linked to notes in it. Cartalith reads only the folder you choose, and writes only where you tell it to."),
 		"text_ghost", DccTheme.FS_MICRO)
@@ -3625,7 +3625,7 @@ func _build_vault_block(col: Control) -> void:
 		hide()
 		_host.open_vault_overview(), false, 0, 6)
 	change.disabled = _host == null
-	change.tooltip_text = ("Opens Data ▸ Markdown vault, which owns the folder picker and the connection itself."
+	change.tooltip_text = ("Opens World ▸ Markdown vault, which owns the folder picker and the connection itself."
 		if _host != null else "This window has no shell host to open the vault panel from.")
 
 	## **Persisted, since 2026-09-24**, through the same path Connect uses:

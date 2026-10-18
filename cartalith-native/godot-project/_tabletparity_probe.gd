@@ -9,7 +9,8 @@ extends Node
 ## the design I gave"; "All designs layouts and styles should match 100%"),
 ## and `Cartalith Tablet.dc.html` / `TABLET_UI_SPEC.md` §2.1 draw exactly four
 ## top-level tablet menus -- the overflow square, then File, World, Data --
-## not the shipped seven. `CLAUDE.md`'s "the newer canvas wins" makes that
+## not the shipped seven. (Ruling CK, 2026-10-18, then merged Data into World:
+## the bar is now the overflow square, File, World; see SS13.) `CLAUDE.md`'s "the newer canvas wins" makes that
 ## canvas the authority over §13's older top-level wording. What §13 actually
 ## protects -- no command lost, i.e. disclosure depth -- is unchanged and is
 ## what SS13 below asserts directly against `CommandIndex`
@@ -529,16 +530,22 @@ func _ready() -> void:
 	## **Desktop's own menu bar is unchanged and asserted directly** -- the
 	## `else` branch in `menus.gd::build()` is the original seven calls,
 	## untouched by this batch.
-	_ok("desktop still has its shipped seven menus, unchanged",
+	## SM-1 (Ruling CK, 2026-10-18): the fourth desktop menu is titled World.
+	_ok("desktop has its seven menus, Data titled World since SM-1",
 		",".join(PackedStringArray(d_titles)),
-		"File,Edit,Assets,Data,Preferences,Window,Help")
+		"File,Edit,Assets,World,Preferences,Window,Help")
 	## **Tablet's own menu bar is re-specified to the canvas, not restated.**
 	## `Cartalith Tablet.dc.html` / `TABLET_UI_SPEC.md` §2.1 draw exactly the
 	## overflow square then File, World, Data -- four top-level menus, not
 	## seven -- per the owner's 2026-09-07 canvas-adoption ruling (see this
 	## file's header).
-	_ok("tablet's top-level menus are the canvas's own: overflow, File, World, Data",
-		",".join(PackedStringArray(t_titles)), "☰,File,World,Data")
+	## **SM-1 (Ruling CK, Q2's default, 2026-10-18)** merges the canvas's Data
+	## menu into its World menu, below World's own pipeline rows, so the bar is
+	## the overflow square, File and World. The owner's ruling overrides the
+	## canvas here; SS13's reach check below still holds every Data row to
+	## being reachable on tablet.
+	_ok("tablet's top-level menus are overflow, File, World (Data merged into World, SM-1)",
+		",".join(PackedStringArray(t_titles)), "☰,File,World")
 
 	print("")
 	print("-- every command title reachable on desktop is still reachable on tablet --")

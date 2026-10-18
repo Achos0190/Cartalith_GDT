@@ -1,5 +1,7 @@
 extends Node
-## Lane AssetsData -- PRESSES every row of the live `Assets` and `Data` menus
+## Lane AssetsData -- PRESSES every row of the live `Assets` and `World` menus
+## (`World` was `Data` until SM-1, Ruling CK; its route rows now sit in submenus,
+## which the DATA section walks one level down)
 ## and reports what changed. A row that silently does nothing is the failure
 ## mode this audit exists to find, so the assertion is "state moved", not
 ## "no error printed".
@@ -103,7 +105,7 @@ func _ready() -> void:
 	for b in buttons:
 		if b.text == "Assets":
 			assets = b.get_popup()
-		elif b.text == "Data":
+		elif b.text == "World":
 			data = b.get_popup()
 
 	print("\n=== ASSETS top level ===")
@@ -138,6 +140,14 @@ func _ready() -> void:
 	print("\n=== DATA ===")
 	for i in data.item_count:
 		if data.is_item_separator(i) or data.is_item_disabled(i):
+			continue
+		var sub_name := data.get_item_submenu(i)
+		if sub_name != "":
+			var sub := data.get_node_or_null(NodePath(sub_name)) as PopupMenu
+			for j in sub.item_count:
+				if sub.is_item_separator(j) or sub.is_item_disabled(j):
+					continue
+				await _press(sub, j, data.get_item_text(i) + " > " + sub.get_item_text(j))
 			continue
 		await _press(data, i, data.get_item_text(i))
 

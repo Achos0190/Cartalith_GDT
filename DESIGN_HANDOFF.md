@@ -161,8 +161,9 @@ time. Menus overlay the tool options bar — they never push layout.
   August directive was *"keep the tablet version as close as possible to the
   windows gui"*. On 2026-09-07 the owner ruled that the tablet canvas is to be
   matched — *"All designs layouts and styles should match 100%"* — so the
-  tablet's menu bar is its canvas's own `☰ · File · World · Data`, not the
-  desktop's seven. What is preserved is reach: `_tabletparity_probe.gd`
+  tablet's menu bar was its canvas's own `☰ · File · World · Data`, not the
+  desktop's seven. Since Ruling CK (SM-1, 2026-10-18) Data's rows are merged into
+  the tablet's World menu below its pipeline rows, so the bar is `☰ · File · World`. What is preserved is reach: `_tabletparity_probe.gd`
   asserts that every command title reachable on desktop is reachable on
   tablet, by title and occurrence count.
 - **Phone reorganises rather than truncates.** Docks become full-height sheets,
@@ -206,8 +207,9 @@ types. Reuse before drawing.
 
 ## 7 · The structure a design has to fit
 
-**Seven menus, program scope only**: File · Edit · Assets · Data · Preferences ·
-Window · Help. World generation, simulation, rendering and map styling are
+**Seven menus, program scope only**: File · Edit · Assets · World · Preferences ·
+Window · Help. (`World` was `Data` until Ruling CK's SM-1, 2026-10-18,
+`STORY_MENUS_PROPOSAL.md` §3.2.) World generation, simulation, rendering and map styling are
 **workspaces reached through the domain rail, never menu items**.
 
 **Three domains** on the rail, each swapping both docks and the tool options

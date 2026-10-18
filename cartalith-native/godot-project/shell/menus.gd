@@ -105,7 +105,7 @@ const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
 const ID_AP_EXPORT := 39  ## Assets ▸ Asset pack ▸ Export pack .zip… (Ctrl+Shift+P).
 const ID_AP_PACK_META := 49  ## Assets ▸ Asset pack ▸ Pack metadata….
 
-const ID_DATA_MANAGER := 40  ## Data ▸ Data manager.
+const ID_DATA_MANAGER := 40  ## World ▸ Data manager (the menu was "Data" until SM-1).
 ## 41 held `Journey planner… ⇧J` until 2026-09-05, when the owner's structural-
 ## move ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4) sent the planner to
 ## the CIVIL rail node `planner` -- `03-menu-bar.md` §6.4 draws the Data menu as
@@ -120,18 +120,28 @@ const ID_DATA_MANAGER := 40  ## Data ▸ Data manager.
 ## than left dangling: an unused id in a menu file is how a row ends up wired
 ## to the wrong thing later. 41 is left out for the same reason.
 const ID_TRAVEL_LIBRARY := 48
-const ID_VAULT := 45  ## Data ▸ Markdown vault… (overview, no entity scope).
-const ID_WORLD_DATA := 47  ## Data ▸ World data tables….
+const ID_VAULT := 45  ## World ▸ Markdown vault… (overview, no entity scope).
+const ID_WORLD_DATA := 47  ## World ▸ World data tables….
+## SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK): World ▸ RECORDS ▸ Places…,
+## which opens CIVIL ▸ Settlements (`DccShell.select_domain_category`). 721 and
+## 722 were unused (`grep ":= 72"` over `shell/`, 2026-10-18).
+const ID_PLACES := 721
+## SM-1: World ▸ RECORDS ▸ Timeline -- CIVIL ▸ Timeline plus the timeline bar
+## (`_open_timeline()`). Its own id rather than Story's (`ID_STORY_TIMELINE`)
+## because only Story's row carries the accelerator, and `_bind_accelerator`
+## keys a rebind by id.
+const ID_WORLD_TIMELINE := 722
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
 const ID_VAULT_BROWSE := 716
 ## One id per Data-manager route: the run is 400 .. 400 + ROUTES.size() - 1,
-## and `_data()`'s handler claims only that run. It is NOT above every other id
-## in this file (it once said so): the Data popup itself carries
+## and `_on_data()` claims only that run. It is NOT above every other id
+## in this file (it once said so): the World popup itself carries
 ## `ID_VAULT_BROWSE` (716), which an open-ended `id >= 400` check silently ate.
-## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
-## and each one is its own destination rather than a group's first.
+## The routes now sit in World's three submenus (Import ▸, Export ▸, Sources &
+## validation ▸, built in `GROUP_ORDER` so the id run keeps its order), and
+## each one is its own destination rather than a group's first.
 const ID_DATA_ROUTE_FIRST := 400
 ## Data-manager route ids in dropdown order, index-parallel to the `ID_DATA_ROUTE_FIRST +
 ## i` rows; refilled by `_data()`.
@@ -527,8 +537,9 @@ var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popu
 
 ## Entry point, called once by `app.gd` after the shell exists: stores the shell, bridge
 ## and host, reads the STORED theme mode, adds the top-level menus (tablet: ☰ / File /
-## World / Data; PC and phone: the seven shipped menus, which the phone drill-down
-## then re-presents as screens), and finally applies the theme.
+## World, the old Data rows merged into World; PC and phone: File, Edit, Assets, World,
+## Preferences, Window, Help, which the phone drill-down then re-presents as screens),
+## and finally applies the theme.
 ## Must not be called twice on one shell (every menu would be added again), and must
 ## not run before `app.gd` has set the touch/phone state the tablet branch reads.
 func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
@@ -553,16 +564,24 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## `is_tablet()` reads `DccShell._touch`/`_phone_mode`, both written by
 	## `_ready()` before `menus.build()` runs (`app.gd:449`), so the branch
 	## sees the real device/`--force-touch` state rather than a boot default.
+	##
+	## **SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2 and §6, Ruling CK, owner
+	## 2026-10-18): the Data menu is now `World`.** On PC and phone the title
+	## changes and `_data()` builds the regrouped RECORDS / TECHNICAL rows. On
+	## tablet there was already a `World` menu (the pipeline rows of `_world()`),
+	## so the tablet does NOT get a second one: Q2's default merges Data's rows
+	## into it, below the pipeline rows (`_tablet_world()`), which drops the
+	## tablet bar from ☰ · File · World · Data to ☰ · File · World. That is a
+	## departure from DS-03's "match the canvas 100%", taken by Ruling CK.
 	if DccTheme.is_tablet():
 		shell.add_menu("☰", _overflow)
 		shell.add_menu("File", _file)
-		shell.add_menu("World", _world)
-		shell.add_menu("Data", _data)
+		shell.add_menu("World", _tablet_world)
 	else:
 		shell.add_menu("File", _file)
 		shell.add_menu("Edit", _edit)
 		shell.add_menu("Assets", _assets)
-		shell.add_menu("Data", _data)
+		shell.add_menu("World", _data)
 		shell.add_menu("Preferences", _preferences)
 		shell.add_menu("Window", _window)
 		shell.add_menu("Help", _help)
@@ -857,7 +876,8 @@ func _file(p: PopupMenu) -> void:
 	## itself to its widest item, so as one row this sentence alone made the
 	## File menu 380 px wide against the canvas's 298. Two disabled rows are the
 	## canvas's own two lines, at the canvas's own width.
-	for line in ["imports live under Data ▸ Import",
+	## "World", not "Data", since SM-1 renamed the menu (Ruling CK).
+	for line in ["imports live under World ▸ Import",
 			"asset packs under Assets"]:
 		_signpost(p, line)
 
@@ -2793,7 +2813,7 @@ func _on_assets(id: int) -> void:
 		ID_AP_EXPORT: _host.asset_library_window.export_pack_now()
 		ID_AP_PACK_META: _open_pack_metadata()
 
-# -- §2.4 Data ----------------------------------------------------------------
+# -- §2.4 Data, titled World since SM-1 (Ruling CK) ---------------------------
 #
 # §2.4: the dropdown mirrors the Data manager window's four groups and is a
 # shortcut into it, never a second implementation. The window (`§9`,
@@ -2831,10 +2851,9 @@ func _on_assets(id: int) -> void:
 ##     `infrastructure_workspace.gd`'s `Open Journey Planner`** all call
 ##     `app.open_journey_planner()` and are untouched.
 ##
-## Travel library (⇧L, `TRAVEL_LIBRARY_SPEC.md`) stays: it opens its own window,
-## which is what every other row in this menu does. `2a`'s own mockup placed it
-## directly below Journey planner; with the planner gone it follows World data
-## tables directly.
+## Travel library (⇧L, `TRAVEL_LIBRARY_SPEC.md`) stayed then: it opens its own
+## window, which is what every other row in this menu does. Since SM-1 it closes
+## the RECORDS band, until SM-2 moves it to the Story menu (§3.3).
 ## **Conversion is deliberately absent** (owner decision, 2026-08-20). The
 ## row used to read "Conversion ▸ Coordinate systems · Formats" and open the
 ## Data manager on a three-route group of disclosed gaps. `GUI_GAP_REGISTER
@@ -2908,15 +2927,29 @@ func _on_assets(id: int) -> void:
 ## nothing, so the badge is appended to the label instead. Content matches;
 ## the two-column alignment does not, and inventing a custom-drawn item to get
 ## it would be a new widget for one menu.
+##
+## **SM-1, 2026-10-18 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK): this menu is
+## `World`, regrouped into two labelled bands.** RECORDS holds what a
+## worldbuilder keeps track of (factions, places, notes, the timeline); TECHNICAL
+## holds the data plumbing (tables, the Data manager's four route bands). The
+## route bands moved from flat labelled bands into submenus (Import ▸, Export ▸,
+## Sources & validation ▸) with the same rows, ids and destinations, built in
+## `GROUP_ORDER` so `ID_DATA_ROUTE_FIRST + i` still names route i. Inventory of
+## the old Data menu, row by row (`MISTAKES.md` "Delete a surface"): Data
+## manager, World data tables, Factions, Travel library, the 15 route rows,
+## Export map image, Markdown vault and Browse & edit a note -- every one is
+## still in this popup or one of its three submenus; none was dropped. Two rows
+## are new over built targets (Places…, Timeline) and one is drawn disabled
+## with its reason (Places without notes…, milestone SM-5).
 func _data(p: PopupMenu) -> void:
 	## The canvas's own head row: `⧉ DATA MANAGER`, the window this whole menu
 	## is a shortcut into. It had no row at all here -- the four group rows were
 	## the only way in.
 	_live(p, "⧉ Data manager", ID_DATA_MANAGER)
-	_live(p, "World data tables…", ID_WORLD_DATA)
+
+	p.add_separator("RECORDS")
 	## FH-1: the Factions hub is a window over world data (a faction's identity,
-	## land, settlements, economy and military), so it sits beside World data
-	## tables rather than under the vault rows. No accelerator: a shortcut is a
+	## land, settlements, economy and military). No accelerator: a shortcut is a
 	## new binding the owner has not asked for, and the phone twin needs no row
 	## of its own -- `phone_menu.gd::_fill_data` draws this popup through
 	## `_rest_of`, so the row appears there by being here. It opens the hub with
@@ -2925,58 +2958,133 @@ func _data(p: PopupMenu) -> void:
 	p.set_item_tooltip(p.item_count - 1,
 		"Open the Factions window: each faction's identity, territory, "
 		+ "settlements, economy and military in one place.")
+	## SM-1: a new row over a built target -- the CIVIL dock's Settlements
+	## category (`civilization_workspace.gd`, `DccWidgets.category(self,
+	## "Settlements", ...)`), which `RAIL_NODES` lists under CIVIL's `owns`.
+	_live(p, "Places…", ID_PLACES)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the CIVIL dock's Settlements category: the place list, its "
+		+ "filters and each place's editor.")
+	_build_vault_rows(p)
+	## SM-5 is not built; drawn with its reason, per `_todo()`. Both routes named
+	## in the reason exist: the card's `civ.vault_note` row and the Place
+	## editor's `vault` tab (`place_editor_window.gd::TAB_LABELS`).
+	_todo(p, "Places without notes…",
+		"Not built yet (STORY_MENUS_PROPOSAL.md milestone SM-5): nothing lists the "
+		+ "places that have no linked note. Today a place's note is reached one place "
+		+ "at a time -- right-click it ▸ Open note, or the Place editor's Vault notes tab.")
+	_live(p, "Timeline", ID_WORLD_TIMELINE)
+	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
+	## Moves to the Story menu with SM-2 (§3.3); kept here until that menu
+	## exists so the row is never homeless between the two commits.
 	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
 
+	p.add_separator("TECHNICAL")
+	_live(p, "World data tables…", ID_WORLD_DATA)
 	_data_route_ids.clear()
-	for group in DataManagerWindow.GROUP_ORDER:
-		p.add_separator(String(group).to_upper())
+	_route_submenu(p, "Import", "WorldImport", ["Import"])
+	_route_submenu(p, "Export", "WorldExport", ["Export"])
+	_route_submenu(p, "Sources & validation", "WorldSources", ["Sources", "Validation"])
+	p.id_pressed.connect(_on_data)
+
+## Tooltip of both Timeline rows (World ▸ RECORDS and, from SM-2, Story ▸ TIME):
+## what `_open_timeline()` does, in the user's words.
+const TIMELINE_TIP := "Opens CIVIL ▸ Timeline -- the recorded year snapshots: add a year, go to one, compare two -- and shows the timeline bar if it is hidden."
+
+## One TECHNICAL submenu over `DataManagerWindow.ROUTES`: a child popup named
+## `node`, titled `title` in `p`, holding every route of each group in `groups`
+## (a labelled separator per group when there is more than one), each row
+## `ID_DATA_ROUTE_FIRST + i` with its route id appended to `_data_route_ids`.
+## The Export group also gets `Export map image…` (E5, its own dialog, not a
+## route), whose enabled state and reason are refreshed on the SUBMENU's
+## `about_to_popup` -- the popup that actually shows it. Clicks go to
+## `_on_data`, the same dispatcher as the parent's. Must be called in
+## `GROUP_ORDER` order, or the id run stops matching the table's order.
+func _route_submenu(p: PopupMenu, title: String, node: String, groups: Array) -> PopupMenu:
+	var sub := PopupMenu.new()
+	sub.name = node
+	_shell.style_popup(sub)
+	p.add_child(sub)
+	p.add_submenu_item(title, node)
+	for group in groups:
+		if groups.size() > 1:
+			sub.add_separator(String(group).to_upper())
 		for r in DataManagerWindow.ROUTES:
 			var route: Dictionary = r
 			if String(route["group"]) != group:
 				continue
 			var badge := String(route.get("badge", ""))
-			p.add_item("%s%s" % [String(route["label"]),
+			sub.add_item("%s%s" % [String(route["label"]),
 				("   " + badge) if badge != "" else ""],
 				ID_DATA_ROUTE_FIRST + _data_route_ids.size())
-			p.set_item_tooltip(p.item_count - 1, String(route.get("sub", "")))
+			sub.set_item_tooltip(sub.item_count - 1, String(route.get("sub", "")))
 			_data_route_ids.append(String(route["id"]))
-		## E5: the 16K/32K single-image export's own row, last in the EXPORT
-		## band beside `Maps` (whose route writes the shipped 2K-8K/tiled
+		## E5: the 16K/32K single-image export's own row, last in the Export
+		## group beside `Maps` (whose route writes the shipped 2K-8K/tiled
 		## raster). Its own id, not a route: it opens a dialog, not the data
-		## manager. Enabled state and reason refreshed on every popup below;
-		## the build-time tooltip is set so `CommandIndex`, which reads the
-		## built state, indexes it with a description (`ID_NEW_WORLD_FROM_
+		## manager. The build-time tooltip is set so `CommandIndex`, which reads
+		## the built state, indexes it with a description (`ID_NEW_WORLD_FROM_
 		## SELECTION`'s comment gives that reason).
 		if group == "Export":
-			_live(p, "Export map image…", ID_EXPORT_MAP_IMAGE)
-			var export_idx := p.item_count - 1
-			p.set_item_tooltip(export_idx, EXPORT_MAP_IMAGE_TIP)
-			p.about_to_popup.connect(func():
+			_live(sub, "Export map image…", ID_EXPORT_MAP_IMAGE)
+			var export_idx := sub.item_count - 1
+			sub.set_item_tooltip(export_idx, EXPORT_MAP_IMAGE_TIP)
+			sub.about_to_popup.connect(func():
 				var why := export_map_image_refusal()
-				p.set_item_disabled(export_idx, why != "")
-				p.set_item_tooltip(export_idx, why if why != "" else EXPORT_MAP_IMAGE_TIP))
+				sub.set_item_disabled(export_idx, why != "")
+				sub.set_item_tooltip(export_idx, why if why != "" else EXPORT_MAP_IMAGE_TIP))
+	sub.id_pressed.connect(_on_data)
+	return sub
 
-	_build_vault_rows(p)
-	p.id_pressed.connect(func(id: int) -> void:
-		## Bounded on BOTH ends. This used to be `if id >= ID_DATA_ROUTE_FIRST:
-		## ... return`, which swallowed every id at or above 400 whether or not
-		## it was a route -- and `ID_VAULT_BROWSE` (716) is one, so "Browse &
-		## edit a note…" landed here as route 316 of 15, failed the size check,
-		## and returned before the `match` below: the row did nothing, silently,
-		## from the day it shipped (`_vaultclick_probe.gd`).
-		var i := id - ID_DATA_ROUTE_FIRST
-		if i >= 0 and i < _data_route_ids.size():
-			_host.open_data_manager_route(_data_route_ids[i])
-			return
-		match id:
-			ID_DATA_MANAGER: _host.open_data_manager()
-			ID_WORLD_DATA: _host.open_world_data()
-			ID_FACTIONS: _host.open_faction_roster()
-			ID_TRAVEL_LIBRARY: _host.open_travel_library()
-			ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
-			ID_VAULT: _host.open_vault_overview()
-			ID_VAULT_BROWSE: _host.open_vault_browse()
-	)
+## The World menu's dispatcher, shared by the popup and its three route
+## submenus (and, on tablet, by the merged World popup beside `_on_world`).
+## Ignores every id it does not own, so a fan-out with other dispatchers on one
+## popup is safe.
+func _on_data(id: int) -> void:
+	## Bounded on BOTH ends. This used to be `if id >= ID_DATA_ROUTE_FIRST:
+	## ... return`, which swallowed every id at or above 400 whether or not
+	## it was a route -- and `ID_VAULT_BROWSE` (716) is one, so "Browse &
+	## edit a note…" landed here as route 316 of 15, failed the size check,
+	## and returned before the `match` below: the row did nothing, silently,
+	## from the day it shipped (`_vaultclick_probe.gd`).
+	var i := id - ID_DATA_ROUTE_FIRST
+	if i >= 0 and i < _data_route_ids.size():
+		_host.open_data_manager_route(_data_route_ids[i])
+		return
+	match id:
+		ID_DATA_MANAGER: _host.open_data_manager()
+		ID_WORLD_DATA: _host.open_world_data()
+		ID_FACTIONS: _host.open_faction_roster()
+		ID_PLACES: _shell.select_domain_category("civilization", "Settlements")
+		ID_WORLD_TIMELINE: _open_timeline()
+		ID_TRAVEL_LIBRARY: _host.open_travel_library()
+		ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
+		ID_VAULT: _host.open_vault_overview()
+		ID_VAULT_BROWSE: _host.open_vault_browse()
+
+## Both Timeline rows' action: open CIVIL ▸ Timeline (the year snapshots,
+## `civilization_workspace.gd`'s `"Timeline"` category) and, on PC and tablet,
+## show the timeline bar region if it is hidden -- `toggle_region` flips, so it
+## is called only when `is_region_shown` says the bar is off. The phone has no
+## bar to show (its timeline is the MORE ▸ Simulation strip), so the region is
+## left alone there.
+func _open_timeline() -> void:
+	_shell.select_domain_category("civilization", "Timeline")
+	if DccTheme.is_phone():
+		return
+	if _host.has_method("is_region_shown") and not _host.is_region_shown(ID_WIN_TIMELINE):
+		_host.toggle_region(ID_WIN_TIMELINE)
+
+## The tablet's single World menu since SM-1 (Q2's default, Ruling CK): the
+## tablet canvas's own pipeline rows (`_world()`) first and unchanged, then the
+## old Data menu's rows (`_data()`) under a separator. Each builder connects its
+## own dispatchers and each dispatcher ignores ids it does not own, so the two
+## sit on one popup without interfering (their id sets are disjoint: 710-713 and
+## the reset-generation ids against 40-48, 400+, 716, 719-722).
+func _tablet_world(p: PopupMenu) -> void:
+	_world(p)
+	p.add_separator()
+	_data(p)
 
 ## **The Markdown vault's program-scope entry point** (2026-08-24, `design/
 ## Cartalith Menu Structure v3.dc.html`).
@@ -3009,8 +3117,11 @@ func _data(p: PopupMenu) -> void:
 ## promised is gone; both destinations are sections inside the one row below,
 ## reached by picking an entity rather than by a second and third menu promise
 ## of a place neither ever actually landed on.
+##
+## SM-1: the two rows now sit inside World's RECORDS band (between Places… and
+## Places without notes…), so the separator that used to open this block is
+## gone -- the band's own labelled separator heads them.
 func _build_vault_rows(p: PopupMenu) -> void:
-	p.add_separator()
 	_live(p, "Markdown vault…", ID_VAULT)
 	p.set_item_tooltip(p.item_count - 1,
 		"Connect or re-link a vault folder (any folder of .md files -- Obsidian is one, "
@@ -6161,7 +6272,7 @@ func _build_lod_debug_submenu(p: PopupMenu) -> void:
 	_lod_debug_popup.add_separator()
 	_lod_debug_popup.add_check_item("Show tile borders on the map", ID_LOD_TILE_BORDERS)
 	_lod_debug_popup.set_item_tooltip(_lod_debug_popup.item_count - 1,
-		"The export tile split (Data > Export > Maps > Tile grid), dashed over the map -- NOT the chunk overlay above. Draws while the deep-zoom pyramid is down, since the split is taken off the full-resolution grid.")
+		"The export tile split (World ▸ Export ▸ Maps ▸ Tile grid), dashed over the map -- NOT the chunk overlay above. Draws while the deep-zoom pyramid is down, since the split is taken off the full-resolution grid.")
 	_refresh_lod_debug_menu()
 	_lod_debug_popup.id_pressed.connect(_on_lod_debug)
 	_shell.style_popup(_lod_debug_popup)

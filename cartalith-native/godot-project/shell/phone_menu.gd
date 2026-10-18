@@ -1675,7 +1675,9 @@ func _fill_root(body: VBoxContainer) -> void:
 ## -- two routes to one menu, which is exactly the duplication this predicate
 ## exists to prevent.
 func _named_in_root(menu_title: String) -> bool:
-	if ["File", "Data", "Preferences", "Assets", "Help"].has(menu_title):
+	## "World" was "Data" until SM-1 renamed the menu (Ruling CK); the `data`
+	## screen still re-presents it.
+	if ["File", "World", "Preferences", "Assets", "Help"].has(menu_title):
 		return true
 	for spec in ROOT_ROWS:
 		if String(spec.t) == "menu" and String(spec.id) == menu_title:
@@ -1855,17 +1857,23 @@ func _landmark_sub(sub: PopupMenu) -> String:
 ## popup's order; the popup's `Maps` route row (the desktop pane, which also
 ## has the marquee grid export) stays below it. No `EXPORT` separator -> the
 ## row goes last under its own band rather than nowhere.
+##
+## **SM-1 (Ruling CK): the popup is `World` now, and its route bands are
+## submenus** (`menus.gd::_route_submenu`), so there is no `EXPORT` separator
+## left to cut at. The cut is the `Export ▸` submenu row (node `WorldExport`):
+## the tile-pyramid row follows the row that drills into the other exports,
+## which is the same neighbourhood it had. No such row -> the old fallback, an
+## `Export` head at the end.
 func _fill_data(body: VBoxContainer) -> void:
-	var p := _menu_popup("Data")
+	var p := _menu_popup("World")
 	if p == null:
 		_add(body, _missing_row("Data manager",
-			"The Data menu is not on this build's menu bar."))
+			"The World menu is not on this build's menu bar."))
 		return
 	var cut := p.item_count - 1
-	for i in p.item_count:
-		if p.is_item_separator(i) and _clean(p.get_item_text(i)).to_upper() == "EXPORT":
-			cut = i
-			break
+	var export_row := _find_sub(p, "WorldExport")
+	if export_row >= 0:
+		cut = export_row
 	var head := {}
 	var tail := {}
 	for i in p.item_count:

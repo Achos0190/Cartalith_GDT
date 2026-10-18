@@ -87,7 +87,8 @@ func _menu_popup(title: String) -> PopupMenu:
 			return p
 	return null
 
-const MENUS: Array = ["File", "Edit", "Assets", "Data", "Preferences", "Window", "Help"]
+## "World" was "Data" until SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK).
+const MENUS: Array = ["File", "Edit", "Assets", "World", "Preferences", "Window", "Help"]
 
 func _ready() -> void:
 	var wd := Timer.new()

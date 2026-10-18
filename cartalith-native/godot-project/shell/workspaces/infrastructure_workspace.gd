@@ -1966,7 +1966,7 @@ func _fill_logistics(parent: Control) -> void:
 	var b := DccWidgets.action(g, "Open Journey Planner", func(): app.open_journey_planner(), true)
 	## The in-shell takeover screen is `journey_planner_view.gd`.
 	b.tooltip_text = ("Arms the Journey tool and swaps to its own in-shell takeover -- " +
-		"the same thing Data ▸ Journey planner… ⇧J opens. " +
+		"the same thing the CIVIL rail's Journey planner node (⇧J) opens. " +
 		"Opens to its own Journeys list: usually route #1 or the most recently saved " +
 		"journey, not necessarily whichever route you were just looking at here.")
 	## Ruling L L186: *"Routes [expander] → per-route [button] (opens Journey

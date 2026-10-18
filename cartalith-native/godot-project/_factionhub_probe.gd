@@ -27,7 +27,7 @@ extends Node
 ##           rebuilds only the visible tab and resets the selection
 ##   ENTRY   (FH-1, `_run_entry_points`) every shipped way in lands on the
 ##           faction and tab `FACTION_HUB_DESIGN.md` §4 gives it: the Factions
-##           category's "Open factions…" and Data ▸ Factions… (bare: last faction
+##           category's "Open factions…" and World ▸ Factions… (bare: last faction
 ##           and tab), the dock card's "Open in Factions…" (Identity, or Relations
 ##           with `pair_with`), every Military row, and the
 ##           Cartography identity-colours jump. The Relationships pair rows (re-routed
@@ -720,10 +720,12 @@ func _run_entry_points(ids: Array) -> void:
 	_fr.hide()
 	await _frames(2)
 
-	# 2. Data > Factions…
+	# 2. World > Factions… (the Data menu until SM-1, Ruling CK; on tablet the
+	# old Data rows are merged into the one World menu, so "World" holds this
+	# row on every form factor).
 	await _park(fb, park_tab)
-	var mb := _find_menu_button(_app, "Data")
-	_ok("FH1 data: the Data menu exists", mb != null)
+	var mb := _find_menu_button(_app, "World")
+	_ok("FH1 data: the World menu exists", mb != null)
 	if mb != null:
 		var popup: PopupMenu = mb.get_popup()
 		var idx := -1

@@ -2141,7 +2141,7 @@ func _build_sample(body: Control) -> void:
 	_field(sec, "Route cost", "—",
 		"Not available at a single cell -- travel cost only has meaning for an " +
 		"actual journey, with a party and a season. Plan a journey " +
-		"(Data ▸ Journey planner, ⇧J) for the real figure.", false)
+		"(CIVIL ▸ Journey planner, ⇧J) for the real figure.", false)
 	## Every input exists (a per-cell reader covers any cell), but there is no
 	## call to fetch a whole row of cells at once, and one call per column per
 	## mouse-move (1 000-4 000 crossings per frame at working resolution) is too

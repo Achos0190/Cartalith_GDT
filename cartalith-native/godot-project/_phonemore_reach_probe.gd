@@ -61,9 +61,11 @@ const ROOT_MUST: Array = [
 ## therefore be carried by the fallback band.
 const ROOT_REST_MUST: Array = ["Edit", "Window"]
 
-## screen id -> the program menu whose top-level rows it must carry.
+## screen id -> the program menu whose top-level rows it must carry. The
+## `data` screen re-presents `World`, which was the Data menu until SM-1
+## (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK).
 const SCREEN_COVERS: Dictionary = {
-	"project": "File", "data": "Data", "prefs": "Preferences",
+	"project": "File", "data": "World", "prefs": "Preferences",
 }
 
 func _frames(n: int) -> void:

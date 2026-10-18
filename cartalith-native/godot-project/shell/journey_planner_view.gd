@@ -1092,7 +1092,7 @@ func _rebuild_party_form() -> void:
 	_toggle_field(route_group, "Respect seasonal closures (winter passes)", "seasonal_closures", true)
 
 	var footer := DccTheme.mono_label(
-		"party set-ups live in Data ▸ Travel library (⇧L); apply or capture one from the tool options bar above",
+		"party set-ups live in World ▸ Travel library (⇧L); apply or capture one from the tool options bar above",
 		"text_ghost", DccTheme.FS_TINY)
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var footer_pad := MarginContainer.new()

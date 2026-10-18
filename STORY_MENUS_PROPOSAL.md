@@ -1,8 +1,8 @@
 # Story menus: proposal
 
-**A proposal of 2026-10-17, from an owner request. Not scheduled.** It defines
-milestones (SM-1…SM-7) and the reasoning behind them. It has no status column.
-Once any of this is scheduled, its status lives in
+**A proposal of 2026-10-17, from an owner request; scheduled by Ruling CK
+(2026-10-18, Q1–Q7 at their defaults).** It defines milestones (SM-1…SM-7) and
+the reasoning behind them. It has no status column: status lives in
 `cartalith-native/docs/STATUS.md` and nowhere else.
 
 **The request, as briefed (2026-10-17).** Reorganise the menus and the workflow

@@ -18,7 +18,7 @@ extends Node
 ##   4. Prove the rows that claim real capability actually reach it:
 ##      Territories' two recompute shortcuts, Timeline's years and simulator,
 ##      the political layers' Ruling L consolidation back into Layers, and
-##      Data ▸ Markdown vault.
+##      World ▸ Markdown vault (the Data menu until SM-1).
 ##   5. Assert every disabled row carries a reason (the `_todo` contract).
 ##   6. One screenshot per rail, every category forced open.
 ##
@@ -317,51 +317,51 @@ func _ready() -> void:
 		_fail_msg("CARTO political layer consolidation is wrong (layers has it=%s / Political display still exists=%s)" % [
 			layers_txt.find("Political — territory") >= 0, has_political_display])
 
-	## Data ▸ Markdown vault. Pressed through the real popup, and asserted by
+	## World ▸ Markdown vault. Pressed through the real popup, and asserted by
 	## the window actually being on screen afterwards.
 	var data_popup := _data_popup()
 	if data_popup == null:
-		_fail_msg("Data menu popup not found")
+		_fail_msg("World menu popup not found")
 	else:
 		var idx := -1
 		for i in data_popup.item_count:
 			if String(data_popup.get_item_text(i)).findn("Markdown vault") >= 0:
 				idx = i
 		if idx < 0:
-			_fail_msg("Data menu has no Markdown vault row")
+			_fail_msg("World menu has no Markdown vault row")
 		elif data_popup.is_item_disabled(idx):
-			_fail_msg("Data ▸ Markdown vault is disabled")
+			_fail_msg("World ▸ Markdown vault is disabled")
 		else:
 			data_popup.id_pressed.emit(data_popup.get_item_id(idx))
 			await get_tree().process_frame
 			await get_tree().process_frame
 			if _app.vault_window.visible:
-				_ok("Data ▸ Markdown vault opened the real vault window")
+				_ok("World ▸ Markdown vault opened the real vault window")
 				_app.vault_window.hide()
 			else:
-				_fail_msg("Data ▸ Markdown vault did not open the vault window")
+				_fail_msg("World ▸ Markdown vault did not open the vault window")
 		## The 2026-09-21 fold: "Create a note from a template…" and "Vault
 		## index ▸ Backlinks · missing & orphan notes…" are RETIRED as menu rows
 		## -- their destinations moved in-panel (`vault_window.gd::_build_index()`
 		## and `_build_pick_entity()`), not deleted. Assert both old labels are
-		## gone from the Data menu, and that the two rows that remain --
+		## gone from the World menu, and that the two rows that remain --
 		## `ID_VAULT` ("Markdown vault…") and `ID_VAULT_BROWSE` ("Browse & edit a
 		## note…") -- are exactly the vault surface here now.
 		var vault_rows := 0
 		for i in data_popup.item_count:
 			var t := String(data_popup.get_item_text(i))
 			if t.findn("from a template") >= 0 or t.findn("Vault index") >= 0:
-				_fail_msg("Data menu still carries the retired row \"%s\"" % t)
+				_fail_msg("World menu still carries the retired row \"%s\"" % t)
 			var id := data_popup.get_item_id(i)
 			if id == DccMenus.ID_VAULT or id == DccMenus.ID_VAULT_BROWSE:
 				vault_rows += 1
 				if data_popup.is_item_disabled(i) or data_popup.get_item_tooltip(i).length() <= 40:
-					_fail_msg("Data ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d)"
+					_fail_msg("World ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d)"
 						% [t, data_popup.is_item_disabled(i), data_popup.get_item_tooltip(i).length()])
 		if vault_rows == 2:
-			_ok("Data ▸ exactly two vault rows (Markdown vault…, Browse & edit a note…)")
+			_ok("World ▸ exactly two vault rows (Markdown vault…, Browse & edit a note…)")
 		else:
-			_fail_msg("Data: expected 2 vault rows total, found %d" % vault_rows)
+			_fail_msg("World: expected 2 vault rows total, found %d" % vault_rows)
 
 	## In-panel navigation, driven rather than inferred from the scene tree
 	## (`MISTAKES.md` "Claim something covered is now visible"). Connects a
@@ -482,15 +482,16 @@ func _button_exact(n: Node, text: String) -> Button:
 ## menu through `shell.add_menu(title, ...)` (`dcc_shell.gd`), which sets
 ## `MenuButton.text = title` and parents the button under the menu bar; the
 ## button's own `get_popup()` is that menu's PopupMenu, guaranteed correct
-## whatever rows it holds today. Both the desktop/phone branch and the tablet
-## branch call `shell.add_menu("Data", _data)`, so this finds the Data menu
-## either way. The old approach searched every PopupMenu in the tree for an
+## whatever rows it holds today. Since SM-1 (Ruling CK) the desktop/phone
+## branch calls `shell.add_menu("World", _data)` and the tablet branch
+## `shell.add_menu("World", _tablet_world)`, which builds `_data` into the same
+## popup, so this finds the old Data rows under "World" either way. The old approach searched every PopupMenu in the tree for an
 ## item reading "Journey planner" and broke when that row moved to a CIVIL
 ## rail node under Ruling L; picking another row to match on would only move
 ## the same failure mode to a different string, so this keys on the menu
 ## bar's own title instead.
 func _data_popup() -> PopupMenu:
-	var mb := _find_menu_button(_app, "Data")
+	var mb := _find_menu_button(_app, "World")
 	return mb.get_popup() if mb != null else null
 
 ## `get_children(true)`, not `get_children()` -- see `_collect_popups` below

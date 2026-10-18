@@ -1,6 +1,6 @@
 extends Node
-## Lane AssetsData conformance audit -- enumerates the LIVE `Assets` and `Data`
-## PopupMenus recursively and dumps every row.
+## Lane AssetsData conformance audit -- enumerates the LIVE `Assets` and `World`
+## (the Data menu until SM-1, Ruling CK) PopupMenus recursively and dumps every row.
 ##
 ##   godot --path . --resolution 1600x900 _adaudit_probe.tscn
 ##
@@ -80,7 +80,7 @@ func _ready() -> void:
 	print("[BAR] ", names)
 
 	for b in buttons:
-		if b.text != "Assets" and b.text != "Data":
+		if b.text != "Assets" and b.text != "World":
 			continue
 		var pm: PopupMenu = b.get_popup()
 		print("\n########## MENU: %s ##########" % b.text)

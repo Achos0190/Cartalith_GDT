@@ -196,6 +196,11 @@ Rules:
 
 Seven menus: **File · Edit · Assets · Data · Preferences · Window · Help**.
 
+> **Port correction (Ruling CK, 2026-10-18).** The shipped bar names the fourth
+> menu **World**, regrouped into RECORDS and TECHNICAL bands with Import ▸ and
+> Sources & validation ▸ submenus (`STORY_MENUS_PROPOSAL.md` §3.2, SM-1). The
+> owner overrode this section's wording; §2.4 below still describes the canvas.
+
 The menu bar holds *program* functions. World generation, simulation, rendering
 and map styling are workspaces reached through the domain rail (§3), never menu
 items. `⧉` on an item means it opens a dedicated window; `▸` a submenu; `…` a

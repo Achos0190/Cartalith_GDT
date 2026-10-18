@@ -132,14 +132,16 @@ func _ready() -> void:
 	# =====================================================================
 	print("\n=== 1: Journey planner -- Data row gone, CIVIL rail node armed ===")
 
-	var data := _menu("Data")
-	_check("the Data menu is still there", data != null)
+	## The Data menu is titled World since SM-1 (Ruling CK); same popup, same
+	## builder (`menus.gd::_data`).
+	var data := _menu("World")
+	_check("the World (was Data) menu is still there", data != null)
 	if data != null:
-		_check("1a OLD HOME: Data has no Journey planner row",
+		_check("1a OLD HOME: World (was Data) has no Journey planner row",
 			not _has_row(data, "Journey planner"), "rows=%s" % [_rows(data)])
 		## The neighbours it sat between must survive -- a deletion that took
 		## the wrong row would also satisfy the check above.
-		_check("1a control: Data still has World data tables and Travel library",
+		_check("1a control: World still has World data tables and Travel library",
 			_has_row(data, "World data tables") and _has_row(data, "Travel library"))
 
 	var node_rows: Dictionary = app.get("_rail_node_rows")
