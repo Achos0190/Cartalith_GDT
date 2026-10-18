@@ -4439,6 +4439,14 @@ pub struct RenderCtx<'a> {
     /// [`tile_amplify_opts`] alone (Ruling CI's kilometre zoom detail), which
     /// keeps the reference schedule without it.
     map_width_km: Option<f64>,
+    /// Ruling CN's colour-paint layer (`COLOUR_PAINT_SCOPE.md` CP-1): marks in
+    /// map kilometres, composited into the material colour by [`land_color`]
+    /// and into water by [`Self::paint_water`]. `None` by construction, and
+    /// attached by [`Self::with_colour_paint`] only when it can paint
+    /// something (visible, with marks), so every caller that never attaches
+    /// one -- every golden, `js_reference()`, every census -- draws the
+    /// unpainted picture by control flow. Never read for anything but colour.
+    colour_paint: Option<&'a cartalith_spatial::colour_paint::ColourPaint>,
 }
 
 /// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
@@ -4696,6 +4704,7 @@ impl<'a> RenderCtx<'a> {
             river_layer: None,
             water_field: None,
             map_width_km: None,
+            colour_paint: None,
         }
     }
 
@@ -4771,6 +4780,7 @@ impl<'a> RenderCtx<'a> {
             river_layer: None,
             water_field: split.then_some(water),
             map_width_km: None,
+            colour_paint: None,
         }
     }
 
@@ -4841,6 +4851,7 @@ impl<'a> RenderCtx<'a> {
             river_layer: None,
             water_field: None,
             map_width_km: p.map_width_km,
+            colour_paint: None,
         })
     }
 
@@ -5152,6 +5163,58 @@ impl<'a> RenderCtx<'a> {
     fn paint_at(&self, i: usize) -> PaintOverride {
         let g = |a: Option<&[u8]>| a.map_or(0, |c| c[i]);
         PaintOverride { bio: g(self.paint_biome), ter: g(self.paint_terrain), splat: g(self.paint_splat) }
+    }
+
+    /// Attaches Ruling CN's colour-paint layer (`COLOUR_PAINT_SCOPE.md`
+    /// CP-1). Inert layers (hidden, or no marks) are **not** attached, so
+    /// attaching one is the unpainted picture by control flow, not by
+    /// arithmetic that happens to return its input. The layer is read only
+    /// through [`Self::colour_paint_query`], which also needs a map width
+    /// (marks are in kilometres): a context with no scale paints nothing.
+    #[allow(dead_code)]
+    pub fn with_colour_paint(mut self, layer: Option<&'a cartalith_spatial::colour_paint::ColourPaint>) -> Self {
+        self.colour_paint = layer.filter(|l| !l.is_inert());
+        self
+    }
+
+    /// The colour-paint query at grid position `(gx, gy)` (cell centres at
+    /// integers, the convention every sampler here uses) for an output pixel
+    /// whose neighbours are `px_cells` grid cells away, or `None` when no
+    /// layer is attached or the map width is unknown.
+    ///
+    /// Kilometres are measured from the map's top-left **edge**: cell `i`'s
+    /// centre is `(i + 0.5) * km_per_cell`, so a 512 and a 2048 grid of the
+    /// same map width put the same kilometre on the same ground (the scope's
+    /// resolution-independence bar). `km_per_cell = map_width_km / gw`, the
+    /// convention `cartalith_civ::civ_catchment_radius_cells` uses; cells are
+    /// square, so the same factor serves `y`.
+    pub(crate) fn colour_paint_query(&self, gx: f64, gy: f64, px_cells: f64, water: bool) -> Option<(&'a cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)> {
+        let layer = self.colour_paint?;
+        let km = self.map_width_km.filter(|k| k.is_finite() && *k > 0.0)?;
+        if self.gw == 0 {
+            return None;
+        }
+        let kpc = km / self.gw as f64;
+        Some((layer, cartalith_spatial::colour_paint::PaintQuery { x_km: (gx + 0.5) * kpc, y_km: (gy + 0.5) * kpc, px_km: px_cells * kpc, water }))
+    }
+
+    /// A water pixel's colour after the colour-paint marks that paint water
+    /// (`land_only == false`, the owner's crater-lake case). Water colour is
+    /// already lit (`sea_color_core`/`lake_color` shade it themselves), so
+    /// the blend acts on the finished water colour, before paper, frame and
+    /// grade -- the same later stages the land's paint passes through.
+    /// Returns `c` unchanged by control flow when nothing paints water.
+    pub(crate) fn paint_water(&self, c: Rgb, gx: f64, gy: f64, px_cells: f64) -> Rgb {
+        match self.colour_paint {
+            Some(l) if l.paints_water() => match self.colour_paint_query(gx, gy, px_cells, true) {
+                Some((l, q)) => {
+                    let o = l.apply([c.0, c.1, c.2], q);
+                    (o[0], o[1], o[2])
+                }
+                None => c,
+            },
+            _ => c,
+        }
     }
 
     /// The (shaded) height at cell `(x, y)` from `field`; water tests use [`Self::water_h`] instead.
@@ -6440,7 +6503,7 @@ pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -6972,6 +7035,21 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // only how far each material sits from grey moves. Skipped at `0.0`.
     if appearance.biome_sat != 0.0 {
         c = saturate(c, 1.0 + appearance.biome_sat);
+    }
+
+    // Ruling CN's colour paint (`COLOUR_PAINT_SCOPE.md` §4): on the finished
+    // MATERIAL colour, before the light. Before the light so every blend mode
+    // keeps the relief -- the hillshade, AO and the look's light multiply the
+    // painted colour exactly as they multiply the generated one, so a crater
+    // painted red still reads as a crater. After the material's own chroma
+    // (`biome_sat`) so the colour picked is the material colour drawn, and
+    // before everything below (relief chroma, haze, Painter styles, rivers,
+    // paper, frame, local contrast, grade) so the paint is finished by the
+    // look like the rest of the map. `None` -- every caller without an
+    // attached layer -- skips this by control flow.
+    if let Some((layer, q)) = cpaint {
+        let o = layer.apply([c.0, c.1, c.2], q);
+        c = (o[0], o[1], o[2]);
     }
 
     // LOD-D5 stages 1 and 2. `None` is the pre-milestone expression by
@@ -9140,11 +9218,12 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         let shw = ctx.sea_shade[i] as f64;
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
         let n_low = sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw);
-        sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y), ctx.shelf_km_at(i))
+        // Ruling CN: water-painting marks (`land_only == false`) only.
+        ctx.paint_water(sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y), ctx.shelf_km_at(i)), x as f64, y as f64, 1.0)
     } else if ctx.lake_class.is_some_and(|l| l[i] == 2) {
         // v0.103 (8580): an above-sea lake is flat freshwater -- `lakeColor`
         // (8324), which is [`lake_color`], the same surface the tile draws.
-        lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y))
+        ctx.paint_water(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y)), x as f64, y as f64, 1.0)
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
         let m = ctx.rainfall[i] as f64;
@@ -9190,7 +9269,9 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             // `None` (stages off) without a map width and peak altitude.
             ctx.slope_rise_k(),
             // Ruling CI's canopy texture at one pixel per cell.
-            ctx.canopy_scale(1.0));
+            ctx.canopy_scale(1.0),
+            // Ruling CN's colour paint at one pixel per cell.
+            ctx.colour_paint_query(x as f64, y as f64, 1.0, false));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -9481,13 +9562,16 @@ impl BakeFields {
         let t = sample_arr(ctx.temperature, gx, gy, gw, gh);
         let vig = ctx.vignette_at_f(gx, gy);
 
-        let lake = || lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig);
+        // Ruling CN: water-painting marks act on the finished water colour,
+        // antialiased over this export's pixel (`paint_water`).
+        let wpx = step.0.max(step.1);
+        let lake = || ctx.paint_water(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig), gx, gy, wpx);
         let (r, g, b) = match self.shore_cover(ctx, gx, gy, step) {
             // No shore field (every golden, `js_reference()`): the cell rule,
             // byte for byte what this bake drew before RV-5.
             None => {
                 if hw < ctx.sea_level {
-                    self.sea_px(ctx, gx, gy, t, vig)
+                    ctx.paint_water(self.sea_px(ctx, gx, gy, t, vig), gx, gy, wpx)
                 } else if ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh)) {
                     // v0.103's above-sea lake, as `cell_color` draws it: flat
                     // freshwater, `lake_color`. This branch was missing from the
@@ -9503,7 +9587,9 @@ impl BakeFields {
             // skips the other colour; only a shore pixel pays for both.
             Some((cov, kind)) => {
                 let water = || match kind {
-                    Some((sx, sy)) => self.sea_px(ctx, sx, sy, t, vig),
+                    // Painted at the PIXEL's position, not the corner the
+                    // sea colour was evaluated at, so a mark's edge stays put.
+                    Some((sx, sy)) => ctx.paint_water(self.sea_px(ctx, sx, sy, t, vig), gx, gy, wpx),
                     None => lake(),
                 };
                 if cov >= 1.0 {
@@ -9709,6 +9795,9 @@ impl BakeFields {
                 // (the coarser axis, so no octave finer than either axis can
                 // resolve is drawn).
                 ctx.canopy_scale(step.0.max(step.1)),
+                // Ruling CN's colour paint, antialiased over this export's
+                // own pixel (the coarser axis).
+                ctx.colour_paint_query(gx, gy, step.0.max(step.1), false),
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -12709,7 +12798,8 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
             };
 
             let (cr, cg, cb) = match water {
-                Some(v) => v,
+                // Ruling CN: water-painting marks only, at this tile's pixel.
+                Some(v) => ctx.paint_water(v, wx, wy, cells_per_px),
                 None => {
                     // --- Land (11743-11772) ---------------------------------
                     let m = sample_arr(ctx.rainfall, wx, wy, gw, gh);
@@ -12885,6 +12975,10 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // Ruling CI's canopy texture at the tile texel's
                         // footprint, resolved once per tile.
                         canopy_k,
+                        // Ruling CN's colour paint, antialiased over this
+                        // tile's own pixel (`cells_per_px`), so its edge is
+                        // one screen pixel wide at every zoom.
+                        ctx.colour_paint_query(wx, wy, cells_per_px, false),
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and

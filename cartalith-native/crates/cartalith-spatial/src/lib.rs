@@ -31,6 +31,7 @@
 //! scope by that document's own numbers. Recover them from git history if Z3
 //! is ever triggered.
 
+pub mod colour_paint;
 pub mod contour;
 pub mod geo;
 pub mod measure;
