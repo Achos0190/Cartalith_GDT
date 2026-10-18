@@ -70,6 +70,17 @@ reference for a Godot-idiomatic clipmap renderer. **The owner parked 3D on
 makes a recommendation, and parks itself with three questions unanswered.
 `DECISIONS.md` §4 continues to stand.
 
+**2026-10-18: the 3D viewport track is scoped, not built.** The owner asked
+for the 3D mode on the roadmap: *"Maybe 3D should be done with vertices."*
+`3D_VIEWPORT_SCOPE.md` reads that as a display mesh displaced from the
+existing height tiles and morphed by the same continuous level `L(x)` as the 2D
+deep zoom (EF-9). The simulation stays a raster. The scope answers the
+research's three questions against today's tree (no shared wgpu/Godot device
+under `gl_compatibility`; stay on `gl_compatibility`; a raised floor buys
+headroom, not techniques). It defines a measured runtime capability gate and
+milestones 3D-0 (a measurement go/no-go) to 3D-8. **It awaits the owner's
+approval**, and until then nothing is scheduled and §4 stands.
+
 **The UI/UX half went further than this entry anticipated.** The entry named it
 as "the moment to install a UI/UX skill (`SKILLS.md`), once the interface
 outgrows four controls". What it became instead is a full DCC-style shell with
