@@ -1242,7 +1242,7 @@ func _build_world_data_foot(parent: Control) -> void:
 	var geo := DccWidgets.action(sec, "Export GeoJSON…",
 		func(): app.open_data_manager("Export"))
 	geo.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	geo.tooltip_text = "The reference's #exportGeoBtn. World ▸ Export ▸ GIS writes coastlines, rivers, settlements, ways and territory as one FeatureCollection."
+	geo.tooltip_text = "The reference's #exportGeoBtn. File ▸ Export ▸ GIS / GeoJSON writes coastlines, rivers, settlements, ways and territory as one FeatureCollection."
 	parent.add_child(_crs_body)
 	_build_crs(_crs_body)
 

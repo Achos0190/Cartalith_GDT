@@ -4788,14 +4788,18 @@ const EXPORT_DIALOG := preload("res://shell/export_dialog.gd")
 ## in it, so a second instance would be a second session the engine refuses.
 var export_dialog: AcceptDialog = null
 
-## Data ▸ Export map image… (`EXPORT_SCOPE.md` §7 E5): opens the single-image
+## File ▸ Export ▸ Export map image… (`EXPORT_SCOPE.md` §7 E5): opens the single-image
 ## export dialog, re-pricing its sizes against the world as it is now. Returns
 ## the dialog (the probes drive it). Never starts an export by itself.
-func open_export_dialog() -> AcceptDialog:
+## `preset` (SM-3, File ▸ Export ▸ FOR THE TABLE): `"player"` or `"dm"` sets
+## the dialog's layer switches first (`export_dialog.gd::apply_preset`); `""`
+## (Export map image…) leaves them as the user last set them.
+func open_export_dialog(preset: String = "") -> AcceptDialog:
 	if export_dialog == null or not is_instance_valid(export_dialog):
 		export_dialog = EXPORT_DIALOG.new()
 		export_dialog.setup(self)
 		add_child(export_dialog)
+	export_dialog.apply_preset(preset)
 	export_dialog.present()
 	return export_dialog
 

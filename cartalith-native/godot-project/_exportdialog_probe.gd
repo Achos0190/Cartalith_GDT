@@ -1,6 +1,6 @@
 extends Node
 ## Probe for `shell/export_dialog.gd` (`EXPORT_SCOPE.md` §7 E5, first slice)
-## and its menu row `Data ▸ Export ▸ Export map image…` (`menus.gd`,
+## and its menu row `File ▸ Export ▸ Export map image…` (`menus.gd`,
 ## `ID_EXPORT_MAP_IMAGE`), inside the real shell.
 ##
 ##   desktop: Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x1000 _exportdialog_probe.tscn
@@ -77,7 +77,7 @@ func _ready() -> void:
 
 	print("== 1. menu row ==")
 	var row := _find_row(app, "Export map image…")
-	_ok(not row.is_empty(), "the Data menu carries 'Export map image…'")
+	_ok(not row.is_empty(), "File ▸ Export carries 'Export map image…' (SM-3)")
 	if row.is_empty():
 		get_tree().quit(1)
 		return

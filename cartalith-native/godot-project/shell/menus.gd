@@ -140,20 +140,25 @@ const ID_STORY_FACTION_HISTORY := 725  ## Story ▸ Faction history….
 const ID_STORY_JOURNEY_PLANNER := 726  ## Story ▸ JOURNEYS ▸ Journey planner (Shift+J is `app.gd`'s key).
 const ID_STORY_DRAW_CONFLICT := 727  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Draw a conflict.
 const ID_STORY_NOTES_HERE := 728  ## Story ▸ NOTES ▸ Notes for this place (Ctrl+Shift+N).
+## SM-3 (`STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK): File ▸ Export ▸ FOR THE
+## TABLE's two presets over `export_dialog.gd`. 729 and 730 were unused
+## (`grep -rn ":= 7[23]"` over `shell/`, 2026-10-18).
+const ID_EXPORT_PLAYER := 729  ## File ▸ Export ▸ Player map… (Ctrl+Shift+E).
+const ID_EXPORT_DM := 730  ## File ▸ Export ▸ DM / full map….
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
 const ID_VAULT_BROWSE := 716
-## One id per Data-manager route: the run is 400 .. 400 + ROUTES.size() - 1,
+## One id per Data-manager route, route i of `ROUTES` at 400 + i (`_add_route_rows()`),
 ## and `_on_data()` claims only that run. It is NOT above every other id
 ## in this file (it once said so): the World popup itself carries
 ## `ID_VAULT_BROWSE` (716), which an open-ended `id >= 400` check silently ate.
-## The routes now sit in World's three submenus (Import ▸, Export ▸, Sources &
-## validation ▸, built in `GROUP_ORDER` so the id run keeps its order), and
-## each one is its own destination rather than a group's first.
+## The routes sit in World's Import ▸ and Sources & validation ▸ submenus and,
+## since SM-3, File ▸ Export ▸; each one is its own destination rather than a
+## group's first.
 const ID_DATA_ROUTE_FIRST := 400
-## Data-manager route ids in dropdown order, index-parallel to the `ID_DATA_ROUTE_FIRST +
-## i` rows; refilled by `_data()`.
+## Data-manager route ids in `ROUTES` order, index-parallel to the `ID_DATA_ROUTE_FIRST +
+## i` rows; filled once by `_add_route_rows()`.
 var _data_route_ids: Array[String] = []
 
 const ID_PREF_GPU := 50  ## Preferences ▸ GPU acceleration (check item).
@@ -178,7 +183,7 @@ const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
 ## the same whole-file check every neighbouring block records (an id must be
 ## free everywhere, not just in its own popup: `78` was once issued twice).
 const ID_FACTIONS := 719
-## `Data ▸ Export ▸ Export map image…` (`EXPORT_SCOPE.md` §7 E5): opens
+## `File ▸ Export ▸ Export map image…` (`EXPORT_SCOPE.md` §7 E5; Data ▸ until SM-1, World ▸ until SM-3): opens
 ## `shell/export_dialog.gd`. 720 is the next id after 719; grepped this whole
 ## file for `720` before taking it (2026-10-13), as the block above records.
 const ID_EXPORT_MAP_IMAGE := 720
@@ -663,7 +668,7 @@ func _signpost(p: PopupMenu, text: String) -> int:
 func _engine_has(method: String) -> bool:
 	return _bridge != null and _bridge.world_gen != null and _bridge.world_gen.has_method(method)
 
-## Why `Data ▸ Export map image…` cannot open right now, or `""` when it can:
+## Why `File ▸ Export ▸ Export map image…` (and the two presets beside it) cannot open right now, or `""` when it can:
 ## the binary lacks the E4 session, a generation holds the engine, or no world
 ## exists. Busy before no-world: the first generation of a session has both,
 ## and "wait for it" is the answer that is about to come true. Never opens anything; the dialog re-checks the busy case itself
@@ -845,6 +850,9 @@ func _file(p: PopupMenu) -> void:
 	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
 	var close_idx := p.item_count - 1
 	p.add_separator()
+	## SM-3 (§3.1, A2): File ▸ Export ▸, between Close and the storage band,
+	## where the mockup draws it.
+	_build_file_export(p)
 
 	## The storage band follows, under its own `STORAGE LOCATIONS` label, with
 	## the four roots listed read-only above the two actions.
@@ -2995,10 +3003,13 @@ func _data(p: PopupMenu) -> void:
 
 	p.add_separator("TECHNICAL")
 	_live(p, "World data tables…", ID_WORLD_DATA)
-	_data_route_ids.clear()
 	_route_submenu(p, "Import", "WorldImport", ["Import"])
-	_route_submenu(p, "Export", "WorldExport", ["Export"])
 	_route_submenu(p, "Sources & validation", "WorldSources", ["Sources", "Validation"])
+	## SM-3 (§3.1, Q4's default): the Export submenu moved to File ▸ Export
+	## (`_build_file_export()`), with the same route ids; imports stay here.
+	## The signpost is the proposal's own row, so a user who learned
+	## World ▸ Export ▸ is told where it went.
+	_signpost(p, "Export is in File ▸ Export")
 	p.id_pressed.connect(_on_data)
 
 ## Tooltip of both Timeline rows (World ▸ RECORDS and, from SM-2, Story ▸ TIME):
@@ -3007,13 +3018,9 @@ const TIMELINE_TIP := "Opens CIVIL ▸ Timeline -- the recorded year snapshots: 
 
 ## One TECHNICAL submenu over `DataManagerWindow.ROUTES`: a child popup named
 ## `node`, titled `title` in `p`, holding every route of each group in `groups`
-## (a labelled separator per group when there is more than one), each row
-## `ID_DATA_ROUTE_FIRST + i` with its route id appended to `_data_route_ids`.
-## The Export group also gets `Export map image…` (E5, its own dialog, not a
-## route), whose enabled state and reason are refreshed on the SUBMENU's
-## `about_to_popup` -- the popup that actually shows it. Clicks go to
-## `_on_data`, the same dispatcher as the parent's. Must be called in
-## `GROUP_ORDER` order, or the id run stops matching the table's order.
+## (a labelled separator per group when there is more than one; rows by
+## `_add_route_rows()`). Clicks go to `_on_data`, the same dispatcher as the
+## parent's.
 func _route_submenu(p: PopupMenu, title: String, node: String, groups: Array) -> PopupMenu:
 	var sub := PopupMenu.new()
 	sub.name = node
@@ -3023,32 +3030,112 @@ func _route_submenu(p: PopupMenu, title: String, node: String, groups: Array) ->
 	for group in groups:
 		if groups.size() > 1:
 			sub.add_separator(String(group).to_upper())
-		for r in DataManagerWindow.ROUTES:
-			var route: Dictionary = r
-			if String(route["group"]) != group:
-				continue
-			var badge := String(route.get("badge", ""))
-			sub.add_item("%s%s" % [String(route["label"]),
-				("   " + badge) if badge != "" else ""],
-				ID_DATA_ROUTE_FIRST + _data_route_ids.size())
-			sub.set_item_tooltip(sub.item_count - 1, String(route.get("sub", "")))
-			_data_route_ids.append(String(route["id"]))
-		## E5: the 16K/32K single-image export's own row, last in the Export
-		## group beside `Maps` (whose route writes the shipped 2K-8K/tiled
-		## raster). Its own id, not a route: it opens a dialog, not the data
-		## manager. The build-time tooltip is set so `CommandIndex`, which reads
-		## the built state, indexes it with a description (`ID_NEW_WORLD_FROM_
-		## SELECTION`'s comment gives that reason).
-		if group == "Export":
-			_live(sub, "Export map image…", ID_EXPORT_MAP_IMAGE)
-			var export_idx := sub.item_count - 1
-			sub.set_item_tooltip(export_idx, EXPORT_MAP_IMAGE_TIP)
-			sub.about_to_popup.connect(func():
-				var why := export_map_image_refusal()
-				sub.set_item_disabled(export_idx, why != "")
-				sub.set_item_tooltip(export_idx, why if why != "" else EXPORT_MAP_IMAGE_TIP))
+		_add_route_rows(sub, String(group))
 	sub.id_pressed.connect(_on_data)
 	return sub
+
+## Adds every `DataManagerWindow.ROUTES` row of `group` to `sub`, row i of the
+## table taking id `ID_DATA_ROUTE_FIRST + i`.
+##
+## **The id is the route's index in `ROUTES`, not its build order** (SM-3,
+## 2026-10-18). Until then each row took the next free slot of
+## `_data_route_ids` as its menu builders ran, so the ids only matched the
+## table while every route was built from ONE menu in `GROUP_ORDER`. SM-3
+## builds the Export routes from File (which `build()` adds before World), and
+## a build-order id would have renumbered all fifteen. Since `ROUTES` lists its
+## groups in `GROUP_ORDER` anyway, the ids are the same 400-414 as before.
+func _add_route_rows(sub: PopupMenu, group: String) -> void:
+	if _data_route_ids.size() != DataManagerWindow.ROUTES.size():
+		_data_route_ids.clear()
+		for r in DataManagerWindow.ROUTES:
+			_data_route_ids.append(String((r as Dictionary)["id"]))
+	for i in DataManagerWindow.ROUTES.size():
+		var route: Dictionary = DataManagerWindow.ROUTES[i]
+		if String(route["group"]) != group:
+			continue
+		var badge := String(route.get("badge", ""))
+		sub.add_item("%s%s" % [String(route["label"]),
+			("   " + badge) if badge != "" else ""], ID_DATA_ROUTE_FIRST + i)
+		sub.set_item_tooltip(sub.item_count - 1, String(route.get("sub", "")))
+
+## What the Player preset turns off today, on the row itself (Q4; §7 risk 7:
+## "do not relabel it safe for players"). `export_dialog.gd::LAYERS` has six
+## switches -- rivers, ways, labels, icons, territory, routes -- and of those
+## only Journey routes is a planning layer a DM would hide; nothing in the
+## engine or the save marks a single place, label or icon "DM only"
+## (`grep -rn dm_only` over the shell and the crates, 2026-10-17, found none).
+const EXPORT_PLAYER_TIP := "The map image dialog with the players' preset: everything the map shows except Journey routes. This hides whole layers only -- nothing can be marked DM-only one place or label at a time yet, so a secret place on a shown layer still exports. Check the preview before sharing."
+## The DM preset's tooltip: every switch on.
+const EXPORT_DM_TIP := "The map image dialog with every layer switched on, Journey routes included: the full map for the DM's own use."
+
+## **File ▸ Export ▸** (SM-3, `STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK Q4;
+## mockup A2). Export is an act on the open project, so it joins File; imports
+## stay in World (`DCC_SHELL_SPEC.md` §2.1 keeps them out of File, and File's
+## own signposts below still say so). Three bands, the mockup's:
+##   FOR THE TABLE  Player map… (Ctrl+Shift+E) and DM / full map…, both the
+##                  E5 dialog opened with a layer preset
+##                  (`app.open_export_dialog(preset)`)
+##   SHARE          Export map image… (`ID_EXPORT_MAP_IMAGE`, moved unchanged
+##                  from World ▸ Export), then Print sheet (PDF)… and VTT
+##                  battle map… drawn disabled with their reasons (no writer
+##                  exists: `export_options.rs::FORMAT_NAMES` is PNG and
+##                  BigTIFF; no grid, wall or light data is computed anywhere)
+##   DATA           the four `DataManagerWindow.ROUTES` Export routes, same
+##                  ids as before (`_add_route_rows()`)
+## The three dialog rows share `export_map_image_refusal()` (no API, a
+## generation running, no world), refreshed on the submenu's `about_to_popup`.
+## They are re-enabled when it closes so Ctrl+Shift+E is never swallowed by a
+## refusal that has since cleared; `_on_file_export` re-checks and says why in
+## the status line instead.
+func _build_file_export(p: PopupMenu) -> void:
+	var sub := PopupMenu.new()
+	sub.name = "FileExport"
+	_shell.style_popup(sub)
+	p.add_child(sub)
+	p.add_submenu_item("Export", "FileExport")
+	sub.add_separator("FOR THE TABLE")
+	_live(sub, "Player map…", ID_EXPORT_PLAYER, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_E)
+	var player_idx := sub.item_count - 1
+	_live(sub, "DM / full map…", ID_EXPORT_DM)
+	var dm_idx := sub.item_count - 1
+	sub.add_separator("SHARE")
+	## E5: the 16K/32K single-image export's own row (its own id, not a route:
+	## it opens a dialog, not the data manager). Build-time tooltips are set so
+	## `CommandIndex`, which reads the built state, indexes each with a
+	## description (`ID_NEW_WORLD_FROM_SELECTION`'s comment gives that reason).
+	_live(sub, "Export map image…", ID_EXPORT_MAP_IMAGE)
+	var image_idx := sub.item_count - 1
+	_todo(sub, "Print sheet (PDF)…",
+		"No print or PDF writer exists. The streaming writer has PNG and BigTIFF only (export_options.rs FORMAT_NAMES).")
+	_todo(sub, "VTT battle map (grid + walls)…",
+		"No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written.")
+	sub.add_separator("DATA")
+	_add_route_rows(sub, "Export")
+	var tips := {player_idx: EXPORT_PLAYER_TIP, dm_idx: EXPORT_DM_TIP, image_idx: EXPORT_MAP_IMAGE_TIP}
+	for i in tips:
+		sub.set_item_tooltip(int(i), String(tips[i]))
+	sub.about_to_popup.connect(func() -> void:
+		var why := export_map_image_refusal()
+		for i in tips:
+			sub.set_item_disabled(int(i), why != "")
+			sub.set_item_tooltip(int(i), why if why != "" else String(tips[i])))
+	sub.popup_hide.connect(func() -> void:
+		for i in tips:
+			sub.set_item_disabled(int(i), false))
+	sub.id_pressed.connect(_on_file_export)
+
+## File ▸ Export ▸'s dispatcher: the two presets here, everything else (the
+## image row and the route ids) through `_on_data`, which owns them.
+func _on_file_export(id: int) -> void:
+	if id == ID_EXPORT_PLAYER or id == ID_EXPORT_DM or id == ID_EXPORT_MAP_IMAGE:
+		var why := export_map_image_refusal()
+		if why != "":
+			_host.set_status("hint", why, "text_ghost")
+			return
+	match id:
+		ID_EXPORT_PLAYER: _host.open_export_dialog("player")
+		ID_EXPORT_DM: _host.open_export_dialog("dm")
+		_: _on_data(id)
 
 ## The World menu's dispatcher, shared by the popup and its three route
 ## submenus (and, on tablet, by the merged World popup beside `_on_world`).
@@ -6495,7 +6582,7 @@ func _build_lod_debug_submenu(p: PopupMenu) -> void:
 	_lod_debug_popup.add_separator()
 	_lod_debug_popup.add_check_item("Show tile borders on the map", ID_LOD_TILE_BORDERS)
 	_lod_debug_popup.set_item_tooltip(_lod_debug_popup.item_count - 1,
-		"The export tile split (World ▸ Export ▸ Maps ▸ Tile grid), dashed over the map -- NOT the chunk overlay above. Draws while the deep-zoom pyramid is down, since the split is taken off the full-resolution grid.")
+		"The export tile split (File ▸ Export ▸ Maps ▸ Tile grid), dashed over the map -- NOT the chunk overlay above. Draws while the deep-zoom pyramid is down, since the split is taken off the full-resolution grid.")
 	_refresh_lod_debug_menu()
 	_lod_debug_popup.id_pressed.connect(_on_lod_debug)
 	_shell.style_popup(_lod_debug_popup)

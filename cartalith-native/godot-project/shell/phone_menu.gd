@@ -1937,9 +1937,13 @@ func _landmark_sub(sub: PopupMenu) -> String:
 ##
 ## **SM-1 (Ruling CK): the popup is `World` now, and its route bands are
 ## submenus** (`menus.gd::_route_submenu`), so there is no `EXPORT` separator
-## left to cut at. The cut is the `Export ▸` submenu row (node `WorldExport`):
-## the tile-pyramid row follows the row that drills into the other exports,
-## which is the same neighbourhood it had. No such row -> the old fallback, an
+## left to cut at.
+##
+## **SM-3 (Ruling CK): World has no Export ▸ submenu either** -- the exports
+## moved to File ▸ Export ▸ (the `project` screen draws them), and World ends
+## on the signpost `Export is in File ▸ Export`. The cut is that signpost: the
+## tile-pyramid row (this screen's own, not a menu row) follows the line that
+## says where the other exports went. No signpost -> the old fallback, an
 ## `Export` head at the end.
 func _fill_data(body: VBoxContainer) -> void:
 	var p := _menu_popup("World")
@@ -1948,9 +1952,11 @@ func _fill_data(body: VBoxContainer) -> void:
 			"The World menu is not on this build's menu bar."))
 		return
 	var cut := p.item_count - 1
-	var export_row := _find_sub(p, "WorldExport")
-	if export_row >= 0:
-		cut = export_row
+	var signposted := false
+	for i in p.item_count:
+		if not p.is_item_separator(i) and p.get_item_text(i).begins_with("Export is in File"):
+			cut = i
+			signposted = true
 	var head := {}
 	var tail := {}
 	for i in p.item_count:
@@ -1959,7 +1965,7 @@ func _fill_data(body: VBoxContainer) -> void:
 		else:
 			head[i] = true
 	_rest_of(body, p, tail)
-	if cut == p.item_count - 1 and not p.is_item_separator(cut):
+	if not signposted:
 		_head(body, "Export")
 	_add(body, _row("Maps · tile pyramid", "leaflet · XYZ · TMS · WMTS · retina",
 		## §6.6 writes `{zmax} levels`; `0..zmax` is zmax + 1 of them.

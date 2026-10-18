@@ -1,6 +1,7 @@
 extends AcceptDialog
 ## **The single-image export dialog** (`EXPORT_SCOPE.md` §7, milestone E5):
-## `Data ▸ Export ▸ Export map image…` (`menus.gd`, `ID_EXPORT_MAP_IMAGE`),
+## `File ▸ Export ▸ Export map image…` (`menus.gd`, `ID_EXPORT_MAP_IMAGE`; also
+## `Player map…` / `DM / full map…`, which open it with a layer preset, SM-3),
 ## opened by `DccApp.open_export_dialog()`. One flat PNG of the whole map --
 ## the owner's *"a user generated monolithic image of the map ... just to be
 ## used outside of Cartalith in an image viewer"* (2026-09-06, top of the
@@ -95,8 +96,25 @@ const LAYERS := [
 	["routes", "Journey routes", false, "Planned journey routes. Not in Ruling AZ's v1 list; off by default."],
 ]
 
+## SM-3 (`STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK): the File ▸ Export ▸ FOR
+## THE TABLE presets, `id -> {title, off, note}`. `off` lists the `LAYERS` keys
+## the preset switches off; every other layer, and Settlements, is switched on.
+## **Player hides Journey routes and nothing else, because that is all this
+## dialog can hide by audience**: its six switches are whole layers, and
+## nothing in the engine or the save marks one place, label or icon DM-only
+## (§7 risk 7: "do not relabel it safe for players"). The note says so in the
+## dialog itself, not only on the menu row. DM is every switch on.
+const PRESETS := {
+	"player": {"title": "Player map", "off": ["routes"],
+		"note": "Player preset: everything the map shows except Journey routes. Whole layers only -- a secret place on a shown layer still exports; nothing can be marked DM-only yet."},
+	"dm": {"title": "DM / full map", "off": [],
+		"note": "DM preset: every layer on, Journey routes included."},
+}
+
 var _app: Node = null
 var _bridge: Node = null
+## The preset line under CONTENT; hidden when the dialog was opened plainly.
+var _preset_note: Label
 var _phone := false
 var _presented_once := false
 
@@ -185,6 +203,9 @@ func setup(app: Node) -> void:
 		grid.add_child(cb)
 		_layer_boxes[String(l[0])] = cb
 	body.add_child(grid)
+	_preset_note = _note("")
+	_preset_note.visible = false
+	body.add_child(_preset_note)
 
 	body.add_child(_heading("STYLE"))
 	_look = OptionButton.new()
@@ -261,6 +282,27 @@ func _tier_index(tier_name: String) -> int:
 		if TIERS[i][0] == tier_name:
 			return i
 	return 0
+
+## Sets the content switches for `preset` (a `PRESETS` key) and names it in the
+## title and the preset note; `""` or an unknown key clears the title and note
+## and leaves the switches as the user last set them (Export map image…). Does
+## nothing while an export runs: the switches are disabled then, and changing
+## them under a running export would misdescribe the file being written.
+func apply_preset(preset: String) -> void:
+	if _running:
+		return
+	if not PRESETS.has(preset):
+		title = "Export map image"
+		_preset_note.visible = false
+		return
+	var spec: Dictionary = PRESETS[preset]
+	var off: Array = spec["off"]
+	_settle.button_pressed = true
+	for k in _layer_boxes:
+		(_layer_boxes[k] as CheckBox).button_pressed = not off.has(String(k))
+	title = "Export map image · %s" % String(spec["title"])
+	_preset_note.text = String(spec["note"])
+	_preset_note.visible = true
 
 ## Re-prices every size against the world as it is now and opens the window.
 func present() -> void:

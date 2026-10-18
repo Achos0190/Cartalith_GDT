@@ -21,6 +21,13 @@ extends Node
 ##         settlement is current, and the campaigns readout and place rows
 ##         answering "generating" mid-generation rather than reading the engine.
 ##         Phone: the MORE root's STORY section and its four band screens.
+##   SM-3  File ▸ Export ▸ (FOR THE TABLE Player map… Ctrl+Shift+E / DM / full
+##         map…, SHARE Export map image… plus the two disabled writers, DATA
+##         the four Export routes); World ends on the "Export is in File ▸
+##         Export" signpost; every route id 400+i still maps to route i; the
+##         presets set the dialog's layer switches (Player: Journey routes off,
+##         the rest on; DM: all on) and the Player row's tooltip says it hides
+##         whole layers only.
 ##
 ## The expected row lists are written here as literals (the proposal's §3
 ## tables), never read back from `menus.gd`, so a reordering or a dropped row
@@ -54,8 +61,14 @@ var _form := "desktop"
 ## (separators by caption). Travel library… closed RECORDS until SM-2 moved it.
 const WORLD_ROWS: Array = ["⧉ Data manager", "|RECORDS", "Factions…", "Places…",
 	"Markdown vault…", "Browse & edit a note…", "Places without notes…", "Timeline",
-	"|TECHNICAL", "World data tables…", "Import", "Export",
-	"Sources & validation"]
+	"|TECHNICAL", "World data tables…", "Import", "Sources & validation",
+	"Export is in File ▸ Export"]
+
+## File ▸ Export ▸'s rows, the proposal's §3.1 table in A2's order. The DATA
+## band is the four `ROUTES` Export rows as `_add_route_rows` labels them.
+const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full map…",
+	"|SHARE", "Export map image…", "Print sheet (PDF)…", "VTT battle map (grid + walls)…",
+	"|DATA", "Maps   tiles", "GIS / GeoJSON   .geojson", "World Data   map + atlas", "Assets   .zip"]
 
 ## Story's rows, the proposal's §3.3 table in the mockup's (A2) order. The
 ## campaigns row is a live readout; its text is normalised to `Campaigns*`.
@@ -220,25 +233,37 @@ func _ready() -> void:
 		rows = rows.slice(TABLET_WORLD_HEAD.size())
 	_check("World's rows are the proposal's §3.2 list, in order", rows == WORLD_ROWS, str(rows))
 
-	## Every Data-manager route exactly once, across the three submenus, each
-	## with the id `_on_data` resolves.
+	## Every Data-manager route exactly once, across World's two submenus and
+	## File ▸ Export ▸ (SM-3), each row's id naming ITS route: id 400+i must
+	## carry `ROUTES[i]`'s label (a build-order id would renumber them).
 	var seen := {}
-	for t in ["Import", "Export", "Sources & validation"]:
+	var file_mb := _menu_button("File")
+	var fexp: PopupMenu = _sub(file_mb.get_popup(), "Export") if file_mb != null else null
+	_check("File ▸ Export is a submenu (SM-3)", fexp != null)
+	var route_pops: Array = [fexp]
+	for t in ["Import", "Sources & validation"]:
 		var sp := _sub(world, t)
 		_check("World ▸ %s is a submenu" % t, sp != null)
+		route_pops.append(sp)
+	var mislabelled: Array = []
+	for sp in route_pops:
 		if sp == null:
 			continue
-		for i in sp.item_count:
-			var id := sp.get_item_id(i)
-			if not sp.is_item_separator(i) and id >= DccMenus.ID_DATA_ROUTE_FIRST \
+		for i in (sp as PopupMenu).item_count:
+			var id: int = (sp as PopupMenu).get_item_id(i)
+			if not (sp as PopupMenu).is_item_separator(i) and id >= DccMenus.ID_DATA_ROUTE_FIRST \
 					and id < DccMenus.ID_DATA_ROUTE_FIRST + DataManagerWindow.ROUTES.size():
 				seen[id] = int(seen.get(id, 0)) + 1
+				var want_label := String(DataManagerWindow.ROUTES[id - DccMenus.ID_DATA_ROUTE_FIRST]["label"])
+				if not (sp as PopupMenu).get_item_text(i).begins_with(want_label):
+					mislabelled.append("%d=%s" % [id, (sp as PopupMenu).get_item_text(i)])
 	var once := seen.size() == DataManagerWindow.ROUTES.size() and seen.values().all(func(v): return v == 1)
 	_check("every DataManagerWindow route row appears exactly once (%d routes)" % DataManagerWindow.ROUTES.size(),
 		once, str(seen))
-	var exp := _sub(world, "Export")
-	_check("World ▸ Export carries Export map image…",
-		exp != null and _index_of(exp, "Export map image…") >= 0)
+	_check("route id 400+i carries ROUTES[i]'s label", mislabelled.is_empty(), str(mislabelled))
+	_check("World has no Export ▸ submenu any more (SM-3)", _sub(world, "Export") == null)
+	if fexp != null:
+		await _sm3(fexp)
 
 	var pwn := _index_of(world, "Places without notes…")
 	_check("Places without notes… is disabled with its reason (SM-5 not built)",
@@ -281,6 +306,19 @@ func _ready() -> void:
 			story_mb.show_popup()
 			await _frames(4)
 			await _shot("story")
+			_close_popups(app)
+			await _frames(3)
+		## SM-3: File open with its Export ▸ submenu beside it.
+		var file_mb2 := _menu_button("File")
+		if file_mb2 != null:
+			file_mb2.show_popup()
+			await _frames(4)
+			var fpop := file_mb2.get_popup()
+			var fx := _sub(fpop, "Export")
+			if fx != null:
+				fx.popup(Rect2i(Vector2i(int(fpop.position.x + fpop.size.x), int(fpop.position.y)), Vector2i.ZERO))
+				await _frames(4)
+			await _shot("file_export")
 			_close_popups(app)
 			await _frames(3)
 	else:
@@ -344,6 +382,83 @@ func _all_accels(p: PopupMenu, path: String, out: Array) -> void:
 			var sp := p.get_node_or_null(NodePath(sub)) as PopupMenu
 			if sp != null:
 				_all_accels(sp, path + " > " + p.get_item_text(i), out)
+
+## SM-3's checks on File ▸ Export ▸ (see the header). Runs before any world
+## exists, so the dialog rows are first seen refused with "No world".
+func _sm3(fexp: PopupMenu) -> void:
+	fexp.about_to_popup.emit()
+	_check("File ▸ Export's rows are the proposal's §3.1 list, in order",
+		_rows(fexp) == FILE_EXPORT_ROWS, str(_rows(fexp)))
+	var pl := _index_of(fexp, "Player map…")
+	var dm := _index_of(fexp, "DM / full map…")
+	_check("Player map… carries Ctrl+Shift+E, rebindable",
+		pl >= 0 and fexp.get_item_accelerator(pl) == (KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_E)
+			and app.menus.is_rebindable_shortcut(DccMenus.ID_EXPORT_PLAYER))
+	var accs: Array = []
+	for ch in app.menu_bar_row.get_children():
+		if ch is MenuButton:
+			_all_accels((ch as MenuButton).get_popup(), (ch as MenuButton).text, accs)
+	var users := accs.filter(func(e): return int(e[1]) == (KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_E))
+	_check("Ctrl+Shift+E is used by exactly one row on the whole bar", users.size() == 1, str(users))
+	var listed: Array = app.shortcuts_dialog._collect_from_menus()
+	_check("Help ▸ Keyboard shortcuts lists Player map…",
+		listed.any(func(e): return String(e[2]) == "Player map…"), "")
+	for t in ["Print sheet (PDF)…", "VTT battle map (grid + walls)…"]:
+		var i := _index_of(fexp, t)
+		_check("%s is disabled with its reason" % t,
+			i >= 0 and fexp.is_item_disabled(i) and fexp.get_item_tooltip(i).length() > 20,
+			fexp.get_item_tooltip(i) if i >= 0 else "missing")
+	_check("no world: Player / DM are refused with the No-world reason",
+		fexp.is_item_disabled(pl) and fexp.is_item_disabled(dm)
+			and fexp.get_item_tooltip(pl).begins_with("No world"), fexp.get_item_tooltip(pl))
+	fexp.popup_hide.emit()
+	_check("closing File ▸ Export re-enables the preset rows for the keyboard",
+		not fexp.is_item_disabled(pl))
+	## The Player row's tooltip is honest about what it hides (§7 risk 7).
+	var tip := String(DccMenus.EXPORT_PLAYER_TIP)
+	_check("Player map…'s tooltip says it hides whole layers, not DM-only items",
+		tip.findn("Journey routes") >= 0 and tip.findn("DM-only") >= 0 and tip.findn("still exports") >= 0, tip)
+	## A refused press opens nothing and says why.
+	fexp.id_pressed.emit(DccMenus.ID_EXPORT_PLAYER)
+	await _frames(3)
+	_check("Player map… with no world opens no dialog",
+		app.export_dialog == null or not app.export_dialog.visible)
+
+## Presses a preset with a world loaded and reads the dialog's switches back.
+func _sm3_presets() -> void:
+	var fexp := _sub(_menu_button("File").get_popup(), "Export")
+	fexp.about_to_popup.emit()
+	var pl := _index_of(fexp, "Player map…")
+	_check("with a world: Player map… is enabled", not fexp.is_item_disabled(pl), fexp.get_item_tooltip(pl))
+	fexp.popup_hide.emit()
+	for preset in [["player", DccMenus.ID_EXPORT_PLAYER, {"rivers": true, "ways": true, "labels": true,
+			"icons": true, "territory": true, "routes": false}],
+			["dm", DccMenus.ID_EXPORT_DM, {"rivers": true, "ways": true, "labels": true,
+			"icons": true, "territory": true, "routes": true}]]:
+		fexp.id_pressed.emit(int(preset[1]))
+		await _frames(4)
+		var d = app.export_dialog
+		var got := {}
+		if d != null:
+			for k in d._layer_boxes:
+				got[String(k)] = (d._layer_boxes[k] as CheckBox).button_pressed
+		_check("%s preset opens the dialog with switches %s" % [preset[0], str(preset[2])],
+			d != null and d.visible and got == preset[2] and d.title.findn(String(d.PRESETS[preset[0]]["title"])) >= 0,
+			"visible=%s got=%s title=%s" % [d != null and d.visible, str(got), d.title if d != null else ""])
+		if String(preset[0]) == "player":
+			await _shot("export_player")
+		if d != null:
+			d.hide()
+		await _frames(2)
+	## A plain Export map image… clears the preset title and keeps the switches.
+	fexp.id_pressed.emit(DccMenus.ID_EXPORT_MAP_IMAGE)
+	await _frames(4)
+	var d2 = app.export_dialog
+	_check("Export map image… opens the dialog without a preset title",
+		d2 != null and d2.visible and d2.title == "Export map image", d2.title if d2 != null else "")
+	if d2 != null:
+		d2.hide()
+	await _frames(2)
 
 ## SM-2's checks (see the header). Runs on every form factor; generates a
 ## small world (256x192, as `_vfy_batch0905_probe.gd` does) for the
@@ -433,6 +548,7 @@ func _sm2() -> void:
 	await _frames(4)
 	var setts: Array = bridge.settlements()
 	_check("the probe world has settlements", setts.size() > 0, str(setts.size()))
+	await _sm3_presets()
 
 	story.about_to_popup.emit()
 	_check("world, nothing selected: Notes for this place is disabled with the no-place reason",
