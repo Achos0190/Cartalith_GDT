@@ -28,6 +28,9 @@ mod params;
 /// The world-substrate writer (`SAVEFILE_COMPAT.md` §8.3), included by path because this crate is a cdylib; used only by the measurement harness below.
 #[path = "../src/substrate.rs"]
 mod substrate;
+/// The geology-column writer (`SAVEFILE_COMPAT.md` §8.4), included by path for the same reason; used only by the measurement harness below.
+#[path = "../src/geology_save.rs"]
+mod geology_save;
 
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_io::project::{ProjectWrite, Raster};
@@ -283,7 +286,8 @@ fn the_real_html_app_export_opens_as_a_flat_project() {
 /// generator a user's Generate press runs) at seed 24601 with no civilisation
 /// layer -- the shape §18.1 measured -- written twice: terrain only, and with
 /// the world substrate every save has carried since owner Ruling AR
-/// (§8.3), so the substrate's cost is printed as a difference. `CARTALITH_SAVE_SIZES` overrides the
+/// (§8.3), so the substrate's cost is printed as a difference; then with the
+/// geology column too (§8.4, GF-8), whose cost is the second difference. `CARTALITH_SAVE_SIZES` overrides the
 /// grid list as `WxH,WxH`; the default leaves out 4096² because generating it
 /// dominates the run.
 ///
@@ -318,6 +322,11 @@ fn measure_a_real_save() {
         cartalith_io::write_project(std::io::Cursor::new(&mut bare_buf), &bare).unwrap();
         let mut write = ProjectWrite::new(&sp, &fields);
         substrate::write_substrate(&ws, n, &mut write).expect("a generated world's substrate is writable");
+        // The same archive before the geology set (§8.4) existed: terrain and
+        // substrate only, so the set's cost prints as a difference.
+        let mut pre_geology_buf = Vec::new();
+        cartalith_io::write_project(std::io::Cursor::new(&mut pre_geology_buf), &write).unwrap();
+        let geology = geology_save::write_geology(&ws, p.gw, p.gh, p.geo_age, &mut write).expect("a generated world's column is writable");
         let mut times = Vec::new();
         let mut buf = Vec::new();
         for _ in 0..5 {
@@ -340,8 +349,14 @@ fn measure_a_real_save() {
         println!(
             "    terrain only {:.2} MiB; the substrate adds {:.2} MiB ({:+.0}%)",
             mib(bare_buf.len() as u64),
-            mib((buf.len() - bare_buf.len()) as u64),
-            100.0 * (buf.len() as f64 / bare_buf.len() as f64 - 1.0)
+            mib((pre_geology_buf.len() - bare_buf.len()) as u64),
+            100.0 * (pre_geology_buf.len() as f64 / bare_buf.len() as f64 - 1.0)
+        );
+        println!(
+            "    terrain + substrate {:.2} MiB; the geology column (written: {geology}) adds {:.2} MiB ({:+.1}%)",
+            mib(pre_geology_buf.len() as u64),
+            mib((buf.len() - pre_geology_buf.len()) as u64),
+            100.0 * (buf.len() as f64 / pre_geology_buf.len() as f64 - 1.0)
         );
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&buf)).unwrap();
         for i in 0..archive.len() {

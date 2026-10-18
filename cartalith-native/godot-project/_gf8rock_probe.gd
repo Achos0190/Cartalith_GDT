@@ -1,14 +1,17 @@
 extends Node
-## Protects: GF-8 slice 2, the shell's **Rock** paint target (`GEOLOGY_FIRST_SCOPE.md`
-## §4.13, owner Ruling BJ), end to end through the real shell and the real engine:
+## Protects: GF-8 slices 2 and 3, the shell's **Rock** paint target
+## (`GEOLOGY_FIRST_SCOPE.md` §4.13, owner Ruling BJ) and the geology save set
+## (`SAVEFILE_COMPAT.md` §8.4), end to end through the real shell and the real engine:
 ##
 ##   Leg A -- an **app world** (the app's defaults: geology processes off). The Rock
-##   target is drawn and DISABLED with the engine's reason and the save caveat
-##   ("not saved with the project yet"); `paint_set_layer("rock_top")` and the
+##   target is drawn and DISABLED with the engine's reason and the engine's save
+##   note ("Committed rock paint is saved with the project ..."); `paint_set_layer("rock_top")` and the
 ##   shell's own `select_paint_layer` refuse it; the field and the column do not
 ##   move (digest before == after).
 ##
-##   Leg B -- the same seed regenerated with `geology_processes` on (`set_params`).
+##   Leg B -- the same seed regenerated with `geology_processes` on (`set_params`),
+##   with the shell on Terrain first: after the regenerate the engine's paint layer
+##   must be Terrain again (`_paint_resync_layer`; the fresh PaintEditor starts on Biome).
 ##   The Rock target is enabled; a radius-6 disc of a different rock (shale, or
 ##   granite where the centre is shale) is painted through the workspace's own
 ##   press/release handlers and committed through its Commit handler. Checked:
@@ -18,6 +21,19 @@ extends Node
 ##   both arrays byte for byte; Redo (`app.redo_last`) reapplies both byte for
 ##   byte. Positive control: the inside digests MUST move on commit (a digest that
 ##   cannot see the change would pass the outside checks vacuously).
+##
+##   Leg C -- save and reopen (GF-8 slice 3). The painted world is written through
+##   the app's own `_write_project_busy` and opened through `open_project_busy` (the
+##   busy-overlay wrappers File > Save and File > Open use). Checked: the whole-map
+##   field and column digests, and the painted mask, are what they were before the
+##   save; `rock_paint_status` reports the same painted-cell count and Rock is still
+##   available; `sample_cell` carries the rock keys again; and the undo history is
+##   NOT saved (stated in `ROCK_PAINT_SAVE_NOTE`): Undo after the reopen changes
+##   nothing, so the paint cannot be reverted past a reopen.
+##
+##   Leg D -- the real pre-substrate fixture (`crates/cartalith-godot/tests/fixtures/
+##   project_pre_substrate_2026-09-24.zip`, a save from before the set) opens; Rock is
+##   disabled with a reason; `sample_cell` has no rock keys and says why.
 ##
 ## Navigation is by call where the probe needs a surface (`app.arm_tool`,
 ## `_pick_phone_tab`, `_pg_set_mode`): this probe proves the Rock target renders,
@@ -179,7 +195,7 @@ func _ready() -> void:
 	var reason_shown := false
 	for b in rock_buttons:
 		all_disabled = all_disabled and (b as Button).disabled
-		if "not saved with the project yet" in (b as Button).tooltip_text and "geology processes are off" in (b as Button).tooltip_text:
+		if "Committed rock paint is saved with the project" in (b as Button).tooltip_text and "geology processes are off" in (b as Button).tooltip_text:
 			reason_shown = true
 	var why_labels: Array = []
 	_labels_with(app, "Rock unavailable", why_labels)
@@ -190,10 +206,17 @@ func _ready() -> void:
 	await _shot("A_app_rock_disabled")
 
 	# ---------------- Leg B: processes on ----------------
+	# First the paint-layer resync (`world_workspace.gd::_paint_resync_layer`): the shell
+	# is put on Terrain, the world is regenerated (which gives the engine a fresh
+	# PaintEditor on Biome), and the engine must be back on Terrain afterwards.
+	_check(bool(ws.select_paint_layer("terrain")), "resync: the shell selects Terrain")
 	var rep: Dictionary = wg.set_params({"geology_processes": true})
 	_check((rep.get("rejected", PackedStringArray()) as PackedStringArray).is_empty(), "set_params took geology_processes: %s" % [rep])
 	if not await _generate(bridge, 483920):
 		print("[FATAL] no world after the processes-on generate"); get_tree().quit(2); return
+	await _frames(4)
+	_check(String(ws._paint_layer) == "terrain" and String(bridge.paint_painted_counts().get("layer", "")) == "terrain",
+		"resync: after a regenerate the engine's paint layer is the shell's again (shell %s, engine %s)" % [ws._paint_layer, bridge.paint_painted_counts().get("layer", "<none>")])
 	st = bridge.rock_paint_status()
 	_check(bool(st.get("available", false)), "leg B: Rock is available (reason %s)" % st.get("reason", "<none>"))
 	_check(bridge.geology_available(), "leg B: geology_available() is true")
@@ -314,6 +337,47 @@ func _ready() -> void:
 			inv_rock = true
 	_check(inv_rock, "the regenerate prompt's inventory lists the painted rock: %s" % [inv])
 	await _shot("B_after_redo")
+
+	# ---------------- Leg C: save, reopen, the painted rock is still there ----------------
+	_check(bool(st.get("saved", false)), "leg C: the engine reports a committed rock as saved (`saved`)")
+	_check("Committed rock paint is saved with the project" in String(st.get("save_note", "")), "leg C: the save note says so: %s" % st.get("save_note", "<none>"))
+	var whole_before: Dictionary = wg.geology_digest(0, 0, 0, 0)
+	var painted_before := int(st.get("painted_cells", 0))
+	var probe_cell: Dictionary = wg.sample_cell(best.x, best.y)
+	var zpath := ProjectSettings.globalize_path("%s/gf8rock_%s.cartalith.zip" % [_out, _form])
+	await app._write_project_busy(zpath)
+	await _frames(6)
+	_check(FileAccess.file_exists(zpath), "leg C: the project was written to %s" % zpath)
+	var opened: bool = await app.open_project_busy(zpath)
+	await _frames(20)
+	_check(opened, "leg C: the project reopened through open_project_busy")
+	var whole_after: Dictionary = wg.geology_digest(0, 0, 0, 0)
+	_check(whole_after == whole_before, "leg C: field and column digests after reopen equal those before the save (%s)" % [whole_after])
+	_check(String(whole_after.get("painted_mask", "")) == "present", "leg C: the painted mask came back (%s)" % whole_after.get("painted_mask", "<none>"))
+	var st_c: Dictionary = bridge.rock_paint_status()
+	_check(int(st_c.get("painted_cells", -1)) == painted_before, "leg C: %d painted cells after reopen, %d before" % [int(st_c.get("painted_cells", -1)), painted_before])
+	_check(bool(st_c.get("available", false)), "leg C: Rock is still available on the reopened world (reason %s)" % st_c.get("reason", "<none>"))
+	var cell_c: Dictionary = wg.sample_cell(best.x, best.y)
+	for rk in ["rock", "rock_strength", "regolith_m"]:
+		_check(cell_c.has(rk) and JSON.stringify(cell_c.get(rk)) == JSON.stringify(probe_cell.get(rk)),
+			"leg C: sample_cell `%s` is back and unchanged (%s vs %s)" % [rk, cell_c.get(rk, "<absent>"), probe_cell.get(rk, "<absent>")])
+	_check(not cell_c.has("rock_reason"), "leg C: no absent-column reason on the reopened world")
+	app.undo_last()
+	await _frames(8)
+	_check(wg.geology_digest(0, 0, 0, 0) == whole_after, "leg C: the undo history is not saved -- Undo after reopen changes nothing")
+	await _shot("C_reopened")
+
+	# ---------------- Leg D: a project saved before the set ----------------
+	var legacy := ProjectSettings.globalize_path("res://../crates/cartalith-godot/tests/fixtures/project_pre_substrate_2026-09-24.zip")
+	var legacy_ok: bool = await app.open_project_busy(legacy)
+	await _frames(20)
+	_check(legacy_ok, "leg D: the pre-substrate fixture opens (%s)" % legacy)
+	var st_d: Dictionary = bridge.rock_paint_status()
+	_check(not bool(st_d.get("available", true)) and String(st_d.get("reason", "")) != "", "leg D: Rock is disabled with a reason: %s" % st_d.get("reason", "<none>"))
+	var cell_d: Dictionary = wg.sample_cell(10, 10)
+	_check(not cell_d.has("rock") and not cell_d.has("rock_strength"), "leg D: sample_cell carries no rock keys (none invented)")
+	await _shot("D_pre_set_fixture")
+	DirAccess.remove_absolute(zpath)
 
 	print("[DONE] %d checks, %d failed" % [_checks, _fail])
 	get_tree().quit(1 if _fail > 0 else 0)

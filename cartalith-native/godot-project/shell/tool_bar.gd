@@ -510,7 +510,7 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 		## control. The latch keeps its value for the other layers.
 		erase.disabled = true
 		erase.tooltip_text = RockPaintUI.ERASE_DISABLED
-		_note(row, "rock paint re-erodes the painted window -- " + RockPaintUI.SAVE_SHORT,
+		_note(row, "rock paint re-erodes the painted window -- " + RockPaintUI.save_short(rock_st),
 			RockPaintUI.enabled_tip(rock_st))
 		return
 	_note(row, "painting a classification never changes elevation",

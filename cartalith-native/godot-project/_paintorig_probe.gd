@@ -93,6 +93,27 @@ func _guard() -> bool:
 
 # -- Measurement helpers -------------------------------------------------------
 
+## Waits until the deep-zoom tile pyramid has nothing in flight (5 quiet frames in a
+## row, 20 s at most), then `SETTLE` frames -- `_mapsharp_probe.gd`'s `_settle_quiet`.
+## Why: on the phone the LOD tiles for the opening view were still landing between
+## this probe's first capture and its "returning to 0" capture, so that check failed
+## on tiles that were correctly catching up, not on the Original layer (GF-8 slice 2's
+## report). The check itself is unchanged: a tile landing AFTER this still moves the
+## second capture and still fails it.
+func _settle_quiet() -> void:
+	var quiet := 0
+	var t0 := Time.get_ticks_msec()
+	var vh = app.viewport
+	if vh == null or not vh.has_method("lod_pending"):
+		await _frames(SETTLE)
+		return
+	while quiet < 5 and Time.get_ticks_msec() - t0 < 20000:
+		await RenderingServer.frame_post_draw
+		quiet = quiet + 1 if int(vh.lod_pending()) == 0 else 0
+	if quiet < 5:
+		_log("  NOTE: the tile pyramid did not go quiet within 20 s (%d pending)" % int(vh.lod_pending()))
+	await _frames(SETTLE)
+
 ## The viewport's drawn pixels over the map host, as a small RGBA image.
 func _map_shot() -> Image:
 	var full := _vp.get_texture().get_image()
@@ -290,10 +311,12 @@ func _ready() -> void:
 
 	# 3. Pixels at 0 / 0.5 / 1 ------------------------------------------------------
 	_log("2. slider 0 / 0.5 / 1")
+	await _settle_quiet()
 	_save_shot("a_slider0")
 	var s0 := _map_shot()
+	await _frames(SETTLE)
 	var s0b := _map_shot()
-	_check(_mad(s0, s0b) == 0.0, "negative control: two idle captures at 0 are identical")
+	_check(_mad(s0, s0b) == 0.0, "negative control: two idle captures at 0, %d frames apart, are identical" % SETTLE)
 	await _set_pct(sl, 50.0)
 	_check(is_equal_approx(app.viewport.paint_original_state()["alpha"], 0.5), "alpha is 0.5 at 50 %")
 	_check(app.viewport.paint_original_state()["visible"], "the layer is visible at 50 %")
@@ -315,6 +338,7 @@ func _ready() -> void:
 	await _set_pct(sl, 0.0)
 	_check(not app.viewport.paint_original_state()["visible"], "the layer hides again at 0")
 	_check(not app.viewport.paint_original_state()["has_texture"], "and releases its texture at 0")
+	await _settle_quiet()
 	_check(_mad(s0, _map_shot()) == 0.0, "returning to 0 restores the original pixels exactly")
 
 	# 4. The original excludes hand paint -------------------------------------------

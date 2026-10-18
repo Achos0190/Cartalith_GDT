@@ -75,6 +75,8 @@ mod sea_live_bridge;
 mod selection;
 mod story_bridge;
 mod substrate;
+/// GF-8's save slice: the geology column in a project archive (`SAVEFILE_COMPAT.md` §8.4).
+mod geology_save;
 mod timeline_bridge;
 mod travel_bridge;
 mod undo;
@@ -15554,8 +15556,10 @@ impl WorldGen {
     /// `cap_class_m` (10.0, one thickness class) and `cap_max_m` (2 550.0);
     /// `sub_none` (255); `pad_cells` (the re-erosion padding `P`, 16);
     /// `painted_cells` (cells the column marks painted, **only** when the
-    /// column has a painted mask); `save_note` (always: the honest sentence
-    /// that a painted rock does not survive save and reopen yet).
+    /// column has a painted mask); `save_note` (always: what a save keeps of
+    /// Rock paint and what it does not, [`ROCK_PAINT_SAVE_NOTE`]); `saved`
+    /// (always `true` in this build: a committed rock is written with the
+    /// project).
     #[func]
     fn rock_paint_status(&self) -> VarDictionary {
         let mut d = vdict! {
@@ -15565,6 +15569,10 @@ impl WorldGen {
             "sub_none" => cartalith_engine::rock_paint::SUB_NONE as i32,
             "pad_cells" => cartalith_engine::rock_paint::REERODE_PAD_CELLS as i64,
             "save_note" => ROCK_PAINT_SAVE_NOTE,
+            // GF-8's save slice: this build writes a committed rock into the
+            // project (`geology_save.rs`). The shell picks its short label
+            // from this, so a binary without the key reads as "not saved".
+            "saved" => true,
         };
         let layers: Array<VarDictionary> = paint_bridge::PaintTarget::ROCK
             .iter()
@@ -16188,7 +16196,8 @@ impl WorldGen {
     /// refusal, word for word. In order:
     /// - no generated world in memory (the commit re-erodes the live fields);
     /// - no geology column (`Geology::absent_reason`: parity model, import, or
-    ///   a reopened save, since the column is not saved yet);
+    ///   a project reopened from a save that carries no geology set --
+    ///   `SAVEFILE_COMPAT.md` §8.4; a save that carries one restores it);
     /// - `geology_processes` off: erosion does not read rock on this world, so
     ///   a painted rock would change no landform (the app's default today, so
     ///   the Rock target is disabled by default; `rock_paint::ReerodeSkip`'s
@@ -16248,7 +16257,8 @@ impl WorldGen {
     /// dabs applied); `reerode`: `{ran: true, window: {x, y, w, h},
     /// cells_moved, ring_step, relief, ring_step_pct (only when relief > 0),
     /// stages, not_rerun}` or `{ran: false, reason}`; `ms`; `recomputed` /
-    /// `still_stale`; `save_note`.
+    /// `still_stale`; `save_note`; `saved` (true: the committed rock is
+    /// written with the next project save).
     fn paint_commit_rock(&mut self, n: usize) -> Option<VarDictionary> {
         let pending = self.paint.as_ref().map_or(0, |p| p.rock_pending());
         if pending == 0 {
@@ -16331,16 +16341,25 @@ impl WorldGen {
             "recomputed" => &recomputed,
             "still_stale" => &still_stale,
             "save_note" => ROCK_PAINT_SAVE_NOTE,
+            // The same flag `rock_paint_status` sends: a committed rock is
+            // written with the project (`geology_save.rs`).
+            "saved" => true,
         })
     }
 }
 
-/// GF-8: the sentence every Rock-paint surface carries until the geology save
-/// set exists (GF-8's third slice). Measured at its symbol: no column raster
-/// is written (`GeologyAbsent::Restored`, *"opened from a save: rock columns
-/// are not saved yet"*), so a reopened project has no column and the painted
-/// rock, with the rest of the column, is gone.
-pub(crate) const ROCK_PAINT_SAVE_NOTE: &str = "Rock paint is not saved with the project yet: the geology column is not in the save format, so reopening the project loses the painted rock (and the whole column). Saving the column is GF-8's next slice.";
+/// GF-8: the sentence every Rock-paint surface carries about saving, since
+/// the geology save set (`SAVEFILE_COMPAT.md` §8.4, `geology_save.rs`). Each
+/// clause is a property of the code, not a hope:
+/// - a commit bakes into `GeologyColumn`, which `project_save_with_documents`
+///   writes (`geology_save::write_geology`) and `project_open` restores, the
+///   painted mask included (`project_bridge.rs`'s `geology_save_tests`);
+/// - an uncommitted Rock draft is not written anywhere (`PaintTarget::ROCK`
+///   is draft-only and `drafts/paint.json` holds committed layers);
+/// - the undo history is never saved (`SAVEFILE_COMPAT.md` §16.7);
+/// - a build from before the set carries the rasters as foreign entries but
+///   drops the `geology` member, so its re-save reopens with no column (§8.4).
+pub(crate) const ROCK_PAINT_SAVE_NOTE: &str = "Committed rock paint is saved with the project, as part of the world's geology column, and is there again when the project is reopened. Not saved: an uncommitted Rock draft (commit it before saving) and the undo history (a reopened project cannot undo the paint). A build from before 2026-10-18 opens the project without its geology column, and saving it from that build drops the column.";
 
 /// The Rock picker's label for one rock: its name with its strength `s` and
 /// stream-power multiplier `κ` from `ROCK_PROPS` (the two numbers that most

@@ -185,9 +185,10 @@ impl PaintTarget {
     /// `PaintEditor`"). They are **drafts only**: a commit bakes them into the
     /// geology column (`cartalith_engine::rock_paint::commit`), as a sculpt
     /// commit bakes into the heightmap, so there is no committed Rock layer to
-    /// render, save or composite. Their drafts are not saved yet either: the
-    /// whole geology save set is GF-8's third slice (the scope's §7 "GF-8
-    /// measured: the engine half").
+    /// render, save or composite. A committed Rock paint is saved as the
+    /// column it baked into (`geology_save.rs`, `SAVEFILE_COMPAT.md` §8.4);
+    /// an uncommitted Rock draft is not saved, like every other target's
+    /// uncommitted draft (`drafts/paint.json` holds committed layers only).
     pub const ROCK: [PaintTarget; 3] = [PaintTarget::RockTop, PaintTarget::RockSub, PaintTarget::RockCap];
 
     /// The key a caller passes to `paint_set_layer` / receives from
@@ -685,9 +686,9 @@ impl PaintEditor {
         self.draft_terrain.discard();
         self.draft_splat.discard();
         // GF-8: a restore replaces the world's state, so a pending Rock dab
-        // would bake into a column it was never painted over. (The Rock
-        // drafts themselves are not saved yet: the geology save set is
-        // GF-8's third slice.)
+        // would bake into a column it was never painted over. (Uncommitted
+        // Rock drafts are not saved; a committed one is, as the column --
+        // `geology_save.rs`.)
         self.draft_rock_top.discard();
         self.draft_rock_sub.discard();
         self.draft_rock_cap.discard();

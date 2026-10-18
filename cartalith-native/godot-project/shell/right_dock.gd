@@ -5953,7 +5953,7 @@ func _build_rock_paint(body: Control, layer: String) -> void:
 	if pending == 0:
 		commit_btn.tooltip_text = "Nothing pending. Paint rock on the map to enable this."
 		discard_btn.tooltip_text = commit_btn.tooltip_text
-	var save := DccWidgets.note(sec, "Not saved with the project yet.")
+	var save := DccWidgets.note(sec, RockPaintUI.save_label(st))
 	save.tooltip_text = String(st.get("save_note", EngineBridge.ROCK_PAINT_SAVE_NOTE_FALLBACK))
 	save.mouse_filter = Control.MOUSE_FILTER_STOP
 

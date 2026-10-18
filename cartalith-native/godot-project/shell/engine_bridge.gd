@@ -5321,7 +5321,8 @@ func paint_draft_count() -> int:
 ## why not (`WorldGen.rock_paint_status`): `available`, `reason` (only when not
 ## available), `layers` (`[{key, label}]` for Surface / Beneath / Cap thickness),
 ## `cap_class_m`, `cap_max_m`, `sub_none`, `pad_cells`, `painted_cells` (only when the
-## column has a painted mask) and `save_note`. **`{}` while `generating` or when the
+## column has a painted mask), `save_note` and `saved` (true when a committed rock is
+## written with the project, GF-8's save slice). **`{}` while `generating` or when the
 ## loaded extension predates GF-8** -- callers treat `{}` as "Rock is not offered" and
 ## say why with `rock_paint_unavailable_reason()`. Checked with `has_method` and called
 ## with `call()`, not `_has()` plus a direct call: every paint surface reads it on every
@@ -5332,8 +5333,8 @@ func rock_paint_status() -> Dictionary:
 	return world_gen.call("rock_paint_status")
 
 ## The sentence a disabled Rock target carries: the engine's own refusal when it gave
-## one, else why the shell could not ask. Always ends with the save caveat, so the user
-## is told before painting that a painted rock does not survive a save and reopen yet.
+## one, else why the shell could not ask. Always ends with the engine's save note, so
+## the user is told before painting what a save keeps of Rock paint and what it does not.
 func rock_paint_unavailable_reason(st: Dictionary) -> String:
 	var why: String
 	if generating:
@@ -5346,8 +5347,10 @@ func rock_paint_unavailable_reason(st: Dictionary) -> String:
 	return (why + " " + note).strip_edges()
 
 ## The save caveat for a binary too old to send its own (`ROCK_PAINT_SAVE_NOTE` in
-## `lib.rs`, which wins whenever the engine answers). Same meaning, same words.
-const ROCK_PAINT_SAVE_NOTE_FALLBACK := "Rock paint is not saved with the project yet: the geology column is not in the save format, so reopening the project loses the painted rock (and the whole column). Saving the column is GF-8's next slice."
+## `lib.rs`, which wins whenever the engine answers). Only a binary from before GF-8's
+## save slice can fail to answer, and such a binary did not write the geology column, so
+## this says so rather than repeating the current engine's sentence.
+const ROCK_PAINT_SAVE_NOTE_FALLBACK := "This build of the engine did not say whether Rock paint is saved; a build from before 2026-10-18 does not save the geology column, so reopening the project loses the painted rock (and the whole column)."
 
 ## GF-8: the eleven rock classes with their `ROCK_PROPS` resistance values
 ## (`WorldGen.get_rock_classes`: `index`, `name`, `s`, `kappa`, `theta_c`, `gamma`,

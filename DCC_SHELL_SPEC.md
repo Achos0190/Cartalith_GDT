@@ -502,8 +502,10 @@ report (skipped cells and the stages it does not re-run) and Commit / Discard.
 rock is reverted with Undo; the column has no unpainted state to fall back to.
 The Rock target is **drawn disabled, with the engine's reason**, on any world
 whose erosion does not read rock (geology processes off — the app's default) or
-that has no geology column. Painted rock is **not saved with the project yet**
-(the geology save set is GF-8's next slice), and every Rock surface says so.
+that has no geology column. Committed rock **is saved with the project**, as
+part of the world's geology column (`SAVEFILE_COMPAT.md` §8.4, since
+2026-10-18); an uncommitted Rock draft and the undo history are not, and every
+Rock surface says so in the engine's own words (`ROCK_PAINT_SAVE_NOTE`).
 
 ### 4.5.3 CIVIL tools
 

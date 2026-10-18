@@ -33,7 +33,7 @@ pub use legacy::{read_legacy, LegacyFaction, LegacyIcon, LegacyLabel, LegacyProj
 // as `project::manifest_json`.
 pub use project::{
     coerce_integral_floats, read_project, write_project, Element, Layout, ProjectData, ProjectWrite, Raster,
-    RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
+    RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, GEOLOGY_MEMBER, GEOLOGY_RASTERS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
     PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS, SHUFFLED_INFIX, SUBSTRATE_MEMBER, SUBSTRATE_RASTERS,
 };
 pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};

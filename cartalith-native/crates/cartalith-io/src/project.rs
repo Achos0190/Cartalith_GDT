@@ -351,7 +351,67 @@ pub const RASTER_SLOTS: &[RasterSlot] = &[
         path: "rasters/forced_lakes.u8",
         element: Element::U8,
     },
+    // The geology column (`SAVEFILE_COMPAT.md` §8.4, `GEOLOGY_FIRST_SCOPE.md`
+    // §2.6; GF-8's save slice, owner Rulings BH and BJ): the per-cell rock
+    // column `cartalith_terrain::geology::GeologyColumn` holds, so a reopened
+    // project keeps its rock, its painted rock and the regolith erosion left.
+    // Written together under `project.json`'s `geology` member
+    // ([`GEOLOGY_MEMBER`]); see [`GEOLOGY_RASTERS`]. Registered so a build
+    // that knows them reads them as its own entries; a build from before
+    // carries them as foreign (§6.2) and they cost it nothing.
+    RasterSlot {
+        path: "rasters/rock_top.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/rock_sub.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/rock_contact.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/regolith.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/volcanic_setting.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/rock_painted.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/structural_surface.f32",
+        element: Element::F32,
+    },
 ];
+
+/// The geology-column rasters, in [`RASTER_SLOTS`] order (`SAVEFILE_COMPAT.md`
+/// §8.4). The first five are the column and are written whenever the set is;
+/// `rock_painted.u8` only when the manifest says `painted`, and
+/// `structural_surface.f32` only when it says `construction: "built"`. A
+/// caller that writes any of them MUST also write [`GEOLOGY_MEMBER`], and a
+/// reader MUST NOT treat the set as complete without it -- the same rule as
+/// [`SUBSTRATE_RASTERS`], for the same reason (an older build's re-save
+/// carries the rasters and drops the member).
+pub const GEOLOGY_RASTERS: [&str; 7] = [
+    "rasters/rock_top.u8",
+    "rasters/rock_sub.u8",
+    "rasters/rock_contact.f32",
+    "rasters/regolith.f32",
+    "rasters/volcanic_setting.u8",
+    "rasters/rock_painted.u8",
+    "rasters/structural_surface.f32",
+];
+
+/// `project.json`'s top-level member describing the geology column
+/// (`SAVEFILE_COMPAT.md` §8.4). Carried opaquely, like [`SUBSTRATE_MEMBER`]:
+/// its schema is the producer's. Absent in every archive written before
+/// 2026-10-18.
+pub const GEOLOGY_MEMBER: &str = "geology";
 
 /// The world-substrate rasters, in [`RASTER_SLOTS`] order (`SAVEFILE_COMPAT.md`
 /// §8.3). A caller that writes any of them MUST also write the
@@ -872,6 +932,11 @@ pub struct ProjectWrite<'a> {
     /// no member -- which is what [`ProjectWrite::new`] builds, and what a
     /// world that is not saving its substrate rasters must leave it as.
     pub substrate: serde_json::Value,
+    /// `project.json`'s [`GEOLOGY_MEMBER`], verbatim. `Value::Null` writes no
+    /// member -- what [`ProjectWrite::new`] builds, and what a world with no
+    /// geology column must leave it as (`SAVEFILE_COMPAT.md` §8.4: a writer
+    /// does not invent a column).
+    pub geology: serde_json::Value,
 }
 
 impl<'a> ProjectWrite<'a> {
@@ -894,6 +959,7 @@ impl<'a> ProjectWrite<'a> {
             generator: format!("cartalith-native {}", env!("CARGO_PKG_VERSION")),
             created: None,
             substrate: serde_json::Value::Null,
+            geology: serde_json::Value::Null,
         }
     }
 
@@ -1065,6 +1131,10 @@ pub struct ProjectData {
     /// `Value::Null` when the manifest had none (every archive written before
     /// 2026-09-24, and every flat one).
     pub substrate: serde_json::Value,
+    /// `project.json`'s [`GEOLOGY_MEMBER`], verbatim and integer-coerced, or
+    /// `Value::Null` when the manifest had none (every archive written before
+    /// 2026-10-18, and every flat one).
+    pub geology: serde_json::Value,
     /// The core rasters (`CORE_RASTERS` after the heightmap) this read did
     /// **not** find, and filled in [`SaveData::fields`] with §8.1's
     /// substitute instead -- zeros, for all five. `Some(empty)` is a tree
@@ -1507,6 +1577,11 @@ pub fn manifest_json(project: &ProjectWrite<'_>) -> serde_json::Value {
     // saved the substrate rasters it describes.
     if !project.substrate.is_null() {
         root.insert(SUBSTRATE_MEMBER.into(), project.substrate.clone());
+    }
+    // `geology` (`SAVEFILE_COMPAT.md` §8.4) -- the same rule: written only
+    // when the caller saved the column rasters it describes.
+    if !project.geology.is_null() {
+        root.insert(GEOLOGY_MEMBER.into(), project.geology.clone());
     }
     serde_json::Value::Object(root)
 }
@@ -1992,6 +2067,7 @@ fn read_tree(
 
     let preview_png = read_entry_bytes(archive, "preview.png").and_then(|r| r.ok());
     let substrate = manifest.get(SUBSTRATE_MEMBER).cloned().unwrap_or(serde_json::Value::Null);
+    let geology = manifest.get(GEOLOGY_MEMBER).cloned().unwrap_or(serde_json::Value::Null);
 
     Ok(ProjectData {
         save: SaveData {
@@ -2016,6 +2092,7 @@ fn read_tree(
         preview_png,
         foreign,
         substrate,
+        geology,
         core_substituted: Some(core_substituted),
         legacy: None,
         warnings,
@@ -2058,6 +2135,8 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         foreign: BTreeMap::new(),
         // §15 predates the substrate (§8.3) and has no manifest to carry it.
         substrate: serde_json::Value::Null,
+        // §15 predates the geology column (§8.4) as well.
+        geology: serde_json::Value::Null,
         core_substituted: None,
         legacy: Some(legacy),
         // Only what Ruling AU's import could not carry. A flat archive with
@@ -3512,6 +3591,67 @@ mod tests {
         assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
         for path in SUBSTRATE_RASTERS {
             assert_eq!(back.raster(path), p.rasters.get(path), "{path}");
+        }
+    }
+
+    /// `SAVEFILE_COMPAT.md` §8.4: the `geology` member travels verbatim, is
+    /// absent when the writer had none, and every geology raster is a
+    /// registered slot read back bit for bit -- including a NaN contact, the
+    /// value §8.4 requires a writer to put under every single-layer cell.
+    ///
+    /// Protects: the `geology` member's write-only-when-set rule and verbatim
+    /// round trip; every `GEOLOGY_RASTERS` path is registered (not foreign) at
+    /// its stated element type; the shuffled `f32` path keeps NaN and every
+    /// other bit pattern exactly.
+    #[test]
+    fn the_geology_member_and_rasters_round_trip() {
+        let (params, fields) = sample(3, 3);
+        let mut p = ProjectWrite::new(&params, &fields);
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &p).unwrap();
+        let back = read_project(Cursor::new(&buf)).unwrap();
+        assert!(back.geology.is_null(), "no member written, none read");
+        let names: Vec<String> = {
+            let z = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            z.file_names().map(str::to_string).collect()
+        };
+        assert!(!names.iter().any(|n| n.contains("rock_") || n.contains("regolith")), "{names:?}");
+
+        let member = serde_json::json!({"version": 1, "age": 0.25, "painted": true});
+        p.geology = member.clone();
+        // Element types, as literals (§8.4's table), not read back from the registry.
+        let expect = [
+            ("rasters/rock_top.u8", Element::U8),
+            ("rasters/rock_sub.u8", Element::U8),
+            ("rasters/rock_contact.f32", Element::F32),
+            ("rasters/regolith.f32", Element::F32),
+            ("rasters/volcanic_setting.u8", Element::U8),
+            ("rasters/rock_painted.u8", Element::U8),
+            ("rasters/structural_surface.f32", Element::F32),
+        ];
+        assert_eq!(GEOLOGY_RASTERS.len(), expect.len());
+        let odd = [f32::NAN, -0.0, 1.0e-40, 0.123_456_78, f32::from_bits(0x7fc0_0001), 1.0, 0.0, 0.5, 0.75];
+        for (path, el) in expect {
+            assert!(GEOLOGY_RASTERS.contains(&path), "{path}");
+            assert_eq!(raster_slot(path).expect("registered").element, el, "{path}");
+            p.raster(path, match el {
+                Element::F32 => Raster::F32(odd.to_vec()),
+                Element::U8 => Raster::U8(vec![0, 1, 2, 3, 4, 10, 255, 7, 9]),
+                Element::I32 => unreachable!("no i32 geology raster"),
+            });
+        }
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &p).unwrap();
+        let back = read_project(Cursor::new(&buf)).unwrap();
+        assert_eq!(back.geology, member);
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+        for path in GEOLOGY_RASTERS {
+            match (back.raster(path), p.rasters.get(path)) {
+                (Some(Raster::F32(a)), Some(Raster::F32(b))) => {
+                    assert_eq!(a.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), b.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), "{path}")
+                }
+                (a, b) => assert_eq!(a, b, "{path}"),
+            }
         }
     }
 

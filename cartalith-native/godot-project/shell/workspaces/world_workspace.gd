@@ -662,6 +662,12 @@ func _build() -> void:
 	bridge.generation_stage.connect(_on_generation_stage)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
+	## A new or loaded world also comes up with its `PaintEditor` on Biome while this
+	## workspace keeps its own selection; put the engine back on the shell's layer
+	## (`_paint_resync_layer`). Deferred so it runs after every other listener and
+	## after `bridge.generating` has cleared.
+	bridge.generation_finished.connect(func(_ok: bool): _paint_resync_layer.call_deferred())
+	bridge.world_loaded.connect(func(): _paint_resync_layer.call_deferred())
 	## Replay what the `bridge.generating` gates below skipped. Connected AFTER
 	## `_on_generation_finished` on purpose: that handler's own rebuilds clear most
 	## flags, so this only does what is left. The two landmark signals are the worker
@@ -2712,11 +2718,12 @@ func _authored_inventory() -> PackedStringArray:
 func _confirm_discard(at_stake: PackedStringArray) -> void:
 	var dlg := ConfirmationDialog.new()
 	dlg.title = "Regenerate this world?"
-	## GF-8: "save first" is not true of painted rock until the geology save set exists,
-	## so the advice says so whenever painted rock is at stake (the engine's own
-	## `save_note`, not a second wording).
+	## GF-8: "save first" keeps painted rock only on an engine that saves the geology
+	## column (`saved`, GF-8's save slice). On an older binary the advice says so
+	## whenever painted rock is at stake (the engine's own `save_note`, not a second
+	## wording); on this one the plain advice is true and needs no rider.
 	var st := bridge.rock_paint_status()
-	var rock_note := ("\n" + String(st.get("save_note", ""))) if int(st.get("painted_cells", 0)) > 0 else ""
+	var rock_note := ("\n" + String(st.get("save_note", EngineBridge.ROCK_PAINT_SAVE_NOTE_FALLBACK))) if int(st.get("painted_cells", 0)) > 0 and not bool(st.get("saved", false)) else ""
 	dlg.dialog_text = ("Generating rebuilds the world from stage 01 and starts every "
 		+ "hand-authored layer over it empty again: sculpt drafts, painted cells, painted "
 		+ "rock, map icons and labels, hand-drawn ways and routes. None of it is recoverable -- "
@@ -4372,6 +4379,24 @@ func note_paint_commit(summary: Dictionary) -> bool:
 	app.set_status("hint", String(s[0]), String(s[1]))
 	return true
 
+## After a generate or a load: the engine's new `PaintEditor` starts on Biome
+## (`PaintEditor::new`), but the dock, tool bar and phone chips still show
+## `_paint_layer`, so a Terrain or Splat dab would land on Biome while the shell said
+## Terrain (GF-8 slice 2's finding). Asks the engine for the shell's layer; the shell's
+## brush value is kept, since the layer and its palette did not change. A layer this
+## world refuses (Rock on a world without a column, or with processes off) falls back
+## to Biome on every surface, with the reason on the status line -- the shell never
+## keeps showing a layer the engine is not on. Must not run while generating (the
+## worker owns `WorldGen`; `paint_set_layer` refuses then and this returns early).
+func _paint_resync_layer() -> void:
+	if bridge.generating or not bool(bridge.has_world):
+		return
+	if _paint_layer == "biome" or bridge.paint_set_layer(_paint_layer):
+		return
+	if RockPaintUI.is_rock(_paint_layer):
+		app.set_status("hint", "Paint target back on Biome: " + bridge.rock_paint_unavailable_reason(bridge.rock_paint_status()), "warn")
+	select_paint_layer("biome")
+
 ## Before a stroke on a Rock layer, puts the engine on it again: a regenerate replaces
 ## the engine's `PaintEditor` (on Biome) while the shell keeps its selection, and a
 ## Rock stroke must never land on Biome. `false` (and Biome selected, with the reason
@@ -4473,7 +4498,7 @@ func _build_rock_paint(sec: Control, st: Dictionary) -> void:
 		var s := RockPaintUI.commit_status({"rock": rock_last_commit})
 		var last := DccWidgets.note(sec, "Last commit: " + String(s[0]))
 		last.tooltip_text = last.text
-	var save := DccWidgets.note(sec, "Not saved with the project yet.")
+	var save := DccWidgets.note(sec, RockPaintUI.save_label(st))
 	save.tooltip_text = String(st.get("save_note", EngineBridge.ROCK_PAINT_SAVE_NOTE_FALLBACK))
 	save.mouse_filter = Control.MOUSE_FILTER_STOP
 

@@ -1329,8 +1329,12 @@ pub enum GeologyAbsent {
     /// An imported heightmap (`import::infer_tectonics`). GF-1's scope asks
     /// for a single-layer import column; not built yet.
     Imported,
-    /// Rebuilt from a saved substrate: the column is not in the save format
-    /// yet (`GEOLOGY_FIRST_SCOPE.md` §2.6).
+    /// Rebuilt from a saved substrate whose archive carries no usable geology
+    /// set (`SAVEFILE_COMPAT.md` §8.4, `GEOLOGY_FIRST_SCOPE.md` §2.6): saved
+    /// before the set existed (2026-10-18), re-saved by an older build (which
+    /// carries the rasters but drops the `geology` member), or with the set
+    /// damaged. A save that carries the set restores `Geology::Column`
+    /// instead (`cartalith-godot`'s `geology_save.rs`).
     Restored,
 }
 
@@ -1341,7 +1345,9 @@ impl GeologyAbsent {
         match self {
             GeologyAbsent::ModelOff => "geology model off for this world",
             GeologyAbsent::Imported => "imported heightmap: no rock column is built for imports yet",
-            GeologyAbsent::Restored => "opened from a save: rock columns are not saved yet",
+            GeologyAbsent::Restored => {
+                "opened from a save that carries no geology column (saved before the column was stored, re-saved by an older build, or with the column damaged)"
+            }
         }
     }
 }

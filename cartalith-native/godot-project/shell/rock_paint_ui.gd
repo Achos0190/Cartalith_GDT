@@ -10,8 +10,10 @@
 ## engine itself; every caller passes what it read.
 ##
 ## What it must never do: invent a value the engine did not send (a missing
-## key is a dash with its reason, `MISTAKES.md`), or describe Rock as saved --
-## the geology column is not in the save format yet (GF-8's third slice).
+## key is a dash with its reason, `MISTAKES.md`), or say Rock is saved when the
+## engine did not say so (`rock_paint_status()["saved"]`, true since GF-8's save
+## slice: a committed rock is written with the project's geology column,
+## `SAVEFILE_COMPAT.md` §8.4; an uncommitted draft and the undo history are not).
 ##
 ## Preloaded, not a `class_name`: a new `class_name` needs an editor import
 ## pass, which strips `project.godot`'s `;` comments (`CLAUDE.md`).
@@ -23,9 +25,25 @@ const DEFAULT_LAYER := "rock_top"
 ## §4.13's reason for the disabled Erase, verbatim in its first clause.
 const ERASE_DISABLED := "Erase (⇧) is off for Rock: a committed rock is reverted with Undo; the column has no unpainted state to fall back to. Discard still drops an uncommitted draft."
 
-## The short form of the save caveat for a row too narrow for the sentence; the
-## full sentence (`save_note`) is its tooltip.
-const SAVE_SHORT := "not saved with the project yet"
+## The short form of what a save keeps of Rock paint, for a row too narrow for the
+## sentence; the full sentence (`save_note`) is its tooltip. True of an engine that
+## reports `saved` (GF-8's save slice); `SAVE_SHORT_OLD` is the older binary's.
+const SAVE_SHORT := "saved with the project once committed; drafts and undo are not"
+
+## The short caveat for an engine that does not report `saved`: a binary from before
+## the geology save set, which reopens a project without its column.
+const SAVE_SHORT_OLD := "not saved with the project by this build of the engine"
+
+## The short save line for `st` (`rock_paint_status()`): `SAVE_SHORT` when the engine
+## says a committed rock is saved, `SAVE_SHORT_OLD` otherwise -- never claims a save
+## the engine did not report.
+static func save_short(st: Dictionary) -> String:
+	return SAVE_SHORT if bool(st.get("saved", false)) else SAVE_SHORT_OLD
+
+## `save_short(st)` as a sentence, for a dock note: capital first letter, full stop.
+static func save_label(st: Dictionary) -> String:
+	var s := save_short(st)
+	return s.left(1).to_upper() + s.substr(1) + "."
 
 ## Whether `layer` is one of the three Rock layer keys.
 static func is_rock(layer: String) -> bool:
@@ -98,5 +116,5 @@ static func commit_status(summary: Dictionary) -> Array:
 	var nr: PackedStringArray = e.get("not_rerun", PackedStringArray())
 	if nr.size() > 0:
 		parts.append("not re-run: " + "; ".join(nr))
-	parts.append(SAVE_SHORT)
+	parts.append(save_short(r))
 	return [" -- ".join(parts), "text_ghost"]

@@ -3169,6 +3169,28 @@ impl WorldGen {
             },
             WorldSource::Loaded(_) => false,
         };
+        // GF-8's save slice (`SAVEFILE_COMPAT.md` §8.4, `geology_save.rs`): the
+        // geology column, painted rock included, beside the substrate it is
+        // read with. Only with the substrate: a reopened column needs the
+        // `WorldState` the substrate rebuilds, so a column written without one
+        // could never be restored. A world with no column (`Geology::Absent`:
+        // the model off, an import, or a project reopened from a save without
+        // the set) writes nothing -- which is also what makes a re-save of such
+        // a project carry no geology members at all. `age` is the clock of
+        // this session's parameters, the dial `params.json` also records.
+        let geology_written = match source {
+            WorldSource::Generated(ws) if substrate_written => {
+                let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+                match crate::geology_save::write_geology(ws, gw, gh, self.recompute_params().geo_age, &mut write) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        godot_warn!("cartalith-godot: saved without the geology column ({e})");
+                        false
+                    }
+                }
+            }
+            _ => false,
+        };
         // `preview.png` — see the doc comment above for why this is
         // caller-supplied. Empty/absent writes no entry (the damage ladder
         // for a missing thumbnail is "no thumbnail", never a zero-byte
@@ -3466,6 +3488,10 @@ impl WorldGen {
                 // file will reopen without journey planning, trade flows,
                 // military, town layouts or the faction economy.
                 d.set("substrate", substrate_written);
+                // Whether the file carries the geology column (§8.4): `false`
+                // is a world with no column to write, and that file reopens
+                // with no rock readouts and no Rock paint.
+                d.set("geology", geology_written);
                 d
             }
             Err(e) => err(format!("could not write {path}: {e}")),
@@ -3557,6 +3583,12 @@ impl WorldGen {
     ///   substrate could not be honoured (with a line in `warnings`). Only a
     ///   `"complete"` world runs the readouts that need flow, channels or the
     ///   tectonic grids. See this module's own doc comment.
+    /// - `geology` is the same three words for the geology column
+    ///   (`SAVEFILE_COMPAT.md` §8.4, `geology_save.rs`): `"complete"` restored
+    ///   it (rock readouts and Rock paint work, painted rock included);
+    ///   `"absent"` for an archive written without one; `"incomplete"` for a
+    ///   set that could not be honoured (with a line in `warnings`). Only a
+    ///   `"complete"` substrate can carry it.
     #[func]
     fn project_open(&mut self, path: GString) -> VarDictionary {
         let file = match std::fs::File::open(path.to_string()) {
@@ -3629,9 +3661,18 @@ impl WorldGen {
         // `Loaded` world `load_save` just installed, and those readouts refuse
         // with `substrate::needs_substrate`. Before the civ restore, which
         // does not depend on it, and before the sculpt restore, which does.
+        // GF-8's save slice: the geology column (`SAVEFILE_COMPAT.md` §8.4,
+        // `geology_save.rs`) goes onto the rebuilt world before it is
+        // installed, so every reader sees the column from the first frame.
+        // `"absent"` unless the substrate rebuilt a world to carry it.
+        let mut geology = "absent";
         let substrate = match self.source.take() {
             Some(WorldSource::Loaded(save)) => match crate::substrate::world_from_project(&mut data, &save) {
-                Ok(Some(ws)) => {
+                Ok(Some(mut ws)) => {
+                    let (gw, gh) = (save.params.gw, save.params.gh);
+                    let (g, warning) = crate::geology_save::restore_into(&mut ws, &mut data, gw, gh);
+                    geology = g;
+                    restore_warnings.extend(warning);
                     self.install_reopened_world(ws);
                     "complete"
                 }
@@ -3655,6 +3696,17 @@ impl WorldGen {
                 "absent"
             }
         };
+        // A geology set with no substrate world to carry it (the substrate
+        // was damaged, or the archive was hand-assembled) is reported, not
+        // silently dropped: the column cannot exist on a `Loaded` world.
+        if substrate != "complete" && !data.geology.is_null() {
+            geology = "incomplete";
+            restore_warnings.push(
+                "the archive carries a geology column, but not a usable world substrate to restore it onto -- \
+                 the world opened without its rock column, so rock readouts and Rock paint are off on it"
+                    .to_string(),
+            );
+        }
 
         if let Some(civ) = civ_from_project(&data, n, &mut restore_warnings) {
             // The Territory tool's model, as `absorb` builds it for a generate:
@@ -4163,6 +4215,11 @@ impl WorldGen {
         // `warnings`; `"absent"` is every archive written before 2026-09-24
         // and is not a warning, since nothing in the file is damaged.
         out.set("substrate", substrate);
+        // The same three words for the geology column (§8.4, GF-8):
+        // `"complete"` restored it, `"absent"` is an archive written without
+        // one (every one before 2026-10-18; not a warning), `"incomplete"` was
+        // refused with a line in `warnings`.
+        out.set("geology", geology);
         out.set(
             "layout",
             if data.layout == cartalith_io::Layout::Tree {
@@ -9660,5 +9717,340 @@ mod substrate_tests {
             gpu_stages_used: Vec::new(),
             geology: ws.geology.clone(),
         }
+    }
+}
+
+/// GF-8's save slice (`SAVEFILE_COMPAT.md` §8.4, `GEOLOGY_FIRST_SCOPE.md`
+/// §2.6, `geology_save.rs`): the geology column round-trips a real archive bit
+/// for bit, painted mask and construction record included; a project saved
+/// before the set opens with no column and re-saves with no geology entries;
+/// and every refusal the reader states actually fires.
+#[cfg(test)]
+mod geology_save_tests {
+    use super::*;
+    use crate::geology_save::{self, GeologyManifest};
+    use crate::substrate;
+    use cartalith_terrain::geology::{Construction, ConstructionSkip, GeologyColumn, NO_LAYER};
+    use std::io::Cursor;
+
+    /// Fixture width: a labelled judgement, the substrate tests' own size (big
+    /// enough to carve rivers, small enough to generate several times).
+    const GW: usize = 160;
+    /// Fixture height, paired with `GW`.
+    const GH: usize = 112;
+
+    /// One world at `seed` on the shell's own parameters (geology model on,
+    /// as the app ships), CPU only; `processes` turns GF-2's rock-reading
+    /// erosion and GF-11's relief model on, so deposition leaves regolith and
+    /// construction is asked for.
+    fn world(seed: i32, processes: bool) -> (cartalith_engine::WorldParams, cartalith_engine::WorldState) {
+        let mut p = crate::params::defaults();
+        p.gw = GW;
+        p.gh = GH;
+        p.tect.seed = seed;
+        p.use_gpu = false;
+        p.geology_processes = processes;
+        p.relief_model = processes;
+        let ws = cartalith_engine::generate_terrain(&p);
+        (p, ws)
+    }
+
+    /// Paints a block of shale with no second layer into `ws`'s column through
+    /// the commit's own bake, so the mask, the NaN contacts and the changed
+    /// rock are the ones a real Rock commit writes. Returns the cells baked.
+    fn paint_block(p: &cartalith_engine::WorldParams, ws: &mut cartalith_engine::WorldState) -> usize {
+        let n = GW * GH;
+        let (mut top, mut sub, cap) = (vec![0u8; n], vec![0u8; n], vec![0u8; n]);
+        for y in 40..56 {
+            for x in 60..84 {
+                top[y * GW + x] = cartalith_terrain::geology::Rock::Shale as u8 + 1;
+                sub[y * GW + x] = cartalith_engine::rock_paint::SUB_NONE;
+            }
+        }
+        let field = std::sync::Arc::clone(&ws.field);
+        let sea = ws.sea_level;
+        let cartalith_engine::Geology::Column(col) = &mut ws.geology else { panic!("premise: the world has a column") };
+        let paint = cartalith_engine::rock_paint::RockPaint { top: &top, sub: &sub, cap: &cap };
+        cartalith_engine::rock_paint::bake(col, &field, &paint, GW, sea, p.peak_m).expect("bake").cells_baked
+    }
+
+    /// The `SaveParams` for a fixture world.
+    fn save_params(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> cartalith_io::SaveParams {
+        cartalith_io::SaveParams {
+            gw: p.gw,
+            gh: p.gh,
+            seed: p.tect.seed,
+            map_width_km: p.map_width_km,
+            sea_level: ws.sea_level,
+            world: p.world,
+            origin: Some("gen".into()),
+            name: None,
+        }
+    }
+
+    /// The archive `project_save_with_documents` writes for this world's
+    /// terrain, substrate and geology (no civ layer: nothing here reads it),
+    /// and whether the geology set was written.
+    fn archive(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> (Vec<u8>, bool) {
+        let n = GW * GH;
+        let params = save_params(p, ws);
+        let fields = cartalith_io::SaveFields {
+            heightmap: ws.field.clone(),
+            temperature: ws.temperature.clone(),
+            rainfall: ws.rainfall.clone(),
+            volcanic_field: ws.volcanic_field.as_ref().clone(),
+            impact_field: ws.impact_field.clone(),
+            strahler_order: match ws.stream_order.as_ref() {
+                Some(o) => o.iter().map(|&v| v.clamp(0, 255) as u8).collect(),
+                None => vec![0u8; n],
+            },
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        substrate::write_substrate(ws, n, &mut write).expect("substrate");
+        let wrote = geology_save::write_geology(ws, GW, GH, p.geo_age, &mut write).expect("geology");
+        let mut buf = Vec::new();
+        project::write_project(Cursor::new(&mut buf), &write).expect("write");
+        (buf, wrote)
+    }
+
+    /// `project_open`'s own order: the substrate rebuilds the world, then the
+    /// column goes onto it.
+    fn reopen(bytes: &[u8]) -> (cartalith_engine::WorldState, &'static str, Option<String>, cartalith_io::ProjectData) {
+        let mut data = project::read_project(Cursor::new(bytes)).expect("read");
+        let save = data.save.clone();
+        let mut ws = substrate::world_from_project(&mut data, &save).expect("substrate honoured").expect("substrate present");
+        let (g, w) = geology_save::restore_into(&mut ws, &mut data, save.params.gw, save.params.gh);
+        (ws, g, w, data)
+    }
+
+    /// Every member of two columns, floats by bits (a NaN payload or a `-0.0`
+    /// that moved fails).
+    fn assert_same_column(a: &GeologyColumn, b: &GeologyColumn) {
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(a.rock_top, b.rock_top, "rock_top");
+        assert_eq!(a.rock_sub, b.rock_sub, "rock_sub");
+        assert_eq!(bits(&a.contact), bits(&b.contact), "contact");
+        assert_eq!(bits(&a.regolith), bits(&b.regolith), "regolith");
+        assert_eq!(a.volcanic_setting, b.volcanic_setting, "volcanic_setting");
+        assert_eq!(a.painted, b.painted, "painted");
+        match (&a.construction, &b.construction) {
+            (Construction::Built { structural_surface: x }, Construction::Built { structural_surface: y }) => {
+                assert_eq!(bits(x), bits(y), "structural_surface")
+            }
+            (x, y) => assert_eq!(x, y, "construction"),
+        }
+    }
+
+    /// Protects: GF-8's "the save round trip is byte-identical for the column
+    /// and the mask" -- at two seeds, one painted through the real bake (mask
+    /// `Some`, NaN contacts under the painted single-layer cells) with
+    /// processes off as the app ships, one with processes and the relief
+    /// model on (regolith from deposition, a construction record) and nobody
+    /// painting, whose absent mask must come back absent, never as zeros.
+    #[test]
+    fn a_saved_column_reopens_bit_for_bit_with_its_painted_mask() {
+        for (seed, processes) in [(24601, false), (483920, true)] {
+            let (p, mut ws) = world(seed, processes);
+            let baked = if processes { 0 } else { paint_block(&p, &mut ws) };
+            let col = ws.geology.column().expect("premise: the shell's parameters build a column").clone();
+            if processes {
+                assert!(col.painted.is_none(), "premise: nobody painted");
+                assert!(col.regolith.iter().any(|&r| r > 0.0), "premise: deposition left regolith");
+                assert!(!matches!(col.construction, Construction::Off), "premise: the relief model was asked for");
+            } else {
+                assert!(baked > 0, "premise: the bake painted cells");
+                assert_eq!(col.painted.as_ref().map(|m| m.iter().filter(|&&v| v == 1).count()), Some(baked));
+                assert!(col.contact.iter().any(|c| c.is_nan()) && col.contact.iter().any(|c| c.is_finite()), "premise: both layer kinds");
+            }
+            let (bytes, wrote) = archive(&p, &ws);
+            assert!(wrote, "a world with a column writes the set");
+            let (ws2, status, warning, data) = reopen(&bytes);
+            assert_eq!((status, warning), ("complete", None), "seed {seed}");
+            assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+            assert_same_column(&col, ws2.geology.column().expect("restored"));
+            // The member says what it holds, checked against literals.
+            let m: GeologyManifest = serde_json::from_value(data.geology.clone()).unwrap();
+            assert_eq!((m.version, m.grid_width, m.grid_height), (1, 160, 112));
+            assert_eq!(m.painted, !processes);
+            assert_eq!(m.age.to_bits(), p.geo_age.to_bits());
+            // The reader took every geology raster it used.
+            for path in cartalith_io::GEOLOGY_RASTERS {
+                assert!(data.raster(path).is_none(), "{path} left behind after a restore");
+            }
+        }
+    }
+
+    /// Protects: each `Construction` variant's encoding round-trips -- `Off`,
+    /// all three `Skipped` reasons and `Built` with its surface -- so the
+    /// re-erosion of a reopened world takes the branch it took before the save.
+    #[test]
+    fn every_construction_record_round_trips() {
+        let (p, mut ws) = world(24601, false);
+        let surface: Vec<f32> = ws.field.iter().map(|v| v * 0.5 + 0.125).collect();
+        for c in [
+            Construction::Off,
+            Construction::Skipped(ConstructionSkip::NoLand),
+            Construction::Skipped(ConstructionSkip::NoTwoLayerLand),
+            Construction::Skipped(ConstructionSkip::WorldStructureOn),
+            Construction::Built { structural_surface: surface.clone() },
+        ] {
+            ws.geology.column_mut().unwrap().construction = c.clone();
+            let (ws2, status, _, _) = reopen(&archive(&p, &ws).0);
+            assert_eq!(status, "complete", "{c:?}");
+            assert_same_column(ws.geology.column().unwrap(), ws2.geology.column().unwrap());
+        }
+    }
+
+    /// Protects: a world with no column writes no geology member and no
+    /// geology raster (§8.4's "does not invent a column"), so re-saving a
+    /// project reopened without one keeps it without one, and reopening that
+    /// gives `"absent"` with no warning.
+    #[test]
+    fn a_world_without_a_column_writes_no_geology_entries() {
+        let (p, mut ws) = world(24601, false);
+        ws.geology = cartalith_engine::Geology::Absent(cartalith_engine::GeologyAbsent::Restored);
+        let (bytes, wrote) = archive(&p, &ws);
+        assert!(!wrote);
+        let names: Vec<String> = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap().file_names().map(str::to_string).collect();
+        for path in cartalith_io::GEOLOGY_RASTERS {
+            assert!(!names.iter().any(|n| n.as_str() == path), "{path} written for a world with no column");
+        }
+        let manifest: serde_json::Value = {
+            let mut z = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+            let f = z.by_name("project.json").unwrap();
+            serde_json::from_reader(f).unwrap()
+        };
+        assert!(manifest.get("geology").is_none(), "{manifest}");
+        let (ws2, status, warning, _) = reopen(&bytes);
+        assert_eq!((status, warning), ("absent", None));
+        assert!(matches!(ws2.geology, cartalith_engine::Geology::Absent(cartalith_engine::GeologyAbsent::Restored)));
+    }
+
+    /// Protects: backward compatibility with the two real prior-format
+    /// archives checked in (`MISTAKES.md`, "Write a backward-compatibility
+    /// test"): each still reads, carries no geology member and no geology
+    /// raster, is read as having no column (not an error), and a re-save the
+    /// way `project_save_with_documents` saves a `Loaded` world writes no
+    /// geology entry and the same raster bytes it read.
+    #[test]
+    fn projects_saved_before_the_set_open_without_a_column_and_resave_without_one() {
+        let fixtures: [(&str, &[u8]); 2] = [
+            ("project_pre_substrate_2026-09-24", include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip")),
+            ("project_384cap_512x328_2026-09-28", include_bytes!("../tests/fixtures/project_384cap_512x328_2026-09-28.zip")),
+        ];
+        for (name, bytes) in fixtures {
+            let mut data = project::read_project(Cursor::new(bytes)).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(data.geology.is_null(), "{name}: premise, written before the member");
+            let (gw, gh) = (data.save.params.gw, data.save.params.gh);
+            let before = data.rasters.clone();
+            assert!(matches!(geology_save::column_from_project(&mut data, gw, gh), Ok(None)), "{name}: no member is no column, not an error");
+            assert_eq!(data.rasters, before, "{name}: the reader took nothing");
+            // Re-save as a `Loaded` world: its own core fields and the rasters
+            // it carried, nothing geology-shaped to add.
+            let mut write = ProjectWrite::new(&data.save.params, &data.save.fields);
+            for (k, v) in &data.rasters {
+                write.raster(k.clone(), v.clone());
+            }
+            let mut buf = Vec::new();
+            project::write_project(Cursor::new(&mut buf), &write).unwrap();
+            let back = project::read_project(Cursor::new(&buf)).unwrap();
+            assert!(back.geology.is_null(), "{name}: a re-save invents no geology member");
+            for path in cartalith_io::GEOLOGY_RASTERS {
+                assert!(back.raster(path).is_none(), "{name}: {path}");
+            }
+            assert_eq!(back.rasters, data.rasters, "{name}: every raster re-saved as read");
+            assert_eq!(back.save.fields, data.save.fields, "{name}: core rasters re-saved as read");
+        }
+    }
+
+    /// A painted fixture archive, read, with `edit` applied, handed to the
+    /// reader; returns its refusal and asserts it took nothing.
+    fn refused(edit: impl Fn(&mut cartalith_io::ProjectData)) -> String {
+        let (p, mut ws) = world(24601, false);
+        paint_block(&p, &mut ws);
+        let mut data = project::read_project(Cursor::new(&archive(&p, &ws).0)).unwrap();
+        edit(&mut data);
+        let before = raster_bits(&data.rasters);
+        let e = geology_save::column_from_project(&mut data, GW, GH).expect_err("must be refused");
+        assert_eq!(raster_bits(&data.rasters), before, "a refusal takes nothing");
+        e
+    }
+
+    /// Every raster as `(path, bit patterns)`, so a NaN compares equal to the
+    /// same NaN -- `Raster`'s `PartialEq` holds `NaN != NaN`, and the contact
+    /// raster is NaN under every single-layer cell.
+    fn raster_bits(r: &BTreeMap<String, Raster>) -> Vec<(String, Vec<u32>)> {
+        r.iter()
+            .map(|(k, v)| {
+                let bits = match v {
+                    Raster::F32(x) => x.iter().map(|f| f.to_bits()).collect(),
+                    Raster::I32(x) => x.iter().map(|&i| i as u32).collect(),
+                    Raster::U8(x) => x.iter().map(|&b| u32::from(b)).collect(),
+                };
+                (k.clone(), bits)
+            })
+            .collect()
+    }
+
+    /// Sets one cell of a `u8` geology raster.
+    fn set_u8(data: &mut cartalith_io::ProjectData, path: &str, i: usize, v: u8) {
+        match data.rasters.get_mut(path) {
+            Some(Raster::U8(r)) => r[i] = v,
+            _ => panic!("premise: {path} is a u8 raster in the archive"),
+        }
+    }
+
+    /// Protects: every refusal §8.4 states fires, each by its own message,
+    /// and the edge of each legal range is accepted (rock index 10,
+    /// `NO_LAYER`, setting code 4, a foreign number under a single-layer
+    /// cell read as NaN).
+    #[test]
+    fn a_damaged_or_foreign_set_is_refused_and_names_why() {
+        assert!(refused(|d| d.geology["version"] = serde_json::json!(2)).contains("version 2"));
+        assert!(refused(|d| d.geology["grid_width"] = serde_json::json!(161)).contains("written for a 161x112 grid"));
+        assert!(refused(|d| d.geology["construction"] = serde_json::json!("sideways")).contains("construction"));
+        assert!(refused(|d| {
+            d.rasters.remove("rasters/rock_painted.u8");
+        })
+        .contains("rasters/rock_painted.u8 missing"));
+        assert!(refused(|d| {
+            d.rasters.remove("rasters/regolith.f32");
+        })
+        .contains("rasters/regolith.f32 missing"));
+        assert!(refused(|d| set_u8(d, "rasters/rock_top.u8", 7, 11)).contains("rock_top.u8 holds 11"));
+        assert!(refused(|d| set_u8(d, "rasters/rock_sub.u8", 7, 11)).contains("rock_sub.u8 holds 11"));
+        assert!(refused(|d| set_u8(d, "rasters/volcanic_setting.u8", 7, 5)).contains("volcanic_setting.u8 holds 5"));
+        assert!(refused(|d| set_u8(d, "rasters/rock_painted.u8", 7, 2)).contains("rock_painted.u8 holds 2"));
+        assert!(refused(|d| {
+            if let Some(Raster::F32(r)) = d.rasters.get_mut("rasters/regolith.f32") {
+                r[3] = -1.0e-6;
+            }
+        })
+        .contains("regolith is a thickness"));
+        // A NaN contact on a two-layer cell.
+        assert!(refused(|d| {
+            let Some(Raster::U8(sub)) = d.rasters.get("rasters/rock_sub.u8") else { panic!("premise") };
+            let i = sub.iter().position(|&s| s != NO_LAYER).expect("premise: a two-layer cell");
+            if let Some(Raster::F32(c)) = d.rasters.get_mut("rasters/rock_contact.f32") {
+                c[i] = f32::NAN;
+            }
+        })
+        .contains("not a number at cell"));
+        // An older build's re-save: rasters carried, member dropped.
+        assert!(refused(|d| d.geology = serde_json::Value::Null).contains("no geology member"));
+
+        // The legal edges are read, not refused.
+        let (p, mut ws) = world(24601, false);
+        paint_block(&p, &mut ws);
+        let mut data = project::read_project(Cursor::new(&archive(&p, &ws).0)).unwrap();
+        set_u8(&mut data, "rasters/rock_top.u8", 7, 10);
+        set_u8(&mut data, "rasters/rock_sub.u8", 8, NO_LAYER);
+        set_u8(&mut data, "rasters/volcanic_setting.u8", 7, 4);
+        if let Some(Raster::F32(c)) = data.rasters.get_mut("rasters/rock_contact.f32") {
+            c[8] = 0.5;
+        }
+        let col = geology_save::column_from_project(&mut data, GW, GH).expect("legal edges").expect("a column");
+        assert_eq!((col.rock_top[7], col.rock_sub[8], col.volcanic_setting[7]), (10, NO_LAYER, 4));
+        assert!(col.contact[8].is_nan(), "a contact under a single-layer cell is read as NaN");
     }
 }

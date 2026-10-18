@@ -784,7 +784,9 @@ world. A reader MUST compare the entry's uncompressed length against
 
 The fourteen world-substrate rasters (`flow_discharge.f32` through
 `river_floor.f32`) are §8.3's; they are MAY individually and mean nothing
-without the `substrate` member that describes them.
+without the `substrate` member that describes them. The seven geology-column
+rasters (`rock_top.u8` through `structural_surface.f32`) are §8.4's, under the
+same rule and their own `geology` member.
 
 `biome.u8`, `lithology.u8`, `koppen.u8` and `wildlife.u8` are **reserved**:
 named so that no implementation invents a second location for them, not
@@ -1025,6 +1027,124 @@ yet bit-exact once the substrate was: 32 of one test world's 191 way lengths
 reader used serde_json's fast float parse, which is not correctly rounded, and
 that moved the military summary's road density in its fifteenth digit. The
 writer was already exact; `cartalith-io` now parses with `float_roundtrip`.
+
+### 8.4 The geology column — `GEOLOGY_FIRST_SCOPE.md` §2.6, GF-8 (owner Rulings BH and BJ; `format_version` stays 2)
+
+**Why.** Since GF-1 a generated world carries a per-cell rock column
+(`cartalith_terrain::geology::GeologyColumn`): the surface rock, the rock under
+a cap, the absolute elevation of the contact between them, the regolith erosion
+left on the bedrock, and the volcanic setting. Ruling BJ made it paintable
+(GF-8) and required the painted rock to persist and the change to be backward
+compatible. Until 2026-10-18 no save carried the column: a reopened project
+rebuilt its world from the substrate (§8.3) with no column, every rock readout
+went dark, and a committed Rock paint was lost.
+
+**What.** Written beside the substrate, never without it (a column is restored
+onto the `WorldState` the substrate rebuilds):
+
+| Path | Element | Meaning | Present when |
+|---|---|---|---|
+| `rasters/rock_top.u8` | u8 | Uppermost bedrock unit, `0 … 10` (`GEOLOGY_FIRST_SCOPE.md` §2.2's index). A reader MUST refuse the set if a value is above 10 | the set is written |
+| `rasters/rock_sub.u8` | u8 | The unit beneath the contact, `0 … 10`, or **255 = no second layer**. Any other value: refuse the set | the set is written |
+| `rasters/rock_contact.f32` | f32 | Absolute normalised elevation of the contact. A writer MUST write **NaN** where `rock_sub` is 255, so a reader that forgets the gate reads NaN, never a plausible elevation. A reader MUST ignore the value there (this port reads any non-NaN value there as NaN), and MUST refuse the set if a two-layer cell's contact is not finite | the set is written |
+| `rasters/regolith.f32` | f32 | Unconsolidated thickness, in the heightmap's normalised units. `0.0` is a real value: bare rock. Negative or not finite: refuse the set | the set is written |
+| `rasters/volcanic_setting.u8` | u8 | `0` none, `1` arc, `2` rift, `3` hotspot, `4` unclassified (a volcano the simple stamping pass placed with no setting; `setting_code::UNCLASSIFIED`). Anything else: refuse the set | the set is written |
+| `rasters/rock_painted.u8` | u8 | `1` where the user painted rock, rock beneath or cap thickness (GF-8); `0` where the column is as generated. Anything else: refuse the set | `geology.painted` is true |
+| `rasters/structural_surface.f32` | f32 | The surface rock-aware construction lowered (GF-11, `Construction::Built`). Not finite: refuse the set | `geology.construction` is `"built"` |
+
+`structural_surface.f32` is not in `GEOLOGY_FIRST_SCOPE.md` §2.6's first
+table. It is stored because GF-8's re-erosion of a painted window takes a
+different branch on a constructed world (`rock_paint::reerode`'s
+`constructed`), so a column saved without its construction record would
+re-erode differently after a reopen.
+
+Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
+§8.2 describes, and every member is deflated like the rest of the archive.
+
+**The manifest member.** `project.json`'s top-level `geology`:
+
+```json
+"geology": {
+  "version": 1,
+  "grid_width": 2048,
+  "grid_height": 1311,
+  "age": 1.0,
+  "painted": true,
+  "construction": "off"
+}
+```
+
+- `version` is this set's own version. A reader MUST refuse any it does not
+  know, and then opens the world as having no column.
+- `grid_width`, `grid_height`: the grid the set was written for. A reader MUST
+  refuse a set whose grid is not `world.grid_width` × `world.grid_height`.
+- `age` is the geological clock τ (`GEOLOGY_FIRST_SCOPE.md` §4.12) of the
+  parameters the world was saved with — provenance for these grids, the reason
+  `integrated_drainage` sits in the substrate member. `params.json` still
+  carries the dial itself. Not finite: refuse the set.
+- `painted` says whether `rock_painted.u8` is present. **Absent is recorded
+  absent**: a world nobody painted writes no mask, and a reader MUST NOT
+  substitute an all-zero one or write one back on re-save.
+- `construction` is `"off"`, `"skipped"` (with `construction_skip`, one of
+  `"no_land"`, `"no_two_layer_land"`, `"world_structure_on"`) or `"built"`.
+  Anything else: refuse the set.
+
+**Writer obligations.** Write the member and every raster it promises in one
+save, or neither — and only in a save that also writes the substrate. A world
+with no column (the model off, an import, or a project reopened from a save
+without the set) writes neither. It does not invent a column.
+
+**Reader obligations.** Treat the set as complete only when the substrate is
+complete, the member is present, its `version` and grid are known, and every
+raster it promises was read at the right length and in range. Anything less is
+**no column**: the world opens with `GeologyAbsent::Restored` (*"opened from a
+save that carries no geology column …"*), every rock readout is dashed with
+that reason, and the Rock paint target is disabled with it. Geology rasters
+present with **no** member — what an older build's re-save leaves — are
+reported in `warnings` and not read.
+
+**Backward compatibility, both directions.**
+- **An old save in a new build** has no `geology` member, so it opens with no
+  column and no warning (nothing in it is damaged). Its clock is read as **1.0**
+  (`params::apply_saved_state`; τ = 1 reproduces the pre-clock pass counts).
+  Re-saved, it writes no `geology` member and no geology raster. Tested on both
+  checked-in prior-format archives (`project_bridge.rs`,
+  `geology_save_tests::projects_saved_before_the_set_open_without_a_column_and_resave_without_one`).
+- **A new save in an older build** — verified by reading the loader as it
+  stood before this change (`cartalith-io`'s `read_tree` at `4a3a3cf4`), not by
+  running an older binary: every `RASTER_SLOTS` lookup is by its own name, so
+  the seven new names are never read as anything; the archive-wide census files
+  each unregistered name under `ProjectData::foreign` with its bytes (§6.3:
+  never an error, never a warning); `project.json`'s unknown `geology` member is
+  ignored (§14.3). The terrain, substrate and civilisation layer open exactly
+  as before, with no column (`Restored`). That build's re-save re-emits the
+  carried rasters verbatim (`ProjectWrite::foreign`, §6.2) but rebuilds
+  `project.json` without the member, so a new reader then sees rasters with no
+  member and opens the world with no column, saying why. That is §8.3's safe
+  direction: a world may lose its column in an old build, but it is never read
+  wrong.
+
+**Not saved, by design.** An uncommitted Rock draft (the Rock layers are
+draft-only; `drafts/paint.json` holds committed layers, §16.3) and the undo
+history (§16.7): a reopened project cannot undo a rock painted before the
+save. Both are stated to the user in `ROCK_PAINT_SAVE_NOTE`.
+
+**This port** (`cartalith-godot`'s `geology_save.rs`, `project_bridge.rs`):
+`project_save_with_documents` returns `geology: true` when it wrote the set;
+`project_open` reports `geology: "complete"`, `"absent"` or `"incomplete"`
+(with a line in `warnings`).
+
+**What it costs** (measured 2026-10-18, `measure_a_real_save` extended for
+this set, debug build; the shell's default parameters at 2048 × 1311, seed
+24601, geology model on and processes off as the app ships, nobody painting, no
+civilisation layer): terrain and substrate **32.45 MiB**, with the geology set
+**33.35 MiB** — the set adds **0.90 MiB (+2.8 %)**. Almost all of it is
+`rock_contact.shuffled.f32` (0.825 MiB): the NaN under every single-layer cell
+and smooth contacts elsewhere compress well. `rock_top.u8` 0.037,
+`rock_sub.u8` 0.027, `regolith.shuffled.f32` 0.010 (all zero on a processes-off
+world), `volcanic_setting.u8` 0.004 MiB. One world, one seed; a processes-on
+world carries non-zero regolith and a painted one adds `rock_painted.u8`, and
+neither was measured at this size.
 
 ---
 

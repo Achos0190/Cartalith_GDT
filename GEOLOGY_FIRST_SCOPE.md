@@ -493,18 +493,27 @@ nothing.
 | `rasters/rock_sub.u8` | u8 | The unit beneath the contact, `0 … 10`, or **255 = no second layer** (`NO_LAYER`). Any other value: refuse the set | the set is written |
 | `rasters/rock_contact.f32` | f32 | Absolute normalised elevation of the contact. A writer MUST write **NaN** where `rock_sub` is 255, so a reader that forgets the gate reads NaN, never a plausible elevation. A reader MUST ignore it there, and MUST refuse the set if a two-layer cell's contact is NaN | the set is written |
 | `rasters/regolith.f32` | f32 | Unconsolidated thickness, in the heightmap's normalised units. `0.0` is a real value: bare rock | the set is written |
-| `rasters/volcanic_setting.u8` | u8 | `0` none, `1` arc, `2` rift, `3` hotspot. Anything else: refuse the set | the set is written |
+| `rasters/volcanic_setting.u8` | u8 | `0` none, `1` arc, `2` rift, `3` hotspot, `4` unclassified (`setting_code::UNCLASSIFIED`, a `stamp_volcanoes_simple` placement; §5.5 found this table had no code for it, and GF-8 added it). Anything else: refuse the set | the set is written |
 | `rasters/rock_painted.u8` | u8 | `1` where the user painted any of rock, substrate or cap (§4.13); `0` where the column is as generated | `geology.painted` is true |
+| `rasters/structural_surface.f32` | f32 | GF-11's `Construction::Built` surface. Added in GF-8: the painted window's re-erosion branches on whether the world was constructed, so the record must survive a reopen (`SAVEFILE_COMPAT.md` §8.4) | `geology.construction` is `"built"` |
 
 **The manifest member.** `project.json`'s top-level `geology`:
 
 ```json
 "geology": {
   "version": 1,
+  "grid_width": 2048,
+  "grid_height": 1311,
   "age": 1.0,
-  "painted": true
+  "painted": true,
+  "construction": "off"
 }
 ```
+
+(`grid_width`, `grid_height` and `construction` were added when GF-8 built the
+set: the grid lets a reader refuse a set spliced into another world's archive by
+name; `construction` is `"off"`, `"skipped"` with `construction_skip`, or
+`"built"`. The normative text is `SAVEFILE_COMPAT.md` §8.4.)
 
 - `version` is this set's own version. A reader MUST refuse any it does not
   know, and then opens the world as having no column.
@@ -549,8 +558,9 @@ right length and in range. Anything less is **no column**:
   the archive opens, reads as having no column, and re-saves with no
   `geology` member and no `rock_*` rasters.
 
-`SAVEFILE_COMPAT.md` gains this table as a new §8.4 in GF-1. The
-`rock_painted.u8` row is added in GF-8.
+`SAVEFILE_COMPAT.md` §8.4 carries this table; GF-1 did not write it, and GF-8
+built the whole set, `rock_painted.u8` included (§7, "GF-8 measured: the save
+slice").
 
 ---
 
@@ -1050,6 +1060,14 @@ keys (`rock_top`, `rock_sub`, `rock_cap`):
   against `project_bridge.rs`'s reader, before relying on it.
 - A document whose `gw`/`gh` are not the world's is refused, as
   `SAVEFILE_COMPAT.md` already requires of `paint.json`.
+
+*As built (GF-8's save slice, 2026-10-18):* the column, the mask and the
+construction record persist (`SAVEFILE_COMPAT.md` §8.4). **The three Rock draft
+layers do not**: an uncommitted Rock dab is lost on save, as an uncommitted dab
+of every other target is (`drafts/paint.json` holds committed layers only), and
+the shell's save note says "commit it before saving". Persisting the drafts is
+left as written above for the owner to schedule; it needs no format change
+beyond the three keys.
 
 **Regeneration** replaces the column and the paint together, as it replaces a
 sculpted heightmap. The shell already asks before a regenerate that would
@@ -5061,7 +5079,8 @@ What this slice adds:
 - **Not built (slice 3):** the save set (§2.6's column rasters,
   `rock_painted.u8`, `geology.painted`, the three draft layers in
   `drafts/paint.json`). Until it exists, reopening a project loses the column,
-  and with it the painted rock. The UI says so.
+  and with it the painted rock. The UI says so. *(Since built, without the
+  draft layers: "GF-8 measured: the save slice" below.)*
 
 **Decision taken here, labelled.** When a regenerate replaces the engine's
 `PaintEditor`, the engine goes back to Biome but the shell keeps its selection.
@@ -5069,7 +5088,7 @@ What this slice adds:
 and `_paint_ensure_rock_layer()` re-selects the Rock layer in the engine before
 each Rock stroke. **The override layers were left exactly as they were**, which
 includes the same pre-existing mismatch after a regenerate (reported, not
-fixed).
+fixed here; fixed in the save slice by `_paint_resync_layer`).
 
 **Measured** (`_gf8rock_probe.gd`, windowed, scratch copy, debug DLL built
 from this change; seed 483920, 512 x 328, 800 km). The engine's app world first,
@@ -5105,7 +5124,92 @@ now reaches a later check, *"returning to 0 restores the original pixels
 exactly"*, which fails. Its frames show deep-zoom LOD tile detail arriving
 between the two captures (the land is blocky in the first frame and detailed in
 the second). That is a probe timing issue the old failure hid. It is reported and
-not fixed.
+not fixed here (the save slice makes the probe wait for a quiet pyramid).
+
+### GF-8 measured: the save slice (2026-10-18)
+
+*Design and evidence, not status.* Opened at the symbols first: `cartalith-io`
+registered no geology raster, `project.json` had no `geology` member,
+`substrate::world_from_project` hard-coded `Geology::Absent(GeologyAbsent::Restored)`
+(*"opened from a save: rock columns are not saved yet"*), and every Rock surface
+said "not saved with the project yet".
+
+What this slice adds:
+- **The set** (`SAVEFILE_COMPAT.md` §8.4, the normative text): five column
+  rasters, `rock_painted.u8` only when the mask exists, and
+  `structural_surface.f32` only on a constructed world, under a `geology`
+  member with `version`, the grid, `age`, `painted` and `construction`.
+  `cartalith-io` registers the seven slots (`GEOLOGY_RASTERS`,
+  `GEOLOGY_MEMBER`) and carries the member opaquely; `cartalith-godot`'s new
+  `geology_save.rs` writes and reads it. Written only with the substrate;
+  read only onto a world the substrate rebuilt.
+- **Two departures from §2.6, recorded there:** volcanic setting code `4`
+  (unclassified, which §5.5 found the table lacked) is legal; and the
+  construction record is stored, because the painted window's re-erosion
+  branches on it.
+- **Refusals, each its own message:** unknown version, another grid, an
+  unknown construction value, a promised raster missing, any value out of range
+  (rock index above 10, `rock_sub` neither a rock nor 255, setting above 4, mask
+  above 1, negative or non-finite regolith, a non-finite contact under a
+  two-layer cell), and geology rasters with no member (an older build's
+  re-save). A refusal takes nothing from the archive and opens the world with
+  no column, reporting why (`project_open`'s `geology` key and `warnings`).
+- **`GeologyAbsent::Restored`'s reason** now says what it is: *"opened from a
+  save that carries no geology column (saved before the column was stored,
+  re-saved by an older build, or with the column damaged)"*.
+- **Shell.** `ROCK_PAINT_SAVE_NOTE` now states what a save keeps (committed
+  rock, as the column) and what it does not (an uncommitted Rock draft, the
+  undo history, and the column in a build from before 2026-10-18).
+  `rock_paint_status` and the commit result carry `saved: true`;
+  `rock_paint_ui.gd::save_short` / `save_label` pick the short text from it, so
+  an older binary still reads "not saved". The dock notes, the tool-bar note and
+  the commit status line use it; the regenerate prompt adds the save note only
+  for a binary that does not save. **Where Rock paint lives in the UI did not
+  move.**
+- **Also fixed** (slice 2's findings): `world_workspace.gd::_paint_resync_layer`
+  puts the engine's new `PaintEditor` back on the shell's layer after a generate
+  or a load (Terrain and Splat included; a Rock layer the world refuses falls
+  back to Biome with the reason). `_paintorig_probe.gd` waits for a quiet tile
+  pyramid before its first capture and before "returning to 0", as
+  `_mapsharp_probe.gd` does; the check itself is unchanged and its negative
+  control is now two captures `SETTLE` frames apart rather than one frame.
+- **Not built:** the three Rock draft layers in `drafts/paint.json` (§4.13's
+  persistence paragraph, amended).
+
+**Measured.**
+- Size, 2048 × 1311, seed 24601, the app's parameters: **+0.90 MiB (+2.8 %)**
+  on a 32.45 MiB archive; details in `SAVEFILE_COMPAT.md` §8.4.
+- Tests (`project_bridge.rs` `geology_save_tests`, 5; `cartalith-io`
+  `the_geology_member_and_rasters_round_trip`, 1): the column round-trips bit for
+  bit at seeds 24601 (painted through the real bake, processes off) and 483920
+  (processes and relief model on, unpainted: the mask comes back absent); every
+  construction variant round-trips; a world with no column writes no geology
+  entry; both checked-in prior-format archives open with no column and re-save
+  with no geology entry and identical rasters; every refusal fires. **Mutants:
+  12 of 12 killed** (each range check, the NaN-ignore, the painted flag, the
+  version, grid and stray-raster checks, the regolith sign, the two-layer NaN
+  check, the constructed surface). The shell resync: removing its two signal
+  connections fails `_gf8rock`'s resync check (engine on Biome, shell on
+  Terrain).
+- `_gf8rock_probe.gd` (legs C and D added; windowed, scratch copy, this DLL):
+  desktop 53/53, phone 393 × 852 53/53, tablet 53/53 (window clamped to
+  1600 × 1031). Leg C: the whole-map field and column digests after
+  `_write_project_busy` → `open_project_busy` equal those before; 113 painted
+  cells before and after; Rock still available; `sample_cell`'s rock keys back
+  and equal; Undo after the reopen changes nothing (the history is not saved).
+  Leg D: the pre-substrate fixture opens with Rock disabled and no rock keys.
+- Regression probes from the same scratch copy: `_gsw` 339/0, `_lookstate`
+  23/0, `_paintwire` PASS, `_undofixes` 11/11, `_savereopen` PASS,
+  `_jprestore` PASS (35 checks; it now requires the rock keys on the reopened
+  world and compares them byte for byte with the rest of `sample_cell`, where it
+  used to assert their absence), `_paintorig` desktop 0 failures and **phone 0
+  failures** (the LOD-timing failure is gone with the quiet-pyramid wait).
+- `cargo test --workspace`: 226 result lines, 6313 passed, 0 failed, 113
+  ignored. Every touched `.gd` and `shell/app.gd` pass `--check-only`.
+- **Not verified by running:** an older build opening a new archive. The
+  forward direction is stated from reading the pre-change loader
+  (`SAVEFILE_COMPAT.md` §8.4).
+
 
 ## 8. Constraints any lane on this scope must carry
 
