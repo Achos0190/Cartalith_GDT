@@ -15,7 +15,12 @@
 //!   as a property of the function;
 //! * the screen (`cell_color`), the export (`BakeFields::pixel`) and a
 //!   deep-zoom tile draw the canopy from one function at their own footprint,
-//!   so at one pixel per cell all three agree.
+//!   so at one pixel per cell all three agree;
+//! * under the kilometre zoom-detail law a deep-zoom tile takes its material
+//!   *category* from the grid-scale slope and draws the sub-cell relief as a
+//!   zero-mean *tone* (`micro_relief_tone`, `apply_micro_tone`), in every
+//!   look (the 2026-10-18 follow-up that generalised the canopy look's
+//!   coarse-slope fix).
 //!
 //! Pixel pins of the shipped looks live where they always have
 //! (`export_raster.rs`' census, `color_space.rs`); this file pins behaviour.
@@ -414,63 +419,236 @@ fn a_tile_agrees_with_the_screen_under_the_canopy() {
     assert_ne!(tile, render::render_biome_tile_rgba(&c0, &w.field, GW, GH, bounds, &tf0), "the canopy must reach the tile");
 }
 
-/// Protects: `coarse_slope_f` -- the grid-scale slope the canopy look's tile
-/// materials read -- at an integer position is the plain central difference
-/// of the coarse field over one cell either side, halved, worked here by hand
-/// from the fixture's own heights (0.001 per cell in x, 0.0007 in y), and at
-/// a half-cell it is the same plane's slope (bilinear sampling of a plane).
+/// Protects: `coarse_grad_f` -- the grid-scale gradient a kilometre-law
+/// tile's materials and snow facing read -- at an integer position is the
+/// plain central difference of the coarse field over one cell either side,
+/// halved, worked here by hand from the fixture's own heights (0.001 per cell
+/// in x, 0.0007 in y), and at a half-cell it is the same plane's gradient
+/// (bilinear sampling of a plane).
 #[test]
-fn coarse_slope_is_the_grid_central_difference() {
+fn coarse_grad_is_the_grid_central_difference() {
     let w = world();
     let c = ctx(&w, canopy_on(), true);
-    let want = (0.001f64).hypot(0.0007);
     for (x, y) in [(10.0, 10.0), (20.0, 30.0), (40.5, 12.5)] {
-        let got = render::coarse_slope_f(&c, x, y);
+        let (gx, gy) = render::coarse_grad_f(&c, x, y);
+        let got = gx.hypot(gy);
+        let want = (0.001f64).hypot(0.0007);
+        assert!((gx - 0.001).abs() < 1e-6 && (gy - 0.0007).abs() < 1e-6, "gradient at ({x}, {y}) is ({gx}, {gy}), the plane's is (0.001, 0.0007)");
         assert!((got - want).abs() < 1e-6, "slope at ({x}, {y}) is {got}, the plane's is {want}");
     }
 }
 
-/// Protects: in the canopy look, a deep-zoom tile's MATERIALS read the
-/// grid-scale slope, so sub-cell relief (what the kilometre zoom-detail law
-/// adds) cannot turn a forest into rock as the view zooms in -- the measured
-/// failure behind `coarse_slope_f`. A tile 8x magnified over the forest half,
-/// rendered twice: its heights the coarse plane, and the plane plus a steep
-/// ripple (0.004 height units over an eighth of a cell, far past
-/// `material_weights`' rock knee). Shading is off (`exag 0`) and so is the
-/// LOD-D5 micro band (`detail_scale_strength 0`), so only the materials can
-/// tell the two apart: under the canopy look they agree to a fraction of a
-/// level; with the canopy off (the tile-slope path) the ripple reads as rock
-/// and the two differ by many levels -- the control that shows the ripple is
-/// steep enough to be a test.
-#[test]
-fn canopy_tile_materials_ignore_sub_cell_relief() {
-    let w = world();
+/// The 8x-magnified tile over the fixture's forest half that the test below
+/// renders: the coarse plane plus `amp` times a steep ripple of period four
+/// pixels (`sin(i·π/2)·cos(j·π/2)`, values `0` and `±1` only, so exactly
+/// zero-mean over the tile).
+fn ripple_tile(amp: f64) -> (Vec<f32>, usize, usize, TileBounds) {
     let (tw, th) = (64usize, 64usize);
     let bounds = TileBounds { x: 8.0, y: 16.0, w: 8.0, h: 8.0 };
-    let heights = |amp: f64| -> Vec<f32> {
-        let mut tile = vec![0f32; tw * th];
-        for j in 0..th {
-            for i in 0..tw {
-                let (gx, gy) = (bounds.x + i as f64 / (tw - 1) as f64 * bounds.w, bounds.y + j as f64 / (th - 1) as f64 * bounds.h);
-                let plane = 0.50 + 0.001 * gx + 0.0007 * gy;
-                let ripple = amp * ((i as f64) * std::f64::consts::PI * 0.5).sin() * ((j as f64) * std::f64::consts::PI * 0.5).cos();
-                tile[j * tw + i] = (plane + ripple) as f32;
+    let mut tile = vec![0f32; tw * th];
+    for j in 0..th {
+        for i in 0..tw {
+            let (gx, gy) = (bounds.x + i as f64 / (tw - 1) as f64 * bounds.w, bounds.y + j as f64 / (th - 1) as f64 * bounds.h);
+            let plane = 0.50 + 0.001 * gx + 0.0007 * gy;
+            let ripple = amp * ((i as f64) * std::f64::consts::PI * 0.5).sin() * ((j as f64) * std::f64::consts::PI * 0.5).cos();
+            tile[j * tw + i] = (plane + ripple) as f32;
+        }
+    }
+    (tile, tw, th, bounds)
+}
+
+/// `(mean |rippled - flat| per colour byte, the largest per-channel shift of
+/// the tile's mean colour)` for one appearance on [`ripple_tile`]: the first
+/// is texture, the second a change of what the stand is on average.
+fn ripple_effect(a: TerrainAppearance) -> (f64, f64) {
+    let w = world();
+    let (flat, tw, th, bounds) = ripple_tile(0.0);
+    let (rippled, _, _, _) = ripple_tile(0.004);
+    let c = ctx(&w, a, true);
+    let tf = TileFields::new(&c, Some(&screen(&c))).without_lakes();
+    let p0 = render::render_biome_tile_rgba(&c, &flat, tw, th, bounds, &tf);
+    let p1 = render::render_biome_tile_rgba(&c, &rippled, tw, th, bounds, &tf);
+    assert_eq!(p0.len(), tw * th * 4);
+    let n = (tw * th) as f64;
+    let per_px = p0.iter().zip(&p1).enumerate().filter(|(k, _)| k % 4 != 3).map(|(_, (a, b))| a.abs_diff(*b) as f64).sum::<f64>() / (3.0 * n);
+    let mean = |p: &[u8], ch: usize| p.chunks(4).map(|q| q[ch] as f64).sum::<f64>() / n;
+    let shift = (0..3).map(|ch| (mean(&p1, ch) - mean(&p0, ch)).abs()).fold(0.0, f64::max);
+    (per_px, shift)
+}
+
+/// Protects: **category from the grid, texture from the tile** (Ruling CI
+/// follow-up, 2026-10-18), in the shipped default look and in the canopy
+/// look alike, under the kilometre zoom-detail law. Sub-cell relief far past
+/// `material_weights`' rock knee (0.004 height units over a quarter of a
+/// cell) must not change what the ground IS: the rippled tile's mean colour
+/// stays within half a level of the flat one's -- while the relief DOES
+/// arrive, as tone (at least two levels per pixel on average). The control is
+/// the reference schedule (`zoom_detail_km` 0, the tile's own slope feeding
+/// the materials), where the same ripple reads as rock and moves the mean by
+/// more than three levels, so the ripple is steep enough to be a test.
+/// Shading (`exag 0`) and the LOD-D5 micro band (`detail_scale_strength 0`)
+/// are off, so only the materials and the tone can tell the tiles apart.
+/// Replaces `canopy_tile_materials_ignore_sub_cell_relief` (`de1a07ff`, canopy
+/// look only), whose per-pixel bound the tone now exceeds by design.
+#[test]
+fn km_tile_materials_ignore_sub_cell_relief_in_every_look() {
+    let quiet = |a: TerrainAppearance| TerrainAppearance { exag: 0.0, detail_scale_strength: 0.0, ..a };
+    for (name, a) in [("default", plain()), ("canopy", canopy_on())] {
+        assert!(a.zoom_detail_km > 0.0, "{name}: the fixture must be a kilometre-law tile");
+        let (tex, shift) = ripple_effect(quiet(a.clone()));
+        println!("{name}: km law: per-pixel {tex:.3}, mean shift {shift:.3} levels");
+        assert!(shift < 0.5, "{name}: sub-cell relief moved the stand's mean colour by {shift:.3} levels");
+        assert!(tex > 2.0, "{name}: the sub-cell relief did not arrive as texture ({tex:.3} levels per pixel)");
+        let (_, ctl) = ripple_effect(quiet(TerrainAppearance { zoom_detail_km: 0.0, ..a }));
+        println!("{name}: reference schedule: mean shift {ctl:.3} levels");
+        assert!(ctl > 3.0, "{name}: the ripple is not steep enough to be a test ({ctl:.3} levels)");
+    }
+}
+
+/// Protects: `micro_relief_tone`'s law against numbers worked by hand: zero
+/// for no relief, a degenerate scale or a non-finite input; positive on
+/// convex ground (a negative Laplacian), negative in hollows; exactly
+/// `tanh(1)` where the normalised curvature equals the literal `0.04`
+/// (`MICRO_TONE_REF`); never outside `[-1, 1]`. And its zoom law: under the
+/// `H = 1` spectrum one octave at a fixed pixel wavelength has a pixel
+/// Laplacian proportional to cells per pixel, so it gives the same tone at
+/// any zoom; detail at a fixed GROUND wavelength (2 cells, amplitude 0.002,
+/// read by a one-pixel stencil) loses tone as the view comes in, so it fades
+/// rather than being magnified into blotches.
+#[test]
+fn micro_relief_tone_is_signed_bounded_and_keyed_to_zoom() {
+    assert_eq!(render::micro_relief_tone(0.0, 0.5), 0.0);
+    assert_eq!(render::micro_relief_tone(-1.0, 0.0), 0.0);
+    assert_eq!(render::micro_relief_tone(f64::NAN, 0.5), 0.0);
+    assert!(render::micro_relief_tone(-0.01, 0.5) > 0.0, "convex must be positive");
+    assert!(render::micro_relief_tone(0.01, 0.5) < 0.0, "concave must be negative");
+    for cpp in [0.5, 0.125, 0.03] {
+        let g = render::micro_relief_tone(-0.04 * cpp, cpp);
+        assert!((g - 1f64.tanh()).abs() < 1e-12, "at the reference scale the tone is tanh(1), got {g} at {cpp}");
+        assert!(render::micro_relief_tone(-1e6, cpp) <= 1.0 && render::micro_relief_tone(1e6, cpp) >= -1.0);
+    }
+    let octave = |cpp: f64| render::micro_relief_tone(-0.05 * cpp, cpp);
+    assert!((octave(0.5) - octave(0.03)).abs() < 1e-12, "one H = 1 octave must read the same at every zoom");
+    // The one-pixel Laplacian of A·cos(2πx/L) at its crest is
+    // A·(2cos(2π·cpp/L) - 2), negative (convex).
+    let fixed = |cpp: f64| render::micro_relief_tone(0.002 * (2.0 * (2.0 * std::f64::consts::PI * cpp / 2.0).cos() - 2.0), cpp);
+    let (far, near) = (fixed(0.25), fixed(0.03));
+    println!("fixed-ground detail tone: {far:.4} at 0.25 cells/px, {near:.4} at 0.03");
+    assert!(far > 0.0 && near > 0.0 && near < 0.5 * far, "fixed-ground detail must fade as the view comes in: {far} -> {near}");
+}
+
+/// Protects: `apply_micro_tone` against its stated literals -- `0.35` of the
+/// way toward the rock colour and `8 %` of value per unit tone -- and its
+/// linearity: `+g` and `-g` average back to the input exactly (a zero-mean
+/// tone keeps a stand's mean colour), `g = 0` is the identity, and on bare
+/// rock only the value half acts.
+#[test]
+fn apply_micro_tone_is_a_linear_bounded_tint() {
+    let (c, rock) = ((60.0, 120.0, 50.0), (140.0, 130.0, 120.0));
+    assert_eq!(render::apply_micro_tone(c, rock, 0.0), c);
+    for g in [0.3, 0.75, 1.0] {
+        let up = render::apply_micro_tone(c, rock, g);
+        let dn = render::apply_micro_tone(c, rock, -g);
+        let want = (c.0 + 0.35 * g * (rock.0 - c.0) + 0.08 * g * c.0, c.1 + 0.35 * g * (rock.1 - c.1) + 0.08 * g * c.1, c.2 + 0.35 * g * (rock.2 - c.2) + 0.08 * g * c.2);
+        assert!((up.0 - want.0).abs() < 1e-9 && (up.1 - want.1).abs() < 1e-9 && (up.2 - want.2).abs() < 1e-9, "{up:?} vs {want:?}");
+        assert!(((up.0 + dn.0) / 2.0 - c.0).abs() < 1e-9 && ((up.1 + dn.1) / 2.0 - c.1).abs() < 1e-9 && ((up.2 + dn.2) / 2.0 - c.2).abs() < 1e-9);
+        let on_rock = render::apply_micro_tone(rock, rock, g);
+        assert!((on_rock.0 - rock.0 * (1.0 + 0.08 * g)).abs() < 1e-9);
+    }
+}
+
+/// Protects: `tile_micro_tone` reads only the relief the grid does NOT
+/// carry. Over a curved coarse world (a bowl, `0.005·r²` in cells), a tile whose heights ARE the bilinear coarse field has
+/// a large Laplacian of its own but a tone of zero, because the coarse
+/// field's Laplacian at the same offsets cancels it; the same tile plus a
+/// one-pixel bump on top has a positive (convex) tone there; and the
+/// buffer's outermost pixel reads zero whatever the heights (the
+/// unpadded-tile rule).
+#[test]
+fn tile_micro_tone_cancels_the_coarse_curvature() {
+    let n = GW * GH;
+    let (mut field, temp, rain) = (vec![0f32; n], vec![14f32; n], vec![0.85f32; n]);
+    for y in 0..GH {
+        for x in 0..GW {
+            let (dx, dy) = (x as f64 - 32.0, y as f64 - 24.0);
+            field[y * GW + x] = (0.5 + 0.005 * (dx * dx + dy * dy)) as f32;
+        }
+    }
+    let c = RenderCtx::with_appearance(&field, &temp, &rain, None, GW, GH, SEA, false, 55.0, 5.0, plain()).with_map_scale(MAP_KM);
+    // A 2x-magnified 33 x 33 buffer over cells 10..26 x 10..26, heights from
+    // the coarse field itself (bilinear at each pixel's grid position).
+    let (pw, ph, cxy) = (33usize, 33usize, 0.5f64);
+    let at = |i: usize, j: usize| {
+        let (gx, gy) = (10.0 + i as f64 * cxy, 10.0 + j as f64 * cxy);
+        let (x0, y0) = (gx.floor() as usize, gy.floor() as usize);
+        let (tx, ty) = (gx - x0 as f64, gy - y0 as f64);
+        let f = |x: usize, y: usize| field[y * GW + x] as f64;
+        (f(x0, y0) * (1.0 - tx) + f(x0 + 1, y0) * tx) * (1.0 - ty) + (f(x0, y0 + 1) * (1.0 - tx) + f(x0 + 1, y0 + 1) * tx) * ty
+    };
+    let mut tile: Vec<f32> = (0..pw * ph).map(|k| at(k % pw, k / pw) as f32).collect();
+    let tone = |t: &[f32], i: usize, j: usize| render::tile_micro_tone(&c, t, pw, ph, i, j, 10.0 + i as f64 * cxy, 10.0 + j as f64 * cxy, cxy, cxy);
+    let mut worst: f64 = 0.0;
+    for j in 1..ph - 1 {
+        for i in 1..pw - 1 {
+            worst = worst.max(tone(&tile, i, j).abs());
+        }
+    }
+    // The coarse bowl alone, uncancelled, reads tanh(-(4 * 0.005 * 0.5^2) /
+    // 0.5 / 0.04) = -0.24 on this grid; the f32 heights leave far less.
+    assert!(worst < 0.01, "the coarse field's own curvature leaked into the tone: {worst}");
+    tile[16 * pw + 16] += 0.002;
+    assert!(tone(&tile, 16, 16) > 0.3, "a convex bump must read as positive tone: {}", tone(&tile, 16, 16));
+    assert_eq!(tone(&tile, 0, 16), 0.0);
+    assert_eq!(tone(&tile, 16, ph - 1), 0.0);
+}
+
+/// Protects: under the kilometre law the snow line's facing (Ruling AP's
+/// `snow_aspect_c`) is a material decision read from the grid's gradient,
+/// not the tile's: sub-cell ripples must not flip snow on and off pixel by
+/// pixel. A -1 C world (mid snow ramp) on a plane rising 0.01 per cell to
+/// the south, an 8x tile carrying a ripple along y (`0.004·sin(j·π/2)`).
+/// Rows `j ≡ 0` and `j ≡ 2 (mod 4)` have the same height, zero curvature
+/// (so zero tone) and OPPOSITE tile gradients (+ and -), so with the facing
+/// taken from the grid they draw the same colour; with the tile's facing
+/// they would sit on opposite sides of the snow line. Light off (`exag 0`)
+/// and the LOD-D5 micro band off, so only the materials can differ.
+#[test]
+fn km_tile_snow_facing_reads_the_grid_gradient() {
+    let n = GW * GH;
+    let (mut field, temp, rain) = (vec![0f32; n], vec![-1f32; n], vec![0.5f32; n]);
+    for y in 0..GH {
+        for x in 0..GW {
+            field[y * GW + x] = (0.5 + 0.01 * y as f64) as f32;
+        }
+    }
+    let a = TerrainAppearance { exag: 0.0, detail_scale_strength: 0.0, ..plain() };
+    assert!(a.snow_aspect_c > 0.0, "the shipped look must carry the snow facing for this to test anything");
+    let c = RenderCtx::with_appearance(&field, &temp, &rain, None, GW, GH, SEA, false, 55.0, 5.0, a).with_map_scale(MAP_KM);
+    let (tw, th) = (64usize, 64usize);
+    let bounds = TileBounds { x: 20.0, y: 10.0, w: 8.0, h: 8.0 };
+    let mut tile = vec![0f32; tw * th];
+    for j in 0..th {
+        for i in 0..tw {
+            let gy = bounds.y + j as f64 / (th - 1) as f64 * bounds.h;
+            tile[j * tw + i] = (0.5 + 0.01 * gy + 0.004 * (j as f64 * std::f64::consts::PI * 0.5).sin()) as f32;
+        }
+    }
+    let tf = TileFields::new(&c, Some(&screen(&c))).without_lakes();
+    let p = render::render_biome_tile_rgba(&c, &tile, tw, th, bounds, &tf);
+    assert_eq!(p.len(), tw * th * 4);
+    // Mean luma of the interior rows j = 4k (rising) and j = 4k + 2 (falling).
+    let row_luma = |m: usize| {
+        let (mut s, mut k) = (0.0, 0.0);
+        for j in (4..th - 4).filter(|j| j % 4 == m) {
+            for i in 2..tw - 2 {
+                let q = &p[(j * tw + i) * 4..];
+                s += 0.2126 * q[0] as f64 + 0.7152 * q[1] as f64 + 0.0722 * q[2] as f64;
+                k += 1.0;
             }
         }
-        tile
+        s / k
     };
-    let (flat, rippled) = (heights(0.0), heights(0.004));
-    let mean_diff = |a: TerrainAppearance| -> f64 {
-        let c = ctx(&w, a, true);
-        let tf = TileFields::new(&c, Some(&screen(&c))).without_lakes();
-        let p0 = render::render_biome_tile_rgba(&c, &flat, tw, th, bounds, &tf);
-        let p1 = render::render_biome_tile_rgba(&c, &rippled, tw, th, bounds, &tf);
-        assert_eq!(p0.len(), tw * th * 4);
-        p0.iter().zip(&p1).map(|(a, b)| a.abs_diff(*b) as f64).sum::<f64>() / p0.len() as f64
-    };
-    let on = mean_diff(TerrainAppearance { exag: 0.0, detail_scale_strength: 0.0, ..canopy_on() });
-    let off = mean_diff(TerrainAppearance { exag: 0.0, detail_scale_strength: 0.0, ..plain() });
-    println!("mean |rippled - flat| per channel: canopy look {on:.3}, tile-slope path {off:.3}");
-    assert!(on < 0.5, "the canopy look's materials moved under sub-cell relief ({on:.3} levels)");
-    assert!(off > 3.0, "the ripple is not steep enough to be a test ({off:.3} levels)");
+    let (rise, fall) = (row_luma(0), row_luma(2));
+    println!("rows with a rising tile gradient {rise:.2}, falling {fall:.2}");
+    assert!((rise - fall).abs() < 1.0, "the snow facing followed the sub-cell ripple: {rise:.2} vs {fall:.2}");
 }

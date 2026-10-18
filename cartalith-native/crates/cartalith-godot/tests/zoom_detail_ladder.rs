@@ -9,8 +9,9 @@
 //!   `render::tile_amplify_opts` picks (the one function `lod_bridge::
 //!   tile_heights` calls), coloured by `render::render_biome_tile_rgba_water`
 //!   over a real generated world under the app's own generation parameters
-//!   (`params::defaults()`), an archetype's knobs, and the app's default look
-//!   (Quality tier + Natural Vibrant).
+//!   (`params::defaults()`), an archetype's knobs (or Classic's defaults), and
+//!   the app's default look (Quality tier + Natural Vibrant) or, with
+//!   `ZD_LOOK=satellite`, the Satellite relief look.
 //! - It is **not** the screen: no river layer, no lithology, no RV-3 valley
 //!   field, no LOD-D3 morph, and the screen is composited here by bilinear
 //!   sampling of the tile at the level `pyramid_level_for_zoom` picks. Those
@@ -22,7 +23,10 @@
 //! It writes one PNG per (world, target, zoom, law) into `ZD_OUT` and nothing
 //! else; the statistics are computed from those files by the same Python
 //! script that reads the Godot captures, so the two ladders share one set of
-//! definitions. `#[ignore]`d: it generates three 2048 x 1311 worlds.
+//! definitions. `#[ignore]`d: it generates up to four 2048 x 1311 worlds
+//! (`ZD_WORLDS` picks them by tag prefix). Environment: `ZD_OUT` (required),
+//! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
+//! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`.
 //!
 //! ```text
 //! ZD_OUT=<dir> cargo test -p cartalith-godot --test zoom_detail_ladder -- --ignored --nocapture
@@ -60,7 +64,9 @@ const SCREEN_H: usize = 858;
 struct WorldSpec {
     tag: &'static str,
     seed: i32,
-    archetype: [f64; 5],
+    /// An archetype's knobs, or `None` for Classic (the app's own
+    /// `world_structure` defaults, as the shell's `archetype: ""` generates).
+    archetype: Option<[f64; 5]>,
     width_km: f64,
 }
 
@@ -81,23 +87,25 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     p.tect.seed = w.seed;
     p.map_width_km = w.width_km;
     p.sea_level = 0.42;
-    let k = w.archetype;
-    p.world_structure = cartalith_engine::WorldStructureParams {
-        enabled: true,
-        continentality: k[0],
-        fragmentation: k[1],
-        tectonic_energy: k[2],
-        ocean_depth: k[3],
-        hotspot_density: k[4],
-    };
+    if let Some(k) = w.archetype {
+        p.world_structure = cartalith_engine::WorldStructureParams {
+            enabled: true,
+            continentality: k[0],
+            fragmentation: k[1],
+            tectonic_energy: k[2],
+            ocean_depth: k[3],
+            hotspot_density: k[4],
+        };
+    }
     p
 }
 
-/// Picks four targets on the grid, by **inputs** and never by the value under
+/// Picks five targets on the grid, by **inputs** and never by the value under
 /// test (`MISTAKES.md`, "Measure an effect inside a subset of pixels"):
 /// mountain = highest land cell; coast = the land cell beside the sea closest
 /// to the map centre; forest = the wettest temperate land cell at least 20
-/// cells from the sea; cold = the coldest land cell. Each is kept 40 cells
+/// cells from the sea; forest2 = the same rule at least 250 cells from
+/// forest; cold = the coldest land cell. Each is kept 40 cells
 /// from the edge so the x4 frame stays on the map.
 fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'static str, f64, f64)> {
     let sea = ws.sea_level as f32;
@@ -167,6 +175,21 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
     }
     if best_w.0 > f32::MIN {
         out.push(("forest", best_w.1 as f64, best_w.2 as f64));
+        // A second forest, by the same inputs, at least 250 cells from the
+        // first: one forest per world is one sample (`MISTAKES.md`).
+        let mut best_w2 = (f32::MIN, 0, 0);
+        for y in (m..gh - m).step_by(4) {
+            for x in (m..gw - m).step_by(4) {
+                let i = y * gw + x;
+                let far = (x as f64 - best_w.1 as f64).hypot(y as f64 - best_w.2 as f64) > 250.0;
+                if f[i] >= sea && far && (5.0..20.0).contains(&ws.temperature[i]) && ws.rainfall[i] > best_w2.0 && !near_sea(x, y) {
+                    best_w2 = (ws.rainfall[i], x, y);
+                }
+            }
+        }
+        if best_w2.0 > f32::MIN {
+            out.push(("forest2", best_w2.1 as f64, best_w2.2 as f64));
+        }
     }
     out
 }
@@ -265,10 +288,18 @@ fn zoom_detail_ladder() {
     // `0,1`: the reference law and the shipped kilometre law).
     let laws: Vec<f64> = std::env::var("ZD_LAWS").unwrap_or_else(|_| "0,1".into()).split(',').map(|s| s.parse().unwrap()).collect();
     let worlds = [
-        WorldSpec { tag: "s24601_archipelago_800km", seed: 24601, archetype: ARCHIPELAGO, width_km: 800.0 },
-        WorldSpec { tag: "s314159_earth_800km", seed: 314159, archetype: EARTH, width_km: 800.0 },
-        WorldSpec { tag: "s24601_earth_3000km", seed: 24601, archetype: EARTH, width_km: 3000.0 },
+        WorldSpec { tag: "s24601_archipelago_800km", seed: 24601, archetype: Some(ARCHIPELAGO), width_km: 800.0 },
+        WorldSpec { tag: "s314159_earth_800km", seed: 314159, archetype: Some(EARTH), width_km: 800.0 },
+        WorldSpec { tag: "s24601_earth_3000km", seed: 24601, archetype: Some(EARTH), width_km: 3000.0 },
+        WorldSpec { tag: "s71077345_classic_800km", seed: 71077345, archetype: None, width_km: 800.0 },
     ];
+    // `ZD_LOOK` = `vibrant` (the default, the app's look) or `satellite`
+    // (Ruling CI item 2's "Satellite relief"); anything else is refused.
+    let look = match std::env::var("ZD_LOOK").unwrap_or_else(|_| "vibrant".into()).as_str() {
+        "vibrant" => render::LOOK_VIBRANT,
+        "satellite" => render::LOOK_SATELLITE,
+        other => panic!("ZD_LOOK={other}: expected vibrant or satellite"),
+    };
     let only = std::env::var("ZD_WORLDS").ok();
     for w in &worlds {
         if let Some(o) = &only
@@ -303,7 +334,7 @@ fn zoom_detail_ladder() {
         // from, so the two ladders frame the same cells.
         println!("TARGETS {} {} {:?}", w.tag, w.seed, tg);
         for &law in &laws {
-            let a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(render::LOOK_VIBRANT) };
+            let a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(look) };
             let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
             let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context");
             let tf = TileFields::new(&ctx, None);
@@ -334,7 +365,7 @@ fn zoom_detail_ladder() {
 #[ignore = "generates a 2048x1311 world and times tile synthesis; run explicitly and alone"]
 fn zoom_detail_tile_cost() {
     let (gw, gh) = (2048usize, 1311usize);
-    let w = WorldSpec { tag: "s314159_earth_800km", seed: 314159, archetype: EARTH, width_km: 800.0 };
+    let w = WorldSpec { tag: "s314159_earth_800km", seed: 314159, archetype: Some(EARTH), width_km: 800.0 };
     let p = world_params(&w, gw, gh);
     let ws = cartalith_engine::generate_terrain(&p);
     let shipped = TerrainAppearance::for_tier(QualityTier::Quality).with_look(render::LOOK_VIBRANT);

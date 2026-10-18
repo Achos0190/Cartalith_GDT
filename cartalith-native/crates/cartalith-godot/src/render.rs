@@ -6690,6 +6690,18 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         c = apply_wetness(c, twi, appearance.wetness);
     }
 
+    // Ruling CI follow-up (2026-10-18): the deep-zoom tile's sub-cell relief
+    // as TONE, never as material -- see [`micro_relief_tone`] and the tile
+    // loop's `slope_m`. Material space, before the light, like R2 and R5
+    // above. `0.0` (the screen, the export, `js_reference()`, any tile off
+    // the kilometre law) skips it by the branch.
+    if let Some(s) = scale
+        && s.micro_tone != 0.0
+        && r > 0.0
+    {
+        c = apply_micro_tone(c, rock_material_col(appearance, te, me, r, tt, lith), s.micro_tone);
+    }
+
     // Milestone 5 (`TERRAIN_APPEARANCE_RESEARCH.md` §12): bedrock showing
     // through thin soil. §12's complaint is that "a mountain should not
     // simply become brown because it is high" — its visible material should
@@ -11192,6 +11204,9 @@ pub(crate) struct DetailScale {
     pub micro_mix: f64,
     /// [`micro_n_from_residual`] at this pixel.
     pub micro_n: f64,
+    /// [`micro_relief_tone`] at this pixel: `0.0` (no tint, by the branch in
+    /// [`land_color`]) unless the tile carries the kilometre zoom-detail law.
+    pub micro_tone: f64,
 }
 
 /// The grid-resolution precomputes a tile needs and cannot build for itself,
@@ -11688,23 +11703,142 @@ pub fn tile_amplify_opts(ctx: &RenderCtx, seed: i32, z_base: i32) -> cartalith_t
     cartalith_terrain::amplify::AmplifyOpts { seed, sea: ctx.sea_level, z_base, km, ..cartalith_terrain::amplify::AmplifyOpts::default() }
 }
 
-/// The grid-scale slope at a fractional grid position: the central difference
-/// over one cell either side of `(gx, gy)` of the **coarse** field, sampled
-/// bilinearly ([`sample_arr`]) and clamped at the edges -- at an integer
-/// position exactly [`RenderCtx::slope_at`]'s non-wrapping value, so a tile at
-/// one pixel per cell and the screen agree. For the deep-zoom tiles'
-/// materials under the kilometre law (see its call site); must never feed the
-/// light, which is what the tile's own finer slope is for.
-pub(crate) fn coarse_slope_f(ctx: &RenderCtx, gx: f64, gy: f64) -> f64 {
+/// The grid-scale gradient `(d/dx, d/dy)` at a fractional grid position, in
+/// height per coarse cell: the central difference over one cell either side
+/// of `(gx, gy)` of the **coarse** field, sampled bilinearly ([`sample_arr`])
+/// and clamped at the edges, so its `hypot` at an integer position is exactly
+/// [`RenderCtx::slope_at`]'s non-wrapping value and a tile at one pixel per
+/// cell and the screen agree. For the deep-zoom tiles' materials under the
+/// kilometre law (see its call site): its magnitude is the slope the
+/// materials read and its `y` part the snow facing, so the facing and the
+/// slope that scales it come from one gradient (`snow_aspect_shift`'s own
+/// rule). Must never feed the light, which is what the tile's own finer
+/// gradient is for. (Was `coarse_slope_f`, the magnitude alone, `de1a07ff`.)
+pub(crate) fn coarse_grad_f(ctx: &RenderCtx, gx: f64, gy: f64) -> (f64, f64) {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let (mx, my) = ((gw - 1) as f64, (gh - 1) as f64);
     let h = |x: f64, y: f64| sample_arr(ctx.field, x.clamp(0.0, mx), y.clamp(0.0, my), gw, gh);
     let (xl, xr) = ((gx - 1.0).max(0.0), (gx + 1.0).min(mx));
     let (yu, yd) = ((gy - 1.0).max(0.0), (gy + 1.0).min(my));
-    // Divide by the span actually used, as `slope_at` does with its
-    // edge-clamped neighbours (there the span shrinks to one cell and the
-    // reference still halves; matching that at the edge is deliberate).
-    ((h(xr, gy) - h(xl, gy)) * 0.5).hypot((h(gx, yd) - h(gx, yu)) * 0.5)
+    // Always halved, as `slope_at` does with its edge-clamped neighbours
+    // (there the span shrinks to one cell and the reference still halves;
+    // matching that at the edge is deliberate).
+    ((h(xr, gy) - h(xl, gy)) * 0.5, (h(gx, yd) - h(gx, yu)) * 0.5)
+}
+
+/// The scale at which [`micro_relief_tone`] reaches `tanh(1)`, about three
+/// quarters of its range, in the units of its normalised curvature. A
+/// labelled judgement from a sweep on the 2026-10-18 Rust ladder
+/// (`tests/zoom_detail_ladder.rs`, Natural Vibrant, seeds 24601, 314159 and
+/// 71077345, frames looked at) with the one-pixel stencil the tile loop uses:
+/// at `0.02` (and at a wider stencil) the tone saturates into a
+/// salt-and-pepper speckle at x64; at `0.08` the forest crops' gain over x4
+/// shrinks to 1.2-2.1x at x16 and reads soft; `0.04` keeps every land crop's
+/// x16 and x64 gradient at least 1.7x its x4 (median x4/x16/x64
+/// 1.19/2.50/4.48) and reads as fine ground texture; and it is a value at
+/// which the tone does not saturate on `refine_tile`'s magnified detail
+/// (`lod_bridge`'s depth test: octave ratios 1.26 then 1.55, still rising).
+/// Evidence: `docs/evidence/zoom-forest-2026-10-18/`.
+pub(crate) const MICRO_TONE_REF: f64 = 0.04;
+
+/// **What the zoom-detail octaves add, as tone** (Ruling CI follow-up,
+/// 2026-10-18): a signed texture in `(-1, 1)` from the sub-cell relief a
+/// deep-zoom tile carries over the coarse field, `+` on convex micro-ridges,
+/// `-` in concave micro-hollows, zero where the tile adds nothing.
+///
+/// `lap_residual` is the 5-point Laplacian, in **tile pixels**, of the tile's
+/// height minus the bilinear coarse field (the relief the grid does not
+/// carry); `cells_per_px` is the tile's coarse cells per pixel. Dividing by
+/// `cells_per_px` keeps the texture's size the same at every zoom: under the
+/// kilometre law's `H = 1` spectrum an octave's amplitude is proportional to
+/// its ground wavelength, so the finest octaves in view -- which sit at a
+/// fixed pixel wavelength set by the law's Nyquist margin -- produce a pixel
+/// Laplacian proportional to `cells_per_px`, while detail at a fixed ground
+/// frequency (`refine_tile`'s) gives a pixel Laplacian that shrinks faster
+/// than `cells_per_px` as the view comes in, and so fades out of the tone
+/// instead of being magnified into blotches. Each zoom step therefore brings
+/// new octaves of tone into view at the strength the last one had, which is
+/// the owner's "detail at every zoom level" requirement in the colour, while
+/// the material *category* stays with the grid-scale slope.
+///
+/// Why curvature: on a hillslope, soil thins over convex ground and thickens
+/// in concave ground (Dietrich et al. 1995, *Hydrological Processes* 9,
+/// "A process-based model for colluvial soil depth and shallow landsliding
+/// using digital elevation data"; Heimsath et al. 1997, *Nature* 388, the
+/// soil production function), so sub-cell ridges read as thinner, rockier
+/// cover and hollows as deeper, lusher cover -- the reason the coarse
+/// material model already lets `curv` push rock and moisture. And the
+/// Laplacian of a zero-mean residual is itself zero-mean, so the texture
+/// moves no stand's average colour: a forest stays forest on average at every
+/// zoom, which the fine slope did not do (it only grows with each octave, so
+/// read as a category it turned forest into rock past x16).
+///
+/// Must never decide a material: [`land_color`] applies it as a bounded tint
+/// along the cover-to-rock axis after the six-material blend.
+pub(crate) fn micro_relief_tone(lap_residual: f64, cells_per_px: f64) -> f64 {
+    if !(cells_per_px.is_finite() && cells_per_px > 0.0) || !lap_residual.is_finite() {
+        return 0.0;
+    }
+    (-lap_residual / cells_per_px / MICRO_TONE_REF).tanh()
+}
+
+/// [`micro_relief_tone`] at padded tile pixel `(xp, yp)` of a `pw x ph`
+/// height buffer whose pixel sits at grid position `(wx, wy)`, `cx`/`cy`
+/// coarse cells per pixel: the 5-point Laplacian, in tile pixels, of (tile -
+/// bilinear coarse field), the coarse field read at the same one-pixel
+/// offsets so its own curvature cancels and only the relief the grid does not
+/// carry remains.
+///
+/// One pixel and not a wider step, measured: the octaves the kilometre law
+/// adds sit near the pixel scale at every zoom, while `refine_tile`'s
+/// fixed-frequency detail grows smoother on screen as the view comes in, so a
+/// one-pixel stencil reads the new octaves and lets the magnified old detail
+/// fade. At the meso step `ms` the 2026-10-18 sweep saw the opposite: the
+/// tone was dominated by that magnified detail and the octaves' share fell
+/// with depth (`lod_bridge`'s `deeper_levels_carry_strictly_finer_detail`
+/// octave ratios 1.27 then 1.18, against 1.26 then 1.55 here).
+///
+/// Zero on a buffer's outermost pixel (a tile with no halo; the bridge's
+/// tiles always carry `tile_halo_px >= 1`), where the tile loop's
+/// `edge_l`..`edge_d` extrapolate: two unpadded tiles then agree on their
+/// shared column rather than each reading a one-sided stencil
+/// (`lod_d5_scale_aware.rs`'
+/// `which_stage_moves_the_shared_column_between_two_tiles` caught exactly
+/// that). Must never index outside the buffer; the guard is what ensures it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn tile_micro_tone(ctx: &RenderCtx, tile: &[f32], pw: usize, ph: usize, xp: usize, yp: usize, wx: f64, wy: f64, cx: f64, cy: f64) -> f64 {
+    if xp == 0 || yp == 0 || xp + 1 >= pw || yp + 1 >= ph || tile.len() < pw * ph {
+        return 0.0;
+    }
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let t = |x: usize, y: usize| tile[y * pw + x] as f64;
+    let c = |fx: f64, fy: f64| sample_arr(ctx.field, fx, fy, gw, gh);
+    let lap_tile = t(xp - 1, yp) + t(xp + 1, yp) + t(xp, yp - 1) + t(xp, yp + 1) - 4.0 * t(xp, yp);
+    let lap_coarse = c(wx - cx, wy) + c(wx + cx, wy) + c(wx, wy - cy) + c(wx, wy + cy) - 4.0 * c(wx, wy);
+    micro_relief_tone(lap_tile - lap_coarse, (cx * cy).sqrt())
+}
+
+/// How far a full-strength [`micro_relief_tone`] moves a land colour toward
+/// its own rock colour (convex) or away from it (concave). A labelled
+/// judgement, tuned on the 2026-10-18 ladders (`STATUS.md`).
+pub(crate) const MICRO_TONE_ROCK_K: f64 = 0.35;
+/// The value half of the tone: convex ground lighter, concave darker, as a
+/// fraction of the colour. A labelled judgement, the same tuning.
+pub(crate) const MICRO_TONE_VALUE_K: f64 = 0.08;
+
+/// Apply a [`micro_relief_tone`] `g` to the land colour `c`, given the rock
+/// colour `rock` of the same pixel:
+/// `c + MICRO_TONE_ROCK_K·g·(rock - c) + MICRO_TONE_VALUE_K·g·c`.
+///
+/// **Linear in `g`**, so a zero-mean tone leaves a stand's mean colour where
+/// the material blend put it; and it is a tint, never a weight, so it cannot
+/// change which material [`material_weights`] chose. Where the surface is
+/// already rock (`c == rock`) only the value half acts. Must never be given a
+/// `g` outside `[-1, 1]` ([`micro_relief_tone`]'s `tanh` guarantees it), which
+/// bounds the step at `0.35` of the way to rock and `8 %` of value.
+pub(crate) fn apply_micro_tone(c: Rgb, rock: Rgb, g: f64) -> Rgb {
+    let (k, v) = (MICRO_TONE_ROCK_K * g, MICRO_TONE_VALUE_K * g);
+    (c.0 + k * (rock.0 - c.0) + v * c.0, c.1 + k * (rock.1 - c.1) + v * c.1, c.2 + k * (rock.2 - c.2) + v * c.2)
 }
 
 /// Ruling CI's kilometre law for a world `gw` cells wide over `map_width_km`,
@@ -12145,7 +12279,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     let canopy_k = ctx.canopy_scale(cx.max(cy));
     // Whether this tile's heights carry the kilometre zoom-detail law -- the
     // same test `tile_amplify_opts` makes -- which decides the slope the
-    // materials read below.
+    // materials read below and whether the sub-cell relief becomes tone.
     let km_tile = zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km).is_some();
     let mut rgb = vec![0u8; w * h * 3];
     // Per-tile grade influence, sampled from the grid's. Built only when the
@@ -12265,28 +12399,39 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                     // thresholds classify rock at a tile exactly as they do on
                     // the map. The reference says so itself at 11748.
                     let slope = cartalith_jsmath::js_hypot((r - l) / (2.0 * cx), (d - u) / (2.0 * cy));
-                    // The slope the MATERIALS read (Ruling CI, 2026-10-18), in
-                    // the canopy-texture look only. Under the kilometre
-                    // zoom-detail law the tile's own slope grows with every
-                    // octave the law adds, so `material_weights` reads
-                    // ever-steeper ground as the view zooms in: on the
-                    // 2026-10-18 harness ladder a forest at x16 went patchy
-                    // and at x64 classified as bare rock (frames in
-                    // `docs/evidence/canopy-mottle-2026-10-18/`), which leaves
-                    // the canopy texture no forest to draw on. There the
-                    // materials read the grid-scale slope ([`coarse_slope_f`])
-                    // while the light keeps the tile's (`sh`, `sh_m` above).
+                    // **Category from the grid, texture from the tile**
+                    // (Ruling CI follow-up, 2026-10-18, every look). Under
+                    // the kilometre zoom-detail law the tile's own slope
+                    // grows with every octave the law adds (`H = 1`: each
+                    // octave adds about the same slope), so a material model
+                    // reading it reads ever-steeper ground as the view zooms
+                    // in: forest went patchy rock at x16 and bare rock at
+                    // x64 on the 2026-10-18 ladders. Which material a piece of
+                    // ground IS -- rock, snow, wetland, forest, and Ruling
+                    // AP's snow facing -- is a property of the scale the
+                    // climate and the material model are defined at, so here
+                    // they read the grid-scale gradient ([`coarse_grad_f`]).
+                    // What the octaves add is drawn as texture instead: the
+                    // light keeps the tile's own normals (`sh`, `sh_m`
+                    // above), and [`micro_relief_tone`] turns the sub-cell
+                    // relief into a zero-mean tint along the cover-to-rock
+                    // axis in [`land_color`]. First built for the canopy look
+                    // alone (`de1a07ff`); elsewhere that version lost the
+                    // fine-slope flecks that were the other looks' only
+                    // sub-cell colour, which the tone now replaces as
+                    // texture rather than as a change of material.
                     //
-                    // Not in the other looks, deliberately: measured on the
-                    // shell's Natural Vibrant ladder, the same change cut the
-                    // deep crops' per-pixel detail by 10-25 % (the fine-slope
-                    // rock and grass flecks were their only sub-cell texture)
-                    // -- the forest-to-rock drift there is recorded as its own
-                    // finding rather than traded against the owner's
-                    // detail-at-every-zoom requirement. The reference schedule
-                    // (`km_tile` false: `js_reference()`, a context without a
-                    // map width) keeps the tile slope by the branch either way.
-                    let slope_m = if km_tile && canopy_k.is_some() { coarse_slope_f(ctx, wx, wy) } else { slope };
+                    // The reference schedule (`km_tile` false:
+                    // `js_reference()`, a context without a map width) keeps
+                    // the tile slope and no tone, by the branch.
+                    let coarse = if km_tile { Some(coarse_grad_f(ctx, wx, wy)) } else { None };
+                    let slope_m = match coarse {
+                        Some((gx, gy)) => gx.hypot(gy),
+                        None => slope,
+                    };
+                    // See [`tile_micro_tone`] for the stencil and why it
+                    // is one pixel wide.
+                    let micro_tone = if km_tile { tile_micro_tone(ctx, tile, pw, ph, xp, yp, wx, wy, cx, cy) } else { 0.0 };
                     let r_frac = (ht - sl) / denom;
                     let flow = ctx.flow.map(|f| sample_arr(f, wx, wy, gw, gh)).unwrap_or(0.0);
                     let acc = (flow / (gw * gh) as f64).max(1e-4);
@@ -12344,19 +12489,27 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // and its screen-identity check green rather than
                         // nearly green. Asserted, not claimed, by
                         // `tests/lod_d5_scale_aware.rs`.
-                        Some(DetailScale { weights: detail_w, micro_mix, micro_n: micro_n_from_residual(residual, micro_full_scale) }),
-                        // Ruling AP's snow facing from the TILE's own gradient,
-                        // the one `slope` above came from: the coarse
-                        // `aspect_factor_f` barely varies across a tile, so
-                        // pairing it with the tile slope left snow blind to
-                        // the tile's northness (LOD-D4 bar 1b, 2026-09-24).
-                        tile_snow_facing(ctx, (d - u) / (2.0 * cy), slope, wy),
+                        Some(DetailScale { weights: detail_w, micro_mix, micro_n: micro_n_from_residual(residual, micro_full_scale), micro_tone }),
+                        // Ruling AP's snow facing from the same gradient as
+                        // the slope `land_color` scales it by
+                        // (`snow_aspect_shift`'s rule): the tile's own off
+                        // the kilometre law -- the coarse `aspect_factor_f`
+                        // barely varies across a tile, so pairing it with the
+                        // tile slope left snow blind to the tile's northness
+                        // (LOD-D4 bar 1b, 2026-09-24) -- and the grid's under
+                        // it, where the snow line is a material decision like
+                        // any other (see `slope_m` above).
+                        match coarse {
+                            Some((_, gy)) => tile_snow_facing(ctx, gy, slope_m, wy),
+                            None => tile_snow_facing(ctx, (d - u) / (2.0 * cy), slope, wy),
+                        },
                         // The river symbol at this tile pixel, rasterized at
                         // the tile's own resolution. Land only, as the
                         // `water` branch above already decided.
                         rivers.and_then(|l| l.at(x, y)),
                         // Ruling CI's Satellite relief slope stages, on the
-                        // tile's own coarse-unit `slope` above.
+                        // material slope `slope_m` above (the grid's under
+                        // the kilometre law, the tile's otherwise).
                         slope_k,
                         // Ruling CI's canopy texture at the tile texel's
                         // footprint, resolved once per tile.

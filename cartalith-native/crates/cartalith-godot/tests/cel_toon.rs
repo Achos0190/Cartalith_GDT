@@ -203,11 +203,21 @@ fn default_js_reference_and_the_looks_are_bit_identical_to_the_pre_toon_tree() {
     // `0x9393_ae22_dc01_0b63`, `0xfbed_7584_644c_c2ef`, `0x19ba_1576_98aa_5f55`;
     // Antique Parchment `0xc9cc_f427_a9f0_734f`, `0xb116_cc54_53e6_2372`,
     // `0x4902_d41c_2a3d_1775`.
+    //
+    // RE-BASELINED 2026-10-18 under Ruling CI (the zoom-detail follow-up: a
+    // deep-zoom tile under the kilometre law reads its materials from the
+    // grid-scale slope and draws the sub-cell relief as tone,
+    // `render::micro_relief_tone`). Only the three shipped looks' TILE digests
+    // moved -- this fixture carries a map width, so its tile is a km-law tile;
+    // every GRID and BAKE digest and all three `js_reference` digests
+    // (`zoom_detail_km` 0) are unchanged. Was (tile): default
+    // `0x9882_95c8_1204_7ed5`, Natural Vibrant `0xe0c9_910e_98e9_9851`,
+    // Antique Parchment `0xb79c_ec07_9617_25b3`.
     let pinned: [(&str, TerrainAppearance, u64, u64, u64); 4] = [
-        ("default", TerrainAppearance::default(), 0xae5d_fa30_6ce4_7318, 0x5180_5269_7c77_be2b, 0x9882_95c8_1204_7ed5),
+        ("default", TerrainAppearance::default(), 0xae5d_fa30_6ce4_7318, 0x5180_5269_7c77_be2b, 0xe100_ebb6_6d65_4f59),
         ("js_reference", TerrainAppearance::js_reference(), 0x5599_a657_c30e_4029, 0x6c8d_5b5b_8c05_f0ba, 0x730d_4ccc_05c5_da94),
-        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xba06_790b_1d47_a841, 0x1480_e699_4c15_e955, 0xe0c9_910e_98e9_9851),
-        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x5317_49d9_ce38_56f7, 0x7230_f8a2_e6f9_5b0d, 0xb79c_ec07_9617_25b3),
+        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xba06_790b_1d47_a841, 0x1480_e699_4c15_e955, 0x4d75_ac7f_0782_fa55),
+        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x5317_49d9_ce38_56f7, 0x7230_f8a2_e6f9_5b0d, 0xc962_58b8_f63e_f70c),
     ];
     for (name, a, g, b, t) in pinned {
         assert_eq!(fnv1a(&grid(&s, &a)), g, "{name}: the screen (cell_color) render moved");

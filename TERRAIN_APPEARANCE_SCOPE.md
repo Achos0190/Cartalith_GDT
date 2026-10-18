@@ -838,6 +838,14 @@ Satellite relief look gets a kilometre-keyed canopy texture instead
 (`canopy_texture`). Numbers, re-baselines and frames: `STATUS.md`'s 2026-10-18
 entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`.
 
+**Follow-up the same day: category from the grid, texture from the tile.** The
+canopy look's grid-slope fix now applies to every look: a deep-zoom tile under
+the kilometre law decides its materials from the grid-scale gradient and draws
+the sub-cell relief the law adds as a zero-mean tone (`micro_relief_tone`,
+`apply_micro_tone`), so forest stays forest at x16 and x64 and still gains
+texture. Numbers, the streaks investigated alongside it, and frames:
+`STATUS.md`'s 2026-10-18 entry and `cartalith-native/docs/evidence/zoom-forest-2026-10-18/`.
+
 ## What the milestones deferred, and where each went
 
 Each milestone recorded what it left for later; the lists overlapped, so they

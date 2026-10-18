@@ -789,7 +789,7 @@ fn which_stage_moves_the_shared_column_between_two_tiles() {
     let left = TileBounds { x: 100.0, y: 110.0, w: span, h: span };
     let right = TileBounds { x: 100.0 + span, y: 110.0, w: span, h: span };
 
-    let seam_of = |a: TerrainAppearance| -> f64 {
+    let seam_of = |a: TerrainAppearance| -> (f64, f64) {
         let l = draw(&s, a.clone(), TW, TW, left);
         let r = draw(&s, a, TW, TW, right);
         // The shared column is the left tile's last and the right tile's
@@ -812,20 +812,20 @@ fn which_stage_moves_the_shared_column_between_two_tiles() {
         }
         let interior = interior / (TW * 8) as f64;
         let edge = edge / TW as f64;
-        if interior <= 1e-9 { 0.0 } else { edge / interior }
+        (edge, if interior <= 1e-9 { 0.0 } else { edge / interior })
     };
 
     let base = look();
-    let off = seam_of(TerrainAppearance { detail_scale_strength: 0.0, ..base.clone() });
-    let on = seam_of(TerrainAppearance { detail_scale_strength: 1.0, ..base.clone() });
-    let no_rivers_off = seam_of(TerrainAppearance { detail_scale_strength: 0.0, sdf_rivers: 0.0, ..base.clone() });
-    let no_rivers_on = seam_of(TerrainAppearance { detail_scale_strength: 1.0, sdf_rivers: 0.0, ..base.clone() });
-    let no_crest_off = seam_of(TerrainAppearance { detail_scale_strength: 0.0, crest_strength: 0.0, ..base.clone() });
-    let no_crest_on = seam_of(TerrainAppearance { detail_scale_strength: 1.0, crest_strength: 0.0, ..base });
+    let (off_e, off) = seam_of(TerrainAppearance { detail_scale_strength: 0.0, ..base.clone() });
+    let (on_e, on) = seam_of(TerrainAppearance { detail_scale_strength: 1.0, ..base.clone() });
+    let (no_rivers_off_e, no_rivers_off) = seam_of(TerrainAppearance { detail_scale_strength: 0.0, sdf_rivers: 0.0, ..base.clone() });
+    let (no_rivers_on_e, no_rivers_on) = seam_of(TerrainAppearance { detail_scale_strength: 1.0, sdf_rivers: 0.0, ..base.clone() });
+    let (no_crest_off_e, no_crest_off) = seam_of(TerrainAppearance { detail_scale_strength: 0.0, crest_strength: 0.0, ..base.clone() });
+    let (no_crest_on_e, no_crest_on) = seam_of(TerrainAppearance { detail_scale_strength: 1.0, crest_strength: 0.0, ..base });
 
-    println!("seam ratio, all stages:      off {off:.4}  on {on:.4}");
-    println!("seam ratio, rivers off:      off {no_rivers_off:.4}  on {no_rivers_on:.4}");
-    println!("seam ratio, crest off:       off {no_crest_off:.4}  on {no_crest_on:.4}");
+    println!("seam ratio, all stages:      off {off:.4}  on {on:.4}   (edge step {off_e:.3} / {on_e:.3})");
+    println!("seam ratio, rivers off:      off {no_rivers_off:.4}  on {no_rivers_on:.4}   (edge step {no_rivers_off_e:.3} / {no_rivers_on_e:.3})");
+    println!("seam ratio, crest off:       off {no_crest_off:.4}  on {no_crest_on:.4}   (edge step {no_crest_off_e:.3} / {no_crest_on_e:.3})");
 
     // Not vacuous: there has to be a seam to measure at all.
     assert!(on > 0.0 && off > 0.0, "the seam statistic is zero; this fixture has no interior spread to judge against");
@@ -834,8 +834,22 @@ fn which_stage_moves_the_shared_column_between_two_tiles() {
     // out of both arms, the control does not open the seam. If this ever goes
     // red the attribution above is wrong and the doc comment has to be
     // rewritten -- which is the point.
+    //
+    // RE-BASELINED 2026-10-18 under Ruling CI (the zoom-detail follow-up:
+    // this fixture's tiles carry a map width, so they are kilometre-law tiles,
+    // whose materials now read the grid-scale slope and whose sub-cell relief
+    // is drawn as tone by `render::micro_relief_tone`). The claim is now
+    // asserted on the shared column's own luminance step, not on the ratio:
+    // the tone adds interior spread to both arms by different amounts, so the
+    // ratio's DENOMINATOR moved while the seam itself did not open. Measured
+    // (mean luminance step across the shared column, control off -> on, river
+    // band out): `de1a07ff` 24.76 -> 22.00 (ratio 1.118 -> 1.168, which the
+    // old assertion passed); this tree 21.52 -> 21.43 (ratio 0.853 -> 1.001,
+    // which the old assertion read as an opening: 1.001 > 0.853 x 1.05 +
+    // 0.01). The control still does not open the column; the column's step
+    // is lower than before in both arms.
     assert!(
-        no_rivers_on <= no_rivers_off * 1.05 + 0.01,
-        "with the river band off, the control still opened the shared column: {no_rivers_on:.4} against {no_rivers_off:.4}"
+        no_rivers_on_e <= no_rivers_off_e * 1.05 + 0.01,
+        "with the river band off, the control still opened the shared column: edge step {no_rivers_on_e:.4} against {no_rivers_off_e:.4}"
     );
 }
