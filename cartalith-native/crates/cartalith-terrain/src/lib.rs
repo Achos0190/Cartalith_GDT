@@ -9,6 +9,7 @@ use rayon::prelude::*;
 pub mod amplify;
 pub mod analysis;
 pub mod center;
+pub mod edifice_furrows;
 pub mod fjord;
 pub mod geology;
 pub mod infer;
@@ -1477,6 +1478,261 @@ struct Edifice {
     /// Radial gully count, and this edifice's own noise salt.
     gullies: i32,
     salt: i32,
+    /// `None` on every shipped path ([`Edifice::new`]); `Some` only under a
+    /// measurement-only [`EdificeVariant`] ([`Edifice::new_with`]).
+    band: Option<FlankBand>,
+}
+
+/// The measurement-only variants and ablations of the morphological edifice's
+/// flank relief (`EDIFICE_AND_STREAKS_2026-10-18.md` at the repository root;
+/// owner, Ruling CM item 1: "measure first, no change yet").
+///
+/// # Why
+///
+/// The shipped flank cuts radial gullies every [`EDIFICE_GULLY_SPACING_CELLS`]
+/// **cells**, so the same volcano is dissected at 1.6 km on an 800 km map and
+/// at 78 km on an Earth-width one, and its noise runs six octaves past the
+/// grid: `pridged`'s finest angular octave is `4 / 32` of a cell apart, and
+/// the lumps' `fbm` reaches half a cell. A signal finer than two cells cannot
+/// be held by the grid; it aliases into per-cell bumps and hollows.
+///
+/// # What each field does
+///
+/// - `gully_spacing_km` — **variant (a)**: gully spacing at mid-flank as a
+///   ground distance, the lumps' frequency keyed to kilometres at the app's
+///   default cell, and every flank octave weighted by whether the grid can hold
+///   it ([`edifice_resolved_weight`]), an unresolved octave replaced by its
+///   mean ("clamping": Norton, Rockwood & Skolmoski, *Clamping: a method of
+///   antialiasing textured surfaces by bandwidth limiting in object space*,
+///   SIGGRAPH 1982 — cited from memory, not opened in this pass). `None` is the
+///   shipped cell law.
+/// - `fill_pits` — **variant (c)**: after every edifice is stamped, raise each
+///   closed depression on the edifice **flanks** to its spill level plus one
+///   `f32` step per cell ([`fill_edifice_flank_pits`]), so the gullies drain
+///   to the flank base. Calderas are kept: they are real closed basins.
+/// - `fill_pits_final` — **variant (c-late)**: the same fill on the final
+///   field, after erosion and the carve, which re-cut hollows the stamp-time
+///   fill had removed.
+/// - `drop_gullies` / `drop_lumps` — **ablations**: replace the gully or the
+///   lump term by its mean, to attribute the pits and the streaks.
+///
+/// # What it must never do
+///
+/// Reach a shipped world. `Default` is all off, the off variant takes the
+/// shipped code by control flow ([`Edifice::new_with`] returns
+/// [`Edifice::new`]; the fill is skipped), and the only reader is
+/// `cartalith_engine::StreakSpikeParams::edifice`, which has no `PARAMS` row
+/// and is off at both boundaries.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EdificeVariant {
+    /// Variant (a): gully spacing at mid-flank in km. `None` = the shipped
+    /// cell law.
+    pub gully_spacing_km: Option<f64>,
+    /// Variant (c): fill the closed depressions left on edifice flanks, at
+    /// the stamp.
+    pub fill_pits: bool,
+    /// Variant (c-late): the same fill on the **final** height field, after
+    /// every later stage (applied by `cartalith_engine::generate_terrain`, not
+    /// by the stamps; the flank mask comes from
+    /// [`edifice_furrows::flank_mask_from_volcanic_field`]).
+    pub fill_pits_final: bool,
+    /// Ablation: the gully term at its mean.
+    pub drop_gullies: bool,
+    /// Ablation: the lump term at its mean.
+    pub drop_lumps: bool,
+    /// Ablation of variant (a): keep its kilometre spacing and lump frequency
+    /// but every octave at full weight (no band limit), to tell which half of
+    /// (a) moves the pits. Inert without `gully_spacing_km`.
+    pub full_band: bool,
+}
+
+impl EdificeVariant {
+    /// Whether this variant changes the per-cell flank at all. `fill_pits`
+    /// alone does not: it runs after the stamps.
+    fn alters_flank(&self) -> bool {
+        self.gully_spacing_km.is_some() || self.drop_gullies || self.drop_lumps
+    }
+}
+
+/// The variant (a) spacing `EDIFICE_AND_STREAKS_2026-10-18.md` proposes and
+/// measures: **1.5 km** at mid-flank. **A labelled judgement**, not a
+/// measurement of real volcanoes: it is chosen to keep today's look where the
+/// app generates (4 cells at 800 km / 2048 is 1.56 km), and it sits inside the
+/// order of radial-valley spacing seen on dissected stratocones and shield
+/// flanks (about 1-3 km between barrancas; no source opened in this pass).
+pub const EDIFICE_GULLY_SPACING_KM_PROPOSED: f64 = 1.5;
+
+/// [`edifice_resolved_weight`]'s fade, in cells of **noise-lattice spacing**:
+/// weight 0 at or below `LO`, 1 at or above `HI`. Value noise with a lattice
+/// spacing of `L` cells carries most of its energy at wavelengths of about
+/// `2L`, and the grid holds nothing shorter than two cells (Nyquist), so
+/// `L = 1` is the hard floor. `LO = 1.5` and `HI = 3` keep a margin above it.
+/// **A labelled judgement**, the same kind as the zoom law's one-octave
+/// Nyquist margin (`amplify::ZOOM_DETAIL_KM_NYQUIST_MARGIN`).
+const EDIFICE_RESOLVE_LO_CELLS: f64 = 1.5;
+const EDIFICE_RESOLVE_HI_CELLS: f64 = 3.0;
+
+/// How much of a noise octave with lattice spacing `l_cells` the grid can
+/// hold: a smoothstep from 0 at [`EDIFICE_RESOLVE_LO_CELLS`] to 1 at
+/// [`EDIFICE_RESOLVE_HI_CELLS`]. NaN reads 0 (nothing is resolved).
+pub fn edifice_resolved_weight(l_cells: f64) -> f64 {
+    if l_cells.is_nan() {
+        return 0.0;
+    }
+    let t = ((l_cells - EDIFICE_RESOLVE_LO_CELLS) / (EDIFICE_RESOLVE_HI_CELLS - EDIFICE_RESOLVE_LO_CELLS)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The mean of one `pridged` octave, `E[(1 - |2·n - 1|)^2]` with `n` a
+/// `pvnoise` sample. **Measured**, not derived: for a uniform `n` it would be
+/// `1/3`, but `pvnoise`'s smoothstep blend of four lattice values pulls `n`
+/// toward 0.5 and raises it. `ridge_and_value_means_are_the_measured_ones`
+/// re-measures it over 2^20 samples and fails if it moves by 0.005.
+pub const EDIFICE_RIDGE_SQ_MEAN: f64 = 0.4701;
+
+/// The mean of `vnoise`: its lattice values are `hash`'s, uniform on `[0, 1]`,
+/// and a convex blend keeps the mean. Re-measured by the same test.
+pub const EDIFICE_VNOISE_MEAN: f64 = 0.5;
+
+/// `pridged` with a weight per octave: octave `o` contributes
+/// `w[o]·v + (1 − w[o])·`[`EDIFICE_RIDGE_SQ_MEAN`], so a weight of 1 is the
+/// octave itself and 0 its mean. **All weights 1 is `pridged` bit for bit**
+/// (`1·v + 0·m` is `v` exactly in IEEE arithmetic; pinned by
+/// `weighted_noise_at_full_weight_is_the_shipped_noise`).
+pub fn pridged_weighted(x: f64, y: f64, s: i32, p_x: i32, w: &[f64; 6]) -> f64 {
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    let mut sum = 0.0;
+    let mut nrm = 0.0;
+    let mut p = p_x.max(2);
+    for (o, &wo) in w.iter().enumerate() {
+        let n = pvnoise(x * freq, y * freq, s.wrapping_add((o as i32).wrapping_mul(131)), p);
+        let n = 1.0 - (2.0 * n - 1.0).abs();
+        // `amp * n * n` first, in `pridged`'s own association, so weight 1 is
+        // bit-identical to it.
+        sum += amp * n * n * wo + amp * ((1.0 - wo) * EDIFICE_RIDGE_SQ_MEAN);
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+        p = (p * 2).max(2);
+    }
+    sum / nrm
+}
+
+/// `fbm` with a weight per octave, an unresolved octave at
+/// [`EDIFICE_VNOISE_MEAN`]. All weights 1 is `fbm` bit for bit.
+pub fn fbm_weighted(x: f64, y: f64, s: i32, w: &[f64; 6]) -> f64 {
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    let mut sum = 0.0;
+    let mut nrm = 0.0;
+    for (o, &wo) in w.iter().enumerate() {
+        let n = vnoise(x * freq, y * freq, s.wrapping_add((o as i32).wrapping_mul(131)));
+        sum += amp * n * wo + amp * ((1.0 - wo) * EDIFICE_VNOISE_MEAN);
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    sum / nrm
+}
+
+/// One edifice's variant flank: everything [`Edifice::add_at_band`] needs
+/// that [`Edifice`] does not already hold.
+#[derive(Clone, Copy, Debug)]
+struct FlankBand {
+    /// The lumps' `fbm` frequency, per cell.
+    lump_freq: f64,
+    /// Per-octave weights of the lumps (all 1 unless band-limited).
+    lump_w: [f64; 6],
+    /// Per-octave weights of the gullies (all 1 unless band-limited).
+    gully_w: [f64; 6],
+    drop_gullies: bool,
+    drop_lumps: bool,
+}
+
+/// What [`fill_edifice_flank_pits`] reads per cell: no edifice, an edifice's
+/// flank, or a caldera (which is never filled).
+pub const FLANK_NONE: u8 = 0;
+pub const FLANK_FLANK: u8 = 1;
+pub const FLANK_CALDERA: u8 = 2;
+
+/// **Variant (c)**: fill every closed depression on edifice **flanks** to its
+/// spill level, so a gully end drains to the flank base instead of holding a
+/// 1-3-cell pond. Priority-Flood+ε (Barnes, Lehman & Mulla, *Priority-flood:
+/// An optimal depression-filling and watershed-labeling algorithm for digital
+/// elevation models*, Computers & Geosciences 62, 2014 — cited from memory,
+/// not opened in this pass): seeded from every flank cell that touches a
+/// non-flank cell or the map edge, it raises a flank cell no higher than one
+/// `f32` step above the cell it was reached from, so every filled cell has a
+/// strictly lower **orthogonal** neighbour and water routes out (see the
+/// connectivity note in the body).
+///
+/// `flank[i]` is [`FLANK_FLANK`] on a flank, [`FLANK_CALDERA`] inside a summit
+/// depression (never filled: a caldera is a real closed basin) and
+/// [`FLANK_NONE`] elsewhere. Returns `(cells raised, largest raise)`.
+///
+/// What it must never do: lower a cell, touch a cell that is not a flank, or
+/// run on a shipped path (only `EdificeVariant::fill_pits` reaches it).
+pub fn fill_edifice_flank_pits(gw: usize, gh: usize, field: &mut [f32], flank: &[u8]) -> (usize, f32) {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let n = gw * gh;
+    assert!(field.len() >= n && flank.len() >= n, "fill_edifice_flank_pits: short field");
+    let mut closed = vec![false; n];
+    // Heights are non-negative after the stamps' clamp, so the bit pattern
+    // orders them as `f32` does; the index breaks ties deterministically.
+    let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
+    // **4-connected**, the water-body classifier's own connectivity
+    // (`cartalith_civ::build_water_bodies`' priority flood visits the four
+    // orthogonal neighbours). Measured: an 8-connected fill left a cell whose
+    // only lower neighbour was diagonal, which the classifier still pooled --
+    // flank pits on 24601 fell 372 -> 39 but its 1-3-cell edifice lakes only
+    // 170 -> 103. A 4-connected drain also drains 8-connected.
+    let nb = |i: usize| -> [Option<usize>; 4] {
+        let (x, y) = (i % gw, i / gw);
+        [
+            (x > 0).then(|| i - 1),
+            (x + 1 < gw).then(|| i + 1),
+            (y > 0).then(|| i - gw),
+            (y + 1 < gh).then(|| i + gw),
+        ]
+    };
+    // Seeds: the fixed ground around the region -- every non-flank cell that
+    // touches a flank (the plain at the toe, a caldera inside the rim) -- and
+    // flank cells on the map edge, which drain off the map. Seeding the
+    // region's own border cells instead would leave a toe cell that sits
+    // below the plain as a pit (measured on the flat-plane stratocone: 18).
+    for i in 0..n {
+        let ns = nb(i);
+        let seed = if flank[i] == FLANK_FLANK {
+            ns.iter().any(|j| j.is_none())
+        } else {
+            ns.iter().flatten().any(|&j| flank[j] == FLANK_FLANK)
+        };
+        if seed {
+            closed[i] = true;
+            heap.push(Reverse((field[i].max(0.0).to_bits(), i)));
+        }
+    }
+    let (mut raised, mut most) = (0usize, 0f32);
+    while let Some(Reverse((hb, c))) = heap.pop() {
+        let hc = f32::from_bits(hb);
+        for j in nb(c).into_iter().flatten() {
+            if closed[j] || flank[j] != FLANK_FLANK {
+                continue;
+            }
+            closed[j] = true;
+            if field[j] <= hc {
+                // The next representable `f32` above `hc` (positive, finite).
+                let up = f32::from_bits(hc.to_bits() + 1);
+                most = most.max(up - field[j]);
+                field[j] = up;
+                raised += 1;
+            }
+            heap.push(Reverse((field[j].max(0.0).to_bits(), j)));
+        }
+    }
+    (raised, most)
 }
 
 impl Edifice {
@@ -1501,7 +1757,105 @@ impl Edifice {
         // Deterministic per-edifice salt from the centre. Deliberately not an
         // RNG draw: see `edifice_kind`.
         let salt = ((cx * 7919.0) as i32) ^ ((cy * 104_729.0) as i32).wrapping_mul(31);
-        Edifice { s, h, b, rim_h, floor_h, gullies, salt }
+        Edifice { s, h, b, rim_h, floor_h, gullies, salt, band: None }
+    }
+
+    /// [`Edifice::new`] under a measurement-only [`EdificeVariant`]
+    /// (`EDIFICE_AND_STREAKS_2026-10-18.md`). `cell_km` is the grid's
+    /// kilometres per cell (`map_width_km / gw`).
+    ///
+    /// **A variant that alters nothing returns [`Edifice::new`] itself**, with
+    /// `band: None`, so the shipped flank runs by control flow: the default
+    /// variant cannot move a byte (`gf6_carve_identity_hashes`, run before and
+    /// after, checks it).
+    ///
+    /// Must never be reached from a shipped path with a non-default variant:
+    /// `cartalith_engine::StreakSpikeParams::edifice` is off at both
+    /// boundaries.
+    #[allow(clippy::too_many_arguments)]
+    fn new_with(s: EdificeShape, h: f64, r: f64, cx: f64, cy: f64, age: f64, cell_km: f64, v: &EdificeVariant) -> Self {
+        let mut e = Edifice::new(s, h, r, cx, cy, age);
+        if !v.alters_flank() {
+            return e;
+        }
+        let (gullies, lump_freq, band_limited) = match v.gully_spacing_km {
+            // Ablation only: the shipped geometry and the full six octaves.
+            None => (e.gullies, EDIFICE_LUMP_FREQ_PER_CELL, false),
+            Some(km) => {
+                // Variant (a): the spacing is a ground distance, so the count
+                // follows the edifice's size in kilometres, not in cells. The
+                // floor of 6 is the shipped one (a full ring, not stripes);
+                // the shipped cap of 48 is dropped because the band limit
+                // below is what now removes gullies the grid cannot hold.
+                let sp_cells = km / cell_km;
+                let g = if sp_cells.is_finite() && sp_cells > 0.0 {
+                    ((std::f64::consts::PI * r / sp_cells).round().min(i32::MAX as f64 / 64.0) as i32).max(6)
+                } else {
+                    e.gullies
+                };
+                // The lumps' frequency anchored at the app's default cell
+                // (800 km / 2048), the same anchor the zoom-detail law uses
+                // (`amplify::ZOOM_DETAIL_REF_CELL_KM`), so an 800 km world keeps
+                // today's lump wavelength and other scales keep its kilometres.
+                (g, EDIFICE_LUMP_FREQ_PER_CELL * cell_km / amplify::ZOOM_DETAIL_REF_CELL_KM, true)
+            }
+        };
+        let mut lump_w = [1.0f64; 6];
+        let mut gully_w = [1.0f64; 6];
+        if band_limited && !v.full_band {
+            for (o, w) in lump_w.iter_mut().enumerate() {
+                // fbm octave `o` has lattice spacing `1 / (freq · 2^o)` cells.
+                *w = edifice_resolved_weight(1.0 / (lump_freq * f64::powi(2.0, o as i32)));
+            }
+            // Gully octave `o`'s lattice spacing in cells **at mid-flank**:
+            // angular `pi·r / (gullies·2^o)` (circumference `pi·r` at `r/2`),
+            // radial `r / (2.2·2^o)` (`add_at`'s `t * 2.2`); the smaller
+            // decides. **Per edifice, not per cell**, measured: weighting at
+            // each cell's own radius made the weight grow outward, which
+            // deepens a gully downslope -- the pit mechanism itself -- and
+            // raised 71077345's small edifice pits 325 -> 422.
+            for (o, w) in gully_w.iter_mut().enumerate() {
+                let k = f64::powi(2.0, o as i32);
+                let ang = std::f64::consts::PI * r / (gullies as f64 * k);
+                let rad = r / (2.2 * k);
+                *w = edifice_resolved_weight(ang.min(rad));
+            }
+        }
+        e.gullies = gullies;
+        e.band = Some(FlankBand { lump_freq, lump_w, gully_w, drop_gullies: v.drop_gullies, drop_lumps: v.drop_lumps });
+        e
+    }
+
+    /// [`Edifice::add_at`] under a [`FlankBand`]: the same cone and collapse
+    /// (the first block is `add_at`'s, restated so the shipped function stays
+    /// untouched), and a flank relief whose octaves are weighted by what the
+    /// grid can resolve ([`edifice_resolved_weight`]) or dropped to their mean
+    /// (the ablations).
+    fn add_at_band(&self, b: &FlankBand, t: f64, theta: f64, x: f64, y: f64) -> f64 {
+        let mut add = self.cone_at(t);
+        if t < self.s.rim {
+            let w = ((t - self.s.floor) / (self.s.rim - self.s.floor)).clamp(0.0, 1.0);
+            add = self.floor_h + (self.rim_h - self.floor_h) * (w * w * (3.0 - 2.0 * w));
+        }
+        let u = (t - self.s.rim) / (1.0 - self.s.rim);
+        if u > 0.0 {
+            let flank = 4.0 * u * (1.0 - u);
+            let gully = if b.drop_gullies {
+                // The term's mean, so dropping its texture leaves the flank's
+                // mean height where it was.
+                1.0 - 2.0 * EDIFICE_RIDGE_SQ_MEAN
+            } else {
+                let ang = (theta * std::f64::consts::FRAC_1_PI * 0.5 + 0.5) * self.gullies as f64;
+                1.0 - 2.0 * pridged_weighted(ang, t * 2.2, self.salt, self.gullies, &b.gully_w)
+            };
+            let lumps = if b.drop_lumps {
+                2.0 * EDIFICE_VNOISE_MEAN - 1.0
+            } else {
+                2.0 * fbm_weighted(x * b.lump_freq, y * b.lump_freq, self.salt ^ 0x2f1b, &b.lump_w) - 1.0
+            };
+            add += self.h * self.s.rough * flank * (gully * 0.65 + lumps * 0.35);
+        }
+        add
     }
 
     /// This edifice's uncollapsed profile at `t`.
@@ -1969,6 +2323,8 @@ mod edifice_tests {
                 setting,
                 EdificeModel::Morphological,
                 None,
+                &EdificeVariant::default(),
+                None,
             );
             (field, volc)
         };
@@ -2015,6 +2371,9 @@ fn stamp_one_volcano(
     shape: Option<EdificeShape>,
     setting: VolcanicSetting,
     mut trace: Option<&mut VolcanoTrace>,
+    cell_km: f64,
+    variant: &EdificeVariant,
+    mut flank_mask: Option<&mut [u8]>,
 ) {
     let h = (height_m / peak_m) * 0.9 * (1.0 - age * 0.5);
     let r = rad_cells.max(2.0);
@@ -2031,7 +2390,9 @@ fn stamp_one_volcano(
     // the reference's 1 000 m gate leaves as smooth points), a stratocone
     // usually does, and a shield has a summit pit. The gate stays only on the
     // reference path, where it is `stampOneVolcano`'s own.
-    let edifice = shape.map(|s| Edifice::new(s, h, r, cx, cy, age));
+    // `new_with` is `Edifice::new` exactly unless a measurement variant is on
+    // (`EdificeVariant`, off at both boundaries).
+    let edifice = shape.map(|s| Edifice::new_with(s, h, r, cx, cy, age, cell_km, variant));
     let x0 = (((cx - r) as i64).max(0)) as usize;
     let x1 = (((cx + r) as i64).min(gw as i64 - 1)).max(0) as usize;
     let y0 = (((cy - r) as i64).max(0)) as usize;
@@ -2057,9 +2418,21 @@ fn stamp_one_volcano(
                 // this crate uses it: it is a vendored implementation, so a
                 // seeded world renders identically on every platform rather
                 // than tracking whatever libm the host shipped.
-                Some(e) => e.add_at(t, js_atan2(dy, dx), x as f64, y as f64),
+                Some(e) => match &e.band {
+                    None => e.add_at(t, js_atan2(dy, dx), x as f64, y as f64),
+                    Some(b) => e.add_at_band(b, t, js_atan2(dy, dx), x as f64, y as f64),
+                },
             };
             let i = y * gw + x;
+            // Variant (c)'s flank mask: a caldera anywhere wins over a flank,
+            // so an overlapping neighbour's flank never gets a caldera filled.
+            if let (Some(m), Some(e)) = (flank_mask.as_deref_mut(), &edifice) {
+                if t < e.s.rim {
+                    m[i] = FLANK_CALDERA;
+                } else if m[i] == FLANK_NONE {
+                    m[i] = FLANK_FLANK;
+                }
+            }
             add_rounded(field, i, add);
             let stored = field[i] as f64;
             field[i] = if stored > 1.0 {
@@ -2110,6 +2483,8 @@ fn place_sized_volcano(
     setting: VolcanicSetting,
     model: EdificeModel,
     trace: Option<&mut VolcanoTrace>,
+    variant: &EdificeVariant,
+    flank_mask: Option<&mut [u8]>,
 ) -> Option<(f64, f64)> {
     if x < 0.0 || y < 0.0 || x >= gw as f64 - 1.0 || y >= gh as f64 - 1.0 {
         return None;
@@ -2147,6 +2522,9 @@ fn place_sized_volcano(
         shape,
         setting,
         trace,
+        cell_km,
+        variant,
+        flank_mask,
     );
     Some((x, y))
 }
@@ -2247,8 +2625,46 @@ pub fn stamp_volcanoes_simple_traced(
     field: &mut [f32],
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
-    mut trace: Option<&mut VolcanoTrace>,
+    trace: Option<&mut VolcanoTrace>,
 ) {
+    stamp_volcanoes_simple_variant(
+        gw,
+        gh,
+        seed,
+        map_width_km,
+        peak_m,
+        boundary_mask,
+        volc_count,
+        volc_age,
+        field,
+        volcanic_field,
+        edifice,
+        trace,
+        &EdificeVariant::default(),
+    )
+}
+
+/// [`stamp_volcanoes_simple_traced`] under a measurement-only
+/// [`EdificeVariant`] (`EDIFICE_AND_STREAKS_2026-10-18.md`). The default
+/// variant is the traced function by control flow: no flank mask is built and
+/// the fill is skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_simple_variant(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    edifice: EdificeModel,
+    mut trace: Option<&mut VolcanoTrace>,
+    variant: &EdificeVariant,
+) {
+    let mut flank: Option<Vec<u8>> = variant.fill_pits.then(|| vec![FLANK_NONE; gw * gh]);
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let bc: Vec<usize> = (0..boundary_mask.len())
         .filter(|&i| boundary_mask[i] != 0)
@@ -2286,11 +2702,16 @@ pub fn stamp_volcanoes_simple_traced(
             VolcanicSetting::Unclassified,
             edifice,
             trace.as_deref_mut(),
+            variant,
+            flank.as_deref_mut(),
         )
         .is_some()
         {
             placed += 1;
         }
+    }
+    if let Some(m) = flank {
+        fill_edifice_flank_pits(gw, gh, field, &m);
     }
 }
 
@@ -2393,6 +2814,8 @@ fn place_province_volcanoes(
     volc_age: f64,
     edifice: EdificeModel,
     mut trace: Option<&mut VolcanoTrace>,
+    variant: &EdificeVariant,
+    mut flank: Option<&mut [u8]>,
 ) {
     // The province `kind` the reference draws and then uses only for placement.
     // This is the whole of "the volcanic setting the placement lane classifies"
@@ -2432,6 +2855,8 @@ fn place_province_volcanoes(
                 setting,
                 edifice,
                 trace.as_deref_mut(),
+                variant,
+                flank.as_deref_mut(),
             );
         }
         return;
@@ -2473,6 +2898,8 @@ fn place_province_volcanoes(
                 setting,
                 edifice,
                 trace.as_deref_mut(),
+                variant,
+                flank.as_deref_mut(),
             );
         }
         return;
@@ -2524,6 +2951,8 @@ fn place_province_volcanoes(
             setting,
             edifice,
             trace.as_deref_mut(),
+            variant,
+            flank.as_deref_mut(),
         );
         pc += 1;
     }
@@ -2552,6 +2981,8 @@ fn place_province_volcanoes(
             setting,
             edifice,
             trace.as_deref_mut(),
+            variant,
+            flank.as_deref_mut(),
         );
         pc += 1;
     }
@@ -2682,8 +3113,55 @@ pub fn stamp_volcanoes_provinces_traced(
     field: &mut [f32],
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
-    mut trace: Option<&mut VolcanoTrace>,
+    trace: Option<&mut VolcanoTrace>,
 ) {
+    stamp_volcanoes_provinces_variant(
+        gw,
+        gh,
+        seed,
+        map_width_km,
+        peak_m,
+        boundary_mask,
+        stress_field,
+        boundary_type,
+        plate_id,
+        plates,
+        volc_count,
+        volc_age,
+        field,
+        volcanic_field,
+        edifice,
+        trace,
+        &EdificeVariant::default(),
+    )
+}
+
+/// [`stamp_volcanoes_provinces_traced`] under a measurement-only
+/// [`EdificeVariant`] (`EDIFICE_AND_STREAKS_2026-10-18.md`). The default
+/// variant is the traced function by control flow: no flank mask is built and
+/// the fill is skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_provinces_variant(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    stress_field: &[f32],
+    boundary_type: Option<&[u8]>,
+    plate_id: &[u16],
+    plates: &[Plate],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    edifice: EdificeModel,
+    mut trace: Option<&mut VolcanoTrace>,
+    variant: &EdificeVariant,
+) {
+    let mut flank_store: Option<Vec<u8>> = variant.fill_pits.then(|| vec![FLANK_NONE; gw * gh]);
+    let mut flank = flank_store.as_deref_mut();
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let (conv, div) = classify_boundaries(boundary_mask, stress_field, boundary_type);
     let cell_km = map_width_km / gw as f64;
@@ -2756,8 +3234,13 @@ pub fn stamp_volcanoes_provinces_traced(
             volc_age,
             edifice,
             trace.as_deref_mut(),
+            variant,
+            flank.as_deref_mut(),
         );
         remaining -= sub;
+    }
+    if let Some(m) = flank {
+        fill_edifice_flank_pits(gw, gh, field, &m);
     }
 }
 
@@ -4690,6 +5173,242 @@ mod crater_degradation_tests {
     }
 }
 
+/// The edifice follow-up's measurement-only variants
+/// (`EDIFICE_AND_STREAKS_2026-10-18.md`): the weighted noise, the kilometre
+/// spacing, the band limit, and the flank-pit fill.
+#[cfg(test)]
+mod edifice_variant_tests {
+    use super::*;
+
+    /// One stratocone (2 000 m, 40-cell radius, fresh) stamped on a flat
+    /// plane at 0.3 under `v`, at `cell_km` per cell; returns the field and
+    /// the flank mask (built whenever asked for, so a test can count pits on
+    /// the flank whether or not it fills them).
+    fn stamp_strato(v: &EdificeVariant, cell_km: f64) -> (Vec<f32>, Vec<u8>, usize, usize) {
+        let (gw, gh) = (112usize, 112usize);
+        let mut field = vec![0.3f32; gw * gh];
+        let mut volc = vec![0f32; gw * gh];
+        let mut mask = vec![FLANK_NONE; gw * gh];
+        stamp_one_volcano(
+            gw,
+            gh,
+            &mut field,
+            &mut volc,
+            4000.0,
+            56.3,
+            55.7,
+            40.0,
+            2000.0,
+            0.0,
+            Some(edifice_shape(EdificeKind::Strato)),
+            VolcanicSetting::Arc,
+            None,
+            cell_km,
+            v,
+            Some(&mut mask),
+        );
+        if v.fill_pits {
+            fill_edifice_flank_pits(gw, gh, &mut field, &mask);
+        }
+        (field, mask, gw, gh)
+    }
+
+    /// Strict local minima (every 8-neighbour higher) among flank cells: the
+    /// closed 1-cell hollows a gully end leaves.
+    fn flank_pits(field: &[f32], mask: &[u8], gw: usize, gh: usize) -> usize {
+        let mut n = 0;
+        for y in 1..gh - 1 {
+            for x in 1..gw - 1 {
+                if mask[y * gw + x] == FLANK_FLANK && flank_pits_at(field, mask, gw, x, y) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// Whether interior cell `(x, y)` is a strict local minimum.
+    fn flank_pits_at(field: &[f32], _mask: &[u8], gw: usize, x: usize, y: usize) -> bool {
+        let i = y * gw + x;
+        (-1i64..=1).flat_map(|dy| (-1i64..=1).map(move |dx| (dx, dy))).filter(|&d| d != (0, 0)).all(|(dx, dy)| {
+            let j = ((y as i64 + dy) as usize) * gw + (x as i64 + dx) as usize;
+            field[j] > field[i]
+        })
+    }
+
+    /// Protects: the weighted noise at full weight IS the shipped noise, bit
+    /// for bit, so a variant's octave that the grid resolves is exactly the
+    /// shipped octave and only the unresolved ones change.
+    #[test]
+    fn weighted_noise_at_full_weight_is_the_shipped_noise() {
+        let w = [1.0; 6];
+        for k in 0..400 {
+            let (x, y) = (k as f64 * 0.731 - 40.0, k as f64 * 0.377 + 3.1);
+            assert_eq!(pridged_weighted(x, y, 77, 31, &w).to_bits(), pridged(x, y, 77, 31).to_bits(), "pridged at {x},{y}");
+            assert_eq!(fbm_weighted(x, y, 77, &w).to_bits(), fbm(x, y, 77).to_bits(), "fbm at {x},{y}");
+        }
+        // And weight 0 everywhere is the constant mean.
+        let z = [0.0; 6];
+        assert!((pridged_weighted(3.3, 1.7, 5, 9, &z) - EDIFICE_RIDGE_SQ_MEAN).abs() < 1e-12);
+        assert!((fbm_weighted(3.3, 1.7, 5, &z) - EDIFICE_VNOISE_MEAN).abs() < 1e-12);
+    }
+
+    /// Protects: the two means an unresolved octave is replaced by are the
+    /// noise's real means (measured over 2^20 samples at incommensurate
+    /// coordinates), so dropping an octave does not shift the flank's height.
+    #[test]
+    fn ridge_and_value_means_are_the_measured_ones() {
+        let (mut r, mut v) = (0.0f64, 0.0f64);
+        let n = 1usize << 20;
+        for k in 0..n {
+            let (x, y) = ((k % 1024) as f64 * 0.618_034 + 0.13, (k / 1024) as f64 * 0.414_214 + 0.71);
+            let p = pvnoise(x, y, 4242, 1 << 20);
+            let q = 1.0 - (2.0 * p - 1.0).abs();
+            r += q * q;
+            v += vnoise(x, y, 4242);
+        }
+        let (r, v) = (r / n as f64, v / n as f64);
+        assert!((r - EDIFICE_RIDGE_SQ_MEAN).abs() < 0.005, "ridge mean measured {r}");
+        assert!((v - EDIFICE_VNOISE_MEAN).abs() < 0.005, "value mean measured {v}");
+    }
+
+    /// Protects: the default variant is the shipped edifice (no band, so
+    /// `add_at` runs), and the kilometre law keeps the gully spacing a ground
+    /// distance: 1.5 km at mid-flank whatever the cell, where the shipped law
+    /// keeps 4 cells (1.56 km at 800/2048, 78 km at 40 075/2048).
+    #[test]
+    fn km_law_keeps_spacing_in_kilometres() {
+        let s = edifice_shape(EdificeKind::Strato);
+        let shipped = Edifice::new_with(s, 0.45, 40.0, 0.0, 0.0, 0.0, 800.0 / 2048.0, &EdificeVariant::default());
+        assert!(shipped.band.is_none(), "the default variant must take the shipped flank");
+        assert_eq!(shipped.gullies, 31, "shipped: round(pi * 40 / 4)");
+        let km = EdificeVariant { gully_spacing_km: Some(1.5), ..Default::default() };
+        for (cell_km, r) in [(800.0 / 2048.0, 40.0), (0.1, 156.0), (800.0 / 512.0, 10.0)] {
+            let e = Edifice::new_with(s, 0.45, r, 0.0, 0.0, 0.0, cell_km, &km);
+            let spacing_km = std::f64::consts::PI * r / e.gullies as f64 * cell_km;
+            assert!((spacing_km - 1.5).abs() < 0.1, "at {cell_km} km/cell the spacing is {spacing_km} km");
+        }
+    }
+
+    /// Protects: the band limit drops exactly the octaves the grid cannot
+    /// hold. At 0.39 km/cell a 40-cell stratocone's lumps keep their three
+    /// coarsest octaves (lattice 16.7 / 8.3 / 4.2 cells), the fourth (2.08
+    /// cells) is partly held, and the two finest (1.04, 0.52) go; at an
+    /// Earth-width 19.6 km/cell no lump octave survives on a 2-cell cone.
+    #[test]
+    fn band_limit_drops_what_the_grid_cannot_hold() {
+        let s = edifice_shape(EdificeKind::Strato);
+        let km = EdificeVariant { gully_spacing_km: Some(1.5), ..Default::default() };
+        let e = Edifice::new_with(s, 0.45, 40.0, 0.0, 0.0, 0.0, 800.0 / 2048.0, &km);
+        let b = e.band.expect("a band");
+        assert_eq!(&b.lump_w[..3], &[1.0, 1.0, 1.0]);
+        assert!(b.lump_w[3] > 0.0 && b.lump_w[3] < 1.0, "octave 3 should be partly held: {}", b.lump_w[3]);
+        assert_eq!(&b.lump_w[4..], &[0.0, 0.0]);
+        assert_eq!(edifice_resolved_weight(1.5), 0.0);
+        assert_eq!(edifice_resolved_weight(3.0), 1.0);
+        assert_eq!(edifice_resolved_weight(f64::NAN), 0.0);
+        let earth = Edifice::new_with(s, 0.45, 2.0, 0.0, 0.0, 0.0, 40_075.0 / 2048.0, &km);
+        assert!(earth.band.expect("a band").lump_w.iter().all(|&w| w == 0.0));
+    }
+
+    /// Protects: the measured pit story on one stratocone stamped on a flat
+    /// plane at the app's 800 km cell: the shipped flank leaves closed 1-cell
+    /// hollows (measured 96, all at `t >= 0.5`, most at 0.7-1.0, where a
+    /// stratocone's concave profile is gentlest and the flank relief's own
+    /// slope beats the cone's); the band limit (a) does not add any (it
+    /// removes a fifth: the rest are made by octaves the grid does resolve,
+    /// so they are a slope ratio, not aliasing); and the fill (c)
+    /// leaves none on the flank while never lowering a cell, never touching a
+    /// non-flank cell and keeping the caldera floor where it was.
+    #[test]
+    fn the_flank_pits_and_what_each_variant_does_to_them() {
+        let ck = 800.0 / 2048.0;
+        let (f0, m0, gw, gh) = stamp_strato(&EdificeVariant::default(), ck);
+        let shipped = flank_pits(&f0, &m0, gw, gh);
+        let (fa, ma, _, _) = stamp_strato(&EdificeVariant { gully_spacing_km: Some(1.5), ..Default::default() }, ck);
+        let banded = flank_pits(&fa, &ma, gw, gh);
+        let fill = EdificeVariant { fill_pits: true, ..Default::default() };
+        let (fc, mc, _, _) = stamp_strato(&fill, ck);
+        let filled = flank_pits(&fc, &mc, gw, gh);
+        // Where on the flank the pits sit, by tenth of the radius (printed for
+        // the findings document).
+        let by_t = |f: &[f32], m: &[u8]| -> Vec<usize> {
+            let mut h = vec![0usize; 10];
+            for y in 1..gh - 1 {
+                for x in 1..gw - 1 {
+                    let i = y * gw + x;
+                    if m[i] == FLANK_FLANK && flank_pits_at(f, m, gw, x, y) {
+                        let t = ((x as f64 - 56.3).hypot(y as f64 - 55.7) / 40.0 * 10.0) as usize;
+                        h[t.min(9)] += 1;
+                    }
+                }
+            }
+            h
+        };
+        println!("flank pits: shipped {shipped} {:?}, km band {banded} {:?}, fill {filled}", by_t(&f0, &m0), by_t(&fa, &ma));
+        assert!(shipped >= 10, "the shipped flank should leave pits on a flat plane, found {shipped}");
+        assert!(banded <= shipped, "the band limit must not add pits: {banded} vs {shipped}");
+        assert_eq!(filled, 0, "the fill must leave no closed hollow on the flank");
+        for i in 0..gw * gh {
+            assert!(fc[i] >= f0[i], "the fill lowered cell {i}");
+            if mc[i] != FLANK_FLANK {
+                assert_eq!(fc[i].to_bits(), f0[i].to_bits(), "the fill touched a non-flank cell {i} (mask {})", mc[i]);
+            }
+        }
+        assert!(mc.contains(&FLANK_CALDERA), "the mask must mark the caldera");
+    }
+
+    /// Protects: the fill on a hand-made field: a one-cell pit on a ramp is
+    /// raised to just above its lowest rim neighbour, and the same pit marked
+    /// as caldera is left alone.
+    #[test]
+    fn fill_raises_a_pit_to_its_spill_level_only_on_flanks() {
+        let (gw, gh) = (7usize, 7usize);
+        let mut f: Vec<f32> = (0..gw * gh).map(|i| 0.5 + 0.01 * (i % gw) as f32).collect();
+        let pit = 3 * gw + 3;
+        f[pit] = 0.4;
+        let mut mask = vec![FLANK_FLANK; gw * gh];
+        let mut g = f.clone();
+        let (raised, most) = fill_edifice_flank_pits(gw, gh, &mut g, &mask);
+        assert_eq!(raised, 1, "only the pit is below its spill");
+        // Its lowest neighbour is at x = 2 (0.52, as the f32 sum above makes it).
+        assert_eq!(g[pit], f32::from_bits(f[3 * gw + 2].to_bits() + 1));
+        assert!((most - (g[pit] - 0.4)).abs() < 1e-7);
+        mask[pit] = FLANK_CALDERA;
+        let mut h = f.clone();
+        fill_edifice_flank_pits(gw, gh, &mut h, &mask);
+        assert_eq!(h[pit], 0.4, "a caldera is never filled");
+    }
+
+    /// Protects: a flat is drained, not left level. A 3 x 3 plateau at the
+    /// height of its only outlet (a gap in a higher ring) is given a gradient,
+    /// so every plateau cell ends with a strictly lower orthogonal neighbour
+    /// -- the "+ε" in Priority-Flood+ε. Filling only cells strictly below the
+    /// spill would leave the flat as a closed pond to the lake classifier.
+    #[test]
+    fn fill_drains_a_flat_toward_its_outlet() {
+        let (gw, gh) = (7usize, 7usize);
+        let mut f = vec![0.6f32; gw * gh];
+        for y in 2..5 {
+            for x in 2..5 {
+                f[y * gw + x] = 0.5;
+            }
+        }
+        // The outlet: a 0.5 channel from the plateau to the map edge.
+        f[3 * gw + 1] = 0.5;
+        f[3 * gw] = 0.5;
+        let mask = vec![FLANK_FLANK; gw * gh];
+        fill_edifice_flank_pits(gw, gh, &mut f, &mask);
+        for y in 2..5 {
+            for x in 2..5 {
+                let i = y * gw + x;
+                let lower = [i - 1, i + 1, i - gw, i + gw].iter().any(|&j| f[j] < f[i]);
+                assert!(lower, "plateau cell ({x},{y}) at {} has no lower neighbour", f[i]);
+            }
+        }
+    }
+}
+
 /// GF-1: the volcano trace records the edifice that won each cell's
 /// `volcanic_field` max, and recording changes neither output.
 #[cfg(test)]
@@ -4709,9 +5428,9 @@ mod volcano_trace_tests {
             let mut t = traced.then_some(&mut trace);
             // A big young edifice, then a small old one overlapping its flank.
             stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 32.0, 32.0, 10.0, 2000.0, 0.0, None,
-                VolcanicSetting::Arc, t.as_deref_mut());
+                VolcanicSetting::Arc, t.as_deref_mut(), 800.0 / 64.0, &EdificeVariant::default(), None);
             stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 38.0, 32.0, 4.0, 500.0, 0.9, None,
-                VolcanicSetting::Hotspot, t.as_deref_mut());
+                VolcanicSetting::Hotspot, t.as_deref_mut(), 800.0 / 64.0, &EdificeVariant::default(), None);
             (field, volc, trace)
         };
         let (f0, v0, _) = run(false);
@@ -4736,7 +5455,7 @@ mod volcano_trace_tests {
         let mut volc = vec![0f32; gw * gh];
         let mut t2 = VolcanoTrace::new(gw * gh);
         stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 10.0, 10.0, 4.0, 500.0, 0.5, None,
-            VolcanicSetting::Rift, Some(&mut t2));
+            VolcanicSetting::Rift, Some(&mut t2), 800.0 / 64.0, &EdificeVariant::default(), None);
         assert_eq!(t2.winner_at(10 * gw + 10).map(|e| e.setting), Some(VolcanicSetting::Rift));
     }
 }

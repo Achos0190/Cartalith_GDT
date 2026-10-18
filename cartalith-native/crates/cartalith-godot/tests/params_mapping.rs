@@ -930,7 +930,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.climate.rain_bspline && !parity.climate.rain_bspline, "B-spline rain up-sample, Ruling CM");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
-    assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
+    assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, fill_pits_final: false, drop_gullies: false, drop_lumps: false, full_band: false } });
     // GF-2's processes are NOT a divergence yet: off at both boundaries until
     // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
     assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");

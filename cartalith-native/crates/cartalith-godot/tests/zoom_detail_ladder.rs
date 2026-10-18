@@ -81,6 +81,39 @@ const ARCHIPELAGO: [f64; 5] = [0.15, 0.90, 0.80, 0.30, 0.50];
 /// base raster, not tiles, and so is not this harness's to draw.
 const RUNGS: [(&str, f64); 3] = [("x4", 1.86), ("x16", 7.42), ("x64", 29.7)];
 
+/// `ZD_X1=1` adds an `x1` frame per target: **the base raster**, as the app
+/// draws x1 (`render::cell_color`, no river ink, no tiles), box-averaged to
+/// the fit view's 950 px width over the whole map -- the same frame
+/// `terrain_streak_spike.rs`' `write_fit_rgb` writes, here so the ladder's
+/// four rungs come from one run. The target does not move it (x1 is the whole
+/// map). Added for `EDIFICE_AND_STREAKS_2026-10-18.md`.
+fn fit_frame(ctx: &RenderCtx) -> Vec<u8> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let ow = SCREEN_W;
+    let oh = ((gh as f64 * ow as f64 / gw as f64).round() as usize).min(SCREEN_H);
+    let mut rgb = vec![0u8; SCREEN_W * SCREEN_H * 3];
+    for oy in 0..oh {
+        for ox in 0..ow {
+            let (x0, x1) = (ox * gw / ow, ((ox + 1) * gw / ow).max(ox * gw / ow + 1));
+            let (y0, y1) = (oy * gh / oh, ((oy + 1) * gh / oh).max(oy * gh / oh + 1));
+            let mut s = [0.0f64; 3];
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let (r, g, b) = render::cell_color(ctx, x, y);
+                    s[0] += r;
+                    s[1] += g;
+                    s[2] += b;
+                }
+            }
+            let k = ((x1 - x0) * (y1 - y0)) as f64;
+            for c in 0..3 {
+                rgb[(oy * SCREEN_W + ox) * 3 + c] = (s[c] / k * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    rgb
+}
+
 fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldParams {
     let mut p = params::defaults();
     p.gw = gw;
@@ -105,6 +138,14 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
                 "no_cut" => p.streak.skip_channel_carve = true,
                 "carve_off" => p.carve_rivers = false,
                 "edifice_off" => p.volc.edifice_model = false,
+                // The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`):
+                // `cartalith_terrain::EdificeVariant`'s ablations and its
+                // variants (a) and (c), off at both boundaries.
+                "gully_off" => p.streak.edifice.drop_gullies = true,
+                "lumps_off" => p.streak.edifice.drop_lumps = true,
+                "a_km" => p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED),
+                "c_fill" => p.streak.edifice.fill_pits = true,
+                "c_late" => p.streak.edifice.fill_pits_final = true,
                 other => panic!("ZD_STREAK: unknown switch {other}"),
             }
         }
@@ -192,6 +233,35 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
         }
     }
     let mut out = vec![("mountain", best_h.1 as f64, best_h.2 as f64), ("cold", best_t.1 as f64, best_t.2 as f64)];
+    // The edifice follow-up's pick: the land cell with the largest
+    // `volcanic_field` (the youngest edifice's centre). `volcanic_field` is a
+    // function of placement alone, so the pick is the same in every arm.
+    let mut best_v = (0f32, 0, 0);
+    for y in (m..gh - m).step_by(2) {
+        for x in (m..gw - m).step_by(2) {
+            let i = y * gw + x;
+            if f[i] >= sea && ws.volcanic_field[i] > best_v.0 {
+                best_v = (ws.volcanic_field[i], x, y);
+            }
+        }
+    }
+    if best_v.0 > 0.0 {
+        out.push(("volcano", best_v.1 as f64, best_v.2 as f64));
+    }
+    // And a mid-flank point of the edifices under the volcano and mountain
+    // picks: 0.6 of the recovered radius north of the recovered centre
+    // (`edifice_furrows::EdificeFrame`, from `volcanic_field` alone), where
+    // the gullies are. The summit picks above sit inside the summit depression
+    // at x64, where no gully is cut.
+    let fr = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+    for (name, px, py) in [("volcano_flank", best_v.1, best_v.2), ("mountain_flank", best_h.1, best_h.2)] {
+        let o = fr.owner[py * gw + px];
+        if o != cartalith_terrain::edifice_furrows::EdificeFrame::NONE {
+            let e = &fr.edifices[o as usize];
+            let y = (e.cy - 0.6 * e.r).max(m as f64);
+            out.push((name, e.cx, y));
+        }
+    }
     if best_c.0 < f64::MAX {
         out.push(("coast", best_c.1 as f64, best_c.2 as f64));
     }
@@ -220,7 +290,12 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
 /// `synthesize_tile_rgba_with_z_base` build it minus the river layer and the
 /// RV-3 water tile (this harness's context has no valley field, so the shaded
 /// and the water heights are the same field).
-fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32) -> (Vec<u8>, usize, usize, TileBounds) {
+/// Variant (b)'s inputs, when `ZD_FURROWS` is set: the edifices recovered
+/// from the world's `volcanic_field` and the furrow law's scales
+/// (`cartalith_terrain::edifice_furrows`). Not wired into the app.
+type Furrows = (cartalith_terrain::edifice_furrows::EdificeFrame, cartalith_terrain::edifice_furrows::FurrowOpts);
+
+fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32, fur: Option<&Furrows>) -> (Vec<u8>, usize, usize, TileBounds) {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let b = pyramid_tile_bounds(gw, gh, z, col, row);
     let n = pyramid_dims(z).cols as usize;
@@ -241,7 +316,10 @@ fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32)
             km.nyquist_margin = m;
         }
     }
-    let (w, h, data) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col, row), TILE_PX, pad, &opts);
+    let (w, h, mut data) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col, row), TILE_PX, pad, &opts);
+    if let Some((fr, fo)) = fur {
+        cartalith_terrain::edifice_furrows::add_edifice_furrows_padded(&mut data, w, h, pad, fr, &b, fo);
+    }
     let rgba = render::render_biome_tile_rgba_water(ctx, &data, None, w, h, pad, tb, tf, None);
     assert_eq!(rgba.len(), w * h * 4, "the colouriser refused the tile");
     (rgba, w, h, tb)
@@ -250,7 +328,7 @@ fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32)
 /// A `SCREEN_W x SCREEN_H` frame centred on cell `(gx, gy)` at `ppc` screen
 /// pixels per cell: every pixel samples the tile of the level the shell would
 /// pick, bilinearly, at its own coarse coordinate. Returns RGB.
-fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32) -> Vec<u8> {
+fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, fur: Option<&Furrows>) -> Vec<u8> {
     let z = pyramid_level_for_zoom(ppc, ctx.gw as f64, TILE_PX as f64, Some(MAX_LEVEL));
     // LOD-D3's morph, as `lod_tile.gdshader` applies it: the level's tile over
     // its parent at `smoothstep(log2(want) − z + 0.5)` (`lod_bridge::
@@ -258,16 +336,16 @@ fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32
     let want = f64::max(1.0, ctx.gw as f64 * ppc / TILE_PX as f64);
     let t = (want.log2() - z as f64 + 0.5).clamp(0.0, 1.0);
     let morph = t * t * (3.0 - 2.0 * t);
-    let child = level_frame(ctx, tf, gx, gy, ppc, seed, z);
+    let child = level_frame(ctx, tf, gx, gy, ppc, seed, z, fur);
     if z == 0 || morph >= 1.0 {
         return child;
     }
-    let parent = level_frame(ctx, tf, gx, gy, ppc, seed, z - 1);
+    let parent = level_frame(ctx, tf, gx, gy, ppc, seed, z - 1, fur);
     child.iter().zip(&parent).map(|(&c, &p)| (p as f64 + (c as f64 - p as f64) * morph).round() as u8).collect()
 }
 
 /// One level's tiles composited to the screen frame (see [`frame`]).
-fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, z: i32) -> Vec<u8> {
+fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, z: i32, fur: Option<&Furrows>) -> Vec<u8> {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let n = pyramid_dims(z).cols;
     let step_x = (gw - 1) as f64 / n as f64;
@@ -280,7 +358,7 @@ fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, see
         for sx in 0..SCREEN_W {
             let cx = (gx + (sx as f64 + 0.5 - SCREEN_W as f64 / 2.0) / ppc).clamp(0.0, (gw - 1) as f64);
             let col = ((cx / step_x) as u32).min(n - 1);
-            let t = cache.entry((col, row)).or_insert_with(|| tile(ctx, tf, z, col, row, seed));
+            let t = cache.entry((col, row)).or_insert_with(|| tile(ctx, tf, z, col, row, seed, fur));
             let (rgba, w, h, tb) = (&t.0, t.1, t.2, t.3);
             let fx = ((cx - tb.x) / tb.w * (w - 1) as f64).clamp(0.0, (w - 1) as f64);
             let fy = ((cy - tb.y) / tb.h * (h - 1) as f64).clamp(0.0, (h - 1) as f64);
@@ -355,15 +433,34 @@ fn zoom_detail_ladder() {
         // One line per world the windowed probe's `--targets` file is built
         // from, so the two ladders frame the same cells.
         println!("TARGETS {} {} {:?}", w.tag, w.seed, tg);
+        // `ZD_FURROWS=1`: variant (b), tile-time radial furrows on edifice
+        // flanks at the proposed 1.5 km spacing (`edifice_furrows`).
+        let fur: Option<Furrows> = std::env::var("ZD_FURROWS").ok().filter(|v| v == "1").map(|_| {
+            let fr = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&ws.volcanic_field, gw, gh);
+            println!("FURROWS {}: {} edifices recovered", w.tag, fr.edifices.len());
+            let fo = cartalith_terrain::edifice_furrows::FurrowOpts {
+                km_per_cell: p.map_width_km / gw as f64,
+                spacing_km: cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED,
+                peak_m: p.peak_m,
+                sea: ws.sea_level,
+            };
+            (fr, fo)
+        });
+        let x1 = std::env::var("ZD_X1").ok().is_some_and(|v| v == "1");
+        let rungs: Vec<(&str, f64)> = x1.then_some(("x1", 0.0)).into_iter().chain(RUNGS.iter().copied()).collect();
+        // `ZD_ONLY=<target,...>` keeps those targets only.
+        if let Ok(o) = std::env::var("ZD_ONLY") {
+            tg.retain(|t| o.split(',').any(|n| n == t.0));
+        }
         for &law in &laws {
             let a = TerrainAppearance { zoom_detail_km: law, ..TerrainAppearance::for_tier(QualityTier::Quality).with_look(look) };
             let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
             let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context");
             let tf = TileFields::new(&ctx, None);
             for &(name, gx, gy) in &tg {
-                for &(rung, ppc) in &RUNGS {
+                for &(rung, ppc) in &rungs {
                     let t1 = std::time::Instant::now();
-                    let rgb = frame(&ctx, &tf, gx, gy, ppc, w.seed);
+                    let rgb = if rung == "x1" { fit_frame(&ctx) } else { frame(&ctx, &tf, gx, gy, ppc, w.seed, fur.as_ref()) };
                     assert!(rgb.iter().any(|&v| v != rgb[0]), "an empty frame");
                     let png = cartalith_assets::raster::encode_png_rgb8(SCREEN_W as u32, SCREEN_H as u32, rgb, cartalith_assets::raster::PngColour::Data).unwrap();
                     let tag = std::env::var("ZD_TAG").unwrap_or_default();
@@ -413,7 +510,7 @@ fn zoom_detail_tile_cost() {
             let (col, row) = ((c0 + k % 6).min(n - 1), (r0 + k / 6).min(n - 1));
             for arm in 0..2 {
                 let t0 = std::time::Instant::now();
-                let _ = tile(&ctxs[arm], &tfs[arm], z, col, row, w.seed);
+                let _ = tile(&ctxs[arm], &tfs[arm], z, col, row, w.seed, None);
                 t[arm].push(t0.elapsed().as_secs_f64() * 1e3);
             }
         }

@@ -267,6 +267,17 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-10-10
 
+- **Edifice gullies and 314159's streaks measured (2026-10-18), Ruling CM items 1 and 4. Nothing is switched on; owner questions are open.** Details: `EDIFICE_AND_STREAKS_2026-10-18.md`; frames in `cartalith-native/docs/evidence/edifice-streaks-2026-10-18/`.
+  - **Built, measurement-only:** `cartalith_terrain::EdificeVariant`, reached through `StreakSpikeParams::edifice`, off at both boundaries, no `PARAMS` row. It carries (a) kilometre-keyed, band-limited gullies, (c) a flank-pit fill at the stamp, (c-late) the same fill on the final field, and the ablations. `cartalith_terrain::edifice_furrows` is (b): tile-time radial furrows, not wired into the app.
+  - **Identity:** `gf6_carve_identity_hashes` gives the same 13-array hashes as origin tip `a984b2c8`.
+  - **Tests:** `cargo test --workspace -j 2`, rebased on `3a6ccefd`: 226 suites, 6320 passed, 0 failed, 113 ignored. Mutants: 13 run, all 13 killed.
+  - **Findings, medians over five 800 km worlds:**
+    - The gully term makes both the pits and the dome streaks. With it off, 1-3-cell lakes on edifices fall 41 to 4 and dome across-energy halves.
+    - (a) as built is worse: lakes 61 to 237. It drops the 48-gully cap, and the pits are a slope ratio, not aliasing.
+    - (c-late) is the effective fix: edifice lakes 41 to 10, all small lakes 61 to 27, invisible at x1-x64, outlets 99.93 % within 5 cells, no cost difference established.
+    - (b) is the only arm that adds gully detail at x16 and x64; it reads slightly combed.
+  - **314159's north-south streaks are the river comb.** With the river layer hidden in the windowed shell, no north-south line remains. The height's north-south excess (ratio 1.48) comes from the generation carve (0.21 with it off). Rendered terrain without river ink reads 1.07.
+
 - **Duplicate generated ways: a port-only defect, fixed (2026-10-18).** Details: `DUPLICATE_WAYS_FINDING_2026-10-18.md`. This answers the open question in the probe-triage entry below.
   - **Cause:** the extend-back pass in `civ_consolidate_and_smooth_ways` (owner ruling 2026-09-28) applied both of its splices to every run. On an edge with several runs, every run became the whole routed path, so the edge produced N identical ways. They were drawn N times and their km was summed N times (for example in `civ_military_bridge.rs`'s `road_km`).
   - **Reference:** the v2.11 tail (22160-22227) emits disjoint runs and never extends one.

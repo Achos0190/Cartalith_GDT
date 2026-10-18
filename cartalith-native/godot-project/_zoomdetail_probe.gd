@@ -7,6 +7,7 @@ extends Node
 ## MUST run windowed (frame_post_draw / get_image are dead under headless):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _zoomdetail_probe.tscn -- \
 ##       --out DIR --targets targets.json [--law 0|1] [--tag NAME] [--grid 2048x1311] [--vp 1600x1000]
+##       [--rivers on|off] [--only target,target]
 ##
 ## `--targets` is a JSON object `{world_tag: {"seed": s, "archetype": "earth",
 ## "width_km": w}}`. The cells are picked here, on the shell's own generated world,
@@ -22,7 +23,8 @@ extends Node
 ## recognised and the run says so; that is how a HEAD DLL is recorded). Every
 ## capture is the map viewport only, at camera zoom 1 / 4 / 16 / 64 (the
 ## assessment's ladder: `reset_view`, `zoom_step`, `move_view_to`, then until
-## `lod_pending() == 0`), with every overlay but rivers hidden and the labels
+## `lod_pending() == 0`), with every overlay but rivers hidden (rivers too under
+## `--rivers off`) and the labels
 ## cleared, as the assessment did. Writes `<world>_<target>_x<zoom>_<tag>.png` and
 ## `zoomdetail_<tag>.json` (px per cell, LOD state, viewport size per capture).
 ##
@@ -37,6 +39,8 @@ var _law := -1.0
 var _tag := "run"
 var _grid := Vector2i(2048, 1311)
 var _vp := Vector2i(1600, 1000)
+var _rivers := true
+var _only: PackedStringArray = []
 var _app: Node
 var _vh: Control
 var _br: Node
@@ -61,6 +65,16 @@ func _ready() -> void:
 				var p := args[i + 1].split("x"); _grid = Vector2i(int(p[0]), int(p[1])); i += 1
 			"--vp":
 				var v := args[i + 1].split("x"); _vp = Vector2i(int(v[0]), int(v[1])); i += 1
+			## EDIFICE_AND_STREAKS_2026-10-18.md: `--rivers off` hides the river layer
+			## (overlay stroke and in-tile river paint, `set_layer_visible("rivers")`)
+			## so terrain streaks can be told from river strokes; `--only a,b` keeps
+			## those targets. Defaults keep the assessment's own run.
+			"--rivers":
+				if args[i + 1] != "on" and args[i + 1] != "off":
+					printerr("--rivers expects on|off"); get_tree().quit(2); return
+				_rivers = args[i + 1] == "on"; i += 1
+			"--only":
+				_only = args[i + 1].split(","); i += 1
 			_:
 				printerr("unknown arg ", args[i]); get_tree().quit(2); return
 		i += 1
@@ -103,9 +117,12 @@ func _run_world(wtag: String, spec: Dictionary) -> void:
 		_vh.map_view.texture = _br.color_texture()
 	for l in HIDE:
 		_vh.set_layer_visible(l, false)
-	_vh.set_layer_visible("rivers", true)
+	_vh.set_layer_visible("rivers", _rivers)
+	rec["rivers"] = _rivers
 	_vh.overlay.set_labels([])
 	var picks := _pick_targets()
+	if not _only.is_empty():
+		picks = picks.filter(func(t): return _only.has(String(t[0])))
 	rec["targets"] = picks
 	print("  targets: ", picks)
 	for t in picks:

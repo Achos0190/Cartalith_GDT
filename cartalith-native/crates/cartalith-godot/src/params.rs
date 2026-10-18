@@ -209,8 +209,10 @@ pub fn defaults() -> WorldParams {
     // it on every weather-grid line (lattice index 2.617 -> 0.984, five app
     // worlds). Off in `WorldParams::defaults`, the goldens' baseline.
     p.climate.rain_bspline = true;
-    // The terrain-streak spike's two ablations stay OFF in the app: they are
-    // measurement-only and have no `PARAMS` row (`StreakSpikeParams`' doc).
+    // The terrain-streak spike's two ablations, and the edifice follow-up's
+    // variants (`StreakSpikeParams::edifice`, EDIFICE_AND_STREAKS_2026-10-18.md),
+    // stay OFF in the app: they are measurement-only and have no `PARAMS` row
+    // (`StreakSpikeParams`' doc).
     // Written out, though it equals `WorldParams::defaults`.
     p.streak = cartalith_engine::StreakSpikeParams::default();
     p

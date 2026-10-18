@@ -21,6 +21,17 @@
 //! pass, the edifice (the dome streaks' source, now the edifice and zoom-law
 //! backlog row's measure-first input) and the rain up-sample.
 //!
+//! **The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`).** Eight more
+//! arms (`gully_off`, `lumps_off`, `a_km`, `c_fill`, `c_late`, `a_full`, `a_late`, `a_c`: the
+//! `cartalith_terrain::EdificeVariant` ablations and variants, off at both
+//! boundaries), two more worlds (71077345 at 3 000 km and 40 075 km), one
+//! `EDIFICES` line per world (the edifices recovered from `volcanic_field`,
+//! their radii and each law's gully spacing in km), one `EDIFICE` line per arm
+//! (closed depressions and 1-3-cell lakes on and off edifices, the dome's
+//! band-passed gradient energy), an optional `WINDOW` line (`SS_WINDOW=x,y,r`:
+//! [`ns_ratio`] and [`dir_ratio`] of height and luminance over one window,
+//! for 314159's north-south streaks) and `SS_COST_ARMS`.
+//!
 //! The metric is [`dir_ratio`]: band-pass the field (1 to 3 cells), take a Scharr gradient,
 //! and divide the gradient energy whose direction lies within 22.5 degrees of
 //! an axis by the energy within 22.5 degrees of a diagonal. An isotropic field
@@ -158,6 +169,32 @@ fn dir_ratio(f: &[f64], mask: &[bool], w: usize, h: usize, sigma: f64) -> Option
     (dg > 0.0).then(|| ax / dg)
 }
 
+/// North-south line energy: band-passed gradient energy whose direction lies
+/// within 22.5 degrees of the x axis (an x-gradient is what a line running
+/// north-south has) over the energy within 22.5 degrees of the y axis. 1.0 =
+/// no north-south preference; `None` when the y bin is empty. Added for
+/// 314159's north-south streaks (`EDIFICE_AND_STREAKS_2026-10-18.md`).
+fn ns_ratio(f: &[f64], mask: &[bool], w: usize, h: usize, sigma: f64) -> Option<f64> {
+    let hp = highpass(f, w, h, sigma);
+    let (mut ex, mut ey) = (0.0f64, 0.0f64);
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            if !mask[y * w + x] {
+                continue;
+            }
+            let (gx, gy) = scharr(&hp, w, x, y);
+            let a = gy.atan2(gx).rem_euclid(std::f64::consts::PI);
+            let e = gx * gx + gy * gy;
+            if !(std::f64::consts::FRAC_PI_8..7.0 * std::f64::consts::FRAC_PI_8).contains(&a) {
+                ex += e;
+            } else if (3.0 * std::f64::consts::FRAC_PI_8..5.0 * std::f64::consts::FRAC_PI_8).contains(&a) {
+                ey += e;
+            }
+        }
+    }
+    (ey > 0.0).then(|| ex / ey)
+}
+
 /// Across-slope over along-slope high-pass gradient energy of `f` over `mask`,
 /// the downslope direction per cell given by `dir` (unit vectors, from the
 /// reference world). Streaks running downslope read above 1. `None` when the
@@ -290,6 +327,14 @@ fn metric_calibration() {
     assert!(streaks.is_none_or(|r| r > 20.0), "downslope streaks read {streaks:?}");
     assert!(contours.is_some_and(|r| r < 0.05), "across-slope ridges read {contours:?}");
     assert!((iso2 - 1.0).abs() < 0.1, "isotropic noise read {iso2} across/along");
+    // ns_ratio: a grating varying in x is north-south lines; one varying in y
+    // is east-west lines; noise has no preference.
+    let ns_lines = ns_ratio(&grating(5.0), &mask, w, h, 3.0);
+    let ew_lines = ns_ratio(&grating(85.0), &mask, w, h, 3.0);
+    let ns_iso = ns_ratio(&noise, &mask, w, h, 3.0).unwrap();
+    assert!(ns_lines.is_none_or(|r| r > 20.0), "north-south lines read {ns_lines:?}");
+    assert!(ew_lines.is_some_and(|r| r < 0.05), "east-west lines read {ew_lines:?}");
+    assert!((ns_iso - 1.0).abs() < 0.1, "isotropic noise read {ns_iso} north-south");
     // lattice_index: a coarse random grid (8-cell spacing) bilinearly up-sampled
     // creases on its lines; band-limited noise has no lattice.
     let sp = 8.0;
@@ -320,7 +365,7 @@ fn metric_calibration() {
 /// `WorldParams::defaults`.
 #[test]
 fn every_streak_switch_is_off_at_both_boundaries() {
-    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false };
+    let off = StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false, edifice: cartalith_terrain::EdificeVariant { gully_spacing_km: None, fill_pits: false, fill_pits_final: false, drop_gullies: false, drop_lumps: false, full_band: false } };
     assert_eq!(WorldParams::defaults(64, 40, 1).streak, off);
     assert_eq!(params::defaults().streak, off);
     assert!(params::defaults().climate.rain_bspline, "Ruling CM: the app runs the B-spline rain up-sample");
@@ -343,12 +388,18 @@ const ARCHIPELAGO: [f64; 5] = [0.15, 0.90, 0.80, 0.30, 0.50];
 
 /// The zoom-forest report's three worlds (the shell's own archetype choices)
 /// plus two GF seeds at the app's Classic structure: five seeds at 800 km.
-const WORLDS: [Spec; 5] = [
+/// Two more for the edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`),
+/// at the end so the spike's own `WORLDS[..2]` / `WORLDS[1]` picks are
+/// unchanged: 71077345 at 3 000 km and at Earth's equatorial width
+/// (40 075 km), where a 4-cell gully spacing is 5.9 km and 78 km.
+const WORLDS: [Spec; 7] = [
     Spec { tag: "s71077345_classic", seed: 71_077_345, archetype: None, km: 800.0 },
     Spec { tag: "s314159_earth", seed: 314_159, archetype: Some(EARTH), km: 800.0 },
     Spec { tag: "s24601_archipelago", seed: 24_601, archetype: Some(ARCHIPELAGO), km: 800.0 },
     Spec { tag: "s483920_classic", seed: 483_920, archetype: None, km: 800.0 },
     Spec { tag: "s12345_classic", seed: 12_345, archetype: None, km: 800.0 },
+    Spec { tag: "w71077345_classic_3000km", seed: 71_077_345, archetype: None, km: 3000.0 },
+    Spec { tag: "w71077345_classic_40075km", seed: 71_077_345, archetype: None, km: 40_075.0 },
 ];
 
 fn app_params(s: &Spec, gw: usize, gh: usize) -> WorldParams {
@@ -377,7 +428,7 @@ type Edit = fn(&mut WorldParams);
 /// `head` is the app as shipped (since Ruling CM, with the B-spline rain
 /// up-sample); the rest are ablations of it, and `rain_bilinear` is the app as
 /// it was before the ruling.
-const ARMS: [(&str, Edit); 7] = [
+const ARMS: [(&str, Edit); 15] = [
     ("head", |_| {}),
     ("carve_off", |p| p.carve_rivers = false),
     ("no_light", |p| p.streak.skip_light_pass = true),
@@ -389,6 +440,28 @@ const ARMS: [(&str, Edit); 7] = [
     ("edifice_off", |p| p.volc.edifice_model = false),
     // Ruling CM's before: the reference's bilinear rain up-sample.
     ("rain_bilinear", |p| p.climate.rain_bspline = false),
+    // The edifice follow-up (`EDIFICE_AND_STREAKS_2026-10-18.md`;
+    // `cartalith_terrain::EdificeVariant`, off at both boundaries): two
+    // ablations that attribute the pits and streaks to the flank's gully or
+    // lump term, variant (a) kilometre-keyed band-limited gullies, variant (c)
+    // the flank-pit fill, and the two together.
+    ("gully_off", |p| p.streak.edifice.drop_gullies = true),
+    ("lumps_off", |p| p.streak.edifice.drop_lumps = true),
+    ("a_km", |p| p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED)),
+    ("c_fill", |p| p.streak.edifice.fill_pits = true),
+    ("c_late", |p| p.streak.edifice.fill_pits_final = true),
+    ("a_full", |p| {
+        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
+        p.streak.edifice.full_band = true;
+    }),
+    ("a_late", |p| {
+        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
+        p.streak.edifice.fill_pits_final = true;
+    }),
+    ("a_c", |p| {
+        p.streak.edifice.gully_spacing_km = Some(cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED);
+        p.streak.edifice.fill_pits = true;
+    }),
 ];
 
 /// Every land cell's drainage outlet on the routing surface the app routes
@@ -613,6 +686,150 @@ fn inside(mask: Vec<bool>, w: usize, h: usize) -> Vec<bool> {
     mask.into_iter().enumerate().map(|(i, m)| m && (i % w) >= EDGE && (i % w) + EDGE < w && (i / w) >= EDGE && (i / w) + EDGE < h).collect()
 }
 
+/// One closed land depression of a world's final height field, for the
+/// edifice follow-up's pit count (`EDIFICE_AND_STREAKS_2026-10-18.md`).
+struct Dep {
+    /// Cells the depression-fill raises (4-connected component).
+    cells: usize,
+    /// Deepest fill, in metres (`peak_m` scale).
+    depth_m: f64,
+    /// Any of its cells on an edifice footprint (`volcanic_field > 0`, a
+    /// placement-only input, identical in every arm).
+    on_edifice: bool,
+    /// Any of its cells classified lake (`build_water_bodies` class 2): the
+    /// pit is a lake in the world, not only a hollow in the field.
+    lake: bool,
+}
+
+/// Every closed depression on land: a plain Priority-Flood (seeded from every
+/// sea cell and every map-edge cell; Barnes et al. 2014) raises each cell to
+/// its spill level, and the cells it raised are the depressions. **4-connected**
+/// throughout, the connectivity `build_water_bodies` floods with, so a pit here
+/// is a pit to the lake classifier. A measurement only; the world is not changed.
+fn depressions(f: &[f32], sea: f64, gw: usize, gh: usize, volc: &[f32], class: &[u8], peak_m: f64) -> Vec<Dep> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let n = gw * gh;
+    let mut fill: Vec<f32> = f.to_vec();
+    let mut closed = vec![false; n];
+    let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
+    let key = |v: f32| v.max(0.0).to_bits();
+    for i in 0..n {
+        let (x, y) = (i % gw, i / gw);
+        if (f[i] as f64) < sea || x == 0 || y == 0 || x + 1 == gw || y + 1 == gh {
+            closed[i] = true;
+            heap.push(Reverse((key(f[i]), i)));
+        }
+    }
+    while let Some(Reverse((hb, c))) = heap.pop() {
+        let hc = f32::from_bits(hb);
+        let (x, y) = ((c % gw) as i64, (c / gw) as i64);
+        for dy in -1i64..=1 {
+            for dx in -1i64..=1 {
+                let (xx, yy) = (x + dx, y + dy);
+                if (dx, dy) == (0, 0) || (dx != 0 && dy != 0) || xx < 0 || yy < 0 || xx as usize >= gw || yy as usize >= gh {
+                    continue;
+                }
+                let j = yy as usize * gw + xx as usize;
+                if closed[j] {
+                    continue;
+                }
+                closed[j] = true;
+                if fill[j] < hc {
+                    fill[j] = hc;
+                }
+                heap.push(Reverse((key(fill[j]), j)));
+            }
+        }
+    }
+    let mut seen = vec![false; n];
+    let mut out = Vec::new();
+    let mut stack = Vec::new();
+    for s in 0..n {
+        if seen[s] || fill[s] <= f[s] {
+            continue;
+        }
+        seen[s] = true;
+        stack.push(s);
+        let mut d = Dep { cells: 0, depth_m: 0.0, on_edifice: false, lake: false };
+        while let Some(i) = stack.pop() {
+            d.cells += 1;
+            d.depth_m = d.depth_m.max((fill[i] - f[i]) as f64 * peak_m);
+            d.on_edifice |= volc[i] > 0.0;
+            d.lake |= class[i] == 2;
+            let (x, y) = ((i % gw) as i64, (i / gw) as i64);
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    let (xx, yy) = (x + dx, y + dy);
+                    if (dx != 0 && dy != 0) || xx < 0 || yy < 0 || xx as usize >= gw || yy as usize >= gh {
+                        continue;
+                    }
+                    let j = yy as usize * gw + xx as usize;
+                    if !seen[j] && fill[j] > f[j] {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        out.push(d);
+    }
+    out
+}
+
+/// 1-3-cell lakes (`build_water_bodies` class 2, 4-connected: RV-1's own
+/// small-lake count, `rivers`' walk) split by whether any cell is on an
+/// edifice footprint: `(on, off, on the summit)`. "Summit" = the lake's first
+/// cell within 30 % of its recovered edifice's radius from the centre
+/// (`frame`): where the summit depression is, which is a real closed basin.
+fn small_lakes_split(class: &[u8], volc: &[f32], gw: usize, gh: usize, frame: &cartalith_terrain::edifice_furrows::EdificeFrame) -> (usize, usize, usize) {
+    let mut seen = vec![false; gw * gh];
+    let (mut on, mut off, mut summit, mut stack) = (0usize, 0usize, 0usize, Vec::new());
+    for s0 in 0..gw * gh {
+        if class[s0] != 2 || seen[s0] {
+            continue;
+        }
+        seen[s0] = true;
+        stack.push(s0);
+        let (mut k, mut ed) = (0usize, false);
+        while let Some(i) = stack.pop() {
+            k += 1;
+            ed |= volc[i] > 0.0;
+            let (x, y) = (i % gw, i / gw);
+            for j in [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)].into_iter().flatten() {
+                if class[j] == 2 && !seen[j] {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        if k <= 3 {
+            if ed {
+                on += 1;
+                let o = frame.owner[s0];
+                if o != cartalith_terrain::edifice_furrows::EdificeFrame::NONE {
+                    let e = &frame.edifices[o as usize];
+                    if ((s0 % gw) as f64 - e.cx).hypot((s0 / gw) as f64 - e.cy) < 0.3 * e.r {
+                        summit += 1;
+                    }
+                }
+            } else {
+                off += 1;
+            }
+        }
+    }
+    (on, off, summit)
+}
+
+/// `q`-quantile of `v` (sorted in place). `None` when empty.
+fn quantile(v: &mut [f64], q: f64) -> Option<f64> {
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(|a, b| a.total_cmp(b));
+    Some(v[((v.len() - 1) as f64 * q).round() as usize])
+}
+
 fn fmt(v: Option<f64>) -> String {
     v.map_or("-".to_string(), |x| format!("{x:.3}"))
 }
@@ -656,6 +873,41 @@ fn streak_spike_measure() {
         let cut = land_mags[(land_mags.len() as f64 * 0.98) as usize];
         let steep: Vec<bool> = inside((0..gw * gh).map(|i| rf[i] >= sea && mag[i] >= cut).collect(), gw, gh);
         assert!(steep.iter().filter(|&&b| b).count() > 1000, "{}: the steep mask is empty", w.tag);
+        // The edifice follow-up: the edifices as `volcanic_field` records them
+        // (placement only, so the same in every arm), their size on the
+        // ground, and the gully spacing each law gives them at mid-flank.
+        let cell_km = base.map_width_km / gw as f64;
+        let frame = cartalith_terrain::edifice_furrows::EdificeFrame::from_volcanic_field(&rws.volcanic_field, gw, gh);
+        {
+            let mut r_km: Vec<f64> = frame.edifices.iter().map(|e| e.r * cell_km).collect();
+            // The shipped law: `round(pi * r / 4).clamp(6, 48)` gullies.
+            let mut sp_ship_km: Vec<f64> = frame
+                .edifices
+                .iter()
+                .map(|e| {
+                    let g = ((std::f64::consts::PI * e.r / 4.0).round() as i32).clamp(6, 48);
+                    std::f64::consts::PI * e.r / g as f64 * cell_km
+                })
+                .collect();
+            let km_cells = cartalith_terrain::EDIFICE_GULLY_SPACING_KM_PROPOSED / cell_km;
+            println!(
+                "EDIFICES {}: cell {:.3} km | recovered {} | radius km p10 {} p50 {} p90 {} | shipped spacing km p10 {} p50 {} p90 {} | km-law spacing {:.2} cells, octave-0 held {:.2}",
+                w.tag,
+                cell_km,
+                frame.edifices.len(),
+                fmt(quantile(&mut r_km.clone(), 0.1)),
+                fmt(quantile(&mut r_km.clone(), 0.5)),
+                fmt(quantile(&mut r_km, 0.9)),
+                fmt(quantile(&mut sp_ship_km.clone(), 0.1)),
+                fmt(quantile(&mut sp_ship_km.clone(), 0.5)),
+                fmt(quantile(&mut sp_ship_km, 0.9)),
+                km_cells,
+                cartalith_terrain::edifice_resolved_weight(km_cells),
+            );
+        }
+        // The dome population: land on an edifice footprint (an input), well
+        // inside each cone (`v > 0.05`), outside the edge band.
+        let dome: Vec<bool> = inside((0..gw * gh).map(|i| rf[i] >= sea && rws.volcanic_field[i] > 0.05).collect(), gw, gh);
         let mut head_out: Option<Vec<usize>> = None;
         let mut head_biome: Option<Vec<u8>> = None;
         for (name, edit) in ARMS.iter() {
@@ -746,6 +998,58 @@ fn streak_spike_measure() {
                 fmt(agree.map(|a| a.0)),
                 fmt(agree.map(|a| a.1)),
             );
+            // The edifice follow-up's per-arm line: closed depressions on the
+            // final field (all, 1-3 cells, on an edifice, and of those how
+            // many the water-body classifier calls lakes), 1-3-cell lakes on
+            // and off edifices, and the dome's band-passed gradient energy
+            // (axis/diagonal ratio and the across-slope energy).
+            let deps = depressions(&ws.field, sea, gw, gh, &ws.volcanic_field, &rv.class, p.peak_m);
+            let small: Vec<&Dep> = deps.iter().filter(|d| d.cells <= 3).collect();
+            let small_ed: Vec<&&Dep> = small.iter().filter(|d| d.on_edifice).collect();
+            let mut dep_m: Vec<f64> = small_ed.iter().map(|d| d.depth_m).collect();
+            let (sl_on, sl_off, sl_summit) = small_lakes_split(&rv.class, &ws.volcanic_field, gw, gh, &frame);
+            let (dome_acr, dome_alo) = across_along_energy(&f, &dome, &dir, gw, gh, HP);
+            println!(
+                "EDIFICE {} {name}: deps {} small {} small_on_edifice {} of_which_lake {} small_on_edifice_depth_m p50 {} p90 {} | small_lakes on_edifice {} (summit {}) off {} | dome_cells {} dome_axdg {} dome_acrE {:.3e} dome_aloE {:.3e}",
+                w.tag,
+                deps.len(),
+                small.len(),
+                small_ed.len(),
+                small_ed.iter().filter(|d| d.lake).count(),
+                fmt(quantile(&mut dep_m.clone(), 0.5)),
+                fmt(quantile(&mut dep_m, 0.9)),
+                sl_on,
+                sl_summit,
+                sl_off,
+                dome.iter().filter(|&&b| b).count(),
+                fmt(dir_ratio(&f, &dome, gw, gh, HP)),
+                dome_acr,
+                dome_alo,
+            );
+            // `SS_WINDOW=x,y,r`: one square window (cells; land only) -- the
+            // windowed probe's pick on 314159's coastal slope -- with the
+            // north-south line ratio and the axis/diagonal ratio of the height
+            // and of the base-raster luminance (no river ink), so a terrain
+            // streak can be told from a river stroke and traced by arm.
+            if let Ok(win) = std::env::var("SS_WINDOW") {
+                let v: Vec<f64> = win.split(',').map(|s| s.trim().parse().expect("SS_WINDOW=x,y,r")).collect();
+                let (wx, wy, wr) = (v[0], v[1], v[2]);
+                let m: Vec<bool> = (0..gw * gh)
+                    .map(|i| f[i] >= sea && ((i % gw) as f64 - wx).abs() <= wr && ((i / gw) as f64 - wy).abs() <= wr)
+                    .collect();
+                let m = inside(m, gw, gh);
+                let lf_m = ws.flow_discharge.iter().map(|&q| (q as f64).max(1e-3).ln()).collect::<Vec<f64>>();
+                println!(
+                    "WINDOW {} {name} ({wx},{wy}) r {wr}: cells {} H_ns {} H_axdg {} LUM_ns {} LUM_axdg {} FLOW_ns {}",
+                    w.tag,
+                    m.iter().filter(|&&b| b).count(),
+                    fmt(ns_ratio(&f, &m, gw, gh, HP)),
+                    fmt(dir_ratio(&f, &m, gw, gh, HP)),
+                    fmt(ns_ratio(&lum, &m, gw, gh, HP)),
+                    fmt(dir_ratio(&lum, &m, gw, gh, HP)),
+                    fmt(ns_ratio(&lf_m, &m, gw, gh, HP)),
+                );
+            }
             if let Some(o) = &out {
                 write_fit(&format!("{o}/{}_{name}_x1.png", w.tag), &lum, gw, gh);
                 write_fit_rgb(&format!("{o}/{}_{name}_x1_rgb.png", w.tag), &ws, &p);
@@ -806,9 +1110,12 @@ fn streak_spike_render_ablation() {
 fn streak_spike_cost() {
     let (gw, gh) = (2048usize, 1311usize);
     let base = app_params(&WORLDS[1], gw, gh);
+    // `SS_COST_ARMS` (comma list) times other arms against head; default the
+    // spike's own pair.
+    let pick = std::env::var("SS_COST_ARMS").unwrap_or_else(|_| "rain_bilinear".into());
     let arms: Vec<(&str, WorldParams)> = ARMS
         .iter()
-        .filter(|(n, _)| ["head", "rain_bilinear"].contains(n))
+        .filter(|(n, _)| *n == "head" || pick.split(',').any(|t| t == *n))
         .map(|(n, e)| {
             let mut p = base.clone();
             e(&mut p);

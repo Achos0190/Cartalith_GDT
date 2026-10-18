@@ -454,7 +454,7 @@ pub(crate) use cartalith_jsmath::{js_max, js_min};
 /// change and nothing else; no other golden in the workspace reaches this
 /// code near sea level.
 #[inline]
-fn clamp_toward_sea(base: f64, delta: f64, sea: f64) -> f64 {
+pub(crate) fn clamp_toward_sea(base: f64, delta: f64, sea: f64) -> f64 {
     let half = (base - sea) * 0.5;
     if base >= sea {
         // Land. `half >= 0`, and going *down* is toward sea.
