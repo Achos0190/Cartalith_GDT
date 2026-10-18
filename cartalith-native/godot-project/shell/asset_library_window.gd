@@ -1230,6 +1230,13 @@ func apply_to_map_now() -> void:
 	_on_apply_to_map()
 	_refresh_pack_status()
 
+## Menu entry point (Assets ▸ Pack report…, AP-2): opens the window and shows
+## the same report card as the inspector foot's Report chip.
+func report_now() -> void:
+	if not visible:
+		open()
+	_on_report()
+
 ## Menu entry point: runs the same Export pack .zip flow as the window bar chip.
 func export_pack_now() -> void:
 	_on_export_pack()
@@ -3161,6 +3168,12 @@ func _build_inspector() -> Control:
 	_validate_btn = _chip(foot, "Validate", func(): _on_validate(), false, 0, 6)
 	_validate_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_validate_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	## AP-2: the pack report, a superset of Validate (its warnings first,
+	## verbatim) with a Show per row that names a slot.
+	var report_btn := _chip(foot, "Report", func(): _on_report(), false, 0, 6)
+	report_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	report_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	report_btn.tooltip_text = "The pack report: Validate's warnings plus what the art itself shows (blank, opaque, undersized or non-square images, ground tiles that do not wrap, duplicates, colour conversions, a blank licence) and which families the map never draws. Read-only."
 	_clear_btn = _chip(foot, "Clear library…", func(): _on_clear_library(), false, 0, 6)
 	_clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_clear_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
@@ -3558,6 +3571,40 @@ func _on_apply_to_map() -> void:
 ## against overwriting and writes via `FileAccess`. Nothing is written if the
 ## engine refuses; a failed open is reported, not swallowed.
 func _on_export_pack() -> void:
+	## Ruling CQ Q8: the exported bytes keep the reference's blank-licence ->
+	## "CC0" default, but the user is asked first. A licence still being typed
+	## (the field has focus, so it has not committed on Enter or focus loss)
+	## counts, so it is committed first. Only then: committing unconditionally
+	## would write this window's possibly stale fields over metadata set from
+	## Assets ▸ Asset pack ▸ Pack metadata… while the window was closed.
+	if _pack_license_field != null and _pack_license_field.has_focus():
+		_commit_pack_info()
+	var licence := String(_bridge.as_pack_info().get("license", "")).strip_edges()
+	if licence == "":
+		_confirm_blank_licence_export()
+		return
+	_export_pack_confirmed()
+
+## Q8's confirmation (Ruling CQ). Not destructive -- nothing is lost -- so the
+## confirm variant: Cancel, then the safe, filled answer that names what it
+## will write. Cancel says how to set a licence instead.
+func _confirm_blank_licence_export() -> void:
+	var card := DccWidgets.modal_card(_card_parent(), "Export without a licence",
+		DccWidgets.MODAL_CONFIRM, _card_width(400))
+	DccWidgets.modal_prose(card["body"],
+		"This pack has no licence. Export writes \"CC0\" into pack.json, which tells anyone who receives it that the art is public domain. If the art is someone else's, cancel and fill in the licence under PACK METADATA first.")
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"on_cancel": func():
+			_host.set_status("hint", "export cancelled — the pack has no licence yet", "accent"),
+		"safe": {"text": "Export as CC0", "on": func(): _export_pack_confirmed()},
+	})
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+## The export itself, once any licence question is answered: engine bytes,
+## a save path, the overwrite guard and the write.
+func _export_pack_confirmed() -> void:
 	var result: Dictionary = _bridge.as_export_pack_bytes()
 	if not bool(result.get("ok", false)):
 		_host.set_status("hint", "export failed — %s" % String(result.get("error", "unknown error")), "warn")
@@ -3796,6 +3843,68 @@ func focus_slot(uid: String) -> bool:
 	if _phone:
 		_show_phone_pane("slot")
 	return true
+
+# ---------------------------------------------------------------------------
+# AP-2: the pack report
+# ---------------------------------------------------------------------------
+
+## The report card (`as_pack_report`). Variant C, a result: Done and Copy
+## report. Rows are in the engine's order: Validate's warnings verbatim, the
+## licence, per-slot findings in slot order, duplicates, empty families. A row
+## that names a slot has a Show button that closes the card and focuses it.
+## Read-only: nothing here changes the library.
+func _on_report() -> void:
+	var r: Dictionary = _bridge.as_pack_report()
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "no report — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	var rows: Array = r.get("findings", [])
+	var warns := 0
+	for f in rows:
+		if String((f as Dictionary).get("severity", "")) == "warn":
+			warns += 1
+	var card := DccWidgets.modal_card(_card_parent(),
+		"Pack report · %d finding%s" % [rows.size(), "" if rows.size() == 1 else "s"],
+		DccWidgets.MODAL_WARNINGS, _card_width(480))
+	var pack_name := String(_bridge.as_pack_info().get("name", ""))
+	var who := pack_name if pack_name != "" else "This library"
+	var head := "%s: %d warning%s, %d note%s." % [who, warns, "" if warns == 1 else "s",
+		rows.size() - warns, "" if rows.size() - warns == 1 else "s"]
+	if rows.is_empty():
+		head = "%s: nothing to report." % who
+	DccWidgets.modal_prose(card["body"], head)
+	var lines: Array[String] = [head]
+	if not rows.is_empty():
+		var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], rows.size()))
+		var shown := 0
+		for f in rows:
+			var d: Dictionary = f
+			var text := String(d.get("text", ""))
+			if String(d.get("kind", "")) == "colour":
+				## ET-E2's one honest line, from the report the engine kept at
+				## import (`colour_note_for`), never re-worded here.
+				var note := colour_note_for({"colour": d.get("colour", null)})
+				text = note if note != "" else text
+			var label := String(d.get("label", ""))
+			var line_text := ("%s — %s" % [label, text]) if label != "" else text
+			lines.append("[%s] %s" % [String(d.get("severity", "")), line_text])
+			if shown < CARD_ROW_CAP:
+				var row := DccWidgets.modal_list_row(list,
+					"warn" if String(d.get("severity", "")) == "warn" else "text_ghost", line_text)
+				_add_show_button(row, String(d.get("uid", "")), card)
+				shown += 1
+		if rows.size() > shown:
+			DccWidgets.modal_list_row(list, "", "%d more — Copy report has every row" % (rows.size() - shown))
+		DccWidgets.modal_legend(card["body"], list, {"warn": "warning", "text_ghost": "note"})
+	DccWidgets.modal_foot(card["body"], "read-only: the report changes nothing in the library or the pack")
+	var choices := DccWidgets.modal_choices(card, {"safe": {"text": "Done", "on": func(): pass}})
+	var actions: HBoxContainer = choices["row"]
+	var copy := DccWidgets.modal_quiet(actions, "Copy report", func():
+		DisplayServer.clipboard_set("\n".join(lines))
+		_host.set_status("hint", "pack report copied", "accent"))
+	actions.move_child(copy, 0)
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
 
 ## Where a picker that reads a loose image should open. All three stock
 ## `FileDialog`s this window used to raise set no `current_dir`, and a

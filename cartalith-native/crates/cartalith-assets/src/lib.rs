@@ -111,7 +111,8 @@
 //!
 //! `ASSET_PACK_TOOLS_PROPOSAL.md` AP-1 added [`pack_import`] (2026-10-18,
 //! Ruling CQ): the reference's `importPackZip` routing over the raw manifest,
-//! plus a size-capped archive reader for packs opened for editing.
+//! plus a size-capped archive reader for packs opened for editing. AP-2 added
+//! [`pack_report`]: the pack report's findings, read-only over the library.
 //!
 //! What this crate does not hold: the library UI and the sprite-sheet slicer's
 //! canvas interaction (pan/zoom, draggable grid lines, click-to-select) live in
@@ -130,6 +131,7 @@ pub mod manual;
 pub mod ordered_map;
 #[cfg(feature = "zip")]
 pub mod pack_import;
+pub mod pack_report;
 pub mod placement;
 pub mod raster;
 pub mod scatter;
@@ -160,6 +162,9 @@ pub use ordered_map::OrderedMap;
 pub use pack_import::{
     IMPORTED_SET, ImportLimits, ImportPlan, ImportRefusal, PlannedPath, PlannedSlot, SlotTarget,
     check_png_header, plan_pack_import, read_pack_entries_limited, unsafe_path_reason,
+};
+pub use pack_report::{
+    Finding, FindingKind, SEAM_FLOOR, SEAM_RATIO, SeamScore, Severity, pack_report, seam_score,
 };
 pub use placement::{
     IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, TRAIT_BADGES_SHOWN_MAX,

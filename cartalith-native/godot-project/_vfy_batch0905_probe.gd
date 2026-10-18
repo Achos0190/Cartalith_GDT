@@ -378,6 +378,11 @@ func _ready() -> void:
 	if not _slots.is_empty():
 		bridge.as_import_item(String((_slots[0] as Dictionary).get("uid", "")), "vfy",
 			FileAccess.get_file_as_bytes(_png))
+	## Since AP-2 (Ruling CQ Q8) a blank licence raises a confirmation card
+	## before the picker; that card is `_packreport_probe.gd`'s to test. A
+	## licence is set here so this site still measures the picker itself.
+	var _pi: Dictionary = bridge.as_pack_info()
+	bridge.as_set_pack_info(String(_pi.get("name", "")), String(_pi.get("author", "")), "CC0")
 	_ok("B fixture: the library is non-empty, so the pack export can raise a picker",
 		bool(bridge.as_export_pack_bytes().get("ok", false)),
 		String(bridge.as_export_pack_bytes().get("error", "")))

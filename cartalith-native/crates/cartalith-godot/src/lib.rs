@@ -22866,6 +22866,40 @@ impl WorldGen {
         d
     }
 
+    /// AP-2 (`ASSET_PACK_TOOLS_PROPOSAL.md`): the pack report,
+    /// `asset_bridge::AssetLibrarySession::pack_report`. Read-only.
+    /// `{"ok": true, "findings": [...]}`, each finding `{kind, severity,
+    /// label, text}` plus `uid` and `index` only when it is about a slot or
+    /// an item, and `colour` (`colour_report_dict`) only on a `colour`
+    /// finding. Absent keys are omitted, never defaulted.
+    #[func]
+    fn as_pack_report(&self) -> VarDictionary {
+        let rows: Array<VarDictionary> = self
+            .asset_library
+            .pack_report()
+            .into_iter()
+            .map(|(f, colour)| {
+                let mut d = vdict! {
+                    "kind" => f.kind.key(),
+                    "severity" => f.severity.key(),
+                    "label" => f.label.as_str(),
+                    "text" => f.text.as_str(),
+                };
+                if let Some(u) = &f.uid {
+                    d.set("uid", u.as_str());
+                }
+                if let Some(i) = f.index {
+                    d.set("index", i as i64);
+                }
+                if let Some(c) = &colour {
+                    d.set("colour", &colour_report_dict(c));
+                }
+                d
+            })
+            .collect();
+        vdict! { "ok" => true, "error" => "", "findings" => &rows }
+    }
+
     /// The largest pack file `as_import_pack` reads
     /// (`cartalith_assets::ImportLimits::DEFAULT.max_archive_bytes`), so the
     /// shell can refuse a larger file before reading it into memory. The

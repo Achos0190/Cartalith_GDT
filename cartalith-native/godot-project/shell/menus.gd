@@ -100,6 +100,7 @@ const ID_SLICER := 31  ## Assets ▸ Sprite sheet slicer; opens the library wind
 const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….
 const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip…: onto the map AND into the library (AP-1, Ruling CQ Q1).
 const ID_OPEN_PACK_LIBRARY := 34  ## Assets ▸ Open pack in library…: into the library only (AP-1).
+const ID_PACK_REPORT := 35  ## Assets ▸ Pack report…: the Asset library's report card (AP-2).
 const ID_APPLY_LIBRARY := 36  ## Assets ▸ Apply library to map.
 const ID_CLEAR_LIBRARY := 37  ## Assets ▸ Clear library… (destructive; its confirmation is not this row's).
 const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
@@ -2134,6 +2135,11 @@ func _assets(p: PopupMenu, full: bool = true) -> void:
 	_live(p, "Open pack in library…", ID_OPEN_PACK_LIBRARY)
 	p.set_item_tooltip(p.item_count - 1,
 		"Opens a pack in the Asset library for editing. The map is not changed until Apply to map.")
+	## AP-2 (`ASSET_PACK_TOOLS_PROPOSAL.md` §4): a shortcut into the window's
+	## own Report, never a second implementation.
+	_live(p, "Pack report…", ID_PACK_REPORT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the Asset library's pack report: what is wrong with the art before you export or apply it. Read-only.")
 	p.add_separator()
 	_build_asset_pack_submenu(p)
 
@@ -2859,6 +2865,7 @@ func _on_assets(id: int) -> void:
 	match id:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
 		ID_OPEN_PACK_LIBRARY: _host.open_pack_in_library_picker()
+		ID_PACK_REPORT: _host.asset_library_window.report_now()
 		ID_IMPORT_IMAGE: _host.open_asset_library()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
 		ID_SLICER: _host.open_asset_library("", true)

@@ -6938,6 +6938,17 @@ func as_import_pack(bytes: PackedByteArray, source: String, mode: String) -> Dic
 		mark_world_dirty()
 	return world_gen.as_import_pack(bytes, source, mode)
 
+## AP-2: the pack report (`WorldGen.as_pack_report`). `{"ok": true, "findings":
+## [{kind, severity, label, text, uid?, index?, colour?}]}`; read-only.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_pack_report() -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_pack_report"):
+		return {"ok": false, "error": "as_pack_report not available on this binary"}
+	return world_gen.as_pack_report()
+
 ## The largest pack file `as_import_pack` will read, in bytes, or -1 when this
 ## binary cannot say (an older build, or mid-generation). The Rust cap is the
 ## authority; the shell only uses this to avoid reading a larger file first.
@@ -7053,7 +7064,7 @@ func as_validate() -> PackedStringArray:
 func as_export_pack_bytes() -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
+		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_export_pack_bytes"):
 		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
 	return world_gen.as_export_pack_bytes()

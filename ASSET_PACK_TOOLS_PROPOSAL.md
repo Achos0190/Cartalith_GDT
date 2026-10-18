@@ -624,3 +624,41 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   pixels are not written and a restore brings back no items. So a pack
   opened into the library survives a save only as metadata, and AP-1 does
   not change that (save format unchanged).
+
+### AP-2: the pack report and Q8
+
+- **Where it lives.** `cartalith-assets::pack_report` (findings, `seam_score`,
+  `SEAM_RATIO` 1.25 = AP-4's own bar reused as the detection threshold,
+  `SEAM_FLOOR` 2 levels, a labelled judgement) is pixel-only and read-only;
+  `AssetLibrarySession::pack_report` adds colour findings from the
+  `ColourReport`s it now keeps per item (keyed by content hash, session
+  only, never saved). Bound as `WorldGen::as_pack_report`.
+- **Order.** `library::run`'s warnings first, verbatim; then a blank
+  licence; per slot in store order: blank, opaque sprite, undersized,
+  non-square (a warning for ground tiles, which letterbox onto black; a note
+  for sprites, which pad), seam (ground tiles, measured on the bake), and
+  "not drawn"; then exact duplicates (one row per group, with a slot to jump
+  to, so they appear twice: once as Validate's line, once jumpable); then
+  colour notes; then empty frozen families (only when the library holds
+  something).
+- **"Not drawn" names five cases plainly**: settlement, POI, sea-mark and
+  custom art (`LoadedPack` has no field for them; the map draws its own
+  glyph) and the `parchment` splat texture (parsed, never decoded). AP-3 is
+  what will draw the first four.
+- **Not in AP-2:** near-duplicates (AP-6) and the line-art finding §9.3 asks
+  for (it needs AP-10's detector). The report card has no filter chips; it is
+  a modal card with a Show per slot row (the inspector foot's *Report* chip,
+  and *Assets ▸ Pack report…*, which is how a phone reaches it).
+- **Q8 as built.** The window's *Export pack .zip* (and the menu's, which
+  runs the same handler) asks *Export without a licence* → *Cancel* /
+  *Export as CC0* when the licence is blank. The bytes are unchanged:
+  pack.json still says "CC0". A licence being typed counts: the field is
+  committed first only when it has focus, so a closed window's stale fields
+  never overwrite metadata set from *Pack metadata…*.
+- **Fixed on the way:** `engine_bridge.gd::as_export_pack_bytes` answered
+  "not available on this binary" while generating; it now gives the busy
+  text like its siblings (`_gsw_probe` expectation updated). On a phone, a
+  card wider than `MODAL_W` ran off the screen, and on desktop an
+  autowrapped card ballooned to the full window height; both are handled
+  for these cards only (`_card_width`, `_settle_card`), not in
+  `DccWidgets.modal_card`, which other cards share.

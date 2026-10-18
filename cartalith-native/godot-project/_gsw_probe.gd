@@ -233,7 +233,7 @@ func _leg_reads(primed_tex: Texture2D, primed_tier: String) -> void:
 		["as_thumbnail_png", func(): return bridge.as_thumbnail_png("", 0, 0), PackedByteArray()],
 		["as_pack_info", func(): return bridge.as_pack_info(), {"name": "", "author": "", "license": "", "total_items": 0}],
 		["as_validate", func(): return bridge.as_validate(), PackedStringArray()],
-		["as_export_pack_bytes", func(): return bridge.as_export_pack_bytes(), {"ok": false, "error": "as_export_pack_bytes not available on this binary"}],
+		["as_export_pack_bytes", func(): return bridge.as_export_pack_bytes(), {"ok": false, "error": bridge._BUSY_TEXT}],  ## AP-2: the busy default now says busy (it said "not available" before)
 		["as_slicer_move_line", func(): return bridge.as_slicer_move_line(PackedFloat64Array([0.5]), 0, 0.0), PackedFloat64Array([0.5])],
 		["as_uniform_lines", func(): return bridge.as_uniform_lines(0), PackedFloat64Array()],
 		["continents", func(): return bridge.continents(), []],

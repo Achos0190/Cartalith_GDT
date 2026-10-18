@@ -34,7 +34,8 @@
 use std::collections::{HashMap, HashSet};
 
 use cartalith_assets::{
-    AssetDB, Anchor, ChromaKey, DecodedImage, Family, GridRect, ImportLimits, ItemTransform, LibraryItem,
+    AssetDB, Anchor, ChromaKey, DecodedImage, Family, Finding, FindingKind, GridRect, ImportLimits, ItemTransform,
+    LibraryItem, Severity,
     PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive, check_png_header,
     compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
     read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
@@ -57,6 +58,9 @@ pub struct LoadedSheet {
     pub name: String,
     /// The decoded sheet pixels, kept so every preview re-runs detection without re-sending the PNG.
     pub image: DecodedImage,
+    /// What the colour-managed decode found (ET-E2), so every cell sliced
+    /// from a converted sheet carries the same note into the pack report.
+    pub colour: ColourReport,
 }
 
 /// The slicer modal's four numbers plus its three toggles, in engine terms.
@@ -240,6 +244,13 @@ pub struct AssetLibrarySession {
     /// slicing the same sheet twice with different settings is a supported
     /// thing to do.
     sheet: Option<LoadedSheet>,
+    /// AP-2: the colour report of every item whose import had something to
+    /// say (a conversion, or a warning), keyed by the item's content hash
+    /// ([`item_hash`]). Keyed by hash rather than by uid and index so a
+    /// rename, move, duplicate or delete can never point a note at the wrong
+    /// image; an entry whose image is gone is simply never matched. Session
+    /// state only: not saved, like the pixels it describes.
+    colour: HashMap<String, ColourReport>,
 }
 
 impl Default for AssetLibrarySession {
@@ -255,7 +266,7 @@ impl AssetLibrarySession {
     /// decoded pixels and no loaded sheet. `images` must start empty: every item in
     /// `db` has to have its pixels beside it (see the module doc).
     pub fn new() -> Self {
-        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None }
+        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None, colour: HashMap::new() }
     }
 
     /// The decoded pixels behind one stored item, if both `uid` and `index`
@@ -295,7 +306,8 @@ impl AssetLibrarySession {
             return Err(format!("no such slot: {uid}"));
         }
         let (decoded, report) = decode_png_managed(bytes).map_err(|e| e.to_string())?;
-        self.insert_decoded(uid, name, decoded)?;
+        let hash = self.insert_decoded(uid, name, decoded)?;
+        self.note_colour(hash, &report);
         Ok(report)
     }
 
@@ -304,7 +316,9 @@ impl AssetLibrarySession {
     /// [`item_hash`], and both stores advanced together. Shared by
     /// [`AssetLibrarySession::import_item`] and the slicer, which build the
     /// same item out of differently-sourced pixels.
-    fn insert_decoded(&mut self, uid: &str, name: String, decoded: DecodedImage) -> Result<(), String> {
+    ///
+    /// Returns the new item's content hash, which the colour notes key on.
+    fn insert_decoded(&mut self, uid: &str, name: String, decoded: DecodedImage) -> Result<String, String> {
         let Some(slot) = self.db.get(uid) else {
             return Err(format!("no such slot: {uid}"));
         };
@@ -314,12 +328,21 @@ impl AssetLibrarySession {
             fit_to_bottom(&mut transform, decoded.w, decoded.h, family.size());
         }
         let hash = item_hash(&decoded);
-        let item = LibraryItem::new(name, hash).with_transform(transform);
+        let item = LibraryItem::new(name, hash.clone()).with_transform(transform);
         if !self.db.add_item(uid, item) {
             return Err(format!("no such slot: {uid}"));
         }
         self.images.entry(uid.to_string()).or_default().push(decoded);
-        Ok(())
+        Ok(hash)
+    }
+
+    /// Keep `report` for the pack report when it has something to say: a
+    /// conversion, or a warning. An untagged or sRGB image (the common case)
+    /// stores nothing, so the report never lists a non-event.
+    fn note_colour(&mut self, hash: String, report: &ColourReport) {
+        if report.converted || !report.warnings.is_empty() {
+            self.colour.insert(hash, report.clone());
+        }
     }
 
     // -- Pack import (`AssetImporter.importPackZip`, AP-1) ---------------
@@ -475,8 +498,8 @@ impl AssetLibrarySession {
                     out.rows.push(row);
                     continue;
                 }
-                let decoded = match decode_png_managed(png) {
-                    Ok((img, _colour)) => img,
+                let (decoded, colour) = match decode_png_managed(png) {
+                    Ok(pair) => pair,
                     Err(e) => {
                         row.reason = format!("not a readable PNG ({e})");
                         out.rows.push(row);
@@ -498,10 +521,13 @@ impl AssetLibrarySession {
                 if family.is_some_and(|f| !f.is_multi()) {
                     self.clear_slot_items(&target_uid);
                 }
-                if let Err(e) = self.insert_decoded(&target_uid, slot.manifest_id.clone(), decoded) {
-                    row.reason = e;
-                    out.rows.push(row);
-                    continue;
+                match self.insert_decoded(&target_uid, slot.manifest_id.clone(), decoded) {
+                    Ok(hash) => self.note_colour(hash, &colour),
+                    Err(e) => {
+                        row.reason = e;
+                        out.rows.push(row);
+                        continue;
+                    }
                 }
                 if first_write && let Some(meta) = self.db.slot_meta_mut(&target_uid) {
                     if meta.source.trim().is_empty() || is_conflict {
@@ -554,7 +580,7 @@ impl AssetLibrarySession {
     pub fn load_sheet_managed(&mut self, name: String, bytes: &[u8]) -> Result<(u32, u32, ColourReport), String> {
         let (image, report) = decode_png_managed(bytes).map_err(|e| e.to_string())?;
         let dims = (image.w, image.h);
-        self.sheet = Some(LoadedSheet { name, image });
+        self.sheet = Some(LoadedSheet { name, image, colour: report.clone() });
         Ok((dims.0, dims.1, report))
     }
 
@@ -630,6 +656,7 @@ impl AssetLibrarySession {
         let (sheet, grid) = self.build_grid(p)?;
         let base = sheet_base_name(&sheet.name);
         let opts = SliceOptions { chroma: p.chroma, trim: p.trim, skip_blank: p.skip_blank };
+        let sheet_colour = sheet.colour.clone();
         let mut cells = slice_sheet(&sheet.image, &grid, &opts);
         let grid_total = (grid.cols as usize) * (grid.rows as usize);
         // AS-17: narrow to one cell -- everything below (naming, counts,
@@ -667,7 +694,8 @@ impl AssetLibrarySession {
                 }
                 for cell in &cells {
                     let name = cell.default_name(&base);
-                    self.insert_decoded(uid, name, cell.image.clone())?;
+                    let hash = self.insert_decoded(uid, name, cell.image.clone())?;
+                    self.note_colour(hash, &sheet_colour);
                     out.added += 1;
                     if !multi {
                         break;
@@ -680,7 +708,8 @@ impl AssetLibrarySession {
                 let uid = self.add_custom_slot(name, set_or_none(set));
                 for cell in &cells {
                     let item_name = cell.default_name(&base);
-                    self.insert_decoded(&uid, item_name, cell.image.clone())?;
+                    let hash = self.insert_decoded(&uid, item_name, cell.image.clone())?;
+                    self.note_colour(hash, &sheet_colour);
                     out.added += 1;
                 }
                 out.uids.push(uid);
@@ -689,7 +718,8 @@ impl AssetLibrarySession {
                 for cell in &cells {
                     let name = cell.default_cell_name();
                     let uid = self.add_custom_slot(&name, set_or_none(set));
-                    self.insert_decoded(&uid, name, cell.image.clone())?;
+                    let hash = self.insert_decoded(&uid, name, cell.image.clone())?;
+                    self.note_colour(hash, &sheet_colour);
                     out.added += 1;
                     out.uids.push(uid);
                 }
@@ -716,7 +746,8 @@ impl AssetLibrarySession {
                         self.clear_slot_items(uid);
                     }
                     let name = cell.default_name(&base);
-                    self.insert_decoded(uid, name, cell.image.clone())?;
+                    let hash = self.insert_decoded(uid, name, cell.image.clone())?;
+                    self.note_colour(hash, &sheet_colour);
                     out.added += 1;
                     out.uids.push(uid.clone());
                 }
@@ -764,6 +795,7 @@ impl AssetLibrarySession {
     pub fn clear(&mut self) {
         self.db.clear();
         self.images.clear();
+        self.colour.clear();
     }
 
     // -- Validation --------------------------------------------------------
@@ -772,6 +804,41 @@ impl AssetLibrarySession {
     /// reference produces them.
     pub fn validate(&self) -> Vec<String> {
         library::run(&self.db)
+    }
+
+    // -- Pack report (AP-2) ----------------------------------------------------
+
+    /// The pack report: `cartalith_assets::pack_report`'s findings over this
+    /// session's pixels, then one [`FindingKind::Colour`] finding per stored
+    /// item whose import converted its colour space or warned about it, in
+    /// store order, carrying the kept [`ColourReport`] so the shell words it
+    /// with its one existing formatter (`colour_note_for`). Read-only.
+    pub fn pack_report(&self) -> Vec<(Finding, Option<ColourReport>)> {
+        let mut out: Vec<(Finding, Option<ColourReport>)> =
+            cartalith_assets::pack_report(&self.db, |u, i| self.image(u, i)).into_iter().map(|f| (f, None)).collect();
+        for uid in self.db.uids_in_order() {
+            let name = self.db.get(&uid).map(|s| s.name.clone()).unwrap_or_default();
+            for (i, item) in self.db.items(&uid).iter().enumerate() {
+                let Some(report) = self.colour.get(&item.hash) else { continue };
+                let text = if report.converted {
+                    format!("converted from {} to sRGB at import", report.source)
+                } else {
+                    report.warnings.join(" · ")
+                };
+                out.push((
+                    Finding {
+                        kind: FindingKind::Colour,
+                        severity: Severity::Info,
+                        uid: Some(uid.clone()),
+                        index: Some(i),
+                        label: format!("{name} #{}", i + 1),
+                        text,
+                    },
+                    Some(report.clone()),
+                ));
+            }
+        }
+        out
     }
 
     // -- Thumbnails ----------------------------------------------------------
@@ -1776,6 +1843,85 @@ mod tests {
         let out = s.import_pack(&z, "w.zip", PackImportMode::KeepExisting).unwrap();
         assert_eq!(out.rows[0].reason, "missing file: missing.png");
         assert!(s.db.get("custom:naval/wreck").is_none());
+    }
+
+    // -- AP-2: the pack report ------------------------------------------------
+
+    /// A 4x4 PNG tagged Display P3 through a `cICP` chunk (primaries 12,
+    /// transfer 13), so the colour-managed decode converts it. The chunk is
+    /// spliced in after IHDR with its CRC computed here.
+    fn p3_png() -> Vec<u8> {
+        let plain = png_bytes(4, 4, [200, 30, 30, 255]);
+        let data = [12u8, 13, 0, 1];
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(&4u32.to_be_bytes());
+        chunk.extend_from_slice(b"cICP");
+        chunk.extend_from_slice(&data);
+        let mut crc_in = b"cICP".to_vec();
+        crc_in.extend_from_slice(&data);
+        chunk.extend_from_slice(&crc32(&crc_in).to_be_bytes());
+        let ihdr_end = 8 + 4 + 4 + 13 + 4;
+        let mut out = plain[..ihdr_end].to_vec();
+        out.extend_from_slice(&chunk);
+        out.extend_from_slice(&plain[ihdr_end..]);
+        out
+    }
+
+    /// CRC-32 (ISO 3309 / PNG §5.5), bitwise; only for building a fixture.
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut c = 0xFFFF_FFFFu32;
+        for b in bytes {
+            c ^= u32::from(*b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+
+    /// Protects: a converted import becomes one Colour finding at its slot
+    /// and index, carrying the kept report; an untagged import beside it
+    /// raises none; `clear` drops the notes with the pixels.
+    #[test]
+    fn a_colour_conversion_reaches_the_report_and_a_plain_import_does_not() {
+        let mut s = AssetLibrarySession::new();
+        s.db.pack.license = "MIT".into();
+        let report = s.import_item_managed("icons:hill", "p3.png".into(), &p3_png()).unwrap();
+        assert!(report.converted, "the fixture must really convert: {report:?}");
+        s.import_item("icons:boulder", "plain.png".into(), &png_bytes(4, 4, [1, 2, 3, 0])).unwrap();
+        let colour: Vec<(Finding, Option<ColourReport>)> =
+            s.pack_report().into_iter().filter(|(f, _)| f.kind == FindingKind::Colour).collect();
+        assert_eq!(colour.len(), 1);
+        assert_eq!(colour[0].0.uid.as_deref(), Some("icons:hill"));
+        assert_eq!(colour[0].0.index, Some(0));
+        assert!(colour[0].1.as_ref().unwrap().converted);
+        s.clear();
+        assert!(s.colour.is_empty());
+    }
+
+    /// Protects: the report on the opened reference pack. Its validator line
+    /// (identical flat-colour images) comes first; the licence is set so no
+    /// licence finding; settlement, POI and custom slots are named as never
+    /// drawn; Sea marks is the one empty family; the pack's flat textures
+    /// raise no seam. Every row that names a slot names one that exists.
+    #[test]
+    fn the_reference_pack_report() {
+        let mut s = AssetLibrarySession::new();
+        s.import_pack(&reference_pack(), "r.zip", PackImportMode::KeepExisting).unwrap();
+        let r: Vec<Finding> = s.pack_report().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(r[0].kind, FindingKind::Validator);
+        assert!(r[0].text.starts_with("Identical images"), "{}", r[0].text);
+        assert!(!r.iter().any(|f| f.kind == FindingKind::BlankLicence));
+        assert!(!r.iter().any(|f| f.kind == FindingKind::Seam));
+        let not_drawn: Vec<&str> = r.iter().filter(|f| f.kind == FindingKind::NotDrawn).map(|f| f.uid.as_deref().unwrap()).collect();
+        assert_eq!(not_drawn, vec!["settlement:village", "settlement:city", "poi:ruin", "custom:naval/lighthouse"]);
+        let empty: Vec<&str> = r.iter().filter(|f| f.kind == FindingKind::EmptyFamily).map(|f| f.label.as_str()).collect();
+        assert_eq!(empty, vec!["Sea marks"]);
+        for f in &r {
+            if let Some(u) = &f.uid {
+                assert!(s.db.get(u).is_some(), "{u}");
+            }
+        }
     }
 
     /// Protects: `clear` empties the library: items, custom slots and decoded pixels.
