@@ -1,7 +1,10 @@
 # Asset pack refinement tools: proposal
 
-**A proposal of 2026-10-18, from an owner request; awaiting the owner.** It
-defines milestones (AP-1…AP-9) and the reasoning behind them. It has no status
+**A proposal of 2026-10-18, from an owner request.** Q1–Q10 were approved at
+their defaults the same day (Ruling CQ, `LARGE_ITEM_RULINGS.md`). §9, the
+line-art research, was added later that day; it proposes AP-10 and asks
+Q-L1…Q-L6, which are not yet answered. It defines milestones (AP-1…AP-10) and
+the reasoning behind them. It has no status
 column: status lives in `cartalith-native/docs/STATUS.md` and nowhere else.
 
 **The request (2026-10-18).** Put "tools to refine asset packs and all that
@@ -126,9 +129,12 @@ The table leads to three facts that shape this proposal:
    changes nothing on the map today.** It changes only the exported pack,
    which the HTML app can read.
 2. **Feature icons cannot keep their quality at ×16 or ×64**, by
-   construction. On a 2048-wide grid, an `s = 1` sprite is about 18.6 grid
-   pixels across (2048 / 110). It is resampled from 256² down to that once,
-   into the base texture, and then magnified. This is the owner's hard
+   construction. On a 2048-wide grid, an `s = 1` sprite is about 41 grid
+   pixels tall: `placement::sprite_draw_rect` gives `dh = base × 2.2 × s`,
+   and `base` is 2048 / 110 = 18.6. *(Corrected 2026-10-18 in §9's pass:
+   this line first gave `base`, 18.6, as the sprite's size.)* It is
+   resampled from 256² down to that once, into the base texture, and then
+   magnified. This is the owner's hard
    zoom-detail requirement (memory note; `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`).
    I did not capture a zoom sweep of it; AP-5 does.
 3. **Splat textures harmonise with the Look by design.** Their colour comes
@@ -406,3 +412,150 @@ AP-3 and AP-5 are independent of that chain and gated on Q2 and Q3.
 - **Not done:** no zoom sweep; no timing; no export with a pack; no reading
   of Wonderdraft's or Dungeondraft's own binaries. Inkarnate, Dungeon
   Alchemist, DungeonFog and Canvas of Kings were not researched.
+
+---
+
+## 9. Line art to proper assets: research (2026-10-18)
+
+**The request.** The owner asked for better methods from PhotoCraft
+(`github.com/storytold/photocraft`; its `NOTICE` names the ArtCraft Team, so
+"the art craft github" is this repository), and said: *"be conscious about
+what might be needed to convert LINE ART to proper assets. In the html
+version the lines weren't solid enough and often it became a blobby mess."*
+
+The data, the method table, the PhotoCraft comparison and the citations are
+in `LINEART_METHODS_RESEARCH_2026-10-18.md`. The frames and the generator are
+in `cartalith-native/docs/evidence/lineart-2026-10-18/`. This section holds
+the recommendation, the milestone and the owner questions. Every number below
+was produced today by that generator, on four synthetic samples:
+
+- a JPEG pine;
+- a castle with a solid door, windows and a dashed line;
+- a hatched mountain;
+- a bad scan of the castle.
+
+### 9.1 Why it went wrong (read at the symbols, then measured)
+
+| Symptom | Cause in the code | Measured at ×1 (40 px sprite) |
+|---|---|---|
+| lines "not solid enough" | `pack::Canvas::blit_sprite` takes **one bilinear sample per pixel** (`sample_bilinear`) while minifying 256² to `sprite_draw_rect`'s 29–49 px, so thin strokes are hit or missed. On top of that, `raster::render_item` bakes with CatmullRom on **straight** alpha | ink kept: 0.31–0.45 of the truth today. An area-filtered blit of the same 256² bake keeps 0.55–0.81; an area filter of the 1024² original keeps 0.90–1.01 (clean samples) |
+| "blobby mess" | `slicer::apply_chroma` keys out a single paper colour. Darker paper, and the light edge of every stroke, stay **opaque**. Then the base raster is shown NEAREST (`viewport_host.gd::_raster`), so ×16 is 16 px blocks | scan: 22 % of the frame is opaque paper; 577 fragments against 7. Castle: holes **0 against 14**, so every window is filled. Edge width 5.8–19.6 px at ×16 and 22–77 px at ×64 |
+
+### 9.2 The ranked method
+
+1. **Ink extraction, at import, at source resolution (≥ 1024²).**
+   - **Flatten the paper.** Divide luminance by a max-then-mean filter whose
+     window is **15 % of the sprite**. A 25 px window hollowed out the castle's
+     123 px solid door.
+   - **Threshold with Otsu** on the flattened luminance.
+   - **Remove specks** under 24 px and **fill pinholes** under 12 px (at
+     1024²).
+   - **Closing:** r = 1 for scans only. r = 2 merged two hatch lines.
+   - Measured on the scan: IoU **0.961** and 7/7 components, against today's
+     0.267 and 577. Sauvola (0.778, 70 components) and Bradley (0.824, 66)
+     were **worse** than flattening plus Otsu on every sample, so they are
+     the fallback, not the default.
+2. **Store a signed distance field (SDF)** of the cleaned mask: the Valve
+   method, one L8 channel.
+   - **Resolution:** at least **2 texels across the thinnest stroke**. For
+     1024² line art with 4 px hatching that means 512². The 256² copy broke
+     the hatching at ×64: 15 components against 14, and 98 at 128².
+   - **Mip levels** are built from the mask, read at no more than about 4
+     texels per output pixel. 128² serves ×1; 512² read at ×1 aliases, with
+     4.6–8.6 px edges.
+   - **Size:** 512² is 10.8–21.0 KB and 128² is 3.1–3.9 KB as PNG. Today's
+     256² RGBA bake is 15.9–51.8 KB.
+3. **Render with a 1-pixel ramp and a stroke floor.**
+   - The floor is `alpha = clamp(d_out + δ + 0.5)`, with
+     `δ = max(0, (1 − w_p2) / 2)` output pixels, where `w_p2` is the asset's
+     2nd-percentile stroke width.
+   - **×1:** solidity **0.72–0.75** (today 0.09–0.15); stroke p5 **1.00 px**;
+     edges 1.42–1.83 px.
+   - **×16 and ×64:** components **exactly** the target's on all four
+     samples; edges **0.55–0.79 px** (today 5.8–77; a 1024² coverage raster
+     2.5–6.6 at ×64); ink mass 0.98–1.03; halo 0.
+   - **The cost:** at ×1 the tone darkens 2.7–4.4×, and hatching spaced under
+     about 2 output pixels becomes a solid band (`grid_mountain.png`). No
+     method resolves 1 px-spaced hatching at 40 px; the choice is a faint
+     tone or a solid one (Q-L1). A gap-aware floor was tried and **failed**
+     in its first form (research file, §4.2).
+4. **Colour.** RGB is one ink colour picked from the Look palette and baked
+   into the variant (Ruling CQ **Q4**). No paper RGB survives, so the halo is
+   0 by construction.
+5. **The pack stays Ruling F.** The exported PNG is the coverage bake at the
+   family's 256², rendered **from the SDF with the floor tuned for 256**. The
+   HTML app therefore gets a cleaner sprite through the same format.
+
+**Not recommended, with the evidence:**
+
+- **A coverage raster alone** (local colour-to-alpha plus an area filter). It
+  is right at ×16, but faint at ×1 (solidity 0.20–0.35). It keeps scan noise
+  (55–61 components against 7) and blurs at ×64 (2.5–6.6 px).
+- **Skeleton re-stroking or a medial-axis field.** It broke the hatching at
+  ×16 (164 components against 14) and rebuilt the solid door wrongly. It is
+  kept only as an optional "even line weight" edit at source resolution.
+- **Potrace.** It is GPL-2.0+ and cannot be linked into this MIT/Apache-2.0
+  workspace. PhotoCraft's `vector/src/trace.rs` is permissive and could back
+  an SVG export later (Q-L5). It was not tested.
+- **MSDF.** Untested. The single-channel SDF rounds corners by about one
+  texel, which is slight on the castle at ×64.
+
+**From PhotoCraft** (MIT OR Apache-2.0, the same licence as this workspace,
+so code may be reused with its notice kept; no art; the trademarks are
+excluded by its `NOTICE`), these building blocks are worth reusing or
+re-deriving:
+
+- `color_to_alpha.rs`: `opacity` and `remap`;
+- `selection/distance.rs`: an exact Felzenszwalb–Huttenlocher EDT. Ours,
+  `cartalith_civ::build_coast_sdf`, is a jump flood that is approximate
+  beyond one seed;
+- `compose/src/effects.rs`: `edge_offset`, a sub-pixel signed distance from
+  an anti-aliased pixel. It is a better SDF seed than the lab's 2×
+  supersample;
+- `resample.rs`: premultiplied resampling;
+- `vector/src/raster.rs`: exact-area coverage;
+- `scancrop.rs`: Otsu with components.
+
+PhotoCraft has **no** Sauvola or Bradley, no thinning and no SDF asset output
+(grep, `9185b64b`).
+
+### 9.3 New milestone
+
+| Id | What | Acceptance (numeric bars, checked on the four-sample set regenerated as Rust fixtures, plus at least one owner-supplied scan) |
+|---|---|---|
+| **AP-10** | **Line-art conversion**, a REFINE verb. It is `cartalith-assets::lineart`: flatten → Otsu → despeckle → pinhole fill → optional close r ≤ 1 → exact EDT → SDF mips (top level sized by the 2-texel rule) → ink colour. It writes a **new variant** (Ruling CQ **Q7**) whose PNG is the 256² floor-tuned coverage bake. The SDF is a **derived cache** rebuilt from the original kept in the project (Ruling AP), so it adds no save or pack key | **Bars, the measured value in brackets:** (a) on a scan, binarised IoU against truth ≥ 0.95 with the component count equal (0.961, 7/7); (b) at ×1, solidity ≥ 0.65 (0.72–0.75) and stroke p5 ≥ 1.0 px (1.00); (c) at ×16 and ×64, components equal to the floored target (4 of 4 samples) and holes ≥ the target's − 1 (castle 14/14, scan 14/15); at ×4, components ≤ the target's and holes ≥ the target's − 1; (d) edge width ≤ 2.0 px at ×1 (1.42–1.83), ≤ 1.5 at ×4 (0.88–1.35), ≤ 1.0 at ×16 and ×64 (0.55–0.79); (e) halo 0; (f) ink mass 0.95–1.05 at ×16 and ×64 (0.98–1.03); (g) stored SDF ≤ 32 KB per sprite (14–25 KB for the 512² + 128² levels); (h) **deterministic:** two runs give byte-identical SDF and PNG, pinned by a golden hash per fixture (integer morphology, an exact EDT and a fixed quantiser; no ML, no randomness) |
+
+**Changes to existing milestones:**
+
+- **AP-5** (Ruling CQ **Q3**). The sprite pass that stays sharp at deep zoom
+  is the SDF path. It draws a line-art variant as a screen-space quad with a
+  canvas shader: one bilinear fetch, then a clamp ramp of one screen pixel
+  using `fwidth`. It is the measured answer to "keeps quality at ×16 and
+  ×64". Painted, non-line sprites take a premultiplied, mipmapped raster
+  path instead, with the variant's line-art flag deciding which. AP-5(b)'s
+  "≤ 2 screen px" bar tightens to **≤ 1.0 px for line art**.
+- **AP-5's measure-first step** has a predicted baseline from this lab for
+  the composite path: 5.8–19.6 px edges at ×16 and 22–77 at ×64. The in-app
+  sweep must still be captured.
+- **Independent of Q3: two cheap fixes to today's path** (AP-7 territory,
+  since they change pixels).
+  - `blit_sprite` should area-filter (premultiplied) rather than point-sample:
+    ink kept goes from 0.31–0.45 to 0.55–0.81.
+  - `render_item` should premultiply before its CatmullRom resize.
+  - Both change rendered output, so each needs its own switch and
+    disclosure, per `MISTAKES.md`'s "Change generated output" row.
+- **AP-2 (pack report)** gains a finding: *"sprite looks like line art on an
+  opaque or keyed background"*, which suggests AP-10.
+- **Order:** AP-10 after AP-1, in parallel with AP-4, AP-6 and AP-7. AP-5's
+  SDF pass consumes AP-10's cache.
+
+### 9.4 Owner questions, with defaults
+
+| # | Question | Recommended default |
+|---|---|---|
+| Q-L1 | At map scale (×1), should thin lines be **solid** (floored to 1 px, darker, with close hatching merging into a tone) or **faithful** (true tone, fainter)? | **Solid**, because that is the complaint. Add a per-variant "line weight at map scale" control from 0.5 to 1.5 px (default 1.0) for art that should stay light |
+| Q-L2 | Default threshold: flatten + Otsu (measured best) or Sauvola (the textbook choice for uneven paper)? | **Flatten + Otsu**, with Sauvola as a manual option. Revisit with the owner's own scans |
+| Q-L3 | The SDF is a derived cache rebuilt from the original kept in the project. Is the import-time cost (not measured in Rust) acceptable, or should the SDF be saved in `library.json`'s blobs? | **Rebuild, not save.** It adds no format, and it is deterministic |
+| Q-L4 | A pack re-opened from a `.zip` has only 256² sprites, which caps SDF quality (strokes of 1–2 px). Should export also accept a larger bake (512² or 1024²) for line-art variants? That is a size change, not a key, but the HTML app's 256² families would downscale it | **Keep 256²** (Ruling F). The project keeps the original; a pack is a portable copy |
+| Q-L5 | Vector tracing to SVG (PhotoCraft's `trace.rs` design, permissive) as a later export? | **Later, not in AP-10.** The SDF already meets the ×64 bar |
+| Q-L6 | Should the conversion also offer "even line weight" (skeleton re-stroke at a chosen width) as a stylistic verb? | **Yes, optional and off by default.** It measured worse as storage, but it is a legitimate look for icon sets |
