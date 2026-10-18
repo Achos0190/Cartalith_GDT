@@ -2571,27 +2571,43 @@ mod civ_pipeline_tests {
     }
 
     /// `civ_consolidate_and_smooth_ways`'s own extend-back guarantee (owner
-    /// ruling, 2026-09-28, follow-up to Ruling BT): every non-hidden way's
-    /// drawn endpoints must land within `EXTEND_T2`'s own tolerance (~1.5
-    /// cells, `src/lib.rs` in `cartalith-civ`) of its OWN `a_idx`/`b_idx`
-    /// settlement -- whatever the network's total drawn length is. Checked
-    /// on both the Stable network (covers "filtered": a subset of
+    /// ruling, 2026-09-28, follow-up to Ruling BT): each EDGE's drawn ways
+    /// reach its own settlements. An edge cut into several runs by busier
+    /// corridors is a consecutive group of ways sharing `(a_idx, b_idx)`, in
+    /// path order. The group's first start must be within `EXTEND_T2`'s
+    /// tolerance (~1.5 cells, `src/lib.rs` in `cartalith-civ`) of A, and its
+    /// last end within that of B. Its interior ends meet a busier corridor
+    /// at a junction, as in the reference.
+    ///
+    /// Until 2026-10-18 this asserted both ends of EVERY way. That held only
+    /// because the extend-back pass stretched every run over the whole path,
+    /// which produced identical duplicate ways
+    /// (`DUPLICATE_WAYS_FINDING_2026-10-18.md`). The group must also hold no
+    /// two identical ways.
+    ///
+    /// Checked on both the Stable network (covers "filtered": a subset of
     /// `stable.ways` is never less-reaching than the whole) and the
     /// post-recovery rebuild, since both are produced by the same
     /// consolidation function and neither gets a pass just because the
     /// OTHER one happens to be longer.
     fn assert_endpoints_reach_settlements(c: &CivData, label: &str) {
-        for w in &c.ways {
-            if w.hidden || w.pts.len() < 2 {
-                continue;
-            }
-            let a = &c.settlements[w.a_idx].placement;
-            let b = &c.settlements[w.b_idx].placement;
-            let (p0, p1) = (w.pts[0], w.pts[w.pts.len() - 1]);
-            let d = |p: (f64, f64), x: usize, y: usize| ((p.0 - x as f64).powi(2) + (p.1 - y as f64).powi(2)).sqrt();
+        let visible: Vec<&Way> = c.ways.iter().filter(|w| !w.hidden && w.pts.len() >= 2).collect();
+        let d = |p: (f64, f64), x: usize, y: usize| ((p.0 - x as f64).powi(2) + (p.1 - y as f64).powi(2)).sqrt();
+        for group in visible.chunk_by(|x, y| (x.a_idx, x.b_idx) == (y.a_idx, y.b_idx)) {
+            let (first, last) = (group[0], group[group.len() - 1]);
+            let a = &c.settlements[first.a_idx].placement;
+            let b = &c.settlements[first.b_idx].placement;
+            let (p0, p1) = (first.pts[0], last.pts[last.pts.len() - 1]);
             let (d0, d1) = (d(p0, a.x, a.y), d(p1, b.x, b.y));
-            assert!(d0 < 1.5 + 1e-6, "{label}: {} start {p0:?} is {d0:.2} cells from its own A ({},{})", w.name, a.x, a.y);
-            assert!(d1 < 1.5 + 1e-6, "{label}: {} end {p1:?} is {d1:.2} cells from its own B ({},{})", w.name, b.x, b.y);
+            assert!(d0 < 1.5 + 1e-6, "{label}: {} start {p0:?} is {d0:.2} cells from its own A ({},{})", first.name, a.x, a.y);
+            assert!(d1 < 1.5 + 1e-6, "{label}: {} end {p1:?} is {d1:.2} cells from its own B ({},{})", last.name, b.x, b.y);
+            for (i, x) in group.iter().enumerate() {
+                assert!(
+                    group[i + 1..].iter().all(|y| y.pts != x.pts),
+                    "{label}: {} is drawn twice with identical points",
+                    x.name
+                );
+            }
         }
     }
 

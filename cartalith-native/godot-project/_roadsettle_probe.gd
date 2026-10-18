@@ -195,21 +195,35 @@ func _measure(tag: String) -> void:
 	var by_name := {}
 	for s: Dictionary in settlements:
 		by_name[String(s.get("name", ""))] = Vector2(float(s["x"]), float(s["y"]))
-	var way_far := []
+	## An edge that busier corridors cut into several runs is a consecutive
+	## run of same-named ways, in path order. Its interior ends meet those
+	## corridors at junctions, as in the reference, so only the group's first
+	## start and last end are its own settlements' doorsteps (2026-10-18,
+	## `DUPLICATE_WAYS_FINDING_2026-10-18.md`: before then every run was
+	## stretched over the whole path, so the per-way test passed by drawing
+	## each such edge N times).
+	var groups := []
 	for r: Dictionary in roads:
-		var nm := String(r.get("name", ""))
+		var gpts: PackedVector2Array = r.get("points", PackedVector2Array())
+		if gpts.size() < 2:
+			continue
+		var gnm := String(r.get("name", ""))
+		if not groups.is_empty() and groups[-1]["name"] == gnm:
+			groups[-1]["p1"] = gpts[gpts.size() - 1]
+		else:
+			groups.append({"name": gnm, "p0": gpts[0], "p1": gpts[gpts.size() - 1]})
+	var way_far := []
+	for g: Dictionary in groups:
+		var nm := String(g["name"])
 		if not nm.contains(" → "):
 			continue
 		var parts := nm.split(" → ")
 		if parts.size() != 2 or not by_name.has(parts[0]) or not by_name.has(parts[1]):
 			continue
-		var pts: PackedVector2Array = r.get("points", PackedVector2Array())
-		if pts.size() < 2:
-			continue
 		var ca: Vector2 = by_name[parts[0]]
 		var cb: Vector2 = by_name[parts[1]]
-		var p0 := pts[0]
-		var p1 := pts[pts.size() - 1]
+		var p0: Vector2 = g["p0"]
+		var p1: Vector2 = g["p1"]
 		var straight := p0.distance_to(ca) + p1.distance_to(cb)
 		var crossed := p0.distance_to(cb) + p1.distance_to(ca)
 		var d0: float
@@ -221,8 +235,8 @@ func _measure(tag: String) -> void:
 		if d0 > 2.0 or d1 > 2.0:
 			way_far.append("%s  way_p0=%s way_p1=%s  d(near-end to its own settlement)=%.2f/%.2f cells" % [
 				nm, p0, p1, d0, d1])
-	_p("%s  ---- per-way check: %d named ways, %d with an endpoint >2 cells from its OWN settlement ----" % [
-		tag, roads.size(), way_far.size()])
+	_p("%s  ---- per-edge check: %d ways in %d edge groups, %d groups with an end >2 cells from its OWN settlement ----" % [
+		tag, roads.size(), groups.size(), way_far.size()])
 	for f in way_far:
 		_p("%s  WAY-FAR: %s" % [tag, f])
 	if _focus != Vector2.INF and focus_best_name != "":

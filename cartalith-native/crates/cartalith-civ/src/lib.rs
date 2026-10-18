@@ -9367,19 +9367,36 @@ pub fn civ_consolidate_and_smooth_ways(
         // Verified end to end on the owner's world via `_roadsettle_probe`:
         // 0/244 ways now have an endpoint >2 cells from its own settlement
         // (was 20/236 before `RW_CAP`, 15/244 with `RW_CAP` alone) -- see
-        // `STATUS.md`'s entry for this row.
+        // `STATUS.md`'s entry for this row. (That per-way count was measured
+        // while every run was extended, the defect described next; since the
+        // fix, the probe checks each edge's group of runs instead.)
+        //
+        // Only the edge's FIRST drawable run may extend back toward A, and only
+        // its LAST may extend forward toward B (fixed 2026-10-18,
+        // `DUPLICATE_WAYS_FINDING_2026-10-18.md`). Applying both splices to every
+        // run, as this pass first did, turned each run of an edge with two or
+        // more runs into the edge's whole routed path: the first run's far end
+        // sits at a mid-corridor cut, far from B, so it was extended to B, and
+        // the second run's near end, far from A, was extended to A -- N
+        // identical copies of one way (measured: 10 duplicate pairs, 3 858 km,
+        // on the 256 / 12345 world; `iterative_network.rs`'s
+        // `measure_duplicate_ways`). An interior end meets a busier corridor at
+        // a junction, never a settlement, so it is left at its cut, as the
+        // reference leaves every run.
         const EXTEND_T2: f64 = 1.5 * 1.5;
+        let first_run = runs.iter().position(|r| r.len() >= 2);
+        let last_run = runs.iter().rposition(|r| r.len() >= 2);
         let mut emitted = false;
-        for r in &runs {
+        for (ri, r) in runs.iter().enumerate() {
             if r.len() < 2 {
                 continue;
             }
             let mut idxs = r.clone();
-            if idxs[0] != 0 && dist2(cell_pt(idxs[0]), a_pt) > EXTEND_T2 {
+            if Some(ri) == first_run && idxs[0] != 0 && dist2(cell_pt(idxs[0]), a_pt) > EXTEND_T2 {
                 idxs.splice(0..0, 0..idxs[0]);
             }
             let end = *idxs.last().unwrap();
-            if end != last_pi && dist2(cell_pt(end), b_pt) > EXTEND_T2 {
+            if Some(ri) == last_run && end != last_pi && dist2(cell_pt(end), b_pt) > EXTEND_T2 {
                 idxs.extend((end + 1)..=last_pi);
             }
             let mut raw: Vec<(f64, f64)> = idxs.iter().map(|&pi| cell_pt(pi)).collect();

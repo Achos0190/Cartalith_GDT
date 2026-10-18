@@ -270,6 +270,49 @@ fn measure_tier_shift() {
     }
 }
 
+/// Census of duplicate geometry in the consolidated ways over real worlds
+/// (`DUPLICATE_WAYS_FINDING_2026-10-18.md`): pairs of ways whose point lists
+/// are identical, or one the reverse of the other, split by whether both come
+/// from the same raw edge or from two different edges.
+/// `cargo test -p cartalith-civ --test iterative_network measure_duplicate_ways -- --ignored --nocapture`
+#[test]
+#[ignore = "measurement, prints a table"]
+fn measure_duplicate_ways() {
+    // Protects: nothing; an ignored measurement. Red can only mean a panic.
+    println!("size seed | edges | ways | same-edge dup pairs | cross-edge dup pairs | reversed dup pairs | dup km");
+    for size in [256usize, 384, 512] {
+        for seed in [12345, 24601, 314159, 7, 99991, 719004] {
+            let w = world_placements(size, seed);
+            let mut places = w.places.clone();
+            let net = w.iterate(&mut places, civ::CIV_AUTO_WORLD_PASSES);
+            let named: Vec<civ::NamedSettlement> =
+                places.iter().map(|&placement| civ::NamedSettlement { tid: 0, placement, name: String::new(), pop: 0 }).collect();
+            let ways = civ::civ_consolidate_and_smooth_ways(&net, &named, &w.ws.field, &w.wb.classification, w.gw, w.gh, w.map_width_km);
+            let (mut same, mut cross, mut rev, mut km) = (0, 0, 0, 0.0);
+            for i in 0..ways.len() {
+                for j in (i + 1)..ways.len() {
+                    let (a, b) = (&ways[i], &ways[j]);
+                    let fwd = a.pts == b.pts;
+                    let bwd = !fwd && a.pts.iter().eq(b.pts.iter().rev());
+                    if !(fwd || bwd) {
+                        continue;
+                    }
+                    if bwd {
+                        rev += 1;
+                    }
+                    if (a.a_idx, a.b_idx) == (b.a_idx, b.b_idx) {
+                        same += 1;
+                    } else {
+                        cross += 1;
+                    }
+                    km += b.km;
+                }
+            }
+            println!("{size} {seed} | {} | {} | {same} | {cross} | {rev} | {km:.1}", net.edges.len(), ways.len());
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // `wantCounts` (reference v2.11 25863-25932): user-fixed per-tier counts. The
 // classifier itself is golden-verified in `golden_parity_want_counts.rs`; these

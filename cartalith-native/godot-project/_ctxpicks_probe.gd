@@ -611,10 +611,18 @@ func _run_ways(ov: Control) -> void:
 	var ppc: float = ov.label_px_per_cell()
 	var tol := 6.0 / ppc if ppc > 0.0 else 1.5
 
-	## A generated way: the longest drawn road, at the middle of its curve.
+	## A generated way: the longest drawn road whose middle point is inside the
+	## plate interior, picked at that point. The interior test is needed because
+	## a right click on the plate's frame carries no hits (`_grid_point`). Since
+	## the 2026-10-18 duplicate-way fix (`DUPLICATE_WAYS_FINDING_2026-10-18.md`),
+	## this seed's longest road has its middle point at y = 188 of 192, inside
+	## that frame.
 	var best: Dictionary = {}
+	var interior: Rect2 = ov._interior_rect(ov._displayed_rect())
 	for r in bridge.roads():
 		if bool((r as Dictionary).get("manual", false)):
+			continue
+		if not interior.has_point(ov._point_to_screen(_mid(r["points"]), ov._displayed_rect())):
 			continue
 		if best.is_empty() or (r["points"] as PackedVector2Array).size() > (best["points"] as PackedVector2Array).size():
 			best = r
@@ -663,9 +671,12 @@ func _run_ways(ov: Control) -> void:
 	## the generated store holds two ways with identical geometry, name and km
 	## that differ only in `tid` (240 and 241), so comparing points alone failed
 	## on a correct delete. "A different way" is therefore points OR `tid`.
-	## (Whether the engine should generate such duplicate roads is a separate
-	## question -- reported, not decided here.) The count checks above are what
-	## prove one road was removed.
+	## Those duplicates were an engine defect, fixed 2026-10-18: the extend-back
+	## pass in `civ_consolidate_and_smooth_ways` stretched every run of a
+	## multi-run edge over the whole path
+	## (`DUPLICATE_WAYS_FINDING_2026-10-18.md`). The OR is kept anyway: identity
+	## is `tid`, and points alone were never the right test. The
+	## count checks above are what prove one road was removed.
 	_ok_true("WY the index now holds a different way (or none)", after_del.is_empty() or
 		(after_del["points"] as PackedVector2Array) != (before["points"] as PackedVector2Array)
 		or int(after_del.get("tid", -1)) != int(before.get("tid", -2)))

@@ -346,3 +346,51 @@ fn extend_back_reaches_a_settlement_whose_own_cells_a_busier_edge_already_claime
     assert!(d(start, p1_pt) < 1e-6, "extend-back must reach P1 exactly, got {start:?} (was 3 cells short before this fix)");
     assert!(d(end, p2_pt) < 1e-6, "the untouched end must still reach P2 exactly, got {end:?}");
 }
+
+/// Protects: the extend-back pass never turns an edge's runs into copies of
+/// one another (`DUPLICATE_WAYS_FINDING_2026-10-18.md`). A busier edge crosses
+/// the middle of a quieter edge's straight path, so the quieter edge has TWO
+/// runs, one from each settlement to the crossing. Before the fix both runs
+/// were extended over the whole path (the first run's end at the cut is far
+/// from B, the second's start far from A), giving two identical ways that
+/// draw twice and double its km. Red means a run's interior end was extended
+/// again.
+#[test]
+fn extend_back_never_duplicates_a_multi_run_edge() {
+    // One row (y = 1) of a 13 x 2 all-land grid, so path cell ids are `13 + x`.
+    let (gw, gh) = (13usize, 2usize);
+    let field = vec![1.0f32; gw * gh];
+    let water_bodies = vec![0u8; gw * gh];
+    let at = |x: usize, name: &str| cartalith_civ::NamedSettlement {
+        tid: 0,
+        placement: cartalith_civ::SettlementPlacement { x, y: 1, suit: 0.0, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Hamlet, coastal: false },
+        name: name.into(),
+        pop: 0,
+    };
+    let places = vec![at(0, "P1"), at(12, "P2"), at(4, "Q1"), at(6, "Q2")];
+    // Busier edge Q1 -> Q2 claims x = 4..6; quieter edge P1 -> P2 runs x = 0..12.
+    let busy: Vec<usize> = (4..=6).map(|x| gw + x).collect();
+    let quiet: Vec<usize> = (0..=12).map(|x| gw + x).collect();
+    let mut usage_count = vec![0u16; gw * gh];
+    usage_count[busy[0]] = 100;
+    usage_count[quiet[0]] = 10;
+    let topology = cartalith_civ::HierarchicalNetworkResult {
+        edges: vec![
+            cartalith_civ::RoadEdge { a: 2, b: 3, path: busy },
+            cartalith_civ::RoadEdge { a: 0, b: 1, path: quiet },
+        ],
+        usage_count,
+        degree_of: vec![0; places.len()],
+    };
+    let ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &places, &field, &water_bodies, gw, gh, 100.0);
+    let quiet_ways: Vec<_> = ways.iter().filter(|w| (w.a_idx, w.b_idx) == (0, 1)).collect();
+    assert_eq!(quiet_ways.len(), 2, "the crossed edge has two runs, so two ways: {quiet_ways:?}");
+    assert_ne!(quiet_ways[0].pts, quiet_ways[1].pts, "the two runs must not be copies of one way");
+    // The first run reaches P1 and stops at the crossing; the second starts
+    // at the crossing and reaches P2. Neither spans the other's half.
+    let (r1, r2) = (&quiet_ways[0].pts, &quiet_ways[1].pts);
+    assert_eq!(r1[0], (0.0, 1.0), "first run starts at P1");
+    assert!(r1.iter().all(|p| p.0 <= 5.0), "first run must stop at the crossing, got {r1:?}");
+    assert_eq!(*r2.last().unwrap(), (12.0, 1.0), "second run ends at P2");
+    assert!(r2.iter().all(|p| p.0 >= 5.0), "second run must start at the crossing, got {r2:?}");
+}
