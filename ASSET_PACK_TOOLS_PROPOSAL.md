@@ -644,7 +644,8 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
 - **"Not drawn" names five cases plainly**: settlement, POI, sea-mark and
   custom art (`LoadedPack` has no field for them; the map draws its own
   glyph) and the `parchment` splat texture (parsed, never decoded). AP-3 is
-  what will draw the first four.
+  what will draw the first four. *(Since AP-3, only `parchment` is named;
+  see below.)*
 - **Not in AP-2:** near-duplicates (AP-6) and the line-art finding §9.3 asks
   for (it needs AP-10's detector). The report card has no filter chips; it is
   a modal card with a Show per slot row (the inspector foot's *Report* chip,
@@ -662,3 +663,81 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   autowrapped card ballooned to the full window height; both are handled
   for these cards only (`_card_width`, `_settle_card`), not in
   `DccWidgets.modal_card`, which other cards share.
+
+### AP-3: settlement, POI, sea-mark and custom art on the map (Q2)
+
+- **What it draws.** A placed map icon (the Icon tool's list, hand-placed or
+  generated) of the `settlement`, `poi`, `seamarks` or `custom` family draws
+  the loaded pack's sprite for its slot instead of its placeholder glyph. A
+  `feature` icon keeps its glyph (its art is the `icons` family, AP-5's
+  subject), as does an icon whose slot the pack leaves empty and every icon
+  of a map with no pack. Settlement *pins* (the civ layer's own markers) are
+  a different thing and are unchanged: AP-3's families are the manual-icon
+  ones (`cartalith_assets::manual::ManualIconFamily`).
+- **Where it lives.** `pack.rs`: `LoadedPack::markers` (decoded at load,
+  keyed by `marker_art_key`), `resolve_marker_sprite` (the reference's
+  `_structSprite` / `_customSprite` decision), `MARKER_RASTERS`,
+  `marker_raster_for` and `area_downscale`. `WorldGen::icon_marker_art`
+  hands one icon's texture to `map_overlay.gd::_draw_icon_glyph`, which draws
+  it with `draw_texture_rect`, the trait-badge precedent.
+- **The switch.** `map_overlay.gd`'s `marker_art_enabled`, **off** by
+  default; `viewport_host.gd`'s `PACK_MARKER_ART` (true) turns it on in the
+  app, together with the resolver (`set_marker_art_resolver`). Export copies
+  the live overlay, so it follows the screen. Setting the constant false
+  restores the glyphs everywhere.
+- **Size.** The sprite takes the glyph's own outer box: `_icon_glyph_extent`
+  (the settlement square's `1.7r`, the others' `2r`, plus the 1.2 px
+  outline), not the reference's `2.3 × radius`, whose radius this file's does
+  not convert to. Measured equal to the glyph's box in every case the probe
+  tried (scales 0.5 to 3, camera ×1 and ×4). The hit test is unchanged.
+- **Variant.** `pickIconVariant((x + 0.5)|0, (y + 0.5)|0, seed, n)` in grid
+  coordinates, the reference's fit-view hash, so the variant does not change
+  with pan or zoom (the reference's LOD view rect makes it flicker; not
+  reproduced). Custom art's variant weights live in the library's rule table,
+  not in a pack, so the weighted pick reduces to this one exactly.
+- **Sharpness.** The overlay draws without mipmaps, so a 256² sprite drawn at
+  11 px would alias. The engine pre-filters each sprite to the smallest of
+  `MARKER_RASTERS` (12…256, steps ≤ 1.5×) at or above its on-screen size,
+  with an exact area filter in premultiplied alpha (Ruling CR's two points:
+  ink mass kept, no dark fringe), built lazily and cached per pack.
+- **Also changed, because it became false:** the pack report no longer names
+  these four families as never drawn (only `parchment` is left), and the
+  manifest parser's trailing "N pack section(s) not yet used by the live map"
+  warning is no longer emitted at all: AP-3 drew the last sections it named.
+  That is the fourth step of a divergence from the reference re-baselined in
+  the open (2026-09-03, Ruling W, 2026-09-22); the old and new literals are
+  in `manifest.rs`, `golden_parity_pack_manifest.rs` and
+  `golden_parity_pack_zip.rs`.
+- **Fixed on the way:** *Apply to map* (`as_apply_to_map`) installed a new
+  pack without rebuilding the trait-badge textures, so badges kept the
+  previous pack's art. Both pack paths now go through one
+  `WorldGen::install_pack`.
+
+### AP-4: seam checker and make-seamless
+
+- **Where it lives.** `cartalith-assets::seamless` (`make_seamless`,
+  `axis_seam_score`), measured with AP-2's `seam_score` on the item's bake
+  (`render_item` at the family size), so the checker, the fixer and the
+  report agree. `AssetLibrarySession::seam_check` and
+  `make_seamless_variant`, bound as `WorldGen::as_seam_check` and
+  `as_make_seamless`.
+- **Method.** Per axis whose own wrap edge exceeds 1.25× its own centre line:
+  roll by half, then blend back to the unrolled tile across a band `w/8`
+  wide centred on the moved seam, reaching it exactly on the two seam
+  columns. The fixed axis then scores a ratio of 1 by construction. Inside
+  the band the result is a cross-fade of two offset copies, so strongly
+  structured art can ghost there; the tile is also shifted by half, which
+  does not matter for a wrapped texture.
+- **Q7 as built.** The result is a NEW variant named `<original> · seamless`
+  with the identity transform, whose own bake is its pixels (tested), so
+  export ships what was measured. A tile that already wraps adds nothing.
+  The inspector's new REFINE section (ground families only, for now) shows
+  the readout in levels and words, enables *Make seamless* only on a seam,
+  previews the new variant and offers *Undo*, which removes it only while
+  its content hash still matches.
+- **Found:** the score is local by design (one column pair against
+  another), so a tile that is periodic but whose slope differs between its
+  edge and its centre can read as a seam: noise sampled on a torus measured
+  3.09 against 1.74 levels. Make seamless on such a tile still produces a
+  ratio-1 result, so the cost is an unnecessary variant, not a broken tile.
+

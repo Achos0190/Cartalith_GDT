@@ -167,17 +167,18 @@ pub fn seam_score(img: &DecodedImage) -> SeamScore {
     SeamScore { edge: edge / n, interior: interior / n }
 }
 
-/// The families the live map never draws, with the reason in words.
-/// Read at the symbols on 2026-10-18: `LoadedPack` (`cartalith-godot`'s
-/// `pack.rs`) has no field for settlement, POI, sea-mark or custom art, and
-/// `textures.parchment` is parsed but not decoded (`LoadedPack::splat` doc).
-/// AP-3 (Ruling CQ Q2) is what will draw the first four.
+/// The slots the live map never draws, with the reason in words.
+///
+/// **Narrowed by AP-3 (Ruling CQ Q2, 2026-10-18).** Until AP-3 this also
+/// named the settlement, POI, sea-mark and custom families, because
+/// `LoadedPack` (`cartalith-godot`'s `pack.rs`) had no field for their art.
+/// It now does (`LoadedPack::markers`), and the app's overlay draws a placed
+/// icon of those families with its pack sprite (`map_overlay.gd`
+/// `marker_art_enabled`, on in the app), so naming them would be false.
+/// `textures.parchment` is still parsed and never decoded
+/// (`LoadedPack::splat` doc), so it is the one slot left.
 fn not_drawn_reason(family: Family, slot_id: &str) -> Option<&'static str> {
     match family {
-        Family::Settlement | Family::Poi | Family::SeaMark | Family::Custom => Some(
-            "placeholder on the map: the renderer has no field for this family's art \
-             (LoadedPack), so the map draws its own glyph; this art reaches only the exported pack",
-        ),
         Family::Textures if slot_id == "parchment" => {
             Some("not drawn: the parchment texture is read from a pack but never decoded or used by the map")
         }
@@ -452,8 +453,9 @@ mod tests {
     }
 
     /// Protects: a blank licence fires and a set one does not; validator
-    /// warnings come first, verbatim; not-drawn fires for settlement, POI,
-    /// sea marks, custom and the parchment texture but not for icons; an
+    /// warnings come first, verbatim; not-drawn fires for the parchment
+    /// texture and, since AP-3 draws them, not for settlement, POI, sea marks,
+    /// custom or icons; an
     /// exact duplicate names both items; an empty family is listed only when
     /// the library holds something.
     #[test]
@@ -473,7 +475,10 @@ mod tests {
         assert_eq!(r[0].text, "Identical images: Mountain#1 = Hill#1", "verbatim from library::run");
         assert!(!r.iter().any(|f| f.kind == FindingKind::BlankLicence));
         let not_drawn: Vec<&str> = r.iter().filter(|f| f.kind == FindingKind::NotDrawn).map(|f| f.uid.as_deref().unwrap()).collect();
-        assert_eq!(not_drawn, vec!["textures:parchment", "seamarks:buoy", "settlement:city", "poi:ruin", cuid.as_str()]);
+        // AP-3 (2026-10-18). Old -> new: ["textures:parchment",
+        // "seamarks:buoy", "settlement:city", "poi:ruin", <custom uid>] ->
+        // ["textures:parchment"]: the four marker families are drawn now.
+        assert_eq!(not_drawn, vec!["textures:parchment"]);
         let dup: Vec<&Finding> = r.iter().filter(|f| f.kind == FindingKind::Duplicate).collect();
         assert_eq!(dup.len(), 1);
         assert_eq!(dup[0].text, "identical images: Mountain #1 = Hill #1");

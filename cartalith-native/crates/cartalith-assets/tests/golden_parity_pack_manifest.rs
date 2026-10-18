@@ -46,8 +46,16 @@
 //! (`WorldGen::civ_trait_badge_row`) on every world, so a pack's `trait` art
 //! genuinely reaches a settlement pin and is no longer unused by the live
 //! map — the same reason `biomes`/`terrains` dropped out on 2026-09-03.
-//! `structures.settlement`, `structures.poi`, `custom` and `seamarks` are
-//! unaffected by this change and still name themselves when populated.
+//! `structures.settlement`, `structures.poi`, `custom` and `seamarks` were
+//! unaffected by that change and still named themselves when populated.
+//!
+//! **Gone entirely since AP-3 (Ruling CQ Q2, owner, 2026-10-18).** AP-3 draws
+//! the last four sections (`cartalith-godot`'s `LoadedPack::markers` and
+//! `WorldGen::icon_marker_art`, drawn by `map_overlay.gd`), so under Ruling
+//! W's own rule -- name what this port genuinely leaves undrawn -- there is
+//! nothing left to name and the summary line is not emitted at all, for any
+//! pack. Case A's capture is therefore one line shorter than the reference's,
+//! as case B's already was.
 //!
 //! **Scope of the re-baseline, exactly:** that one string, in the two cases
 //! below and in `tests/fixtures/reference_pack_captured.json`. Nothing else in
@@ -172,8 +180,10 @@ fn case_a() -> PackManifest {
 /// **Old -> new for the last line: `"4 pack section(s) not yet used by the live map (trait,
 /// structures.settlement, structures.poi, custom)"` -> `"3 pack section(s) not yet used by the live
 /// map (structures.settlement, structures.poi, custom)"`** -- re-derived by running
-/// `parse_pack_manifest` on this unchanged fixture, not by hand-editing the old string. Everything
-/// above the last line is still the original capture, untouched.
+/// `parse_pack_manifest` on this unchanged fixture, not by hand-editing the old string. **Then
+/// removed (AP-3, Ruling CQ Q2, 2026-10-18): old -> new, that `"3 pack section(s) …"` line -> no
+/// line**, because AP-3 draws all three sections; the list is the reference's minus its last
+/// line. Everything above it is still the original capture, untouched.
 #[test]
 fn case_a_warnings_match_the_reference_exactly_including_order() {
     let expected = [
@@ -185,8 +195,6 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
         "unknown icon slot: obelisk",
         "unknown settlement slot: metropolis",
         "custom Naval/anchor: file missing (custom/naval/anchor_missing.png)",
-        "3 pack section(s) not yet used by the live map \
-         (structures.settlement, structures.poi, custom)",
     ];
     assert_eq!(case_a().warnings, expected);
 }

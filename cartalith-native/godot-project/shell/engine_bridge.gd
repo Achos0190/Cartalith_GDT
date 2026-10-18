@@ -2798,6 +2798,22 @@ func civ_trait_badge_row(px: float, py: float, traits: PackedStringArray, sz: fl
 		return []
 	return world_gen.civ_trait_badge_row(px, py, traits, sz, sc)
 
+## `WorldGen::icon_marker_art` (AP-3, Ruling CQ Q2) -- the loaded pack's own art
+## for one placed settlement / POI / sea-mark / custom icon, as
+## `{texture, aspect}`, or `{}` when there is none. Installed as a `Callable` by
+## `viewport_host.gd::refresh_settlement_traits()` and held for the session,
+## so it carries `civ_trait_badge_row`'s `_has()` guard for the same reason: an
+## older GDExtension degrades to `{}`, which `map_overlay.gd::_marker_art`
+## reads as "draw the glyph".
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
+func icon_marker_art(family: String, slot: String, set_name: String, x: float, y: float, screen_px: float) -> Dictionary:
+	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
+	if generating:
+		return {}
+	if not _has("icon_marker_art"):
+		return {}
+	return world_gen.icon_marker_art(family, slot, set_name, x, y, screen_px)
+
 # -- Post-generation field operations -----------------------------------------
 #
 # Two opt-in passes the reference runs from a button, never during generate:
@@ -7089,6 +7105,35 @@ func as_set_pack_info(pack_name: String, author: String, license: String) -> boo
 		return false
 	mark_world_dirty()
 	return world_gen.as_set_pack_info(pack_name, author, license)
+
+## AP-4: the seam checker (`WorldGen.as_seam_check`) for one ground-texture
+## variant's bake. `{"ok": true, "edge", "interior", "seam"}` or
+## `{"ok": false, "error"}`; read-only.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_seam_check(uid: String, index: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_seam_check"):
+		return {"ok": false, "error": "as_seam_check not available on this binary"}
+	return world_gen.as_seam_check(uid, index)
+
+## AP-4: make one ground-texture variant seamless as a NEW variant
+## (`WorldGen.as_make_seamless`, Ruling CQ Q7). `{"ok": true, "changed",
+## "before_edge", "before_interior", "after_edge", "after_interior", "fixed_x",
+## "fixed_y", "index"?}` or `{"ok": false, "error"}`. Marks the world dirty
+## only when a variant was added.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_make_seamless(uid: String, index: int) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_make_seamless"):
+		return {"ok": false, "error": "as_make_seamless not available on this binary"}
+	var r: Dictionary = world_gen.as_make_seamless(uid, index)
+	if bool(r.get("changed", false)):
+		mark_world_dirty()
+	return r
 
 ## Removes one item from a slot.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.

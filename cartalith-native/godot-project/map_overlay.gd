@@ -577,6 +577,16 @@ const MANUAL_ROUTE_SEL_WIDTH := 2.5
 ## than as sprites this control could blit at a pin's constant on-screen size.
 ## So these are honest placeholder glyphs distinguishing family and marking
 ## real placed positions, not a stand-in for the pack's actual per-slot art.
+##
+## **AP-3 (Ruling CQ Q2, 2026-10-18) gives four of the families their art.**
+## The paragraphs above describe the state before it and are kept as the
+## record. A placed `settlement`, `poi`, `seamarks` or `custom` icon whose slot
+## the loaded pack fills now draws that sprite instead of its glyph, through
+## `set_marker_art_resolver()` (`WorldGen::icon_marker_art`) -- but only while
+## `marker_art_enabled` is on, which the app turns on and this file does not.
+## A `feature` icon, an icon whose slot has no art, and every icon of a map
+## with no pack still draw the glyph below, unchanged. These colours are that
+## glyph's.
 const ICON_FAMILY_COLORS := {
 	"settlement": Color(0.835, 0.369, 0.0),
 	"feature": Color(0.0, 0.620, 0.451),
@@ -5773,6 +5783,22 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 ## `set_civ_data` doc comment. The caller has already resolved visibility and
 ## the interior test; this only draws.
 func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
+	## AP-3: the pack's own art first, when the switch is on and the pack has it.
+	## Centre-anchored, `dh` = the outer height of the glyph it replaces
+	## (`_icon_glyph_extent`), so the sprite takes exactly the footprint the
+	## glyph took -- AP-3's bar is "on-screen size matches today's glyph within
+	## +/-1 px" -- and `dw = dh * aspect`, the reference's `_structSprite`
+	## shape rule (v2.11 line 15513). **Divergence, disclosed:** the reference
+	## sizes every family's sprite `dh = 2.3 * radius` from its own radius,
+	## which this file's does not convert to (`ICON_BASE_RADIUS`). The hit
+	## test is unchanged (`_icon_radius`). Drawn untinted: pack art carries
+	## absolute colour (Ruling CQ Q4 bakes any harmonising into the pixels).
+	var art := _marker_art(ic)
+	if art.has("texture"):
+		var dh := _icon_glyph_extent(ic)
+		var dw := dh * float(art.get("aspect", 1.0))
+		_cv.draw_texture_rect(art["texture"], Rect2(pos.x - dw * 0.5, pos.y - dh * 0.5, dw, dh), false)
+		return
 	var color: Color = icon_fill_for(String(ic["family"]))
 	var outline: Color = icon_outline_color()   ## the preset's ink (Ruling BX item 2) or `ICON_OUTLINE`
 	var r: float = _icon_radius(ic)
@@ -5797,6 +5823,58 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 			_cv.draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
 			_cv.draw_arc(pos, r, 0, TAU, 20, outline, 1.2 * _sym_gain, true)
 			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, outline, 1.0 * _sym_gain, true)
+
+
+## AP-3's switch (Ruling CQ Q2: "behind a switch, on in the app"). **Off by
+## default**, so any overlay this file is instantiated as -- a probe, a test
+## scene, an embedder that never calls the setter -- draws every manual icon as
+## the glyph it always drew, byte for byte. `viewport_host.gd` turns it on for
+## the app (`PACK_MARKER_ART`). An export copy inherits the live overlay's value
+## through `copy_state_from`, so export follows the screen.
+var marker_art_enabled := false
+## `WorldGen::icon_marker_art`, called as
+## `cb.call(family, slot, set, x, y, screen_px)` and returning
+## `{texture, aspect}` or an empty `Dictionary`. Invalid until installed.
+var _marker_art_resolver: Callable = Callable()
+
+## Installs AP-3's art resolver and sets the switch together, so the two can
+## never disagree about whether pack art is drawn. `cb` invalid or `enabled`
+## false: every icon draws its glyph. Redraws, since the answer for every
+## placed icon may have changed (a new pack, or the switch).
+func set_marker_art_resolver(cb: Callable, enabled: bool) -> void:
+	_marker_art_resolver = cb
+	marker_art_enabled = enabled
+	queue_redraw()
+
+
+## The pack art for one placed icon, or `{}` -- the glyph's cue. `{}` whenever
+## the switch is off, no resolver is installed, or the resolver has nothing
+## (no pack, a `feature` icon, an empty slot); the resolver alone decides
+## which family it serves. `screen_px` is the sprite's height on screen: the
+## local height times the canvas's screen scale at the zoom this draw is built
+## for (the landmark glyph's own conversion in `_draw_annotation_marks`, here
+## without its 1x floor so a phone's sub-1 fit scale picks a smaller raster).
+func _marker_art(ic: Dictionary) -> Dictionary:
+	if not marker_art_enabled or not _marker_art_resolver.is_valid():
+		return {}
+	var live := _live_zoom if _live_zoom > 0.0 else _camera_zoom
+	var screen_scale := get_screen_transform().get_scale().x * _camera_zoom / maxf(live, 0.001)
+	var screen_px := _icon_glyph_extent(ic) * screen_scale
+	var d: Variant = _marker_art_resolver.call(String(ic.get("family", "")), String(ic.get("slot", "")),
+		String(ic.get("set", "")), float(ic.get("x", 0.0)), float(ic.get("y", 0.0)), screen_px)
+	return d if d is Dictionary else {}
+
+
+## The outer height, in local pixels, of the glyph `_draw_icon_glyph` draws
+## for `ic` -- the box an AP-3 sprite takes in its place. Read off the glyph's
+## own geometry below, outline included (its stroke is `1.2 * _sym_gain` wide,
+## centred on the shape's edge, so it adds that much in total): the settlement
+## square's side is `2 * 0.85r`; the POI diamond, the custom ring and the
+## fallback are `2r` across.
+func _icon_glyph_extent(ic: Dictionary) -> float:
+	var r := _icon_radius(ic)
+	var body := 1.7 * r if String(ic.get("family", "")) == "settlement" else 2.0 * r
+	return body + 1.2 * _sym_gain
 
 
 ## The drawn glyph radius in this control's local pixels -- the ONE definition

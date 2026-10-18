@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet};
 
 use cartalith_assets::{
     AssetDB, Anchor, ChromaKey, DecodedImage, Family, Finding, FindingKind, GridRect, ImportLimits, ItemTransform,
-    LibraryItem, Severity,
+    LibraryItem, SeamScore, SeamlessOutcome, Severity, make_seamless, seam_score,
     PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive, check_png_header,
     compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
     read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
@@ -841,6 +841,60 @@ impl AssetLibrarySession {
         out
     }
 
+    // -- Seam checker and make-seamless (AP-4) ---------------------------------
+
+    /// The item's own bake for its family (`render_item` at `Family::size`,
+    /// opaque), which is what export writes and the map samples, so the seam
+    /// tools measure and fix the pixels a pack actually ships -- not the
+    /// source at its import size. `None` for an unknown uid or index, or a
+    /// family that is not a tiled ground texture (`Family::is_texture`): a
+    /// sprite has no wrap to check.
+    fn texture_bake(&self, uid: &str, index: usize) -> Option<DecodedImage> {
+        let slot = self.db.get(uid)?;
+        if !slot.family.is_texture() {
+            return None;
+        }
+        let item = self.db.items(uid).get(index)?;
+        let img = self.image(uid, index)?;
+        Some(render_item(img, &item.transform, slot.family.size(), true))
+    }
+
+    /// AP-4's checker: `seam_score` of one ground item's bake, and whether
+    /// that is a seam. The same numbers AP-2's report words. `None` as
+    /// [`AssetLibrarySession::texture_bake`]. Read-only.
+    pub fn seam_check(&self, uid: &str, index: usize) -> Option<SeamScore> {
+        self.texture_bake(uid, index).map(|b| seam_score(&b))
+    }
+
+    /// AP-4's fixer: make one ground item's bake seamless and store the
+    /// result as a **new variant** of the same slot (Ruling CQ Q7: refine
+    /// verbs never replace the original), named `<original> · seamless`.
+    ///
+    /// Returns the outcome and, when a variant was added, its index. A tile
+    /// that already wraps adds nothing (`outcome.image == None`, index
+    /// `None`): the bar is "left untouched (byte-identical)", and the
+    /// original item is never written in either case. The new item is the
+    /// baked pixels at the family's size with the identity transform, so its
+    /// own bake is those pixels again (asserted by this file's tests) and
+    /// export ships exactly what was measured. Undo is
+    /// [`AssetLibrarySession::remove_item`] on the returned index.
+    ///
+    /// `Err` for an unknown uid/index or a non-texture family, in words.
+    pub fn make_seamless_variant(&mut self, uid: &str, index: usize) -> Result<(SeamlessOutcome, Option<usize>), String> {
+        let Some(slot) = self.db.get(uid) else { return Err(format!("no such slot: {uid}")) };
+        if !slot.family.is_texture() {
+            return Err(format!("{uid} is not a ground texture: only tiled textures wrap"));
+        }
+        let Some(item) = self.db.items(uid).get(index) else { return Err(format!("{uid} has no variant {}", index + 1)) };
+        let name = format!("{} · seamless", item.name);
+        let Some(bake) = self.texture_bake(uid, index) else { return Err(format!("{uid} variant {} has no pixels", index + 1)) };
+        let mut outcome = make_seamless(&bake);
+        let Some(img) = outcome.image.take() else { return Ok((outcome, None)) };
+        self.insert_decoded(uid, name, img.clone())?;
+        outcome.image = Some(img);
+        Ok((outcome, Some(self.db.items(uid).len() - 1)))
+    }
+
     // -- Thumbnails ----------------------------------------------------------
 
     /// A `render_item`-baked, PNG-encoded thumbnail for one stored item —
@@ -1097,6 +1151,67 @@ mod tests {
         // fit_to_bottom mutates pan_y away from the identity default for a
         // non-square item on a bottom-anchored family.
         assert_ne!(s.db.items("icons:mountain")[0].transform.pan_y, 0.0);
+    }
+
+    /// A `w`x`h` PNG whose red channel ramps left to right -- a ground tile
+    /// with a real left-right seam (255 levels across the wrap, ~1 across
+    /// the centre).
+    fn ramp_png(w: u32, h: u32) -> Vec<u8> {
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..h {
+            for x in 0..w {
+                data.extend_from_slice(&[(x * 255 / (w - 1)) as u8, 80, 40, 255]);
+            }
+        }
+        encode_png(&DecodedImage::new(w, h, data).unwrap()).unwrap()
+    }
+
+    /// Protects: AP-4 through the session -- make-seamless on a seamed ground
+    /// tile adds exactly one new variant (Ruling CQ Q7), leaves the original's
+    /// pixels and record untouched, stores pixels whose own bake is
+    /// themselves (so export ships what was measured) and which meet the
+    /// <= 1.25x bar; undo is `remove_item` on the returned index.
+    #[test]
+    fn make_seamless_adds_a_new_variant_and_keeps_the_original() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("textures:grass", "g.png".to_string(), &ramp_png(512, 512)).unwrap();
+        let before_px = s.image("textures:grass", 0).unwrap().clone();
+        let before_rec = s.db.items("textures:grass")[0].clone();
+        assert!(s.seam_check("textures:grass", 0).unwrap().is_seam());
+        let (out, idx) = s.make_seamless_variant("textures:grass", 0).unwrap();
+        assert_eq!(idx, Some(1));
+        assert!(out.fixed_x && !out.fixed_y);
+        assert_eq!(s.db.items("textures:grass").len(), 2);
+        assert_eq!(s.image("textures:grass", 0).unwrap(), &before_px, "original pixels untouched");
+        assert_eq!(s.db.items("textures:grass")[0], before_rec, "original record untouched");
+        assert_eq!(s.db.items("textures:grass")[1].name, "g.png · seamless");
+        let after = s.seam_check("textures:grass", 1).unwrap();
+        assert!(after.edge <= cartalith_assets::SEAM_RATIO * after.interior, "{after:?}");
+        assert!(!after.is_seam());
+        let stored = s.image("textures:grass", 1).unwrap().clone();
+        assert_eq!(s.texture_bake("textures:grass", 1).unwrap(), stored, "the new variant's bake is its own pixels");
+        assert_eq!(Some(&stored), out.image.as_ref());
+        assert!(s.remove_item("textures:grass", 1));
+        assert_eq!(s.db.items("textures:grass").len(), 1);
+    }
+
+    /// Protects: a tile that already wraps adds nothing and changes nothing
+    /// (byte-identical); a sprite family and an unknown index are refused in
+    /// words, never a panic.
+    #[test]
+    fn make_seamless_leaves_a_seamless_tile_and_refuses_sprites() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("biomes:jungle", "j.png".to_string(), &png_bytes(512, 512, [30, 120, 40, 255])).unwrap();
+        let px = s.image("biomes:jungle", 0).unwrap().clone();
+        let (out, idx) = s.make_seamless_variant("biomes:jungle", 0).unwrap();
+        assert_eq!((idx, out.image.is_none()), (None, true));
+        assert_eq!(s.db.items("biomes:jungle").len(), 1);
+        assert_eq!(s.image("biomes:jungle", 0).unwrap(), &px);
+        s.import_item("icons:mountain", "m.png".to_string(), &png_bytes(64, 64, [1, 2, 3, 255])).unwrap();
+        assert!(s.make_seamless_variant("icons:mountain", 0).unwrap_err().contains("not a ground texture"));
+        assert!(s.seam_check("icons:mountain", 0).is_none());
+        assert!(s.make_seamless_variant("biomes:jungle", 5).is_err());
+        assert!(s.make_seamless_variant("textures:nope", 0).is_err());
     }
 
     /// Protects: a settlement-family import is not fitted to the bottom: its `pan_y` stays 0.
@@ -1901,8 +2016,9 @@ mod tests {
 
     /// Protects: the report on the opened reference pack. Its validator line
     /// (identical flat-colour images) comes first; the licence is set so no
-    /// licence finding; settlement, POI and custom slots are named as never
-    /// drawn; Sea marks is the one empty family; the pack's flat textures
+    /// licence finding; nothing is named as never drawn (until AP-3 its
+    /// settlement, POI and custom slots were; AP-3 draws them); Sea marks is
+    /// the one empty family; the pack's flat textures
     /// raise no seam. Every row that names a slot names one that exists.
     #[test]
     fn the_reference_pack_report() {
@@ -1914,7 +2030,9 @@ mod tests {
         assert!(!r.iter().any(|f| f.kind == FindingKind::BlankLicence));
         assert!(!r.iter().any(|f| f.kind == FindingKind::Seam));
         let not_drawn: Vec<&str> = r.iter().filter(|f| f.kind == FindingKind::NotDrawn).map(|f| f.uid.as_deref().unwrap()).collect();
-        assert_eq!(not_drawn, vec!["settlement:village", "settlement:city", "poi:ruin", "custom:naval/lighthouse"]);
+        // AP-3 (2026-10-18). Old -> new: ["settlement:village",
+        // "settlement:city", "poi:ruin", "custom:naval/lighthouse"] -> [].
+        assert_eq!(not_drawn, Vec::<&str>::new());
         let empty: Vec<&str> = r.iter().filter(|f| f.kind == FindingKind::EmptyFamily).map(|f| f.label.as_str()).collect();
         assert_eq!(empty, vec!["Sea marks"]);
         for f in &r {

@@ -135,6 +135,7 @@ pub mod pack_report;
 pub mod placement;
 pub mod raster;
 pub mod scatter;
+pub mod seamless;
 pub mod slicer;
 pub mod slots;
 
@@ -171,6 +172,7 @@ pub use placement::{
     TraitBadge, icon_slot_for_item, place_map_icons_ruled, sprite_draw_rect, trait_badge_drop,
     trait_badge_layout, trait_badge_radius, trait_sprite_rect,
 };
+pub use seamless::{SeamlessOutcome, axis_seam_score, make_seamless};
 pub use slicer::{
     BLANK_ALPHA_THRESHOLD, CellGrid, CellRect, ChromaKey, GridRect, MAX_GRID_COUNT, SliceCounts,
     SliceGrid, SliceOptions, SlicedCell, apply_chroma, cell_source_rect, clamp_grid_count,

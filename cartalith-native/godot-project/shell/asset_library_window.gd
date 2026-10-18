@@ -907,6 +907,25 @@ var _insp_variants_head: Label
 var _insp_variants: HBoxContainer
 ## Wrapped explanatory note at the foot of the inspector.
 var _insp_note: Label
+## AP-4: the inspector's REFINE section (`ASSET_PACK_TOOLS_PROPOSAL.md` §4,
+## "under Tags"). Shown for the tiled ground families only, because its one
+## verb so far -- Make seamless -- has nothing to do on a sprite; AP-7 adds
+## the sprite verbs here.
+var _insp_refine: Control
+## The seam readout for the previewed variant (`as_seam_check`): the wrap and
+## centre-line differences and the verdict, or the reason there are none.
+var _insp_seam_label: Label
+## `Make seamless`: writes a NEW variant (Ruling CQ Q7); disabled unless the
+## previewed variant is a seam by AP-2's measure, since a tile that already
+## wraps is left untouched anyway.
+var _insp_seam_btn: Button
+## `Undo` for the last Make seamless: removes the variant it added. Shown only
+## while that variant is still the one it made (`_seam_undo`).
+var _insp_seam_undo_btn: Button
+## `{uid, index, hash}` of the variant the last Make seamless added, or `{}`.
+## Cleared by Undo and by any other edit to that slot's variant list
+## (`_refresh_refine` drops it when the slot no longer has that index).
+var _seam_undo: Dictionary = {}
 
 ## Status-line readout: `library edited — apply to map to use it` while `_dirty`, else
 ## `in sync with the map`.
@@ -3134,6 +3153,33 @@ func _build_inspector() -> Control:
 	_insp_note.custom_minimum_size.x = W_INSPECTOR - 52
 	rows.add_child(_insp_note)
 
+	# -- REFINE (AP-4; textures only for now) -----------------------------------
+	_insp_refine = VBoxContainer.new()
+	_insp_refine.add_theme_constant_override("separation", 0)
+	_insp_detail.add_child(_insp_refine)
+	_insp_refine.add_child(_rule_soft())
+	var ref_pad := _pad(_insp_refine, 14, 11, 14, 11)
+	var ref_col := VBoxContainer.new()
+	ref_col.add_theme_constant_override("separation", 7)
+	ref_pad.add_child(ref_col)
+	var ref_head := DccTheme.mono_label("REFINE", "text_ghost", DccTheme.FS_MICRO, 1)
+	ref_head.tooltip_text = "Tools that fix the art itself. Each writes a new variant and leaves the original as it was (Ruling CQ Q7)."
+	ref_head.mouse_filter = Control.MOUSE_FILTER_STOP
+	ref_col.add_child(ref_head)
+	_insp_seam_label = DccTheme.label("", "text_dim", DccTheme.FS_MICRO)
+	_insp_seam_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_insp_seam_label.custom_minimum_size.x = W_INSPECTOR - 52
+	ref_col.add_child(_insp_seam_label)
+	var seam_row := HBoxContainer.new()
+	seam_row.add_theme_constant_override("separation", 5)
+	ref_col.add_child(seam_row)
+	_insp_seam_btn = _chip(seam_row, "Make seamless", func(): _on_make_seamless())
+	_insp_seam_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_seam_undo_btn = _chip(seam_row, "Undo", func(): _on_undo_seamless())
+	_insp_seam_undo_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_seam_undo_btn.tooltip_text = "Remove the seamless variant just made. The original was never changed."
+	_insp_seam_undo_btn.visible = false
+
 	# -- VARIANTS -------------------------------------------------------------
 	_insp_detail.add_child(_rule_soft())
 	var var_pad := _pad(_insp_detail, 14, 11, 14, 11)
@@ -3173,7 +3219,7 @@ func _build_inspector() -> Control:
 	var report_btn := _chip(foot, "Report", func(): _on_report(), false, 0, 6)
 	report_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	report_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	report_btn.tooltip_text = "The pack report: Validate's warnings plus what the art itself shows (blank, opaque, undersized or non-square images, ground tiles that do not wrap, duplicates, colour conversions, a blank licence) and which families the map never draws. Read-only."
+	report_btn.tooltip_text = "The pack report: Validate's warnings plus what the art itself shows (blank, opaque, undersized or non-square images, ground tiles that do not wrap, duplicates, colour conversions, a blank licence) and which slots the map never draws (the parchment texture). Read-only."
 	_clear_btn = _chip(foot, "Clear library…", func(): _on_clear_library(), false, 0, 6)
 	_clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_clear_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
@@ -3337,6 +3383,8 @@ func _refresh_inspector() -> void:
 	## Backed by `as_batch_tag` on the focused slot.
 	add_tag.tooltip_text = "Add tag(s) to this slot."
 
+	_refresh_refine(fam, item_count)
+
 	# -- disclosure note ------------------------------------------------------
 	if item_count == 0:
 		_insp_note.text = "No art stored yet — + Variant, or Import image… in the rail foot, lands one here."
@@ -3371,6 +3419,97 @@ func _refresh_inspector() -> void:
 		_insp_variants.add_child(vc)
 
 	_refresh_pack_info_fields(_bridge.as_pack_info())
+
+## AP-4: the REFINE section for the focused slot's previewed variant. Hidden
+## for sprite families. For a ground tile it shows `as_seam_check`'s numbers
+## (8-bit RGB levels: the mean difference across the wrap edges against the
+## same across the centre lines, AP-2's measure on the bake) and enables Make
+## seamless only on a seam, with the reason written whenever it is disabled.
+func _refresh_refine(fam: Dictionary, item_count: int) -> void:
+	if _insp_refine == null:
+		return
+	var tex := bool(fam.get("texture", false))
+	_insp_refine.visible = tex
+	if not _seam_undo.is_empty() and (String(_seam_undo.get("uid", "")) != _focused_uid
+			or int(_seam_undo.get("index", -1)) >= item_count):
+		_seam_undo = {}
+	_insp_seam_undo_btn.visible = not _seam_undo.is_empty()
+	if not tex:
+		return
+	if item_count == 0:
+		_insp_seam_label.text = "Seam — no art in this slot yet."
+		_insp_seam_btn.disabled = true
+		_insp_seam_btn.tooltip_text = "Nothing to make seamless: this slot has no image."
+		return
+	var sc: Dictionary = _bridge.as_seam_check(_focused_uid, _preview_index)
+	if not bool(sc.get("ok", false)):
+		_insp_seam_label.text = "Seam — not measured: %s." % String(sc.get("error", "unknown error"))
+		_insp_seam_btn.disabled = true
+		_insp_seam_btn.tooltip_text = "The seam could not be measured, so there is nothing to fix from here."
+		return
+	var edge := float(sc["edge"])
+	var interior := float(sc["interior"])
+	var seam := bool(sc["seam"])
+	var ratio := (" (%.1f×)" % (edge / interior)) if interior > 0.0 else ""
+	_insp_seam_label.text = "Seam — wrap %.1f · centre %.1f levels%s: %s" % [edge, interior, ratio,
+		"a visible line every tile width" if seam else "wraps cleanly"]
+	_insp_seam_label.add_theme_color_override("font_color", DccTheme.c("warn" if seam else "text_dim"))
+	_insp_seam_btn.disabled = not seam
+	_insp_seam_btn.tooltip_text = ("Offset this variant by half and cross-blend the old edges over an eighth of the tile, as a new variant. The original stays as it is." if seam
+		else "This variant already wraps by the report's measure (wrap difference within 1.25× the centre's), so there is nothing to fix.")
+
+
+## AP-4: Make seamless on the previewed variant. Writes a new variant and
+## previews it; a tile that already wraps writes nothing and says so.
+func _on_make_seamless() -> void:
+	if _focused_uid == "":
+		return
+	var r: Dictionary = _bridge.as_make_seamless(_focused_uid, _preview_index)
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "make seamless failed — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	if not bool(r.get("changed", false)):
+		_host.set_status("hint", "already wraps — nothing written", "accent")
+		_refresh_inspector()
+		return
+	_dirty = true
+	## The new variant's content hash, so Undo can refuse to remove a different
+	## image if the slot's variant list has shifted since.
+	var made: Dictionary = _bridge.as_item_summary(_focused_uid, int(r["index"]))
+	_seam_undo = {"uid": _focused_uid, "index": int(r["index"]), "hash": String(made.get("hash", ""))}
+	_preview_index = int(r["index"])
+	_host.set_status("hint", "seamless variant %d added — wrap %.1f → %.1f levels; the original is unchanged" % [
+		int(r["index"]) + 1, float(r["before_edge"]), float(r["after_edge"])], "accent")
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_rail_counts()
+	_refresh_status_line()
+
+
+## AP-4's Undo: removes the variant the last Make seamless added.
+func _on_undo_seamless() -> void:
+	if _seam_undo.is_empty():
+		return
+	var uid := String(_seam_undo["uid"])
+	var idx := int(_seam_undo["index"])
+	var want := String(_seam_undo.get("hash", ""))
+	_seam_undo = {}
+	var now: Dictionary = _bridge.as_item_summary(uid, idx)
+	if want == "" or String(now.get("hash", "")) != want:
+		_host.set_status("hint", "undo skipped — that variant has moved or changed since", "warn")
+		_refresh_inspector()
+		return
+	if _bridge.as_remove_item(uid, idx):
+		_dirty = true
+		_preview_index = maxi(0, idx - 1)
+		_host.set_status("hint", "seamless variant removed", "accent")
+	else:
+		_host.set_status("hint", "undo failed — that variant is gone", "warn")
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_rail_counts()
+	_refresh_status_line()
+
 
 ## The inspector's "+" tag chip: prompts for tags and applies them to the focused slot only (`as_batch_tag` with one uid).
 func _on_tag_focused() -> void:

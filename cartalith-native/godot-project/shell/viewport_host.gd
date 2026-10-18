@@ -83,6 +83,13 @@ signal pan_mode_changed(on: bool)
 ## `map_overlay.gd`, preloaded rather than named by `class_name` so this file does not depend on
 ## that script's registration; `_ready()` instantiates it as `overlay`.
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
+## AP-3's switch, as the app sets it (Ruling CQ Q2, owner, 2026-10-18: draw
+## settlement, POI, sea-mark and custom pack art on the map "behind a switch,
+## on in the app"). `map_overlay.gd`'s own default is off; this line is the
+## one place the app turns it on, and setting it `false` restores the
+## placeholder glyphs everywhere, export included. See
+## `refresh_settlement_traits()`.
+const PACK_MARKER_ART := true
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. Since `LOD_DETAIL_SCOPE.md` LOD-D2 a tile texture IS map pixels
 ## (`renderBiomeTileRGBA`'s own output), so the shader draws it; it keeps
@@ -2583,6 +2590,13 @@ func refresh_settlement_traits() -> void:
 	overlay.set_settlement_traits(by_tid, glyphs)
 	if _bridge != null and overlay.has_method("set_trait_art_resolver"):
 		overlay.set_trait_art_resolver(Callable(_bridge, "civ_trait_badge_row"))
+	## AP-3 (Ruling CQ Q2): placed settlement / POI / sea-mark / custom icons
+	## draw the loaded pack's art. Installed here, beside the trait resolver,
+	## because this runs on every `refresh()` -- which a pack load
+	## (`load_asset_pack`) and Apply to map (`as_apply_to_map`) both reach
+	## through `world_loaded` -- so a new pack is picked up the same way.
+	if _bridge != null and overlay.has_method("set_marker_art_resolver"):
+		overlay.set_marker_art_resolver(Callable(_bridge, "icon_marker_art"), PACK_MARKER_ART)
 
 
 ## Push the bridge's faction colours, and which of them the user picked by hand (Ruling BX item 2),

@@ -6193,6 +6193,21 @@ struct WorldGen {
     /// `pack::TraitArtMiss`' two reasons are recovered from, so do not
     /// filter it out here either.
     trait_textures: std::collections::HashMap<String, Vec<Gd<ImageTexture>>>,
+    /// AP-3 (Ruling CQ Q2): the loaded pack's marker art
+    /// (`pack::LoadedPack::markers`) as Godot textures, one per
+    /// `(pack::marker_art_key, variant, raster)` that has been asked for —
+    /// `raster` a `pack::MARKER_RASTERS` long side, the sprite pre-filtered by
+    /// `pack::area_downscale`.
+    ///
+    /// **Built lazily, and kept**: `icon_marker_art` is reached from
+    /// `map_overlay.gd`'s draw, so a texture is uploaded the first time a
+    /// (sprite, size) pair is drawn and never again for that pack — the
+    /// reason [`WorldGen::trait_textures`] is built up front, applied to a set
+    /// too large to build up front (ten sizes per variant). Bounded by
+    /// variants × 10. A `RefCell` because the `#[func]` takes `&self`, as
+    /// `lod`'s cache does. Cleared by [`WorldGen::install_pack`]; empty
+    /// whenever `asset_pack` is `None`.
+    marker_textures: std::cell::RefCell<std::collections::HashMap<(String, usize, u32), Gd<ImageTexture>>>,
     /// `TERRAIN_APPEARANCE_RESEARCH.md` §29's quality tier for the *appearance*
     /// pass only (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). Purely
     /// presentation: it feeds `TerrainAppearance::for_tier` inside
@@ -7071,6 +7086,7 @@ impl IRefCounted for WorldGen {
             seed: 0,
             asset_pack: None,
             trait_textures: std::collections::HashMap::new(),
+            marker_textures: std::cell::RefCell::new(std::collections::HashMap::new()),
             quality: QualityTier::Quality,
             look: render::LOOK_VIBRANT.to_string(),
             // Multi-sun on, as the shipped default (2026-08-24). It lives on
@@ -10380,9 +10396,11 @@ impl WorldGen {
     /// reference_pack.zip`) and decode the four families this port composites
     /// — scattered feature icons, the six ground-texture splat channels, and
     /// the two painted-layer ground families (`biomes`/`terrains`, which the
-    /// paint blend prefers over its flat palette swatch). `pack.rs`'s own doc
-    /// comment explains why `structures`/`custom`/`seamarks` are parsed but
-    /// not decoded here.
+    /// paint blend prefers over its flat palette swatch). Since AP-3 it also
+    /// decodes `structures.trait` (trait badges) and the settlement, POI,
+    /// sea-mark and custom marker art placed icons draw
+    /// (`pack::LoadedPack::markers`, `icon_marker_art`); `textures.parchment`
+    /// is the one family still parsed and not decoded.
     ///
     /// `path` is a native OS filesystem path, matching `load_save`'s own
     /// convention (a plain `std::fs::File` read, no Godot `FileAccess`
@@ -10402,9 +10420,7 @@ impl WorldGen {
         };
         match pack::load_pack_from_bytes(bytes) {
             Ok(loaded) => {
-                self.trait_textures = Self::build_trait_textures(&loaded);
-                self.pack_epoch = self.pack_epoch.wrapping_add(1);
-                self.asset_pack = Some(loaded);
+                self.install_pack(loaded);
                 true
             }
             Err(e) => {
@@ -10441,6 +10457,74 @@ impl WorldGen {
     #[func]
     fn has_asset_pack(&self) -> bool {
         self.asset_pack.is_some()
+    }
+
+    /// Make `loaded` the map's pack: every per-pack cache rebuilt together,
+    /// so no path can install a pack and leave a texture map describing the
+    /// previous one. The one place `asset_pack` is assigned (AP-3; before it,
+    /// `load_asset_pack` and `as_apply_to_map` each assigned it and only the
+    /// first rebuilt `trait_textures`).
+    fn install_pack(&mut self, loaded: pack::LoadedPack) {
+        self.trait_textures = Self::build_trait_textures(&loaded);
+        self.marker_textures.borrow_mut().clear();
+        self.pack_epoch = self.pack_epoch.wrapping_add(1);
+        self.asset_pack = Some(loaded);
+    }
+
+    /// AP-3 (Ruling CQ Q2): the loaded pack's own art for one placed map
+    /// icon of the `settlement`, `poi`, `seamarks` or `custom` family —
+    /// `_structSprite` / `_customSprite` (reference v2.11 lines 15508, 15607)
+    /// across the boundary, for `map_overlay.gd` to draw in place of the
+    /// placeholder glyph.
+    ///
+    /// `family`, `slot`, `set`, `x`, `y` are one `icon_list()` row's own
+    /// fields; `screen_px` is how tall the sprite will be ON SCREEN, in
+    /// pixels, which picks the pre-filtered size (`pack::marker_raster_for`).
+    /// Returns `{texture: ImageTexture, aspect: float}` when the pack has art
+    /// (`aspect` = the variant's `w / max(1, h)`; the caller draws it centred,
+    /// `dh = 2r`, `dw = dh * aspect`), and an **empty `Dictionary`**
+    /// otherwise: no pack loaded, a `feature` or unknown family, or no decoded
+    /// art for that slot. Empty means "draw your glyph exactly as before",
+    /// which is what keeps a map without a pack byte-identical. The variant
+    /// choice is `pack::resolve_marker_sprite`'s.
+    ///
+    /// **Not the switch.** Whether the map uses this at all is
+    /// `map_overlay.gd`'s `marker_art_enabled`, off by default and turned on
+    /// by the app's `viewport_host.gd` (Q2: "behind a switch, on in the
+    /// app"); this function answers whenever it is asked.
+    ///
+    /// Allocates a texture only the first time a (sprite, size) pair is
+    /// asked for (see [`WorldGen::marker_textures`]); every later call is two
+    /// hash lookups, one `pick_icon_variant` and the returned `Dictionary`.
+    #[func]
+    fn icon_marker_art(&self, family: GString, slot: GString, set: GString, x: f64, y: f64, screen_px: f64) -> VarDictionary {
+        let Some(loaded) = self.asset_pack.as_ref() else { return VarDictionary::new() };
+        let Some(sprite) =
+            pack::resolve_marker_sprite(&family.to_string(), &slot.to_string(), &set.to_string(), x, y, self.seed, loaded)
+        else {
+            return VarDictionary::new();
+        };
+        let Some(img) = loaded.markers.get(&sprite.key).and_then(|v| v.get(sprite.variant)) else {
+            return VarDictionary::new();
+        };
+        let raster = pack::marker_raster_for(screen_px, img.w.max(img.h));
+        let cache_key = (sprite.key.clone(), sprite.variant, raster);
+        let mut cache = self.marker_textures.borrow_mut();
+        if !cache.contains_key(&cache_key) {
+            let small = pack::area_downscale(img, raster);
+            let packed = PackedByteArray::from(small.rgba.as_slice());
+            let Some(image) = Image::create_from_data(small.w as i32, small.h as i32, false, Format::RGBA8, &packed) else {
+                return VarDictionary::new();
+            };
+            let Some(tex) = ImageTexture::create_from_image(&image) else { return VarDictionary::new() };
+            cache.insert(cache_key.clone(), tex);
+        }
+        let mut d = VarDictionary::new();
+        if let Some(tex) = cache.get(&cache_key) {
+            d.set("texture", tex);
+            d.set("aspect", sprite.aspect);
+        }
+        d
     }
 
     /// Decode-once helper for [`WorldGen::trait_textures`] — see that field
@@ -23163,6 +23247,55 @@ impl WorldGen {
         true
     }
 
+    /// AP-4's seam checker for one ground-texture item: `seam_score` of the
+    /// item's bake (what export writes and the map samples).
+    /// `{"ok": true, "edge", "interior", "seam": bool}` in 8-bit RGB levels,
+    /// or `{"ok": false, "error"}` for an unknown slot or index or a sprite
+    /// family, which has no wrap. Read-only.
+    #[func]
+    fn as_seam_check(&self, uid: GString, index: i32) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false, "error" => "no such variant" };
+        }
+        match self.asset_library.seam_check(&uid.to_string(), index as usize) {
+            Some(sc) => vdict! { "ok" => true, "edge" => sc.edge, "interior" => sc.interior, "seam" => sc.is_seam() },
+            None => vdict! { "ok" => false, "error" => "not a ground-texture variant with pixels" },
+        }
+    }
+
+    /// AP-4's make-seamless (Ruling CQ Q7: writes a new variant, never the
+    /// original), `AssetLibrarySession::make_seamless_variant`.
+    /// `{"ok": true, "changed": bool, "before_edge", "before_interior",
+    /// "after_edge", "after_interior", "fixed_x", "fixed_y"}`, plus `index`
+    /// (the new variant) **only when** `changed`; a tile that already wraps
+    /// answers `changed: false` and adds nothing. `{"ok": false, "error"}`
+    /// otherwise. Undo is `as_remove_item(uid, index)`.
+    #[func]
+    fn as_make_seamless(&mut self, uid: GString, index: i32) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false, "error" => "no such variant" };
+        }
+        match self.asset_library.make_seamless_variant(&uid.to_string(), index as usize) {
+            Ok((out, new_index)) => {
+                let mut d = vdict! {
+                    "ok" => true,
+                    "changed" => new_index.is_some(),
+                    "before_edge" => out.before.edge,
+                    "before_interior" => out.before.interior,
+                    "after_edge" => out.after.edge,
+                    "after_interior" => out.after.interior,
+                    "fixed_x" => out.fixed_x,
+                    "fixed_y" => out.fixed_y,
+                };
+                if let Some(i) = new_index {
+                    d.set("index", i as i64);
+                }
+                d
+            }
+            Err(e) => vdict! { "ok" => false, "error" => e },
+        }
+    }
+
     /// Remove one item from a slot, keeping the pixel store in lockstep.
     #[func]
     fn as_remove_item(&mut self, uid: GString, index: i32) -> bool {
@@ -23217,8 +23350,14 @@ impl WorldGen {
         };
         match pack::load_pack_from_bytes(bytes) {
             Ok(loaded) => {
-                self.pack_epoch = self.pack_epoch.wrapping_add(1);
-                self.asset_pack = Some(loaded);
+                // Through `install_pack` since AP-3, which also rebuilds the
+                // trait and marker textures: before it this path set
+                // `asset_pack` alone, so after Apply to map a trait badge kept
+                // the PREVIOUS pack's textures (or none) while
+                // `civ_trait_badge_row` resolved variants against the new
+                // pack -- a stale-texture defect found while adding the
+                // marker textures beside them (2026-10-18).
+                self.install_pack(loaded);
                 vdict! { "ok" => true, "error" => "" }
             }
             Err(e) => vdict! { "ok" => false, "error" => e },

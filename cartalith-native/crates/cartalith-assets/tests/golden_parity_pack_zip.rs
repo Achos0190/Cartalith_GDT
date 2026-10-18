@@ -49,7 +49,10 @@
 //! `trait` dropped out once `viewport_host.gd::refresh_settlement_traits()`
 //! started installing the trait-art resolver, so this fixture's own trait
 //! sprite now reaches the live map exactly as its biomes/terrains art
-//! already did. The reference's own value is preserved in the fixture as
+//! already did. Emptied by AP-3 (Ruling CQ Q2, owner, 2026-10-18): AP-3
+//! draws the settlement, POI and custom art this fixture carries
+//! (`LoadedPack::markers`, `map_overlay.gd`), so the port emits no such
+//! warning at all and the fixture's `warnings` is `[]`. The reference's own value is preserved in the fixture as
 //! `warningsAsCapturedFromReference` and asserted below, so the divergence is
 //! measured rather than assumed. Every other field here is the capture,
 //! untouched.
@@ -175,19 +178,15 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
     // structures.settlement, structures.poi, custom)"` -> `"3 pack
     // section(s) not yet used by the live map (structures.settlement,
     // structures.poi, custom)"`**, re-derived by running `read_pack` on the
-    // unchanged fixture archive.
+    // unchanged fixture archive. **Then AP-3 (Ruling CQ Q2, 2026-10-18):
+    // old -> new, that `"3 pack section(s) …"` -> no warning at all**,
+    // because AP-3 draws the settlement, POI and custom art too.
     //
-    // Both literals are spelled out rather than only compared against the
+    // Both the fixture and a literal are checked rather than only the
     // fixture: a fixture compared only against itself cannot fail, and a
-    // revert of `manifest.rs`'s emit site has to turn one of these red.
+    // revert of `manifest.rs`'s removal has to turn the literal red.
     assert_eq!(manifest.warnings, strs(&cap["warnings"]));
-    assert_eq!(
-        manifest.warnings,
-        [
-            "3 pack section(s) not yet used by the live map \
-             (structures.settlement, structures.poi, custom)"
-        ]
-    );
+    assert!(manifest.warnings.is_empty(), "{:?}", manifest.warnings);
     assert_eq!(
         strs(&cap["warningsAsCapturedFromReference"]),
         ["3 pack section(s) not yet used by the live map (trait, biomes, terrains)"],

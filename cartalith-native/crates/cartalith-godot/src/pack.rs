@@ -141,16 +141,17 @@ fn decode_entry(path: &str, data: &[u8], notes: &mut Vec<(String, ColourReport)>
     Some(img)
 }
 
-/// A real, loaded asset pack — the five families this module composites,
-/// decoded to pixels: `icons`, the six splat channels, `biomes`, `terrains`
-/// and (since `OUTSTANDING_WORK.md` §2.5) `structures.trait`.
+/// A real, loaded asset pack — the families this module composites or hands
+/// to the overlay, decoded to pixels: `icons`, the six splat channels,
+/// `biomes`, `terrains`, (since `OUTSTANDING_WORK.md` §2.5) `structures.trait`
+/// and (since AP-3, Ruling CQ Q2, 2026-10-18) the four manual-icon marker
+/// families in [`Self::markers`].
 ///
-/// `structures.settlement`, `structures.poi`, `custom` and `seamarks` are
-/// parsed into [`Self::manifest`] and **not** decoded here, because nothing
-/// draws them: `map_overlay.gd`'s `_draw_manual_icons` draws a settlement as
-/// a filled rectangle and a POI as a diamond, never a pack sprite. This
-/// sentence used to point at the module doc above for that reason; the module
-/// doc has never carried it, so it is stated here instead.
+/// **Corrected by AP-3.** This doc said `structures.settlement`,
+/// `structures.poi`, `custom` and `seamarks` were parsed and never decoded
+/// "because nothing draws them". AP-3 is what draws them, so they are now
+/// decoded into [`Self::markers`]; `textures.parchment` is still the one
+/// family parsed and not decoded (see [`Self::splat`]).
 pub struct LoadedPack {
     pub manifest: PackManifest,
     /// Slot name (`PACK_ICON_SLOTS` member, e.g. `"mountain"`) → decoded
@@ -199,6 +200,24 @@ pub struct LoadedPack {
     /// carries the same reason per badge so a caller that wants to highlight
     /// one settlement's missing art does not have to re-derive it.
     pub traits: HashMap<String, Vec<DecodedImage>>,
+    /// AP-3 (Ruling CQ Q2): the art a hand-placed or generated map icon of
+    /// the `settlement`, `poi`, `seamarks` or `custom` family draws instead
+    /// of its placeholder glyph. Keyed by [`marker_art_key`], decoded variants
+    /// in manifest order, consumed by [`resolve_marker_sprite`] and, through
+    /// `WorldGen::icon_marker_art`, by `map_overlay.gd`.
+    ///
+    /// **Only slots with at least one decoded variant are present**, unlike
+    /// [`Self::traits`]: the map draws the same glyph for "never declared"
+    /// and "declared but broken" (the reference's `_structSprite` returns
+    /// `false` for both, v2.11 line 15510), and no surface reports the two
+    /// apart for these families — the pack report (AP-2) does that from the
+    /// library's own pixels. So there is no absent-vs-empty state to keep.
+    ///
+    /// The `feature` manual family is **not** here: its art is the pack's
+    /// `icons` family, already decoded into [`Self::icons`], and AP-3's scope
+    /// is the four families with no map path at all (`ASSET_PACK_TOOLS_PROPOSAL.md`
+    /// §6). A manual feature icon keeps its glyph; AP-5 owns feature icons.
+    pub markers: HashMap<String, Vec<DecodedImage>>,
     /// ET-E2: one colour report per decoded pack image that carried any
     /// colour chunk, keyed by its archive path, in decode order. Empty for an
     /// untagged pack. Read by `WorldGen::asset_pack_colour`.
@@ -288,7 +307,207 @@ pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
         traits.insert(slot.to_string(), variants);
     }
 
-    Ok(LoadedPack { manifest, icons, splat, biomes, terrains, traits, colour })
+    // AP-3: the four marker families. Same per-variant tolerance as `icons`;
+    // a slot none of whose variants decoded is left out (see
+    // `LoadedPack::markers` for why that is safe here and not for traits).
+    let mut markers: HashMap<String, Vec<DecodedImage>> = HashMap::new();
+    let mut decode_marker = |key: String, paths: &[String], colour: &mut Vec<(String, ColourReport)>| {
+        let variants: Vec<DecodedImage> = paths
+            .iter()
+            .filter_map(|path| decode_entry(path, entries.get(path)?, colour))
+            .collect();
+        if !variants.is_empty() {
+            markers.insert(key, variants);
+        }
+    };
+    for (family, table) in [
+        ("settlement", &manifest.structures.settlement),
+        ("poi", &manifest.structures.poi),
+        ("seamarks", &manifest.seamarks),
+    ] {
+        for (slot, paths) in table.iter() {
+            if let Some(key) = marker_art_key(family, slot, "") {
+                decode_marker(key, paths, &mut colour);
+            }
+        }
+    }
+    for (set, slots) in manifest.custom.iter() {
+        for (slot, paths) in slots.iter() {
+            if let Some(key) = marker_art_key("custom", slot, set) {
+                decode_marker(key, paths, &mut colour);
+            }
+        }
+    }
+
+    Ok(LoadedPack { manifest, icons, splat, biomes, terrains, traits, markers, colour })
+}
+
+// ---------------------------------------------------------------------------
+// Marker art for manual icons (AP-3, Ruling CQ Q2)
+// ---------------------------------------------------------------------------
+
+/// The [`LoadedPack::markers`] key for one manual icon's art, from the three
+/// strings `icon_dict` carries (`family`, `slot`, `set`).
+///
+/// `None` for a family AP-3 does not draw: `feature` (its art is the pack's
+/// `icons` family and AP-5's subject) and anything unrecognised. `set` is read
+/// only for `custom`, whose art is two-level (`custom[set][slot]`, the
+/// reference's `_customSprite`, v2.11 line 15607); the other three ignore it.
+///
+/// The separator is U+001F (unit separator), not `/`: a custom set name is
+/// free text and may contain `/`, and `"a/b" + "c"` must never collide with
+/// `"a" + "b/c"`. U+001F cannot be typed into a set name field.
+pub fn marker_art_key(family: &str, slot: &str, set: &str) -> Option<String> {
+    match family {
+        "settlement" | "poi" | "seamarks" => Some(format!("{family}\u{1f}{slot}")),
+        "custom" => Some(format!("custom\u{1f}{set}\u{1f}{slot}")),
+        _ => None,
+    }
+}
+
+/// One manual icon's resolved pack art: which [`LoadedPack::markers`] entry
+/// and variant to draw, and that variant's aspect ratio for the caller's own
+/// rectangle.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkerSprite {
+    /// The [`marker_art_key`] the variant lives under.
+    pub key: String,
+    /// Index into `LoadedPack::markers[key]`.
+    pub variant: usize,
+    /// `w / max(1, h)` of that variant: the reference's
+    /// `dw = dh * (v.w / Math.max(1, v.h))` (`_structSprite`, v2.11 line 15513).
+    pub aspect: f64,
+}
+
+/// `_structSprite` / `_customSprite` (reference v2.11 lines 15508 and 15607)
+/// reduced to their decision: does the loaded pack have art for this icon,
+/// and which variant.
+///
+/// `x`/`y` are the icon's continuous grid coordinates (`icon_dict`'s `x`/`y`).
+/// The variant hash is `pickIconVariant(px|0, py|0, seed, n)` at the
+/// reference's own `civToScreen` without a view rect, `[gx + 0.5, gy + 0.5]`
+/// (v2.11 line 15874), so the choice is the reference's fit-view choice and
+/// does not change as the camera moves. **Divergence, disclosed:** under its
+/// LOD view rect the reference hashes the *view* position instead, so its
+/// variant flickers with pan and zoom; this port does not reproduce that.
+///
+/// The reference's `_customSprite` and `_featureSprite` call
+/// `pickWeightedVariant` with the asset's scatter-rule weights. Those weights
+/// live in the project library's rule table, not in a pack (Ruling F), and a
+/// [`LoadedPack`] carries none — [`composite_map_icons`] autopopulates its
+/// rules for the same reason — so with no weights `pickWeightedVariant` is
+/// `pickIconVariant` exactly (`pick_weighted_variant`'s own doc), and that is
+/// what is called.
+///
+/// Must never invent art: `None` when the family is not one of the four,
+/// when the pack has no decoded variant for the key, or for a degenerate
+/// coordinate (a non-finite `x`/`y`, which no placement writes).
+pub fn resolve_marker_sprite(family: &str, slot: &str, set: &str, x: f64, y: f64, seed: i32, pack: &LoadedPack) -> Option<MarkerSprite> {
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    let key = marker_art_key(family, slot, set)?;
+    let variants = pack.markers.get(&key)?;
+    // `px|0`: JS ToInt32 truncation. Grid coordinates are non-negative and far
+    // below 2^31, so Rust's saturating `as i32` (toward zero) agrees with it.
+    let variant = pick_icon_variant((x + 0.5) as i32, (y + 0.5) as i32, seed, variants.len());
+    let img = variants.get(variant)?;
+    let aspect = img.w as f64 / cartalith_jsmath::js_max(1.0, img.h as f64);
+    Some(MarkerSprite { key, variant, aspect })
+}
+
+/// Long-side sizes, in pixels, a marker sprite is pre-filtered to before the
+/// overlay draws it. The overlay draws with plain bilinear filtering and no
+/// mipmaps, so a 256² sprite drawn at 11 px would be sampled about one texel
+/// in 23 and alias. Instead the smallest raster at or above the sprite's
+/// ON-SCREEN size is drawn and shrunk by the GPU by at most the ratio between
+/// adjacent entries (≤ 1.5×, where bilinear still averages every texel).
+///
+/// The same ladder as `map_overlay.gd`'s `LANDMARK_GLYPH_RASTERS`, for the
+/// same reason (a labelled judgement there: adjacent buckets ≤ 1.5× apart),
+/// topped at 256, the sprite families' bake size (`Family::size`). A sprite
+/// whose own long side is smaller than a bucket is never enlarged here: the
+/// bucket is capped at the source's long side.
+pub const MARKER_RASTERS: [u32; 10] = [12, 16, 24, 32, 48, 64, 96, 128, 192, 256];
+
+/// The [`MARKER_RASTERS`] entry to draw a sprite of long side `native` at
+/// `screen_px` on-screen pixels: the smallest entry `>= screen_px`, capped at
+/// `native` (never upsampled here; the GPU enlarges past it). A non-finite or
+/// non-positive `screen_px` reads as the smallest entry.
+pub fn marker_raster_for(screen_px: f64, native: u32) -> u32 {
+    let want = if screen_px.is_finite() && screen_px > 0.0 { screen_px } else { 0.0 };
+    let bucket = MARKER_RASTERS.iter().copied().find(|&b| f64::from(b) >= want).unwrap_or(MARKER_RASTERS[MARKER_RASTERS.len() - 1]);
+    bucket.min(native.max(1))
+}
+
+/// Shrink `img` so its long side is `long_side` pixels, by exact area
+/// averaging in **premultiplied** alpha, then un-premultiply.
+///
+/// Why this filter: each output pixel is the coverage-weighted mean of every
+/// source texel under it, so thin ink keeps its mass instead of being point-
+/// sampled away (`LINEART_METHODS_RESEARCH_2026-10-18.md` measured a single
+/// bilinear sample keeping 0.31-0.45 of a line's ink at map scale, against
+/// 0.55-0.81 for an area filter). Premultiplying first is what keeps a
+/// transparent texel's RGB (usually black) from bleeding a dark fringe into
+/// the sprite's edge (Ruling CR names both points).
+///
+/// Returns a clone when `long_side` is not smaller than the source's long
+/// side; never enlarges. The short side is `round(short * long_side / long)`,
+/// floored at 1. Integer output by round-half-up of the mean.
+pub fn area_downscale(img: &DecodedImage, long_side: u32) -> DecodedImage {
+    let (sw, sh) = (img.w.max(1), img.h.max(1));
+    let long = sw.max(sh);
+    if long_side == 0 || long_side >= long {
+        return img.clone();
+    }
+    let k = f64::from(long_side) / f64::from(long);
+    let dw = ((f64::from(sw) * k).round() as u32).max(1);
+    let dh = ((f64::from(sh) * k).round() as u32).max(1);
+    // The source span each output pixel covers along one axis, as
+    // (first texel, weight) runs: texel t covers [t, t+1), output pixel o
+    // covers [o*s, (o+1)*s) with s = src/dst; the weight is the overlap.
+    let spans = |src: u32, dst: u32| -> Vec<Vec<(usize, f64)>> {
+        let s = f64::from(src) / f64::from(dst);
+        (0..dst)
+            .map(|o| {
+                let (a, b) = (f64::from(o) * s, (f64::from(o) + 1.0) * s);
+                let (t0, t1) = (a.floor() as u32, (b.ceil() as u32).min(src));
+                (t0..t1)
+                    .map(|t| (t as usize, (b.min(f64::from(t) + 1.0) - a.max(f64::from(t))).max(0.0)))
+                    .filter(|&(_, w)| w > 0.0)
+                    .collect()
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(sw, dw), spans(sh, dh));
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    for (oy, yrun) in ys.iter().enumerate() {
+        for (ox, xrun) in xs.iter().enumerate() {
+            let mut acc = [0.0f64; 4]; // premultiplied r, g, b, and alpha
+            let mut area = 0.0;
+            for &(ty, wy) in yrun {
+                for &(tx, wx) in xrun {
+                    let w = wx * wy;
+                    let o = (ty * sw as usize + tx) * 4;
+                    let a = f64::from(img.rgba[o + 3]);
+                    for (c, slot) in acc.iter_mut().take(3).enumerate() {
+                        *slot += f64::from(img.rgba[o + c]) * a * w;
+                    }
+                    acc[3] += a * w;
+                    area += w;
+                }
+            }
+            let d = (oy * dw as usize + ox) * 4;
+            let alpha = if area > 0.0 { acc[3] / area } else { 0.0 };
+            for c in 0..3 {
+                // Un-premultiply: sum(c*a*w) / sum(a*w). A fully transparent
+                // output pixel keeps RGB 0, the decoder's own convention.
+                out[d + c] = if acc[3] > 0.0 { (acc[c] / acc[3] + 0.5).floor().clamp(0.0, 255.0) as u8 } else { 0 };
+            }
+            out[d + 3] = (alpha + 0.5).floor().clamp(0.0, 255.0) as u8;
+        }
+    }
+    DecodedImage::new(dw, dh, out).expect("dw*dh*4 bytes by construction")
 }
 
 // ---------------------------------------------------------------------------
