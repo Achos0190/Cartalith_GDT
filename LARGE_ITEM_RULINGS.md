@@ -2293,3 +2293,7 @@ Four answers to the questions raised by AP-5, CP-2/CP-3, AP-7 and `3D_VIEWPORT_S
 2. **Colour-paint default blend is Colour** (the owner's answer was *"1, but use paint kayersy"* — read as: option 1, **Colour**, **and organise paint into layers**). Interpretation recorded here; the layers part is to be confirmed against the first build: named paint layers with order, visibility and per-layer clear, each holding marks, composited in order before the light. Lava defaults stay as shipped until the owner rules otherwise.
 3. **AP-7 Fit all stays placement-only** (no new variant; Undo restores placements).
 4. **The 3D vertex-mesh viewport (`3D_VIEWPORT_SCOPE.md`) is approved** and 3D-0 (the measurement gate) is scheduled. `DECISIONS.md` §4 ("2D only for v1") gets a superseding entry beside it.
+
+## Ruling CT — 3D vertical exaggeration (owner, 2026-10-19)
+
+After 3D-0 (`791ad1d1`, GO for 3D-1) the owner chose, from the true-scale vs 3.4× captures at ×16/×64: **the 3D view defaults to true scale, 1.0× vertical exaggeration** (*"The first truescale 1 @ 16x"*), not 2D's 3.4×, which draws needles. This is 3D_VIEWPORT_SCOPE.md Q4. The ruling does not yet cover a user slider; 3D-1 may add one only if it costs nothing.
