@@ -300,6 +300,9 @@ func _ready() -> void:
 		and _has("colour_paint_set_document") \
 		and _has("colour_paint_add_mark") \
 		and _has("colour_paint_set_visible")
+	colour_paint_layers_api = colour_paint_api and _has("colour_paint_layers")
+	for op in COLOUR_PAINT_LAYER_OPS:
+		colour_paint_layers_api = colour_paint_layers_api and _has(String(op))
 	ramp_api = _has("get_color_ramp") \
 		and _has("set_color_ramp") \
 		and _has("list_ramp_presets") \
@@ -1859,6 +1862,39 @@ func colour_paint_set_visible(v: bool) -> bool:
 	if changed:
 		mark_world_dirty()
 	return changed
+
+## `true` when the loaded extension has Ruling CS's paint layers (set in
+## `_ready`): a separate flag so a binary with CP-2 but not the layers keeps
+## its stroke tool and simply draws no layers list.
+var colour_paint_layers_api := false
+
+## The paint-layer edits this forwarder accepts: the engine `#[func]` names
+## (`colour_paint_bridge.rs`), each `(layer, …)` and each replying
+## `{ok, marks}` / `{ok: false, error}` like `colour_paint_set_document`.
+const COLOUR_PAINT_LAYER_OPS := [
+	"colour_paint_add_mark_to", "colour_paint_layer_add", "colour_paint_layer_rename",
+	"colour_paint_layer_move", "colour_paint_layer_set_visible", "colour_paint_layer_set_locked",
+	"colour_paint_layer_delete", "colour_paint_layer_clear",
+]
+
+## The paint layers, **bottom first**: `[{name, visible, locked, marks}]`. `[]`
+## with no layer, without the binding, or while generating.
+func colour_paint_layers() -> Array:
+	if not colour_paint_layers_api or generating:
+		return []
+	var a = world_gen.callv("colour_paint_layers", [])
+	return a if a is Array else []
+
+## Runs one paint-layer edit `op` (one of `COLOUR_PAINT_LAYER_OPS`) with `args`.
+## `{}` without the binding, while generating, or for an op not in the list
+## (never a guessed call).
+func colour_paint_layer_edit(op: String, args: Array) -> Dictionary:
+	if not colour_paint_layers_api or generating or not (op in COLOUR_PAINT_LAYER_OPS):
+		return {}
+	var d = world_gen.callv(op, args)
+	if d is Dictionary and bool((d as Dictionary).get("ok", false)):
+		mark_world_dirty()
+	return d if d is Dictionary else {}
 
 
 # -- Colour ramp (`GUI_GAP_REGISTER.md` CA-02) ---------------------------------

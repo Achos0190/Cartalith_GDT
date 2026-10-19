@@ -10,6 +10,15 @@ extends RefCounted
 ## colour, blend, radius in km, hardness, opacity and land-only are this
 ## object's brush state; hide and clear act on the layer.
 ##
+## Paint layers (Ruling CS, owner 2026-10-19: default blend **Colour**, and
+## *"use paint layers"*): the engine's document is a stack of named layers,
+## composited bottom first before the light. The section lists them **top
+## first** (as a paint program does), one row each -- show/hide, the name
+## (press to make it the active layer, the one strokes go into), lock, move
+## up, move down -- with New layer, Rename, Clear layer and Delete layer
+## acting on the active one. Every layer edit is one step on this tool's undo
+## stack (a whole document before the change), exactly like a stroke.
+##
 ## Why it is its own object: the layer is presentation, not world data
 ## (`DCC_SHELL_SPEC.md` §4.5.2 keeps WORLD paint in WORLD), so it has its own
 ## undo stack -- undoing paint never undoes a look change or a sculpt, and the
@@ -32,20 +41,28 @@ const TOOL_ID := "colour_paint"
 ## km) are the preset's defaults; the sliders below move them per stroke.
 ## Labelled judgements, chosen on the 2026-10-18 lava frames
 ## (`cartalith-native/docs/evidence/colour-paint-lava-2026-10-18/`).
+##
+## `blend` is the material's own default blend, loaded when it is picked (the
+## Blend row follows). The flat colour takes Ruling CS's **Colour**. The glow
+## materials keep **Replace**, as shipped and as their frames were judged: the
+## blend applies to the crust before the light, and a Colour-blended crust
+## takes the ground's own lightness -- near-white crust on a snow cone, which
+## is not lava. The ruling keeps lava's defaults "as shipped".
 const MATERIALS := [
-	{"key": "colour", "label": "Colour"},
-	{"key": "lava", "label": "Lava", "ramp": "fire", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(34, 33, 38)},
-	{"key": "ember", "label": "Embers", "ramp": "fire", "heat": 0.35, "crack": 0.8, "glow": 0.8, "crust": Color8(40, 36, 34)},
-	{"key": "ice", "label": "Ice glow", "ramp": "ice", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(30, 36, 44)},
-	{"key": "toxic", "label": "Toxic glow", "ramp": "toxic", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(30, 36, 28)},
+	{"key": "colour", "label": "Colour", "blend": "colour"},
+	{"key": "lava", "label": "Lava", "blend": "replace", "ramp": "fire", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(34, 33, 38)},
+	{"key": "ember", "label": "Embers", "blend": "replace", "ramp": "fire", "heat": 0.35, "crack": 0.8, "glow": 0.8, "crust": Color8(40, 36, 34)},
+	{"key": "ice", "label": "Ice glow", "blend": "replace", "ramp": "ice", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(30, 36, 44)},
+	{"key": "toxic", "label": "Toxic glow", "blend": "replace", "ramp": "toxic", "heat": 0.75, "crack": 0.5, "glow": 1.5, "crust": Color8(30, 36, 28)},
 ]
 
-## Blend modes, in the engine's keys (`ColourBlend::key`). Replace first: the
-## scope's measured default (§3) -- the only mode in which a picked red reads
-## as that red on every ground; the owner has not ruled on the default.
+## Blend modes, in the engine's keys (`ColourBlend::key`). Colour first: the
+## owner's default (Ruling CS, 2026-10-19, overriding the scope's measured
+## Replace of §3). Replace stays one choice away for a red that must read red
+## on snow (Colour there is pink).
 const BLENDS := [
+	{"key": "colour", "label": "Colour (tint)"},
 	{"key": "replace", "label": "Replace"},
-	{"key": "colour", "label": "Tint (colour)"},
 	{"key": "multiply", "label": "Multiply"},
 ]
 
@@ -76,7 +93,8 @@ var bridge: Node
 ## Brush state. `rgb` is the flat colour, or the crust for a material.
 var material := "colour"
 var rgb := Color8(200, 30, 18)
-var blend := "replace"
+## Ruling CS: Colour is the default blend (the flat material's own default).
+var blend := "colour"
 var radius_km := 1.0
 var hardness := 0.8
 var opacity := 1.0
@@ -103,6 +121,17 @@ var _hide_btn: CheckBox
 var _mat_rows: Array = []
 var _colour_row: Control
 var _pick: ColorPickerButton
+var _blend_ob: OptionButton
+
+## The active paint layer, as the engine's index (0 = bottom): where strokes
+## go and what Rename / Clear layer / Delete layer act on. Clamped on every
+## refresh, so an undo that removes a layer never leaves it pointing past the
+## end. With no layers it is 0, which starts the default "Paint 1".
+var active_layer := 0
+## The layers list's rows box (rebuilt by `_rebuild_layers`) and the
+## active-layer action buttons (disabled with a reason when they cannot act).
+var _layers_box: VBoxContainer
+var _layer_actions: Dictionary = {}
 
 ## Wires the three map handlers once. `app` must be the DccApp (it owns the tool
 ## dispatch: `register_tool_*_handler`).
@@ -174,8 +203,8 @@ func build_into(parent: Control) -> void:
 	var bl: Array = []
 	for b2 in BLENDS:
 		bl.append(String(b2["label"]))
-	DccWidgets.choice(body, "Blend", bl, _blend_index(), func(i: int): blend = String(BLENDS[i]["key"]),
-		"Replace: the colour itself, shaded by the relief. Tint: the colour's hue at the ground's own lightness (keeps texture; cannot make snow deep red). Multiply: a stain that only darkens.")
+	_blend_ob = DccWidgets.choice(body, "Blend", bl, _blend_index(), func(i: int): blend = String(BLENDS[i]["key"]),
+		"Colour (the default): the colour's hue at the ground's own lightness -- keeps texture and relief; cannot make snow deep red. Replace: the colour itself, shaded by the relief. Multiply: a stain that only darkens. Picking a material loads its own default (glow materials use Replace).")
 	DccWidgets.slider(body, "Radius", 0.05, 25.0, 0.05, radius_km, "km", func(v: float):
 		radius_km = v
 		_refresh_ui(),
@@ -194,6 +223,8 @@ func build_into(parent: Control) -> void:
 		"How far the glow spills onto the ground around the stroke."))
 	_mat_rows.append(DccWidgets.slider(body, "Cool along stroke", 0.0, 1.0, 0.05, heat_along, "", func(v: float): heat_along = v,
 		"How much a stroke cools from where it starts to where it ends: a flow cooling away from its vent."))
+	if bridge.colour_paint_layers_api:
+		_build_layers(body)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	body.add_child(row)
@@ -202,7 +233,7 @@ func build_into(parent: Control) -> void:
 	_hide_btn = DccWidgets.toggle(body, "Hide colour paint", false, func(v: bool): set_hidden(v),
 		"Hides every mark without deleting any. Undoable.")
 	var clr := DccWidgets.action(body, "Clear colour paint", clear)
-	clr.tooltip_text = "Removes every mark. Undoable."
+	clr.tooltip_text = "Removes every mark in every layer, and the layers. Undoable."
 	_status = DccWidgets.note(body, "")
 	_refresh_ui()
 
@@ -227,10 +258,15 @@ func _blend_index() -> int:
 			return i
 	return 0
 
-## Picks material `i`: a glow preset loads its heat, density, halo and crust.
+## Picks material `i`: it loads its own default blend (the Blend row follows,
+## so the two views of `blend` never disagree), and a glow preset its heat,
+## density, halo and crust.
 func _set_material(i: int) -> void:
 	var m: Dictionary = MATERIALS[clampi(i, 0, MATERIALS.size() - 1)]
 	material = String(m["key"])
+	blend = String(m.get("blend", blend))
+	if _blend_ob != null and is_instance_valid(_blend_ob):
+		_blend_ob.select(_blend_index())
 	if m.has("heat"):
 		heat = float(m["heat"])
 		crack = float(m["crack"])
@@ -272,9 +308,12 @@ func _refresh_ui() -> void:
 		var ppc: float = float(app.viewport.label_px_per_cell()) * float(app.viewport.zoom())
 		if ppc > 0.0:
 			px_txt = ", %d px at this zoom" % int(round(cells * ppc))
-	_status.text = "%d mark%s%s. Brush %.2f km = %.1f cells%s." % [n, "" if n == 1 else "s", " (hidden)" if not bool(info.get("visible", true)) and n > 0 else "", radius_km, cells, px_txt]
+	var nl := int(info.get("layers", 0))
+	var in_layers := " in %d layers" % nl if nl > 1 else ""
+	_status.text = "%d mark%s%s%s. Brush %.2f km = %.1f cells%s." % [n, "" if n == 1 else "s", in_layers, " (hidden)" if not bool(info.get("visible", true)) and n > 0 else "", radius_km, cells, px_txt]
 	if _hide_btn != null and is_instance_valid(_hide_btn):
 		_hide_btn.set_pressed_no_signal(not bool(info.get("visible", true)))
+	_rebuild_layers()
 
 # -- Stroke capture ----------------------------------------------------------------
 
@@ -338,7 +377,10 @@ func commit_line(points_km: Array) -> bool:
 		var m: Dictionary = MATERIALS[_material_index()]
 		mark["emissive"] = {"ramp": String(m["ramp"]), "heat": heat, "crack_density": crack, "glow_radius_km": glow_km, "heat_along": heat_along}
 	var before: String = bridge.colour_paint_document()
-	var r: Dictionary = bridge.colour_paint_add_mark(JSON.stringify(mark))
+	## Into the active paint layer (Ruling CS); a binary without layers takes
+	## the stroke on top as CP-2 did.
+	var r: Dictionary = bridge.colour_paint_layer_edit("colour_paint_add_mark_to", [_clamped_active(), JSON.stringify(mark)]) \
+		if bridge.colour_paint_layers_api else bridge.colour_paint_add_mark(JSON.stringify(mark))
 	if not bool(r.get("ok", false)):
 		if app != null and app.has_method("set_status"):
 			app.set_status("hint", "Not painted: %s" % String(r.get("error", "the engine refused the stroke")), "warn")
@@ -392,6 +434,211 @@ static func _simplify(pts: Array, tol: float) -> Array:
 		if keep[i]:
 			out.append(pts[i])
 	return out
+
+# -- Paint layers (Ruling CS) ------------------------------------------------------
+
+## The tap target on this form factor, both axes: 44 px on touch (`MISTAKES.md`:
+## a control a rebuild creates escapes the fitters, so it is floored here, at
+## the call site, on width AND height), 28 px with a pointer.
+static func _tap() -> float:
+	return 44.0 if DccTheme.is_touch() else 28.0
+
+## The layers, bottom first, as the engine lists them (`[]` with none).
+func layers() -> Array:
+	return bridge.colour_paint_layers() if bridge != null else []
+
+## `active_layer` clamped into the current layers (0 with none).
+func _clamped_active() -> int:
+	return clampi(active_layer, 0, maxi(layers().size() - 1, 0))
+
+## Builds the PAINT LAYERS block into `body`: a heading, the rows box (filled by
+## `_rebuild_layers`) and the actions on the active layer, which wrap rather than
+## widen the dock (`MISTAKES.md`: a row that cannot shrink widens every ancestor).
+func _build_layers(body: Control) -> void:
+	body.add_child(DccTheme.label("PAINT LAYERS", "text_dim", DccTheme.FS_SMALL))
+	_layers_box = VBoxContainer.new()
+	_layers_box.add_theme_constant_override("separation", 4)
+	body.add_child(_layers_box)
+	var acts := HFlowContainer.new()
+	acts.add_theme_constant_override("h_separation", 6)
+	acts.add_theme_constant_override("v_separation", 6)
+	body.add_child(acts)
+	_layer_actions = {}
+	for spec in [
+		["new", "New layer", func(): add_layer(""), "Adds an empty layer above the others and makes it the active one. Undoable."],
+		["rename", "Rename…", func(): _prompt_rename(), "Renames the active layer."],
+		["clear", "Clear layer", func(): clear_layer(_clamped_active()), "Removes every mark on the active layer and keeps the layer. Undoable."],
+		["delete", "Delete layer", func(): delete_layer(_clamped_active()), "Removes the active layer and its marks. Undoable."],
+	]:
+		var b := DccWidgets.action(acts, String(spec[1]), spec[2])
+		b.tooltip_text = String(spec[3])
+		b.custom_minimum_size = Vector2(maxf(b.custom_minimum_size.x, _tap()), maxf(b.custom_minimum_size.y, _tap()))
+		_layer_actions[spec[0]] = b
+	_rebuild_layers()
+
+## Re-reads the layers and redraws the rows, **top layer first**: show/hide,
+## the name (pressed = active; press to make it active), lock, up, down. Each
+## button is floored to `_tap()` on both axes. Also brings the action buttons'
+## disabled state and its reason up to date.
+func _rebuild_layers() -> void:
+	if _layers_box == null or not is_instance_valid(_layers_box):
+		return
+	for c in _layers_box.get_children():
+		_layers_box.remove_child(c)
+		c.queue_free()
+	var ls := layers()
+	var n := ls.size()
+	active_layer = _clamped_active()
+	var t := _tap()
+	if n == 0:
+		DccWidgets.note(_layers_box, "No layers yet. The first stroke starts “Paint 1”; New layer adds one above it.")
+	for k in n:
+		var i := n - 1 - k
+		var l: Dictionary = ls[i]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		row.set_meta("paint_layer", i)
+		_layers_box.add_child(row)
+		var vis := bool(l.get("visible", true))
+		var locked := bool(l.get("locked", false))
+		var eye := _layer_button(row, "●" if vis else "○", t,
+			"Shown: press to hide this layer (its marks stay)." if vis else "Hidden: press to show this layer.")
+		eye.pressed.connect(func(): set_layer_visible(i, not vis))
+		var name_b := _layer_button(row, "%s  · %d" % [String(l.get("name", "")), int(l.get("marks", 0))], t,
+			"The active layer: new strokes go here." if i == active_layer else "Press to make this the active layer (where strokes go).")
+		name_b.toggle_mode = true
+		name_b.button_pressed = i == active_layer
+		name_b.clip_text = true
+		name_b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_b.custom_minimum_size.x = maxf(60.0, t)
+		if not vis:
+			name_b.modulate.a = 0.55
+		name_b.pressed.connect(func(): select_layer(i))
+		## LOCK / LOCKED in Plex Mono rather than a glyph, as the seed lock does
+		## (`new_world_dialog.gd::_build_seed_lock`): `DccIcons.SYMBOLS["locked"]`
+		## is an emoji the bundled fonts do not draw (measured here: it rendered
+		## as "ǵ12"). The word carries the state for a reader with no sight of
+		## the dimming.
+		var lock := _layer_button(row, "LOCKED" if locked else "LOCK", t,
+			"Locked: its marks cannot be painted on, cleared or deleted. Press to unlock." if locked else "Unlocked. Press to lock this layer's marks.")
+		lock.add_theme_font_override("font", DccTheme.mono(1, true))
+		lock.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		lock.custom_minimum_size.x = maxf(t, 52.0)
+		lock.modulate.a = 1.0 if locked else 0.5
+		lock.pressed.connect(func(): set_layer_locked(i, not locked))
+		var up := _layer_button(row, "▲", t, "Move this layer up (drawn over the layer above it).")
+		up.disabled = i == n - 1
+		up.pressed.connect(func(): move_layer(i, i + 1))
+		var dn := _layer_button(row, "▼", t, "Move this layer down (drawn under the layer below it).")
+		dn.disabled = i == 0
+		dn.pressed.connect(func(): move_layer(i, i - 1))
+	var act: Dictionary = ls[active_layer] if n > 0 else {}
+	var act_locked := bool(act.get("locked", false))
+	if _layer_actions.has("rename"):
+		(_layer_actions["rename"] as Button).disabled = n == 0
+		(_layer_actions["rename"] as Button).tooltip_text = "Renames the active layer." if n > 0 else "No layer to rename yet."
+	for key in ["clear", "delete"]:
+		if not _layer_actions.has(key):
+			continue
+		var b: Button = _layer_actions[key]
+		b.disabled = n == 0 or act_locked or (key == "clear" and int(act.get("marks", 0)) == 0)
+		if n == 0:
+			b.tooltip_text = "No layer yet."
+		elif act_locked:
+			b.tooltip_text = "The active layer “%s” is locked." % String(act.get("name", ""))
+		elif key == "clear" and int(act.get("marks", 0)) == 0:
+			b.tooltip_text = "The active layer has no marks."
+		else:
+			b.tooltip_text = "Removes every mark on the active layer and keeps the layer. Undoable." if key == "clear" else "Removes the active layer and its marks. Undoable."
+
+## One square layer-row button, floored to `t` on both axes.
+func _layer_button(row: Control, text: String, t: float, tip: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = tip
+	b.custom_minimum_size = Vector2(t, t)
+	## The density's prose size, as `DccWidgets.choice()` sets it: a bare
+	## `Button` keeps the theme's pointer size, which the phone frame of
+	## 2026-10-19 showed as unreadably small names and glyphs in 44 px rows.
+	b.add_theme_font_size_override("font_size", DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
+	row.add_child(b)
+	return b
+
+func _prompt_rename() -> void:
+	var ls := layers()
+	if ls.is_empty() or app == null:
+		return
+	var i := _clamped_active()
+	DccWidgets.prompt(app, "Rename paint layer", "Name:", String((ls[i] as Dictionary).get("name", "")), "Rename",
+		func(typed: String): rename_layer(i, typed))
+
+## Makes layer `i` the active one (no engine edit, so no undo step).
+func select_layer(i: int) -> void:
+	active_layer = i
+	_rebuild_layers()
+
+## One layer edit as one undo step: the document before it is pushed only when
+## the engine accepted the edit; a refusal changes nothing and says why.
+## Returns the engine's reply (`{}` without the binding or while generating).
+func _layer_op(op: String, args: Array, label: String) -> Dictionary:
+	if bridge == null or bridge.generating:
+		return {}
+	var before: String = bridge.colour_paint_document()
+	var r: Dictionary = bridge.colour_paint_layer_edit(op, args)
+	if not bool(r.get("ok", false)):
+		if app != null and app.has_method("set_status") and r.has("error"):
+			app.set_status("hint", "Not done: %s" % String(r["error"]), "warn")
+		return r
+	_push_undo(before, label)
+	_after_edit()
+	return r
+
+## Adds a layer on top (`""` = the next free "Paint N") and makes it active.
+func add_layer(name_: String) -> bool:
+	var r := _layer_op("colour_paint_layer_add", [name_], "New layer")
+	if bool(r.get("ok", false)):
+		active_layer = int(r.get("layer", active_layer))
+		_rebuild_layers()
+		return true
+	return false
+
+func rename_layer(i: int, name_: String) -> bool:
+	return bool(_layer_op("colour_paint_layer_rename", [i, name_], "Rename layer").get("ok", false))
+
+## Moves layer `from` to `to`; the active layer stays the same layer.
+func move_layer(from: int, to: int) -> bool:
+	var a := _clamped_active()
+	if not bool(_layer_op("colour_paint_layer_move", [from, to], "Move layer").get("ok", false)):
+		return false
+	if a == from:
+		active_layer = to
+	elif from < a and a <= to:
+		active_layer = a - 1
+	elif to <= a and a < from:
+		active_layer = a + 1
+	_rebuild_layers()
+	return true
+
+func set_layer_visible(i: int, v: bool) -> bool:
+	return bool(_layer_op("colour_paint_layer_set_visible", [i, v], "Layer shown" if v else "Layer hidden").get("ok", false))
+
+func set_layer_locked(i: int, v: bool) -> bool:
+	return bool(_layer_op("colour_paint_layer_set_locked", [i, v], "Layer locked" if v else "Layer unlocked").get("ok", false))
+
+## Deletes layer `i`; the active layer stays the same layer where it survives.
+func delete_layer(i: int) -> bool:
+	var a := _clamped_active()
+	if not bool(_layer_op("colour_paint_layer_delete", [i], "Delete layer").get("ok", false)):
+		return false
+	if a > i:
+		active_layer = a - 1
+	_rebuild_layers()
+	return true
+
+func clear_layer(i: int) -> bool:
+	return bool(_layer_op("colour_paint_layer_clear", [i], "Clear layer").get("ok", false))
 
 # -- Layer actions and undo --------------------------------------------------------
 
@@ -458,6 +705,8 @@ func on_world_changed() -> void:
 	_cancel_stroke()
 	_undo.clear()
 	_redo.clear()
+	## A reopened project's strokes go onto its top layer, as a new one's do.
+	active_layer = maxi(layers().size() - 1, 0)
 	_refresh_ui()
 
 func _after_edit() -> void:

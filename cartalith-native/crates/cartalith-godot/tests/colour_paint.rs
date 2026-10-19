@@ -25,7 +25,7 @@
 #[allow(dead_code)]
 mod render;
 
-use cartalith_spatial::colour_paint::{ColourBlend, ColourMark, ColourPaint, ColourPaintDoc, EmissiveMaterial, GlowRamp, MarkShape, DOC_VERSION};
+use cartalith_spatial::colour_paint::{ColourBlend, ColourMark, ColourPaint, ColourPaintDoc, EmissiveMaterial, GlowRamp, MarkShape, PaintLayer, PaintLayers, DOC_VERSION};
 use render::{BakeFields, ExportBandPlan, ExportRivers, RenderCtx, TerrainAppearance, TileBounds, TileFields};
 
 /// Sea level of every fixture: the project's usual 0.42, so land and sea both run.
@@ -445,6 +445,87 @@ fn no_map_width_paints_nothing() {
     let a = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), gw, gh, SEA, false, 55.0, 5.0, appearance());
     let b = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), gw, gh, SEA, false, 55.0, 5.0, appearance()).with_colour_paint(Some(&l));
     assert_eq!(screen(&a), screen(&b));
+}
+
+// ---- Paint layers (Ruling CS, 2026-10-19) ----
+
+/// Three paint layers, bottom first: a visible Colour band, a **hidden**
+/// layer holding a lava flow and a red Replace stroke across the band, and a
+/// visible Multiply stroke crossing the band. Only the first and third reach
+/// the renderer.
+fn three_layers() -> PaintLayers {
+    let hidden_red = line(&[[100.0, 215.0], [520.0, 215.0]], 30.0, [255, 0, 0], ColourBlend::Replace, 1.0);
+    let flow = lava(MarkShape::Line { points_km: vec![[200.0, 150.0], [300.0, 260.0]], radius_km: 12.0 }, 0.75, 0.5);
+    let multiply = line(&[[300.0, 120.0], [300.0, 330.0]], 30.0, [40, 90, 200], ColourBlend::Multiply, 0.5);
+    let layer = |name: &str, visible: bool, marks: Vec<ColourMark>| PaintLayer { name: name.to_string(), visible, locked: false, marks };
+    PaintLayers {
+        visible: true,
+        layers: vec![layer("Base", true, vec![band_stroke(ColourBlend::Colour)]), layer("Lava, hidden", false, vec![flow, hidden_red]), layer("Stain", true, vec![multiply])],
+    }
+}
+
+/// Protects Ruling CS's compositing on every path: a layered document draws
+/// **the same bytes** as the single-layer document of its visible layers'
+/// marks in layer order, on the screen raster, a deep-zoom tile, the
+/// monolithic export and the banded export (1 band, 37 and 5 rows; banded =
+/// monolithic); the hidden layer moves nothing (premise: shown, it moves all
+/// four); and reordering the layers changes the picture exactly as
+/// reordering the marks would.
+#[test]
+fn paint_layers_composite_in_order_identically_on_every_path() {
+    let (gw, gh) = (61, 43);
+    let (field, temp, rain, flow) = fixture(gw, gh);
+    let base = || RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), gw, gh, SEA, false, 55.0, 5.0, appearance()).with_map_scale(KM);
+    let tb = TileBounds { x: 18.0, y: 10.0, w: 16.0, h: 16.0 };
+    let (w, h) = render::bake_dims(400, gw, gh);
+    // Every path's bytes for one layer: screen, tile, monolithic export, and
+    // the banded export at each band height (asserted equal to monolithic).
+    let paths = |l: &ColourPaint| -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let c = base().with_colour_paint(Some(l));
+        let tf = TileFields::new(&c, None);
+        let whole = export(&c, 400);
+        let bf = BakeFields::new(&c);
+        let cells = render::build_grade_influence_cells(&c);
+        for rows in [h, 37, 5] {
+            let plan = ExportBandPlan::with_rows(c.appearance(), w, h, rows);
+            let mut out = vec![];
+            for band in plan.bands() {
+                out.extend(render::bake_export_band(&c, &bf, ExportRivers::default(), &plan, band, &cells, render::ColorSpace::Srgb));
+            }
+            assert_eq!(out, whole, "{rows} rows per band: banded differs from monolithic");
+        }
+        (screen(&c), tile(&c, &tf, tb, 96, 96), whole)
+    };
+    let ls = three_layers();
+    let layered = ColourPaint::from_layers(ls.clone(), 20.0).unwrap();
+    assert_eq!((layered.len(), layered.drawn_len()), (4, 2), "premise: the hidden layer's two marks are not drawn");
+    let flat = ColourPaint::new(doc(vec![ls.layers[0].marks[0].clone(), ls.layers[2].marks[0].clone()]), 20.0).unwrap();
+    let got = paths(&layered);
+    assert_eq!(got, paths(&flat), "layers = their visible marks in layer order, on every path");
+    // The hidden layer is load-bearing when shown: all three outputs move.
+    let mut shown = ls.clone();
+    shown.set_layer_visible(1, true).unwrap();
+    let s = paths(&ColourPaint::from_layers(shown, 20.0).unwrap());
+    assert!(s.0 != got.0 && s.1 != got.1 && s.2 != got.2, "premise: the hidden layer would paint every path");
+    // Order: the stain moved to the bottom equals the marks reordered, and
+    // differs from the original where the two cross.
+    let mut reordered = ls.clone();
+    reordered.move_layer(2, 0).unwrap();
+    let r = paths(&ColourPaint::from_layers(reordered, 20.0).unwrap());
+    let flat_r = ColourPaint::new(doc(vec![ls.layers[2].marks[0].clone(), ls.layers[0].marks[0].clone()]), 20.0).unwrap();
+    assert_eq!(r, paths(&flat_r), "reordered layers = reordered marks");
+    assert!(r.0 != got.0 && r.2 != got.2, "premise: order matters where Colour and Multiply cross");
+    // Every layer hidden, or the master switch off: the unpainted bytes.
+    let un = base();
+    let tfu = TileFields::new(&un, None);
+    let unpainted = (screen(&un), tile(&un, &tfu, tb, 96, 96), export(&un, 400));
+    let mut none = ls.clone();
+    none.set_layer_visible(0, false).unwrap();
+    none.set_layer_visible(2, false).unwrap();
+    assert_eq!(paths(&ColourPaint::from_layers(none, 20.0).unwrap()), unpainted, "every layer hidden draws the unpainted bytes");
+    let mut off = ls;
+    off.visible = false;
+    assert_eq!(paths(&ColourPaint::from_layers(off, 20.0).unwrap()), unpainted, "master switch off draws the unpainted bytes");
 }
 
 // ---- Emissive materials (lava): the owner's 2026-10-18 feedback on CP-1 ----

@@ -3208,6 +3208,20 @@ mod tests {
         doc.marks[0].rgb = [200, 30, 18];
         other.colour_paint = Some(Arc::new(cartalith_spatial::colour_paint::ColourPaint::new(doc, 1.0).unwrap()));
         assert_ne!(other.fingerprint(), painted_fp, "another document, another key");
+        // Ruling CS's paint layers: the fingerprint hashes the marks that
+        // composite, so a second, hidden layer keys like no second layer, and
+        // showing it moves the key.
+        let mut layered = centre_lava(&other).layers().clone();
+        layered.add_layer(Some("Second")).unwrap();
+        let extra = layered.layers[0].marks[0].clone();
+        layered.add_mark(1, extra).unwrap();
+        layered.set_layer_visible(1, false).unwrap();
+        let mut hid = inputs(gw, gh);
+        hid.colour_paint = Some(Arc::new(cartalith_spatial::colour_paint::ColourPaint::from_layers(layered.clone(), 1.0).unwrap()));
+        assert_eq!(hid.fingerprint(), painted_fp, "a hidden layer does not reach the tiles, so not the key");
+        layered.set_layer_visible(1, true).unwrap();
+        hid.colour_paint = Some(Arc::new(cartalith_spatial::colour_paint::ColourPaint::from_layers(layered, 1.0).unwrap()));
+        assert_ne!(hid.fingerprint(), painted_fp, "shown, it is another key");
         let plain = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
         let painted = LodSnapshot::build(i).expect("snapshot");
         let (a, _, _) = plain.render_tile(2, 2, 2).expect("tile");

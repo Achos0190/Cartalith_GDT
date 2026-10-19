@@ -2536,11 +2536,18 @@ fn civ_rasters(civ: &CivData, n: usize, write: &mut ProjectWrite<'_>) {
 /// rounded to the metre (`COLOUR_PAINT_SCOPE.md` §9: 3 decimals of km). The
 /// rounding is idempotent, so re-saving an opened project writes the same
 /// bytes. A hidden layer with marks is saved (with `visible: false`).
-pub(crate) fn colour_paint_save_doc(layer: Option<&cartalith_spatial::colour_paint::ColourPaint>) -> Option<cartalith_spatial::colour_paint::ColourPaintDoc> {
+///
+/// Ruling CS's paint layers: the payload is the layered document
+/// (`PaintLayers`), every layer -- hidden and locked ones too, a hidden
+/// layer is saved, not dropped. It serialises as version 1 while it is one
+/// default layer, so a pre-layers project re-saves its own bytes, and as
+/// version 2 otherwise. "No marks" is counted over every layer: layers
+/// holding no marks write nothing (their names are not kept).
+pub(crate) fn colour_paint_save_doc(layer: Option<&cartalith_spatial::colour_paint::ColourPaint>) -> Option<cartalith_spatial::colour_paint::PaintLayers> {
     use cartalith_spatial::colour_paint::MarkShape;
     let r = |v: f64| (v * 1000.0).round() / 1000.0;
-    let mut doc = layer.filter(|l| !l.is_empty())?.doc().clone();
-    for m in &mut doc.marks {
+    let mut doc = layer.filter(|l| !l.is_empty())?.layers().clone();
+    for m in doc.layers.iter_mut().flat_map(|l| l.marks.iter_mut()) {
         match &mut m.shape {
             MarkShape::Line { points_km, radius_km } => {
                 for p in points_km.iter_mut() {
@@ -2569,14 +2576,16 @@ pub(crate) fn colour_paint_save_doc(layer: Option<&cartalith_spatial::colour_pai
 /// not a colour-paint document, or one the layer refuses (an unknown version
 /// or blend, a cap, a non-finite value), is a warning and `None` -- the rest
 /// of the project opens.
-pub(crate) fn colour_paint_from_data(data: &project::ProjectData, warnings: &mut Vec<String>) -> Option<cartalith_spatial::colour_paint::ColourPaintDoc> {
-    use cartalith_spatial::colour_paint::{ColourPaint, ColourPaintDoc};
-    match data.parse::<ColourPaintDoc>(SLOT_COLOUR_PAINT)? {
+pub(crate) fn colour_paint_from_data(data: &project::ProjectData, warnings: &mut Vec<String>) -> Option<cartalith_spatial::colour_paint::PaintLayers> {
+    use cartalith_spatial::colour_paint::{ColourPaint, PaintLayers};
+    // Either version: a version-1 member (every archive written before
+    // Ruling CS) reads as one "Paint 1" layer.
+    match data.parse::<PaintLayers>(SLOT_COLOUR_PAINT)? {
         Err(_) => {
             warnings.push(format!("{SLOT_COLOUR_PAINT}: unreadable -- the colour paint was not restored"));
             None
         }
-        Ok(doc) => match ColourPaint::new(doc.clone(), 0.0) {
+        Ok(doc) => match ColourPaint::from_layers(doc.clone(), 0.0) {
             Ok(_) => Some(doc),
             Err(e) => {
                 warnings.push(format!("{SLOT_COLOUR_PAINT}: {e} -- the colour paint was not restored"));
@@ -4029,7 +4038,7 @@ impl WorldGen {
         // previous project's layer; an archive without the slot opens with
         // none, a damaged one warns and opens with none.
         if let Some(doc) = colour_paint_from_data(&data, &mut restore_warnings) {
-            if self.colour_paint_install(Some(doc)).is_ok() {
+            if self.colour_paint_install_layers(Some(doc)).is_ok() {
                 restored.push("colour_paint");
             }
         }
@@ -7199,7 +7208,7 @@ mod tests {
     fn colour_paint_survives_a_real_archive_round_trip() {
         let layer = sample_colour_paint();
         let saved = colour_paint_save_doc(Some(&layer)).expect("a layer with marks is saved");
-        if let cartalith_spatial::colour_paint::MarkShape::Line { points_km, radius_km } = &saved.marks[0].shape {
+        if let cartalith_spatial::colour_paint::MarkShape::Line { points_km, radius_km } = &saved.layers[0].marks[0].shape {
             assert_eq!(points_km[0], [100.123, 200.988], "metre-rounded");
             assert_eq!(*radius_km, 2.0);
         } else {
@@ -7214,8 +7223,8 @@ mod tests {
         let back = colour_paint_from_data(&data, &mut warnings).expect("restored");
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(back, saved);
-        assert!(!back.visible && back.marks[1].emissive.is_some(), "the hidden flag and the material come back");
-        let reopened = cartalith_spatial::colour_paint::ColourPaint::new(back, 1.0).unwrap();
+        assert!(!back.visible && back.layers[0].marks[1].emissive.is_some(), "the hidden flag and the material come back");
+        let reopened = cartalith_spatial::colour_paint::ColourPaint::from_layers(back, 1.0).unwrap();
         let mut again = BTreeMap::new();
         insert_doc(&mut again, SLOT_COLOUR_PAINT, &colour_paint_save_doc(Some(&reopened)).unwrap());
         assert_eq!(again[SLOT_COLOUR_PAINT], text, "re-saving an opened project writes the same bytes");
@@ -7237,6 +7246,73 @@ mod tests {
         assert!(colour_paint_save_doc(None).is_none(), "no layer, no slot");
         let empty = cartalith_spatial::colour_paint::ColourPaint::new(cartalith_spatial::colour_paint::ColourPaintDoc { version: 1, visible: true, marks: vec![] }, 1.0).unwrap();
         assert!(colour_paint_save_doc(Some(&empty)).is_none(), "an empty layer, no slot");
+        // Ruling CS: named paint layers that hold no marks still write nothing.
+        let mut named = cartalith_spatial::colour_paint::PaintLayers::empty();
+        named.add_layer(Some("Lava")).unwrap();
+        named.add_layer(None).unwrap();
+        let named = cartalith_spatial::colour_paint::ColourPaint::from_layers(named, 1.0).unwrap();
+        assert!(colour_paint_save_doc(Some(&named)).is_none(), "layers without marks, no slot");
+    }
+
+    /// Protects Ruling CS's backward compatibility at the archive: a
+    /// version-1 member -- written here through `ColourPaintDoc`, the type
+    /// CP-3's save serialised and which the layers change left untouched --
+    /// opens as one "Paint 1" layer, and saving it unchanged writes the
+    /// member's **same bytes** (version 1, not 2). A layered document (a
+    /// hidden layer, a locked one, a rename) writes version 2 and survives
+    /// a real archive round trip, hidden and locked layers included, and
+    /// re-saves byte-identically.
+    #[test]
+    fn colour_paint_layers_round_trip_and_version_one_resaves_its_own_bytes() {
+        use cartalith_spatial::colour_paint::*;
+        // What CP-3's save wrote: the metre-rounded document, as a
+        // `ColourPaintDoc` (the flattened view of a one-layer document is it).
+        let rounded = colour_paint_save_doc(Some(&sample_colour_paint())).unwrap();
+        let v1 = ColourPaint::from_layers(rounded, 1.0).unwrap().doc().clone();
+        let mut docs = BTreeMap::new();
+        insert_doc(&mut docs, SLOT_COLOUR_PAINT, &v1);
+        let v1_text = docs[SLOT_COLOUR_PAINT].clone();
+        assert!(v1_text.contains("\"version\": 1") && v1_text.contains("\"marks\""), "premise: a version-1 member");
+        let (data, _) = round_trip_with(docs);
+        let mut warnings = Vec::new();
+        let opened = colour_paint_from_data(&data, &mut warnings).expect("restored");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(opened.layers.len(), 1);
+        assert_eq!(opened.layers[0].name, DEFAULT_LAYER_NAME);
+        let layer = ColourPaint::from_layers(opened, 1.0).unwrap();
+        let mut again = BTreeMap::new();
+        insert_doc(&mut again, SLOT_COLOUR_PAINT, &colour_paint_save_doc(Some(&layer)).unwrap());
+        assert_eq!(again[SLOT_COLOUR_PAINT], v1_text, "an unchanged version-1 project re-saves its own bytes");
+
+        let mut layered = layer.layers().clone();
+        layered.add_layer(Some("Hidden lava")).unwrap();
+        // The sample's unrounded lava mark, so the save must round the
+        // second layer's marks too (not only the first's).
+        let lava = sample_colour_paint().doc().marks[1].clone();
+        layered.add_mark(1, lava).unwrap();
+        layered.set_layer_visible(1, false).unwrap();
+        layered.rename(0, "Base").unwrap();
+        layered.set_layer_locked(0, true).unwrap();
+        let layer = ColourPaint::from_layers(layered, 1.0).unwrap();
+        assert_eq!((layer.len(), layer.drawn_len()), (3, 2), "premise: the hidden layer's mark is not drawn");
+        let saved = colour_paint_save_doc(Some(&layer)).expect("saved");
+        let mut docs = BTreeMap::new();
+        insert_doc(&mut docs, SLOT_COLOUR_PAINT, &saved);
+        let text = docs[SLOT_COLOUR_PAINT].clone();
+        assert!(text.contains("\"version\": 2") && text.contains("\"Hidden lava\"") && text.contains("\"locked\": true"), "{text}");
+        if let MarkShape::Area { ring_km, .. } = &saved.layers[1].marks[0].shape {
+            assert_eq!(ring_km[1], [320.001, 300.0], "every layer's marks are metre-rounded");
+        } else {
+            panic!("the hidden layer holds the lava area");
+        }
+        let (data, _) = round_trip_with(docs);
+        let back = colour_paint_from_data(&data, &mut warnings).expect("restored");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(back, saved, "every layer, its name, visibility, lock and marks come back");
+        let reopened = ColourPaint::from_layers(back, 1.0).unwrap();
+        let mut again = BTreeMap::new();
+        insert_doc(&mut again, SLOT_COLOUR_PAINT, &colour_paint_save_doc(Some(&reopened)).unwrap());
+        assert_eq!(again[SLOT_COLOUR_PAINT], text, "a layered project re-saves its own bytes");
     }
 
     /// Protects: a damaged colour-paint member costs only itself -- not a

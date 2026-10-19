@@ -18,6 +18,15 @@ extends Node
 ##      calling it (no panic, the marks unchanged after it finishes) and the
 ##      marks survive the regenerate (kilometres, §5);
 ##   7. CP-3: saved with the project, cleared, reopened -- both marks come back.
+##   8. Ruling CS (`_layers_leg`): Colour is the default blend and a material
+##      loads its own (Lava keeps Replace, the Blend row follows); the reopened
+##      project is one "Paint 1" layer; New layer / a stroke into the active
+##      layer / hide (raster exactly without it) / show / move down (order
+##      changes the picture, undo restores it exactly) / lock (refuses stroke,
+##      clear, delete; the list disables them) / rename / save + reopen (names,
+##      hidden flag, lock) / delete + undo; on touch every layer-row and
+##      layer-action button >= 44 px on both axes, measured with the CARTO
+##      sheet opened on the phone (asserted non-vacuous).
 ##
 ## Pixel readback, so WINDOWED, never `--headless`:
 ##   godot --path <copy> res://_colourpaint_probe.tscn -- --tag desktop --out DIR
@@ -340,4 +349,154 @@ func _ready() -> void:
 	_check(saved and opened and int(info.get("marks", -1)) == 2 and int(info.get("emissive", -1)) == 1,
 		"saved and reopened: both marks and the lava material come back (saved=%s opened=%s %s)" % [saved, opened, str(info)])
 	DirAccess.remove_absolute(path)
+	if bridge.colour_paint_layers_api:
+		await _layers_leg(tool, carto, a, b, y0, g)
+	else:
+		_check(false, "the loaded extension has Ruling CS's paint-layer binding (colour_paint_layers)")
 	_finish()
+
+## The touch floor's smallest laid size over `ctrls` (every one a Control).
+func _smallest(ctrls: Array) -> Vector2:
+	var s := Vector2(INF, INF)
+	for c in ctrls:
+		if c is Control and (c as Control).is_visible_in_tree():
+			s = Vector2(minf(s.x, (c as Control).size.x), minf(s.y, (c as Control).size.y))
+	return s
+
+## The buttons of the layers list's rows, and the rows' count.
+func _row_buttons(tool) -> Array:
+	var out: Array = []
+	var box = tool.get("_layers_box")
+	if box is Control:
+		for r in (box as Control).get_children():
+			if r.has_meta("paint_layer"):
+				for c in r.get_children():
+					if c is Button:
+						out.append(c)
+	return out
+
+func _rows(tool) -> int:
+	var n := 0
+	var box = tool.get("_layers_box")
+	if box is Control:
+		for r in (box as Control).get_children():
+			if r.has_meta("paint_layer"):
+				n += 1
+	return n
+
+## 8. Ruling CS's paint layers, through the tool's own verbs and the drawn list:
+## the default blend and the per-material defaults; a reopened CP-3 project is one
+## "Paint 1" layer; a new layer is drawn and active and takes the next stroke;
+## hiding it restores the raster under it exactly; moving it below changes the
+## picture where the two layers overlap and undo restores it exactly; a lock
+## refuses a stroke, a clear and a delete; rename; delete; undo covers layer
+## edits; save and reopen keep both layers, the hidden flag and the name; and on
+## a touch density every layer-row and layer-action button is >= 44 px on both
+## axes and the list fits the viewport width.
+func _layers_leg(tool, carto, a: Vector2, b: Vector2, y0: int, g: Vector2i) -> void:
+	_check(String(tool.BLENDS[0]["key"]) == "colour", "Ruling CS: Colour is the first blend listed")
+	var mats: Array = tool.MATERIALS
+	var lava_i := -1
+	for i in mats.size():
+		if String(mats[i]["key"]) == "lava":
+			lava_i = i
+	tool._set_material(lava_i)
+	var ob = tool.get("_blend_ob")
+	_check(tool.blend == "replace" and ob is OptionButton and (ob as OptionButton).selected == tool._blend_index(),
+		"picking Lava loads its shipped Replace and the Blend row follows (%s, row %d)" % [tool.blend, (ob as OptionButton).selected if ob is OptionButton else -1])
+	tool._set_material(0)
+	_check(tool.blend == "colour" and (ob as OptionButton).selected == 0, "picking Colour loads the default Colour blend (%s)" % tool.blend)
+	var ls: Array = tool.layers()
+	_check(ls.size() == 1 and String((ls[0] as Dictionary).get("name", "")) == "Paint 1" and int((ls[0] as Dictionary).get("marks", -1)) == 2,
+		"the reopened project is one 'Paint 1' layer with both marks (%s)" % str(ls))
+	_check(_rows(tool) == 1, "the list draws one row (%d)" % _rows(tool))
+	## A new layer, active, taking a blue Replace stroke over the red one.
+	var r0 := _raster()
+	_check(tool.add_layer(""), "New layer")
+	ls = tool.layers()
+	_check(ls.size() == 2 and String((ls[1] as Dictionary).get("name", "")) == "Paint 2" and tool.active_layer == 1 and _rows(tool) == 2,
+		"it is 'Paint 2', on top, active, and drawn (%s, active %d, rows %d)" % [str(ls), tool.active_layer, _rows(tool)])
+	tool.blend = "replace"
+	tool.rgb = Color8(30, 60, 220)
+	tool.radius_km = 6.0
+	tool.hardness = 1.0
+	_check(tool.commit_line([Vector2(a.x, y0) * float(bridge.colour_paint_info()["km_per_cell"]), Vector2(b.x, y0) * float(bridge.colour_paint_info()["km_per_cell"])]), "a stroke into the active layer")
+	await _frames(2)
+	ls = tool.layers()
+	_check(int((ls[1] as Dictionary).get("marks", -1)) == 1 and int((ls[0] as Dictionary).get("marks", -1)) == 2, "it went into 'Paint 2' only (%s)" % str(ls))
+	var r1 := _raster()
+	var box := Rect2i(int(a.x) + 2, y0 - 2, int(b.x - a.x) - 4, 4)
+	var whole := Rect2i(0, 0, g.x, g.y)
+	_check(_moved(r0, r1, box) > box.get_area() / 2, "the blue stroke moved the raster over the red one (%d of %d)" % [_moved(r0, r1, box), box.get_area()])
+	var c := r1.get_pixel(box.position.x + box.size.x / 2, y0)
+	_check(c.b8 > c.r8, "on top, blue covers red (%s)" % str(c))
+	await _frames(6)
+	## On the phone the CARTO dock is the left sheet, closed unless opened (the
+	## call `phone_menu.gd::_open_left_sheet` makes); open it so the list is laid
+	## out and visible, or the touch-floor check below would measure nothing.
+	if app.is_phone():
+		app.select_domain_category("cartography", "Colours")
+		app._set_sheet_open("left", true)
+		await _frames(8)
+	var sc: Node = tool.get("_layers_box")
+	while sc != null and not (sc is ScrollContainer):
+		sc = sc.get_parent()
+	if sc != null:
+		(sc as ScrollContainer).ensure_control_visible(tool.get("_layers_box"))
+		await _frames(4)
+	_shot("4_layers")
+	## Hide: exactly the raster without it; show: exactly the raster with it.
+	tool.set_layer_visible(1, false)
+	await _frames(2)
+	_check(_moved(r0, _raster(), whole) == 0 and int(bridge.colour_paint_info().get("drawn", -1)) == 2, "hiding 'Paint 2' draws exactly the raster without it")
+	tool.set_layer_visible(1, true)
+	await _frames(2)
+	_check(_moved(r1, _raster(), whole) == 0, "showing it again draws exactly the raster with it")
+	## Order: below the red stroke, red covers blue; undo restores exactly.
+	_check(tool.move_layer(1, 0) and tool.active_layer == 0, "move down: the active layer follows the moved one (%d)" % tool.active_layer)
+	await _frames(2)
+	var r2 := _raster()
+	var c2 := r2.get_pixel(box.position.x + box.size.x / 2, y0)
+	_check(_moved(r1, r2, box) > box.get_area() / 2 and c2.r8 > c2.b8, "below, the red layer covers it (%s)" % str(c2))
+	tool.undo()
+	await _frames(2)
+	_check(_moved(r1, _raster(), whole) == 0 and String((tool.layers()[1] as Dictionary).get("name", "")) == "Paint 2", "undo restores the order exactly")
+	## Lock refuses stroke, clear and delete; rename is allowed.
+	tool.select_layer(1)
+	_check(tool.set_layer_locked(1, true), "lock 'Paint 2'")
+	var n_before := int(bridge.colour_paint_info().get("marks", -1))
+	_check(not tool.commit_line([Vector2(30, 30), Vector2(60, 30)]) and not tool.clear_layer(1) and not tool.delete_layer(1)
+		and int(bridge.colour_paint_info().get("marks", -1)) == n_before, "a locked layer refuses a stroke, Clear layer and Delete layer")
+	var acts: Dictionary = tool.get("_layer_actions")
+	_check((acts["clear"] as Button).disabled and (acts["delete"] as Button).disabled, "and the list disables Clear layer and Delete layer for it")
+	_check(tool.rename_layer(1, "Highlights") and String((tool.layers()[1] as Dictionary).get("name", "")) == "Highlights", "rename works on a locked layer")
+	## Touch floor on the rows and actions.
+	var rb := _row_buttons(tool)
+	var acts_list: Array = acts.values()
+	var sm := _smallest(rb + acts_list)
+	_log("  layers: %d row buttons, %d actions, smallest %s" % [rb.size(), acts_list.size(), sm])
+	## Non-vacuous: INF means no button was in the visible tree to measure.
+	_check(sm.x < INF, "the layer buttons are in the visible tree, so they were measured")
+	if DccTheme.is_touch():
+		_check(sm.x >= 44.0 and sm.y >= 44.0, "touch: every layer-row and layer-action button is >= 44 px on both axes (%s)" % sm)
+	var lb = tool.get("_layers_box")
+	_check(lb is Control and (lb as Control).size.x <= float(_vp.size.x), "the layers list fits the viewport width")
+	## Save with a hidden, renamed, locked layer; reopen.
+	tool.set_layer_visible(1, false)
+	var path := OS.get_user_data_dir().path_join("cp_probe_layers.zip")
+	var saved: bool = bridge.save_project(path)
+	tool.clear()
+	var opened: bool = bridge.load_save(path)
+	await _frames(20)
+	ls = tool.layers()
+	_check(saved and opened and ls.size() == 2 and String((ls[1] as Dictionary).get("name", "")) == "Highlights"
+		and not bool((ls[1] as Dictionary).get("visible", true)) and bool((ls[1] as Dictionary).get("locked", false)),
+		"saved and reopened: both layers, the name, the hidden flag and the lock come back (%s)" % str(ls))
+	DirAccess.remove_absolute(path)
+	## Delete (unlocked) and undo.
+	tool.set_layer_locked(1, false)
+	_check(tool.delete_layer(1) and tool.layers().size() == 1, "Delete layer removes it")
+	tool.undo()
+	_check(tool.layers().size() == 2, "undo brings the deleted layer back")
+	await _frames(6)
+	_shot("5_layers_after")

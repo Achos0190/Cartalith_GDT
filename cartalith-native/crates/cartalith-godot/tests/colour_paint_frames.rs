@@ -929,3 +929,82 @@ fn colour_paint_lava_frames() {
         }
     }
 }
+
+/// Ruling CS's paint layers, read on frames (owner's hard requirement: judge
+/// at x1 / x4 / x16 / x64). One world (`CP_ONLY` picks, default 71077345;
+/// `CP_CLICK` as above, default its snow-rimmed cone at 1578,690), three
+/// layers bottom first: "Ground" -- the crater filled red with the new default
+/// **Colour** blend (fill + 1.5 km grow ring, water included); "Blue, hidden"
+/// -- a broad Replace stroke across the crater, hidden; "Lava" -- a flow down
+/// the flank. Frames: unpainted, the layers, and the layers with the hidden
+/// one shown. Asserts at every rung that the layered document draws the same
+/// bytes as the single-layer document of its visible marks in layer order
+/// (compositing order on the tile and base paths at real zooms), and that the
+/// hidden layer, shown, moves the frame (load-bearing).
+#[test]
+#[ignore = "generates a 2048x1311 world and renders zoom frames; run explicitly with --release"]
+fn colour_paint_layer_frames() {
+    use cartalith_spatial::colour_paint::{GlowRamp, PaintLayer, PaintLayers};
+    let out = std::env::var("CP_OUT").expect("set CP_OUT to an output directory");
+    std::fs::create_dir_all(&out).unwrap();
+    let only = std::env::var("CP_ONLY").unwrap_or_else(|_| "s71077345".to_string());
+    let (gw, gh) = (2048usize, 1311usize);
+    for w in WORLDS.iter().filter(|w| w.tag.starts_with(only.as_str())) {
+        let p = world_params(w, gw, gh);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let kpc = p.map_width_km / gw as f64;
+        let a = appearance();
+        let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+        let base = || RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), &pre).expect("context");
+        let click = std::env::var("CP_CLICK").ok().and_then(|v| {
+            let (x, y) = v.rsplit_once('=').map_or(v.as_str(), |(_, xy)| xy).split_once(',')?;
+            Some((x.parse::<usize>().ok()?, y.parse::<usize>().ok()?))
+        });
+        let (vx, vy) = click.unwrap_or(if w.seed == 71077345 { (1578, 690) } else { let v = rimmed_pits(&ws, gw, gh)[0]; (v.0, v.1) });
+        let (_, _, rim, rim_d) = rays(&ws.field, gw, vx, vy);
+        let ring = match crater_fill(&ws.field, gw, gh, vx, vy, 0, 20_000).filter(|c| c.1 >= 20).and_then(|(level, _, seed)| ring_around(&ws.field, gw, gh, seed, level - 1e-5, 80, kpc)) {
+            Some(r) => r,
+            None => capped_fill(&ws.field, gw, (vx, vy), rim - 0.01, 1.3 * rim_d, kpc).expect("a crater ring").0,
+        };
+        let mut closed = ring.clone();
+        closed.push(ring[0]);
+        let (fx, fy) = (ring.iter().map(|p| p[0]).sum::<f64>() / ring.len() as f64 / kpc - 0.5, ring.iter().map(|p| p[1]).sum::<f64>() / ring.len() as f64 / kpc - 0.5);
+        let mut fill = mark(MarkShape::Area { ring_km: ring.clone(), edge_km: 0.0 }, [200, 30, 18], 1.0, 1.0, ColourBlend::Colour);
+        fill.land_only = false;
+        let mut grow = mark(MarkShape::Line { points_km: closed.clone(), radius_km: 1.5 }, [200, 30, 18], 1.0, 1.0, ColourBlend::Colour);
+        grow.land_only = false;
+        let c = [(fx + 0.5) * kpc, (fy + 0.5) * kpc];
+        let blue = mark(MarkShape::Line { points_km: vec![[c[0] - 8.0, c[1]], [c[0] + 8.0, c[1]]], radius_km: 2.0 }, [30, 60, 220], 1.0, 0.7, ColourBlend::Replace);
+        let flow = flank_flow(&ws.field, gw, gh, vx, vy, 70, kpc);
+        let lava = lava_mark(MarkShape::Line { points_km: flow, radius_km: 0.8 }, 0.75, 0.85, GlowRamp::Fire);
+        let layer = |name: &str, visible: bool, marks: Vec<ColourMark>| PaintLayer { name: name.to_string(), visible, locked: false, marks };
+        let ls = PaintLayers { visible: true, layers: vec![layer("Ground", true, vec![fill.clone(), grow.clone()]), layer("Blue, hidden", false, vec![blue]), layer("Lava", true, vec![lava.clone()])] };
+        let layered = ColourPaint::from_layers(ls.clone(), 2.0 * kpc).unwrap();
+        let flat = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![fill, grow, lava] }, 2.0 * kpc).unwrap();
+        let mut shown_ls = ls;
+        shown_ls.set_layer_visible(1, true).unwrap();
+        let shown = ColourPaint::from_layers(shown_ls, 2.0 * kpc).unwrap();
+        println!("{}: crater at ({vx},{vy}), ring {} pts, {:.1} km2", w.tag, ring.len(), shoelace(&ring).abs());
+        let render = |l: Option<&ColourPaint>| -> Vec<Vec<u8>> {
+            let ctx = base().with_colour_paint(l);
+            let tf = TileFields::new(&ctx, None);
+            let mut v = vec![base_frame(&ctx, fx, fy, SCREEN_W as f64 / gw as f64)];
+            for &(_, ppc) in &RUNGS {
+                v.push(frame(&ctx, &tf, fx, fy, ppc, w.seed));
+            }
+            v
+        };
+        let names = ["x1", "x4", "x16", "x64"];
+        let (f_none, f_layers, f_flat, f_shown) = (render(None), render(Some(&layered)), render(Some(&flat)), render(Some(&shown)));
+        for k in 0..4 {
+            assert_eq!(f_layers[k], f_flat[k], "{}: layers differ from their flattened marks", names[k]);
+            assert_ne!(f_layers[k], f_none[k], "{}: premise: the layers paint", names[k]);
+            if k > 0 {
+                assert_ne!(f_shown[k], f_layers[k], "{}: premise: the hidden layer would paint", names[k]);
+            }
+            for (arm, f) in [("none", &f_none), ("layers", &f_layers), ("layers_hidden_shown", &f_shown)] {
+                write_png(&format!("{out}/{}_layers_{}_{arm}.png", w.tag, names[k]), f[k].clone());
+            }
+        }
+    }
+}

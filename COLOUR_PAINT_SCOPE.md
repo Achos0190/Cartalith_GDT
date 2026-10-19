@@ -99,6 +99,11 @@ tint that keeps the map's hue can never make grey rock red, which fails the
 primary case, so "tint" here is the W3C `color` mode — the paint's hue and
 saturation, the map's luminance — and is offered as the second mode.
 
+**Superseded by the owner (Ruling CS, 2026-10-19): the default is Colour.**
+The paragraph below is the scope's original measured case for Replace, kept
+as the reasoning the owner ruled against; the tool now opens on Colour and
+the glow materials keep Replace as their own default (§21).
+
 **Default: Replace at opacity 100 %** (changed from the brief's "tint"
 default, with this reason): because the paint goes in before the light,
 Replace already keeps the relief — measured, the sun-flip test moves painted
@@ -166,6 +171,9 @@ one byte for byte with marks attached (§11, bar 5).
 
 ## 7. Hide, clear, export without paint; looks
 
+- **Paint layers** (Ruling CS, §21) — marks belong to named layers; a hidden
+  layer's marks are left out of the render list, and "Hide colour paint" is
+  the master switch over all of them.
 - **Hide** — the layer's `visible` flag. A hidden layer is not attached
   (`RenderCtx::with_colour_paint` filters inert layers), so the picture is the
   unpainted one by control flow.
@@ -191,7 +199,9 @@ first). Labels: *Paint stroke*, *Fill*, *Erase stroke*, *Clear colour paint*,
 
 A `DOCUMENT_SLOTS` member, written **only when the layer has marks** (an
 untouched project stays byte-identical; older builds ignore an unknown member;
-absent ⇒ no paint). Payload: `ColourPaintDoc`
+absent ⇒ no paint). Since Ruling CS the payload is `PaintLayers` (version 2,
+named layers; §21 and `SAVEFILE_COMPAT.md`), written as the version-1 bytes
+below while it is one default layer. Version-1 payload: `ColourPaintDoc`
 `{"version":1,"visible":bool,"marks":[{"shape":{"kind":"line","points_km":[[x,y],…],"radius_km":r}|{"kind":"area","ring_km":[…],"edge_km":e},"rgb":[r,g,b],"opacity":o,"hardness":h,"blend":"colour"|"replace"|"multiply","land_only":bool}]}`.
 An unknown `version` or blend key is refused, not guessed; a missing
 `land_only` reads as `true`. CP-3 writes coordinates rounded to the metre (3
@@ -276,7 +286,7 @@ exact literal, occurs-once, restored in `finally`, hashes checked.
   lake and the walls; Colour keeps the rock's texture and the lake's own
   shading in red, Replace flatter and redder, Multiply near black
   (evidence 02).
-- **Default chosen from the frames: Replace** (§3).
+- **Default chosen from the frames: Replace** (§3); superseded by the owner, Ruling CS: Colour (§21).
 - **x1**: a crater a few km across is a few pixels at fit; the mark is there
   and correct, but at fit it is a dot (evidence 04, 05).
 
@@ -355,6 +365,7 @@ undoable like any stroke. Feasible.
 ## 17. Owner questions, with the defaults this scope builds unless told otherwise
 
 1. **Default mode** — Replace (measured, §3), not the brief's tint. Keep?
+   **Answered (Ruling CS, 2026-10-19): Colour, and organise paint into layers** (§21).
 2. **Saved looks carry paint?** — No (§7).
 3. **Export default** — with paint (§7).
 4. **Paint water by default?** — No: `land_only` on per mark, off by a toggle (§5).
@@ -487,7 +498,7 @@ stroke, sampled every quarter radius in km, simplified (RDP at a tenth of the
 radius) and appended as one mark. Controls: **Material** first (Colour, Lava,
 Embers, Ice glow, Toxic glow -- presets of §18's mechanism), the picker with
 the print-gamut row (`DccWidgets.confirmable_color`), §15's eight swatches,
-Blend (Replace first: the measured default of §3, unruled), Radius in km with a
+Blend (Replace first: the measured default of §3, unruled at CP-2; since Ruling CS, Colour first and the default, §21), Radius in km with a
 readout in cells and screen pixels at the current zoom, Hardness, Opacity, Land
 only, and for a material Heat, Crack density, Glow radius and Cool along stroke;
 Undo / Redo on the tool's own stack (whole documents; drops its oldest steps to
@@ -519,3 +530,90 @@ section. Tests (`project_bridge.rs`): `colour_paint_survives_a_real_archive_roun
 empty one writes no slot), `a_damaged_colour_paint_member_warns_and_opens_without_paint`.
 Probe: `_colourpaint_probe.gd` leg 7 saves through `EngineBridge.save_project`,
 clears, reopens through `load_save`, and finds both marks and the material.
+
+## 21. Paint layers and the Colour default as built (Ruling CS, 2026-10-19)
+
+The owner's answer to §17 Q1 was *"1, but use paint layers"*, recorded as
+Ruling CS: the default blend is **Colour**, and paint is organised into
+**named layers** with order, visibility, lock, rename and per-layer clear,
+each holding marks, composited in order before the light. The layers
+interpretation was to be confirmed against this first build.
+
+**Engine** (`cartalith_spatial::colour_paint`): `PaintLayers` (the master
+`visible` plus `layers`, bottom first) of `PaintLayer` (`name`, `visible`,
+`locked`, `marks`). `ColourPaint::from_layers` validates every mark of every
+layer -- hidden and locked included -- and prepares only the visible layers'
+marks, bottom layer first, into the one render list and index the renderer
+already read. Compositing in layer order is therefore mark order by
+construction, and the screen, the deep-zoom tiles, the monolithic export and
+the banded export (all `ColourPaint::apply_lit`) cannot disagree about it.
+`ColourPaint::new` (version 1) is a one-layer `from_layers`. Caps: at most
+`MAX_LAYERS` 32 layers (labelled judgement), names 1-64 characters, and the
+5 000-mark and 250 000-point caps are totals over every layer, so hiding a
+layer never admits more than §10's cost model. The tile fingerprint hashes
+the flattened visible marks (`ColourPaint::doc`): hiding a layer re-keys the
+tiles, renaming one does not. Edit verbs on `PaintLayers`: `add_layer` (on
+top, next free "Paint N"), `add_mark` (the first stroke into an empty
+document starts "Paint 1"), `rename`, `move_layer`, `set_layer_visible`,
+`set_layer_locked`, `delete_layer`, `clear_layer`; a lock refuses add, clear
+and delete, not rename, hide or move.
+
+**Binding** (`colour_paint_bridge.rs`): `colour_paint_layers`,
+`colour_paint_add_mark_to`, `colour_paint_layer_add` / `_rename` / `_move` /
+`_set_visible` / `_set_locked` / `_delete` / `_clear`; `colour_paint_info`
+gains `layers` and `drawn`; `colour_paint_document` is the layered document,
+so the tool's document-per-step undo covers layer edits. `colour_paint_add_mark`
+appends to the top layer (CP-2's behaviour). The shell gates the layers list
+on a separate `colour_paint_layers_api` flag.
+
+**Save** (`SAVEFILE_COMPAT.md`): version 2 only when version 1 cannot say the
+document; one visible, unlocked layer named "Paint 1" writes the version-1
+bytes, so pre-layers projects re-save their own bytes and stay readable by
+older builds. Layers without marks write nothing.
+
+**Shell** (`colour_paint_tool.gd`): Blend lists Colour (tint) first and opens
+on it. Each material carries its own default blend, loaded when it is picked
+(the Blend row follows): the flat colour takes Colour; Lava, Embers, Ice glow
+and Toxic glow keep Replace, as shipped, because the blend acts on the crust
+before the light and a Colour-blended crust takes the ground's lightness
+(near-white crust on a snow cone). A PAINT LAYERS block lists the layers top
+first, one row each: show/hide (filled/empty dot), the name with its mark count
+(pressed = the active layer, where strokes go; press to select), LOCK/LOCKED
+(text, not the emoji `DccIcons.SYMBOLS["locked"]`, which the bundled fonts do
+not draw), move up, move down; then New layer, Rename…, Clear layer, Delete
+layer on the active layer (disabled, with the reason, on a locked or empty
+layer). Every button is floored at the call site to 44 px on both axes on
+touch (28 px with a pointer), and row text takes the density's prose size.
+
+**Tests**: `colour_paint.rs` unit tests
+`layers_composite_bottom_first_and_hidden_layers_are_not_drawn`,
+`version_one_reads_as_one_layer_and_writes_back_byte_identically`,
+`caps_count_every_layer`, `layer_edits_respect_locks_and_names`;
+`tests/colour_paint.rs::paint_layers_composite_in_order_identically_on_every_path`
+(screen, tile, monolithic export and banded export at 1 / 37 / 5 rows per band
+byte-identical to the flattened document; the hidden layer load-bearing when
+shown; reordering = reordering the marks; every layer hidden and the master
+switch off draw the unpainted bytes); `project_bridge.rs`
+`colour_paint_layers_round_trip_and_version_one_resaves_its_own_bytes`;
+`lod_worker.rs` `a_snapshot_with_colour_paint_paints_and_keys_its_tiles`
+(a hidden layer keys like none; shown, another key). Probe
+`_colourpaint_probe.gd` leg 8 at desktop 1600x900, tablet 2560x1600 and phone
+1080x2340 (the phone run opens the CARTO sheet so the touch floor is measured,
+not skipped).
+
+**Frames** (`colour_paint_frames.rs::colour_paint_layer_frames`, evidence
+`cartalith-native/docs/evidence/colour-paint-layers-2026-10-19/`): 71077345's
+snow-rimmed cone with three layers -- the crater filled red in the new
+default Colour, a hidden blue stroke, a lava flow on top -- at x1 / x4 / x16 /
+x64, unpainted / layered / hidden layer shown, asserted equal to the
+flattened marks at every rung. Read: the lava draws over the hidden-then-shown
+blue, which draws over the red, in layer order at every rung; Colour keeps the
+rim's snow texture and relief at x64 and reads pink on the snow and red on the
+crater floor (the trade §3 measured, now the owner's default); edges stay one
+pixel wide at x64, no blocks.
+
+**Not done, and why:** drag-to-reorder (the rows use up/down buttons, which
+work on glass without a drag gesture); per-layer opacity or blend (not in the
+ruling); the owner's confirmation of the layers interpretation against this
+build (Ruling CS says it is to be confirmed); phone reachability of CARTO ▸
+Colours on glass is still CP-4's.

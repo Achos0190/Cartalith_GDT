@@ -242,8 +242,281 @@ pub struct ColourPaintDoc {
     pub marks: Vec<ColourMark>,
 }
 
-/// The one document version this build reads and writes.
+/// The single-layer document version (CP-1 … CP-3's `appearance_paint.json`).
+/// [`ColourPaint::new`] takes only this version; [`PaintLayers`] reads it as
+/// one layer named [`DEFAULT_LAYER_NAME`] and writes it back unchanged.
 pub const DOC_VERSION: u32 = 1;
+
+/// The layered document version (Ruling CS, 2026-10-19: *"use paint layers"*).
+/// Written only when the layers cannot be said in version 1 (see
+/// [`PaintLayers::is_v1_shaped`]), so a project painted on one default layer
+/// still saves the bytes an older build reads.
+pub const DOC_VERSION_LAYERS: u32 = 2;
+
+/// Most paint layers one document may hold. A labelled judgement: a layers
+/// list on a phone is one 44 px row a layer, and 32 is far past what an
+/// annotation layer needs while keeping the list a short scroll. The mark
+/// caps ([`MAX_MARKS`], [`MAX_TOTAL_POINTS`]) are counted across **every**
+/// layer, hidden ones included, so layers never raise the cost bound.
+pub const MAX_LAYERS: usize = 32;
+
+/// Longest layer name, in characters. A labelled judgement: a name is a row
+/// label in a dock, not prose; longer is refused, not truncated.
+pub const MAX_LAYER_NAME_CHARS: usize = 64;
+
+/// The name a version-1 document's one layer is read under, and the first
+/// name [`PaintLayers::add_layer`] picks.
+pub const DEFAULT_LAYER_NAME: &str = "Paint 1";
+
+/// One named paint layer: its own marks, composited in mark order, with its
+/// own visibility and lock.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PaintLayer {
+    /// Shown in the layers list; 1 ..= [`MAX_LAYER_NAME_CHARS`] characters,
+    /// not blank. Names need not be unique (a label, never a key).
+    pub name: String,
+    /// `false`: the layer's marks are not composited at all -- they are left
+    /// out of the render list by control flow ([`ColourPaint::from_layers`]),
+    /// so a hidden layer draws the unpainted bytes, not "nearly".
+    pub visible: bool,
+    /// `true`: the layer's marks cannot be added to, cleared or deleted (its
+    /// name, order and visibility still can). Missing reads as `false`.
+    #[serde(default)]
+    pub locked: bool,
+    pub marks: Vec<ColourMark>,
+}
+
+/// The edited and saved colour-paint document: a master visibility and the
+/// layers, **bottom first** (index 0 is composited first; a later layer's
+/// marks go over an earlier one's, exactly as a later mark goes over an
+/// earlier one inside a layer).
+///
+/// # Wire format
+///
+/// Serialises as version 1 (`{"version":1,"visible":…,"marks":[…]}`, the
+/// CP-3 bytes) when [`PaintLayers::is_v1_shaped`] holds, else as version 2
+/// (`{"version":2,"visible":…,"layers":[{"name","visible","locked","marks"}]}`).
+/// Reads either; a version-1 document becomes one visible, unlocked layer
+/// named [`DEFAULT_LAYER_NAME`], so opening an old project and saving it
+/// unchanged writes the same bytes. Any other version, or a version without
+/// its own member (`marks` for 1, `layers` for 2), is refused, never guessed.
+///
+/// # What it must never do
+///
+/// Never validate marks itself: the caps and value checks are
+/// [`ColourPaint::from_layers`]'s, so there is one rule set, not two.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "PaintLayersIn", into = "PaintLayersOut")]
+pub struct PaintLayers {
+    /// The master switch (the tool's "Hide colour paint"): `false` hides every
+    /// layer without touching their own flags.
+    pub visible: bool,
+    pub layers: Vec<PaintLayer>,
+}
+
+/// What either document version deserialises through (see [`PaintLayers`]).
+#[derive(Deserialize)]
+struct PaintLayersIn {
+    version: u32,
+    visible: bool,
+    #[serde(default)]
+    marks: Option<Vec<ColourMark>>,
+    #[serde(default)]
+    layers: Option<Vec<PaintLayer>>,
+}
+
+impl TryFrom<PaintLayersIn> for PaintLayers {
+    type Error = String;
+    fn try_from(w: PaintLayersIn) -> Result<PaintLayers, String> {
+        match w.version {
+            DOC_VERSION => {
+                let marks = w.marks.ok_or("a version-1 colour-paint document has no `marks`")?;
+                Ok(PaintLayers::from_v1(ColourPaintDoc { version: DOC_VERSION, visible: w.visible, marks }))
+            }
+            DOC_VERSION_LAYERS => {
+                let layers = w.layers.ok_or("a version-2 colour-paint document has no `layers`")?;
+                Ok(PaintLayers { visible: w.visible, layers })
+            }
+            v => Err(ColourPaintError::UnknownVersion(v).to_string()),
+        }
+    }
+}
+
+/// The version-2 wire form (field order is the written order).
+#[derive(Serialize)]
+struct LayersV2 {
+    version: u32,
+    visible: bool,
+    layers: Vec<PaintLayer>,
+}
+
+/// What [`PaintLayers`] serialises as: version 1 when it can be, else 2.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum PaintLayersOut {
+    V1(ColourPaintDoc),
+    V2(LayersV2),
+}
+
+impl From<PaintLayers> for PaintLayersOut {
+    fn from(l: PaintLayers) -> PaintLayersOut {
+        if l.is_v1_shaped() {
+            let visible = l.visible;
+            let marks = l.layers.into_iter().next().map(|x| x.marks).unwrap_or_default();
+            PaintLayersOut::V1(ColourPaintDoc { version: DOC_VERSION, visible, marks })
+        } else {
+            PaintLayersOut::V2(LayersV2 { version: DOC_VERSION_LAYERS, visible: l.visible, layers: l.layers })
+        }
+    }
+}
+
+impl PaintLayers {
+    /// No layers, visible: the state before the first stroke.
+    pub fn empty() -> PaintLayers {
+        PaintLayers { visible: true, layers: Vec::new() }
+    }
+
+    /// A version-1 document as one visible, unlocked layer named
+    /// [`DEFAULT_LAYER_NAME`]; its `visible` becomes the master switch, which
+    /// is what it switched in version 1.
+    pub fn from_v1(doc: ColourPaintDoc) -> PaintLayers {
+        PaintLayers { visible: doc.visible, layers: vec![PaintLayer { name: DEFAULT_LAYER_NAME.to_string(), visible: true, locked: false, marks: doc.marks }] }
+    }
+
+    /// Whether version 1 says this document exactly: one layer, named
+    /// [`DEFAULT_LAYER_NAME`], visible and unlocked. Anything a version-1
+    /// reader would lose (a second layer, a name, a per-layer hide, a lock)
+    /// makes it version 2.
+    pub fn is_v1_shaped(&self) -> bool {
+        matches!(self.layers.as_slice(), [l] if l.name == DEFAULT_LAYER_NAME && l.visible && !l.locked)
+    }
+
+    /// Marks across every layer, hidden ones included (what a save holds and
+    /// what [`MAX_MARKS`] bounds).
+    pub fn total_marks(&self) -> usize {
+        self.layers.iter().map(|l| l.marks.len()).sum()
+    }
+
+    /// The marks that composite, in order: every visible layer's, bottom
+    /// layer first, as the version-1 document the renderer builds from. With
+    /// the master switch off the list still holds them and `visible` is
+    /// `false` (the layer is then inert, exactly as a hidden version-1 one).
+    pub fn flattened(&self) -> ColourPaintDoc {
+        let marks = self.layers.iter().filter(|l| l.visible).flat_map(|l| l.marks.iter().cloned()).collect();
+        ColourPaintDoc { version: DOC_VERSION, visible: self.visible, marks }
+    }
+
+    /// The first `Paint N` (N from 1) no layer is named.
+    fn next_default_name(&self) -> String {
+        (1..).map(|n| format!("Paint {n}")).find(|s| self.layers.iter().all(|l| &l.name != s)).unwrap_or_default()
+    }
+
+    /// `Err` with why when `i` is not a layer.
+    fn check_index(&self, i: usize) -> Result<(), String> {
+        if i < self.layers.len() {
+            Ok(())
+        } else {
+            Err(format!("there is no layer {} (the document has {})", i + 1, self.layers.len()))
+        }
+    }
+
+    /// `Err` with why when layer `i` is locked (its marks cannot change).
+    fn check_unlocked(&self, i: usize) -> Result<(), String> {
+        self.check_index(i)?;
+        if self.layers[i].locked {
+            Err(format!("layer \u{201c}{}\u{201d} is locked", self.layers[i].name))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Adds an empty, visible, unlocked layer **on top** and returns its
+    /// index. `name` blank or `None` picks the next free `Paint N`. Refused
+    /// past [`MAX_LAYERS`] or with a name over [`MAX_LAYER_NAME_CHARS`].
+    pub fn add_layer(&mut self, name: Option<&str>) -> Result<usize, String> {
+        if self.layers.len() >= MAX_LAYERS {
+            return Err(ColourPaintError::TooManyLayers(self.layers.len() + 1).to_string());
+        }
+        let name = match name.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => checked_name(s)?,
+            None => self.next_default_name(),
+        };
+        self.layers.push(PaintLayer { name, visible: true, locked: false, marks: Vec::new() });
+        Ok(self.layers.len() - 1)
+    }
+
+    /// Appends `mark` to layer `i`. With no layers at all and `i == 0`, first
+    /// adds the default layer, so the first stroke needs no "new layer" step.
+    /// Refused on a locked layer.
+    pub fn add_mark(&mut self, i: usize, mark: ColourMark) -> Result<(), String> {
+        if self.layers.is_empty() && i == 0 {
+            self.add_layer(None)?;
+        }
+        self.check_unlocked(i)?;
+        self.layers[i].marks.push(mark);
+        Ok(())
+    }
+
+    /// Renames layer `i` (trimmed; blank refused). Allowed on a locked layer:
+    /// the lock protects marks, not the label.
+    pub fn rename(&mut self, i: usize, name: &str) -> Result<(), String> {
+        self.check_index(i)?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("a layer name cannot be blank".to_string());
+        }
+        self.layers[i].name = checked_name(name)?;
+        Ok(())
+    }
+
+    /// Moves layer `from` to index `to` (0 = bottom), shifting the layers in
+    /// between. Changes the compositing order, so it changes the picture.
+    pub fn move_layer(&mut self, from: usize, to: usize) -> Result<(), String> {
+        self.check_index(from)?;
+        self.check_index(to)?;
+        let l = self.layers.remove(from);
+        self.layers.insert(to, l);
+        Ok(())
+    }
+
+    /// Shows or hides layer `i`.
+    pub fn set_layer_visible(&mut self, i: usize, visible: bool) -> Result<(), String> {
+        self.check_index(i)?;
+        self.layers[i].visible = visible;
+        Ok(())
+    }
+
+    /// Locks or unlocks layer `i`.
+    pub fn set_layer_locked(&mut self, i: usize, locked: bool) -> Result<(), String> {
+        self.check_index(i)?;
+        self.layers[i].locked = locked;
+        Ok(())
+    }
+
+    /// Removes layer `i` and its marks. Refused on a locked layer.
+    pub fn delete_layer(&mut self, i: usize) -> Result<(), String> {
+        self.check_unlocked(i)?;
+        self.layers.remove(i);
+        Ok(())
+    }
+
+    /// Empties layer `i`'s marks, keeping the layer. Refused on a locked layer.
+    pub fn clear_layer(&mut self, i: usize) -> Result<(), String> {
+        self.check_unlocked(i)?;
+        self.layers[i].marks.clear();
+        Ok(())
+    }
+}
+
+/// `name` if it is within [`MAX_LAYER_NAME_CHARS`], else why not.
+fn checked_name(name: &str) -> Result<String, String> {
+    let n = name.chars().count();
+    if n > MAX_LAYER_NAME_CHARS {
+        Err(format!("a layer name of {n} characters is longer than {MAX_LAYER_NAME_CHARS}"))
+    } else {
+        Ok(name.to_string())
+    }
+}
 
 /// Why a layer was refused. A refused layer changes nothing.
 #[derive(Clone, Debug, PartialEq)]
@@ -259,6 +532,10 @@ pub enum ColourPaintError {
     /// radius; an area's edge may be any width at or above it).
     BadRadius(usize),
     UnknownVersion(u32),
+    /// More than [`MAX_LAYERS`] layers.
+    TooManyLayers(usize),
+    /// Layer `i`'s name is blank or longer than [`MAX_LAYER_NAME_CHARS`].
+    BadLayerName(usize),
 }
 
 impl std::fmt::Display for ColourPaintError {
@@ -270,7 +547,9 @@ impl std::fmt::Display for ColourPaintError {
             ColourPaintError::TooFewPoints(i) => write!(f, "mark {i} has too few points"),
             ColourPaintError::NotFinite(i) => write!(f, "mark {i} has a value that is not finite"),
             ColourPaintError::BadRadius(i) => write!(f, "mark {i}'s radius or edge is below {MIN_RADIUS_KM} km"),
-            ColourPaintError::UnknownVersion(v) => write!(f, "colour paint version {v} is not one this build reads ({DOC_VERSION})"),
+            ColourPaintError::UnknownVersion(v) => write!(f, "colour paint version {v} is not one this build reads ({DOC_VERSION} or {DOC_VERSION_LAYERS})"),
+            ColourPaintError::TooManyLayers(n) => write!(f, "{n} paint layers (at most {MAX_LAYERS})"),
+            ColourPaintError::BadLayerName(i) => write!(f, "layer {}'s name is blank or longer than {MAX_LAYER_NAME_CHARS} characters", i + 1),
         }
     }
 }
@@ -343,8 +622,19 @@ struct BucketIndex {
 /// The layer the renderer reads. Immutable once built: every edit builds a
 /// new one (the shell's undo holds whole documents, `COLOUR_PAINT_SCOPE.md`
 /// §8), so a render in flight never sees a half-edited layer.
+///
+/// Built from [`PaintLayers`] ([`ColourPaint::from_layers`]): every mark of
+/// every layer is validated, but only the visible layers' marks, bottom layer
+/// first, are prepared into the render list and the index. That flattened
+/// list is the whole of what the renderer sees, so "composited in layer
+/// order" is mark order by construction and the screen, tiles and both export
+/// paths (which all call [`ColourPaint::apply_lit`]) cannot disagree about it.
 #[derive(Clone, Debug)]
 pub struct ColourPaint {
+    /// The edited document, every layer (what a save writes).
+    layers: PaintLayers,
+    /// The flattened visible marks (what the renderer composites, and what
+    /// the tile fingerprint hashes).
     doc: ColourPaintDoc,
     marks: Vec<Prepared>,
     index: Option<BucketIndex>,
@@ -373,31 +663,71 @@ impl ColourPaint {
         if doc.version != DOC_VERSION {
             return Err(ColourPaintError::UnknownVersion(doc.version));
         }
-        if doc.marks.len() > MAX_MARKS {
-            return Err(ColourPaintError::TooManyMarks(doc.marks.len()));
+        ColourPaint::from_layers(PaintLayers::from_v1(doc), margin_km)
+    }
+
+    /// Builds a layer from a layered document (Ruling CS), refusing it whole
+    /// if it has more than [`MAX_LAYERS`] layers, a blank or over-long name,
+    /// or if any mark of **any** layer -- hidden and locked ones included --
+    /// breaks a cap or carries a non-finite value: [`MAX_MARKS`] and
+    /// [`MAX_TOTAL_POINTS`] are totals over every layer, so hiding a layer
+    /// never admits more than the cost model was sized for. A mark's index in
+    /// an error counts across the layers, bottom first.
+    pub fn from_layers(layers: PaintLayers, margin_km: f64) -> Result<ColourPaint, ColourPaintError> {
+        if layers.layers.len() > MAX_LAYERS {
+            return Err(ColourPaintError::TooManyLayers(layers.layers.len()));
         }
-        let total: usize = doc.marks.iter().map(|m| m.shape.points().len()).sum();
+        for (i, l) in layers.layers.iter().enumerate() {
+            if l.name.trim().is_empty() || l.name.chars().count() > MAX_LAYER_NAME_CHARS {
+                return Err(ColourPaintError::BadLayerName(i));
+            }
+        }
+        let n_marks = layers.total_marks();
+        if n_marks > MAX_MARKS {
+            return Err(ColourPaintError::TooManyMarks(n_marks));
+        }
+        let total: usize = layers.layers.iter().flat_map(|l| &l.marks).map(|m| m.shape.points().len()).sum();
         if total > MAX_TOTAL_POINTS {
             return Err(ColourPaintError::TooManyTotalPoints(total));
         }
-        let mut marks = Vec::with_capacity(doc.marks.len());
-        for (i, m) in doc.marks.iter().enumerate() {
-            marks.push(prepare(i, m)?);
+        let mut marks = Vec::with_capacity(n_marks);
+        let mut i = 0;
+        for l in &layers.layers {
+            for m in &l.marks {
+                // Validated whatever the layer's visibility; kept only when
+                // it composites (a hidden layer is not attached at all).
+                let p = prepare(i, m)?;
+                if l.visible {
+                    marks.push(p);
+                }
+                i += 1;
+            }
         }
+        let doc = layers.flattened();
         let margin_km = if margin_km.is_finite() && margin_km > 0.0 { margin_km } else { 0.0 };
         let index = if marks.is_empty() { None } else { Some(build_index(&marks, margin_km)) };
         let any_water = marks.iter().any(|m| !m.land_only);
         let any_emissive = marks.iter().any(|m| m.emissive.is_some());
-        Ok(ColourPaint { doc, marks, index, any_water, any_emissive })
+        Ok(ColourPaint { layers, doc, marks, index, any_water, any_emissive })
     }
 
-    /// The document this layer was built from (what a save writes).
+    /// The marks the renderer composites, as a version-1 document: every
+    /// visible layer's marks, bottom layer first ([`PaintLayers::flattened`]).
+    /// For a layer built by [`ColourPaint::new`] this is the document it was
+    /// built from. Not what a save writes: that is [`ColourPaint::layers`].
     pub fn doc(&self) -> &ColourPaintDoc {
         &self.doc
     }
 
-    /// `true` when nothing can be painted: hidden or no marks. The renderer
-    /// tests this once per render and attaches nothing when it holds.
+    /// The layered document, every layer (what a save writes and the shell's
+    /// undo holds).
+    pub fn layers(&self) -> &PaintLayers {
+        &self.layers
+    }
+
+    /// `true` when nothing can be painted: the master switch off, or no mark
+    /// in any visible layer. The renderer tests this once per render and
+    /// attaches nothing when it holds.
     pub fn is_inert(&self) -> bool {
         !self.doc.visible || self.marks.is_empty()
     }
@@ -407,14 +737,20 @@ impl ColourPaint {
         self.any_water && !self.is_inert()
     }
 
-    /// Number of marks.
+    /// Number of marks in every layer, hidden ones included (what a save
+    /// holds). [`ColourPaint::drawn_len`] counts the ones that composite.
     pub fn len(&self) -> usize {
+        self.layers.total_marks()
+    }
+
+    /// Number of marks that composite: those of visible layers.
+    pub fn drawn_len(&self) -> usize {
         self.marks.len()
     }
 
-    /// `true` with no marks.
+    /// `true` with no marks in any layer (a save then writes nothing).
     pub fn is_empty(&self) -> bool {
-        self.marks.is_empty()
+        self.len() == 0
     }
 
     /// `c` after every mark that reaches `q`, in mark order (later marks
@@ -1253,5 +1589,146 @@ mod tests {
         assert!(serde_json::from_str::<ColourPaintDoc>(&old.replace("colour", "glow")).is_err());
         assert_eq!(ColourBlend::from_key("replace"), Some(ColourBlend::Replace));
         assert_eq!(ColourBlend::from_key("Replace"), None);
+    }
+
+    fn layers_of(ls: Vec<(&str, bool, bool, Vec<ColourMark>)>) -> PaintLayers {
+        PaintLayers { visible: true, layers: ls.into_iter().map(|(n, v, k, m)| PaintLayer { name: n.to_string(), visible: v, locked: k, marks: m }).collect() }
+    }
+
+    /// Protects Ruling CS's compositing order: layers composite bottom
+    /// first, so the top layer's Replace wins where both reach, and moving it
+    /// to the bottom flips the winner; a hidden layer is left out of the
+    /// render list entirely (its marks reach no pixel and `drawn_len` drops),
+    /// yet it is still counted and saved.
+    #[test]
+    fn layers_composite_bottom_first_and_hidden_layers_are_not_drawn() {
+        let red = line(&[[0.0, 0.0], [10.0, 0.0]], 2.0, [255, 0, 0], ColourBlend::Replace);
+        let blue = line(&[[0.0, 0.0], [10.0, 0.0]], 2.0, [0, 0, 255], ColourBlend::Replace);
+        let mut ls = layers_of(vec![("Under", true, false, vec![red]), ("Over", true, false, vec![blue])]);
+        let at = |l: &PaintLayers| ColourPaint::from_layers(l.clone(), 1.0).unwrap().apply(GREY, q(5.0, 0.0, 0.01));
+        assert_eq!(at(&ls), [0.0, 0.0, 255.0], "the top layer is drawn last");
+        ls.move_layer(1, 0).unwrap();
+        assert_eq!(ls.layers[0].name, "Over");
+        assert_eq!(at(&ls), [255.0, 0.0, 0.0], "reordered: red is now on top");
+        ls.set_layer_visible(1, false).unwrap();
+        let cp = ColourPaint::from_layers(ls.clone(), 1.0).unwrap();
+        assert_eq!(cp.apply(GREY, q(5.0, 0.0, 0.01)), [0.0, 0.0, 255.0], "the hidden top layer draws nothing");
+        assert_eq!((cp.len(), cp.drawn_len()), (2, 1));
+        assert_eq!(cp.doc().marks.len(), 1, "the flattened document (what the tile key hashes) leaves the hidden layer out");
+        ls.set_layer_visible(0, false).unwrap();
+        let cp = ColourPaint::from_layers(ls, 1.0).unwrap();
+        assert!(cp.is_inert() && !cp.is_empty(), "every layer hidden: inert, but still holding marks to save");
+        assert_eq!(cp.apply(GREY, q(5.0, 0.0, 0.01)), GREY);
+    }
+
+    /// Protects backward compatibility: a version-1 document reads as one
+    /// visible, unlocked "Paint 1" layer and writes back the **same bytes**
+    /// (compact and pretty); a renamed, locked, hidden or second layer writes
+    /// version 2, which reads back equal; a one-layer layered document built
+    /// from version 1 renders exactly what [`ColourPaint::new`] rendered; an
+    /// unknown version, or a version without its own member, is refused.
+    #[test]
+    fn version_one_reads_as_one_layer_and_writes_back_byte_identically() {
+        let v1 = r#"{"version":1,"visible":false,"marks":[{"shape":{"kind":"line","points_km":[[1.5,2.25]],"radius_km":0.75},"rgb":[10,20,30],"opacity":1.0,"hardness":1.0,"blend":"multiply","land_only":true}]}"#;
+        let ls: PaintLayers = serde_json::from_str(v1).unwrap();
+        assert_eq!(ls.layers.len(), 1);
+        assert_eq!(ls.layers[0].name, "Paint 1");
+        assert!(!ls.visible && ls.layers[0].visible && !ls.layers[0].locked, "v1's flag is the master switch");
+        assert_eq!(serde_json::to_string(&ls).unwrap(), v1, "unchanged data re-saves byte-identically");
+        let pretty = serde_json::to_string_pretty(&serde_json::from_str::<ColourPaintDoc>(v1).unwrap()).unwrap();
+        assert_eq!(serde_json::to_string_pretty(&ls).unwrap(), pretty, "and in the pretty form the archive writes");
+        let edits: [fn(&mut PaintLayers); 4] = [
+            |l| l.rename(0, "Lava").unwrap(),
+            |l| l.set_layer_locked(0, true).unwrap(),
+            |l| l.set_layer_visible(0, false).unwrap(),
+            |l| {
+                l.add_layer(None).unwrap();
+            },
+        ];
+        for edit in edits {
+            let mut e = ls.clone();
+            edit(&mut e);
+            let s = serde_json::to_string(&e).unwrap();
+            assert!(s.starts_with(r#"{"version":2,"visible":false,"layers":["#), "{s}");
+            assert_eq!(serde_json::from_str::<PaintLayers>(&s).unwrap(), e);
+        }
+        let mut shown: ColourPaintDoc = serde_json::from_str(v1).unwrap();
+        shown.visible = true;
+        let a = ColourPaint::new(shown.clone(), 1.0).unwrap();
+        let b = ColourPaint::from_layers(PaintLayers::from_v1(shown), 1.0).unwrap();
+        assert_eq!(a.doc(), b.doc());
+        let c = [12.5, 99.0, 201.0];
+        assert_eq!(a.apply(c, q(1.6, 2.3, 0.01)), b.apply(c, q(1.6, 2.3, 0.01)));
+        assert_ne!(a.apply(c, q(1.6, 2.3, 0.01)), c, "premise: the mark reaches");
+        for bad in [r#"{"version":3,"visible":true,"layers":[]}"#, r#"{"version":2,"visible":true,"marks":[]}"#, r#"{"version":1,"visible":true,"layers":[]}"#] {
+            assert!(serde_json::from_str::<PaintLayers>(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// Protects the layer caps: the mark cap is a total over every layer
+    /// (hidden included; exactly 5 000 accepted, 5 002 refused), the layer
+    /// count and names are capped, and a bad mark in a hidden layer is still
+    /// refused (one rule set).
+    #[test]
+    fn caps_count_every_layer() {
+        let ok = line(&[[0.0, 0.0]], 1.0, [0, 0, 0], ColourBlend::Colour);
+        let ls = layers_of(vec![("A", true, false, vec![ok.clone(); 2_501]), ("B", false, false, vec![ok.clone(); 2_501])]);
+        assert_eq!(ColourPaint::from_layers(ls, 1.0).unwrap_err(), ColourPaintError::TooManyMarks(5_002));
+        let ls = layers_of(vec![("A", true, false, vec![ok.clone(); 2_500]), ("B", false, false, vec![ok.clone(); 2_500])]);
+        assert_eq!(ColourPaint::from_layers(ls, 1.0).unwrap().len(), 5_000, "exactly the cap is accepted");
+        let nan = line(&[[f64::NAN, 0.0]], 1.0, [0, 0, 0], ColourBlend::Colour);
+        let ls = layers_of(vec![("A", true, false, vec![ok.clone()]), ("B", false, false, vec![nan])]);
+        assert_eq!(ColourPaint::from_layers(ls, 1.0).unwrap_err(), ColourPaintError::NotFinite(1));
+        let many: Vec<_> = (0..33).map(|i| PaintLayer { name: format!("L{i}"), visible: true, locked: false, marks: vec![] }).collect();
+        assert_eq!(ColourPaint::from_layers(PaintLayers { visible: true, layers: many }, 1.0).unwrap_err(), ColourPaintError::TooManyLayers(33));
+        let ls = layers_of(vec![("  ", true, false, vec![])]);
+        assert_eq!(ColourPaint::from_layers(ls, 1.0).unwrap_err(), ColourPaintError::BadLayerName(0));
+        let long = "x".repeat(65);
+        let ls = layers_of(vec![(long.as_str(), true, false, vec![])]);
+        assert_eq!(ColourPaint::from_layers(ls, 1.0).unwrap_err(), ColourPaintError::BadLayerName(0));
+        let mut e = PaintLayers::empty();
+        for _ in 0..32 {
+            e.add_layer(None).unwrap();
+        }
+        assert!(e.add_layer(None).is_err(), "add_layer refuses the 33rd");
+        assert!(e.rename(0, &"y".repeat(65)).is_err());
+        assert!(e.rename(0, &"y".repeat(64)).is_ok());
+    }
+
+    /// Protects the edit verbs: the first stroke creates "Paint 1"; new
+    /// layers take the next free "Paint N" on top; a lock refuses add, clear
+    /// and delete but not rename, hide or move; out-of-range indices are
+    /// refused, never clamped onto another layer.
+    #[test]
+    fn layer_edits_respect_locks_and_names() {
+        let m = line(&[[0.0, 0.0]], 1.0, [0, 0, 0], ColourBlend::Colour);
+        let mut l = PaintLayers::empty();
+        l.add_mark(0, m.clone()).unwrap();
+        assert_eq!(l.layers.len(), 1);
+        assert_eq!(l.layers[0].name, "Paint 1");
+        assert!(l.is_v1_shaped());
+        assert_eq!(l.add_layer(Some("  ")).unwrap(), 1);
+        assert_eq!(l.layers[1].name, "Paint 2");
+        l.rename(0, "Base").unwrap();
+        assert_eq!(l.add_layer(None).unwrap(), 2);
+        assert_eq!(l.layers[2].name, "Paint 1", "the first free number");
+        assert!(l.add_mark(5, m.clone()).is_err());
+        assert!(l.set_layer_visible(3, false).is_err());
+        assert!(l.move_layer(0, 3).is_err());
+        l.set_layer_locked(0, true).unwrap();
+        assert!(l.add_mark(0, m.clone()).is_err());
+        assert!(l.clear_layer(0).is_err());
+        assert!(l.delete_layer(0).is_err());
+        l.rename(0, "Base, kept").unwrap();
+        l.set_layer_visible(0, false).unwrap();
+        l.move_layer(0, 2).unwrap();
+        assert_eq!(l.layers[2].name, "Base, kept");
+        assert_eq!(l.layers[2].marks.len(), 1, "the locked layer kept its mark");
+        l.add_mark(1, m.clone()).unwrap();
+        l.clear_layer(1).unwrap();
+        assert!(l.layers[1].marks.is_empty());
+        l.delete_layer(0).unwrap();
+        assert_eq!(l.layers.len(), 2);
+        assert!(serde_json::to_string(&l).unwrap().contains(r#""locked":true"#));
     }
 }
