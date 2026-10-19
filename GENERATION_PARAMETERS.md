@@ -333,7 +333,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   `state` literal wherever the reference has one — with one exception,
   `passes.evolve_cycles` (`0` = off here; the reference's `stream.cycles` is
   `5`, the slider value for a button). It is **not** what the shipped app
-  generates with at the nine ruled divergences above, which
+  generates with at the ten ruled divergences above, which
   `params::defaults()` turns on, nor for `use_gpu`, which
   `engine_bridge.gd`'s `_ready` turns on at boot. (Qualified 2026-09-24; this
   said "in every case".)
@@ -346,7 +346,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   violation, because the default reproduces reference behaviour exactly — but
   the distinction is recorded, not blurred. That holds at
   `WorldParams::defaults`, not at the app boundary: a `—` row that is one of
-  the nine ruled divergences, or that only a ruled divergence reads
+  the ten ruled divergences, or that only a ruled divergence reads
   (`crater.surface_age_myr` under `crater.physical_model`), does not
   reproduce the reference in the shipped app.
 
@@ -494,7 +494,7 @@ default engine generation is bit-identical to one produced before they existed; 
 is the condition `DECISIONS.md` §7d attaches to a superset, and it is asserted
 (`erosion_passes_off_leave_generation_bit_identical`), not assumed. **One is on in the
 shipped app:** `passes.glacial`, by owner Ruling AU (2026-09-24), is a ruled divergence
-at the `params::defaults()` boundary — see "The six deliberate divergences" above for
+at the `params::defaults()` boundary — see "The ten deliberate divergences" above for
 it and its measured cost. (This said "every toggle is off by default" without
 qualification until 2026-09-24.)
 
