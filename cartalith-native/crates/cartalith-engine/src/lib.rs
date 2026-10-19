@@ -274,6 +274,23 @@ pub struct TectonicParams {
     /// reference, which blurred at 0.35. `DECISIONS.md` §7n registers v2.57
     /// as a re-baseline to carry; Ruling AP authorises carrying it.
     pub narrow_plate_base_blur: bool,
+    /// **Orogen relief** (owner Ruling CU item 1, 2026-10-19;
+    /// `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` H1 and H2 at its §4
+    /// defaults): add a belt-localised, kilometre-keyed ridged relief term to
+    /// the normalised height field before volcanism
+    /// ([`cartalith_terrain::orogen::apply_orogen_relief`]), and let volcano
+    /// stamps and that term saturate smoothly toward 1
+    /// ([`cartalith_terrain::orogen::soft_ceiling`]) instead of being clipped
+    /// flat. The investigation measured every belt as one smooth swell (top
+    /// decile median slope 0.3-2.8°, crests no denser than the lowlands).
+    ///
+    /// **`false` here and `true` in the shipped app** (`params::defaults`), the
+    /// `integrate_drainage` split (`DECISIONS.md` §7p): this function is the
+    /// goldens' parity baseline and the reference has no such term. A save
+    /// without the key reloads `false`, so a project saved before the ruling
+    /// regenerates as it was saved. It never changes the land mask (see the
+    /// orogen module's doc).
+    pub orogen_relief: bool,
 }
 
 /// `PLATE_BASE_BLUR_K` (source v2.57, `RC_ENGINE_CHANGES.md` §6i): the
@@ -1082,6 +1099,7 @@ impl WorldParams {
                 // The v2.10/v2.11 blur the goldens were captured at. On at the
                 // app boundary -- see the field's own doc comment.
                 narrow_plate_base_blur: false,
+                orogen_relief: false,
             },
             // `provinces: true`, matching JS's own literal default.
             // stamp_volcanoes_provinces is golden-verified
@@ -1991,6 +2009,11 @@ pub(crate) struct Substrate {
     pub(crate) age_field: Vec<f32>,
     /// The normalised height field (`normalize_field`), before volcanism.
     pub(crate) field: Vec<f32>,
+    /// The smoothed World-Structure orogeny field `compute_height` read, or
+    /// `None` on a classic world. Kept (it used to end inside the substrate)
+    /// because the orogen relief term (`TectonicParams::orogen_relief`) rebuilds
+    /// `compute_height`'s uplift term `t` from it; dropped right after.
+    pub(crate) oro: Option<Vec<f32>>,
 }
 
 /// **The tectonic substrate** (`buildTectonicSubstrate`, reference HTML lines
@@ -2282,7 +2305,7 @@ pub(crate) fn tectonic_substrate(
     );
     let field = normalize_field(&raw_height);
 
-    Substrate { plates, plate_id, stress, base_raw, age_field, field }
+    Substrate { plates, plate_id, stress, base_raw, age_field, field, oro }
 }
 
 /// `generate_terrain`'s body, with one test-only escape hatch:
@@ -2292,6 +2315,76 @@ pub(crate) fn tectonic_substrate(
 /// `precarve_flow_skip_leaves_generation_bit_identical` passes `true`; it
 /// exists so that "the skip changes nothing" is a proof this crate can run
 /// rather than an argument in a comment.
+/// **Orogen dissection** (owner Ruling CU item 1; the investigation's H1 step
+/// (b), "stream power with uplift > 0 on the orogeny mask"): stream-power
+/// incision run inside the belt only
+/// ([`cartalith_erosion::stream_power_kernel_pinned_refreshed`]), with the
+/// routing refreshed every `tune.dissect_refresh` iterations so the drainage
+/// reorganises around the relief it cuts into dendritic valleys and spurs.
+///
+/// **Why.** The ridged term alone left a crumpled surface with closed hollows
+/// (top-decile pits 0.0006 -> 0.0025 on 71077345); the investigation's arm G
+/// showed that the shipped light pass, frozen-routed and 9 iterations long,
+/// cannot organise a drainage on its own. Measured on 71077345 (§7 of the
+/// investigation): this pass at its defaults brings the pits back to the
+/// world's own level (0.0009) and sharpens the valleys; doing it at half
+/// resolution was cheaper but softer and left more pits (0.0035), so it runs
+/// at full resolution.
+///
+/// **What it must never do.** Move anything outside the belt or any sea cell:
+/// both are pinned (a Dirichlet base level), so valleys grade to the belt's
+/// own forelands and coasts. Lower a land cell below `sea + 10 m` (the land
+/// mask must not move). Let the kernel's final clamp at 1 flatten crests the
+/// ridged term lifted past 1: the kernel runs on the field scaled by one half
+/// (the implicit update and the routing order are linear in height, and
+/// deposition is off), and `orogen::soft_ceiling` saturates the top later.
+#[allow(clippy::too_many_arguments)]
+fn orogen_dissect(
+    field: &mut [f32],
+    belt: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    sea: f64,
+    peak_m: f64,
+    tune: &cartalith_terrain::orogen::OrogenTuning,
+) {
+    let n = gw * gh;
+    let Some(every) = std::num::NonZeroUsize::new(tune.dissect_refresh) else {
+        return;
+    };
+    if tune.dissect_iters == 0 || belt.iter().all(|&v| v == 0.0) {
+        return;
+    }
+    let pinned: Vec<bool> = (0..n).map(|i| belt[i] < tune.dissect_pin_below || (field[i] as f64) < sea).collect();
+    let mut work: Vec<f32> = field.iter().map(|&v| v * 0.5).collect();
+    // No rock resistance and no climate term: the incision rate is the
+    // kernel's `K·A^m/L` alone (resist 0 makes the strength factor 1;
+    // `climate_k` 0 makes the rain unread), and the "stress" argument is the
+    // belt weight, which the kernel would turn into an uplift field were
+    // `uplift` not 0 (uplift-on arms were measured and not kept: §7).
+    let zeros = vec![0f32; n];
+    let sp = StreamPowerParams {
+        k: tune.dissect_k,
+        uplift: 0.0,
+        deposit: 0.0,
+        climate_k: 0.0,
+        iters: tune.dissect_iters as i32,
+        resist: 0.0,
+        g: 1.0,
+        world,
+        sea: sea * 0.5,
+    };
+    cartalith_erosion::stream_power_kernel_pinned_refreshed(&mut work, belt, &zeros, &zeros, gw, gh, &sp, &pinned, every);
+    let floor = sea + cartalith_terrain::geology::m_to_norm(tune.floor_m, sea, peak_m);
+    for i in 0..n {
+        if !pinned[i] {
+            let h0 = field[i] as f64;
+            field[i] = (work[i] as f64 * 2.0).max(floor.min(h0)) as f32;
+        }
+    }
+}
+
 fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
     // **Engine init** -- see this module's "CPU worker threads" section
     // above. Must run before any `par_iter()` this function (or anything it
@@ -2416,7 +2509,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // The tectonic substrate, warp to `normalize_field`: one function shared
     // with the New World preview (`preview::land_mask`), so the two can never
     // run different copies of it (`NEW_WORLD_PREVIEW_PROPOSAL.md` §7 risk 2).
-    let Substrate { plates, plate_id, stress, base_raw, age_field, field } = tectonic_substrate(
+    let Substrate { plates, plate_id, stress, base_raw, age_field, field, oro } = tectonic_substrate(
         p,
         tect_plates,
         tect_vel,
@@ -2425,6 +2518,46 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         &mut gpu_stages_used,
     );
     let mut field = field;
+    // ---- OROGEN RELIEF (Ruling CU item 1; `TectonicParams::orogen_relief`) ----
+    // After the substrate and before volcanism, so the cones stand on the
+    // ridged belt. Off (the parity path) nothing here runs. The term reads
+    // `compute_height`'s own uplift term `t` (rebuilt here exactly as that
+    // function forms it) and judges land against the sea level this world will
+    // be split at: `p.sea_level` on a classic world, the archetype's histogram
+    // anchor otherwise (re-taken after volcanism below; the term never moves a
+    // cell across the split, so the anchor's sea/land count is unchanged).
+    let mut orogen_belt: Option<Vec<u8>> = None;
+    if p.tect.orogen_relief {
+        let t: Vec<f32> = match oro.as_deref() {
+            Some(o) => o.iter().zip(&stress.stress_field).map(|(&o, &s)| (o as f64 + (s as f64).min(0.0)) as f32).collect(),
+            None => stress.stress_field.clone(),
+        };
+        let sea0 = if p.world_structure.enabled {
+            apply_world_structure_sea_level(&field, p.world_structure.continentality)
+        } else {
+            p.sea_level
+        };
+        let tune = cartalith_terrain::orogen::OrogenTuning::default();
+        let belt = cartalith_terrain::orogen::apply_orogen_relief(
+            &mut field,
+            &cartalith_terrain::orogen::OrogenInputs {
+                gw,
+                gh,
+                world,
+                seed: p.tect.seed,
+                map_width_km: p.map_width_km,
+                peak_m: p.peak_m,
+                sea: sea0,
+                t: &t,
+            },
+            &tune,
+        );
+        orogen_dissect(&mut field, &belt, gw, gh, world, sea0, p.peak_m, &tune);
+        // The cells the late depression fill below may raise: the dissected
+        // belt (everything the pass did not pin).
+        orogen_belt = Some(belt.iter().map(|&b| u8::from(b >= tune.dissect_pin_below)).collect());
+    }
+    drop(oro);
     // Was computed between heterogeneity and orogeny, inside what is now the
     // substrate; moved after it unchanged. A pure function of `plate_id`,
     // `plates` and `age_field`, all final before it in either position, and
@@ -2470,6 +2603,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut volcanic_field,
                 edifice,
                 volcano_trace.as_mut(),
+                p.tect.orogen_relief,
             );
         } else {
             cartalith_terrain::stamp_volcanoes_simple_traced(
@@ -2485,6 +2619,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut volcanic_field,
                 edifice,
                 volcano_trace.as_mut(),
+                p.tect.orogen_relief,
             );
         }
     }
@@ -2533,6 +2668,16 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         &mut field,
         &mut impact_field,
     );
+    // H2 (Ruling CU item 1, app-side): with the orogen switch on, the stamps
+    // above did not cut summits flat at 1 (`soft_top`) and the ridged term may
+    // have lifted crests past 1, so the top saturates smoothly here first; the
+    // clamp below then bounds only the bottom. Off, the clamp alone runs, as
+    // the reference does.
+    if p.tect.orogen_relief {
+        for v in &mut field {
+            *v = cartalith_terrain::orogen::soft_ceiling(*v as f64) as f32;
+        }
+    }
     for v in &mut field {
         *v = v.clamp(0.0, 1.0);
     }
@@ -3393,6 +3538,62 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     if p.volc.fill_edifice_pits && p.volc.edifice_model {
         cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &volcanic_field);
     }
+    // Ruling CU item 1, the same late fill over the orogen belt: the ridged,
+    // dissected relief and every stage after it (light pass, carve, glacial)
+    // leave closed hollows there, which the water-body classifier pools into
+    // 1-3-cell lakes (measured: 63-355 per world against 16-61 with the term
+    // off; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` §7). Filled to their
+    // spill level with Priority-Flood+ε, the CO fill's own routine, over the
+    // belt's land and its enclosed below-sea hollows (never the open sea); a
+    // volcano's summit depression is never filled. Off
+    // (`tect.orogen_relief` false: the parity path), `orogen_belt` is `None`.
+    if let Some(belt) = orogen_belt {
+        use cartalith_terrain::edifice_pits::{flank_mask_from_volcanic_field, fill_edifice_flank_pits, FLANK_CALDERA, FLANK_FLANK, FLANK_NONE};
+        let flank = flank_mask_from_volcanic_field(&volcanic_field, gw, gh);
+        // The open sea: below-sea cells 4-connected to the map edge. A
+        // below-sea cell the sea does not reach is a closed hollow too (a
+        // carved gorge floor dropping under sea level inland -- measured on
+        // 24601's archipelago, where those were most of the remaining
+        // 1-3-cell lakes), so it is filled like one; the open sea never is.
+        let open_sea = {
+            let n = gw * gh;
+            let mut sea_open = vec![false; n];
+            let mut stack: Vec<usize> = (0..n)
+                .filter(|&i| {
+                    let (x, y) = (i % gw, i / gw);
+                    (x == 0 || y == 0 || x + 1 == gw || y + 1 == gh) && (field[i] as f64) < sea_level
+                })
+                .collect();
+            for &i in &stack {
+                sea_open[i] = true;
+            }
+            while let Some(i) = stack.pop() {
+                let (x, y) = (i % gw, i / gw);
+                for j in [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)]
+                    .into_iter()
+                    .flatten()
+                {
+                    if !sea_open[j] && (field[j] as f64) < sea_level {
+                        sea_open[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+            sea_open
+        };
+        let mask: Vec<u8> = (0..gw * gh)
+            .map(|i| {
+                if flank[i] == FLANK_CALDERA {
+                    FLANK_CALDERA
+                } else if belt[i] != 0 && !open_sea[i] {
+                    FLANK_FLANK
+                } else {
+                    FLANK_NONE
+                }
+            })
+            .collect();
+        fill_edifice_flank_pits(gw, gh, &mut field, &mask);
+    }
 
     // PR-04: record each active device's real allocation total *before* the
     // set is dropped, so Preferences ▸ Devices can show a measured number
@@ -3671,6 +3872,90 @@ mod tests {
         cone.volc.fill_edifice_pits = true;
         let b = generate_terrain(&cone);
         assert_eq!(a.field, b.field, "without the morphological edifice the fill must be inert");
+    }
+
+    /// Protects: Ruling CU item 1's `TectonicParams::orogen_relief` -- off in
+    /// `WorldParams::defaults` (a literal), live when on (the field moves and
+    /// the land's high ground gets steeper), and bounded: on a classic world,
+    /// whose sea level is fixed, the land mask agrees with the switch-off world
+    /// on at least 99 % of cells (the term itself never crosses the split; the
+    /// stages after it respond to the new relief) and the land fraction moves
+    /// by under one percentage point. 71077345 at 512 x 328 has a
+    /// plate-boundary belt in its east (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`).
+    #[test]
+    fn orogen_relief_is_off_on_the_parity_path_and_bounded_when_on() {
+        let base = WorldParams::defaults(512, 328, 71_077_345);
+        assert!(!base.tect.orogen_relief, "the parity baseline must not add orogen relief");
+        let off = generate_terrain(&base);
+        let mut p = base.clone();
+        p.tect.orogen_relief = true;
+        let on = generate_terrain(&p);
+        assert_eq!(on.sea_level, off.sea_level, "a classic world keeps its sea level");
+        let sea = off.sea_level;
+        let n = on.field.len();
+        let land = |w: &WorldState, i: usize| w.field[i] as f64 >= sea;
+        let moved = (0..n).filter(|&i| on.field[i].to_bits() != off.field[i].to_bits()).count();
+        assert!(moved > n / 50, "the switch moved only {moved} of {n} cells");
+        let agree = (0..n).filter(|&i| land(&on, i) == land(&off, i)).count();
+        assert!(agree as f64 >= 0.99 * n as f64, "land mask agreement {agree} of {n}");
+        let frac = |w: &WorldState| (0..n).filter(|&i| land(w, i)).count() as f64 / n as f64;
+        assert!((frac(&on) - frac(&off)).abs() < 0.01, "land {} -> {}", frac(&off), frac(&on));
+        // Steeper high ground: the mean absolute east-west step over the
+        // highest tenth of land (picked on the switch-off world, an input).
+        let mut hs: Vec<f32> = (0..n).filter(|&i| land(&off, i)).map(|i| off.field[i]).collect();
+        hs.sort_by(|a, b| a.total_cmp(b));
+        let p90 = hs[hs.len() * 9 / 10];
+        let step = |w: &WorldState| {
+            let (mut s, mut k) = (0f64, 0usize);
+            for i in 0..n - 1 {
+                if off.field[i] >= p90 && (i + 1) % 512 != 0 {
+                    s += (w.field[i + 1] - w.field[i]).abs() as f64;
+                    k += 1;
+                }
+            }
+            s / k.max(1) as f64
+        };
+        assert!(step(&on) > 1.5 * step(&off), "high-ground step {} -> {}", step(&off), step(&on));
+        // The late belt fill: the rough belt must not leave more closed
+        // single-cell hollows (land below all four orthogonal neighbours) on
+        // the map than the smooth world had.
+        let pits = |w: &WorldState| {
+            (0..n)
+                .filter(|&i| {
+                    let (x, y) = (i % 512, i / 512);
+                    x > 0 && y > 0 && x < 511 && y < 327 && land(w, i) && [i - 1, i + 1, i - 512, i + 512].iter().all(|&j| w.field[j] > w.field[i])
+                })
+                .count()
+        };
+        assert!(pits(&on) <= pits(&off), "closed hollows {} -> {}", pits(&off), pits(&on));
+        // The dissection: valley cells (a strict profile minimum along at
+        // least two of the four axes) on that same high ground.
+        let valleys = |w: &WorldState| {
+            (0..n)
+                .filter(|&i| {
+                    let (x, y) = (i % 512, i / 512);
+                    x > 0 && y > 0 && x < 511 && y < 327 && off.field[i] >= p90 && {
+                        let f = &w.field;
+                        [(1usize, 1usize), (512, 512), (513, 513), (511, 511)].iter().filter(|&&(a, b)| f[i] < f[i - a] && f[i] < f[i + b]).count() >= 2
+                    }
+                })
+                .count()
+        };
+        println!("valleys on the off-world's top decile: {} -> {}", valleys(&off), valleys(&on));
+        // Measured 2026-10-19: 70 -> 1 208, and 70 -> 934 with the dissection
+        // pass removed (the ridged term and the late fill alone), so the
+        // 15x floor is what fails if `orogen_dissect` stops running.
+        assert!(valleys(&on) > 15 * valleys(&off), "valleys {} -> {}", valleys(&off), valleys(&on));
+        // H2: with the switch on, fewer cells sit flat at exactly 1 than the
+        // reference clip leaves (not none: `soft_ceiling` rounds to 1.0 in
+        // `f32` about 0.8 above the knee, which the reference cone stamped on
+        // high ground reaches -- measured 1 288 -> 790 here), and the ground
+        // above the knee is reached.
+        let at_one = |w: &WorldState| w.field.iter().filter(|&&v| v >= 1.0).count();
+        let above_knee = on.field.iter().filter(|&&v| v as f64 > cartalith_terrain::orogen::SOFT_CEILING_KNEE).count();
+        println!("cells at 1.0: off {} on {}; on above the knee {}", at_one(&off), at_one(&on), above_knee);
+        assert!(at_one(&on) < at_one(&off), "cells flat at 1: {} -> {}", at_one(&off), at_one(&on));
+        assert!(above_knee > 0, "the fixture never reaches the knee band; the H2 check reaches nothing");
     }
 
     /// Protects: `ClimateInputParams::rain_bspline` reaches the recompute

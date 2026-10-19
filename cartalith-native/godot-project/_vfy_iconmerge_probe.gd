@@ -221,7 +221,13 @@ func _ready() -> void:
 		await RenderingServer.frame_post_draw
 		var img: Image = _vp.get_texture().get_image()
 		if img.get_data() == _blank:
-			_bad("%s: frame byte-identical to the blank control" % name)
+			# ON must draw something (the positive control). OFF drawing nothing
+			# at all is exactly the 2026-10-19 rule (the master switch hides the
+			# authored icons too), and every per-cell census below would read 0.
+			if on:
+				_bad("%s: frame byte-identical to the blank control" % name)
+			else:
+				_p("%s: frame byte-identical to the blank control -- everything hidden" % name)
 			continue
 		var seen := {}
 		for c in cells:

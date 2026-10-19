@@ -3,7 +3,8 @@
 Findings for **Ruling CI item 3** ("investigate mountain relief first"). This is
 an investigation, not a scope and not a status record. It has no status column;
 where it and `cartalith-native/docs/STATUS.md` disagree, `STATUS.md` wins.
-Nothing was built, and no Rust, GDScript or generated output was changed.
+Nothing was built, and no Rust, GDScript or generated output was changed,
+until §7 (2026-10-19), which records the H1 and H2 build under Ruling CU item 1.
 
 It follows `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` (commit `adb12bf5`).
 That assessment found that the highest ground reads as a snow blob with no
@@ -409,3 +410,155 @@ almost no rock with blobs of snow.
 | `10_ablation_grid_s314159_plateau_4pxcell.jpg` | the same on the snow plateau |
 | `11_snapshot_vs_lodtile_16pxcell.jpg` | magnified grid without synthesis / LOD tile / LOD tile with exag × 4, at three sites |
 | `13_streampower_default_vs_strong_s71077345_belt.jpg` | hillshade of the belt, shipped stream power above arm G (4× stronger) below |
+
+## 7. The build (2026-10-19, Ruling CU item 1)
+
+Ruling CU item 1 un-parked H1, H3 and H2 at §4's defaults. Each cause was
+re-opened at its symbol first, and every number below was measured in this
+pass (`cartalith-native/docs/evidence/orogen-relief-2026-10-19/measurements.txt`
+has every line and every arm).
+
+### 7.1 The causes, re-opened
+
+- **H1 holds.** `cartalith_terrain::compute_height` is unchanged since §2.1:
+  `t` is the stress (classic) or `oro + min(stress, 0)` (world structure), a
+  smooth one-crest term, and `b·noise` is uniform. A Rust rebuild of §1's
+  hstats (`cartalith-godot/tests/mountain_relief.rs`) on HEAD `747b94c3`
+  reproduces §2.1 within rounding (314159 earth: p90 / p99 1 706 / 2 786 m, top
+  slope p50 2.72°, crest 0.048 / 0.054, channel 0.068 / 0.117), so the two
+  definitions agree. A plain hillshade of 71077345 still shows the single
+  smooth swell (`evidence/orogen-relief-2026-10-19/01_...`).
+- **H2 holds.** The clip is inside `stamp_one_volcano` (per stamp,
+  `stored > 1.0 → 1.0`), then a whole-field `clamp(0, 1)` after the craters.
+- **H3 is left as §4 Q4 recommends.** `generate_terrain_inner` still records
+  `ConstructionSkip::WorldStructureOn`, and construction stays off in the app
+  (Ruling CG). The new term runs before construction, so on a classic world a
+  user who turns on the geology processes and `relief_model` gets construction
+  over the ridged surface. Nothing was changed there.
+- **S1, R1 and R2** were built earlier (`km_relief_taper`, and Satellite
+  relief's snow shedding and slope rock). They were not re-opened.
+
+### 7.2 What was built
+
+One switch, `tect.orogen_relief` (`TectonicParams::orogen_relief`). It is
+**off** in `WorldParams::defaults` (and so under `js_reference` and every JS
+golden) and **on** in `params::defaults()`. A save without the key reloads off
+(DECISIONS §7p's pattern). With it on, `generate_terrain` does five things:
+
+1. **Belt** (`cartalith_terrain::orogen::belt_weight`): `compute_height`'s own
+   `t`, positive part, spread by three box blurs of 30 km, normalised by its
+   99.5th percentile, smoothstep 0.10..0.55.
+2. **Relief** (`apply_orogen_relief`), after `normalize_field` and before
+   volcanism: a 400 m lift plus a zero-mean ridged multifractal (Musgrave) of
+   1 500 m amplitude over gradient noise, first wavelength 20 km, octaves down
+   to two cells, faded in over 300 m above the coast. Land is never lowered
+   below sea + 10 m and the sea is untouched.
+3. **Dissection** (`cartalith_engine`'s `orogen_dissect`): 24 iterations of
+   stream power (K 0.03, no deposition, no uplift) inside the belt, with
+   everything outside it and every sea cell pinned and the routing rebuilt
+   every 4 iterations (`cartalith_erosion::stream_power_kernel_pinned_refreshed`).
+4. **H2:** volcano stamps keep what they add above 1 (`soft_top`), and the
+   field saturates with `orogen::soft_ceiling` (identity to 0.9, then
+   `0.9 + 0.1·tanh`) before the clamp.
+5. **Late belt fill:** after every other stage, the belt's closed hollows are
+   filled to their spill level with the Ruling CO fill's Priority-Flood+ε. This
+   includes below-sea hollows that the open sea does not reach; summit calderas
+   are kept.
+
+What the first builds got wrong, measured and fixed:
+- Ridges on the raw `t` sat only on the swell's crest, so the belt is spread.
+- Value noise drew rectilinear crests, so the term moved to gradient noise.
+- Fitting each volcano under the ceiling shrank coastal shields and turned
+  4 317 land cells to sea on 71077345. It was reverted, and the soft ceiling
+  replaced it.
+- Without the late fill, 1-3-cell lakes rose 2.3-8× on every world (for
+  example 24 → 131 and 61 → 355). Without the open-sea test, 24601
+  archipelago's enclosed gorge floors still made 97 against 16.
+
+### 7.3 §4 Q1's bars, nine worlds (before → after)
+
+| World | Top slope p50 (°) | Crest top / rest | Channel top / rest | Flat share of top |
+|---|---|---|---|---|
+| 314159 earth 800 | 2.72 → 9.80 | 0.048/0.054 → 0.146/0.068 | 0.068/0.117 → 0.048/0.108 | 0.144 → 0.051 |
+| 24601 archipelago 800 | 0.98 → 3.51 | 0.056/0.059 → 0.120/0.082 | 0.048/0.094 → 0.039/0.091 | 0.225 → 0.138 |
+| 24601 earth 3000 | 0.83 → 2.64 | 0.064/0.076 → 0.155/0.083 | 0.053/0.097 → 0.055/0.093 | 0.433 → 0.387 |
+| 483920 classic 800 | 1.07 → 5.98 | 0.049/0.047 → 0.144/0.057 | 0.083/0.137 → 0.059/0.129 | 0.340 → 0.086 |
+| 71077345 classic 800 | 2.32 → 7.52 | 0.046/0.055 → 0.138/0.065 | 0.096/0.119 → 0.066/0.108 | 0.152 → 0.038 |
+| 246371 earth 800 | 2.82 → 9.46 | 0.048/0.053 → 0.152/0.067 | 0.057/0.100 → 0.042/0.087 | 0.049 → 0.030 |
+| 24601 classic 800 | 0.34 → 0.40 | 0.054/0.054 → 0.083/0.066 | 0.081/0.121 → 0.078/0.113 | 0.646 → 0.569 |
+| 314159 classic 3000 | 0.32 → 0.47 | 0.053/0.054 → 0.131/0.062 | 0.080/0.140 → 0.070/0.132 | 0.572 → 0.505 |
+| 483920 supercont. 3000 | 0.46 → 0.77 | 0.050/0.077 → 0.118/0.079 | 0.066/0.089 → 0.079/0.086 | 0.511 → 0.468 |
+
+- **Slope at least doubles: 6 of 9** (3.2-5.6×). The three that miss have a
+  top decile that is mostly plateau rather than belt (flat share 0.47-0.57
+  even after): 24601 classic at 800 km (85 % land) and the two 3 000 km
+  classic and supercontinent worlds.
+- **Crest fraction above the lowlands: 9 of 9** (before: 2 of 9, by hairs).
+- **Channel fraction above the lowlands: 0 of 9 (before: 0 of 9). This bar
+  fails.** It is also the wrong proxy, measured. Inside the belt (weight ≥ 0.5,
+  rebuilt from the stress field, an input, on the four classic worlds) the D8
+  `A ≥ 32` fraction **falls** with dissection (71077345 0.178 → 0.091). A
+  smooth flank routes every cell down long parallel lines that all pass 32
+  cells, while a dissected range gathers flow into fewer, larger valleys.
+  Valley cells (strict profile minima), which track dissection directly,
+  exceed the lowlands on 7 of 9 (before: 0 of 9). This is an owner decision.
+
+### 7.4 What derives from height (regression check, nine worlds, off → on)
+
+From `cartalith-civ/tests/mountain_relief_civ.rs`:
+- **Rivers.** RV-1's B8 count of ocean cells on river paths is 0 → 0 on all
+  nine. The lake share of path cells moves both ways by world (5.57 → 2.36 %,
+  0.74 → 1.51 %, 5.05 → 8.84 %, 1.61 → 0.38 % …). **1-3-cell lakes** go from
+  24/16/21/28/27/33/61/61/32 to 30/10/11/27/24/25/57/57/34. That is within
+  GF-6's 1.25× bar on all nine, with 314159 earth exactly at it.
+- **Watersheds.** Each land cell's drainage terminal agrees on 97.4-99.2 % of
+  land. The land mask agrees on 99.09-99.98 % of cells; archetype worlds
+  re-anchor their sea level after volcanism, so their coasts move most.
+- **Settlements.** The count is unchanged at 40, except 24601 archipelago
+  (38 → 36). 28-68 % of sites lie within 3 cells of a site in the before world,
+  and the median nearest distance is 0-31 cells. Siting is re-run on new
+  terrain, so this is a re-siting, not a code change. Nothing in the siting
+  code changed.
+- **Landmarks.** Totals move by at most 10 per world (24601 classic 215 → 205). The kinds that move are
+  waterfalls (12 → 18 and 8 → 10, but 14 → 9 on 24601 classic), river confluences, harbours (24601
+  archipelago 9 → 4) and lakes (fewer lake landmarks where belt hollows were
+  filled: 16 → 10 on 24601 earth 3000).
+
+### 7.5 Zoom ladder and the target
+
+Frames at x1/x4/x16/x64 in Satellite relief and Natural Vibrant, before and
+after, beside the target, are `04_ladder_*.jpg`. Whole-map and x4 hillshades
+are `01`-`03`. They were looked at:
+- At x4 the belts read as ranges, with ridges, spurs and valleys and snow on
+  the crests (before: a smooth grey swell).
+- At x16 the valleys and spurs carry on; at x64 there is rock texture over the
+  dissected form.
+- At fit (x1) the belts are now textured grey bands. They are still narrower
+  and less extensive than the target's ranges, which cover much of each
+  continent; ours are where the plate boundaries are.
+- The mean luminance gradient on the belt pick rises at every rung, in both
+  looks, on all three worlds (for example 71077345 in Satellite relief, x4 /
+  x16 / x64: 2.06 / 1.98 / 2.82 → 3.82 / 3.72 / 5.41). So zoom gains detail at
+  every level there.
+
+Visible defects, stated:
+- Filled hollows read as flat tan basins at x4-x16.
+- At 3 000 km (1.5 km cells) the ridged term draws meandering, worm-like
+  crests at x16.
+- The Satellite relief look's slope rock (`rock_slope_deg` 6) now greys most
+  of every belt.
+
+### 7.6 Cost and golden effects
+
+- **Cost** (release, run alone, five alternating runs): 71077345 classic goes
+  from 3.09 s (3.08..3.12) to 6.44 s (6.42..6.47), and 314159 earth from
+  7.48 s (7.47..7.51) to 10.90 s (10.87..10.95). That is about +3.4 s per
+  2048 × 1311 world, almost all of it the dissection's six full-grid routings.
+  16 iterations (four routings, arm E) costs about a second less and draws
+  slightly softer valleys.
+- **Goldens.** No JS golden, `js_reference` path or pinned app digest moved
+  (`cargo test --workspace`). The only failures were two fixtures that need
+  the smooth-belt world, now pinned off with the reason given: `project_bridge`'s
+  substrate tests, whose road-edge fixture needs a straight 4-cell stretch,
+  and `gf0_geology_harness.rs`, whose GF numbers and pipeline replay predate
+  the term.

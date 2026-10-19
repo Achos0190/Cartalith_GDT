@@ -13,6 +13,7 @@ pub mod edifice_furrows;
 pub mod edifice_pits;
 pub mod fjord;
 pub mod geology;
+pub mod orogen;
 pub mod infer;
 pub mod landform;
 pub mod sculpt;
@@ -1971,6 +1972,7 @@ mod edifice_tests {
                 setting,
                 EdificeModel::Morphological,
                 None,
+                false,
             );
             (field, volc)
         };
@@ -2017,6 +2019,7 @@ fn stamp_one_volcano(
     shape: Option<EdificeShape>,
     setting: VolcanicSetting,
     mut trace: Option<&mut VolcanoTrace>,
+    soft_top: bool,
 ) {
     let h = (height_m / peak_m) * 0.9 * (1.0 - age * 0.5);
     let r = rad_cells.max(2.0);
@@ -2064,7 +2067,11 @@ fn stamp_one_volcano(
             let i = y * gw + x;
             add_rounded(field, i, add);
             let stored = field[i] as f64;
-            field[i] = if stored > 1.0 {
+            // `soft_top` (H2, app-side; `orogen::soft_ceiling`'s doc): the
+            // caller saturates the top smoothly after every stamp has landed,
+            // so the stamp keeps what it adds above 1 instead of cutting the
+            // summit flat. `false` is the reference's clip, by control flow.
+            field[i] = if stored > 1.0 && !soft_top {
                 1.0
             } else if stored < 0.0 {
                 0.0
@@ -2112,6 +2119,7 @@ fn place_sized_volcano(
     setting: VolcanicSetting,
     model: EdificeModel,
     trace: Option<&mut VolcanoTrace>,
+    soft_top: bool,
 ) -> Option<(f64, f64)> {
     if x < 0.0 || y < 0.0 || x >= gw as f64 - 1.0 || y >= gh as f64 - 1.0 {
         return None;
@@ -2149,6 +2157,7 @@ fn place_sized_volcano(
         shape,
         setting,
         trace,
+        soft_top,
     );
     Some((x, y))
 }
@@ -2228,6 +2237,7 @@ pub fn stamp_volcanoes_simple_shaped(
         volcanic_field,
         edifice,
         None,
+        false,
     )
 }
 
@@ -2236,6 +2246,10 @@ pub fn stamp_volcanoes_simple_shaped(
 /// (GF-1, `GEOLOGY_FIRST_SCOPE.md` §2.4). `None` is the untraced function by
 /// control flow; with `Some`, `field` and `volcanic_field` are bit-identical
 /// too, because the trace is only written, never read, here.
+///
+/// `soft_top` (H2, owner Ruling CU item 1; the engine passes
+/// `TectonicParams::orogen_relief`): `true` leaves what a stamp adds above 1
+/// for `orogen::soft_ceiling` to saturate, `false` is the reference's clip at 1.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_volcanoes_simple_traced(
     gw: usize,
@@ -2250,6 +2264,7 @@ pub fn stamp_volcanoes_simple_traced(
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
     mut trace: Option<&mut VolcanoTrace>,
+    soft_top: bool,
 ) {
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let bc: Vec<usize> = (0..boundary_mask.len())
@@ -2288,6 +2303,7 @@ pub fn stamp_volcanoes_simple_traced(
             VolcanicSetting::Unclassified,
             edifice,
             trace.as_deref_mut(),
+            soft_top,
         )
         .is_some()
         {
@@ -2395,6 +2411,7 @@ fn place_province_volcanoes(
     volc_age: f64,
     edifice: EdificeModel,
     mut trace: Option<&mut VolcanoTrace>,
+    soft_top: bool,
 ) {
     // The province `kind` the reference draws and then uses only for placement.
     // This is the whole of "the volcanic setting the placement lane classifies"
@@ -2434,6 +2451,7 @@ fn place_province_volcanoes(
                 setting,
                 edifice,
                 trace.as_deref_mut(),
+                soft_top,
             );
         }
         return;
@@ -2475,6 +2493,7 @@ fn place_province_volcanoes(
                 setting,
                 edifice,
                 trace.as_deref_mut(),
+                soft_top,
             );
         }
         return;
@@ -2526,6 +2545,7 @@ fn place_province_volcanoes(
             setting,
             edifice,
             trace.as_deref_mut(),
+            soft_top,
         );
         pc += 1;
     }
@@ -2554,6 +2574,7 @@ fn place_province_volcanoes(
             setting,
             edifice,
             trace.as_deref_mut(),
+            soft_top,
         );
         pc += 1;
     }
@@ -2657,6 +2678,7 @@ pub fn stamp_volcanoes_provinces_shaped(
         volcanic_field,
         edifice,
         None,
+        false,
     )
 }
 
@@ -2667,6 +2689,10 @@ pub fn stamp_volcanoes_provinces_shaped(
 /// new classification. `None` is the untraced function by control flow; with
 /// `Some`, `field` and `volcanic_field` are bit-identical, because the trace is
 /// only written here, never read.
+///
+/// `soft_top` (H2, owner Ruling CU item 1; the engine passes
+/// `TectonicParams::orogen_relief`): `true` leaves what a stamp adds above 1
+/// for `orogen::soft_ceiling` to saturate, `false` is the reference's clip at 1.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_volcanoes_provinces_traced(
     gw: usize,
@@ -2685,6 +2711,7 @@ pub fn stamp_volcanoes_provinces_traced(
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
     mut trace: Option<&mut VolcanoTrace>,
+    soft_top: bool,
 ) {
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let (conv, div) = classify_boundaries(boundary_mask, stress_field, boundary_type);
@@ -2758,6 +2785,7 @@ pub fn stamp_volcanoes_provinces_traced(
             volc_age,
             edifice,
             trace.as_deref_mut(),
+            soft_top,
         );
         remaining -= sub;
     }
@@ -4711,9 +4739,9 @@ mod volcano_trace_tests {
             let mut t = traced.then_some(&mut trace);
             // A big young edifice, then a small old one overlapping its flank.
             stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 32.0, 32.0, 10.0, 2000.0, 0.0, None,
-                VolcanicSetting::Arc, t.as_deref_mut());
+                VolcanicSetting::Arc, t.as_deref_mut(), false);
             stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 38.0, 32.0, 4.0, 500.0, 0.9, None,
-                VolcanicSetting::Hotspot, t.as_deref_mut());
+                VolcanicSetting::Hotspot, t.as_deref_mut(), false);
             (field, volc, trace)
         };
         let (f0, v0, _) = run(false);
@@ -4738,7 +4766,37 @@ mod volcano_trace_tests {
         let mut volc = vec![0f32; gw * gh];
         let mut t2 = VolcanoTrace::new(gw * gh);
         stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 10.0, 10.0, 4.0, 500.0, 0.5, None,
-            VolcanicSetting::Rift, Some(&mut t2));
+            VolcanicSetting::Rift, Some(&mut t2), false);
         assert_eq!(t2.winner_at(10 * gw + 10).map(|e| e.setting), Some(VolcanicSetting::Rift));
+    }
+}
+
+#[cfg(test)]
+mod orogen_soft_top_tests {
+    use super::*;
+
+    /// Protects: H2's stamp half (`soft_top`, Ruling CU item 1). On ground at
+    /// 0.95 a 3 000 m reference cone rises past 1: with `soft_top` off its
+    /// summit is clipped to exactly 1.0 (the reference); on, the stamp keeps
+    /// what it adds above 1 for `orogen::soft_ceiling` to saturate later, and
+    /// every cell below 1 is the same either way.
+    #[test]
+    fn soft_top_keeps_the_summit_the_clip_cuts() {
+        let (gw, gh) = (48usize, 48usize);
+        let run = |soft: bool| {
+            let mut field = vec![0.95f32; gw * gh];
+            let mut volc = vec![0f32; gw * gh];
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 24.0, 24.0, 10.0, 3000.0, 0.0, None, VolcanicSetting::Arc, None, soft);
+            field
+        };
+        let (clip, soft) = (run(false), run(true));
+        let max = |f: &[f32]| f.iter().copied().fold(f32::MIN, f32::max);
+        assert_eq!(max(&clip), 1.0);
+        assert!(max(&soft) > 1.2, "{}", max(&soft));
+        for (a, b) in clip.iter().zip(&soft) {
+            if *b <= 1.0 {
+                assert_eq!(a.to_bits(), b.to_bits());
+            }
+        }
     }
 }

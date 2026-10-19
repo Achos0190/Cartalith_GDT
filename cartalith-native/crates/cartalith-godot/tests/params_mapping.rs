@@ -661,6 +661,41 @@ fn a_save_without_the_rain_bspline_key_reloads_bilinear() {
     }
 }
 
+/// Protects: Ruling CU item 1's load rule -- a save written before `tect.orogen_relief` existed
+/// reloads with the term OFF (its belts were generated smooth), every other row of it still
+/// applies, and the key round-trips both ways once written.
+///
+/// The fixture's native block is the shape a pre-ruling save wrote: every row of the table
+/// except the new one (`save_state` of the pre-ruling app defaults with the key removed), not an
+/// empty object (`MISTAKES.md`, "Write a backward-compatibility test").
+#[test]
+fn a_save_without_the_orogen_relief_key_reloads_without_it() {
+    assert!(params::defaults().tect.orogen_relief, "the shipped app generates with it on");
+
+    let mut old = params::defaults();
+    old.tect.orogen_relief = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("tect.orogen_relief").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &state);
+    assert_eq!(n, rows, "every other row of a pre-ruling save still applies");
+    assert!(!p.tect.orogen_relief, "a pre-existing save must not silently gain ridged ranges");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.tect.orogen_relief = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["tect.orogen_relief"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.tect.orogen_relief = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.tect.orogen_relief, on);
+    }
+}
+
 /// Protects: a save lacking the `volc.fill_edifice_pits` key reloading with the pits unfilled
 /// (Ruling CO, 2026-10-18), while a saved true/false round-trips.
 ///
@@ -904,6 +939,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And the edifice pit fill (Ruling CO): a reference export never filled
     // (`a_save_without_the_fill_edifice_pits_key_reloads_unfilled`).
     expect.volc.fill_edifice_pits = false;
+    // And the orogen relief term (Ruling CU item 1): a reference export's belts
+    // are smooth (`a_save_without_the_orogen_relief_key_reloads_without_it`).
+    expect.tect.orogen_relief = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -970,6 +1008,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.geology_model && !parity.geology_model, "geology-first model, Ruling BH (GEOLOGY_FIRST_SCOPE.md §6.1)");
     assert!(app.climate.rain_bspline && !parity.climate.rain_bspline, "B-spline rain up-sample, Ruling CM");
     assert!(app.volc.fill_edifice_pits && !parity.volc.fill_edifice_pits, "edifice flank-pit fill, Ruling CO");
+    assert!(app.tect.orogen_relief && !parity.tect.orogen_relief, "orogen relief, Ruling CU item 1");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -983,8 +1022,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the nine must make the two identical --
-    // which catches a ninth divergence added without a ruling, in either
+    // And nothing else. Neutralising the ten must make the two identical --
+    // which catches an eleventh divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -996,10 +1035,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.geology_model = false;
     neutral.climate.rain_bspline = false;
     neutral.volc.fill_edifice_pits = false;
+    neutral.tect.orogen_relief = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         nine authorised fields"
+         ten authorised fields"
     );
 }
 
@@ -1007,13 +1047,15 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the nine shipped divergences -- the volcanism/crater ones -- are
+/// Three of the ten shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other six, `integrate_drainage`,
-/// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model`, `climate.rain_bspline` and
-/// `volc.fill_edifice_pits`, are left on in both worlds here (the pit fill is inert on the
-/// parity side, whose edifice model is off), so this measures only the three it names. (The pit
+/// path behind it is dead. The other seven, `integrate_drainage`,
+/// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model`, `climate.rain_bspline`,
+/// `volc.fill_edifice_pits` and `tect.orogen_relief`, are left on in both worlds here (the pit
+/// fill is inert on the parity side, whose edifice model is off), so this measures only the three
+/// it names. (The orogen term's reach is `cartalith-engine`'s
+/// `orogen_relief_is_off_on_the_parity_path_and_bounded_when_on`.) (The pit
 /// fill's reach is `cartalith-engine`'s `fill_edifice_pits_raises_only_edifice_ground`.) (The rain
 /// up-sample's reach is `cartalith-engine`'s `every_streak_switch_reaches_generation` and
 /// `rain_bspline_reaches_refresh_climate`.) (The blur flag's own

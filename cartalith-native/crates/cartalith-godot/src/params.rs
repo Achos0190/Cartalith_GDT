@@ -132,7 +132,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is nine flags (enumerated by
+/// baseline underneath it. Today that is ten flags (enumerated by
 /// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
 /// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
@@ -219,6 +219,12 @@ pub fn defaults() -> WorldParams {
     // measurement-only and have no `PARAMS` row (`StreakSpikeParams`' doc).
     // Written out, though it equals `WorldParams::defaults`.
     p.streak = cartalith_engine::StreakSpikeParams::default();
+    // Owner Ruling CU item 1 (2026-10-19; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`
+    // H1 and H2 at its §4 defaults): a ridged, kilometre-keyed relief term in
+    // the orogenic belts, and volcano summits that saturate smoothly instead of
+    // being clipped flat. Off in `WorldParams::defaults`, the goldens'
+    // baseline. See `TectonicParams::orogen_relief`.
+    p.tect.orogen_relief = true;
     p
 }
 
@@ -362,6 +368,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "tect.narrow_plate_base_blur", group: "tectonics", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Coastline leaves the plate outlines (v2.57 blur)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.tect.narrow_plate_base_blur), set_fn: |p, v| p.tect.narrow_plate_base_blur = v != 0.0 },
+    // No reference control: a port-only term (Ruling CU item 1). ON at the app
+    // boundary, OFF in `WorldParams::defaults`. A save without the key loads
+    // OFF (`apply_saved_state`).
+    ParamSpec { key: "tect.orogen_relief", group: "tectonics", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Ridged mountain ranges in the orogenic belts", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.tect.orogen_relief), set_fn: |p, v| p.tect.orogen_relief = v != 0.0 },
 
     // ---- volcanism & impacts --------------------------------------------
     ParamSpec { key: "volc.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 100.0, step: 1.0,
@@ -842,6 +854,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // No path: the source's `PLATE_BASE_BLUR_K` is a constant, not a `state`
     // key, so there is nowhere in the reference's `tect` block to write it.
     ("tect.narrow_plate_base_blur", ""),
+    // Port-only (Ruling CU item 1): the reference has no orogen relief term,
+    // so there is no `state.tect` key to write it to.
+    ("tect.orogen_relief", ""),
 
     ("volc.count", "volc.count"),
     ("volc.age", "volc.age"),
@@ -1087,6 +1102,10 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // is a constant there -- so this follows `integrate_drainage` here, not a
     // source loader.)
     p.tect.narrow_plate_base_blur = false;
+    // And the orogen relief term (Ruling CU item 1, 2026-10-19), the same way:
+    // every save without the key was generated with smooth belts and clipped
+    // summits, so a regenerate from its parameters reproduces them.
+    p.tect.orogen_relief = false;
     // And the glacial pass (Ruling AU). Every save this port has written since
     // `1f7c295` (2026-08-23) carries `passes.glacial`, so the key is missing
     // only from a reference-app export -- whose world was generated without

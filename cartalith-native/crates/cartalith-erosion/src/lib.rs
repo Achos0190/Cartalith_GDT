@@ -794,6 +794,37 @@ pub fn stream_power_kernel_refreshed(
     stream_power_core(fld, stress, resist, rain, w, h, p, None, None, None, Some(refresh_every));
 }
 
+/// [`stream_power_kernel`] with a **pinned** set of cells held at their
+/// heights (the bounded kernel's Dirichlet base level) **and** the routing
+/// rebuilt every `refresh_every` iterations (as [`stream_power_kernel_refreshed`]).
+///
+/// **What it is for.** The orogen dissection pass (owner Ruling CU item 1,
+/// `cartalith_engine`'s `orogen_dissect`): stream power run inside an
+/// orogenic belt only, everything outside it pinned, so the belt's valleys
+/// grade to its own forelands and coasts while the rest of the world does not
+/// move, with the routing refreshed so the drainage can reorganise around the
+/// relief it is cutting (a frozen tree only deepens the surface's first
+/// drainage; `GEOLOGY_FIRST_SCOPE.md` §5.10-§5.11).
+///
+/// **What it must never do.** Be reached from the parity path or any caller on
+/// `WorldParams::defaults()`: it is the shared core with both extras on, so
+/// every statement is the ported kernel's, but refreshing moves generated
+/// output by design.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_power_kernel_pinned_refreshed(
+    fld: &mut [f32],
+    stress: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    pinned: &[bool],
+    refresh_every: std::num::NonZeroUsize,
+) {
+    stream_power_core(fld, stress, resist, rain, w, h, p, Some(pinned), None, None, Some(refresh_every));
+}
+
 /// [`stream_power_kernel_rock`] with the routing refreshed every
 /// `refresh_every` iterations, as [`stream_power_kernel_refreshed`] does for
 /// the legacy kernel (`GEOLOGY_FIRST_SCOPE.md` §5.11).
@@ -1433,5 +1464,60 @@ mod tests {
         assert!((resist[2] - 0.5).abs() < 1e-6);
         // ex = 1.0, 0.9 + 2.0*1.0 = 2.9 -> clamped to the basement max of 1.0
         assert!((resist[3] - 1.0).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod pinned_refreshed_tests {
+    use super::*;
+
+    /// A 40 x 30 surface: a tilted plane with a bump and some hash-free
+    /// ripple, sea along the bottom edge; pinned outside a central box.
+    fn fixture() -> (Vec<f32>, Vec<bool>, usize, usize) {
+        let (w, h) = (40usize, 30usize);
+        let f: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f64, (i / w) as f64);
+                let bump = 0.25 * (-((x - 20.0).powi(2) + (y - 12.0).powi(2)) / 60.0).exp();
+                (0.7 - 0.01 * y + bump + 0.01 * ((x * 1.7).sin() * (y * 1.3).cos())) as f32
+            })
+            .collect();
+        let pinned: Vec<bool> = (0..w * h).map(|i| !((8..32).contains(&(i % w)) && (4..24).contains(&(i / w)))).collect();
+        (f, pinned, w, h)
+    }
+
+    fn params(iters: i32) -> StreamPowerParams {
+        StreamPowerParams { k: 0.03, uplift: 0.0, deposit: 0.0, climate_k: 0.0, iters, resist: 0.0, g: 1.0, world: false, sea: 0.2 }
+    }
+
+    /// Protects: the orogen dissection's kernel entry (Ruling CU item 1).
+    /// Pinned cells come out bit-identical; unpinned ground is incised; a
+    /// refresh interval at or above the iteration count never refreshes, so it
+    /// is exactly the pinned bounded kernel; and a shorter interval really
+    /// does re-route (the output differs).
+    #[test]
+    fn pinned_refreshed_holds_pins_and_refreshes() {
+        let (f0, pinned, w, h) = fixture();
+        let zeros = vec![0f32; w * h];
+        let run = |every: usize| {
+            let mut f = f0.clone();
+            stream_power_kernel_pinned_refreshed(&mut f, &zeros, &zeros, &zeros, w, h, &params(8), &pinned, std::num::NonZeroUsize::new(every).unwrap());
+            f
+        };
+        let frozen = run(8);
+        let mut bounded = f0.clone();
+        stream_power_kernel_bounded(&mut bounded, &zeros, &zeros, &zeros, w, h, &params(8), Some(&pinned), None);
+        assert_eq!(frozen, bounded, "refresh >= iters must be the bounded kernel");
+        let refreshed = run(2);
+        assert_ne!(refreshed, frozen, "a refresh every 2 iterations re-routed nothing");
+        let mut lowered = 0;
+        for i in 0..w * h {
+            if pinned[i] {
+                assert_eq!(refreshed[i].to_bits(), f0[i].to_bits(), "pinned cell {i} moved");
+            } else if refreshed[i] < f0[i] {
+                lowered += 1;
+            }
+        }
+        assert!(lowered > 50, "the unpinned box was barely incised: {lowered}");
     }
 }

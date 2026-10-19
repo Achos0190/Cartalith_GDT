@@ -1,0 +1,99 @@
+# Ruling CU item 1 -- orogen relief (tect.orogen_relief) measurements, 2026-10-19
+
+Harnesses (all #[ignore]d, committed): cartalith-godot/tests/mountain_relief.rs
+(HSTAT: the investigation's hstats + flats, pits, belt channel fraction, land and
+watershed agreement; COST), cartalith-civ/tests/mountain_relief_civ.rs (CIV:
+B8 river guards, lakes, settlements, landmarks), cartalith-godot/tests/
+zoom_detail_ladder.rs (ZD_STREAK=orogen_off for the "before" frames).
+App parameters (params::defaults), sea level 0.42, 2048 x 1311.
+HSTAT/CIV "gen" times are the debug test profile (opt-level 1); COST is release.
+
+## Switch-off identity
+orogen_off on 314159 earth, 24601 earth 3000, 71077345 classic: every HSTAT
+column equal to HEAD 747b94c3's, land_agree 1.00000, basin_agree 1.00000.
+
+## HSTAT before (switch off = HEAD). "flat" and "belt chan" come from a second
+## off run of the same build (same code path); "top" = top decile of land by height.
+HSTAT s314159_earth_800 land 0.301 p90 1706 p99 2786 | top slope p50 2.72 p90 16.03 gt30 0.032 flat 0.144 | rest slope p50 0.60 | crest 0.0483/0.0535 valley 0.0107/0.0398 chan 0.0678/0.1174 | pits 0.0006/0.0012 | lapstd 38.1 | clipped 0.0018 | gen 8.1s
+HSTAT s24601_archipelago_800 land 0.151 p90 3084 p99 3828 | top slope p50 0.98 p90 16.44 gt30 0.026 flat 0.225 | rest slope p50 3.44 | crest 0.0555/0.0594 valley 0.0144/0.0372 chan 0.0475/0.0939 | lapstd 64.8 | clipped 0.0050 | gen 10.9s
+HSTAT s24601_earth_3000 land 0.300 p90 1227 p99 2551 | top slope p50 0.83 p90 5.43 gt30 0.000 flat 0.433 | rest slope p50 0.28 | crest 0.0636/0.0757 valley 0.0225/0.0629 chan 0.0526/0.0972 | pits 0.0003/0.0014 | lapstd 88.9 | clipped 0.0000 | gen 8.1s
+HSTAT s483920_classic_800 land 0.594 p90 1807 p99 2318 | top slope p50 1.07 p90 7.18 gt30 0.015 flat 0.340 | rest slope p50 0.47 | crest 0.0485/0.0468 valley 0.0157/0.0370 chan 0.0829/0.1374 | belt chan 0.1122/0.1355 | lapstd 28.9 | clipped 0.0003 | gen 3.7s
+HSTAT s71077345_classic_800 land 0.583 p90 1468 p99 2644 | top slope p50 2.32 p90 10.02 gt30 0.012 flat 0.152 | rest slope p50 0.42 | crest 0.0458/0.0547 valley 0.0234/0.0416 chan 0.0964/0.1194 | pits 0.0006/0.0016 | belt chan 0.1783/0.1087 | lapstd 34.1 | clipped 0.0003 | gen 3.7s
+HSTAT s246371_earth_800 land 0.302 p90 1581 p99 2670 | top slope p50 2.82 p90 15.72 gt30 0.005 flat 0.049 | rest slope p50 0.48 | crest 0.0484/0.0527 valley 0.0099/0.0312 chan 0.0568/0.0995 | lapstd 26.7 | clipped 0.0000 | gen 7.2s
+HSTAT s24601_classic_800 land 0.849 p90 2818 p99 3046 | top slope p50 0.34 p90 4.13 gt30 0.004 flat 0.646 | rest slope p50 0.49 | crest 0.0544/0.0536 valley 0.0227/0.0384 chan 0.0809/0.1210 | belt chan 0.1553/0.1139 | lapstd 34.1 | clipped 0.0012 | gen 4.0s
+HSTAT s314159_classic_3000 land 0.739 p90 2344 p99 3240 | top slope p50 0.32 p90 2.38 gt30 0.000 flat 0.572 | rest slope p50 0.15 | crest 0.0534/0.0538 valley 0.0222/0.0452 chan 0.0803/0.1402 | belt chan 0.0708/0.1392 | lapstd 57.4 | clipped 0.0002 | gen 3.8s
+HSTAT s483920_supercontinent_3000 land 0.602 p90 669 p99 1909 | top slope p50 0.46 p90 5.20 gt30 0.000 flat 0.511 | rest slope p50 0.12 | crest 0.0503/0.0766 valley 0.0145/0.0606 chan 0.0663/0.0887 | lapstd 55.2 | clipped 0.0000 | gen 5.8s
+
+## HSTAT after (switch on, shipped tuning)
+HSTAT s314159_earth_800 land 0.304 p90 1956 p99 3078 | top slope p50 9.80 p90 20.86 gt30 0.039 flat 0.051 | rest slope p50 0.72 | crest 0.1464/0.0675 valley 0.0708/0.0576 chan 0.0477/0.1078 | pits 0.0000/0.0010 | lapstd 96.9 | clipped 0.0001 | rivers 34436 chans 13409 | belt - | land_agree 0.99278 | basin_agree 0.98654 | gen 12.0s
+HSTAT s24601_archipelago_800 land 0.151 p90 3140 p99 3654 | top slope p50 3.51 p90 13.27 gt30 0.015 flat 0.138 | rest slope p50 6.63 | crest 0.1203/0.0823 valley 0.0511/0.0567 chan 0.0390/0.0910 | pits 0.0005/0.0006 | lapstd 66.5 | clipped 0.0002 | rivers 9278 chans 4622 | belt - | land_agree 0.99091 | basin_agree 0.99172 | gen 15.1s
+HSTAT s24601_earth_3000 land 0.300 p90 1235 p99 2621 | top slope p50 2.64 p90 10.71 gt30 0.003 flat 0.387 | rest slope p50 0.28 | crest 0.1546/0.0828 valley 0.0811/0.0743 chan 0.0554/0.0929 | pits 0.0001/0.0013 | lapstd 233.3 | clipped 0.0000 | rivers 47734 chans 44845 | belt - | land_agree 0.99952 | basin_agree 0.97355 | gen 12.1s
+HSTAT s483920_classic_800 land 0.594 p90 1874 p99 2635 | top slope p50 5.98 p90 16.72 gt30 0.032 flat 0.086 | rest slope p50 0.51 | crest 0.1444/0.0570 valley 0.0811/0.0506 chan 0.0588/0.1288 | pits 0.0001/0.0011 | lapstd 80.4 | clipped 0.0001 | rivers 77473 chans 25840 | belt n 243207 chan 0.0804/0.1292 | land_agree 0.99967 | basin_agree 0.98740 | gen 7.6s
+HSTAT s71077345_classic_800 land 0.583 p90 1555 p99 2874 | top slope p50 7.52 p90 17.73 gt30 0.017 flat 0.038 | rest slope p50 0.46 | crest 0.1376/0.0648 valley 0.0891/0.0548 chan 0.0662/0.1081 | pits 0.0001/0.0013 | lapstd 89.5 | clipped 0.0000 | rivers 82565 chans 25543 | belt n 188047 chan 0.0908/0.1057 | land_agree 0.99975 | basin_agree 0.99244 | gen 7.5s
+HSTAT s246371_earth_800 land 0.301 p90 1781 p99 2999 | top slope p50 9.46 p90 21.17 gt30 0.026 flat 0.030 | rest slope p50 0.66 | crest 0.1518/0.0672 valley 0.0696/0.0506 chan 0.0416/0.0871 | pits 0.0000/0.0010 | lapstd 99.5 | clipped 0.0000 | rivers 29704 chans 13325 | belt - | land_agree 0.99927 | basin_agree 0.98858 | gen 11.2s
+HSTAT s24601_classic_800 land 0.849 p90 2835 p99 3225 | top slope p50 0.40 p90 8.51 gt30 0.009 flat 0.569 | rest slope p50 0.52 | crest 0.0828/0.0663 valley 0.0378/0.0537 chan 0.0775/0.1128 | pits 0.0010/0.0014 | lapstd 49.7 | clipped 0.0002 | rivers 99546 chans 33751 | belt n 171609 chan 0.1071/0.1095 | land_agree 0.99953 | basin_agree 0.98771 | gen 8.0s
+HSTAT s314159_classic_3000 land 0.739 p90 2345 p99 3473 | top slope p50 0.47 p90 7.52 gt30 0.000 flat 0.505 | rest slope p50 0.15 | crest 0.1305/0.0617 valley 0.0893/0.0545 chan 0.0700/0.1323 | pits 0.0003/0.0013 | lapstd 158.8 | clipped 0.0001 | rivers 67143 chans 70204 | belt n 146159 chan 0.0904/0.1289 | land_agree 0.99855 | basin_agree 0.97930 | gen 7.7s
+HSTAT s483920_supercontinent_3000 land 0.601 p90 676 p99 2077 | top slope p50 0.77 p90 9.85 gt30 0.001 flat 0.468 | rest slope p50 0.11 | crest 0.1181/0.0793 valley 0.0655/0.0643 chan 0.0793/0.0863 | pits 0.0002/0.0015 | lapstd 187.2 | clipped 0.0000 | rivers 80330 chans 70383 | belt - | land_agree 0.99809 | basin_agree 0.98314 | gen 9.6s
+
+## CIV off/on (B8 ocean-on-river-path stays 0 on every world)
+CIV s314159_earth_800 off: B8 ocean 0 lake% 5.572 small 24 (path 12580) lakes 50 | settlements 40 median_elev 1261 | landmarks 190 total | cliff=30 ford=24 gorge=8 harbour=16 lake=1 peak=24 ridge=20 river_confluence=14 rock_formation=20 spring=30 waterfall=3
+CIV s314159_earth_800 on : B8 ocean 0 lake% 2.361 small 30 (path 13256) lakes 49 | settlements 40 median_elev 1264 | within3 0.400 median_nn 12.2 | landmarks 194 total | lake:1->0 river_confluence:14->19
+CIV s24601_archipelago_800 off: B8 ocean 0 lake% 2.506 small 16 (path 4310) lakes 38 | settlements 38 median_elev 21 | landmarks 168 total | cliff=30 ford=24 gorge=8 harbour=9 peak=24 ridge=20 river_confluence=3 rock_formation=20 spring=30
+CIV s24601_archipelago_800 on : B8 ocean 0 lake% 2.345 small 10 (path 4477) lakes 26 | settlements 36 median_elev 25 | within3 0.278 median_nn 22.8 | landmarks 165 total | harbour:9->4 river_confluence:3->5
+CIV s24601_earth_3000 off: B8 ocean 0 lake% 0.933 small 21 (path 45441) lakes 76 | settlements 40 median_elev 527 | landmarks 248 total | cliff=30 ford=24 gorge=8 harbour=16 lake=16 peak=24 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=40
+CIV s24601_earth_3000 on : B8 ocean 0 lake% 0.714 small 11 (path 44567) lakes 41 | settlements 40 median_elev 446 | within3 0.525 median_nn 2.0 | landmarks 242 total | lake:16->10
+CIV s483920_classic_800 off: B8 ocean 0 lake% 0.995 small 28 (path 24211) lakes 58 | settlements 40 median_elev 1437 | landmarks 192 total | cliff=30 ford=24 gorge=8 harbour=8 peak=24 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=8
+CIV s483920_classic_800 on : B8 ocean 0 lake% 0.949 small 27 (path 25724) lakes 50 | settlements 40 median_elev 1448 | within3 0.350 median_nn 30.8 | landmarks 195 total | harbour:8->9 waterfall:8->10
+CIV s71077345_classic_800 off: B8 ocean 0 lake% 0.740 small 27 (path 24324) lakes 54 | settlements 40 median_elev 821 | landmarks 190 total | cliff=30 ford=24 gorge=8 lake=2 peak=24 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=12
+CIV s71077345_classic_800 on : B8 ocean 0 lake% 1.509 small 24 (path 25441) lakes 52 | settlements 40 median_elev 815 | within3 0.650 median_nn 0.0 | landmarks 196 total | waterfall:12->18
+CIV s246371_earth_800 off: B8 ocean 0 lake% 5.054 small 33 (path 10981) lakes 63 | settlements 40 median_elev 1320 | landmarks 193 total | cliff=30 ford=24 gorge=8 harbour=16 lake=3 peak=24 ridge=20 river_confluence=19 rock_formation=18 spring=30 waterfall=1
+CIV s246371_earth_800 on : B8 ocean 0 lake% 8.835 small 25 (path 13231) lakes 50 | settlements 40 median_elev 1327 | within3 0.425 median_nn 12.2 | landmarks 192 total | river_confluence:19->14 rock_formation:18->20 waterfall:1->3
+CIV s24601_classic_800 off: B8 ocean 0 lake% 1.611 small 61 (path 32162) lakes 120 | settlements 40 median_elev 3 | landmarks 215 total | cliff=30 ford=24 gorge=8 harbour=16 lake=9 peak=24 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=14
+CIV s24601_classic_800 on : B8 ocean 0 lake% 0.375 small 57 (path 33563) lakes 103 | settlements 40 median_elev 7 | within3 0.525 median_nn 1.4 | landmarks 205 total | lake:9->4 waterfall:14->9
+CIV s314159_classic_3000 off: B8 ocean 0 lake% 10.507 small 61 (path 68791) lakes 112 | settlements 40 median_elev 1990 | landmarks 249 total | cliff=30 ford=24 gorge=8 harbour=16 lake=16 peak=24 portage=1 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=40
+CIV s314159_classic_3000 on : B8 ocean 0 lake% 8.860 small 57 (path 69738) lakes 104 | settlements 40 median_elev 1879 | within3 0.500 median_nn 5.4 | landmarks 249 total | 
+CIV s483920_supercontinent_3000 off: B8 ocean 0 lake% 11.253 small 32 (path 70224) lakes 115 | settlements 40 median_elev 260 | landmarks 246 total | cliff=30 ford=24 gorge=8 harbour=16 lake=16 peak=24 ridge=20 river_confluence=20 rock_formation=20 spring=30 waterfall=38
+CIV s483920_supercontinent_3000 on : B8 ocean 0 lake% 10.884 small 34 (path 70149) lakes 105 | settlements 40 median_elev 209 | within3 0.675 median_nn 0.0 | landmarks 246 total | 
+
+## LADDER mean |luminance gradient| and luminance std, belt pick (ZD_PICKS), law 1, ZD_APP=1
+world look rung: mean|grad| off -> on ; lum std off -> on
+s71077345_classic_800km satellite x4: grad 2.06 -> 3.82 ; std 34.6 -> 35.8
+s71077345_classic_800km satellite x16: grad 1.98 -> 3.72 ; std 30.7 -> 31.1
+s71077345_classic_800km satellite x64: grad 2.82 -> 5.41 ; std 29.1 -> 38.3
+s71077345_classic_800km vibrant x4: grad 1.12 -> 2.20 ; std 28.0 -> 28.2
+s71077345_classic_800km vibrant x16: grad 1.26 -> 2.51 ; std 26.9 -> 33.1
+s71077345_classic_800km vibrant x64: grad 1.79 -> 3.59 ; std 21.4 -> 26.8
+s314159_earth_800km satellite x4: grad 2.00 -> 3.57 ; std 55.2 -> 48.9
+s314159_earth_800km satellite x16: grad 3.74 -> 4.46 ; std 44.2 -> 37.5
+s314159_earth_800km satellite x64: grad 8.08 -> 8.73 ; std 58.4 -> 54.5
+s314159_earth_800km vibrant x4: grad 1.67 -> 2.63 ; std 42.4 -> 48.0
+s314159_earth_800km vibrant x16: grad 2.25 -> 3.07 ; std 59.6 -> 59.2
+s314159_earth_800km vibrant x64: grad 5.43 -> 6.15 ; std 72.2 -> 74.3
+s24601_earth_3000km satellite x4: grad 1.94 -> 2.58 ; std 40.2 -> 41.3
+s24601_earth_3000km satellite x16: grad 4.21 -> 4.98 ; std 25.9 -> 34.9
+s24601_earth_3000km satellite x64: grad 8.36 -> 8.90 ; std 41.9 -> 48.1
+s24601_earth_3000km vibrant x4: grad 1.14 -> 1.55 ; std 25.9 -> 28.1
+s24601_earth_3000km vibrant x16: grad 2.13 -> 2.82 ; std 19.0 -> 26.9
+s24601_earth_3000km vibrant x64: grad 5.26 -> 5.78 ; std 27.9 -> 35.7
+
+## COST (release, run alone, five alternating runs per arm, median (min..max))
+COST s314159_earth_800: off 7.48 s (7.47..7.51), on 10.90 s (10.87..10.95)
+COST s71077345_classic_800: off 3.09 s (3.08..3.12), on 6.44 s (6.42..6.47)
+
+## Tuning arms on 71077345 classic 800 (top-decile slope p50 / pits / gen, debug profile)
+v1  ridged term on the raw (unspread) uplift, value noise:     2.41 / -      / 3.8 s  ridges only on the swell's crest
+v2  belt spread 30 km, lift 900 m, amp 2200 m, no dissection:  5.26 / -      / 3.8 s  rectilinear value-noise crests
+v3  + dissection 12 it / K 0.012 / refresh 3:                  6.92 / -      / 6.2 s
+v5  + per-edifice vertical fit, lift 400 (reverted: coastal shields shrank, 4 317 land->sea cells): 6.36 / 0.0025 / 6.4 s
+A   30 it / K 0.02 / refresh 3, amp 2200:                      7.34 / 0.0007 / 10.3 s
+B   30 it / K 0.012 / refresh 2 / uplift 0.004:                7.24 / 0.0016 / 13.0 s
+C   30 it / K 0.02, amp 1200:                                  5.51 / 0.0005 / 10.4 s
+D   24 it / K 0.03 / refresh 2, amp 1500:                      6.34 / 0.0004 / 11.1 s
+E   16 it / K 0.03 / refresh 4, amp 1500:                      5.86 / 0.0009 / 6.4 s
+F   = A at half resolution:                                    6.81 / 0.0035 / 5.3 s  softer, more pits
+G   = D at half resolution:                                    5.72 / 0.0027 / 5.6 s
+then gradient noise (Perlin) for the ridged term and the late belt fill; wavelength 40 -> 20 km
+with 24 it / K 0.03 / refresh 4 (shipped): 7.52 on 71077345 (40 km: 5.72), flats 0.038.
+Before the late fill, 1-3-cell lakes rose 2.3-8x on every world (e.g. 24 -> 131, 61 -> 355);
+the belt fill brought them back; the enclosed below-sea gorge floors (archipelago 16 -> 97)
+needed the open-sea test in the fill mask.

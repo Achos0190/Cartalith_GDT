@@ -132,7 +132,8 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     // `carve_off`, `edifice_off` (`volc.edifice_model`), and `rain_bil`, the
     // reference's bilinear rain up-sample the app ran before Ruling CM
     // (`climate.rain_bspline` off), and `pits_unfilled`, the app before
-    // Ruling CO's flank-pit fill (`volc.fill_edifice_pits` off). Unset = the
+    // Ruling CO's flank-pit fill (`volc.fill_edifice_pits` off), and
+    // `orogen_off`, the app before Ruling CU item 1 (`tect.orogen_relief` off). Unset = the
     // shipped world. An unknown token is refused, so a typo cannot render the
     // head world under an arm's name (the retired `rain_bs`, `sub<N>`,
     // `rho8`, `plain_d8`, `gully_off`, `lumps_off`, `a_km`, `c_fill` and
@@ -147,6 +148,8 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
                 "edifice_off" => p.volc.edifice_model = false,
                 // Ruling CO's before: the shipped flank-pit fill off.
                 "pits_unfilled" => p.volc.fill_edifice_pits = false,
+                // Ruling CU item 1's before: the orogen relief term off.
+                "orogen_off" => p.tect.orogen_relief = false,
                 other => panic!("ZD_STREAK: unknown switch {other}"),
             }
         }

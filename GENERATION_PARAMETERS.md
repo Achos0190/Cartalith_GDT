@@ -29,7 +29,7 @@ tables — `PARAMS` (key, group, kind, range, step, label, unit,
 in the reference's own `state` object, `""` when it does not) — not retyped
 by hand or copied from an earlier revision of this file. To regenerate it:
 `grep -c "ParamSpec { key:" crates/cartalith-godot/src/params.rs` for the row
-count (**109** on 2026-10-18, after `volc.fill_edifice_pits` (Ruling CO); 108 earlier that day, after `climate.rain_bspline` (Ruling CM); **100** on 2026-09-24; 99 on 2026-09-23, before `tect.narrow_plate_base_blur` landed in `a74b35c`), then walk `PARAMS` in file order for the
+count (**110** on 2026-10-19, after `tect.orogen_relief` (Ruling CU item 1); 109 on 2026-10-18, after `volc.fill_edifice_pits` (Ruling CO); 108 earlier that day, after `climate.rain_bspline` (Ruling CM); **100** on 2026-09-24; 99 on 2026-09-23, before `tect.narrow_plate_base_blur` landed in `a74b35c`), then walk `PARAMS` in file order for the
 per-row facts and `JS_PATHS` for which keys are genuinely this port's own.
 
 **The two "has no reference" signals are not the same question**, and both
@@ -37,7 +37,7 @@ are recorded per row rather than collapsed into one. `reference_control: ""`
 means the reference never gave a user a *control* for the field (the field
 can still exist in `state`, e.g. `climate.current_k` does). `JS_PATHS`
 carrying `""` means the reference's saved `state` has **no path** for the
-key — the stronger claim. **40** keys carry `""` on 2026-10-18
+key — the stronger claim. **41** keys carry `""` on 2026-10-19 (40 on 2026-10-18, before `tect.orogen_relief`, Ruling CU item 1: the reference has no orogen relief term)
 (`grep -cE '^\s*\("[^"]+", ""\),' crates/cartalith-godot/src/params.rs`); the
 list that follows is the **31** counted 2026-09-24, and the nine added since
 are the six geology-first keys (`geology_model`, `geology_processes`,
@@ -277,13 +277,13 @@ is non-empty, that is a bug in the caller, not user error.
 to be the same call and no longer are, see below), and `generate()` overwrites
 only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
 An instance nobody calls a setter on therefore builds a `WorldParams`
-byte-identical to the one the old code built inline, **except for the nine
+byte-identical to the one the old code built inline, **except for the ten
 fields below**.
 
-**The nine deliberate divergences** (this table listed six until
+**The ten deliberate divergences** (this table listed six until
 2026-10-18; `geology_model`, Ruling BH, was already enumerated by the test
 below but missing here; `volc.fill_edifice_pits` is the ninth, Ruling CO,
-2026-10-18), each an owner ruling, all turned on in
+2026-10-18; `tect.orogen_relief` the tenth, Ruling CU item 1, 2026-10-19), each an owner ruling, all turned on in
 `params::defaults()` and all left `false` in `WorldParams::defaults` — the
 goldens' own parity baseline:
 
@@ -298,6 +298,7 @@ goldens' own parity baseline:
 | `geology_model` | owner Ruling BH (2026-09-27; `GEOLOGY_FIRST_SCOPE.md` §6.1) | the geology-first lithology column is built and stored with every new world; no process reads it while `geology_processes` is off |
 | `climate.rain_bspline` | owner Ruling CM (2026-10-18; `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)) | the rain field and the two moisture boosts are up-sampled from the weather grid by a C2 cubic B-spline instead of the reference's bilinear `bilC`, removing a square crease lattice about `gw / 240` cells apart (lattice index 2.617 → 0.984 on five app worlds). It moves every app world's rain and everything downstream of it (flow, rivers, biomes); before/after measurements in `STATUS.md`, 2026-10-18 |
 | `volc.fill_edifice_pits` | owner Ruling CO (2026-10-18; `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)) | the closed hollows the morphological edifice's gullies leave on volcano flanks are filled in the final height field (4-connected Priority-Flood+ε, summits kept). Five 800 km app worlds: 1-3-cell lakes on edifices 15/41/170/5/55 → 11/4/10/0/10, all small lakes 31/61/176/33/87 → 27/24/16/28/42, ocean on river paths 0 → 0, rivers unchanged, outlets within 5 cells 99.57-100 %; moves only `field` on edifice ground (`cartalith_terrain::edifice_pits`); before/after in `STATUS.md`, 2026-10-18 |
+| `tect.orogen_relief` | owner Ruling CU item 1 (2026-10-19; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` H1 and H2 at its §4 defaults, measured in its §7) | a ridged, dissected mountain-range term in the orogenic belts, before volcanism: `compute_height`'s uplift term spread into a belt, lifted 400 m and roughened by a kilometre-keyed ridged multifractal (`cartalith_terrain::orogen`), cut into dendritic valleys by stream power with refreshed routing inside the belt only (`orogen_dissect`), its closed hollows filled in the final field; and volcano summits and crests saturate smoothly toward 1 (`orogen::soft_ceiling`) instead of being clipped flat. Moves every app world's height in and near its belts and everything downstream (rivers, lakes, settlements, landmarks); the cost, measured in release and alone, is about +3.4 s per 2048 x 1311 world (71077345 3.09 → 6.44 s, 314159 earth 7.48 → 10.90 s; the investigation's §7.6) |
 
 Those defaults live at this one boundary specifically so the parity baseline
 underneath them stays untouched. Every other parameter is unaffected, and
@@ -438,6 +439,7 @@ The height formula these feed:
 | `tect.resist` | `tect.resist` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `resist`, raw 0-100, `v/100` | Erodibility spread by rock type in the stream-power pass: old shields resist incision (5-30% rate), young volcanic arcs erode at full rate. Filed under `tectonics` because `params.rs` files it there (it is `TectonicParams::resist`), but only the stream-power pass reads it. | Erosion only (`StreamPowerParams::resist`, at every `stream_power_kernel` call). `compute_resistance` builds the per-rock field without it; this column named it until 2026-09-24 | — full regenerate only |
 | `tect.dynamic_lithology` | `tect.dynamic_lithology` | bool | `false` | — | `dynLithChk` | Exhumation hardening: after erosion, re-derives the resistance field so stripped-down crust exposes more resistant rock. Reference default off. | Erosion (`recompute_resistance_after_erosion`, gated on every erosion pass) | — full regenerate only |
 | `tect.narrow_plate_base_blur` | `tect.narrow_plate_base_blur` | bool | `false`¹ | — | **—** | Blurs the piecewise-constant plate-base field at `plate_base_blur_r` = `max(2, blur_r·K)` with the source's v2.57 `K = PLATE_BASE_BLUR_K = 0.18` instead of the frozen snapshots' `0.35` (`PLATE_BASE_BLUR_K_V2_10`), so the noise term can carry the coast off the plate polygons. The source has it as a constant, not a control. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`** and for any save that does not carry the key. Added `a74b35c`, 2026-09-24 | Tectonics (plate-base blur, CPU and GPU `base_field_blur`) | — full regenerate only |
+| `tect.orogen_relief` | `tect.orogen_relief` | bool | `false`¹ | — | **—** | Ruling CU item 1: adds a ridged, dissected relief term to the orogenic belts before volcanism (belt from `compute_height`'s uplift term spread 30 km, a 400 m lift, a kilometre-keyed ridged multifractal of 1 500 m amplitude, 24 iterations of in-belt stream power with the routing rebuilt every 4, a late Priority-Flood+ε fill of the belt's closed hollows), and replaces the clip of volcano summits at 1 with a smooth saturation (`orogen::soft_ceiling`, knee 0.9). Port-only; the reference has no such term. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`** and for any save that does not carry the key. Added 2026-10-19 | Tectonics (after `normalize_field`), Volcanism (stamp clip), final field (belt fill) | — full regenerate only |
 | `tect.lloyd` | `tect.lloyd` | int | `2` | 0 .. 8, step 1 | **—** | Lloyd-relaxation passes over the plate centroids before Voronoi assignment. More = more evenly sized, less clustered plates. The reference stores it in `state.tect` but never gave it a control; range is this port's own judgement. | Tectonics (`build_plates` Lloyd relaxation) | — full regenerate only |
 
 ## Group `volcanism` — Volcanism & impacts
@@ -457,11 +459,11 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
 | `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
-¹ All eight ¹-marked flags (`integrate_drainage` in the `world` group, `climate.rain_bspline` in `weather`,
-`tect.narrow_plate_base_blur` in `tectonics`, `passes.glacial` in `erosion`, and the four above) share one shape, and the `Default` column gives
+¹ All nine ¹-marked flags (`integrate_drainage` in the `world` group, `climate.rain_bspline` in `weather`,
+`tect.narrow_plate_base_blur` and `tect.orogen_relief` in `tectonics`, `passes.glacial` in `erosion`, and the four above) share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
 reference's own path byte-for-byte and is the goldens' parity baseline, while
-the **shipped app** defaults all eight `true` at the
+the **shipped app** defaults all nine `true` at the
 `cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
 defaults" above for why the two differ, and
 `exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).

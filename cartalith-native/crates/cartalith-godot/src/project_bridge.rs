@@ -9185,6 +9185,13 @@ mod substrate_tests {
             p.tect.seed = 24601;
             p.use_gpu = false;
             p.civ.villages = true;
+            // The orogen relief term (Ruling CU item 1) is pinned OFF for this
+            // fixture: these tests are about saving and reopening a project, not
+            // about terrain, and `a_reopened_project_plans_over_the_saved_road_edges`
+            // needs a straight road-edge-only stretch of at least 4 cells, which
+            // this seed's smooth-belt world has and its ridged world does not
+            // (measured 2026-10-19: "no stretch of 4 road-edge-only cells").
+            p.tect.orogen_relief = false;
             let ws = cartalith_engine::generate_terrain(&p);
             let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
             let civ = crate::compute_civilisation(
