@@ -107,6 +107,20 @@ const PACK_MARKER_ART := true
 ## engine's own default is off; `setup()` hands this to the bridge, which
 ## applies it before every texture build.
 const PACK_FEATURE_ICONS := true
+## Ruling CR's switched sprite-chain fix (2026-10-18), as the app sets it.
+## `PACK_SPRITE_AREA_BLIT`: a pack sprite baked into the map texture is
+## drawn with a premultiplied area filter instead of one bilinear sample
+## per pixel (thin strokes stop breaking up, no dark fringe); it reaches the
+## screen only where a sprite is still baked, which with
+## `PACK_FEATURE_ICONS` on is none of the feature icons.
+## `PACK_PREMULTIPLIED_BAKE`: the asset library's bakes (pack export,
+## thumbnails, REFINE) resample and composite in premultiplied alpha, so a
+## soft-edged sprite survives export -> open -> export byte for byte. Both
+## are a disclosed re-baseline (`DECISIONS.md` §7p); the engine's own
+## defaults are off, which keeps every Rust pin. `setup()` hands them to the
+## bridge.
+const PACK_SPRITE_AREA_BLIT := true
+const PACK_PREMULTIPLIED_BAKE := true
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. Since `LOD_DETAIL_SCOPE.md` LOD-D2 a tile texture IS map pixels
 ## (`renderBiomeTileRGBA`'s own output), so the shader draws it; it keeps
@@ -632,6 +646,8 @@ func setup(bridge: EngineBridge) -> void:
 	## AP-5 (Ruling CQ Q3): the engine's feature-icon switch, before any
 	## texture is built (the bridge applies it at every build).
 	bridge.feature_icon_overlay = PACK_FEATURE_ICONS
+	bridge.sprite_area_blit = PACK_SPRITE_AREA_BLIT
+	bridge.premultiplied_bake = PACK_PREMULTIPLIED_BAKE
 	if _info != null:
 		_info.bind(bridge)
 	## A good run repaints everything (`refresh()` -> `reset_view()` -> `_update_lod()`); a FAILED

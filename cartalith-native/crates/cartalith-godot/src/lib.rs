@@ -6220,6 +6220,14 @@ struct WorldGen {
     /// whose `engine_bridge.gd` sets it from `viewport_host.gd`'s
     /// `PACK_FEATURE_ICONS` before every texture build).
     feature_icon_overlay: bool,
+    /// Ruling CR's switched blit fix ([`pack::SpriteFilter`]): `true` bakes
+    /// feature sprites into the raster with the premultiplied area filter,
+    /// `false` with the shipped single bilinear sample. **`false` by
+    /// default** (the engine, every test, every embedder), `true` in the app
+    /// (`engine_bridge.gd` sets it from `viewport_host.gd`'s
+    /// `PACK_SPRITE_AREA_BLIT` before every texture build), the same
+    /// off-in-engine / on-in-app split as `feature_icon_overlay`.
+    sprite_area_blit: bool,
     /// AP-5: the last `build_color_texture`'s sprite placements (glyph
     /// fallbacks excluded: those stay baked), in painter's order. Empty with
     /// the switch off or no pack. A `RefCell` because `build_color_texture`
@@ -7115,6 +7123,7 @@ impl IRefCounted for WorldGen {
             trait_textures: std::collections::HashMap::new(),
             marker_textures: std::cell::RefCell::new(std::collections::HashMap::new()),
             feature_icon_overlay: false,
+            sprite_area_blit: false,
             feature_sprites: std::cell::RefCell::new(Vec::new()),
             feature_gen: std::cell::Cell::new(0),
             feature_textures: std::cell::RefCell::new(std::collections::HashMap::new()),
@@ -10519,6 +10528,43 @@ impl WorldGen {
         self.feature_icon_overlay
     }
 
+    /// Ruling CR's blit switch, see [`WorldGen::sprite_area_blit`] (the
+    /// field). Takes effect at the next `build_color_texture`; rebuilds
+    /// nothing itself.
+    #[func]
+    fn set_sprite_area_blit(&mut self, on: bool) {
+        self.sprite_area_blit = on;
+    }
+
+    /// The blit switch as it stands (`false` unless something turned it on).
+    #[func]
+    fn sprite_area_blit(&self) -> bool {
+        self.sprite_area_blit
+    }
+
+    /// The [`pack::SpriteFilter`] the blit switch selects.
+    fn sprite_filter(&self) -> pack::SpriteFilter {
+        if self.sprite_area_blit { pack::SpriteFilter::Area } else { pack::SpriteFilter::Bilinear }
+    }
+
+    /// Ruling CR's bake switch: `true` makes every bake the asset library
+    /// makes (export, thumbnails, the REFINE verbs' bakes) premultiplied
+    /// ([`cartalith_assets::BakeFilter::Premultiplied`]), `false` the
+    /// shipped straight bake. The session starts `false`; the app turns it
+    /// on (`engine_bridge.gd`, from `viewport_host.gd`'s
+    /// `PACK_PREMULTIPLIED_BAKE`), so its exported soft-edged sprites
+    /// survive export -> open -> export byte for byte. Not saved.
+    #[func]
+    fn as_set_premultiplied_bake(&mut self, on: bool) {
+        self.asset_library.bake_filter = if on { cartalith_assets::BakeFilter::Premultiplied } else { cartalith_assets::BakeFilter::Straight };
+    }
+
+    /// The bake switch as it stands.
+    #[func]
+    fn as_premultiplied_bake(&self) -> bool {
+        self.asset_library.bake_filter == cartalith_assets::BakeFilter::Premultiplied
+    }
+
     /// Keep one texture build's feature placements for the overlay: the
     /// sprite items when the switch is on, nothing otherwise. Bumps
     /// `feature_gen` when the stored list changes, so an unchanged empty list
@@ -12379,10 +12425,12 @@ impl WorldGen {
         // resolution, so they stay sharp at x16 and x64 and are not lost
         // under the deep-zoom tiles (which never carried them: measured
         // 2026-10-19, `_ap5_probe`). Only glyph fallbacks stay baked. Off,
-        // this is `composite_map_icons` exactly.
+        // and with `sprite_area_blit` off, this is `composite_map_icons`
+        // exactly; `sprite_area_blit` on (the app) bakes the sprites with
+        // Ruling CR's premultiplied area filter instead.
         let placed = self.asset_pack.as_ref().map(|loaded| {
             let placed = pack::place_feature_icons(field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
-            pack::composite_placed_features(&mut bytes, gw, gh, &placed, loaded, !self.feature_icon_overlay);
+            pack::composite_placed_features(&mut bytes, gw, gh, &placed, loaded, !self.feature_icon_overlay, self.sprite_filter());
             placed
         });
         self.store_feature_placements(placed.as_deref());
@@ -12424,7 +12472,7 @@ impl WorldGen {
             // The same placements as the base texture's (one placement pass
             // per build, not two) and the same switch.
             if let (Some(loaded), Some(placed)) = (self.asset_pack.as_ref(), placed.as_deref()) {
-                pack::composite_placed_features(&mut t, gw, gh, placed, loaded, !self.feature_icon_overlay);
+                pack::composite_placed_features(&mut t, gw, gh, placed, loaded, !self.feature_icon_overlay, self.sprite_filter());
             }
             if icons {
                 render::apply_color_space(self.color_space, &mut t);

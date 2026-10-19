@@ -141,16 +141,16 @@ fn the_overlay_switch_bakes_only_glyph_fallbacks() {
     let mut all = vec![255u8; n * n * 3];
     pack::composite_map_icons(&mut all, &f, &t, &r, n, n, 0.30, 7, &loaded);
     let mut both = vec![255u8; n * n * 3];
-    pack::composite_placed_features(&mut both, n, n, &placed, &loaded, true);
+    pack::composite_placed_features(&mut both, n, n, &placed, &loaded, true, pack::SpriteFilter::Bilinear);
     assert_eq!(all, both, "sprites: true is the baked composite");
 
     let mut glyph_only = vec![255u8; n * n * 3];
-    pack::composite_placed_features(&mut glyph_only, n, n, &placed, &loaded, false);
+    pack::composite_placed_features(&mut glyph_only, n, n, &placed, &loaded, false, pack::SpriteFilter::Bilinear);
     assert_ne!(glyph_only, vec![255u8; n * n * 3], "the glyph fallbacks are still baked");
     // Only glyphs: the same as compositing a list with the sprites removed.
     let only: Vec<_> = placed.iter().filter(|p| p.art == FeatureArt::Glyph).cloned().collect();
     let mut want = vec![255u8; n * n * 3];
-    pack::composite_placed_features(&mut want, n, n, &only, &loaded, true);
+    pack::composite_placed_features(&mut want, n, n, &only, &loaded, true, pack::SpriteFilter::Bilinear);
     assert_eq!(glyph_only, want, "sprites: false draws exactly the glyphs");
 
     // A world of sprites only (the plain fixture: no rule without art):
@@ -160,7 +160,7 @@ fn the_overlay_switch_bakes_only_glyph_fallbacks() {
     let p2 = pack::place_feature_icons(&f2, &t2, &r2, 96, 96, 0.42, 7, &plain);
     assert!(!p2.is_empty() && p2.iter().all(|p| p.art != FeatureArt::Glyph));
     let mut b2 = vec![123u8; 96 * 96 * 3];
-    pack::composite_placed_features(&mut b2, 96, 96, &p2, &plain, false);
+    pack::composite_placed_features(&mut b2, 96, 96, &p2, &plain, false, pack::SpriteFilter::Bilinear);
     assert!(b2.iter().all(|v| *v == 123), "no glyph, so the switch leaves the raster untouched");
 }
 

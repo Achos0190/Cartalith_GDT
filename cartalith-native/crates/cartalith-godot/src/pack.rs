@@ -590,6 +590,29 @@ fn sample_bilinear(img: &DecodedImage, u: f64, v: f64) -> [f64; 4] {
     out
 }
 
+/// How [`Canvas::blit_sprite`] resamples a sprite into the map raster.
+///
+/// Ruling CR (2026-10-18, last paragraph) set the blit fix aside as "a
+/// separate, cheaper change behind a switch"; `MISTAKES.md`'s "Change
+/// generated output" row is why it is a switch. `Bilinear` is the default,
+/// today's bytes (and what [`composite_map_icons`], the tests' pinned one-call
+/// path, always uses); the app turns `Area` on through
+/// `WorldGen::set_sprite_area_blit` (`viewport_host.gd`'s
+/// `PACK_SPRITE_AREA_BLIT`), a disclosed re-baseline of the baked feature
+/// icons (`DECISIONS.md` §7p). With AP-5's overlay on, the app bakes no
+/// feature sprite at all, so the switch reaches the screen only with that
+/// overlay off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpriteFilter {
+    /// One straight-alpha bilinear sample at each pixel centre
+    /// ([`sample_bilinear`]); pixels whose centre is outside the rectangle
+    /// are skipped.
+    #[default]
+    Bilinear,
+    /// [`Canvas::blit_sprite_area`]: exact premultiplied area average.
+    Area,
+}
+
 /// A tiny software rasterizer over the RGB8 (no destination alpha) map
 /// buffer — just enough primitives for [`blit_sprite`] and
 /// [`draw_icon_glyph`], bundling `bytes`/`gw`/`gh` once instead of
@@ -627,8 +650,16 @@ impl Canvas<'_> {
     /// anchor-agnostic and the anchoring belongs to whichever `*_rect` helper
     /// the caller chose. Missed by the lane that added the second caller, in
     /// the file it was editing.
-    fn blit_sprite(&mut self, img: &DecodedImage, rect: cartalith_assets::SpriteRect) {
+    ///
+    /// `filter` picks the resample ([`SpriteFilter`]): `Bilinear` is the
+    /// shipped single straight-alpha sample per pixel, byte for byte;
+    /// `Area` is [`Canvas::blit_sprite_area`].
+    fn blit_sprite(&mut self, img: &DecodedImage, rect: cartalith_assets::SpriteRect, filter: SpriteFilter) {
         if rect.dw <= 0.0 || rect.dh <= 0.0 {
+            return;
+        }
+        if filter == SpriteFilter::Area {
+            self.blit_sprite_area(img, rect);
             return;
         }
         let x0 = rect.dx.floor().max(0.0) as i64;
@@ -644,6 +675,85 @@ impl Canvas<'_> {
                 }
                 let s = sample_bilinear(img, u, v);
                 self.blend_px(px, py, (s[0], s[1], s[2]), s[3] / 255.0);
+            }
+        }
+    }
+
+    /// Ruling CR's switched blit fix: every destination pixel is the exact
+    /// **premultiplied area average** of the source texels its square covers,
+    /// composited premultiplied (`out = c_premul + dst * (1 - a)`).
+    ///
+    /// Why: a feature sprite is 256² drawn at 29-49 grid px (5-9x
+    /// minification), and one bilinear sample per pixel reads about one source
+    /// texel in six to eighty, so a 1-2 px stroke is hit or missed by chance
+    /// (`LINEART_METHODS_RESEARCH_2026-10-18.md` §1: ink kept 0.31-0.45 by the
+    /// sample, 0.55-0.81 by an area filter of the same bake). The straight-
+    /// alpha sample also mixes a transparent texel's RGB (usually black) into
+    /// the edge, a dark fringe, which premultiplying removes.
+    ///
+    /// Coverage at the rectangle's edge falls out of the same sum: a pixel
+    /// half inside the rectangle averages over its whole square, so its
+    /// alpha halves (the sample path instead drew or skipped it by its
+    /// centre). The weights are the overlaps of the pixel's source-space span
+    /// with each texel, per axis (the same spans as [`area_downscale`]); a
+    /// magnified sprite therefore draws as crisp texel blocks with
+    /// anti-aliased block edges. Must never read outside the source: spans
+    /// are clipped to `[0, w) x [0, h)`.
+    fn blit_sprite_area(&mut self, img: &DecodedImage, rect: cartalith_assets::SpriteRect) {
+        let (sw, sh) = (img.w as usize, img.h as usize);
+        if sw == 0 || sh == 0 {
+            return;
+        }
+        let x0 = rect.dx.floor().max(0.0) as i64;
+        let x1 = (rect.dx + rect.dw).ceil().min(self.gw as f64) as i64;
+        let y0 = rect.dy.floor().max(0.0) as i64;
+        let y1 = (rect.dy + rect.dh).ceil().min(self.gh as f64) as i64;
+        // Per axis, per destination pixel: (texel, overlap in texels) runs.
+        // Destination pixel `p` spans [p, p+1) on the map, which is
+        // [(p - d) * s, (p + 1 - d) * s) in texels with s = src / dst.
+        let runs = |p0: i64, p1: i64, d: f64, len: f64, n: usize| -> Vec<Vec<(usize, f64)>> {
+            let s = n as f64 / len;
+            (p0..p1)
+                .map(|p| {
+                    let a = ((p as f64 - d) * s).max(0.0);
+                    let b = ((p as f64 + 1.0 - d) * s).min(n as f64);
+                    if b <= a {
+                        return Vec::new();
+                    }
+                    let (t0, t1) = (a.floor() as usize, (b.ceil() as usize).min(n));
+                    (t0..t1).map(|t| (t, b.min(t as f64 + 1.0) - a.max(t as f64))).filter(|&(_, w)| w > 0.0).collect()
+                })
+                .collect()
+        };
+        let xs = runs(x0, x1, rect.dx, rect.dw, sw);
+        let ys = runs(y0, y1, rect.dy, rect.dh, sh);
+        // A whole destination pixel's area, in texels: the divisor that makes
+        // a partly covered edge pixel partly transparent.
+        let full = (sw as f64 / rect.dw) * (sh as f64 / rect.dh);
+        for (iy, yrun) in ys.iter().enumerate() {
+            for (ix, xrun) in xs.iter().enumerate() {
+                let mut acc = [0.0f64; 4]; // premultiplied r, g, b (0-255) and alpha (0-1)
+                for &(ty, wy) in yrun {
+                    for &(tx, wx) in xrun {
+                        let w = wx * wy;
+                        let o = (ty * sw + tx) * 4;
+                        let a = f64::from(img.rgba[o + 3]) / 255.0;
+                        for (c, slot) in acc.iter_mut().take(3).enumerate() {
+                            *slot += f64::from(img.rgba[o + c]) * a * w;
+                        }
+                        acc[3] += a * w;
+                    }
+                }
+                let a = (acc[3] / full).min(1.0);
+                if a <= 0.0 {
+                    continue;
+                }
+                let (px, py) = (x0 + ix as i64, y0 + iy as i64);
+                let di = (py as usize * self.gw + px as usize) * 3;
+                for c in 0..3 {
+                    let v = acc[c] / full + f64::from(self.bytes[di + c]) * (1.0 - a);
+                    self.bytes[di + c] = v.round().clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }
@@ -817,7 +927,7 @@ pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32],
     // the same order, so this path's bytes did not move (identity by control
     // flow; pinned by `tests/feature_icon_overlay.rs`).
     let placed = place_feature_icons(field, temperature, rainfall, gw, gh, sea_level, seed, pack);
-    composite_placed_features(bytes, gw, gh, &placed, pack, true);
+    composite_placed_features(bytes, gw, gh, &placed, pack, true, SpriteFilter::Bilinear);
 }
 
 /// One scattered feature icon after every decision `drawMapIcons` makes and
@@ -917,7 +1027,10 @@ pub fn feature_icon_base(gw: usize) -> f64 {
 /// **Disclosed consequence:** with the switch on, a baked glyph sits under
 /// every overlay sprite, so where a glyph and a sprite overlap the painter's
 /// order between those two is lost. Glyphs appear only for undecodable art.
-pub fn composite_placed_features(bytes: &mut [u8], gw: usize, gh: usize, placed: &[PlacedFeature], pack: &LoadedPack, sprites: bool) {
+///
+/// `filter` is how each sprite is resampled ([`SpriteFilter`]);
+/// `Bilinear` is the shipped path, byte for byte.
+pub fn composite_placed_features(bytes: &mut [u8], gw: usize, gh: usize, placed: &[PlacedFeature], pack: &LoadedPack, sprites: bool, filter: SpriteFilter) {
     if gw == 0 || gh == 0 {
         return;
     }
@@ -927,7 +1040,7 @@ pub fn composite_placed_features(bytes: &mut [u8], gw: usize, gh: usize, placed:
         match p.art {
             FeatureArt::Sprite { variant, rect } => {
                 if sprites && let Some(img) = pack.icons.get(&p.slot).and_then(|v| v.get(variant)) {
-                    canvas.blit_sprite(img, rect);
+                    canvas.blit_sprite(img, rect, filter);
                 }
             }
             FeatureArt::Glyph => draw_icon_glyph(&mut canvas, &p.slot, &p.item, base),
@@ -943,9 +1056,12 @@ pub fn composite_placed_features(bytes: &mut [u8], gw: usize, gh: usize, placed:
 /// and still count as the ink for [`one_ink_colour`]. **Measured source of
 /// the margin:** AP-1 found `render_item`'s bake moves RGB by one level on
 /// every soft-alpha pixel (`ASSET_PACK_TOOLS_PROPOSAL.md` §10, AP-1, "the bake
-/// is not a fixed point"), so an AP-10 variant exported into a pack is one
-/// ink within 1 level, not exactly; 2 is that plus one level of margin
-/// (labelled judgement).
+/// is not a fixed point"), so an AP-10 variant exported into a pack by the
+/// straight bake is one ink within 1 level, not exactly; 2 is that plus one
+/// level of margin (labelled judgement). The app's premultiplied bake
+/// (Ruling CR's switched fix, `BakeFilter::Premultiplied`) exports it
+/// exactly, but packs exported before it, or by an embedder on the straight
+/// default, still carry the drift, so the margin stays.
 pub const ONE_INK_TOLERANCE: u8 = 2;
 
 /// The sprite's single ink colour when every pixel with alpha > 0 has the
@@ -1403,7 +1519,9 @@ pub fn composite_trait_badges(
     for badge in resolve_trait_badges(px, py, traits, sz, sc, seed, pack) {
         match badge.art {
             TraitBadgeArt::Sprite { variant, rect } => {
-                canvas.blit_sprite(&pack.traits[&badge.key][variant], rect);
+                // No caller yet (see the doc); the shipped sample until one
+                // exists and decides which filter it wants.
+                canvas.blit_sprite(&pack.traits[&badge.key][variant], rect, SpriteFilter::Bilinear);
             }
             TraitBadgeArt::Miss(miss) => {
                 misses.push(TraitBadgeFallback {

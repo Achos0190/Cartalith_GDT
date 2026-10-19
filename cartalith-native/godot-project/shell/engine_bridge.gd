@@ -1116,6 +1116,7 @@ func color_texture() -> Texture2D:
 	## the app's value back at its first texture.
 	if _has("set_feature_icon_overlay"):
 		world_gen.set_feature_icon_overlay(feature_icon_overlay)
+	_apply_sprite_filters()
 	var t: Texture2D = world_gen.build_color_texture()
 	_color_texture_cache = t
 	color_texture_rebuilt.emit()
@@ -1131,6 +1132,34 @@ var _color_texture_cache: Texture2D = null
 ## from `viewport_host.gd`'s `PACK_FEATURE_ICONS` in `setup()`. Applied to
 ## the engine by `color_texture()` before each build.
 var feature_icon_overlay := false
+
+## Ruling CR's two sprite-chain switches as the app wants them, `false` here
+## for the same reason as `feature_icon_overlay` (a bridge nobody configures
+## keeps the engine's shipped bytes); the app sets both from
+## `viewport_host.gd`'s `PACK_SPRITE_AREA_BLIT` and `PACK_PREMULTIPLIED_BAKE`
+## in `setup()`. Each setter applies at once (the bake switch governs asset
+## library calls that build no texture) and `color_texture()` and
+## `close_world()` re-apply them, so a replaced `world_gen` gets them back.
+var sprite_area_blit := false:
+	set(v):
+		sprite_area_blit = v
+		_apply_sprite_filters()
+var premultiplied_bake := false:
+	set(v):
+		premultiplied_bake = v
+		_apply_sprite_filters()
+
+## Hand both sprite-chain switches to the engine. Skipped mid-generation
+## (the worker holds `WorldGen`); the next `color_texture()` catches up.
+## Each call is guarded by `_has`, so an older cdylib simply keeps its
+## shipped bytes.
+func _apply_sprite_filters() -> void:
+	if generating or world_gen == null:
+		return
+	if _has("set_sprite_area_blit"):
+		world_gen.set_sprite_area_blit(sprite_area_blit)
+	if _has("as_set_premultiplied_bake"):
+		world_gen.as_set_premultiplied_bake(premultiplied_bake)
 
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone
@@ -2780,6 +2809,7 @@ func close_world() -> void:
 	if generating:
 		return
 	world_gen = WorldGen.new()
+	_apply_sprite_filters()
 	has_world = false
 	last_summary = ""
 	last_width_km = 0.0

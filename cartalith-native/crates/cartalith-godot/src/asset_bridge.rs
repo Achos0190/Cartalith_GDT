@@ -39,7 +39,7 @@ use cartalith_assets::{
     SeamlessOutcome, Severity, diff_libraries, list_folder, make_seamless, plan_folder_import, plan_merge, refine,
     seam_score, PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive,
     check_png_header, compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
-    read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
+    read_pack_entries_limited, BakeFilter, render_item_with, sheet_base_name, slice_sheet,
 };
 
 use cartalith_assets::lineart::{LineArtOptions, LineArtResult, convert_line_art, working_image};
@@ -397,6 +397,20 @@ pub struct AssetLibrarySession {
     /// image; an entry whose image is gone is simply never matched. Session
     /// state only: not saved, like the pixels it describes.
     colour: HashMap<String, ColourReport>,
+    /// Which arithmetic every bake this session makes uses: the export bake
+    /// ([`Self::export_pack_bytes`]), thumbnails, and the seam and sprite
+    /// bakes the REFINE verbs read. Ruling CR's switched fix (2026-10-18):
+    /// [`BakeFilter::Straight`] here, today's bytes, so every test pin and
+    /// any caller that does not opt in is untouched; the app sets
+    /// [`BakeFilter::Premultiplied`] through `WorldGen::as_set_premultiplied_bake`
+    /// (`viewport_host.gd`'s `PACK_PREMULTIPLIED_BAKE`), which makes the
+    /// export -> open -> export round trip byte-stable for soft-edged sprites
+    /// (`the_premultiplied_bake_round_trips_soft_edges_byte_for_byte`).
+    /// Not saved: a presentation switch, set by the app on every session.
+    /// The pack report and near-duplicate finder (`cartalith-assets`) still
+    /// bake straight; on fully opaque art the two filters are identical by
+    /// control flow, so they can disagree only on soft-alpha pixels.
+    pub bake_filter: BakeFilter,
 }
 
 impl Default for AssetLibrarySession {
@@ -412,7 +426,7 @@ impl AssetLibrarySession {
     /// decoded pixels and no loaded sheet. `images` must start empty: every item in
     /// `db` has to have its pixels beside it (see the module doc).
     pub fn new() -> Self {
-        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None, colour: HashMap::new() }
+        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None, colour: HashMap::new(), bake_filter: BakeFilter::Straight }
     }
 
     /// The decoded pixels behind one stored item, if both `uid` and `index`
@@ -1221,7 +1235,7 @@ impl AssetLibrarySession {
         }
         let item = self.db.items(uid).get(index)?;
         let img = self.image(uid, index)?;
-        Some(render_item(img, &item.transform, slot.family.size(), true))
+        Some(render_item_with(img, &item.transform, slot.family.size(), true, self.bake_filter))
     }
 
     /// AP-4's checker: `seam_score` of one ground item's bake, and whether
@@ -1348,7 +1362,7 @@ impl AssetLibrarySession {
         let slot = self.db.get(uid)?;
         let item = self.db.items(uid).get(index)?;
         let img = self.image(uid, index)?;
-        Some(render_item(img, &item.transform, slot.family.size(), slot.family.opaque()))
+        Some(render_item_with(img, &item.transform, slot.family.size(), slot.family.opaque(), self.bake_filter))
     }
 
     /// AP-7: apply one REFINE verb to variant `index` of `uid` and store the
@@ -1367,9 +1381,10 @@ impl AssetLibrarySession {
     ///   negated, so the new bake is the mirror of the old one;
     /// - Tint, Harmonise: the source, recoloured; the transform is copied;
     /// - Outline, Shadow: the **bake** (see [`Self::sprite_bake`]), with the
-    ///   identity transform, so the new variant's own bake is its pixels (up
-    ///   to the bake's known one-level RGB drift on soft edges, AP-1's
-    ///   finding, which Ruling CR's switched `render_item` fix will remove).
+    ///   identity transform, so the new variant's own bake is its pixels:
+    ///   exactly under [`BakeFilter::Premultiplied`] (the app's setting), up
+    ///   to one level of RGB on soft edges under [`BakeFilter::Straight`]
+    ///   (AP-1's finding; [`Self::bake_filter`]).
     ///
     /// Returns what was done; `index: None` (nothing written) when the verb
     /// had nothing to do (nothing to trim, blank art for outline or shadow).
@@ -1477,7 +1492,7 @@ impl AssetLibrarySession {
         let img = self.image(uid, index)?;
         let k = f64::from(size) / f64::from(slot.family.size().max(1));
         let t = ItemTransform { scale: item.transform.scale, pan_x: item.transform.pan_x * k, pan_y: item.transform.pan_y * k };
-        let baked = render_item(img, &t, size, slot.family.opaque());
+        let baked = render_item_with(img, &t, size, slot.family.opaque(), self.bake_filter);
         encode_png(&baked).ok()
     }
 
@@ -1638,7 +1653,7 @@ impl AssetLibrarySession {
             let mut paths = Vec::new();
             for (i, item) in items.iter().enumerate() {
                 let Some(pixels) = self.image(&uid, i) else { continue };
-                let baked = render_item(pixels, &item.transform, family.size(), family.opaque());
+                let baked = render_item_with(pixels, &item.transform, family.size(), family.opaque(), self.bake_filter);
                 let png = encode_png(&baked).map_err(|e| e.to_string())?;
                 let path = family.asset_path(&slot.id, &set_id, i);
                 images.insert(path.clone(), png);
@@ -1806,10 +1821,11 @@ mod tests {
     /// Protects AP-10 through the session: the conversion adds exactly one
     /// variant named `· line art` (Ruling CQ Q7), the original's pixels and
     /// record are untouched, the new variant is one ink colour at the family
-    /// size, and its own bake (what export writes) equals its pixels except
-    /// for `render_item`'s known one-level RGB drift on soft alpha (AP-1's
-    /// finding, `ASSET_PACK_TOOLS_PROPOSAL.md` §10): alpha is exact and RGB
-    /// moves at most one level. Undo is `remove_item`.
+    /// size, and its own bake (what export writes) equals its pixels: byte
+    /// for byte under [`BakeFilter::Premultiplied`] (the app's setting), and
+    /// under [`BakeFilter::Straight`] up to `render_item`'s one-level RGB
+    /// drift on soft alpha (AP-1's finding, `ASSET_PACK_TOOLS_PROPOSAL.md`
+    /// §10) with alpha exact. Undo is `remove_item`.
     #[test]
     fn line_art_adds_a_new_variant_and_keeps_the_original() {
         let mut s = AssetLibrarySession::new();
@@ -1831,13 +1847,16 @@ mod tests {
         let made = s.image("icons:mountain", 1).unwrap().clone();
         assert_eq!((made.w, made.h), (256, 256));
         assert!(made.rgba.chunks_exact(4).all(|p| p[3] == 0 || p[..3] == [40, 30, 20]));
-        let bake = render_item(&made, &rec.transform, 256, false);
+        let bake = render_item_with(&made, &rec.transform, 256, false, BakeFilter::Straight);
         for (a, b) in made.rgba.chunks_exact(4).zip(bake.rgba.chunks_exact(4)) {
             assert_eq!(a[3], b[3], "alpha moved in the bake");
             if a[3] > 0 {
                 assert!((0..3).all(|c| a[c].abs_diff(b[c]) <= 1), "{a:?} vs {b:?}");
             }
         }
+        // Ruling CR's switched bake: exact (AP-10 writes black under alpha
+        // 0, which is also what the premultiplied bake writes there).
+        assert_eq!(render_item_with(&made, &rec.transform, 256, false, BakeFilter::Premultiplied), made, "premultiplied bake of the line-art variant is its pixels");
         assert!(s.remove_item("icons:mountain", 1));
         assert_eq!(s.db.items("icons:mountain").len(), 1);
     }
@@ -2422,7 +2441,8 @@ mod tests {
                 for x in 0..256u32 {
                     // Binary alpha: a checker of transparent holes. See
                     // `the_bake_drifts_semi_transparent_rgb_by_one_level`
-                    // for why a fractional alpha is not round-tripped.
+                    // for why a fractional alpha is not round-tripped by
+                    // the default (straight) bake this session uses.
                     let a = if (x / 16 + y / 16) % 2 == 0 { 255 } else { 0 };
                     v.extend_from_slice(&[(x as u8).wrapping_add(seed), y as u8, seed, a]);
                 }
@@ -2463,50 +2483,108 @@ mod tests {
         assert_eq!(s.db.get("custom:farm_things/windmill").and_then(|x| x.set.clone()).as_deref(), Some("Farm Things"));
     }
 
-    /// Measures, and pins, a finding of this pass (2026-10-18) rather than a
-    /// wanted behaviour: `render_item` composites with `imageops::overlay`
-    /// (source-over) onto a transparent canvas, and for a pixel whose alpha
-    /// is strictly between 0 and 255 that moves RGB by one level per bake,
-    /// on every bake (measured: worst 1, 1, 1 over three cycles), and it
-    /// zeroes the invisible RGB under alpha 0. So a sprite with soft edges is
-    /// NOT byte-identical after export, re-import and export, however
-    /// unchanged it is. Alpha is untouched. Fixing it changes Apply-to-map pixels, so it is left to
-    /// Ruling CR's separate, switched bake fix (`render_item`), not AP-1.
-    /// If that fix lands, this test should fail and be replaced.
-    #[test]
-    fn the_bake_drifts_semi_transparent_rgb_by_one_level() {
+    /// Three export -> open cycles of one `icons:hill` sprite under `filter`:
+    /// per cycle, the worst RGB change on a visible pixel against the
+    /// previous cycle's pixels, whether alpha survived byte for byte, and
+    /// the exported PNG entry's bytes. Every session in the chain bakes with
+    /// `filter`.
+    fn bake_cycles(original: &DecodedImage, filter: BakeFilter) -> (Vec<u8>, bool, Vec<Vec<u8>>) {
+        let mut s = AssetLibrarySession::new();
+        s.bake_filter = filter;
+        s.import_item("icons:hill", "h".into(), &encode_png(original).unwrap()).unwrap();
+        let (mut worst_per_cycle, mut alpha_same, mut pngs) = (Vec::new(), true, Vec::new());
+        let mut prev = original.rgba.clone();
+        for _ in 0..3 {
+            let (_, bytes) = s.export_pack_bytes().unwrap();
+            let (_, entries) = cartalith_assets::read_pack(std::io::Cursor::new(bytes.clone())).unwrap();
+            pngs.push(entries.iter().find(|(k, _)| k.contains("hill")).map(|(_, v)| v.clone()).expect("the hill PNG is in the pack"));
+            let mut next = AssetLibrarySession::new();
+            next.bake_filter = filter;
+            next.import_pack(&bytes, "p.zip", PackImportMode::KeepExisting).unwrap();
+            let now = next.image("icons:hill", 0).unwrap().rgba.clone();
+            if prev.len() == now.len() {
+                // RGB under alpha 0 is invisible and both bakes zero it; only
+                // visible pixels count.
+                let worst = prev
+                    .chunks_exact(4)
+                    .zip(now.chunks_exact(4))
+                    .filter(|(a, _)| a[3] > 0)
+                    .flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c])))
+                    .max()
+                    .unwrap();
+                alpha_same &= prev.chunks_exact(4).zip(now.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
+                worst_per_cycle.push(worst);
+            }
+            prev = now;
+            s = next;
+        }
+        (worst_per_cycle, alpha_same, pngs)
+    }
+
+    /// A 256² sprite whose alpha ramps across every level (`(x + y) / 2`)
+    /// under an RGB gradient: AP-1's drift fixture.
+    fn ramp_sprite() -> DecodedImage {
         let mut v = Vec::with_capacity(256 * 256 * 4);
         for y in 0..256u32 {
             for x in 0..256u32 {
                 v.extend_from_slice(&[x as u8, y as u8, 200, ((x + y) / 2) as u8]);
             }
         }
-        let original = DecodedImage::new(256, 256, v).unwrap();
-        let mut s = AssetLibrarySession::new();
-        s.import_item("icons:hill", "h".into(), &encode_png(&original).unwrap()).unwrap();
-        let mut worst_per_cycle = Vec::new();
-        let mut prev = original.rgba.clone();
-        for _ in 0..3 {
-            let (_, bytes) = s.export_pack_bytes().unwrap();
-            let mut next = AssetLibrarySession::new();
-            next.import_pack(&bytes, "p.zip", PackImportMode::KeepExisting).unwrap();
-            let now = next.image("icons:hill", 0).unwrap().rgba.clone();
-            // RGB under alpha 0 is invisible and the bake zeroes it; only
-            // visible pixels count.
-            let worst = prev
-                .chunks_exact(4)
-                .zip(now.chunks_exact(4))
-                .filter(|(a, _)| a[3] > 0)
-                .flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c])))
-                .max()
-                .unwrap();
-            let alpha_same = prev.chunks_exact(4).zip(now.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
-            assert!(alpha_same, "alpha must survive the bake byte for byte");
-            worst_per_cycle.push(worst);
-            prev = now;
-            s = next;
-        }
+        DecodedImage::new(256, 256, v).unwrap()
+    }
+
+    /// Pins AP-1's finding (2026-10-18) under [`BakeFilter::Straight`],
+    /// which is still the session default and what every caller that does
+    /// not opt in gets: `render_item` composites with `imageops::overlay`
+    /// (source-over) onto a transparent canvas, and a pixel whose alpha is
+    /// strictly between 0 and 255 moves RGB by one level on every bake
+    /// (worst 1, 1, 1 over three cycles) while alpha is untouched.
+    ///
+    /// **RE-BASELINED 2026-10-19 (Ruling CR's switched bake fix):** this test
+    /// used to say "if that fix lands, this test should fail and be
+    /// replaced". The fix landed behind a switch, so the straight path's
+    /// drift is still real and still pinned here, now with the filter named;
+    /// the fixed path's byte-stability is
+    /// `the_premultiplied_bake_round_trips_soft_edges_byte_for_byte`.
+    #[test]
+    fn the_bake_drifts_semi_transparent_rgb_by_one_level() {
+        assert_eq!(AssetLibrarySession::new().bake_filter, BakeFilter::Straight, "the engine's default is the shipped (straight) bake; the app opts in");
+        let (worst_per_cycle, alpha_same, _) = bake_cycles(&ramp_sprite(), BakeFilter::Straight);
+        assert!(alpha_same, "alpha must survive the bake byte for byte");
         assert_eq!(worst_per_cycle, vec![1, 1, 1], "one level per bake, every bake");
+    }
+
+    /// Protects Ruling CR's switched bake fix, as the app runs it: under
+    /// [`BakeFilter::Premultiplied`] the export -> open -> export round trip
+    /// of a soft-edged sprite is byte-stable. On AP-1's 256² fixture no
+    /// visible pixel moves on any cycle and every exported PNG is the same
+    /// bytes; a 1024² soft source (resampled by its first bake, which is
+    /// expected to change it) exports the same PNG bytes on every cycle
+    /// after that first one.
+    #[test]
+    fn the_premultiplied_bake_round_trips_soft_edges_byte_for_byte() {
+        let (worst, alpha_same, pngs) = bake_cycles(&ramp_sprite(), BakeFilter::Premultiplied);
+        assert!(alpha_same);
+        assert_eq!(worst, vec![0, 0, 0], "no visible pixel moves on any bake");
+        assert!(pngs.windows(2).all(|w| w[0] == w[1]), "every cycle exports the same PNG bytes");
+
+        let mut v = Vec::with_capacity(1024 * 1024 * 4);
+        for y in 0..1024u32 {
+            for x in 0..1024u32 {
+                let r = ((f64::from(x) - 512.0).hypot(f64::from(y) - 512.0)) / 512.0;
+                let a = ((1.0 - r) * 3.0 * 255.0).clamp(0.0, 255.0) as u8;
+                v.extend_from_slice(&[(x / 4) as u8, (y / 4) as u8, 90, a]);
+            }
+        }
+        let big = DecodedImage::new(1024, 1024, v).unwrap();
+        let (worst, alpha_same, pngs) = bake_cycles(&big, BakeFilter::Premultiplied);
+        assert!(alpha_same);
+        assert_eq!(worst, vec![0, 0], "after the first (resampling) bake, nothing moves");
+        assert!(pngs.windows(2).all(|w| w[0] == w[1]), "every cycle exports the same PNG bytes");
+        // Positive control: the same chain under the straight bake does not
+        // settle, so this fixture reaches the drift.
+        let (worst, _, pngs) = bake_cycles(&big, BakeFilter::Straight);
+        assert!(worst.iter().any(|&w| w > 0) || pngs.windows(2).any(|w| w[0] != w[1]), "positive control: {worst:?}");
     }
 
     /// A pack zip of `manifest` plus `files`, written with this crate's own
@@ -2780,8 +2858,9 @@ mod tests {
         let o = s.image("icons:mountain", i).unwrap().clone();
         assert_eq!((o.w, o.h), (256, 256), "drawn at the bake size");
         assert_eq!(s.db.items("icons:mountain")[i].transform, ItemTransform::default());
-        // Its own bake is its pixels, up to the bake's known drift on soft
-        // edges (AP-1's finding, `the_bake_drifts_semi_transparent_rgb_by_one_level`):
+        // Its own bake is its pixels, up to the straight bake's known drift on
+        // soft edges (this session is `BakeFilter::Straight`, the default; AP-1's
+        // finding, `the_bake_drifts_semi_transparent_rgb_by_one_level`):
         // alpha exact, RGB within one level wherever alpha is not 0.
         let rebake = s.sprite_bake("icons:mountain", i).unwrap();
         assert_eq!(alpha(&rebake), alpha(&o));

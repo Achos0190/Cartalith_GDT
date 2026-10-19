@@ -164,7 +164,7 @@ pub use library::{
 };
 pub use raster::{
     DecodedImage, ImageError, decode_png, encode_png, finalize_pack_texture_inv_mean,
-    fit_to_bottom, item_hash, render_item,
+    BakeFilter, fit_to_bottom, item_hash, render_item, render_item_with,
 };
 pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,

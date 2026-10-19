@@ -427,6 +427,104 @@ pub fn render_item(img: &DecodedImage, transform: &ItemTransform, size: u32, opa
     DecodedImage { w: size, h: size, rgba: canvas.into_raw() }
 }
 
+/// Which arithmetic [`render_item_with`] bakes in.
+///
+/// Ruling CR (2026-10-18, last paragraph) set this fix aside as "a separate,
+/// cheaper change behind a switch"; `MISTAKES.md`'s "Change generated output"
+/// row is why it is a switch. The default is [`BakeFilter::Straight`], today's
+/// bytes, so every caller that does not opt in (this crate's own pack report,
+/// near-duplicate finder and `lineart::working_image`, and every test pin) is
+/// untouched; the app opts in through `AssetLibrarySession::bake_filter`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BakeFilter {
+    /// [`render_item`] exactly: `CatmullRom` on **straight** alpha, then
+    /// `imageops::overlay`. Not a fixed point: AP-1 measured every pixel
+    /// with 0 < alpha < 255 moving RGB by one level on every bake
+    /// (`ASSET_PACK_TOOLS_PROPOSAL.md` §10, AP-1), and straight-alpha
+    /// filtering pulls a transparent texel's RGB (usually black) into the
+    /// edge, a dark fringe.
+    #[default]
+    Straight,
+    /// Premultiplied, in `f32` from decode to the final rounding: the source
+    /// is premultiplied, resampled with the same `CatmullRom` kernel (or not
+    /// resampled at all when the footprint already equals the source's
+    /// size), composited source-over in premultiplied form, and quantised
+    /// once. A bake at the source's own size and the identity transform
+    /// therefore returns every visible pixel unchanged, and a second bake of
+    /// a first bake's output returns it byte for byte (both tested).
+    Premultiplied,
+}
+
+/// [`render_item`] with an explicit [`BakeFilter`]. Same geometry for both
+/// filters (footprint, centring, pan, the `opaque` black backdrop), so the
+/// two differ only in the pixels on soft or resampled alpha.
+///
+/// **Fully opaque sources take [`render_item`]'s own code under either
+/// filter** (identity by control flow, not arithmetic): premultiplying by
+/// 255 is the identity, so there is nothing for the fix to change, and the
+/// ground textures' and opaque sprites' bytes cannot move. Must never change
+/// an alpha-255 source's output.
+pub fn render_item_with(img: &DecodedImage, transform: &ItemTransform, size: u32, opaque: bool, filter: BakeFilter) -> DecodedImage {
+    if filter == BakeFilter::Straight || img.rgba.chunks_exact(4).all(|p| p[3] == 255) {
+        return render_item(img, transform, size, opaque);
+    }
+    // The same footprint arithmetic as `render_item`, statement for statement.
+    let base_fit = f64::from(size) / f64::from(img.w.max(img.h));
+    let dw = (f64::from(img.w) * base_fit * transform.scale).round();
+    let dh = (f64::from(img.h) * base_fit * transform.scale).round();
+    let dw_u = dw.max(0.0) as u32;
+    let dh_u = dh.max(0.0) as u32;
+    let dx = ((f64::from(size) - dw) / 2.0 + transform.pan_x).round() as i64;
+    let dy = ((f64::from(size) - dh) / 2.0 + transform.pan_y).round() as i64;
+
+    // Premultiplied canvas in [0, 1]; the backdrop is opaque black or clear.
+    let n = (size as usize) * (size as usize);
+    let mut canvas = vec![[0.0f32, 0.0, 0.0, if opaque { 1.0 } else { 0.0 }]; n];
+    if dw_u > 0 && dh_u > 0 {
+        let mut src = image::Rgba32FImage::new(img.w, img.h);
+        for (p, s) in src.pixels_mut().zip(img.rgba.chunks_exact(4)) {
+            let a = f32::from(s[3]) / 255.0;
+            *p = Rgba([f32::from(s[0]) / 255.0 * a, f32::from(s[1]) / 255.0 * a, f32::from(s[2]) / 255.0 * a, a]);
+        }
+        // No resample when the footprint is the source's own size: a kernel
+        // evaluated at its own taps is the identity in exact arithmetic, but
+        // not guaranteed bit-exact in f32, and this is the round-trip case.
+        let scaled = if (dw_u, dh_u) == (img.w, img.h) { src } else { image::imageops::resize(&src, dw_u, dh_u, FilterType::CatmullRom) };
+        for (sy, row) in scaled.rows().enumerate() {
+            let cy = dy + sy as i64;
+            if cy < 0 || cy >= i64::from(size) {
+                continue;
+            }
+            for (sx, p) in row.enumerate() {
+                let cx = dx + sx as i64;
+                if cx < 0 || cx >= i64::from(size) {
+                    continue;
+                }
+                // CatmullRom rings: clamp alpha into [0, 1] and colour into
+                // [0, alpha], the premultiplied invariant, before compositing.
+                let a = p[3].clamp(0.0, 1.0);
+                let s = [p[0].clamp(0.0, a), p[1].clamp(0.0, a), p[2].clamp(0.0, a), a];
+                let d = &mut canvas[cy as usize * size as usize + cx as usize];
+                for c in 0..4 {
+                    d[c] = s[c] + d[c] * (1.0 - a);
+                }
+            }
+        }
+    }
+    // Quantise once: alpha to the nearest level, colour un-premultiplied by
+    // the float alpha (not the rounded one, which is what keeps an identity
+    // bake exact); RGB under alpha 0 is 0, the decoder's own convention.
+    let mut rgba = Vec::with_capacity(n * 4);
+    for p in &canvas {
+        let a8 = (p[3] * 255.0).round().clamp(0.0, 255.0) as u8;
+        for c in 0..3 {
+            rgba.push(if a8 == 0 || p[3] <= 0.0 { 0 } else { (p[c] / p[3] * 255.0).round().clamp(0.0, 255.0) as u8 });
+        }
+        rgba.push(a8);
+    }
+    DecodedImage { w: size, h: size, rgba }
+}
+
 // ---------------------------------------------------------------------------
 // finalizePackTexture's inverse means
 // ---------------------------------------------------------------------------
@@ -594,6 +692,98 @@ mod tests {
         for chunk in out.rgba.chunks_exact(4) {
             assert_eq!(chunk, &[1, 2, 3, 255]);
         }
+    }
+
+    /// A `n`x`n` soft-edged sprite: an RGB gradient whose alpha is a radial
+    /// falloff, so every alpha level 0..=255 occurs and both the dark-fringe
+    /// and the drift cases are reached. Fixture values.
+    fn soft_sprite(n: u32) -> DecodedImage {
+        let mut v = Vec::with_capacity((n * n * 4) as usize);
+        let c = f64::from(n) / 2.0;
+        for y in 0..n {
+            for x in 0..n {
+                let r = ((f64::from(x) + 0.5 - c).hypot(f64::from(y) + 0.5 - c)) / c;
+                let a = ((1.0 - r) * 2.0 * 255.0).clamp(0.0, 255.0) as u8;
+                v.extend_from_slice(&[(x * 255 / n) as u8, (y * 255 / n) as u8, 200, a]);
+            }
+        }
+        DecodedImage::new(n, n, v).unwrap()
+    }
+
+    /// Protects: the premultiplied bake at the source's own size and the
+    /// identity transform returns every visible pixel byte for byte (the
+    /// round trip AP-1 found drifting), alpha included. Positive control:
+    /// the straight bake of the same sprite does move visible RGB, so the
+    /// fixture reaches the drift.
+    #[test]
+    fn the_premultiplied_identity_bake_keeps_every_visible_pixel() {
+        let src = soft_sprite(64);
+        let t = ItemTransform::default();
+        let pre = render_item_with(&src, &t, 64, false, BakeFilter::Premultiplied);
+        let straight = render_item_with(&src, &t, 64, false, BakeFilter::Straight);
+        let visible = |o: &DecodedImage| src.rgba.chunks_exact(4).zip(o.rgba.chunks_exact(4)).filter(|(a, _)| a[3] > 0).filter(|(a, b)| a != b).count();
+        assert_eq!(visible(&pre), 0, "premultiplied identity bake moved a visible pixel");
+        assert!(visible(&straight) > 0, "positive control: the straight bake should drift on this fixture");
+    }
+
+    /// Protects: the premultiplied bake is a fixed point -- baking a bake
+    /// again (identity transform at the bake's size) changes no byte -- for a
+    /// source that had to be resampled first (96 -> 64), so the second pass
+    /// starts from resampled, already-quantised pixels.
+    #[test]
+    fn the_premultiplied_bake_of_a_bake_is_byte_identical() {
+        let t = ItemTransform::default();
+        let once = render_item_with(&soft_sprite(96), &t, 64, false, BakeFilter::Premultiplied);
+        let twice = render_item_with(&once, &t, 64, false, BakeFilter::Premultiplied);
+        assert_eq!(twice, once);
+    }
+
+    /// Protects: a fully opaque source bakes byte-identically under both
+    /// filters, resampled and on the black backdrop alike (the switch must
+    /// never move a ground texture or an opaque sprite).
+    #[test]
+    fn an_opaque_source_bakes_identically_under_both_filters() {
+        let mut src = soft_sprite(40);
+        for p in src.rgba.chunks_exact_mut(4) {
+            p[3] = 255;
+        }
+        for (size, opaque, scale) in [(32, true, 1.0), (32, false, 0.7), (64, true, 1.3)] {
+            let t = ItemTransform { scale, pan_x: 3.0, pan_y: -2.0 };
+            assert_eq!(
+                render_item_with(&src, &t, size, opaque, BakeFilter::Premultiplied),
+                render_item_with(&src, &t, size, opaque, BakeFilter::Straight),
+                "size {size} opaque {opaque} scale {scale}"
+            );
+        }
+    }
+
+    /// Protects: no dark fringe -- a white sprite whose RGB under alpha 0 is
+    /// black, shrunk 4x, keeps every visible pixel white in the premultiplied
+    /// bake, where the straight bake darkens the soft edge (the positive
+    /// control: its darkest visible pixel is well below white).
+    #[test]
+    fn the_premultiplied_bake_has_no_dark_fringe() {
+        let mut src = soft_sprite(128);
+        for p in src.rgba.chunks_exact_mut(4) {
+            let on = p[3] > 0;
+            p[0] = if on { 255 } else { 0 };
+            p[1] = p[0];
+            p[2] = p[0];
+        }
+        let t = ItemTransform::default();
+        let darkest = |o: &DecodedImage| o.rgba.chunks_exact(4).filter(|p| p[3] >= 8).map(|p| p[0].min(p[1]).min(p[2])).min().unwrap();
+        assert_eq!(darkest(&render_item_with(&src, &t, 32, false, BakeFilter::Premultiplied)), 255);
+        assert!(darkest(&render_item_with(&src, &t, 32, false, BakeFilter::Straight)) < 200, "positive control");
+    }
+
+    /// Protects: the opaque-backdrop premultiplied bake flattens a soft
+    /// pixel onto black as `round(c * a / 255)`, the source-over value. A
+    /// 1x1 source of (200, 100, 50, 128) at its own size: 100.39, 50.2, 25.1.
+    #[test]
+    fn the_premultiplied_opaque_bake_flattens_onto_black() {
+        let src = DecodedImage::new(1, 1, vec![200, 100, 50, 128]).unwrap();
+        let out = render_item_with(&src, &ItemTransform::default(), 1, true, BakeFilter::Premultiplied);
+        assert_eq!(out.rgba, vec![100, 50, 25, 255]);
     }
 }
 
