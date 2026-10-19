@@ -2297,3 +2297,7 @@ Four answers to the questions raised by AP-5, CP-2/CP-3, AP-7 and `3D_VIEWPORT_S
 ## Ruling CT — 3D vertical exaggeration (owner, 2026-10-19)
 
 After 3D-0 (`791ad1d1`, GO for 3D-1) the owner chose, from the true-scale vs 3.4× captures at ×16/×64: **the 3D view defaults to true scale, 1.0× vertical exaggeration** (*"The first truescale 1 @ 16x"*), not 2D's 3.4×, which draws needles. This is 3D_VIEWPORT_SCOPE.md Q4. The ruling does not yet cover a user slider; 3D-1 may add one only if it costs nothing.
+
+## Ruling CU — mountain ranges un-parked; Satellite relief land tone pass (owner, 2026-10-19)
+
+The owner, seeing Satellite relief near-identical to Natural Vibrant on land and unlike the target render, said *"unpark and continue"* to the assistant's plan: **(1)** un-park the mountain-range row (Ruling CI's addendum had parked it as *"Not yet"*; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` H1, ridged / dissected orogen height field, `relief_model` under world structure, the volcano clip), and **(2)** build a land tone pass for the Satellite relief look only (tonal range, saturation, relief and edge contrast measured against `design/vision-render-2026-10-17/target_map_render.webp`; switch-guarded, other looks byte-identical). Both are judged at ×1/×4/×16/×64. Order: tone pass first (cheap, measurable), then the mountain height-field work under the investigation's §4 defaults, each re-opened at its symbols before building. One agent at a time (owner, 2026-10-19).
