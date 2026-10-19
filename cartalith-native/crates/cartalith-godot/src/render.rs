@@ -2177,6 +2177,29 @@ pub struct TerrainAppearance {
     /// `0.0`, which is `default()`'s and `js_reference()`'s value.
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub rock_slope_deg: f64,
+    /// The 2026-10-19 follow-up to Ruling CU item 1: the knee of the degree
+    /// slope rock ([`Self::rock_slope_deg`]) on **warm ground below the
+    /// treeline**, in real degrees; [`Self::rock_slope_deg`] stays the knee on
+    /// cold ground above it, and between the two the knee follows the ground's
+    /// temperature ([`rock_knee_deg`]).
+    ///
+    /// Why: `rock_slope_deg`'s 6-degree knee was set against the slopes the
+    /// height field had before the orogen ranges (`tect.orogen_relief`): a
+    /// top-decile median of 0.3-2.8 degrees. The ranges put that median at
+    /// 6-10 degrees, so a 6-degree knee greyed whole belts and every volcano
+    /// flank, forest and pasture included, where the target render
+    /// (`design/vision-render-2026-10-17/target_map_render.webp`) keeps lower
+    /// slopes green and shows rock on the high, cold ground. On real ranges
+    /// the treeline, not the slope alone, is what bares rock: below it a
+    /// slope holds soil and forest to roughly 30-35 degrees.
+    ///
+    /// `0.0` -- `default()`, every look but Satellite relief, `js_reference()`
+    /// -- keeps the single knee exactly, by a branch (the shipped expression
+    /// is unchanged and every other look is byte-identical). Unread while
+    /// `rock_slope_deg` is `0.0`, and, like it, needs the map width and peak
+    /// altitude (off without them).
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub rock_slope_warm_deg: f64,
     /// **Ruling CI** (owner order, 2026-10-18: after the square mottle, the
     /// forest canopy): the strength of [`canopy_relief`]'s tree-canopy
     /// texture over forest, `0..=1`. Fine light/dark broken-up variation --
@@ -2652,6 +2675,7 @@ impl Default for TerrainAppearance {
             snow_shed: 0.0,
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
+            rock_slope_warm_deg: 0.0,
             // Ruling CI's canopy texture: Satellite relief only.
             canopy_texture: 0.0,
             // Ruling CU's land tone pass: Satellite relief only (see the
@@ -2958,6 +2982,7 @@ impl TerrainAppearance {
             snow_shed: 0.0,
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
+            rock_slope_warm_deg: 0.0,
             // Ruling CI's canopy texture: port-only, off by control flow.
             canopy_texture: 0.0,
             // Ruling CU's land tone pass: port-only, off by control flow.
@@ -3136,7 +3161,11 @@ pub const LOOK_SATELLITE: &str = "Satellite relief";
 ///   decile of land), **not physical avalanche angles** (snow holds to roughly
 ///   30-50 degrees on real slopes): at a physical knee neither stage would fire
 ///   anywhere on today's height field. That is a stylisation, disclosed here;
-///   real ranges are the parked H1 row (addendum item 1).
+///   real ranges are the parked H1 row (addendum item 1). Since the orogen
+///   ranges (Ruling CU item 1) gave belts real slopes, the 6-degree knee holds
+///   only on cold, bare ground: ground that warmth or vegetation holds takes
+///   [`TerrainAppearance::rock_slope_warm_deg`]'s 40 (the 2026-10-19
+///   follow-up; the single knee greyed whole belts and every volcano flank).
 /// * **Haze off**: the target has no plate-edge fade.
 /// * **The land tone pass** (Ruling CU, owner 2026-10-19, after *"Satellite
 ///   Relief looks near identical to Natural Vibrant"*): the greens, forest,
@@ -3189,6 +3218,14 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         snow_shed_deg: 8.0,
         rock_slope: 1.0,
         rock_slope_deg: 6.0,
+        // The 2026-10-19 follow-up to Ruling CU item 1: the knee on ground a
+        // cover holds. 40 (ramp from 20): measured on three worlds' volcano
+        // and belt frames, 28 still greyed 24601 archipelago's forested
+        // volcano flanks (rock share 0.55-0.68 at x4-x64 against 0.38-0.57 at
+        // 40, 0.04-0.26 with the tint off); physical slopes hold forest to
+        // about 35-40 degrees in humid climates. Cold, bare ground keeps
+        // `rock_slope_deg`'s 6.
+        rock_slope_warm_deg: 40.0,
         // Ruling CI's forest canopy (2026-10-18). Full strength is
         // [`canopy_relief`]'s own scale; see the field's doc.
         canopy_texture: 1.0,
@@ -3420,6 +3457,7 @@ tunables! {
     "snow_shed"             => snow_shed,             0.0,   1.0,  "Snow sheds on steep ground";
     "snow_shed_deg"         => snow_shed_deg,         0.0,  90.0,  "Snow shed slope (deg)";
     "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
+    "rock_slope_warm_deg"   => rock_slope_warm_deg,   0.0,  90.0,  "Slope rock knee below treeline (deg)";
     "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
     // -- Not a reference row (Ruling CU, 2026-10-19): the Satellite relief
     //    land tone pass. The 2.0 ceiling (three times the flat-relative
@@ -6443,6 +6481,52 @@ pub(crate) fn rock_slope_mix_deg(deg: f64, knee_deg: f64, k: f64) -> f64 {
     clamp01((deg / knee_deg).min(1.0).powf(1.5) * k)
 }
 
+/// The slope-rock fraction of the held knee (the 2026-10-19 follow-up to
+/// Ruling CU item 1): `clamp01(k · smoothstep(ROCK_HELD_START · knee, knee,
+/// deg))` -- no rock below half the knee, all of `k` at it. Why not
+/// [`rock_slope_mix_deg`]'s `(deg / knee)^1.5`: that curve starts at zero
+/// slope, so a 28-degree knee still tinted a 20-degree forested volcano flank
+/// 60 % rock (measured on 24601 archipelago's volcano, 2026-10-19); ground a
+/// cover holds should show no rock until it is steep. `knee <= 0` is `0`.
+pub(crate) fn rock_slope_mix_held(deg: f64, knee_deg: f64, k: f64) -> f64 {
+    if knee_deg <= 0.0 {
+        return 0.0;
+    }
+    clamp01(k * smoothstep(ROCK_HELD_START * knee_deg, knee_deg, deg))
+}
+
+/// Where [`rock_slope_mix_held`]'s ramp starts, as a fraction of its knee. A
+/// labelled judgement: half the knee, so the ramp is as wide as it is high
+/// and a range's slope spread (top-decile p50 to p90 of about 7 to 20 degrees
+/// on the 2026-10-19 worlds) crosses it rather than jumping it.
+pub(crate) const ROCK_HELD_START: f64 = 0.5;
+
+/// The ground temperature, in the climate's degrees C, at and below which
+/// [`rock_knee_deg`] uses the cold (above-treeline) knee. A labelled
+/// judgement placed against this model's own snow line: `material_weights`
+/// starts snow at 3 C, and a treeline sits a little below the snow line, so the
+/// cold knee is complete just above it.
+pub(crate) const ROCK_KNEE_COLD_C: f64 = 4.0;
+/// The ground temperature at and above which [`rock_knee_deg`] uses the warm
+/// (below-treeline) knee. A labelled judgement: wide enough (8 C, roughly
+/// 1 300 m of a 6 C/km lapse) that the treeline is a band and not a contour.
+pub(crate) const ROCK_KNEE_WARM_C: f64 = 12.0;
+
+/// The slope-rock knee, in real degrees (the 2026-10-19 follow-up to Ruling
+/// CU item 1; see [`TerrainAppearance::rock_slope_warm_deg`]): between `cold`
+/// and `warm` by the larger of two covers, either of which holds soil on a
+/// slope -- the ground's warmth (a smoothstep from [`ROCK_KNEE_COLD_C`] to
+/// [`ROCK_KNEE_WARM_C`]: warm ground below the treeline) and its vegetation
+/// cover `veg` (`material_weights`' own `c`, `0..1`: a forested volcano
+/// flank is held even where the warmth term reads it as cold -- measured on
+/// 24601 archipelago's volcano, green with the tint off, grey under the
+/// warmth term alone). Never outside `[min, max]` of the two knees, so a zero
+/// or negative knee cannot come out of it when both are positive.
+pub(crate) fn rock_knee_deg(t: f64, veg: f64, cold: f64, warm: f64) -> f64 {
+    let hold = smoothstep(ROCK_KNEE_COLD_C, ROCK_KNEE_WARM_C, t).max(clamp01(veg));
+    cold + (warm - cold) * hold
+}
+
 /// The share of the snow weight steep ground sheds (R1, Ruling CI addendum
 /// item 2): `strength · smoothstep(0.4 · full_deg, full_deg, deg)`. The `0.4`
 /// start is a labelled judgement -- shedding begins well before the slope at
@@ -6985,7 +7069,14 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         // R2 (Ruling CI addendum item 2): the knee in real degrees when the
         // look sets one and the scale is known; the ported per-cell knee
         // otherwise, which is the reference's own expression.
+        // The 2026-10-19 follow-up: with `rock_slope_warm_deg` set (Satellite
+        // relief only) the knee follows the ground's temperature, so warm
+        // slopes below the treeline keep their cover; `0.0` is the single
+        // knee by this branch, exactly as before.
         let k = match slope_deg {
+            Some(deg) if appearance.rock_slope_deg > 0.0 && appearance.rock_slope_warm_deg > 0.0 => {
+                rock_slope_mix_held(deg, rock_knee_deg(te, w.c, appearance.rock_slope_deg, appearance.rock_slope_warm_deg), appearance.rock_slope)
+            }
             Some(deg) if appearance.rock_slope_deg > 0.0 => rock_slope_mix_deg(deg, appearance.rock_slope_deg, appearance.rock_slope),
             _ => rock_slope_mix(slope, appearance.rock_slope),
         };

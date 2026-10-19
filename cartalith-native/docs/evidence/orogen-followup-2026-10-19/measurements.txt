@@ -1,0 +1,128 @@
+# The 2026-10-19 follow-up to Ruling CU item 1 (after Ruling CV): measurements
+# MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md section 7.7 carries the reading.
+
+Builds: HEAD = 491693b4 (a clean worktree, its own target dir); after = this
+change. App parameters (params::defaults), sea level 0.42, 2048 x 1311.
+Harnesses: cartalith-godot/tests/mountain_relief.rs (HSTAT, now with
+flat_patches and an FNV-1a field hash; COST), cartalith-civ/tests/
+mountain_relief_civ.rs (CIV), cartalith-godot/tests/zoom_detail_ladder.rs
+(ZD_APP=1 ZD_X1=1 ZD_MASK=1, law 1, release) with belt picks
+{71077345: belt (1790,580), belt2 (1560,610); 314159 earth: belt (850,150),
+belt2 (700,120); 24601 earth 3000: belt (510,150), belt2 (500,240)} and the
+harness's own volcano pick. Ladder statistics are land-only (the harness's
+input mask, eroded 2 px, 24 px margin), definitions as in
+satellite-land-tone-2026-10-19/measurements.txt.
+
+## Generation, nine worlds (top-decile median slope; flat-fill patches)
+flat patch = 4-connected group of >= 16 land cells above 50 m whose four
+neighbours are all within 0.05 m (what a Priority-Flood+eps fill leaves);
+share = cells in such patches / land cells above 50 m.
+world                        top slope p50 off/HEAD/after     flat patches (n, share of land >50 m) off | HEAD | after   vs off: land / outlet agree   
+s314159_earth_800              2.72 /  9.80 /  6.81               1 0.0018 |   88 0.0238 |   19 0.0034      0.99521 / 0.98698
+s24601_archipelago_800         0.98 /  3.51 /  2.90              11 0.0044 |   17 0.0085 |    7 0.0026      0.99237 / 0.99109
+s24601_earth_3000              0.83 /  2.64 /  2.76               0 0.0000 |   20 0.0014 |    7 0.0008      0.99950 / 0.97109
+s483920_classic_800            1.07 /  5.98 /  4.74               4 0.0003 |  121 0.0139 |   13 0.0013      0.99967 / 0.98751
+s71077345_classic_800          2.32 /  7.52 /  6.59              17 0.0010 |  142 0.0128 |   30 0.0014      0.99975 / 0.99323
+s246371_earth_800              2.82 /  9.46 /  6.87               0 0.0000 |  106 0.0302 |   14 0.0019      0.99858 / 0.98619
+s24601_classic_800             0.34 /  0.40 /  0.40               6 0.0010 |  119 0.0130 |   26 0.0063      0.99954 / 0.98843
+s314159_classic_3000           0.32 /  0.47 /  0.59               3 0.0001 |   20 0.0004 |    1 0.0001      0.99855 / 0.97892
+s483920_supercontinent_3000    0.46 /  0.77 /  1.03               0 0.0000 |   71 0.0038 |   31 0.0015      0.99921 / 0.98986
+
+## Switch-off identity
+orogen_off, all nine worlds: FNV-1a of the final field identical between HEAD
+and this build (e.g. 71077345 a27172736bf51acc, 314159 earth 23885ac7d8806669).
+
+## Rivers, lakes, settlements, landmarks (CIV; off = switch off, on = after)
+CIV s314159_earth_800 off: B8 ocean 0 lake% 5.572 small 24 (path 12580) lakes 50 | settlements 40 median_elev 1261 | landmarks 190 total | cliff=30 fo
+CIV s314159_earth_800 on : B8 ocean 0 lake% 2.716 small 21 (path 13549) lakes 37 | settlements 40 median_elev 1264 | within3 0.400 median_nn 15.7 | la
+CIV s24601_archipelago_800 off: B8 ocean 0 lake% 2.506 small 16 (path 4310) lakes 38 | settlements 38 median_elev 21 | landmarks 168 total | cliff=30 
+CIV s24601_archipelago_800 on : B8 ocean 0 lake% 2.112 small 14 (path 4687) lakes 30 | settlements 34 median_elev 19 | within3 0.294 median_nn 13.0 | 
+CIV s24601_earth_3000 off: B8 ocean 0 lake% 0.933 small 21 (path 45441) lakes 76 | settlements 40 median_elev 527 | landmarks 248 total | cliff=30 for
+CIV s24601_earth_3000 on : B8 ocean 0 lake% 0.651 small 13 (path 44268) lakes 45 | settlements 40 median_elev 444 | within3 0.450 median_nn 5.8 | land
+CIV s483920_classic_800 off: B8 ocean 0 lake% 0.995 small 28 (path 24211) lakes 58 | settlements 40 median_elev 1437 | landmarks 192 total | cliff=30 
+CIV s483920_classic_800 on : B8 ocean 0 lake% 0.602 small 21 (path 25897) lakes 39 | settlements 40 median_elev 1425 | within3 0.400 median_nn 30.1 | 
+CIV s71077345_classic_800 off: B8 ocean 0 lake% 0.740 small 27 (path 24324) lakes 54 | settlements 40 median_elev 821 | landmarks 190 total | cliff=30
+CIV s71077345_classic_800 on : B8 ocean 0 lake% 1.530 small 24 (path 24838) lakes 53 | settlements 40 median_elev 888 | within3 0.600 median_nn 0.0 | 
+CIV s246371_earth_800 off: B8 ocean 0 lake% 5.054 small 33 (path 10981) lakes 63 | settlements 40 median_elev 1320 | landmarks 193 total | cliff=30 fo
+CIV s246371_earth_800 on : B8 ocean 0 lake% 7.035 small 27 (path 13447) lakes 52 | settlements 40 median_elev 1311 | within3 0.375 median_nn 21.0 | la
+CIV s24601_classic_800 off: B8 ocean 0 lake% 1.611 small 61 (path 32162) lakes 120 | settlements 40 median_elev 3 | landmarks 215 total | cliff=30 for
+CIV s24601_classic_800 on : B8 ocean 0 lake% 0.454 small 43 (path 33257) lakes 89 | settlements 40 median_elev 5 | within3 0.525 median_nn 1.4 | landm
+CIV s314159_classic_3000 off: B8 ocean 0 lake% 10.507 small 61 (path 68791) lakes 112 | settlements 40 median_elev 1990 | landmarks 249 total | cliff=
+CIV s314159_classic_3000 on : B8 ocean 0 lake% 9.102 small 55 (path 70443) lakes 100 | settlements 40 median_elev 2046 | within3 0.675 median_nn 0.0 |
+CIV s483920_supercontinent_3000 off: B8 ocean 0 lake% 11.253 small 32 (path 70224) lakes 115 | settlements 40 median_elev 260 | landmarks 246 total | 
+CIV s483920_supercontinent_3000 on : B8 ocean 0 lake% 10.518 small 33 (path 70714) lakes 108 | settlements 40 median_elev 262 | within3 0.675 median_n
+First build (782ec8c7) for comparison, 1-3-cell lakes on: 30/10/11/27/24/25/57/57/34.
+
+## Cost (release, alone, five alternating runs per arm, median (min..max))
+HEAD   314159 earth: off 7.45 (7.44..7.56) on 10.88 (10.86..10.94); repeat on 10.87 (10.84..10.90)
+HEAD   71077345:     off 3.06 (3.05..3.08) on 6.37 (6.36..6.39);  repeat on 6.37 (6.35..6.38)
+after  314159 earth: off 7.47 (7.44..7.48) on 11.12 (11.11..11.17); repeat on 11.16 (11.12..11.24)
+after  71077345:     off 3.08 (3.07..3.09) on 6.66 (6.64..6.68);  repeat on 6.65 (6.64..6.70)
+
+## Ladder: mean |luminance gradient| and rock (HSV) share per rung, HEAD -> after
+satellite s24601_archipelago_800km   volcano  grad (x4/x16/x64): 5.08 / 5.56 / 7.40  ->  7.00 / 6.97 / 7.84
+satellite s24601_archipelago_800km   volcano  rock (x4/x16/x64): 0.92 / 0.91 / 0.75  ->  0.38 / 0.54 / 0.57
+satellite s24601_earth_3000km        belt     grad (x1/x4/x16/x64): 6.84 / 2.37 / 3.90 / 7.56  ->  6.00 / 2.22 / 3.94 / 7.38
+satellite s24601_earth_3000km        belt     rock (x1/x4/x16/x64): 0.09 / 0.11 / 0.35 / 0.46  ->  0.01 / 0.04 / 0.17 / 0.27
+satellite s24601_earth_3000km        belt2    grad (x1/x4/x16/x64): 6.84 / 2.97 / 4.46 / 5.92  ->  6.00 / 2.64 / 4.35 / 5.72
+satellite s24601_earth_3000km        belt2    rock (x1/x4/x16/x64): 0.09 / 0.11 / 0.25 / 0.01  ->  0.01 / 0.02 / 0.06 / 0.00
+satellite s314159_earth_800km        belt     grad (x1/x4/x16/x64): 9.31 / 4.44 / 4.28 / 3.78  ->  10.21 / 5.04 / 4.48 / 3.95
+satellite s314159_earth_800km        belt     rock (x1/x4/x16/x64): 0.37 / 0.73 / 0.84 / 0.90  ->  0.23 / 0.56 / 0.77 / 0.81
+satellite s314159_earth_800km        belt2    grad (x1/x4/x16/x64): 9.31 / 4.34 / 3.15 / 5.72  ->  10.21 / 4.90 / 3.69 / 5.11
+satellite s314159_earth_800km        belt2    rock (x1/x4/x16/x64): 0.37 / 0.87 / 0.77 / 0.81  ->  0.23 / 0.70 / 0.66 / 0.81
+satellite s314159_earth_800km        volcano  grad (x4/x16/x64): 3.64 / 3.88 / 7.21  ->  3.75 / 4.39 / 7.89
+satellite s314159_earth_800km        volcano  rock (x4/x16/x64): 0.20 / 0.14 / 0.70  ->  0.06 / 0.02 / 0.23
+satellite s71077345_classic_800km    belt     grad (x1/x4/x16/x64): 9.18 / 4.17 / 3.69 / 8.58  ->  9.01 / 3.84 / 3.67 / 8.08
+satellite s71077345_classic_800km    belt     rock (x1/x4/x16/x64): 0.15 / 0.38 / 0.83 / 0.87  ->  0.04 / 0.10 / 0.41 / 0.87
+satellite s71077345_classic_800km    belt2    grad (x1/x4/x16/x64): 9.18 / 3.67 / 2.92 / 5.71  ->  9.01 / 3.60 / 2.72 / 5.61
+satellite s71077345_classic_800km    belt2    rock (x1/x4/x16/x64): 0.15 / 0.40 / 0.49 / 0.60  ->  0.04 / 0.12 / 0.04 / 0.02
+satellite s71077345_classic_800km    volcano  grad (x4/x16/x64): 4.58 / 4.53 / 8.22  ->  4.46 / 4.69 / 8.61
+satellite s71077345_classic_800km    volcano  rock (x4/x16/x64): 0.48 / 0.69 / 0.82  ->  0.13 / 0.26 / 0.29
+vibrant   s24601_archipelago_800km   volcano  grad (x4/x16/x64): 3.23 / 3.57 / 4.83  ->  3.14 / 3.59 / 4.89
+vibrant   s24601_archipelago_800km   volcano  rock (x4/x16/x64): 0.06 / 0.11 / 0.25  ->  0.05 / 0.11 / 0.26
+vibrant   s24601_earth_3000km        belt     grad (x1/x4/x16/x64): 5.44 / 1.87 / 2.63 / 5.15  ->  5.31 / 1.78 / 2.54 / 5.12
+vibrant   s24601_earth_3000km        belt     rock (x1/x4/x16/x64): 0.03 / 0.22 / 0.13 / 0.21  ->  0.03 / 0.22 / 0.12 / 0.25
+vibrant   s24601_earth_3000km        belt2    grad (x1/x4/x16/x64): 5.44 / 1.95 / 2.73 / 3.55  ->  5.31 / 1.84 / 2.59 / 3.43
+vibrant   s24601_earth_3000km        belt2    rock (x1/x4/x16/x64): 0.03 / 0.03 / 0.08 / 0.00  ->  0.03 / 0.03 / 0.07 / 0.00
+vibrant   s314159_earth_800km        belt     grad (x1/x4/x16/x64): 6.22 / 2.95 / 2.45 / 3.58  ->  6.06 / 2.88 / 2.43 / 3.74
+vibrant   s314159_earth_800km        belt     rock (x1/x4/x16/x64): 0.17 / 0.45 / 0.29 / 0.87  ->  0.16 / 0.43 / 0.23 / 0.59
+vibrant   s314159_earth_800km        belt2    grad (x1/x4/x16/x64): 6.22 / 3.05 / 2.04 / 3.61  ->  6.06 / 2.93 / 2.07 / 3.21
+vibrant   s314159_earth_800km        belt2    rock (x1/x4/x16/x64): 0.17 / 0.55 / 0.46 / 0.09  ->  0.16 / 0.53 / 0.36 / 0.09
+vibrant   s314159_earth_800km        volcano  grad (x4/x16/x64): 1.53 / 1.12 / 4.37  ->  1.50 / 1.11 / 4.37
+vibrant   s314159_earth_800km        volcano  rock (x4/x16/x64): 0.01 / 0.00 / 0.08  ->  0.01 / 0.00 / 0.08
+vibrant   s71077345_classic_800km    belt     grad (x1/x4/x16/x64): 4.77 / 2.47 / 2.49 / 6.42  ->  4.78 / 2.48 / 2.37 / 5.89
+vibrant   s71077345_classic_800km    belt     rock (x1/x4/x16/x64): 0.02 / 0.04 / 0.12 / 0.47  ->  0.02 / 0.04 / 0.10 / 0.47
+vibrant   s71077345_classic_800km    belt2    grad (x1/x4/x16/x64): 4.77 / 2.25 / 1.89 / 3.99  ->  4.78 / 2.30 / 1.79 / 3.73
+vibrant   s71077345_classic_800km    belt2    rock (x1/x4/x16/x64): 0.02 / 0.04 / 0.00 / 0.01  ->  0.02 / 0.04 / 0.00 / 0.00
+vibrant   s71077345_classic_800km    volcano  grad (x4/x16/x64): 2.52 / 2.98 / 5.60  ->  2.53 / 3.07 / 5.73
+vibrant   s71077345_classic_800km    volcano  rock (x4/x16/x64): 0.05 / 0.10 / 0.05  ->  0.05 / 0.10 / 0.05
+
+## Tuning arms (debug profile, 71077345 unless named; flat patches / top slope p50)
+HEAD (ridged 1 500 m + fill)                          142 / 7.52
+g6  ridged fine octaves only (first two off), fill    575 / 9.64   scribbled crumple
+g7  gully only 4 000 m, regional slope only, fill      42 / 6.07   spine + spurs, soft
+g8  gully 3 000, slope ref 0.2, dome 1 500, fill       76 / 7.98
+g11 g8 + octave decay 1.5, fill                        80 / 7.68   (3 000 km: worms gone)
+g12 g11 + per-point turn 0.06 / strength 0.5, fill     51 / 6.45   (comb gone at x4)
+g12b g12 + breach, no depth cap                        28 / 6.61   straight 850 m trench at x64 (314159)
+d50 g12 + breach capped at 50 m (shipped)              30 / 6.59
+d20 g12 + breach capped at 20 m                        32 / 6.53
+Breach paths (g12b, 314159 earth): 5 971 notches, length p50 1 p90 9 p99 61 cells,
+depth p50 5 m p90 47 m p99 195 m max 850 m.
+Satellite relief warm knee on the volcano picks (rock share x4/x16/x64,
+24601 archipelago): knee 6 0.92/0.91/0.75; 28 (pow curve) 0.62/0.74/0.69;
+28 held ramp 0.55/0.68/0.64; 40 held ramp (shipped) 0.38/0.54/0.57; 80 with all ground held 0.06/0.14/0.29;
+slope rock off 0.04/0.10/0.26.
+## Re-baselined pins and the suite
+export_raster.rs census, "satellite" row only, every column (old -> new in the
+row's own comment); the default, graded, antique and js_reference rows did not
+move. lib.rs recovery_road_lengths: phase II on the civ fixture world rebuilds
+3 969.6 km against 3 971.4 km filtered -- one pair (Arcjunjunlucforum -
+Revelyreach) re-routed 488.39 -> 486.54 km -- so the rule became >= 0.999 x.
+cargo test --workspace --no-fail-fast -j 2: 235 result lines, 6 737 passed,
+0 failed, 123 ignored. 21 mutants, 20 killed, 1 equivalent.
+
+## Windowed probes (scratch copy, own config/name, settings dir cleared; DLL 18:55:27)
+_gsw 339 checks / 0 failed; _stylepresets 0 failures; _lookstate 23 / 0;
+_tiledlod PASS; _exportdialog desktop PASS, phone PASS; _zoomdetail DONE in
+Satellite relief and Natural Vibrant (frame 13, mountain pick, x1/x4/x16/x64).

@@ -9189,8 +9189,10 @@ mod substrate_tests {
             // fixture: these tests are about saving and reopening a project, not
             // about terrain, and `a_reopened_project_plans_over_the_saved_road_edges`
             // needs a straight road-edge-only stretch of at least 4 cells, which
-            // this seed's smooth-belt world has and its ridged world does not
-            // (measured 2026-10-19: "no stretch of 4 road-edge-only cells").
+            // this seed's smooth-belt world has and its ranged world did not
+            // (measured 2026-10-19 with the first build's ridged term: "no
+            // stretch of 4 road-edge-only cells"; not re-measured under the
+            // follow-up's gully term, since the pin stands either way).
             p.tect.orogen_relief = false;
             let ws = cartalith_engine::generate_terrain(&p);
             let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);

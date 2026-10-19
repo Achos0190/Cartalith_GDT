@@ -897,7 +897,7 @@ fn app_params(seed: i32, km: f64, gw: usize, gh: usize) -> WorldParams {
     // every GF bar in `GEOLOGY_FIRST_SCOPE.md` was measured on the app's
     // smooth-belt world, and this harness's test-side replay of the pipeline
     // ([`pre_erosion`], [`light_pass`], [`tail`]) does not replay the orogen
-    // pass or its late belt fill. A GF re-measurement on the ridged world is
+    // pass or its late belt breach (a fill until the 2026-10-19 follow-up). A GF re-measurement on the ranged world is
     // its own row, not a side effect of the ruling.
     p.tect.orogen_relief = false;
     p

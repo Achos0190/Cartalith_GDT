@@ -2419,7 +2419,10 @@ mod civ_pipeline_tests {
     ///
     /// - no Stable network node abandoned ⇒ the rebuild draws exactly what
     ///   filtering keeps (nothing was reassigned);
-    /// - otherwise the rebuild never draws *less* than filtering keeps.
+    /// - otherwise the rebuild never draws *less* than filtering keeps, to
+    ///   0.1 % (since 2026-10-19: a rebuild may re-route a surviving pair a
+    ///   little shorter without the abandoned node -- measured, see the
+    ///   assertion).
     ///
     /// Until 2026-09-29 this asserted "phase II abandons only villages, whose
     /// tracks own no network cell" as a fact about phase II. It was a fact
@@ -2455,7 +2458,8 @@ mod civ_pipeline_tests {
     /// Protects: after settlement recovery drops nodes and re-indexes the
     /// list, every surviving way in both the Stable network (the "filtered"
     /// view) and the post-recovery rebuild still reaches its own A/B
-    /// settlement, and the rebuild is never shorter than filtering.
+    /// settlement, and the rebuild is never shorter than filtering (beyond the
+    /// 0.1 % re-routing slack in `recovery_road_lengths`).
     #[test]
     fn recovery_keeps_every_road_on_the_settlements_it_joined() {
         let main = recovery_road_lengths(&world().0, &world().1);
@@ -2676,8 +2680,19 @@ mod civ_pipeline_tests {
                     "phase {phase} abandons no network node, so nothing was reassigned: {rebuilt} vs {filtered}"
                 );
             } else {
+                // RE-BASELINED 2026-10-19 (the orogen follow-up's gully relief
+                // and breach changed this world's terrain): `>= filtered`
+                // became `>= 0.999 · filtered`. Measured on the new world's
+                // phase II: 3 969.6 km rebuilt against 3 971.4 km filtered,
+                // and the whole 1.85 km is ONE surviving pair re-routed
+                // (Arcjunjunlucforum - Revelyreach, 488.39 -> 486.54 km) when
+                // the rebuild re-pathfinds without the abandoned node: a
+                // shorter route, not a lost or truncated road. Losing a road
+                // fails the pair check above; truncating one fails the
+                // endpoint check; a 0.1 % slack (about 4 km here) admits only
+                // re-routing.
                 assert!(
-                    rebuilt >= filtered - 1e-9,
+                    rebuilt >= filtered * 0.999,
                     "phase {phase}: the rebuild draws {rebuilt:.1} km, less than filtering's {filtered:.1} km"
                 );
             }

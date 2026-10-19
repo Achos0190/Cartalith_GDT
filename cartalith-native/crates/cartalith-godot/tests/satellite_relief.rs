@@ -114,6 +114,7 @@ fn terms_off(mut a: TerrainAppearance) -> TerrainAppearance {
     a.snow_shed = 0.0;
     a.snow_shed_deg = 0.0;
     a.rock_slope_deg = 0.0;
+    a.rock_slope_warm_deg = 0.0;
     a
 }
 
@@ -138,6 +139,7 @@ fn the_new_terms_are_off_outside_the_satellite_look() {
             ("snow_shed", a.snow_shed),
             ("snow_shed_deg", a.snow_shed_deg),
             ("rock_slope_deg", a.rock_slope_deg),
+            ("rock_slope_warm_deg", a.rock_slope_warm_deg),
             ("land_relief_contrast", a.land_relief_contrast),
             ("land_tone_contrast", a.land_tone_contrast),
         ] {
@@ -166,6 +168,7 @@ fn the_satellite_look_sets_its_terms() {
     assert_eq!(a.snow_shed_deg, 8.0);
     assert_eq!(a.rock_slope, 1.0);
     assert_eq!(a.rock_slope_deg, 6.0);
+    assert_eq!(a.rock_slope_warm_deg, 40.0);
     // Natural Vibrant's red-desert ramp, first stop (render.rs `with_look`),
     // which the land tone pass does not re-pitch.
     assert_eq!(a.sand_red[0], (174.0, 83.0, 47.0), "the look must sit over Natural Vibrant's palettes");
@@ -375,6 +378,59 @@ fn the_degree_knee_tints_rock_where_the_ported_knee_barely_does() {
     assert_ne!(ported[o..o + 3], deg[o..o + 3], "the ridge must change under the degree knee");
 }
 
+/// Protects: the held knee's two curves as hand-worked literals (the
+/// 2026-10-19 follow-up to Ruling CU item 1) -- `rock_knee_deg` is the cold
+/// knee on cold bare ground, the warm knee on warm ground (12 C and up) or
+/// fully vegetated ground, the midpoint at 8 C (smoothstep 0.5), and the
+/// larger of the two covers; `rock_slope_mix_held` is zero up to half the
+/// knee, a half at three quarters of it, `k` from the knee on, and zero for
+/// a zero knee.
+#[test]
+fn the_held_knee_follows_warmth_and_cover() {
+    use render::{rock_knee_deg, rock_slope_mix_held};
+    assert_eq!(rock_knee_deg(-12.0, 0.0, 6.0, 40.0), 6.0);
+    assert_eq!(rock_knee_deg(20.0, 0.0, 6.0, 40.0), 40.0);
+    assert_eq!(rock_knee_deg(-12.0, 1.0, 6.0, 40.0), 40.0);
+    assert!((rock_knee_deg(8.0, 0.0, 6.0, 40.0) - 23.0).abs() < 1e-12);
+    assert!((rock_knee_deg(-12.0, 0.25, 6.0, 40.0) - 14.5).abs() < 1e-12);
+    assert!((rock_knee_deg(8.0, 0.75, 6.0, 40.0) - 31.5).abs() < 1e-12, "the larger cover wins");
+    assert_eq!(rock_slope_mix_held(19.9, 40.0, 1.0), 0.0);
+    assert!((rock_slope_mix_held(30.0, 40.0, 1.0) - 0.5).abs() < 1e-12);
+    assert_eq!(rock_slope_mix_held(40.0, 40.0, 0.8), 0.8);
+    assert_eq!(rock_slope_mix_held(70.0, 40.0, 1.0), 1.0);
+    assert_eq!(rock_slope_mix_held(30.0, 0.0, 1.0), 0.0);
+}
+
+/// Protects: on the fixture's 19-degree ridge, ground a cover holds (here
+/// warmth: the whole land at 20 C) shows no slope rock under the look's
+/// 40-degree warm knee -- its pixels are the tint-off render's -- where the
+/// single 6-degree knee (`rock_slope_warm_deg` 0, the look before the
+/// follow-up) tints them; and cold bare ground (the fixture's own -12 C) is
+/// tinted exactly as the single knee tints it.
+#[test]
+fn ground_a_cover_holds_keeps_it_where_the_single_knee_greys_it() {
+    let cold = world();
+    let warm = World { temp: cold.temp.iter().map(|&t| if t < 0.0 { 20.0 } else { t }).collect(), ..world() };
+    let mut single = sat();
+    single.rock_slope_warm_deg = 0.0;
+    let mut tint_off = sat();
+    tint_off.rock_slope = 0.0;
+    let y = GH / 2;
+    let px = |b: &[u8], x: usize| b[(y * GW + x) * 3..(y * GW + x) * 3 + 3].to_vec();
+    let held = screen(&ctx(&warm, sat(), true));
+    let off = screen(&ctx(&warm, tint_off, true));
+    let one = screen(&ctx(&warm, single.clone(), true));
+    for x in 42..47 {
+        assert_eq!(px(&held, x), px(&off, x), "warm ridge x={x} must keep its cover");
+        assert_ne!(px(&one, x), px(&off, x), "the single knee tints warm ridge x={x} (the control)");
+    }
+    let held_c = screen(&ctx(&cold, sat(), true));
+    let one_c = screen(&ctx(&cold, single, true));
+    for x in 42..47 {
+        assert_eq!(px(&held_c, x), px(&one_c, x), "cold bare ridge x={x}: the single knee's tint");
+    }
+}
+
 /// Protects: the shelf shares `coast_d` with the wave contours and must not
 /// switch them on. With waves off, the waves' own parameter (`wave_dist`, read
 /// only by `apply_waves`) must move nothing; without the `npr.waves` gate in
@@ -456,13 +512,14 @@ fn a_tile_agrees_with_the_screen_under_the_look() {
 #[test]
 fn the_new_fields_serialize_only_when_on_and_round_trip() {
     let j = serde_json::to_string(&TerrainAppearance::default()).unwrap();
-    for k in ["sea_shelf", "sea_shelf_km", "snow_shed", "snow_shed_deg", "rock_slope_deg", "land_relief_contrast", "land_tone_contrast"] {
+    for k in ["sea_shelf", "sea_shelf_km", "snow_shed", "snow_shed_deg", "rock_slope_deg", "rock_slope_warm_deg", "land_relief_contrast", "land_tone_contrast"] {
         assert!(!j.contains(&format!("\"{k}\"")), "default must not serialize {k}");
     }
     let a = TerrainAppearance::default().with_look(LOOK_SATELLITE);
     let s = serde_json::to_string(&a).unwrap();
     let back: TerrainAppearance = serde_json::from_str(&s).unwrap();
     assert_eq!((back.sea_shelf, back.sea_shelf_km, back.snow_shed, back.snow_shed_deg, back.rock_slope_deg), (1.0, 48.0, 1.0, 8.0, 6.0));
+    assert_eq!(back.rock_slope_warm_deg, 40.0);
     assert_eq!((back.land_relief_contrast, back.land_tone_contrast), (0.3, 0.5));
 }
 

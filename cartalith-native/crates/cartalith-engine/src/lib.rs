@@ -276,7 +276,7 @@ pub struct TectonicParams {
     pub narrow_plate_base_blur: bool,
     /// **Orogen relief** (owner Ruling CU item 1, 2026-10-19;
     /// `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` H1 and H2 at its §4
-    /// defaults): add a belt-localised, kilometre-keyed ridged relief term to
+    /// defaults): add a belt-localised, kilometre-keyed gully relief term to
     /// the normalised height field before volcanism
     /// ([`cartalith_terrain::orogen::apply_orogen_relief`]), and let volcano
     /// stamps and that term saturate smoothly toward 1
@@ -2322,8 +2322,9 @@ pub(crate) fn tectonic_substrate(
 /// routing refreshed every `tune.dissect_refresh` iterations so the drainage
 /// reorganises around the relief it cuts into dendritic valleys and spurs.
 ///
-/// **Why.** The ridged term alone left a crumpled surface with closed hollows
-/// (top-decile pits 0.0006 -> 0.0025 on 71077345); the investigation's arm G
+/// **Why.** The relief term alone (the first build's ridged term, measured
+/// with it) left a crumpled surface with closed hollows (top-decile pits
+/// 0.0006 -> 0.0025 on 71077345); the investigation's arm G
 /// showed that the shipped light pass, frozen-routed and 9 iterations long,
 /// cannot organise a drainage on its own. Measured on 71077345 (§7 of the
 /// investigation): this pass at its defaults brings the pits back to the
@@ -2335,7 +2336,7 @@ pub(crate) fn tectonic_substrate(
 /// both are pinned (a Dirichlet base level), so valleys grade to the belt's
 /// own forelands and coasts. Lower a land cell below `sea + 10 m` (the land
 /// mask must not move). Let the kernel's final clamp at 1 flatten crests the
-/// ridged term lifted past 1: the kernel runs on the field scaled by one half
+/// relief term lifted past 1: the kernel runs on the field scaled by one half
 /// (the implicit update and the routing order are linear in height, and
 /// deposition is off), and `orogen::soft_ceiling` saturates the top later.
 #[allow(clippy::too_many_arguments)]
@@ -2553,8 +2554,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             &tune,
         );
         orogen_dissect(&mut field, &belt, gw, gh, world, sea0, p.peak_m, &tune);
-        // The cells the late depression fill below may raise: the dissected
-        // belt (everything the pass did not pin).
+        // The cells the late breach below may lower (or, where it must fill,
+        // raise): the dissected belt (everything the pass did not pin).
         orogen_belt = Some(belt.iter().map(|&b| u8::from(b >= tune.dissect_pin_below)).collect());
     }
     drop(oro);
@@ -2669,7 +2670,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         &mut impact_field,
     );
     // H2 (Ruling CU item 1, app-side): with the orogen switch on, the stamps
-    // above did not cut summits flat at 1 (`soft_top`) and the ridged term may
+    // above did not cut summits flat at 1 (`soft_top`) and the relief term may
     // have lifted crests past 1, so the top saturates smoothly here first; the
     // clamp below then bounds only the bottom. Off, the clamp alone runs, as
     // the reference does.
@@ -3538,23 +3539,29 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     if p.volc.fill_edifice_pits && p.volc.edifice_model {
         cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &volcanic_field);
     }
-    // Ruling CU item 1, the same late fill over the orogen belt: the ridged,
-    // dissected relief and every stage after it (light pass, carve, glacial)
-    // leave closed hollows there, which the water-body classifier pools into
+    // Ruling CU item 1, the late drain over the orogen belt: the dissected
+    // relief and every stage after it (light pass, carve, glacial) leave
+    // closed hollows there, which the water-body classifier pools into
     // 1-3-cell lakes (measured: 63-355 per world against 16-61 with the term
-    // off; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` §7). Filled to their
-    // spill level with Priority-Flood+ε, the CO fill's own routine, over the
-    // belt's land and its enclosed below-sea hollows (never the open sea); a
-    // volcano's summit depression is never filled. Off
-    // (`tect.orogen_relief` false: the parity path), `orogen_belt` is `None`.
+    // off; `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` §7). Drained by
+    // `orogen::breach_belt_pits` over the belt's land and its enclosed
+    // below-sea hollows (never the open sea; a volcano's summit depression is
+    // never touched). Until the 2026-10-19 follow-up (§7.7) this was the CO
+    // fill's Priority-Flood+ε, which left every filled hollow dead flat (flat
+    // basins at x4-x16); the breach notches the sill instead and fills only
+    // what it must (below-sea floors, the part of a hollow deeper than the
+    // notch cap). Off (`tect.orogen_relief` false: the parity path),
+    // `orogen_belt` is `None`.
     if let Some(belt) = orogen_belt {
-        use cartalith_terrain::edifice_pits::{flank_mask_from_volcanic_field, fill_edifice_flank_pits, FLANK_CALDERA, FLANK_FLANK, FLANK_NONE};
+        use cartalith_terrain::edifice_pits::{flank_mask_from_volcanic_field, FLANK_CALDERA, FLANK_FLANK, FLANK_NONE};
         let flank = flank_mask_from_volcanic_field(&volcanic_field, gw, gh);
         // The open sea: below-sea cells 4-connected to the map edge. A
         // below-sea cell the sea does not reach is a closed hollow too (a
         // carved gorge floor dropping under sea level inland -- measured on
         // 24601's archipelago, where those were most of the remaining
-        // 1-3-cell lakes), so it is filled like one; the open sea never is.
+        // 1-3-cell lakes), so it is drained like one (the breach fills a
+        // below-sea floor rather than opening it to the sea); the open sea
+        // never is.
         let open_sea = {
             let n = gw * gh;
             let mut sea_open = vec![false; n];
@@ -3592,7 +3599,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
             })
             .collect();
-        fill_edifice_flank_pits(gw, gh, &mut field, &mask);
+        let tune = cartalith_terrain::orogen::OrogenTuning::default();
+        let max_depth = cartalith_terrain::geology::m_to_norm(tune.breach_max_depth_m, sea_level, p.peak_m);
+        cartalith_terrain::orogen::breach_belt_pits(gw, gh, &mut field, &mask, sea_level, max_depth);
     }
 
     // PR-04: record each active device's real allocation total *before* the
@@ -3880,8 +3889,10 @@ mod tests {
     /// whose sea level is fixed, the land mask agrees with the switch-off world
     /// on at least 99 % of cells (the term itself never crosses the split; the
     /// stages after it respond to the new relief) and the land fraction moves
-    /// by under one percentage point. 71077345 at 512 x 328 has a
-    /// plate-boundary belt in its east (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`).
+    /// by under one percentage point; and the late breach leaves no dead-flat
+    /// patch on the high ground (the 2026-10-19 follow-up's defect (a)).
+    /// 71077345 at 512 x 328 has a plate-boundary belt in its east
+    /// (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`).
     #[test]
     fn orogen_relief_is_off_on_the_parity_path_and_bounded_when_on() {
         let base = WorldParams::defaults(512, 328, 71_077_345);
@@ -3916,7 +3927,7 @@ mod tests {
             s / k.max(1) as f64
         };
         assert!(step(&on) > 1.5 * step(&off), "high-ground step {} -> {}", step(&off), step(&on));
-        // The late belt fill: the rough belt must not leave more closed
+        // The late belt breach: the rough belt must not leave more closed
         // single-cell hollows (land below all four orthogonal neighbours) on
         // the map than the smooth world had.
         let pits = |w: &WorldState| {
@@ -3942,10 +3953,37 @@ mod tests {
                 .count()
         };
         println!("valleys on the off-world's top decile: {} -> {}", valleys(&off), valleys(&on));
-        // Measured 2026-10-19: 70 -> 1 208, and 70 -> 934 with the dissection
-        // pass removed (the ridged term and the late fill alone), so the
-        // 15x floor is what fails if `orogen_dissect` stops running.
+        // Measured 2026-10-19 with the first build's ridged term: 70 -> 1 208,
+        // and 70 -> 934 with the dissection pass removed, so the 15x floor was
+        // what failed if `orogen_dissect` stopped running. RE-BASELINED
+        // (2026-10-19 follow-up, gully term and breach): 70 -> 1 320; the floor stands.
         assert!(valleys(&on) > 15 * valleys(&off), "valleys {} -> {}", valleys(&off), valleys(&on));
+        // The late breach (`orogen::breach_belt_pits`): no dead-flat patch
+        // left in the belt. A flat cell is land whose four neighbours are all
+        // within 1e-6 of it (the Priority-Flood+ε fill it replaced left its
+        // filled hollows one `f32` step apart); counted on the off-world's top
+        // tenth (an input) and under `SOFT_CEILING_KNEE`, so the summits the
+        // reference clip flattens at 1 (the off-world's own flats) are not
+        // counted.
+        let flats = |w: &WorldState| {
+            (0..n)
+                .filter(|&i| {
+                    let (x, y) = (i % 512, i / 512);
+                    x > 0
+                        && y > 0
+                        && x < 511
+                        && y < 327
+                        && off.field[i] >= p90
+                        && land(w, i)
+                        && (w.field[i] as f64) < cartalith_terrain::orogen::SOFT_CEILING_KNEE
+                        && [i - 1, i + 1, i - 512, i + 512].iter().all(|&j| (w.field[j] - w.field[i]).abs() < 1e-6)
+                })
+                .count()
+        };
+        println!("flat cells on the off-world's top decile: off {} on {}", flats(&off), flats(&on));
+        // Measured 2026-10-19: off 0, on 0; the Priority-Flood+ε fill it
+        // replaced left 31 (HEAD `491693b4`), so a bound of 5 fails on it.
+        assert!(flats(&on) <= 5, "flat cells {} -> {}", flats(&off), flats(&on));
         // H2: with the switch on, fewer cells sit flat at exactly 1 than the
         // reference clip leaves (not none: `soft_ceiling` rounds to 1.0 in
         // `f32` about 0.8 above the knee, which the reference cone stamped on

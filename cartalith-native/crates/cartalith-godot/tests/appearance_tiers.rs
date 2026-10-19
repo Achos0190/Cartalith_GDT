@@ -537,7 +537,14 @@ fn every_tunable_is_load_bearing() {
     // control flow here. Its replacement proofs are in
     // `tests/edifice_furrow_tiles.rs`:
     // `every_gate_leaves_the_tile_untouched_and_all_three_move_it`.
-    const EXEMPT: [&str; 24] = [
+    //
+    // `rock_slope_warm_deg` (the 2026-10-19 follow-up to Ruling CU item 1) is
+    // the twenty-fifth, for `rock_slope_deg`'s reason: it is read only when
+    // `rock_slope_deg` and `rock_slope` are set and the peak altitude is
+    // known, none of which this fixture carries. Its replacement proof is in
+    // `tests/satellite_relief.rs`:
+    // `ground_a_cover_holds_keeps_it_where_the_single_knee_greys_it`.
+    const EXEMPT: [&str; 25] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -560,6 +567,7 @@ fn every_tunable_is_load_bearing() {
         "snow_shed",
         "snow_shed_deg",
         "rock_slope_deg",
+        "rock_slope_warm_deg",
         "canopy_texture",
         "edifice_furrows",
     ];

@@ -3425,7 +3425,18 @@ mod adjust_census_tests {
         ),
         (
             "satellite",
-            [0x0862453395b97097, 0xd1a487bd7674da88, 0x2977617aac5ae9a7, 0x61ab6093e1949ca4, 0x9318d34fcc88c63d, 0x9318d34fcc88c63d, 0x819485702a7d9b0f, 0x7d8be8d479de3d7f, 0xf0ff580117356871],
+            // RE-BASELINED 2026-10-19 (the orogen follow-up's held slope-rock
+            // knee, `rock_slope_warm_deg` 40 in Satellite relief only): every
+            // column of this row moved, old -> new: screen 0862453395b97097
+            // -> bd01eee2a9e52276, river d1a487bd7674da88 -> 895026335de0b58b,
+            // screen_p3 2977617aac5ae9a7 -> 28baa9926c723d4a, river_p3
+            // 61ab6093e1949ca4 -> 2d525003219a9d96, export and banded
+            // 9318d34fcc88c63d -> 00c4f0c7e6da05e5, crop 819485702a7d9b0f ->
+            // 9e3896ad1f796180, tile 7d8be8d479de3d7f -> 2712bfffda80aa3b,
+            // fingerprint f0ff580117356871 -> 76ab9dda8607e9eb (the new field
+            // serializes at 40). The four rows above did NOT move, pixels or
+            // fingerprint (the field is `0.0` there and not serialized).
+            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x76ab9dda8607e9eb],
         ),
     ];
 

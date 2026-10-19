@@ -562,3 +562,103 @@ Visible defects, stated:
   substrate tests, whose road-edge fixture needs a straight 4-cell stretch,
   and `gf0_geology_harness.rs`, whose GF numbers and pipeline replay predate
   the term.
+
+### 7.7 Follow-up: the three visible defects (2026-10-19, after Ruling CV)
+
+Ruling CV kept `tect.orogen_relief` on. The build's own §7.5 named three
+visible defects; each was re-opened at its symbol, measured before and after
+on the investigation's worlds, and fixed inside the existing switch (a)-(b)
+or look (c). Every number below is in
+`cartalith-native/docs/evidence/orogen-followup-2026-10-19/measurements.txt`.
+
+**One root cause for (a) and (b).** The relief term was a ridged
+multifractal over gradient noise (`ridged_multifractal`). Its crests follow
+the noise's zero contours, which are closed loops: the 20 km first octave drew
+rings, which read as meandering worm-like crests where a 3 000 km world puts
+14 cells in a wavelength (defect b), and each ring enclosed a hollow that the
+late Priority-Flood+ε fill turned into a dead-flat surface (defect a). On
+71077345 the gully term below with no ridged term at all cut the flat-fill
+patches 142 -> 42 before the fill was touched (arm g7), while the ridged
+term's fine octaves alone left 575 (arm g6).
+
+**What replaced it** (`cartalith_terrain::orogen`):
+- **Slope-aligned gullies** (`gully_noise`, the procedural "erosion noise" of
+  Quílez / Clay John / Johansen, cited from memory): each jittered lattice
+  point carries a cosine stripe across the local slope, blended over a kernel
+  elongated down the slope; each octave follows the slope so far (regional
+  plus coarser octaves), so fine gullies run down the walls of coarse ones.
+  The result is a spine with branching spurs (the target's herringbone) and no
+  closed contour. Tuned on the hillshades and ladders: 3 000 m amplitude,
+  octave decay `2^(-1.5·o)`, a 1 500 m direction-only dome over the belt,
+  per-point turn of up to 22° and strength 0.5-1 (without them a uniform slope
+  drew a comb). The ridged term is removed, not kept beside it.
+- **The late fill became a breach** (`breach_belt_pits`, Lindsay's hybrid
+  breaching over Priority-Flood): a hollow keeps its floor and walls and a
+  one-cell notch is cut through its sill. Uncapped, notches reached 850 m and
+  drew a straight trench across a range at x64 (314159), so a notch is capped
+  at 50 m; deeper hollows are filled to 50 m under their sill. Below-sea
+  floors are filled as before (a notch would open them to the sea).
+
+**Measured, nine worlds** (`mountain_relief.rs`, new `flat_patches` and field
+hash; HEAD `491693b4` -> after):
+- Flat-fill patches (4-connected, >= 16 cells, land above 50 m, all four
+  neighbours within 0.05 m): 88 / 17 / 20 / 121 / 142 / 106 / 119 / 20 / 71 ->
+  19 / 7 / 7 / 13 / 30 / 14 / 26 / 1 / 31 (share of that land 0.0004-0.0302 ->
+  0.0001-0.0063; switch-off 0-0.0044). In the engine test on 71077345 at
+  512 x 328, flat cells on the high ground: HEAD 31, after 0.
+- Top-decile median slope: 9.80 / 3.51 / 2.64 / 5.98 / 7.52 / 9.46 / 0.40 /
+  0.47 / 0.77 -> 6.81 / 2.90 / 2.76 / 4.74 / 6.59 / 6.87 / 0.40 / 0.59 / 1.03;
+  against switch-off it still at least doubles on 7 of 9 (6 of 9 before).
+- Rivers and lakes (`mountain_relief_civ.rs`): B8 ocean cells on river paths
+  0 on all nine; 1-3-cell lakes off -> on 24/16/21/28/27/33/61/61/32 ->
+  21/14/13/21/24/27/43/55/33 (all within 1.25x; the first build's were
+  30/10/11/27/24/25/57/57/34). Outlets agree with switch-off on 97.1-99.3 %
+  of land (first build 97.4-99.2 %; 24601 earth 3000 is 97.11 against
+  97.36), the land mask on 99.24-99.98 %.
+- Switch off: the final field is byte-identical to HEAD's on all nine worlds
+  (FNV-1a of every cell, HEAD worktree against this build).
+- Cost (release, alone, five alternating runs, twice in separate processes):
+  on 10.88 -> 11.12 / 11.16 s on 314159 earth and 6.37 -> 6.66 / 6.65 s on
+  71077345, so +0.25-0.29 s.
+
+**(c) Satellite relief's slope rock.** The look's single 6° knee
+(`rock_slope_deg`) was set against the pre-range slopes; with ranges every
+belt and every volcano flank went grey. New field `rock_slope_warm_deg`
+(40 in Satellite relief only, 0 everywhere else by a branch): the knee moves
+from 6° on cold, bare ground to 40° on ground warmth (4-12 C smoothstep) or
+vegetation cover (`material_weights`' `c`) holds, and the tint ramps from half
+the knee (`rock_slope_mix_held`) instead of from zero. Rock share (HSV class)
+before -> after at x4/x16/x64: 24601 archipelago volcano 0.92/0.91/0.75 ->
+0.38/0.54/0.57 (its upper cone is steeper than 40° and stays bare), 71077345
+volcano 0.48/0.69/0.82 -> 0.13/0.26/0.29, 71077345 belt 0.38/0.83/0.87 ->
+0.10/0.41/0.87 (the x64 frame sits on the cold spine); whole map (x1)
+0.15/0.37/0.09 -> 0.04/0.23/0.01 on 71077345 / 314159 / 24601 earth 3000
+(target 0.12). Natural Vibrant's frames are unchanged by the render change.
+
+**Zoom ladder.** Frames before/after/target at x1/x4/x16/x64 in both looks
+are `05`-`12`; hillshades with the flat cells drawn red are `01`-`04`. Read in
+the frames: the flat tan basins are gone at x4-x16; at 3 000 km x16 the crest
+is a branching spine with spurs instead of loops; the x64 frames keep their
+texture. Mean luminance gradient per rung moves by -0.84 to +1.92 against HEAD
+(the gullies are smoother than the ridged crags they replaced; the rises are
+the greener, now-shaded volcano flanks); where it falls
+from x4 to x64 (314159's snowfield belt pick) it did at HEAD too.
+
+**Still open, stated.** At fit the ranges are narrower and fewer than the
+target's: they sit only on plate boundaries. That is the multi-sheet
+orogenic belt, its own `OUTSTANDING_WORK.md` §2.9 row, not built here. The
+24601 archipelago volcano's upper cone stays grey because the stamped edifice
+is steeper than 40° there (a generation question about the edifice, not the
+look). §4 Q1's channel-fraction proxy is unchanged in kind.
+
+**Pins and tests.** Re-baselined, old -> new beside each: `export_raster.rs`'s
+census, the "satellite" row only (every column; the four other rows did not
+move), and `lib.rs`'s `recovery_road_lengths` rule "the rebuild never draws
+less than filtering", now to 0.1 % (the new terrain re-routes one surviving
+pair 488.39 -> 486.54 km when the rebuild runs without the abandoned node; a
+lost or truncated road still fails the pair and endpoint checks). No JS golden
+and no other app pin moved. New tests: 8 `orogen` unit tests, the engine
+test's flat-cell bound (HEAD 31 fails it), and two `satellite_relief.rs` tests
+of the held knee; 21 mutants of the new logic, 20 killed, 1 equivalent.
+`cargo test --workspace --no-fail-fast -j 2`: 235 result lines, 6 737 passed,
+0 failed, 123 ignored.

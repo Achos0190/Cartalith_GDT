@@ -23,9 +23,15 @@
 //! drainage basins reaching the sea, land fraction, and the land-mask
 //! agreement with an `MR_BASE` reference run when one is given.
 //!
+//! Since the 2026-10-19 follow-up it also reports the flat-fill patches
+//! (`flat_patches`: the defect "filled hollows draw as flat basins") and an
+//! FNV-1a hash of the final field (`field`), the identity check for a
+//! switch-off arm against an earlier build.
+//!
 //! One `HSTAT` line per world; with `MR_OUT` set, a plain hillshade of the
-//! final heights (not the product renderer -- the investigation's
-//! shading-independent check) as `<MR_OUT>/<tag><MR_TAG>_hill.png`, and the
+//! final heights with the flat cells drawn red (not the product renderer --
+//! the investigation's shading-independent check) as
+//! `<MR_OUT>/<tag><MR_TAG>_hill.png`, and the
 //! raw land mask as `<tag><MR_TAG>_land.bin` for `MR_BASE` comparisons.
 //! `#[ignore]`d: it generates up to nine 2048 x 1311 worlds.
 //!
@@ -219,8 +225,9 @@ fn hstats(ws: &cartalith_engine::WorldState, p: &cartalith_engine::WorldParams) 
         format!(" | belt n {} chan {:.4}/{:.4}", bn, bch as f64 / bn.max(1) as f64, och as f64 / on.max(1) as f64)
     };
     let chans = ws.channels.as_ref().map_or(0, |c| c.chan.iter().filter(|&&v| v > 0).count());
+    let (fl, _) = flat_patches(f, gw, gh, sea, denom, p.peak_m);
     format!(
-        "land {:.3} p90 {:.0} p99 {:.0} | top slope p50 {:.2} p90 {:.2} gt30 {:.3} flat {:.3} | rest slope p50 {:.2} | crest {:.4}/{:.4} valley {:.4}/{:.4} chan {:.4}/{:.4} | pits {:.4}/{:.4} | lapstd {:.1} | clipped {:.4} | rivers {} chans {}{}",
+        "land {:.3} p90 {:.0} p99 {:.0} | top slope p50 {:.2} p90 {:.2} gt30 {:.3} flat {:.3} | rest slope p50 {:.2} | crest {:.4}/{:.4} valley {:.4}/{:.4} chan {:.4}/{:.4} | pits {:.4}/{:.4} | lapstd {:.1} | clipped {:.4} | rivers {} chans {}{} | {}",
         land.len() as f64 / (gw * gh) as f64,
         p90,
         p99,
@@ -242,8 +249,72 @@ fn hstats(ws: &cartalith_engine::WorldState, p: &cartalith_engine::WorldParams) 
         rivers,
         chans,
         belt,
+        fl,
     )
 }
+
+/// **Flat-fill patches** (the 2026-10-19 follow-up's defect (a), "filled belt
+/// hollows draw as flat basins"): a Priority-Flood+ε fill leaves its filled
+/// cells one `f32` step apart, so a filled hollow is a patch of land whose
+/// four neighbours all lie within [`FLAT_EPS_M`] metres of it. Natural ground
+/// on this grid is never that flat away from the coast, so the land below
+/// [`FLAT_MIN_M`] metres (deltas, sea-anchored plains) is excluded. Reports the
+/// share of that land in flat cells, the number of 4-connected flat patches of
+/// at least 16 cells, and the share of the land in those patches.
+fn flat_patches(f: &[f32], gw: usize, gh: usize, sea: f64, denom: f64, peak_m: f64) -> (String, Vec<bool>) {
+    let em = |i: usize| (f[i] as f64 - sea) / denom * peak_m;
+    let n = gw * gh;
+    let mut flat = vec![false; n];
+    let mut land = 0usize;
+    let mut nflat = 0usize;
+    for y in 1..gh - 1 {
+        for x in 1..gw - 1 {
+            let i = y * gw + x;
+            let h = em(i);
+            if h < FLAT_MIN_M {
+                continue;
+            }
+            land += 1;
+            if [i - 1, i + 1, i - gw, i + gw].iter().all(|&j| (em(j) - h).abs() < FLAT_EPS_M) {
+                flat[i] = true;
+                nflat += 1;
+            }
+        }
+    }
+    assert!(land > 0, "no land above {FLAT_MIN_M} m");
+    let mut seen = vec![false; n];
+    let (mut patches, mut in_patches) = (0usize, 0usize);
+    let mut stack = Vec::new();
+    for s in 0..n {
+        if !flat[s] || seen[s] {
+            continue;
+        }
+        seen[s] = true;
+        stack.push(s);
+        let mut size = 0usize;
+        while let Some(i) = stack.pop() {
+            size += 1;
+            for j in [i - 1, i + 1, i - gw, i + gw] {
+                if flat[j] && !seen[j] {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        if size >= 16 {
+            patches += 1;
+            in_patches += size;
+        }
+    }
+    (format!("eflat {:.4} patches {} patch_share {:.4}", nflat as f64 / land as f64, patches, in_patches as f64 / land as f64), flat)
+}
+
+/// [`flat_patches`]' flatness threshold in metres: far above the ε fill's own
+/// step (a few millimetres at these heights) and far below any slope the
+/// grid resolves (0.05 m over a 390 m cell is 0.007°).
+const FLAT_EPS_M: f64 = 0.05;
+/// [`flat_patches`]' lowest counted elevation, in metres above sea level.
+const FLAT_MIN_M: f64 = 50.0;
 
 /// A plain Lambertian hillshade of the final heights (light from the
 /// north-west at 45 degrees, real metres, no exaggeration), grey, for looking
@@ -369,14 +440,25 @@ fn mountain_relief_hstats() {
             },
             _ => String::new(),
         };
-        println!("HSTAT {} {}{}{} | gen {:.1}s", w.tag, line, agree, bagree, secs);
+        // FNV-1a over the final field's bits: identity of a switch-off arm
+        // against an earlier build is this hash, not a statistic.
+        let fnv = ws.field.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, v| v.to_bits().to_le_bytes().iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)));
+        println!("HSTAT {} {}{}{} | field {:016x} | gen {:.1}s", w.tag, line, agree, bagree, fnv, secs);
         if let Some(o) = &out {
             std::fs::write(format!("{o}/{}{tag}_land.bin", w.tag), &land).unwrap();
             if let Some(t) = &term {
                 let bytes: Vec<u8> = t.iter().flat_map(|v| v.to_le_bytes()).collect();
                 std::fs::write(format!("{o}/{}{tag}_basin.bin", w.tag), bytes).unwrap();
             }
-            let rgb = hillshade(&ws, &p);
+            let mut rgb = hillshade(&ws, &p);
+            // The flat cells (see `flat_patches`) drawn red over the hillshade.
+            let sea = ws.sea_level;
+            let (_, flat) = flat_patches(&ws.field, gw, gh, sea, if 1.0 - sea == 0.0 { 1e-6 } else { 1.0 - sea }, p.peak_m);
+            for (i, &fl) in flat.iter().enumerate() {
+                if fl {
+                    rgb[i * 3..i * 3 + 3].copy_from_slice(&[255, 0, 0]);
+                }
+            }
             let png = cartalith_assets::raster::encode_png_rgb8(gw as u32, gh as u32, rgb, cartalith_assets::raster::PngColour::Data).unwrap();
             std::fs::write(format!("{o}/{}{tag}_hill.png", w.tag), png).unwrap();
         }
