@@ -1,0 +1,149 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.1.stable.official, safeguards strict)
+Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 7f2b4693f3eb
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1a2b1a1a010, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1a2b1a1a010, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1a2b1a1a010, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+PASS  A: no View3D node before first entry  
+PASS  A: Window ▸ 3D view row exists  index 8 · bar: File, Edit, Assets, World, Story, Preferences, Window, Help
+PASS  A: its tooltip says untested before any run  3D has not been tested on this device yet. Opening the 3D view runs a short test first (about 3 seconds).
+PASS  A: the row built and showed the 3D view  
+PASS  B: a result was stored  probe took 1579 ms wall
+GATE {"adapter":"AMD Radeon RX 7800 XT","api":"ATI Technologies Inc. 3.3.0 Core Profile Context 26.7.1.260716","array":{"moved":0.173614075022526,"pass":true},"cause":"","driver":"3.3.0 Core Profile Context 26.7.1.260716","godot":"4.7.1-stable (official)","measured_at":"2026-10-19T10:09:03","memory":{"full":{"allocated":true,"layers":512,"ok":true,"read_back":true,"video_mem_after_mb":402.495824813843,"video_mem_before_mb":56.3026828765869},"standard_desktop":{"allocated":true,"layers":256,"ok":true,"read_back":true,"video_mem_after_mb":229.184301376343,"video_mem_before_mb":56.0199680328369}},"method":"gl_compatibility","os":"Windows","phone":false,"probe_version":1,"tier":3,"vtf":{"moved":0.662493479394888,"pass":true},"window":"393x852","workloads":{"basic":{"aborted":false,"bar":33.0,"draw_calls":1,"drawn_primitives":131072,"frames":180,"max":1.337,"median":0.845,"min":0.566,"p95":0.929,"triangles":131072,"worst":1.337},"full":{"aborted":false,"bar":16.7,"draw_calls":1,"drawn_primitives":16777216,"frames":180,"max":3.634,"median":3.21,"min":2.697,"p95":3.52,"triangles":16777216,"worst":3.634},"standard_desktop":{"aborted":false,"bar":16.7,"draw_calls":1,"drawn_primitives":4194304,"frames":180,"max":2.655,"median":1.667,"min":0.722,"p95":1.79,"triangles":4194304,"worst":2.655}}}
+PASS  B: VTF positive control moved pixels  moved 0.6625
+PASS  B: array positive control moved pixels  moved 0.1736
+WORKLOAD basic frames=180 median=0.845 p95=0.929 min=0.566 max=1.337 bar=33.0 triangles=131072 drawn=131072 draws=1
+WORKLOAD standard_desktop frames=180 median=1.667 p95=1.790 min=0.722 max=2.655 bar=16.7 triangles=4194304 drawn=4194304 draws=1
+WORKLOAD full frames=180 median=3.210 p95=3.520 min=2.697 max=3.634 bar=16.7 triangles=16777216 drawn=16777216 draws=1
+MEMORY standard_desktop {"allocated":true,"layers":256,"ok":true,"read_back":true,"video_mem_after_mb":229.184301376343,"video_mem_before_mb":56.0199680328369}
+MEMORY full {"allocated":true,"layers":512,"ok":true,"read_back":true,"video_mem_after_mb":402.495824813843,"video_mem_before_mb":56.3026828765869}
+PASS  B: tier at least Basic on this desktop  tier Full cause ''
+PASS  B: stored identity matches this device  
+PASS  B: layer read-back sees the marked layer  {"allocated":true,"layers":64,"ok":true,"read_back":true,"video_mem_after_mb":99.2006587982178,"video_mem_before_mb":55.8726596832275}
+PASS  B: layer read-back refuses an unmarked layer  {"allocated":true,"layers":64,"ok":false,"read_back":false,"video_mem_after_mb":99.2006587982178,"video_mem_before_mb":99.2006587982178}
+PASS  B: the card shows the disclosure  3D Full: its test view of 16 777 216 triangles took 3.5 ms per frame, within 16.7 ms.
+PASS  B: the card's text is on screen  ink 1500
+PASS  A: the row is checked while 3D shows  
+PASS  A: 2D map byte-identical after a 3D round trip  0 map pixels differ in [P: (0, 0), S: (393, 852)]; whole frame: 0
+PASS  C: stubbed VTF fails the VTF control  moved 0.0000
+PASS  C: stubbed VTF fails the array control  moved 0.0000
+PASS  C: tier Off, cause vtf  
+PASS  C: no workload was timed after a failed control  
+PASS  C: the card says why  3D is off on this device: drawing terrain from height textures did not work here (renderer: gl_compatibility, ATI Technologies Inc. 3.3.0 Core Profile Context 26.7.1.260716).
+PASS  D: classify(vtf) -> Off  { "tier": 0, "cause": "vtf" }
+PASS  D: disclosure renders (vtf)  ink 2400 · 3D is off on this device: drawing terrain from height textures did not work here (renderer: gl_compatibility, TestVendor 4.6).
+PASS  D: classify(basic_slow) -> Off  { "tier": 0, "cause": "basic_slow" }
+PASS  D: disclosure renders (basic_slow)  ink 1903 · 3D is off on this device: a test view of 131 072 triangles took 48 ms per frame; it needs 33.0 ms or less.
+PASS  D: classify(array) -> Basic  { "tier": 1, "cause": "array" }
+PASS  D: disclosure renders (array)  ink 3239 · 3D runs in Basic mode here: updating one layer of a terrain texture array did not change the picture, and Standard needs it (renderer: gl_compatibility, TestVendor 4.6).
+PASS  D: classify(standard_slow) -> Basic  { "tier": 1, "cause": "standard_slow" }
+PASS  D: disclosure renders (standard_slow)  ink 2776 · 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  D: classify(standard_memory) -> Basic  { "tier": 1, "cause": "standard_memory" }
+PASS  D: disclosure renders (standard_memory)  ink 2391 · 3D runs in Basic mode here: the 256 terrain layers Standard keeps could not be stored and read back on the graphics card.
+PASS  D: classify(full_slow) -> Standard  { "tier": 2, "cause": "full_slow" }
+PASS  D: disclosure renders (full_slow)  ink 1918 · 3D Standard. For Full, a test view of 16 777 216 triangles took 22 ms per frame; it needs 16.7 ms or less.
+PASS  D: classify(full_memory) -> Standard  { "tier": 2, "cause": "full_memory" }
+PASS  D: disclosure renders (full_memory)  ink 2113 · 3D Standard. Full keeps 512 terrain layers, and they could not be stored and read back on the graphics card.
+PASS  D: classify(full) -> Full  { "tier": 3, "cause": "" }
+PASS  D: disclosure renders ()  ink 1493 · 3D Full: its test view of 16 777 216 triangles took 3.1 ms per frame, within 16.7 ms.
+PASS  D: untested disclosure  3D has not been tested on this device yet. Opening the 3D view runs a short test first (about 3 seconds).
+PASS  D: forced disclosure names both tiers  3D Standard, forced. The test chose Basic: 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  D: could-not-run is Off with its reason  3D is off: the test could not run here (headless has no rasteriser).
+PASS  E: forcing above the measured tier asks first  FORCE 3D FULL? This device passed the test for Basic, not Full. Forcing a higher tier can freeze the app or reset the graphics driver; both have happened on test hardware (a Vulkan device loss, and a crash on an AMD card under this renderer). If Full fails here, 3D drops one tier and tells you why.
+PASS  E: asking changed nothing yet  
+PASS  E: forced Full that fails drops one tier to Standard  Forced Full did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Standard. 3D Standard, forced. The test chose Basic: 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  E: the drop is named on the card, with its measured frame and the limit  Forced Full did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Standard. 3D Standard, forced. The test chose Basic: 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  E: two failures drop to the measured tier and clear the force  Forced Full did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Standard. Forced Standard did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Basic. 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  E: both drops are named  Forced Full did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Standard. Forced Standard did not hold: one frame took 300 ms, over the 250 ms limit. 3D dropped to Basic. 3D runs in Basic mode here: for Standard, a test view of 4 194 304 triangles took 41 ms per frame; it needs 16.7 ms or less. Re-test, or force Standard.
+PASS  E: forcing Off applies at once  
+PASS  E: Automatic clears the force  
+PASS  E: still alive and back in 2D  
+INDEX3D  Alternate frames             kind=menu    available=false why=Not built. The spec's own note is that alternate-frame rendering only helps the  blurb=Not built. The spec's own note is that alternate-frame rendering only helps the 
+INDEX3D  Anti-aliasing · anisotropy   kind=menu    available=false why=SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-view set blurb=SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-view set
+INDEX3D  3D viewport defaults         kind=menu    available=false why=SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten  blurb=SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten 
+INDEX3D  3D view                      kind=menu    available=true why= blurb=Window menu
+INDEX3D  3D tier: Full                kind=readout available=true why= blurb=3D Full: its test view of 16 777 216 triangles took 3.5 ms per frame, within 16.
+INDEX3D  Re-test 3D                   kind=menu    available=true why= blurb=Window menu
+PASS  F: 3D rows indexed  6 rows, 3 unavailable, 3 with a reason
+PASS  F: every unavailable 3D row carries a reason  
+PASS  F: 3D view, Re-test 3D and the tier readout are indexed  
+PASS  F: the tier readout's blurb is the disclosure  3D Full: its test view of 16 777 216 triangles took 3.5 ms per frame, within 16.7 ms.
+PASS  G: matching identity is current  
+PASS  G: adapter change re-measures  
+PASS  G: driver change re-measures  
+PASS  G: godot change re-measures  
+PASS  G: probe_version change re-measures  
+PASS  G: never tested re-measures  
+PASS  H: the navpad has a 3D pill  
+COMPOSITION phone=true tablet=false touch_scale=1.000 floor=44
+NAVPAD Zoom out     size=(44.0, 44.0) min=(44.0, 44.0)
+NAVPAD Zoom in      size=(44.0, 44.0) min=(44.0, 44.0)
+NAVPAD Pan mode     size=(44.0, 44.0) min=(44.0, 44.0)
+NAVPAD Reset view   size=(44.0, 44.0) min=(44.0, 44.0)
+NAVPAD 3D view      size=(44.0, 44.0) min=(44.0, 44.0)
+PASS  H: the pill clears the touch floor on both axes  (44.0, 44.0) vs 44
+PASS  H: it reads 3D in 2D  
+PASS  H: pressing it opens 3D and relabels it 2D  
+PASS  H: the 3D card is on screen on touch  
+PASS  H: the card starts below the app bar (inside the safe insets)  title y 96, inset top 84
+PASS  H: card buttons clear the touch floor  (110.0, 44.0)
+PASS  H: pressing it again returns to 2D  
+RESULT checks=66 fail=0
+ERROR: 19 RID allocations of type 'N5GLES37TextureE' were leaked at exit.
+ERROR: 93 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' were leaked at exit.
+ERROR: 3 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.
+ERROR: 2 RID allocations of type 'PN18TextServerAdvanced27FontAdvancedLinkedVariationE' were leaked at exit.
+WARNING: 1 RID of type "CanvasItem" was leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2733)
+ERROR: Texture with GL ID of 603: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 606: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 609: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 610: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1121: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1122: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1123: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1124: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1125: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1103: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1110: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1377: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1379: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1380: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1381: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1382: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 796: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 797: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 798: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+WARNING: 135 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 3 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

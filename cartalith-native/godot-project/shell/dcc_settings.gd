@@ -68,6 +68,9 @@ const _SEC_ATLAS := "atlas"
 const _SEC_WINDOWS := "window_sizes"
 ## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1) -- the tablet's dominant-hand preference.
 const _SEC_HANDEDNESS := "handedness"
+## 3D-1 (`3D_VIEWPORT_SCOPE.md` §4.2): the 3D capability gate's measured result
+## and the user's forced tier. Machine state: it names this device's GPU.
+const _SEC_VIEW3D := "view3d"
 ## How many recent projects are kept (`DCC_SHELL_SPEC.md` §2.1: "last 10
 ## projects"); `remember_project()` truncates to it.
 const MAX_RECENT := 10
@@ -619,6 +622,45 @@ static func clear_relief_exaggeration_default() -> void:
 	_ensure_loaded()
 	if _cfg.has_section_key(_SEC_GRAPHICS, "exag"):
 		_cfg.erase_section_key(_SEC_GRAPHICS, "exag")
+	_save()
+
+# -- 3D capability gate (3D_VIEWPORT_SCOPE.md §4.2, milestone 3D-1) -------------
+
+## The gate's last measured result (`View3DGate.run()`'s dictionary: the
+## identity it was measured against, every control and workload number, and
+## the classified tier), or an empty Dictionary when this install never ran
+## it. Machine state for `_SEC_GPU`'s reason: it describes this device's GPU
+## and driver, never a world, so it never enters a `.zip`.
+## Empty means "never tested", and callers must read it that way: an absent
+## result is not Off (`View3DGate.disclosure()` words the two differently).
+static func view3d_result() -> Dictionary:
+	_ensure_loaded()
+	var v = _cfg.get_value(_SEC_VIEW3D, "result", {})
+	return v if v is Dictionary else {}
+
+## Stores a measured gate result and saves. Only `View3D` writes it, after a
+## probe run; nothing writes a hand-made tier here.
+static func set_view3d_result(r: Dictionary) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_VIEW3D, "result", r)
+	_save()
+
+## The tier the user forced (§4.4, `View3DGate.TIER_*`), or -1 for "use the
+## measured tier". Stored separately from the result so a re-test never
+## silently clears the user's choice, and a forced tier never overwrites what
+## was measured.
+static func view3d_forced_tier() -> int:
+	_ensure_loaded()
+	return int(_cfg.get_value(_SEC_VIEW3D, "forced", -1))
+
+## Stores the forced tier (-1 clears it, back to the measured tier) and saves.
+static func set_view3d_forced_tier(tier: int) -> void:
+	_ensure_loaded()
+	if tier < 0:
+		if _cfg.has_section_key(_SEC_VIEW3D, "forced"):
+			_cfg.erase_section_key(_SEC_VIEW3D, "forced")
+	else:
+		_cfg.set_value(_SEC_VIEW3D, "forced", tier)
 	_save()
 
 # -- §2.5 Tiles & LOD > Atlas cache > Size cap ---------------------------------

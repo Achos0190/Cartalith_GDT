@@ -698,6 +698,13 @@ only what's visible" (2026-08-31, `LARGE_ITEM_RULINGS.md`):
 
 - **Mode switch.** 3D is a viewport mode. It is reached from `View ▸ 3D` and
   the phone's existing 2D/3D FAB (`viewport_host.gd`'s FAB anchor note).
+  *(Corrected 2026-10-19, while building 3D-1: both premises were false. This
+  shell has no View menu on PC or phone, and the 2D/3D FAB was never built;
+  DS-13 had removed it from §6.2's anchor. 3D-1 therefore put the entry at
+  `Window ▸ 3D view`, which reaches every form factor (PC; tablet ☰ ▸ Window;
+  phone MORE ▸ Window), and rehoused the FAB as a `3D`/`2D` pill at the end of
+  the phone navpad row. The pill is phone-only: on a tablet the map sits
+  between two docks and a fifth pill pushed the row past the map's edge.)*
 - **Rows that become live.** These rows already exist and are disclosed as
   unavailable today:
   - `Preferences ▸ Graphics ▸ 3D viewport defaults` (relief exaggeration,

@@ -16,8 +16,8 @@ extends Node
 ## (`_layout_names.is_empty()` for "Forget layout...", `_docs_dir() == ""` for
 ## "Documentation") and are reported separately below. Two more
 ## ("Anti-aliasing - anisotropy", "3D viewport defaults") are architecture-
-## level -- no 3D viewport exists at all (`DECISIONS.md` section 4 defers it
-## to Phase 3) -- and are not worth a method check.
+## level -- they wait on 3D terrain (the 3D view exists since 3D-1 but draws
+## none; `3D_VIEWPORT_SCOPE.md` 3D-2 onward) -- and are not worth a method check.
 ##
 ## Loads NO scene beyond a bare `EngineBridge`+`WorldGen` pair -- `app.tscn`'s
 ## full boot is not needed to ask `has_method()`, and skipping it avoids the

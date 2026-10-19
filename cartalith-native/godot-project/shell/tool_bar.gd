@@ -1481,7 +1481,7 @@ func _build_measure_tools(row: HBoxContainer) -> void:
 	## `Custom ▾`'s missing field lives in `global_tools.gd`'s SECTION_CHANNELS.
 	_note(row, "measurements answer how far · the Sample dock answers what is here",
 		"The canvas's own principle: Information is passive and always running; Measure is deliberate and persists until cleared; Cross-section is one line read in the strip below. " +
-		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to choose from yet, and `3D distance` is greyed as \"3D only\" in the canvas itself -- this shell has no 3D view, and Δ vertical already returns the 3D distance in the dock.")
+		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to choose from yet, and `3D distance` is greyed as \"3D only\" in the canvas itself -- the 3D view draws no terrain to measure on yet, and Δ vertical already returns the 3D distance in the dock.")
 
 ## Builds the Measure options row: a 'MEASURE . MODE' tag, then per-mode controls and a click-instruction hint (section mode adds the Samples and V. exag sliders: input stores, release re-samples, so a drag does not cross the engine boundary per tick; distance and bearing add an 'unbuilt canvas options' note), then the live status text and a Clear chip. Only reads and sets `GlobalTools` state, so it carries no `_busy` gate.
 func _build_measure_options(row: HBoxContainer) -> void:

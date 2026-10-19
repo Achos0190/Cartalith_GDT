@@ -1,0 +1,33 @@
+bar60_tight KILLED (RESULT checks=58 fail=8) first: FAIL  D: classify(standard_memory) -> Basic  { "tier": 1, "cause": "standard_slow" }
+moved_zero KILLED (RESULT checks=58 fail=5) first: FAIL  C: stubbed VTF fails the VTF control  moved 0.0000
+stub_ignored KILLED (RESULT checks=58 fail=5) first: FAIL  C: stubbed VTF fails the VTF control  moved 0.3317
+array_tier_up KILLED (RESULT checks=58 fail=1) first: FAIL  D: classify(array) -> Basic  { "tier": 2, "cause": "array" }
+passes_flipped KILLED (RESULT checks=58 fail=17) first: FAIL  B: tier at least Basic on this desktop  tier Off cause 'basic_slow'
+drop_two KILLED (RESULT checks=58 fail=2) first: FAIL  E: forced Full that fails drops one tier to Standard  Forced Full did not hold: one frame took 300 ms, o
+fatal_frame_loose SURVIVED (RESULT checks=58 fail=0)
+stale_no_driver KILLED (RESULT checks=58 fail=1) first: FAIL  G: driver change re-measures  
+readback_always KILLED (RESULT checks=58 fail=1) first: FAIL  B: layer read-back refuses an unmarked layer  {"allocated":true,"layers":64,"ok":true,"read_back":true,"
+forced_label_inverted KILLED (RESULT checks=58 fail=1) first: FAIL  D: forced disclosure names both tiers  3D runs in Basic mode here: for Standard, a test view of 4 194 30
+force_kept_at_floor KILLED (RESULT checks=58 fail=1) first: FAIL  E: two failures drop to the measured tier and clear the force  Forced Full did not hold: one frame took 
+early_stop_off SURVIVED (RESULT checks=58 fail=0)
+size_guard_off SURVIVED (RESULT checks=58 fail=0)
+HASHES RESTORED: True
+SUMMARY
+  bar60_tight KILLED (RESULT checks=58 fail=8) first: FAIL  D: classify(standard_memory) -> Basic  { "tier": 1, "cause": "standard_slow" }
+  moved_zero KILLED (RESULT checks=58 fail=5) first: FAIL  C: stubbed VTF fails the VTF control  moved 0.0000
+  stub_ignored KILLED (RESULT checks=58 fail=5) first: FAIL  C: stubbed VTF fails the VTF control  moved 0.3317
+  array_tier_up KILLED (RESULT checks=58 fail=1) first: FAIL  D: classify(array) -> Basic  { "tier": 2, "cause": "array" }
+  passes_flipped KILLED (RESULT checks=58 fail=17) first: FAIL  B: tier at least Basic on this desktop  tier Off cause 'basic_slow'
+  drop_two KILLED (RESULT checks=58 fail=2) first: FAIL  E: forced Full that fails drops one tier to Standard  Forced Full did not hold: one frame took 300 ms, o
+  fatal_frame_loose SURVIVED (RESULT checks=58 fail=0)
+  stale_no_driver KILLED (RESULT checks=58 fail=1) first: FAIL  G: driver change re-measures  
+  readback_always KILLED (RESULT checks=58 fail=1) first: FAIL  B: layer read-back refuses an unmarked layer  {"allocated":true,"layers":64,"ok":true,"read_back":true,"
+  forced_label_inverted KILLED (RESULT checks=58 fail=1) first: FAIL  D: forced disclosure names both tiers  3D runs in Basic mode here: for Standard, a test view of 4 194 30
+  force_kept_at_floor KILLED (RESULT checks=58 fail=1) first: FAIL  E: two failures drop to the measured tier and clear the force  Forced Full did not hold: one frame took 
+  early_stop_off SURVIVED (RESULT checks=58 fail=0)
+  size_guard_off SURVIVED (RESULT checks=58 fail=0)
+
+Re-run after decoupling INJECTED_FRAME_MS from FAIL_FRAME_MS (same harness, scratch copy):
+fatal_frame_loose KILLED (RESULT checks=58 fail=4) first: FAIL  E: forced Full that fails drops one tier to Standard
+HASHES RESTORED: True
+Final: 11 of 13 killed; survivors early_stop_off and size_guard_off (see STATUS.md 3D-1 entry).

@@ -80,9 +80,18 @@ signal layer_visibility_changed(layer: String, shown: bool)
 ## connection, to `_announce_pan_mode()` below.
 signal pan_mode_changed(on: bool)
 
+## 3D-1 (`3D_VIEWPORT_SCOPE.md` §3.14): the viewport switched between the 2D map
+## and the 3D view. `menus.gd`'s `Window ▸ 3D view` check and this node's own
+## navpad pill re-read their state here.
+signal view_mode_changed(is_3d: bool)
+
 ## `map_overlay.gd`, preloaded rather than named by `class_name` so this file does not depend on
 ## that script's registration; `_ready()` instantiates it as `overlay`.
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
+## 3D-1's view mode (`view3d.gd`), preloaded rather than named by its
+## `class_name` so this file parses in a tree whose `.godot` class cache
+## predates 3D-1 (a new `class_name` registers only on an import pass).
+const View3DScene := preload("res://shell/view3d.gd")
 ## AP-3's switch, as the app sets it (Ruling CQ Q2, owner, 2026-10-18: draw
 ## settlement, POI, sea-mark and custom pack art on the map "behind a switch,
 ## on in the app"). `map_overlay.gd`'s own default is off; this line is the
@@ -177,6 +186,14 @@ var _navpad: HBoxContainer
 ## The navpad's pan-mode (hand) button; `set_pan_mode()` syncs its pressed state without emitting
 ## and repaints it via `_navpad_paint`.
 var _pan_btn: Button
+## 3D-1: the navpad's `3D` / `2D` text pill (phone composition only; null on
+## tablet and desktop, where `Window ▸ 3D view` is the entry point). See
+## `_build_navpad()`.
+var _view3d_btn: Button
+## 3D-1: the 3D view mode (`view3d.gd`), created on first entry by `set_3d()`
+## and kept for the session. **Null until the user first opens 3D**, which is
+## what keeps a 2D-only session byte-identical to before this milestone.
+var _view3d: View3DScene = null
 ## The zoom rocker's hairline. Held because `_apply_touch_scale()` has to grow
 ## it with everything else, and it is the one navpad child that is not a
 ## `Button` and so is invisible to that pass's meta filter.
@@ -1083,6 +1100,13 @@ func _ready() -> void:
 ## Releases are deliberately exempt: a pan that began on the map and ended over
 ## a dock must still clear `_panning`, or the camera sticks to the cursor.
 func _input(event: InputEvent) -> void:
+	## **3D-1: while the 3D view is shown, the 2D camera takes nothing.** This
+	## handler runs before GUI dispatch for every event (see above), so without
+	## this a wheel notch over the 3D view would zoom the hidden 2D map. Only
+	## ever true after the user opened 3D; a session that never does takes the
+	## branch below exactly as before.
+	if _view3d != null and _view3d.visible:
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		var over_map := get_global_rect().has_point(mb.position)
@@ -1343,6 +1367,63 @@ func move_view_to(gx: float, gy: float) -> void:
 ## zoom below fit where the reference floors at fit. Reset restores a known
 ## view, which is the whole point of the button; recorded as open in
 ## `GUI_GAP_REGISTER.md` rather than bundled in here.
+## Whether the 3D view is showing (3D-1).
+func is_3d() -> bool:
+	return _view3d != null and _view3d.visible
+
+## The 3D view node, or null when 3D was never opened this session.
+func view3d() -> View3DScene:
+	return _view3d
+
+## The 3D view node, created if it does not exist yet. For callers that need
+## the gate's state without switching the view (the menus' readout row reads
+## the stored result instead, so it never forces this).
+func ensure_view3d() -> View3DScene:
+	if _view3d == null:
+		_view3d = View3DScene.new()
+		_view3d.name = "View3D"
+		_view3d.visible = false
+		## Before `add_child`, so its `_ready()` builds the card at this
+		## composition's scale and inside its insets.
+		_view3d.set_frame(_safe_insets, _touch_scale)
+		add_child(_view3d)
+		## Under the navpad, so the `2D` pill stays reachable over the 3D view,
+		## and over every 2D layer and chrome label, which describe the 2D map.
+		if _navpad != null:
+			move_child(_view3d, _navpad.get_index())
+		_view3d.exit_requested.connect(func(): set_3d(false))
+	return _view3d
+
+## **3D-1: switch the viewport between the 2D map and the 3D view**
+## (`Window ▸ 3D view`, the navpad pill; `3D_VIEWPORT_SCOPE.md` §3.14). Entering
+## runs the capability gate first when this device was never tested or its
+## result is stale (§4.2). Leaving hides the 3D view and changes nothing in 2D:
+## the map, its zoom and its tiles were never touched while 3D was shown.
+func set_3d(on: bool) -> void:
+	if on == is_3d():
+		return
+	if on:
+		var v := ensure_view3d()
+		v.visible = true
+		if _panning:
+			_panning = false
+		_sync_view3d_btn()
+		view_mode_changed.emit(true)
+		v.entered()
+	else:
+		if _view3d == null:
+			return
+		_view3d.visible = false
+		_sync_view3d_btn()
+		view_mode_changed.emit(false)
+
+## The pill reads `2D` while 3D is shown (the mode a press goes to), `3D`
+## otherwise -- §6.2's own two labels.
+func _sync_view3d_btn() -> void:
+	if _view3d_btn != null:
+		_view3d_btn.text = "2D" if is_3d() else "3D"
+		_view3d_btn.tooltip_text = "Back to the 2D map" if is_3d() else "3D view"
+
 func reset_view() -> void:
 	var cover := 1.0
 	var origin := Vector2.ZERO
@@ -1469,10 +1550,10 @@ func _generating() -> bool:
 ## `"2D · … \n%s"` was that artboard transcribed:
 ##
 ##   - the leading `2D · `. `ENV:913` has no such token, and it could not carry
-##     information here anyway -- `tool_bar.gd`'s `3D distance` tooltip states
-##     the fact it depends on, "this shell has no 3D view", so the prefix has
-##     exactly one value. (Cited as `tool_bar.gd:605` until 2026-09-07; the
-##     string is at `:623` today, which is why this now names the symbol.)
+##     information here anyway: this readout is drawn only by the 2D map. Since
+##     3D-1 (2026-10-19) a 3D view exists, and it covers this whole node with its
+##     own status card while it is shown, so the readout still only ever
+##     describes 2D and the prefix would still have exactly one value.
 ##   - the `\n`. `ENV:913` is a **single** right-anchored span
 ##     (`equirect · <zoom> · {{ vpField }}`); the second line doubled the scrim
 ##     area this chrome spends on the map for four tokens of text.
@@ -1617,6 +1698,8 @@ func set_safe_insets(insets: Dictionary) -> void:
 	_safe_insets = insets
 	_apply_touch_scale(float(insets.get("scale", 1.0)))
 	_apply_safe_insets()
+	if _view3d != null:
+		_view3d.set_frame(_safe_insets, _touch_scale)
 
 ## HD-03. This node lives in the MAIN viewport, which has no content scale
 ## (`project.godot`'s `[display]` block records why that is deliberate), so
@@ -1689,6 +1772,18 @@ func _apply_touch_scale(scale: float) -> void:
 	## own "size by group rather than by child" flag asks for -- the rocker's own
 	## width is then two hits plus the rule, with nothing setting it directly.
 	for child in _navpad.find_children("", "Button", true, false):
+		if child.has_meta(NAVPAD_TEXT_META):
+			## 3D-1's text pill: the same target and capsule as the glyph pills,
+			## with its label scaled instead of an icon.
+			var tb := child as Button
+			tb.custom_minimum_size = Vector2(hit, hit)
+			tb.add_theme_font_size_override("font_size",
+				maxi(1, int(round(NAVPAD_TEXT_PX * scale))))
+			for state in ["normal", "hover", "pressed", "hover_pressed"]:
+				var tsb: StyleBox = tb.get_theme_stylebox(state)
+				if tsb is StyleBoxFlat:
+					_pill_corners(tsb as StyleBoxFlat, int(hit / 2.0), PILL_FULL)
+			continue
 		if not child.has_meta(NAVPAD_GLYPH_META):
 			continue
 		var b := child as Button
@@ -1896,13 +1991,13 @@ func _raster() -> TextureRect:
 ## That floating-furniture table assigns `right:12px; bottom:104px` to a 48 dp
 ## 3D/2D FAB above a 48 dp recentre FAB, and two things cannot own one anchor.
 ## Recentre is absorbed -- same anchor, same `view_fill` glyph, same
-## `reset_view()`. The 3D/2D FAB is **removed, not rehoused**, and the removal
-## is stated because a control may not simply vanish: `DECISIONS.md` §4 keeps v1
-## 2D and hands 3D to `ROADMAP.md` Phase 3, so the FAB's own spec -- "toggles a
-## label only", with a toast pointing at Preferences ▸ Graphics -- has no
-## viewport to toggle to. Nothing is lost in code, because **it was never
-## built**: no 3D/2D FAB node exists anywhere under `shell/`, only `menus.gd`'s
-## own note that Graphics was `BUILD_ANSWERS.md` §3's destination for its toast.
+## `reset_view()`. The 3D/2D FAB was **removed, not rehoused**, at DS-13, when
+## `DECISIONS.md` §4 kept v1 2D and there was no viewport to toggle to.
+## **3D-1 (2026-10-19, `DECISIONS.md` §4a) rehoused it** as this row's fourth
+## pill, `_view3d_btn`, at the far right of the same band: §6.2's anchor is this
+## cluster now, so the FAB joins it rather than claiming the anchor back. It
+## carries §6.2's own `2D`/`3D` text label, and it switches a real viewport
+## rather than "a label only".
 ## The half of it that is real did land -- `menus.gd::_build_relief_exag_menu()`
 ## builds Preferences ▸ Graphics ▸ Relief exaggeration as a live submenu over
 ## `DccSettings.RELIEF_EXAG_CHOICES` (1x / 2x / 4x) today. 48 dp leaves with the
@@ -1971,6 +2066,12 @@ const NAVPAD_SHAPE_META := "dcc_navpad_shape"
 ## draws -- a scrim the map shows through, not an opaque disc. See
 ## `_navpad_paint()` for what painting it fully opaque cost.
 const NAVPAD_ALPHA := 0.92
+## 3D-1: marks the navpad's one text pill (`_view3d_btn`), whose font, not an
+## icon, is what `_apply_touch_scale()` must scale.
+const NAVPAD_TEXT_META := "dcc_navpad_text"
+## §6.2's FAB label size, `12.5px mono`, rounded to a whole dp (Godot font
+## sizes are integers).
+const NAVPAD_TEXT_PX := 13
 
 ## Build the touch navpad -- a bottom thumb-reach row of the zoom rocker, the Hand latch and
 ## recentre. Does nothing on desktop (`_touch` false). See the block above for the design and the
@@ -2016,6 +2117,26 @@ func _build_navpad() -> void:
 	_navpad.add_child(_pan_btn)
 
 	_navpad.add_child(_navpad_button("view_fill", "Reset view", reset_view))
+
+	## 3D-1: §6.2's 3D/2D FAB, rehoused here (see this section's header). A
+	## text pill, not a glyph: §6.2 draws it as the label `3D` / `2D` in mono.
+	## `NAVPAD_TEXT_META` marks it so `_apply_touch_scale()` scales its font,
+	## which the glyph loop below that meta cannot do.
+	##
+	## **Phone composition only.** §6.2 is the phone spec; the tablet canvas
+	## draws no FAB, and on a tablet the map sits between two docks: a fifth
+	## pill pushed the row 21 px past the map's left edge at 1080 x 2340
+	## (`_view3d_probe.gd` capture), clipping Zoom out. The tablet reaches 3D
+	## through ☰ ▸ Window ▸ 3D view, the same row as every other composition.
+	if DccTheme.is_phone():
+		_view3d_btn = _navpad_button("", "3D view", func(): set_3d(not is_3d()))
+		_view3d_btn.set_meta(NAVPAD_TEXT_META, true)
+		_view3d_btn.text = "3D"
+		_view3d_btn.add_theme_font_override("font", DccTheme.mono(0, true))
+		_view3d_btn.add_theme_font_size_override("font_size", NAVPAD_TEXT_PX)
+		for st in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+			_view3d_btn.add_theme_color_override(st, DccTheme.c("accent"))
+		_navpad.add_child(_view3d_btn)
 
 	## Connected here rather than in `_ready()` so the announcement exists on
 	## exactly the compositions the latch does.
@@ -2063,8 +2184,11 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable,
 	## nowhere. Caught by screenshot -- the first cut was flat, and the pills
 	## were invisible over the terrain with only their glyphs showing.
 	b.focus_mode = Control.FOCUS_NONE
-	b.set_meta(NAVPAD_GLYPH_META, glyph)
-	b.icon = DccIcons.get_icon(glyph, 17)
+	## An empty glyph is 3D-1's text pill, which carries a label instead
+	## (`NAVPAD_TEXT_META`); asking `DccIcons` for "" would push an error.
+	if glyph != "":
+		b.set_meta(NAVPAD_GLYPH_META, glyph)
+		b.icon = DccIcons.get_icon(glyph, 17)
 	## **`Button.icon_alignment` defaults to `LEFT`, and these are icon-only.**
 	## Without this the 17 px glyph sits flush against the left edge of its own
 	## 44 px pill instead of in the middle of it. Measured off a 2560x1600

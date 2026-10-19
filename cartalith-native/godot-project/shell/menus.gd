@@ -159,6 +159,18 @@ const ID_CONFLICTS_LIST := 733  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Conflicts
 ## (Ctrl+Shift+M). 734 was unused (`grep -rn ":= 73[4-9]"` over `shell/`,
 ## 2026-10-18, no hits).
 const ID_WIN_SESSION_MODE := 734
+## 3D-1 (`3D_VIEWPORT_SCOPE.md` §3.14 and §4): Window ▸ 3D view and the
+## 3D capability submenu. 800-806 were unused (the highest id in this file was
+## 734, and no `_FIRST` span reaches 800: 620-623, 630-636, 640 + saved layouts).
+const ID_WIN_VIEW_3D := 800
+## The gate script, preloaded rather than reached by its `class_name`, so these
+## rows work in a tree whose `.godot` class cache predates 3D-1 (a new
+## `class_name` needs an import pass to register; `CLAUDE.md`'s
+## `project.godot` note).
+const View3DGate := preload("res://shell/view3d_gate.gd")
+const ID_VIEW3D_RETEST := 801  ## Window ▸ 3D capability ▸ Re-test 3D.
+const ID_VIEW3D_FORCE_AUTO := 802  ## … ▸ Force tier ▸ Automatic (as measured).
+const ID_VIEW3D_FORCE_FIRST := 803  ## … ▸ Force tier ▸ tier t is +t (803-806).
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -3901,7 +3913,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	_refresh_quality_row(p)
 
 	_todo(p, "Anti-aliasing · anisotropy",
-		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-viewport settings and there is no 3D viewport (DECISIONS.md section 4 defers it to Phase 3). The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
+		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-view settings, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there is nothing for a sample count to act on. The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
 	## Live since 2026-09-03, and this row's `_todo` was false the moment it
 	## shipped: it read *"the renderer is sRGB-only end to end: render.rs writes
 	## 8-bit sRGB bytes and nothing carries a colour space through to the
@@ -3940,7 +3952,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## (`dcc_shell.gd` renders `String(d.rail).to_upper()`).
 	_signpost(p, "Colour management — CARTO ▸ Colours ▸ Colour management")
 	_todo(p, "3D viewport defaults",
-		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. There is no 3D viewport to give defaults to.")
+		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws no terrain yet, so there is nothing for these defaults to set; they arrive with its terrain. Its vertical scale will start at true scale, 1.0x, not the 2D relief value above.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
 	## exactly -- *"what is missing is only the project-level default store
 	## those per-layer values would seed from -- a settings key, not new
@@ -3955,15 +3967,18 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## `_apply_lighting_defaults()` carries that reasoning at the call site.
 	_build_lighting_menu(p)
 	## §2.5 Graphics, and `BUILD_ANSWERS.md` §3's own destination for the
-	## phone's 2D/3D FAB toast -- which had nowhere real to point.
+	## phone's 2D/3D FAB toast -- which had nowhere real to point. (Since 3D-1
+	## the FAB is real, as the navpad's `3D` pill, and it opens the 3D view
+	## instead of toasting here.)
 	##
 	## **The same shape as the lighting rig above, for the same reason.** `exag`
 	## is a `render.rs` tunable the engine has bound all along and
 	## `render_workspace.gd` already renders live per world; what was missing is
 	## only the project-level default a fresh Generate starts from, which is a
-	## settings key rather than new rendering. No 3D viewport is involved: this
-	## is the 2D relief the hillshade is computed from, exactly as the
-	## reference's own Relief slider was.
+	## settings key rather than new rendering. The 3D view does not read it:
+	## this is the 2D relief the hillshade is computed from, exactly as the
+	## reference's own Relief slider was, and the 3D view's vertical scale
+	## defaults to true scale instead (Ruling CT; `View3D.VERTICAL_EXAGGERATION_DEFAULT`).
 	_build_relief_exag_menu(p)
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
@@ -4377,7 +4392,7 @@ func _on_gpu_device_choice(id: int) -> void:
 ##
 ## Two deliberate departures, both disclosed in the rows themselves:
 ## `alternate frames` is **disabled** (§2.5's own note is that it only helps
-## the 3D viewport, and there is no 3D viewport), and the default here is
+## the 3D viewport, which since 3D-1 exists but draws no terrain), and the default here is
 ## `single device` rather than `split tiles`, because splitting was measured
 ## on real hardware and only pays above 2048² -- the tooltip carries the
 ## numbers rather than asserting a benefit.
@@ -4394,7 +4409,7 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_gpu_mode_popup.add_radio_check_item("Alternate frames", 2)
 	_gpu_mode_popup.set_item_disabled(2, true)
 	_gpu_mode_popup.set_item_tooltip(2,
-		"Not built. The spec's own note is that alternate-frame rendering only helps the 3D viewport, and this port has no 3D viewport (DECISIONS.md section 4 defers 3D to Phase 3). Selecting it would be indistinguishable from Single device while implying otherwise.")
+		"Not built. The spec's own note is that alternate-frame rendering only helps the 3D view, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there are no 3D frames to alternate. Selecting it would be indistinguishable from Single device while implying otherwise.")
 	_gpu_mode_popup.id_pressed.connect(_on_gpu_mode_choice)
 	_gpu_mode_popup.about_to_popup.connect(_refresh_gpu_mode_menu)
 	_shell.style_popup(_gpu_mode_popup)
@@ -5882,6 +5897,87 @@ func _on_quality(id: int) -> void:
 ## Fills the Window menu `p`: one check row per region in `WIN_REGION_IDS` (labels from
 ## `WIN_REGION_LABELS`), kept in step with the real region state by `_sync_region_checks`, then the
 ## rows below them. Keeps `p` in `_window_popup` for `_capture_layout()` and `_apply_layout()`.
+# -- 3D-1: the 3D view's entry point and its capability gate -------------------
+
+## `Window ▸ 3D view` and `Window ▸ 3D capability` (`3D_VIEWPORT_SCOPE.md` §3.14,
+## §4.2-§4.4, milestone 3D-1).
+##
+## **Why Window and not `View ▸ 3D`.** The scope names `View ▸ 3D`, but this
+## shell has no View menu on PC or phone (the bar is File · Edit · Assets ·
+## World · Story · Preferences · Window · Help; only the tablet's ☰ has a VIEW
+## section). Window is where this shell already keeps view-state toggles
+## (the regions, Session mode, the diagnostics overlay), and it reaches every
+## form factor: PC directly, tablet as ☰ ▸ Window, phone as MORE ▸ Window.
+## Recorded as a placement departure in the scope, not chosen silently.
+##
+## What the rows say: the check row switches the viewport and carries the
+## gate's §4.3 disclosure as its tooltip; the readout row prints the tier; the
+## re-test and force rows drive the gate. **The rows read the stored result**
+## (`DccSettings.view3d_result()` through `View3DGate`'s static helpers), so
+## building or opening this menu never creates the 3D view or runs the gate.
+func _build_view3d_rows(p: PopupMenu) -> void:
+	p.add_check_item("3D view", ID_WIN_VIEW_3D)
+	var row := p.item_count - 1
+	var cap := PopupMenu.new()
+	cap.name = "View3DCapability"
+	_shell.style_popup(cap)
+	p.add_child(cap)
+	p.add_submenu_item("3D capability", "View3DCapability")
+	var tier_row := _readout(cap, "", "")
+	_live(cap, "Re-test 3D", ID_VIEW3D_RETEST)
+	cap.set_item_tooltip(cap.item_count - 1,
+		"Runs the 3D test again now (about 3 seconds), in the 3D view. It measures this device's graphics and stores the result; the 2D map is not touched.")
+	var force := PopupMenu.new()
+	force.name = "View3DForce"
+	_shell.style_popup(force)
+	cap.add_child(force)
+	cap.add_submenu_item("Force tier", "View3DForce")
+	force.add_radio_check_item("Automatic (as measured)", ID_VIEW3D_FORCE_AUTO)
+	for t in View3DGate.TIER_NAMES.size():
+		force.add_radio_check_item(View3DGate.TIER_NAMES[t], ID_VIEW3D_FORCE_FIRST + t)
+	var refresh := func():
+		var r := DccSettings.view3d_result()
+		var forced := DccSettings.view3d_forced_tier()
+		var vp: ViewportHost = _host.viewport if "viewport" in _host else null
+		## The live view's own disclosure when it exists, because only it holds
+		## this session's forced-tier drop note; otherwise the stored state's.
+		var text := View3DGate.disclosure(r, forced)
+		if vp != null and vp.view3d() != null:
+			text = vp.view3d().disclosure()
+		p.set_item_checked(row, vp != null and vp.is_3d())
+		p.set_item_tooltip(row, text)
+		var tier_text := "not tested" if r.is_empty() else View3DGate.TIER_NAMES[View3DGate.effective_tier(r, forced)]
+		if forced >= 0:
+			tier_text += " (forced)"
+		cap.set_item_text(tier_row, "3D tier: " + tier_text)
+		cap.set_item_tooltip(tier_row, text)
+		force.set_item_checked(0, forced < 0)
+		for t in View3DGate.TIER_NAMES.size():
+			force.set_item_checked(t + 1, forced == t)
+	## Eager, so a `CommandIndex` built before either menu is opened reads a
+	## real tooltip (`command_index.gd`'s 2026-09-05 note on readouts).
+	refresh.call()
+	p.about_to_popup.connect(refresh)
+	cap.about_to_popup.connect(refresh)
+	var vp0: ViewportHost = _host.viewport if "viewport" in _host else null
+	if vp0 != null:
+		vp0.view_mode_changed.connect(func(_on):
+			refresh.call()
+			if vp0.view3d() != null and not vp0.view3d().state_changed.is_connected(refresh):
+				vp0.view3d().state_changed.connect(refresh))
+	p.id_pressed.connect(func(id: int):
+		if id == ID_WIN_VIEW_3D and vp0 != null:
+			vp0.set_3d(not vp0.is_3d()))
+	cap.id_pressed.connect(func(id: int):
+		if id == ID_VIEW3D_RETEST and vp0 != null:
+			vp0.set_3d(true)
+			vp0.view3d().retest())
+	force.id_pressed.connect(func(id: int):
+		if vp0 == null:
+			return
+		vp0.set_3d(true)
+		vp0.view3d().request_force(-1 if id == ID_VIEW3D_FORCE_AUTO else id - ID_VIEW3D_FORCE_FIRST))
+
 func _window(p: PopupMenu) -> void:
 	## Held for `_capture_layout()`/`_apply_layout()`: the five region flags a
 	## layout records live as this popup's own check state (kept honest by
@@ -5946,6 +6042,10 @@ func _window(p: PopupMenu) -> void:
 		if id == ID_WIN_DIAG_OVERLAY:
 			_host.toggle_resource_overlay()
 			p.set_item_checked(diag_idx, _host.resource_overlay.visible))
+	## 3D-1: after Diagnostics overlay, not before it -- SM-7's A2 order puts
+	## Session mode directly between the region toggles and Diagnostics
+	## overlay, and `_sessionmode_probe.gd` holds that adjacency.
+	_build_view3d_rows(p)
 	p.add_separator()
 
 	## WI-02: a real submenu over `DccShell.DOMAINS` -- the list itself is

@@ -317,7 +317,16 @@ func _ready() -> void:
 	for t in threed:
 		print("  info node with a bare 2D/3D label: %s (%s) text=%s"
 			% [t.name, t.get_class(), String(t.get("text"))])
-	_ok("no 3D/2D toggle node anywhere in the shell", threed.size(), 0)
+	## **Changed by 3D-1 (2026-10-19, `DECISIONS.md` §4a).** This read "no
+	## 3D/2D toggle node anywhere in the shell" while there was no 3D view to
+	## toggle to. 3D-1 rehoused §6.2's FAB as one `3D` text pill at the end of
+	## this cluster, on the phone composition only; it must be exactly that
+	## node, inside the navpad, and nothing else may carry a bare 3D/2D label.
+	var want_pills := 1 if DccTheme.is_phone() else 0
+	_ok("3D/2D toggles in the shell (the navpad pill on phone, none elsewhere)", threed.size(), want_pills)
+	if want_pills == 1 and threed.size() == 1:
+		_ok_true("the one 3D toggle is the navpad's own pill", threed[0] == vp.get("_view3d_btn") and pad.is_ancestor_of(threed[0]),
+			"node=%s" % threed[0].name)
 	_ok_true("recentre absorbed into the cluster", btns.has("view_fill"),
 		"tooltip=%s" % (btns["view_fill"] as Button).tooltip_text)
 	var want_exag: Array[float] = [1.0, 2.0, 4.0]
