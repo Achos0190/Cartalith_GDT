@@ -1089,9 +1089,57 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   library's rail, so the phone's FAMILIES pane shows them without a scroll.
   A stored uid this library does not hold (a custom slot of a pack not open
   now) is kept, not counted, and named in the row's tooltip.
-- **Found, not fixed:** on a phone the SLOTS pane's batch verbs (Tag…,
-  Collect…, Rename…, Duplicate, Delete) draw about 115 dp tall: they are
-  `DccWidgets.text_button`s, which floor their own target where they are
-  made, and the window's phone pass floors them again in its own units. The
-  AP-9 star was first built the same way and measured 115 × 115 dp; it is a
-  plain button now (44 × 44 dp). The batch verbs predate AP-9.
+- **Found, then fixed 2026-10-19:** on a phone the SLOTS pane's batch verbs
+  (Tag…, Collect…, Rename…, Duplicate, Delete) drew 115 × 115 dp at
+  1080 × 2340: `DccWidgets.text_button` floors its own target at
+  `44 * phone_scale()`, and this window is itself content-scaled by
+  `phone_scale()`, so the scale was applied twice (this note first said the
+  window's phone pass floored them again; that pass only raises to 44). The
+  window's `_text_button` now floors at a bare 44 in its own units: 44 dp
+  (Duplicate 49 × 44), desktop unchanged (13 px tall, no floor);
+  `_albatch_probe` fails on the old file. The AP-9 star stays a plain button.
+
+### Ruling CR's switched blit and bake fix (2026-10-19)
+
+- **What changed.** `pack::Canvas::blit_sprite` takes a
+  `pack::SpriteFilter`: `Bilinear` (the shipped single straight-alpha sample)
+  or `Area` (`blit_sprite_area`: the exact premultiplied area average of the
+  texels under each map pixel, composited premultiplied; a partly covered
+  edge pixel is partly transparent). `cartalith_assets::render_item_with`
+  takes a `BakeFilter`: `Straight` (`render_item` exactly) or `Premultiplied`
+  (premultiply in `f32`, resample with the same `CatmullRom` only when the
+  footprint changes, composite source-over premultiplied, quantise once,
+  RGB 0 under alpha 0; a fully opaque source takes `render_item` by control
+  flow, so textures cannot move).
+- **Switches.** Engine defaults are the shipped arithmetic
+  (`WorldGen::sprite_area_blit` false; `AssetLibrarySession::bake_filter`
+  Straight, which every session bake reads: export, thumbnails, seam and
+  sprite bakes). The app turns both on (`viewport_host.gd`
+  `PACK_SPRITE_AREA_BLIT`, `PACK_PREMULTIPLIED_BAKE`, applied by
+  `engine_bridge.gd::_apply_sprite_filters`). No Rust pin moved.
+  `pack_report`, `near_dupes` and `lineart::working_image` still bake
+  straight; on opaque art the two are identical.
+- **Measured** (`cartalith-godot/tests/sprite_filter.rs`, a 1024² source
+  through the 256² bake into a 40.96 px box, three synthetic samples, view
+  ×1/×4/×16/×64 by nearest magnification as `viewport_host.gd` draws the
+  base raster), the app's arm against the shipped one: strokes missed
+  0.000-0.019 of the 1 px-floored target against 0.147-0.556; halo 0 against
+  0.107-0.146 (black fringing the castle's brown ink; the near-black pine
+  and the light painted disc showed none even shipped); ink mass 0.990-1.061
+  (shipped 0.972-1.126); edge width at ×1 0.98-1.12 px, a crisp
+  anti-aliased edge (shipped 0.41-0.68, aliased, not sharper).
+- **Round trip.** Under `Premultiplied`, export → open → export of a
+  soft-edged sprite is byte-stable: AP-1's ramp moves no visible pixel on
+  any of three cycles and every export is the same PNG bytes; a 1024² soft
+  source is resampled by its first bake and then stable
+  (`the_premultiplied_bake_round_trips_soft_edges_byte_for_byte`). The
+  straight drift is still pinned, RE-BASELINED to name its filter
+  (`the_bake_drifts_semi_transparent_rgb_by_one_level`). AP-10's line-art
+  variant now bakes to exactly its pixels under `Premultiplied`.
+- **Not changed, disclosed:** the base raster is magnified nearest, so a
+  baked sprite's edges still widen with zoom under either filter (the app's
+  pine: about 3, 9 and 34 px at ×4, ×16, ×64); the app draws feature icons on
+  AP-5's overlay, so the blit switch reaches the screen only with that
+  overlay off. An area filter is faithful, so a stroke thinner than a pixel
+  draws faint but continuous: solid thin lines are AP-10's stroke floor.
+  `ONE_INK_TOLERANCE` keeps its margin for packs exported straight.

@@ -1138,9 +1138,25 @@ static func _set_segment_on(b: Button, on: bool) -> void:
 static func _well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
 	DccWidgets.well(le, px, py, accent)
 
-## One-line delegator to `DccWidgets.text_button` (borderless text verb).
+## Delegator to `DccWidgets.text_button` (borderless text verb), with the
+## phone tap floor re-stated in THIS window's units.
+##
+## The factory floors its button at `PHONE_TAP_MIN * phone_scale()`, right
+## for a control in the unscaled shell. This window and its slicer are
+## content-scaled by `phone_scale()` on a phone (`phone_present()`, see
+## `_init`'s `phone_fit(self, 1.0)` note), so that floor was applied twice:
+## the SLOTS pane's batch verbs (Tag, Collect, Rename, Duplicate, Delete)
+## drew about 115 dp square at 1080 x 2340 (filed with AP-9, 2026-10-19;
+## the inspector star's identical case is noted at `_insp_star`). Here the
+## floor is the bare 44 on both axes, which the content scale turns into
+## 44 dp, the same figure the window's own `phone_fit(…, 1.0)` pass gives
+## every other button. Desktop and tablet: the factory sets no floor and
+## nothing here runs. Must never re-apply `phone_scale()`.
 static func _text_button(parent: Control, text: String, on_press: Callable) -> Button:
-	return DccWidgets.text_button(parent, text, on_press)
+	var b := DccWidgets.text_button(parent, text, on_press)
+	if DccTheme.is_phone():
+		b.custom_minimum_size = Vector2(DccTheme.PHONE_TAP_MIN, DccTheme.PHONE_TAP_MIN)
+	return b
 
 ## One-line delegator to `DccWidgets.band`, fixing the band height to `H_BAND`.
 static func _band(parent: Control, pad_x: int, gap: int = 14) -> HBoxContainer:
@@ -3203,12 +3219,13 @@ func _build_inspector() -> Control:
 	_insp_head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_insp_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	band.add_child(_insp_head)
-	## AP-9: the star, borderless at the head band's right. Built here
-	## rather than with `_text_button`: that helper floors its own target to
-	## the phone tap size where it is made, and this window's phone pass
-	## (`_phone_refit`, unit 1.0) floors it again in the window's own units,
-	## which measured a 115 dp square that tripled the band's height. A plain
-	## button lets the window's pass alone floor it to 44 dp.
+	## AP-9: the star, borderless at the head band's right, a plain button
+	## that the window's phone pass (`phone_fit(…, 1.0)`) floors to 44 dp.
+	## It avoided `_text_button` because that helper then took the factory's
+	## floor of `44 * phone_scale()` in this content-scaled window, a 115 dp
+	## square that tripled the band's height. Corrected 2026-10-19: the cause
+	## was the scale applied twice (factory, then the window's content scale),
+	## not the pass flooring again; `_text_button` now floors in window units.
 	_insp_star = Button.new()
 	_insp_star.text = "☆"
 	_insp_star.flat = true
