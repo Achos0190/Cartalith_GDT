@@ -1108,6 +1108,11 @@ func color_texture() -> Texture2D:
 	## `color_texture_rebuilt`: nothing was rebuilt, and the river overlay must not re-read.
 	if generating:
 		return _color_texture_cache
+	## AP-5 (Ruling CQ Q3): the engine's feature-icon switch, set before every
+	## build rather than once, so a replaced `world_gen` (`close_world`) gets
+	## the app's value back at its first texture.
+	if _has("set_feature_icon_overlay"):
+		world_gen.set_feature_icon_overlay(feature_icon_overlay)
 	var t: Texture2D = world_gen.build_color_texture()
 	_color_texture_cache = t
 	color_texture_rebuilt.emit()
@@ -1115,6 +1120,14 @@ func color_texture() -> Texture2D:
 
 ## The last texture `color_texture()` built, served while `generating` (see there).
 var _color_texture_cache: Texture2D = null
+
+## AP-5's switch (Ruling CQ Q3) as the app wants it: `true` draws the pack's
+## scattered feature icons on the overlay at screen resolution instead of
+## baking them into the map texture. **`false` here**, so a bridge nobody
+## configures (a probe, a test scene) keeps the baked icons; the app sets it
+## from `viewport_host.gd`'s `PACK_FEATURE_ICONS` in `setup()`. Applied to
+## the engine by `color_texture()` before each build.
+var feature_icon_overlay := false
 
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone
@@ -2813,6 +2826,24 @@ func icon_marker_art(family: String, slot: String, set_name: String, x: float, y
 	if not _has("icon_marker_art"):
 		return {}
 	return world_gen.icon_marker_art(family, slot, set_name, x, y, screen_px)
+
+## `WorldGen::feature_icon_gen` (AP-5): changes whenever the feature-icon
+## list below changes. `-1` while `generating` (the worker holds `WorldGen`)
+## or on an older GDExtension, which `map_overlay.gd::_feature_poll` reads as
+## "no answer, keep what is drawn".
+func feature_icon_gen() -> int:
+	if generating or not _has("feature_icon_gen"):
+		return -1
+	return world_gen.feature_icon_gen()
+
+## `WorldGen::feature_icon_draw_list` (AP-5): the scattered feature icons for
+## the overlay, or `{}` while `generating` / on an older GDExtension (the
+## overlay keeps what it drew; it only replaces its list with one carrying a
+## `gen`).
+func feature_icon_draw_list() -> Dictionary:
+	if generating or not _has("feature_icon_draw_list"):
+		return {}
+	return world_gen.feature_icon_draw_list()
 
 # -- Post-generation field operations -----------------------------------------
 #

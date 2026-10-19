@@ -803,15 +803,66 @@ fn draw_icon_glyph(canvas: &mut Canvas, slot: &str, item: &PlacedIcon, base: f64
 /// exactly the condition that keeps a pack-less render bit-identical, the
 /// same contract `cartalith_assets::current_scatter_rules`'s own doc comment
 /// names for the reference's legacy fallback.
-#[allow(clippy::too_many_arguments)]
+///
+/// Since AP-5 `build_color_texture` calls the two halves itself (it keeps the
+/// placements for the overlay), so the library build no longer calls this
+/// function; it stays as the one-call baked path the integration tests
+/// (`pack_compositing.rs`, `nonsquare.rs`, `feature_icon_overlay.rs`) drive.
+#[allow(clippy::too_many_arguments, dead_code)]
 pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, seed: i32, pack: &LoadedPack) {
+    // AP-5 split this function into its decision ([`place_feature_icons`])
+    // and its drawing ([`composite_placed_features`]) so the overlay path can
+    // take the decisions without the drawing. With `sprites: true` the two
+    // halves run exactly the statements this body ran before the split, in
+    // the same order, so this path's bytes did not move (identity by control
+    // flow; pinned by `tests/feature_icon_overlay.rs`).
+    let placed = place_feature_icons(field, temperature, rainfall, gw, gh, sea_level, seed, pack);
+    composite_placed_features(bytes, gw, gh, &placed, pack, true);
+}
+
+/// One scattered feature icon after every decision `drawMapIcons` makes and
+/// before any pixel is drawn (AP-5): the placed item, its slot, and either
+/// the pack sprite it draws (which variant, at which grid-space rectangle) or
+/// the procedural glyph fallback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedFeature {
+    /// `place_map_icons_ruled`'s item, unchanged.
+    pub item: PlacedIcon,
+    /// `icon_slot_for_item(item)`.
+    pub slot: String,
+    /// What it draws.
+    pub art: FeatureArt,
+}
+
+/// What a [`PlacedFeature`] draws.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FeatureArt {
+    /// `LoadedPack::icons[slot][variant]`, drawn into `rect` (grid pixels,
+    /// continuous: pixel `i` spans `[i, i + 1)`), bottom-anchored by
+    /// `sprite_draw_rect`.
+    Sprite { variant: usize, rect: cartalith_assets::SpriteRect },
+    /// The slot has no decoded variant: [`draw_icon_glyph`]'s silhouette.
+    Glyph,
+}
+
+/// The placement and per-item art decisions of [`composite_map_icons`]
+/// (`placeMapIconsRuled` + `drawMapIcons`' variant pick and `spriteDrawRect`),
+/// in painter's order (sorted by `y`, as `drawMapIcons` sorts), drawing
+/// nothing.
+///
+/// Empty whenever [`composite_map_icons`] would be a no-op: no scatter rule
+/// (`current_scatter_rules` is `None`) or an empty grid. Must stay the one
+/// definition of these decisions: the baked path and AP-5's overlay both
+/// read it, so they cannot disagree about where an icon is.
+#[allow(clippy::too_many_arguments)]
+pub fn place_feature_icons(field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, seed: i32, pack: &LoadedPack) -> Vec<PlacedFeature> {
     let mut table = ScatterRuleTable::default();
     autopopulate_scatter_rules(&mut table, &pack.manifest);
     let Some(rules) = current_scatter_rules(&table) else {
-        return;
+        return Vec::new();
     };
     if gw == 0 || gh == 0 {
-        return;
+        return Vec::new();
     }
 
     let (biome, wetland) = build_biome_and_wetland(field, temperature, rainfall, gw, gh, sea_level);
@@ -828,22 +879,300 @@ pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32],
     // deserves the same painter's-order discipline a hundred-item one does).
     items.sort_by_key(|it| it.y);
 
-    let base = (gw as f64 / 110.0).max(3.5);
-    let mut canvas = Canvas { bytes, gw, gh };
-    for item in &items {
-        let slot = icon_slot_for_item(item);
-        if let Some(variants) = pack.icons.get(&slot)
-            && !variants.is_empty()
-        {
-            let weights = table.get(&slot).and_then(|r| r.variant_weights.as_deref());
-            let idx = pick_weighted_variant(item.x, item.y, seed, variants.len(), weights);
-            let img = &variants[idx];
-            let rect = sprite_draw_rect(item.x as f64, item.y as f64, item.s, base, img.w as f64, img.h as f64);
-            canvas.blit_sprite(img, rect);
-            continue;
-        }
-        draw_icon_glyph(&mut canvas, &slot, item, base);
+    let base = feature_icon_base(gw);
+    items
+        .into_iter()
+        .map(|item| {
+            let slot = icon_slot_for_item(&item);
+            let art = match pack.icons.get(&slot) {
+                Some(variants) if !variants.is_empty() => {
+                    let weights = table.get(&slot).and_then(|r| r.variant_weights.as_deref());
+                    let variant = pick_weighted_variant(item.x, item.y, seed, variants.len(), weights);
+                    let img = &variants[variant];
+                    let rect = sprite_draw_rect(item.x as f64, item.y as f64, item.s, base, img.w as f64, img.h as f64);
+                    FeatureArt::Sprite { variant, rect }
+                }
+                _ => FeatureArt::Glyph,
+            };
+            PlacedFeature { item, slot, art }
+        })
+        .collect()
+}
+
+/// `drawMapIcons`' `base` for a grid `gw` cells wide: `max(gw / 110, 3.5)`
+/// grid pixels (the reference's own expression, as `composite_map_icons`
+/// always used it).
+pub fn feature_icon_base(gw: usize) -> f64 {
+    (gw as f64 / 110.0).max(3.5)
+}
+
+/// Draw `placed` into the RGB8 map buffer in its order: each sprite with
+/// [`Canvas::blit_sprite`] (only when `sprites` is true) and each glyph
+/// fallback with [`draw_icon_glyph`] (always).
+///
+/// `sprites: true` is the baked path, [`composite_map_icons`]. `sprites:
+/// false` is the base raster under AP-5's overlay switch: the sprites are
+/// drawn by `map_overlay.gd` at screen resolution instead, and only the
+/// glyph fallbacks (a slot whose every variant failed to decode) stay baked.
+/// **Disclosed consequence:** with the switch on, a baked glyph sits under
+/// every overlay sprite, so where a glyph and a sprite overlap the painter's
+/// order between those two is lost. Glyphs appear only for undecodable art.
+pub fn composite_placed_features(bytes: &mut [u8], gw: usize, gh: usize, placed: &[PlacedFeature], pack: &LoadedPack, sprites: bool) {
+    if gw == 0 || gh == 0 {
+        return;
     }
+    let base = feature_icon_base(gw);
+    let mut canvas = Canvas { bytes, gw, gh };
+    for p in placed {
+        match p.art {
+            FeatureArt::Sprite { variant, rect } => {
+                if sprites && let Some(img) = pack.icons.get(&p.slot).and_then(|v| v.get(variant)) {
+                    canvas.blit_sprite(img, rect);
+                }
+            }
+            FeatureArt::Glyph => draw_icon_glyph(&mut canvas, &p.slot, &p.item, base),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AP-5: feature-icon textures for the screen-space overlay
+// ---------------------------------------------------------------------------
+
+/// How far, in 8-bit levels per channel, a pixel's RGB may sit from the ink
+/// and still count as the ink for [`one_ink_colour`]. **Measured source of
+/// the margin:** AP-1 found `render_item`'s bake moves RGB by one level on
+/// every soft-alpha pixel (`ASSET_PACK_TOOLS_PROPOSAL.md` §10, AP-1, "the bake
+/// is not a fixed point"), so an AP-10 variant exported into a pack is one
+/// ink within 1 level, not exactly; 2 is that plus one level of margin
+/// (labelled judgement).
+pub const ONE_INK_TOLERANCE: u8 = 2;
+
+/// The sprite's single ink colour when every pixel with alpha > 0 has the
+/// same RGB (within [`ONE_INK_TOLERANCE`]), else `None`.
+///
+/// **This is how AP-5 finds a line-art variant** (`AP-10` left no flag or
+/// save key, and a pack carries none, Ruling F). AP-10's output is exactly
+/// this shape ("one ink colour where alpha > 0", `convert_line_art`), so
+/// every line-art variant qualifies wherever it travelled; so does any other
+/// single-colour sprite (a flat silhouette), for which a distance field is
+/// equally exact, because such a sprite is wholly described by its alpha.
+/// The ink is the RGB of the first pixel with the image's highest alpha.
+/// `None` for a fully transparent image. Pixels with alpha 0 are ignored
+/// (AP-10 writes black there; other tools write anything).
+pub fn one_ink_colour(img: &DecodedImage) -> Option<[u8; 3]> {
+    let px = img.rgba.chunks_exact(4);
+    let max_a = px.clone().map(|p| p[3]).max()?;
+    if max_a == 0 {
+        return None;
+    }
+    let ink = px.clone().find(|p| p[3] == max_a).map(|p| [p[0], p[1], p[2]])?;
+    let close = |a: u8, b: u8| a.abs_diff(b) <= ONE_INK_TOLERANCE;
+    px.filter(|p| p[3] > 0).all(|p| close(p[0], ink[0]) && close(p[1], ink[1]) && close(p[2], ink[2])).then_some(ink)
+}
+
+/// One feature sprite ready for the GPU: an RGBA8 image with its whole
+/// mipmap chain, in Godot's layout (level `i` is `max(1, w >> i) × max(1, h
+/// >> i)`, down to 1 × 1, levels back to back), plus what the overlay's
+/// shader needs to read it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeatureTexture {
+    pub w: u32,
+    pub h: u32,
+    /// Every mip level, Godot's order and sizes.
+    pub data: Vec<u8>,
+    /// `true`: the signed-distance path (one-ink art); RGB is the ink and A
+    /// the quantised distance (`lineart::Sdf`'s 128-is-the-edge code, in
+    /// that level's own texels). `false`: premultiplied RGBA, area-filtered
+    /// per level.
+    pub sdf: bool,
+    /// The part of the texture the sprite occupies, as a fraction of each
+    /// side (`1, 1` except for a non-square sprite's distance field, which
+    /// `SdfPyramid` lays out in the top-left of a square).
+    pub extent: (f64, f64),
+    /// Distance field only: the sprite's 2nd-percentile stroke width in
+    /// TOP-level texels (`SdfPyramid::stroke_p2` rescaled), which the
+    /// shader's 1 px stroke floor reads. 0 for the raster path.
+    pub stroke_top: f64,
+    /// Distance field only: the deepest mip level that holds a real
+    /// distance level (`SdfPyramid::levels.len() - 1`); the levels below it
+    /// are filler Godot requires and the shader never samples. 0 for the
+    /// raster path.
+    pub max_lod: u32,
+}
+
+/// Godot's mip-chain sizes for a `w × h` image: `(max(1, w >> i), max(1, h
+/// >> i))` from `i = 0` until both are 1 (`Image::get_image_mipmap_size`).
+pub fn mip_sizes(w: u32, h: u32) -> Vec<(u32, u32)> {
+    let mut out = vec![(w.max(1), h.max(1))];
+    let mut i = 0;
+    while out[i] != (1, 1) {
+        i += 1;
+        out.push(((w >> i).max(1), (h >> i).max(1)));
+    }
+    out
+}
+
+/// Area-average `img` to exactly `dw × dh` in premultiplied alpha: each
+/// output texel is the coverage-weighted mean of every source texel under
+/// it (the same exact spans as [`area_downscale`]), written premultiplied,
+/// rounded half up. Used for every level of the raster path's mip chain,
+/// each straight from the full-size source rather than cascaded, so no level
+/// carries an earlier level's rounding.
+pub fn area_resample_premultiplied(img: &DecodedImage, dw: u32, dh: u32) -> Vec<u8> {
+    let (sw, sh) = (img.w.max(1), img.h.max(1));
+    let (dw, dh) = (dw.max(1), dh.max(1));
+    let spans = |src: u32, dst: u32| -> Vec<Vec<(usize, f64)>> {
+        let s = f64::from(src) / f64::from(dst);
+        (0..dst)
+            .map(|o| {
+                let (a, b) = (f64::from(o) * s, (f64::from(o) + 1.0) * s);
+                let (t0, t1) = (a.floor() as u32, (b.ceil() as u32).min(src));
+                (t0..t1)
+                    .map(|t| (t as usize, (b.min(f64::from(t) + 1.0) - a.max(f64::from(t))).max(0.0)))
+                    .filter(|&(_, w)| w > 0.0)
+                    .collect()
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(sw, dw), spans(sh, dh));
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    for (oy, yrun) in ys.iter().enumerate() {
+        for (ox, xrun) in xs.iter().enumerate() {
+            let mut acc = [0.0f64; 4];
+            let mut area = 0.0;
+            for &(ty, wy) in yrun {
+                for &(tx, wx) in xrun {
+                    let w = wx * wy;
+                    let o = (ty * sw as usize + tx) * 4;
+                    let a = f64::from(img.rgba[o + 3]);
+                    for (c, slot) in acc.iter_mut().take(3).enumerate() {
+                        *slot += f64::from(img.rgba[o + c]) * a / 255.0 * w;
+                    }
+                    acc[3] += a * w;
+                    area += w;
+                }
+            }
+            let d = (oy * dw as usize + ox) * 4;
+            for c in 0..4 {
+                let v = if area > 0.0 { acc[c] / area } else { 0.0 };
+                out[d + c] = (v + 0.5).floor().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// The raster path's texture: `img` premultiplied and area-filtered at every
+/// level of Godot's mip chain.
+///
+/// Why premultiplied: the overlay's shader filters it bilinearly (and
+/// between levels) and divides the colour back out, so a transparent texel's
+/// RGB never bleeds a dark fringe into the edge (Ruling CR's second point,
+/// AP-3's `area_downscale` reasoning). Why every level by area: a sprite
+/// drawn at 24 px from a 256² source reads a level whose texels each average
+/// the whole source footprint under them, so thin ink keeps its mass
+/// (`LINEART_METHODS_RESEARCH_2026-10-18.md`: 0.55-0.81 kept by an area
+/// filter against 0.31-0.45 by one bilinear sample).
+pub fn feature_raster_texture(img: &DecodedImage) -> FeatureTexture {
+    let (w, h) = (img.w.max(1), img.h.max(1));
+    let mut data = Vec::new();
+    for (lw, lh) in mip_sizes(w, h) {
+        data.extend(area_resample_premultiplied(img, lw, lh));
+    }
+    FeatureTexture { w, h, data, sdf: false, extent: (1.0, 1.0), stroke_top: 0.0, max_lod: 0 }
+}
+
+/// The distance-field path's texture for a one-ink sprite (`ink` from
+/// [`one_ink_colour`]): AP-10's own `SdfPyramid` built from the sprite's
+/// alpha, its levels as the top of the mip chain.
+///
+/// **The mask is the pack sprite's alpha at 50 %, bilinearly upsampled 2×**
+/// (a pack sprite is 256², Ruling F / Q-L4, so the mask is 512²). The pack is
+/// what the map has: AP-10's higher-resolution original lives only in the
+/// library session (and not in the project save, AP-1's finding), so it is
+/// not used here. Why 2×, measured 2026-10-19 (`_ap5_probe`, x16 and x64): at
+/// the sprite's own size `SdfPyramid::build` sized a 256² sprite's field at
+/// 128², so a 3 px hatch line was 1.5 texels across, under Ruling CR's
+/// 2-texel rule (its sizing reads a stroke as `2·edt`, 4 for that line), and
+/// bilinear sampling between texel centres cut its peak distance: the line
+/// drew 1-2 px wide at x16 where 4.5 were due. From the 2× mask the field is
+/// 256² (3 texels across), and the 50 % contour sits where the coverage
+/// crosses half rather than on whole-pixel steps. Corners still round by
+/// about one 256² texel, the research's measured cost of a single-channel
+/// field (§9.2, "MSDF").
+///
+/// Levels below the pyramid's smallest (`SDF_LEVEL_MIN`, 32²) are filler:
+/// Godot needs the chain to 1 × 1, and the shader clamps its level to
+/// `max_lod`, so they are 2 × 2 box means of the level above and never read.
+/// `None` for a sprite with no ink at 50 % (nothing to outline).
+pub fn feature_sdf_texture(img: &DecodedImage, ink: [u8; 3]) -> Option<FeatureTexture> {
+    use cartalith_assets::lineart::{Mask, SdfPyramid};
+    let (sw, sh) = (img.w.max(1) as usize, img.h.max(1) as usize);
+    let (w, h) = (2 * sw, 2 * sh);
+    let alpha = |x: usize, y: usize| f64::from(img.rgba[(y.min(sh - 1) * sw + x.min(sw - 1)) * 4 + 3]);
+    let mut on = Vec::with_capacity(w * h);
+    for y in 0..h {
+        // The 2× pixel's centre in source pixel coordinates (centres at
+        // integers), clamped at the border.
+        let fy = ((y as f64 + 0.5) / 2.0 - 0.5).max(0.0);
+        let (y0, ty) = (fy.floor() as usize, fy - fy.floor());
+        for x in 0..w {
+            let fx = ((x as f64 + 0.5) / 2.0 - 0.5).max(0.0);
+            let (x0, tx) = (fx.floor() as usize, fx - fx.floor());
+            let top = alpha(x0, y0) * (1.0 - tx) + alpha(x0 + 1, y0) * tx;
+            let bot = alpha(x0, y0 + 1) * (1.0 - tx) + alpha(x0 + 1, y0 + 1) * tx;
+            on.push(top * (1.0 - ty) + bot * ty >= 127.5);
+        }
+    }
+    if !on.iter().any(|b| *b) {
+        return None;
+    }
+    let mask = Mask { w, h, on };
+    let pyr = SdfPyramid::build(&mask);
+    let top = pyr.levels[0].size;
+    let n = pyr.mask_size as f64;
+    let mut data = Vec::new();
+    let mut prev: Vec<u8> = Vec::new();
+    let mut prev_side = 0u32;
+    for (i, (side, _)) in mip_sizes(top, top).into_iter().enumerate() {
+        let q: Vec<u8> = match pyr.levels.get(i) {
+            Some(l) => l.q.clone(),
+            None => {
+                // Filler: a 2 x 2 box mean of the level above (never sampled).
+                let s = side as usize;
+                let ps = prev_side as usize;
+                (0..s * s)
+                    .map(|k| {
+                        let (x, y) = (k % s, k / s);
+                        let at = |xx: usize, yy: usize| u32::from(prev[yy.min(ps - 1) * ps + xx.min(ps - 1)]);
+                        ((at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1) + 2) / 4) as u8
+                    })
+                    .collect()
+            }
+        };
+        for v in &q {
+            data.extend_from_slice(&[ink[0], ink[1], ink[2], *v]);
+        }
+        prev = q;
+        prev_side = side;
+    }
+    Some(FeatureTexture {
+        w: top,
+        h: top,
+        data,
+        sdf: true,
+        extent: (w as f64 / n, h as f64 / n),
+        stroke_top: pyr.stroke_p2 * f64::from(top) / n,
+        max_lod: (pyr.levels.len() - 1) as u32,
+    })
+}
+
+/// The texture AP-5's overlay draws for one pack feature sprite: the
+/// distance-field path for one-ink art ([`one_ink_colour`]), else the
+/// premultiplied raster path. The single place that choice is made.
+pub fn feature_texture(img: &DecodedImage) -> FeatureTexture {
+    one_ink_colour(img).and_then(|ink| feature_sdf_texture(img, ink)).unwrap_or_else(|| feature_raster_texture(img))
 }
 
 // ---------------------------------------------------------------------------

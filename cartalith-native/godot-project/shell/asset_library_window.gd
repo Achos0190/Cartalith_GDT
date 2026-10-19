@@ -419,7 +419,15 @@ class SlotCell extends Control:
 		else:
 			draw_rect(r, bg_color, true)
 		if thumb != null:
-			draw_texture_rect(thumb, r, false)
+			## Aspect-fit and centred, never stretched (fixed 2026-10-19, found
+			## by AP-7): the thumbnail is a square family-canvas bake and the
+			## cell is often not square, so filling `r` drew a disc as an
+			## ellipse. The reference draws its square bake into a square
+			## canvas (`ThumbnailRenderer.into`, v2.11 line 27422).
+			var ts := thumb.get_size()
+			var k := minf(r.size.x / maxf(ts.x, 1.0), r.size.y / maxf(ts.y, 1.0))
+			var ds := ts * k
+			draw_texture_rect(thumb, Rect2(r.position + (r.size - ds) * 0.5, ds), false)
 
 		var font := DccTheme.mono(0)
 		if show_empty and thumb == null:

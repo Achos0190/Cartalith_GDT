@@ -90,6 +90,14 @@ const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## placeholder glyphs everywhere, export included. See
 ## `refresh_settlement_traits()`.
 const PACK_MARKER_ART := true
+## AP-5's switch, as the app sets it (Ruling CQ Q3, owner, 2026-10-18: move
+## feature icons "to a sprite pass that stays sharp at deep zoom ... with
+## export following the screen"). `true` draws the pack's scattered feature
+## icons on the overlay at screen resolution (`map_overlay.gd`, "AP-5");
+## `false` bakes them into the map texture as before, byte for byte. The
+## engine's own default is off; `setup()` hands this to the bridge, which
+## applies it before every texture build.
+const PACK_FEATURE_ICONS := true
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. Since `LOD_DETAIL_SCOPE.md` LOD-D2 a tile texture IS map pixels
 ## (`renderBiomeTileRGBA`'s own output), so the shader draws it; it keeps
@@ -604,6 +612,9 @@ var _export_grid_rows := 4
 ## never be skipped -- every `_bridge` read below assumes it ran.
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
+	## AP-5 (Ruling CQ Q3): the engine's feature-icon switch, before any
+	## texture is built (the bridge applies it at every build).
+	bridge.feature_icon_overlay = PACK_FEATURE_ICONS
 	if _info != null:
 		_info.bind(bridge)
 	## A good run repaints everything (`refresh()` -> `reset_view()` -> `_update_lod()`); a FAILED
@@ -2597,6 +2608,12 @@ func refresh_settlement_traits() -> void:
 	## through `world_loaded` -- so a new pack is picked up the same way.
 	if _bridge != null and overlay.has_method("set_marker_art_resolver"):
 		overlay.set_marker_art_resolver(Callable(_bridge, "icon_marker_art"), PACK_MARKER_ART)
+	## AP-5 (Ruling CQ Q3): the scattered feature icons' source, installed on
+	## the same refresh for the same reason. The overlay also polls the
+	## engine's counter once a frame, which is what catches a repaint that
+	## does not come through here (a sculpt commit, an undo).
+	if _bridge != null and overlay.has_method("set_feature_icon_source"):
+		overlay.set_feature_icon_source(Callable(_bridge, "feature_icon_draw_list"), Callable(_bridge, "feature_icon_gen"))
 
 
 ## Push the bridge's faction colours, and which of them the user picked by hand (Ruling BX item 2),

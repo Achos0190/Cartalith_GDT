@@ -1,0 +1,45 @@
+AP5 generated in 6591 ms
+AP5 form=desktop view=(1600, 900) palette=dark switch=true
+AP5 ok    the app turned AP-5's switch ON (viewport_host PACK_FEATURE_ICONS)
+AP5 ok    the per-frame poll re-lays the layer after a repaint the overlay never drew (gen 2 -> 3, layer built for 3)
+AP5 ok    the overlay holds the feature list (1052 icons)
+AP5 ok    the painted pack loads through the bridge
+AP5 target (left edge of the mountain nearest the centre) at (768.5, 543.0)
+AP5 edge painted_off x1  10-90 0.80 px (min 0.80 .. max 8.60, 17 rows); transition px per row 1.47; lod_active=false
+AP5 edge painted_off x4  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge painted_off x16  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge painted_off x64  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge painted_off_nolod x1  10-90 0.80 px (min 0.80 .. max 8.60, 17 rows); transition px per row 1.47; lod_active=false
+AP5 edge painted_off_nolod x4  10-90 2.89 px (min 0.80 .. max 4.44, 17 rows); transition px per row 2.12; lod_active=false
+AP5 edge painted_off_nolod x16  10-90 12.03 px (min 4.42 .. max 13.93, 17 rows); transition px per row 10.65; lod_active=false
+AP5 edge painted_off_nolod x64  10-90 52.05 px (min 50.43 .. max 53.95, 17 rows); transition px per row 52.12; lod_active=false
+AP5 edge painted_on x1  10-90 2.38 px (min 1.70 .. max 9.82, 11 rows); transition px per row 3.45; lod_active=false
+AP5 edge painted_on x4  10-90 1.88 px (min 0.85 .. max 3.72, 17 rows); transition px per row 1.53; lod_active=true
+AP5 edge painted_on x16  10-90 3.16 px (min 1.87 .. max 3.73, 17 rows); transition px per row 2.59; lod_active=true
+AP5 edge painted_on x64  10-90 4.71 px (min 4.11 .. max 6.60, 17 rows); transition px per row 4.76; lod_active=true
+AP5 FAIL  painted x16: icon edge 3.16 px <= 2.0 (AP-5(b), 10-90)
+AP5 FAIL  painted x64: icon edge 4.71 px <= 2.0 (AP-5(b), 10-90)
+AP5 bar(c) painted fit: 13.258 % of map px differ at all, 8.121 % by > 16 levels, 0.070 % by > 16 levels outside every sprite edge band
+AP5 ok    painted fit: <= 0.1 % of map pixels differ by > 16 levels outside the sprite edge bands (placement, size and colour unchanged; AP-5(c)'s intent)
+AP5 export off: 0 sprite px (every 2nd px sampled) in C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/Cartalith AP5 Probe/ap5/after_desktop_export_off.png
+AP5 export on: 193353 sprite px (every 2nd px sampled) in C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/Cartalith AP5 Probe/ap5/after_desktop_export_on.png
+AP5 export on_noicons: 0 sprite px (every 2nd px sampled) in C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/Cartalith AP5 Probe/ap5/after_desktop_export_on_noicons.png
+AP5 ok    switch on: the export carries the feature icons (193353 px)
+AP5 ok    switch on, export icons off: none (0 px)
+AP5 ok    the lineart pack loads through the bridge
+AP5 edge lineart_off x1  10-90 0.80 px (min 0.80 .. max 0.98, 17 rows); transition px per row 0.06; lod_active=false
+AP5 edge lineart_off x4  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge lineart_off x16  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge lineart_off x64  NO ICON EDGE FOUND at (768.5, 543.0) (lod_active=true)
+AP5 edge lineart_off_nolod x1  10-90 0.80 px (min 0.80 .. max 0.98, 17 rows); transition px per row 0.06; lod_active=false
+AP5 edge lineart_off_nolod x4  10-90 0.80 px (min 0.80 .. max 0.80, 17 rows); transition px per row 0.00; lod_active=false
+AP5 edge lineart_off_nolod x16  10-90 0.80 px (min 0.80 .. max 0.80, 17 rows); transition px per row 0.00; lod_active=false
+AP5 edge lineart_off_nolod x64  10-90 0.80 px (min 0.80 .. max 0.80, 17 rows); transition px per row 0.00; lod_active=false
+AP5 edge lineart_on x1  10-90 1.59 px (min 0.80 .. max 6.39, 16 rows); transition px per row 1.44; lod_active=false
+AP5 edge lineart_on x4  10-90 1.18 px (min 0.80 .. max 1.60, 17 rows); transition px per row 0.65; lod_active=true
+AP5 edge lineart_on x16  10-90 1.38 px (min 0.80 .. max 1.60, 17 rows); transition px per row 0.59; lod_active=true
+AP5 edge lineart_on x64  10-90 1.43 px (min 0.80 .. max 1.60, 17 rows); transition px per row 0.65; lod_active=true
+AP5 ok    lineart x16: icon edge 0.59 px <= 1.0 (AP-5(b), transition px)
+AP5 ok    lineart x64: icon edge 0.65 px <= 1.0 (AP-5(b), transition px)
+AP5 bar(c) lineart fit: 11.337 % of map px differ at all, 10.144 % by > 16 levels, 0.127 % by > 16 levels outside every sprite edge band
+AP5 checks=12 failures=2

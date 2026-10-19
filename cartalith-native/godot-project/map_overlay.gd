@@ -587,6 +587,12 @@ const MANUAL_ROUTE_SEL_WIDTH := 2.5
 ## A `feature` icon, an icon whose slot has no art, and every icon of a map
 ## with no pack still draw the glyph below, unchanged. These colours are that
 ## glyph's.
+##
+## **AP-5 (Ruling CQ Q3, 2026-10-19)** moved the pack's *scattered* `icons`
+## art (not these placed marks) out of the terrain buffer: with the engine's
+## switch on, which the app sets, `composite_map_icons`' sprites are drawn by
+## this control's feature-icon layer at screen resolution (see "AP-5" below)
+## and only glyph fallbacks stay baked.
 const ICON_FAMILY_COLORS := {
 	"settlement": Color(0.835, 0.369, 0.0),
 	"feature": Color(0.0, 0.620, 0.451),
@@ -4465,6 +4471,10 @@ func _refresh_layers(sync: bool) -> void:
 	_urban_plan_update(_displayed_rect(), _interior_rect(_displayed_rect()))
 	if sync:
 		_dyn["catchment"].queue_redraw()
+		## AP-5: a content draw (and a resize, which arrives as one) re-lays
+		## the feature icons only if their list or the fit rect moved; a
+		## camera move never needs to (the camera carries them).
+		_feature_refresh()
 	_dyn["mid"].queue_redraw()
 	for name in CACHED_LAYERS:
 		_refresh_layer(name, sync)
@@ -4761,6 +4771,9 @@ func _frame_target_us() -> float:
 ## one regardless, so a build always finishes. Runs once a frame from
 ## `_BuildPump._process`.
 func _pump_builds() -> void:
+	## AP-5: one engine call a frame to learn whether the feature-icon list
+	## moved (any repaint path), before the frame's timing starts.
+	_feature_poll()
 	var now := Time.get_ticks_usec()
 	var frame_us := float(now - _last_pump_us) if _last_pump_us > 0 else 0.0
 	_last_pump_us = now
@@ -5845,6 +5858,159 @@ func set_marker_art_resolver(cb: Callable, enabled: bool) -> void:
 	_marker_art_resolver = cb
 	marker_art_enabled = enabled
 	queue_redraw()
+
+
+## ── AP-5: scattered feature icons at screen resolution ───────────────────────
+##
+## Ruling CQ Q3 (2026-10-18). The pack's scattered feature sprites (the
+## `icons` family: mountains, trees, ...) used to be blitted into the grid-
+## resolution terrain raster (`pack::composite_map_icons`), so zooming in
+## magnified a ~24 px sprite's grid pixels, and past x2.2 the deep-zoom tiles,
+## which never carried them, covered them altogether. **Measured before this
+## change** (`_ap5_probe.gd`, seed 483920, 1024x768, 1600x900): edge width 0.80 px
+## at x1; at x4, x16 and x64 no icon at all with the tiles up; with the tiles
+## off, 3.57 / 12.95 / 52.05 px for a painted sprite.
+##
+## Now the engine keeps the placements (`WorldGen::feature_icon_draw_list`,
+## the same decisions the baked path makes) and this layer draws each sprite
+## as one textured quad in this control's local space, so the camera carries
+## it and the GPU samples the sprite at the screen's own resolution:
+## one-ink (line-art) sprites through AP-10's signed distance field with a
+## 1 px stroke floor, painted ones premultiplied with an area-filtered mip
+## chain (`shell/feature_icon.gdshader` has both). The layer is a raw canvas
+## item drawn behind this control and below the river stroke (draw index -1),
+## where the baked icons sat -- under every other overlay layer. It is rebuilt
+## only when the list or the fit rect changes, never on a camera move.
+##
+## **The switch** is the engine's (`WorldGen.feature_icon_overlay`, off by
+## default), set by the app (`viewport_host.gd` `PACK_FEATURE_ICONS` through
+## `engine_bridge.gd`). Off, the list is empty, this layer draws nothing and
+## the icons stay baked, byte for byte. An export copy inherits the list
+## through `copy_state_from` (export follows the screen); `prepare_export`
+## drops it with the other marks when the export's `icons` content is off.
+
+const FEATURE_ICON_SHADER := preload("res://shell/feature_icon.gdshader")
+## A distance-field sprite's stroke width rides in UV's integer part at 1/8
+## texel steps (`feature_icon.gdshader`); widths above this many top-level
+## texels are clamped, where the floor can no longer act (a 64-texel stroke is
+## >= 1 screen px at any texel-per-pixel ratio up to 64, beyond the farthest
+## zoom-out). Keeps UV small enough that its fraction stays exact in float32.
+const FEATURE_STROKE_CLAMP := 64.0
+## `WorldGen::feature_icon_draw_list` and `::feature_icon_gen`, through the
+## bridge. Invalid until installed (`set_feature_icon_source`).
+var _feature_list_cb: Callable = Callable()
+var _feature_gen_cb: Callable = Callable()
+## The list being drawn (the engine's dictionary, kept so a resize or an
+## export copy can re-lay it without asking the engine), and its `gen`.
+var _feature_list: Dictionary = {}
+var _feature_gen_seen := -1
+## `[gen, fit rect]` the layer item was last built for.
+var _feature_drawn_key: Array = []
+## The layer's raw canvas item and its material; created on first use, freed
+## in `_notification`.
+var _feature_item := RID()
+var _feature_material: ShaderMaterial = null
+
+
+## Installs AP-5's source (both bridge Callables) and re-reads the list now.
+## Called on every `ViewportHost.refresh_settlement_traits()`, which a pack
+## load and Apply to map both reach.
+func set_feature_icon_source(list_cb: Callable, gen_cb: Callable) -> void:
+	_feature_list_cb = list_cb
+	_feature_gen_cb = gen_cb
+	_feature_gen_seen = -1
+	_feature_poll()
+
+
+## Re-reads the list when the engine's counter moved, then re-lays the layer
+## if needed. A negative counter is the bridge's "busy, no answer" (the
+## worker holds the engine): the layer keeps what it has rather than blanking
+## mid-generation.
+func _feature_poll() -> void:
+	if not _feature_gen_cb.is_valid() or not _feature_list_cb.is_valid():
+		return
+	var g := int(_feature_gen_cb.call())
+	if g < 0:
+		return
+	if g != _feature_gen_seen:
+		var d: Variant = _feature_list_cb.call()
+		if not (d is Dictionary) or not (d as Dictionary).has("gen"):
+			return
+		_feature_list = d
+		_feature_gen_seen = int(d["gen"])
+	_feature_refresh()
+
+
+## Re-lays the feature layer when the list or the fit rect changed since the
+## last build; otherwise nothing.
+func _feature_refresh() -> void:
+	if not is_inside_tree():
+		return
+	var rect := _displayed_rect()
+	var key := [_feature_gen_seen, rect, _feature_list.size()]
+	if key == _feature_drawn_key:
+		return
+	_feature_drawn_key = key
+	_rebuild_feature_icons(rect)
+
+
+## One quad per icon, in the list's (painter's) order, into the layer item.
+## Each quad's box is the engine's `sprite_draw_rect` box, grid pixels scaled
+## by the fit rect exactly as `_point_to_screen` scales a point; its source
+## region is the whole texture for a painted sprite, and for a distance-field
+## sprite the used extent shifted into the UV code the shader reads (stroke
+## width in UV.x's integer part, deepest real level in UV.y's).
+func _rebuild_feature_icons(rect: Rect2) -> void:
+	if not _feature_item.is_valid():
+		_feature_material = ShaderMaterial.new()
+		_feature_material.shader = FEATURE_ICON_SHADER
+		_feature_item = RenderingServer.canvas_item_create()
+		RenderingServer.canvas_item_set_parent(_feature_item, get_canvas_item())
+		RenderingServer.canvas_item_set_draw_behind_parent(_feature_item, true)
+		RenderingServer.canvas_item_set_draw_index(_feature_item, -1)
+		RenderingServer.canvas_item_set_default_texture_filter(_feature_item,
+			RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS)
+		RenderingServer.canvas_item_set_material(_feature_item, _feature_material.get_rid())
+	RenderingServer.canvas_item_clear(_feature_item)
+	var d := _feature_list
+	if rect.size.x <= 0.0 or not d.has("rects"):
+		return
+	var gw := float(d.get("gw", 0))
+	var gh := float(d.get("gh", 0))
+	if gw <= 0.0 or gh <= 0.0:
+		return
+	var rects: PackedFloat32Array = d["rects"]
+	var tex: PackedInt32Array = d["tex"]
+	var textures: Array = d["textures"]
+	var sdf: PackedInt32Array = d["sdf"]
+	var extent: PackedFloat32Array = d["extent"]
+	var stroke: PackedFloat32Array = d["stroke"]
+	var max_lod: PackedInt32Array = d["max_lod"]
+	## Per texture, once: its RID and the source region the quads use.
+	var rids: Array[RID] = []
+	var srcs: Array[Rect2] = []
+	for ti in textures.size():
+		var t: Texture2D = textures[ti]
+		var ts := t.get_size()
+		rids.append(t.get_rid())
+		if sdf[ti] == 1:
+			var k := roundi(clampf(stroke[ti], 0.0, FEATURE_STROKE_CLAMP) * 8.0)
+			srcs.append(Rect2((2.0 + 2.0 * float(k)) * ts.x, 2.0 * float(max_lod[ti]) * ts.y,
+				extent[2 * ti] * ts.x, extent[2 * ti + 1] * ts.y))
+		else:
+			srcs.append(Rect2(Vector2.ZERO, ts))
+	var sx := rect.size.x / gw
+	var sy := rect.size.y / gh
+	for i in tex.size():
+		var ti := tex[i]
+		var r := Rect2(rect.position.x + rects[4 * i] * sx, rect.position.y + rects[4 * i + 1] * sy,
+			rects[4 * i + 2] * sx, rects[4 * i + 3] * sy)
+		RenderingServer.canvas_item_add_texture_rect_region(_feature_item, r, rids[ti], srcs[ti], Color.WHITE, false, false)
+
+
+## How many feature icons the layer drew at its last build (probes).
+func feature_icon_count() -> int:
+	return (_feature_list.get("tex", PackedInt32Array()) as PackedInt32Array).size()
 
 
 ## The pack art for one placed icon, or `{}` -- the glyph's cue. `{}` whenever
@@ -7908,6 +8074,10 @@ func _process(_delta: float) -> void:
 func _notification(what: int) -> void:
 	## The river chunk items (`_river_item_new`) are raw RIDs, which nothing
 	## else frees. The layer items that are nodes go with the tree.
+	## AP-5's feature-icon layer item is a raw RID too (`_rebuild_feature_icons`).
+	if what == NOTIFICATION_PREDELETE and _feature_item.is_valid():
+		RenderingServer.free_rid(_feature_item)
+		_feature_item = RID()
 	if what == NOTIFICATION_PREDELETE and _layers.has("rivers"):
 		for slot_items in _layers["rivers"]["items"]:
 			for ci: RID in slot_items:
@@ -8375,6 +8545,9 @@ const EXPORT_STATE_SKIP := [
 	"_river_material", "_urban_pending", "_urban_revealed", "_urban_draw_list",
 	"_jl_memo", "_jl_memo_key",
 	"_sym_gain", "_export_mode", "_export_show_addons",
+	## AP-5: the copy draws the feature list it inherits (`_feature_list`), from
+	## its own layer item; it never polls the engine.
+	"_feature_list_cb", "_feature_gen_cb", "_feature_drawn_key", "_feature_item", "_feature_material",
 ]
 
 ## The settlement tiers an export can ask for, largest first -- the order of
@@ -8407,7 +8580,8 @@ func copy_state_from(live: Control) -> void:
 ## `settlement_tier` (`"metropolis"` .. `"hamlet"`, `"all"`; absent or `""` =
 ## no settlements), and the booleans `ways` (land ways and sea lanes), `routes`
 ## (the Route tool's routes), `labels` and `icons` (hand-placed and generated
-## marks, with the landmark rings). A missing key is `false`.
+## marks, with the landmark rings and AP-5's scattered feature icons). A
+## missing key is `false`.
 ##
 ## Always cleared, whatever `content` says, because none of it is the map: the
 ## hover and sample pins, the selection, the river trace and catchment, the
@@ -8465,4 +8639,6 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 	if not bool(content.get("icons", false)):
 		_manual_icons = []
 		_landmarks = []
+		## AP-5: the scattered feature icons go with the other marks.
+		_feature_list = {}
 	queue_redraw()

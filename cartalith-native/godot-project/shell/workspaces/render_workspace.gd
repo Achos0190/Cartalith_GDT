@@ -1624,6 +1624,10 @@ func _build_map_style() -> void:
 	## glyph layer was "not built". It is `pack.rs::composite_map_icons` +
 	## `draw_icon_glyph` (the reference's `drawMapIcons`/`drawIconGlyph`),
 	## called from `lib.rs` only `if let Some(loaded) = self.asset_pack`.
+	## Since AP-5 (2026-10-19) `lib.rs` calls its two halves
+	## (`place_feature_icons`, `composite_placed_features`) and, with the app's
+	## switch on, the sprites are drawn by `map_overlay.gd`'s feature-icon
+	## layer instead of baked; still only with a pack, still no toggle.
 	## Missing: the reference's `#iconsChk` toggle, and drawing with no pack.
 	## **Why a tile carries its bundle and not a picture.** Stated to the user,
 	## not only in the source, because the absence is the first thing anyone

@@ -6172,7 +6172,9 @@ struct WorldGen {
     /// there is nothing in `godot-project/` that ships pack art, matching
     /// the reference's own `assetPack = null` default). Set via
     /// `load_asset_pack`; consumed by `build_color_texture` for both real
-    /// sprite compositing and ground-texture splat.
+    /// sprite compositing and ground-texture splat (since AP-5 the feature
+    /// sprites are baked only with `feature_icon_overlay` off; on, they go
+    /// to the overlay through `feature_icon_draw_list`).
     asset_pack: Option<pack::LoadedPack>,
     /// The loaded pack's `structures.trait` art as Godot textures — slot key
     /// → one `ImageTexture` per decoded variant, in the same order as
@@ -6208,6 +6210,31 @@ struct WorldGen {
     /// `lod`'s cache does. Cleared by [`WorldGen::install_pack`]; empty
     /// whenever `asset_pack` is `None`.
     marker_textures: std::cell::RefCell<std::collections::HashMap<(String, usize, u32), Gd<ImageTexture>>>,
+    /// AP-5's switch (Ruling CQ Q3): `true` takes the pack's scattered
+    /// feature sprites out of `build_color_texture`'s raster and hands their
+    /// placements to `map_overlay.gd` (`feature_icon_draw_list`), which draws
+    /// them at screen resolution. **`false` by default**, so this engine on
+    /// its own -- every test, every embedder that never calls the setter --
+    /// bakes them exactly as before (`MISTAKES.md`, "Change generated
+    /// output": the divergence ships off in the engine and on in the app,
+    /// whose `engine_bridge.gd` sets it from `viewport_host.gd`'s
+    /// `PACK_FEATURE_ICONS` before every texture build).
+    feature_icon_overlay: bool,
+    /// AP-5: the last `build_color_texture`'s sprite placements (glyph
+    /// fallbacks excluded: those stay baked), in painter's order. Empty with
+    /// the switch off or no pack. A `RefCell` because `build_color_texture`
+    /// takes `&self`.
+    feature_sprites: std::cell::RefCell<Vec<pack::PlacedFeature>>,
+    /// AP-5: bumped whenever `feature_sprites` changes (every texture build
+    /// that stores a new list, and every clear of a non-empty one), so the
+    /// overlay re-reads the list only when it moved (`feature_icon_gen`).
+    feature_gen: std::cell::Cell<i64>,
+    /// AP-5: one GPU texture per `(slot, variant)` of the loaded pack's
+    /// `icons`, built the first time a draw list names it (`pack::
+    /// feature_texture`: the distance-field path for one-ink art, else a
+    /// premultiplied area-filtered mip chain) and kept for the pack, as
+    /// [`WorldGen::marker_textures`] is. Cleared by [`WorldGen::install_pack`].
+    feature_textures: std::cell::RefCell<std::collections::HashMap<(String, usize), (Gd<ImageTexture>, pack::FeatureTexture)>>,
     /// `TERRAIN_APPEARANCE_RESEARCH.md` §29's quality tier for the *appearance*
     /// pass only (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). Purely
     /// presentation: it feeds `TerrainAppearance::for_tier` inside
@@ -7087,6 +7114,10 @@ impl IRefCounted for WorldGen {
             asset_pack: None,
             trait_textures: std::collections::HashMap::new(),
             marker_textures: std::cell::RefCell::new(std::collections::HashMap::new()),
+            feature_icon_overlay: false,
+            feature_sprites: std::cell::RefCell::new(Vec::new()),
+            feature_gen: std::cell::Cell::new(0),
+            feature_textures: std::cell::RefCell::new(std::collections::HashMap::new()),
             quality: QualityTier::Quality,
             look: render::LOOK_VIBRANT.to_string(),
             // Multi-sun on, as the shipped default (2026-08-24). It lives on
@@ -10467,8 +10498,132 @@ impl WorldGen {
     fn install_pack(&mut self, loaded: pack::LoadedPack) {
         self.trait_textures = Self::build_trait_textures(&loaded);
         self.marker_textures.borrow_mut().clear();
+        self.feature_textures.borrow_mut().clear();
         self.pack_epoch = self.pack_epoch.wrapping_add(1);
         self.asset_pack = Some(loaded);
+    }
+
+    /// AP-5's switch (Ruling CQ Q3), see [`WorldGen::feature_icon_overlay`]
+    /// (the field). Takes effect at the next `build_color_texture`; it does
+    /// not rebuild anything itself. `engine_bridge.gd::color_texture()` sets
+    /// it before every build, so a replaced `WorldGen` (Close project) picks
+    /// the app's value up again.
+    #[func]
+    fn set_feature_icon_overlay(&mut self, on: bool) {
+        self.feature_icon_overlay = on;
+    }
+
+    /// AP-5's switch as it stands (`false` unless something turned it on).
+    #[func]
+    fn feature_icon_overlay(&self) -> bool {
+        self.feature_icon_overlay
+    }
+
+    /// Keep one texture build's feature placements for the overlay: the
+    /// sprite items when the switch is on, nothing otherwise. Bumps
+    /// `feature_gen` when the stored list changes, so an unchanged empty list
+    /// (no pack, switch off) costs the overlay nothing.
+    fn store_feature_placements(&self, placed: Option<&[pack::PlacedFeature]>) {
+        let next: Vec<pack::PlacedFeature> = match placed {
+            Some(p) if self.feature_icon_overlay => p.iter().filter(|f| matches!(f.art, pack::FeatureArt::Sprite { .. })).cloned().collect(),
+            _ => Vec::new(),
+        };
+        let mut cur = self.feature_sprites.borrow_mut();
+        if cur.is_empty() && next.is_empty() {
+            return;
+        }
+        *cur = next;
+        self.feature_gen.set(self.feature_gen.get().wrapping_add(1));
+    }
+
+    /// AP-5: a counter that changes whenever the feature list
+    /// [`WorldGen::feature_icon_draw_list`] answers has changed. The overlay
+    /// polls it once a frame (a single call) and re-reads the list only when
+    /// it moved, which catches every repaint path without each one having to
+    /// tell the overlay.
+    #[func]
+    fn feature_icon_gen(&self) -> i64 {
+        self.feature_gen.get()
+    }
+
+    /// AP-5 (Ruling CQ Q3): the scattered feature icons for the overlay to
+    /// draw, in painter's order, with the textures they need.
+    ///
+    /// Returns `{gen, gw, gh, rects, tex, textures, sdf, extent, stroke,
+    /// max_lod}`: `rects` is a `PackedFloat32Array` of `dx, dy, dw, dh` per
+    /// icon in grid pixels (continuous; `pack::sprite_draw_rect`'s box, the
+    /// same box the baked path blits into); `tex` the index of each icon's
+    /// texture in `textures`; and per texture, `sdf` (1 = distance field, 0 =
+    /// premultiplied raster), `extent` (two floats: the used fraction of each
+    /// side), `stroke` (2nd-percentile stroke in top-level texels, distance
+    /// field only) and `max_lod` (the deepest real distance level). Arrays are
+    /// empty, not absent, when there is nothing to draw (switch off, no pack,
+    /// no scatter rule): empty is the true answer, and `gen` says which build
+    /// it describes.
+    ///
+    /// Each texture is built once per pack (`feature_textures`) as an
+    /// `ImageTexture` carrying its own mip chain, so the overlay's
+    /// `LINEAR_WITH_MIPMAPS` filter (raster) and `textureLod` (distance
+    /// field) read the levels made here, not ones Godot generates from
+    /// straight alpha.
+    #[func]
+    fn feature_icon_draw_list(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        d.set("gen", self.feature_gen.get());
+        d.set("gw", self.gw);
+        d.set("gh", self.gh);
+        let mut rects = PackedFloat32Array::new();
+        let mut tex_idx = PackedInt32Array::new();
+        let mut textures = VarArray::new();
+        let mut sdf = PackedInt32Array::new();
+        let mut extent = PackedFloat32Array::new();
+        let mut stroke = PackedFloat32Array::new();
+        let mut max_lod = PackedInt32Array::new();
+        if let Some(loaded) = self.asset_pack.as_ref() {
+            let sprites = self.feature_sprites.borrow();
+            let mut cache = self.feature_textures.borrow_mut();
+            // Texture index per (slot, variant) within THIS list.
+            let mut index: std::collections::HashMap<(String, usize), i32> = std::collections::HashMap::new();
+            for f in sprites.iter() {
+                let pack::FeatureArt::Sprite { variant, rect } = f.art else { continue };
+                let key = (f.slot.clone(), variant);
+                let i = match index.get(&key) {
+                    Some(i) => *i,
+                    None => {
+                        if !cache.contains_key(&key) {
+                            let Some(img) = loaded.icons.get(&f.slot).and_then(|v| v.get(variant)) else { continue };
+                            let ft = pack::feature_texture(img);
+                            let packed = PackedByteArray::from(ft.data.as_slice());
+                            let Some(image) = Image::create_from_data(ft.w as i32, ft.h as i32, true, Format::RGBA8, &packed) else { continue };
+                            let Some(t) = ImageTexture::create_from_image(&image) else { continue };
+                            cache.insert(key.clone(), (t, ft));
+                        }
+                        let (t, ft) = &cache[&key];
+                        let i = textures.len() as i32;
+                        textures.push(&t.to_variant());
+                        sdf.push(i32::from(ft.sdf));
+                        extent.push(ft.extent.0 as f32);
+                        extent.push(ft.extent.1 as f32);
+                        stroke.push(ft.stroke_top as f32);
+                        max_lod.push(ft.max_lod as i32);
+                        index.insert(key, i);
+                        i
+                    }
+                };
+                for v in [rect.dx, rect.dy, rect.dw, rect.dh] {
+                    rects.push(v as f32);
+                }
+                tex_idx.push(i);
+            }
+        }
+        d.set("rects", &rects);
+        d.set("tex", &tex_idx);
+        d.set("textures", &textures);
+        d.set("sdf", &sdf);
+        d.set("extent", &extent);
+        d.set("stroke", &stroke);
+        d.set("max_lod", &max_lod);
+        d
     }
 
     /// AP-3 (Ruling CQ Q2): the loaded pack's own art for one placed map
@@ -12217,9 +12372,20 @@ impl WorldGen {
         // pack is loaded or the loaded pack's scatter-rule table ends up
         // empty (`pack::composite_map_icons`'s own doc comment) -- which is
         // this port's only state today, since it ships no default pack.
-        if let Some(loaded) = self.asset_pack.as_ref() {
-            pack::composite_map_icons(&mut bytes, field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
-        }
+        //
+        // AP-5 (Ruling CQ Q3): with `feature_icon_overlay` on, the pack's
+        // feature sprites are NOT baked here; their placements are kept for
+        // `feature_icon_draw_list`, and `map_overlay.gd` draws them at screen
+        // resolution, so they stay sharp at x16 and x64 and are not lost
+        // under the deep-zoom tiles (which never carried them: measured
+        // 2026-10-19, `_ap5_probe`). Only glyph fallbacks stay baked. Off,
+        // this is `composite_map_icons` exactly.
+        let placed = self.asset_pack.as_ref().map(|loaded| {
+            let placed = pack::place_feature_icons(field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
+            pack::composite_placed_features(&mut bytes, gw, gh, &placed, loaded, !self.feature_icon_overlay);
+            placed
+        });
+        self.store_feature_placements(placed.as_deref());
 
         // The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management),
         // last of all -- *after* the icon composite rather than before it, on
@@ -12255,8 +12421,10 @@ impl WorldGen {
         // The river colour texture, through the same icon pass and encode, for
         // the base view's river stroke (`river_color_texture`).
         *self.river_color_tex.borrow_mut() = river_bytes.and_then(|mut t| {
-            if let Some(loaded) = self.asset_pack.as_ref() {
-                pack::composite_map_icons(&mut t, field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
+            // The same placements as the base texture's (one placement pass
+            // per build, not two) and the same switch.
+            if let (Some(loaded), Some(placed)) = (self.asset_pack.as_ref(), placed.as_deref()) {
+                pack::composite_placed_features(&mut t, gw, gh, placed, loaded, !self.feature_icon_overlay);
             }
             if icons {
                 render::apply_color_space(self.color_space, &mut t);

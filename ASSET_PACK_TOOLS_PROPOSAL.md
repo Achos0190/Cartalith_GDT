@@ -896,4 +896,114 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   and a thumbnail applies the item's pan in family-size pixels at thumbnail
   size (`render_item` does not scale `pan_x`/`pan_y`), so a bottom-fitted
   sprite sits low in its thumbnail. Neither was checked against the
-  reference. The outline's soft edge also shows AP-1's one-level bake drift.
+  reference. *(Both fixed with AP-5, below.)* The outline's soft edge also shows AP-1's one-level bake drift.
+
+### AP-5: feature icons at screen resolution (Ruling CQ Q3)
+
+- **Measured first** (`godot-project/_ap5_probe.gd`, seed 483920, 1024 × 768,
+  1600 × 900 desktop and `--vp 1080x2400` phone; a test pack whose only
+  feature slot is `mountain`, as a painted two-colour disc or a one-ink ring
+  with 3-texel hatching; the edge measured across a mountain's left rim). On
+  `88d9f4a2`, whose numbers the switch-off path reproduces run for run:
+  - **Above ×2.2 the feature icons vanish.** At ×4, ×16 and ×64 the
+    deep-zoom tiles are up and there is no icon edge to measure: the tile
+    pipeline never carried them (`lod_worker.rs` reads `grid_rgb`, cached
+    before the icon pass). On the phone the tiles are up even at fit and
+    already cover part of the baked icons.
+  - With the tiles off, the baked painted sprite's 10-90 % edge is 0.80 px
+    at ×1, 2.89 at ×4, 12.03 at ×16 and 52.05 at ×64 (the research predicted
+    5.8-19.6 and 22-77). Line art reads 0.80 px at every zoom by that measure
+    only because the raster is shown NEAREST: each grid cell is a hard-edged
+    block (about 19 px at ×16, 75 at ×64), a staircase the 10-90 measure
+    cannot see.
+  - No export path drew them: a 4096 px export has 0 icon pixels.
+  - Frames: `cartalith-native/docs/evidence/asset-pack-ap5-2026-10-19/`.
+- **Where it lives.** `pack.rs`: `composite_map_icons` is now its two halves,
+  `place_feature_icons` (every decision: `PlacedFeature`, `FeatureArt`) and
+  `composite_placed_features(.., sprites)`. With `sprites: true` the bytes are
+  HEAD's, pinned against HEAD's own `pack.rs` on three grids and two seeds.
+  `feature_texture` picks the path per sprite: `one_ink_colour` (every pixel
+  with alpha > 0 within `ONE_INK_TOLERANCE` = 2 levels of one RGB) leads to
+  `feature_sdf_texture`, anything else to `feature_raster_texture`.
+  `lib.rs`: `build_color_texture` keeps the placements
+  (`store_feature_placements`) and bakes only glyph fallbacks when
+  `feature_icon_overlay` is on; `feature_icon_draw_list` and
+  `feature_icon_gen` hand them over, one `ImageTexture` per (slot, variant)
+  carrying a mip chain built here. Shell: `map_overlay.gd`'s feature-icon
+  layer (a raw canvas item behind the overlay and under the river stroke,
+  where the baked icons sat; rebuilt only when the list or the fit rect
+  changes; the engine's counter polled once a frame), drawn with
+  `shell/feature_icon.gdshader`.
+- **How line-art variants are found** (AP-10 left no flag): by their shape.
+  AP-10 writes one ink colour wherever alpha > 0, and a pack carries that PNG
+  unchanged except for `render_item`'s one-level drift on soft alpha (AP-1),
+  hence the 2-level tolerance. Any other single-colour sprite qualifies too,
+  and correctly: such a sprite is wholly its alpha, so a distance field loses
+  nothing. Nothing is saved; the pack format is unchanged (Ruling F).
+- **The distance field** is AP-10's `SdfPyramid`, built from the pack
+  sprite's alpha at 50 % after a 2× bilinear upsample (a 512² mask). Built at
+  the sprite's own size it came out 128² for a 256² sprite, so 3 px hatching
+  was 1.5 texels across and drew 1-2 px wide at ×16 where about 3 were due
+  (measured, then fixed). AP-10's higher-resolution original is not used: it
+  lives only in the library session, and the map draws the pack. RGB is the
+  ink; the field's levels are the texture's mip levels. The shader reads the
+  level with at most 4 texels per screen pixel and draws
+  `clamp(d_px + δ + 0.5)` with Ruling CR's floor δ (line weight 1 px). Its
+  parameters ride in UV's integer part (stroke width, deepest real level),
+  never in the vertex colour, which the canvas modulate scales. Derivatives
+  come from the raw UV: a decoded UV jumped at the quad's edge and drew every
+  quad's outline (measured, then fixed).
+- **Painted sprites** take a premultiplied, area-filtered mip chain (every
+  level straight from the source) and plain trilinear filtering; the shader
+  divides the colour back out, so there is no dark fringe.
+- **After** (same probe; desktop / phone):
+  - **Line art meets AP-5(b) as Ruling CR tightened it** (≤ 1.0 px, in the
+    research's transition-pixel measure): ×16 0.59 / 1.00 px, ×64 0.65 /
+    0.65 px. By the 10-90 measure: 1.38 / 1.49 and 1.43 / 1.09; an ideal
+    1 px ramp reads 0.8 to 1.6 there, depending on where it falls between
+    pixel centres.
+  - **Painted sprites do not meet AP-5(b)'s ≤ 2 px: ×16 3.16 px, ×64
+    4.71 px** on desktop (×1 2.38, ×4 1.88); phone ×16 3.57. The phone's ×64
+    figure, 12.28, is not a measurement: the phone's zoom walk drifted off the
+    rim. A 256² bitmap magnified about 6× at ×64 has an edge as wide as its
+    own anti-aliased ramp times the magnification, and no filter of those
+    pixels gets under 2 px without inventing an edge. **Not forced:** the
+    candidate (sharpening alpha around 0.5 when magnified) would also harden
+    soft art; an AP-7 drop shadow at 45 % would vanish at ×64. It is owner
+    question Q-P1 below.
+  - **AP-5(c) as written (≤ 1 % of pixels differ at ×1) is not met: 8.1 %
+    differ by more than 16 levels** on this dense test pack, every one of
+    them in the sprites' edge rings (two filters of the same edge). What it
+    stood for, placement unchanged, holds: 0.070 % differ outside every
+    sprite's edge band (checked at ≤ 0.1 %). Line art: 0.13 % outside the
+    bands, by design (the floor makes sub-pixel strokes solid). Phone 2.4 %,
+    because the phone's "before" frame already has tiles over the icons.
+  - **Export follows the screen:** the same 4096 px export carries 193 353
+    sampled icon pixels with the switch on, 0 with the export's `icons`
+    content off, and 0 with the switch off (today). One difference: an
+    export's rivers are in the terrain band (RV-5), so there the icons draw
+    over the rivers; on screen the river stroke stays above them.
+  - Frames looked at at ×1, ×4, ×16 and ×64, desktop and phone: icons
+    present and crisp at every zoom; line art solid at ×1 (Q-L1's darker
+    tone), hatching in proportion at ×16 and ×64.
+- **The switch.** `WorldGen.feature_icon_overlay`, off in the engine.
+  `viewport_host.gd`'s `PACK_FEATURE_ICONS` (true) reaches it through
+  `EngineBridge.feature_icon_overlay`, applied before every texture build, so
+  a Close project keeps it. False restores the baked icons byte for byte. No
+  pixel pin moved: no golden reads the switch-on path.
+- **Fixed on the way (AP-7's two findings):** thumbnails aspect-fit in their
+  cell (`SlotCell._draw`), and `thumbnail_png` scales the item's pan by
+  thumbnail size over family size, the reference's geometry
+  (`ThumbnailRenderer.into`, v2.11 line 27422, renders at the family size and
+  shrinks).
+- **Found, not fixed:** `tests/pack_compositing.rs` says its dry corner
+  "forces `shrub`" and so the glyph fallback. With the reference pack no rule
+  exists for a slot the manifest omits, and that world places 0 glyphs
+  (measured: 29 sprites, 0 glyphs); its region check passes on tree sprites.
+  `tests/feature_icon_overlay.rs` builds its glyph case by adding an
+  undecodable `shrub` to the manifest.
+- **Owner question (new), Q-P1:** sharpen painted sprites' silhouettes when
+  magnified (alpha treated as a distance near 0.5, so the rim stays about
+  1 px at any zoom, at the cost of hardening soft alpha), or keep them
+  faithful and soft? Recommended default: **faithful**. Art that should be
+  crisp at every zoom can be converted to line art (AP-10), which is exact.

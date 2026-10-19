@@ -1195,11 +1195,25 @@ impl AssetLibrarySession {
     /// the shared render core the reference itself uses for grid
     /// thumbnails, the inspector preview, and export bake alike. `None` when
     /// the uid/index/pixels don't all resolve, or if re-encoding fails.
+    ///
+    /// **Pan is scaled to the thumbnail** (fixed 2026-10-19, found by AP-7):
+    /// an item's `pan_x`/`pan_y` are pixels of its family's canvas
+    /// (`Family::size`, where the inspector and `fit_to_bottom` author them),
+    /// and the reference's `ThumbnailRenderer.into` (v2.11 line 27422) renders
+    /// at that family size and then shrinks the result, so the pan shrinks
+    /// with it. Baking straight at `size` with the raw pan moved a
+    /// bottom-fitted sprite down by the full family-size offset, a quarter of
+    /// a 256² canvas's 64 px pan landing as 64 px on a 32 px thumbnail.
+    /// Scaling the pan by `size / family size` gives the reference's
+    /// geometry without its second resample (`lineart::working_image` does
+    /// the same for the same reason).
     pub fn thumbnail_png(&self, uid: &str, index: usize, size: u32) -> Option<Vec<u8>> {
         let slot = self.db.get(uid)?;
         let item = self.db.items(uid).get(index)?;
         let img = self.image(uid, index)?;
-        let baked = render_item(img, &item.transform, size, slot.family.opaque());
+        let k = f64::from(size) / f64::from(slot.family.size().max(1));
+        let t = ItemTransform { scale: item.transform.scale, pan_x: item.transform.pan_x * k, pan_y: item.transform.pan_y * k };
+        let baked = render_item(img, &t, size, slot.family.opaque());
         encode_png(&baked).ok()
     }
 
@@ -1712,6 +1726,29 @@ mod tests {
         let png = s.thumbnail_png("icons:mountain", 0, 32).unwrap();
         let decoded = decode_png(&png).unwrap();
         assert_eq!((decoded.w, decoded.h), (32, 32));
+    }
+
+    /// Protects: a thumbnail applies the item's pan in family-canvas pixels
+    /// scaled to the thumbnail (the reference renders at the family size and
+    /// shrinks): a 256² icon family's opaque square panned down by 64 px
+    /// (a quarter of its canvas) lands a quarter of the way down a 32 px
+    /// thumbnail, 8 px, not 64.
+    #[test]
+    fn thumbnail_png_scales_the_pan_to_the_thumbnail() {
+        let mut s = AssetLibrarySession::new();
+        // A 64 x 64 opaque block fills the 256 canvas (scale 1, fit to 256),
+        // so shrink it to a quarter: transform scale 0.25 -> a 64 px block,
+        // centred at 96..160, panned down 64 -> rows 160..224 of 256.
+        s.import_item("icons:mountain", "m.png".to_string(), &png_bytes(64, 64, [9, 9, 9, 255])).unwrap();
+        let it = s.db.item_mut("icons:mountain", 0).unwrap();
+        it.transform = ItemTransform { scale: 0.25, pan_x: 0.0, pan_y: 64.0 };
+        let png = s.thumbnail_png("icons:mountain", 0, 32).unwrap();
+        let d = decode_png(&png).unwrap();
+        let alpha_row = |y: u32| d.rgba[((y * 32 + 16) * 4 + 3) as usize];
+        // At 32 px: block rows 20..28 (160/8 .. 224/8).
+        assert_eq!(alpha_row(17), 0, "above the panned block");
+        assert_eq!(alpha_row(24), 255, "inside the panned block");
+        assert_eq!(alpha_row(30), 0, "below it: an unscaled 64 px pan would have pushed it off the thumbnail");
     }
 
     // -- Sprite-sheet slicer ---------------------------------------------
