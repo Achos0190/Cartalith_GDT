@@ -1,0 +1,480 @@
+extends Node
+## **3D-0(b) desktop prototype on a real world** (`3D_VIEWPORT_SCOPE.md` §5,
+## "3D-0 · Measurement spike: go/no-go"). Throwaway scratch project; measures,
+## changes no shipped file.
+##
+## What it does: generates one world through the real `WorldGen`, picks a
+## pivot on the steepest land of the level-0 tile, and for each 2D-equivalent
+## zoom puts an oblique perspective camera at the distance where the pivot's
+## `px_per_cell` equals the 2D view's (§3.3's `px_per_cell(x)`), so the level
+## `z0 = lod_level_for_zoom(px_per_cell)` is the one 2D draws there. It draws
+## the level-`z0` tiles nearest the pivot in front of the camera as ONE
+## `MultiMesh` of 65 x 65 patches (§3.2), heights and colour from two
+## `Texture2DArray`s filled by the worktree-only `td0_tile_with_heights`
+## accessor (one `tile_heights` call per tile, §3.1), plus a coarse backdrop
+## (`z0 - 4`, one more `MultiMesh`, sunk below) so the horizon is not empty.
+## Camera-relative from the start (§3.11): the camera sits at the origin and
+## every instance origin is `node - camera` in 64-bit GDScript floats.
+##
+## MUST run windowed (`MISTAKES.md`, "Run a pixel probe"); refuses headless.
+##
+##   godot --path C:/cw/td0p -- --grid 2048x1311 --run 1 --out DIR [--capture]
+##
+## Flags, every one read in `_parse_args` (an unknown one aborts, exit 2):
+##   --grid WxH   world grid (default 2048x1311); --seed N (default 24601)
+##   --width-km F (default 1200, the zoom-sweep harness's default)
+##   --zooms a,b  2D-equivalent zooms over fit (default 4,16,64)
+##   --run N      label for this separate-process run
+##   --out DIR    where captures and the result lines go
+##   --capture    also write the oblique frames and the detail controls
+##   --exag F     vertical exaggeration (default 3.4 = the relief default)
+##   --std N      Standard workload instance count (default 512, §4.1 desktop)
+##
+## Exit: 0 every assertion held, 1 an assertion failed, 2 could not run.
+
+const PATCH_N := 65            ## §3.12 Standard (desktop) patch
+const VIEW_CAP := 256          ## §3.12 Standard desktop layer capacity
+const BACKDROP_DROP := 4       ## backdrop level = z0 - 4 (labelled judgement: fills the horizon cheaply)
+const WARM := 60               ## §2.4 / §4.2 method
+const FRAMES := 300            ## §2.4 method
+const FOV := 50.0              ## labelled judgement
+const PITCH_DEG := 40.0        ## oblique view, labelled judgement
+const SKY := Color(0.55, 0.70, 0.85)
+
+var _grid := Vector2i(2048, 1311)
+var _seed := 24601
+var _width_km := 1200.0
+var _zooms: Array[float] = [4.0, 16.0, 64.0]
+var _run := 1
+var _out := ""
+var _capture := false
+var _exag := 3.4
+var _std := 512
+
+var _wg: Object
+var _sv: SubViewport
+var _cam: Camera3D
+var _world: Node3D
+var _patch: ArrayMesh
+var _shader: Shader
+var _cell_m := 0.0
+var _sea := 0.42
+var _peak := 4000.0
+var _fail := 0
+var _checks := 0
+var _build_ms: PackedFloat64Array = []
+
+func _ok(name: String, cond: bool, detail: String) -> void:
+	_checks += 1
+	if not cond:
+		_fail += 1
+	print("%s  %s  %s" % ["PASS" if cond else "FAIL", name, detail])
+
+func _parse_args() -> bool:
+	var a := OS.get_cmdline_user_args()
+	var i := 0
+	while i < a.size():
+		var k: String = a[i]
+		var v: String = a[i + 1] if i + 1 < a.size() else ""
+		match k:
+			"--grid":
+				var p := v.split("x")
+				_grid = Vector2i(int(p[0]), int(p[1])); i += 1
+			"--seed": _seed = int(v); i += 1
+			"--width-km": _width_km = float(v); i += 1
+			"--zooms":
+				_zooms.clear()
+				for s in v.split(","):
+					_zooms.append(float(s))
+				i += 1
+			"--run": _run = int(v); i += 1
+			"--out": _out = v; i += 1
+			"--exag": _exag = float(v); i += 1
+			"--std": _std = int(v); i += 1
+			"--capture": _capture = true
+			_:
+				print("RESULT could not run: unknown argument ", k)
+				return false
+		i += 1
+	return _out != ""
+
+func _ready() -> void:
+	if DisplayServer.get_name() == "headless":
+		print("RESULT could not run: headless has no rasteriser")
+		get_tree().quit(2)
+		return
+	if not _parse_args():
+		print("RESULT could not run: bad arguments (need --out)")
+		get_tree().quit(2)
+		return
+	DirAccess.make_dir_recursive_absolute(_out)
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+	get_window().size = Vector2i(1600, 900)
+	_wg = ClassDB.instantiate("WorldGen")
+	if _wg == null or not _wg.has_method("td0_tile_with_heights"):
+		print("RESULT could not run: WorldGen without td0_tile_with_heights (stale or wrong DLL)")
+		get_tree().quit(2)
+		return
+	_build_scene()
+	await _main()
+	print("RESULT checks=%d fail=%d" % [_checks, _fail])
+	get_tree().quit(1 if _fail > 0 else 0)
+
+func _build_scene() -> void:
+	var box := SubViewportContainer.new()
+	box.stretch = true
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(box)
+	_sv = SubViewport.new()
+	_sv.size = Vector2i(1600, 900)
+	_sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	box.add_child(_sv)
+	_world = Node3D.new()
+	_sv.add_child(_world)
+	var env := WorldEnvironment.new()
+	env.environment = Environment.new()
+	env.environment.background_mode = Environment.BG_COLOR
+	env.environment.background_color = SKY
+	_sv.add_child(env)
+	_cam = Camera3D.new()
+	_cam.fov = FOV
+	_sv.add_child(_cam)
+	_cam.current = true
+	_shader = load("res://td0_terrain.gdshader")
+	_patch = _make_patch(PATCH_N)
+
+## One N x N unit patch on [0,1]^2 in x/z, shared by every instance (§3.2).
+func _make_patch(n: int) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var idx := PackedInt32Array()
+	for j in n:
+		for i in n:
+			verts.append(Vector3(float(i) / (n - 1), 0.0, float(j) / (n - 1)))
+	for j in n - 1:
+		for i in n - 1:
+			var a := j * n + i
+			idx.append_array([a, a + 1, a + n, a + 1, a + n + 1, a + n])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
+
+func _main() -> void:
+	var t0 := Time.get_ticks_msec()
+	_wg.generate_sized(_seed, _width_km, _grid.x, _grid.y)
+	print("WORLD seed=%d grid=%dx%d width_km=%.0f look=%s generate_ms=%d" % [_seed, _grid.x, _grid.y, _width_km, _wg.get_look(), Time.get_ticks_msec() - t0])
+	_cell_m = _width_km * 1000.0 / _grid.x
+	# Level 0: the pivot and the world constants.
+	var l0: Dictionary = _wg.td0_tile_with_heights(0, 0, 0)
+	_ok("level-0 tile synthesised", l0.has("height"), "keys=%d" % l0.size())
+	if not l0.has("height"):
+		return
+	_sea = l0["sea_level"]
+	_peak = l0["peak_m"]
+	var pivot := _pick_pivot(l0)
+	print("PIVOT cell=(%.1f, %.1f) h_m=%.0f sea=%.3f peak_m=%.0f cell_m=%.1f" % [pivot.x, pivot.y, pivot.z, _sea, _peak, _cell_m])
+	var vp := Vector2(_sv.size)
+	var f_px := vp.y / (2.0 * tan(deg_to_rad(FOV) * 0.5))
+	var z_std := -1
+	for zoom in _zooms:
+		var ppc := zoom * vp.x / _grid.x
+		var z0: int = _wg.lod_level_for_zoom(ppc)
+		if z_std < 0:
+			z_std = z0
+		var d := _cell_m * f_px / ppc
+		_place_camera(pivot, d)
+		var tag := "x%d" % int(zoom)
+		var near := _level_set(_nearest_tiles(z0, pivot, VIEW_CAP, true), z0, 0.0)
+		var back_z := maxi(z0 - BACKDROP_DROP, 0)
+		var far := _level_set(_nearest_tiles(back_z, pivot, VIEW_CAP, true), back_z, -0.01 * _peak * _exag)
+		_slope_report(tag)
+		var st := await _measure()
+		print("VIEW %s run=%d z0=%d px_per_cell=%.3f cam_d_km=%.2f alt_km=%.2f tiles=%d backdrop_z=%d backdrop_tiles=%d %s" % [tag, _run, z0, ppc, d / 1000.0, _cam_alt / 1000.0, near.get_meta("n"), back_z, far.get_meta("n"), st])
+		if _capture:
+			var img := await _grab()
+			img.save_png(_out.path_join("%s_%dx%d_%s_oblique.png" % [_seed, _grid.x, _grid.y, tag]))
+			var det := _detail(img)
+			var holes := _holes(img)
+			# Positive control on real data: exaggeration 0 must move pixels (VTF works).
+			_set_uniform("exag", 0.0)
+			var flat := await _grab()
+			_set_uniform("exag", _exag)
+			var moved := _diff(img, flat)
+			_ok("VTF positive control %s" % tag, moved > 1000, "pixels moved by exag 0->%.1f: %d" % [_exag, moved])
+			# Detail control: the same camera drawing tiles three levels coarser.
+			var zc := maxi(z0 - 3, 0)
+			_clear()
+			_level_set(_nearest_tiles(zc, pivot, VIEW_CAP, true), zc, 0.0)
+			_level_set(_nearest_tiles(back_z, pivot, VIEW_CAP, true), back_z, -0.01 * _peak * _exag)
+			_slope_report("%s_coarse_z%d" % [tag, zc])
+			var coarse := await _grab()
+			coarse.save_png(_out.path_join("%s_%dx%d_%s_oblique_coarse_z%d.png" % [_seed, _grid.x, _grid.y, tag, zc]))
+			var detc := _detail(coarse)
+			print("DETAIL %s z0=%d near_field_grad=%.3f coarse_z%d=%.3f ratio=%.2f holes_lower40pct=%d" % [tag, z0, det, zc, detc, det / maxf(detc, 1e-6), holes])
+			_ok("detail gained over z0-3 at %s" % tag, z0 == zc or det > detc, "%.3f vs %.3f" % [det, detc])
+		_clear()
+	# Standard (desktop) workload, §4.1: _std x 65^2 patches, one MultiMesh, real tiles.
+	var ppc4 := _zooms[0] * vp.x / _grid.x
+	_place_camera(pivot, _cell_m * f_px / ppc4)
+	var ns := _level_set(_nearest_tiles(z_std, pivot, _std, false), z_std, 0.0)
+	var st2 := await _measure()
+	print("STANDARD run=%d z=%d instances=%d %s" % [_run, z_std, ns.get_meta("n"), st2])
+	_clear()
+	var b := _build_ms.duplicate()
+	b.sort()
+	if b.size() > 0:
+		print("TILEBUILD n=%d median_ms=%.2f min=%.2f max=%.2f" % [b.size(), b[b.size() / 2], b[0], b[b.size() - 1]])
+
+var _cam_alt := 0.0
+var _cam_pos := Vector3.ZERO   ## stored as world metres in 64-bit floats via three floats
+var _cx := 0.0
+var _cy := 0.0
+var _cz := 0.0
+
+## Oblique camera looking north at the pivot from distance `d` (metres) at
+## PITCH_DEG; position kept in 64-bit floats, the Camera3D stays at origin.
+func _place_camera(pivot: Vector3, d: float) -> void:
+	var p := deg_to_rad(PITCH_DEG)
+	_cx = pivot.x * _cell_m
+	_cy = maxf(pivot.z, 0.0) * _exag + d * sin(p)
+	_cz = pivot.y * _cell_m + d * cos(p)
+	_cam_alt = d * sin(p)
+	_cam.position = Vector3.ZERO
+	_cam.rotation = Vector3(-p, 0.0, 0.0)
+	# §3.11's dynamic planes (labelled judgements, calibrated in 3D-3).
+	_cam.near = clampf(0.05 * _cam_alt, 1.0, 1000.0)
+	_cam.far = sqrt(pow(_grid.x * _cell_m, 2) + pow(_grid.y * _cell_m, 2)) + _cy
+
+## Steepest land pixel of the level-0 tile (max 7x7 local range, central 60%).
+func _pick_pivot(t: Dictionary) -> Vector3:
+	var img: Image = t["height"]
+	var w: int = t["w"]
+	var h: int = t["h"]
+	var pad: int = t["pad"]
+	var best := -1.0
+	var bx := w / 2
+	var by := h / 2
+	for y in range(int(h * 0.2), int(h * 0.8)):
+		for x in range(int(w * 0.2), int(w * 0.8)):
+			var c := img.get_pixel(x + pad, y + pad).r
+			if c <= _sea:
+				continue
+			var lo := 1e9
+			var hi := -1e9
+			for dy in range(-3, 4, 3):
+				for dx in range(-3, 4, 3):
+					var v := img.get_pixel(clampi(x + dx, 0, w - 1) + pad, clampi(y + dy, 0, h - 1) + pad).r
+					lo = minf(lo, v)
+					hi = maxf(hi, v)
+			if hi - lo > best:
+				best = hi - lo
+				bx = x
+				by = y
+	var gx: float = t["tb_x"] + bx * t["tb_w"] / (w - 1)
+	var gy: float = t["tb_y"] + by * t["tb_h"] / (h - 1)
+	var hv := img.get_pixel(bx + pad, by + pad).r
+	return Vector3(gx, gy, maxf((hv - _sea) / (1.0 - _sea) * _peak, 0.0))
+
+## Up to `cap` tiles of level z nearest the pivot; `front` keeps only tiles not
+## behind the camera's ground position (the camera looks north, -y).
+func _nearest_tiles(z: int, pivot: Vector3, cap: int, front: bool) -> Array:
+	var n: int = _wg.lod_tiles_per_axis(z)
+	var tw := float(_grid.x - 1) / n
+	var th := float(_grid.y - 1) / n
+	var cam_gy := _cz / _cell_m
+	var out := []
+	for r in n:
+		for c in n:
+			var mx := (c + 0.5) * tw
+			var my := (r + 0.5) * th
+			if front and my - th > cam_gy:
+				continue
+			out.append([Vector2(mx - pivot.x, my - pivot.y).length(), c, r])
+	out.sort_custom(func(a, b): return a[0] < b[0])
+	return out.slice(0, cap)
+
+## Builds one level's arrays and MultiMesh from the tiles in `list`.
+func _level_set(list: Array, z: int, y_off: float) -> MultiMeshInstance3D:
+	var himgs: Array[Image] = []
+	var cimgs: Array[Image] = []
+	var meta := []
+	var tp := Vector3.ZERO
+	for e in list:
+		var d: Dictionary = _wg.td0_tile_with_heights(z, e[1], e[2])
+		if not d.has("height"):
+			continue
+		_build_ms.append(d["build_ms"])
+		if _capture and y_off == 0.0:
+			_slope_stats(d)
+		himgs.append(d["height"])
+		var ci: Image = d["rgba"]
+		ci.generate_mipmaps()
+		cimgs.append(ci)
+		meta.append(d)
+		tp = Vector3(d["w"], d["h"], d["pad"])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.set_meta("n", meta.size())
+	if meta.is_empty():
+		_world.add_child(mmi)
+		return mmi
+	var harr := Texture2DArray.new()
+	harr.create_from_images(himgs)
+	var carr := Texture2DArray.new()
+	carr.create_from_images(cimgs)
+	var mat := ShaderMaterial.new()
+	mat.shader = _shader
+	mat.set_shader_parameter("hmap", harr)
+	mat.set_shader_parameter("cmap", carr)
+	mat.set_shader_parameter("sea_level", _sea)
+	mat.set_shader_parameter("peak_m", _peak)
+	mat.set_shader_parameter("exag", _exag)
+	mat.set_shader_parameter("tile_px", tp)
+	mat.set_shader_parameter("y_offset", y_off)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	mm.mesh = _patch
+	mm.instance_count = meta.size()
+	for i in meta.size():
+		var d: Dictionary = meta[i]
+		# Camera-relative in 64-bit floats, then cast (§3.11).
+		var ox: float = d["tb_x"] * _cell_m - _cx
+		var oz: float = d["tb_y"] * _cell_m - _cz
+		var sx: float = d["tb_w"] * _cell_m
+		var sz: float = d["tb_h"] * _cell_m
+		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(sx, 1.0, sz)), Vector3(ox, -_cy, oz)))
+		mm.set_instance_custom_data(i, Color(float(i), 0.0, 0.0, 0.0))
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	mmi.custom_aabb = AABB(Vector3(-1e8, -1e7, -1e8), Vector3(2e8, 2e7, 2e8))
+	_world.add_child(mmi)
+	return mmi
+
+## True-scale land slope between neighbouring texels of one height tile, in
+## degrees, accumulated into `_slopes` (every 2nd texel; land only). Tells
+## whether the tile's zoom detail is plausible as GEOMETRY, not only shading.
+var _slopes := PackedFloat32Array()
+func _slope_stats(d: Dictionary) -> void:
+	var img: Image = d["height"]
+	var raw := img.get_data()
+	var w: int = d["w"]
+	var h: int = d["h"]
+	var pad: int = d["pad"]
+	var fw := w + 2 * pad
+	var dx_m: float = d["tb_w"] * _cell_m / (w - 1)
+	var k := (1.0 / (1.0 - _sea)) * _peak
+	for y in range(pad, pad + h, 2):
+		for x in range(pad, pad + w - 1, 2):
+			var a := raw.decode_float((y * fw + x) * 4)
+			var b := raw.decode_float((y * fw + x + 1) * 4)
+			if a <= _sea or b <= _sea:
+				continue
+			_slopes.append(rad_to_deg(atan(absf(b - a) * k / dx_m)))
+
+func _slope_report(tag: String) -> void:
+	if _slopes.is_empty():
+		return
+	var s := _slopes.duplicate()
+	s.sort()
+	var steep := 0
+	for v in s:
+		if v > 60.0:
+			steep += 1
+	print("SLOPE %s true_scale_deg n=%d p50=%.1f p90=%.1f p99=%.1f max=%.1f over60deg_pct=%.3f" % [tag, s.size(), s[s.size() / 2], s[int(s.size() * 0.9)], s[int(s.size() * 0.99)], s[s.size() - 1], 100.0 * steep / s.size()])
+	_slopes.clear()
+
+func _set_uniform(k: String, v: Variant) -> void:
+	for c in _world.get_children():
+		if c is MultiMeshInstance3D and c.material_override != null:
+			c.material_override.set_shader_parameter(k, v)
+
+func _clear() -> void:
+	for c in _world.get_children():
+		_world.remove_child(c)
+		c.queue_free()
+
+## WARM frames, then FRAMES timed frames: wall delta between process frames
+## (§2.4's method). Returns a summary string with the render info of the 3D
+## SubViewport and the memory figures.
+func _measure() -> String:
+	for i in WARM:
+		await get_tree().process_frame
+	var ts := PackedFloat64Array()
+	var last := Time.get_ticks_usec()
+	for i in FRAMES:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		ts.append((now - last) / 1000.0)
+		last = now
+	ts.sort()
+	var rid := _sv.get_viewport_rid()
+	var prim := RenderingServer.viewport_get_render_info(rid, RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE, RenderingServer.VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME)
+	var draws := RenderingServer.viewport_get_render_info(rid, RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE, RenderingServer.VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME)
+	var vmem := Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0
+	var tmem := Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1048576.0
+	var host := _host_mem()
+	return "frame_ms median=%.3f min=%.3f max=%.3f p95=%.3f triangles=%d draws=%d video_mem_mb=%.1f texture_mem_mb=%.1f static_mem_mb=%.1f %s" % [
+		ts[ts.size() / 2], ts[0], ts[ts.size() - 1], ts[int(ts.size() * 0.95)], prim, draws, vmem, tmem,
+		OS.get_static_memory_usage() / 1048576.0, host]
+
+## Host-side resident memory of this process (MISTAKES.md memory row: poll
+## from the host, not an in-process estimate).
+func _host_mem() -> String:
+	var out := []
+	var cmd := "$p=Get-Process -Id %d; $p.WorkingSet64; $p.PeakWorkingSet64; $p.PrivateMemorySize64" % OS.get_process_id()
+	OS.execute("powershell", ["-NoProfile", "-Command", cmd], out)
+	var v := (out[0] as String).strip_edges().split("
+") if out.size() > 0 else PackedStringArray()
+	if v.size() < 3:
+		return "host_mem=unavailable"
+	return "host_ws_mb=%.1f host_peak_ws_mb=%.1f host_private_mb=%.1f" % [float(v[0]) / 1048576.0, float(v[1]) / 1048576.0, float(v[2]) / 1048576.0]
+
+func _grab() -> Image:
+	for i in 3:
+		await RenderingServer.frame_post_draw
+	return _sv.get_texture().get_image()
+
+func _lum(c: Color) -> float:
+	return 255.0 * (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
+
+## Near-field detail per screen pixel: mean |luminance gradient| (central
+## differences, 0-255 units) over the box below the pivot (rows 60-95%, cols
+## 30-70%), sky pixels excluded. A spike metric, labelled as such.
+func _detail(img: Image) -> float:
+	var s := 0.0
+	var n := 0
+	for y in range(int(img.get_height() * 0.60), int(img.get_height() * 0.95), 2):
+		for x in range(int(img.get_width() * 0.30), int(img.get_width() * 0.70), 2):
+			var c := img.get_pixel(x, y)
+			if _is_sky(c):
+				continue
+			var gx := _lum(img.get_pixel(x + 1, y)) - _lum(img.get_pixel(x - 1, y))
+			var gy := _lum(img.get_pixel(x, y + 1)) - _lum(img.get_pixel(x, y - 1))
+			s += sqrt(gx * gx + gy * gy) * 0.5
+			n += 1
+	return s / maxf(n, 1)
+
+func _is_sky(c: Color) -> bool:
+	return absf(c.r - SKY.r) < 0.01 and absf(c.g - SKY.g) < 0.01 and absf(c.b - SKY.b) < 0.01
+
+## Sky-coloured pixels in the lower 40% of the frame, where only terrain
+## should be: a hole/crack indicator (not B2, which is 3D-3's).
+func _holes(img: Image) -> int:
+	var n := 0
+	for y in range(int(img.get_height() * 0.6), img.get_height()):
+		for x in img.get_width():
+			if _is_sky(img.get_pixel(x, y)):
+				n += 1
+	return n
+
+func _diff(a: Image, b: Image) -> int:
+	var n := 0
+	for y in range(0, a.get_height(), 2):
+		for x in range(0, a.get_width(), 2):
+			if not a.get_pixel(x, y).is_equal_approx(b.get_pixel(x, y)):
+				n += 1
+	return n

@@ -3,17 +3,19 @@
 **What this is.** The scope for a navigable 3D view of the map. It defines
 milestones 3D-0 to 3D-8 and gives the reasoning for them. It carries **no
 status column**: progress lives only in `cartalith-native/docs/STATUS.md`
-(`CLAUDE.md`, "One place holds state"). Nothing in this document is built.
-Writing it touched no Rust, no GDScript, no `project.godot` and no shader.
+(`CLAUDE.md`, "One place holds state"). Writing it touched no Rust, no
+GDScript, no `project.godot` and no shader.
 
 **Why now.** The owner, 2026-10-18, wanted the 3D mode on the roadmap and
 said: *"Maybe 3D should be done with vertices."* 3D had been parked since
 2026-08-31 (`LARGE_ITEM_RULINGS.md`, "Deferred, with research first").
 Ruling AZ (2026-09-28) started only the *research* track ("Research tracks to
 start: the 3D viewport (its three commissioned questions)"). **This document is
-the scope that request asks for. It awaits the owner's approval. It does not
-schedule a build, and it does not lift `DECISIONS.md` §4 ("2D only for v1") on
-its own.** Approving the scope is the owner's call (question Q10 in §7).
+the scope that request asks for.** It was written awaiting the owner's
+approval (question Q10 in §7). **The owner approved it on 2026-10-19**
+(`LARGE_ITEM_RULINGS.md`, Ruling CS item 4), and `DECISIONS.md` §4a records
+that beside §4 ("2D only for v1"), which it supersedes for this scope only.
+3D-0 was scheduled by the same ruling.
 
 **Inputs read for this scope, and what each contributed:**
 
@@ -1066,6 +1068,145 @@ touch 3D, and none of them answers Q1 to Q10.
       that §4's timing reason is satisfied, that its cost reason stands, and
       that it is paid by this staged, gated plan. 3D-0 is then scheduled.
     - Until approval, nothing is built and §4 stands.
+
+---
+
+## 8. 3D-0 measurements (2026-10-19) and the go/no-go for 3D-1
+
+This section records what 3D-0 measured and what it means for the design.
+It is design input, like §2.4. Whether 3D-0 is done is `STATUS.md`'s answer.
+Raw output, the probe, the shader and the worktree-only accessor are in
+`cartalith-native/docs/evidence/3d0-2026-10-19/` (`results.txt`,
+`td0_probe.gd.txt`, `td0_terrain.gdshader.txt`, `td0_accessor.patch`). The
+captures there are numbered 01 to 09.
+
+**Setup.** The dev desktop as in §2.4, but on Godot **4.7.2** (§2.4 used
+4.7.1). The build was a worktree of `7025fdba` plus the accessor, as a
+release DLL. A scratch `gl_compatibility` project, windowed 1600 × 900 with
+vsync off. Seed 24601, 1 200 km wide, at 2048 × 1311 and 512 × 384, in the
+"Natural Vibrant" look. Each view draws the level `z0` that 2D draws at the
+same `px_per_cell` (`lod_level_for_zoom`), as the 256 tiles nearest the
+pivot in front of the camera. They are one `MultiMesh` of 65² patches, with
+heights and colour from two `Texture2DArray`s filled by one `tile_heights`
+call per tile (§3.1). A sunk backdrop at `z0 − 4` makes a second draw.
+Camera-relative throughout. The exaggeration is 3.4 (the relief default)
+unless stated.
+
+### 8.1 (b) Desktop prototype: the numbers
+
+Frame time is the median (min..max) of 300 frames, and p95. There were three
+separate processes per world, and the spread across them is given.
+
+| Workload | Triangles | Draws | Median, 3 runs | p95, 3 runs | GPU texture memory |
+|---|---|---|---|---|---|
+| ×4 view, `z0` = 5 (2048) | 2.13 M | 2 | 0.782–0.785 ms | 0.855–0.859 ms | 137.6 MB |
+| ×16 view, `z0` = 7 (2048) | 2.36 M | 2 | 0.980–1.061 ms | 1.057–1.116 ms | 150.9 MB |
+| ×64 view, `z0` = 9 (2048) | 4.19 M | 2 | 1.525–1.575 ms | 1.582–1.666 ms | 250.7 MB (512 layers with the backdrop) |
+| **Standard (desktop), 512 × 65², one `MultiMesh`** (2048) | 4.19 M | 1 | 1.315–1.333 ms | **1.390–1.404 ms** | 249.6 MB |
+| Standard, the same (512 × 384) | 4.19 M | 1 | 1.303–1.327 ms | 1.370–1.402 ms | 292.4 MB |
+
+- **Tile build** (colour and heights together, one tile, main thread,
+  release): median 7.13–7.15 ms on 2048, from 1 572–2 244 tiles per run
+  (min 1.67, max 34.91). On 512 × 384 it was 8.33–8.92 ms. A cold view of 256
+  tiles is about 1.8 s of synthesis, so §3.13's streaming and parent
+  fallback are needed. A synchronous fill is not an option.
+- **Memory.** Texture memory per layer pair is about 0.5 MB, which agrees
+  with §3.12's 0.53 MB. Host working set was 594–628 MB on the 2048 world,
+  with the generate included, and the peak was 782–884 MB.
+- **VTF on real data.** Exaggeration 0 against 3.4 moved 191 509–359 943
+  sampled pixels per view, so the vertex-texture fetch works with the
+  shipped tiles.
+- **No holes.** 0 sky pixels in the lower 40 % of every frame. That is a hole
+  indicator, not B2.
+
+### 8.2 Detail at every zoom level (the hard requirement)
+
+**At every camera height, the level 2D draws carries more detail than a
+coarser one.** The metric is the mean luminance gradient per screen pixel in
+the near field. At each camera, the drawn level `z0` is compared with the same
+camera drawing tiles three levels coarser:
+
+| World | ×4 | ×16 | ×64 |
+|---|---|---|---|
+| 2048 × 1311 (exaggeration 3.4) | 0.878 vs 0.580 (1.51×) | 3.756 vs 0.714 (5.26×) | 7.545 vs 1.301 (5.80×) |
+| 2048 × 1311 (exaggeration 1.0) | 1.43× | 4.42× | 6.13× |
+| 512 × 384 (exaggeration 3.4) | 6.320 vs 0.471 (13.4×) | 4.383 vs 0.684 (6.41×) | 1.496 vs 0.692 (2.16×) |
+
+- **On 2048, the near-field detail rises at every step from ×4 to ×64.**
+- **On 512 it falls from ×4 to ×64**, although at each height the drawn
+  level still beats the coarse one. In the ×64 frame (capture 06) the
+  near field is steep spires, and the drape is stretched down their faces.
+  This is texture stretch on steep geometry, which is §8.3's finding seen from
+  the drape's side. The three views also frame different ground, so this is
+  not B6. B6 (3D detail ≥ 2D at the same `px_per_cell`) is still 3D-3's bar.
+
+### 8.3 Finding: the tile heights are shading detail, and are too rough as geometry
+
+The deep-zoom tile heights were tuned to be shaded in 2D. Displaced as
+geometry they read as needles (captures 02, 03 and 08, coastal escarpments
+first). True-scale land slope between neighbouring texels, from the tiles
+each view drew (2048 world):
+
+| View (texel spacing) | p50 | p90 | p99 | Over 60° |
+|---|---|---|---|---|
+| ×4, `z5` (about 147 m) | 1.6° | 8.6° | 19.1° | 0.015 % |
+| ×16, `z7` (about 37 m) | 12.2° | 38.6° | 70.6° | 2.2 % |
+| ×64, `z9` (about 9 m) | 25.1° | 59.0° | 80.1° | 9.5 % |
+
+**What it means for 3D-3:**
+
+- A lowland plain whose median slope is 25° at 9 m spacing is not ground
+  that reads as real. At exaggeration 3.4 it turns to spires everywhere; at
+  1.0 it is rugged, and the coastal bluffs still spike (captures 07 and 08).
+- §3.2 already says geometry carries the silhouette and textures carry the
+  detail. 3D-3 needs that made concrete, and it is not decided here. The
+  candidates are:
+  - (a) displace a low-passed height, one or two levels coarser than the
+    drape, and take the full tile into per-pixel normals (§3.4);
+  - (b) a geometry amplitude law separate from the shading one.
+- Either choice changes no 2D pixel, because 3D only reads the tiles.
+- This is also owner question Q4: 3.4 is the 2D hillshade default, and as a
+  3D vertical scale it produces needles.
+
+### 8.4 (a) The isolation control
+
+The shell's `_shot.tscn -- --generate` was run (512 × 384, seed 483920) under
+`forward_plus`/Vulkan at 1280 × 800. It ran from a scratch copy whose
+`engine_bridge.gd` boot line was switched by an environment variable:
+
+- `use_gpu = false`: 3 of 3 clean, with no wgpu adapter in the log.
+- `use_gpu = true`: 3 of 3 clean. The wgpu Vulkan adapter came up in each
+  run, and there was no `DEVICE_LOST`.
+
+**The 2026-09-01 device loss (3 of 3 then, on Godot 4.7.1 with the same
+driver, 26.7.1) does not reproduce on 4.7.2.** So the control cannot blame
+wgpu or clear it, because there is no failure left to attribute. Q2's
+renderer question may reopen on evidence, but the cause was never found.
+Two things changed between the runs: Godot 4.7.1 → 4.7.2, and the shell. A
+renderer switch would need its own soak test first. None of 3D-1 to 3D-8
+needs it.
+
+### 8.5 (c) The 6T
+
+**Not run.** `adb devices` listed no device on 2026-10-19, so no throwaway
+APK was built. The phone's starting tier is still unknown. This does not gate
+go or no-go (§5, 3D-0).
+
+### 8.6 Go/no-go for 3D-1
+
+**GO.** The bar is "desktop (b) meets Standard's 16.7 ms p95 with margin
+**and** the oblique frames show the tile detail on the surface".
+
+- **Frame time:** Standard measured p95 1.370–1.404 ms in six runs, a 12×
+  margin. Every view workload was at most 1.83 ms p95.
+- **Detail:** shown at ×4, ×16 and ×64 on both worlds (§8.2), with
+  captures 01 to 06 opened and looked at.
+
+**Carried into later milestones, not into 3D-1:**
+
+- §8.3's geometry roughness (3D-3, with Q4);
+- the 6T numbers (3D-0(c), owner hardware);
+- the cold-fill cost of about 7 ms per tile (3D-3's streaming).
 
 ---
 

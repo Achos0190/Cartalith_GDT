@@ -68,7 +68,7 @@ reference for a Godot-idiomatic clipmap renderer. **The owner parked 3D on
 2026-08-31**, the same day the research it commissioned landed:
 `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` explores the options,
 makes a recommendation, and parks itself with three questions unanswered.
-`DECISIONS.md` §4 continues to stand.
+`DECISIONS.md` §4 stood until 2026-10-19 (see below).
 
 **2026-10-18: the 3D viewport track is scoped, not built.** The owner asked
 for the 3D mode on the roadmap: *"Maybe 3D should be done with vertices."*
@@ -78,8 +78,9 @@ deep zoom (EF-9). The simulation stays a raster. The scope answers the
 research's three questions against today's tree (no shared wgpu/Godot device
 under `gl_compatibility`; stay on `gl_compatibility`; a raised floor buys
 headroom, not techniques). It defines a measured runtime capability gate and
-milestones 3D-0 (a measurement go/no-go) to 3D-8. **It awaits the owner's
-approval**, and until then nothing is scheduled and §4 stands.
+milestones 3D-0 (a measurement go/no-go) to 3D-8. **The owner approved it on
+2026-10-19** (Ruling CS item 4), recorded as `DECISIONS.md` §4a beside §4, and
+3D-0 was scheduled. How far it has got is `STATUS.md`'s answer.
 
 **The UI/UX half went further than this entry anticipated.** The entry named it
 as "the moment to install a UI/UX skill (`SKILLS.md`), once the interface

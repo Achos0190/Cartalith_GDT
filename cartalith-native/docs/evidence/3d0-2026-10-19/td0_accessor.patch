@@ -1,0 +1,142 @@
+diff --git a/cartalith-native/crates/cartalith-godot/src/lib.rs b/cartalith-native/crates/cartalith-godot/src/lib.rs
+index 765f273d..bcb05066 100644
+--- a/cartalith-native/crates/cartalith-godot/src/lib.rs
++++ b/cartalith-native/crates/cartalith-godot/src/lib.rs
+@@ -19374,6 +19374,33 @@ impl WorldGen {
+         out
+     }
+ 
++    /// **3D-0 spike `#[func]`, WORKTREE ONLY, never committed**
++    /// (`3D_VIEWPORT_SCOPE.md` 3D-0(b)). One plain deep-zoom tile as
++    /// `{rgba: Image RGBA8 w×h, height: Image RF (w+2pad)×(h+2pad), w, h, pad,
++    /// sea_level, peak_m, map_width_km, build_ms}` -- colour and heights from
++    /// one `tile_heights` call. `build_ms` is this call's own synthesis time on
++    /// the calling thread (snapshot already built). Empty dictionary when the
++    /// tile cannot be synthesised (omit, never a placeholder).
++    #[func]
++    fn td0_tile_with_heights(&self, z: i32, col: i32, row: i32) -> VarDictionary {
++        let Some(snap) = self.lod_snapshot() else { return VarDictionary::new() };
++        let t0 = std::time::Instant::now();
++        let Some((rgba, w, h, hts, pad, sea, peak)) = snap.td0_render_tile_with_heights(z, col, row) else { return VarDictionary::new() };
++        let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
++        let Some(img) = Image::create_from_data(w as i32, h as i32, false, Format::RGBA8, &PackedByteArray::from(rgba)) else { return VarDictionary::new() };
++        let hb: Vec<u8> = hts.iter().flat_map(|v| v.to_le_bytes()).collect();
++        let (pw, ph) = ((w + 2 * pad) as i32, (h + 2 * pad) as i32);
++        let Some(himg) = Image::create_from_data(pw, ph, false, Format::RF, &PackedByteArray::from(hb)) else { return VarDictionary::new() };
++        // The tile's coarse-cell footprint: pixel 0 sits at `tb.x`, pixel
++        // `w - 1` at `tb.x + tb.w` (`synthesize_tile_rgba_with_z_base`'s map).
++        let Some(tb) = lod_bridge::tile_bounds(self.gw as usize, self.gh as usize, z, col, row) else { return VarDictionary::new() };
++        dict! {
++            "tb_x" => tb.x, "tb_y" => tb.y, "tb_w" => tb.w, "tb_h" => tb.h,
++            "rgba" => &img, "height" => &himg, "w" => w as i64, "h" => h as i64, "pad" => pad as i64,
++            "sea_level" => sea, "peak_m" => peak, "map_width_km" => self.map_width_km, "build_ms" => build_ms,
++        }
++    }
++
+     /// The background synthesiser's own state, for the shell's diagnostics
+     /// and for `_d6async_probe.gd`.
+     ///
+diff --git a/cartalith-native/crates/cartalith-godot/src/lod_bridge.rs b/cartalith-native/crates/cartalith-godot/src/lod_bridge.rs
+index a35a54ff..62e88c88 100644
+--- a/cartalith-native/crates/cartalith-godot/src/lod_bridge.rs
++++ b/cartalith-native/crates/cartalith-godot/src/lod_bridge.rs
+@@ -699,6 +699,49 @@ pub fn synthesize_tile_water_mask(ctx: &RenderCtx, tf: &TileFields, z: i32, col:
+     Some(render::tile_water_mask(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf))
+ }
+ 
++/// **3D-0 spike accessor -- WORKTREE ONLY, never committed**
++/// (`3D_VIEWPORT_SCOPE.md` §5, 3D-0(b): "heights taken through a temporary
++/// engine accessor beside `tile_heights` (worktree only)").
++///
++/// What it does: one call returns the plain (`conform == 0`) colour tile
++/// AND the padded shading heights it was coloured from, so a 3D surface and
++/// its drape come from one `TileHeights` (§3.1's guarantee 1). The colour half
++/// is [`synthesize_tile_rgba_with_z_base`]'s `conform == 0` body, restated
++/// rather than called because that function drops the heights; it must never
++/// diverge from it, which is why it is a spike and not a shipped seam (3D-3
++/// makes `LodSnapshot` return both from one job properly).
++///
++/// Returns `(rgba, w, h, heights, pad)`: `heights` is `(w + 2·pad) × (h +
++/// 2·pad)` normalised `f32`, row-major, core at `(pad, pad)`.
++#[allow(clippy::too_many_arguments, clippy::type_complexity)]
++pub(crate) fn td0_tile_rgba_and_heights(
++    ctx: &RenderCtx,
++    tf: &TileFields,
++    z: i32,
++    col: i32,
++    row: i32,
++    seed: i32,
++    rivers: Option<&crate::river_stroke::RiverGeometry>,
++    fans: Option<&crate::river_stroke::RiverGeometry>,
++    paint: Option<&crate::river_field::PaintSource>,
++) -> Option<(Vec<u8>, usize, usize, Vec<f32>, usize)> {
++    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0)?;
++    let layer = rivers.map(|g| {
++        let cx = t.tb.w / (t.w.max(2) - 1) as f64;
++        let cy = t.tb.h / (t.h.max(2) - 1) as f64;
++        let map = crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy);
++        match paint {
++            Some(p) => p.raster(map, t.w, t.h),
++            None => crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, map),
++        }
++    });
++    let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
++    if rgba.len() != t.w * t.h * 4 {
++        return None;
++    }
++    Some((rgba, t.w, t.h, t.tile, t.pad))
++}
++
+ // ---------------------------------------------------------------------------
+ // Storing a pyramid in the project archive — owner rulings 28/29
+ //
+diff --git a/cartalith-native/crates/cartalith-godot/src/lod_worker.rs b/cartalith-native/crates/cartalith-godot/src/lod_worker.rs
+index befd836b..68292d51 100644
+--- a/cartalith-native/crates/cartalith-godot/src/lod_worker.rs
++++ b/cartalith-native/crates/cartalith-godot/src/lod_worker.rs
+@@ -1091,6 +1091,45 @@ impl LodSnapshot {
+         lod_bridge::synthesize_tile_rgba_rivers_conformed_with_parent(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, conform, Some(pr))
+     }
+ 
++    /// **3D-0 spike, WORKTREE ONLY.** [`Self::render_tile`]'s attachments, in
++    /// its order, ending in `lod_bridge::td0_tile_rgba_and_heights` so the
++    /// colour tile and the heights it was coloured from come back together.
++    /// Also returns `(sea_level, peak_m)` so the probe can turn the normalised
++    /// field into metres by `sample_bridge::FieldRefs::elevation_m`'s law.
++    /// Restates the attachment list (a spike must not refactor the shipped
++    /// path); 3D-3 replaces this with one job that returns both.
++    #[allow(clippy::type_complexity)]
++    pub fn td0_render_tile_with_heights(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize, Vec<f32>, usize, f64, f64)> {
++        let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
++        let mut ctx = RenderCtx::from_precomputed(shaded, &self.temperature, &self.rainfall, self.flow.as_ref().map(|v| v.as_slice()), self.gw, self.gh, self.sea_level, self.world, self.lat_n, self.lat_s, self.appearance.clone(), &self.pre)?
++            .with_precomputed_water_height(&self.field);
++        if let Some(l) = self.lithology.as_ref() {
++            ctx = ctx.with_lithology(l);
++        }
++        if let Some(rd) = self.rock_detail.as_deref() {
++            ctx = ctx.with_rock_detail(rd);
++        }
++        ctx = ctx.with_colour_paint(self.colour_paint.as_deref());
++        if let Some(fr) = self.edifice_frame.as_ref() {
++            ctx = ctx.with_edifice_frame(fr, self.peak_m);
++        }
++        if let Some(s) = self.splat.as_ref() {
++            ctx = ctx.with_splat(s.as_textures());
++            ctx = ctx.with_ground_tiles(GroundTiles { biomes: &self.ground_biomes, terrains: &self.ground_terrains });
++        }
++        if self.paint_present {
++            ctx = ctx.with_paint(self.paint_biome.as_deref(), self.paint_terrain.as_deref(), self.paint_splat.as_deref());
++        }
++        let mut tf = self.fields.borrowed();
++        if let Some(ink) = self.ink.as_ref() {
++            tf = tf.with_ink(ink);
++        }
++        tf = tf.with_color_space(self.color_space);
++        let (rivers, fans, paint) = (self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref());
++        let (rgba, w, h, hts, pad) = lod_bridge::td0_tile_rgba_and_heights(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint)?;
++        Some((rgba, w, h, hts, pad, self.sea_level, self.peak_m))
++    }
++
+     /// The cached plain tile `(z, col, row)`, if [`Self::render_tile_conformed`]
+     /// coloured it as a parent recently. A poisoned lock reads as a miss: the
+     /// caller then synthesises, which is always correct, only slower.

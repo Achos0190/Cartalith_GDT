@@ -1,0 +1,37 @@
+// 3D-0 spike terrain shader (3D_VIEWPORT_SCOPE.md §3.2, 3D-0(b)). Throwaway.
+// One shared N x N unit patch (VERTEX.xz in [0,1]) per MultiMesh instance;
+// INSTANCE_CUSTOM.x picks the layer of two Texture2DArrays: the padded
+// normalised height tile (FORMAT_RF) and the 2D colour tile (RGBA8) built from
+// those same heights in one engine call. Map-shading drape: unlit, since the
+// 2D tile already bakes its hillshade (§3.4). Below sea level is flattened to
+// the sea surface (§3.6). Heights in metres follow
+// sample_bridge::FieldRefs::elevation_m: (h - sea) / (1 - sea) * peak_m.
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+
+uniform sampler2DArray hmap : filter_linear, repeat_disable;
+uniform sampler2DArray cmap : source_color, filter_linear_mipmap, repeat_disable;
+uniform float sea_level = 0.42;
+uniform float peak_m = 4000.0;
+uniform float exag = 3.4;
+// w, h, pad of this level's tiles (all tiles of one level share a size).
+uniform vec3 tile_px = vec3(256.0, 256.0, 2.0);
+uniform float y_offset = 0.0;
+
+varying vec2 v_uv;
+varying flat float v_layer;
+
+void vertex() {
+	v_uv = VERTEX.xz;
+	v_layer = INSTANCE_CUSTOM.x;
+	vec2 full = tile_px.xy + 2.0 * tile_px.z;
+	vec2 t = (tile_px.z + v_uv * (tile_px.xy - 1.0) + 0.5) / full;
+	float h = textureLod(hmap, vec3(t, v_layer), 0.0).r;
+	float m = max((h - sea_level) / (1.0 - sea_level) * peak_m, 0.0);
+	VERTEX.y = m * exag + y_offset;
+}
+
+void fragment() {
+	vec2 c = (v_uv * (tile_px.xy - 1.0) + 0.5) / tile_px.xy;
+	ALBEDO = texture(cmap, vec3(c, v_layer)).rgb;
+}

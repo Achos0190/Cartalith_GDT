@@ -8,7 +8,8 @@ one — each was narrowed from real alternatives, not taken by default.
 | 1 | Native rewrite | wrapping the HTML app (Tauri/Electron/Capacitor) |
 | 2 | Rust engine | C/C++ |
 | 3 | Godot shell via `gdext` | pure Rust (bevy, wgpu+winit) |
-| 4 | 2D only for v1 | 2D and 3D together |
+| 4 | 2D only for v1 (superseded for the 3D viewport by 4a) | 2D and 3D together |
+| 4a | 3D vertex-mesh viewport approved, staged and gated; 2D stays the base (Ruling CS, 2026-10-19) | a vertex world; 3D held off indefinitely |
 | 5 | Cloud session builds | local PC, or a hybrid |
 | 6 | Personal/hobby bar | store distribution |
 | 7 | Golden-value parity | independent correctness |
@@ -63,6 +64,39 @@ moves to Rust.
 3D means a second rendering pipeline — mesh generation, camera, lighting — on top
 of porting and verifying a generation engine. Cutting it keeps the first milestone
 achievable. `ROADMAP.md` Phase 3 brings it back.
+
+*Superseded for the 3D viewport by §4a (Ruling CS, 2026-10-19). The text above
+is kept as the original decision and its reasoning.*
+
+## 4a. The 3D vertex-mesh viewport is approved, staged and gated (owner, Ruling CS, 2026-10-19)
+
+**Decision.** `3D_VIEWPORT_SCOPE.md` is approved (`LARGE_ITEM_RULINGS.md`,
+Ruling CS item 4), and its first milestone, 3D-0 (the measurement go/no-go),
+is scheduled. For that scope this entry supersedes §4's "2D only". It does not
+lift §4 for anything else.
+
+**What stays as it was.**
+
+- **2D stays the product's base.** The simulation is a raster, and every
+  generation stage, save, export (`EXPORT_SCOPE.md`'s top-down bake) and
+  editing tool works on it. The 3D view is a display of that raster: a vertex
+  mesh displaced from the same deep-zoom height tiles the 2D view colours
+  (the scope's reading V1). It is not a vertex world (V3), which would
+  overturn the elevation-field architecture and the parity contract (§7).
+- **3D moves no golden.** It is a pure consumer of verified fields.
+- **The renderer stays `gl_compatibility`** (the scope's §2.2 and Q2 default).
+
+**Why §4's reasons no longer block it.** §4 gave two reasons. The timing
+reason was to keep the first milestone achievable, and Phase 1 shipped, so it
+is satisfied. The cost reason, a second rendering pipeline, still stands. It
+is paid by the scope's staged plan: milestones 3D-0 to 3D-8, each with
+numeric bars, behind a measured runtime capability gate (the scope's §4), so
+a device that cannot run 3D keeps 2D and is told why.
+
+**Not decided here.** The scope's owner questions Q1 to Q9 carry defaults
+that the milestones assume. Approving the scope did not rule on each one
+individually. A later ruling that moves a default is recorded in
+`LARGE_ITEM_RULINGS.md`, and the scope is changed to match.
 
 ## 5. Cloud session builds; owner verifies on hardware
 
