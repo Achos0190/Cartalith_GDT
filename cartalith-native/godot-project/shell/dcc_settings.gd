@@ -71,6 +71,10 @@ const _SEC_HANDEDNESS := "handedness"
 ## 3D-1 (`3D_VIEWPORT_SCOPE.md` §4.2): the 3D capability gate's measured result
 ## and the user's forced tier. Machine state: it names this device's GPU.
 const _SEC_VIEW3D := "view3d"
+## The landmark filter and zoom law (owner, 2026-10-19; `ViewportHost`'s
+## "landmark filter" block): the master switch, the hidden kinds and the law.
+## Viewing preference, so install state like the theme -- never a world's.
+const _SEC_LANDMARKS := "landmark_layer"
 ## How many recent projects are kept (`DCC_SHELL_SPEC.md` §2.1: "last 10
 ## projects"); `remember_project()` truncates to it.
 const MAX_RECENT := 10
@@ -661,6 +665,67 @@ static func set_view3d_forced_tier(tier: int) -> void:
 			_cfg.erase_section_key(_SEC_VIEW3D, "forced")
 	else:
 		_cfg.set_value(_SEC_VIEW3D, "forced", tier)
+	_save()
+
+# -- The landmark filter and zoom law (owner, 2026-10-19) ----------------------
+#
+# Each value is stored only once the user changed it; `has_*` says whether it
+# was, so a reader that finds nothing keeps the overlay's own default instead of
+# a default restated here (the overlay is the one place those live).
+
+## Whether the user has ever set the master Landmarks switch.
+static func has_landmarks_visible() -> bool:
+	_ensure_loaded()
+	return _cfg.has_section_key(_SEC_LANDMARKS, "visible")
+
+## The stored master switch. Only meaningful when `has_landmarks_visible()`.
+static func landmarks_visible() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_LANDMARKS, "visible", true))
+
+## Stores the master switch and saves.
+static func set_landmarks_visible(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LANDMARKS, "visible", on)
+	_save()
+
+## The hidden landmark kinds (engine kind keys and `map_overlay.gd::LANDMARK_MANUAL_POI`).
+## Empty when none is hidden or nothing was ever stored -- the same answer, since
+## an empty hidden set IS the default. A malformed value reads as empty.
+static func hidden_landmark_kinds() -> PackedStringArray:
+	_ensure_loaded()
+	var v = _cfg.get_value(_SEC_LANDMARKS, "hidden_kinds", PackedStringArray())
+	if v is PackedStringArray:
+		return v
+	if v is Array:
+		return PackedStringArray(v)
+	return PackedStringArray()
+
+## Stores the hidden set and saves. An empty set erases the key rather than
+## storing `[]`, so "never changed" and "changed back" leave the file alike.
+static func set_hidden_landmark_kinds(kinds: PackedStringArray) -> void:
+	_ensure_loaded()
+	if kinds.is_empty():
+		if _cfg.has_section_key(_SEC_LANDMARKS, "hidden_kinds"):
+			_cfg.erase_section_key(_SEC_LANDMARKS, "hidden_kinds")
+	else:
+		_cfg.set_value(_SEC_LANDMARKS, "hidden_kinds", kinds)
+	_save()
+
+## Whether the user has ever set the landmark zoom law switch.
+static func has_landmark_zoom_law() -> bool:
+	_ensure_loaded()
+	return _cfg.has_section_key(_SEC_LANDMARKS, "zoom_law")
+
+## The stored zoom law switch. Only meaningful when `has_landmark_zoom_law()`.
+static func landmark_zoom_law() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_LANDMARKS, "zoom_law", true))
+
+## Stores the zoom law switch and saves.
+static func set_landmark_zoom_law(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LANDMARKS, "zoom_law", on)
 	_save()
 
 # -- §2.5 Tiles & LOD > Atlas cache > Size cap ---------------------------------

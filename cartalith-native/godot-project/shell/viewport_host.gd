@@ -856,6 +856,9 @@ func _ready() -> void:
 	overlay.set_script(OVERLAY_SCRIPT)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_camera.add_child(overlay)
+	## The landmark filter and zoom law the user last chose (owner, 2026-10-19),
+	## applied before anything draws so the first frame already honours them.
+	_apply_landmark_prefs()
 	## Every map interaction the overlay reports is relayed only while no
 	## generate is running -- `_generating()` says why, and the owner report it
 	## closes. One gate at the relay, rather than one per listener: the
@@ -2941,6 +2944,89 @@ func set_settlement_kind_visible(kind: String, shown: bool) -> void:
 ## kept out of `set_layer_visible()`'s namespace.
 func set_way_type_visible(way_type: String, shown: bool) -> void:
 	overlay.set_way_type_visible(way_type, shown)
+
+## ── The landmark filter (owner, 2026-10-19) ─────────────────────────────────────
+##
+## *"In the layers I'd also like an option to turn landmarks off globally or
+## filter per type. The landmarks themselves should also scale according to zoom
+## level."* `map_overlay.gd` owns the draw-time state (its "landmark filter and
+## landmark zoom law" block); this owns the WRITES, because these three choices
+## persist and the overlay saves nothing. Persisted per install in `DccSettings`
+## (`landmark_layer` section), not in the world `.zip`: like the theme and the
+## units, which landmarks this user wants to look at says nothing about the
+## world, and a project opened by someone else must not arrive with half its
+## landmarks switched off. Persisting outside the world is also what makes the
+## choice survive a regenerate and a project open without a second path: no
+## world load touches it.
+##
+## **The master switch is persisted only through `set_landmarks_shown_by_user`**,
+## never inside `set_layer_visible()`: `render_workspace.gd`'s Satellite relief
+## preset hides the Landmarks layer temporarily through `set_layer_visible()`
+## and restores it later, and persisting that would leave the next launch with
+## landmarks hidden and no preset to explain it.
+signal landmark_filter_changed()
+
+## Reads the three persisted landmark choices and applies them to `overlay`.
+## Absent keys keep the overlay's own defaults (all shown, law on), so a
+## first-ever launch draws exactly what it drew before this existed.
+func _apply_landmark_prefs() -> void:
+	if overlay == null or not overlay.has_method("set_hidden_landmark_kinds"):
+		return
+	if DccSettings.has_landmarks_visible():
+		overlay.set_landmarks_visible(DccSettings.landmarks_visible())
+	overlay.set_hidden_landmark_kinds(DccSettings.hidden_landmark_kinds())
+	if DccSettings.has_landmark_zoom_law():
+		overlay.set_landmark_zoom_law(DccSettings.landmark_zoom_law())
+
+## The master Landmarks switch as a USER choice (the Layers rows): applies it
+## through `set_layer_visible()` -- so `layer_visibility_changed` reaches every
+## mirror as before -- then persists it. See the block above for why the
+## preset path must not come here.
+func set_landmarks_shown_by_user(shown: bool) -> void:
+	set_layer_visible("landmarks", shown)
+	DccSettings.set_landmarks_visible(shown)
+	landmark_filter_changed.emit()
+
+## Shows or hides one landmark kind (or `map_overlay.gd::LANDMARK_MANUAL_POI`),
+## persists the whole hidden set, and tells the mirrors.
+func set_landmark_kind_visible(kind: String, shown: bool) -> void:
+	overlay.set_landmark_kind_visible(kind, shown)
+	DccSettings.set_hidden_landmark_kinds(overlay.hidden_landmark_kinds())
+	landmark_filter_changed.emit()
+
+## Show all / Hide all over `kinds` (the rows a filter UI lists). Hide all adds
+## to the hidden set rather than replacing it, so a hidden kind this world has
+## none of stays hidden; Show all clears every listed kind and keeps the rest.
+func set_landmark_kinds_visible(kinds: Array, shown: bool) -> void:
+	var hidden := {}
+	for k in overlay.hidden_landmark_kinds():
+		hidden[String(k)] = true
+	for k in kinds:
+		if shown:
+			hidden.erase(String(k))
+		else:
+			hidden[String(k)] = true
+	overlay.set_hidden_landmark_kinds(PackedStringArray(hidden.keys()))
+	DccSettings.set_hidden_landmark_kinds(overlay.hidden_landmark_kinds())
+	landmark_filter_changed.emit()
+
+## Whether one kind's filter row is on (the master switch is `layer_visible`).
+func landmark_kind_visible(kind: String) -> bool:
+	return overlay.landmark_kind_visible(kind)
+
+## Marks per filter row -- `map_overlay.gd::landmark_kind_counts()`, forwarded.
+func landmark_kind_counts() -> Dictionary:
+	return overlay.landmark_kind_counts()
+
+## The zoom law switch: applies, persists, tells the mirrors.
+func set_landmark_zoom_law(on: bool) -> void:
+	overlay.set_landmark_zoom_law(on)
+	DccSettings.set_landmark_zoom_law(on)
+	landmark_filter_changed.emit()
+
+## Whether the landmark zoom law is on.
+func landmark_zoom_law() -> bool:
+	return overlay.landmark_zoom_law()
 
 ## Sculpt/Paint's shared draft-preview raster (`_preview_layer`, built in
 ## `_ready()`). Pass `null` to clear it -- an armed tool's own disarm handler

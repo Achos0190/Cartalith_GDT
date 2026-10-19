@@ -240,6 +240,10 @@ const SEARCH_HINT := "Filters both lists at once. Matches a layer's name or its 
 ## The Visible layers band's rows, aliased from `CartographyWorkspace.LIVE_LAYERS`
 ## so there is one enumeration of what the shell can toggle.
 const _LIVE: Array = CartographyWorkspace.LIVE_LAYERS
+## The landmark filter body (`landmark_filter_panel.gd`), built under the
+## Landmarks row. Preloaded by path: it declares no class name, so adding it
+## needed no `--import` pass (which strips `project.godot`'s comments).
+const LANDMARK_FILTER := preload("res://shell/landmark_filter_panel.gd")
 ## The two political rows of the Visible layers band, aliased from
 ## `CartographyWorkspace.POLITICAL_LAYERS`; used only to name the matching
 ## Cartography section in each row's tooltip.
@@ -583,9 +587,12 @@ func _live_row(parent: Control, layer: Dictionary) -> CheckBox:
 	var id := String(layer["id"])
 	var home := "Cartography ▸ Political display" if _POLITICAL.has(id) \
 		else "Cartography ▸ Layers"
+	## Landmarks is the one row whose choice persists (owner, 2026-10-19 -- see
+	## `ViewportHost.set_landmarks_shown_by_user`); every other row writes as before.
+	var write := (func(on: bool): host.set_landmarks_shown_by_user(on)) if id == "landmarks" \
+		else (func(on: bool): host.set_layer_visible(id, on))
 	return DccWidgets.toggle(parent, String(layer["label"]),
-		host.layer_visible(id),
-		func(on: bool): host.set_layer_visible(id, on),
+		host.layer_visible(id), write,
 		"A vector overlay drawn from world data: this shows and hides it, it "
 		+ "does not replace the field view below. Same switch as %s." % home)
 
@@ -666,6 +673,15 @@ func rebuild() -> void:
 		_list.add_child(live_pad)
 		for layer in live_hits:
 			_live_row(live_body, layer)
+			## The landmark filter (owner, 2026-10-19) sits directly under the
+			## Landmarks row it refines, collapsed: the master switch is the
+			## common answer, the per-type list the occasional one.
+			if String(layer["id"]) == "landmarks":
+				var lm_body := DccWidgets.group(live_body, "Landmarks · by type", false)
+				var panel: VBoxContainer = LANDMARK_FILTER.new()
+				panel.name = "LandmarkFilter"
+				lm_body.add_child(panel)
+				panel.setup(host, bridge)
 
 	if groups.is_empty():
 		## Unchanged: no binding is not the same as no match, and it is said in

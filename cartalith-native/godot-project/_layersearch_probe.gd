@@ -91,14 +91,30 @@ func _groups_drawn() -> PackedStringArray:
 	return out
 
 
+## Whether `n` belongs to the landmark filter (owner, 2026-10-19), which sits
+## under the Landmarks row: its collapsible group header and everything inside
+## `LandmarkFilter`. Those are sub-rows of one layer, not layer rows, so the
+## band censuses below leave them out.
+func _in_landmark_filter(n: Node) -> bool:
+	if n is Button and String((n as Button).text).to_lower().contains("landmarks · by type"):
+		return true
+	var a := n.get_parent()
+	while a != null:
+		if a.name == "LandmarkFilter":
+			return true
+		a = a.get_parent()
+	return false
+
+
 ## Rows in the VISIBLE LAYERS band: `DccWidgets.toggle()` builds a `CheckBox`,
-## and nothing else in this popover does, so the class alone identifies them.
+## and outside the landmark filter (`_in_landmark_filter`) nothing else in this
+## popover does, so the class identifies them.
 func _live_rows() -> PackedStringArray:
 	var out := PackedStringArray()
 	var nodes: Array = []
 	_walk(_pop, nodes)
 	for n in nodes:
-		if n is CheckBox:
+		if n is CheckBox and not _in_landmark_filter(n):
 			var row := (n as CheckBox).get_parent()
 			if row != null and row.get_child_count() > 0 and row.get_child(0) is Label:
 				out.append(String((row.get_child(0) as Label).text))
@@ -112,7 +128,7 @@ func _overlay_rows() -> PackedStringArray:
 	var nodes: Array = []
 	_walk(_pop, nodes)
 	for n in nodes:
-		if n is Button and not (n is CheckBox) and not (n is OptionButton):
+		if n is Button and not (n is CheckBox) and not (n is OptionButton) and not _in_landmark_filter(n):
 			var t := String((n as Button).text).strip_edges()
 			if t != "" and t != "Close":
 				out.append(t)

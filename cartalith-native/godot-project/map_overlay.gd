@@ -607,8 +607,10 @@ const ICON_FAMILY_COLORS := {
 ## term -- so the camera, which is an ancestor scale (see `_crisp_begin()`),
 ## multiplies it: an icon's mark grows with zoom rather than holding a
 ## constant on-screen size the way a settlement pin does. `_draw_landmark_ring`
-## is written the same way, so this is a shared property of the two newer
-## annotation layers and not a slip unique to this constant.
+## was written the same way until 2026-10-19, when the owner asked for landmark
+## marks to scale with zoom under a law: it now multiplies by
+## `_landmark_zoom_k()` (sub-linear growth past the opening view, a ceiling, a
+## floor), which is `1.0` wherever that law is idle. Icons still grow linearly.
 ##
 ## The engine's `manual.rs::icon_box_at` computes
 ## `r = 5.0 * max(1, grid_w/512) * civ_zoom_k(zoom) * icon_scale * icon.scale`
@@ -1644,7 +1646,194 @@ var _landmarks_visible := true
 func set_landmarks(items: Array) -> void:
 	_landmarks = items
 	_lm_hover_index = -1   ## an index into the array just replaced
+	_rebuild_lm_hidden_cells()   ## the hidden-cell set is keyed off this list
 	queue_redraw()
+
+## ── The landmark filter and the landmark zoom law (owner, 2026-10-19) ──────────
+##
+## The owner's request: *"In the layers I'd also like an option to turn landmarks
+## off globally or filter per type. The landmarks themselves should also scale
+## according to zoom level."* The global switch is `_landmarks_visible` (the
+## existing Landmarks layer row); the rest of this block is the per-type half and
+## the size law. Persistence lives in `ViewportHost` (`DccSettings`), not here --
+## this control holds the state it draws and nothing it saves.
+
+## Filter key for the Icon tool's hand-placed POI-family icons -- the one row of
+## the per-type filter that is not an engine landmark kind. A leading underscore
+## so it can never collide with a `cartalith_civ::landmark::kinds()` key (every
+## one of those is a bare snake_case word).
+##
+## **Why the global Landmarks switch does not hide these, and this row does.**
+## A hand-placed icon is authored content, and `_draw_annotation_marks`' own rule
+## (and `_vfy_iconmerge_probe.gd`, which asserts it as a capability-loss check)
+## is that no generated-content toggle makes one vanish. This row is the user
+## naming that content explicitly, which is a different act: it hides exactly
+## what it says and nothing else. Whether the master should take these too is an
+## owner question recorded in `OUTSTANDING_WORK.md`.
+const LANDMARK_MANUAL_POI := "_manual_poi"
+
+## Landmark kinds (and `LANDMARK_MANUAL_POI`) the user switched off, kind ->
+## `true`. **Empty means show everything**, the same "empty hidden set" default
+## `_hidden_settlement_kinds` uses, so an untouched filter draws byte-for-byte
+## what the map drew before the filter existed. Copied to an export copy by
+## `copy_state_from` like every other script variable, so an export follows the
+## screen.
+var _hidden_landmark_kinds: Dictionary = {}
+
+## Cells (`_mark_cell`) where a landmark is hidden -- by the master switch or by
+## its kind -- AND no shown landmark stands, cell -> `true`. Read by the two
+## things that belong to a landmark without being its ring: the generated POI
+## glyph `icon_bridge/generate.rs::icon_candidates` copies out of the landmark
+## store (`_icon_layer_hidden`), and the generated label naming it
+## (`labels.rs`'s `LabelClass::Landmark` candidate at `lm.x + 0.5`,
+## `_label_hidden`). A cell that still carries a shown landmark is left out, so
+## a second, visible landmark there keeps its name. Rebuilt whenever an input
+## changes (`_rebuild_lm_hidden_cells`); never computed per draw.
+var _lm_hidden_cells: Dictionary = {}
+
+## The zoom law switch (`_landmark_zoom_k`). **On by default -- the one disclosed
+## re-baseline of this change**: with it on, a landmark mark grows sub-linearly
+## past the opening view and stops at a ceiling, where before it grew linearly
+## with the camera without limit. Off restores the old law exactly (`k = 1`).
+var _landmark_zoom_law := true
+
+## The size law's exponent past the opening view: on-screen size grows as
+## `(zoom / opening)^EXP`. A labelled judgement, chosen on the x1/x4/x16/x64
+## frames: `1/3` gives x4 -> 1.59x and x16 -> 2.52x, so a mark still visibly
+## answers a zoom notch while the terrain under it gains far more (x16 terrain,
+## ~2.5x mark). `0.5` reached the ceiling by x6 and then never moved again.
+const LANDMARK_ZOOM_EXP := 1.0 / 3.0
+## The ceiling on that growth, as a multiple of the opening-view size. A labelled
+## judgement: at 2.5x a continental ring (the largest, 22.5 local px at importance
+## 1) is ~76 screen px in radius on a 1.36-cover desktop, which still leaves the
+## terrain readable around it at x64; the old linear law put the same ring at
+## ~1 440 px there, covering the whole view.
+const LANDMARK_ZOOM_CEIL := 2.5
+## The floor, as a camera scale: below camera zoom 1 (the fit/export scale) a
+## mark keeps its zoom-1 size instead of shrinking with the camera. At
+## `ZOOM_MIN = 0.4` the old law drew the smallest local ring (6.75 local px) at
+## 2.7 px, under the ~9 px a 16-unit glyph needs (`LANDMARK_MARK_SCALE`'s own
+## figure); at zoom 1 it is 6.75 px, the size the map has always opened near.
+const LANDMARK_ZOOM_FLOOR := 1.0
+
+## Shows or hides one landmark kind (an engine kind key, or `LANDMARK_MANUAL_POI`).
+## Independent of the master Landmarks switch: turning the master back on
+## restores whatever per-kind state was last set, as the settlement-class filter
+## does. A no-op when nothing changes, so a Show-all over an already-shown set
+## costs no redraw.
+func set_landmark_kind_visible(kind: String, shown: bool) -> void:
+	if shown == (not _hidden_landmark_kinds.has(kind)):
+		return
+	if shown:
+		_hidden_landmark_kinds.erase(kind)
+	else:
+		_hidden_landmark_kinds[kind] = true
+	_rebuild_lm_hidden_cells()
+	queue_redraw()
+
+## Replaces the whole hidden set at once (the persisted value at boot, Show all /
+## Hide all). Unknown keys are kept, not dropped: a kind a future engine adds, or
+## one this world has none of, must stay hidden if the user hid it.
+func set_hidden_landmark_kinds(kinds: PackedStringArray) -> void:
+	var next := {}
+	for k in kinds:
+		next[String(k)] = true
+	if next == _hidden_landmark_kinds:
+		return
+	_hidden_landmark_kinds = next
+	_rebuild_lm_hidden_cells()
+	queue_redraw()
+
+## The hidden set, sorted so a persisted copy is stable across sessions.
+func hidden_landmark_kinds() -> PackedStringArray:
+	var out := PackedStringArray(_hidden_landmark_kinds.keys())
+	out.sort()
+	return out
+
+## Whether one kind's row is on. Says nothing about the master switch.
+func landmark_kind_visible(kind: String) -> bool:
+	return not _hidden_landmark_kinds.has(kind)
+
+## How many marks each filter row governs, kind -> count: every landmark in
+## `_landmarks` by its `kind`, plus `LANDMARK_MANUAL_POI` -> the hand-placed POI
+## icons in `_manual_icons`. A kind with none is absent (callers use `get(k, 0)`
+## for a row they list anyway). Counts what exists, not what is drawn.
+func landmark_kind_counts() -> Dictionary:
+	var out := {}
+	for lm: Dictionary in _landmarks:
+		var k := String(lm.get("kind", ""))
+		out[k] = int(out.get(k, 0)) + 1
+	var manual := 0
+	for ic: Dictionary in _manual_icons:
+		if String(ic.get("family", "")) == "poi" and not _icon_is_generated(ic):
+			manual += 1
+	if manual > 0:
+		out[LANDMARK_MANUAL_POI] = manual
+	return out
+
+## Whether one generated landmark draws (and so can be hovered and clicked): the
+## master switch and its kind's row. The ONE predicate every landmark loop asks
+## -- the ring pass, the hover/click hit test, the context-menu pick and the
+## hover card -- so nothing hidden can be reached and nothing drawn is missed.
+func _landmark_shown(lm: Dictionary) -> bool:
+	return _landmarks_visible and not _hidden_landmark_kinds.has(String(lm.get("kind", "")))
+
+## Recomputes `_lm_hidden_cells` from `_landmarks`, the master switch and the
+## hidden set. Called by each of their setters, never per draw.
+func _rebuild_lm_hidden_cells() -> void:
+	var hidden := {}
+	var shown := {}
+	for lm: Dictionary in _landmarks:
+		var cell := _mark_cell(float(lm.get("x", 0)), float(lm.get("y", 0)))
+		if _landmark_shown(lm):
+			shown[cell] = true
+		else:
+			hidden[cell] = true
+	for cell in shown:
+		hidden.erase(cell)
+	_lm_hidden_cells = hidden
+
+## Turns the landmark zoom law on or off (see `_landmark_zoom_law`).
+func set_landmark_zoom_law(on: bool) -> void:
+	if on == _landmark_zoom_law:
+		return
+	_landmark_zoom_law = on
+	queue_redraw()
+
+## Whether the zoom law is on.
+func landmark_zoom_law() -> bool:
+	return _landmark_zoom_law
+
+## **The landmark size law**, as the factor every landmark size in local pixels
+## is multiplied by: the ring radius (`_landmark_radius`), its stroke widths and
+## the hover pad (`_hit_test_landmark`, `pick_all`).
+##
+## What the camera did before (and still does with the law off, `k = 1`): the
+## ring is a fixed size in this control's LOCAL pixels and the camera is an
+## ancestor scale, so on screen it grew exactly linearly with zoom -- x64 drew a
+## local ring 64 times its fit size. With the law on, the on-screen scale `s` is:
+##
+##   z <= opening view (`_lod_zoom_base()`): `s = max(z, LANDMARK_ZOOM_FLOOR)`
+##   z >  opening view:  `s = opening * min((z / opening)^EXP, CEIL)`
+##
+## and `k = s / z`. So at and below the opening view (and down to camera zoom 1,
+## which is the fit view an export is drawn at) nothing moves -- `k` is exactly
+## `1.0` there by construction, which is what keeps the default look and every
+## export byte-identical. The law is continuous at the opening view (both arms
+## give `opening`) and monotone everywhere.
+##
+## Reads `_camera_zoom`, which a background chunk build sets to its key's zoom
+## (`_draw_chunk`), so a cached layer is drawn with the law for the zoom it is
+## built for. `_export_mode` answers `1.0` by control flow: an export is the fit
+## view magnified (`_sym_gain`), never a zoomed view.
+func _landmark_zoom_k() -> float:
+	if not _landmark_zoom_law or _export_mode:
+		return 1.0
+	var z := maxf(_camera_zoom, 0.001)
+	var zr := _lod_zoom_base()
+	var s := maxf(z, LANDMARK_ZOOM_FLOOR) if z <= zr \
+		else zr * minf(pow(z / zr, LANDMARK_ZOOM_EXP), LANDMARK_ZOOM_CEIL)
+	return s / z
 
 ## `STORY_PLANNING_SCOPE.md` SP-4 -- the conflict overlay. `conflict_list()`'s
 ## rows as-is: `points` are already resolved against each conflict's anchor, and
@@ -1766,6 +1955,7 @@ func set_landmarks_visible(on: bool) -> void:
 	if on == _landmarks_visible:
 		return
 	_landmarks_visible = on
+	_rebuild_lm_hidden_cells()   ## the master switch is one of its inputs
 	queue_redraw()
 
 ## The rejected candidates of the last landmark pass, keyed by reason
@@ -1902,7 +2092,20 @@ func _label_fade_alpha(lb: Dictionary) -> float:
 ## (`_label_fade_alpha() <= 0`). The one test every label pass uses, so a hidden
 ## label also reserves no occupancy and costs no geometry or glyph warm-up.
 func _label_hidden(lb: Dictionary) -> bool:
-	return _label_below_lod(lb) or _label_fade_alpha(lb) <= 0.0
+	return _label_below_lod(lb) or _label_fade_alpha(lb) <= 0.0 or _landmark_label_hidden(lb)
+
+## A GENERATED landmark-class label whose landmark is hidden (owner, 2026-10-19:
+## a filtered-out waterfall must not leave "Waterfall" on the map). The label
+## pass names each landmark at `lm.x + 0.5` (`labels.rs`, `LabelClass::Landmark`),
+## so its `_mark_cell` is the landmark's own cell, which `_lm_hidden_cells`
+## carries when every landmark there is hidden. Hand-placed labels never match
+## (`generated` false): they are authored and answer to no landmark switch.
+## With nothing hidden the set is empty and this is `false` for every row.
+func _landmark_label_hidden(lb: Dictionary) -> bool:
+	return (not _lm_hidden_cells.is_empty()
+		and bool(lb.get("generated", false))
+		and String(lb.get("class", "")) == "landmark"
+		and _lm_hidden_cells.has(_mark_cell(float(lb.get("x", 0.0)), float(lb.get("y", 0.0)))))
 
 ## `STORY_PLANNING_SCOPE.md` SP-2: one party marker per saved journey at the
 ## cursor date, in `journey_positions()`'s own dictionary shape. An entry with
@@ -1976,7 +2179,7 @@ var _jl_memo_key: Array = []
 ## control size, and the cheap inputs a setter changes before its redraw has run.
 func _journey_layout_key(rect: Rect2) -> Array:
 	return [_content_gen, _camera_zoom, rect, size, _journey_markers.hash(),
-		_landmarks_visible, _labels.size(), _manual_icons.size()]
+		_landmarks_visible, _hidden_landmark_kinds.hash(), _labels.size(), _manual_icons.size()]
 
 
 ## **Where each journey marker's name and supply line sit** -- one placement pass,
@@ -5219,7 +5422,8 @@ func _draw_mid_layer(rect: Rect2, interior: Rect2) -> void:
 ## card and CM-5's sample pin.
 func _draw_top_cards(rect: Rect2, interior: Rect2) -> void:
 	## Ruling AL's hover card, after the labels so no name can cover it.
-	if _landmarks_visible and _lm_hover_index >= 0 and _lm_hover_index < _landmarks.size():
+	if (_landmarks_visible and _lm_hover_index >= 0 and _lm_hover_index < _landmarks.size()
+			and _landmark_shown(_landmarks[_lm_hover_index])):
 		var lm: Dictionary = _landmarks[_lm_hover_index]
 		_draw_card(_cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect),
 			["%s (%s)" % [String(lm.get("kind", "")).capitalize(), String(lm.get("class", "")).capitalize()],
@@ -5624,10 +5828,21 @@ func _icon_is_generated(ic: Dictionary) -> bool:
 ## `_draw_annotation_marks`' three-case visibility rule, factored out because
 ## `_seed_label_occupancy()` has to ask the same question (a mark that is not
 ## drawn must not push a settlement's name around).
+##
+## Since the landmark filter (owner, 2026-10-19), two more cases on the POI
+## family only: a GENERATED POI glyph at a cell whose landmarks are all hidden by
+## kind (`_lm_hidden_cells`) hides with them -- it is that landmark by another
+## name, the same reason it follows the master switch -- and a HAND-PLACED one
+## hides only when the user switched off the `LANDMARK_MANUAL_POI` row, never by
+## the master (that constant's doc says why). With the filter untouched both are
+## `false`, so this answers exactly what it answered before.
 func _icon_layer_hidden(ic: Dictionary) -> bool:
-	return (not _landmarks_visible
-		and _icon_is_generated(ic)
-		and String(ic.get("family", "")) == "poi")
+	if String(ic.get("family", "")) != "poi":
+		return false
+	if _icon_is_generated(ic):
+		return (not _landmarks_visible
+			or _lm_hidden_cells.has(_mark_cell(float(ic["x"]), float(ic["y"]))))
+	return _hidden_landmark_kinds.has(LANDMARK_MANUAL_POI)
 
 
 ## The grid cell a mark stands in. This is the de-dup key `_draw_annotation_marks`
@@ -5670,11 +5885,12 @@ func _mark_cell(x: float, y: float) -> Vector2i:
 ##
 ## Empty when Landmarks is off -- no ring draws, so no glyph can be shadowed by
 ## one. The generated POI glyphs at those same cells are hidden by
-## `_icon_layer_hidden()` in that case, not by this.
+## `_icon_layer_hidden()` in that case, not by this. Likewise a landmark whose
+## kind is filtered out draws no ring and so is not listed (`_landmark_shown`).
 func _ringed_cells() -> Dictionary:
 	var ringed := {}
-	if _landmarks_visible:
-		for lm: Dictionary in _landmarks:
+	for lm: Dictionary in _landmarks:
+		if _landmark_shown(lm):
 			ringed[_mark_cell(float(lm.get("x", 0)), float(lm.get("y", 0)))] = true
 	return ringed
 
@@ -5716,13 +5932,18 @@ func _icon_shadowed_by_ring(ic: Dictionary, ringed: Dictionary) -> bool:
 ##
 ## ## The visibility rule, chosen rather than defaulted
 ##
-## - **`origin == "manual"` always draws.** A hand-placed icon is authored
-##   content and does not vanish behind a generated-content toggle. Nothing here
-##   can hide one, which is exactly the guarantee the old pass gave.
+## - **`origin == "manual"` always draws under the Landmarks switch.** A
+##   hand-placed icon is authored content and does not vanish behind a
+##   generated-content toggle, which is exactly the guarantee the old pass gave.
+##   The one thing that hides one is the user switching off the landmark
+##   filter's hand-placed POI row (`LANDMARK_MANUAL_POI`, POI family only).
 ## - **A GENERATED icon of the `poi` family follows the Landmarks flag**, because
 ##   its source *is* the landmark store. It is a landmark by another name, and a
 ##   control labelled Landmarks that leaves half the landmark layer on screen is
 ##   the defect this function exists to close.
+##   Since the landmark filter (owner, 2026-10-19) it also follows its
+##   landmark's KIND row, and a hand-placed POI icon follows the filter's own
+##   hand-placed row -- see `_icon_layer_hidden()` for both.
 ## - **Every other generated icon draws unconditionally**, as before. PLACES
 ##   comes from `civ.settlements`, TREES from the ruled scatter engine, SEA MARKS
 ##   from a water sweep (`icon_bridge/generate.rs`'s own four sources); none of
@@ -5773,6 +5994,8 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 		var live := _live_zoom if _live_zoom > 0.0 else _camera_zoom
 		var glyph_scale := maxf(1.0, get_screen_transform().get_scale().x * _camera_zoom / maxf(live, 0.001))
 		for lm: Dictionary in _landmarks:
+			if not _landmark_shown(lm):
+				continue   ## its kind is filtered out (owner, 2026-10-19)
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
@@ -6087,9 +6310,13 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
 	## Dark halo first so the ring survives on pale terrain, the same
 	## two-pass trick the settlement labels use for their outline.
-	## Widths carry `_sym_gain` as `r` does (E4 uniform magnification; `1.0` live).
-	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4 * _sym_gain, true)
-	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3 * _sym_gain, true)
+	## Widths carry `_sym_gain` as `r` does (E4 uniform magnification; `1.0` live),
+	## and the zoom law's `k` as `r` does, so the stroke keeps its proportion to the
+	## ring at every zoom instead of thickening to ~80 px at x64 (`k = 1` with the
+	## law off or at/below the opening view, so those frames are unchanged).
+	var wk := _sym_gain * _landmark_zoom_k()
+	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4 * wk, true)
+	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3 * wk, true)
 	if glyph != "":
 		var side := r * LANDMARK_GLYPH_FRAC
 		var on_screen := side * glyph_scale
@@ -6121,7 +6348,9 @@ func _landmark_radius(lm: Dictionary) -> float:
 	## meaning class at all.
 	var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
 	## `_sym_gain`: E4's uniform magnification (`prepare_export`), `1.0` live.
-	return base * (0.75 + 0.5 * imp) * LANDMARK_MARK_SCALE * _sym_gain
+	## `_landmark_zoom_k()`: the zoom law (owner, 2026-10-19) -- `1.0` at and
+	## below the opening view, in every export and with the law switched off.
+	return base * (0.75 + 0.5 * imp) * LANDMARK_MARK_SCALE * _sym_gain * _landmark_zoom_k()
 
 
 ## The candidates the landmark pass offered and did not place -- the second
@@ -7572,13 +7801,20 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 	var closest_dist := INF
 	if not _landmarks_visible:
 		return [closest, closest_dist]
+	## The pad scales with the zoom law as the ring does, so the target keeps its
+	## proportion to the mark (`k = 1`, the old pad, wherever the law is idle).
+	var pad := HOVER_RADIUS_PAD * _landmark_zoom_k()
 	for i in _landmarks.size():
 		var lm: Dictionary = _landmarks[i]
+		## A filtered-out kind draws nothing, so it must not be hoverable or
+		## clickable either (owner, 2026-10-19).
+		if not _landmark_shown(lm):
+			continue
 		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 		if not interior.has_point(pos):
 			continue
 		var d := mouse.distance_to(pos)
-		if d <= _landmark_radius(lm) + HOVER_RADIUS_PAD and d < closest_dist:
+		if d <= _landmark_radius(lm) + pad and d < closest_dist:
 			closest = i
 			closest_dist = d
 	return [closest, closest_dist]
@@ -7685,13 +7921,17 @@ func hits_at(mouse: Vector2) -> Array:
 		if d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
 			hits.append(_hit("settlement", i, s.get("name"), d))
 	if _landmarks_visible:
+		## Same refusals and the same scaled pad as `_hit_test_landmark`.
+		var lpad := HOVER_RADIUS_PAD * _landmark_zoom_k()
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
+			if not _landmark_shown(lm):
+				continue
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
 			var ld := mouse.distance_to(lpos)
-			if ld <= _landmark_radius(lm) + HOVER_RADIUS_PAD:
+			if ld <= _landmark_radius(lm) + lpad:
 				hits.append(_hit("landmark", i, lm.get("name"), ld))
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:

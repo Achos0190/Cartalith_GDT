@@ -344,6 +344,8 @@ var _render: RenderWorkspace
 ## its own undo stack and the CARTO ▸ Colours ▸ Paint colour section. Created
 ## in `_build`; presentation only, like every other control in this dock.
 const ColourPaintTool := preload("res://shell/colour_paint_tool.gd")
+## The landmark filter body shared with the Layers popover; see `_build_landmark_filter`.
+const LandmarkFilterPanel := preload("res://shell/landmark_filter_panel.gd")
 ## The live tool (see `ColourPaintTool`); `null` until `_build` runs.
 var colour_paint
 
@@ -466,13 +468,18 @@ func _build() -> void:
 	for layer in LIVE_LAYERS:
 		if POLITICAL_LAYERS.has(String(layer.id)):
 			continue   ## their own section below, kept apart as the tree draws them.
+		## Landmarks is the one row whose choice persists (owner, 2026-10-19 --
+		## `ViewportHost.set_landmarks_shown_by_user`); the rest write as before.
+		var write := (func(on: bool): app.viewport.set_landmarks_shown_by_user(on)) \
+			if String(layer.id) == "landmarks" \
+			else (func(on: bool): app.viewport.set_layer_visible(layer.id, on))
 		_layer_checks[layer.id] = DccWidgets.toggle(body, layer.label,
-			app.viewport.layer_visible(layer.id),
-			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
+			app.viewport.layer_visible(layer.id), write)
 	DccWidgets.note(body,
 		"Each row above is a whole overlay with nothing inside it to order. "
 		+ "The terrain raster's own three categories are the stack below.")
 	_build_settlement_class_filter(cat)
+	_build_landmark_filter(cat)
 	_build_way_type_filter(cat)
 	_build_political_layers(cat)
 	## §7's layer list, for the part of it that is a *stack* -- Terrain, Colour
@@ -556,6 +563,19 @@ func _build_settlement_class_filter(parent: Control) -> void:
 		+ "a tier is a cartographic choice, not a reason to make a place "
 		+ "unselectable. The master Settlements switch above still gates the "
 		+ "whole layer.")
+
+
+## The landmark filter (owner, 2026-10-19), as a collapsed expander beside
+## Settlements · by class -- the same shape for the same job, one layer down.
+## The body is `landmark_filter_panel.gd`, the one the map's Layers popover
+## builds too, so the two surfaces share one implementation and one state
+## (`ViewportHost`).
+func _build_landmark_filter(parent: Control) -> void:
+	var body := category_expander(parent, "Landmarks · by type", false)
+	var panel: VBoxContainer = LandmarkFilterPanel.new()
+	panel.name = "LandmarkFilter"
+	body.add_child(panel)
+	panel.setup(app.viewport, bridge)
 
 
 ## A category-level expander that shares a section's geometry: heading and rows
