@@ -214,7 +214,7 @@ func _ready() -> void:
 
 	var ics := _icons()
 	ov.set_landmarks_visible(false)
-	_check("F3 the master switch alone does not hide a hand-placed POI", not ov._icon_layer_hidden(ics[1]))
+	_check("F3 the master switch also hides a hand-placed POI (owner, 2026-10-19)", ov._icon_layer_hidden(ics[1]))
 	_check("F3 ... and does hide the generated POI copy", ov._icon_layer_hidden(ics[0]))
 	ov.set_landmarks_visible(true)
 	ov.set_landmark_kind_visible(ov.LANDMARK_MANUAL_POI, false)

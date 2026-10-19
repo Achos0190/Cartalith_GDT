@@ -1663,13 +1663,11 @@ func set_landmarks(items: Array) -> void:
 ## so it can never collide with a `cartalith_civ::landmark::kinds()` key (every
 ## one of those is a bare snake_case word).
 ##
-## **Why the global Landmarks switch does not hide these, and this row does.**
-## A hand-placed icon is authored content, and `_draw_annotation_marks`' own rule
-## (and `_vfy_iconmerge_probe.gd`, which asserts it as a capability-loss check)
-## is that no generated-content toggle makes one vanish. This row is the user
-## naming that content explicitly, which is a different act: it hides exactly
-## what it says and nothing else. Whether the master should take these too is an
-## owner question recorded in `OUTSTANDING_WORK.md`.
+## **The global Landmarks switch hides these too** (owner, 2026-10-19, answering
+## the filter's Q1: "Master landmark switch should hide all landmarks"). It was
+## first built the other way, on the rule that no generated-content toggle makes
+## authored content vanish; the owner ruled that "off" means no landmark art.
+## This row hides them on their own with the master left on.
 const LANDMARK_MANUAL_POI := "_manual_poi"
 
 ## Landmark kinds (and `LANDMARK_MANUAL_POI`) the user switched off, kind ->
@@ -5833,8 +5831,8 @@ func _icon_is_generated(ic: Dictionary) -> bool:
 ## family only: a GENERATED POI glyph at a cell whose landmarks are all hidden by
 ## kind (`_lm_hidden_cells`) hides with them -- it is that landmark by another
 ## name, the same reason it follows the master switch -- and a HAND-PLACED one
-## hides only when the user switched off the `LANDMARK_MANUAL_POI` row, never by
-## the master (that constant's doc says why). With the filter untouched both are
+## hides when the master switch is off (owner, 2026-10-19) or the user switched
+## off the `LANDMARK_MANUAL_POI` row. With the filter untouched both are
 ## `false`, so this answers exactly what it answered before.
 func _icon_layer_hidden(ic: Dictionary) -> bool:
 	if String(ic.get("family", "")) != "poi":
@@ -5842,7 +5840,9 @@ func _icon_layer_hidden(ic: Dictionary) -> bool:
 	if _icon_is_generated(ic):
 		return (not _landmarks_visible
 			or _lm_hidden_cells.has(_mark_cell(float(ic["x"]), float(ic["y"]))))
-	return _hidden_landmark_kinds.has(LANDMARK_MANUAL_POI)
+	# Owner ruling (2026-10-19, answering the filter's Q1): the master Landmarks
+	# switch hides hand-placed POI icons too, so "off" means no landmark art.
+	return not _landmarks_visible or _hidden_landmark_kinds.has(LANDMARK_MANUAL_POI)
 
 
 ## The grid cell a mark stands in. This is the de-dup key `_draw_annotation_marks`

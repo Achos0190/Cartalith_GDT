@@ -235,9 +235,14 @@ func _ready() -> void:
 			% [name, "(%d,%d)" % [manual_on_ring.x, manual_on_ring.y], mr["ring"], mr["poi"]])
 
 		## Positive controls FIRST: without these every "gone" reading is vacuous.
+		# Owner ruling 2026-10-19: the master Landmarks switch hides hand-placed POI
+		# icons too, so with Landmarks OFF they must draw nothing; ON they must draw.
 		for c in [manual_poi, legacy_poi, manual_on_ring]:
-			if int(seen[c]["poi"]) <= 0:
+			if on and int(seen[c]["poi"]) <= 0:
 				_bad("%s: authored icon at (%d,%d) DREW NOTHING -- capability loss"
+					% [name, c.x, c.y])
+			if not on and int(seen[c]["poi"]) != 0:
+				_bad("%s: authored icon at (%d,%d) still draws with Landmarks off"
 					% [name, c.x, c.y])
 		for c in dup_cells:
 			var t: Dictionary = seen[c]
