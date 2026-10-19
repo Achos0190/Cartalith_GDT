@@ -2,7 +2,9 @@
 //! 2026-10-18 addendum): the coast shelf and shore halo in the sea colour, snow
 //! shed on steep ground and slope rock keyed to real degrees -- each a new
 //! appearance field that is `0.0` in `default()`, in every other look and in
-//! `js_reference()`.
+//! `js_reference()`. Since Ruling CU (owner, 2026-10-19) also the land tone
+//! pass: `land_relief_contrast` and `land_tone_contrast`, the same kind of
+//! field, and the look's re-pitched land ramps.
 //!
 //! What these tests protect, and why each is shaped the way it is:
 //! * the off state is off **by control flow**, including when the look is on
@@ -130,7 +132,15 @@ fn the_new_terms_are_off_outside_the_satellite_look() {
         ("Quality tier", TerrainAppearance::default().with_look(render::LOOK_TIER)),
     ];
     for (name, a) in looks {
-        for (k, v) in [("sea_shelf", a.sea_shelf), ("sea_shelf_km", a.sea_shelf_km), ("snow_shed", a.snow_shed), ("snow_shed_deg", a.snow_shed_deg), ("rock_slope_deg", a.rock_slope_deg)] {
+        for (k, v) in [
+            ("sea_shelf", a.sea_shelf),
+            ("sea_shelf_km", a.sea_shelf_km),
+            ("snow_shed", a.snow_shed),
+            ("snow_shed_deg", a.snow_shed_deg),
+            ("rock_slope_deg", a.rock_slope_deg),
+            ("land_relief_contrast", a.land_relief_contrast),
+            ("land_tone_contrast", a.land_tone_contrast),
+        ] {
             assert_eq!(v, 0.0, "{name}: {k} must be 0.0");
         }
     }
@@ -156,8 +166,27 @@ fn the_satellite_look_sets_its_terms() {
     assert_eq!(a.snow_shed_deg, 8.0);
     assert_eq!(a.rock_slope, 1.0);
     assert_eq!(a.rock_slope_deg, 6.0);
-    // Natural Vibrant's temperate grass ramp, first stop (render.rs `with_look`).
-    assert_eq!(a.grass_temp[0], (104.0, 132.0, 58.0), "the look must sit over Natural Vibrant's palettes");
+    // Natural Vibrant's red-desert ramp, first stop (render.rs `with_look`),
+    // which the land tone pass does not re-pitch.
+    assert_eq!(a.sand_red[0], (174.0, 83.0, 47.0), "the look must sit over Natural Vibrant's palettes");
+    // Ruling CU's land tone pass, as literals.
+    assert_eq!(a.land_relief_contrast, 0.3);
+    assert_eq!(a.land_tone_contrast, 0.5);
+    assert_eq!(a.bio_blend, 1.0);
+    assert_eq!(a.biome_sat, 0.30);
+    assert_eq!(a.relief_chroma, 0.5);
+    assert_eq!(a.curve_shade, 0.5);
+    assert_eq!(a.ao_strength, 0.35);
+    assert_eq!(a.crest_strength, 0.25);
+    assert_eq!(a.grass_temp[1], (102.0, 142.0, 55.0), "the re-pitched temperate grass");
+    assert_eq!(a.wood_temp[1], (48.0, 78.0, 36.0), "the re-pitched temperate forest");
+    assert_eq!(a.rock_granite[1], (134.0, 136.0, 132.0), "the re-pitched granite");
+    assert_eq!(a.snow_perm[1], (206.0, 210.0, 214.0), "the re-pitched permanent snow, below white");
+    // And Natural Vibrant itself does not carry them (the look is layered
+    // over it, never written back into it).
+    let v = TerrainAppearance::default().with_look(render::LOOK_VIBRANT);
+    assert_eq!(v.grass_temp[1], (128.0, 158.0, 68.0));
+    assert_eq!(v.bio_blend, 0.90);
     // The zoom-detail law is the tier's (on in the app look since 1fc9208f); the
     // look must not switch it off.
     assert_eq!(a.zoom_detail_km, TerrainAppearance::default().zoom_detail_km);
@@ -427,13 +456,14 @@ fn a_tile_agrees_with_the_screen_under_the_look() {
 #[test]
 fn the_new_fields_serialize_only_when_on_and_round_trip() {
     let j = serde_json::to_string(&TerrainAppearance::default()).unwrap();
-    for k in ["sea_shelf", "sea_shelf_km", "snow_shed", "snow_shed_deg", "rock_slope_deg"] {
+    for k in ["sea_shelf", "sea_shelf_km", "snow_shed", "snow_shed_deg", "rock_slope_deg", "land_relief_contrast", "land_tone_contrast"] {
         assert!(!j.contains(&format!("\"{k}\"")), "default must not serialize {k}");
     }
     let a = TerrainAppearance::default().with_look(LOOK_SATELLITE);
     let s = serde_json::to_string(&a).unwrap();
     let back: TerrainAppearance = serde_json::from_str(&s).unwrap();
     assert_eq!((back.sea_shelf, back.sea_shelf_km, back.snow_shed, back.snow_shed_deg, back.rock_slope_deg), (1.0, 48.0, 1.0, 8.0, 6.0));
+    assert_eq!((back.land_relief_contrast, back.land_tone_contrast), (0.3, 0.5));
 }
 
 /// Protects: under the shelf the reference's surf whitening is skipped (the
@@ -453,4 +483,117 @@ fn the_shelf_replaces_surf_and_the_warm_tint_but_not_without_a_distance() {
     // Control: with no distance the surf still whitens the shallowest water.
     let (s0, s1) = (c(0.0, 10.0, None), c(0.1, 10.0, None));
     assert!(s0.0 > s1.0 + 10.0, "without the shelf the reference surf must stay, got {s0:?} vs {s1:?}");
+}
+
+/// `a` with Ruling CU's two land tone fields at `0.0`, everything else kept.
+fn tone_off(mut a: TerrainAppearance) -> TerrainAppearance {
+    a.land_relief_contrast = 0.0;
+    a.land_tone_contrast = 0.0;
+    a
+}
+
+/// Protects: the land tone curve's numbers, against hand-worked literals --
+/// ground at the 120 pivot is unchanged; below it `Y - 0.3 (120 - Y) Y / 120`
+/// (grey 60 -> 51), above it `Y + 0.3 (Y - 120)(255 - Y) / 135` (grey 200 ->
+/// 209.777...); black and white are held (no clip: the reason the curve has
+/// shoulders); a coloured pixel `(100, 50, 20)` (Rec.709 luma 58.464) goes
+/// to luma `58.464 - 0.3 * 61.536 * 58.464 / 120 = 49.46989824` with its
+/// channel ratios kept (hue and saturation ratio unchanged); a lit highlight
+/// above 255 is untouched; and the curve is monotone across 0..255.
+#[test]
+fn the_land_tone_curve_is_a_luminance_pivot_contrast() {
+    use render::land_tone as t;
+    assert_eq!(render::LAND_TONE_PIVOT, 120.0);
+    let p = t((120.0, 120.0, 120.0), 0.3);
+    assert!((p.0 - 120.0).abs() < 1e-9 && (p.1 - 120.0).abs() < 1e-9 && (p.2 - 120.0).abs() < 1e-9, "the pivot must not move, got {p:?}");
+    let g = t((60.0, 60.0, 60.0), 0.3);
+    assert!((g.0 - 51.0).abs() < 1e-9 && (g.1 - 51.0).abs() < 1e-9, "grey 60 must go to 51, got {g:?}");
+    let w = t((200.0, 200.0, 200.0), 0.3);
+    assert!((w.0 - 209.777_777_777_777_8).abs() < 1e-9, "grey 200 must go to 209.78, got {w:?}");
+    let c = t((100.0, 50.0, 20.0), 0.3);
+    let y = 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2;
+    assert!((y - 49.469_898_24).abs() < 1e-9, "luma must be 49.46989824, got {y}");
+    assert!((c.0 / c.1 - 2.0).abs() < 1e-12 && (c.1 / c.2 - 2.5).abs() < 1e-12, "channel ratios must be kept, got {c:?}");
+    let white = t((254.9, 254.9, 254.9), 1.0);
+    assert!(white.0 <= 255.0 && white.0 > 254.0, "near-white must stay below white, got {white:?}");
+    assert_eq!(t((300.0, 300.0, 300.0), 0.3), (300.0, 300.0, 300.0), "a highlight above white is untouched");
+    assert_eq!(t((0.0, 0.0, 0.0), 0.3), (0.0, 0.0, 0.0));
+    let mut last = -1.0;
+    for v in 0..=255 {
+        let o = t((v as f64, v as f64, v as f64), 1.0).0;
+        assert!(o >= last && o >= 0.0 && o <= 255.0 + 1e-9, "monotone and in range at {v}: {o} after {last}");
+        last = o;
+    }
+}
+
+/// Protects: the relief contrast's pivot is flat ground's light, as a
+/// literal -- the default rig at 40 degrees gives `sin 40 = 0.642788`, and
+/// `0.34 + 1.16 * 0.642788^0.85 = 1.136738` -- and it follows the band
+/// weights it is handed (all-zero weights leave only the ambient).
+#[test]
+fn the_flat_light_pivot_is_the_curve_at_flat_ground() {
+    let a = TerrainAppearance::default();
+    let l = render::flat_land_light(&a, 0.40, 0.40, 0.20);
+    assert!((l - 1.136_737_688_785_760_8).abs() < 1e-12, "flat light {l}");
+    assert!((render::flat_land_light(&a, 0.0, 0.0, 0.0) - 0.34).abs() < EPS, "no bands, only the ambient");
+}
+
+/// Protects: the two land terms touch land only (every sea cell is
+/// byte-identical with them on and off), keep flat ground's MEAN brightness
+/// (the relief contrast pivots at flat light; the plateau's micro grain is
+/// zero-mean, so only its spread grows), move the sloped ridge, and each is
+/// load-bearing on its own. Cells are chosen by the fixture's geometry (the
+/// sea columns, the flat plateau, the ridge), an input, never by the colour
+/// under test.
+#[test]
+fn the_land_tone_terms_touch_land_only_and_pivot_at_flat_ground() {
+    let w = world();
+    let on = screen(&ctx(&w, sat(), true));
+    let off = screen(&ctx(&w, tone_off(sat()), true));
+    let y = GH / 2;
+    for yy in 0..GH {
+        for x in 0..20 {
+            let o = (yy * GW + x) * 3;
+            assert_eq!(on[o..o + 3], off[o..o + 3], "sea cell ({x},{yy}) moved");
+        }
+    }
+    // Relief contrast alone: the plateau's mean luma within half a level
+    // (8-bit rounding of each pixel), the ridge moved.
+    let mut relief_only = tone_off(sat());
+    relief_only.land_relief_contrast = 0.3;
+    let r_on = screen(&ctx(&w, relief_only, true));
+    let mean = |b: &[u8]| (24..36).map(|x| luma(b, x, y)).sum::<f64>() / 12.0;
+    assert!((mean(&r_on) - mean(&off)).abs() < 0.5, "flat plateau mean moved: {} vs {}", mean(&r_on), mean(&off));
+    let ridge_moved = (42..47).filter(|&x| (luma(&r_on, x, y) - luma(&off, x, y)).abs() >= 1.0).count();
+    assert!(ridge_moved >= 3, "the relief contrast must move the sloped ridge, moved {ridge_moved} of 5");
+    // Tone contrast alone is load-bearing and also leaves the sea alone.
+    let mut tone_only = tone_off(sat());
+    tone_only.land_tone_contrast = 0.3;
+    let t_on = screen(&ctx(&w, tone_only, true));
+    assert_ne!(t_on, off, "land_tone_contrast must move the land");
+    for yy in 0..GH {
+        let o = yy * GW * 3;
+        assert_eq!(t_on[o..o + 20 * 3], off[o..o + 20 * 3], "land_tone_contrast must not touch the sea (row {yy})");
+    }
+}
+
+/// Protects: the two land terms reach all three paths -- the export bake
+/// (`BakeFields::pixel`) and a deep-zoom tile move with them as the screen
+/// does -- the ruling's "tiles, screen and export must agree" for this pass.
+/// The full-look agreement is `the_export_agrees_with_the_screen_under_the_look`
+/// and `a_tile_agrees_with_the_screen_under_the_look`; this is their positive
+/// control for the two new terms.
+#[test]
+fn the_land_tone_terms_reach_the_export_and_the_tile() {
+    let w = world();
+    let (c1, c0) = (ctx(&w, sat(), true), ctx(&w, tone_off(sat()), true));
+    let (b1, b0) = (BakeFields::new(&c1), BakeFields::new(&c0));
+    let moved = (20..GW).filter(|&x| b1.pixel(&c1, x as f64, (GH / 2) as f64) != b0.pixel(&c0, x as f64, (GH / 2) as f64)).count();
+    assert!(moved > 10, "the export must take the land terms, moved {moved}");
+    let bounds = TileBounds { x: 0.0, y: 0.0, w: (GW - 1) as f64, h: (GH - 1) as f64 };
+    let tf1 = TileFields::new(&c1, Some(&screen(&c1))).without_lakes();
+    let tf0 = TileFields::new(&c0, Some(&screen(&c0))).without_lakes();
+    let t1 = render::render_biome_tile_rgba(&c1, &w.field, GW, GH, bounds, &tf1);
+    let t0 = render::render_biome_tile_rgba(&c0, &w.field, GW, GH, bounds, &tf0);
+    assert_ne!(t1, t0, "the tile must take the land terms");
 }

@@ -7,7 +7,12 @@ extends Node
 ## MUST run windowed (frame_post_draw / get_image are dead under headless):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _zoomdetail_probe.tscn -- \
 ##       --out DIR --targets targets.json [--law 0|1] [--tag NAME] [--grid 2048x1311] [--vp 1600x1000]
-##       [--rivers on|off] [--only target,target]
+##       [--rivers on|off] [--only target,target] [--look NAME]
+##
+## `--look NAME` (Ruling CU, 2026-10-19: the Satellite relief land tone pass)
+## selects a named look by `EngineBridge.set_look` after generating, before the
+## law and the captures; an unknown name aborts with exit 2 rather than capture
+## the default look under the wrong name. Unset = the app's default look.
 ##
 ## `--targets` is a JSON object `{world_tag: {"seed": s, "archetype": "earth",
 ## "width_km": w}}`. The cells are picked here, on the shell's own generated world,
@@ -40,6 +45,7 @@ var _tag := "run"
 var _grid := Vector2i(2048, 1311)
 var _vp := Vector2i(1600, 1000)
 var _rivers := true
+var _look := ""
 var _only: PackedStringArray = []
 var _app: Node
 var _vh: Control
@@ -75,6 +81,8 @@ func _ready() -> void:
 				_rivers = args[i + 1] == "on"; i += 1
 			"--only":
 				_only = args[i + 1].split(","); i += 1
+			"--look":
+				_look = args[i + 1]; i += 1
 			_:
 				printerr("unknown arg ", args[i]); get_tree().quit(2); return
 		i += 1
@@ -109,7 +117,12 @@ func _run_world(wtag: String, spec: Dictionary) -> void:
 		spins += 1
 	print("  generated in %.1f s" % ((Time.get_ticks_msec() - t0) / 1000.0))
 	await get_tree().create_timer(1.0).timeout
-	var rec := {"law_requested": _law, "law_recognised": -1, "captures": []}
+	var rec := {"law_requested": _law, "law_recognised": -1, "captures": [], "look": _look}
+	if _look != "":
+		if not _br.set_look(_look):
+			printerr("PROBE-RESULT: ABORT unknown look ", _look); get_tree().quit(2); return
+		print("  look = %s" % _look)
+		_vh.map_view.texture = _br.color_texture()
 	if _law >= 0.0:
 		var n: int = _br.set_appearance({"zoom_detail_km": _law})
 		rec["law_recognised"] = n

@@ -3390,6 +3390,22 @@ mod adjust_census_tests {
     /// antique `d79526c5a1f53164` -> `efc2f081641c45fb`; js_reference
     /// `0d17851d99e571dd` -> `afd3940a0c5c8b27`; satellite
     /// `bb1eb7034b49ee1c` -> `630662dc06e64fff`.
+    ///
+    /// **RE-BASELINED 2026-10-19 under Ruling CU** (the Satellite relief land
+    /// tone pass: re-pitched land ramps, `bio_blend`/`biome_sat`/
+    /// `relief_chroma`/`curve_shade`/`ao_strength`/`crest_strength` in that
+    /// look, and the new `land_relief_contrast`/`land_tone_contrast`): the
+    /// "satellite" row ONLY, every column (land pixels in all eight consumers,
+    /// and the fingerprint by the changed values and the two new serialized
+    /// keys). Old -> new: screen `6b743b6ac80447b0` -> `0862453395b97097`,
+    /// river `c885eac8a218db59` -> `d1a487bd7674da88`, screen P3
+    /// `1e5d1a45e62445f6` -> `2977617aac5ae9a7`, river P3 `3fcc3fa81e55d853`
+    /// -> `61ab6093e1949ca4`, export and banded `bbfabdaf9d88b06d` ->
+    /// `9318d34fcc88c63d`, crop `f70c9b0fb003febd` -> `819485702a7d9b0f`, tile
+    /// `2c6f6528b28e02b0` -> `7d8be8d479de3d7f`, fingerprint
+    /// `630662dc06e64fff` -> `f0ff580117356871`. The four other rows did NOT
+    /// move, pixels or fingerprint (the new fields serialize only when
+    /// non-zero). This tree's own output, pasted as change detectors.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
@@ -3409,7 +3425,7 @@ mod adjust_census_tests {
         ),
         (
             "satellite",
-            [0x6b743b6ac80447b0, 0xc885eac8a218db59, 0x1e5d1a45e62445f6, 0x3fcc3fa81e55d853, 0xbbfabdaf9d88b06d, 0xbbfabdaf9d88b06d, 0xf70c9b0fb003febd, 0x2c6f6528b28e02b0, 0x630662dc06e64fff],
+            [0x0862453395b97097, 0xd1a487bd7674da88, 0x2977617aac5ae9a7, 0x61ab6093e1949ca4, 0x9318d34fcc88c63d, 0x9318d34fcc88c63d, 0x819485702a7d9b0f, 0x7d8be8d479de3d7f, 0xf0ff580117356871],
         ),
     ];
 

@@ -1,0 +1,87 @@
+Ruling CU -- Satellite relief land tone pass: land-only measurements, 2026-10-19.
+
+Harness: crates/cartalith-godot/tests/zoom_detail_ladder.rs (release), with
+ZD_APP=1 (the app's lithology and peak altitude attached), ZD_X1=1, ZD_MASK=1,
+ZD_LAWS=1, worlds s24601_archipelago_800km, s314159_earth_800km,
+s71077345_classic_800km; targets mountain, forest, cold, coast. 950x858
+frames; x1 is the base raster box-averaged over the whole map (one frame per
+world), x4/x16/x64 are the deep-zoom tile path at 1.86/7.42/29.7 px per cell
+(12 frames per rung). Statistics are on LAND only: the harness's input mask
+(height >= sea level at every bilinear corner, i.e. from the height field,
+never from colour), eroded 2 px, minus a 24 px frame margin (Natural
+Vibrant's plate border). The target (803x524, not a rendered world) is masked
+by colour (water = blue >= green - 4 and blue - red > 28), eroded 3 px; it
+exists at whole-map scale only, so it is compared to x1 by number and to the
+zoomed frames by eye only.
+
+Columns: p5/p50/p95 = Rec.709 luma percentiles (0-255); rng = p95 - p5; sat =
+mean HSV saturation; grad = mean neighbour luma gradient; hf2 = sd of luma
+minus a 5x5 box blur; lc8 = sd of luma minus a 17x17 box blur (local/relief
+contrast); classdist = mean RGB distance of the five class means below to the
+target's. Medians over frames.
+
+Classes (HSV): snow V>0.78 S<0.18; rock S<0.25 (not snow); dry hue 18-58 S>=0.25;
+lowland green hue 58-170 S>=0.25 V>=0.36; forest the same with V<0.36.
+
+TARGET land (whole map): p5 50.9 p50 99.7 p95 186.4 range 135.5 sat 0.47
+  grad 15.0 hf2 18.3 lc8 25.5
+  lowland green 38.2% (100,124,63) L114 S.51 | forest 29.3% (44,73,34) L64 S.58
+  dry 18.7% (164,143,91) L143 S.45 | rock 12.0% (116,119,107) L117 S.14
+  snow 1.7% (222,225,224) L224 S.06
+
+vibrant    x1   p5   83.8 p50  137.6 p95  183.6 rng  102.0 sat 0.38 grad  4.60 hf2  7.11 lc8 16.32 classdist 32.5
+vibrant    x4   p5   91.2 p50  147.2 p95  184.1 rng   89.1 sat 0.42 grad  1.69 hf2  2.81 lc8  9.08 classdist 35.1
+vibrant    x16  p5   87.8 p50  123.7 p95  175.0 rng   81.5 sat 0.39 grad  1.75 hf2  2.59 lc8  5.04 classdist 29.7
+vibrant    x64  p5   75.2 p50  140.8 p95  198.4 rng  117.2 sat 0.30 grad  4.72 hf2  4.77 lc8 18.26 classdist 25.0
+sat_before x1   p5   76.8 p50  132.7 p95  176.0 rng   99.3 sat 0.30 grad  6.14 hf2  8.83 lc8 14.36 classdist 19.8
+sat_before x4   p5   87.8 p50  137.1 p95  178.9 rng   85.3 sat 0.30 grad  2.18 hf2  3.07 lc8  8.61 classdist 21.6
+sat_before x16  p5   79.5 p50  125.7 p95  168.1 rng   83.8 sat 0.22 grad  2.91 hf2  3.65 lc8  8.98 classdist 23.3
+sat_before x64  p5   67.9 p50  123.0 p95  176.0 rng  103.5 sat 0.18 grad  4.40 hf2  4.90 lc8 15.96 classdist 16.0
+sat_after  x1   p5   61.3 p50  125.7 p95  174.1 rng  113.5 sat 0.38 grad  7.54 hf2 10.48 lc8 18.34 classdist 13.9
+sat_after  x4   p5   76.2 p50  130.2 p95  177.7 rng   99.5 sat 0.37 grad  2.67 hf2  3.95 lc8 11.41 classdist 14.6
+sat_after  x16  p5   63.6 p50  120.0 p95  177.9 rng  109.5 sat 0.25 grad  3.91 hf2  4.82 lc8 11.29 classdist 14.6
+sat_after  x64  p5   47.0 p50  121.0 p95  194.5 rng  135.6 sat 0.17 grad  6.95 hf2  6.59 lc8 25.05 classdist 17.7
+
+Satellite AFTER, x1 class means (median of 3 worlds):
+  lowland green 28.2% (101,128,72) L118 S.47 | forest 9.3% (51,72,34) L66 S.55
+  dry 22.2% (155,141,82) L139 S.50 | rock 26.6% (119,120,106) L119 S.13
+  snow 1.1% (199,209,201) L206 S.06 (mostly snow/green mixed pixels at fit)
+Satellite BEFORE, x1: lowland green 24.4% (110,124,81) L117 S.37 | forest 5.9%
+  (63,79,44) L72 | dry 27.0% (157,145,92) L143 | rock 32.6% (128,124,107) L124
+  | snow 1.3% (215,209,193) L209
+Natural Vibrant, x1: lowland green 39.5% (108,122,76) L116 | forest 4.7%
+  (70,83,47) L78 | dry 38.1% (157,144,90) L143 | rock 12.7% (180,172,139) L172
+  | snow 0.6% (236,230,210) L230
+
+Strength sweeps (same harness and statistics; rc = land_relief_contrast,
+tc = land_tone_contrast; intermediate palettes, so classdist is indicative):
+  rc 0.8, tc 0     x1 lc8 14.83 range 102.7 | x64 lc8 27.55 range 148.6
+  rc 2.0, tc 0     x1 lc8 15.26 range 104.2 | x64 lc8 47.95 range 235.8 (mountain targets only)
+  rc 0.6, tc 0.15  x1 lc8 16.83 range 115.4 | x64 lc8 28.00 range 157.3
+  rc 0.6, tc 0.3   x1 lc8 18.89 range 128.7 | x64 lc8 30.91 range 176.3 (dry class overshot to L153)
+  rc 0.5, tc 0.3   x1 lc8 17.86 range 118.4 | x64 lc8 29.30 range 170.0 (dry ramps darkened)
+  rc 0.3, tc 0.3   x1 lc8 17.79 range 118.1 | x64 lc8 25.91 range 156.9
+  shipped (rc 0.3, tc 0.3, ao 0.35, crest 0.25): the sat_after rows above.
+  Reading: fit-scale relief contrast moves under 1 lc8 level from rc 0.8 to
+  2.0 -- it is limited by the height field, not by the light (the mountain
+  row). x64 is where rc acts; 0.3 puts x64 lc8 at the target's whole-map 25.5.
+  rock_slope_deg 6 -> 10 (an earlier palette) moved x1 rock share only
+  27% -> 24%; volcano flanks stay grey to 10 deg and turn partly green at 20
+  deg. Not changed here: R2's knee is the Ruling CI addendum's, and it
+  interacts with the mountain height-field row.
+  Final tone curve: the straight pivot contrast above (tc 0.3) pushed lit
+  snow past white (flat white blobs on the windowed x16 ladder), so the
+  shipped curve has shoulders holding 0 and 255 (render.rs `land_tone`).
+  With it: tc 0.3 x1 range 112.7 | x64 134.9; tc 0.5 (shipped) 121.9 |
+  145.9; tc 0.7 131.2 | 156.8 (x64 shadows read too dark).
+
+Snow kept below white (shipped): with snow ramps near 246 the windowed x16
+frame over 71077345's ice cap was 25.5 % pure white (254+; Natural Vibrant
+14.5 %) and read as a flat blob; with the shipped ramps near 205 it is 8.8 %
+and shows its texture (x4 1.3 %, x64 14.6 %; Natural Vibrant 3.4 / 18.7 %).
+The cost: the x1 snow class mean falls to L206 against the target's 224,
+and x1 p95 to 174 (target 186). The rows above are the shipped values.
+
+Windowed screen (Godot 4.7.1, this DLL, _zoomdetail_probe.gd --look
+"Satellite relief" vs the default look, worlds above, mountain and forest
+picks): 06_windowed_screen_vibrant_vs_satellite.jpg.

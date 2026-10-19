@@ -28,7 +28,11 @@
 //! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
 //! the terrain-streak spike's `ZD_STREAK` (see `world_params`), Ruling CO's
 //! `ZD_FURROWS=<strength>` (the volcano tile furrows; `0` = before),
-//! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`.
+//! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`. `ZD_X1=1`
+//! adds the fit frame; `ZD_MASK=1` writes each frame's land mask
+//! (`mask_frame`, Ruling CU's land-only statistics); `ZD_APP=1` attaches the
+//! app's lithology and peak altitude (see the law loop); `ZD_SET` writes
+//! tunables over the look by name.
 //!
 //! ```text
 //! ZD_OUT=<dir> cargo test -p cartalith-godot --test zoom_detail_ladder -- --ignored --nocapture
@@ -337,6 +341,46 @@ fn frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32
     child.iter().zip(&parent).map(|(&c, &p)| (p as f64 + (c as f64 - p as f64) * morph).round() as u8).collect()
 }
 
+/// `ZD_MASK=1` (the Satellite relief land tone pass, Ruling CU, 2026-10-19):
+/// a land mask for one frame, white where the screen pixel's coarse
+/// position lies inside land on every side, black elsewhere. It is an
+/// **input** mask -- read from the height field and the sea level, never from
+/// the rendered colour under test (`MISTAKES.md`, "Measure an effect inside a
+/// subset of pixels") -- and it is eroded by one cell (all four bilinear
+/// corners must be land; at x1 every cell of the box) so coast and beach
+/// pixels, which take the sea's shelf blend, never enter a land statistic.
+/// The same screen mapping as [`level_frame`] (and [`fit_frame`] at x1), so
+/// mask and frame are pixel-registered.
+fn mask_frame(ctx: &RenderCtx, gx: f64, gy: f64, ppc: f64, x1: bool) -> Vec<u8> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let land = |x: usize, y: usize| ctx.field[y * gw + x] as f64 >= ctx.sea_level;
+    let mut out = vec![0u8; SCREEN_W * SCREEN_H];
+    if x1 {
+        let ow = SCREEN_W;
+        let oh = ((gh as f64 * ow as f64 / gw as f64).round() as usize).min(SCREEN_H);
+        for oy in 0..oh {
+            for ox in 0..ow {
+                let (x0, x1) = (ox * gw / ow, ((ox + 1) * gw / ow).max(ox * gw / ow + 1));
+                let (y0, y1) = (oy * gh / oh, ((oy + 1) * gh / oh).max(oy * gh / oh + 1));
+                let all = (y0..y1).all(|y| (x0..x1).all(|x| land(x, y)));
+                out[oy * SCREEN_W + ox] = if all { 255 } else { 0 };
+            }
+        }
+        return out;
+    }
+    for sy in 0..SCREEN_H {
+        let cy = (gy + (sy as f64 + 0.5 - SCREEN_H as f64 / 2.0) / ppc).clamp(0.0, (gh - 1) as f64);
+        for sx in 0..SCREEN_W {
+            let cx = (gx + (sx as f64 + 0.5 - SCREEN_W as f64 / 2.0) / ppc).clamp(0.0, (gw - 1) as f64);
+            let (x0, y0) = (cx as usize, cy as usize);
+            let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
+            let all = land(x0, y0) && land(x1, y0) && land(x0, y1) && land(x1, y1);
+            out[sy * SCREEN_W + sx] = if all { 255 } else { 0 };
+        }
+    }
+    out
+}
+
 /// One level's tiles composited to the screen frame (see [`frame`]).
 fn level_frame(ctx: &RenderCtx, tf: &TileFields, gx: f64, gy: f64, ppc: f64, seed: i32, z: i32) -> Vec<u8> {
     let (gw, gh) = (ctx.gw, ctx.gh);
@@ -445,8 +489,35 @@ fn zoom_detail_ladder() {
             if let Some(f) = fur_strength {
                 a.edifice_furrows = f;
             }
+            // `ZD_APP=1` (Ruling CU's tone pass): the two inputs the app's
+            // screen context carries and this harness otherwise leaves out --
+            // the world's peak altitude in the look (`WorldGen::
+            // appearance_rebased` fills `npr.peak_m`, which the Satellite
+            // relief slope stages need to fire at all) and the lithology
+            // (`build_lithology` over the same field, as `lib.rs`'s screen
+            // context attaches it), so rock is drawn from the seven rock
+            // palettes the app draws it from. Unset = the frames as before.
+            // `ZD_SET=key=value,...`: tunables written over the look by name
+            // (`TerrainAppearance::set_tunable`, clamped to their declared
+            // ranges), for tuning a look without a rebuild. An unknown key or
+            // an unparsable value is refused rather than silently ignored.
+            if let Ok(v) = std::env::var("ZD_SET") {
+                for kv in v.split(',').filter(|t| !t.is_empty()) {
+                    let (k, x) = kv.split_once('=').unwrap_or_else(|| panic!("ZD_SET: expected key=value, got {kv}"));
+                    let x: f64 = x.parse().unwrap_or_else(|_| panic!("ZD_SET: {k} needs a number"));
+                    assert!(a.set_tunable(k, x), "ZD_SET: unknown tunable {k}");
+                }
+            }
+            let app = std::env::var("ZD_APP").ok().is_some_and(|v| v == "1");
+            if app {
+                a.npr.peak_m = p.peak_m;
+            }
+            let lith = app.then(|| cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level as f64));
             let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
-            let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context").with_edifice_frame(&frame_v, p.peak_m);
+            let mut ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("context").with_edifice_frame(&frame_v, p.peak_m);
+            if let Some(l) = lith.as_ref() {
+                ctx = ctx.with_lithology(l);
+            }
             let tf = TileFields::new(&ctx, None);
             for &(name, gx, gy) in &tg {
                 for &(rung, ppc) in &rungs {
@@ -458,6 +529,14 @@ fn zoom_detail_ladder() {
                     let path = format!("{out}/{}_{name}_{rung}_law{law}{tag}.png", w.tag);
                     std::fs::write(&path, png).unwrap();
                     println!("  {name} ({gx},{gy}) {rung} ppc {ppc} law {law}: {:.2}s -> {path}", t1.elapsed().as_secs_f64());
+                    // `ZD_MASK=1`: the frame's land mask beside it (see
+                    // [`mask_frame`]); look-independent, so one per frame name.
+                    if std::env::var("ZD_MASK").ok().is_some_and(|v| v == "1") {
+                        let m = mask_frame(&ctx, gx, gy, ppc, rung == "x1");
+                        let rgb: Vec<u8> = m.iter().flat_map(|&v| [v, v, v]).collect();
+                        let png = cartalith_assets::raster::encode_png_rgb8(SCREEN_W as u32, SCREEN_H as u32, rgb, cartalith_assets::raster::PngColour::Data).unwrap();
+                        std::fs::write(format!("{out}/{}_{name}_{rung}_mask.png", w.tag), png).unwrap();
+                    }
                 }
             }
         }

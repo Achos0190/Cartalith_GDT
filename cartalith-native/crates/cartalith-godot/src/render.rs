@@ -2196,6 +2196,49 @@ pub struct TerrainAppearance {
     /// kilometre lattice without kilometres would be a guess).
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub canopy_texture: f64,
+    /// **Ruling CU** (owner, 2026-10-19: the Satellite relief land tone
+    /// pass): how much harder the land's light curve is driven **about the
+    /// light of flat ground**, `0..=2`. The lit level
+    /// `relief_ambient + relief_gain * shade^0.85` becomes
+    /// `pivot + (light - pivot) * (1 + k)`, where `pivot` is that same curve
+    /// at the shade flat ground receives ([`flat_land_light`]), floored at
+    /// zero. Flat ground keeps its mean brightness (its only deviation from
+    /// the pivot is the zero-mean micro grain, whose spread grows with the
+    /// rest); sunward slopes get brighter and shadowed slopes darker, which
+    /// is the hillshade contrast
+    /// the target render has and the shipped looks lack (measured land-only
+    /// at fit: local contrast `lc8` 14.3 in Satellite relief against the
+    /// target's 25.5; `cartalith-native/docs/evidence/satellite-land-tone-2026-10-19/measurements.txt`).
+    ///
+    /// Land only: it lives in [`land_color`], so the screen, the export bake
+    /// and the deep-zoom tiles all take it (one function, three callers), and
+    /// the sea's own shade never sees it. **`0.0` -- `default()`, every look
+    /// but Satellite relief, and `js_reference()` -- is off by control flow**
+    /// (the light is the expression it always was). Must never move flat
+    /// ground's mean brightness and must never go negative.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub land_relief_contrast: f64,
+    /// **Ruling CU**'s second land term: a luminance contrast on the lit land
+    /// colour about [`LAND_TONE_PIVOT`], `0..=1`. Luminance only -- the
+    /// colour is scaled by `Y' / Y` with `Y'` an S-curve of slope `1 + k` at
+    /// the pivot that holds black and white ([`land_tone`]), so hue and
+    /// saturation ratio are kept and a dark forest goes darker, a snowfield
+    /// brighter without clipping, ground near the pivot stays put.
+    ///
+    /// Why: at whole-map scale the target's land classes sit further apart in
+    /// value than the look draws them (forest 64 against 67-69, snow 224
+    /// against 210, measured land-only; `cartalith-native/docs/evidence/
+    /// satellite-land-tone-2026-10-19/measurements.txt`), while the mid classes (lowland green, dry ground, rock) already
+    /// match within a few levels -- a pivot contrast moves exactly the ends.
+    ///
+    /// Land only and in [`land_color`], so screen, export and tiles agree.
+    /// After the light and its chroma, before the world paint tint, the
+    /// Painter styles, the river symbol and `ao * vignette`. **`0.0` --
+    /// `default()`, every look but Satellite relief, `js_reference()` -- is
+    /// off by control flow.** Must never change hue, never go negative, and
+    /// never touch water.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub land_tone_contrast: f64,
     /// **The river symbol's style** (owner, 2026-09-27: *"the only issue I
     /// have with the rivers: they're drawn on top of the style"*). Since then
     /// a generated world's rivers take the style: the deep-zoom tiles
@@ -2611,6 +2654,10 @@ impl Default for TerrainAppearance {
             rock_slope_deg: 0.0,
             // Ruling CI's canopy texture: Satellite relief only.
             canopy_texture: 0.0,
+            // Ruling CU's land tone pass: Satellite relief only (see the
+            // fields); off by control flow here.
+            land_relief_contrast: 0.0,
+            land_tone_contrast: 0.0,
             // The river symbol at RV-2's own look: its width, opaque, its
             // palette untouched, under the Painter styles.
             river_width: 1.0,
@@ -2913,6 +2960,9 @@ impl TerrainAppearance {
             rock_slope_deg: 0.0,
             // Ruling CI's canopy texture: port-only, off by control flow.
             canopy_texture: 0.0,
+            // Ruling CU's land tone pass: port-only, off by control flow.
+            land_relief_contrast: 0.0,
+            land_tone_contrast: 0.0,
             // The reference draws no river symbol into its map at all
             // (`drawRiverWays` is a separate canvas pass), and nothing here
             // attaches a `RiverLayer`, so these five are unread on the parity
@@ -3088,6 +3138,19 @@ pub const LOOK_SATELLITE: &str = "Satellite relief";
 ///   anywhere on today's height field. That is a stylisation, disclosed here;
 ///   real ranges are the parked H1 row (addendum item 1).
 /// * **Haze off**: the target has no plate-edge fade.
+/// * **The land tone pass** (Ruling CU, owner 2026-10-19, after *"Satellite
+///   Relief looks near identical to Natural Vibrant"*): the greens, forest,
+///   dry ground, rock and snow ramps re-pitched toward the target's measured
+///   land-only class colours; full material chroma (`bio_blend` 1,
+///   `biome_sat` 0.30); [`TerrainAppearance::land_relief_contrast`] and
+///   [`TerrainAppearance::land_tone_contrast`] (both new, `0.0` everywhere
+///   else); stronger curvature, cavity and crest cues; half the warm/cool
+///   light split. Measured against the target, land only, on three worlds at
+///   x1/x4/x16/x64 (`cartalith-native/docs/evidence/
+///   satellite-land-tone-2026-10-19/measurements.txt`). What it cannot do,
+///   stated: fit-scale relief is the height field's (the mountain-range row),
+///   and the share of forest versus dry ground is the world's climate, not a
+///   colour.
 ///
 /// Not in it: forest canopy (deferred by the brief), and anything a cheap
 /// tier switched off -- this sets colours and strengths only, like the other
@@ -3096,8 +3159,8 @@ pub const LOOK_SATELLITE: &str = "Satellite relief";
 /// smoothsteps per pixel.
 ///
 /// Must never be the default look, and must never change what the other looks
-/// draw: every field it sets is either new and `0.0` elsewhere, or a value
-/// the other looks already set for themselves.
+/// draw: every field it sets is either new and `0.0` elsewhere, or an
+/// existing appearance field overridden in this look's own record only.
 fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
     // The three depth palettes from SEA_RAMP_SATELLITE's own stops, each a
     // flat-ish three-stop ramp (the grain `n_low` walks along it) so the
@@ -3129,6 +3192,70 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         // Ruling CI's forest canopy (2026-10-18). Full strength is
         // [`canopy_relief`]'s own scale; see the field's doc.
         canopy_texture: 1.0,
+        // --- Ruling CU (2026-10-19): the land tone pass. Every value below
+        // is a labelled judgement tuned against the target's land-only
+        // measurement (`cartalith-native/docs/evidence/satellite-land-tone-2026-10-19/measurements.txt`: per-class mean
+        // colours at whole-map scale -- lowland green (100, 124, 63), forest
+        // (44, 73, 34), dry (164, 143, 91), rock (116, 119, 107), snow
+        // (222, 225, 224)) and judged by eye at x1/x4/x16/x64.
+        //
+        // Greens: toward the target's hue, which is greener (less red) than
+        // Natural Vibrant's yellow-green, and forest darker and cooler.
+        grass_temp: [(84.0, 120.0, 48.0), (102.0, 142.0, 55.0), (126.0, 164.0, 66.0)],
+        grass_boreal: [(80.0, 106.0, 62.0), (94.0, 122.0, 72.0), (112.0, 140.0, 86.0)],
+        wood_temp: [(38.0, 62.0, 30.0), (48.0, 78.0, 36.0), (62.0, 96.0, 46.0)],
+        wood_dense: [(30.0, 50.0, 26.0), (38.0, 62.0, 30.0), (50.0, 78.0, 38.0)],
+        wood_boreal: [(36.0, 54.0, 38.0), (46.0, 66.0, 46.0), (58.0, 82.0, 56.0)],
+        // Dry ground: a little darker and warmer than Natural Vibrant's, so
+        // that after the tone contrast below (which lifts everything above
+        // its pivot) it lands near the target's ochre-tan.
+        grass_dry: [(140.0, 122.0, 80.0), (160.0, 138.0, 92.0), (176.0, 154.0, 104.0)],
+        grass_sav: [(164.0, 142.0, 82.0), (180.0, 156.0, 94.0), (196.0, 172.0, 110.0)],
+        sand_desert: [(186.0, 146.0, 74.0), (204.0, 162.0, 82.0), (220.0, 182.0, 104.0)],
+        // Rock: the target's is a near-neutral grey with a faint green cast,
+        // not the shipped warm granite and khaki limestone.
+        rock_granite: [(112.0, 114.0, 110.0), (134.0, 136.0, 132.0), (156.0, 158.0, 153.0)],
+        rock_scree: [(98.0, 100.0, 97.0), (114.0, 116.0, 112.0), (132.0, 134.0, 130.0)],
+        rock_limestone: [(150.0, 150.0, 142.0), (172.0, 172.0, 164.0), (194.0, 194.0, 186.0)],
+        // Snow and ice: neutral to faintly cool white, a little blue of white
+        // because the look's warm-sun shift (`relief_chroma`) pushes lit snow
+        // toward yellow. Deliberately BELOW white: flat ground is lit at
+        // about 1.14 ([`flat_land_light`]), so a material of 240+ clips to
+        // pure white and loses its shading -- measured on the windowed x16
+        // ladder over 71077345's ice cap, 25.5 % of the frame at 254+ with
+        // ramps near 246 (Natural Vibrant: 14.5 %). At about 205 lit flat
+        // snow lands near 235 after the tone curve, the target's snow mean
+        // being 224 with shading.
+        snow_seas: [(190.0, 196.0, 202.0), (200.0, 205.0, 210.0), (208.0, 212.0, 217.0)],
+        snow_perm: [(196.0, 201.0, 206.0), (206.0, 210.0, 214.0), (214.0, 217.0, 221.0)],
+        snow_glac: [(178.0, 196.0, 206.0), (190.0, 205.0, 213.0), (200.0, 213.0, 220.0)],
+        // Full material chroma at the light (the target is imagery, not a
+        // faded plate): `bio_blend` 1 skips the grey pull by its branch.
+        bio_blend: 1.0,
+        biome_sat: 0.30,
+        // Relief and edge contrast. `land_relief_contrast` 0.3: at x64 the
+        // land-only local contrast (`lc8`) lands at the target's whole-map
+        // 25.5 (0.8 measured 27.6 and read as near-black noise in shadow).
+        // At fit it moves `lc8` by under 1 at any strength up to the 2.0
+        // ceiling: fit-scale relief is limited by the height field, which is
+        // the mountain-range row (Ruling CU item 1), not this pass.
+        // `curve_shade`, `ao_strength` and `crest_strength` above Natural
+        // Vibrant's 0.28 / 0.20 / 0.12: the sun-independent ridge and cavity
+        // cues, which raised fit-scale `hf2`/`lc8` by about 0.4 each.
+        // `land_tone_contrast` 0.5 (of the curve's 0..1): fit-scale land
+        // luma range 99 -> 122 against the target's 135 and x64 range 146,
+        // where 0.7 measured 131 / 157 and over-darkened x64 shadow (with
+        // the brighter snow ramps first tried; with the shipped below-white
+        // snow, 113.5 at fit and 135.6 at x64).
+        land_relief_contrast: 0.3,
+        land_tone_contrast: 0.5,
+        curve_shade: 0.5,
+        ao_strength: 0.35,
+        crest_strength: 0.25,
+        // Half Natural Vibrant's warm-sun / cool-shadow split: at 1.0 lit
+        // rock read brown-pink and lit snow cream, where the target's are
+        // grey and white.
+        relief_chroma: 0.5,
         ..base
     }
 }
@@ -3294,6 +3421,12 @@ tunables! {
     "snow_shed_deg"         => snow_shed_deg,         0.0,  90.0,  "Snow shed slope (deg)";
     "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
     "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
+    // -- Not a reference row (Ruling CU, 2026-10-19): the Satellite relief
+    //    land tone pass. The 2.0 ceiling (three times the flat-relative
+    //    swing) is a labelled judgement: past it shadowed slopes clip to the
+    //    zero floor over most of a range --
+    "land_relief_contrast"  => land_relief_contrast,  0.0,   2.0,  "Land relief contrast";
+    "land_tone_contrast"    => land_tone_contrast,    0.0,   1.0,  "Land tone contrast";
     // -- The river symbol (owner, 2026-09-27: rivers must go through the
     //    style, not sit on top of it). Inert without a river layer, which
     //    only the base view's colour field and the LOD tiles build -- see the
@@ -6539,6 +6672,63 @@ pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
     (c.0 + (TOON_INK.0 - c.0) * k, c.1 + (TOON_INK.1 - c.1) * k, c.2 + (TOON_INK.2 - c.2) * k)
 }
 
+/// The pivot of [`TerrainAppearance::land_tone_contrast`], in 0-255 Rec.709
+/// luminance. A labelled judgement from the target's land-only class means
+/// (`cartalith-native/docs/evidence/satellite-land-tone-2026-10-19/measurements.txt`): between lowland green (114) and
+/// rock (117) on one side and dry ground (143) on the other, nearer the
+/// classes that cover most land, so those barely move and the dark forest and
+/// bright snow ends separate.
+pub const LAND_TONE_PIVOT: f64 = 120.0;
+
+/// [`TerrainAppearance::land_tone_contrast`]'s curve: `c` scaled by
+/// `Y' / Y`, where `Y'` is a smooth S-curve through the pivot with slope
+/// `1 + k` there and the ends held: below the pivot
+/// `Y' = Y - k * (P - Y) * Y / P` (0 stays 0), above it
+/// `Y' = Y + k * (Y - P) * (255 - Y) / (255 - P)` (255 stays 255). Monotone
+/// for `k` in `0..=1` (its slope at either end is `1 - k`), so it never
+/// inverts and never clips: a straight `P + (Y - P)(1 + k)` was tried first
+/// and pushed lit snow past white -- flat white blobs at x16 on the windowed
+/// ladder (2026-10-19). A luminance at or above 255 (a lit highlight) and
+/// black (`Y <= 0`, no ratio to take) are returned unchanged. Scaling all
+/// three channels by one factor keeps hue and the max/min chroma ratio
+/// exactly. A pure function.
+pub(crate) fn land_tone(c: Rgb, k: f64) -> Rgb {
+    let y = luma(c);
+    if y <= 0.0 || y >= 255.0 {
+        return c;
+    }
+    let p = LAND_TONE_PIVOT;
+    let yt = if y < p { y - k * (p - y) * y / p } else { y + k * (y - p) * (255.0 - y) / (255.0 - p) };
+    let s = yt / y;
+    (c.0 * s, c.1 * s, c.2 * s)
+}
+
+/// The land light curve's value on **flat ground** -- the pivot of
+/// [`TerrainAppearance::land_relief_contrast`] (Ruling CU, 2026-10-19).
+///
+/// On a horizontal surface (`n = (0, 0, 1)`) every light of the relief rig
+/// returns its own `sin(altitude)`: the six-light rig ([`build_lights`])
+/// shares `sun_alt_deg` and its weights sum to one, and the single-sun path is
+/// the same dot product, so the macro and meso shades are both
+/// `sin(sun_alt_deg)`. The one exception is the Painter's multi-sun rig, which
+/// replaces the macro shade only ([`RenderCtx::shade`]'s `step == 1` branch)
+/// and is asked directly. The micro band is the macro shade plus zero-mean
+/// grain, so it is the macro value here. The band weights are the caller's
+/// (the appearance's own, or LOD-D5's scaled ones on a tile), so the pivot is
+/// the flat light that pixel would actually receive.
+///
+/// Why flat ground: it is the one surface every zoom and every path agrees on,
+/// and pivoting there means the pass adds slope contrast without moving the
+/// mean brightness of plains, which carry most of a map's land.
+/// Toon banding is not modelled (the Satellite relief look draws none). Never
+/// reads a field; a pure function of the appearance.
+pub(crate) fn flat_land_light(a: &TerrainAppearance, w_macro: f64, w_meso: f64, w_micro: f64) -> f64 {
+    let sun = a.sun_alt_deg.to_radians().sin().max(0.0);
+    let macro_flat = if a.npr.multi_sun { multi_sun_from_normal(a, 0.0, 0.0, 1.0) } else { sun };
+    let shade = clamp01(w_macro * macro_flat + w_meso * sun + w_micro * macro_flat);
+    a.relief_ambient + a.relief_gain * shade.powf(0.85)
+}
+
 /// `landColorCore`'s unconditional core (7720-7960): eco-jitter, the
 /// six-material blend with canopy understory shadow, the beach rim, fine
 /// noise grain, multi-scale hillshade, the `bioBlend` grey blend, the edge
@@ -7154,6 +7344,17 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         shade
     };
     let light = appearance.relief_ambient + appearance.relief_gain * shade.powf(0.85);
+    // Ruling CU's land tone pass: the light driven harder about flat
+    // ground's own light, so relief gains contrast and flat ground keeps its
+    // brightness -- see [`TerrainAppearance::land_relief_contrast`]. Before
+    // everything that reads `light` (the composite, `bio_blend`'s grey,
+    // relief chroma), so they see one light. `0.0` skips it by the branch.
+    let light = if appearance.land_relief_contrast > 0.0 {
+        let pivot = flat_land_light(appearance, w_macro, w_meso, w_micro);
+        (pivot + (light - pivot) * (1.0 + appearance.land_relief_contrast)).max(0.0)
+    } else {
+        light
+    };
     // The stack's second and last composite site. The default arm is the line
     // this file has always had; the other arm is the only place a blend mode
     // or a reordering can take effect. Everything below — bio_blend,
@@ -7238,6 +7439,16 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         let wet = hydro_wet * appearance.hydro_wet_strength;
         let target = (50.0, 68.0, 74.0);
         l = (l.0 + (target.0 - l.0) * wet, l.1 + (target.1 - l.1) * wet, l.2 + (target.2 - l.2) * wet);
+    }
+
+    // Ruling CU's land tone contrast -- see
+    // [`TerrainAppearance::land_tone_contrast`]. After the light, its
+    // chroma, the haze and the wet tint, so it acts on the lit colour; before
+    // the world paint tint, the Painter styles and the river symbol, which are
+    // drawn ON the map rather than being its ground. `0.0` skips it by the
+    // branch.
+    if appearance.land_tone_contrast > 0.0 {
+        l = land_tone(l, appearance.land_tone_contrast);
     }
 
     // The paint brush's Biome/Terrain tint (7897-7901) — the reference's own
