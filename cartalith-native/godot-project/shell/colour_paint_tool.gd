@@ -516,10 +516,13 @@ func _rebuild_layers() -> void:
 			name_b.modulate.a = 0.55
 		name_b.pressed.connect(func(): select_layer(i))
 		## LOCK / LOCKED in Plex Mono rather than a glyph, as the seed lock does
-		## (`new_world_dialog.gd::_build_seed_lock`): `DccIcons.SYMBOLS["locked"]`
-		## is an emoji the bundled fonts do not draw (measured here: it rendered
-		## as "ǵ12"). The word carries the state for a reader with no sight of
-		## the dimming.
+		## (`new_world_dialog.gd::_build_seed_lock`). The word carries the state
+		## for a reader with no sight of the dimming. (Corrected 2026-10-19: this
+		## said `DccIcons.SYMBOLS["locked"]` was an emoji the fonts do not draw,
+		## "measured here: it rendered as ǵ12". The ǵ12 was the entry's own
+		## escape, `"\U0001F512"`, which GDScript 4 reads as U+01F5 + "12";
+		## fixed in `dcc_icons.gd`. The glyph is not in Plex Mono and draws only
+		## through the system-font fallback, so the word stays.)
 		var lock := _layer_button(row, "LOCKED" if locked else "LOCK", t,
 			"Locked: its marks cannot be painted on, cleared or deleted. Press to unlock." if locked else "Unlocked. Press to lock this layer's marks.")
 		lock.add_theme_font_override("font", DccTheme.mono(1, true))

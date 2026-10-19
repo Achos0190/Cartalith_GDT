@@ -393,7 +393,12 @@ const SYMBOLS := {
 	"unchecked": "\u2610", "tick": "\u2713", "cross": "\u2715", "add": "+",
 	"delete": "\u232B", "undo": "\u21B6", "redo": "\u21B7", "play": "\u25B6",
 	"pause": "\u23F8", "drawer": "\u2630", "panels": "\u25A4", "overflow": "\u22EF",
-	"locked": "\U0001F512",
+	## U+1F512 LOCK. GDScript 4's `\U` takes exactly SIX hex digits: Godot
+	## 4.7.2 parses `"\U0001F512"` as U+01F5 (ǵ) followed by "12", which is
+	## what this entry drew until 2026-10-19, and the brace form `\u{...}` is
+	## a parse error. Not in Plex Mono: it draws through `DccTheme.mono()`'s
+	## system-font fallback.
+	"locked": "\U01F512",
 	## The journey planner mockup's own three severity glyphs (`design/Journey
 	## Planner DCC.dc.html`), used verbatim -- dingbat-class Unicode symbols
 	## like the rest of this table, not colour emoji.

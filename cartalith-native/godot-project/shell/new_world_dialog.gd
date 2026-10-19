@@ -1959,9 +1959,13 @@ func _build_seed_dice() -> void:
 
 ## The seed lock (proposal §3, Q4: on for the session, never saved). A toggle
 ## beside the dice, reading LOCK / LOCKED in Plex Mono rather than a glyph:
-## `DccIcons` carries no lock mark and its `SYMBOLS["locked"]` is an emoji that
-## the bundled fonts do not draw (that file's own standing rule: a typographic
-## symbol stays text only where the glyph exists). While on, the dice is
+## `DccIcons` carries no lock mark, and `SYMBOLS["locked"]` (U+1F512) is not in
+## Plex Mono, so it would draw only through `DccTheme.mono()`'s system-font
+## fallback, without Plex's metrics; the word stays. (Corrected 2026-10-19:
+## this said the bundled fonts could not draw the glyph at all. What failed
+## was the entry's own escape, `"\U0001F512"`, which GDScript 4 reads as
+## U+01F5 + "12" and drew as ǵ12; fixed in `dcc_icons.gd`, and the glyph now
+## renders.) While on, the dice is
 ## disabled and `randomise_seed()` returns without rolling. A typed seed still
 ## wins: the user typed it (proposal §3).
 func _build_seed_lock() -> void:

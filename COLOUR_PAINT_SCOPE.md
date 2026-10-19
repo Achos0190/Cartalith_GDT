@@ -579,8 +579,9 @@ before the light and a Colour-blended crust takes the ground's lightness
 (near-white crust on a snow cone). A PAINT LAYERS block lists the layers top
 first, one row each: show/hide (filled/empty dot), the name with its mark count
 (pressed = the active layer, where strokes go; press to select), LOCK/LOCKED
-(text, not the emoji `DccIcons.SYMBOLS["locked"]`, which the bundled fonts do
-not draw), move up, move down; then New layer, Rename…, Clear layer, Delete
+(text, not `DccIcons.SYMBOLS["locked"]`; corrected 2026-10-19: that entry drew
+`ǵ12` because of its own escape, `"\U0001F512"`, not the fonts; fixed, it now
+draws U+1F512 through the system-font fallback, not in Plex Mono), move up, move down; then New layer, Rename…, Clear layer, Delete
 layer on the active layer (disabled, with the reason, on a locked or empty
 layer). Every button is floored at the call site to 44 px on both axes on
 touch (28 px with a pointer), and row text takes the density's prose size.
