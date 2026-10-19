@@ -4,7 +4,7 @@
 their defaults the same day (Ruling CQ, `LARGE_ITEM_RULINGS.md`). §9, the
 line-art research, was added later that day; it proposes AP-10 and asks
 Q-L1…Q-L6, approved at their defaults the same day (Ruling CR). §10 records
-what building AP-1 and AP-2 settled. It defines milestones (AP-1…AP-10) and
+what building AP-1…AP-10 settled. It defines milestones (AP-1…AP-10) and
 the reasoning behind them. It has no status
 column: status lives in `cartalith-native/docs/STATUS.md` and nowhere else.
 
@@ -1007,3 +1007,91 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   1 px at any zoom, at the cost of hardening soft alpha), or keep them
   faithful and soft? Recommended default: **faithful**. Art that should be
   crisp at every zoom can be converted to line art (AP-10), which is exact.
+
+### AP-8: folder import (Ruling CQ Q10)
+
+- **Where it lives.** `cartalith-assets::folder_import` (`list_folder`,
+  `detect_layout`, `plan_folder_import`, `FolderListing::read`);
+  `AssetLibrarySession::import_folder`, bound as `WorldGen::as_import_folder`
+  (`dry_run` / `keep` / `replace`, as AP-1). The store write is AP-1's own,
+  split out of `import_pack` unchanged as `apply_import`, so a folder gets
+  the same conflicts, header checks, colour-managed decode and per-row
+  refusals as a pack. Shell: *Assets ▸ Import folder of art…* (the folder
+  browser, `DccBrowseDialog.choose_folder`) and a second chip on *World ▸
+  Import ▸ Assets* (§4), both `app.gd::open_asset_folder_picker`.
+- **Q10 as built.** The loose-folder adapter first, then the two named
+  layouts, each only as far as the acceptance asks:
+  - **Loose:** every PNG; the chosen folder's name is the set for images
+    directly in it, each subfolder (its path joined with ` / `) its own set.
+  - **Wonderdraft:** `sprites/**` into sets named by the path below
+    `sprites/`; `textures/*` are ground candidates. `.wonderdraft_symbols`
+    is **not parsed**: §3 had only a search summary of its format, so names
+    come from file names and the file is counted as not read.
+  - **Dungeondraft (unpacked):** `textures/objects/**` into sets;
+    `textures/terrain/*` ground candidates; `data/default.dungeondraft_tags`'
+    `"tags"` become library tags on the slot holding each path (`"sets"` is
+    noted, not imported); walls, paths, portals, lights, materials,
+    tilesets, patterns and the preview are counted and left out.
+  - **Variants:** files whose names differ only by a trailing number
+    (`tree_01`, `tree-2`, `tree 3`) are variants of one slot (`variant_base`,
+    a labelled judgement). Items are named after their files.
+  - **Ground candidates:** an image whose name is a ground slot id
+    (`grass.png`, `dirt.png`) fills that slot, first come first served; the
+    rest go to the custom set `Ground candidates`, because the library has
+    no move-to-slot verb. That is the proposal's "picked by the user"
+    reduced to a name match; a real picker is not built.
+- **Licence.** A root-level `LICENSE` / `LICENCE` / `COPYING` (with or
+  without `.txt` / `.md`, at most 64 KiB) lands in each filled slot's blank
+  `SlotMeta.license`, and the result card shows its text (§5). The library's
+  pack licence is not touched: a folder is not a pack.
+- **Nothing outside the folder is read.** The walk records names and sizes
+  without opening a file; a link of any kind (symlink, and on Windows every
+  reparse point, junctions included) is refused and not followed; every read
+  re-resolves its path and refuses one that is no longer under the folder's
+  canonical path; a path that is absolute, names a drive or climbs with `..`
+  is refused before it is joined. Only the files the plan imports, the
+  licence and the tag file are opened. Caps: AP-1's `ImportLimits::DEFAULT`
+  (4 096 files and folders, 64 MiB a file, 512 MiB in all, the IHDR caps),
+  plus 16 folders deep (`FOLDER_MAX_DEPTH`, a labelled judgement).
+- **Android.** The folder browser lists folders but not files another app
+  wrote (`browse_dialog.gd`'s 2026-09-07 measurement), and the engine reads
+  through the same file system, so a folder there imports only what this app
+  can see. Not measured on glass.
+
+### AP-9: pack diff and merge, favourites and recent
+
+- **Where it lives.** `cartalith-assets::pack_diff` (`diff_libraries`,
+  `plan_merge`, `MergePolicy`), pixel-free: an item's identity is its
+  content hash plus its transform. `AssetLibrarySession::diff_pack` /
+  `merge_pack` open the pack into a scratch library through AP-1's
+  `import_pack` and diff or copy from there; bound as `WorldGen::as_pack_diff`
+  and `as_pack_merge`. Shell: *Assets ▸ Compare pack with library…* opens
+  the compare card (one row per differing slot and pack field, Show for a
+  slot the library has) with three merges: **Keep library** (adds slots only
+  the pack fills, changes nothing the library holds), **Keep both** (also
+  appends the pack's images the library lacks as variants; a ground tile
+  keeps the library's), **Take pack** (replaces differing slots and takes
+  the pack's fields). A merge never deletes a slot.
+- **Not compared:** item names and slot metadata, which a pack does not
+  carry (AP-1 names items after the slot id and writes `source`), so they
+  would always differ.
+- **"Keep library leaves B byte-identical", as built:** merging a pack that
+  fills no slot the library lacks leaves the library's full snapshot and its
+  exported pack bytes identical (Rust test and probe); a pack with an extra
+  slot leaves every slot the library filled identical and adds that slot.
+  That is this build's reading of the acceptance, since a merge that adds
+  nothing is not a merge.
+- **Favourites and recent** are slot uids in `DccSettings` (section
+  `asset_library`), per install: they persist across a restart and never
+  travel in a world or a pack. The inspector head's star toggles a
+  favourite; opening a slot (a tile tap, or a card's Show) makes it the most
+  recent (12 kept, a labelled judgement). Both are rows at the top of the
+  library's rail, so the phone's FAMILIES pane shows them without a scroll.
+  A stored uid this library does not hold (a custom slot of a pack not open
+  now) is kept, not counted, and named in the row's tooltip.
+- **Found, not fixed:** on a phone the SLOTS pane's batch verbs (Tag…,
+  Collect…, Rename…, Duplicate, Delete) draw about 115 dp tall: they are
+  `DccWidgets.text_button`s, which floor their own target where they are
+  made, and the window's phone pass floors them again in its own units. The
+  AP-9 star was first built the same way and measured 115 × 115 dp; it is a
+  plain button now (44 × 44 dp). The batch verbs predate AP-9.

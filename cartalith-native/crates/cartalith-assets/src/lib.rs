@@ -115,6 +115,10 @@
 //! [`pack_report`]: the pack report's findings, read-only over the library.
 //! AP-4 added [`seamless`]; AP-6 [`near_dupes`], the near-duplicate finder
 //! the report uses; AP-7 [`refine`], the REFINE verbs' pixel operations.
+//! AP-8 added [`folder_import`]: a loose folder, a Wonderdraft folder or an
+//! unpacked Dungeondraft tree into the library, read under AP-1's caps and
+//! never outside the chosen folder. AP-9 added [`pack_diff`]: slot-by-slot
+//! diff of two libraries and the merge plan.
 //!
 //! What this crate does not hold: the library UI and the sprite-sheet slicer's
 //! canvas interaction (pan/zoom, draggable grid lines, click-to-select) live in
@@ -127,12 +131,15 @@
 #[cfg(feature = "zip")]
 pub mod archive;
 pub mod coast;
+#[cfg(feature = "zip")]
+pub mod folder_import;
 pub mod library;
 pub mod lineart;
 pub mod manifest;
 pub mod manual;
 pub mod near_dupes;
 pub mod ordered_map;
+pub mod pack_diff;
 #[cfg(feature = "zip")]
 pub mod pack_import;
 pub mod pack_report;
@@ -165,6 +172,15 @@ pub use manifest::{
 };
 pub use near_dupes::{MAX_HAMMING, MAX_MEAN_DELTA, NearEntry, NearHash, near_duplicate_groups, near_hash};
 pub use ordered_map::OrderedMap;
+pub use pack_diff::{
+    FieldDiff, MergeAction, MergePlan, MergePolicy, MergeStep, PackDiff, SlotChange, SlotDiff, diff_libraries,
+    plan_merge,
+};
+#[cfg(feature = "zip")]
+pub use folder_import::{
+    FolderLayout, FolderListing, FolderPlan, FolderSlotPlan, GROUND_CANDIDATES_SET, LicenceText, detect_layout,
+    list_folder, plan_folder_import,
+};
 #[cfg(feature = "zip")]
 pub use pack_import::{
     IMPORTED_SET, ImportLimits, ImportPlan, ImportRefusal, PlannedPath, PlannedSlot, SlotTarget,

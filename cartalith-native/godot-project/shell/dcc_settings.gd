@@ -75,6 +75,14 @@ const _SEC_VIEW3D := "view3d"
 ## "landmark filter" block): the master switch, the hidden kinds and the law.
 ## Viewing preference, so install state like the theme -- never a world's.
 const _SEC_LANDMARKS := "landmark_layer"
+## The Asset library's favourites and recently used slots (AP-9,
+## `ASSET_PACK_TOOLS_PROPOSAL.md` gap 15). Browse conveniences of this
+## install, like the recent-projects list, so they persist across a restart
+## and never travel in a world or a pack (Ruling F keeps packs as they are).
+const _SEC_ASSET_LIBRARY := "asset_library"
+## How many recently used slots are kept. **A labelled judgement**: one
+## phone screen of the two-column slot grid holds about a dozen tiles.
+const MAX_RECENT_ASSETS := 12
 ## How many recent projects are kept (`DCC_SHELL_SPEC.md` §2.1: "last 10
 ## projects"); `remember_project()` truncates to it.
 const MAX_RECENT := 10
@@ -903,3 +911,61 @@ static func reset_shortcuts(context: String) -> void:
 	if _cfg.has_section(section):
 		_cfg.erase_section(section)
 		_save()
+
+# -- Asset library favourites and recent (AP-9) ---------------------------------
+
+## The favourite slot uids, in the order they were starred (a missing or
+## malformed value is an empty list). A uid is kept even when this session's
+## library does not hold that slot (a custom slot from a pack not open now);
+## the library window shows only the ones that resolve and counts the rest.
+static func asset_favourites() -> PackedStringArray:
+	_ensure_loaded()
+	return _string_list(_cfg.get_value(_SEC_ASSET_LIBRARY, "favourites", PackedStringArray()))
+
+## Stars or unstars `uid` and saves at once. Answers the new state.
+static func toggle_asset_favourite(uid: String) -> bool:
+	_ensure_loaded()
+	var list := asset_favourites()
+	var on := not list.has(uid)
+	if on:
+		list.append(uid)
+	else:
+		list.remove_at(list.find(uid))
+	_cfg.set_value(_SEC_ASSET_LIBRARY, "favourites", list)
+	_save()
+	return on
+
+## The recently used slot uids, newest first, at most `MAX_RECENT_ASSETS`.
+static func asset_recent() -> PackedStringArray:
+	_ensure_loaded()
+	return _string_list(_cfg.get_value(_SEC_ASSET_LIBRARY, "recent", PackedStringArray()))
+
+## Moves `uid` to the front of the recent list (never duplicating it), caps
+## the list at `MAX_RECENT_ASSETS` and saves. An empty uid is ignored.
+static func remember_asset(uid: String) -> void:
+	if uid == "":
+		return
+	_ensure_loaded()
+	var list := asset_recent()
+	var at := list.find(uid)
+	if at == 0:
+		return
+	if at > 0:
+		list.remove_at(at)
+	list.insert(0, uid)
+	if list.size() > MAX_RECENT_ASSETS:
+		list.resize(MAX_RECENT_ASSETS)
+	_cfg.set_value(_SEC_ASSET_LIBRARY, "recent", list)
+	_save()
+
+## A stored list as a `PackedStringArray`, whichever array type `ConfigFile`
+## read it back as; anything else is an empty list.
+static func _string_list(v) -> PackedStringArray:
+	if v is PackedStringArray:
+		return v
+	if v is Array:
+		var out := PackedStringArray()
+		for x in v:
+			out.append(String(x))
+		return out
+	return PackedStringArray()

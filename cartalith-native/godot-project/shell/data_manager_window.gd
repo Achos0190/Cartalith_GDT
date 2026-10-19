@@ -312,7 +312,7 @@ const PANE_PURPOSE := {
 	"import_heightmap": "a PNG becomes the elevation field, with a tectonic substrate inferred under it",
 	"import_gis": "read a FeatureCollection into the world — settlements and faction territory are placed; ways, rivers, POIs and provinces are counted but not yet placed",
 	"import_world": "a .ctl project archive replaces the whole world — the same loader as File ▸ Open project…",
-	"import_assets": "routes to Assets ▸ Import asset pack .zip…",
+	"import_assets": "routes to Assets ▸ Import asset pack .zip… or Assets ▸ Import folder of art…",
 	"export_maps": "the Region-select marquee as a zipped tile grid, or the whole world as an XYZ / TMS / WMTS tile pyramid",
 	"export_gis": "every generated entity as one document — settlements, ways, rivers, territory, provinces",
 	"export_world": "the whole world as a colour raster, a heightmap and a channel atlas",
@@ -1905,6 +1905,11 @@ func _pattern_prose(col: Control, route: Dictionary) -> void:
 		"import_assets":
 			DccWidgets.note(col,
 				"Routes to Assets ▸ Import asset pack .zip… -- §2.4's own table calls this item a shortcut, not a second implementation.")
+			## AP-8 (`ASSET_PACK_TOOLS_PROPOSAL.md` §4: "World ▸ Import ▸ gains
+			## Assets from a folder…, routed into the Library"). A second chip on
+			## this route rather than a new route, so the route list stays settled.
+			DccWidgets.note(col,
+				"Or Assets ▸ Import folder of art…: a loose folder of PNGs, a Wonderdraft asset folder or an unpacked Dungeondraft folder, read where it is (nothing outside it) into the Asset library.")
 		"export_gis":
 			## DM-03: `export_geojson` (geojson_bridge.rs) over
 			## `cartalith_engine::geojson`, which is golden-verified
@@ -2098,6 +2103,10 @@ func _pattern_actions(route: Dictionary) -> void:
 			DccWidgets.chip(_pane_footer, "Import asset pack .zip…", func():
 				hide()
 				_host.open_asset_pack_picker(), true, 16, 6)
+			## AP-8: the folder import, the same handler as the Assets menu row.
+			DccWidgets.chip(_pane_footer, "Assets from a folder…", func():
+				hide()
+				_host.open_asset_folder_picker(), false, 16, 6)
 		"export_gis":
 			_footer_note("writes to %s" % (_gis_dest if _gis_dest != "" else "—"))
 			## Real only once a run has actually written a file: `reveal_on_disk`

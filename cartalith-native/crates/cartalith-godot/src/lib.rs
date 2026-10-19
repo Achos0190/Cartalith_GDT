@@ -23089,6 +23089,45 @@ fn sim_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, timeline_bridge::SimVal
     (pairs, rejected)
 }
 
+/// The dictionary `as_import_pack` returns and `as_import_folder` extends
+/// (AP-1, AP-8): `{"ok": true, "imported", "skipped", "refused", "rows":
+/// [{section, id, uid, path, status, reason}], "notes", "conflicts",
+/// "conflict_uids"}`, plus `"name"` only when the outcome carries a pack
+/// name (omitted, never defaulted). Split out of `as_import_pack` unchanged
+/// when AP-8 needed the same shape.
+fn import_outcome_dict(out: &asset_bridge::PackImportOutcome) -> VarDictionary {
+    let rows: Array<VarDictionary> = out
+        .rows
+        .iter()
+        .map(|r| {
+            vdict! {
+                "section" => r.section.as_str(),
+                "id" => r.manifest_id.as_str(),
+                "uid" => r.uid.as_str(),
+                "path" => r.path.as_str(),
+                "status" => r.status.key(),
+                "reason" => r.reason.as_str(),
+            }
+        })
+        .collect();
+    let strings = |v: &[String]| -> PackedStringArray { v.iter().map(GString::from).collect() };
+    let mut d = vdict! {
+        "ok" => true,
+        "error" => "",
+        "imported" => out.count(asset_bridge::PackRowStatus::Imported) as i64,
+        "skipped" => out.count(asset_bridge::PackRowStatus::Skipped) as i64,
+        "refused" => out.count(asset_bridge::PackRowStatus::Refused) as i64,
+        "rows" => &rows,
+        "notes" => &strings(&out.notes),
+        "conflicts" => &strings(&out.conflicts),
+        "conflict_uids" => &strings(&out.conflict_uids),
+    };
+    if let Some(name) = &out.pack_name {
+        d.set("name", name.as_str());
+    }
+    d
+}
+
 /// `ASSET_LIBRARY_SCOPE.md` / `GUI_GAP_REGISTER.md` rows AS-01..AS-08/AS-13,
 /// DM-05: the Asset Library authoring session's `#[func]` surface, a thin
 /// `Variant`<->Rust layer over `asset_bridge::AssetLibrarySession` --
@@ -23147,36 +23186,115 @@ impl WorldGen {
             Ok(o) => o,
             Err(e) => return vdict! { "ok" => false, "error" => e },
         };
-        let rows: Array<VarDictionary> = out
-            .rows
+        import_outcome_dict(&out)
+    }
+
+    /// AP-8 (`ASSET_PACK_TOOLS_PROPOSAL.md`, Ruling CQ Q10): import the folder
+    /// at `path` into the library -- a loose folder of PNGs, a Wonderdraft
+    /// asset folder or an unpacked Dungeondraft tree, through
+    /// `asset_bridge::AssetLibrarySession::import_folder`, which documents
+    /// the layouts, the caps and what is never read. `mode` is `as_import_pack`'s
+    /// (`"dry_run"`, `"keep"`, `"replace"`).
+    ///
+    /// Returns `as_import_pack`'s dictionary (rows, notes, conflicts, counts)
+    /// plus `"folder"` (its name), `"layout"` (`"loose"`, `"wonderdraft"`,
+    /// `"dungeondraft"`), `"layout_label"` (words), `"slots"` (how many
+    /// slots the plan fills) and, only when the folder has one, `"licence"`
+    /// and `"licence_file"`. `{"ok": false, "error"}` for an unknown mode or
+    /// a refused folder.
+    #[func]
+    fn as_import_folder(&mut self, path: GString, mode: GString) -> VarDictionary {
+        let mode = match mode.to_string().as_str() {
+            "dry_run" => asset_bridge::PackImportMode::DryRun,
+            "keep" => asset_bridge::PackImportMode::KeepExisting,
+            "replace" => asset_bridge::PackImportMode::Replace,
+            other => return vdict! { "ok" => false, "error" => format!("unknown folder import mode \"{other}\"") },
+        };
+        let r = match self.asset_library.import_folder(&path.to_string(), mode) {
+            Ok(r) => r,
+            Err(e) => return vdict! { "ok" => false, "error" => e },
+        };
+        let mut d = import_outcome_dict(&r.outcome);
+        d.set("folder", r.folder.as_str());
+        d.set("layout", r.layout.key());
+        d.set("layout_label", r.layout.label());
+        d.set("slots", r.slots as i64);
+        if let Some(l) = &r.licence {
+            d.set("licence", l.text.as_str());
+            d.set("licence_file", l.path.as_str());
+        }
+        d
+    }
+
+    /// AP-9: how the pack in `bytes` differs from this library
+    /// (`asset_bridge::AssetLibrarySession::diff_pack`). Read-only.
+    /// `{"ok": true, "empty", "refused", "slots": [{uid, family, name,
+    /// change, pack_items, library_items, same_images}], "fields": [{field,
+    /// pack, library}]}`; `change` is `"only_pack"`, `"only_library"` or
+    /// `"differs"`. `{"ok": false, "error"}` for a pack that cannot be read.
+    #[func]
+    fn as_pack_diff(&self, bytes: PackedByteArray, source: GString) -> VarDictionary {
+        let (diff, refused) = match self.asset_library.diff_pack(bytes.as_slice(), &source.to_string()) {
+            Ok(x) => x,
+            Err(e) => return vdict! { "ok" => false, "error" => e },
+        };
+        let slots: Array<VarDictionary> = diff
+            .slots
             .iter()
-            .map(|r| {
+            .map(|s| {
                 vdict! {
-                    "section" => r.section.as_str(),
-                    "id" => r.manifest_id.as_str(),
-                    "uid" => r.uid.as_str(),
-                    "path" => r.path.as_str(),
-                    "status" => r.status.key(),
-                    "reason" => r.reason.as_str(),
+                    "uid" => s.uid.as_str(),
+                    "family" => s.family.key(),
+                    "name" => s.name.as_str(),
+                    "change" => s.change.key(),
+                    "pack_items" => s.a_items as i64,
+                    "library_items" => s.b_items as i64,
+                    "same_images" => s.same_images as i64,
                 }
             })
             .collect();
-        let strings = |v: &[String]| -> PackedStringArray { v.iter().map(GString::from).collect() };
-        let mut d = vdict! {
+        let fields: Array<VarDictionary> = diff
+            .fields
+            .iter()
+            .map(|f| vdict! { "field" => f.field, "pack" => f.a.as_str(), "library" => f.b.as_str() })
+            .collect();
+        vdict! {
             "ok" => true,
             "error" => "",
-            "imported" => out.count(asset_bridge::PackRowStatus::Imported) as i64,
-            "skipped" => out.count(asset_bridge::PackRowStatus::Skipped) as i64,
-            "refused" => out.count(asset_bridge::PackRowStatus::Refused) as i64,
-            "rows" => &rows,
-            "notes" => &strings(&out.notes),
-            "conflicts" => &strings(&out.conflicts),
-            "conflict_uids" => &strings(&out.conflict_uids),
-        };
-        if let Some(name) = &out.pack_name {
-            d.set("name", name.as_str());
+            "empty" => diff.is_empty(),
+            "refused" => refused as i64,
+            "slots" => &slots,
+            "fields" => &fields,
         }
-        d
+    }
+
+    /// AP-9: merge the pack in `bytes` into this library
+    /// (`asset_bridge::AssetLibrarySession::merge_pack`). `policy` is
+    /// `"keep_library"`, `"take_pack"` or `"keep_both"`
+    /// (`cartalith_assets::MergePolicy`). `{"ok": true, "added", "replaced",
+    /// "appended", "kept", "items", "fields", "notes"}` or `{"ok": false,
+    /// "error"}`.
+    #[func]
+    fn as_pack_merge(&mut self, bytes: PackedByteArray, source: GString, policy: GString) -> VarDictionary {
+        let Some(policy) = cartalith_assets::MergePolicy::from_key(&policy.to_string()) else {
+            return vdict! { "ok" => false, "error" => format!("unknown merge policy \"{policy}\"") };
+        };
+        let out = match self.asset_library.merge_pack(bytes.as_slice(), &source.to_string(), policy) {
+            Ok(o) => o,
+            Err(e) => return vdict! { "ok" => false, "error" => e },
+        };
+        let strings = |v: &[String]| -> PackedStringArray { v.iter().map(GString::from).collect() };
+        vdict! {
+            "ok" => true,
+            "error" => "",
+            "added" => out.added as i64,
+            "replaced" => out.replaced as i64,
+            "appended" => out.appended as i64,
+            "kept" => out.kept as i64,
+            "items" => out.items as i64,
+            "fields" => &strings(&out.fields),
+            "notes" => &strings(&out.notes),
+        }
     }
 
     /// AP-2 (`ASSET_PACK_TOOLS_PROPOSAL.md`): the pack report,

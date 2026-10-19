@@ -119,6 +119,11 @@ pub enum ImportRefusal {
     ManifestTooLarge { cap: u64 },
     /// `pack.json` is not valid JSON of the manifest's shape.
     BadManifest(String),
+    /// AP-8: the chosen path is not a readable folder.
+    FolderUnreadable(String),
+    /// AP-8: the chosen folder holds more files and folders together than
+    /// [`ImportLimits::max_entries`]; the walk stops at the cap.
+    TooManyFiles { cap: usize },
 }
 
 impl std::fmt::Display for ImportRefusal {
@@ -150,6 +155,10 @@ impl std::fmt::Display for ImportRefusal {
                 write!(f, "refused: the manifest is larger than {} MiB", mib(*cap))
             }
             ImportRefusal::BadManifest(e) => write!(f, "pack.json is not a valid manifest ({e})"),
+            ImportRefusal::FolderUnreadable(e) => write!(f, "not a readable folder ({e})"),
+            ImportRefusal::TooManyFiles { cap } => {
+                write!(f, "the folder holds more than {cap} files and folders, over the limit")
+            }
         }
     }
 }

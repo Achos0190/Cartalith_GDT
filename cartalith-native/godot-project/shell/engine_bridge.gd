@@ -7083,6 +7083,45 @@ func as_import_pack(bytes: PackedByteArray, source: String, mode: String) -> Dic
 		mark_world_dirty()
 	return world_gen.as_import_pack(bytes, source, mode)
 
+## AP-8: import the folder at `path` into the library (`WorldGen.as_import_folder`):
+## a loose folder of PNGs, a Wonderdraft asset folder or an unpacked
+## Dungeondraft tree. `mode` is as `as_import_pack`'s. The engine reads the
+## folder itself, under its caps, and never outside it. A dry run does not
+## mark the world dirty; the other modes do.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_import_folder(path: String, mode: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_import_folder"):
+		return {"ok": false, "error": "as_import_folder not available on this binary"}
+	if mode != "dry_run":
+		mark_world_dirty()
+	return world_gen.as_import_folder(path, mode)
+
+## AP-9: how a pack's bytes differ from the library (`WorldGen.as_pack_diff`).
+## Read-only. See the Rust doc for the keys.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_pack_diff(bytes: PackedByteArray, source: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_pack_diff"):
+		return {"ok": false, "error": "as_pack_diff not available on this binary"}
+	return world_gen.as_pack_diff(bytes, source)
+
+## AP-9: merge a pack's bytes into the library (`WorldGen.as_pack_merge`).
+## `policy` is "keep_library", "take_pack" or "keep_both".
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func as_pack_merge(bytes: PackedByteArray, source: String, policy: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen`.
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_pack_merge"):
+		return {"ok": false, "error": "as_pack_merge not available on this binary"}
+	mark_world_dirty()
+	return world_gen.as_pack_merge(bytes, source, policy)
+
 ## AP-2: the pack report (`WorldGen.as_pack_report`). `{"ok": true, "findings":
 ## [{kind, severity, label, text, uid?, index?, colour?}]}`; read-only.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.

@@ -4657,6 +4657,53 @@ func open_pack_in_library_picker() -> void:
 		"opens into the Asset library for editing; the map is not changed",
 		func(path: String): _import_asset_pack(path, false))
 
+## Assets ▸ Import folder of art… (AP-8, Ruling CQ Q10): picks a FOLDER with
+## the same browser the storage roots use (`choose_folder`, which Android
+## keeps too, ruling A), then imports it into the library. Starts at the
+## asset-packs root, where a user is likely to keep art.
+##
+## On Android the browser lists folders but not files other apps wrote
+## (`DccBrowseDialog.choose_file`'s measurement, 2026-09-07), and the engine
+## reads the folder with the same file system, so a folder there imports
+## only what this app can see. Not measured on glass for this row.
+func open_asset_folder_picker() -> void:
+	open_asset_library()
+	DccBrowseDialog.choose_folder(self, "Import folder of art",
+		DccSettings.storage_root("asset_packs"),
+		"a loose folder of PNGs, a Wonderdraft asset folder or an unpacked Dungeondraft folder; nothing outside it is read",
+		func(path: String): _import_asset_folder(path))
+
+## Runs the engine's dry run over `path` and hands the result to the library
+## window, which asks before replacing art and then shows what happened. A
+## binary without `as_import_folder` says so on the status line.
+func _import_asset_folder(path: String) -> void:
+	var dry: Dictionary = bridge.as_import_folder(path, "dry_run")
+	if not bool(dry.get("ok", false)):
+		set_status("hint", "folder not imported — %s" % String(dry.get("error", "unknown error")), "warn")
+		return
+	if int(dry.get("slots", 0)) == 0:
+		set_status("hint", "%s holds no PNG images the library can use" % path.get_file(), "warn")
+		asset_library_window.show_folder_empty(dry, path)
+		return
+	asset_library_window.open_folder_import(path, dry)
+
+## Assets ▸ Compare pack with library… (AP-9): picks a pack and shows the
+## library window's compare card, which offers the merge.
+func open_pack_compare_picker() -> void:
+	open_asset_library()
+	DccBrowseDialog.choose_file(self, "Compare pack with library", PackedStringArray(["zip"]),
+		DccSettings.storage_root("asset_packs"),
+		"compares a pack with the Asset library slot by slot; nothing changes until you merge",
+		func(path: String): _compare_pack(path))
+
+## Reads the picked pack (under the same size check as an import) and opens
+## the compare card. Exposed for the probe, which calls it with a path.
+func _compare_pack(path: String) -> void:
+	var bytes := _read_pack_file(path)
+	if bytes.is_empty():
+		return
+	asset_library_window.compare_pack_bytes(bytes, path.get_file())
+
 ## Reads a picked pack and routes it (AP-1). `apply_to_map` true is Import
 ## pack…: the reference's header import, which loads the pack onto the map
 ## AND fills the library (`_alImportPackZip`, v2.11 line 12307; Ruling CQ

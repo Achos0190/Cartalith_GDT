@@ -34,10 +34,11 @@
 use std::collections::{HashMap, HashSet};
 
 use cartalith_assets::{
-    AssetDB, Anchor, ChromaKey, DecodedImage, Family, Finding, FindingKind, GridRect, ImportLimits, ItemTransform,
-    LibraryItem, SeamScore, SeamlessOutcome, Severity, make_seamless, refine, seam_score,
-    PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive, check_png_header,
-    compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
+    AssetDB, Anchor, ChromaKey, DecodedImage, Family, Finding, FindingKind, FolderLayout, GridRect, ImportLimits,
+    ImportPlan, ItemTransform, LibraryItem, LicenceText, MergeAction, MergePolicy, PackDiff, PlannedSlot, SeamScore,
+    SeamlessOutcome, Severity, diff_libraries, list_folder, make_seamless, plan_folder_import, plan_merge, refine,
+    seam_score, PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive,
+    check_png_header, compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
     read_pack_entries_limited, render_item, sheet_base_name, slice_sheet,
 };
 
@@ -225,6 +226,50 @@ impl PackImportOutcome {
     pub fn count(&self, status: PackRowStatus) -> usize {
         self.rows.iter().filter(|r| r.status == status).count()
     }
+}
+
+/// Per-slot data a folder import carries that a pack does not (AP-8),
+/// index-parallel to the plan's slots.
+pub(crate) struct SlotExtra {
+    /// One item name per path: the file's stem.
+    item_names: Vec<String>,
+    /// Library tags to add to the slot.
+    tags: Vec<String>,
+}
+
+/// Everything [`AssetLibrarySession::import_folder`] reports (AP-8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderImportOutcome {
+    /// The folder's own name.
+    pub folder: String,
+    /// The layout it was read as.
+    pub layout: FolderLayout,
+    /// The licence text found at its root, if any.
+    pub licence: Option<LicenceText>,
+    /// How many library slots the plan fills, before conflicts and refusals:
+    /// zero means the folder held nothing importable.
+    pub slots: usize,
+    /// The same per-path report a pack import gives.
+    pub outcome: PackImportOutcome,
+}
+
+/// What [`AssetLibrarySession::merge_pack`] did (AP-9).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MergeOutcome {
+    /// Slots the pack filled that the library did not.
+    pub added: usize,
+    /// Slots whose items the pack replaced ([`MergePolicy::TakeA`]).
+    pub replaced: usize,
+    /// Slots that gained new variants ([`MergePolicy::KeepBoth`]).
+    pub appended: usize,
+    /// Differing slots left as the library had them.
+    pub kept: usize,
+    /// Items copied in, in total.
+    pub items: usize,
+    /// Pack fields overwritten (`"name"`, `"author"`, `"licence"`).
+    pub fields: Vec<String>,
+    /// Why a policy did less than its name says, per slot.
+    pub notes: Vec<String>,
 }
 
 /// The reference's `(E('alSlSet').value||'Default').trim()||'Default'` (line
@@ -498,6 +543,37 @@ impl AssetLibrarySession {
             })
             .map_err(|e| e.to_string())?
         };
+        let provenance = |slot: &PlannedSlot| format!("{source} ({}/{})", slot.section, slot.manifest_id);
+        Ok(self.apply_import(&plan, &entries, &limits, mode, &provenance, plan.license.as_deref(), None))
+    }
+
+    /// The write half every import shares (AP-1's pack, AP-8's folder):
+    /// conflicts, the dry-run stop, pack fields, and per path the header
+    /// check, the managed decode and the store write. For a pack this is
+    /// exactly AP-1's behaviour: it was `import_pack`'s body until AP-8 split
+    /// it out, unchanged, and the AP-1 tests below still pin it.
+    ///
+    /// - `provenance(slot)` is what a filled slot's blank `SlotMeta::source`
+    ///   receives.
+    /// - `slot_licence` is what a filled slot's blank `SlotMeta::license`
+    ///   receives: the pack's licence for a pack, the folder's licence text
+    ///   for a folder. It never touches the library's pack licence, which
+    ///   only `plan.license` (a pack's manifest) can change.
+    /// - `extras`, index-parallel to `plan.slots` when given (a folder),
+    ///   names each item after its file and carries tags; `None` (a pack)
+    ///   names every item after its slot id, the reference's `label`.
+    #[allow(clippy::too_many_arguments)]
+    fn apply_import(
+        &mut self,
+        plan: &ImportPlan,
+        entries: &PackEntries,
+        limits: &ImportLimits,
+        mode: PackImportMode,
+        provenance: &dyn Fn(&PlannedSlot) -> String,
+        slot_licence: Option<&str>,
+        extras: Option<&[SlotExtra]>,
+    ) -> PackImportOutcome {
+        let limits = *limits;
         let mut out = PackImportOutcome { pack_name: plan.name.clone(), ..Default::default() };
 
         // Resolve every planned slot to its library uid without creating
@@ -549,7 +625,7 @@ impl AssetLibrarySession {
             }
         }
         if mode == PackImportMode::DryRun {
-            return Ok(out);
+            return out;
         }
 
         // Pack fields: the reference's `if(m.name) E('alPackName').value=m.name`,
@@ -568,12 +644,13 @@ impl AssetLibrarySession {
         }
 
         let mut cleared: HashSet<String> = HashSet::new();
-        for (slot, uid) in plan.slots.iter().zip(&uids) {
+        for (k, (slot, uid)) in plan.slots.iter().zip(&uids).enumerate() {
             if let Some(note) = &slot.note {
                 out.notes.push(note.clone());
             }
+            let extra = extras.and_then(|e| e.get(k));
             let is_conflict = conflicted.contains(uid);
-            for planned in &slot.paths {
+            for (j, planned) in slot.paths.iter().enumerate() {
                 let mut row = PackImportRow {
                     section: slot.section.clone(),
                     manifest_id: slot.manifest_id.clone(),
@@ -622,7 +699,10 @@ impl AssetLibrarySession {
                 if family.is_some_and(|f| !f.is_multi()) {
                     self.clear_slot_items(&target_uid);
                 }
-                match self.insert_decoded(&target_uid, slot.manifest_id.clone(), decoded) {
+                let item_name = extra
+                    .and_then(|e| e.item_names.get(j).cloned())
+                    .unwrap_or_else(|| slot.manifest_id.clone());
+                match self.insert_decoded(&target_uid, item_name, decoded) {
                     Ok(hash) => self.note_colour(hash, &colour),
                     Err(e) => {
                         row.reason = e;
@@ -632,12 +712,19 @@ impl AssetLibrarySession {
                 }
                 if first_write && let Some(meta) = self.db.slot_meta_mut(&target_uid) {
                     if meta.source.trim().is_empty() || is_conflict {
-                        meta.source = format!("{source} ({}/{})", slot.section, slot.manifest_id);
+                        meta.source = provenance(slot);
                     }
-                    if let Some(lic) = &plan.license
+                    if let Some(lic) = slot_licence
                         && (meta.license.trim().is_empty() || is_conflict)
                     {
-                        meta.license = lic.clone();
+                        meta.license = lic.to_string();
+                    }
+                    // Tags (a folder's Dungeondraft tag file): added, never
+                    // duplicated, never removing a tag the slot had.
+                    for tag in extra.map(|e| e.tags.as_slice()).unwrap_or(&[]) {
+                        if !meta.tags.contains(tag) {
+                            meta.tags.push(tag.clone());
+                        }
                     }
                 }
                 row.uid = target_uid;
@@ -645,7 +732,184 @@ impl AssetLibrarySession {
                 out.rows.push(row);
             }
         }
+        out
+    }
+
+    // -- Folder import (AP-8) ----------------------------------------------
+
+    /// Import a folder of art into the library (`ASSET_PACK_TOOLS_PROPOSAL.md`
+    /// AP-8, Ruling CQ Q10): a loose folder, a Wonderdraft asset folder or an
+    /// unpacked Dungeondraft tree, as `cartalith_assets::folder_import`
+    /// detects and plans it. `root` is the folder the user chose.
+    ///
+    /// Everything about safety is the planner's: nothing outside `root` is
+    /// read, links are refused, and AP-1's [`ImportLimits::DEFAULT`] caps the
+    /// walk, each file and the total. The write is AP-1's own
+    /// ([`AssetLibrarySession::apply_import`]), so a filled slot is a
+    /// conflict under `mode` exactly as for a pack, every image is
+    /// header-checked and colour-managed, and a refused file is a row with a
+    /// reason. The folder's licence text, when it has one, goes into each
+    /// filled slot's blank `SlotMeta::license`; the library's pack licence is
+    /// not touched (a folder is not a pack). The folder's name is the
+    /// provenance (`"<folder> (<first file>)"`).
+    pub fn import_folder(&mut self, root: &str, mode: PackImportMode) -> Result<FolderImportOutcome, String> {
+        let limits = ImportLimits::DEFAULT;
+        let listing = list_folder(std::path::Path::new(root), &limits).map_err(|e| e.to_string())?;
+        let (fplan, entries) = {
+            let db = &self.db;
+            plan_folder_import(&listing, &limits, |family, id| {
+                db.slots_in_family(family).iter().any(|s| s.id == id)
+            })
+            .map_err(|e| e.to_string())?
+        };
+        let plan = ImportPlan {
+            name: None,
+            author: None,
+            license: None,
+            slots: fplan
+                .slots
+                .iter()
+                .map(|s| PlannedSlot {
+                    section: s.area.clone(),
+                    manifest_id: s.label.clone(),
+                    target: s.target.clone(),
+                    paths: s.paths.clone(),
+                    note: s.note.clone(),
+                })
+                .collect(),
+        };
+        let extras: Vec<SlotExtra> = fplan
+            .slots
+            .iter()
+            .map(|s| SlotExtra { item_names: s.item_names.clone(), tags: s.tags.clone() })
+            .collect();
+        let folder = fplan.root_name.clone();
+        let provenance = |slot: &PlannedSlot| {
+            format!("{folder} ({})", slot.paths.first().map(|p| p.path.as_str()).unwrap_or(""))
+        };
+        let licence = fplan.licence.as_ref().map(|l| l.text.clone());
+        let mut outcome =
+            self.apply_import(&plan, &entries, &limits, mode, &provenance, licence.as_deref(), Some(&extras));
+        // The planner's notes (links skipped, files left out) come first: they
+        // are about the folder; the apply step's are about slots.
+        let mut notes = fplan.notes.clone();
+        notes.append(&mut outcome.notes);
+        outcome.notes = notes;
+        Ok(FolderImportOutcome {
+            folder: fplan.root_name,
+            layout: fplan.layout,
+            licence: fplan.licence,
+            slots: plan.slots.len(),
+            outcome,
+        })
+    }
+
+    // -- Pack diff and merge (AP-9) ----------------------------------------
+
+    /// Open a pack into a fresh scratch session through AP-1's own
+    /// `import_pack` (so caps, routing and colour conversion are identical),
+    /// for diffing or merging. The live library is not touched.
+    fn scratch_from_pack(bytes: &[u8], source: &str) -> Result<(AssetLibrarySession, PackImportOutcome), String> {
+        let mut scratch = AssetLibrarySession::new();
+        let out = scratch.import_pack(bytes, source, PackImportMode::Replace)?;
+        Ok((scratch, out))
+    }
+
+    /// AP-9: how the pack in `bytes` differs from this library,
+    /// `cartalith_assets::diff_libraries` with the pack as side A. Read-only.
+    /// Also returns how many of the pack's paths were refused on the way in,
+    /// so a caller can say the diff is of what could be read.
+    pub fn diff_pack(&self, bytes: &[u8], source: &str) -> Result<(PackDiff, usize), String> {
+        let (scratch, out) = Self::scratch_from_pack(bytes, source)?;
+        Ok((diff_libraries(&scratch.db, &self.db), out.count(PackRowStatus::Refused)))
+    }
+
+    /// AP-9: merge the pack in `bytes` into this library under `policy`
+    /// (`cartalith_assets::plan_merge` decides; this copies items, pixels and
+    /// colour notes). Never deletes a slot or an item the library holds,
+    /// except [`MergePolicy::TakeA`]'s per-slot replace. A slot the library
+    /// does not fill gets the pack's items and, where blank, its provenance
+    /// and licence. **Keep library** writes nothing to a slot the library
+    /// fills and no pack field.
+    pub fn merge_pack(&mut self, bytes: &[u8], source: &str, policy: MergePolicy) -> Result<MergeOutcome, String> {
+        let (scratch, _) = Self::scratch_from_pack(bytes, source)?;
+        let diff = diff_libraries(&scratch.db, &self.db);
+        let plan = plan_merge(&scratch.db, &self.db, &diff, policy);
+        let mut out = MergeOutcome::default();
+        for step in &plan.steps {
+            if let Some(n) = &step.note {
+                out.notes.push(n.clone());
+            }
+            let indices: Vec<usize> = match &step.action {
+                MergeAction::Keep => {
+                    out.kept += 1;
+                    continue;
+                }
+                MergeAction::Add | MergeAction::Replace => (0..scratch.db.items(&step.uid).len()).collect(),
+                MergeAction::Append(ix) => ix.clone(),
+            };
+            let uid = self.slot_like(&scratch, &step.uid)?;
+            match step.action {
+                MergeAction::Add => out.added += 1,
+                MergeAction::Replace => {
+                    self.clear_slot_items(&uid);
+                    out.replaced += 1;
+                }
+                _ => out.appended += 1,
+            }
+            for i in indices {
+                self.copy_item_from(&scratch, &uid, i);
+                out.items += 1;
+            }
+            let theirs = scratch.db.get(&uid).map(|s| s.meta.clone());
+            if let (Some(theirs), Some(meta)) = (theirs, self.db.slot_meta_mut(&uid)) {
+                if meta.source.trim().is_empty() {
+                    meta.source = theirs.source;
+                }
+                if meta.license.trim().is_empty() {
+                    meta.license = theirs.license;
+                }
+            }
+        }
+        for (field, value) in &plan.fields {
+            match *field {
+                "name" => self.db.pack.name = value.clone(),
+                "author" => self.db.pack.author = value.clone(),
+                _ => self.db.pack.license = value.clone(),
+            }
+            out.fields.push(field.to_string());
+        }
         Ok(out)
+    }
+
+    /// The uid in this library of `scratch`'s slot `uid`: the same frozen
+    /// slot, or a custom slot created here with the same name and set (its
+    /// uid is a slug of both, so it is the same uid). `Err` if they disagree,
+    /// which would mean the two sessions slug differently.
+    fn slot_like(&mut self, scratch: &AssetLibrarySession, uid: &str) -> Result<String, String> {
+        let slot = scratch.db.get(uid).ok_or_else(|| format!("no such slot in the pack: {uid}"))?;
+        if slot.family != Family::Custom {
+            return Ok(uid.to_string());
+        }
+        let mine = self.add_custom_slot(&slot.name, slot.set.as_deref());
+        if mine != uid {
+            return Err(format!("the pack's slot {uid} would land at {mine}"));
+        }
+        Ok(mine)
+    }
+
+    /// Append `scratch`'s item `index` of slot `uid` (item record, decoded
+    /// pixels and colour note) to the same slot here, both stores together.
+    fn copy_item_from(&mut self, scratch: &AssetLibrarySession, uid: &str, index: usize) {
+        let (Some(item), Some(img)) = (scratch.db.items(uid).get(index), scratch.image(uid, index)) else {
+            return;
+        };
+        if self.db.add_item(uid, item.clone()) {
+            self.images.entry(uid.to_string()).or_default().push(img.clone());
+            if let Some(c) = scratch.colour.get(&item.hash) {
+                self.colour.insert(item.hash.clone(), c.clone());
+            }
+        }
     }
 
     /// Add (or return the existing) custom slot — `AssetDB::add_custom_slot`,
@@ -2053,7 +2317,7 @@ mod tests {
 
     /// The reference pack fixture `cartalith-assets` ships (17 PNGs and a
     /// schema-2 `pack.json`; `ASSET_PACK_TOOLS_PROPOSAL.md` §1.5).
-    fn reference_pack() -> Vec<u8> {
+    pub(super) fn reference_pack() -> Vec<u8> {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../cartalith-assets/tests/fixtures/reference_pack.zip");
         std::fs::read(path).expect("reference_pack.zip fixture")
     }
@@ -2064,7 +2328,7 @@ mod tests {
     /// empty**, so a helper mutated to return nothing cannot pass an
     /// equality check vacuously.
     #[allow(clippy::type_complexity)]
-    fn snapshot(s: &AssetLibrarySession) -> (library::PackInfo, Vec<(String, String, Option<String>, library::SlotMeta, Vec<(String, ItemTransform, Vec<u8>)>)>) {
+    pub(super) fn snapshot(s: &AssetLibrarySession) -> (library::PackInfo, Vec<(String, String, Option<String>, library::SlotMeta, Vec<(String, ItemTransform, Vec<u8>)>)>) {
         let mut out = Vec::new();
         for uid in s.db.uids_in_order() {
             let items = s.db.items(&uid);
@@ -2630,3 +2894,8 @@ mod tests {
         assert!(s.image("icons:mountain", 0).is_none());
     }
 }
+
+/// AP-8 and AP-9 session tests, kept in their own file.
+#[cfg(test)]
+#[path = "asset_bridge_ap89_tests.rs"]
+mod ap89_tests;

@@ -841,6 +841,16 @@ var _delete_collection_btn: Button   ## `PARITY_AUDIT.md` §23 F13 -- as_drop_co
 ## real engine call it would sit on top of.
 var _current_unassigned := false
 var _unassigned_row: Dictionary = {}   ## {button, name, count}
+## AP-9 (`ASSET_PACK_TOOLS_PROPOSAL.md` gap 15): the rail's two pinned lists,
+## Favourites and Recent, stored per install in `DccSettings`
+## (`asset_favourites` / `asset_recent`). `_current_pinned` is "favourites",
+## "recent", or "" when neither is the rail's selection; `_pinned_rows` maps
+## each key to its {button, name, count}.
+var _current_pinned := ""
+var _pinned_rows: Dictionary = {}
+## AP-9: the inspector head's star, which adds or removes the focused slot
+## from Favourites.
+var _insp_star: Button
 ## The slot grid; columns come from `GRID_COLS` or `PHONE_GRID_COLS`. Children are
 ## rebuilt by every `_refresh_grid*()`.
 var _grid: GridContainer
@@ -1655,6 +1665,20 @@ func _build_family_rail() -> Control:
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(body)
 
+	## AP-9: Favourites and Recent, at the top of the rail, above the
+	## families. Rows of the same three-column grammar as Unassigned imports,
+	## because they are the same kind of thing: a browse view over slots, not
+	## a family. At the top so the phone's FAMILIES pane, which is this rail,
+	## shows them without a scroll (a browse shortcut below 4 groups of 9
+	## families would sit under the fold on a phone).
+	var qgp := _pad(body, 14, 7, 14, 4)
+	qgp.add_child(DccTheme.mono_label("QUICK ACCESS", "text_ghost", DccTheme.FS_MICRO, 1))
+	_build_pinned_row(body, "favourites", "★ Favourites",
+		"Slots you starred in the inspector. Kept on this device across restarts; a starred slot from a pack that is not open now is kept, but not counted or shown until that pack is back.")
+	_build_pinned_row(body, "recent", "Recent",
+		"The last %d slots you opened in the inspector, newest first. Kept on this device across restarts." % DccSettings.MAX_RECENT_ASSETS)
+	body.add_child(DccTheme.rule())
+
 	var by_group: Dictionary = {}
 	for fam in FAMILIES:
 		var g := String(fam["group"])
@@ -1801,6 +1825,7 @@ func _refresh_rail_counts() -> void:
 	## next to a PNG import or a batch op, so it isn't threaded through the
 	## loop above just to save it.
 	var unassigned := _refresh_unassigned_count()
+	_refresh_pinned_counts()   ## AP-9
 	if _status_pack != null:
 		var info: Dictionary = _bridge.as_pack_info()
 		var pack_name := String(info.get("name", ""))
@@ -1921,6 +1946,127 @@ func _build_unassigned_row(parent: Control) -> void:
 	_unassigned_row = {"button": btn, "name": name_l, "count": count_l}
 	parent.add_child(btn)
 
+## AP-9: one pinned rail row (`key` "favourites" or "recent"), the Unassigned
+## imports row's grammar: a `Button` hosting name and count.
+func _build_pinned_row(parent: Control, key: String, title: String, tip: String) -> void:
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size.y = 24
+	btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
+	btn.tooltip_text = tip
+	btn.pressed.connect(_select_pinned.bind(key))
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 9)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -14
+	btn.add_child(row)
+	var name_l := DccTheme.label(title, "text", DccTheme.FS_SMALL)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.clip_text = true
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_l)
+	var count_l := DccTheme.mono_label("0", "text_faint", DccTheme.FS_TINY)
+	count_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count_l)
+	_pinned_rows[key] = {"button": btn, "name": name_l, "count": count_l}
+	parent.add_child(btn)
+
+## AP-9: the stored uids of one pinned list, as `DccSettings` keeps them.
+static func _pinned_uids(key: String) -> PackedStringArray:
+	return DccSettings.asset_favourites() if key == "favourites" else DccSettings.asset_recent()
+
+## AP-9: each pinned row's count is how many of its stored slots this
+## session's library knows (`as_slot_summary` ok); a stored uid it does not
+## know (a custom slot of a pack not open now) is not counted, and is named in
+## the row's tooltip instead.
+func _refresh_pinned_counts() -> void:
+	for key in _pinned_rows:
+		var parts: Dictionary = _pinned_rows[key]
+		var stored := _pinned_uids(String(key))
+		var known := 0
+		for uid in stored:
+			if bool(_bridge.as_slot_summary(uid).get("ok", false)):
+				known += 1
+		var count_l: Label = parts["count"]
+		count_l.text = "%d" % known
+		count_l.add_theme_color_override("font_color",
+			DccTheme.c("accent") if known > 0 else DccTheme.c("text_faint"))
+		var btn: Button = parts["button"]
+		var base_tip := btn.tooltip_text.split("\n")[0]
+		btn.tooltip_text = base_tip if stored.size() == known else \
+			"%s\n%d not in this library now." % [base_tip, stored.size() - known]
+
+## AP-9: washes the pinned row `key` (and clears the other); `""` clears both.
+func _highlight_pinned_rows(key: String) -> void:
+	for k in _pinned_rows:
+		var parts: Dictionary = _pinned_rows[k]
+		var on: bool = k == key
+		(parts["button"] as Button).add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		(parts["name"] as Label).add_theme_color_override("font_color",
+			DccTheme.c("text_bright") if on else DccTheme.c("text"))
+
+## AP-9: selects a pinned list the way `_select_collection` selects a
+## collection: clears the other rail selections and shows its slots.
+func _select_pinned(key: String) -> void:
+	_current_pinned = key
+	_current_collection = ""
+	_current_family = ""
+	_current_unassigned = false
+	_highlight_collection_row("")
+	_highlight_unassigned_row(false)
+	_highlight_pinned_rows(key)
+	for k in _rail_buttons:
+		var parts: Dictionary = _rail_buttons[k]
+		(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
+		(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
+	_selected.clear()
+	_last_index = -1
+	_focused_uid = ""
+	_preview_index = 0
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	_show_phone_pane("slots")   ## PH-12, as `_select_family()`.
+
+## AP-9: records `uid` as just used (the Recent list) and refreshes the rail
+## counts. The grid is not rebuilt, even in the Recent view, so a tile never
+## moves under the pointer that pressed it; the next visit shows the new order.
+func _note_recent(uid: String) -> void:
+	DccSettings.remember_asset(uid)
+	_refresh_pinned_counts()
+
+## AP-9: stars or unstars the focused slot, then refreshes the star, the rail
+## counts and, when Favourites is the current view, the grid.
+func _on_toggle_favourite() -> void:
+	if _focused_uid == "":
+		return
+	var on := DccSettings.toggle_asset_favourite(_focused_uid)
+	_refresh_star()
+	_refresh_pinned_counts()
+	if _current_pinned == "favourites":
+		_refresh_grid()
+	_host.set_status("hint", "%s %s Favourites" % [
+		String(_bridge.as_slot_summary(_focused_uid).get("name", _focused_uid)),
+		"added to" if on else "removed from"], "accent")
+
+## AP-9: the star's glyph and tooltip for the focused slot.
+func _refresh_star() -> void:
+	if _insp_star == null:
+		return
+	_insp_star.visible = _focused_uid != ""
+	var on := DccSettings.asset_favourites().has(_focused_uid)
+	_insp_star.text = "★" if on else "☆"
+	_insp_star.tooltip_text = "Remove from Favourites" if on else "Add to Favourites"
+	_insp_star.add_theme_color_override("font_color", DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+
 ## Live count of custom slots sitting in `UNASSIGNED_SET` -- folded into
 ## `_refresh_rail_counts()` (called after every import/batch op already)
 ## rather than given its own call site.
@@ -1953,6 +2099,8 @@ func _select_unassigned() -> void:
 	_current_unassigned = true
 	_current_collection = ""
 	_current_family = ""
+	_current_pinned = ""
+	_highlight_pinned_rows("")
 	_highlight_collection_row("")
 	_highlight_unassigned_row(true)
 	for k in _rail_buttons:
@@ -1998,6 +2146,8 @@ func _select_collection(coll_name: String) -> void:
 	_current_collection = coll_name
 	_current_family = ""
 	_current_unassigned = false
+	_current_pinned = ""
+	_highlight_pinned_rows("")
 	_highlight_unassigned_row(false)
 	for k in _rail_buttons:
 		var parts: Dictionary = _rail_buttons[k]
@@ -2429,6 +2579,8 @@ func _select_family(key: String) -> void:
 	_current_family = key
 	_current_collection = ""
 	_current_unassigned = false
+	_current_pinned = ""
+	_highlight_pinned_rows("")
 	_highlight_collection_row("")
 	_highlight_unassigned_row(false)
 	for k in _rail_buttons:
@@ -2531,6 +2683,11 @@ func _refresh_grid() -> void:
 		_refresh_grid_collection()
 		return
 
+	if _current_pinned != "":
+		_fill_grid_from_uids(_pinned_uids(_current_pinned),
+			"FAVOURITES" if _current_pinned == "favourites" else "RECENT")
+		return
+
 	var fam := _family_by_key(_current_family)
 	if fam.is_empty():
 		_grid_header.text = ""
@@ -2631,7 +2788,14 @@ func _refresh_grid_collection() -> void:
 		if String(c["name"]) == _current_collection:
 			members = c["uids"]
 			break
+	_fill_grid_from_uids(members, _current_collection.to_upper())
 
+## Fills the grid with the slots `members` names, in that order, skipping a
+## uid the session does not know (a removed custom slot, or a pinned slot of
+## a pack not open now). Shared by a collection (AS-12) and AP-9's pinned
+## lists, whose entries have the same `{uid,id,name,code}` shape a family's
+## do, so `_build_cell` is reused unchanged.
+func _fill_grid_from_uids(members: PackedStringArray, title: String) -> void:
 	_slot_state.clear()
 	var entries: Array = []
 	for uid in members:
@@ -2660,7 +2824,7 @@ func _refresh_grid_collection() -> void:
 		_grid.add_child(_build_cell(entry))
 
 	_grid_header.text = "%s · %d ITEM%s" % [
-		_current_collection.to_upper(), entries.size(), "" if entries.size() == 1 else "S"]
+		title, entries.size(), "" if entries.size() == 1 else "S"]
 	_refresh_selection_visuals()
 
 ## The canvas's tile: one bordered box holding a 76 px art band and, inside the
@@ -2758,6 +2922,7 @@ func _on_cell_input(ev: InputEvent, uid: String) -> void:
 		_last_index = index
 	_focused_uid = uid
 	_preview_index = 0
+	_note_recent(uid)   ## AP-9
 	_refresh_selection_visuals()
 	_refresh_inspector()
 	_refresh_import_button()
@@ -3036,7 +3201,23 @@ func _build_inspector() -> Control:
 	var band := _band(col, 14)
 	_insp_head = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
 	_insp_head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_insp_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	band.add_child(_insp_head)
+	## AP-9: the star, borderless at the head band's right. Built here
+	## rather than with `_text_button`: that helper floors its own target to
+	## the phone tap size where it is made, and this window's phone pass
+	## (`_phone_refit`, unit 1.0) floors it again in the window's own units,
+	## which measured a 115 dp square that tripled the band's height. A plain
+	## button lets the window's pass alone floor it to 44 dp.
+	_insp_star = Button.new()
+	_insp_star.text = "☆"
+	_insp_star.flat = true
+	_insp_star.focus_mode = Control.FOCUS_NONE
+	_insp_star.custom_minimum_size = Vector2(24, 24)
+	_insp_star.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	_insp_star.pressed.connect(_on_toggle_favourite)
+	_insp_star.visible = false
+	band.add_child(_insp_star)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -3336,6 +3517,7 @@ func _refresh_inspector() -> void:
 	if _insp_detail == null:
 		return
 	_phone_refit()   ## PH-12 -- see `_phone_refit()`.
+	_refresh_star()   ## AP-9
 	if _focused_uid == "":
 		_insp_head.text = "NO SLOT SELECTED"
 		_insp_empty.visible = true
@@ -3992,9 +4174,19 @@ func open_pack_bytes(bytes: PackedByteArray, source: String, dry: Dictionary,
 	if conflicts.is_empty():
 		_finish_pack_import(bytes, source, "keep", applied_to_map)
 		return
-	## Variant B of `design/proposed-2026-09-05/Modal.dc.html`: replacing art
-	## is irreversible here (the library has no undo), so the block wash and
-	## a named destructive action, with Cancel as the quiet dismissal.
+	_replace_card(source, conflicts,
+		"the map already uses this pack; Cancel leaves the library as it is" if applied_to_map
+		else "Cancel leaves the library and the map as they are",
+		"pack not opened in the library — nothing replaced",
+		func(): _finish_pack_import(bytes, source, "replace", applied_to_map))
+
+## The Replace / Cancel question every import asks before overwriting art
+## (AP-1's pack, AP-8's folder). Variant B of
+## `design/proposed-2026-09-05/Modal.dc.html`: replacing art is irreversible
+## here (the library has no undo), so the block wash and a named destructive
+## action, with Cancel as the quiet dismissal.
+func _replace_card(source: String, conflicts: PackedStringArray, foot: String,
+		cancel_status: String, on_replace: Callable) -> void:
 	var card := DccWidgets.modal_card(_card_parent(), "Replace library art",
 		DccWidgets.MODAL_DESTRUCTIVE, _card_width(420))
 	DccWidgets.modal_prose(card["body"],
@@ -4004,15 +4196,11 @@ func open_pack_bytes(bytes: PackedByteArray, source: String, dry: Dictionary,
 		DccWidgets.modal_list_row(list, "block", String(conflicts[i]))
 	if conflicts.size() > CARD_ROW_CAP:
 		DccWidgets.modal_list_row(list, "", "%d more" % (conflicts.size() - CARD_ROW_CAP))
-	DccWidgets.modal_foot(card["body"],
-		"the map already uses this pack; Cancel leaves the library as it is" if applied_to_map
-		else "Cancel leaves the library and the map as they are")
+	DccWidgets.modal_foot(card["body"], foot)
 	DccWidgets.modal_choices(card, {
 		"cancel": "Cancel",
-		"on_cancel": func():
-			_host.set_status("hint", "pack not opened in the library — nothing replaced", "accent"),
-		"destructive": {"text": "Replace", "on": func():
-			_finish_pack_import(bytes, source, "replace", applied_to_map)},
+		"on_cancel": func(): _host.set_status("hint", cancel_status, "accent"),
+		"destructive": {"text": "Replace", "on": on_replace},
 	})
 	DccWidgets.modal_present(card, _host)
 	_settle_card(card)
@@ -4072,19 +4260,32 @@ func _finish_pack_import(bytes: PackedByteArray, source: String, mode: String,
 ## Variant C (a result, not a question): Done, plus Copy report so the list is
 ## never the only record. One row per pack path; a row whose slot exists has
 ## a Show button that closes the card and focuses that slot.
-func _show_pack_import_card(r: Dictionary, source: String, applied_to_map: bool) -> void:
+func _show_pack_import_card(r: Dictionary, source: String, applied_to_map: bool,
+		what: String = "Pack opened") -> void:
 	var rows: Array = r.get("rows", [])
 	var notes: PackedStringArray = r.get("notes", PackedStringArray())
 	var imported := int(r.get("imported", 0))
 	var card := DccWidgets.modal_card(_card_parent(),
-		"Pack opened · %d imported" % imported, DccWidgets.MODAL_WARNINGS, _card_width(460))
+		"%s · %d imported" % [what, imported], DccWidgets.MODAL_WARNINGS, _card_width(460))
 	var lines: Array[String] = []
 	var head := "%s: %d image%s imported, %d skipped, %d refused." % [source, imported,
 		"" if imported == 1 else "s", int(r.get("skipped", 0)), int(r.get("refused", 0))]
 	if r.has("name"):
 		head += " Pack \"%s\"." % String(r["name"])
+	## AP-8: a folder says what it was read as, and shows its licence text
+	## (`ASSET_PACK_TOOLS_PROPOSAL.md` §5: many packs are licensed for use in
+	## their own tool only, so the user sees the terms before using the art).
+	if r.has("layout_label"):
+		head += " Read as %s." % String(r["layout_label"])
 	DccWidgets.modal_prose(card["body"], head)
 	lines.append(head)
+	if r.has("licence"):
+		var lic := String(r["licence"])
+		var shown_lic := lic if lic.length() <= 280 else lic.substr(0, 280) + "…"
+		var lic_line := "Licence (%s), kept with each slot it filled: %s" % [
+			String(r.get("licence_file", "")), shown_lic]
+		DccWidgets.modal_prose(card["body"], lic_line)
+		lines.append("Licence (%s): %s" % [String(r.get("licence_file", "")), lic])
 	var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], rows.size() + notes.size()))
 	var dots := {"imported": "good", "skipped": "warn", "refused": "block"}
 	var shown := 0
@@ -4105,8 +4306,11 @@ func _show_pack_import_card(r: Dictionary, source: String, applied_to_map: bool)
 			var line := DccWidgets.modal_list_row(list, String(dots.get(status, "warn")), text)
 			_add_show_button(line, String(d.get("uid", "")), card)
 			shown += 1
-	if lines.size() - 1 > shown:
-		DccWidgets.modal_list_row(list, "", "%d more — Copy report has every row" % (lines.size() - 1 - shown))
+	## `lines` opens with the head (and, for a folder with one, the licence),
+	## which are prose above the list, not rows of it.
+	var lead := 2 if r.has("licence") else 1
+	if lines.size() - lead > shown:
+		DccWidgets.modal_list_row(list, "", "%d more — Copy report has every row" % (lines.size() - lead - shown))
 	DccWidgets.modal_legend(card["body"], list, {"good": "imported", "warn": "skipped: the slot kept its art",
 		"block": "refused", "accent": "note"})
 	DccWidgets.modal_foot(card["body"],
@@ -4118,6 +4322,193 @@ func _show_pack_import_card(r: Dictionary, source: String, applied_to_map: bool)
 		DisplayServer.clipboard_set("\n".join(lines))
 		_host.set_status("hint", "pack import report copied", "accent"))
 	actions.move_child(copy, 0)
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+# ---------------------------------------------------------------------------
+# AP-8: a folder of art into the library
+# ---------------------------------------------------------------------------
+
+## Entry point from `app.gd::_import_asset_folder` once the engine's dry run
+## has walked and planned the folder (`as_import_folder(path, "dry_run")`).
+## Asks before replacing art, exactly as a pack does (`_replace_card`), then
+## imports and shows the per-file result. The map is never touched.
+func open_folder_import(path: String, dry: Dictionary) -> void:
+	var source := String(dry.get("folder", path.get_file()))
+	var conflicts: PackedStringArray = dry.get("conflicts", PackedStringArray())
+	if conflicts.is_empty():
+		_finish_folder_import(path, "keep")
+		return
+	_replace_card(source, conflicts, "Cancel leaves the library as it is; the map is not changed",
+		"folder not imported — nothing replaced",
+		func(): _finish_folder_import(path, "replace"))
+
+## Runs the folder import in `mode` ("keep" or "replace"), refreshes what
+## reads the library, and shows the result card: one row per file, the
+## layout it was read as, and its licence text when it has one.
+func _finish_folder_import(path: String, mode: String) -> void:
+	var r: Dictionary = _bridge.as_import_folder(path, mode)
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "folder not imported — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	_dirty = true
+	_refresh_pack_status()
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	var folder := String(r.get("folder", path.get_file()))
+	var refused := int(r.get("refused", 0))
+	_host.set_status("hint", "%s: %d imported, %d skipped, %d refused" % [
+		folder, int(r.get("imported", 0)), int(r.get("skipped", 0)), refused],
+		"accent" if refused == 0 else "warn")
+	_show_pack_import_card(r, folder, false, "Folder imported")
+
+## A folder whose plan fills no slot: says so, with the dry run's notes (links
+## skipped, files left out and why), so an empty result is never silent.
+func show_folder_empty(dry: Dictionary, path: String) -> void:
+	var card := DccWidgets.modal_card(_card_parent(), "Nothing to import",
+		DccWidgets.MODAL_WARNINGS, _card_width(420))
+	DccWidgets.modal_prose(card["body"], "%s holds no PNG image the library can use. Read as %s." % [
+		String(dry.get("folder", path.get_file())), String(dry.get("layout_label", "a folder"))])
+	var notes: PackedStringArray = dry.get("notes", PackedStringArray())
+	if not notes.is_empty():
+		var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], notes.size()))
+		for i in mini(notes.size(), CARD_ROW_CAP):
+			DccWidgets.modal_list_row(list, "accent", String(notes[i]))
+	DccWidgets.modal_choices(card, {"safe": {"text": "Done", "on": func(): pass}})
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+# ---------------------------------------------------------------------------
+# AP-9: compare a pack with the library, and merge it
+# ---------------------------------------------------------------------------
+
+## The words each merge choice shows, keyed by `as_pack_merge`'s policy.
+const MERGE_WORDS := {
+	"keep_library": "Keep library: adds the slots only the pack fills and changes nothing the library already holds.",
+	"keep_both": "Keep both: also adds the pack's images the library lacks as new variants of slots both fill (a ground tile holds one image, so the library's stays).",
+	"take_pack": "Take pack: replaces the library's art with the pack's in every slot that differs, and takes the pack's name, author and licence.",
+}
+
+## Entry point from `app.gd::_compare_pack`: the diff card (`as_pack_diff`).
+## Read-only until a merge choice is pressed. An empty diff says so; otherwise
+## one row per slot that differs (only in the pack, only in the library, or
+## different) and per pack field, then the three merge choices. A row whose
+## slot the library has gets a Show button.
+func compare_pack_bytes(bytes: PackedByteArray, source: String) -> void:
+	var d: Dictionary = _bridge.as_pack_diff(bytes, source)
+	if not bool(d.get("ok", false)):
+		_host.set_status("hint", "pack not compared — %s" % String(d.get("error", "unknown error")), "warn")
+		return
+	var slots: Array = d.get("slots", [])
+	var fields: Array = d.get("fields", [])
+	if bool(d.get("empty", false)):
+		var same := DccWidgets.modal_card(_card_parent(), "No differences",
+			DccWidgets.MODAL_WARNINGS, _card_width(420))
+		DccWidgets.modal_prose(same["body"],
+			"%s and the library hold the same images in the same slots, with the same pack name, author and licence." % source)
+		DccWidgets.modal_choices(same, {"safe": {"text": "Done", "on": func(): pass}})
+		DccWidgets.modal_present(same, _host)
+		_settle_card(same)
+		_host.set_status("hint", "%s: no differences from the library" % source, "accent")
+		return
+	var counts := {"only_pack": 0, "only_library": 0, "differs": 0}
+	for x in slots:
+		var k := String((x as Dictionary).get("change", ""))
+		counts[k] = int(counts.get(k, 0)) + 1
+	var total := slots.size() + fields.size()
+	var card := DccWidgets.modal_card(_card_parent(),
+		"Compare · %d difference%s" % [total, "" if total == 1 else "s"],
+		DccWidgets.MODAL_WARNINGS, _card_width(460))
+	var head := "%s against the library: %d slot%s only in the pack, %d only in the library, %d different; %d pack field%s differ%s." % [
+		source, counts["only_pack"], "" if counts["only_pack"] == 1 else "s", counts["only_library"],
+		counts["differs"], fields.size(), "" if fields.size() == 1 else "s", "s" if fields.size() == 1 else ""]
+	if int(d.get("refused", 0)) > 0:
+		head += " %d of the pack's images could not be read and are left out." % int(d["refused"])
+	DccWidgets.modal_prose(card["body"], head)
+	var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], total))
+	var dots := {"only_pack": "good", "only_library": "accent", "differs": "warn"}
+	var words := {"only_pack": "only in the pack", "only_library": "only in the library", "differs": "different"}
+	var shown := 0
+	for x in slots:
+		if shown >= CARD_ROW_CAP:
+			break
+		var sd: Dictionary = x
+		var change := String(sd.get("change", ""))
+		var text := "%s (%s) · %s · pack %d, library %d" % [String(sd.get("name", "")),
+			String(sd.get("family", "")), String(words.get(change, change)),
+			int(sd.get("pack_items", 0)), int(sd.get("library_items", 0))]
+		if change == "differs":
+			## `same_images` counts the pack's items whose image the library
+			## also holds, so a pack holding one image twice counts it twice.
+			text += "; %d of the pack's %d also in the library" % [int(sd.get("same_images", 0)),
+				int(sd.get("pack_items", 0))]
+		var line := DccWidgets.modal_list_row(list, String(dots.get(change, "warn")), text)
+		if change != "only_pack":
+			_add_show_button(line, String(sd.get("uid", "")), card)
+		shown += 1
+	for x in fields:
+		if shown >= CARD_ROW_CAP:
+			break
+		var fd: Dictionary = x
+		DccWidgets.modal_list_row(list, "warn", "pack %s: the pack has \"%s\", the library \"%s\"" % [
+			String(fd.get("field", "")), String(fd.get("pack", "")), String(fd.get("library", ""))])
+		shown += 1
+	if total > shown:
+		DccWidgets.modal_list_row(list, "", "%d more" % (total - shown))
+	DccWidgets.modal_legend(card["body"], list, {"good": "only in the pack",
+		"accent": "only in the library (a merge keeps it)", "warn": "different"})
+	for key in ["keep_library", "keep_both", "take_pack"]:
+		DccWidgets.modal_foot(card["body"], String(MERGE_WORDS[key]))
+	## Two rows of two, so the card fits a phone's 340 dp width: the quiet and
+	## the destructive merge above, Close and the safe merge below (the safe
+	## answer rightmost, the destructive one never rightmost).
+	var upper := DccWidgets.modal_actions(card["body"])
+	var dlg: AcceptDialog = card["dialog"]
+	var close_then := func(policy: String):
+		if is_instance_valid(dlg):
+			dlg.hide()
+			dlg.queue_free()
+		_merge_pack(bytes, source, policy)
+	DccWidgets.modal_quiet(upper, "Keep both", close_then.bind("keep_both"))
+	DccWidgets.modal_text_destructive(upper, "Take pack", close_then.bind("take_pack"))
+	DccWidgets.modal_choices(card, {
+		"cancel": "Close",
+		"safe": {"text": "Keep library", "on": func(): _merge_pack(bytes, source, "keep_library")},
+	})
+	DccWidgets.modal_present(card, _host)
+	_settle_card(card)
+
+## Runs one merge (`as_pack_merge`), refreshes what reads the library, and
+## shows what it did: slots added, replaced, given new variants or kept, the
+## pack fields written, and why a policy did less than its name says.
+func _merge_pack(bytes: PackedByteArray, source: String, policy: String) -> void:
+	var r: Dictionary = _bridge.as_pack_merge(bytes, source, policy)
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "pack not merged — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	_dirty = true
+	_refresh_pack_status()
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	var summary := "%s merged: %d slot%s added, %d replaced, %d given new variants, %d kept; %d image%s copied" % [
+		source, int(r.get("added", 0)), "" if int(r.get("added", 0)) == 1 else "s", int(r.get("replaced", 0)),
+		int(r.get("appended", 0)), int(r.get("kept", 0)), int(r.get("items", 0)),
+		"" if int(r.get("items", 0)) == 1 else "s"]
+	var written: PackedStringArray = r.get("fields", PackedStringArray())
+	if not written.is_empty():
+		summary += "; pack %s taken from the pack" % ", ".join(written)
+	_host.set_status("hint", summary, "accent")
+	var card := DccWidgets.modal_card(_card_parent(), "Merged", DccWidgets.MODAL_WARNINGS, _card_width(420))
+	DccWidgets.modal_prose(card["body"], summary + ".")
+	var notes: PackedStringArray = r.get("notes", PackedStringArray())
+	if not notes.is_empty():
+		var list := DccWidgets.modal_list(_scrolled_list_parent(card["body"], notes.size()))
+		for n in notes:
+			DccWidgets.modal_list_row(list, "accent", String(n))
+	DccWidgets.modal_foot(card["body"], "the map is unchanged: Apply to map uses the library's art")
+	DccWidgets.modal_choices(card, {"safe": {"text": "Done", "on": func(): pass}})
 	DccWidgets.modal_present(card, _host)
 	_settle_card(card)
 
@@ -4170,6 +4561,7 @@ func focus_slot(uid: String) -> bool:
 	_selected = {uid: true}
 	_focused_uid = uid
 	_preview_index = 0
+	_note_recent(uid)   ## AP-9
 	for i in _slot_order.size():
 		if String(_slot_order[i]["uid"]) == uid:
 			_last_index = i

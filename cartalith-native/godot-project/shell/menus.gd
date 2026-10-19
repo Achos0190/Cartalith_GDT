@@ -101,6 +101,8 @@ const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….
 const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip…: onto the map AND into the library (AP-1, Ruling CQ Q1).
 const ID_OPEN_PACK_LIBRARY := 34  ## Assets ▸ Open pack in library…: into the library only (AP-1).
 const ID_PACK_REPORT := 35  ## Assets ▸ Pack report…: the Asset library's report card (AP-2).
+const ID_IMPORT_FOLDER := 41  ## Assets ▸ Import folder of art…: a loose, Wonderdraft or unpacked Dungeondraft folder into the library (AP-8).
+const ID_COMPARE_PACK := 42  ## Assets ▸ Compare pack with library…: AP-9's diff card, with its three merge choices.
 const ID_APPLY_LIBRARY := 36  ## Assets ▸ Apply library to map.
 const ID_CLEAR_LIBRARY := 37  ## Assets ▸ Clear library… (destructive; its confirmation is not this row's).
 const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
@@ -2152,6 +2154,15 @@ func _assets(p: PopupMenu, full: bool = true) -> void:
 	_live(p, "Pack report…", ID_PACK_REPORT)
 	p.set_item_tooltip(p.item_count - 1,
 		"Opens the Asset library's pack report: what is wrong with the art before you export or apply it. Read-only.")
+	## AP-8 (`ASSET_PACK_TOOLS_PROPOSAL.md` §6, Ruling CQ Q10): a folder you
+	## already have, read where it is; nothing outside it is read.
+	_live(p, "Import folder of art…", ID_IMPORT_FOLDER)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens a folder of PNGs in the Asset library: a loose folder, a Wonderdraft asset folder or an unpacked Dungeondraft asset folder. Its licence file, if it has one, is kept with each slot. The map is not changed.")
+	## AP-9: a shortcut into the library's own compare card.
+	_live(p, "Compare pack with library…", ID_COMPARE_PACK)
+	p.set_item_tooltip(p.item_count - 1,
+		"Shows slot by slot how a pack .zip differs from the Asset library, then merges it if you choose: keep the library's art, take the pack's, or keep both.")
 	p.add_separator()
 	_build_asset_pack_submenu(p)
 
@@ -2878,6 +2889,8 @@ func _on_assets(id: int) -> void:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
 		ID_OPEN_PACK_LIBRARY: _host.open_pack_in_library_picker()
 		ID_PACK_REPORT: _host.asset_library_window.report_now()
+		ID_IMPORT_FOLDER: _host.open_asset_folder_picker()
+		ID_COMPARE_PACK: _host.open_pack_compare_picker()
 		ID_IMPORT_IMAGE: _host.open_asset_library()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
 		ID_SLICER: _host.open_asset_library("", true)
