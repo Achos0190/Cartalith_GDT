@@ -34,14 +34,15 @@ What the rest of this file is for, then:
 on 2026-08-18, later the same day it was called — the exact wording and scope
 are at the top of `DCC_SHELL_SCOPE.md`. 3D was parked by the owner on
 2026-08-31, after the commissioned research landed
-(`cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`); `DECISIONS.md` §4
-stands. A decision like these keeps its home in the document that records it.
+(`cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`), and a 3D vertex-mesh
+viewport was approved on 2026-10-19 (Ruling CS) as `DECISIONS.md` §4a, beside §4;
+its design is `3D_VIEWPORT_SCOPE.md`. A decision like these keeps its home in the document that records it.
 How much has been *built* under either one is `STATUS.md`'s answer, not this
 file's.
 
 ## The workspace
 
-Sixteen crates under `cartalith-native/crates/` — one per subsystem, plus the
+The crates under `cartalith-native/crates/` (`ls` it for the live set) — one per subsystem, plus the
 dependency-free `cartalith-jsmath` leaf (`ARCHITECTURE.md`). Only
 `cartalith-godot` depends on `gdext`; everything else is plain Rust and
 testable without Godot.
@@ -115,6 +116,13 @@ it, the binding Category A/B/C rule, nine milestones). *This entry read "no
 code yet" until 2026-08-31, having survived `cartalith-civ/src/landmark.rs`
 landing at 3 730 lines on 2026-08-30. It is the exact drift the single-source
 rule above exists to stop.*
+
+Later scope documents, proposals and research files (for example
+`RIVERS_IN_MAP_SCOPE.md`, `EDITING_TOOLS_SCOPE.md`, `COLOUR_PAINT_SCOPE.md`,
+`3D_VIEWPORT_SCOPE.md`, `ASSET_PACK_TOOLS_PROPOSAL.md`, `STORY_MENUS_PROPOSAL.md`
+and the dated findings files) are each described, one row apiece, in the
+contents table of the root `CLAUDE.md`. That table is the index of every
+root-level document; this list is not exhaustive.
 
 **Reference and direction** — inputs, not plans: `FUNCTIONAL_CONTRACT.md`
 (what the HTML app does, capability by capability), `VISION.md`,

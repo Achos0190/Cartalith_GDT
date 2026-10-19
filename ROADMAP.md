@@ -173,9 +173,11 @@ the mock is `design/story-menus-2026-10-17/mockup.html`):
 - **Boundary:** this is shell and data-model work over existing engine calls. It
   adds no generation behaviour, so it moves no generated golden. A change that does
   (for example a new event store that feeds the simulation) is a separate ruling.
-- **Not scheduled until the owner answers** the proposal's Q1 (an eighth top-level
-  menu against the seven `DCC_SHELL_SPEC.md` §2 specifies) and Q2 (the tablet already
-  has a `World` menu, so renaming `Data` collides there).
+- **Approved by the owner at the proposal's defaults** (Ruling CK, 2026-10-18),
+  including Q1 (an eighth top-level menu, `Story`, against the seven
+  `DCC_SHELL_SPEC.md` §2 specifies) and Q2 (on tablet, Data's rows merge into the
+  existing `World` menu). How far SM-1 to SM-7 have got is `STATUS.md`'s answer; the
+  routed rows are in `OUTSTANDING_WORK.md`.
 
 ## Render target (owner direction, 2026-10-17)
 
@@ -191,10 +193,18 @@ render item is judged at several zoom levels, never at fit view only.
   the JS-parity goldens stay put (`LOD_DETAIL_SCOPE.md`, LOD-D5's open question).
 - **A "Satellite relief" look** with a coast-distance shelf and halo term, added
   beside the existing looks; Natural Vibrant stays the default until the new look
-  passes its own zoom ladder.
+  passes its own zoom ladder. Its land tone pass is Ruling CU item 2, judged at
+  ×1/×4/×16/×64 against the target.
 - **Then, in the owner's order:** mountain relief (ridges and rock; the height field
   may be the limit, so this meets the elevation-field work, EF-0 to EF-9), forest
-  canopy texture, and the square mottle.
+  canopy texture, and the square mottle. The mountain-range row was parked by Ruling
+  CI's addendum, **un-parked by Ruling CU** and kept on by Ruling CV
+  (`MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md`; the multi-sheet belt is its own
+  `OUTSTANDING_WORK.md` §2.9 row). Streaks and volcano edifices are Rulings CM and CO
+  (`TERRAIN_STREAK_SPIKE_2026-10-18.md`, `EDIFICE_AND_STREAKS_2026-10-18.md`);
+  volcano colour and form is an owner note for later
+  (`VOLCANO_APPEARANCE_NOTE_2026-10-19.md`).
+- **How far any of this has got is `STATUS.md`'s answer**, not this section's.
 - **Out of scope for the render:** world shape (two continents with archipelagos) is a
   World Structure archetype question.
 

@@ -98,6 +98,9 @@ that the milestones assume. Approving the scope did not rule on each one
 individually. A later ruling that moves a default is recorded in
 `LARGE_ITEM_RULINGS.md`, and the scope is changed to match.
 
+One default has since been ruled on: Ruling CT (2026-10-19) set the 3D view's
+vertical exaggeration to true scale, 1.0x, answering the scope's Q4.
+
 ## 5. Cloud session builds; owner verifies on hardware
 
 Godot cross-exports to Windows and Android from Linux given the right SDKs and
