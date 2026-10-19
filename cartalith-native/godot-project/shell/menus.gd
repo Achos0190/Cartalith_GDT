@@ -3140,8 +3140,8 @@ const EXPORT_DM_TIP := "The map image dialog with every layer switched on, Journ
 ##   SHARE          Export map image… (`ID_EXPORT_MAP_IMAGE`, moved unchanged
 ##                  from World ▸ Export), then Print sheet (PDF)… and VTT
 ##                  battle map… drawn disabled with their reasons (no writer
-##                  exists: `export_options.rs::FORMAT_NAMES` is PNG and
-##                  BigTIFF; no grid, wall or light data is computed anywhere)
+##                  exists: `export_options.rs::FORMAT_NAMES` is PNG,
+##                  BigTIFF and JPEG; no grid, wall or light data is computed anywhere)
 ##   DATA           the four `DataManagerWindow.ROUTES` Export routes, same
 ##                  ids as before (`_add_route_rows()`)
 ## The three dialog rows share `export_map_image_refusal()` (no API, a
@@ -3168,7 +3168,7 @@ func _build_file_export(p: PopupMenu) -> void:
 	_live(sub, "Export map image…", ID_EXPORT_MAP_IMAGE)
 	var image_idx := sub.item_count - 1
 	_todo(sub, "Print sheet (PDF)…",
-		"No print or PDF writer exists. The streaming writer has PNG and BigTIFF only (export_options.rs FORMAT_NAMES).")
+		"No print or PDF writer exists. The streaming writer has PNG, BigTIFF and JPEG only (export_options.rs FORMAT_NAMES).")
 	_todo(sub, "VTT battle map (grid + walls)…",
 		"No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written.")
 	sub.add_separator("DATA")
