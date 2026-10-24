@@ -1,0 +1,211 @@
+running 1 test
+test volcano_census ... == s71077345_classic: generated in 7.0s; field fnv 8ac289e085f32a79, volcanic_field fnv 4ae9b0ecc5c7af55
+   19 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 rift         cinder  0.393        1442  dormant     7.9      635       85  0.005     1.0     3.8   0.375
+     1 rift         cinder  0.372        1108  dormant     9.7      694      778  0.040     8.1    21.2   0.438
+     2 rift         cinder  0.258         261  dormant     6.3     1046      758  0.061    10.5    50.4   0.344
+     3 rift         cinder  0.256         256  dormant     3.6      408       98  0.014     2.5     6.2   0.389
+     4 rift         cinder  0.033          15  active      4.0     1180      326  0.041     7.2    12.1   0.350
+     5 rift         shield  0.241         211  dormant    19.5     1973     1848  0.047     6.1    23.4   0.115
+     6 rift         cinder  0.091          32  dormant     4.4      994      609  0.069    13.1    18.7   0.409
+     7 rift         cinder  0.111          41  dormant     8.1      384      141  0.009     1.1     4.3   0.075
+     8 arc          strato  0.153          69  dormant    14.8     2876     1422  0.048     7.4    48.9   0.257
+     9 arc          cinder  0.207         138  dormant     4.4     1206      187  0.021     4.1    27.4   0.409
+    10 arc          cinder  0.260         268  dormant     5.4     1332      635  0.059    10.3    18.3   0.346
+    11 arc          cinder  0.195         118  dormant     5.0      309      629  0.063     7.4    23.6   0.042
+    12 arc          strato  0.200         127  dormant    17.9     4006     2102  0.059     8.7    29.3   0.233
+    13 arc          strato  0.256         256  dormant    16.9     3051     2029  0.060     9.0    25.0   0.244
+    14 arc          cinder  0.286         375  dormant     3.7      598      261  0.035     6.5     8.7   0.389
+    15 arc          strato  0.173          89  dormant    61.5     5387     1230  0.010     1.4    12.9   0.177
+    16 arc          cinder  0.026          14  active      4.8      759     1309  0.136    15.9    56.2   0.042
+    17 arc          cinder  0.345         789  dormant     6.8      665     1080  0.080     9.3    58.9   0.029
+    18 arc          cinder  0.343         769  dormant     7.2     1107        0  0.000     0.0     0.0   0.972
+   activity: 2 active, 17 dormant, 0 extinct
+   median strato: H/W 0.059, mean slope 8.7 deg, crater/base 0.244 (n 4)
+   median cinder: H/W 0.041, mean slope 7.4 deg, crater/base 0.375 (n 14)
+   median shield: H/W 0.047, mean slope 6.1 deg, crater/base 0.115 (n 1)
+   frames: largest = #15 arc strato age 0.173 (89 yr, dormant) R 61.5 km at (1375, 649)
+     x1  before: n 13547 green 0.09 dark 0.30 L 104.4 colours 8437 grad 10.34 | after: n 13547 green 0.05 dark 0.33 L 92.2 colours 7873 grad 9.35
+     x4  before: n 217880 green 0.08 dark 0.27 L 105.1 colours 77334 grad 2.74 | after: n 217880 green 0.05 dark 0.29 L 93.0 colours 55611 grad 2.64
+     x16 before: n 813293 green 0.28 dark 0.10 L 115.0 colours 191240 grad 5.47 | after: n 813293 green 0.18 dark 0.13 L 100.6 colours 147093 grad 5.02
+     x64 before: n 813293 green 0.00 dark 0.13 L 108.6 colours 152379 grad 5.54 | after: n 813293 green 0.00 dark 0.19 L 95.0 colours 76970 grad 5.13
+   frames: youngest = #16 arc cinder age 0.026 (14 yr, active) R 4.8 km at (1528, 731)
+     x1  before: n 83 green 0.00 dark 0.01 L 132.2 colours 77 grad 20.85 | after: n 83 green 0.00 dark 0.55 L 73.4 colours 75 grad 22.31
+     x4  before: n 1340 green 0.01 dark 0.00 L 133.2 colours 1108 grad 6.31 | after: n 1340 green 0.00 dark 0.46 L 79.0 colours 1013 grad 7.56
+     x16 before: n 21136 green 0.00 dark 0.02 L 126.6 colours 12792 grad 6.97 | after: n 21136 green 0.00 dark 0.51 L 75.5 colours 9097 grad 5.29
+     x64 before: n 338768 green 0.00 dark 0.24 L 108.1 colours 80644 grad 8.95 | after: n 338768 green 0.00 dark 0.54 L 70.1 colours 59612 grad 5.97
+   frames: oldest = #17 arc cinder age 0.345 (789 yr, dormant) R 6.8 km at (1038, 710)
+     x1  before: n 165 green 0.56 dark 0.13 L 104.8 colours 155 grad 17.84 | after: n 165 green 0.47 dark 0.28 L 88.0 colours 155 grad 16.16
+     x4  before: n 2668 green 0.56 dark 0.15 L 97.0 colours 1958 grad 4.80 | after: n 2668 green 0.46 dark 0.27 L 87.1 colours 1969 grad 4.92
+     x16 before: n 42344 green 0.52 dark 0.19 L 96.3 colours 22655 grad 5.56 | after: n 42344 green 0.44 dark 0.29 L 87.1 colours 24274 grad 4.68
+     x64 before: n 660792 green 0.45 dark 0.28 L 94.5 colours 179673 grad 7.35 | after: n 660792 green 0.38 dark 0.34 L 85.6 colours 197017 grad 6.12
+   30 edifices; m per unit 12561; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          cinder  0.117          44  dormant     9.1     1866     2578  0.142    25.8    73.2   0.413
+     1 arc          cinder  0.150          67  dormant     8.7     2321     1797  0.104    18.7    35.3   0.386
+     2 arc          cinder  0.171          87  dormant     4.8     1462      586  0.061    11.0    20.9   0.375
+     3 arc          cinder  0.057          21  dormant     3.3     1833      889  0.133    25.3    41.9   0.438
+     4 arc          strato  0.259         266  dormant    61.1     9348     4521  0.037     5.6    12.6   0.240
+     5 arc          cinder  0.251         240  dormant     4.6      862        0  0.000     0.0     4.0   0.864
+     6 arc          cinder  0.172          88  dormant     9.1     1340      792  0.043    10.7    25.6   0.543
+     7 arc          cinder  0.128          51  dormant     7.5     2429     1092  0.072    13.5    42.8   0.395
+     8 arc          strato  0.070          24  dormant    25.3     7854     4089  0.081    12.0    25.1   0.240
+     9 arc          cinder  0.041          17  active      5.2     1419      945  0.090    15.4    38.6   0.346
+    10 arc          cinder  0.144          62  dormant     3.2     1779      847  0.131    24.9    34.2   0.438
+    11 arc          strato  0.012          12  active     15.6     8383     3880  0.124    18.0    52.1   0.237
+    12 arc          cinder  0.080          28  dormant     4.6     1332      217  0.024     5.4    53.1   0.500
+    13 arc          cinder  0.124          48  dormant     3.6      544      885  0.125    22.2    50.3   0.389
+    14 arc          cinder  0.374        1140  dormant     6.7     1415     2798  0.210    26.2    50.8   0.147
+    15 arc          strato  0.025          14  active     20.7     6554     3572  0.086    12.8    37.1   0.240
+    16 arc          cinder  0.085          29  dormant     2.3     1027        0  0.000     0.0     0.0   0.917
+    17 arc          cinder  0.085          29  dormant     9.6     1418     1624  0.085    14.7    37.8   0.354
+    18 arc          cinder  0.075          26  dormant     3.1     1727      992  0.158    24.7    52.1   0.312
+    19 arc          cinder  0.319         570  dormant     5.5      661     2020  0.182    28.2    53.3   0.321
+    20 arc          strato  0.024          14  active     10.6     6642     2861  0.135    19.6    55.0   0.241
+    21 arc          cinder  0.172          88  dormant     3.9     1385      904  0.116    30.9    39.8   0.611
+    22 arc          cinder  0.039          16  active      3.0      944        0  0.000     0.0     0.0   0.929
+    23 arc          cinder  0.127          50  dormant     5.4     2203     2013  0.187    32.9    58.9   0.423
+    24 arc          strato  0.070          24  dormant    61.5     9510     4355  0.035     5.3    11.7   0.240
+    25 arc          cinder  0.279         341  dormant     3.3     1822      998  0.150    28.1    36.0   0.438
+    26 arc          cinder  0.227         176  dormant     2.6     1926      852  0.166    29.6    38.8   0.417
+    27 arc          strato  0.379        1213  dormant    27.9     6041     3008  0.054     8.1    20.0   0.240
+    28 arc          strato  0.134          54  dormant    17.0     4438     2179  0.064    10.0    55.7   0.267
+    29 arc          strato  0.367        1050  dormant    20.0     3025      863  0.022     4.0    25.9   0.385
+   activity: 5 active, 25 dormant, 0 extinct
+   median cinder: H/W 0.116, mean slope 22.2 deg, crater/base 0.417 (n 21)
+   median strato: H/W 0.064, mean slope 10.0 deg, crater/base 0.240 (n 9)
+   frames: largest = #24 arc strato age 0.070 (24 yr, dormant) R 61.5 km at (1193, 1226)
+     x1  before: n 11923 green 0.40 dark 0.49 L 70.2 colours 7674 grad 9.66 | after: n 11923 green 0.19 dark 0.47 L 71.5 colours 6849 grad 9.02
+     x4  before: n 191816 green 0.46 dark 0.32 L 85.6 colours 62457 grad 2.92 | after: n 191816 green 0.26 dark 0.29 L 87.7 colours 59334 grad 2.80
+     x16 before: n 813293 green 0.66 dark 0.19 L 90.1 colours 125035 grad 4.16 | after: n 813293 green 0.17 dark 0.15 L 89.8 colours 102368 grad 4.07
+     x64 before: n 813293 green 0.00 dark 0.00 L 119.3 colours 395 grad 0.06 | after: n 813293 green 0.00 dark 0.00 L 119.3 colours 395 grad 0.06
+   frames: youngest = #11 arc strato age 0.012 (12 yr, active) R 15.6 km at (1717, 776)
+     x1  before: n 765 green 0.41 dark 0.15 L 107.2 colours 656 grad 20.30 | after: n 765 green 0.30 dark 0.18 L 103.8 colours 661 grad 21.43
+     x4  before: n 12246 green 0.43 dark 0.11 L 104.1 colours 7356 grad 6.15 | after: n 12246 green 0.33 dark 0.14 L 102.1 colours 8025 grad 6.65
+     x16 before: n 195007 green 0.40 dark 0.15 L 102.3 colours 65248 grad 5.62 | after: n 195007 green 0.31 dark 0.18 L 100.7 colours 75893 grad 5.93
+     x64 before: n 791676 green 0.36 dark 0.30 L 96.2 colours 116436 grad 9.48 | after: n 791676 green 0.14 dark 0.33 L 91.0 colours 177094 grad 9.62
+   frames: oldest = #27 arc strato age 0.379 (1213 yr, dormant) R 27.9 km at (1003, 741)
+     x1  before: n 2791 green 0.46 dark 0.24 L 91.9 colours 1730 grad 13.70 | after: n 2791 green 0.40 dark 0.24 L 92.6 colours 1737 grad 14.03
+     x4  before: n 44828 green 0.43 dark 0.14 L 93.4 colours 17983 grad 3.89 | after: n 44828 green 0.41 dark 0.14 L 94.5 colours 18473 grad 4.04
+     x16 before: n 686614 green 0.43 dark 0.17 L 93.8 colours 153710 grad 3.60 | after: n 686614 green 0.42 dark 0.16 L 94.8 colours 165937 grad 3.83
+     x64 before: n 813293 green 0.17 dark 0.12 L 89.7 colours 82713 grad 3.39 | after: n 813293 green 0.13 dark 0.12 L 89.9 colours 133914 grad 3.64
+   18 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 rift         cinder  0.132          53  dormant     4.5     1150      114  0.013     3.5    20.1   0.591
+     1 rift         cinder  0.153          69  dormant     3.7      637      322  0.044     8.1     9.9   0.389
+     2 rift         cinder  0.275         324  dormant     9.1      272       15  0.001     1.5     2.2   0.935
+     3 rift         cinder  0.014          12  active      5.3      642      321  0.030     6.0    10.3   0.423
+     4 rift         shield  0.059          21  dormant    25.7     3714     1881  0.037     4.8    16.9   0.135
+     5 rift         cinder  0.266         292  dormant     9.8     1013      476  0.024     4.2    10.6   0.340
+     6 hotspot      shield  0.090          31  dormant     9.6     1030      958  0.050     6.7     9.8   0.146
+     7 hotspot      shield  0.270         306  dormant     9.1      805       30  0.002     2.9    19.4   0.935
+     8 hotspot      shield  0.406        1703  extinct     2.5      622      551  0.109    13.4    20.5   0.083
+     9 hotspot      shield  0.577       14874  extinct     2.0      839      717  0.177    21.1    30.2   0.083
+    10 hotspot      shield  0.592       18015  extinct     9.0      446      406  0.023     3.0     4.9   0.152
+    11 arc          strato  0.295         417  dormant    21.1     1415     1317  0.031     3.6    16.3   0.010
+    12 arc          cinder  0.354         889  dormant     6.3      320      101  0.008     1.0    38.6   0.094
+    13 arc          cinder  0.348         822  dormant     9.9      620     1135  0.057    11.2    50.7   0.420
+    14 arc          cinder  0.051          19  dormant     7.5     1512      838  0.056    10.5    37.7   0.395
+    15 arc          cinder  0.062          22  dormant     5.8     1434      657  0.056     7.2    23.3   0.107
+    16 arc          cinder  0.279         345  dormant     6.5      823      831  0.064    11.1    38.3   0.344
+    17 arc          cinder  0.308         493  dormant     4.8      552      280  0.029     5.3    29.8   0.375
+   activity: 1 active, 14 dormant, 3 extinct
+   median strato: H/W 0.031, mean slope 3.6 deg, crater/base 0.010 (n 1)
+   median shield: H/W 0.050, mean slope 6.7 deg, crater/base 0.146 (n 6)
+   median cinder: H/W 0.030, mean slope 6.0 deg, crater/base 0.389 (n 11)
+   frames: largest = #4 rift shield age 0.059 (21 yr, dormant) R 25.7 km at (963, 849)
+     x1  before: n 2363 green 0.56 dark 0.05 L 138.1 colours 2101 grad 10.17 | after: n 2363 green 0.46 dark 0.24 L 109.1 colours 2183 grad 12.30
+     x4  before: n 37928 green 0.55 dark 0.04 L 139.1 colours 18626 grad 2.70 | after: n 37928 green 0.46 dark 0.18 L 111.3 colours 19807 grad 3.35
+     x16 before: n 600555 green 0.55 dark 0.05 L 135.2 colours 114392 grad 6.56 | after: n 600555 green 0.46 dark 0.21 L 108.8 colours 97520 grad 5.70
+     x64 before: n 813293 green 0.88 dark 0.12 L 157.3 colours 68379 grad 12.43 | after: n 813293 green 0.85 dark 0.16 L 144.5 colours 41519 grad 11.77
+   frames: youngest = #3 rift cinder age 0.014 (12 yr, active) R 5.3 km at (296, 684)
+     x1  before: n 102 green 0.00 dark 0.00 L 153.1 colours 93 grad 18.20 | after: n 102 green 0.00 dark 0.18 L 98.6 colours 93 grad 20.75
+     x4  before: n 1648 green 0.02 dark 0.00 L 155.2 colours 1064 grad 4.61 | after: n 1648 green 0.01 dark 0.17 L 97.6 colours 947 grad 5.70
+     x16 before: n 26172 green 0.01 dark 0.00 L 151.7 colours 10752 grad 4.26 | after: n 26172 green 0.00 dark 0.18 L 96.7 colours 8066 grad 3.79
+     x64 before: n 419296 green 0.00 dark 0.05 L 139.4 colours 91190 grad 6.35 | after: n 419296 green 0.00 dark 0.23 L 95.6 colours 67349 grad 4.58
+   frames: oldest = #12 arc cinder age 0.354 (889 yr, dormant) R 6.3 km at (1261, 1139)
+     x1  before: n 143 green 0.76 dark 0.27 L 99.0 colours 143 grad 17.70 | after: n 143 green 0.71 dark 0.36 L 80.4 colours 143 grad 15.09
+     x4  before: n 2292 green 0.78 dark 0.22 L 98.5 colours 2137 grad 5.74 | after: n 2292 green 0.71 dark 0.32 L 81.5 colours 2145 grad 5.74
+     x16 before: n 36584 green 0.77 dark 0.27 L 94.8 colours 23448 grad 7.94 | after: n 36584 green 0.70 dark 0.39 L 79.8 colours 24756 grad 7.27
+     x64 before: n 585424 green 0.64 dark 0.46 L 84.3 colours 143385 grad 10.81 | after: n 585424 green 0.59 dark 0.53 L 73.5 colours 168678 grad 9.70
+   18 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          cinder  0.136          56  dormant     5.4     1244      814  0.075    12.9    21.3   0.346
+     1 arc          cinder  0.061          22  dormant     5.6      670      486  0.044     9.3    66.1   0.464
+     2 arc          cinder  0.250         237  dormant     7.4      743      787  0.053     6.6    16.5   0.083
+     3 arc          cinder  0.302         458  dormant     4.7     1259      978  0.103    12.2    35.5   0.042
+     4 arc          cinder  0.096          34  dormant     2.4      726      290  0.061    11.8    15.1   0.417
+     5 arc          strato  0.111          41  dormant    27.7     2516     1799  0.032     4.9    14.3   0.240
+     6 arc          strato  0.327         626  dormant    12.8     2587     2923  0.114    18.8    43.9   0.328
+     7 arc          strato  0.370        1084  dormant    10.1     3333     3014  0.149    23.0    50.3   0.300
+     8 arc          cinder  0.201         128  dormant     9.5     1266     2339  0.123    27.2    45.1   0.521
+     9 arc          cinder  0.085          29  dormant     8.1      336      750  0.046    13.8    49.6   0.625
+    10 arc          strato  0.335         692  dormant    19.9     1887     3304  0.083     9.5    61.5   0.010
+    11 rift         cinder  0.096          34  dormant     7.1      625      152  0.011     2.1     3.8   0.417
+    12 rift         cinder  0.260         270  dormant     3.4     1262      247  0.036     6.0    24.3   0.312
+    13 rift         cinder  0.205         135  dormant     6.2     1315      286  0.023     4.2     9.4   0.367
+    14 rift         cinder  0.096          34  dormant     3.1      953      293  0.047     9.5    21.1   0.438
+    15 rift         cinder  0.273         316  dormant     8.6     1301      348  0.020     3.9     6.3   0.405
+    16 rift         cinder  0.369        1067  dormant     7.1      315      179  0.013     2.5     7.0   0.417
+    17 rift         cinder  0.045          18  active      4.5      648      190  0.021     4.1     7.6   0.409
+   activity: 1 active, 17 dormant, 0 extinct
+   median cinder: H/W 0.046, mean slope 9.3 deg, crater/base 0.417 (n 14)
+   median strato: H/W 0.114, mean slope 18.8 deg, crater/base 0.300 (n 4)
+   frames: largest = #5 arc strato age 0.111 (41 yr, dormant) R 27.7 km at (1414, 875)
+     x1  before: n 2754 green 0.09 dark 0.15 L 111.2 colours 2363 grad 13.41 | after: n 2754 green 0.04 dark 0.18 L 103.4 colours 2297 grad 12.25
+     x4  before: n 44328 green 0.09 dark 0.13 L 109.7 colours 26067 grad 3.84 | after: n 44328 green 0.04 dark 0.15 L 102.4 colours 20985 grad 3.77
+     x16 before: n 680756 green 0.09 dark 0.14 L 107.8 colours 158571 grad 4.78 | after: n 680756 green 0.03 dark 0.17 L 100.7 colours 117918 grad 4.70
+     x64 before: n 813293 green 0.09 dark 0.37 L 91.8 colours 119044 grad 10.09 | after: n 813293 green 0.00 dark 0.40 L 83.8 colours 94647 grad 9.45
+   frames: youngest = #1 arc cinder age 0.061 (22 yr, dormant) R 5.6 km at (1597, 802)
+     x1  before: n 113 green 0.53 dark 0.18 L 110.7 colours 110 grad 26.14 | after: n 113 green 0.24 dark 0.64 L 65.6 colours 111 grad 20.81
+     x4  before: n 1788 green 0.52 dark 0.26 L 96.8 colours 1458 grad 7.03 | after: n 1788 green 0.20 dark 0.64 L 63.2 colours 1473 grad 6.43
+     x16 before: n 28372 green 0.49 dark 0.28 L 95.7 colours 16039 grad 7.50 | after: n 28372 green 0.18 dark 0.63 L 63.2 colours 14715 grad 5.39
+     x64 before: n 454308 green 0.43 dark 0.37 L 93.7 colours 127208 grad 9.53 | after: n 454308 green 0.13 dark 0.57 L 65.4 colours 102209 grad 6.62
+   frames: oldest = #7 arc strato age 0.370 (1084 yr, dormant) R 10.1 km at (1601, 176)
+     x1  before: n 2 green 0.00 dark 0.00 L 100.7 colours 2 grad 20.96 | after: n 2 green 0.00 dark 1.00 L 57.4 colours 2 grad 28.18
+     x4  before: n 32 green 0.56 dark 0.00 L 190.5 colours 17 grad 9.55 | after: n 32 green 0.72 dark 0.00 L 190.0 colours 17 grad 10.12
+     x16 before: n 502 green 0.62 dark 0.00 L 187.0 colours 164 grad 5.86 | after: n 502 green 0.66 dark 0.00 L 188.2 colours 175 grad 5.52
+     x64 before: n 8055 green 0.65 dark 0.05 L 178.4 colours 1900 grad 4.34 | after: n 8055 green 0.66 dark 0.05 L 179.1 colours 2241 grad 4.39
+   19 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          strato  0.168          84  dormant    55.8     5013     3397  0.030     3.5    10.9   0.010
+     1 arc          strato  0.216         153  dormant    18.8     3925     3135  0.083    12.0    29.8   0.219
+     2 arc          cinder  0.245         223  dormant     8.4     1076      849  0.051     9.0    24.6   0.357
+     3 arc          cinder  0.076          26  dormant     2.4      949      290  0.060    11.6    19.1   0.417
+     4 arc          cinder  0.356         908  dormant     6.0      618      438  0.036     9.5    23.9   0.567
+     5 arc          cinder  0.263         280  dormant     2.3     1278      395  0.088    16.7    43.4   0.417
+     6 arc          cinder  0.370        1086  dormant     5.9      985        0  0.000     0.0     0.0   0.964
+     7 arc          cinder  0.379        1212  dormant     8.2     1051      601  0.037     4.6    18.9   0.075
+     8 arc          cinder  0.149          66  dormant     9.5      671      926  0.049    15.3    30.4   0.646
+     9 hotspot      shield  0.338         724  dormant     7.7      492      424  0.027     3.6     5.4   0.132
+    10 hotspot      shield  0.634       30660  extinct     3.5      802      724  0.103    13.9    19.7   0.167
+    11 hotspot      shield  0.985     2626925  extinct     2.1      407      341  0.082    10.1    14.9   0.083
+    12 arc          strato  0.372        1107  dormant    47.3     4801     2430  0.026     3.9     8.3   0.240
+    13 arc          cinder  0.188         108  dormant     4.2      942      611  0.072    12.6    18.7   0.350
+    14 arc          cinder  0.370        1078  dormant     9.3      278      701  0.038     4.4     9.4   0.022
+    15 arc          cinder  0.316         546  dormant     4.3     1224      462  0.054     9.4    13.4   0.350
+    16 arc          cinder  0.180          98  dormant     7.8     1048      648  0.041     7.6    14.3   0.375
+    17 arc          strato  0.106          38  dormant    15.9     2295      406  0.013     3.3    14.2   0.562
+    18 arc          cinder  0.044          17  active      8.9      936      953  0.053     6.2    19.7   0.023
+   activity: 1 active, 16 dormant, 2 extinct
+   median shield: H/W 0.082, mean slope 10.1 deg, crater/base 0.132 (n 3)
+   median strato: H/W 0.030, mean slope 3.9 deg, crater/base 0.240 (n 4)
+   median cinder: H/W 0.051, mean slope 9.4 deg, crater/base 0.375 (n 12)
+   frames: largest = #0 arc strato age 0.168 (84 yr, dormant) R 55.8 km at (525, 1028)
+     x1  before: n 11158 green 0.51 dark 0.48 L 79.1 colours 7282 grad 13.39 | after: n 11158 green 0.43 dark 0.46 L 82.4 colours 7435 grad 13.62
+     x4  before: n 179404 green 0.49 dark 0.41 L 81.1 colours 66536 grad 3.78 | after: n 179404 green 0.44 dark 0.37 L 84.0 colours 73192 grad 3.91
+     x16 before: n 813293 green 0.86 dark 0.33 L 85.3 colours 218087 grad 6.78 | after: n 813293 green 0.69 dark 0.28 L 89.4 colours 248763 grad 6.93
+     x64 before: n 813293 green 0.48 dark 0.26 L 79.0 colours 111909 grad 5.07 | after: n 813293 green 0.01 dark 0.20 L 84.6 colours 94799 grad 5.34
+   frames: youngest = #18 arc cinder age 0.044 (17 yr, active) R 8.9 km at (1179, 1149)
+     x1  before: n 282 green 0.99 dark 0.36 L 87.3 colours 280 grad 17.77 | after: n 282 green 0.17 dark 0.82 L 50.7 colours 264 grad 12.58
+     x4  before: n 4539 green 0.95 dark 0.31 L 88.4 colours 3912 grad 5.56 | after: n 4539 green 0.18 dark 0.79 L 54.4 colours 3139 grad 4.38
+     x16 before: n 72123 green 0.93 dark 0.34 L 87.1 colours 41333 grad 7.25 | after: n 72123 green 0.18 dark 0.79 L 54.5 colours 26079 grad 4.73
+     x64 before: n 791960 green 0.78 dark 0.42 L 84.3 colours 219076 grad 10.25 | after: n 791960 green 0.04 dark 0.67 L 57.4 colours 154274 grad 7.08
+   frames: oldest = #6 arc cinder age 0.370 (1086 yr, dormant) R 5.9 km at (349, 1234)
+     x1  before: n 21 green 1.00 dark 0.62 L 61.7 colours 21 grad 18.50 | after: n 21 green 0.62 dark 0.71 L 58.2 colours 21 grad 16.77
+     x4  before: n 335 green 0.91 dark 0.65 L 61.7 colours 308 grad 4.60 | after: n 335 green 0.72 dark 0.67 L 58.6 colours 317 grad 4.43
+     x16 before: n 5408 green 0.88 dark 0.63 L 60.5 colours 3805 grad 5.91 | after: n 5408 green 0.66 dark 0.63 L 59.1 colours 4191 grad 5.53
+     x64 before: n 86531 green 0.63 dark 0.58 L 60.6 colours 29329 grad 7.39 | after: n 86531 green 0.44 dark 0.59 L 59.2 colours 40288 grad 7.09
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 100.26s
