@@ -1115,7 +1115,12 @@ static func _draw_worship(ci: CanvasItem, layout: Dictionary, project: Callable,
 			var opts: PackedVector2Array = project.call(o)
 			_fill_ground_polygon(ci, opts, a.call(WORSHIP_PRECINCT))
 			opts.append(opts[0])
-			ci.draw_polyline(opts, ink, edge_w, true)
+			## Half the building's ink weight, at 0.55 alpha: at full weight the
+			## podium edge and the cella's edge closed up on a temple's colonnade
+			## band (read off a 5x crop of the first capture). A labelled
+			## judgement.
+			ci.draw_polyline(opts, Color(ink.r, ink.g, ink.b, ink.a * 0.55),
+				maxf(px_floor * 0.6, 0.45 * m_scale), true)
 		# Drop shadow then roof then ink, the same three passes `_draw_roofs`
 		# gives a house, so the building sits in the same light.
 		var polys: Array = s.get("polys", [])

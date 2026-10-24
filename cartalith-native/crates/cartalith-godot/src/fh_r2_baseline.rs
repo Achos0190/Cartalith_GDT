@@ -39,9 +39,10 @@
 //!   cost measurement (`fh_r2_m2_belief_cost`).
 //! - **urban** -- `run_layout` for the three most populous settlements (ties
 //!   by index), every `Building` by `Debug` (kind, district, polygon, ridge,
-//!   age). This is where a faith site's rite would show; `run_layout` passes
-//!   `faith: None` today, so it is predicted unmoved by construction and this
-//!   measures that prediction.
+//!   age). This is where a faith site's rite shows: since 2026-10-25 (Ruling
+//!   CY item 1) the layout takes the app's faith (`CivData::town_faith`), as
+//!   `urban_layouts` does, so the rite's cleared houses move this column
+//!   where a top-three town's faction has a rite other than the default.
 //!
 //! Worlds: five seeds x {800 km plain, 40 075 km wrapped} x {6 factions (the
 //! app default, `cartalith_engine::WorldParams::defaults()`'s `civ.factions`),
@@ -256,7 +257,11 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
     let mut h = Fnv::new();
     let (mut towns, mut buildings) = (0usize, 0usize);
     for &i in order.iter().take(3) {
-        let ctx = um_place_context(&uw, &civ.settlements[i], &civ.ways);
+        // Since 2026-10-25 (Ruling CY item 1) with the app's faith, so this
+        // column measures what `urban_layouts` lays out.
+        let s = &civ.settlements[i];
+        let o = cartalith_civ::urban_adapter::PlaceOverrides { faith: civ.town_faith(s), ..Default::default() };
+        let ctx = cartalith_civ::urban_adapter::um_place_context_with(&uw, s, &civ.ways, &o);
         match run_layout(&ctx, None) {
             Some(layout) => {
                 towns += 1;
@@ -362,27 +367,37 @@ const M2_BELIEF: [u64; 20] = [
 /// and R2-4 applied, so none of the move is FH-R2's. From R2-3 on, a stage's "0 bytes moved" bar is measured against this
 /// table, and a stage that changes a column re-baselines it here with the old
 /// value beside the new.
+///
+/// RE-BASELINED 2026-10-25 under Ruling CY item 1 (FH-R2 S3a switched on): the
+/// urban column now lays towns out with the app's faith (`CivData::town_faith`,
+/// as `urban_layouts` does), and all 20 rows' urban hashes moved; each carries
+/// its pre-switch value in its comment, and the building counts are the new
+/// ones. Roster, relations and belief are byte-identical. Re-printed on the
+/// tree rebased onto `884e7d27` (Ruling CX items 2-3) and identical to the run
+/// before that rebase, so none of the move is the volcano work's. Which of a
+/// row's three towns moved was not broken down; `fh_r2_m3_rite_only` shows
+/// that every house a rite moves sits under the new building.
 const AT_CURRENT: [Row; 20] = [
-    (12345, 800, 6, 0x12ad5407c90b2d2f, 0x0d1a231ae44944af, 0xc2bf20dd2d1c1a07, 0xbcb3da126476c843), // 28 settlements, 15 pairs, 3 towns, 9596 buildings; was (12345, 800, 6, 0x12ad5407c90b2d2f, 0x5c2004de10c6265f, 0x6ef29e9bcdae1ca9, 0xbcb3da126476c843) at 0801fbce
-    (12345, 800, 24, 0x83fc2cde5ba874d6, 0x3b274aea47b357fc, 0x4273ed93cbb870b9, 0xbbe3a8e71eb7a26c), // 28 settlements, 276 pairs, 3 towns, 12155 buildings; was (12345, 800, 24, 0x83fc2cde5ba874d6, 0x60b724792206c53b, 0xda772cea5a60f87b, 0xbbe3a8e71eb7a26c) at 0801fbce
-    (12345, 40075, 6, 0x12ad5407c90b2d2f, 0x95c289cde0c804f7, 0x4e5ec3cf050eed16, 0xc472ed74011cea76), // 22 settlements, 15 pairs, 3 towns, 12548 buildings
-    (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xb95e53a1e3bf5400, 0xc224165ac8ab2daa), // 22 settlements, 276 pairs, 3 towns, 12322 buildings; was (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xf6f43dba29d80ac0, 0xc224165ac8ab2daa) at 0801fbce
-    (314159, 800, 6, 0x12ad5407c90b2d2f, 0x2a1a393c17267114, 0x60694227da60a6e4, 0x53aa8c9f1be57867), // 28 settlements, 15 pairs, 3 towns, 11353 buildings; was (314159, 800, 6, 0x12ad5407c90b2d2f, 0xf0e680f532a2af86, 0xc8665b1a229e8bf0, 0xd7cadf5474989e2d) at 0801fbce
-    (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x0eabaeb491f1e8cf, 0xd7e1e98e14b60bc4), // 28 settlements, 276 pairs, 3 towns, 11263 buildings; was (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x5ff9ad8480196a8b, 0x2dbc7beffcd5c5b2) at 0801fbce
-    (314159, 40075, 6, 0x12ad5407c90b2d2f, 0x75596bb70531fc30, 0xaa708efde9b802f3, 0x1a21bca108e23078), // 22 settlements, 15 pairs, 3 towns, 13204 buildings
-    (314159, 40075, 24, 0x83fc2cde5ba874d6, 0xa6c3dfc12981ca11, 0xbd742606c68ee9b8, 0xb8cff3caea5af249), // 22 settlements, 276 pairs, 3 towns, 12727 buildings
-    (404, 800, 6, 0x12ad5407c90b2d2f, 0xe72a483510747a94, 0x21f13aaf362114ea, 0xe9eeb4ee8cd67eae), // 28 settlements, 15 pairs, 3 towns, 12004 buildings; was (404, 800, 6, 0x12ad5407c90b2d2f, 0x6d489371e183bfe5, 0x08aa0d83b485a732, 0xe9eeb4ee8cd67eae) at 0801fbce
-    (404, 800, 24, 0x83fc2cde5ba874d6, 0xfe1bfbeab5210a87, 0x64a03eba1b0d7a80, 0x4a8d9f8fa5757d3a), // 28 settlements, 276 pairs, 3 towns, 13150 buildings; was (404, 800, 24, 0x83fc2cde5ba874d6, 0xd6cc372330159c4e, 0x55b6fc8b0c4f4641, 0x4a8d9f8fa5757d3a) at 0801fbce
-    (404, 40075, 6, 0x12ad5407c90b2d2f, 0x02594796df689f67, 0xff7ffc1933569655, 0xc1fb1a8707c483e2), // 22 settlements, 15 pairs, 3 towns, 10299 buildings
-    (404, 40075, 24, 0x83fc2cde5ba874d6, 0x4afb198c85fe8b2f, 0xc24cf86a34076751, 0x4c458d53a4752bed), // 22 settlements, 276 pairs, 3 towns, 11250 buildings; was (404, 40075, 24, 0x83fc2cde5ba874d6, 0xe4d590af380630db, 0x72e75e14a35ef867, 0x4c458d53a4752bed) at 0801fbce
-    (707, 800, 6, 0x12ad5407c90b2d2f, 0xa9667ca05bb9740f, 0xb5700fa6df9af237, 0x6f78d2d6bac38e4b), // 28 settlements, 15 pairs, 3 towns, 10099 buildings; was (707, 800, 6, 0x12ad5407c90b2d2f, 0x8b390478b554281e, 0x8e310cdb39d8269f, 0x6f78d2d6bac38e4b) at 0801fbce
-    (707, 800, 24, 0x83fc2cde5ba874d6, 0xcedf35dd0eb2a5ae, 0xe88ef1ddfd8fb89e, 0xdad31b17be184141), // 28 settlements, 276 pairs, 3 towns, 12989 buildings; was (707, 800, 24, 0x83fc2cde5ba874d6, 0xcedf35dd0eb2a5ae, 0xe518464aa3c95cd2, 0xdad31b17be184141) at 0801fbce
-    (707, 40075, 6, 0x12ad5407c90b2d2f, 0x423e55d58efe8710, 0x9f49f53f1b3df459, 0x20c886252478cac2), // 22 settlements, 15 pairs, 3 towns, 12550 buildings
-    (707, 40075, 24, 0x83fc2cde5ba874d6, 0xad2e2e0b81d07e01, 0x4654513f79d40be8, 0xcef0e234416caaa9), // 22 settlements, 276 pairs, 3 towns, 14080 buildings
-    (24601, 800, 6, 0x12ad5407c90b2d2f, 0x13d97ff356d62bab, 0x07c3d0d1dbe0bd48, 0x9cd714fae1664329), // 28 settlements, 15 pairs, 3 towns, 12938 buildings; was (24601, 800, 6, 0x12ad5407c90b2d2f, 0xbefe95773005588d, 0x72b0cabcba4b567f, 0x22a8f50c77d0cf82) at 0801fbce
-    (24601, 800, 24, 0x83fc2cde5ba874d6, 0x42c1cb98b9eed7a2, 0x817ef18fec84b2ba, 0xa0d2e78175d2deea), // 28 settlements, 276 pairs, 3 towns, 12307 buildings; was (24601, 800, 24, 0x83fc2cde5ba874d6, 0x06380ec2d44607f8, 0x1118b2972ae33d37, 0x0a0accc42b23eb4e) at 0801fbce
-    (24601, 40075, 6, 0x12ad5407c90b2d2f, 0xce0f10490895e492, 0x1a72a4dd95c5a5e6, 0x528600d735c84d91), // 22 settlements, 15 pairs, 3 towns, 12035 buildings
-    (24601, 40075, 24, 0x83fc2cde5ba874d6, 0xc42b13d64411c63f, 0x0ff4132f780ff84a, 0x962e576450dcf773), // 22 settlements, 276 pairs, 3 towns, 13206 buildings
+    (12345, 800, 6, 0x12ad5407c90b2d2f, 0x0d1a231ae44944af, 0xc2bf20dd2d1c1a07, 0xfd7bfb7ce66a5c4b), // 28 settlements, 15 pairs, 3 towns, 9600 buildings; was (12345, 800, 6, 0x12ad5407c90b2d2f, 0x5c2004de10c6265f, 0x6ef29e9bcdae1ca9, 0xbcb3da126476c843) at 0801fbce; urban was 0xbcb3da126476c843 before Ruling CY's rite switch-on
+    (12345, 800, 24, 0x83fc2cde5ba874d6, 0x3b274aea47b357fc, 0x4273ed93cbb870b9, 0xc1976b0e8f11e87d), // 28 settlements, 276 pairs, 3 towns, 12157 buildings; was (12345, 800, 24, 0x83fc2cde5ba874d6, 0x60b724792206c53b, 0xda772cea5a60f87b, 0xbbe3a8e71eb7a26c) at 0801fbce; urban was 0xbbe3a8e71eb7a26c before Ruling CY's rite switch-on
+    (12345, 40075, 6, 0x12ad5407c90b2d2f, 0x95c289cde0c804f7, 0x4e5ec3cf050eed16, 0xa441267d47c3d372), // 22 settlements, 15 pairs, 3 towns, 12552 buildings; urban was 0xc472ed74011cea76 before Ruling CY's rite switch-on
+    (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xb95e53a1e3bf5400, 0x08c533a99aa78d1e), // 22 settlements, 276 pairs, 3 towns, 12319 buildings; was (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xf6f43dba29d80ac0, 0xc224165ac8ab2daa) at 0801fbce; urban was 0xc224165ac8ab2daa before Ruling CY's rite switch-on
+    (314159, 800, 6, 0x12ad5407c90b2d2f, 0x2a1a393c17267114, 0x60694227da60a6e4, 0x081a049d34370c5f), // 28 settlements, 15 pairs, 3 towns, 11347 buildings; was (314159, 800, 6, 0x12ad5407c90b2d2f, 0xf0e680f532a2af86, 0xc8665b1a229e8bf0, 0xd7cadf5474989e2d) at 0801fbce; urban was 0x53aa8c9f1be57867 before Ruling CY's rite switch-on
+    (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x0eabaeb491f1e8cf, 0xe8dd36aa36a8e532), // 28 settlements, 276 pairs, 3 towns, 11255 buildings; was (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x5ff9ad8480196a8b, 0x2dbc7beffcd5c5b2) at 0801fbce; urban was 0xd7e1e98e14b60bc4 before Ruling CY's rite switch-on
+    (314159, 40075, 6, 0x12ad5407c90b2d2f, 0x75596bb70531fc30, 0xaa708efde9b802f3, 0xddb6edc862de69ad), // 22 settlements, 15 pairs, 3 towns, 13200 buildings; urban was 0x1a21bca108e23078 before Ruling CY's rite switch-on
+    (314159, 40075, 24, 0x83fc2cde5ba874d6, 0xa6c3dfc12981ca11, 0xbd742606c68ee9b8, 0x23afcd2854e5b684), // 22 settlements, 276 pairs, 3 towns, 12721 buildings; urban was 0xb8cff3caea5af249 before Ruling CY's rite switch-on
+    (404, 800, 6, 0x12ad5407c90b2d2f, 0xe72a483510747a94, 0x21f13aaf362114ea, 0x076bad9e9a3789b0), // 28 settlements, 15 pairs, 3 towns, 11998 buildings; was (404, 800, 6, 0x12ad5407c90b2d2f, 0x6d489371e183bfe5, 0x08aa0d83b485a732, 0xe9eeb4ee8cd67eae) at 0801fbce; urban was 0xe9eeb4ee8cd67eae before Ruling CY's rite switch-on
+    (404, 800, 24, 0x83fc2cde5ba874d6, 0xfe1bfbeab5210a87, 0x64a03eba1b0d7a80, 0xb17ebea2c1b9fea9), // 28 settlements, 276 pairs, 3 towns, 13152 buildings; was (404, 800, 24, 0x83fc2cde5ba874d6, 0xd6cc372330159c4e, 0x55b6fc8b0c4f4641, 0x4a8d9f8fa5757d3a) at 0801fbce; urban was 0x4a8d9f8fa5757d3a before Ruling CY's rite switch-on
+    (404, 40075, 6, 0x12ad5407c90b2d2f, 0x02594796df689f67, 0xff7ffc1933569655, 0xfce395a261bb3110), // 22 settlements, 15 pairs, 3 towns, 10294 buildings; urban was 0xc1fb1a8707c483e2 before Ruling CY's rite switch-on
+    (404, 40075, 24, 0x83fc2cde5ba874d6, 0x4afb198c85fe8b2f, 0xc24cf86a34076751, 0xc94b487f7a9c25da), // 22 settlements, 276 pairs, 3 towns, 11247 buildings; was (404, 40075, 24, 0x83fc2cde5ba874d6, 0xe4d590af380630db, 0x72e75e14a35ef867, 0x4c458d53a4752bed) at 0801fbce; urban was 0x4c458d53a4752bed before Ruling CY's rite switch-on
+    (707, 800, 6, 0x12ad5407c90b2d2f, 0xa9667ca05bb9740f, 0xb5700fa6df9af237, 0xd37e739df2c7680c), // 28 settlements, 15 pairs, 3 towns, 10107 buildings; was (707, 800, 6, 0x12ad5407c90b2d2f, 0x8b390478b554281e, 0x8e310cdb39d8269f, 0x6f78d2d6bac38e4b) at 0801fbce; urban was 0x6f78d2d6bac38e4b before Ruling CY's rite switch-on
+    (707, 800, 24, 0x83fc2cde5ba874d6, 0xcedf35dd0eb2a5ae, 0xe88ef1ddfd8fb89e, 0x0b0b6e3927626c5a), // 28 settlements, 276 pairs, 3 towns, 12991 buildings; was (707, 800, 24, 0x83fc2cde5ba874d6, 0xcedf35dd0eb2a5ae, 0xe518464aa3c95cd2, 0xdad31b17be184141) at 0801fbce; urban was 0xdad31b17be184141 before Ruling CY's rite switch-on
+    (707, 40075, 6, 0x12ad5407c90b2d2f, 0x423e55d58efe8710, 0x9f49f53f1b3df459, 0xa4b581be2526466e), // 22 settlements, 15 pairs, 3 towns, 12548 buildings; urban was 0x20c886252478cac2 before Ruling CY's rite switch-on
+    (707, 40075, 24, 0x83fc2cde5ba874d6, 0xad2e2e0b81d07e01, 0x4654513f79d40be8, 0xd6f2d571cefe4841), // 22 settlements, 276 pairs, 3 towns, 14077 buildings; urban was 0xcef0e234416caaa9 before Ruling CY's rite switch-on
+    (24601, 800, 6, 0x12ad5407c90b2d2f, 0x13d97ff356d62bab, 0x07c3d0d1dbe0bd48, 0xc0254dff74f763d8), // 28 settlements, 15 pairs, 3 towns, 12943 buildings; was (24601, 800, 6, 0x12ad5407c90b2d2f, 0xbefe95773005588d, 0x72b0cabcba4b567f, 0x22a8f50c77d0cf82) at 0801fbce; urban was 0x9cd714fae1664329 before Ruling CY's rite switch-on
+    (24601, 800, 24, 0x83fc2cde5ba874d6, 0x42c1cb98b9eed7a2, 0x817ef18fec84b2ba, 0x99c5870dd91dc6b0), // 28 settlements, 276 pairs, 3 towns, 12308 buildings; was (24601, 800, 24, 0x83fc2cde5ba874d6, 0x06380ec2d44607f8, 0x1118b2972ae33d37, 0x0a0accc42b23eb4e) at 0801fbce; urban was 0xa0d2e78175d2deea before Ruling CY's rite switch-on
+    (24601, 40075, 6, 0x12ad5407c90b2d2f, 0xce0f10490895e492, 0x1a72a4dd95c5a5e6, 0x66eb119138e3f494), // 22 settlements, 15 pairs, 3 towns, 12032 buildings; urban was 0x528600d735c84d91 before Ruling CY's rite switch-on
+    (24601, 40075, 24, 0x83fc2cde5ba874d6, 0xc42b13d64411c63f, 0x0ff4132f780ff84a, 0xdae88bd40e03ce9a), // 22 settlements, 276 pairs, 3 towns, 13205 buildings; urban was 0x962e576450dcf773 before Ruling CY's rite switch-on
 ];
 
 /// Protects: R2-1 (`FH_R2_PLAN.md` M1) moves zero bytes of the roster's
@@ -779,11 +794,17 @@ fn fh_r2_m6_policy_bars() {
     assert!(persecuting < exclusive && exclusive < plural, "{means:?}");
 }
 
-/// FH-R2 R2-4's **M3 bars** (`FH_R2_PLAN.md` §6, S3a), measured with the rite
-/// table built but **not switched on in the app** (`urban_layouts` still passes
-/// `faith: None`; STATUS.md's R2-4 entry says why), over **every** settlement of five seeds x {800 km, 40 075 km}
-/// x 24 factions: each town is laid out twice, with no faith (the pre-R2-4
-/// call) and with the app's faith (`CivData::town_faith`), and compared.
+/// FH-R2 S3a's **M3 bars** (`FH_R2_PLAN.md` §6), first measured for R2-4
+/// with the rite built but not switched on, and re-run on 2026-10-25 for the
+/// switch itself (Ruling CY item 1: `urban_layouts` now passes
+/// `CivData::town_faith`). Over **every** settlement of five seeds x
+/// {800 km, 40 075 km} x 24 factions, each town is laid out twice, with no
+/// faith (the pre-switch call) and with the app's faith, and compared.
+///
+/// The no-rite and the four-rite populations are built here, since fresh
+/// rosters only reach the temple and shrine religions: faction 1 is set to no
+/// religion, 2 to `flame_creed` (a religion whose form is S4's), 3 to
+/// `revealed_law` (mosque) and 4 to `one_god` (church, the medieval default).
 ///
 /// - A town whose faction religion maps to no rite of its own (unaffiliated,
 ///   Unclaimed, or a religion without a building form yet) must be
@@ -791,9 +812,14 @@ fn fh_r2_m6_policy_bars() {
 ///   call by control flow.
 /// - Every other town's faith sites may differ **only in rite and its
 ///   consequences** (name, built form): the same count (still
-///   `clamp(round(households/500), 1, 4)`), the same centres and the same
-///   churchyard parcels. Its buildings are reported (a rite never adds a
-///   house; `build_faith_sites` only clears).
+///   `clamp(round(households/500), 1, 4)`), the same centres, ids and
+///   churchyard parcels, and **byte-identical parcels**. Its buildings may
+///   move, and every building that appears or vanishes must have its centroid
+///   inside a site's building or open precinct polygon, before or after: the
+///   only place `build_faith_sites` clears a house besides the (unchanged)
+///   churchyard parcels. The count of moved houses not so explained is
+///   asserted zero, and the count of moved houses non-zero (or the check
+///   would measure nothing).
 ///
 /// The JS-captured urban goldens are the third M3 bar and live in
 /// `cartalith-urban` / `golden_parity_urban_adapter.rs`, which never set a
@@ -803,17 +829,51 @@ fn fh_r2_m6_policy_bars() {
 #[test]
 #[ignore = "M3 measurement over 10 generated worlds; run alone with --ignored"]
 fn fh_r2_m3_rite_only() {
-    use cartalith_civ::urban_adapter::{um_place_context_with, PlaceOverrides};
+    use cartalith_civ::urban_adapter::{um_place_context_with, Building, PlaceOverrides, UrbanLayout, Vec2};
+    // Area centroid and even-odd point-in-polygon: the two tests
+    // `build_faith_sites` clears houses by (`poly_centroid`, `point_in_poly`
+    // in `cartalith-urban`'s `geom`, which this crate does not depend on).
+    fn centroid(p: &[Vec2]) -> Vec2 {
+        let (mut a, mut cx, mut cy) = (0.0f64, 0.0f64, 0.0f64);
+        for i in 0..p.len() {
+            let (u, v) = (p[i], p[(i + 1) % p.len()]);
+            let k = u.x * v.y - v.x * u.y;
+            a += k;
+            cx += (u.x + v.x) * k;
+            cy += (u.y + v.y) * k;
+        }
+        if a.abs() < 1e-12 {
+            let n = p.len().max(1) as f64;
+            return Vec2::new(p.iter().map(|q| q.x).sum::<f64>() / n, p.iter().map(|q| q.y).sum::<f64>() / n);
+        }
+        Vec2::new(cx / (3.0 * a), cy / (3.0 * a))
+    }
+    fn inside(c: Vec2, p: &[Vec2]) -> bool {
+        let mut hit = false;
+        let mut j = p.len().wrapping_sub(1);
+        for i in 0..p.len() {
+            let (a, b) = (p[i], p[j]);
+            if (a.y > c.y) != (b.y > c.y) && c.x < (b.x - a.x) * (c.y - a.y) / (b.y - a.y) + a.x {
+                hit = !hit;
+            }
+            j = i;
+        }
+        hit
+    }
+    let under_a_site = |c: Vec2, l: &UrbanLayout| {
+        l.faith_sites.iter().any(|s| s.polys.iter().chain(s.open.iter()).any(|p| inside(c, p)))
+    };
     let (mut same, mut changed, mut sites_changed, mut builds_moved) = (0usize, 0usize, 0usize, 0usize);
+    let (mut houses_moved, mut unexplained) = (0usize, 0usize);
     let mut rites: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut moved_by_rite: std::collections::BTreeMap<String, usize> = Default::default();
     for &seed in SEEDS.iter() {
         for &width in [800u32, 40_075].iter() {
             let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), 24, GW);
-            // Fresh worlds give every faction a reference religion with a
-            // rite, so the "no rite of its own" population is built here:
-            // faction 1 unaffiliated, faction 2 a religion whose form is S4's.
             assert!(civ.faction_roster.set_field(1, "religion", "none"));
             assert!(civ.faction_roster.set_field(2, "religion", "flame_creed"));
+            assert!(civ.faction_roster.set_field(3, "religion", "revealed_law"));
+            assert!(civ.faction_roster.set_field(4, "religion", "one_god"));
             let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
                 (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, GW, gh, 1),
                 _ => Vec::new(),
@@ -836,7 +896,7 @@ fn fh_r2_m3_rite_only() {
                 let plain = run_layout(&um_place_context(&uw, s, &civ.ways), None);
                 let app = run_layout(&um_place_context_with(&uw, s, &civ.ways, &PlaceOverrides { faith, ..Default::default() }), None);
                 let (Some(a), Some(b)) = (plain, app) else { continue };
-                let bld = |l: &cartalith_civ::urban_adapter::UrbanLayout| format!("{:?}", l.buildings);
+                let bld = |l: &UrbanLayout| format!("{:?}", l.buildings);
                 match faith {
                     None => {
                         assert_eq!(bld(&a), bld(&b), "seed {seed} {width}: an unaffiliated town moved");
@@ -847,6 +907,11 @@ fn fh_r2_m3_rite_only() {
                         changed += 1;
                         *rites.entry(r.to_string()).or_default() += 1;
                         assert_eq!(a.faith_sites.len(), b.faith_sites.len(), "seed {seed}: site count moved");
+                        // `LayoutParcel` has no `Debug`; every field it carries is compared.
+                        let par = |l: &UrbanLayout| {
+                            l.parcels.iter().map(|q| format!("{:?} {} {} {} {}", q.poly, q.area.to_bits(), q.edge_cls, q.tone.to_bits(), q.district)).collect::<Vec<_>>()
+                        };
+                        assert_eq!(par(&a), par(&b), "seed {seed}: parcels moved");
                         for (x, y) in a.faith_sites.iter().zip(b.faith_sites.iter()) {
                             assert_eq!((x.center, &x.yard, &x.id), (y.center, &y.yard, &y.id), "seed {seed}: a site moved");
                             assert_eq!(y.faith, r);
@@ -856,6 +921,22 @@ fn fh_r2_m3_rite_only() {
                         }
                         if bld(&a) != bld(&b) {
                             builds_moved += 1;
+                            *moved_by_rite.entry(r.to_string()).or_default() += 1;
+                            let key = |x: &Building| format!("{:?}", x.poly);
+                            let ka: std::collections::HashSet<String> = a.buildings.iter().map(key).collect();
+                            let kb: std::collections::HashSet<String> = b.buildings.iter().map(key).collect();
+                            let only = a
+                                .buildings
+                                .iter()
+                                .filter(|x| !kb.contains(&key(x)))
+                                .chain(b.buildings.iter().filter(|x| !ka.contains(&key(x))));
+                            for h in only {
+                                houses_moved += 1;
+                                let c = centroid(&h.poly);
+                                if !under_a_site(c, &a) && !under_a_site(c, &b) {
+                                    unexplained += 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -864,7 +945,10 @@ fn fh_r2_m3_rite_only() {
     }
     println!(
         "M3: {same} towns with no rite of their own identical; {changed} towns given a rite {rites:?}; \
-         {sites_changed} faith sites changed rite; {builds_moved} of those towns' building lists moved"
+         {sites_changed} faith sites changed rite; {builds_moved} of those towns' building lists moved \
+         {moved_by_rite:?}; {houses_moved} houses appeared or vanished, {unexplained} not under a site"
     );
     assert!(same > 0 && changed > 0, "both populations must be non-empty");
+    assert!(houses_moved > 0, "the fixture must move a house, or the explained-by check measures nothing");
+    assert_eq!(unexplained, 0, "every moved house must sit under a place of worship");
 }

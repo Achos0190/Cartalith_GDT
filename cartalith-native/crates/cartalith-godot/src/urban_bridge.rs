@@ -611,7 +611,8 @@ impl WorldGen {
     ///
     /// **The places of worship arrived 2026-10-25** (Ruling CY item 1) as
     /// `"worship_sites"`, one dictionary per `Town::churches` entry in its
-    /// rite's built form. One thing the reference's model carries is
+    /// rite's built form, and the rite follows the ruling faction's religion
+    /// (`faith` below, through [`crate::CivData::town_faith`]). One thing the reference's model carries is
     /// still not surfaced here: the civic hall
     /// (`cartalith_urban::Town::civic`, and the games buildings beside it).
     ///
@@ -748,18 +749,16 @@ impl WorldGen {
                 // which is the exact call this site made before.
                 culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
                 variant: (e.variant != 0).then_some(e.variant),
-                // FH-R2 R2-4 (S3a) is built up to here and deliberately NOT
-                // switched on (2026-10-24): `CivData::town_faith` would supply
-                // the ruling faction's rite, but this app draws no place of
-                // worship at all (`urban_layout_draw.gd`'s header; the layout
-                // dictionary does not cross `Town::churches`), so a new rite
-                // would only reshape the undrawn gap its footprint clears --
-                // measured: 151 of 250 towns' buildings move with nothing
-                // visible to say why (`fh_r2_m3_rite_only`, STATUS.md's R2-4
-                // entry). That is an owner decision, not a default. `None` is
-                // the culture profile's default rite, the call this site has
-                // always made.
-                faith: None,
+                // FH-R2 S3a, switched on 2026-10-25 (Ruling CY item 1, once
+                // places of worship were drawn: `"worship_sites"` above): the
+                // ruling faction's religion picks the rite through
+                // `religion_profile::religion_rite`. `None` -- an unaffiliated
+                // or Unclaimed town, or a religion whose form is S4's -- is the
+                // culture profile's default rite, the call this site made
+                // before, so those towns are byte-identical by control flow.
+                // Measured: site count, centres, yards and parcels unchanged;
+                // every moved house sits under a site (`fh_r2_m3_rite_only`).
+                faith: civ.town_faith(s),
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a
@@ -1175,9 +1174,9 @@ impl crate::CivData {
     /// its header says why); whether a shell surface re-asks after a religion
     /// edit is that surface's own refresh rule.
     ///
-    /// **Not called by the app yet** (see the `faith: None` in
-    /// `urban_layouts`): only the M3 harness reads it, hence the `allow`.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Called by `urban_layouts` for every town since 2026-10-25 (Ruling CY
+    /// item 1), and by the M3 harness. Never invents a rite: a religion the
+    /// table has no form for answers `None`, never a borrowed form.
     pub(crate) fn town_faith(&self, s: &cartalith_civ::NamedSettlement) -> Option<&'static str> {
         let e = usize::try_from(s.placement.faction).ok().and_then(|f| self.faction_roster.0.get(f))?;
         cartalith_civ::religion_profile::religion_rite(self.religions.engine_key(&e.religion))

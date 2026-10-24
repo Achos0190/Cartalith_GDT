@@ -31,7 +31,7 @@ extends Node
 ##      empties the map overlay's town cache, so the map redraws the new rite.
 ## Checks (a)'s rite and (b) need the rite switched on (`urban_bridge.rs`'s
 ## `faith`); on a tree without that they fail, which is the point.
-## Screenshots: `<out>/<form>_<rite>_fit.png` and `..._zoom.png`.
+## Screenshots: `<out>/<form>_<rite>_<religion>_fit.png`, `..._zoom.png` and `..._zoom_without.png`.
 ## Result: `WORSHIP ok|FAIL <name>` lines, `WORSHIP RESULT PASS|FAIL checks=<n>
 ## fails=<n>`; exit 0 on PASS, 1 on a failed check, 2 on a bad argument or a
 ## world that cannot answer (fewer than five usable towns).
@@ -207,15 +207,15 @@ func _ready() -> void:
 		var want_name := String(site0.get("name", ""))
 		var info_ok := want_name != "" and _find_text(cv._info, want_name)
 		_check("(c) %s: legend row and info name the form (%s)" % [tag, want_name], legend_ok and info_ok)
-		var fit_img := await _shot(cv, "%s_%s_fit" % [_form, t["rite"]])
+		var fit_img := await _shot(cv, "%s_%s_%s_fit" % [_form, t["rite"], t["religion"]])
 		_zoom_on(cv, site0.get("center", Vector2.ZERO), 7.0)
 		await _frames(4)
-		var zoom_img := await _shot(cv, "%s_%s_zoom" % [_form, t["rite"]])
+		var zoom_img := await _shot(cv, "%s_%s_%s_zoom" % [_form, t["rite"], t["religion"]])
 		var keep = shown["worship_sites"]
 		cv._layout.erase("worship_sites")
 		cv._canvas.queue_redraw()
 		await _frames(4)
-		var bare := await _shot(cv, "%s_%s_zoom_without" % [_form, t["rite"]])
+		var bare := await _shot(cv, "%s_%s_%s_zoom_without" % [_form, t["rite"], t["religion"]])
 		cv._layout["worship_sites"] = keep
 		cv._canvas.queue_redraw()
 		var moved_px := _diff(zoom_img, bare)
@@ -276,11 +276,30 @@ func _house_diff(a: Dictionary, b: Dictionary) -> Array:
 	return out
 
 
+## The AREA centroid, as `build_faith_sites` tests a house by
+## (`cartalith-urban`'s `poly_centroid`). A vertex average differs for an
+## irregular footprint, and on the first run it called one house straddling a
+## nave edge unexplained that the generator's own test had cleared.
+## Coordinates are taken relative to the first vertex so the shoelace terms
+## stay small in f32 (a layout box runs to ~2 km).
 func _centroid(p: PackedVector2Array) -> Vector2:
+	if p.is_empty():
+		return Vector2.ZERO
+	var o := p[0]
+	var a := 0.0
 	var c := Vector2.ZERO
-	for v in p:
-		c += v
-	return c / maxf(1.0, p.size())
+	for i in p.size():
+		var u := p[i] - o
+		var v := p[(i + 1) % p.size()] - o
+		var k := u.x * v.y - v.x * u.y
+		a += k
+		c += (u + v) * k
+	if absf(a) < 1e-9:
+		var m := Vector2.ZERO
+		for q in p:
+			m += q
+		return m / p.size()
+	return o + c / (3.0 * a)
 
 
 ## True when `c` is inside a building or precinct polygon of any site, the two

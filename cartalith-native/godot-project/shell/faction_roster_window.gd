@@ -2589,8 +2589,25 @@ func _delete_religion(id: int) -> void:
 func _after_religion_library_change() -> void:
 	_commit_focused_field()
 	_mark_data_stale()
+	_forget_town_layouts()
 	_rebuild_inspector()
 	roster_changed.emit()
+
+
+## Drops the map's cached town layouts after a religion edit (FH-R2 S3,
+## Ruling CY item 1): a town's place of worship is built in its ruling
+## faction's religion's rite (`urban_bridge.rs::urban_layouts`, through
+## `CivData::town_faith`), so a faction's religion pick or a custom religion's
+## base change reshapes every town that faction holds. The map overlay caches
+## laid-out towns by index (`map_overlay.gd::_urban_layouts`) and drops them
+## only on a civ refresh or a rules/plan edit, so without this the map kept
+## the old rite until the next regenerate. The City Viewer, place editor and
+## dock thumbnail re-ask the engine on open. Every town is dropped, not just
+## the faction's: they re-lay out lazily as they come on screen. Guarded
+## because a probe may open this window with no app viewport.
+func _forget_town_layouts() -> void:
+	if app != null and app.get("viewport") != null and app.viewport.has_method("forget_all_urban_layouts"):
+		app.viewport.forget_all_urban_layouts()
 
 
 ## Cultures come back as bare keys -- the reference's own `CIV_CULTURES`
@@ -3862,6 +3879,8 @@ func _set_field(key: String, value: String) -> void:
 		## dropped, the visible Identity pane (and its focus) kept.
 		_mark_data_stale()
 		_drop_panes(_tab)
+		if key == "religion":
+			_forget_town_layouts()
 	elif key == "name":
 		_rebuild_list()
 		_rebuild_overview()

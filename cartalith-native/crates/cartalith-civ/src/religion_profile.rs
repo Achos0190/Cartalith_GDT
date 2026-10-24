@@ -368,12 +368,13 @@ pub fn religion_profile(key: &str) -> Option<&'static ReligionProfile> {
 /// no building form of its own in today's urban crate", in which case the
 /// town keeps its culture profile's default rite exactly as before R2-4.
 ///
-/// **Defaults applied, for the owner to overrule.** `FH_R2_PLAN.md` Q3
+/// **Owner-approved (Ruling CY item 1, 2026-10-24).** `FH_R2_PLAN.md` Q3
 /// ("authorise S3, the civ to urban faith wiring that changes every
-/// affiliated town's generated output") has no ruling; Ruling CW told this
-/// pass to take the plan's recommended default where a question is
-/// unanswered, and Q3's is "yes, in two steps: S3a (rite only) first". This
-/// table is S3a. Every row is a **labelled judgement** mapping a religion's
+/// affiliated town's generated output") was first built at its default under
+/// Ruling CW and stopped at the switch; Ruling CY approved this table row for
+/// row and had the app switch it on once places of worship were drawn
+/// (`urban_bridge.rs::urban_layouts`). This table is S3a. Every row is a
+/// **labelled judgement** mapping a religion's
 /// profile onto the five rites `cartalith_urban::districts::build_faith_sites`
 /// can build (`church`, `temple`, `shrine`, `mosque`, `orthodox`; the
 /// research document: "architectural forms, not religions"):
