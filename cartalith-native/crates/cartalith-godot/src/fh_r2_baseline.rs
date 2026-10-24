@@ -98,6 +98,9 @@ const SEEDS: [i32; 5] = [12345, 314159, 404, 707, 24601];
 type Row = (i32, u32, i32, u64, u64, u64, u64);
 
 /// The M0 baseline. See the module doc: never edit a value in passing.
+/// Kept as the historical record and read by no test since 2026-10-24 (see
+/// `AT_0801FBCE`), hence the `allow`.
+#[allow(dead_code)]
 const M0: [Row; 20] = [
     (12345, 800, 6, 0x12ad5407c90b2d2f, 0xab1f17fb0d785229, 0xd019daca6ee60c84, 0x8178f309faf8f7cd), // 28 settlements
     (12345, 800, 24, 0x83fc2cde5ba874d6, 0x03a079dd4e952fa8, 0xc6b267da00dd815a, 0xeedc4dfd08ed6b39), // 28 settlements
@@ -309,6 +312,7 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
 /// weight was set to `0.0` and all 20 belief hashes reproduced [`M0`]
 /// (STATUS.md's R2-2 entry): the terms vanish by arithmetic at weight zero, so
 /// this move is the terms' and nothing else's.
+#[allow(dead_code)] // historical since 2026-10-24, see `AT_0801FBCE`
 const M2_BELIEF: [u64; 20] = [
     0x97467380a4a39565, // 12345 800 6     (M0 0xd019daca6ee60c84)
     0xe5363e50d332b709, // 12345 800 24    (M0 0xc6b267da00dd815a)
@@ -708,4 +712,62 @@ fn fh_r2_m5_custom_axes() {
     }
     println!("M5 TOTAL: membership override moved the belief run on {moved} of {worlds} worlds");
     assert_eq!(moved, worlds, "the override must reach every world's run");
+}
+
+/// FH-R2 R2-6's measurement (`FH_R2_PLAN.md` R2-6: "belief runs only"). The
+/// plan names no numeric bar for S6; the bars below are **labelled
+/// judgements** on the research document's direction ("persecution raises
+/// minority out-flow, tolerant regimes lower it"): with every faction given
+/// the same policy, the mean minority share after 200 years -- per settlement,
+/// the share held by faiths other than its ruler's state religion and the
+/// unaffiliated, over settlements whose ruler has a state religion -- must
+/// order persecuting < exclusive establishment < plural. Tolerant
+/// establishment is printed, not ordered (its two halves push opposite ways).
+/// The all-plural case is the M1 harness's belief column (0 bytes moved, by
+/// control flow: no table is built). Five seeds, 800 km, 24 factions.
+///
+/// Protects: the policy reaches real worlds' runs, in the stated direction.
+#[test]
+#[ignore = "R2-6 measurement over 5 generated worlds; run alone with --ignored"]
+fn fh_r2_m6_policy_bars() {
+    use cartalith_civ::belief::{religion_index, RELIGION_NONE};
+    use cartalith_civ::religious_policy::CIV_RELIGIOUS_POLICIES;
+    let mut means = Vec::new();
+    for (key, _) in CIV_RELIGIOUS_POLICIES {
+        let (mut sum, mut n) = (0.0f64, 0usize);
+        for &seed in SEEDS.iter() {
+            let (ws, mut civ, gh, p) = generate_world(seed, 800.0, 24, GW);
+            let no_polys: Vec<Vec<(f64, f64)>> = Vec::new();
+            let flows = {
+                let uw = trade_world(&ws, &civ, GW, gh, &p, seed, &no_polys);
+                harness_flows(&civ, &uw)
+            };
+            for f in 1..civ.faction_roster.0.len() {
+                assert!(civ.faction_roster.set_field(f, "religious_policy", key));
+            }
+            civ.civ_belief_run(200, &flows);
+            let states: Vec<Option<usize>> = civ
+                .settlements
+                .iter()
+                .map(|s| {
+                    let e = civ.faction_roster.0.get(s.placement.faction.max(0) as usize)?;
+                    religion_index(civ.religions.engine_key(&e.religion)).filter(|&r| r != RELIGION_NONE)
+                })
+                .collect();
+            for (i, st) in states.iter().enumerate() {
+                let Some(state) = *st else { continue };
+                let share = &civ.belief[i].share;
+                let minority: f64 =
+                    share.iter().enumerate().filter(|&(r, _)| r != state && r != RELIGION_NONE).map(|(_, v)| v).sum();
+                sum += minority;
+                n += 1;
+            }
+        }
+        assert!(n > 0, "no settlement with a state religion");
+        let mean = sum / n as f64;
+        println!("M6 policy {key}: mean minority share {mean:.5} over {n} settlements (5 seeds)");
+        means.push(mean);
+    }
+    let (plural, _tolerant, exclusive, persecuting) = (means[0], means[1], means[2], means[3]);
+    assert!(persecuting < exclusive && exclusive < plural, "{means:?}");
 }

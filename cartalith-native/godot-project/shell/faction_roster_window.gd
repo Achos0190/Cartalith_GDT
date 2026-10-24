@@ -263,6 +263,8 @@ var _religion_edit_id := -1
 ## The line under the Religion picker that says what the current choice
 ## behaves as; refreshed in place after a pick so the picker itself is kept.
 var _religion_note: Label
+## FH-R2 R2-6: the line under the Religious policy picker.
+var _policy_note: Label
 ## The Religions library group's body, so a Religion pick can refill it alone.
 var _religion_lib_box: VBoxContainer
 ## The other party of the pair the hub was opened on (`open()`'s `pair_with`),
@@ -985,6 +987,7 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	_culture_choice(sec, String(d.get("culture", "common")))
 	_build_culture_card(sec, String(d.get("culture", "common")))
 	_religion_choice(sec, d)
+	_religious_policy_choice(sec, d)
 	_build_religion_library(sec)
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
 	_default_type_choice(sec)
@@ -2165,6 +2168,72 @@ func _refresh_religion_note() -> void:
 			(", except: " + own) if own != "" else ", with no belief of its own set"]
 	_religion_note.text = text
 	_religion_note.visible = text != ""
+	_refresh_policy_note()
+
+
+## FH-R2 R2-6: the faction's Religious policy picker, under the Religion
+## picker. The four policies from `civ_religious_policy_vocabulary()`; a stored
+## key this build does not know (a newer archive's) is listed as itself and
+## picking it again changes nothing. Draws nothing on an engine without the
+## vocabulary, and nothing for Unclaimed (the engine refuses it a policy).
+func _religious_policy_choice(parent: Control, d: Dictionary) -> void:
+	var vocab := bridge.civ_religious_policy_vocabulary()
+	if vocab.is_empty() or _selected == 0:
+		return
+	var current := String(d.get("religious_policy", "plural"))
+	var keys: Array = []
+	var labels: Array = []
+	for e in vocab:
+		keys.append(String((e as Dictionary).get("key", "")))
+		labels.append(String((e as Dictionary).get("label", "?")))
+	var stale_index := -1
+	if not keys.has(current):
+		stale_index = keys.size()
+		keys.append(current)
+		labels.append("Unknown policy (%s)" % current)
+	var ob := DccWidgets.choice(parent, "Religious policy", labels, maxi(0, keys.find(current)),
+		func(i: int):
+			if i == stale_index:
+				return
+			_set_field("religious_policy", String(keys[i]))
+			_refresh_policy_note(),
+		RELIGIOUS_POLICY_TIP)
+	ob.name = "ReligiousPolicyPicker"
+	_policy_note = DccWidgets.note(parent, "")
+	_policy_note.name = "ReligiousPolicyNote"
+	_refresh_policy_note()
+
+
+## The Religious policy picker's tooltip (FH-R2 R2-6).
+const RELIGIOUS_POLICY_TIP := "How this faction's rulers treat faiths other than the state religion. It changes belief spread only, in this faction's lands, from the next run: minorities leave their faith faster or slower and win converts more or less easily. It never converts anyone by itself."
+
+
+## What the policy does, in words, for the policy as it now stands: the
+## direction of its two modifiers, or that it is inert because the faction has
+## no state religion. The multiples are `cartalith_civ::religious_policy`'s
+## labelled judgements (out-flow 0.5 / 2 / 4, conversion 0.5 / 0.25 / 0.1),
+## written out so a reader sees the size of each, not only its direction.
+func _refresh_policy_note() -> void:
+	if _policy_note == null or not is_instance_valid(_policy_note):
+		return
+	var d := _faction(_selected)
+	var p := String(d.get("religious_policy", "plural"))
+	var text := ""
+	if String(d.get("religion", "none")) == "none":
+		text = "No state religion: a policy has nothing to establish, so it changes nothing."
+	else:
+		match p:
+			"plural":
+				text = "No established faith: every religion spreads on its own terms (the default)."
+			"tolerant_establishment":
+				text = "Protected minorities: they lose members at half the usual rate but win converts at half the usual rate."
+			"exclusive_establishment":
+				text = "Other faiths restricted: they lose members twice as fast and win converts at a quarter of the usual rate."
+			"persecuting":
+				text = "Other faiths persecuted: they lose members four times as fast and win converts at a tenth of the usual rate."
+			_:
+				text = "This build does not know this policy, so it changes nothing here; it is kept as saved."
+	_policy_note.text = text
 
 
 ## "Membership: Birth / ethnic; Locus: Portable" for a custom religion's
@@ -3785,7 +3854,7 @@ func _set_field(key: String, value: String) -> void:
 		## hidden panes are dropped, to be rebuilt on their next show.
 		_mark_data_stale()
 		_drop_panes(_tab)
-	elif key == "religion":
+	elif key == "religion" or key == "religious_policy":
 		## FH-6: the Relations tab's Faith group names the state religion and
 		## the pair rows' faith term (`religion_term`) is a function of it, so a
 		## hidden, already-built Relations pane would keep the pre-edit answer.

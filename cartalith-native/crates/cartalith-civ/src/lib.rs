@@ -91,6 +91,9 @@ pub mod religion_library;
 /// FH-R2 R2-1: each built-in religion's structural axes (research document
 /// axes 1-5) and the canvas TYPE, as a parallel table keyed by religion key.
 pub mod religion_profile;
+/// FH-R2 R2-6: the per-faction religious policy (toleration), a modifier on
+/// minority retention and conversion in the belief step.
+pub mod religious_policy;
 /// Per-faction currency conversion (Rulings R/AR/AU): the engine converts
 /// at a user-set rate and derives none. Nothing in the simulation reads it.
 pub mod currency;

@@ -439,6 +439,14 @@ struct FactionDto {
     /// unset, shown as its default, never as a user choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     currency: Option<CurrencyDto>,
+    /// FH-R2 R2-6 (2026-10-24, `SAVEFILE_COMPAT.md` §9.2): the faction's
+    /// religious policy key. **Omitted for `"plural"`**, the default, so an
+    /// archive where no policy was changed is byte-identical to the pre-R2-6
+    /// `factions.json`; absent reads as `"plural"`. A raw JSON value so a
+    /// wrongly typed member costs only itself (read as `"plural"`, warned),
+    /// never the roster's parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    religious_policy: Option<serde_json::Value>,
 }
 
 /// One faction's currency as saved: each member present only when the user
@@ -2384,6 +2392,8 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
                         rate: f.currency.rate,
                     }
                 }),
+                religious_policy: (f.religious_policy != "plural")
+                    .then(|| serde_json::Value::String(f.religious_policy.clone())),
             })
             .collect(),
         // Never written (`#[serde(skip_serializing)]` above) -- kept `None`
@@ -2950,6 +2960,19 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
                         .map(|(&x, &r)| (x, r))
                         .collect(),
                     currency: currency_from_dto(f, warnings),
+                    religious_policy: match &f.religious_policy {
+                        None => "plural".to_string(),
+                        // Kept verbatim, known or not (an unknown key is a
+                        // newer build's and is preserved on write-back).
+                        Some(serde_json::Value::String(k)) => k.clone(),
+                        Some(_) => {
+                            warnings.push(format!(
+                                "{SLOT_FACTIONS}: faction {} \"{}\": its religious policy is not text and reads as Plural",
+                                f.id, f.name
+                            ));
+                            "plural".to_string()
+                        }
+                    },
                 })
                 .collect(),
         )
@@ -7275,6 +7298,36 @@ mod tests {
         let w: Vec<&String> = warnings.iter().filter(|m| m.contains("beliefs could not be read")).collect();
         assert_eq!(w.len(), 1, "{warnings:?}");
         assert!(w[0].contains("Tide (exclusivity, locus)"), "{warnings:?}");
+    }
+
+    /// Protects: FH-R2 R2-6's `religious_policy` member of `factions.json`
+    /// (`SAVEFILE_COMPAT.md` §9.2). A default roster writes no such key (an
+    /// unedited roster is byte-identical to the pre-R2-6 document); a set
+    /// policy survives a real archive round trip; an unknown key is kept
+    /// verbatim; a non-text value reads as plural with a warning.
+    #[test]
+    fn religious_policy_rides_factions_json_and_is_absent_by_default() {
+        let plain = sample_civ();
+        let mut docs = BTreeMap::new();
+        civ_documents(&plain, None, &mut docs);
+        assert!(!docs[SLOT_FACTIONS].contains("religious_policy"), "default writes no key");
+        let mut civ = sample_civ();
+        assert!(civ.faction_roster.set_field(2, "religious_policy", "tolerant_establishment"));
+        civ.faction_roster.0[1].religious_policy = "future_policy".to_string();
+        let back = round_trip(&civ, 4, 3);
+        assert_eq!(back.faction_roster.0[2].religious_policy, "tolerant_establishment");
+        assert_eq!(back.faction_roster.0[1].religious_policy, "future_policy", "unknown keys are preserved");
+        assert_eq!(back.faction_roster.0[3].religious_policy, "plural");
+
+        let mut data = round_trip_data(&plain, 4, 3, 1.0);
+        let mut doc: serde_json::Value = serde_json::from_str(data.text_of(SLOT_FACTIONS).unwrap()).unwrap();
+        doc["factions"][1]["religious_policy"] = serde_json::json!(7);
+        data.documents.insert(SLOT_FACTIONS.to_string(), doc);
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data, 12, &mut warnings).unwrap();
+        assert_eq!(back.faction_roster.0[1].religious_policy, "plural");
+        assert_eq!(back.faction_roster.0.len(), plain.faction_roster.0.len(), "the roster still opens");
+        assert_eq!(warnings.iter().filter(|w| w.contains("religious policy")).count(), 1, "{warnings:?}");
     }
 
     /// Protects: R1 is additive. A project saved before custom religions

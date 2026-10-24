@@ -509,4 +509,47 @@ mod regime_tests {
         assert_eq!(r.terms.len(), 1);
         assert_eq!(r.of, vec![Some(0), None], "faction 1's settlement only");
     }
+
+    /// Protects: R2-6's wiring. The default policy (plural) and a policy on a
+    /// faction with no state religion leave the regime uniform; a real policy
+    /// maps only that faction's settlements, and stacks over a custom
+    /// variant's table when both apply (the table carries both the variant's
+    /// retention for its own slot and the policy's minority multiplier).
+    /// `set_field` refuses Unclaimed and an unknown key. Mutation check: a
+    /// builder that ignores the policy fails the second assertion.
+    #[test]
+    fn a_policy_maps_its_faction_and_plural_maps_nothing() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha"), mk_settlement(2, 9, "Beta")], vec![]);
+        civ.settlements[1].placement.faction = 2;
+        assert_eq!(civ.faction_roster.0[1].religious_policy, "plural");
+        assert!(civ.belief_regime().is_uniform(), "plural everywhere");
+        assert!(civ.faction_roster.set_field(1, "religious_policy", "persecuting"));
+        let r = civ.belief_regime();
+        assert_eq!(r.of, vec![Some(0), None]);
+        assert!(!civ.faction_roster.set_field(0, "religious_policy", "persecuting"), "Unclaimed has no ruler");
+        assert!(!civ.faction_roster.set_field(1, "religious_policy", "theocratic"));
+        assert_eq!(civ.faction_roster.0[1].religious_policy, "persecuting", "a refusal writes nothing");
+        // No state religion: nothing to establish.
+        assert!(civ.faction_roster.set_field(1, "religion", "none"));
+        assert!(civ.belief_regime().is_uniform());
+        // Variant plus policy: one table carrying both.
+        let id = civ.religions.create("Tide", "sea_lords", (1, 2, 3), "").unwrap();
+        {
+            let crate::CivData { faction_roster, religions, .. } = &mut civ;
+            assert!(faction_roster.set_religion(1, &custom_religion_key(id), religions));
+        }
+        civ.religions
+            .set_axes(id, AxisOverrides { membership: Some(Membership::Birth), ..Default::default() })
+            .unwrap();
+        let r = civ.belief_regime();
+        let t = &r.terms[r.of[0].unwrap()];
+        let sea = cartalith_civ::belief::religion_index("sea_lords").unwrap();
+        let one = cartalith_civ::belief::religion_index("one_god").unwrap();
+        assert_eq!(t.retention(sea), 0.75, "the variant's own slot keeps its birth retention");
+        assert_eq!(t.conversion(one), 0.1, "and a minority takes the persecuting multiplier");
+        // An unknown key (a newer archive's) reads as no policy.
+        civ.faction_roster.0[1].religious_policy = "future_policy".to_string();
+        let r = civ.belief_regime();
+        assert_eq!(r.terms[r.of[0].unwrap()].conversion(one), 1.0);
+    }
 }

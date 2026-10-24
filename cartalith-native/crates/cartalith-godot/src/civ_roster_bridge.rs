@@ -116,6 +116,14 @@ pub struct FactionEntry {
     /// user types the rate, the engine only converts). See
     /// [`FactionCurrency`] for what an unset member means.
     pub currency: FactionCurrency,
+    /// FH-R2 R2-6: this faction's religious policy, a
+    /// [`cartalith_civ::religious_policy::CIV_RELIGIOUS_POLICIES`] key.
+    /// `"plural"` (the neutral default, `FH_R2_PLAN.md` Q7's default) for
+    /// every row a fresh world or a pre-R2-6 archive makes. Kept as the
+    /// stored string, like `religion`: a key this build does not know (a
+    /// newer archive's) is preserved on write-back and read by the belief
+    /// layer as no modifier, never rewritten to a known one.
+    pub religious_policy: String,
 }
 
 /// A faction's currency: its name, its symbol, and the rate it is quoted at
@@ -224,6 +232,7 @@ impl FactionEntry {
             color_override: None,
             tariffs: Default::default(),
             currency: FactionCurrency::default(),
+            religious_policy: "plural".to_string(),
         }
     }
 }
@@ -453,6 +462,14 @@ impl FactionRoster {
                     return false;
                 }
                 entry.ag_tech = value.to_string();
+            }
+            // FH-R2 R2-6. Refused for Unclaimed (index 0: no ruler to hold a
+            // policy) and for a key outside the vocabulary.
+            "religious_policy" => {
+                if fid == 0 || cartalith_civ::religious_policy::ReligiousPolicy::from_key(value).is_none() {
+                    return false;
+                }
+                entry.religious_policy = value.to_string();
             }
             _ => return false,
         }

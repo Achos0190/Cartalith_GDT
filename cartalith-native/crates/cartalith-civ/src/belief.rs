@@ -824,7 +824,7 @@ fn belief_profile_terms() -> &'static BeliefTerms {
                 w[r][q] = belief_competition_weight(rk, religion_key(q).unwrap_or(""));
             }
         }
-        BeliefTerms { ret, w }
+        BeliefTerms { ret, w, conv: None }
     })
 }
 
@@ -847,10 +847,22 @@ fn belief_profile_terms() -> &'static BeliefTerms {
 /// that a religion's local form follows its establishment), disclosed in
 /// `STATUS.md`'s R2-3 entry; it is exactly identity when no faction holds an
 /// overridden custom religion.
+///
+/// # A faction's religious policy rides the same table (FH-R2 R2-6)
+///
+/// [`Self::with_policy`] folds a non-neutral
+/// [`crate::religious_policy::ReligiousPolicy`] into a faction's table: the
+/// minorities' retention becomes `1 − (1 − ret)·φ` and their conversion pull
+/// is multiplied by `κ` (`conv`). `conv` is `None` on every table without a
+/// policy, and the step then skips both the multiply and the retention floor
+/// by control flow, so a policy-free world computes exactly what it did
+/// before R2-6.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BeliefTerms {
     ret: [f64; CIV_RELIGION_COUNT],
     w: [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT],
+    /// R2-6's per-slot conversion multiplier `κ`, or `None` (no policy).
+    conv: Option<[f64; CIV_RELIGION_COUNT]>,
 }
 
 impl BeliefTerms {
@@ -892,6 +904,41 @@ impl BeliefTerms {
             t.w[other][slot] = belief_competition_for(theirs, Some(mine));
         }
         Some(t)
+    }
+
+    /// FH-R2 R2-6: these terms under a faction's religious policy, with
+    /// `state` the faction's state religion slot. For every minority slot --
+    /// not `state`, not [`RELIGION_NONE`] -- retention becomes
+    /// `1 − (1 − ret)·φ` (so its out-flow is multiplied by `φ`,
+    /// `ReligiousPolicy::minority_outflow`) and conversion pull is multiplied
+    /// by `κ` (`minority_conversion`). The state religion and the
+    /// unaffiliated keep this table's own values.
+    ///
+    /// `None` -- "use the terms unchanged", by control flow -- for the neutral
+    /// policy (plural, Q7's default) and for a `state` of [`RELIGION_NONE`] or
+    /// out of range: with no established faith there is nothing to protect or
+    /// restrict.
+    pub fn with_policy(&self, state: usize, policy: crate::religious_policy::ReligiousPolicy) -> Option<BeliefTerms> {
+        if policy.is_neutral() || state == RELIGION_NONE || state >= CIV_RELIGION_COUNT {
+            return None;
+        }
+        let (phi, kappa) = (policy.minority_outflow(), policy.minority_conversion());
+        let mut t = self.clone();
+        let mut conv = self.conv.unwrap_or([1.0; CIV_RELIGION_COUNT]);
+        for r in 0..CIV_RELIGION_COUNT {
+            if r == state || r == RELIGION_NONE {
+                continue;
+            }
+            t.ret[r] = 1.0 - (1.0 - t.ret[r]) * phi;
+            conv[r] *= kappa;
+        }
+        t.conv = Some(conv);
+        Some(t)
+    }
+
+    /// R2-6's conversion multiplier for slot `r`: `1.0` without a policy.
+    pub fn conversion(&self, r: usize) -> f64 {
+        self.conv.and_then(|c| c.get(r).copied()).unwrap_or(1.0)
     }
 
     /// `ret_r`, the retention [`belief_step`] reads for slot `r`.
@@ -1392,7 +1439,26 @@ pub fn belief_step_in(
     let rate = rate.clamp(0.0, 1.0);
     let prev: Vec<SettlementReligionState> = states[..n].to_vec();
     for i in 0..n {
-        let BeliefTerms { ret, w } = regime.terms_for(i);
+        let BeliefTerms { ret, w, conv } = regime.terms_for(i);
+        // R2-6: a policy can lower a minority's retention below zero (a
+        // higher out-flow than the plain rate). Floor it so the yearly
+        // out-flow `rate·(1 − ret)` never exceeds the whole share. Only
+        // policy tables (`conv` is `Some`) can need it, so the plain table
+        // is read untouched by control flow.
+        let floored;
+        let ret: &[f64; CIV_RELIGION_COUNT] = if conv.is_some() && rate > 0.0 {
+            let floor = 1.0 - 1.0 / rate;
+            let mut f = *ret;
+            for v in f.iter_mut() {
+                if *v < floor {
+                    *v = floor;
+                }
+            }
+            floored = f;
+            &floored
+        } else {
+            ret
+        };
         let e = belief_exposure(net, &prev, i);
         let culture = culture_of.get(i).copied().unwrap_or("");
         let mut attract = [0.0f64; CIV_RELIGION_COUNT];
@@ -1426,6 +1492,11 @@ pub fn belief_step_in(
                 * belief_logistic(
                     BELIEF_B0 + BELIEF_BE * e[r] + BELIEF_BC * c + BELIEF_BF * freq - BELIEF_BX * comp,
                 );
+            // R2-6: a policy's `κ` on a minority's pull; skipped without one.
+            let a = match conv {
+                Some(k) => a * k[r],
+                None => a,
+            };
             *slot = a;
             total += a;
         }
@@ -3252,6 +3323,123 @@ mod diffusion_tests {
             a[1].share[sun],
             b[1].share[sun]
         );
+        assert!((sum(&b[1]) - 1.0).abs() < 1e-9);
+    }
+
+    // -- FH-R2 R2-6: a faction's religious policy ----------------------------
+
+    /// Protects: Q7's neutral default by control flow -- plural, and any
+    /// policy with no state faith, builds no table -- and the minority rule
+    /// as literals: only slots other than the state religion and `none` are
+    /// modified, retention `1 − (1 − ret)·φ`, conversion `κ`.
+    #[test]
+    fn a_policy_modifies_only_the_minorities_and_plural_is_no_table() {
+        use crate::religious_policy::ReligiousPolicy::*;
+        let base = BeliefTerms::base();
+        let sun = religion_index("sun_cult").unwrap();
+        let cov = religion_index("covenant_folk").unwrap();
+        assert_eq!(base.with_policy(sun, Plural), None);
+        assert_eq!(base.with_policy(RELIGION_NONE, Persecuting), None, "no state faith, nothing to establish");
+        let t = base.with_policy(sun, Persecuting).unwrap();
+        assert_eq!(t.retention(sun).to_bits(), base.retention(sun).to_bits(), "state religion untouched");
+        assert_eq!(t.retention(RELIGION_NONE).to_bits(), base.retention(RELIGION_NONE).to_bits());
+        assert_eq!((t.conversion(sun), t.conversion(RELIGION_NONE)), (1.0, 1.0));
+        // covenant_folk: birth retention 0.75 -> 1 - 0.25 * 4 = 0.0.
+        assert_eq!(t.retention(cov), 0.0);
+        assert_eq!(t.conversion(cov), 0.1);
+        let tol = base.with_policy(sun, TolerantEstablishment).unwrap();
+        assert_eq!(tol.retention(cov), 1.0 - 0.25 * 0.5);
+        assert_eq!(tol.conversion(cov), 0.5);
+        assert_eq!(base.conversion(cov), 1.0, "no policy, no multiplier");
+    }
+
+    /// A two-faith town (sun_cult state religion, one_god minority) trading
+    /// with a one_god port, for the R2-6 behaviour tests.
+    fn r26_fixture() -> (BeliefNetwork, Vec<SettlementReligionState>, usize, usize) {
+        let sun = religion_index("sun_cult").unwrap();
+        let one = religion_index("one_god").unwrap();
+        let pops = [20_000, 4000];
+        let net = BeliefNetwork::build(&pops, &[BeliefLink { a: 0, b: 1, km: 40.0 }])
+            .with_trade(&pops, &[flow(0, 1, 1500.0)]);
+        let mut share = [0.0; CIV_RELIGION_COUNT];
+        share[sun] = 0.7;
+        share[one] = 0.3;
+        (net, vec![SettlementReligionState::wholly(one), SettlementReligionState { share }], sun, one)
+    }
+
+    /// Protects: the policy reaches the step and orders the outcome in the
+    /// research document's direction: after 150 years the town's minority
+    /// share is smaller under persecution than under an exclusive
+    /// establishment, and smaller there than under plural rule. Tolerant
+    /// establishment is not ordered against plural here, because its two
+    /// halves (half the out-flow, half the conversion) push opposite ways. A
+    /// plural policy applied through an explicit regime is the plain step bit
+    /// for bit.
+    #[test]
+    fn harsher_policies_hold_smaller_minorities() {
+        use crate::religious_policy::ReligiousPolicy::{self, *};
+        let (net, seed, sun, one) = r26_fixture();
+        let cultures = ["imperial", "imperial"];
+        let run = |p: ReligiousPolicy| -> f64 {
+            let regime = match BeliefTerms::base().with_policy(sun, p) {
+                Some(t) => BeliefRegime { terms: vec![t], of: vec![None, Some(0)] },
+                None => BeliefRegime { terms: vec![BeliefTerms::base().clone()], of: vec![None, Some(0)] },
+            };
+            let mut s = seed.clone();
+            for _ in 0..150 {
+                belief_step_in(&mut s, &net, &cultures, BELIEF_STEP_RATE, &regime);
+                assert!((sum(&s[1]) - 1.0).abs() < 1e-9);
+                assert!(s[1].share.iter().all(|v| *v >= 0.0 && v.is_finite()));
+            }
+            s[1].share[one]
+        };
+        let mut plain = seed.clone();
+        for _ in 0..150 {
+            belief_step(&mut plain, &net, &cultures, BELIEF_STEP_RATE);
+        }
+        let (pl, ex, pe) = (run(Plural), run(ExclusiveEstablishment), run(Persecuting));
+        assert_eq!(pl.to_bits(), plain[1].share[one].to_bits(), "plural is the plain step");
+        assert!(pe < ex && ex < pl, "persecuting {pe} < exclusive {ex} < plural {pl}");
+        assert!(pe > 0.0, "a policy never zeroes a share outright");
+    }
+
+    /// Protects: the retention floor. At the largest legal rate (1.0) a
+    /// persecuted minority's effective retention `1 − 4·(1 − ret)` is far
+    /// below `1 − 1/rate = 0`; floored, no share goes negative and the
+    /// shares still sum to one.
+    #[test]
+    fn a_harsh_policy_at_full_rate_never_drives_a_share_negative() {
+        use crate::religious_policy::ReligiousPolicy::Persecuting;
+        let (net, seed, sun, _) = r26_fixture();
+        let regime = BeliefRegime { terms: vec![BeliefTerms::base().with_policy(sun, Persecuting).unwrap()], of: vec![Some(0), Some(0)] };
+        let mut s = seed;
+        for _ in 0..20 {
+            belief_step_in(&mut s, &net, &["imperial", "imperial"], 1.0, &regime);
+            for st in s.iter() {
+                assert!(st.share.iter().all(|v| *v >= 0.0 && v.is_finite()), "{:?}", st.share);
+                assert!((sum(st) - 1.0).abs() < 1e-9);
+            }
+        }
+    }
+
+    /// Protects: the step reads the policy's conversion multiplier `κ` on its
+    /// own (retention left as the base's): a table that only lowers one_god's
+    /// conversion pull leaves the town with less one_god after one step than
+    /// the plain table does, and the shares still sum to one. Without this the
+    /// ordering test above is satisfied by the out-flow half alone.
+    #[test]
+    fn the_conversion_multiplier_is_read_by_the_step() {
+        let (net, seed, _, one) = r26_fixture();
+        let cultures = ["imperial", "imperial"];
+        let mut t = BeliefTerms::base().clone();
+        let mut k = [1.0; CIV_RELIGION_COUNT];
+        k[one] = 0.1;
+        t.conv = Some(k);
+        let regime = BeliefRegime { terms: vec![t], of: vec![None, Some(0)] };
+        let (mut a, mut b) = (seed.clone(), seed);
+        belief_step(&mut a, &net, &cultures, BELIEF_STEP_RATE);
+        belief_step_in(&mut b, &net, &cultures, BELIEF_STEP_RATE, &regime);
+        assert!(b[1].share[one] < a[1].share[one], "plain {} vs kappa 0.1 {}", a[1].share[one], b[1].share[one]);
         assert!((sum(&b[1]) - 1.0).abs() < 1e-9);
     }
 }

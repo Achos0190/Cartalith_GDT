@@ -3008,13 +3008,18 @@ impl CivData {
         (self.belief.len(), seeded, belief::belief_any_faith(&self.belief))
     }
 
-    /// FH-R2 R2-3: which belief terms each settlement's step reads. One
-    /// `BeliefTerms::with_variant` table per faction whose stored religion is
-    /// a custom religion with an override of a belief-read axis (exclusivity
-    /// or membership), applied to that faction's settlements; every other
-    /// settlement reads the base table. For a world with no such faction --
-    /// every world with no edited custom religion -- `terms` is empty and the
-    /// run is the uniform step, by control flow (`BeliefRegime::is_uniform`).
+    /// FH-R2 R2-3 and R2-6: which belief terms each settlement's step reads.
+    /// One table per faction that needs one, applied to that faction's
+    /// settlements: a `BeliefTerms::with_variant` table where its stored
+    /// religion is a custom religion overriding a belief-read axis
+    /// (exclusivity or membership), and/or `BeliefTerms::with_policy` where
+    /// its religious policy is not the neutral `plural` and it has a state
+    /// religion (R2-6, a policy over the variant when both apply). Every other
+    /// settlement reads the base table. For a world with neither -- every
+    /// fresh world, and every world with no edited custom religion and no
+    /// policy set -- `terms` is empty and the run is the uniform step, by
+    /// control flow (`BeliefRegime::is_uniform`). An unknown policy key reads
+    /// as no policy.
     ///
     /// Read on every step like culture and trade, not part of
     /// [`Self::belief_key`]: an axis edit after a run keeps the diffused layer
@@ -3028,9 +3033,12 @@ impl CivData {
             .0
             .iter()
             .map(|e| {
-                let overrides = self.religions.overrides_for(&e.religion)?;
                 let slot = religion_index(self.religions.engine_key(&e.religion))?;
-                terms.push(BeliefTerms::with_variant(slot, overrides)?);
+                let variant = self.religions.overrides_for(&e.religion).and_then(|o| BeliefTerms::with_variant(slot, o));
+                let policy = cartalith_civ::religious_policy::ReligiousPolicy::from_key(&e.religious_policy)
+                    .unwrap_or_default();
+                let with_policy = variant.as_ref().unwrap_or(BeliefTerms::base()).with_policy(slot, policy);
+                terms.push(with_policy.or(variant)?);
                 Some(terms.len() - 1)
             })
             .collect();
@@ -15811,6 +15819,9 @@ impl WorldGen {
                     "religion" => civ.religions.engine_key(&e.religion),
                     "government" => e.government.as_str(),
                     "ag_tech" => e.ag_tech.as_str(),
+                    // FH-R2 R2-6: the stored key (possibly one this build does
+                    // not know, which the shell shows as such).
+                    "religious_policy" => e.religious_policy.as_str(),
                     "color_r" => r as i64,
                     "color_g" => g as i64,
                     "color_b" => b as i64,
@@ -24340,6 +24351,15 @@ impl WorldGen {
         key_label_array(&cartalith_civ::roster::CIV_GOVERNMENTS)
     }
 
+    /// FH-R2 R2-6: `CIV_RELIGIOUS_POLICIES` as `{key, label}`, in display
+    /// order, the default (`plural`) first. What the faction hub's Religious
+    /// policy picker lists; set one with
+    /// `civ_set_faction_field(f, "religious_policy", key)`.
+    #[func]
+    fn civ_religious_policy_vocabulary(&self) -> Array<VarDictionary> {
+        key_label_array(&cartalith_civ::religious_policy::CIV_RELIGIOUS_POLICIES)
+    }
+
     /// `AG_TECH_LEVELS` as `{key, label, hint, farmers_per_urbanite}`.
     ///
     /// `farmers_per_urbanite` is reported honestly and consumed by nothing:
@@ -24498,7 +24518,10 @@ impl WorldGen {
     /// unknown key, a blank name, or a value outside that field's own
     /// reference vocabulary — a typo from GDScript is rejected, not stored.
     /// `"religion"` additionally accepts `custom:<id>` for a custom religion
-    /// that exists in this project (`FACTION_HUB_DESIGN.md` §6 R1).
+    /// that exists in this project (`FACTION_HUB_DESIGN.md` §6 R1). Since
+    /// FH-R2 R2-6 (2026-10-24) `"religious_policy"` is a sixth key, not in the
+    /// reference: one of `civ_religious_policy_vocabulary()`'s keys, refused
+    /// for Unclaimed (faction `0`).
     #[func]
     fn civ_set_faction_field(&mut self, faction: i64, key: GString, value: GString) -> bool {
         let Some(civ) = self.civ.as_mut() else { return false };

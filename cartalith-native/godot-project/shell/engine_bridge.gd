@@ -5190,6 +5190,17 @@ func civ_religion_axes_vocabulary() -> Array:
 		return []
 	return world_gen.civ_religion_axes_vocabulary()
 
+## FH-R2 R2-6's religious policy vocabulary
+## (`WorldGen.civ_religious_policy_vocabulary`), `[{key, label}]`, the neutral
+## default `plural` first. `[]` without the API, and then the hub draws no
+## policy picker. Refused while `generating`: answers [].
+func civ_religious_policy_vocabulary() -> Array:
+	if generating:
+		return []
+	if not _has("civ_religious_policy_vocabulary"):
+		return []
+	return world_gen.civ_religious_policy_vocabulary()
+
 ## Whether this build's engine has the R1 library at all. The hub hides the
 ## library group (with a note) rather than drawing controls nothing answers.
 func has_custom_religion_api() -> bool:

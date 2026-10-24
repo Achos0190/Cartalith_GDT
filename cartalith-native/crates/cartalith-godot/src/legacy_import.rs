@@ -56,6 +56,9 @@ fn roster(legacy: &LegacyProject) -> FactionRoster {
                     tariffs: Default::default(),
                     // A legacy archive has no currencies: every member unset.
                     currency: Default::default(),
+                    // The legacy app has no religious policy (FH-R2 R2-6):
+                    // the neutral default.
+                    religious_policy: d.religious_policy,
                 }
             })
             .collect(),

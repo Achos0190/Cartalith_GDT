@@ -3467,6 +3467,36 @@ func _run_religions() -> void:
 	await _frames(6)
 	_ok("R2-3 As base on every belief clears the override",
 		((_bridge.civ_custom_religions()[0] as Dictionary).get("axes", {}) as Dictionary).is_empty())
+
+	# FH-R2 R2-6: RELIGIOUS POLICY through its own picker, under Religion.
+	var pol := _r1_node("ReligiousPolicyPicker") as OptionButton
+	var pnote := _r1_node("ReligiousPolicyNote") as Label
+	_ok("R2-6 the Religious policy picker is on Identity, opening on Plural (the default)",
+		pol != null and pol.get_item_text(pol.selected).begins_with("Plural")
+		and String(_fr._faction(fa).get("religious_policy", "")) == "plural",
+		pol.get_item_text(pol.selected) if pol else "none")
+	var pers := -1
+	if pol != null:
+		for i in pol.item_count:
+			if pol.get_item_text(i) == "Persecuting":
+				pers = i
+		pol.select(pers)
+		pol.item_selected.emit(pers)
+	await _frames(4)
+	pnote = _r1_node("ReligiousPolicyNote") as Label
+	_ok("R2-6 picking Persecuting writes it to the engine",
+		String(_bridge.get_factions().filter(func(f): return int(f.get("id", -1)) == fa)[0].get("religious_policy", "")) == "persecuting")
+	_ok("R2-6 ... and the note says what it does, with its multiples",
+		pnote != null and pnote.text.contains("four times as fast"), pnote.text if pnote else "none")
+	if _phone:
+		var pc := _r1_node("ReligiousPolicyPicker") as Control
+		_ok("R2-6 PHONE the policy picker is at least %d px on both axes" % DccTheme.PHONE_TAP_MIN,
+			pc != null and pc.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN and pc.size.x + 0.5 >= DccTheme.PHONE_TAP_MIN,
+			"%.0fx%.0f" % [pc.size.x, pc.size.y] if pc else "missing")
+	await _r1_scroll_to("ReligiousPolicyPicker")
+	await _shot("%s_religious_policy" % ("phone" if _phone else "desktop"))
+	_ok("R2-6 SAVE precondition: back to Plural through the engine",
+		_bridge.civ_set_faction_field(fa, "religious_policy", "plural"))
 	picker = _r1_node("ReligionPicker") as OptionButton
 
 	if _phone:
@@ -3501,6 +3531,8 @@ func _run_religions() -> void:
 	var set_axes: Dictionary = _bridge.civ_edit_religion(int(again.get("id", 0)),
 		{"axes": {"object": "", "exclusivity": "exclusive", "membership": "birth", "locus": "", "institution": ""}})
 	_ok("R2-3 SAVE precondition: beliefs set through the engine", bool(set_axes.get("ok", false)), str(set_axes))
+	_ok("R2-6 SAVE precondition: faction B takes a policy through the engine",
+		_bridge.civ_set_faction_field(fb, "religious_policy", "tolerant_establishment"))
 	var path := OS.get_user_data_dir().path_join("_factionhub_r1.zip")
 	var done := [false]
 	_app._write_project(path, func(): done[0] = true)
@@ -3525,6 +3557,8 @@ func _run_religions() -> void:
 		and String(rb.get("religion_choice", "")) == String(again.get("key", ""))
 		and String(rb.get("religion", "")) == "sun_cult", "%s / %s" % [str(back), str(rb)])
 	var back_axes: Dictionary = (back[0] as Dictionary).get("axes", {}) if back.size() == 1 else {}
+	_ok("R2-6 SAVE faction B's religious policy survives the reopen",
+		String(rb.get("religious_policy", "")) == "tolerant_establishment", str(rb.get("religious_policy")))
 	_ok("R2-3 SAVE the religion's beliefs survive the reopen",
 		back_axes.size() == 2 and String(back_axes.get("exclusivity", "")) == "exclusive"
 		and String(back_axes.get("membership", "")) == "birth", str(back_axes))
