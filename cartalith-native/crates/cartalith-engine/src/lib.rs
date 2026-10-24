@@ -420,6 +420,23 @@ pub struct VolcanismParams {
     /// baseline. A save without the key reloads `false`, so a project saved
     /// before the ruling regenerates as it was saved.
     pub morphometry: bool,
+    /// Owner Ruling CX item 4 (2026-10-24): with [`Self::morphometry`] on,
+    /// size each scoria cone to the height it keeps in the final field, not
+    /// the height it is stamped at, never below a floor in grid cells
+    /// (`cartalith_terrain::CINDER_KEPT_SHARE`, `CINDER_MIN_RADIUS_CELLS`),
+    /// and read the cone's metres per unit off an estimate of the sea level
+    /// the final field will have (a World Structure world re-anchors its sea
+    /// after the stamps; the estimate applies the same rule to the
+    /// pre-volcano field and trails the final sea by a few hundredths).
+    /// Measured on five census worlds: fresh cinder median H/W
+    /// 0.061-0.120 → 0.132-0.167 against the cited 0.15-0.21, mean flank
+    /// slope 12-22° → 25-30° (cited fresh 30-33°).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**:
+    /// it moves the height field of every app world's scoria cones, so it
+    /// ships at the app boundary as a disclosed re-baseline (`DECISIONS.md`
+    /// §7p). A save without the key reloads `false`.
+    pub cinder_grid_law: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -1142,8 +1159,10 @@ impl WorldParams {
                 // Ruling CO's pit fill: off on the parity path, like the
                 // edifice it fills. See `VolcanismParams::fill_edifice_pits`.
                 fill_edifice_pits: false,
-                // VA-5: off until the owner rules (see the field).
+                // VA-5: off on the parity path (on in the app, Ruling CX).
                 morphometry: false,
+                // Ruling CX item 4: off on the parity path (see the field).
+                cinder_grid_law: false,
             },
             // `physical_model: false` HERE and `true` in the shipped app, on
             // purpose. `WorldParams::defaults` is what ~28 golden suites mean
@@ -2616,7 +2635,23 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // sea)` metres per unit (`cartalith_terrain::geology::m_to_norm`'s
             // relation), with the sea level as configured -- a World
             // Structure archetype re-anchors it later, after the stamps.
-            cartalith_terrain::EdificeModel::Morphometric { m_per_unit: p.peak_m / (1.0 - p.sea_level).max(1e-6) }
+            // Ruling CX item 4: with the grid-aware cinder law, the metres
+            // per unit the FINAL field will have -- on a World Structure
+            // world the sea is re-anchored after the stamps
+            // (`apply_world_structure_sea_level`, below), so it is estimated
+            // here from the same rule on the pre-volcano field. Measured: on
+            // 24601's archipelago the configured sea gave 6 897 m per unit
+            // where the final field has 12 557, so every cone the law sized
+            // stood about 1.8 times as steep as intended (H/W 0.28, mean
+            // flank 44°, past scoria's angle of repose); with the estimate,
+            // H/W 0.167 and 29.9°. Without the law the configured sea is
+            // kept, VA-5's arithmetic exactly.
+            let sea_for_scale = if p.volc.cinder_grid_law && p.world_structure.enabled {
+                cartalith_terrain::apply_world_structure_sea_level(&field, p.world_structure.continentality)
+            } else {
+                p.sea_level
+            };
+            cartalith_terrain::EdificeModel::Morphometric { m_per_unit: p.peak_m / (1.0 - sea_for_scale).max(1e-6), cinder_grid_law: p.volc.cinder_grid_law }
         } else if p.volc.edifice_model {
             cartalith_terrain::EdificeModel::Morphological
         } else {
@@ -3892,6 +3927,56 @@ mod tests {
     /// flow, channels, climate) bit-identical, because it runs after them. With
     /// `edifice_model` off it is inert (the gate the doc states). And it is off
     /// in `WorldParams::defaults`, a literal.
+    #[test]
+    fn cinder_grid_law_reaches_generation_and_reads_the_final_sea() {
+        // Protects: owner Ruling CX item 4's switch -- off in
+        // `WorldParams::defaults` (a literal), live when on (the scoria cones
+        // change radius and nothing else is redrawn: positions, kinds and
+        // ages equal), and, on a World Structure world, sized with the metres
+        // per unit of the sea the final field ends with rather than the
+        // configured one (implied from each sized cone's radius, it matches
+        // `WorldState::sea_level` within 0.05; the configured 0.42 is 0.36
+        // off on this fixture).
+        assert!(!WorldParams::defaults(0, 0, 0).volc.cinder_grid_law, "the parity baseline must not carry the law");
+        let mut base = WorldParams::defaults(256, 164, 24_601);
+        base.geology_model = true;
+        base.volc.edifice_model = true;
+        base.volc.morphometry = true;
+        base.volc.count = 30;
+        base.map_width_km = 200.0;
+        base.world_structure = WorldStructureParams { enabled: true, continentality: 0.15, fragmentation: 0.9, tectonic_energy: 0.8, ocean_depth: 0.3, hotspot_density: 0.5 };
+        let off = generate_terrain(&base);
+        let mut p = base.clone();
+        p.volc.cinder_grid_law = true;
+        let on = generate_terrain(&p);
+        let (a, b) = (off.volcanoes.as_ref().expect("a table"), on.volcanoes.as_ref().expect("a table"));
+        assert_eq!(a.len(), b.len());
+        assert!((on.sea_level - base.sea_level).abs() > 0.2, "premise: the archetype re-anchors the sea ({})", on.sea_level);
+        let cell_km = base.map_width_km / base.gw as f64;
+        let (mut sized, mut changed) = (0, 0);
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert_eq!((x.cx, x.cy, x.kind, x.age), (y.cx, y.cy, y.kind, y.age), "the law moved a draw");
+            if y.kind != Some(cartalith_terrain::EdificeKind::Cinder) {
+                continue;
+            }
+            changed += usize::from(x.r != y.r);
+            // Above the 2.5-cell floor and inside the stamp's own clamps,
+            // `r = 0.45 h/(1 - age/2) m / (2 * 0.179) / cell_km` with
+            // `m = peak / (1 - sea)`: solve for the sea the stamp used.
+            if y.r > 2.6 && y.r < 0.9 * (base.gw.min(base.gh) as f64) / 4.0 {
+                let m = y.r * cell_km * 1000.0 * 2.0 * 0.179 / (0.45 * y.h / (1.0 - y.age * 0.5));
+                let sea_used = 1.0 - base.peak_m / m;
+                // The estimate reads the pre-volcano field, so it trails the
+                // final sea a little (measured on this fixture: 0.754 against
+                // 0.784); the configured 0.42 would be 0.36 off.
+                assert!((sea_used - on.sea_level).abs() < 0.05, "a cone sized with sea {sea_used}, the final field's is {}", on.sea_level);
+                sized += 1;
+            }
+        }
+        assert!(changed > 0, "the law changed no cone");
+        assert!(sized >= 2, "only {sized} cones above the floor; the test reaches too little");
+    }
+
     #[test]
     fn fill_edifice_pits_raises_only_edifice_ground() {
         let mut base = WorldParams::defaults(256, 164, 71_077_345);

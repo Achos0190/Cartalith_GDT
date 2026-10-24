@@ -190,7 +190,7 @@ fn provinces_traced(model: EdificeModel) -> (Vec<f32>, cartalith_terrain::Volcan
 fn morphometric_resizes_cinders_and_splits_strato_craters_without_moving_the_stream() {
     let m_per_unit = 4000.0 / (1.0 - 0.42);
     let (f_morph, t_morph) = provinces_traced(EdificeModel::Morphological);
-    let (f_va5, t_va5) = provinces_traced(EdificeModel::Morphometric { m_per_unit });
+    let (f_va5, t_va5) = provinces_traced(EdificeModel::Morphometric { m_per_unit, cinder_grid_law: false });
     assert_eq!(t_morph.edifices.len(), t_va5.edifices.len());
     assert!(t_va5.edifices.len() >= 10, "the fixture places too few edifices");
     let cell_km = 800.0 / GW as f64;
@@ -243,7 +243,7 @@ fn morphometric_cinder_radius_is_the_cited_aspect_ratio() {
     let mut trace = cartalith_terrain::VolcanoTrace::new(n);
     cartalith_terrain::stamp_volcanoes_simple_traced(
         gw, gh, 4242, 40.0, 4000.0, &boundary_mask, 40, 0.4, &mut field, &mut volcanic_field,
-        EdificeModel::Morphometric { m_per_unit }, Some(&mut trace), false,
+        EdificeModel::Morphometric { m_per_unit, cinder_grid_law: false }, Some(&mut trace), false,
     );
     let cell_km = 40.0 / gw as f64;
     let mut exact = 0;
@@ -261,4 +261,52 @@ fn morphometric_cinder_radius_is_the_cited_aspect_ratio() {
         }
     }
     assert!(exact >= 5, "only {exact} cinder cones inside the law's range; the test reaches too little");
+}
+
+/// Protects owner Ruling CX item 4's grid-aware cinder law on the same
+/// fixture: with it on, every scoria cone's radius is `max(0.45 * standing
+/// metres / (2 * 0.179), 2.5 cells)` (literals: the measured kept share and
+/// floor, and the cited fresh H/W), the stamp's own 2-cell floor and the
+/// feature clamp aside; no draw moves (the same edifices, positions, kinds
+/// and ages as with the law off); and the floor is reached by at least one
+/// cone, so both branches of the `max` are exercised.
+#[test]
+fn the_grid_aware_cinder_law_sizes_to_the_kept_height_with_a_floor() {
+    let (gw, gh) = (200usize, 160usize);
+    let n = gw * gh;
+    let boundary_mask: Vec<u8> = (0..n).map(|i| u8::from(i % 7 == 0)).collect();
+    let m_per_unit = 4000.0 / (1.0 - 0.42);
+    let run = |law: bool| {
+        let mut field = vec![0.3f32; n];
+        let mut volcanic_field = vec![0.0f32; n];
+        let mut trace = cartalith_terrain::VolcanoTrace::new(n);
+        cartalith_terrain::stamp_volcanoes_simple_traced(
+            gw, gh, 4242, 40.0, 4000.0, &boundary_mask, 40, 0.4, &mut field, &mut volcanic_field,
+            EdificeModel::Morphometric { m_per_unit, cinder_grid_law: law }, Some(&mut trace), false,
+        );
+        trace.edifices
+    };
+    let (off, on) = (run(false), run(true));
+    assert_eq!(off.len(), on.len());
+    let cell_km = 40.0 / gw as f64;
+    let (mut sized, mut floored) = (0, 0);
+    for (a, b) in off.iter().zip(on.iter()) {
+        assert_eq!((a.cx, a.cy, a.kind, a.age, a.setting), (b.cx, b.cy, b.kind, b.age, b.setting), "the law moved a draw");
+        if b.kind != Some(cartalith_terrain::EdificeKind::Cinder) {
+            assert_eq!(a.r, b.r, "the law reached a non-cinder edifice");
+            continue;
+        }
+        let stand_m = b.h / (1.0 - b.age * 0.5) * m_per_unit;
+        let law_cells = 0.45 * stand_m / 1000.0 / (2.0 * 0.179) / cell_km;
+        let want = law_cells.max(2.5);
+        if want < 19.2 {
+            assert!((b.r - want).abs() < 1e-6, "cinder radius {} cells, want {want}", b.r);
+            if law_cells < 2.5 {
+                floored += 1;
+            } else {
+                sized += 1;
+            }
+        }
+    }
+    assert!(sized >= 3 && floored >= 1, "the fixture reaches the law {sized} times and the floor {floored} times");
 }

@@ -132,7 +132,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is eleven flags (enumerated by
+/// baseline underneath it. Today that is twelve flags (enumerated by
 /// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
 /// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
@@ -233,6 +233,12 @@ pub fn defaults() -> WorldParams {
     // of every app world's volcanoes (`DECISIONS.md` §7p). See
     // `VolcanismParams::morphometry`.
     p.volc.morphometry = true;
+    // Owner Ruling CX item 4 (2026-10-24): the grid-aware scoria-cone law --
+    // cones sized to the height they keep in the final field, never below
+    // 2.5 cells (fresh cinder median H/W 0.061-0.120 -> 0.132-0.167 on five
+    // census worlds, cited 0.15-0.21). Off in `WorldParams::defaults`. See
+    // `VolcanismParams::cinder_grid_law`.
+    p.volc.cinder_grid_law = true;
     p
 }
 
@@ -423,6 +429,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.morphometry", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Volcano morphometry (VA-5)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.morphometry), set_fn: |p, v| p.volc.morphometry = v != 0.0 },
+    // Owner Ruling CX item 4 (2026-10-24): the grid-aware scoria-cone law
+    // under the morphometry. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; a row so a save records it; a save without the
+    // key reloads OFF (`apply_saved_state`). No GUI row.
+    ParamSpec { key: "volc.cinder_grid_law", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Scoria cones sized for the grid (Ruling CX)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.cinder_grid_law), set_fn: |p, v| p.volc.cinder_grid_law = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -887,6 +900,7 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (VA-5): the reference has one cone profile and no crater
     // split; there is no `state.volc` key to write it to.
     ("volc.morphometry", ""),
+    ("volc.cinder_grid_law", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1166,6 +1180,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // And VA-5's morphometry (2026-10-24), the same way: off for every save
     // without the key.
     p.volc.morphometry = false;
+    // And Ruling CX item 4's cinder law (2026-10-24), the same way: off for
+    // every save without the key.
+    p.volc.cinder_grid_law = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

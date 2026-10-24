@@ -1271,8 +1271,33 @@ pub enum EdificeModel {
     /// and age) is the morphological model's exactly. Behind
     /// `VolcanismParams::morphometry`: off on the parity path, on in the app
     /// since owner Ruling CX item 1 (2026-10-24).
-    Morphometric { m_per_unit: f64 },
+    ///
+    /// `cinder_grid_law` (owner Ruling CX item 4, 2026-10-24): size a scoria
+    /// cone to the height it will **keep** in the final field
+    /// ([`CINDER_KEPT_SHARE`] of its stamped height), never below
+    /// [`CINDER_MIN_RADIUS_CELLS`] grid cells, instead of to the stamped
+    /// height. `false` is VA-5's law exactly.
+    Morphometric { m_per_unit: f64, cinder_grid_law: bool },
 }
+
+/// **Ruling CX item 4**: the share of its stamped height a scoria cone keeps
+/// in the final field, measured, not cited: VA-5's census (five app worlds,
+/// 2048 x 1311 at 800 km, 2026-10-24) read a median of 0.42-0.46 of the
+/// stamped height at every radius of at least 2.5 cells (erosion, diffusion
+/// and the field's renormalisation take the rest). A radius sized to the
+/// stamped height therefore drew cones about half as steep as the cited
+/// fresh H/W (0.06-0.12 against 0.15-0.21); sized to this share of it, the
+/// final cones read 0.13-0.17 (`STATUS.md`, 2026-10-24).
+pub const CINDER_KEPT_SHARE: f64 = 0.45;
+
+/// **Ruling CX item 4**: the smallest radius, in grid cells, the grid-aware
+/// cinder law gives a cone. Measured, not cited: the two census cones under
+/// 2.5 cells kept 0.31 of their height against 0.42-0.46 above it, so a
+/// narrower cone loses its shape to the grid. A cone the law would make
+/// narrower stays at this floor and stands less steep than the cited ratio
+/// (the honest limit of a 0.39 km cell). Floors of 2.0 and 2.5 measured
+/// alike on four of the five worlds.
+pub const CINDER_MIN_RADIUS_CELLS: f64 = 2.5;
 
 /// A fresh scoria cone's height over its basal width: `Hco = 0.179 Wco`
 /// (Wood 1980, N = 9, r = 0.98, matching Porter 1972's Mauna Kea cones;
@@ -2252,14 +2277,21 @@ fn place_sized_volcano(
     // drawn, never a new draw.
     let mut rad_km = rad_km;
     let mut crater = None;
-    if let EdificeModel::Morphometric { m_per_unit } = model {
+    if let EdificeModel::Morphometric { m_per_unit, cinder_grid_law } = model {
         // The metres the cone will stand before age damping: the stamp's own
         // normalised height (`stamp_one_volcano`'s `h` at age 0) times the
         // engine's metres per unit.
         let stand_m = h_m / peak_m * 0.9 * m_per_unit;
         match kind {
             Some(EdificeKind::Cinder) if stand_m.is_finite() && stand_m > 0.0 => {
-                rad_km = stand_m / 1000.0 / (2.0 * CINDER_FRESH_HW);
+                rad_km = if cinder_grid_law {
+                    // Ruling CX item 4: size to the height the cone keeps,
+                    // never below the grid's floor (`CINDER_KEPT_SHARE`,
+                    // `CINDER_MIN_RADIUS_CELLS`).
+                    (CINDER_KEPT_SHARE * stand_m / 1000.0 / (2.0 * CINDER_FRESH_HW)).max(CINDER_MIN_RADIUS_CELLS * cell_km)
+                } else {
+                    stand_m / 1000.0 / (2.0 * CINDER_FRESH_HW)
+                };
             }
             Some(EdificeKind::Strato) => {
                 let pick = cartalith_noise::hash((x * 16.0) as i32, (y * 16.0) as i32, 0x5A1D);

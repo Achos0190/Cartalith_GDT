@@ -399,6 +399,11 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     if std::env::var("VA_MORPH").is_ok_and(|v| v == "0") {
         p.volc.morphometry = false;
     }
+    // `VA_CINDER=0`: Ruling CX item 4's grid-aware cinder law off (the app
+    // before it); unset, the app's default.
+    if std::env::var("VA_CINDER").is_ok_and(|v| v == "0") {
+        p.volc.cinder_grid_law = false;
+    }
     if let Some(k) = w.archetype {
         p.world_structure = cartalith_engine::WorldStructureParams { enabled: true, continentality: k[0], fragmentation: k[1], tectonic_energy: k[2], ocean_depth: k[3], hotspot_density: k[4] };
     }
@@ -411,6 +416,8 @@ fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
     match name {
         // The app before Ruling CX item 1.
         "no_morph" => p.volc.morphometry = false,
+        // Ruling CX item 4's trial: the world without the cinder law.
+        "no_cinder_law" => p.volc.cinder_grid_law = false,
         // Ruling CX item 2's before is not a generation switch: the same
         // world, its table read under Ruling CW's age map (`years` dropped),
         // handled in `volcano_census` itself.
@@ -772,6 +779,17 @@ fn volcano_census() {
         }
         if let Some(&k) = cand.iter().max_by(|&&a, &&b| vt[a].age.total_cmp(&vt[b].age)) {
             picks.push(("oldest", k));
+        }
+        // Ruling CX item 4: the tallest scoria cone on land that owns its
+        // centre, whatever its radius (the picks above need 4 km, which no
+        // scoria cone reaches once it is sized to the cited H/W).
+        if let Some(&k) = (0..vt.len())
+            .filter(|&k| vt[k].kind == Some(EdificeKind::Cinder) && land(&vt[k]) && owns_centre(k))
+            .collect::<Vec<_>>()
+            .iter()
+            .max_by(|&&a, &&b| vt[a].h.total_cmp(&vt[b].h))
+        {
+            picks.push(("cinder", k));
         }
         picks.dedup_by_key(|p| p.1);
         // x1: the whole map, once per state.

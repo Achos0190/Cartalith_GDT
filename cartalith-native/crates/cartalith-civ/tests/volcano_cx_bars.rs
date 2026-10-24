@@ -85,6 +85,9 @@ fn arm(p: &mut WorldParams, name: &str) {
         "app" => {}
         // The app before Ruling CX item 1.
         "no_morph" => p.volc.morphometry = false,
+        // The app before Ruling CX item 4 (the grid-aware cinder law). The
+        // trial's two floors (2.5 and 2.0 cells) are recorded in `STATUS.md`.
+        "no_cinder_law" => p.volc.cinder_grid_law = false,
         other => panic!("unknown arm {other:?}"),
     }
 }
