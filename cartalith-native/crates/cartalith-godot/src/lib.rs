@@ -9234,8 +9234,9 @@ impl WorldGen {
             // snapshot would be a *lie*: `center::center_landmasses` rotates
             // field, stress, age, resistance, crust, shear, volcanic,
             // impact, temperature, rainfall, discharge, plate_id, the two
-            // boundary grids, stream order and river mask/floor -- and
-            // re-indexes the channel network -- in one pass, so restoring
+            // boundary grids, stream order, river mask/floor and the geology
+            // column (Ruling CX item 3) -- and re-indexes the channel network
+            // and moves the volcano table -- in one pass, so restoring
             // the field alone would leave it misaligned with every one of
             // them.
             self.ledger.record(

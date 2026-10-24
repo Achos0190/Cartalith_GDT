@@ -46,6 +46,10 @@ pub struct CenterResult {
 /// `warpX`/`warpY`/`geoidField`/`tideField`/`koppenField`/`orogenyField`
 /// and its four seasonal fields have no equivalent here at all.
 ///
+/// The geology column (`WorldState::geology`, every per-cell member) is
+/// shifted too (owner Ruling CX item 3, 2026-10-24; it was missed until
+/// then), and the volcano table moves by its own rule (see the body).
+///
 /// `channels` is **shifted and re-pointed**, like everything else.
 /// `ChannelResult::recv` holds flat grid *indices*, so rotating the array
 /// alone would leave every receiver aimed at the cell it used to mean --
@@ -173,6 +177,34 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
             .map(|e| cartalith_terrain::PlacedEdifice { cx: (e.cx - off as f64).rem_euclid(w), ..*e })
             .collect();
         ws.volcanoes = (!moved.is_empty()).then(|| Arc::new(moved));
+    }
+
+    // Owner Ruling CX item 3 (2026-10-24): the GF-1 rock column is positional
+    // too, and it was left out of the list above, so a centred world's rock
+    // was the rock of the cell `off` columns away (found by the VA-1 lane).
+    // Every per-cell member moves by the same rotation: the two rock units,
+    // the contact's absolute elevation, the regolith, the volcanic setting,
+    // GF-8's painted mask when there is one, and GF-11's structural surface
+    // when construction ran. The cells' VALUES are moved, never recomputed:
+    // the column is data the processes updated, not something derivable from
+    // the rotated field. Not handled, stated: the seam feather below blends
+    // the height field over two columns either side of the old join and
+    // leaves the column alone, so a `contact` there can sit a little above or
+    // below the feathered surface (the column reads it as a thinner or
+    // thicker cap; nothing reads it as invalid). An absent column has nothing
+    // to move.
+    if let Some(col) = ws.geology.column_mut() {
+        shift_grid_x(col.rock_top.as_mut_slice(), gw, gh, o);
+        shift_grid_x(col.rock_sub.as_mut_slice(), gw, gh, o);
+        shift_grid_x(col.contact.as_mut_slice(), gw, gh, o);
+        shift_grid_x(col.regolith.as_mut_slice(), gw, gh, o);
+        shift_grid_x(col.volcanic_setting.as_mut_slice(), gw, gh, o);
+        if let Some(m) = col.painted.as_mut() {
+            shift_grid_x(m.as_mut_slice(), gw, gh, o);
+        }
+        if let cartalith_terrain::geology::Construction::Built { structural_surface } = &mut col.construction {
+            shift_grid_x(structural_surface.as_mut_slice(), gw, gh, o);
+        }
     }
 
     // The world is only *approximately* periodic in X (the reference's own
@@ -307,6 +339,81 @@ mod tests {
             }
         }
         assert!(checked > 0, "no cell had a receiver -- this test proved nothing");
+    }
+
+    /// Owner Ruling CX item 3 (2026-10-24): the geology column is a set of
+    /// positional rasters like every other, so it rotates with the world;
+    /// and the volcano table, which moves by its own rule (centres shifted,
+    /// edge-straddling discs dropped), still agrees with the column it
+    /// describes.
+    #[test]
+    fn the_geology_column_and_volcano_table_move_with_the_world() {
+        // Protects: a centred world's rock staying registered to its
+        // terrain. Before the fix every grid rotated but `ws.geology`, so
+        // the rock under a cell was the rock of the cell `offset` columns
+        // away (found by the VA-1 lane, 2026-10-24).
+        let mut p = WorldParams::defaults(96, 64, 24601);
+        p.world = true;
+        p.map_width_km = 4000.0;
+        p.geology_model = true;
+        p.volc.edifice_model = true;
+        let mut ws = generate_terrain(&p);
+        let (gw, gh) = (p.gw, p.gh);
+        // The members a default world leaves uniform (no process wrote
+        // regolith, nobody painted, construction off) are given a position
+        // pattern, so a member left out of the shift cannot pass unseen.
+        {
+            let col = ws.geology.column_mut().expect("the geology model builds a column");
+            for (i, v) in col.regolith.iter_mut().enumerate() {
+                *v = i as f32 * 1e-4;
+            }
+            col.painted = Some((0..gw * gh).map(|i| (i % 7 == 0) as u8).collect());
+            col.construction = cartalith_terrain::geology::Construction::Built { structural_surface: (0..gw * gh).map(|i| (i % 13) as f32 * 0.01).collect() };
+        }
+        let before = ws.geology.column().expect("the geology model builds a column").clone();
+        let r = center_landmasses(&mut ws, gw, gh, true).unwrap();
+        assert_ne!(r.offset, 0, "this seed must actually shift or the test says nothing");
+        let col = ws.geology.column().expect("centring keeps the column");
+        // Where a cell came from: `shift_grid_x` writes `new[x] = old[(x+off)%w]`.
+        let from = |i: usize| (i / gw) * gw + (i % gw + r.offset) % gw;
+        for i in 0..gw * gh {
+            let j = from(i);
+            assert_eq!(col.rock_top[i], before.rock_top[j], "rock_top at {i}");
+            assert_eq!(col.rock_sub[i], before.rock_sub[j], "rock_sub at {i}");
+            assert_eq!(col.contact[i].to_bits(), before.contact[j].to_bits(), "contact at {i}");
+            assert_eq!(col.regolith[i].to_bits(), before.regolith[j].to_bits(), "regolith at {i}");
+            assert_eq!(col.volcanic_setting[i], before.volcanic_setting[j], "volcanic_setting at {i}");
+            assert_eq!(col.painted.as_ref().unwrap()[i], before.painted.as_ref().unwrap()[j], "painted at {i}");
+            let surf = |c: &cartalith_terrain::geology::GeologyColumn, k: usize| match &c.construction {
+                cartalith_terrain::geology::Construction::Built { structural_surface } => structural_surface[k],
+                _ => panic!("the construction record changed kind"),
+            };
+            assert_eq!(surf(col, i).to_bits(), surf(&before, j).to_bits(), "structural surface at {i}");
+        }
+        assert!(before.rock_top.iter().any(|&t| t != before.rock_top[0]), "premise: the column is not uniform");
+        // The table and the column agree after the move: every column cell
+        // marked volcanic is owned, by the table's own rule, by an edifice
+        // of the same setting (a cell whose winning edifice was dropped at
+        // the old seam has no owner and is not counted).
+        let table = ws.volcanoes.as_ref().expect("premise: the world keeps a volcano table");
+        let code = |s: cartalith_terrain::VolcanicSetting| match s {
+            cartalith_terrain::VolcanicSetting::Arc => 1u8,
+            cartalith_terrain::VolcanicSetting::Rift => 2,
+            cartalith_terrain::VolcanicSetting::Hotspot => 3,
+            cartalith_terrain::VolcanicSetting::Unclassified => 4,
+        };
+        let (mut agree, mut owned) = (0usize, 0usize);
+        for i in 0..gw * gh {
+            if col.volcanic_setting[i] == 0 {
+                continue;
+            }
+            if let Some(h) = cartalith_terrain::volcano_attr::owner_of(table, (i % gw) as f64, (i / gw) as f64) {
+                owned += 1;
+                agree += usize::from(code(h.edifice.setting) == col.volcanic_setting[i]);
+            }
+        }
+        assert!(owned > 20, "premise: volcanic cells to compare ({owned})");
+        assert_eq!(agree, owned, "the table and the column disagree on {} of {owned} cells", owned - agree);
     }
 
     /// Centering twice must be a no-op the second time: the first call put
