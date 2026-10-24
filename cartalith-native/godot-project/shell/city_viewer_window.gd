@@ -14,7 +14,8 @@ class_name CityViewerWindow
 ## The disclosure discipline is unchanged and now says less: the info panel is
 ## still read off the engine's own `stages` array, so it cannot drift from what
 ## actually ran, and it still names what is generated but not drawn (the
-## crossings, the civic and religious buildings). What
+## crossings, the civic buildings; places of worship are drawn since
+## 2026-10-25, Ruling CY item 1). What
 ## it no longer has to say is that the *drawing* is ahead of the generator — the
 ## rooftop-is-a-whole-parcel stand-in is gone.
 ##
@@ -479,6 +480,13 @@ func _rebuild_side() -> void:
 			else (DRAW.WALL_DITCH if wstyle == "ditch" else DRAW.WALL_STONE)
 		_swatch(leg, wcol, "The circuit",
 			"A %s wall with its gates (buildWall)." % wstyle)
+	## Only when the town has one (a hamlet or a `"none"` rite builds none),
+	## named by its own rite so the legend says which form is on screen.
+	var worship: Array = _layout.get("worship_sites", [])
+	if not worship.is_empty():
+		_swatch(leg, DRAW.WORSHIP_ROOF, "Place of worship",
+			"%s: %s (buildFaithSites)." % [_worship_label(worship[0]),
+				String((worship[0] as Dictionary).get("prov", ""))])
 	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets",
 		"The arterial backbone (buildPrimaries).")
 	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes", "Organic growth (grow).")
@@ -531,6 +539,12 @@ func _rebuild_side() -> void:
 			(_layout.get("wall_gates", PackedVector2Array()) as PackedVector2Array).size()] \
 		if _layout.has("wall_ring") \
 		else "none — %s on the wall ladder" % String(_layout.get("wall_spec", "?")))
+	## Count and form, read off the sites themselves. "None" with its two
+	## reasons rather than a bare 0: `generate` builds no site for a hamlet or
+	## for a culture whose rite is none, and the layout does not say which.
+	_field(gen, "Places of worship",
+		("%d · %s" % [worship.size(), _worship_label(worship[0])]) if not worship.is_empty()
+		else "none — a hamlet, or a culture with no rite")
 	_field(gen, "Markets", str((_layout.get("markets", []) as Array).size()))
 	_field(gen, "Farm plots", str((_layout.get("farmland", []) as Array).size()))
 
@@ -569,8 +583,9 @@ func _rebuild_side() -> void:
 	DccWidgets.note(stages,
 		"Some of the model's own layers are generated and not drawn: the river "
 		+ "crossings (the plan leaves the water open where a road crosses it, but "
-		+ "draws no bridge deck or ford band), the civic hall, games buildings and "
-		+ "places of worship, and the harbour's piers, mole and defences. The "
+		+ "draws no bridge deck or ford band), the civic hall and games buildings, "
+		+ "and the harbour's piers, mole and defences. Places of worship are drawn, "
+		+ "each in its own rite's form. The "
 		+ "hinterland clutter — garden and orchard trees, wells, the market cross, "
 		+ "fences, the working yards' props — is drawn.")
 	DccWidgets.note(stages,
@@ -838,6 +853,14 @@ func _swatch(parent: Control, color: Color, name: String, tip: String = "") -> v
 ## ellipsising them would drop the half that carries the reason. So the
 ## alignment and the autowrap are **left exactly as they were**, and this
 ## paragraph is the record that the canvas's `right` was read and not applied.
+## A worship site's display name: the generator's own `"name"` ("Temple",
+## "Mosque"...), else its rite key capitalised -- `"name"` is absent for a rite
+## outside the five the reference names (`FaithSite::name`), and the key is
+## then the only true thing to show.
+func _worship_label(site: Dictionary) -> String:
+	return String(site.get("name", String(site.get("faith", "?")).capitalize()))
+
+
 func _field(parent: Control, key: String, value: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)

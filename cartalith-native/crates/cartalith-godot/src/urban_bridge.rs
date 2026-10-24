@@ -235,7 +235,7 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     // it clears every building on the parcels it claims as a churchyard and
     // never inserts one back; the worship building itself lives on
     // `Town::churches` (`build_faith_sites`' own `Vec<FaithSite>`), not
-    // here, and is not yet crossed by this dictionary. Always present, even
+    // here, and crosses separately as `"worship_sites"` below. Always present, even
     // empty -- a town whose lots all failed the terrain-suitability gate
     // genuinely has none, and that is now a generated answer rather than a
     // missing milestone.
@@ -271,6 +271,62 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         let intra: PackedByteArray = intra.iter().map(|b| u8::from(*b)).collect();
         d.set("building_intramural", &intra);
     }
+
+    // Places of worship (FH-R2 S3, Ruling CY item 1, 2026-10-25):
+    // `Town::churches`, every site `build_faith_sites` laid out, in its own
+    // rite's built form. Until this key the town view drew none of them, so a
+    // churchyard read as an empty precinct with its houses cleared and
+    // nothing in their place (STATUS.md's R2-4 entry). **Not the
+    // reference's drawing:** `_cvDrawCity` (v2.11 line 23644) marks a site
+    // with a `✝` glyph and its name and never strokes `polys`; this crosses
+    // the geometry the reference generates and its viewer leaves unused, so a
+    // temple reads as a colonnaded cella and a mosque as a hall, court and
+    // minaret (DECISIONS §7p: a deliberate improvement on the legacy view).
+    //
+    // An Array of one Dictionary per site rather than parallel packed
+    // arrays: a town has at most four (`generate`'s `n_church` clamp), and
+    // each carries nested lists of uneven length (several polygons, a
+    // colonnade). **Always present, possibly empty** -- a hamlet
+    // (`pop_target < 600`) or a `"none"` rite builds no site, which is the
+    // generator's answer, not a missing layer. Per site, every key is present
+    // except two, each absent when the generator set none rather than given
+    // a stand-in: `"name"` (`FaithSite::name` is `None` for a rite outside
+    // the five the reference names) and `"tower"` (temple and shrine have
+    // none). Never invents a form: what the shell draws is exactly these
+    // polygons.
+    let worship: Array<VarDictionary> = l
+        .faith_sites
+        .iter()
+        .map(|s| {
+            let mut w = vdict! {
+                "id" => s.id.as_str(),
+                "faith" => s.faith.as_str(),
+                "center" => pt(s.center),
+                // Built form: nave and tower, cella, prayer hall,
+                // naos/narthex/apse -- filled as roofs.
+                "polys" => &s.polys.iter().map(|p| poly(p)).collect::<Array<PackedVector2Array>>(),
+                // Open precinct: a temple's podium, a mosque's courtyard.
+                "open" => &s.open.iter().map(|p| poly(p)).collect::<Array<PackedVector2Array>>(),
+                "columns" => &poly(&s.columns),
+                "steps" => &segs(&s.steps.iter().map(|st| (st[0], st[1])).collect::<Vec<_>>()),
+                "ridge" => &poly(&s.ridge),
+                "prov" => s.prov.as_str(),
+            };
+            if let Some(n) = s.name {
+                w.set("name", n);
+            }
+            if let Some(t) = &s.tower {
+                let tower = vdict! {
+                    "center" => Vector2::new(t.x as f32, t.y as f32),
+                    "r" => t.r,
+                    "kind" => t.kind,
+                };
+                w.set("tower", &tower);
+            }
+            w
+        })
+        .collect();
+    d.set("worship_sites", &worship);
 
     // The wall circuit. **Absent, not empty, when the town has none** -- the
     // wall ladder (`_umWallSpec`) says a hamlet on flat ground was never
@@ -487,6 +543,13 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
             None => format!("buildWall → none ({} on the wall ladder)", l.wall_spec),
         },
         format!("assignDistricts/buildBuildings → {} footprints", l.buildings.len()),
+        // `generate`'s own two reasons for building none: a hamlet, or a
+        // `"none"` rite (a culture whose default is none). Which one applied
+        // is not on the layout, so both are named rather than one guessed.
+        match l.faith_sites.first() {
+            Some(s) => format!("buildFaithSites → {} place(s) of worship, {} rite", l.faith_sites.len(), s.faith),
+            None => "buildFaithSites → none (a hamlet, or a culture with no rite)".to_string(),
+        },
         format!("buildMarkets → {} specialised squares", l.markets.len()),
         format!("buildFarmland → {} fields", l.farmland.len()),
         format!("buildDetails → {} props (wells, trees, fences…)", l.details.len()),
@@ -546,11 +609,11 @@ impl WorldGen {
     /// entry that is not farmland), along with `"building_intramural"`, a
     /// real wall-containment flag per footprint.
     ///
-    /// One thing the reference's model carries is still not surfaced here:
-    /// the civic hall and places of worship (`cartalith_urban::Town::civic`,
-    /// and the games buildings beside it). It is on the
-    /// `cartalith_urban::Town` the adapter projects from and is one field
-    /// away.
+    /// **The places of worship arrived 2026-10-25** (Ruling CY item 1) as
+    /// `"worship_sites"`, one dictionary per `Town::churches` entry in its
+    /// rite's built form. One thing the reference's model carries is
+    /// still not surfaced here: the civic hall
+    /// (`cartalith_urban::Town::civic`, and the games buildings beside it).
     ///
     /// **The place editor's overrides reach the layout** (2026-09-03). This
     /// call took `settlement_layout()` — the entry point that supplies

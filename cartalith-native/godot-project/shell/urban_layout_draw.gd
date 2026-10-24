@@ -34,12 +34,16 @@ class_name UrbanLayoutDraw
 ## 2026-09-05, `urban_bridge.rs`) -- `_draw_water_mask` below already reads
 ## both, just to release the water mask around the crossing point, not to
 ## stroke a deck or a stipple pattern -- this file simply has no draw branch
-## for that visual yet. The civic hall and places of worship are still
-## genuinely absent from the bridge: `cartalith_urban::Town::civic` and
-## `Town::churches` (`build_faith_sites`' own `Vec<FaithSite>` -- it only
+## for that visual yet. The civic hall is still genuinely absent from the
+## bridge: `cartalith_urban::Town::civic` is held on `Town` and never crossed
+## by `urban_bridge.rs::layout_dict`.
+##
+## **Places of worship are drawn as of 2026-10-25** (FH-R2 S3, Ruling CY item
+## 1). `Town::churches` (`build_faith_sites`' own `Vec<FaithSite>` -- it only
 ## ever *removes* entries from `buildings` for the parcels it claims, never
-## adds a worship building to that list) are both held on `Town` and never
-## crossed by `urban_bridge.rs::layout_dict`.
+## adds a worship building to that list) crosses as `"worship_sites"`, and
+## `_draw_worship` draws each in its rite's built form. Until then a churchyard
+## was an empty precinct with its houses cleared and nothing in their place.
 ##
 ## **The hinterland clutter is drawn as of 2026-09-23** (Ruling H (a)). Until
 ## then `run_layout` kept only `field`/`pasture` out of `Town::details` and
@@ -458,6 +462,10 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	_draw_details(ci, layout, to_screen, m_scale, px_floor, alpha, detail, true)
 
 	_draw_roofs(ci, layout, to_screen, m_scale, px_floor, alpha, detail)
+
+	# The places of worship, over the houses around them (they are the tallest
+	# thing in the block) and under the citadel and the annotations.
+	_draw_worship(ci, layout, project, to_screen, m_scale, px_floor, alpha, detail)
 
 	# The citadel, over the roofs and the curtain it straddles: its court is
 	# opaque ground, so the town wall's stretch through it disappears under it,
@@ -1040,6 +1048,115 @@ static func _draw_roofs(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		ridges.append(to_screen.call(p))
 	var rw: float = clampf(0.55 * m_scale, px_floor * 0.6, maxf(px_floor, lot_px / 6.0))
 	ci.draw_multiline(ridges, Color(CASING.r, CASING.g, CASING.b, alpha * 0.55), rw)
+
+
+## The place-of-worship palette (FH-R2 S3, Ruling CY item 1, 2026-10-25).
+## **Not the reference's:** `_cvDrawCity` (v2.11 line 23644) marks a site with
+## a `✝` glyph in rgb(200,190,220) and never fills its `polys`, and the other
+## two renderers draw nothing, so there is no colour to port. Labelled
+## judgements, chosen against this file's own palette so the building reads as
+## a different MATERIAL from the houses rather than another roof tone: a cool
+## slate/lead roof (the houses are all warm terracotta or olive-ochre,
+## `ROOF_H`/`ROOF_H_INTRA`), a pale dressed-stone precinct (lighter than
+## `PLAZA_GROUND`, since a podium or a mosque court is paved, not swept earth),
+## and the same `CASING` ink for edges, columns and steps.
+const WORSHIP_ROOF := Color(0.420, 0.447, 0.494)    # ~rgb(107,114,126), slate
+const WORSHIP_PRECINCT := Color(0.851, 0.812, 0.722) # ~rgb(217,207,184), paving
+## A tower's fill by `Tower::kind`: a spire and a minaret are drawn as a dark
+## and a pale roundel, a dome as a disc a step lighter than the roof it sits
+## on. Labelled judgements; the kinds are `build_faith_sites`' own three.
+const WORSHIP_TOWER := {
+	"spire": Color(0.247, 0.255, 0.278),
+	"minaret": Color(0.906, 0.878, 0.812),
+	"dome": Color(0.545, 0.573, 0.620),
+}
+## A column is drawn this many metres across (the generator emits a point per
+## column, no radius), and only once that is at least `WORSHIP_COLUMN_MIN_PX`
+## on screen -- below it a peristyle is a grey smear over the podium edge.
+## Labelled judgements: 0.9 m is about a classical column's diameter at the
+## spacings `peristyle` uses (3.0-3.4 m).
+const WORSHIP_COLUMN_M := 0.9
+const WORSHIP_COLUMN_MIN_PX := 1.5
+
+
+## Every place of worship on the layout's `"worship_sites"` (one dictionary
+## per `Town::churches` entry, `urban_bridge.rs::layout_dict`), in its rite's
+## own built form: the open precinct (a temple's podium, a mosque's court) as
+## paving, the building polygons (nave and transept, cella, prayer hall,
+## naos/narthex/apse) as a slate roof with an ink edge and ridge, a temple's or
+## shrine's colonnade and frontal steps, and the tower (spire, minaret, dome).
+##
+## What it must never do: invent a form. It draws exactly the generated
+## polygons, so a rite the generator does not build (S4's forms) has nothing
+## here to be drawn as. An absent key (a save from before the key, or a
+## dictionary built by a probe) draws nothing; an empty array is a town with
+## no site (a hamlet or a `"none"` rite).
+##
+## The colonnade and steps are skipped below `detail` 1.0 (the map's deep zoom
+## layer passes 0.0, where a column is a fraction of a pixel); the precinct,
+## the building and the tower draw at every detail, because one building per
+## town costs nothing and it is the landmark a reader looks for.
+static func _draw_worship(ci: CanvasItem, layout: Dictionary, project: Callable,
+		to_screen: Callable, m_scale: float, px_floor: float, alpha: float,
+		detail: float) -> void:
+	var sites: Array = layout.get("worship_sites", [])
+	if sites.is_empty():
+		return
+	var a := func(c: Color) -> Color:
+		return Color(c.r, c.g, c.b, c.a * alpha)
+	var ink: Color = a.call(CASING)
+	var edge_w: float = maxf(px_floor, 0.9 * m_scale)
+	for sv in sites:
+		var s: Dictionary = sv
+		for op in s.get("open", []):
+			var o: PackedVector2Array = op
+			if o.size() < 3:
+				continue
+			var opts: PackedVector2Array = project.call(o)
+			_fill_ground_polygon(ci, opts, a.call(WORSHIP_PRECINCT))
+			opts.append(opts[0])
+			ci.draw_polyline(opts, ink, edge_w, true)
+		# Drop shadow then roof then ink, the same three passes `_draw_roofs`
+		# gives a house, so the building sits in the same light.
+		var polys: Array = s.get("polys", [])
+		var soff := SHADOW_OFF * m_scale
+		var sh: Color = a.call(SHADOW)
+		for pp in polys:
+			var p: PackedVector2Array = pp
+			if p.size() < 3:
+				continue
+			var q: PackedVector2Array = project.call(p)
+			var shq := PackedVector2Array()
+			for v in q:
+				shq.append(v + soff)
+			_fill_ground_polygon(ci, shq, sh)
+		for pp in polys:
+			var p: PackedVector2Array = pp
+			if p.size() < 3:
+				continue
+			var q: PackedVector2Array = project.call(p)
+			_fill_ground_polygon(ci, q, a.call(WORSHIP_ROOF))
+			q.append(q[0])
+			ci.draw_polyline(q, ink, edge_w, true)
+		var ridge: PackedVector2Array = s.get("ridge", PackedVector2Array())
+		if ridge.size() >= 2:
+			ci.draw_polyline(project.call(ridge), Color(ink.r, ink.g, ink.b, ink.a * 0.7),
+				maxf(px_floor * 0.6, 0.6 * m_scale), true)
+		if detail >= 1.0:
+			var steps: PackedVector2Array = s.get("steps", PackedVector2Array())
+			if steps.size() >= 2:
+				ci.draw_multiline(project.call(steps), ink, maxf(px_floor * 0.6, 0.5 * m_scale))
+			var col_r: float = WORSHIP_COLUMN_M * 0.5 * m_scale
+			if col_r * 2.0 >= WORSHIP_COLUMN_MIN_PX * px_floor:
+				for c in s.get("columns", PackedVector2Array()) as PackedVector2Array:
+					ci.draw_circle(to_screen.call(c), col_r, ink)
+		if s.has("tower"):
+			var t: Dictionary = s["tower"]
+			var tc: Vector2 = to_screen.call(t.get("center", Vector2.ZERO))
+			var tr: float = maxf(px_floor * 1.2, float(t.get("r", 2.0)) * m_scale)
+			var fill: Color = WORSHIP_TOWER.get(String(t.get("kind", "")), WORSHIP_ROOF)
+			ci.draw_circle(tc, tr, a.call(fill))
+			ci.draw_arc(tc, tr, 0.0, TAU, 16, ink, maxf(px_floor * 0.8, 0.5 * m_scale), true)
 
 
 ## `tone` (0..1) → one rooftop's colour.

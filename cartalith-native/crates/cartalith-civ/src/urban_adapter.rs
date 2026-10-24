@@ -2036,12 +2036,11 @@ pub struct UrbanLayout {
     /// at all) or a real-water site whose mask has no wet cell.
     pub water_mask_runs: Vec<(Vec2, Vec2)>,
     /// `Town::churches` -- every place of worship `build_faith_sites` sited,
-    /// with its rite (FH-R2 R2-4, 2026-10-24). **Carried here so the rite the
-    /// ruling faction's religion now selects can be measured; it is not yet
-    /// crossed into `urban_bridge::layout_dict` or drawn by the shell**
-    /// (`urban_layout_draw.gd`'s header: places of worship are not drawn), so
-    /// a changed rite is not yet visible in the app. Empty for a hamlet or a
-    /// `none` rite.
+    /// with its rite (FH-R2 R2-4, 2026-10-24). Crossed into
+    /// `urban_bridge::layout_dict` as `"worship_sites"` and drawn by
+    /// `urban_layout_draw.gd::_draw_worship` since 2026-10-25 (Ruling CY
+    /// item 1), so the rite the ruling faction's religion selects is visible
+    /// as its own building form. Empty for a hamlet or a `none` rite.
     pub faith_sites: Vec<cartalith_urban::FaithSite>,
 }
 

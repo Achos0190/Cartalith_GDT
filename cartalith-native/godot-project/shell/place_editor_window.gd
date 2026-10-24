@@ -1730,9 +1730,11 @@ func _submit_event(rel: String) -> void:
 ## (the amenities that exist), and `"walls"`/`"wall_ring"`/`"wall_gates"` are
 ## all present keys -- none of those four is withheld today. What
 ## `layout_dict` genuinely never sets, per its own module doc comment on
-## `urban_layouts()` ("Two things the reference's model carries are still not
-## surfaced here"), is **the civic hall and places of worship**
-## (`cartalith_urban::Town::civic`, and the games buildings beside it).
+## `urban_layouts()` ("One thing the reference's model carries is still not
+## surfaced here"), is **the civic hall**
+## (`cartalith_urban::Town::civic`, and the games buildings beside it); the
+## places of worship were the other half until 2026-10-25, when they began
+## crossing as `"worship_sites"` (Ruling CY item 1).
 ## `LAYOUT_ABSENT` below is that verified entry, not the canvas's four. (The
 ## hinterland clutter was the second entry until 2026-09-23, when it started
 ## crossing as `"detail_kind"`/`"detail_geom"`/... and being drawn.)
@@ -1882,7 +1884,8 @@ func _build_layout(parent: Control, s: Dictionary) -> void:
 	DccWidgets.note(absent_grp, "Deliberately absent rather than empty: a viewer that wants to "
 		+ "say \"no wall\" must first be able to tell that apart from \"no wall generator\", "
 		+ "and every other key this dictionary carries (buildings, districts, walls, markets, "
-		+ "farmland, bridges) IS present today -- this pair is the real gap, not the canvas's "
+		+ "farmland, bridges, places of worship) IS present today -- the civic hall is the real "
+		+ "gap, not the canvas's "
 		+ "wider four (see this function's own doc comment).")
 
 	# -- Substrate flags --------------------------------------------------------
@@ -1932,7 +1935,9 @@ var _STREET_CLASS_COLOR := {
 ## `_build_layout`'s own doc comment) -- not copied from the canvas, whose own
 ## text is stale. `[label, reason]`.
 const LAYOUT_ABSENT := [
-	["Civic hall & places of worship",
+	## Places of worship left this list on 2026-10-25 (Ruling CY item 1): they
+	## cross as `"worship_sites"` and are drawn.
+	["Civic hall",
 		"Town::civic + the games buildings beside it -- read by the adapter, never set on this dictionary"],
 ]
 
