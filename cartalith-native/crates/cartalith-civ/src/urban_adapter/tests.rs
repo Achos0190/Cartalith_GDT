@@ -2003,3 +2003,23 @@ fn a_landlocked_town_has_neither_bridges_nor_a_ford() {
     assert!(l.bridges.is_none(), "a dry box produced river crossings");
     assert!(l.ford.is_none(), "a dry box produced a ford");
 }
+
+#[test]
+fn fh_r2_r24_a_faith_override_reaches_the_faith_sites() {
+    // Protects: FH-R2 R2-4's plumbing. No faith is the culture default rite
+    // (`church` for the medieval profile) and `PlaceOverrides::faith` reaches
+    // every sited place of worship, with the same sites (count, centres) --
+    // the rite changes, the siting does not. Mutation check: dropping the
+    // faith on its way to `GenOpts` turns the second assertion red.
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let plain = settlement_layout(&w, &s, &[]).expect("a layout");
+    assert!(!plain.faith_sites.is_empty(), "the fixture must site a place of worship");
+    assert!(plain.faith_sites.iter().all(|x| x.faith == "church"));
+    let o = PlaceOverrides { faith: Some("temple"), ..Default::default() };
+    let temple = settlement_layout_with(&w, &s, &[], &o, None).expect("a layout");
+    assert!(temple.faith_sites.iter().all(|x| x.faith == "temple"));
+    let centres = |l: &UrbanLayout| l.faith_sites.iter().map(|x| (x.center.x.to_bits(), x.center.y.to_bits())).collect::<Vec<_>>();
+    assert_eq!(centres(&plain), centres(&temple));
+}

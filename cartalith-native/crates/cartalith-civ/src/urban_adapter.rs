@@ -1669,6 +1669,9 @@ pub struct UrbanContext {
     pub terrain: Option<TerrainCtx>,
     pub route_ends: Option<Vec<Vec2>>,
     pub primary_paths: Option<Vec<Vec<Vec2>>>,
+    /// [`PlaceOverrides::faith`], carried to `GenOpts::faith` (FH-R2 R2-4).
+    /// `None` takes the culture profile's default rite, the reference's path.
+    pub faith: Option<String>,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -1714,6 +1717,14 @@ pub struct PlaceOverrides<'a> {
     /// Ruling J's "regenerate this settlement": a non-zero variant re-keys
     /// the position-derived seed. `None` keeps that seed exactly.
     pub variant: Option<u32>,
+    /// FH-R2 R2-4 (S3a): the worship-site rite from the ruling faction's
+    /// religion (`religion_profile::religion_rite`), carried to
+    /// `GenOpts::faith`. **Not a `_umPlaceContext` field**: the reference
+    /// passes no faith and every town takes `profile.defaultFaith`
+    /// (`RC_ENGINE_CHANGES.md` §6r.4 records that gap as open in both
+    /// codebases). `None` is exactly that reference behaviour, so every
+    /// JS-captured golden (which never sets it) is unmoved by construction.
+    pub faith: Option<&'a str>,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -1793,6 +1804,7 @@ pub fn um_place_context_with(
         terrain,
         route_ends: um_route_ends(ways, px, py, w.gw, SITE_WM, SITE_HM, orient),
         primary_paths: um_primary_paths(ways, px, py, w.gw, w.map_width_km, orient),
+        faith: o.faith.map(str::to_string),
     }
 }
 
@@ -2023,6 +2035,14 @@ pub struct UrbanLayout {
     /// Empty on a synthetic site (`uses_real_water` false, no [`WaterCtx`]
     /// at all) or a real-water site whose mask has no wet cell.
     pub water_mask_runs: Vec<(Vec2, Vec2)>,
+    /// `Town::churches` -- every place of worship `build_faith_sites` sited,
+    /// with its rite (FH-R2 R2-4, 2026-10-24). **Carried here so the rite the
+    /// ruling faction's religion now selects can be measured; it is not yet
+    /// crossed into `urban_bridge::layout_dict` or drawn by the shell**
+    /// (`urban_layout_draw.gd`'s header: places of worship are not drawn), so
+    /// a changed rite is not yet visible in the app. Empty for a hamlet or a
+    /// `none` rite.
+    pub faith_sites: Vec<cartalith_urban::FaithSite>,
 }
 
 /// [`cartalith_urban::generate`] — the reference's `generate()` (line 30931),
@@ -2085,7 +2105,9 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         wall_style: Some(ctx.wall_style.to_string()),
         // Neither is a `_umPlaceContext` field; `generate()` reads
         // `profile.defaultFaith` / `profile.defaultCivic` for a falsy value.
-        faith: None,
+        // Since FH-R2 R2-4 the faith may come from the ruling faction's
+        // religion (`PlaceOverrides::faith`); `None` is still the default rite.
+        faith: ctx.faith.clone(),
         civic_style: None,
         harbour_defence: None,
         harbour_scale: Some(ctx.harbour_scale),
@@ -2205,6 +2227,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         // the `Site` literal) — so reading it off `ctx` is the same mask,
         // not a stale copy.
         water_mask_runs: ctx.water.as_ref().map(|w| w.ctx.water_runs()).unwrap_or_default(),
+        faith_sites: t.churches,
     })
 }
 

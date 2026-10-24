@@ -685,6 +685,18 @@ impl WorldGen {
                 // which is the exact call this site made before.
                 culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
                 variant: (e.variant != 0).then_some(e.variant),
+                // FH-R2 R2-4 (S3a) is built up to here and deliberately NOT
+                // switched on (2026-10-24): `CivData::town_faith` would supply
+                // the ruling faction's rite, but this app draws no place of
+                // worship at all (`urban_layout_draw.gd`'s header; the layout
+                // dictionary does not cross `Town::churches`), so a new rite
+                // would only reshape the undrawn gap its footprint clears --
+                // measured: 151 of 250 towns' buildings move with nothing
+                // visible to say why (`fh_r2_m3_rite_only`, STATUS.md's R2-4
+                // entry). That is an owner decision, not a default. `None` is
+                // the culture profile's default rite, the call this site has
+                // always made.
+                faith: None,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a
@@ -1085,4 +1097,26 @@ fn set_rules_field<'a>(
         "meta.plot_chaos" => &mut r.meta.plot_chaos,
         _ => return None,
     })
+}
+
+impl crate::CivData {
+    /// FH-R2 R2-4 (S3a, `FH_R2_PLAN.md` §7 at Q3's default under Ruling CW):
+    /// the worship-site rite for settlement `s`'s town, from its ruling
+    /// faction's religion resolved to its engine key (a custom religion takes
+    /// its base's rite), through
+    /// `cartalith_civ::religion_profile::religion_rite`. `None` -- the culture
+    /// profile's default rite, the reference's behaviour -- for Unclaimed, an
+    /// unaffiliated faction, a faction the roster has no row for, and a
+    /// religion with no building form of its own in today's urban crate. Read
+    /// fresh on every `urban_layouts` call (this module keeps no layout cache,
+    /// its header says why); whether a shell surface re-asks after a religion
+    /// edit is that surface's own refresh rule.
+    ///
+    /// **Not called by the app yet** (see the `faith: None` in
+    /// `urban_layouts`): only the M3 harness reads it, hence the `allow`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn town_faith(&self, s: &cartalith_civ::NamedSettlement) -> Option<&'static str> {
+        let e = usize::try_from(s.placement.faction).ok().and_then(|f| self.faction_roster.0.get(f))?;
+        cartalith_civ::religion_profile::religion_rite(self.religions.engine_key(&e.religion))
+    }
 }

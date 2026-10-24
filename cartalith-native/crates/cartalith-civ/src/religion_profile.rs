@@ -360,6 +360,56 @@ pub fn religion_profile(key: &str) -> Option<&'static ReligionProfile> {
 }
 
 // ===========================================================================
+// FH-R2 R2-4 -- S3a, the religion -> rite table (`FH_R2_PLAN.md` §7)
+// ===========================================================================
+
+/// FH-R2 R2-4 (the research document's S3a): the worship-site rite a town of
+/// a faction holding `religion_key` builds, or `None` for "this religion has
+/// no building form of its own in today's urban crate", in which case the
+/// town keeps its culture profile's default rite exactly as before R2-4.
+///
+/// **Defaults applied, for the owner to overrule.** `FH_R2_PLAN.md` Q3
+/// ("authorise S3, the civ to urban faith wiring that changes every
+/// affiliated town's generated output") has no ruling; Ruling CW told this
+/// pass to take the plan's recommended default where a question is
+/// unanswered, and Q3's is "yes, in two steps: S3a (rite only) first". This
+/// table is S3a. Every row is a **labelled judgement** mapping a religion's
+/// profile onto the five rites `cartalith_urban::districts::build_faith_sites`
+/// can build (`church`, `temple`, `shrine`, `mosque`, `orthodox`; the
+/// research document: "architectural forms, not religions"):
+///
+/// | Religion | Rite | Why |
+/// |---|---|---|
+/// | `sun_cult`, `sky_pantheon` | `temple` | organized civic/state cults (profile TYPE organized, locus civic): the poliad temple at the civic core, the research document's Mechanism A |
+/// | `god_king` | `temple` | ruler cult with a state priesthood (its own row) |
+/// | `earth_mother`, `sea_lords`, `old_gods` | `shrine` | folk, place-bound polytheisms (TYPE folk, locus place): small shrines, not a monumental temple |
+/// | `revealed_law` | `mosque` | the research document's real-world model for it is Islam; `mosque` is that rite's form |
+/// | `one_god` | `church` | modelled on Latin/Orthodox Christianity: `church`, the profile default it already gets (no visible change) |
+/// | `ancestor_rites` | none of its own | "no public building below a size threshold, then lineage halls" -- a lineage hall is S4 |
+/// | `flame_creed` | none of its own | a fire temple is S4's building form |
+/// | `covenant_folk` | none of its own | an assembly hall (synagogue) is S4's |
+/// | `the_path` | none of its own | a monastery / stupa is S4's |
+/// | `mysteries` | none of its own | a cult hall is S4's |
+/// | `spirit_ways` | none of its own | "no temples"; a sacred grove is S4's |
+/// | `none` | none | unaffiliated: the profile default, the plan's M3 bar ("an unaffiliated faction's towns byte-identical") |
+///
+/// A religion with no form of its own keeps the town exactly as it was rather
+/// than being drawn in a borrowed form that names it wrongly (a "Church" for
+/// a covenant): the honest reading of "the building does not exist yet". S4
+/// (new building forms) is outside FH-R2 (`FH_R2_PLAN.md` §2.2). Custom
+/// religions take their base's rite (resolve with `engine_key` first); axis
+/// overrides do not change the rite.
+pub fn religion_rite(religion_key: &str) -> Option<&'static str> {
+    match religion_key {
+        "sun_cult" | "sky_pantheon" | "god_king" => Some("temple"),
+        "earth_mother" | "sea_lords" | "old_gods" => Some("shrine"),
+        "revealed_law" => Some("mosque"),
+        "one_god" => Some("church"),
+        _ => None,
+    }
+}
+
+// ===========================================================================
 // FH-R2 R2-3 -- a custom religion's own axis values (`FH_R2_PLAN.md` §7)
 // ===========================================================================
 //
@@ -578,6 +628,38 @@ mod tests {
         }
         assert_eq!(religion_profile("covenant_folk").unwrap().kind, None);
         assert_eq!(religion_profile("mysteries").unwrap().kind, Some(ReligionType::Cult));
+    }
+
+    /// Protects: R2-4's rite table as literals, row by row (the table is the
+    /// owner's overrule point, so a silent edit must turn this red), and that
+    /// every rite named is one `build_faith_sites` can build.
+    #[test]
+    fn the_rite_table_is_pinned() {
+        let want = [
+            ("none", None),
+            ("sun_cult", Some("temple")),
+            ("earth_mother", Some("shrine")),
+            ("sea_lords", Some("shrine")),
+            ("sky_pantheon", Some("temple")),
+            ("ancestor_rites", None),
+            ("flame_creed", None),
+            ("old_gods", Some("shrine")),
+            ("one_god", Some("church")),
+            ("revealed_law", Some("mosque")),
+            ("covenant_folk", None),
+            ("the_path", None),
+            ("mysteries", None),
+            ("spirit_ways", None),
+            ("god_king", Some("temple")),
+        ];
+        assert_eq!(want.len(), CIV_RELIGIONS.len(), "every built-in has a row here");
+        for (k, r) in want {
+            assert_eq!(religion_rite(k), r, "{k}");
+            if let Some(r) = r {
+                assert!(["church", "temple", "shrine", "mosque", "orthodox"].contains(&r));
+            }
+        }
+        assert_eq!(religion_rite("custom:3"), None, "resolve a custom key to its base first");
     }
 
     /// Protects: every axis value's saved key round-trips and no two values of
