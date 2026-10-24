@@ -10385,7 +10385,33 @@ mod geology_save_tests {
             for (x, y) in [(a.cx, b.cx), (a.cy, b.cy), (a.r, b.r), (a.h, b.h), (a.age, b.age)] {
                 assert_eq!(x.to_bits(), y.to_bits());
             }
+            // Ruling CX item 2: a new world's rows carry their years, and
+            // they come back bit for bit.
+            assert!(a.years.is_some(), "premise: a new world records each edifice's years");
+            assert_eq!(a.years.map(f64::to_bits), b.years.map(f64::to_bits));
         }
+        // A table saved before Ruling CX carries no `years` key (VA-1's row
+        // shape): the real table's own rows, serialised, with the key taken
+        // out. It loads with no years, so every edifice is read under Ruling
+        // CW's map exactly as it was saved, and re-serialises to the same
+        // JSON (no `years` key gained).
+        let old_json: Vec<serde_json::Value> = volcano_rows_of(&table)
+            .iter()
+            .map(|r| {
+                let mut v = serde_json::to_value(r).unwrap();
+                assert!(v.as_object_mut().unwrap().remove("years").is_some(), "the writer writes the key");
+                v
+            })
+            .collect();
+        let old_rows: Vec<geology_save::VolcanoRow> = old_json.iter().map(|v| serde_json::from_value(v.clone()).unwrap()).collect();
+        let old = geology_save::volcanoes_from_rows(&old_rows).expect("a pre-CX table still loads");
+        assert!(old.iter().all(|e| e.years.is_none()));
+        for (e, t) in old.iter().zip(table.iter()) {
+            assert_eq!(cartalith_terrain::volcano_attr::years(e), cartalith_terrain::volcano_attr::legacy_age_years(t.age));
+            assert_eq!(cartalith_terrain::volcano_attr::activity(e), cartalith_terrain::volcano_attr::legacy_activity_of(t.age));
+        }
+        let again: Vec<serde_json::Value> = volcano_rows_of(&old).iter().map(|r| serde_json::to_value(r).unwrap()).collect();
+        assert_eq!(again, old_json, "a pre-CX table re-serialises without gaining a key");
         let m: GeologyManifest = serde_json::from_value(data.geology.clone()).unwrap();
         assert_eq!(m.volcanoes.as_ref().map(Vec::len), Some(table.len()));
         // Absent stays absent.
@@ -10412,6 +10438,12 @@ mod geology_save_tests {
         assert_eq!(geology_save::volcanoes_from_rows(&rows).unwrap()[0].crater, Some((0.02, 0.05)));
         rows[0].crater = Some((0.06, 0.05));
         assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "a crater floor wider than its rim is refused");
+        // Ruling CX item 2's years: refused when not a positive finite age.
+        for bad in [0.0, -5.0, f64::NAN, f64::INFINITY] {
+            let mut rows = volcano_rows_of(&table);
+            rows[0].years = Some(bad);
+            assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "years {bad} is refused");
+        }
     }
 
     /// The rows a save writes for `t` (the manifest's own serialisation, read

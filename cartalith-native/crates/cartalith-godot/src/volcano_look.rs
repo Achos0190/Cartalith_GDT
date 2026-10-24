@@ -146,9 +146,13 @@ pub struct VolcanoSample {
     pub basaltic: bool,
     /// The edifice's own `0..=1` age draw.
     pub age01: f64,
-    /// `log10` of [`volcano_attr::age_years`].
+    /// `log10` of [`volcano_attr::years`] (the age map the row was recorded
+    /// with, Ruling CX item 2).
     pub log_years: f64,
     pub activity: Activity,
+    /// [`volcano_attr::active_youth`]: how young an active edifice is inside
+    /// the active band (the vent's heat).
+    pub youth: f64,
     /// Distance from the centre over the radius, `0..=1`.
     pub t: f64,
     /// The stamp's crater floor and rim, fractions of the radius
@@ -238,8 +242,9 @@ fn from_hit(hit: cartalith_terrain::volcano_attr::VolcanoHit<'_>, x: f64, y: f64
         kind,
         basaltic: volcano_attr::is_basaltic(e)?,
         age01: e.age,
-        log_years: volcano_attr::age_years(e.age).log10(),
-        activity: volcano_attr::activity_of(e.age),
+        log_years: volcano_attr::years(e).log10(),
+        activity: volcano_attr::activity(e),
+        youth: volcano_attr::active_youth(e),
         t: hit.t,
         floor,
         rim,
@@ -477,8 +482,7 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         // heat by sub-type, 0.85 / 0.6, raised to 0.9 / 0.72 on the first
         // frames, where 0.6 under the daylight scale showed one dull seam),
         // a little hotter the younger.
-        let youth = (1.0 - v.age01 / volcano_attr::ACTIVE_BELOW).clamp(0.0, 1.0);
-        let heat = (if v.kind == EdificeKind::Shield { 0.9 } else { 0.72 }) * (0.8 + 0.2 * youth);
+        let heat = (if v.kind == EdificeKind::Shield { 0.9 } else { 0.72 }) * (0.8 + 0.2 * v.youth);
         // The vent's radius: inside the crater floor, 120 m to 900 m
         // (judgement: Halema'uma'u's lake is about 1 km across; a cone's open
         // vent a few hundred metres).

@@ -1341,9 +1341,18 @@ pub struct PlacedEdifice {
     pub kind: Option<EdificeKind>,
     /// The edifice's own age draw, `0..=1`, exactly as `stamp_one_volcano`
     /// received it (`place_province_volcanoes`' `rng * volc_age`, or a
-    /// hotspot chain's age-progressive value). Map it to years with
-    /// [`volcano_attr::age_years`]; never read it as years.
+    /// hotspot chain's age-progressive value). Read it as years only through
+    /// [`volcano_attr::years`]; never read the draw itself as years.
     pub age: f64,
+    /// The edifice's age in years, under the age map it was recorded with:
+    /// `Some(`[`volcano_attr::respread_age_years`]`(age))` for every edifice
+    /// stamped since owner Ruling CX item 2 (2026-10-24) re-spread the ages,
+    /// and `None` for a table saved before it, which [`volcano_attr::years`]
+    /// reads under Ruling CW's map (`legacy_age_years`) so an old project
+    /// reopens with the ages, activity and colours it was saved with. Derived
+    /// from `age` alone and recorded so a row names its own map; generation
+    /// never reads it back.
+    pub years: Option<f64>,
     /// `(floor, rim)` of this edifice's summit depression as fractions of
     /// its radius, when it differs from its kind's shape table: a VA-5
     /// stratocone with a summit crater instead of a caldera
@@ -2109,8 +2118,20 @@ fn stamp_one_volcano(
     // each cell's `volcanic_field` max. Recording only; nothing below reads it.
     // VA-1 adds the kind and age the stamp was drawn with (see
     // `PlacedEdifice`'s doc): values already in hand, recorded, never re-read.
+    // Ruling CX item 2 adds the age in years under the re-spread map, so the
+    // row names the map it was written under (save compatibility).
     let trace_id = trace.as_deref_mut().map(|t| {
-        t.edifices.push(PlacedEdifice { setting, cx, cy, r, h, kind, age, crater: crater.map(|(f, rm, _)| (f, rm)) });
+        t.edifices.push(PlacedEdifice {
+            setting,
+            cx,
+            cy,
+            r,
+            h,
+            kind,
+            age,
+            years: Some(volcano_attr::respread_age_years(age)),
+            crater: crater.map(|(f, rm, _)| (f, rm)),
+        });
         (t.edifices.len() - 1) as u32
     });
     let caldera = height_m > 1000.0;

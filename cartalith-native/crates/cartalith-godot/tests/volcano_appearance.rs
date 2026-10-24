@@ -65,8 +65,8 @@ const PEAK_M: f64 = 4000.0;
 /// Myr) in the east.
 fn edifices() -> Vec<PlacedEdifice> {
     vec![
-        PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 24.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age: 0.02, crater: None },
-        PlacedEdifice { setting: VolcanicSetting::Arc, cx: 72.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Strato), age: 0.9, crater: None },
+        PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 24.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age: 0.02, years: None, crater: None },
+        PlacedEdifice { setting: VolcanicSetting::Arc, cx: 72.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Strato), age: 0.9, years: None, crater: None },
     ]
 }
 
@@ -271,7 +271,7 @@ fn the_rock_follows_the_edifice() {
 fn the_cover_follows_rainfall_on_the_flank() {
     let a = sat();
     // log10(1000) = 3 = 1 + 5.5 * age  ->  age = 2 / 5.5.
-    let idx = VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Cinder), age: 2.0 / 5.5, crater: None }], 64, 48);
+    let idx = VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Cinder), age: 2.0 / 5.5, years: None, crater: None }], 64, 48);
     let v = volcano_look::sample(&idx, 29.6, 20.0, 1.0, 1.0).unwrap(); // t = 0.6
     assert!((v.log_years - 3.0).abs() < 1e-9);
     let wet = volcano_look::ground(&a, &v, 0.6, 0.5).bare;
@@ -285,7 +285,7 @@ fn the_cover_follows_rainfall_on_the_flank() {
 #[test]
 fn only_active_craters_glow_and_under_the_cap() {
     let a = sat();
-    let mk = |age: f64| VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age, crater: None }], 64, 48);
+    let mk = |age: f64| VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age, years: None, crater: None }], 64, 48);
     for (age, want) in [(0.01, Activity::Active), (0.2, Activity::Dormant), (0.7, Activity::Extinct)] {
         let idx = mk(age);
         let mut any_glow = false;
@@ -411,6 +411,10 @@ fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
     match name {
         // The app before Ruling CX item 1.
         "no_morph" => p.volc.morphometry = false,
+        // Ruling CX item 2's before is not a generation switch: the same
+        // world, its table read under Ruling CW's age map (`years` dropped),
+        // handled in `volcano_census` itself.
+        "legacy_ages" => {}
         other => panic!("unknown VA_BEFORE arm {other:?}"),
     }
 }
@@ -663,7 +667,7 @@ fn volcano_census() {
         let mut act = [0usize; 3];
         for (k, e) in vt.iter().enumerate() {
             let kind = e.kind.map_or("-", |k| k.key());
-            let a = volcano_attr::activity_of(e.age);
+            let a = volcano_attr::activity(e);
             act[a as usize] += 1;
             let stamp_h_m = e.h * m_per_unit;
             match morphometry(&ws.field, gw, gh, e, m_per_unit, kpc) {
@@ -672,7 +676,7 @@ fn volcano_census() {
                         "   {k:>3} {:<12} {kind:<7} {:.3}  {:>10.0}  {:<8}  {:>5.1}  {:>7.0}  {:>7.0}  {:.3}  {:>6.1}  {:>6.1}   {:.3}",
                         volcano_attr::setting_key(e.setting),
                         e.age,
-                        volcano_attr::age_years(e.age),
+                        volcano_attr::years(e),
                         a.key(),
                         e.r * kpc,
                         stamp_h_m,
@@ -709,6 +713,10 @@ fn volcano_census() {
         // The "before" world: the same world with the colours off, or (with
         // `VA_BEFORE`) the world generated with one switch turned back.
         let ws_b_owned = match before.as_deref() {
+            Some("legacy_ages") => {
+                println!("   before: legacy_ages (the same world, its table without years)");
+                None
+            }
             Some(arm) => {
                 let mut pb = p.clone();
                 before_arm(&mut pb, arm);
@@ -724,7 +732,13 @@ fn volcano_census() {
         let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
         let lith_b = cartalith_civ::build_lithology(&ws_b.field, &ws_b.age_field, &ws_b.volcanic_field, &ws_b.crust_field, &ws_b.resistance_field, &ws_b.rainfall, ws_b.sea_level);
         let idx = VolcanoIndex::new(vt, gw, gh);
-        let idx_b = VolcanoIndex::new(ws_b.volcanoes.as_deref().expect("the before world records a table"), gw, gh);
+        let mut vt_b: Vec<PlacedEdifice> = ws_b.volcanoes.as_deref().expect("the before world records a table").to_vec();
+        if before.as_deref() == Some("legacy_ages") {
+            for e in vt_b.iter_mut() {
+                e.years = None;
+            }
+        }
+        let idx_b = VolcanoIndex::new(&vt_b, gw, gh);
         let lakes = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
         let lakes_b = render::water_bodies_floored(&ws_b.field, &ws_b.rainfall, gw, gh, ws_b.sea_level, p.world, None).classification;
         let pre_on = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a_on, Some(p.map_width_km));
@@ -772,8 +786,8 @@ fn volcano_census() {
                 volcano_attr::setting_key(e.setting),
                 e.kind.map_or("-", |k| k.key()),
                 e.age,
-                volcano_attr::age_years(e.age),
-                volcano_attr::activity_of(e.age).key(),
+                volcano_attr::years(e),
+                volcano_attr::activity(e).key(),
                 e.r * kpc,
                 e.cx,
                 e.cy

@@ -1250,7 +1250,7 @@ mod tests {
     /// fixture for [`derive`]'s `volcano` argument.
     fn one_volcano(setting: crate::VolcanicSetting) -> crate::VolcanoTrace {
         let mut t = crate::VolcanoTrace::new(64 * 16);
-        t.edifices.push(crate::PlacedEdifice { setting, cx: 40.0, cy: 8.0, r: 10.0, h: 0.2, kind: None, age: 0.0, crater: None });
+        t.edifices.push(crate::PlacedEdifice { setting, cx: 40.0, cy: 8.0, r: 10.0, h: 0.2, kind: None, age: 0.0, years: None, crater: None });
         for w in t.winner.iter_mut() {
             *w = 0;
         }

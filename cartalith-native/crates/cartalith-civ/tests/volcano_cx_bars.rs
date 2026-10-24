@@ -277,7 +277,7 @@ fn crater_zone_t(e: &cartalith_terrain::PlacedEdifice) -> f64 {
 fn crater_lakes(vt: &[cartalith_terrain::PlacedEdifice], class: &[u8], gw: usize, gh: usize) -> ([usize; 3], [usize; 3]) {
     let (mut cells, mut count) = ([0usize; 3], [0usize; 3]);
     for e in vt {
-        count[volcano_attr::activity_of(e.age) as usize] += 1;
+        count[volcano_attr::activity(e) as usize] += 1;
     }
     let idx = volcano_attr::VolcanoIndex::new(vt, gw, gh);
     for i in 0..gw * gh {
@@ -286,7 +286,7 @@ fn crater_lakes(vt: &[cartalith_terrain::PlacedEdifice], class: &[u8], gw: usize
         }
         let Some(h) = idx.winner_at((i % gw) as f64, (i / gw) as f64) else { continue };
         if h.t < crater_zone_t(h.edifice) {
-            cells[volcano_attr::activity_of(h.edifice.age) as usize] += 1;
+            cells[volcano_attr::activity(h.edifice) as usize] += 1;
         }
     }
     (cells, count)

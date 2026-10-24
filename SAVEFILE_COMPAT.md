@@ -1092,11 +1092,20 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
   `VOLCANO_APPEARANCE_RESEARCH.md`; `version` stays 1) is the world's volcano
   table, one object per edifice in placement order (the order decides which
   edifice owns a cell where two discs tie):
-  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …}`
+  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …, "crater": [floor, rim]?, "years": …?}`
   -- the centre and radius in grid cells, the stamp's normalised summit height,
-  and the edifice's own `0 … 1` age draw (years are derived, never stored:
-  `cartalith_terrain::volcano_attr::age_years`). `kind` is `null` for an
-  edifice the reference model drew, which has no morphology. **Absent is no
+  and the edifice's own `0 … 1` age draw. `kind` is `null` for an
+  edifice the reference model drew, which has no morphology. Two optional
+  keys, each written only when present: `crater` (VA-5, 2026-10-24), the
+  stratocone's own summit crater as fractions of its radius; and `years`
+  (owner Ruling CX item 2, 2026-10-24), the age in years under the
+  re-spread age map, written for every edifice of a world generated since.
+  **A row without `years` is read under Ruling CW's map** (`10^(1 + 5.5·age)`,
+  activity cut on the draw at 0.05 / 0.4: `volcano_attr::legacy_age_years`,
+  `legacy_activity_of`), so a table saved before Ruling CX reopens with the
+  ages, activity and colours it was saved with; a row with it is read by its
+  years (`volcano_attr::years`, `activity`). A `years` that is not a positive
+  finite number refuses the table like any other unusable row. **Absent is no
   table**, never an empty one: a world without a table writes no key, and a
   reader MUST NOT substitute one. A table this build cannot honour (an unknown
   setting or kind, a non-finite number, a radius that is not positive, an age

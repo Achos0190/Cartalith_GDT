@@ -5318,7 +5318,7 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
 /// a guessed sub-kind: with no table, no owning edifice, or an edifice with
 /// no morphology, the fact says so and why.
 fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
-    use cartalith_terrain::volcano_attr::{activity_of, age_years, owner_of, zones, Activity};
+    use cartalith_terrain::volcano_attr::{activity, owner_of, years, zones, Activity};
     use cartalith_terrain::EdificeKind;
     let Some(table) = c.inp.volcanoes else {
         return "sub-kind: — (this world has no volcano table: geology model off, an imported heightmap, or a save from before 2026-10-24)".to_string();
@@ -5330,7 +5330,8 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
     let Some(kind) = e.kind else {
         return "sub-kind: — (the edifice was drawn by the reference model, which records no morphology)".to_string();
     };
-    let act = activity_of(e.age);
+    // Under the age map the row was recorded with (Ruling CX item 2).
+    let act = activity(e);
     let (_, rim) = zones(e).unwrap_or((0.0, 0.0));
     // A lake inside the crater: any lake cell (`water` class 2) within the
     // rim radius of the centre.
@@ -5357,7 +5358,7 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
             (Activity::Extinct, EdificeKind::Shield) => "lava field",
         }
     };
-    let years = age_years(e.age);
+    let years = years(e);
     let age = if years >= 1.0e6 {
         format!("{:.1} Myr", years / 1.0e6)
     } else if years >= 1.0e3 {
@@ -7796,7 +7797,7 @@ mod tests {
                 vol[y * gw + x] = (0.6 * (-d2 / 18.0).exp()) as f32;
             }
         }
-        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age, crater: None };
+        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age, years: None, crater: None };
         let run = |table: Option<&[cartalith_terrain::PlacedEdifice]>, water: Option<&[u8]>| -> String {
             let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, 200.0);
             inp.peak_m = PEAK_M;
@@ -7832,6 +7833,12 @@ mod tests {
         assert!(run(Some(&strato(0.01, Some((0.02, 0.05)))), None).starts_with("sub-kind: active crater"), "{}", run(Some(&strato(0.01, Some((0.02, 0.05)))), None));
         assert!(run(Some(&strato(0.9, None)), None).starts_with("sub-kind: extinct caldera"));
         assert!(run(Some(&strato(0.9, Some((0.02, 0.05)))), None).starts_with("sub-kind: extinct cone"));
+        // Ruling CX item 2: a row that carries its years is read under the
+        // re-spread map -- the draw 0.3 is extinct (about 565 kyr), where the
+        // same draw without years is dormant (about 447 yr, Ruling CW's map).
+        let new_row = [cartalith_terrain::PlacedEdifice { years: Some(cartalith_terrain::volcano_attr::respread_age_years(0.3)), ..ed(cartalith_terrain::EdificeKind::Cinder, 0.3) }];
+        assert!(run(Some(&new_row), None).starts_with("sub-kind: extinct cone (an extinct cinder, 565 kyr"), "{}", run(Some(&new_row), None));
+        assert!(run(Some(&[ed(cartalith_terrain::EdificeKind::Cinder, 0.3)]), None).starts_with("sub-kind: dormant cone (a dormant cinder, 447 yr"), "{}", run(Some(&[ed(cartalith_terrain::EdificeKind::Cinder, 0.3)]), None));
     }
 
     /// The four military kinds **partition** one set of hilltops: no cell is

@@ -110,6 +110,14 @@ pub(crate) struct VolcanoRow {
     /// every table written before VA-5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crater: Option<(f64, f64)>,
+    /// The edifice's age in years under Ruling CX item 2's re-spread map
+    /// (`PlacedEdifice::years`), for every edifice stamped since; absent in
+    /// every table written before, which then reloads under Ruling CW's map
+    /// (`volcano_attr::years`), so an old project keeps the ages, activity
+    /// and colours it was saved with. Optional, so no version bump: an older
+    /// reader ignores the key and reads the draw, as it always did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub years: Option<f64>,
 }
 
 /// The rows for `edifices`, in placement order (the order decides owner ties).
@@ -117,7 +125,17 @@ fn volcano_rows(edifices: &[cartalith_terrain::PlacedEdifice]) -> Vec<VolcanoRow
     use cartalith_terrain::volcano_attr::setting_key;
     edifices
         .iter()
-        .map(|e| VolcanoRow { setting: setting_key(e.setting).to_string(), kind: e.kind.map(|k| k.key().to_string()), cx: e.cx, cy: e.cy, r: e.r, h: e.h, age: e.age, crater: e.crater })
+        .map(|e| VolcanoRow {
+            setting: setting_key(e.setting).to_string(),
+            kind: e.kind.map(|k| k.key().to_string()),
+            cx: e.cx,
+            cy: e.cy,
+            r: e.r,
+            h: e.h,
+            age: e.age,
+            crater: e.crater,
+            years: e.years,
+        })
         .collect()
 }
 
@@ -146,7 +164,12 @@ pub(crate) fn volcanoes_from_rows(rows: &[VolcanoRow]) -> Result<Vec<cartalith_t
             {
                 return Err(format!("volcano {i}: a crater that is not usable"));
             }
-            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age, crater: r.crater })
+            if let Some(y) = r.years
+                && !(y.is_finite() && y > 0.0)
+            {
+                return Err(format!("volcano {i}: an age in years that is not usable"));
+            }
+            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age, years: r.years, crater: r.crater })
         })
         .collect()
 }

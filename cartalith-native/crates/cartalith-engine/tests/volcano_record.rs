@@ -80,23 +80,32 @@ fn the_table_reproduces_volcanic_field_exactly() {
     }
 }
 
-/// Protects the activity derivation on real worlds: at the default age
-/// slider (0.40) arc and rift edifices draw `rng * 0.40`, so none is extinct,
-/// and a hotspot chain is age-progressive, so it spans states (the research's
-/// "hotspot chains then have one active end"). Printed, then asserted on the
-/// arc/rift half, which is a property of the draw rather than of one seed.
+/// Protects owner Ruling CX item 2 on real worlds: every recorded edifice
+/// carries its years under the re-spread map (`years == respread(age)`, so the
+/// draw itself, which shapes the stamp, is what it always was: arc and rift
+/// draws stay `rng * 0.40` at the default slider), and the arc and rift
+/// volcanoes of three worlds together hold all three states -- the mix the
+/// ruling asked for, where Ruling CW's map left none extinct. Printed per
+/// seed; the mix is asserted over the three together, a property of the
+/// draw's spread rather than of one seed.
 #[test]
-fn arc_and_rift_volcanoes_are_never_extinct_at_the_default_age() {
+fn the_respread_ages_give_arc_and_rift_volcanoes_every_state() {
+    let mut arc_rift = [0usize; 3];
     for seed in [24601, 314159, 71077345] {
         let ws = generate_terrain(&params(seed, true));
         let v = ws.volcanoes.as_ref().expect("a table");
         let mut counts = std::collections::BTreeMap::new();
         for e in v.iter() {
-            *counts.entry((volcano_attr::setting_key(e.setting), volcano_attr::activity_of(e.age).key())).or_insert(0) += 1;
+            assert_eq!(e.years, Some(volcano_attr::respread_age_years(e.age)), "seed {seed}: a row without its re-spread years");
+            let a = volcano_attr::activity(e);
+            *counts.entry((volcano_attr::setting_key(e.setting), a.key())).or_insert(0) += 1;
             if matches!(e.setting, cartalith_terrain::VolcanicSetting::Arc | cartalith_terrain::VolcanicSetting::Rift) {
                 assert!(e.age < 0.40, "seed {seed}: an arc/rift age {} above the slider", e.age);
+                arc_rift[a as usize] += 1;
             }
         }
         println!("seed {seed}: {counts:?}");
     }
+    println!("arc/rift active/dormant/extinct: {arc_rift:?}");
+    assert!(arc_rift.iter().all(|&n| n > 0), "arc/rift states over three worlds: {arc_rift:?}");
 }

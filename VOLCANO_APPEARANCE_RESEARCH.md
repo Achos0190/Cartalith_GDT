@@ -517,6 +517,7 @@ Ranked by visible effect per unit of risk [judgement].
     500 ka [cited] on the log map;
   - **extinct**: everything else;
   - an owner override per volcano is a later GUI row.
+  - **Superseded 2026-10-24 by owner Ruling CX item 2** (implementation note, not research): on the log map above, 0.4 is about 1.6 ka, not 500 ka, and every arc and rift draw (`rng × 0.40`) fell below it. The engine now maps the draw onto two log pieces with 500 ka at a draw of 0.25 and cuts activity on the years (active under 50 years, dormant under 500 ka); `cartalith_terrain::volcano_attr::respread_age_years`.
 - **climate**: the cell's existing rainfall and temperature, the same inputs
   `material_weights` uses.
 - **zone** within the edifice, from `t = d/R` (recovered by `EdificeFrame`):

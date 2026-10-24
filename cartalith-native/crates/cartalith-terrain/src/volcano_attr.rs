@@ -30,37 +30,100 @@
 
 use crate::{EdificeKind, PlacedEdifice, VolcanicSetting};
 
-/// Edifice age draws below this are **active** (owner Ruling CW, research §8
-/// question 3 at its default: "active <0.05"). On the [`age_years`] map that
-/// is younger than about 19 years. A judgement the owner approved, not a
-/// cited figure.
-pub const ACTIVE_BELOW: f64 = 0.05;
+// # Two age maps, and which one a row is read under
+//
+// Ruling CW (2026-10-24) approved research §6.1's map, `10^(1 + 5.5·draw)`,
+// with activity cut on the draw (active < 0.05, dormant < 0.4). The draw is
+// `rng × volc.age` (0.40 by default) for every arc, rift and scattered
+// volcano, so on that map every one of them was 10 years to about 1.6 ka and
+// almost none was extinct (VA-1's census: 0-3 extinct per world, all on
+// hotspot chains), and the research's own reason for the 0.4 threshold --
+// "about 500 ka on the log map" -- did not hold (500 ka is a draw of 0.855
+// there). Owner Ruling CX item 2 (2026-10-24) re-spread the ages: the
+// re-spread map ([`respread_age_years`]) puts 500 ka at a draw of
+// [`RESPREAD_KNEE`], and activity is cut on the years themselves. Every
+// edifice stamped since records its years (`PlacedEdifice::years`); a table
+// saved before has none and is read under the old map ([`legacy_age_years`],
+// [`legacy_activity_of`]), so an old project reopens as it was saved. The
+// draw itself, the stamp and `volcanic_field` are untouched by either map.
 
-/// Edifice age draws below this (and at or above [`ACTIVE_BELOW`]) are
-/// **dormant**; at or above it, **extinct** (Ruling CW, research §8 question 3:
-/// "dormant <0.4"). On the [`age_years`] map 0.4 is about 1.6 thousand years.
-///
-/// Stated, not hidden: the research's §6.1 justifies 0.4 as "matching
-/// composite systems active up to about 500 ka on the log map", but the log
-/// map puts 500 ka at a draw of about 0.855, not 0.4. The approved threshold
-/// is used as approved; the mismatch is reported to the owner (VA-1 report).
-pub const DORMANT_BELOW: f64 = 0.4;
+/// **Ruling CW's map, kept only to read tables saved before Ruling CX.**
+/// Edifice age draws below this were **active** (research §8 question 3:
+/// "active <0.05"), younger than about 18 years on [`legacy_age_years`].
+pub const LEGACY_ACTIVE_BELOW: f64 = 0.05;
+
+/// **Ruling CW's map, kept only to read tables saved before Ruling CX.**
+/// Draws below this (and at or above [`LEGACY_ACTIVE_BELOW`]) were
+/// **dormant**, at or above it **extinct** ("dormant <0.4"; about 1.6 ka on
+/// [`legacy_age_years`] -- the mismatch with the research's "500 ka" that
+/// Ruling CX item 2 corrected).
+pub const LEGACY_DORMANT_BELOW: f64 = 0.4;
 
 /// `log10` of the years at a draw of 0 (10 years) and the decades the draw
-/// spans (5.5, so a draw of 1 is `10^6.5` ≈ 3.16 Myr). Research §6.1's
-/// proposed map, approved by Ruling CW ("a per-volcano age in years on a log
-/// scale up to 3 million years"). The span matches the cited ages (Wood 1980's
-/// 0.001-6 Ma cinder cones, Davidson & De Silva 2000's composite systems to
-/// about 500 ka, Hawaii's <0.7-5.6 Ma islands).
+/// spans (5.5, so a draw of 1 is `10^6.5` ≈ 3.16 Myr), on both maps: Ruling
+/// CW's "a per-volcano age in years on a log scale up to 3 million years".
+/// The span matches the cited ages (Wood 1980's 0.001-6 Ma cinder cones,
+/// Davidson & De Silva 2000's composite systems to about 500 ka, Hawaii's
+/// <0.7-5.6 Ma islands).
 pub const AGE_LOG10_MIN: f64 = 1.0;
 /// See [`AGE_LOG10_MIN`].
 pub const AGE_LOG10_SPAN: f64 = 5.5;
 
-/// The age in years of an edifice whose `0..=1` draw is `age01`:
+/// **Ruling CW's map, kept only to read tables saved before Ruling CX**: the
+/// age in years of an edifice whose `0..=1` draw is `age01`,
 /// `10^(1 + 5.5·age01)`. Clamped to the draw's own range first, so a value
 /// outside it maps to the nearest end rather than to an extrapolated age.
-pub fn age_years(age01: f64) -> f64 {
+pub fn legacy_age_years(age01: f64) -> f64 {
     10f64.powf(AGE_LOG10_MIN + AGE_LOG10_SPAN * age01.clamp(0.0, 1.0))
+}
+
+/// **Ruling CX item 2**: the oldest an edifice can be and still be
+/// **dormant**; older is **extinct**. About 500 ka, the research's §6.1
+/// rationale (composite systems stay active up to about 500 ka, cited:
+/// Davidson & De Silva 2000).
+pub const DORMANT_LIMIT_YEARS: f64 = 500_000.0;
+
+/// **Ruling CX item 2**: an edifice that erupted less than this many years
+/// ago is **active** (an open vent or a lava lake in the crater; the glow
+/// and the dry crater of item 6 follow it). A labelled judgement: "within
+/// living memory". At the default `volc.age` 0.40 it makes about 9 % of the
+/// arc, rift and scattered volcanoes active (a draw below about 0.037).
+pub const ACTIVE_LIMIT_YEARS: f64 = 50.0;
+
+/// **Ruling CX item 2**: the draw at which the re-spread map reaches
+/// [`DORMANT_LIMIT_YEARS`]. A labelled judgement chosen for the mix it gives
+/// at the default `volc.age` 0.40, whose draws are uniform on `0..0.40`:
+/// about 9 % active (under 50 years), 31 % dormant and young (under 10 ka,
+/// mostly bare), 22 % dormant and old (10-500 ka, greening), 38 % extinct
+/// (500-720 ka). Raising `volc.age` gives an older mix, lowering it a younger
+/// one, as the slider promised before. Hotspot chains, whose draws run
+/// 0..~1 along the chain, keep extinct members from about a quarter of the
+/// way along.
+pub const RESPREAD_KNEE: f64 = 0.25;
+
+/// **Ruling CX item 2**: the age in years of an edifice drawn at `age01`, on
+/// a log scale in two straight pieces: 10 years at 0, [`DORMANT_LIMIT_YEARS`]
+/// at [`RESPREAD_KNEE`], `10^6.5` (about 3.16 Myr, Ruling CW's ceiling) at 1.
+/// Monotone, so an older draw is never a younger volcano. Clamped to the
+/// draw's own range first. The draw is the stamp's own value, so neither the
+/// height field nor any random draw moves.
+pub fn respread_age_years(age01: f64) -> f64 {
+    let a = age01.clamp(0.0, 1.0);
+    let knee = DORMANT_LIMIT_YEARS.log10();
+    let top = AGE_LOG10_MIN + AGE_LOG10_SPAN;
+    let lg = if a <= RESPREAD_KNEE {
+        AGE_LOG10_MIN + (knee - AGE_LOG10_MIN) * a / RESPREAD_KNEE
+    } else {
+        knee + (top - knee) * (a - RESPREAD_KNEE) / (1.0 - RESPREAD_KNEE)
+    };
+    10f64.powf(lg)
+}
+
+/// The edifice's age in years under the map its row was recorded with: its
+/// own `years` (every edifice stamped since Ruling CX), else Ruling CW's map
+/// of its draw (a table saved before).
+pub fn years(e: &PlacedEdifice) -> f64 {
+    e.years.unwrap_or_else(|| legacy_age_years(e.age))
 }
 
 /// An edifice's eruptive state, derived from its age draw (Ruling CW: derived,
@@ -89,16 +152,50 @@ impl Activity {
     }
 }
 
-/// The activity of an edifice drawn at `age01` ([`ACTIVE_BELOW`],
-/// [`DORMANT_BELOW`]).
-pub fn activity_of(age01: f64) -> Activity {
-    if age01 < ACTIVE_BELOW {
+/// **Ruling CW's rule, kept only to read tables saved before Ruling CX**:
+/// the activity of an edifice drawn at `age01` ([`LEGACY_ACTIVE_BELOW`],
+/// [`LEGACY_DORMANT_BELOW`]).
+pub fn legacy_activity_of(age01: f64) -> Activity {
+    if age01 < LEGACY_ACTIVE_BELOW {
         Activity::Active
-    } else if age01 < DORMANT_BELOW {
+    } else if age01 < LEGACY_DORMANT_BELOW {
         Activity::Dormant
     } else {
         Activity::Extinct
     }
+}
+
+/// The activity of an edifice of `years` (Ruling CX item 2): active under
+/// [`ACTIVE_LIMIT_YEARS`], dormant under [`DORMANT_LIMIT_YEARS`], else extinct.
+pub fn activity_of_years(years: f64) -> Activity {
+    if years < ACTIVE_LIMIT_YEARS {
+        Activity::Active
+    } else if years < DORMANT_LIMIT_YEARS {
+        Activity::Dormant
+    } else {
+        Activity::Extinct
+    }
+}
+
+/// The edifice's activity under the map its row was recorded with: by its
+/// years ([`activity_of_years`]) when it carries them, else Ruling CW's draw
+/// thresholds ([`legacy_activity_of`]), so an old table keeps its states.
+pub fn activity(e: &PlacedEdifice) -> Activity {
+    match e.years {
+        Some(y) => activity_of_years(y),
+        None => legacy_activity_of(e.age),
+    }
+}
+
+/// How young an **active** edifice is inside the active band, `0..=1`: 1 at
+/// 10 years, 0 at the band's upper edge, on the log of its years. The band's
+/// edge is the map the row was recorded with ([`ACTIVE_LIMIT_YEARS`], or
+/// Ruling CW's draw 0.05 for an old table, where this is exactly the old
+/// `1 - age/0.05`). For the vent's heat (`volcano_look`); `0` past the band.
+pub fn active_youth(e: &PlacedEdifice) -> f64 {
+    let limit = if e.years.is_some() { ACTIVE_LIMIT_YEARS } else { legacy_age_years(LEGACY_ACTIVE_BELOW) };
+    let span = limit.log10() - AGE_LOG10_MIN;
+    (1.0 - (years(e).log10() - AGE_LOG10_MIN) / span).clamp(0.0, 1.0)
 }
 
 impl EdificeKind {
@@ -326,31 +423,98 @@ mod tests {
     use super::*;
 
     fn ed(cx: f64, cy: f64, r: f64, age: f64, kind: Option<EdificeKind>, setting: VolcanicSetting) -> PlacedEdifice {
-        PlacedEdifice { setting, cx, cy, r, h: 0.2, kind, age, crater: None }
+        PlacedEdifice { setting, cx, cy, r, h: 0.2, kind, age, years: None, crater: None }
     }
 
-    /// Protects the approved log map's two ends and one interior point,
-    /// against hand-worked literals: 10 years at 0, 10^6.5 at 1, 10^3.75 at
-    /// 0.5; and the clamp outside the draw's range.
+    /// Protects Ruling CW's map (still read for old tables) at its two ends
+    /// and one interior point, against hand-worked literals: 10 years at 0,
+    /// 10^6.5 at 1, 10^3.75 at 0.5; and the clamp outside the draw's range.
     #[test]
-    fn the_age_map_is_ten_years_to_three_million() {
-        assert!((age_years(0.0) - 10.0).abs() < 1e-9);
-        assert!((age_years(1.0) - 3_162_277.660_168_379).abs() < 1e-3);
-        assert!((age_years(0.5) - 5_623.413_251_903_491).abs() < 1e-6);
-        assert_eq!(age_years(-1.0), age_years(0.0));
-        assert_eq!(age_years(2.0), age_years(1.0));
+    fn the_legacy_age_map_is_ten_years_to_three_million() {
+        assert!((legacy_age_years(0.0) - 10.0).abs() < 1e-9);
+        assert!((legacy_age_years(1.0) - 3_162_277.660_168_379).abs() < 1e-3);
+        assert!((legacy_age_years(0.5) - 5_623.413_251_903_491).abs() < 1e-6);
+        assert_eq!(legacy_age_years(-1.0), legacy_age_years(0.0));
+        assert_eq!(legacy_age_years(2.0), legacy_age_years(1.0));
     }
 
-    /// Protects the approved activity thresholds (0.05, 0.4) at both sides of
-    /// each boundary.
+    /// Protects Ruling CW's draw thresholds (0.05, 0.4) at both sides of each
+    /// boundary, still the rule for a table saved before Ruling CX.
     #[test]
-    fn activity_follows_the_approved_thresholds() {
-        assert_eq!(activity_of(0.0), Activity::Active);
-        assert_eq!(activity_of(0.049), Activity::Active);
-        assert_eq!(activity_of(0.05), Activity::Dormant);
-        assert_eq!(activity_of(0.399), Activity::Dormant);
-        assert_eq!(activity_of(0.4), Activity::Extinct);
-        assert_eq!(activity_of(1.0), Activity::Extinct);
+    fn legacy_activity_follows_the_ruling_cw_thresholds() {
+        assert_eq!(legacy_activity_of(0.0), Activity::Active);
+        assert_eq!(legacy_activity_of(0.049), Activity::Active);
+        assert_eq!(legacy_activity_of(0.05), Activity::Dormant);
+        assert_eq!(legacy_activity_of(0.399), Activity::Dormant);
+        assert_eq!(legacy_activity_of(0.4), Activity::Extinct);
+        assert_eq!(legacy_activity_of(1.0), Activity::Extinct);
+    }
+
+    /// Protects Ruling CX item 2's map against hand-worked literals: 10 years
+    /// at 0, 500 ka exactly at the knee 0.25, 10^6.5 at 1, 10^3.349485 at
+    /// 0.125 (half way up the first piece: (1 + 5.69897)/2) and 10^6.099485
+    /// at 0.625 (half way up the second: (5.69897 + 6.5)/2); monotone;
+    /// clamped.
+    #[test]
+    fn the_respread_map_puts_500_ka_at_the_knee() {
+        assert!((respread_age_years(0.0) - 10.0).abs() < 1e-9);
+        assert!((respread_age_years(0.25) - 500_000.0).abs() < 1e-6);
+        assert!((respread_age_years(1.0) - 3_162_277.660_168_379).abs() < 1e-3);
+        assert!((respread_age_years(0.125).log10() - 3.349_485).abs() < 1e-5);
+        assert!((respread_age_years(0.625).log10() - 6.099_485).abs() < 1e-5);
+        let mut prev = 0.0;
+        for k in 0..=1000 {
+            let y = respread_age_years(k as f64 / 1000.0);
+            assert!(y > prev, "not monotone at {k}");
+            prev = y;
+        }
+        assert_eq!(respread_age_years(-1.0), respread_age_years(0.0));
+        assert_eq!(respread_age_years(2.0), respread_age_years(1.0));
+    }
+
+    /// Protects the re-spread activity: 50 years and 500 ka are the
+    /// boundaries (literals), on both sides; and a row with no years is read
+    /// under Ruling CW's thresholds, one with years under the new ones -- the
+    /// same draw 0.3 is dormant on an old table and extinct on a new one.
+    #[test]
+    fn activity_follows_the_years_or_the_old_draw_rule() {
+        assert_eq!(activity_of_years(49.9), Activity::Active);
+        assert_eq!(activity_of_years(50.0), Activity::Dormant);
+        assert_eq!(activity_of_years(499_999.0), Activity::Dormant);
+        assert_eq!(activity_of_years(500_000.0), Activity::Extinct);
+        let old = ed(0.0, 0.0, 5.0, 0.3, Some(EdificeKind::Cinder), VolcanicSetting::Arc);
+        assert_eq!(activity(&old), Activity::Dormant);
+        // Ruling CW's thresholds are on the draw, not on its years: a draw
+        // of 0.45 (about 3 ka) is extinct and 0.08 (about 28 years) dormant
+        // on an old table, where cutting its legacy years at 50 yr / 500 ka
+        // would read dormant and active.
+        assert_eq!(activity(&PlacedEdifice { age: 0.45, ..old }), Activity::Extinct);
+        assert_eq!(activity(&PlacedEdifice { age: 0.08, ..old }), Activity::Dormant);
+        assert!((years(&old) - 10f64.powf(1.0 + 5.5 * 0.3)).abs() < 1e-6);
+        let new = PlacedEdifice { years: Some(respread_age_years(0.3)), ..old };
+        assert_eq!(activity(&new), Activity::Extinct);
+        assert_eq!(years(&new), respread_age_years(0.3));
+        // The default slider's draws (uniform on 0..0.40) give the mix the
+        // knee's doc states: about 9 % active, 38 % extinct.
+        let draws: Vec<f64> = (0..4000).map(|k| (k as f64 + 0.5) / 4000.0 * 0.40).collect();
+        let n = |a: Activity| draws.iter().filter(|&&d| activity_of_years(respread_age_years(d)) == a).count() as f64 / draws.len() as f64;
+        assert!((n(Activity::Active) - 0.093).abs() < 0.005, "active share {}", n(Activity::Active));
+        assert!((n(Activity::Extinct) - 0.375).abs() < 0.005, "extinct share {}", n(Activity::Extinct));
+    }
+
+    /// Protects the vent heat's youth: 1 at 10 years, 0 at and past the band
+    /// edge, half way at the log midpoint, and exactly Ruling CW's
+    /// `1 - age/0.05` on an old table.
+    #[test]
+    fn active_youth_spans_the_active_band() {
+        let mut e = ed(0.0, 0.0, 5.0, 0.0, Some(EdificeKind::Cinder), VolcanicSetting::Arc);
+        assert!((active_youth(&e) - 1.0).abs() < 1e-12);
+        e.age = 0.02;
+        assert!((active_youth(&e) - 0.6).abs() < 1e-9, "old table: 1 - 0.02/0.05");
+        e.years = Some(50.0);
+        assert_eq!(active_youth(&e), 0.0);
+        e.years = Some(10f64.powf(1.0 + 0.5 * (50f64.log10() - 1.0)));
+        assert!((active_youth(&e) - 0.5).abs() < 1e-9);
     }
 
     /// Protects the kind keys as a format: each round-trips, an unknown key

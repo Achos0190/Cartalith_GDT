@@ -22165,9 +22165,10 @@ impl WorldGen {
         }
         // VA-1 (Ruling CW): the edifice that owns this cell, from the world's
         // volcano table -- `volcano_kind` (`cinder` / `strato` / `shield`),
-        // `volcano_age_years` (the approved log map, 10 years to about
-        // 3 Myr) and `volcano_activity` (`active` / `dormant` / `extinct`,
-        // derived from the age). Omitted off every edifice and for a world
+        // `volcano_age_years` (10 years to about 3 Myr, under the age map the
+        // row was recorded with: Ruling CX item 2's for a new world, Ruling
+        // CW's for a table saved before it) and `volcano_activity` (`active`
+        // / `dormant` / `extinct`, derived from the age the same way). Omitted off every edifice and for a world
         // with no table (geology model off, an import, a save from before
         // 2026-10-24), never a placeholder; `volcano_kind` is omitted alone
         // for an edifice the reference model drew (no morphology).
@@ -22178,8 +22179,8 @@ impl WorldGen {
             if let Some(k) = h.edifice.kind {
                 d.set("volcano_kind", k.key());
             }
-            d.set("volcano_age_years", cartalith_terrain::volcano_attr::age_years(h.edifice.age));
-            d.set("volcano_activity", cartalith_terrain::volcano_attr::activity_of(h.edifice.age).key());
+            d.set("volcano_age_years", cartalith_terrain::volcano_attr::years(h.edifice));
+            d.set("volcano_activity", cartalith_terrain::volcano_attr::activity(h.edifice).key());
         }
         d
     }
