@@ -21,6 +21,7 @@
 //! | `contact` | stored, `f32`; NaN under every single-layer cell (the writer keeps the column's own NaN bits; the reader replaces any non-NaN value there with NaN, which is §8.4's "MUST ignore it there") |
 //! | `regolith` | stored, `f32`; refused if negative or not finite |
 //! | `painted` | stored as `rock_painted.u8` **only when `Some`**; the manifest's `painted` records which, so an absent mask reads back absent, never as zeros |
+//! | the world's volcano table (`WorldState::volcanoes`, VA-1) | the manifest's optional `volcanoes` array, one row per edifice; absent (not empty) when the world has no table. Added 2026-10-24 under Ruling CW without a version bump: an older build ignores the unknown key, and an archive without it reloads with the table absent |
 //! | `construction` | the manifest's `construction` (`"off"`, `"skipped"` with `construction_skip`, `"built"`); `Built`'s structural surface is `structural_surface.f32`. Not in §2.6's first table: added here because GF-8's re-erosion reads it (`rock_paint::reerode`'s `constructed`), so a column without it would re-erode a painted window differently after a reopen |
 //!
 //! # Honest refusal
@@ -82,6 +83,62 @@ pub(crate) struct GeologyManifest {
     /// `"skipped"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub construction_skip: Option<String>,
+    /// The world's volcanic edifices (`WorldState::volcanoes`, VA-1, Ruling
+    /// CW), present exactly when the world had a table. Optional and
+    /// additive: archives written before 2026-10-24 lack it and reload with no
+    /// table (every volcano-colour consumer then falls back to the plain
+    /// render by control flow), and a build from before ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volcanoes: Option<Vec<VolcanoRow>>,
+}
+
+/// One row of the manifest's `volcanoes` table: a
+/// `cartalith_terrain::PlacedEdifice`, with its setting and kind spelled as
+/// the format keys of `cartalith_terrain::volcano_attr`. `kind` is `null` for
+/// an edifice the reference model drew (it has no morphology).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct VolcanoRow {
+    pub setting: String,
+    pub kind: Option<String>,
+    pub cx: f64,
+    pub cy: f64,
+    pub r: f64,
+    pub h: f64,
+    pub age: f64,
+}
+
+/// The rows for `edifices`, in placement order (the order decides owner ties).
+fn volcano_rows(edifices: &[cartalith_terrain::PlacedEdifice]) -> Vec<VolcanoRow> {
+    use cartalith_terrain::volcano_attr::setting_key;
+    edifices
+        .iter()
+        .map(|e| VolcanoRow { setting: setting_key(e.setting).to_string(), kind: e.kind.map(|k| k.key().to_string()), cx: e.cx, cy: e.cy, r: e.r, h: e.h, age: e.age })
+        .collect()
+}
+
+/// The table back from its rows, or why it is refused: an unknown setting or
+/// kind, a non-finite number, a radius that is not positive, an age outside
+/// `0..=1`, or an empty table (a writer never writes one). All or nothing --
+/// a table missing a row would re-assign that row's cells to a neighbour.
+pub(crate) fn volcanoes_from_rows(rows: &[VolcanoRow]) -> Result<Vec<cartalith_terrain::PlacedEdifice>, String> {
+    use cartalith_terrain::volcano_attr::setting_from_key;
+    if rows.is_empty() {
+        return Err("the volcano table is empty, which no writer produces".to_string());
+    }
+    rows.iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let setting = setting_from_key(&r.setting).ok_or_else(|| format!("volcano {i}: unknown setting {:?}", r.setting))?;
+            let kind = match r.kind.as_deref() {
+                None => None,
+                Some(k) => Some(cartalith_terrain::EdificeKind::from_key(k).ok_or_else(|| format!("volcano {i}: unknown kind {k:?}"))?),
+            };
+            if ![r.cx, r.cy, r.r, r.h, r.age].iter().all(|v| v.is_finite()) || r.r <= 0.0 || !(0.0..=1.0).contains(&r.age) {
+                return Err(format!("volcano {i}: a position, radius, height or age that is not usable"));
+            }
+            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age })
+        })
+        .collect()
 }
 
 /// The stored key for one `ConstructionSkip` -- a format name, so it is
@@ -109,6 +166,7 @@ pub(crate) fn geology_rasters(
     gw: usize,
     gh: usize,
     age: f64,
+    volcanoes: Option<&[cartalith_terrain::PlacedEdifice]>,
 ) -> Result<(Vec<(&'static str, Raster)>, GeologyManifest), String> {
     let n = gw * gh;
     let mut out: Vec<(&'static str, Raster)> = Vec::new();
@@ -143,6 +201,7 @@ pub(crate) fn geology_rasters(
         painted: col.painted.is_some(),
         construction: construction.to_string(),
         construction_skip,
+        volcanoes: volcanoes.filter(|v| !v.is_empty()).map(volcano_rows),
     };
     Ok((out, manifest))
 }
@@ -152,7 +211,7 @@ pub(crate) fn geology_rasters(
 /// `Err` when it has one that cannot be written, which also writes nothing.
 pub(crate) fn write_geology(ws: &WorldState, gw: usize, gh: usize, age: f64, write: &mut ProjectWrite<'_>) -> Result<bool, String> {
     let Some(col) = ws.geology.column() else { return Ok(false) };
-    let (rasters, manifest) = geology_rasters(col, gw, gh, age)?;
+    let (rasters, manifest) = geology_rasters(col, gw, gh, age, ws.volcanoes.as_deref().map(|v| v.as_slice()))?;
     let member = serde_json::to_value(manifest).map_err(|e| e.to_string())?;
     for (path, r) in rasters {
         write.raster(path, r);
@@ -319,11 +378,27 @@ pub(crate) fn column_from_project(data: &mut ProjectData, gw: usize, gh: usize) 
 /// and says what happened: `"complete"` (the column is restored), `"absent"`
 /// (the archive has none: `ws.geology` stays `Absent(Restored)`) or
 /// `"incomplete"` (refused, with the reason in `warning`).
+///
+/// The volcano table (VA-1) is read from the same member after the column is
+/// accepted: present, it is installed as `ws.volcanoes`; absent (every archive
+/// before 2026-10-24) it stays `None`; refused, the column is still restored
+/// and the refusal is the warning -- a damaged table costs the volcano
+/// colours, never the rock.
 pub(crate) fn restore_into(ws: &mut WorldState, data: &mut ProjectData, gw: usize, gh: usize) -> (&'static str, Option<String>) {
+    // Read before `column_from_project`, which only takes rasters: the member
+    // itself is left in `data` either way.
+    let rows: Option<Vec<VolcanoRow>> = manifest_of(data).ok().flatten().and_then(|m| m.volcanoes);
     match column_from_project(data, gw, gh) {
         Ok(Some(col)) => {
             ws.geology = Geology::Column(Box::new(col));
-            ("complete", None)
+            match rows.as_deref().map(volcanoes_from_rows) {
+                None => ("complete", None),
+                Some(Ok(v)) => {
+                    ws.volcanoes = Some(std::sync::Arc::new(v));
+                    ("complete", None)
+                }
+                Some(Err(e)) => ("complete", Some(format!("{e} -- the world opened without its volcano table, so volcano colours are off on it"))),
+            }
         }
         Ok(None) => ("absent", None),
         Err(e) => (

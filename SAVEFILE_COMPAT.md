@@ -1088,6 +1088,25 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
 - `construction` is `"off"`, `"skipped"` (with `construction_skip`, one of
   `"no_land"`, `"no_two_layer_land"`, `"world_structure_on"`) or `"built"`.
   Anything else: refuse the set.
+- `volcanoes` (optional; added 2026-10-24 under Ruling CW, VA-1 of
+  `VOLCANO_APPEARANCE_RESEARCH.md`; `version` stays 1) is the world's volcano
+  table, one object per edifice in placement order (the order decides which
+  edifice owns a cell where two discs tie):
+  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …}`
+  -- the centre and radius in grid cells, the stamp's normalised summit height,
+  and the edifice's own `0 … 1` age draw (years are derived, never stored:
+  `cartalith_terrain::volcano_attr::age_years`). `kind` is `null` for an
+  edifice the reference model drew, which has no morphology. **Absent is no
+  table**, never an empty one: a world without a table writes no key, and a
+  reader MUST NOT substitute one. A table this build cannot honour (an unknown
+  setting or kind, a non-finite number, a radius that is not positive, an age
+  outside `0 … 1`, or an empty array) is refused whole -- the column is still
+  restored, the volcano colours are off, and the refusal is a warning.
+  Backward compatible both ways: an archive from before 2026-10-24 has no key
+  and reopens with no table (the Satellite relief volcano colours off by
+  control flow; every other look is unaffected either way), and an older build
+  reading a newer archive ignores the unknown key (the member is deserialised
+  without `deny_unknown_fields`) and re-saves without it.
 
 **Writer obligations.** Write the member and every raster it promises in one
 save, or neither — and only in a save that also writes the substrate. A world

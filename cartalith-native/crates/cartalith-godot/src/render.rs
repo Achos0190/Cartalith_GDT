@@ -242,6 +242,14 @@ use rayon::prelude::*;
 pub mod adjust;
 use self::adjust::AdjustStack;
 
+/// VA-2..VA-4's volcano colours (`VOLCANO_APPEARANCE_RESEARCH.md`, owner
+/// Ruling CW): its own file, `#[path]`-included like `adjust.rs` so every test
+/// target that includes this one standalone gets it too. `allow(dead_code)`
+/// for the same reason as `adjust`.
+#[allow(dead_code)]
+#[path = "volcano_look.rs"]
+pub mod volcano_look;
+
 type Rgb = (f64, f64, f64);
 
 /// A colour and how much of it there is: `0-255` per channel like [`Rgb`], plus
@@ -593,6 +601,12 @@ pub struct Npr {
 /// (`lod_bridge::appearance_fingerprint`, which keys the tile cache) -- exactly
 /// as it did before they existed. Lossless only on a field whose `default()`
 /// is `0.0`, which `#[serde(default)]` reads a missing key back as.
+/// `TerrainAppearance::rock_tephra`'s serde skip: `true` at
+/// [`volcano_look::TEPHRA_DEFAULT`], the value every look carries.
+fn is_tephra_default(v: &[Rgb; 3]) -> bool {
+    *v == volcano_look::TEPHRA_DEFAULT
+}
+
 fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
@@ -1377,6 +1391,15 @@ pub struct TerrainAppearance {
     pub rock_limestone: [Rgb; 3],
     pub rock_shale: [Rgb; 3],
     pub rock_metamorphic: [Rgb; 3],
+    /// VA-2's eighth rock palette, **tephra / tuff** (research question 9,
+    /// Ruling CW): an andesitic stratocone's outer flank and apron, where ash
+    /// and lapilli lie, so arc flanks read as ash rather than desert. A
+    /// render-only slot (`volcano_look::LITH_TEPHRA`, index 7): no
+    /// `cartalith_civ` lithology emits it, so it is read only through the
+    /// Satellite relief volcano stage. Serialised only when changed from its
+    /// default, so every existing appearance document keeps its bytes.
+    #[serde(skip_serializing_if = "is_tephra_default")]
+    pub rock_tephra: [Rgb; 3],
     pub snow_seas: [Rgb; 3],
     pub snow_perm: [Rgb; 3],
     pub snow_glac: [Rgb; 3],
@@ -2209,6 +2232,27 @@ pub struct TerrainAppearance {
     /// altitude (off without them).
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub rock_slope_warm_deg: f64,
+    /// **Ruling CW** (owner, 2026-10-24; `VOLCANO_APPEARANCE_RESEARCH.md`
+    /// VA-2..VA-4): the strength, `0..=1`, of the volcano colour stage --
+    /// each edifice's own rock (basalt, andesite, tephra), its weathering and
+    /// vegetation cover by age and rainfall, hydrothermal staining and
+    /// sulphur on active and dormant summits, and a capped daytime glow in
+    /// active craters ([`volcano_look`]). It also makes volcano age, not
+    /// warmth, decide whether a volcano's slopes show rock (question 6): a
+    /// young bare cone is rock on any slope, an old covered one keeps the
+    /// climate's green under `rock_slope_warm_deg`'s held knee.
+    ///
+    /// Why: research §4.3 -- every volcanic cell painted as andesite grey
+    /// whatever its setting or age, and nothing knew a cell was volcanic.
+    ///
+    /// `0.0` -- `default()`, every look but Satellite relief, `js_reference()`
+    /// -- skips the stage by control flow (question 4: Satellite relief
+    /// first, every other look byte-identical). Inert, too, without a volcano
+    /// table attached ([`RenderCtx::with_volcanoes`]: a world generated with
+    /// the geology model off, an import, a save from before 2026-10-24) or a
+    /// known map width.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub volcano_look: f64,
     /// **Ruling CI** (owner order, 2026-10-18: after the square mottle, the
     /// forest canopy): the strength of [`canopy_relief`]'s tree-canopy
     /// texture over forest, `0..=1`. Fine light/dark broken-up variation --
@@ -2583,6 +2627,9 @@ impl Default for TerrainAppearance {
             rock_limestone: [(163.0, 158.0, 141.0), (187.0, 182.0, 164.0), (209.0, 205.0, 188.0)],
             rock_shale: [(80.0, 77.0, 68.0), (98.0, 94.0, 83.0), (118.0, 113.0, 101.0)],
             rock_metamorphic: [(97.0, 101.0, 94.0), (117.0, 121.0, 112.0), (139.0, 143.0, 133.0)],
+            // VA-2's tephra slot (Ruling CW): read only by the Satellite
+            // relief volcano stage; see the field and `TEPHRA_DEFAULT`.
+            rock_tephra: volcano_look::TEPHRA_DEFAULT,
             snow_seas: [(217.0, 215.0, 210.0), (232.0, 231.0, 228.0), (245.0, 245.0, 245.0)],
             snow_perm: [(237.0, 240.0, 242.0), (245.0, 247.0, 248.0), (252.0, 252.0, 252.0)],
             snow_glac: [(184.0, 210.0, 219.0), (203.0, 224.0, 230.0), (221.0, 236.0, 239.0)],
@@ -2716,6 +2763,8 @@ impl Default for TerrainAppearance {
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
             rock_slope_warm_deg: 0.0,
+            // Ruling CW's volcano colours: Satellite relief only.
+            volcano_look: 0.0,
             // Ruling CI's canopy texture: Satellite relief and (since
             // 2026-10-24) Natural Vibrant; off in the tier's own image.
             canopy_texture: 0.0,
@@ -3026,6 +3075,8 @@ impl TerrainAppearance {
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
             rock_slope_warm_deg: 0.0,
+            // Ruling CW's volcano colours: port-only, off by control flow.
+            volcano_look: 0.0,
             // Ruling CI's canopy texture: port-only, off by control flow.
             canopy_texture: 0.0,
             // Unread while the texture is off; `default()`'s value.
@@ -3293,6 +3344,9 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         // about 35-40 degrees in humid climates. Cold, bare ground keeps
         // `rock_slope_deg`'s 6.
         rock_slope_warm_deg: 40.0,
+        // Ruling CW (2026-10-24): the volcano colours, at full strength; see
+        // the field's doc and `volcano_look`.
+        volcano_look: 1.0,
         // Ruling CI's forest canopy (2026-10-18). Full strength is
         // [`canopy_relief`]'s own scale; see the field's doc.
         canopy_texture: 1.0,
@@ -3529,6 +3583,9 @@ tunables! {
     "snow_shed_deg"         => snow_shed_deg,         0.0,  90.0,  "Snow shed slope (deg)";
     "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
     "rock_slope_warm_deg"   => rock_slope_warm_deg,   0.0,  90.0,  "Slope rock knee below treeline (deg)";
+    // -- Not a reference row (Ruling CW, 2026-10-24): the Satellite relief
+    //    volcano colours; see the field's doc --
+    "volcano_look"          => volcano_look,          0.0,   1.0,  "Volcano colours";
     "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
     // -- Not a reference row (2026-10-24): the coarsest canopy octave drawn.
     //    The range is the octave walk's own span, `CANOPY_MIN_KM`'s 8 m up to
@@ -4666,6 +4723,11 @@ pub struct RenderCtx<'a> {
     /// loaded save carries no `volcanic_field`, every test context) draws no
     /// furrows.
     edifice_frame: Option<(&'a cartalith_terrain::edifice_pits::EdificeFrame, f64)>,
+    /// Ruling CW (VA-1..VA-4): the world's volcano table, indexed, for the
+    /// Satellite relief volcano colours ([`volcano_look`]). `None` by
+    /// construction -- attach with [`Self::with_volcanoes`]; without it (a
+    /// world with no table, every test context) the stage is off.
+    volcanoes: Option<&'a cartalith_terrain::volcano_attr::VolcanoIndex>,
     /// The three Cartography paint-override grids (`paintBiome`/
     /// `paintTerrain`/`paintSplat`, `0` = unpainted, else a 1-based palette
     /// index), `None` by construction — attach with [`Self::with_paint`].
@@ -4980,6 +5042,7 @@ impl<'a> RenderCtx<'a> {
             lithology: None,
             rock_detail: None,
             edifice_frame: None,
+            volcanoes: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -5057,6 +5120,7 @@ impl<'a> RenderCtx<'a> {
             lithology: None,
             rock_detail: None,
             edifice_frame: None,
+            volcanoes: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -5129,6 +5193,7 @@ impl<'a> RenderCtx<'a> {
             lithology: None,
             rock_detail: None,
             edifice_frame: None,
+            volcanoes: None,
             paint_biome: None,
             paint_terrain: None,
             paint_splat: None,
@@ -5399,6 +5464,29 @@ impl<'a> RenderCtx<'a> {
             self.edifice_frame = Some((frame, peak_m));
         }
         self
+    }
+
+    /// Attach the world's indexed volcano table (Ruling CW, VA-1): read only
+    /// when the look turns [`TerrainAppearance::volcano_look`] on. Attaching
+    /// it under any other look moves no pixel.
+    pub fn with_volcanoes(mut self, index: &'a cartalith_terrain::volcano_attr::VolcanoIndex) -> Self {
+        self.volcanoes = Some(index);
+        self
+    }
+
+    /// The volcano under the fractional grid position `(gx, gy)` for a
+    /// raster whose neighbouring pixels are `cells_per_px` cells apart, or
+    /// `None` -- the stage off, by control flow -- unless the look turns
+    /// [`TerrainAppearance::volcano_look`] on, a table is attached and the
+    /// map width is known (a kilometre pattern is never drawn on a guessed
+    /// scale).
+    pub fn volcano_at(&self, gx: f64, gy: f64, cells_per_px: f64) -> Option<volcano_look::VolcanoPair> {
+        if self.appearance.volcano_look <= 0.0 {
+            return None;
+        }
+        let index = self.volcanoes?;
+        let kpc = self.km_per_cell()?;
+        volcano_look::sample_pair(index, gx, gy, kpc, cells_per_px * kpc)
     }
 
     /// Attach GF-6 §4.10's rock input ([`RockDetail`]) for the deep-zoom
@@ -5954,6 +6042,9 @@ fn litho_palette(a: &TerrainAppearance, lith: u8) -> &[Rgb; 3] {
         4 => &a.rock_sandstone,
         5 => &a.rock_shale,
         6 => &a.rock_metamorphic,
+        // VA-2's render-only tephra slot (`volcano_look::LITH_TEPHRA`), which
+        // only the Satellite relief volcano stage hands in.
+        volcano_look::LITH_TEPHRA => &a.rock_tephra,
         _ => &a.rock_granite,
     }
 }
@@ -6102,7 +6193,9 @@ pub(crate) fn litho_microtexture(lith: u8, fx: f64, fy: f64, r: f64) -> f64 {
     match lith {
         0 => (vnoise(fx * 420.0, fy * 420.0, 211) - 0.5) * 0.22 + (cartalith_noise::ridged_oct(fx * 40.0, fy * 40.0, 4, 213) - 0.5) * 0.12,
         1 => (fbm(fx * 26.0, fy * 26.0, 217) - 0.5) * 0.20,
-        2 => (vnoise(fx * 300.0, fy * 300.0, 219) - 0.5) * 0.16 - smoothstep(0.6, 0.95, fbm(fx * 18.0, fy * 18.0, 221)) * 0.18,
+        // Andesite, and VA-2's tephra slot (index 7, reachable only from the
+        // Satellite relief volcano stage), which is the same ash.
+        2 | volcano_look::LITH_TEPHRA => (vnoise(fx * 300.0, fy * 300.0, 219) - 0.5) * 0.16 - smoothstep(0.6, 0.95, fbm(fx * 18.0, fy * 18.0, 221)) * 0.18,
         3 => -smoothstep(0.72, 0.95, vnoise(fx * 240.0, fy * 240.0, 223)) * 0.25,
         4 => (r * 90.0 + fbm(fx * 30.0, fy * 30.0, 227) * 6.0).sin() * 0.13,
         5 => (r * 160.0 + fbm(fx * 36.0, fy * 36.0, 229) * 4.0).sin() * 0.08,
@@ -6922,7 +7015,7 @@ pub(crate) fn flat_land_light(a: &TerrainAppearance, w_macro: f64, w_meso: f64, 
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>, volc: Option<volcano_look::VolcanoPair>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -7023,6 +7116,16 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // argument), and a glacier that was ice in the flat blend and plain snow
     // under a pack would be one material with two identities.
     let snow_c = snow_material_col(appearance, te, tt, ice, sh, sh_m);
+    // Ruling CW (VA-2..VA-4): on a volcano under the Satellite relief look,
+    // the edifice's own rock replaces the lithology handed in, so every rock
+    // term below (this blend, the slope tint, the bedrock exposure, the
+    // microtexture) reads it. `None` -- every other look, no table, off the
+    // edifices -- leaves `lith` exactly as it was, by control flow.
+    let vg = volc.map(|v| volcano_look::ground_pair(appearance, &v, m, tt));
+    let lith = match vg {
+        Some(g) => Some(g.lith),
+        None => lith,
+    };
     add(&mut c, snow_c, w.snow);
     add(&mut c, rock_material_col(appearance, te, me, r, tt, lith), w.rock);
     add(&mut c, sand_col(appearance, te, me, tt), w.sand);
@@ -7157,6 +7260,22 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // The `r > 0.0` guard is the reference's, kept even though `land_color` is
     // already the land branch — the same "the reference tests it and so does
     // this" note `ridged_strength` below carries.
+    // Ruling CW (VA-3, research question 6): the bare share of a volcano --
+    // the cover its flank has not reached at its age in its rain -- takes the
+    // edifice's own weathered, stained or crusted rock, over everything but
+    // snow: an icecap on a high cone stays, and half-snow cover already
+    // protects the ground fully (judgement, after the first frames drew dark
+    // flows across 314159's snow-capped shield). Before the slope tint, so a
+    // young bare cone is rock on ANY slope (age overrides the warmth knee)
+    // and the tint below then acts only on the covered share, where the
+    // held knee keeps an old cone green. `None` skips it by control flow.
+    if let Some(g) = vg {
+        let k = g.bare * (1.0 - smoothstep(0.0, 0.5, w.snow)) * appearance.volcano_look.min(1.0);
+        if k > 0.0 {
+            c = mix(c, g.rock, k);
+        }
+    }
+
     if appearance.rock_slope > 0.0 && r > 0.0 {
         // R2 (Ruling CI addendum item 2): the knee in real degrees when the
         // look sets one and the scale is known; the ported per-cell knee
@@ -7174,6 +7293,14 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         };
         if k > 0.0 {
             let mc = rock_material_col(appearance, te, me, r, tt, lith);
+            // Ruling CW: on a volcano the slope tint pulls toward the
+            // edifice's own bare rock (on its footprint), not the plain
+            // palette, so steep covered ground shows the same rock the bare
+            // share does. `None` is the palette exactly.
+            let mc = match vg {
+                Some(g) => mix(mc, g.rock, g.vis * appearance.volcano_look.min(1.0)),
+                None => mc,
+            };
             c.0 += (mc.0 - c.0) * k;
             c.1 += (mc.1 - c.1) * k;
             c.2 += (mc.2 - c.2) * k;
@@ -7487,6 +7614,14 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         if e != [0.0; 3] {
             emissive = Some((e[0], e[1], e[2]));
         }
+    }
+    // Ruling CW (VA-4, research question 5): an active crater's capped
+    // daytime glow joins the paint's emission, added after the light below
+    // like it. `None` everywhere else.
+    if let Some(gl) = vg.and_then(|g| g.glow) {
+        let k = appearance.volcano_look.min(1.0);
+        let e0 = emissive.unwrap_or((0.0, 0.0, 0.0));
+        emissive = Some((e0.0 + gl.0 * k, e0.1 + gl.1 * k, e0.2 + gl.2 * k));
     }
 
     // LOD-D5 stages 1 and 2. `None` is the pre-milestone expression by
@@ -9759,7 +9894,10 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             // Ruling CI's canopy texture at one pixel per cell.
             ctx.canopy_scale(1.0),
             // Ruling CN's colour paint at one pixel per cell.
-            ctx.colour_paint_query(x as f64, y as f64, 1.0, false));
+            ctx.colour_paint_query(x as f64, y as f64, 1.0, false),
+            // Ruling CW's volcano colours at one pixel per cell (`None`
+            // outside Satellite relief).
+            ctx.volcano_at(x as f64, y as f64, 1.0));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -10286,6 +10424,8 @@ impl BakeFields {
                 // Ruling CN's colour paint, antialiased over this export's
                 // own pixel (the coarser axis).
                 ctx.colour_paint_query(gx, gy, step.0.max(step.1), false),
+                // Ruling CW's volcano colours at this export's own footprint.
+                ctx.volcano_at(gx, gy, step.0.max(step.1)),
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -13501,6 +13641,8 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // tile's own pixel (`cells_per_px`), so its edge is
                         // one screen pixel wide at every zoom.
                         ctx.colour_paint_query(wx, wy, cells_per_px, false),
+                        // Ruling CW's volcano colours at this tile's pixel.
+                        ctx.volcano_at(wx, wy, cells_per_px),
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and

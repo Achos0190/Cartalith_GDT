@@ -253,6 +253,10 @@ pub struct LithoSource {
     pub volcanic: Arc<Vec<f32>>,
     pub crust: Arc<Vec<f32>>,
     pub resistance: Arc<Vec<f32>>,
+    /// The world's volcano table (`WorldState::volcanoes`, VA-1, Ruling CW),
+    /// for the Satellite relief volcano colours in the tiles and the export.
+    /// A refcount bump, like the four grids. `None` for a world without one.
+    pub volcanoes: Option<Arc<Vec<cartalith_terrain::PlacedEdifice>>>,
 }
 
 /// Everything [`LodSnapshot::build`] consumes — assembled on the main thread
@@ -386,6 +390,9 @@ const ROCK_DETAIL_TAG: u64 = 0x004b_434f_5236_4647;
 /// The separator [`SnapshotInputs::fingerprint`] folds in before a
 /// [`SnapshotInputs::colour_paint`] document. **Labelled judgement**: any
 /// fixed word does; this one spells `NPAINT ` and a space in ASCII.
+/// [`SnapshotInputs::fingerprint`]'s separator before the volcano table
+/// (Ruling CW): "VOLCANO" in ASCII, a format word like the two tags here.
+const VOLCANO_TAG: u64 = 0x004f_4e41_434c_4f56;
 const COLOUR_PAINT_TAG: u64 = 0x0020_544e_4941_504e;
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
@@ -571,6 +578,23 @@ impl SnapshotInputs {
         if let Some(l) = litho {
             for g in [&l.age, &l.volcanic, &l.crust, &l.resistance] {
                 d.f32s(g);
+            }
+            // Ruling CW: the volcano table, hashed only when the look draws
+            // it (`volcano_look > 0`, Satellite relief) -- so every other
+            // look's snapshots fingerprint exactly as before, and a pyramid
+            // stored without the table never seeds one drawn with it.
+            if appearance.volcano_look > 0.0
+                && let Some(v) = l.volcanoes.as_ref()
+            {
+                d.word(VOLCANO_TAG);
+                d.word(v.len() as u64);
+                for e in v.iter() {
+                    for x in [e.cx, e.cy, e.r, e.h, e.age] {
+                        d.f64(x);
+                    }
+                    d.word(cartalith_terrain::volcano_attr::setting_key(e.setting).len() as u64 + ((e.setting as u64) << 8));
+                    d.word(e.kind.map_or(u64::MAX, |k| k as u64));
+                }
             }
         }
         d.word(lod_bridge::appearance_fingerprint(appearance));
@@ -765,6 +789,11 @@ pub struct LodSnapshot {
     /// [`SnapshotInputs::fingerprint`] (the volcanic grid and the
     /// appearance), so it adds no cache-key word.
     edifice_frame: Option<cartalith_terrain::edifice_pits::EdificeFrame>,
+    /// Ruling CW: the volcano table, indexed, for the Satellite relief
+    /// volcano colours. Built only when the look draws them
+    /// (`volcano_look > 0`) and the world has a table; in the fingerprint
+    /// under the same condition (`VOLCANO_TAG`).
+    volcano_index: Option<cartalith_terrain::volcano_attr::VolcanoIndex>,
     fields: TileFields<'static>,
     ink: Option<OwnedInk>,
     splat: Option<OwnedSplat>,
@@ -897,6 +926,11 @@ impl LodSnapshot {
             .as_ref()
             .filter(|l| appearance.edifice_furrows > 0.0 && l.volcanic.len() >= gw * gh)
             .map(|l| cartalith_terrain::edifice_pits::EdificeFrame::from_volcanic_field(&l.volcanic, gw, gh));
+        let volcano_index = litho
+            .as_ref()
+            .filter(|_| appearance.volcano_look > 0.0)
+            .and_then(|l| l.volcanoes.as_ref())
+            .map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, gw, gh));
         let info_age = litho.as_ref().map(|l| Arc::clone(&l.age));
         let info_resistance = litho.as_ref().map(|l| Arc::clone(&l.resistance));
         let info_flow_log_max = crate::sample_bridge::flow_log_max(flow.as_ref().map_or(&[][..], |v| v.as_slice()));
@@ -952,6 +986,7 @@ impl LodSnapshot {
             rock_detail,
             colour_paint,
             edifice_frame,
+            volcano_index,
             fields,
             ink,
             splat,
@@ -1047,6 +1082,10 @@ impl LodSnapshot {
         // nothing.
         if let Some(fr) = self.edifice_frame.as_ref() {
             ctx = ctx.with_edifice_frame(fr, self.peak_m);
+        }
+        // Ruling CW: the volcano colours, as the screen attaches them.
+        if let Some(vi) = self.volcano_index.as_ref() {
+            ctx = ctx.with_volcanoes(vi);
         }
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
@@ -2080,7 +2119,7 @@ mod tests {
         let n = gw * gh;
         let mut i = inputs(gw, gh);
         let ramp = |m: usize| -> Arc<Vec<f32>> { Arc::new((0..n).map(|k| (k % m) as f32 / (m - 1) as f32).collect()) };
-        i.litho = Some(LithoSource { age: ramp(17), volcanic: ramp(11), crust: ramp(5), resistance: ramp(7) });
+        i.litho = Some(LithoSource { age: ramp(17), volcanic: ramp(11), crust: ramp(5), resistance: ramp(7), volcanoes: None });
         i
     }
 
@@ -2422,6 +2461,7 @@ mod tests {
             volcanic: Arc::clone(&volcanic),
             crust: Arc::clone(&crust),
             resistance: Arc::clone(&resistance),
+            volcanoes: None,
         });
         {
             let l = i.litho.as_ref().expect("just set");
@@ -2910,7 +2950,7 @@ mod tests {
         moved.push(("map_width_km", { let mut i = inputs(gw, gh); i.map_width_km = 801.0; i }));
         moved.push(("colour space", { let mut i = inputs(gw, gh); i.color_space = ColorSpace::DisplayP3; i }));
         moved.push(("peak_m", { let mut i = inputs(gw, gh); i.peak_m = 4001.0; i }));
-        moved.push(("litho", { let mut i = inputs(gw, gh); let n = gw * gh; i.litho = Some(LithoSource { age: Arc::new(vec![0.1; n]), volcanic: Arc::new(vec![0.1; n]), crust: Arc::new(vec![0.1; n]), resistance: Arc::new(vec![0.1; n]) }); i }));
+        moved.push(("litho", { let mut i = inputs(gw, gh); let n = gw * gh; i.litho = Some(LithoSource { age: Arc::new(vec![0.1; n]), volcanic: Arc::new(vec![0.1; n]), crust: Arc::new(vec![0.1; n]), resistance: Arc::new(vec![0.1; n]), volcanoes: None }); i }));
         moved.push(("grid_rgb under local contrast", { let mut i = inputs(gw, gh); i.appearance.local_contrast = 0.5; i.grid_rgb = Some(vec![9u8; gw * gh * 3]); i }));
         // Ruling BO: a forced lake, and a different forced lake.
         moved.push(("forced lakes", { let mut i = inputs(gw, gh); let mut m = vec![0u8; gw * gh]; m[5] = 1; i.forced_lakes = Some(m); i }));

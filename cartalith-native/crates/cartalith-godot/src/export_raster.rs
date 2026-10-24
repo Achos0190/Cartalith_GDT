@@ -576,6 +576,12 @@ impl WorldGen {
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
         }
+        // Ruling CW: the volcano colours, as the screen attaches them, under
+        // the export's own look.
+        let volcano_index = self.volcano_index(ctx.appearance());
+        if let Some(vi) = volcano_index.as_ref() {
+            ctx = ctx.with_volcanoes(vi);
+        }
         ctx = ctx.with_lakes(&lakes);
         // **The same map scale the on-screen path attaches**
         // (`lib.rs::build_color_texture`), and for the same reason the ground
@@ -3452,7 +3458,15 @@ mod adjust_census_tests {
             // fingerprint f0ff580117356871 -> 76ab9dda8607e9eb (the new field
             // serializes at 40). The four rows above did NOT move, pixels or
             // fingerprint (the field is `0.0` there and not serialized).
-            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x76ab9dda8607e9eb],
+            //
+            // RE-BASELINED 2026-10-24 under Ruling CW (VA-2..VA-4, the volcano
+            // colours, `volcano_look` 1.0 in Satellite relief only): the
+            // FINGERPRINT column only, 76ab9dda8607e9eb -> c7d6ce92cfc9401c
+            // (the new field serializes at 1.0). Every pixel column is
+            // unmoved -- this fixture attaches no volcano table, so the stage
+            // is off by control flow -- and the four rows above did not move
+            // at all (the field is `0.0` there and not serialized).
+            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0xc7d6ce92cfc9401c],
         ),
     ];
 

@@ -715,6 +715,7 @@ mod tests {
             river_floor: None,
             gpu_stages_used: Vec::new(),
             geology: crate::Geology::Absent(crate::GeologyAbsent::ModelOff),
+            volcanoes: None,
         }
     }
 

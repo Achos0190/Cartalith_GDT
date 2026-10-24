@@ -2650,6 +2650,7 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         river_floor: Some(rfloor),
         gpu_stages_used: Vec::new(),
         geology: cartalith_engine::Geology::Column(Box::new(column)),
+        volcanoes: pre.volcanoes.clone(),
     }
 }
 
@@ -2997,6 +2998,7 @@ fn fixture_world(z0: Vec<f32>, col: GeologyColumn, sea: f64) -> WorldState {
         river_floor: None,
         gpu_stages_used: Vec::new(),
         geology: cartalith_engine::Geology::Column(Box::new(col)),
+        volcanoes: None,
     }
 }
 

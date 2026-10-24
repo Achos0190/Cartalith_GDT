@@ -387,6 +387,51 @@ impl Resolved {
     }
 }
 
+/// The emissive material evaluated **without a mark**: the same pure
+/// functions a lava mark uses (edge irregularity, rim-to-core heat, crust and
+/// crack network, halo), for a caller that places the material itself from
+/// the world model -- VA-4's procedural crater glow on active volcanoes
+/// (`VOLCANO_APPEARANCE_RESEARCH.md` §7, owner Ruling CW: "reuse the
+/// colour-paint lava material approach"). A thin public face over the
+/// layer's private resolved material, so the two can never drift apart: one
+/// crack network, one zoom law ([`NYQ_PX`]), one ramp.
+///
+/// Must never be used to change what a user's mark draws: it holds its own
+/// copy and touches no layer.
+#[derive(Clone, Debug)]
+pub struct ProceduralLava(Resolved);
+
+impl ProceduralLava {
+    /// `e` resolved for a body whose interior depth (rim to core) is
+    /// `depth_km`. `None` for a non-finite parameter, as a mark is refused.
+    pub fn new(e: &EmissiveMaterial, depth_km: f64) -> Option<ProceduralLava> {
+        Resolved::new(e, depth_km).map(ProceduralLava)
+    }
+
+    /// [`Resolved::edge_offset`]: how far the edge is pushed out at `p` (km)
+    /// for a pixel `px` km wide.
+    pub fn edge_offset(&self, p: [f64; 2], px: f64) -> f64 {
+        self.0.edge_offset(p, px)
+    }
+
+    /// [`Resolved::base_heat`] at `s` km inside the edge (`u` = 0: no cooling
+    /// along a stroke).
+    pub fn base_heat(&self, s: f64) -> f64 {
+        self.0.base_heat(s, 0.0)
+    }
+
+    /// [`Resolved::sample`]: the crust multiplier and the emissive colour
+    /// (0-255, added after the light) at `p` for a pixel `px` km wide.
+    pub fn sample(&self, p: [f64; 2], base: f64, px: f64) -> (f64, [f64; 3]) {
+        self.0.sample(p, base, px)
+    }
+
+    /// [`Resolved::halo`] `o` km outside the edge.
+    pub fn halo(&self, o: f64) -> [f64; 3] {
+        self.0.halo(o, 0.0)
+    }
+}
+
 /// Per-octave lattice rotations `(cos, sin)`, away from the grid axes and the
 /// diagonals so no octave's cells line up with another's or with the raster.
 const ROT: [(f64, f64); 4] = [(0.923_879_5, 0.382_683_4), (0.382_683_4, 0.923_879_5), (-0.382_683_4, 0.923_879_5), (-0.923_879_5, 0.382_683_4)];

@@ -47,7 +47,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod material;
-pub use material::{EmissiveMaterial, GlowRamp};
+pub use material::{EmissiveMaterial, GlowRamp, ProceduralLava};
 
 /// Most marks one layer may hold. A labelled judgement sized from the scope's
 /// cost model (`COLOUR_PAINT_SCOPE.md` §10, and §9 for the save size): 5 000 marks at the measured save

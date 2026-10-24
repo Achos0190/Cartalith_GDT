@@ -153,6 +153,28 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     }
     let channels_dropped = false;
 
+    // VA-1 (Ruling CW): the volcano table moves with the grids it describes
+    // -- a centre at column `cx` is now at `(cx - off) mod gw`, the rule the
+    // channel receivers above follow. An edifice whose disc crossed the map's
+    // original east or west edge is dropped rather than moved: its stamp was
+    // clipped at that edge (`stamp_one_volcano`'s bounding box), and after the
+    // shift the clipped half would sit across the old seam, where no cone was
+    // ever stamped, so its owner rule would colour ground that is not on it.
+    // An emptied table becomes no table (`WorldState::volcanoes`' doc). Not
+    // handled, stated: a disc straddling the NEW edge (the chosen column,
+    // which `best_empty_column` picks free of land, so only a submarine cone
+    // can sit there) keeps only its in-grid half's colours, because the owner
+    // rule measures plain, not wrapped, distance.
+    if let Some(v) = ws.volcanoes.as_mut() {
+        let w = gw as f64;
+        let moved: Vec<cartalith_terrain::PlacedEdifice> = v
+            .iter()
+            .filter(|e| e.cx - e.r >= 0.0 && e.cx + e.r <= w - 1.0)
+            .map(|e| cartalith_terrain::PlacedEdifice { cx: (e.cx - off as f64).rem_euclid(w), ..*e })
+            .collect();
+        ws.volcanoes = (!moved.is_empty()).then(|| Arc::new(moved));
+    }
+
     // The world is only *approximately* periodic in X (the reference's own
     // Invariant 9: seam wrap-delta < 0.12), so the shift moves that
     // original join into the interior where it reads as a straight

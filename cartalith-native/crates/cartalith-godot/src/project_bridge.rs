@@ -9992,6 +9992,7 @@ mod substrate_tests {
             river_floor: ws.river_floor.clone(),
             gpu_stages_used: Vec::new(),
             geology: ws.geology.clone(),
+            volcanoes: ws.volcanoes.clone(),
         }
     }
 }
@@ -10154,6 +10155,65 @@ mod geology_save_tests {
                 assert!(data.raster(path).is_none(), "{path} left behind after a restore");
             }
         }
+    }
+
+    /// Protects VA-1's save (Ruling CW, `SAVEFILE_COMPAT.md` §8.4
+    /// `volcanoes`): a generated world's volcano table reopens equal, every
+    /// float by bits; a world without one writes no key and reopens without
+    /// one (absent, never empty); a damaged table is refused whole with the
+    /// column still restored and the refusal in the warning; and the two
+    /// checked-in prior-format archives carry no member, so they open with no
+    /// table (the fixture test below holds that).
+    #[test]
+    fn the_volcano_table_round_trips_and_absent_stays_absent() {
+        let (p, mut ws) = world(24601, false);
+        let table = ws.volcanoes.clone().expect("premise: the shell's parameters keep a volcano table");
+        assert!(!table.is_empty());
+        let (ws2, status, warning, data) = reopen(&archive(&p, &ws).0);
+        assert_eq!((status, warning), ("complete", None));
+        let back = ws2.volcanoes.expect("the table reopens");
+        assert_eq!(back.len(), table.len());
+        for (a, b) in table.iter().zip(back.iter()) {
+            assert_eq!((a.setting, a.kind), (b.setting, b.kind));
+            for (x, y) in [(a.cx, b.cx), (a.cy, b.cy), (a.r, b.r), (a.h, b.h), (a.age, b.age)] {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+        let m: GeologyManifest = serde_json::from_value(data.geology.clone()).unwrap();
+        assert_eq!(m.volcanoes.as_ref().map(Vec::len), Some(table.len()));
+        // Absent stays absent.
+        ws.volcanoes = None;
+        let (bytes, _) = archive(&p, &ws);
+        let (ws3, status, warning, data) = reopen(&bytes);
+        assert_eq!((status, warning), ("complete", None));
+        assert!(ws3.volcanoes.is_none());
+        assert!(data.geology.get("volcanoes").is_none(), "{}", data.geology);
+        // A damaged row refuses the table, never the column.
+        let mut rows = volcano_rows_of(&table);
+        rows[0].kind = Some("dome".to_string());
+        assert!(geology_save::volcanoes_from_rows(&rows).unwrap_err().contains("unknown kind"));
+        let mut rows = volcano_rows_of(&table);
+        rows[1].age = 1.5;
+        assert!(geology_save::volcanoes_from_rows(&rows).is_err());
+        let mut rows = volcano_rows_of(&table);
+        rows[0].r = 0.0;
+        assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "a zero radius is refused");
+        assert!(geology_save::volcanoes_from_rows(&[]).is_err(), "an empty table is refused");
+    }
+
+    /// The rows a save writes for `t` (the manifest's own serialisation, read
+    /// back), for the refusal cases above.
+    fn volcano_rows_of(t: &[cartalith_terrain::PlacedEdifice]) -> Vec<geology_save::VolcanoRow> {
+        let col = cartalith_terrain::geology::GeologyColumn {
+            rock_top: vec![0; GW * GH],
+            rock_sub: vec![NO_LAYER; GW * GH],
+            contact: vec![f32::NAN; GW * GH],
+            regolith: vec![0.0; GW * GH],
+            volcanic_setting: vec![0; GW * GH],
+            construction: Construction::Off,
+            painted: None,
+        };
+        geology_save::geology_rasters(&col, GW, GH, 1.0, Some(t)).unwrap().1.volcanoes.unwrap()
     }
 
     /// Protects: each `Construction` variant's encoding round-trips -- `Off`,

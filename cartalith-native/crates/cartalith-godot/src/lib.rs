@@ -11006,6 +11006,23 @@ impl WorldGen {
         self.appearance_rebased(None, None)
     }
 
+    /// The world's volcano table, indexed for the renderer (Ruling CW,
+    /// VA-1), or `None` -- the volcano colours off -- unless `appearance`
+    /// draws them (`volcano_look > 0`, Satellite relief) and the world has a
+    /// table (a generated world with the geology model on, or a save from
+    /// 2026-10-24 on). The screen and the direct export call this; the tiles
+    /// and the export session build the same index from
+    /// `LithoSource::volcanoes` under the same condition.
+    pub(crate) fn volcano_index(&self, appearance: &TerrainAppearance) -> Option<cartalith_terrain::volcano_attr::VolcanoIndex> {
+        if appearance.volcano_look <= 0.0 {
+            return None;
+        }
+        match self.source.as_ref()? {
+            WorldSource::Generated(ws) => ws.volcanoes.as_ref().map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, self.gw.max(0) as usize, self.gh.max(0) as usize)),
+            WorldSource::Loaded(_) => None,
+        }
+    }
+
     /// AP-7's *Harmonise to Look* target (Ruling CQ Q4): the material
     /// palette of the session's current appearance -- the middle stop of each
     /// of its 31 land and water ramps (`TerrainAppearance`'s `[Rgb; 3]`
@@ -12180,6 +12197,12 @@ impl WorldGen {
         .with_lakes(&lakes);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
+        }
+        // Ruling CW: the volcano colours (Satellite relief only; the index is
+        // built only when the look draws them, `WorldGen::volcano_index`).
+        let volcano_index = self.volcano_index(&appearance);
+        if let Some(vi) = volcano_index.as_ref() {
+            ctx = ctx.with_volcanoes(vi);
         }
         // The world's real map width in km, which is the only input the B3/B4
         // SDF legs need and the one a `RenderCtx` cannot derive from what it
@@ -19833,6 +19856,7 @@ impl WorldGen {
                     volcanic: ws.volcanic_field.clone(),
                     crust: ws.crust_field.clone(),
                     resistance: ws.resistance_field.clone(),
+                    volcanoes: ws.volcanoes.clone(),
                 }),
             ),
             WorldSource::Loaded(save) => (
@@ -22092,6 +22116,24 @@ impl WorldGen {
                 }
             }
             Err(why) => d.set("rock_reason", *why),
+        }
+        // VA-1 (Ruling CW): the edifice that owns this cell, from the world's
+        // volcano table -- `volcano_kind` (`cinder` / `strato` / `shield`),
+        // `volcano_age_years` (the approved log map, 10 years to about
+        // 3 Myr) and `volcano_activity` (`active` / `dormant` / `extinct`,
+        // derived from the age). Omitted off every edifice and for a world
+        // with no table (geology model off, an import, a save from before
+        // 2026-10-24), never a placeholder; `volcano_kind` is omitted alone
+        // for an edifice the reference model drew (no morphology).
+        if let Some(WorldSource::Generated(ws)) = self.source.as_ref()
+            && let Some(v) = ws.volcanoes.as_ref()
+            && let Some(h) = cartalith_terrain::volcano_attr::owner_of(v, s.x as f64, s.y as f64)
+        {
+            if let Some(k) = h.edifice.kind {
+                d.set("volcano_kind", k.key());
+            }
+            d.set("volcano_age_years", cartalith_terrain::volcano_attr::age_years(h.edifice.age));
+            d.set("volcano_activity", cartalith_terrain::volcano_attr::activity_of(h.edifice.age).key());
         }
         d
     }

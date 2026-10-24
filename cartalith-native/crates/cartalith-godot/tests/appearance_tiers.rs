@@ -440,7 +440,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Twenty-two exemptions (the `EXEMPT` list in the body; the first six were the
+/// Twenty-seven exemptions (the `EXEMPT` list in the body; the first six were the
 /// original set), all real and all stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
 /// attaches none, exactly as a pack-less session does); `border_width_frac` is
@@ -462,7 +462,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 #[test]
 fn every_tunable_is_load_bearing() {
     /// Controls the pixel sweep in `every_tunable_is_load_bearing` skips, each
-    /// with its replacement proof stated in the comments above it. Twenty-two
+    /// with its replacement proof stated in the comments above it. Twenty-seven
     /// entries; the array length is part of the type, so the count cannot drift
     /// silently.
     // Every exemption here owes a replacement proof at the bottom of this
@@ -551,7 +551,15 @@ fn every_tunable_is_load_bearing() {
     // through a context with a map width. Its replacement proofs are in
     // `tests/canopy_and_mottle.rs`: `the_coarse_cut_is_a_high_pass_of_one_texture`
     // and `the_coarse_cut_leaves_the_fit_raster_and_moves_a_deep_tile`.
-    const EXEMPT: [&str; 26] = [
+    //
+    // `volcano_look` (Ruling CW, 2026-10-24) is the twenty-seventh: it draws
+    // only on a world's volcano table and with the map width known, neither
+    // of which this fixture's context carries, so it is off by control flow
+    // here. Its replacement proofs are in `tests/volcano_appearance.rs`:
+    // `every_other_look_is_byte_identical_with_the_table_attached` (its
+    // positive control moves Satellite relief) and
+    // `a_young_cone_is_bare_and_an_old_one_green_on_the_same_slope`.
+    const EXEMPT: [&str; 27] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -578,6 +586,7 @@ fn every_tunable_is_load_bearing() {
         "canopy_texture",
         "canopy_coarse_km",
         "edifice_furrows",
+        "volcano_look",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

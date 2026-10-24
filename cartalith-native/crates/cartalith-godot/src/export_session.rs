@@ -128,6 +128,9 @@ struct Parts {
     /// once (`GridPrecompute::build`'s own doc: `Some(km)` is `with_map_scale`).
     pre: GridPrecompute,
     lithology: Option<Vec<u8>>,
+    /// Ruling CW: the volcano table, indexed, when the look draws volcano
+    /// colours and the world has one -- the tiles' `LodSnapshot` rule.
+    volcano_index: Option<cartalith_terrain::volcano_attr::VolcanoIndex>,
     /// v0.103's above-sea lakes, the same `build_water_bodies` classification
     /// `build_color_texture` attaches, so an export shows the lakes the screen
     /// shows (2026-09-24; this path had none, `OUTSTANDING_WORK.md` §2.5).
@@ -191,6 +194,9 @@ impl Parts {
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
         }
+        if let Some(vi) = self.volcano_index.as_ref() {
+            ctx = ctx.with_volcanoes(vi);
+        }
         ctx = ctx.with_lakes(&self.lakes);
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
@@ -232,6 +238,12 @@ impl ExportSnapshot {
         // on screen (`RenderCtx::with_map_scale_forced`).
         let pre = GridPrecompute::build_split(shaded, &i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km), i.forced_lakes.as_deref());
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
+        let volcano_index = i
+            .litho
+            .as_ref()
+            .filter(|_| i.appearance.volcano_look > 0.0)
+            .and_then(|l| l.volcanoes.as_ref())
+            .map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, gw, gh));
         // Ruling CC's floor and Ruling BO's forced lakes (the ones the screen
         // draws, carried in the same snapshot inputs the tiles read), in the
         // screen's own order (`render::water_bodies_floored`), so the export
@@ -261,6 +273,7 @@ impl ExportSnapshot {
             appearance: i.appearance,
             pre,
             lithology,
+            volcano_index,
             lakes,
             ink: i.ink,
             paint: if rivers.is_some() { i.river_paint } else { None },
@@ -986,7 +999,7 @@ mod tests {
             temperature: w.temp.clone(),
             rainfall: w.rain.clone(),
             flow: Some(w.flow.clone()),
-            litho: litho.then(|| LithoSource { age: w.age.clone(), volcanic: w.volc.clone(), crust: w.crust.clone(), resistance: w.resist.clone() }),
+            litho: litho.then(|| LithoSource { age: w.age.clone(), volcanic: w.volc.clone(), crust: w.crust.clone(), resistance: w.resist.clone(), volcanoes: None }),
             appearance: appearance(),
             color_space: ColorSpace::Srgb,
             ink: Some(w.ink.clone()),

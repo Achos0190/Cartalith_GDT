@@ -363,6 +363,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         // GF-1 scopes a single-layer import column; not built yet, so the
         // world says so rather than carrying a made-up one.
         geology: crate::Geology::Absent(crate::GeologyAbsent::Imported),
+        volcanoes: None,
     }
 }
 

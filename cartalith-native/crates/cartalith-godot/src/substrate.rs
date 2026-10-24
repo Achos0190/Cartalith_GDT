@@ -351,6 +351,7 @@ pub(crate) fn world_from_project(data: &mut ProjectData, save: &SaveData) -> Res
         // archive carries one; this placeholder, with its reason, stays when
         // it does not.
         geology: cartalith_engine::Geology::Absent(cartalith_engine::GeologyAbsent::Restored),
+        volcanoes: None,
     };
     debug_assert_eq!(ws.field.len(), n);
     Ok(Some(ws))

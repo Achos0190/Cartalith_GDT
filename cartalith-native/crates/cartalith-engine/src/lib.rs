@@ -1367,6 +1367,21 @@ pub struct WorldState {
     /// (`GEOLOGY_FIRST_SCOPE.md` §4.1, §4.2, §4.9); the rock types themselves
     /// are never re-derived. Off (the app today), it is GF-1's inert column.
     pub geology: Geology,
+    /// Every volcanic edifice the stampers placed, in placement order, with
+    /// its setting, centre, radius, morphology and own age draw (VA-1,
+    /// `VOLCANO_APPEARANCE_RESEARCH.md` §7, owner Ruling CW). `None` when the
+    /// world has no record: generated with [`WorldParams::geology_model`] off
+    /// (the trace that records it only runs with the column, the parity
+    /// path), with no volcanoes, imported, or reopened from a save that
+    /// carries no table (every save before 2026-10-24). Never an empty
+    /// stand-in for "unknown": `Some(empty)` is not produced.
+    ///
+    /// Recording only: nothing in generation reads it, so `field` and
+    /// `volcanic_field` are the same bytes with or without it (asserted by
+    /// `tests/volcano_record.rs`). The renderer reads it through
+    /// `cartalith_terrain::volcano_attr::VolcanoIndex` for the Satellite
+    /// relief look's volcano colours (VA-2..VA-4).
+    pub volcanoes: Option<Arc<Vec<cartalith_terrain::PlacedEdifice>>>,
 }
 
 /// Why a world has no geology column. Each is a reason a reader shows; none
@@ -2725,6 +2740,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     } else {
         Geology::Absent(GeologyAbsent::ModelOff)
     };
+    // VA-1: keep the edifice table (small: one record per volcano) and drop
+    // the per-cell winner, which nothing after the geology stage reads. An
+    // empty table is no record (`WorldState::volcanoes`' doc).
+    let volcanoes = volcano_trace.take().map(|t| t.edifices).filter(|e| !e.is_empty()).map(Arc::new);
     drop(volcano_trace);
     // GF-2: whether the landform processes below read the column. Off
     // whenever the column is absent (`geology_model` off: the parity path) or
@@ -3645,6 +3664,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         river_floor,
         gpu_stages_used,
         geology,
+        volcanoes,
     }
 }
 
