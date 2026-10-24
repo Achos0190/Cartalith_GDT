@@ -2623,6 +2623,14 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     if p.volc.fill_edifice_pits && p.volc.edifice_model {
         cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &pre.volcanic_field);
     }
+    // Owner Ruling CX item 6's dry active craters, after it, as
+    // `generate_terrain_inner` runs them (`VolcanismParams::dry_active_craters`,
+    // on in the app): only active summit zones move.
+    if p.volc.dry_active_craters
+        && let Some(v) = pre.volcanoes.as_deref()
+    {
+        cartalith_terrain::edifice_pits::dry_active_craters(gw, gh, p.world, &mut field, sea, v);
+    }
     let column = match col {
         Some(c) => c,
         None => pre.geology.column().expect("column").clone(),
@@ -2666,6 +2674,9 @@ fn pre_erosion(p: &WorldParams) -> WorldState {
     // Ruling CO's pit fill writes `field` at the very end of generation, so it
     // is off here (this must be the structural surface); [`tail`] applies it.
     pp.volc.fill_edifice_pits = false;
+    // And Ruling CX item 6's dry active craters, for the same reason (the
+    // last field step; [`tail`] applies it).
+    pp.volc.dry_active_craters = false;
     generate_terrain(&pp)
 }
 

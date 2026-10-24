@@ -304,6 +304,59 @@ fn only_active_craters_glow_and_under_the_cap() {
     }
 }
 
+/// Owner Ruling CX item 6 on a real app world: every ACTIVE edifice's summit
+/// zone holds no lake cell in the classification the map draws
+/// (`render::water_bodies_floored`, the one every map path and the civ
+/// layer read), and its vent carries the daytime glow in Satellite relief;
+/// a dormant or extinct summit zone may hold water. Seed 24601's
+/// archipelago at 2048 x 1311 and 800 km, the census world whose active
+/// craters held 14-20 lake cells before the step (`volcano_cx_bars.rs`).
+#[test]
+fn an_active_crater_holds_no_lake_and_glows_on_an_app_world() {
+    let w = &WORLDS[1];
+    assert_eq!(w.seed, 24601);
+    let p = world_params(w, 2048, 1311);
+    let ws = cartalith_engine::generate_terrain(&p);
+    let (gw, gh) = (p.gw, p.gh);
+    let vt = ws.volcanoes.as_deref().expect("the app records a volcano table");
+    let class = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
+    let idx = VolcanoIndex::new(vt, gw, gh);
+    let mut wet = [0usize; 3];
+    for i in 0..gw * gh {
+        if class[i] != 2 {
+            continue;
+        }
+        if let Some(h) = idx.winner_at((i % gw) as f64, (i / gw) as f64)
+            && volcano_attr::summit_zone_t(h.edifice).is_some_and(|z| h.t < z)
+        {
+            wet[volcano_attr::activity(h.edifice) as usize] += 1;
+        }
+    }
+    let active: Vec<&PlacedEdifice> = vt.iter().filter(|e| e.kind.is_some() && volcano_attr::activity(e) == Activity::Active).collect();
+    assert!(!active.is_empty(), "premise: the world has an active edifice");
+    assert_eq!(wet[0], 0, "lake cells inside active summit zones (active/dormant/extinct: {wet:?})");
+    assert!(wet[1] + wet[2] > 0, "premise: dormant or extinct summit zones still hold water ({wet:?})");
+    // The positive control: the same world with the step off pools water in
+    // an active summit zone (measured 7 cells before the step existed).
+    let mut q = p.clone();
+    q.volc.dry_active_craters = false;
+    let wsq = cartalith_engine::generate_terrain(&q);
+    let cq = render::water_bodies_floored(&wsq.field, &wsq.rainfall, gw, gh, wsq.sea_level, q.world, None).classification;
+    let wet_off = (0..gw * gh)
+        .filter(|&i| cq[i] == 2)
+        .filter(|&i| idx.winner_at((i % gw) as f64, (i / gw) as f64).is_some_and(|h| volcano_attr::summit_zone_t(h.edifice).is_some_and(|z| h.t < z) && volcano_attr::activity(h.edifice) == Activity::Active))
+        .count();
+    assert!(wet_off > 0, "premise: without the step an active crater on this world pools");
+    // The glow, at each active vent, under the app's look.
+    let mut a = TerrainAppearance::for_tier(QualityTier::Quality).with_look(LOOK_SATELLITE);
+    a.npr.peak_m = p.peak_m;
+    let kpc = p.map_width_km / gw as f64;
+    for e in &active {
+        let v = volcano_look::sample(&idx, e.cx, e.cy, kpc, 0.005).expect("a sample at the vent");
+        assert!(volcano_look::ground(&a, &v, 0.6, 0.5).glow.is_some(), "an active vent at ({}, {}) carries no glow", e.cx, e.cy);
+    }
+}
+
 /// Protects "tiles, screen and export must agree" under the stage: the
 /// export's pixel at integer cells equals the screen within one level, and
 /// a one-pixel-per-cell tile equals the finished screen within one level.
@@ -418,6 +471,8 @@ fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
         "no_morph" => p.volc.morphometry = false,
         // Ruling CX item 4's trial: the world without the cinder law.
         "no_cinder_law" => p.volc.cinder_grid_law = false,
+        // Ruling CX item 6: the world without the dry active craters.
+        "wet_active" => p.volc.dry_active_craters = false,
         // Ruling CX item 2's before is not a generation switch: the same
         // world, its table read under Ruling CW's age map (`years` dropped),
         // handled in `volcano_census` itself.

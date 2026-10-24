@@ -88,6 +88,8 @@ fn arm(p: &mut WorldParams, name: &str) {
         // The app before Ruling CX item 4 (the grid-aware cinder law). The
         // trial's two floors (2.5 and 2.0 cells) are recorded in `STATUS.md`.
         "no_cinder_law" => p.volc.cinder_grid_law = false,
+        // The app before Ruling CX item 6 (active craters may pool).
+        "wet_active" => p.volc.dry_active_craters = false,
         other => panic!("unknown arm {other:?}"),
     }
 }

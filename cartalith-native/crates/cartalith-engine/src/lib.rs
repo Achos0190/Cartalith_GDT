@@ -437,6 +437,22 @@ pub struct VolcanismParams {
     /// ships at the app boundary as a disclosed re-baseline (`DECISIONS.md`
     /// §7p). A save without the key reloads `false`.
     pub cinder_grid_law: bool,
+    /// Owner Ruling CX item 6 (2026-10-24): an **active** volcano keeps a
+    /// dry crater ("a young volcano that has magma or lava in its crater must
+    /// not be filled with a lake"): after every stage that shapes the field,
+    /// the pooled cells of each active edifice's summit zone are raised to a
+    /// flat floor just under the level the water-body classifier pools them
+    /// to (`cartalith_terrain::edifice_pits::dry_active_craters`), so every
+    /// path that classifies water leaves them dry by its own rule. Dormant
+    /// and extinct craters keep their lakes. Needs the volcano table (the
+    /// geology model). Moves only `field` in active summit zones (flow,
+    /// channels and climate are computed before it).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**: it
+    /// moves the height field of every app world's active craters, a
+    /// disclosed re-baseline (`DECISIONS.md` §7p). A save without the key
+    /// reloads `false`.
+    pub dry_active_craters: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -1163,6 +1179,8 @@ impl WorldParams {
                 morphometry: false,
                 // Ruling CX item 4: off on the parity path (see the field).
                 cinder_grid_law: false,
+                // Ruling CX item 6: off on the parity path (see the field).
+                dry_active_craters: false,
             },
             // `physical_model: false` HERE and `true` in the shipped app, on
             // purpose. `WorldParams::defaults` is what ~28 golden suites mean
@@ -3679,6 +3697,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let tune = cartalith_terrain::orogen::OrogenTuning::default();
         let max_depth = cartalith_terrain::geology::m_to_norm(tune.breach_max_depth_m, sea_level, p.peak_m);
         cartalith_terrain::orogen::breach_belt_pits(gw, gh, &mut field, &mask, sea_level, max_depth);
+    }
+    // Owner Ruling CX item 6 (2026-10-24): an active volcano keeps a dry
+    // crater. Last of the field's shaping steps, so nothing after it can pool
+    // the crater again; it reads the volcano table (so it needs the geology
+    // model's trace) and moves only active summit zones. Off in
+    // `WorldParams::defaults` (the parity path skips it by control flow).
+    // See `VolcanismParams::dry_active_craters`.
+    if p.volc.dry_active_craters
+        && let Some(v) = volcanoes.as_deref()
+    {
+        cartalith_terrain::edifice_pits::dry_active_craters(gw, gh, world, &mut field, sea_level, v);
     }
 
     // PR-04: record each active device's real allocation total *before* the

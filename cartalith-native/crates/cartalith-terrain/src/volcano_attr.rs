@@ -253,6 +253,18 @@ pub fn zones(e: &PlacedEdifice) -> Option<(f64, f64)> {
     e.crater.or_else(|| e.kind.map(zone_fractions))
 }
 
+/// The summit zone of an edifice, as a fraction of its radius: the region
+/// owner Ruling CO's flank-pit fill leaves alone (`edifice_pits::SUMMIT_T`)
+/// or the crater rim with a quarter's margin, whichever is wider. The crater
+/// region owner Ruling CX reads: item 6's dry active craters
+/// (`edifice_pits::dry_active_craters`) and item 5's crater-lake colour.
+/// `None` without a morphology. The margin is a judgement: a crater lake's
+/// shore sits on the inner wall, just outside the rim radius the stamp's
+/// shape table names.
+pub fn summit_zone_t(e: &PlacedEdifice) -> Option<f64> {
+    zones(e).map(|(_, rim)| (rim * 1.25).max(crate::edifice_pits::SUMMIT_T))
+}
+
 /// Whether an edifice's lava is basaltic (low-silica, dark): every shield and
 /// every scoria cone outside a subduction arc (research §2.2: rift and hotspot
 /// volcanism is basaltic; a scoria cone is "basalt to basaltic andesite").

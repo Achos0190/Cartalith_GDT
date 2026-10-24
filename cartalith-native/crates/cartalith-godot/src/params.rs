@@ -132,7 +132,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is twelve flags (enumerated by
+/// baseline underneath it. Today that is thirteen flags (enumerated by
 /// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
 /// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
@@ -239,6 +239,11 @@ pub fn defaults() -> WorldParams {
     // census worlds, cited 0.15-0.21). Off in `WorldParams::defaults`. See
     // `VolcanismParams::cinder_grid_law`.
     p.volc.cinder_grid_law = true;
+    // Owner Ruling CX item 6 (2026-10-24): an active volcano keeps a dry
+    // crater -- its summit zone's pooled cells raised to a lava-lake floor
+    // just under the classifier's lake depth. Off in `WorldParams::defaults`.
+    // See `VolcanismParams::dry_active_craters`.
+    p.volc.dry_active_craters = true;
     p
 }
 
@@ -436,6 +441,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.cinder_grid_law", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Scoria cones sized for the grid (Ruling CX)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.cinder_grid_law), set_fn: |p, v| p.volc.cinder_grid_law = v != 0.0 },
+    // Owner Ruling CX item 6 (2026-10-24): active craters stay dry. ON at the
+    // app boundary, OFF in `WorldParams::defaults`; a row so a save records
+    // it; a save without the key reloads OFF (`apply_saved_state`). No GUI row.
+    ParamSpec { key: "volc.dry_active_craters", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Active craters stay dry (Ruling CX)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.dry_active_craters), set_fn: |p, v| p.volc.dry_active_craters = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -901,6 +912,7 @@ const JS_PATHS: &[(&str, &str)] = &[
     // split; there is no `state.volc` key to write it to.
     ("volc.morphometry", ""),
     ("volc.cinder_grid_law", ""),
+    ("volc.dry_active_craters", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1183,6 +1195,8 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // And Ruling CX item 4's cinder law (2026-10-24), the same way: off for
     // every save without the key.
     p.volc.cinder_grid_law = false;
+    // And Ruling CX item 6's dry active craters (2026-10-24), the same way.
+    p.volc.dry_active_craters = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

@@ -696,6 +696,34 @@ fn a_save_without_the_orogen_relief_key_reloads_without_it() {
     }
 }
 
+/// Protects: a save lacking `volc.dry_active_craters` reloading with its active craters as they
+/// were generated (owner Ruling CX item 6, 2026-10-24), while a saved true/false round-trips.
+/// The fixture is a real pre-ruling shape: `save_state` of the old app defaults with the key
+/// removed.
+#[test]
+fn a_save_without_the_dry_craters_key_reloads_without_it() {
+    assert!(params::defaults().volc.dry_active_craters, "the shipped app generates with it on");
+    let mut old = params::defaults();
+    old.volc.dry_active_craters = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("volc.dry_active_craters").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of a pre-ruling save still applies");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.volc.dry_active_craters = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["volc.dry_active_craters"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.volc.dry_active_craters = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.volc.dry_active_craters, on);
+    }
+}
+
 /// Protects: a save lacking `volc.cinder_grid_law` reloading without the grid-aware cinder law
 /// (owner Ruling CX item 4, 2026-10-24), while a saved true/false round-trips. The fixture is
 /// a real pre-ruling shape: `save_state` of the old app defaults with the key removed.
@@ -1005,6 +1033,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.morphometry = false;
     // And the cinder law (Ruling CX item 4), the same way.
     expect.volc.cinder_grid_law = false;
+    // And the dry active craters (Ruling CX item 6), the same way.
+    expect.volc.dry_active_craters = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1074,6 +1104,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.tect.orogen_relief && !parity.tect.orogen_relief, "orogen relief, Ruling CU item 1");
     assert!(app.volc.morphometry && !parity.volc.morphometry, "volcano morphometry (VA-5), Ruling CX item 1");
     assert!(app.volc.cinder_grid_law && !parity.volc.cinder_grid_law, "grid-aware cinder law, Ruling CX item 4");
+    assert!(app.volc.dry_active_craters && !parity.volc.dry_active_craters, "dry active craters, Ruling CX item 6");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1087,8 +1118,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twelve must make the two identical --
-    // which catches a thirteenth divergence added without a ruling, in either
+    // And nothing else. Neutralising the thirteen must make the two identical --
+    // which catches a fourteenth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1103,10 +1134,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.tect.orogen_relief = false;
     neutral.volc.morphometry = false;
     neutral.volc.cinder_grid_law = false;
+    neutral.volc.dry_active_craters = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twelve authorised fields"
+         thirteen authorised fields"
     );
 }
 
@@ -1114,15 +1146,15 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the twelve shipped divergences -- the volcanism/crater ones -- are
+/// Three of the thirteen shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other nine, `integrate_drainage`,
+/// path behind it is dead. The other ten, `integrate_drainage`,
 /// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model`, `climate.rain_bspline`,
-/// `volc.fill_edifice_pits`, `tect.orogen_relief`, `volc.morphometry` and
-/// `volc.cinder_grid_law`, are left on in both worlds here (the pit fill, the morphometry and
-/// the cinder law are inert on the parity side, whose edifice model is off), so this measures
-/// only the three
+/// `volc.fill_edifice_pits`, `tect.orogen_relief`, `volc.morphometry`, `volc.cinder_grid_law`
+/// and `volc.dry_active_craters`, are left on in both worlds here (the pit fill, the
+/// morphometry, the cinder law and the dry craters are inert on the parity side, whose
+/// edifice model is off), so this measures only the three
 /// it names. (The orogen term's reach is `cartalith-engine`'s
 /// `orogen_relief_is_off_on_the_parity_path_and_bounded_when_on`.) (The pit
 /// fill's reach is `cartalith-engine`'s `fill_edifice_pits_raises_only_edifice_ground`.) (The rain

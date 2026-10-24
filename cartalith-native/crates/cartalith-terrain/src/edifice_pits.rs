@@ -282,6 +282,155 @@ pub fn fill_edifice_pits(gw: usize, gh: usize, field: &mut [f32], volcanic_field
     fill_edifice_flank_pits(gw, gh, field, &m)
 }
 
+/// The pooled depth the water-body classifier needs before it calls an
+/// above-sea cell a lake: `cartalith_civ::LAKE_DEPTH` (the reference's own
+/// `lakeDepth`), restated here because this crate cannot depend on the civ
+/// crate; `cartalith_civ`'s
+/// `the_dry_crater_threshold_is_the_classifiers_lake_depth` holds the two
+/// equal. Read only by [`dry_active_craters`].
+pub const CLASSIFIER_LAKE_DEPTH: f64 = 0.004;
+
+/// The depth, as a share of [`CLASSIFIER_LAKE_DEPTH`], an active crater's
+/// floor is left below its spill level by [`dry_active_craters`]. A
+/// judgement: half the classifier's depth, so the floor is clearly shallower
+/// than a lake (f32 rounding and the classifier's own `1e-6` flat-fill
+/// steps cannot carry it over) and still a flat depression below the rim,
+/// the level of a lava lake standing in the crater. At 800 km and 4 000 m it
+/// is 0.002 units, about 14-25 m on the census worlds.
+pub const DRY_FLOOR_SHARE: f64 = 0.5;
+
+/// What [`dry_active_craters`] did: craters it dried, cells it raised, the
+/// largest raise (normalised units).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DryCraters {
+    pub craters: usize,
+    pub cells: usize,
+    pub max_raise: f32,
+}
+
+/// **Owner Ruling CX item 6 (2026-10-24): an active volcano keeps a dry
+/// crater.** A young volcano with magma or lava in its crater must not hold a
+/// lake ("must not be filled with a lake"), so on every **active** edifice
+/// (`volcano_attr::activity`) the summit zone's pooled cells
+/// (`volcano_attr::summit_zone_t`) are raised to a flat floor
+/// [`DRY_FLOOR_SHARE`] x [`CLASSIFIER_LAKE_DEPTH`] below the level the
+/// water-body classifier would pool them to: a lava-lake floor standing
+/// just under the crater's spill point. The classifier then pools them less
+/// than its own lake depth and leaves them dry, by its own rule, on every
+/// path that classifies water (the map, the tiles, the exports, the civ
+/// layer), with no mask to plumb. Dormant and extinct edifices are not
+/// touched: a dormant crater may hold an acid lake, an extinct one a normal
+/// lake.
+///
+/// The pool level is a 4-connected priority flood seeded from the map's
+/// edge rows (and edge columns when the map does not wrap) and from the
+/// below-sea cells connected to them, raising each reached cell to at least
+/// the level it was reached from -- `cartalith_civ::build_water_bodies`'
+/// rule, without its `1e-6` flat-fill step (smaller than the margin).
+///
+/// Cost: one priority flood over the map, run only when an active edifice
+/// exists. What it must never do: lower a cell, touch a cell outside an
+/// active edifice's summit zone, or raise a cell to or above its pool level
+/// (it stays a closed depression, so no new drainage is opened or closed).
+pub fn dry_active_craters(
+    gw: usize,
+    gh: usize,
+    world: bool,
+    field: &mut [f32],
+    sea_level: f64,
+    edifices: &[crate::PlacedEdifice],
+) -> DryCraters {
+    use crate::volcano_attr::{activity, summit_zone_t, Activity, VolcanoIndex};
+    let n = gw * gh;
+    assert!(field.len() >= n, "dry_active_craters: short field");
+    let active: Vec<usize> = (0..edifices.len()).filter(|&k| edifices[k].kind.is_some() && activity(&edifices[k]) == Activity::Active).collect();
+    if active.is_empty() || n == 0 {
+        return DryCraters::default();
+    }
+    // The pool level: a 4-connected priority flood (`f32` bits order the
+    // non-negative heights as `f32` does; the index breaks ties).
+    let mut filled: Vec<f32> = field[..n].to_vec();
+    let mut closed = vec![false; n];
+    let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
+    let nb = |i: usize| -> [Option<usize>; 4] {
+        let (x, y) = (i % gw, i / gw);
+        let left = if x > 0 { Some(i - 1) } else if world { Some(i + gw - 1) } else { None };
+        let right = if x + 1 < gw { Some(i + 1) } else if world { Some(i + 1 - gw) } else { None };
+        [left, right, (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)]
+    };
+    let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+        if !closed[i] {
+            closed[i] = true;
+            heap.push(Reverse((filled[i].max(0.0).to_bits(), i)));
+        }
+    };
+    for x in 0..gw {
+        seed(x, &mut closed, &mut heap);
+        seed((gh - 1) * gw + x, &mut closed, &mut heap);
+    }
+    if !world {
+        for y in 0..gh {
+            seed(y * gw, &mut closed, &mut heap);
+            seed(y * gw + gw - 1, &mut closed, &mut heap);
+        }
+    }
+    // The open sea: below-sea cells 4-connected to a seeded edge cell.
+    let mut stack: Vec<usize> = (0..n).filter(|&i| closed[i] && (field[i] as f64) < sea_level).collect();
+    while let Some(i) = stack.pop() {
+        for j in nb(i).into_iter().flatten() {
+            if !closed[j] && (field[j] as f64) < sea_level {
+                seed(j, &mut closed, &mut heap);
+                stack.push(j);
+            }
+        }
+    }
+    while let Some(Reverse((hb, c))) = heap.pop() {
+        let hc = f32::from_bits(hb);
+        for j in nb(c).into_iter().flatten() {
+            if closed[j] {
+                continue;
+            }
+            closed[j] = true;
+            if filled[j] < hc {
+                filled[j] = hc;
+            }
+            heap.push(Reverse((filled[j].max(0.0).to_bits(), j)));
+        }
+    }
+    // Raise each active summit zone's pooled cells to the dry floor.
+    let index = VolcanoIndex::new(edifices, gw, gh);
+    let margin = (DRY_FLOOR_SHARE * CLASSIFIER_LAKE_DEPTH) as f32;
+    let mut out = DryCraters::default();
+    let mut dried = vec![false; edifices.len()];
+    for &k in &active {
+        let e = &edifices[k];
+        let Some(zt) = summit_zone_t(e) else { continue };
+        let rr = e.r * zt;
+        let (x0, x1) = ((e.cx - rr).floor().max(0.0) as usize, ((e.cx + rr).ceil().max(0.0) as usize).min(gw - 1));
+        let (y0, y1) = ((e.cy - rr).floor().max(0.0) as usize, ((e.cy + rr).ceil().max(0.0) as usize).min(gh - 1));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let i = y * gw + x;
+                // The cell belongs to this edifice by the stamp's own owner
+                // rule, inside its summit zone.
+                let Some(h) = index.winner_at(x as f64, y as f64) else { continue };
+                if h.index != k || h.t >= zt {
+                    continue;
+                }
+                let floor = filled[i] - margin;
+                if field[i] < floor && (field[i] as f64) >= sea_level {
+                    out.max_raise = out.max_raise.max(floor - field[i]);
+                    field[i] = floor;
+                    out.cells += 1;
+                    dried[k] = true;
+                }
+            }
+        }
+    }
+    out.craters = dried.iter().filter(|&&d| d).count();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
