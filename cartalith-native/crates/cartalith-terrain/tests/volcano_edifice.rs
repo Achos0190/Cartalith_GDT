@@ -158,3 +158,107 @@ fn the_unsuffixed_entry_points_still_stamp_the_reference() {
     );
     assert_eq!((field, volcanic_field), simple(EdificeModel::Reference));
 }
+
+/// The traced provinces run, for VA-5's comparisons: the same fixture as
+/// [`provinces`], with the edifice table kept.
+fn provinces_traced(model: EdificeModel) -> (Vec<f32>, cartalith_terrain::VolcanoTrace) {
+    let boundary_mask: Vec<u8> = (0..N).map(|i| u8::from(i % 5 == 0)).collect();
+    let stress_field: Vec<f32> = (0..N).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
+    let plate_id: Vec<u16> = (0..N).map(|i| (i % 4) as u16).collect();
+    let plates = vec![
+        Plate { x: 2.0, y: 2.0, vx: 1.0, vy: 0.2, base: 0.1 },
+        Plate { x: 10.0, y: 4.0, vx: -0.5, vy: 0.8, base: -0.2 },
+        Plate { x: 5.0, y: 10.0, vx: 0.3, vy: -0.6, base: 0.05 },
+        Plate { x: 15.0, y: 12.0, vx: -0.2, vy: -0.4, base: -0.1 },
+    ];
+    let mut field = vec![0.3f32; N];
+    let mut volcanic_field = vec![0.0f32; N];
+    let mut trace = cartalith_terrain::VolcanoTrace::new(N);
+    cartalith_terrain::stamp_volcanoes_provinces_traced(
+        GW, GH, 12345, 800.0, 4000.0, &boundary_mask, &stress_field, None, &plate_id, &plates, 24, 0.4, &mut field, &mut volcanic_field, model, Some(&mut trace), false,
+    );
+    (field, trace)
+}
+
+/// Protects VA-5 (`EdificeModel::Morphometric`, Ruling CW): no RNG draw
+/// moves (every edifice's position, setting, kind and age equal the
+/// morphological model's); a scoria cone's radius is its standing height
+/// over twice the cited fresh H/W of 0.179 (a literal), floored at the
+/// stamp's 2 cells; most stratocones get a small summit crater recorded on
+/// the edifice; and the height field moves.
+#[test]
+fn morphometric_resizes_cinders_and_splits_strato_craters_without_moving_the_stream() {
+    let m_per_unit = 4000.0 / (1.0 - 0.42);
+    let (f_morph, t_morph) = provinces_traced(EdificeModel::Morphological);
+    let (f_va5, t_va5) = provinces_traced(EdificeModel::Morphometric { m_per_unit });
+    assert_eq!(t_morph.edifices.len(), t_va5.edifices.len());
+    assert!(t_va5.edifices.len() >= 10, "the fixture places too few edifices");
+    let cell_km = 800.0 / GW as f64;
+    let (mut cinders, mut craters, mut stratos) = (0, 0, 0);
+    for (a, b) in t_morph.edifices.iter().zip(&t_va5.edifices) {
+        assert_eq!((a.cx, a.cy, a.age, a.setting, a.kind), (b.cx, b.cy, b.age, b.setting, b.kind), "a draw moved");
+        match b.kind {
+            Some(cartalith_terrain::EdificeKind::Cinder) => {
+                cinders += 1;
+                // The stamp's `h` is age-damped: undo it to get the drawn
+                // standing height, then the cited H/W.
+                let stand_m = b.h / (1.0 - b.age * 0.5) * m_per_unit;
+                let want_cells = (stand_m / 1000.0 / (2.0 * 0.179) / cell_km).max(2.0);
+                assert!((b.r - want_cells).abs() < 1e-6, "cinder radius {} not {want_cells}", b.r);
+                assert!(b.crater.is_none());
+            }
+            Some(cartalith_terrain::EdificeKind::Strato) => {
+                stratos += 1;
+                if let Some((floor, rim)) = b.crater {
+                    craters += 1;
+                    assert!(rim <= 0.24 && floor < rim, "crater ({floor}, {rim})");
+                }
+                assert!(a.crater.is_none(), "the morphological model records no crater");
+            }
+            _ => assert!(b.crater.is_none()),
+        }
+    }
+    assert!(cinders > 0, "the fixture has no cinder cone");
+    if stratos >= 4 {
+        assert!(craters > 0, "every stratocone kept its caldera");
+    }
+    assert_ne!(f_morph, f_va5, "the morphometry moved nothing");
+}
+
+/// Protects VA-5's cinder radius law on a grid fine enough to resolve it
+/// (40 km over 200 cells, 0.2 km per cell; the feature clamp is 0.12 of 160
+/// = 19.2 cells): every scoria cone between the stamp's 2-cell floor and that
+/// clamp has exactly its standing height over twice the cited fresh H/W of
+/// 0.179 (a literal, so re-pointing the constant fails here), with the
+/// stamp's own `0.9 * m_per_unit / peak_m` normalisation undone through the
+/// recorded `h`.
+#[test]
+fn morphometric_cinder_radius_is_the_cited_aspect_ratio() {
+    let (gw, gh) = (200usize, 160usize);
+    let n = gw * gh;
+    let boundary_mask: Vec<u8> = (0..n).map(|i| u8::from(i % 7 == 0)).collect();
+    let m_per_unit = 4000.0 / (1.0 - 0.42);
+    let mut field = vec![0.3f32; n];
+    let mut volcanic_field = vec![0.0f32; n];
+    let mut trace = cartalith_terrain::VolcanoTrace::new(n);
+    cartalith_terrain::stamp_volcanoes_simple_traced(
+        gw, gh, 4242, 40.0, 4000.0, &boundary_mask, 40, 0.4, &mut field, &mut volcanic_field,
+        EdificeModel::Morphometric { m_per_unit }, Some(&mut trace), false,
+    );
+    let cell_km = 40.0 / gw as f64;
+    let mut exact = 0;
+    for e in &trace.edifices {
+        if e.kind != Some(cartalith_terrain::EdificeKind::Cinder) {
+            continue;
+        }
+        // `h = h_m / peak * 0.9 * (1 - age/2)`, so the standing metres are
+        // `h / (1 - age/2) * m_per_unit`.
+        let stand_m = e.h / (1.0 - e.age * 0.5) * m_per_unit;
+        let want = stand_m / 1000.0 / (2.0 * 0.179) / cell_km;
+        if want > 2.0 && want < 19.2 {
+            assert!((e.r - want).abs() < 1e-6, "cinder radius {} cells, want {want}", e.r);
+            exact += 1;
+        }
+    }
+    assert!(exact >= 5, "only {exact} cinder cones inside the law's range; the test reaches too little");
+}

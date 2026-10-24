@@ -21,7 +21,7 @@
 //!   x1/x4/x16/x64 with per-frame measures inside the edifice disc.
 //!
 //! ```text
-//! VA_OUT=<dir> cargo test --release -p cartalith-godot --test volcano_appearance -- --ignored --nocapture --test-threads 1
+//! VA_OUT=<dir> [VA_MORPH=1] [VA_ONLY=<tag part>] [VA_FRAMES=0] cargo test --release -p cartalith-godot --test volcano_appearance -- --ignored --nocapture --test-threads 1
 //! ```
 
 #[path = "../src/render.rs"]
@@ -58,8 +58,8 @@ const PEAK_M: f64 = 4000.0;
 /// Myr) in the east.
 fn edifices() -> Vec<PlacedEdifice> {
     vec![
-        PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 24.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age: 0.02 },
-        PlacedEdifice { setting: VolcanicSetting::Arc, cx: 72.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Strato), age: 0.9 },
+        PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 24.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age: 0.02, crater: None },
+        PlacedEdifice { setting: VolcanicSetting::Arc, cx: 72.0, cy: 32.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Strato), age: 0.9, crater: None },
     ]
 }
 
@@ -264,7 +264,7 @@ fn the_rock_follows_the_edifice() {
 fn the_cover_follows_rainfall_on_the_flank() {
     let a = sat();
     // log10(1000) = 3 = 1 + 5.5 * age  ->  age = 2 / 5.5.
-    let idx = VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Cinder), age: 2.0 / 5.5 }], 64, 48);
+    let idx = VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Cinder), age: 2.0 / 5.5, crater: None }], 64, 48);
     let v = volcano_look::sample(&idx, 29.6, 20.0, 1.0, 1.0).unwrap(); // t = 0.6
     assert!((v.log_years - 3.0).abs() < 1e-9);
     let wet = volcano_look::ground(&a, &v, 0.6, 0.5).bare;
@@ -278,7 +278,7 @@ fn the_cover_follows_rainfall_on_the_flank() {
 #[test]
 fn only_active_craters_glow_and_under_the_cap() {
     let a = sat();
-    let mk = |age: f64| VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age }], 64, 48);
+    let mk = |age: f64| VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 20.0, cy: 20.0, r: 16.0, h: 0.25, kind: Some(EdificeKind::Shield), age, crater: None }], 64, 48);
     for (age, want) in [(0.01, Activity::Active), (0.2, Activity::Dormant), (0.7, Activity::Extinct)] {
         let idx = mk(age);
         let mut any_glow = false;
@@ -387,6 +387,8 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     p.tect.seed = w.seed;
     p.map_width_km = 800.0;
     p.sea_level = 0.42;
+    // `VA_MORPH=1`: VA-5's morphometry switch on (off at both boundaries).
+    p.volc.morphometry = std::env::var("VA_MORPH").is_ok_and(|v| v == "1");
     if let Some(k) = w.archetype {
         p.world_structure = cartalith_engine::WorldStructureParams { enabled: true, continentality: k[0], fragmentation: k[1], tectonic_energy: k[2], ocean_depth: k[3], hotspot_density: k[4] };
     }

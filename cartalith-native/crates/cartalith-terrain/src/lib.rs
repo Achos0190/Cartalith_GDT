@@ -1245,7 +1245,10 @@ fn add_rounded(field: &mut [f32], i: usize, delta: f64) {
 /// `DECISIONS.md` §7l had to authorise for craters, and that authorisation
 /// was *for craters*. Corrected 2026-09-27: this previously said "default-off
 /// at both boundaries", which stopped being true once the app turned it on.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+///
+/// `Eq` was dropped 2026-10-24 (VA-5): [`EdificeModel::Morphometric`] carries
+/// an `f64`. Nothing compared the model by `Eq` alone.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum EdificeModel {
     /// `stampOneVolcano` exactly.
     #[default]
@@ -1253,7 +1256,45 @@ pub enum EdificeModel {
     /// Setting-driven shield/stratocone/scoria-cone profiles, a collapsed
     /// summit, and multi-scale flank relief.
     Morphological,
+    /// [`Self::Morphological`] with VA-5's morphometry corrections
+    /// (`VOLCANO_APPEARANCE_RESEARCH.md` §6.4, owner Ruling CW: "cinder
+    /// footprint and Strato crater first"): a scoria cone's radius from its
+    /// height at the fresh H/W of [`CINDER_FRESH_HW`] instead of the
+    /// reference's 2-10 km draw, and a summit crater of
+    /// [`STRATO_CRATER_KM`] on every stratocone but a minority
+    /// ([`STRATO_CALDERA_SHARE`], picked by position) that keeps the
+    /// caldera. `m_per_unit` is the engine's metres per normalised height
+    /// unit (`peak_m / (1 - sea)`), the factor that turns the stamp's own
+    /// normalised summit height into the metres the cone will stand. No RNG
+    /// draw is added or moved: the reference's radius draw is still made and
+    /// then overridden, so the stream (and every edifice's position, setting
+    /// and age) is the morphological model's exactly. Behind
+    /// `VolcanismParams::morphometry`, off at both boundaries until the owner
+    /// rules on the measured numbers.
+    Morphometric { m_per_unit: f64 },
 }
+
+/// A fresh scoria cone's height over its basal width: `Hco = 0.179 Wco`
+/// (Wood 1980, N = 9, r = 0.98, matching Porter 1972's Mauna Kea cones;
+/// research §2.2).
+pub const CINDER_FRESH_HW: f64 = 0.179;
+
+/// The radius, km, of the summit crater a stratocone without a caldera
+/// carries: Pike & Clow 1981's commonest stratocone class has a crater
+/// under 1.0-1.5 km across (research §2.2), so 0.6 km of radius (a
+/// judgement inside that band).
+pub const STRATO_CRATER_KM: f64 = 0.6;
+
+/// The share of stratocones that keep the collapse caldera under
+/// [`EdificeModel::Morphometric`]. A judgement: the research names no
+/// global share; Pike & Clow class the caldera stratocone as the less
+/// common one. Picked by a hash of the centre, never an RNG draw.
+pub const STRATO_CALDERA_SHARE: f64 = 0.2;
+
+/// A summit crater's depth below its rim as a fraction of the edifice
+/// height, for a stratocone without a caldera. A judgement: a crater, not a
+/// collapse, about a quarter of the caldera's 0.35.
+pub const STRATO_CRATER_DEPTH: f64 = 0.08;
 
 /// The volcanic setting a placement was made in.
 ///
@@ -1303,6 +1344,12 @@ pub struct PlacedEdifice {
     /// hotspot chain's age-progressive value). Map it to years with
     /// [`volcano_attr::age_years`]; never read it as years.
     pub age: f64,
+    /// `(floor, rim)` of this edifice's summit depression as fractions of
+    /// its radius, when it differs from its kind's shape table: a VA-5
+    /// stratocone with a summit crater instead of a caldera
+    /// ([`EdificeModel::Morphometric`]). `None` is the kind's own table
+    /// ([`volcano_attr::zones`] answers either way).
+    pub crater: Option<(f64, f64)>,
 }
 
 /// What the volcano stampers record when asked (`*_traced`): every edifice,
@@ -2040,13 +2087,22 @@ fn stamp_one_volcano(
     height_m: f64,
     age: f64,
     kind: Option<EdificeKind>,
+    crater: Option<(f64, f64, f64)>,
     setting: VolcanicSetting,
     mut trace: Option<&mut VolcanoTrace>,
     soft_top: bool,
 ) {
     // `kind` is `None` for the reference model, whose stamp has no shape; the
-    // morphological model's shape is a pure function of the kind.
-    let shape = kind.map(edifice_shape);
+    // morphological model's shape is a pure function of the kind, with VA-5's
+    // summit crater `(floor, rim, depth)` replacing the table's when given.
+    let shape = kind.map(edifice_shape).map(|mut s| {
+        if let Some((floor, rim, depth)) = crater {
+            s.floor = floor;
+            s.rim = rim;
+            s.depth = depth;
+        }
+        s
+    });
     let h = (height_m / peak_m) * 0.9 * (1.0 - age * 0.5);
     let r = rad_cells.max(2.0);
     // GF-1: record this edifice so the geology stage can recover which one won
@@ -2054,7 +2110,7 @@ fn stamp_one_volcano(
     // VA-1 adds the kind and age the stamp was drawn with (see
     // `PlacedEdifice`'s doc): values already in hand, recorded, never re-read.
     let trace_id = trace.as_deref_mut().map(|t| {
-        t.edifices.push(PlacedEdifice { setting, cx, cy, r, h, kind, age });
+        t.edifices.push(PlacedEdifice { setting, cx, cy, r, h, kind, age, crater: crater.map(|(f, rm, _)| (f, rm)) });
         (t.edifices.len() - 1) as u32
     });
     let caldera = height_m > 1000.0;
@@ -2169,8 +2225,31 @@ fn place_sized_volcano(
     h_m = h_m.min(peak_m * 0.95);
     let kind = match model {
         EdificeModel::Reference => None,
-        EdificeModel::Morphological => Some(edifice_kind(setting, r)),
+        EdificeModel::Morphological | EdificeModel::Morphometric { .. } => Some(edifice_kind(setting, r)),
     };
+    // VA-5 (see `EdificeModel::Morphometric`): overrides of values already
+    // drawn, never a new draw.
+    let mut rad_km = rad_km;
+    let mut crater = None;
+    if let EdificeModel::Morphometric { m_per_unit } = model {
+        // The metres the cone will stand before age damping: the stamp's own
+        // normalised height (`stamp_one_volcano`'s `h` at age 0) times the
+        // engine's metres per unit.
+        let stand_m = h_m / peak_m * 0.9 * m_per_unit;
+        match kind {
+            Some(EdificeKind::Cinder) if stand_m.is_finite() && stand_m > 0.0 => {
+                rad_km = stand_m / 1000.0 / (2.0 * CINDER_FRESH_HW);
+            }
+            Some(EdificeKind::Strato) => {
+                let pick = cartalith_noise::hash((x * 16.0) as i32, (y * 16.0) as i32, 0x5A1D);
+                if pick >= STRATO_CALDERA_SHARE {
+                    let rim = (STRATO_CRATER_KM / rad_km.max(1e-6)).clamp(0.03, edifice_shape(EdificeKind::Strato).rim);
+                    crater = Some((rim * 0.45, rim, STRATO_CRATER_DEPTH));
+                }
+            }
+            _ => {}
+        }
+    }
     stamp_one_volcano(
         gw,
         gh,
@@ -2183,6 +2262,7 @@ fn place_sized_volcano(
         h_m,
         age,
         kind,
+        crater,
         setting,
         trace,
         soft_top,
@@ -4766,9 +4846,9 @@ mod volcano_trace_tests {
             let mut trace = VolcanoTrace::new(gw * gh);
             let mut t = traced.then_some(&mut trace);
             // A big young edifice, then a small old one overlapping its flank.
-            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 32.0, 32.0, 10.0, 2000.0, 0.0, None,
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 32.0, 32.0, 10.0, 2000.0, 0.0, None, None,
                 VolcanicSetting::Arc, t.as_deref_mut(), false);
-            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 38.0, 32.0, 4.0, 500.0, 0.9, None,
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 38.0, 32.0, 4.0, 500.0, 0.9, None, None,
                 VolcanicSetting::Hotspot, t.as_deref_mut(), false);
             (field, volc, trace)
         };
@@ -4793,7 +4873,7 @@ mod volcano_trace_tests {
         let mut field = vec![0.3f32; gw * gh];
         let mut volc = vec![0f32; gw * gh];
         let mut t2 = VolcanoTrace::new(gw * gh);
-        stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 10.0, 10.0, 4.0, 500.0, 0.5, None,
+        stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 10.0, 10.0, 4.0, 500.0, 0.5, None, None,
             VolcanicSetting::Rift, Some(&mut t2), false);
         assert_eq!(t2.winner_at(10 * gw + 10).map(|e| e.setting), Some(VolcanicSetting::Rift));
     }
@@ -4814,7 +4894,7 @@ mod orogen_soft_top_tests {
         let run = |soft: bool| {
             let mut field = vec![0.95f32; gw * gh];
             let mut volc = vec![0f32; gw * gh];
-            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 24.0, 24.0, 10.0, 3000.0, 0.0, None, VolcanicSetting::Arc, None, soft);
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 24.0, 24.0, 10.0, 3000.0, 0.0, None, None, VolcanicSetting::Arc, None, soft);
             field
         };
         let (clip, soft) = (run(false), run(true));

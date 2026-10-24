@@ -405,6 +405,19 @@ pub struct VolcanismParams {
     /// baseline. A save without the key reloads `false`, so a project saved
     /// before the ruling regenerates as it was saved.
     pub fill_edifice_pits: bool,
+    /// VA-5 of `VOLCANO_APPEARANCE_RESEARCH.md` (owner Ruling CW: "the shape
+    /// corrections ... only after measuring final heights", an app-only
+    /// divergence): with [`Self::edifice_model`] on, stamp scoria cones at the
+    /// cited fresh H/W (their radius from their height) and give every
+    /// stratocone but a minority a summit crater instead of the caldera
+    /// (`cartalith_terrain::EdificeModel::Morphometric`). No RNG draw moves.
+    ///
+    /// **`false` at both boundaries** (here and in
+    /// `cartalith_godot::params::defaults`): it moves the height field of
+    /// every app world, so it ships only when the owner rules on the measured
+    /// numbers (`cartalith-native/docs/STATUS.md`, 2026-10-24). A save without
+    /// the key reloads `false`.
+    pub morphometry: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -1127,6 +1140,8 @@ impl WorldParams {
                 // Ruling CO's pit fill: off on the parity path, like the
                 // edifice it fills. See `VolcanismParams::fill_edifice_pits`.
                 fill_edifice_pits: false,
+                // VA-5: off until the owner rules (see the field).
+                morphometry: false,
             },
             // `physical_model: false` HERE and `true` in the shipped app, on
             // purpose. `WorldParams::defaults` is what ~28 golden suites mean
@@ -2594,7 +2609,13 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // `EdificeModel::Reference` is `stampOneVolcano` exactly; the
         // morphological model is opt-in and needs its own owner ruling before
         // it can be the default. See `VolcanismParams::edifice_model`.
-        let edifice = if p.volc.edifice_model {
+        let edifice = if p.volc.edifice_model && p.volc.morphometry {
+            // VA-5: the stamp's normalised heights stand at `peak_m / (1 -
+            // sea)` metres per unit (`cartalith_terrain::geology::m_to_norm`'s
+            // relation), with the sea level as configured -- a World
+            // Structure archetype re-anchors it later, after the stamps.
+            cartalith_terrain::EdificeModel::Morphometric { m_per_unit: p.peak_m / (1.0 - p.sea_level).max(1e-6) }
+        } else if p.volc.edifice_model {
             cartalith_terrain::EdificeModel::Morphological
         } else {
             cartalith_terrain::EdificeModel::Reference

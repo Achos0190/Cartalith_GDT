@@ -149,6 +149,13 @@ pub fn zone_fractions(kind: EdificeKind) -> (f64, f64) {
     (s.floor, s.rim)
 }
 
+/// `(floor, rim)` of this edifice's own summit depression: its recorded
+/// VA-5 crater ([`PlacedEdifice::crater`]) when it has one, else its kind's
+/// table ([`zone_fractions`]). `None` without a morphology.
+pub fn zones(e: &PlacedEdifice) -> Option<(f64, f64)> {
+    e.crater.or_else(|| e.kind.map(zone_fractions))
+}
+
 /// Whether an edifice's lava is basaltic (low-silica, dark): every shield and
 /// every scoria cone outside a subduction arc (research §2.2: rift and hotspot
 /// volcanism is basaltic; a scoria cone is "basalt to basaltic andesite").
@@ -319,7 +326,7 @@ mod tests {
     use super::*;
 
     fn ed(cx: f64, cy: f64, r: f64, age: f64, kind: Option<EdificeKind>, setting: VolcanicSetting) -> PlacedEdifice {
-        PlacedEdifice { setting, cx, cy, r, h: 0.2, kind, age }
+        PlacedEdifice { setting, cx, cy, r, h: 0.2, kind, age, crater: None }
     }
 
     /// Protects the approved log map's two ends and one interior point,
@@ -372,6 +379,12 @@ mod tests {
         assert_eq!(zone_fractions(EdificeKind::Cinder), (0.16, 0.38));
         assert_eq!(zone_fractions(EdificeKind::Strato), (0.11, 0.24));
         assert_eq!(zone_fractions(EdificeKind::Shield), (0.05, 0.12));
+        // A recorded crater wins over the table; none falls back to it.
+        let mut e = ed(0.0, 0.0, 10.0, 0.1, Some(EdificeKind::Strato), VolcanicSetting::Arc);
+        assert_eq!(zones(&e), Some((0.11, 0.24)));
+        e.crater = Some((0.02, 0.05));
+        assert_eq!(zones(&e), Some((0.02, 0.05)));
+        assert_eq!(zones(&ed(0.0, 0.0, 10.0, 0.1, None, VolcanicSetting::Arc)), None);
     }
 
     /// Protects the basaltic split: shields and cinder cones basaltic, arc

@@ -232,7 +232,7 @@ pub fn sample(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km: f64
 fn from_hit(hit: cartalith_terrain::volcano_attr::VolcanoHit<'_>, x: f64, y: f64, km_per_cell: f64, px_km: f64) -> Option<VolcanoSample> {
     let e = hit.edifice;
     let kind = e.kind?;
-    let (floor, rim) = volcano_attr::zone_fractions(kind);
+    let (floor, rim) = volcano_attr::zones(e)?;
     Some(VolcanoSample {
         index: hit.index,
         kind,

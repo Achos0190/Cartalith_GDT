@@ -105,6 +105,11 @@ pub(crate) struct VolcanoRow {
     pub r: f64,
     pub h: f64,
     pub age: f64,
+    /// VA-5's own summit crater, `(floor, rim)` in radius fractions, when the
+    /// edifice has one (`PlacedEdifice::crater`); absent otherwise and in
+    /// every table written before VA-5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crater: Option<(f64, f64)>,
 }
 
 /// The rows for `edifices`, in placement order (the order decides owner ties).
@@ -112,7 +117,7 @@ fn volcano_rows(edifices: &[cartalith_terrain::PlacedEdifice]) -> Vec<VolcanoRow
     use cartalith_terrain::volcano_attr::setting_key;
     edifices
         .iter()
-        .map(|e| VolcanoRow { setting: setting_key(e.setting).to_string(), kind: e.kind.map(|k| k.key().to_string()), cx: e.cx, cy: e.cy, r: e.r, h: e.h, age: e.age })
+        .map(|e| VolcanoRow { setting: setting_key(e.setting).to_string(), kind: e.kind.map(|k| k.key().to_string()), cx: e.cx, cy: e.cy, r: e.r, h: e.h, age: e.age, crater: e.crater })
         .collect()
 }
 
@@ -136,7 +141,12 @@ pub(crate) fn volcanoes_from_rows(rows: &[VolcanoRow]) -> Result<Vec<cartalith_t
             if ![r.cx, r.cy, r.r, r.h, r.age].iter().all(|v| v.is_finite()) || r.r <= 0.0 || !(0.0..=1.0).contains(&r.age) {
                 return Err(format!("volcano {i}: a position, radius, height or age that is not usable"));
             }
-            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age })
+            if let Some((f, rm)) = r.crater
+                && !(f.is_finite() && rm.is_finite() && 0.0 <= f && f <= rm && rm <= 1.0)
+            {
+                return Err(format!("volcano {i}: a crater that is not usable"));
+            }
+            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age, crater: r.crater })
         })
         .collect()
 }

@@ -407,6 +407,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.fill_edifice_pits", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Drain volcano flank pits", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.fill_edifice_pits), set_fn: |p, v| p.volc.fill_edifice_pits = v != 0.0 },
+    // VA-5 (Ruling CW, 2026-10-24): cinder footprints at the cited H/W and
+    // summit craters on most stratocones. OFF at both boundaries until the
+    // owner rules on the measured numbers; a row so a save records it; a
+    // save without the key reloads OFF (`apply_saved_state`). No GUI row.
+    ParamSpec { key: "volc.morphometry", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Volcano morphometry (VA-5)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.morphometry), set_fn: |p, v| p.volc.morphometry = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -868,6 +875,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (Ruling CO): the reference's cone has no gullies and so no
     // flank pits to fill; there is no `state.volc` key to write it to.
     ("volc.fill_edifice_pits", ""),
+    // Port-only (VA-5): the reference has one cone profile and no crater
+    // split; there is no `state.volc` key to write it to.
+    ("volc.morphometry", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1144,6 +1154,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // regenerate from its parameters reproduces the small volcano lakes it
     // was saved with. A save from this change on always carries the key.
     p.volc.fill_edifice_pits = false;
+    // And VA-5's morphometry (2026-10-24), the same way: off for every save
+    // without the key.
+    p.volc.morphometry = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

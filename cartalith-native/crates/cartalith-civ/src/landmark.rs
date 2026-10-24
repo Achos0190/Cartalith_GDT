@@ -5315,7 +5315,7 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
 /// guessed sub-kind: with no table, no owning edifice, or an edifice with no
 /// morphology, the fact says so and why.
 fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
-    use cartalith_terrain::volcano_attr::{activity_of, age_years, owner_of, zone_fractions, Activity};
+    use cartalith_terrain::volcano_attr::{activity_of, age_years, owner_of, zones, Activity};
     use cartalith_terrain::EdificeKind;
     let Some(table) = c.inp.volcanoes else {
         return "sub-kind: — (this world has no volcano table: geology model off, an imported heightmap, or a save from before 2026-10-24)".to_string();
@@ -5328,7 +5328,7 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
         return "sub-kind: — (the edifice was drawn by the reference model, which records no morphology)".to_string();
     };
     let act = activity_of(e.age);
-    let (_, rim) = zone_fractions(kind);
+    let (_, rim) = zones(e).unwrap_or((0.0, 0.0));
     // A lake inside the crater: any lake cell (`water` class 2) within the
     // rim radius of the centre.
     let crater_lake = c.water.is_some_and(|w| {
@@ -7791,7 +7791,7 @@ mod tests {
                 vol[y * gw + x] = (0.6 * (-d2 / 18.0).exp()) as f32;
             }
         }
-        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age };
+        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age, crater: None };
         let run = |table: Option<&[cartalith_terrain::PlacedEdifice]>, water: Option<&[u8]>| -> String {
             let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, 200.0);
             inp.peak_m = PEAK_M;

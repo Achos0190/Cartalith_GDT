@@ -10199,6 +10199,12 @@ mod geology_save_tests {
         rows[0].r = 0.0;
         assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "a zero radius is refused");
         assert!(geology_save::volcanoes_from_rows(&[]).is_err(), "an empty table is refused");
+        // VA-5's recorded crater: kept when usable, refused when not.
+        let mut rows = volcano_rows_of(&table);
+        rows[0].crater = Some((0.02, 0.05));
+        assert_eq!(geology_save::volcanoes_from_rows(&rows).unwrap()[0].crater, Some((0.02, 0.05)));
+        rows[0].crater = Some((0.06, 0.05));
+        assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "a crater floor wider than its rim is refused");
     }
 
     /// The rows a save writes for `t` (the manifest's own serialisation, read

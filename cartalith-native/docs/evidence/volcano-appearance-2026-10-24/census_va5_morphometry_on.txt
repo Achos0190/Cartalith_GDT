@@ -1,0 +1,136 @@
+running 1 test
+test volcano_census ... == s71077345_classic: generated in 7.3s; field fnv 49c2c13f26086cc8, volcanic_field fnv 466df94743bed3c7
+   19 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 rift         cinder  0.393        1442  dormant     2.2      635      281  0.064    12.3    15.6   0.417
+     1 rift         cinder  0.372        1108  dormant     2.4      694      433  0.091    17.3    23.1   0.417
+     2 rift         cinder  0.258         261  dormant     3.4     1046      293  0.044     8.8    61.7   0.438
+     3 rift         cinder  0.256         256  dormant     1.3      408      229  0.088    16.8    35.1   0.417
+     4 rift         cinder  0.033          15  active      3.4     1180      393  0.059    11.8    18.2   0.438
+     5 rift         shield  0.241         211  dormant    19.5     1973     1657  0.042     5.6    11.8   0.135
+     6 rift         cinder  0.091          32  dormant     2.9      994      390  0.067    11.8    16.0   0.357
+     7 rift         cinder  0.111          41  dormant     1.1      384      167  0.073    14.1    22.3   0.417
+     8 arc          strato  0.153          69  dormant    14.8     2876     1422  0.048     7.4    48.9   0.257
+     9 arc          cinder  0.207         138  dormant     3.8     1206      301  0.040     7.5    24.7   0.389
+    10 arc          cinder  0.260         268  dormant     4.3     1332      638  0.075    12.9    18.6   0.350
+    11 arc          cinder  0.195         118  dormant     1.0      309      768  0.402    72.7    78.3   0.750
+    12 arc          strato  0.200         127  dormant    17.9     4006     2102  0.059     8.7    29.3   0.233
+    13 arc          strato  0.256         256  dormant    16.9     3051     2029  0.060     9.0    25.0   0.244
+    14 arc          cinder  0.286         375  dormant     1.9      598      262  0.067    13.0    18.1   0.417
+    15 arc          strato  0.173          89  dormant    61.5     5387     3336  0.027     3.2    30.5   0.031
+    16 arc          cinder  0.026          14  active      2.1      759      921  0.214    25.1    47.1   0.083
+    17 arc          cinder  0.345         789  dormant     2.2      665      597  0.133    24.5    53.9   0.417
+    18 arc          cinder  0.343         769  dormant     3.7     1107      613  0.082    15.0    37.0   0.389
+   activity: 2 active, 17 dormant, 0 extinct
+   median cinder: H/W 0.075, mean slope 14.1 deg, crater/base 0.417 (n 14)
+   median strato: H/W 0.059, mean slope 8.7 deg, crater/base 0.244 (n 4)
+   median shield: H/W 0.042, mean slope 5.6 deg, crater/base 0.135 (n 1)
+   30 edifices; m per unit 12557; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          cinder  0.117          44  dormant     3.0     1865      764  0.126    35.1    56.0   0.643
+     1 arc          cinder  0.150          67  dormant     3.8     2320      822  0.107    19.3    38.0   0.389
+     2 arc          cinder  0.171          87  dormant     2.5     1461      461  0.094    17.9    23.4   0.417
+     3 arc          cinder  0.057          21  dormant     2.9     1833      926  0.160    26.5    34.7   0.357
+     4 arc          strato  0.259         266  dormant    61.1     9345     4519  0.037     5.6    12.6   0.240
+     5 arc          cinder  0.251         240  dormant     1.5      862      145  0.048     9.3    13.5   0.417
+     6 arc          cinder  0.172          88  dormant     2.2     1340      453  0.101    19.1    54.0   0.417
+     7 arc          cinder  0.128          51  dormant     4.0     2428     1027  0.129    21.6    32.6   0.350
+     8 arc          strato  0.070          24  dormant    25.3     7852     4583  0.091    11.3    26.3   0.094
+     9 arc          cinder  0.041          17  active      2.2     1418      818  0.184    32.3    43.2   0.417
+    10 arc          cinder  0.144          62  dormant     2.9     1779      824  0.140    23.5    34.4   0.357
+    11 arc          strato  0.012          12  active     15.6     8380     4487  0.143    17.0    42.9   0.062
+    12 arc          cinder  0.080          28  dormant     2.1     1331      887  0.209    35.6    54.6   0.417
+    13 arc          cinder  0.124          48  dormant     0.9      544      204  0.115    21.5    51.8   0.417
+    14 arc          cinder  0.374        1140  dormant     2.7     1415      914  0.171    30.4    42.3   0.417
+    15 arc          strato  0.025          14  active     20.7     6551     4507  0.109    12.6    38.4   0.031
+    16 arc          cinder  0.085          29  dormant     1.6     1027      304  0.092    13.8    29.1   0.250
+    17 arc          cinder  0.085          29  dormant     2.3     1417      788  0.174    30.8    41.3   0.417
+    18 arc          cinder  0.075          26  dormant     2.8     1727      278  0.050     8.9    37.7   0.357
+    19 arc          cinder  0.319         570  dormant     1.2      661      389  0.161    23.3    50.8   0.250
+    20 arc          strato  0.024          14  active     10.6     6640     3735  0.176    20.4    59.2   0.056
+    21 arc          cinder  0.172          88  dormant     2.3     1385      559  0.120    22.4    41.5   0.417
+    22 arc          cinder  0.039          16  active      1.5      944       88  0.030     3.7     8.0   0.083
+    23 arc          cinder  0.127          50  dormant     3.6     2203     2424  0.336    35.4    59.9   0.056
+    24 arc          strato  0.070          24  dormant    61.5     9507     4353  0.035     5.3    11.7   0.240
+    25 arc          cinder  0.279         341  dormant     3.2     1822      703  0.108    21.1    41.5   0.438
+    26 arc          cinder  0.227         176  dormant     3.3     1925      620  0.093    15.1    56.6   0.312
+    27 arc          strato  0.379        1213  dormant    27.9     6039     4650  0.083     9.8    29.8   0.031
+    28 arc          strato  0.134          54  dormant    17.0     4436     3060  0.090    10.6    50.6   0.035
+    29 arc          strato  0.367        1050  dormant    20.0     3024     2460  0.061     7.2    47.5   0.031
+   activity: 5 active, 25 dormant, 0 extinct
+   median cinder: H/W 0.120, mean slope 21.6 deg, crater/base 0.417 (n 21)
+   median strato: H/W 0.090, mean slope 10.6 deg, crater/base 0.056 (n 9)
+   18 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 rift         cinder  0.132          53  dormant     3.4     1150      169  0.024     5.0     7.8   0.438
+     1 rift         cinder  0.153          69  dormant     1.9      637      290  0.075    14.5    19.8   0.417
+     2 rift         cinder  0.275         324  dormant     0.9      272       69  0.039    10.6    27.8   0.583
+     3 rift         cinder  0.014          12  active      1.8      642      434  0.120    22.4    34.0   0.417
+     4 rift         shield  0.059          21  dormant    25.7     3714     1883  0.037     4.8    16.8   0.135
+     5 rift         cinder  0.266         292  dormant     3.3     1013      499  0.076    15.2    19.2   0.438
+     6 hotspot      shield  0.090          31  dormant     9.6     1030      958  0.050     6.7     9.8   0.146
+     7 hotspot      shield  0.270         306  dormant     9.1      805       30  0.002     2.9    19.4   0.935
+     8 hotspot      shield  0.406        1703  extinct     2.5      622      551  0.109    13.4    20.5   0.083
+     9 hotspot      shield  0.577       14874  extinct     2.0      839      717  0.177    21.1    30.2   0.083
+    10 hotspot      shield  0.592       18015  extinct     9.0      446      406  0.023     3.0     4.9   0.152
+    11 arc          strato  0.295         417  dormant    21.1     1415     1317  0.031     3.6    16.3   0.010
+    12 arc          cinder  0.354         889  dormant     1.1      320      219  0.101    25.8    63.8   0.583
+    13 arc          cinder  0.348         822  dormant     2.1      620        0  0.000     0.0     0.0   0.917
+    14 arc          cinder  0.051          19  dormant     4.3     1512      791  0.091    17.2    32.8   0.409
+    15 arc          cinder  0.062          22  dormant     4.1     1434      666  0.081    13.9    28.4   0.350
+    16 arc          cinder  0.279         345  dormant     2.7      823      342  0.064    12.4    25.6   0.417
+    17 arc          cinder  0.308         493  dormant     1.8      552      340  0.093    17.7    39.0   0.417
+   activity: 1 active, 14 dormant, 3 extinct
+   median shield: H/W 0.050, mean slope 6.7 deg, crater/base 0.146 (n 6)
+   median cinder: H/W 0.076, mean slope 14.5 deg, crater/base 0.417 (n 11)
+   median strato: H/W 0.031, mean slope 3.6 deg, crater/base 0.010 (n 1)
+   18 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          cinder  0.136          56  dormant     3.7     1244      642  0.086    15.7    24.8   0.389
+     1 arc          cinder  0.061          22  dormant     1.9      670      439  0.114    13.9    48.4   0.083
+     2 arc          cinder  0.250         237  dormant     2.4      743      499  0.105    19.8    24.2   0.417
+     3 arc          cinder  0.302         458  dormant     4.1     1259      985  0.119    14.1    40.5   0.050
+     4 arc          cinder  0.096          34  dormant     2.1      726      259  0.061    11.8    16.0   0.417
+     5 arc          strato  0.111          41  dormant    27.7     2516     2022  0.036     4.3    26.6   0.031
+     6 arc          strato  0.327         626  dormant    12.8     2587     2934  0.115    18.9    41.1   0.328
+     7 arc          strato  0.370        1084  dormant    10.1     3333     3078  0.152    24.7    47.1   0.340
+     8 arc          cinder  0.201         128  dormant     3.9     1266        0  0.000     0.0     0.0   0.950
+     9 arc          cinder  0.085          29  dormant     1.0      336        0  0.000     0.0     0.0   0.917
+    10 arc          strato  0.335         692  dormant    19.9     1887     3305  0.083    10.2    58.9   0.073
+    11 rift         cinder  0.096          34  dormant     1.8      625      249  0.068    13.1    19.1   0.417
+    12 rift         cinder  0.260         270  dormant     4.1     1262      121  0.015     3.1    29.4   0.450
+    13 rift         cinder  0.205         135  dormant     4.1     1315      410  0.050     8.8    13.8   0.350
+    14 rift         cinder  0.096          34  dormant     2.8      953      284  0.051     9.0    23.4   0.357
+    15 rift         cinder  0.273         316  dormant     4.2     1301      513  0.061    10.6    17.0   0.350
+    16 rift         cinder  0.369        1067  dormant     1.1      315      115  0.053     8.1    18.9   0.250
+    17 rift         cinder  0.045          18  active      1.9      648      281  0.076    14.6    20.8   0.417
+   activity: 1 active, 17 dormant, 0 extinct
+   median strato: H/W 0.115, mean slope 18.9 deg, crater/base 0.328 (n 4)
+   median cinder: H/W 0.061, mean slope 11.8 deg, crater/base 0.417 (n 14)
+   19 edifices; m per unit 6897; km per cell 0.391
+   idx setting      kind    age01  years       activity  R_km   stampH_m finalH_m  H/W    mean_deg max_deg  crater/base
+     0 arc          strato  0.168          84  dormant    55.8     5013     4643  0.042     5.2    16.7   0.094
+     1 arc          strato  0.216         153  dormant    18.8     3925     2839  0.075    11.2    29.9   0.240
+     2 arc          cinder  0.245         223  dormant     3.4     1076      309  0.045     7.5    18.5   0.312
+     3 arc          cinder  0.076          26  dormant     2.8      949      678  0.123    20.9    35.8   0.357
+     4 arc          cinder  0.356         908  dormant     2.1      618        0  0.000     0.0     0.0   0.917
+     5 arc          cinder  0.263         280  dormant     4.1     1278      271  0.033    14.8    21.7   0.750
+     6 arc          cinder  0.370        1086  dormant     3.4      985      648  0.096    15.6    27.7   0.312
+     7 arc          cinder  0.379        1212  dormant     3.6     1051      833  0.115    20.6    34.1   0.389
+     8 arc          cinder  0.149          66  dormant     2.0      671      397  0.098    18.6    30.3   0.417
+     9 hotspot      shield  0.338         724  dormant     7.7      492      424  0.027     3.6     5.4   0.132
+    10 hotspot      shield  0.634       30660  extinct     3.5      802      724  0.103    13.9    19.7   0.167
+    11 hotspot      shield  0.985     2626925  extinct     2.1      407      341  0.082    10.1    14.9   0.083
+    12 arc          strato  0.372        1107  dormant    47.3     4801     2479  0.026     3.6     9.0   0.156
+    13 arc          cinder  0.188         108  dormant     2.9      942      453  0.078    13.6    20.6   0.357
+    14 arc          cinder  0.370        1078  dormant     1.0      278      135  0.071    13.6    30.5   0.417
+    15 arc          cinder  0.316         546  dormant     4.1     1224      571  0.070    12.2    19.1   0.350
+    16 arc          cinder  0.180          98  dormant     3.2     1048      484  0.075    15.0    19.3   0.438
+    17 arc          strato  0.106          38  dormant    15.9     2295      484  0.015     3.1    11.0   0.438
+    18 arc          cinder  0.044          17  active      2.7      936      486  0.091    17.3    24.5   0.417
+   activity: 1 active, 16 dormant, 2 extinct
+   median shield: H/W 0.082, mean slope 10.1 deg, crater/base 0.132 (n 3)
+   median strato: H/W 0.042, mean slope 5.2 deg, crater/base 0.240 (n 4)
+   median cinder: H/W 0.078, mean slope 15.0 deg, crater/base 0.417 (n 12)
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 102.10s
