@@ -26442,6 +26442,9 @@ impl WorldGen {
         inputs.territory = self.civ.as_ref().map(|c| c.territory.as_slice());
         inputs.corridors = corridors;
         inputs.volcanism = Some(&ws.volcanic_field);
+        // VA-7 (Ruling CW): the volcano table names each volcanic feature's
+        // sub-kind; `None` (no table) dashes it with the reason.
+        inputs.volcanoes = ws.volcanoes.as_deref().map(|v| v.as_slice());
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
         // The pass's only obstacle input, and the one input on this list that

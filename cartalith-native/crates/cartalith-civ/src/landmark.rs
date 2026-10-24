@@ -1542,6 +1542,12 @@ pub struct LandmarkInputs<'a> {
     /// self, by control flow. A view whose grid is not `gw * gh` reads as
     /// `None`, like every raster here.
     pub karst: Option<&'a KarstView>,
+    /// The world's volcano table (`WorldState::volcanoes`, VA-1 of
+    /// `VOLCANO_APPEARANCE_RESEARCH.md`, owner Ruling CW): each edifice's
+    /// setting, centre, radius, morphology and age draw. Read only by
+    /// [`pool_volcanic`] to name a volcanic feature's sub-kind (VA-7); `None`
+    /// -- a world with no table -- dashes the sub-kind with its reason.
+    pub volcanoes: Option<&'a [cartalith_terrain::PlacedEdifice]>,
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -1611,6 +1617,7 @@ impl<'a> LandmarkInputs<'a> {
             history: None,
             refined_view: None,
             karst: None,
+            volcanoes: None,
         }
     }
 
@@ -5270,6 +5277,11 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
                 ),
             ],
         });
+        // VA-7: the sub-kind, as the last fact (the facts are the feature's
+        // evidence, so the sub-kind is stated where its evidence is).
+        if let Some(last) = p.cands.last_mut() {
+            last.facts.push(volcanic_sub_kind(c, x, y));
+        }
         t_v.push(a as f32);
         t_s.push(vis as f32);
         t_t.push(tpi_m as f32);
@@ -5280,6 +5292,76 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
         (VOLCANIC_TERMS[2].0, VOLCANIC_TERMS[2].1, t_t),
     ];
     Some(p)
+}
+
+/// VA-7 (`VOLCANO_APPEARANCE_RESEARCH.md` §7, owner Ruling CW): the sub-kind
+/// of the volcanic feature at cell `(x, y)`, as a fact naming its evidence:
+/// the edifice that owns the cell by the stamp's own rule
+/// (`cartalith_terrain::volcano_attr::owner_of`), its morphology, its age and
+/// derived activity, and a lake inside its crater from the water classes.
+///
+/// | owner | sub-kind |
+/// |---|---|
+/// | any, a lake cell inside the crater rim | crater lake |
+/// | active shield | active lava lake |
+/// | active cinder / strato | active cone / active caldera |
+/// | dormant cinder | dormant cone |
+/// | dormant strato / shield | fumarole field (alteration persists after activity, research §3.3) |
+/// | extinct cinder / strato | extinct cone / extinct caldera |
+/// | extinct shield | lava field |
+///
+/// "Caldera" for every stratocone because this edifice model gives every one
+/// a collapse of about a quarter of its radius (research §4.2). Never a
+/// guessed sub-kind: with no table, no owning edifice, or an edifice with no
+/// morphology, the fact says so and why.
+fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
+    use cartalith_terrain::volcano_attr::{activity_of, age_years, owner_of, zone_fractions, Activity};
+    use cartalith_terrain::EdificeKind;
+    let Some(table) = c.inp.volcanoes else {
+        return "sub-kind: — (this world has no volcano table: geology model off, an imported heightmap, or a save from before 2026-10-24)".to_string();
+    };
+    let Some(h) = owner_of(table, x as f64, y as f64) else {
+        return "sub-kind: — (no recorded edifice owns this cell)".to_string();
+    };
+    let e = h.edifice;
+    let Some(kind) = e.kind else {
+        return "sub-kind: — (the edifice was drawn by the reference model, which records no morphology)".to_string();
+    };
+    let act = activity_of(e.age);
+    let (_, rim) = zone_fractions(kind);
+    // A lake inside the crater: any lake cell (`water` class 2) within the
+    // rim radius of the centre.
+    let crater_lake = c.water.is_some_and(|w| {
+        let (gw, gh) = (c.inp.gw as i64, c.inp.gh as i64);
+        let rr = (e.r * rim).max(1.0);
+        let (x0, x1) = (((e.cx - rr).floor() as i64).max(0), ((e.cx + rr).ceil() as i64).min(gw - 1));
+        let (y0, y1) = (((e.cy - rr).floor() as i64).max(0), ((e.cy + rr).ceil() as i64).min(gh - 1));
+        (y0..=y1).any(|yy| (x0..=x1).any(|xx| (xx as f64 - e.cx).hypot(yy as f64 - e.cy) <= rr && w[(yy * gw + xx) as usize] == 2))
+    });
+    let sub = if crater_lake {
+        "crater lake"
+    } else {
+        match (act, kind) {
+            (Activity::Active, EdificeKind::Shield) => "active lava lake",
+            (Activity::Active, EdificeKind::Cinder) => "active cone",
+            (Activity::Active, EdificeKind::Strato) => "active caldera",
+            (Activity::Dormant, EdificeKind::Cinder) => "dormant cone",
+            (Activity::Dormant, _) => "fumarole field",
+            (Activity::Extinct, EdificeKind::Cinder) => "extinct cone",
+            (Activity::Extinct, EdificeKind::Strato) => "extinct caldera",
+            (Activity::Extinct, EdificeKind::Shield) => "lava field",
+        }
+    };
+    let years = age_years(e.age);
+    let age = if years >= 1.0e6 {
+        format!("{:.1} Myr", years / 1.0e6)
+    } else if years >= 1.0e3 {
+        format!("{:.0} kyr", years / 1.0e3)
+    } else {
+        format!("{years:.0} yr")
+    };
+    let article = if act == Activity::Dormant { "a" } else { "an" };
+    format!("sub-kind: {sub} ({article} {} {}, {} since its last eruption{})", act.key(), kind.key(), age, if crater_lake { ", with a lake inside its crater" } else { "" })
 }
 
 /// **Category C** — §29 gives Border marker no formula, the same
@@ -7688,6 +7770,56 @@ mod tests {
             "and it must be rejected by the constraint, not missing from the domain: {:?}",
             cold
         );
+    }
+
+    /// VA-7 (Ruling CW): a placed volcanic feature names its sub-kind from the
+    /// volcano table, with the evidence (activity, kind, age), and dashes it
+    /// with the reason when there is no table; a lake inside the crater rim
+    /// makes it a crater lake.
+    #[test]
+    fn a_volcanic_feature_names_its_sub_kind_or_why_not() {
+        // Protects: the sub-kind fact reaches the placed landmark's causal
+        // chain for each case: no table (dashed with the reason), an active
+        // cinder cone, an extinct shield (a lava field), and a crater lake.
+        let (gw, gh) = (64usize, 64usize);
+        let field = flat(gw, gh);
+        let site = [LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
+        let mut vol = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let d2 = (x as f64 - 40.0).powi(2) + (y as f64 - 32.0).powi(2);
+                vol[y * gw + x] = (0.6 * (-d2 / 18.0).exp()) as f32;
+            }
+        }
+        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age };
+        let run = |table: Option<&[cartalith_terrain::PlacedEdifice]>, water: Option<&[u8]>| -> String {
+            let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, 200.0);
+            inp.peak_m = PEAK_M;
+            inp.volcanism = Some(&vol);
+            inp.settlements = &site;
+            inp.volcanoes = table;
+            inp.water = water;
+            let mut s = LandmarkSettings::default();
+            for k in kinds() {
+                s.set_armed(k.key, k.key == "volcanic_feature");
+            }
+            let out = generate(&inp, &s, 3);
+            let l = out.landmarks.iter().find(|l| l.kind == "volcanic_feature").expect("the vent places");
+            l.causal.iter().find(|f| f.starts_with("sub-kind:")).cloned().expect("a sub-kind fact")
+        };
+        assert!(run(None, None).starts_with("sub-kind: — (this world has no volcano table"));
+        let cone = [ed(cartalith_terrain::EdificeKind::Cinder, 0.01)];
+        let f = run(Some(&cone), None);
+        assert!(f.starts_with("sub-kind: active cone (an active cinder, 11 yr"), "{f}");
+        let shield = [ed(cartalith_terrain::EdificeKind::Shield, 0.95)];
+        assert!(run(Some(&shield), None).starts_with("sub-kind: lava field (an extinct shield, 1.7 Myr"), "{}", run(Some(&shield), None));
+        let mut water = vec![0u8; gw * gh];
+        water[32 * gw + 41] = 2;
+        assert!(run(Some(&cone), Some(&water)).starts_with("sub-kind: crater lake"), "{}", run(Some(&cone), Some(&water)));
+        // A lake outside the rim (r 10 x rim 0.38 = 3.8 cells) is not in the crater.
+        let mut far = vec![0u8; gw * gh];
+        far[32 * gw + 46] = 2;
+        assert!(run(Some(&cone), Some(&far)).starts_with("sub-kind: active cone"));
     }
 
     /// The four military kinds **partition** one set of hilltops: no cell is
