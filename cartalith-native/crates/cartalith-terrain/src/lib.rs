@@ -1269,8 +1269,8 @@ pub enum EdificeModel {
     /// draw is added or moved: the reference's radius draw is still made and
     /// then overridden, so the stream (and every edifice's position, setting
     /// and age) is the morphological model's exactly. Behind
-    /// `VolcanismParams::morphometry`, off at both boundaries until the owner
-    /// rules on the measured numbers.
+    /// `VolcanismParams::morphometry`: off on the parity path, on in the app
+    /// since owner Ruling CX item 1 (2026-10-24).
     Morphometric { m_per_unit: f64 },
 }
 

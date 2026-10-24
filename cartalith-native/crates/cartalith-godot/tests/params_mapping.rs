@@ -696,6 +696,36 @@ fn a_save_without_the_orogen_relief_key_reloads_without_it() {
     }
 }
 
+/// Protects: a save lacking `volc.morphometry`, or carrying it `false`, reloading without
+/// VA-5's morphometry (owner Ruling CX item 1, 2026-10-24).
+#[test]
+fn a_save_without_the_morphometry_key_reloads_without_it() {
+    // Owner Ruling CX item 1's save rule. The app now generates
+    // with VA-5's morphometry on, and a project saved before VA-5 (no key)
+    // or between VA-5 and the ruling (the key, `false`) was generated with
+    // the reference cone sizes, so both must regenerate as they were saved.
+    // The fixture is a real pre-VA-5 shape: `save_state` of the old app
+    // defaults with the key removed (`MISTAKES.md`, "Write a
+    // backward-compatibility test").
+    assert!(params::defaults().volc.morphometry, "the shipped app generates with it on");
+
+    let mut old = params::defaults();
+    old.volc.morphometry = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("volc.morphometry"), Some(&serde_json::json!(false)), "a save between VA-5 and the ruling wrote false");
+    let mut p = params::defaults();
+    params::apply_saved_state(&mut p, &state);
+    assert_eq!(p, old, "a save between VA-5 and the ruling reloads with the morphometry off");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("volc.morphometry").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of a pre-VA-5 save still applies");
+    assert!(!p.volc.morphometry, "a pre-existing save must not silently gain the morphometry");
+    assert_eq!(p, old, "a pre-VA-5 save reloads as the world it was saved as");
+}
+
 /// Protects: a save lacking the `volc.fill_edifice_pits` key reloading with the pits unfilled
 /// (Ruling CO, 2026-10-18), while a saved true/false round-trips.
 ///
@@ -942,6 +972,10 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And the orogen relief term (Ruling CU item 1): a reference export's belts
     // are smooth (`a_save_without_the_orogen_relief_key_reloads_without_it`).
     expect.tect.orogen_relief = false;
+    // And VA-5's morphometry (Ruling CX item 1): a reference export's cones
+    // are the reference sizes
+    // (`a_save_without_the_morphometry_key_reloads_without_it`).
+    expect.volc.morphometry = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1009,6 +1043,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.climate.rain_bspline && !parity.climate.rain_bspline, "B-spline rain up-sample, Ruling CM");
     assert!(app.volc.fill_edifice_pits && !parity.volc.fill_edifice_pits, "edifice flank-pit fill, Ruling CO");
     assert!(app.tect.orogen_relief && !parity.tect.orogen_relief, "orogen relief, Ruling CU item 1");
+    assert!(app.volc.morphometry && !parity.volc.morphometry, "volcano morphometry (VA-5), Ruling CX item 1");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1022,8 +1057,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the ten must make the two identical --
-    // which catches an eleventh divergence added without a ruling, in either
+    // And nothing else. Neutralising the eleven must make the two identical --
+    // which catches a twelfth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1036,10 +1071,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.climate.rain_bspline = false;
     neutral.volc.fill_edifice_pits = false;
     neutral.tect.orogen_relief = false;
+    neutral.volc.morphometry = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         ten authorised fields"
+         eleven authorised fields"
     );
 }
 
@@ -1047,13 +1083,14 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the ten shipped divergences -- the volcanism/crater ones -- are
+/// Three of the eleven shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other seven, `integrate_drainage`,
+/// path behind it is dead. The other eight, `integrate_drainage`,
 /// `tect.narrow_plate_base_blur`, `passes.glacial`, `geology_model`, `climate.rain_bspline`,
-/// `volc.fill_edifice_pits` and `tect.orogen_relief`, are left on in both worlds here (the pit
-/// fill is inert on the parity side, whose edifice model is off), so this measures only the three
+/// `volc.fill_edifice_pits`, `tect.orogen_relief` and `volc.morphometry`, are left on in both
+/// worlds here (the pit fill and the morphometry are inert on the parity side, whose edifice
+/// model is off), so this measures only the three
 /// it names. (The orogen term's reach is `cartalith-engine`'s
 /// `orogen_relief_is_off_on_the_parity_path_and_bounded_when_on`.) (The pit
 /// fill's reach is `cartalith-engine`'s `fill_edifice_pits_raises_only_edifice_ground`.) (The rain

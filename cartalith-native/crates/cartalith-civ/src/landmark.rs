@@ -5304,16 +5304,19 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
 /// |---|---|
 /// | any, a lake cell inside the crater rim | crater lake |
 /// | active shield | active lava lake |
-/// | active cinder / strato | active cone / active caldera |
+/// | active cinder / strato | active cone / active crater or active caldera |
 /// | dormant cinder | dormant cone |
 /// | dormant strato / shield | fumarole field (alteration persists after activity, research §3.3) |
-/// | extinct cinder / strato | extinct cone / extinct caldera |
+/// | extinct cinder / strato | extinct cone / extinct cone or extinct caldera |
 /// | extinct shield | lava field |
 ///
-/// "Caldera" for every stratocone because this edifice model gives every one
-/// a collapse of about a quarter of its radius (research §4.2). Never a
-/// guessed sub-kind: with no table, no owning edifice, or an edifice with no
-/// morphology, the fact says so and why.
+/// A stratocone is a "caldera" when it carries the morphological model's
+/// collapse of about a quarter of its radius (research §4.2), and a
+/// "crater" (active) or a "cone" (extinct) when VA-5's morphometry gave it a
+/// summit crater instead (`PlacedEdifice::crater` is `Some`; most stratocones
+/// in the app since owner Ruling CX item 1 turned the morphometry on). Never
+/// a guessed sub-kind: with no table, no owning edifice, or an edifice with
+/// no morphology, the fact says so and why.
 fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
     use cartalith_terrain::volcano_attr::{activity_of, age_years, owner_of, zones, Activity};
     use cartalith_terrain::EdificeKind;
@@ -5344,10 +5347,12 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
         match (act, kind) {
             (Activity::Active, EdificeKind::Shield) => "active lava lake",
             (Activity::Active, EdificeKind::Cinder) => "active cone",
+            (Activity::Active, EdificeKind::Strato) if e.crater.is_some() => "active crater",
             (Activity::Active, EdificeKind::Strato) => "active caldera",
             (Activity::Dormant, EdificeKind::Cinder) => "dormant cone",
             (Activity::Dormant, _) => "fumarole field",
             (Activity::Extinct, EdificeKind::Cinder) => "extinct cone",
+            (Activity::Extinct, EdificeKind::Strato) if e.crater.is_some() => "extinct cone",
             (Activity::Extinct, EdificeKind::Strato) => "extinct caldera",
             (Activity::Extinct, EdificeKind::Shield) => "lava field",
         }
@@ -7820,6 +7825,13 @@ mod tests {
         let mut far = vec![0u8; gw * gh];
         far[32 * gw + 46] = 2;
         assert!(run(Some(&cone), Some(&far)).starts_with("sub-kind: active cone"));
+        // A stratocone: a caldera without a VA-5 crater, a crater (active) or
+        // a cone (extinct) with one (Ruling CX item 1 turned VA-5 on).
+        let strato = |age, crater| [cartalith_terrain::PlacedEdifice { crater, ..ed(cartalith_terrain::EdificeKind::Strato, age) }];
+        assert!(run(Some(&strato(0.01, None)), None).starts_with("sub-kind: active caldera"), "{}", run(Some(&strato(0.01, None)), None));
+        assert!(run(Some(&strato(0.01, Some((0.02, 0.05)))), None).starts_with("sub-kind: active crater"), "{}", run(Some(&strato(0.01, Some((0.02, 0.05)))), None));
+        assert!(run(Some(&strato(0.9, None)), None).starts_with("sub-kind: extinct caldera"));
+        assert!(run(Some(&strato(0.9, Some((0.02, 0.05)))), None).starts_with("sub-kind: extinct cone"));
     }
 
     /// The four military kinds **partition** one set of hilltops: no cell is

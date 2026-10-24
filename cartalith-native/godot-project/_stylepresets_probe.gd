@@ -481,15 +481,33 @@ func _band_share(img: Image, land: PackedByteArray, gw: int, gh: int) -> Array:
 
 
 ## Distinct shading levels along the steepest land row segment: the row
-## through the steepest land cell, +-40 cells, vignette-corrected luma of the
-## grey image, runs of >= 2 cells whose neighbours differ by <= 2 levels,
-## then those runs' levels merged within 4. Printed, and for Cel asserted to be
-## at most `TOON_BANDS` (4): the transect need not cross every step.
+## through the land cell with the steepest 5x5 mean slope, +-40 cells,
+## vignette-corrected luma of the grey image, runs of >= 2 cells whose
+## neighbours differ by <= 2 levels, then those runs' levels merged within 4.
+## Printed, and for Cel asserted to be at most `TOON_BANDS` (4): the
+## transect need not cross every step.
+##
+## The 5x5 mean, not the single steepest cell (2026-10-24, owner Ruling CX
+## item 1): with VA-5's morphometry on in the app, the steepest single cell
+## of this world became a one- or two-cell scoria cone, whose lit and shaded
+## faces are each one cell wide and so never form the >= 2-cell run this
+## count needs -- the transect read 1 level (measured: 2 with the
+## morphometry off, the same build otherwise). A hillside several cells
+## wide is what the banded-light check is about.
 func _transect_levels(img: Image, land: PackedByteArray, slope: PackedFloat32Array, gw: int, gh: int) -> Array:
 	var bi := -1
+	var best := -1.0
 	for i in gw * gh:
 		var x := i % gw
-		if land[i] == 1 and x > 45 and x < gw - 45 and (bi < 0 or slope[i] > slope[bi]):
+		var y0 := i / gw
+		if land[i] != 1 or x <= 45 or x >= gw - 45 or y0 < 2 or y0 >= gh - 2:
+			continue
+		var s := 0.0
+		for dy in range(-2, 3):
+			for dx in range(-2, 3):
+				s += slope[(y0 + dy) * gw + x + dx]
+		if s > best:
+			best = s
 			bi = i
 	if bi < 0:
 		return [-1, []]

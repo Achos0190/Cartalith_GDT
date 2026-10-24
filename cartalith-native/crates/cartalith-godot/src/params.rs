@@ -132,7 +132,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is ten flags (enumerated by
+/// baseline underneath it. Today that is eleven flags (enumerated by
 /// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
 /// each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
@@ -225,6 +225,14 @@ pub fn defaults() -> WorldParams {
     // being clipped flat. Off in `WorldParams::defaults`, the goldens'
     // baseline. See `TectonicParams::orogen_relief`.
     p.tect.orogen_relief = true;
+    // Owner Ruling CX item 1 (2026-10-24, after VA-5's measurements in
+    // `cartalith-native/docs/STATUS.md`): VA-5's volcano morphometry ON in the
+    // app -- scoria cones sized from their height at the cited fresh H/W and a
+    // summit crater on most stratocones instead of the caldera. Off in
+    // `WorldParams::defaults`, the goldens' baseline. A disclosed re-baseline
+    // of every app world's volcanoes (`DECISIONS.md` §7p). See
+    // `VolcanismParams::morphometry`.
+    p.volc.morphometry = true;
     p
 }
 
@@ -408,9 +416,10 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "Drain volcano flank pits", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.fill_edifice_pits), set_fn: |p, v| p.volc.fill_edifice_pits = v != 0.0 },
     // VA-5 (Ruling CW, 2026-10-24): cinder footprints at the cited H/W and
-    // summit craters on most stratocones. OFF at both boundaries until the
-    // owner rules on the measured numbers; a row so a save records it; a
-    // save without the key reloads OFF (`apply_saved_state`). No GUI row.
+    // summit craters on most stratocones. ON at the app boundary since owner
+    // Ruling CX item 1 (2026-10-24), OFF in `WorldParams::defaults`; a row so
+    // a save records it; a save without the key reloads OFF
+    // (`apply_saved_state`). No GUI row.
     ParamSpec { key: "volc.morphometry", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Volcano morphometry (VA-5)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.morphometry), set_fn: |p, v| p.volc.morphometry = v != 0.0 },

@@ -412,11 +412,13 @@ pub struct VolcanismParams {
     /// stratocone but a minority a summit crater instead of the caldera
     /// (`cartalith_terrain::EdificeModel::Morphometric`). No RNG draw moves.
     ///
-    /// **`false` at both boundaries** (here and in
-    /// `cartalith_godot::params::defaults`): it moves the height field of
-    /// every app world, so it ships only when the owner rules on the measured
-    /// numbers (`cartalith-native/docs/STATUS.md`, 2026-10-24). A save without
-    /// the key reloads `false`.
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**
+    /// (owner Ruling CX item 1, 2026-10-24, after VA-5's measured numbers in
+    /// `cartalith-native/docs/STATUS.md`): it moves the height field of every
+    /// app world's volcanoes, so it ships at the app boundary as a disclosed
+    /// re-baseline (`DECISIONS.md` §7p) and this function stays the parity
+    /// baseline. A save without the key reloads `false`, so a project saved
+    /// before the ruling regenerates as it was saved.
     pub morphometry: bool,
 }
 

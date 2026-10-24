@@ -21,8 +21,15 @@
 //!   x1/x4/x16/x64 with per-frame measures inside the edifice disc.
 //!
 //! ```text
-//! VA_OUT=<dir> [VA_MORPH=1] [VA_ONLY=<tag part>] [VA_FRAMES=0] cargo test --release -p cartalith-godot --test volcano_appearance -- --ignored --nocapture --test-threads 1
+//! VA_OUT=<dir> [VA_MORPH=0] [VA_BEFORE=<arm>] [VA_ONLY=<tag part>] [VA_FRAMES=0] cargo test --release -p cartalith-godot --test volcano_appearance -- --ignored --nocapture --test-threads 1
 //! ```
+//!
+//! Without `VA_BEFORE`, "before" is the same world with the volcano colours
+//! off (VA-2..VA-4's own comparison). With `VA_BEFORE=<arm>` ([`before_arm`]),
+//! "before" is the world generated with that Ruling CX switch turned back and
+//! drawn with the colours on, so a generation-side change (item 1's
+//! morphometry) is compared world against world. Both sides draw the app's
+//! lakes (`water_bodies_floored`), so crater lakes show.
 
 #[path = "../src/render.rs"]
 #[allow(dead_code)]
@@ -387,12 +394,25 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
     p.tect.seed = w.seed;
     p.map_width_km = 800.0;
     p.sea_level = 0.42;
-    // `VA_MORPH=1`: VA-5's morphometry switch on (off at both boundaries).
-    p.volc.morphometry = std::env::var("VA_MORPH").is_ok_and(|v| v == "1");
+    // `VA_MORPH=0`: VA-5's morphometry switch off, the app before Ruling CX
+    // item 1 turned it on (`params::defaults()`); unset, the app's default.
+    if std::env::var("VA_MORPH").is_ok_and(|v| v == "0") {
+        p.volc.morphometry = false;
+    }
     if let Some(k) = w.archetype {
         p.world_structure = cartalith_engine::WorldStructureParams { enabled: true, continentality: k[0], fragmentation: k[1], tectonic_energy: k[2], ocean_depth: k[3], hotspot_density: k[4] };
     }
     p
+}
+
+/// `VA_BEFORE`'s arms: the app with one Ruling CX switch turned back. Panics
+/// on a name it does not know, so a typo cannot compare the app with itself.
+fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
+    match name {
+        // The app before Ruling CX item 1.
+        "no_morph" => p.volc.morphometry = false,
+        other => panic!("unknown VA_BEFORE arm {other:?}"),
+    }
 }
 
 fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32) -> (Vec<u8>, usize, usize, TileBounds) {
@@ -684,20 +704,41 @@ fn volcano_census() {
         // the world's peak altitude handed in as `appearance_rebased` does.
         let mut a_on = TerrainAppearance::for_tier(QualityTier::Quality).with_look(LOOK_SATELLITE);
         a_on.npr.peak_m = p.peak_m;
+        let before = std::env::var("VA_BEFORE").ok();
         let mut a_off = a_on.clone();
-        a_off.volcano_look = 0.0;
+        // The "before" world: the same world with the colours off, or (with
+        // `VA_BEFORE`) the world generated with one switch turned back.
+        let ws_b_owned = match before.as_deref() {
+            Some(arm) => {
+                let mut pb = p.clone();
+                before_arm(&mut pb, arm);
+                println!("   before: {arm}");
+                Some(cartalith_engine::generate_terrain(&pb))
+            }
+            None => {
+                a_off.volcano_look = 0.0;
+                None
+            }
+        };
+        let ws_b = ws_b_owned.as_ref().unwrap_or(&ws);
         let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
+        let lith_b = cartalith_civ::build_lithology(&ws_b.field, &ws_b.age_field, &ws_b.volcanic_field, &ws_b.crust_field, &ws_b.resistance_field, &ws_b.rainfall, ws_b.sea_level);
         let idx = VolcanoIndex::new(vt, gw, gh);
+        let idx_b = VolcanoIndex::new(ws_b.volcanoes.as_deref().expect("the before world records a table"), gw, gh);
+        let lakes = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
+        let lakes_b = render::water_bodies_floored(&ws_b.field, &ws_b.rainfall, gw, gh, ws_b.sea_level, p.world, None).classification;
         let pre_on = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a_on, Some(p.map_width_km));
-        let pre_off = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a_off, Some(p.map_width_km));
+        let pre_off = GridPrecompute::build(&ws_b.field, &ws_b.temperature, &ws_b.rainfall, Some(&ws_b.flow_discharge), gw, gh, ws_b.sea_level, p.world, &a_off, Some(p.map_width_km));
         let c_on = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a_on.clone(), &pre_on)
             .expect("context")
             .with_lithology(&lith)
+            .with_lakes(&lakes)
             .with_volcanoes(&idx);
-        let c_off = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a_off.clone(), &pre_off)
+        let c_off = RenderCtx::from_precomputed(&ws_b.field, &ws_b.temperature, &ws_b.rainfall, Some(&ws_b.flow_discharge), gw, gh, ws_b.sea_level, p.world, 55.0, 5.0, a_off.clone(), &pre_off)
             .expect("context")
-            .with_lithology(&lith)
-            .with_volcanoes(&idx);
+            .with_lithology(&lith_b)
+            .with_lakes(&lakes_b)
+            .with_volcanoes(&idx_b);
         let (tf_on, tf_off) = (TileFields::new(&c_on, None), TileFields::new(&c_off, None));
         // The picks: largest, youngest, oldest (radius >= 4 km), on land.
         let land = |e: &PlacedEdifice| {
