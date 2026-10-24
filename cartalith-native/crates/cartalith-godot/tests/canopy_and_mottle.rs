@@ -36,7 +36,7 @@ use render::{BakeFields, CanopyScale, RenderCtx, TerrainAppearance, TileBounds, 
 const KM_PER_CELL: f64 = 800.0 / 2048.0;
 
 fn scale(cells_per_px: f64) -> CanopyScale {
-    CanopyScale { strength: 1.0, km_per_cell: KM_PER_CELL, px_km: cells_per_px * KM_PER_CELL, light: (-std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2) }
+    CanopyScale { strength: 1.0, km_per_cell: KM_PER_CELL, px_km: cells_per_px * KM_PER_CELL, light: (-std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2), coarse_km: render::CANOPY_BASE_KM }
 }
 
 /// Mean and standard deviation of `canopy_relief` over an `n x n` patch of
@@ -224,7 +224,10 @@ fn the_warped_lattice_is_not_axis_aligned() {
 
 /// Protects: the shipped values, as literals -- the mottle fix on in
 /// `default()` and so in every look built on it, off on the reference path;
-/// the canopy texture on in Satellite relief only.
+/// the canopy texture off in `default()` (the Quality tier look) and
+/// `js_reference()`, on at full strength from 4 km down in Satellite relief,
+/// and (2026-10-24) at 0.8 from 1 km down in Natural Vibrant and Antique
+/// Parchment.
 #[test]
 fn the_shipped_values_are_the_stated_ones() {
     assert_eq!(TerrainAppearance::default().land_grain_warp, 1.0);
@@ -234,10 +237,15 @@ fn the_shipped_values_are_the_stated_ones() {
     }
     assert_eq!(TerrainAppearance::default().canopy_texture, 0.0);
     assert_eq!(TerrainAppearance::js_reference().canopy_texture, 0.0);
-    for look in [render::LOOK_TIER, render::LOOK_VIBRANT, render::LOOK_ANTIQUE] {
-        assert_eq!(TerrainAppearance::default().with_look(look).canopy_texture, 0.0, "{look}");
-    }
+    assert_eq!(TerrainAppearance::default().with_look(render::LOOK_TIER).canopy_texture, 0.0);
     assert_eq!(TerrainAppearance::default().with_look(render::LOOK_SATELLITE).canopy_texture, 1.0);
+    assert_eq!(TerrainAppearance::default().canopy_coarse_km, 4.0);
+    assert_eq!(TerrainAppearance::js_reference().canopy_coarse_km, 4.0);
+    assert_eq!(TerrainAppearance::default().with_look(render::LOOK_SATELLITE).canopy_coarse_km, 4.0);
+    for look in [render::LOOK_VIBRANT, render::LOOK_ANTIQUE] {
+        let a = TerrainAppearance::default().with_look(look);
+        assert_eq!((a.canopy_texture, a.canopy_coarse_km), (0.8, 1.0), "{look}");
+    }
 }
 
 /// Protects: `canopy_texture` serializes only when on (so every look that
@@ -256,10 +264,50 @@ fn the_new_fields_serialize_as_stated() {
     let s = serde_json::to_string(&TerrainAppearance::default().with_look(render::LOOK_SATELLITE)).unwrap();
     let back: TerrainAppearance = serde_json::from_str(&s).unwrap();
     assert_eq!(back.canopy_texture, 1.0);
+    // `canopy_coarse_km` (2026-10-24): left out at its 4 km default, so no
+    // look that keeps every octave changes its serialized form or tile-cache
+    // fingerprint; kept, and read back, where a look cuts it.
+    assert!(!d.contains("canopy_coarse_km"), "default must not serialize canopy_coarse_km");
+    assert!(!s.contains("canopy_coarse_km"), "Satellite relief keeps every octave and must not serialize it");
+    let v = serde_json::to_string(&TerrainAppearance::default().with_look(render::LOOK_VIBRANT)).unwrap();
+    let back: TerrainAppearance = serde_json::from_str(&v).unwrap();
+    assert_eq!((back.canopy_texture, back.canopy_coarse_km), (0.8, 1.0));
     let old = d.replace("\"land_grain_warp\":1.0,", "");
     assert!(!old.contains("land_grain_warp"));
     let back: TerrainAppearance = serde_json::from_str(&old).unwrap();
     assert_eq!(back.land_grain_warp, 1.0, "an older look loads with the fix on");
+}
+
+/// Protects: `canopy_coarse_km` is a high-pass of the ONE texture, not a
+/// second texture (2026-10-24). With the cut at 1 km, the difference from
+/// every-octave relief is exactly the 4 km and 2 km octaves' share, so once
+/// both of those are fully visible (a footprint of 0.4 km or less: `2.5 px ·
+/// 0.4 km · 2 = 2 km`) that difference must not change as the footprint
+/// shrinks further -- which holds only if the finer octaves are the very
+/// values the uncut texture draws (the skipped octaves' warp still feeds
+/// them). And at a 0.5 km footprint, where the 1 km octave is invisible
+/// (`2.5 · 0.5 = 1.25 km > 1 km`), the cut texture draws nothing at all.
+#[test]
+fn the_coarse_cut_is_a_high_pass_of_one_texture() {
+    let at = |coarse_km: f64, px_km: f64, x: f64, y: f64| render::canopy_relief(x, y, CanopyScale { px_km, coarse_km, ..scale(1.0) });
+    let (mut coarse_share, mut one_km_drawn) = (0.0, 0);
+    for k in 0..300 {
+        let (x, y) = (37.0 + k as f64 * 0.91, 11.0 + k as f64 * 0.57);
+        assert_eq!(at(1.0, 0.5, x, y), 0.0, "an octave coarser than the 1 km cut was drawn at ({x}, {y})");
+        assert_ne!(at(4.0, 0.5, x, y), 0.0, "the uncut texture must draw its coarse octaves here");
+        let d_near = at(4.0, 0.2, x, y) - at(1.0, 0.2, x, y);
+        let d_deep = at(4.0, 0.01, x, y) - at(1.0, 0.01, x, y);
+        assert!((d_near - d_deep).abs() < 1e-12, "the finer octaves differ between the cut and uncut texture: {d_near} vs {d_deep}");
+        coarse_share += d_near.abs();
+        // The cut is inclusive: a 1 km cut draws the 1 km octave (fully
+        // visible at 0.2 km: `2.5 · 0.2 · 2 = 1 km`), which a 0.5 km cut
+        // does not.
+        if at(1.0, 0.2, x, y) != at(0.5, 0.2, x, y) {
+            one_km_drawn += 1;
+        }
+    }
+    assert!(coarse_share > 1.0, "the cut removed nothing ({coarse_share})");
+    assert!(one_km_drawn > 290, "a 1 km cut left out the 1 km octave at {} of 300 points", 300 - one_km_drawn);
 }
 
 const GW: usize = 64;
@@ -417,6 +465,51 @@ fn a_tile_agrees_with_the_screen_under_the_canopy() {
     let c0 = ctx(&w, a0, true);
     let tf0 = TileFields::new(&c0, Some(&screen(&c0))).without_lakes();
     assert_ne!(tile, render::render_biome_tile_rgba(&c0, &w.field, GW, GH, bounds, &tf0), "the canopy must reach the tile");
+}
+
+/// Protects: what the 1 km cut is for (2026-10-24). On the fixture (the app's
+/// 0.39 km per cell), Natural Vibrant's canopy settings leave the one-pixel-
+/// per-cell screen raster within one level of the canopy-off render -- the
+/// fit view keeps its look -- while the uncut texture at the same strength
+/// moves its forest by several levels on average (the control: the screen
+/// can show a canopy, the cut is what keeps it out); and an 8x deep-zoom
+/// tile over the forest moves under the cut texture, so the detail does
+/// arrive with zoom. Only the canopy fields differ between the arms.
+#[test]
+fn the_coarse_cut_leaves_the_fit_raster_and_moves_a_deep_tile() {
+    let w = world();
+    let cut = TerrainAppearance { canopy_texture: 0.8, canopy_coarse_km: 1.0, ..plain() };
+    let uncut = TerrainAppearance { canopy_texture: 0.8, ..plain() };
+    let base = screen(&ctx(&w, plain(), true));
+    let mean_forest_diff = |img: &[u8]| -> (f64, u8) {
+        let (mut s, mut n, mut worst) = (0.0, 0.0, 0u8);
+        for y in 0..GH {
+            for x in 0..30 {
+                for ch in 0..3 {
+                    let d = img[(y * GW + x) * 3 + ch].abs_diff(base[(y * GW + x) * 3 + ch]);
+                    s += d as f64;
+                    n += 1.0;
+                    worst = worst.max(d);
+                }
+            }
+        }
+        (s / n, worst)
+    };
+    let (_, cut_worst) = mean_forest_diff(&screen(&ctx(&w, cut.clone(), true)));
+    let (uncut_mean, _) = mean_forest_diff(&screen(&ctx(&w, uncut, true)));
+    println!("screen: cut worst {cut_worst} levels; uncut mean {uncut_mean:.2} levels");
+    assert!(cut_worst <= 1, "the 1 km cut moved the fit raster by {cut_worst} levels");
+    assert!(uncut_mean > 3.0, "the control: the uncut canopy should move the fit forest ({uncut_mean:.2})");
+    let (tile, tw, th, bounds) = ripple_tile(0.0);
+    let deep = |a: TerrainAppearance| {
+        let c = ctx(&w, a, true);
+        let tf = TileFields::new(&c, Some(&screen(&c))).without_lakes();
+        render::render_biome_tile_rgba(&c, &tile, tw, th, bounds, &tf)
+    };
+    let (off, on) = (deep(plain()), deep(cut));
+    let moved = off.iter().zip(&on).enumerate().filter(|(k, _)| k % 4 != 3).map(|(_, (a, b))| a.abs_diff(*b) as f64).sum::<f64>() / (3 * tw * th) as f64;
+    println!("8x tile: cut canopy moves {moved:.2} levels per channel");
+    assert!(moved > 2.0, "the cut canopy did not reach the deep tile ({moved:.2} levels)");
 }
 
 /// Protects: `coarse_grad_f` -- the grid-scale gradient a kilometre-law

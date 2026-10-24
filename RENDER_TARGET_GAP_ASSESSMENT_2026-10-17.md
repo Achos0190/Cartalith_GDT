@@ -188,6 +188,13 @@ brighter and greener than the target's. Numbers and frames: `STATUS.md`'s
 2026-10-18 entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`. The numbers above are left as
 they were measured.
 
+**After (2026-10-24, gap 5 in the other looks, Ruling CW's order):** Natural
+Vibrant and Antique Parchment draw the same canopy texture from 1 km down only
+(`canopy_coarse_km`), so their fit view is unchanged and flat lowland forest,
+which had fallen to 0.15-0.44x its x4 gradient at x64, now gains detail at
+x16 and x64. Numbers and frames: `STATUS.md`'s 2026-10-24 entry and
+`cartalith-native/docs/evidence/forest-texture-nv-2026-10-24/`.
+
 ## 5. Root causes, as far as I verified them
 
 | Gap | Verified cause | Evidence quality |

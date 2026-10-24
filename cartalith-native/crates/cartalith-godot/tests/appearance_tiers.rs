@@ -544,7 +544,14 @@ fn every_tunable_is_load_bearing() {
     // known, none of which this fixture carries. Its replacement proof is in
     // `tests/satellite_relief.rs`:
     // `ground_a_cover_holds_keeps_it_where_the_single_knee_greys_it`.
-    const EXEMPT: [&str; 25] = [
+    //
+    // `canopy_coarse_km` (2026-10-24, Natural Vibrant's forest texture) is
+    // the twenty-sixth, for `canopy_texture`'s reason and one more: it is
+    // read only when the canopy is on, which `default()` is not, and only
+    // through a context with a map width. Its replacement proofs are in
+    // `tests/canopy_and_mottle.rs`: `the_coarse_cut_is_a_high_pass_of_one_texture`
+    // and `the_coarse_cut_leaves_the_fit_raster_and_moves_a_deep_tile`.
+    const EXEMPT: [&str; 26] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -569,6 +576,7 @@ fn every_tunable_is_load_bearing() {
         "rock_slope_deg",
         "rock_slope_warm_deg",
         "canopy_texture",
+        "canopy_coarse_km",
         "edifice_furrows",
     ];
     let s = synth();

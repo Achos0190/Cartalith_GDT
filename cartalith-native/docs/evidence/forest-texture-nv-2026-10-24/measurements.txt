@@ -1,0 +1,85 @@
+Forest texture for flat lowland in Natural Vibrant (Ruling CW's order), 2026-10-24.
+
+Definitions (as satellite-land-tone-2026-10-19/measurements.txt): luma Rec.709;
+grad = mean neighbour |d luma|; hf2 = sd(luma - 5x5 box); lc8 = sd(luma -
+17x17 box); aniso = band-passed gradient energy on the grid axes over the
+diagonals (1.0 isotropic). x4/x16/x64: central 70 % of a 950x858 frame
+(harness) or of the viewport capture (screen). Harness x1: a 120 x 120 px
+window of the 950 px fit frame around the pick.
+
+Harness: crates/cartalith-godot/tests/zoom_detail_ladder.rs (release),
+ZD_LAWS=2 ZD_APP=1 ZD_X1=1, worlds s24601 archipelago, s314159 earth,
+s71077345 classic, 800 km, 2048x1311. Picks by inputs only: flatforest /
+flatforest2 = temperate (5-20 C), inland, rainfall >= p75 of such land, mean
+grid forest weight >= 0.6 over a 41-cell box, smallest grid height range
+over that box (flat_forest_targets); forest / forest2 = the existing wettest
+temperate picks. 24601's forest2 = flatforest and forest ~ flatforest2 (the
+same ground), so 9 distinct crops.
+
+"before" = this tree with canopy_texture=0 (byte-for-byte the shipped HEAD
+look's forest: canopy off by control flow). "after" = shipped values
+(Natural Vibrant / Antique Parchment canopy_texture 0.8, canopy_coarse_km 1).
+
+NATURAL VIBRANT, grad x1 x4 x16 x64 | x16/x4 x64/x4
+s24601    flatforest  before 4.41 1.16 0.36 0.17 | 0.31 0.15
+                      after  4.41 1.26 1.55 3.13 | 1.23 2.48
+s24601    flatforest2 before 3.12 0.78 1.95 2.83 | 2.50 3.63
+                      after  3.12 0.82 3.31 5.19 | 4.04 6.33
+s314159   flatforest  before 3.69 1.13 0.51 0.20 | 0.45 0.18
+                      after  3.69 1.32 2.45 1.81 | 1.86 1.37
+s314159   flatforest2 before 2.44 0.62 0.41 0.27 | 0.66 0.44
+                      after  2.44 0.68 1.69 2.93 | 2.49 4.31
+s314159   forest      before 5.53 1.55 2.88 4.07 | 1.86 2.63
+                      after  5.53 1.78 3.83 5.40 | 2.15 3.03
+s314159   forest2     before 3.66 1.12 0.51 0.23 | 0.46 0.21
+                      after  3.67 1.31 2.36 2.31 | 1.80 1.76
+s71077345 flatforest  before 5.26 1.71 2.09 3.72 | 1.22 2.18
+                      after  5.26 2.40 5.38 6.69 | 2.24 2.79
+s71077345 flatforest2 before 5.56 1.41 1.56 2.08 | 1.11 1.48
+                      after  5.56 1.69 3.31 3.88 | 1.96 2.30
+s71077345 forest2     before 4.82 1.30 2.40 4.45 | 1.85 3.42
+                      after  4.82 2.07 5.75 8.05 | 2.78 3.89
+Before: four crops fall below 0.8x their x4 at x64 (0.15, 0.18, 0.44, 0.21).
+After: every crop's x16 >= 1.23x and x64 >= 1.37x its x4. x1 unchanged to two
+decimals on every crop. aniso 1.04-1.06 before and after (no lattice).
+Mean colour of each crop moves by at most 2 levels (per channel) at any rung.
+
+SATELLITE RELIEF (reference for the arrival rate; unchanged by this work --
+36 frames byte-identical before/after the canopy_coarse_km code):
+s24601 flatforest 4.75 1.35 2.41 4.94; s314159 flatforest2 3.95 0.88 2.60 4.80;
+s71077345 flatforest 13.43 4.75 7.51 8.89.
+
+ANTIQUE PARCHMENT, same picks, before -> after, x64/x4:
+s24601 flatforest 0.16 -> 2.42; s314159 flatforest 0.13 -> 0.98; flatforest2
+0.37 -> 3.53; forest2 0.18 -> 1.52; s71077345 flatforest 2.21 -> 2.90;
+flatforest2 1.55 -> 2.42; forest 1.32 -> 1.47; forest2 3.40 -> 3.94. x1
+unchanged on every crop. Hence the change was extended to it.
+
+Design sweep (Natural Vibrant, same harness):
+- full 4 km canopy (Satellite relief's) at 1.0: x1 grad 5.26 -> 10.08 and
+  4.82 -> 10.63 on 71077345 -- the fit view changes, which Ruling CI keeps.
+- canopy_coarse_km 1 (high-pass of the same texture): x1 unmoved.
+  strength 0.5: s24601 flatforest x16/x4 0.87 (falls); 0.65: worst 1.05;
+  0.8: worst 1.23 (x16), 1.37 (x64). 0.8 shipped.
+
+Zoom sweep (popping check), Natural Vibrant flat picks, ppc 1.86..29.7 in
+sqrt(2) steps: step-to-step gradient ratio before 0.55..2.45, after
+0.74..1.81 on six crops; the alternating rise/fall at level switches exists
+before the change and narrows after it. Frame 07.
+
+WINDOWED SHELL (_zoomdetail_probe, 1600x1000 viewport, its own forest pick,
+Natural Vibrant, rivers on; HEAD DLL from origin 0f683d2c vs this DLL; same
+picks in both: 24601 (700,140), 314159 (1004,340), 71077345 (140,316)):
+                grad x1 x4 x16 x64 | x16/x4 x64/x4 | hf2 x64
+s24601  before  3.12 1.82 0.91 0.56 | 0.50 0.31 | 1.55
+        after   3.12 2.24 5.13 6.56 | 2.29 2.93 | 8.85
+s314159 before  3.98 2.38 6.70 5.72 | 2.81 2.40 | 6.52
+        after   3.98 3.04 8.24 9.60 | 2.71 3.15 | 11.50
+s71077345 before 2.63 2.10 2.20 1.50 | 1.05 0.72 | 1.76
+        after   2.63 2.77 3.49 3.12 | 1.26 1.13 | 4.03
+x1 capture: 0.4-1.4 % of pixels differ, by at most 2 levels.
+
+TARGET (design/vision-render-2026-10-17/target_map_render.webp, 803x524,
+whole map only, scale unknown): six 40 px windows with the highest forest
+fraction (HSV forest class) read grad 11.8-13.7, hf2 13.0-15.6, lc8
+15.0-20.8, aniso 1.11-1.14. It is compared to the zoomed frames by eye only.

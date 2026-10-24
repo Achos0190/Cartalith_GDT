@@ -11,7 +11,9 @@
 //!   over a real generated world under the app's own generation parameters
 //!   (`params::defaults()`), an archetype's knobs (or Classic's defaults), and
 //!   the app's default look (Quality tier + Natural Vibrant) or, with
-//!   `ZD_LOOK=satellite`, the Satellite relief look.
+//!   `ZD_LOOK=satellite|antique|tier`, another shipped look. The targets
+//!   include two flat-lowland forest picks (`flatforest`, `flatforest2`,
+//!   2026-10-24; see `flat_forest_targets`).
 //! - It is **not** the screen: no river layer, no lithology, no RV-3 valley
 //!   field, no LOD-D3 morph, and the screen is composited here by bilinear
 //!   sampling of the tile at the level `pyramid_level_for_zoom` picks. Those
@@ -28,7 +30,8 @@
 //! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
 //! the terrain-streak spike's `ZD_STREAK` (see `world_params`), Ruling CO's
 //! `ZD_FURROWS=<strength>` (the volcano tile furrows; `0` = before),
-//! and the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`. `ZD_X1=1`
+//! the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`, and `ZD_PPC`
+//! (a list of pixels-per-cell rungs in place of x4/x16/x64). `ZD_X1=1`
 //! adds the fit frame; `ZD_MASK=1` writes each frame's land mask
 //! (`mask_frame`, Ruling CU's land-only statistics); `ZD_APP=1` attaches the
 //! app's lithology and peak altitude (see the law loop); `ZD_SET` writes
@@ -287,6 +290,113 @@ fn targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Vec<(&'st
             out.push(("forest2", best_w2.1 as f64, best_w2.2 as f64));
         }
     }
+    out.extend(flat_forest_targets(ws, gw, gh, m, &near_sea));
+    out
+}
+
+/// The flat-lowland forest picks (`flatforest`, `flatforest2`), added
+/// 2026-10-24 for the Natural Vibrant forest texture row (`OUTSTANDING_WORK.md`
+/// "Forest detail in Natural Vibrant"; Ruling CW's order): the ground where
+/// the kilometre zoom-detail law's relief-taper floor adds almost no relief,
+/// so a look with no canopy texture has nothing new to draw past x16.
+///
+/// Chosen by **inputs only** (`MISTAKES.md`, "Measure an effect inside a
+/// subset of pixels"): temperate (5-20 C) land at least 20 cells inland whose
+/// rainfall is at or above the 75th percentile of such land, whose mean
+/// forest weight (`render::material_weights`' canopy, at grid scale) over the
+/// surrounding 41-cell box is at least 0.6 -- a first cut without it picked
+/// wet grassland and savanna, read in the frames -- then the cell whose
+/// **grid** height range over a 41-cell box
+/// (sampled at stride 4) is smallest -- flat by the height field, never by the
+/// rendered gradient under test. The second pick repeats the rule at least
+/// 250 cells from the first (one crop per world is one sample).
+fn flat_forest_targets(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, m: usize, near_sea: &dyn Fn(usize, usize) -> bool) -> Vec<(&'static str, f64, f64)> {
+    let sea = ws.sea_level as f32;
+    let f = &ws.field;
+    let temperate = |i: usize| (5.0..20.0).contains(&ws.temperature[i]) && f[i] >= sea;
+    let mut rains: Vec<f32> = Vec::new();
+    for y in (m..gh - m).step_by(4) {
+        for x in (m..gw - m).step_by(4) {
+            if temperate(y * gw + x) {
+                rains.push(ws.rainfall[y * gw + x]);
+            }
+        }
+    }
+    if rains.is_empty() {
+        return Vec::new();
+    }
+    rains.sort_by(|a, b| a.total_cmp(b));
+    let p75 = rains[rains.len() * 3 / 4];
+    // Height range over a 41-cell box at stride 4; any sea inside disqualifies.
+    let relief = |x: usize, y: usize| -> Option<f32> {
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for yy in (y - 20..=y + 20).step_by(4) {
+            for xx in (x - 20..=x + 20).step_by(4) {
+                let v = f[yy * gw + xx];
+                if v < sea {
+                    return None;
+                }
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+        Some(hi - lo)
+    };
+    // The renderer's own forest weight at a cell (`render::material_weights`,
+    // the shipped material model, from temperature, rainfall, the grid slope,
+    // relative height and TWI; aspect and curvature left neutral). A material
+    // CATEGORY, decided at grid scale (6c7f5ea9's principle), never the
+    // texture or gradient being measured.
+    let denom = (1.0 - sea as f64).max(1e-9);
+    let canopy_at = |x: usize, y: usize| -> f64 {
+        let i = y * gw + x;
+        let gx = (f[i + 1] - f[i - 1]) as f64 / 2.0;
+        let gy = (f[i + gw] - f[i - gw]) as f64 / 2.0;
+        let slope = gx.hypot(gy);
+        let acc = (ws.flow_discharge[i] as f64 / (gw * gh) as f64).max(1e-4);
+        let twi = (acc / slope.max(0.002)).ln();
+        let r = (f[i] as f64 - sea as f64) / denom;
+        render::material_weights(ws.temperature[i] as f64, ws.rainfall[i] as f64, slope, r, twi, 0.0, 0.0, 0.0).canopy
+    };
+    // Mean forest weight over the 41-cell box at stride 8 (25 samples).
+    let stand = |x: usize, y: usize| -> f64 {
+        let mut s = 0.0;
+        for yy in (y - 16..=y + 16).step_by(8) {
+            for xx in (x - 16..=x + 16).step_by(8) {
+                s += canopy_at(xx, yy);
+            }
+        }
+        s / 25.0
+    };
+    let pick = |away: Option<(usize, usize)>| -> Option<(usize, usize)> {
+        let mut best = (f32::INFINITY, 0usize, 0usize);
+        for y in (m..gh - m).step_by(4) {
+            for x in (m..gw - m).step_by(4) {
+                let i = y * gw + x;
+                if !temperate(i) || ws.rainfall[i] < p75 || near_sea(x, y) || stand(x, y) < 0.6 {
+                    continue;
+                }
+                if let Some((ax, ay)) = away
+                    && (x as f64 - ax as f64).hypot(y as f64 - ay as f64) <= 250.0
+                {
+                    continue;
+                }
+                if let Some(r) = relief(x, y)
+                    && r < best.0
+                {
+                    best = (r, x, y);
+                }
+            }
+        }
+        best.0.is_finite().then_some((best.1, best.2))
+    };
+    let mut out = Vec::new();
+    if let Some((x, y)) = pick(None) {
+        out.push(("flatforest", x as f64, y as f64));
+        if let Some((x2, y2)) = pick(Some((x, y))) {
+            out.push(("flatforest2", x2 as f64, y2 as f64));
+        }
+    }
     out
 }
 
@@ -433,12 +543,18 @@ fn zoom_detail_ladder() {
         WorldSpec { tag: "s24601_earth_3000km", seed: 24601, archetype: Some(EARTH), width_km: 3000.0 },
         WorldSpec { tag: "s71077345_classic_800km", seed: 71077345, archetype: None, width_km: 800.0 },
     ];
-    // `ZD_LOOK` = `vibrant` (the default, the app's look) or `satellite`
-    // (Ruling CI item 2's "Satellite relief"); anything else is refused.
+    // `ZD_LOOK` = `vibrant` (the default, the app's look), `satellite`
+    // (Ruling CI item 2's "Satellite relief"), `antique` or `tier`; anything
+    // else is refused.
     let look = match std::env::var("ZD_LOOK").unwrap_or_else(|_| "vibrant".into()).as_str() {
         "vibrant" => render::LOOK_VIBRANT,
         "satellite" => render::LOOK_SATELLITE,
-        other => panic!("ZD_LOOK={other}: expected vibrant or satellite"),
+        // Added 2026-10-24 for the Natural Vibrant forest texture row: the
+        // other two shipped looks, so a change measured on Natural Vibrant can
+        // be measured on them before it is extended to them.
+        "antique" => render::LOOK_ANTIQUE,
+        "tier" => render::LOOK_TIER,
+        other => panic!("ZD_LOOK={other}: expected vibrant, satellite, antique or tier"),
     };
     let only = std::env::var("ZD_WORLDS").ok();
     for w in &worlds {
@@ -482,7 +598,18 @@ fn zoom_detail_ladder() {
         println!("FURROWS {}: {} edifices recovered", w.tag, frame_v.edifices.len());
         let fur_strength: Option<f64> = std::env::var("ZD_FURROWS").ok().map(|v| v.parse().expect("ZD_FURROWS: expected a number"));
         let x1 = std::env::var("ZD_X1").ok().is_some_and(|v| v == "1");
-        let rungs: Vec<(&str, f64)> = x1.then_some(("x1", 0.0)).into_iter().chain(RUNGS.iter().copied()).collect();
+        let mut rungs: Vec<(&str, f64)> = x1.then_some(("x1", 0.0)).into_iter().chain(RUNGS.iter().copied()).collect();
+        // `ZD_PPC=a,b,...` (2026-10-24, the forest texture's popping check):
+        // replaces the three rungs with these screen-pixels-per-cell values,
+        // each written as rung `p<value>`, so a fine zoom sweep can show
+        // whether detail changes smoothly across tile-level switches.
+        if let Ok(v) = std::env::var("ZD_PPC") {
+            rungs = x1.then_some(("x1", 0.0)).into_iter().collect();
+            for t in v.split(',').filter(|t| !t.is_empty()) {
+                let ppc: f64 = t.parse().unwrap_or_else(|_| panic!("ZD_PPC: {t} is not a number"));
+                rungs.push((Box::leak(format!("p{t}").into_boxed_str()), ppc));
+            }
+        }
         // `ZD_ONLY=<target,...>` keeps those targets only.
         if let Ok(o) = std::env::var("ZD_ONLY") {
             tg.retain(|t| o.split(',').any(|n| n == t.0));

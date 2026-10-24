@@ -1119,8 +1119,10 @@ const APPEARANCE_GROUPS := [
 	## `land_grain_warp` (Ruling CI, 2026-10-18) sits beside `sea_grain_warp`
 	## because it is the same fix on land -- the square mottle -- and is `1.0`
 	## in every shipped look, like its sibling. `canopy_texture` joined "The
-	## sheet" beside `stipple_strength`, the other forest texture; it is `0.0`
-	## except in the Satellite relief look. Both rows are derived from their
+	## sheet" beside `stipple_strength`, the other forest texture; it is `1.0`
+	## in the Satellite relief look, `0.8` in Natural Vibrant and Antique
+	## Parchment (from 1 km down only, 2026-10-24, `canopy_coarse_km`, which
+	## has no row), and `0.0` in the Quality tier look. Both rows are derived from their
 	## sibling row by the ruling below, not designed.
 	##
 	## **Derived from the `sdf_coast` row, not designed.** Owner ruling
@@ -1274,7 +1276,7 @@ const APPEARANCE_HELP := {
 	"sdf_rivers": "River bands: a damp bank, a wetland green behind it and a wide pale floodplain behind that, in three widening rings out from every watercourse. Measured from the channels themselves rather than from height or rainfall, so a river reads as a valley floor at any resolution instead of a coloured line. Same family as Coast bands above, keyed on rivers instead of the shore. Nothing on a loaded save, which stores no flow field and therefore knows where no rivers are. Costs one whole-grid distance transform when on and nothing when off.",
 	"sdf_biomes": "Biome blend: widens the noise that ragged the boundary between two biomes, in proportion to how close the ground is to that boundary -- so grassland dissolves into forest over a band rather than at a line, while each biome's interior stays as crisp as it was. Not a tint: it moves where the materials meet, not what colour they are. Costs a water-body pass and one whole-grid distance transform when on, and nothing when off.",
 	"land_grain_warp": "Breaks up the square mottle on land at low zoom -- blotches about fourteen cells across, caused by the land colour's jitter noise being sampled on grid-aligned lattices. The default, 1, rotates and warps those lattices so the mottle stays but loses its squares; 0 draws the original grid-aligned lattices.",
-	"canopy_texture": "Forest canopy texture -- lit crowns and shadowed gaps over forest, on a kilometre scale, so finer detail keeps arriving as you zoom in. Needs the map's width; on in the Satellite relief look, 0 (off) elsewhere.",
+	"canopy_texture": "Forest canopy texture -- lit crowns and shadowed gaps over forest, on a kilometre scale, so finer detail keeps arriving as you zoom in. Needs the map's width; on in Satellite relief, Natural Vibrant and Antique Parchment (the last two add only the finer, sub-kilometre crowns, so their fit view is unchanged), 0 (off) in the Quality tier look.",
 	"sea_grain_warp": "Breaks up the rectangular quilt visible in open ocean at low zoom -- squares about eighty cells across, caused by the sea's colour noise being sampled on a grid-aligned lattice. The default, 1, rotates and warps that lattice so no straight seam survives; lower values fade the warp out, and 0 draws the original grid-aligned lattice, squares included.",
 	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
 	"atmo_desaturation": "How far the outer plate loses colour toward the haze above, same distance as the sky tint. 0 keeps material colour equally saturated everywhere.",

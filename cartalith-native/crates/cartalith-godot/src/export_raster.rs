@@ -3406,6 +3406,22 @@ mod adjust_census_tests {
     /// `630662dc06e64fff` -> `f0ff580117356871`. The four other rows did NOT
     /// move, pixels or fingerprint (the new fields serialize only when
     /// non-zero). This tree's own output, pasted as change detectors.
+    ///
+    /// **RE-BASELINED 2026-10-24 (Ruling CW's order: the forest texture for
+    /// flat lowland; `canopy_texture` 0.8 and `canopy_coarse_km` 1.0 in
+    /// Natural Vibrant and Antique Parchment):** the "antique" FINGERPRINT
+    /// only, by the two newly serialized values, old -> new
+    /// `efc2f081641c45fb` -> `bd140f419bad50fb`. Its eight pixel hashes did
+    /// NOT move: this fixture is 600 km over 64 cells (9.4 km per cell), so
+    /// no consumer here -- screen, export or the one-pixel-per-cell tile --
+    /// has a footprint fine enough to draw an octave of 1 km or less (each
+    /// needs `2.5` output pixels per wavelength). The row is a change
+    /// detector for the serialized look, not evidence about the texture;
+    /// that is `tests/canopy_and_mottle.rs`'s
+    /// `the_coarse_cut_leaves_the_fit_raster_and_moves_a_deep_tile`, on a
+    /// 0.39 km-per-cell fixture. "default" is the Quality tier look (canopy off) and did not
+    /// move; nor did "graded", "js_reference" or "satellite" (Satellite relief
+    /// keeps every octave and its `canopy_coarse_km` is not serialized).
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
@@ -3417,7 +3433,7 @@ mod adjust_census_tests {
         ),
         (
             "antique",
-            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xefc2f081641c45fb],
+            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xbd140f419bad50fb],
         ),
         (
             "js_reference",
@@ -3464,6 +3480,9 @@ mod adjust_census_tests {
                 crate::lod_bridge::appearance_fingerprint(&a),
             ];
             let labels = ["screen", "river", "screen_p3", "river_p3", "export", "banded", "crop", "tile", "fingerprint"];
+            // The whole row before the first mismatch stops the test, so a
+            // re-baseline can quote every column old -> new (2026-10-24).
+            println!("CENSUS {name} {got:016x?}");
             for k in 0..9 {
                 assert_eq!(got[k], want[k], "{name} {}: {:016x} is not HEAD's {:016x}", labels[k], got[k], want[k]);
             }

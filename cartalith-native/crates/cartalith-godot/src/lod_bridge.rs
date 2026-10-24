@@ -1312,6 +1312,17 @@ mod tests {
             .expect("the precompute is for this grid")
         }
 
+        /// [`Self::ctx`] with the forest canopy texture off (2026-10-24), for
+        /// a test whose claim is about the HEIGHT octaves alone: Natural
+        /// Vibrant's canopy draws its own sub-kilometre crowns at depth
+        /// whether `add_zoom_detail` runs or not, so it dilutes an
+        /// octaves-on/off ratio without saying anything about the octaves.
+        fn ctx_without_canopy(&self) -> RenderCtx<'_> {
+            let a = render::TerrainAppearance { canopy_texture: 0.0, ..Self::appearance() };
+            render::RenderCtx::from_precomputed(&self.field, &self.temp, &self.rain, Some(&self.field), self.gw, self.gh, TEST_SEA, false, 55.0, 5.0, a, &self.pre)
+                .expect("the precompute is for this grid")
+        }
+
         /// No grid raster, so the local-contrast band is off — `TileFields`'
         /// own documented `None` case. Deliberate: rendering a full grid
         /// raster per test would dominate their runtime, and no assertion
@@ -1943,9 +1954,23 @@ mod tests {
         //    this note had carried a stale 1.044, 1.306, 1.961; 1.048,
         //    1.258, 1.787 before LOD-D5, for the reason recorded above: the
         //    ratio's own baseline is drawn with the same crest.)
+        //
+        // **2026-10-24: claims 2 and 3 run with the canopy texture off; claim
+        // 1 keeps the shipped look.** Natural Vibrant gained the forest
+        // canopy from 1 km down (`render.rs`'s `canopy_coarse_km`), which
+        // draws the same sub-kilometre crowns into the octave and no-octave
+        // tiles alike, so it lifted both sides of claim 3's ratio: on the
+        // shipped look the ratios read 1.000, 1.000, 1.051, 1.037 (claim 3
+        // red), where the canopy-off arm reads the octaves alone. Claim 1 --
+        // the owner-facing one, "a deeper level shows more" -- still holds on
+        // the shipped look (69.2 -> 132.5 -> 263.2 -> 471.9 per unit ground,
+        // measured on this tree), and is asserted on both.
         let (gw, gh) = (512usize, 512usize);
         let world = TestWorld::new(relief_field(gw, gh), gw, gh);
-        let ctx = world.ctx();
+        let shipped = world.ctx();
+        let tf_shipped = world.fields(&shipped);
+        let mut shipped_fine = Vec::new();
+        let ctx = world.ctx_without_canopy();
         let tf = world.fields(&ctx);
         let mut seen = Vec::new();
         for z in [z_base(), z_base() + 1, z_base() + 2, z_base() + 3] {
@@ -1965,7 +1990,14 @@ mod tests {
             // is what makes this survive a `TILE_PX` change.
             let per_cell = tw as f64 / tile_bounds(gw, gh, z, col, row).unwrap().w;
             seen.push((z, fine_detail(&with, tw, th) * per_cell, fine_detail(&without, tw, th) * per_cell));
+            let (shipped_px, sw, sh) = synthesize_tile_rgba(&shipped, &tf_shipped, z, col, row, 1234).unwrap();
+            shipped_fine.push(fine_detail(&shipped_px, sw, sh) * per_cell);
         }
+        println!("per-ground detail, shipped look (canopy on): {shipped_fine:?}");
+        assert!(
+            shipped_fine.windows(2).all(|p| p[1] > p[0]),
+            "on the shipped look a deeper level stopped carrying more detail per unit ground: {shipped_fine:?}"
+        );
 
         let fine: Vec<f64> = seen.iter().map(|&(_, w, _)| w).collect();
         assert!(

@@ -597,6 +597,15 @@ fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
 
+/// [`TerrainAppearance::canopy_coarse_km`]'s `skip_serializing_if`: that
+/// field's `default()` is [`CANOPY_BASE_KM`], not `0.0`, so [`is_zero_f64`]'s
+/// losslessness argument holds here at that value instead (a missing key
+/// reads back as `default()`'s). Every look that leaves it there serializes
+/// and fingerprints exactly as before the field existed (2026-10-24).
+fn is_canopy_base_km(v: &f64) -> bool {
+    *v == CANOPY_BASE_KM
+}
+
 /// One breakpoint of an elevation-keyed colour ramp: a position in
 /// **relative land elevation** and the colour the map takes there.
 ///
@@ -2213,12 +2222,43 @@ pub struct TerrainAppearance {
     ///
     /// Why: `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md` §3 ("Forest canopy
     /// texture: no canopy texture at any zoom") against the target's dark,
-    /// granular canopy. **`0.0` -- `default()`, every look but Satellite
-    /// relief, and `js_reference()` -- is off by control flow**, and so is a
+    /// granular canopy. **`0.0` -- `default()` (the Quality tier look) and
+    /// `js_reference()` -- is off by control flow**; Satellite relief draws it
+    /// at `1.0`, and since 2026-10-24 Natural Vibrant and Antique Parchment at
+    /// `0.8` from 1 km down only ([`Self::canopy_coarse_km`]). So is a
     /// context with no map width ([`RenderCtx::canopy_scale`] is `None`; a
     /// kilometre lattice without kilometres would be a guess).
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub canopy_texture: f64,
+    /// **The coarsest canopy octave drawn, in km** (Ruling CW's order,
+    /// 2026-10-24: "the forest texture for flat lowland in Natural Vibrant").
+    /// [`canopy_relief`] still walks its octaves from [`CANOPY_BASE_KM`] down,
+    /// with the same seeds, rotations, warp chain and amplitudes, but adds to
+    /// the sum only the octaves whose wavelength is at most this. So a look
+    /// that sets it below `CANOPY_BASE_KM` draws exactly Satellite relief's
+    /// finer octaves and none of its stand-scale ones: a high-pass of one
+    /// texture, not a second texture.
+    ///
+    /// Why: Natural Vibrant's flat lowland forest had almost no detail past
+    /// x16 (the zoom-detail law's relief-taper floor adds little relief there,
+    /// so `micro_relief_tone` has nothing to draw). Measured on six forest
+    /// crops of three worlds (`zoom_detail_ladder.rs`' `flatforest` picks;
+    /// `cartalith-native/docs/evidence/forest-texture-nv-2026-10-24/`): the
+    /// full 4 km canopy in Natural Vibrant doubled the fit view's forest
+    /// gradient on one world (5.26 -> 10.08), changing the look at fit, which
+    /// Ruling CI keeps; starting at 1 km left the fit frame's forest gradient
+    /// unmoved (to two decimals) and still made detail arrive at x16 and x64.
+    ///
+    /// [`CANOPY_BASE_KM`] -- `default()`, `js_reference()`, Satellite relief
+    /// -- is every octave, the texture before this field existed (by the
+    /// skip test never firing, and asserted byte-identical in
+    /// `tests/canopy_and_mottle.rs`). Unread while `canopy_texture` is `0.0`.
+    /// Serialized only when it differs from that, so no other look's
+    /// fingerprint moves. Must never add octaves coarser than
+    /// `CANOPY_BASE_KM` (the walk starts there) and must never change the
+    /// finer octaves' values.
+    #[serde(skip_serializing_if = "is_canopy_base_km")]
+    pub canopy_coarse_km: f64,
     /// **Ruling CU** (owner, 2026-10-19: the Satellite relief land tone
     /// pass): how much harder the land's light curve is driven **about the
     /// light of flat ground**, `0..=2`. The lit level
@@ -2676,8 +2716,11 @@ impl Default for TerrainAppearance {
             snow_shed_deg: 0.0,
             rock_slope_deg: 0.0,
             rock_slope_warm_deg: 0.0,
-            // Ruling CI's canopy texture: Satellite relief only.
+            // Ruling CI's canopy texture: Satellite relief and (since
+            // 2026-10-24) Natural Vibrant; off in the tier's own image.
             canopy_texture: 0.0,
+            // Every octave: the canopy as it was before the field existed.
+            canopy_coarse_km: CANOPY_BASE_KM,
             // Ruling CU's land tone pass: Satellite relief only (see the
             // fields); off by control flow here.
             land_relief_contrast: 0.0,
@@ -2985,6 +3028,8 @@ impl TerrainAppearance {
             rock_slope_warm_deg: 0.0,
             // Ruling CI's canopy texture: port-only, off by control flow.
             canopy_texture: 0.0,
+            // Unread while the texture is off; `default()`'s value.
+            canopy_coarse_km: CANOPY_BASE_KM,
             // Ruling CU's land tone pass: port-only, off by control flow.
             land_relief_contrast: 0.0,
             land_tone_contrast: 0.0,
@@ -3085,6 +3130,21 @@ impl TerrainAppearance {
                 hydro_wet_strength: 0.12,
                 biome_sat: 0.20,
                 haze_strength: 0.09,
+                // --- 5. Forest canopy below stand scale (Ruling CW's order,
+                // 2026-10-24; a deliberate app-side look change, DECISIONS
+                // §7p). Satellite relief's canopy texture from 1 km down only
+                // (`canopy_coarse_km`), so the fit view keeps this look's
+                // smooth illustrated forest and the crowns arrive as the view
+                // zooms in, where flat lowland forest otherwise had nothing
+                // new to draw past x16. Strength 0.8: a labelled judgement
+                // from the 2026-10-24 sweep (0.5 / 0.65 / 0.8 on six forest
+                // crops, `canopy_coarse_km`'s doc): 0.5 let one flat crop's
+                // x16 gradient fall below its x4 (0.87x); 0.8 keeps every
+                // crop's x16 and x64 at least 1.17x its x4 and was read as
+                // still this look's soft forest, not Satellite relief's
+                // darker crowns.
+                canopy_texture: 0.8,
+                canopy_coarse_km: 1.0,
                 ..self
             },
             LOOK_ANTIQUE => TerrainAppearance {
@@ -3116,6 +3176,12 @@ impl TerrainAppearance {
                 grade_saturation: -0.10,
                 grade_contrast: 0.08,
                 grade_shadow_tint: 0.18,
+                // Natural Vibrant's forest canopy below stand scale
+                // (2026-10-24, see that look): measured here too, flat
+                // forest crops fell to 0.13-0.37x their x4 gradient at x64
+                // without it and held 0.84-4.8x with it at 0.65.
+                canopy_texture: 0.8,
+                canopy_coarse_km: 1.0,
                 ..self
             },
             LOOK_SATELLITE => satellite_relief(self.with_look(LOOK_VIBRANT)),
@@ -3181,7 +3247,8 @@ pub const LOOK_SATELLITE: &str = "Satellite relief";
 ///   and the share of forest versus dry ground is the world's climate, not a
 ///   colour.
 ///
-/// Not in it: forest canopy (deferred by the brief), and anything a cheap
+/// The forest canopy ([`TerrainAppearance::canopy_texture`]) is on at full
+/// strength from stand scale down. Not in it: anything a cheap
 /// tier switched off -- this sets colours and strengths only, like the other
 /// looks ([`TerrainAppearance::with_look`]'s "why a layer" note). The new
 /// stages are cheap: one chamfer pass per world for the distance and two
@@ -3229,6 +3296,10 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         // Ruling CI's forest canopy (2026-10-18). Full strength is
         // [`canopy_relief`]'s own scale; see the field's doc.
         canopy_texture: 1.0,
+        // Every octave, from stand scale (4 km) down: this look's canopy as it
+        // shipped. Set here because `base` is Natural Vibrant, which since
+        // 2026-10-24 cuts the stand-scale octaves.
+        canopy_coarse_km: CANOPY_BASE_KM,
         // --- Ruling CU (2026-10-19): the land tone pass. Every value below
         // is a labelled judgement tuned against the target's land-only
         // measurement (`cartalith-native/docs/evidence/satellite-land-tone-2026-10-19/measurements.txt`: per-class mean
@@ -3459,6 +3530,11 @@ tunables! {
     "rock_slope_deg"        => rock_slope_deg,        0.0,  90.0,  "Slope rock knee (deg)";
     "rock_slope_warm_deg"   => rock_slope_warm_deg,   0.0,  90.0,  "Slope rock knee below treeline (deg)";
     "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
+    // -- Not a reference row (2026-10-24): the coarsest canopy octave drawn.
+    //    The range is the octave walk's own span, `CANOPY_MIN_KM`'s 8 m up to
+    //    `CANOPY_BASE_KM`'s 4 km; no GUI row, like `zoom_detail_km` (a look
+    //    sets it).
+    "canopy_coarse_km"      => canopy_coarse_km,      0.008, 4.0,  "Forest canopy coarsest scale (km)";
     // -- Not a reference row (Ruling CU, 2026-10-19): the Satellite relief
     //    land tone pass. The 2.0 ceiling (three times the flat-relative
     //    swing) is a labelled judgement: past it shadowed slopes clip to the
@@ -5178,7 +5254,13 @@ impl<'a> RenderCtx<'a> {
         }
         let km_per_cell = self.km_per_cell()?;
         let az = self.appearance.sun_az_deg.to_radians();
-        Some(CanopyScale { strength: self.appearance.canopy_texture, km_per_cell, px_km: cells_per_px * km_per_cell, light: (az.sin(), -az.cos()) })
+        Some(CanopyScale {
+            strength: self.appearance.canopy_texture,
+            km_per_cell,
+            px_km: cells_per_px * km_per_cell,
+            light: (az.sin(), -az.cos()),
+            coarse_km: self.appearance.canopy_coarse_km,
+        })
     }
 
     /// Distance to the nearest land in **km** at the integer cell `i`, for
@@ -6323,6 +6405,10 @@ pub struct CanopyScale {
     /// The sun's direction in grid axes (`x` right, `y` down), the relief
     /// rig's own `(sin az, -cos az)` convention: crowns are lit on this side.
     pub light: (f64, f64),
+    /// [`TerrainAppearance::canopy_coarse_km`]: octaves with a longer
+    /// wavelength are walked (their warp feeds the finer ones) but not added.
+    /// [`CANOPY_BASE_KM`] or more adds every octave.
+    pub coarse_km: f64,
 }
 
 /// The coarsest canopy octave's wavelength, in km. A labelled judgement from
@@ -6415,7 +6501,13 @@ pub(crate) fn canopy_relief(x: f64, y: f64, cs: CanopyScale) -> f64 {
         // V-shaped gaps where the noise crosses its middle -- a canopy seen
         // from above, rather than value noise's soft symmetric hills.
         let (b, bl) = ((2.0 * n - 1.0).abs(), (2.0 * nl - 1.0).abs());
-        sum += amp * vis * (0.5 * (b - CANOPY_BILLOW_MEAN) + 1.2 * (b - bl));
+        // `canopy_coarse_km` (2026-10-24): an octave coarser than the look's
+        // cut is walked -- its warp below still displaces the finer octaves,
+        // so they are the very values every-octave looks draw -- but not
+        // added. At `CANOPY_BASE_KM` this never fires.
+        if lam <= cs.coarse_km {
+            sum += amp * vis * (0.5 * (b - CANOPY_BILLOW_MEAN) + 1.2 * (b - bl));
+        }
         warp = ((n - 0.5) * 0.8, (nl - 0.5) * 0.8);
         amp *= CANOPY_GAIN;
         lam *= 0.5;

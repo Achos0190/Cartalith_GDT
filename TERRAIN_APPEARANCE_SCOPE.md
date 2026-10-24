@@ -836,7 +836,9 @@ look, `0.0` in `js_reference()`) gives them the same treatment. Milestone 4's
 stipple is a fixed per-cell texture and cannot add detail under zoom; the
 Satellite relief look gets a kilometre-keyed canopy texture instead
 (`canopy_texture`). Numbers, re-baselines and frames: `STATUS.md`'s 2026-10-18
-entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`.
+entry and `cartalith-native/docs/evidence/canopy-mottle-2026-10-18/`. Since
+2026-10-24 Natural Vibrant and Antique Parchment draw it too, from 1 km down
+only (`canopy_coarse_km`; `STATUS.md`'s 2026-10-24 entry).
 
 **Follow-up the same day: category from the grid, texture from the tile.** The
 canopy look's grid-slope fix now applies to every look: a deep-zoom tile under
