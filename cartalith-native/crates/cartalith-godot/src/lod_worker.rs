@@ -380,7 +380,7 @@ const PAINTED_RIVERS_TAG: u64 = 0x0054_4e50_374d_4952;
 
 /// The separator [`SnapshotInputs::fingerprint`] folds in before a
 /// [`SnapshotInputs::rock_detail`]. **Labelled judgement**: any fixed word
-/// does; this one spells `GF6ROCK ` in ASCII.
+/// does; this one spells `GF6ROCK\0` in ASCII.
 const ROCK_DETAIL_TAG: u64 = 0x004b_434f_5236_4647;
 
 /// The separator [`SnapshotInputs::fingerprint`] folds in before a
