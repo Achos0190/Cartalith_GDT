@@ -709,8 +709,16 @@ pub const BELIEF_RETENTION_INITIATORY: f64 = 0.25;
 /// conversion, which the paper's §22 ("easy to retain" is not "impossible to
 /// leave") does not describe.
 pub fn belief_retention(religion_key: &str) -> f64 {
-    use crate::religion_profile::{religion_profile, Membership};
-    match religion_profile(religion_key).and_then(|p| p.membership) {
+    belief_retention_for(crate::religion_profile::religion_profile(religion_key).and_then(|p| p.membership))
+}
+
+/// [`belief_retention`]'s rule on a membership value itself rather than a
+/// key: the one definition both the built-in table and a custom religion's
+/// override (FH-R2 R2-3, [`BeliefTerms::with_variant`]) read, so the two can
+/// never disagree about a tier.
+pub fn belief_retention_for(membership: Option<crate::religion_profile::Membership>) -> f64 {
+    use crate::religion_profile::Membership;
+    match membership {
         Some(Membership::Birth) => BELIEF_RETENTION_BIRTH,
         Some(Membership::Universal) => BELIEF_RETENTION_UNIVERSAL,
         Some(Membership::Initiatory) => BELIEF_RETENTION_INITIATORY,
@@ -760,18 +768,31 @@ pub const BELIEF_COMPETITION_STRONG: f64 = 1.0;
 /// Asymmetric by design: `w(r, q)` reads `q`'s membership, so a universal
 /// religion presses on a birth religion harder than the reverse.
 pub fn belief_competition_weight(r_key: &str, q_key: &str) -> f64 {
-    use crate::religion_profile::{religion_profile, Membership};
+    use crate::religion_profile::religion_profile;
     if r_key == q_key {
         return 0.0;
     }
-    let (Some(r), Some(q)) = (religion_profile(r_key), religion_profile(q_key)) else {
+    let axes = |k: &str| religion_profile(k).map(|p| (p.exclusivity, p.membership));
+    belief_competition_for(axes(r_key), axes(q_key))
+}
+
+/// [`belief_competition_weight`]'s tier rule on the two religions' axes
+/// themselves (`(exclusivity, membership)`), for two **different** slots: the
+/// one definition the built-in table and a custom religion's overrides (FH-R2
+/// R2-3) both read. Rule 1's "same religion" case is the caller's, because it
+/// is a question about slots, not axes. `None` on either side (no profile) is
+/// rule 1's silence, `0.0`.
+pub fn belief_competition_for(
+    r: Option<(crate::religion_profile::Exclusivity, Option<crate::religion_profile::Membership>)>,
+    q: Option<(crate::religion_profile::Exclusivity, Option<crate::religion_profile::Membership>)>,
+) -> f64 {
+    use crate::religion_profile::Membership;
+    let (Some((r_ex, _)), Some((q_ex, q_m))) = (r, q) else {
         return 0.0;
     };
-    if q.membership == Some(Membership::Birth) || (r.exclusivity.is_additive() && q.exclusivity.is_additive()) {
+    if q_m == Some(Membership::Birth) || (r_ex.is_additive() && q_ex.is_additive()) {
         BELIEF_COMPETITION_WEAK
-    } else if (r.exclusivity.is_exclusive() || q.exclusivity.is_exclusive())
-        && q.membership == Some(Membership::Universal)
-    {
+    } else if (r_ex.is_exclusive() || q_ex.is_exclusive()) && q_m == Some(Membership::Universal) {
         BELIEF_COMPETITION_STRONG
     } else {
         BELIEF_COMPETITION_MEDIUM
@@ -791,9 +812,8 @@ pub const BELIEF_INFLUX_MAX: f64 = 0.02;
 /// value. Measured reason (M2 cost bar, 2026-10-18): resolving them once per
 /// [`belief_step`] call (225 key lookups per year) tripled a 100-year run's
 /// cost on the harness worlds; see STATUS.md's R2-2 entry.
-fn belief_profile_terms() -> &'static ([f64; CIV_RELIGION_COUNT], [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT]) {
-    static TERMS: std::sync::OnceLock<([f64; CIV_RELIGION_COUNT], [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT])> =
-        std::sync::OnceLock::new();
+fn belief_profile_terms() -> &'static BeliefTerms {
+    static TERMS: std::sync::OnceLock<BeliefTerms> = std::sync::OnceLock::new();
     TERMS.get_or_init(|| {
         let mut ret = [0.0f64; CIV_RELIGION_COUNT];
         let mut w = [[0.0f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT];
@@ -804,8 +824,115 @@ fn belief_profile_terms() -> &'static ([f64; CIV_RELIGION_COUNT], [[f64; CIV_REL
                 w[r][q] = belief_competition_weight(rk, religion_key(q).unwrap_or(""));
             }
         }
-        (ret, w)
+        BeliefTerms { ret, w }
     })
+}
+
+/// The per-religion retention `ret_r` and the competition matrix `w_rq` one
+/// settlement's step reads: the built-in table's ([`BeliefTerms::base`]) or,
+/// inside the territory of a faction whose state religion is a custom variant
+/// with overridden axes, that variant's (FH-R2 R2-3).
+///
+/// # Why a variant's axes apply in its faction's territory and nowhere else
+///
+/// Shares are kept per **built-in slot** ([`SettlementReligionState`]): a
+/// custom religion's adherents are counted in its base's slot, because giving
+/// each custom religion its own slot is the research document's S7
+/// (world-instanced religions, outside FH-R2, `FH_R2_PLAN.md` §2.2). A slot
+/// can therefore hold one set of axes per settlement, and the settlement's
+/// ruler is the one source that says which: a settlement of a faction holding
+/// "the Reformed Church (as The One God)" reads the Reformed Church's axes for
+/// the One God slot, and a settlement of another faction reads the built-in
+/// One God's. A labelled judgement (the research document's own finding is
+/// that a religion's local form follows its establishment), disclosed in
+/// `STATUS.md`'s R2-3 entry; it is exactly identity when no faction holds an
+/// overridden custom religion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BeliefTerms {
+    ret: [f64; CIV_RELIGION_COUNT],
+    w: [[f64; CIV_RELIGION_COUNT]; CIV_RELIGION_COUNT],
+}
+
+impl BeliefTerms {
+    /// The built-in table's terms, resolved once per process (see
+    /// `belief_profile_terms`).
+    pub fn base() -> &'static BeliefTerms {
+        belief_profile_terms()
+    }
+
+    /// The terms with slot `slot`'s axes replaced by its custom variant's
+    /// overrides (FH-R2 R2-3): `ret[slot]`, row `w[slot][·]` and column
+    /// `w[·][slot]` re-derived from the variant's effective exclusivity and
+    /// membership ([`crate::religion_profile::effective_axes`]); every other
+    /// entry is the base's, copied.
+    ///
+    /// `None` -- meaning "read the base", by control flow -- when the
+    /// overrides touch neither belief-read axis
+    /// ([`crate::religion_profile::AxisOverrides::touches_belief`]), when
+    /// `slot` is [`RELIGION_NONE`] or out of range, or when its key has no
+    /// profile. So an unedited custom religion, or one with only recorded-only
+    /// axes changed, produces no table and no arithmetic difference.
+    pub fn with_variant(slot: usize, overrides: &crate::religion_profile::AxisOverrides) -> Option<BeliefTerms> {
+        use crate::religion_profile::{effective_axes, religion_profile};
+        if !overrides.touches_belief() || slot == RELIGION_NONE || slot >= CIV_RELIGION_COUNT {
+            return None;
+        }
+        let key = religion_key(slot)?;
+        let mine = effective_axes(key, overrides)?;
+        let mut t = belief_profile_terms().clone();
+        t.ret[slot] = belief_retention_for(mine.1);
+        for other in 0..CIV_RELIGION_COUNT {
+            if other == slot {
+                continue;
+            }
+            let theirs = religion_key(other)
+                .and_then(religion_profile)
+                .map(|p| (p.exclusivity, p.membership));
+            t.w[slot][other] = belief_competition_for(Some(mine), theirs);
+            t.w[other][slot] = belief_competition_for(theirs, Some(mine));
+        }
+        Some(t)
+    }
+
+    /// `ret_r`, the retention [`belief_step`] reads for slot `r`.
+    pub fn retention(&self, r: usize) -> f64 {
+        self.ret.get(r).copied().unwrap_or(0.0)
+    }
+
+    /// `w_rq`, the competition weight [`belief_step`] reads.
+    pub fn competition(&self, r: usize, q: usize) -> f64 {
+        self.w.get(r).and_then(|row| row.get(q)).copied().unwrap_or(0.0)
+    }
+}
+
+/// Which [`BeliefTerms`] each settlement's step reads. [`Default`] is every
+/// settlement on [`BeliefTerms::base`], which is what [`belief_step`] passes
+/// and what every world without an overridden custom religion builds.
+///
+/// `terms[k]` is a variant table; `of[i] = Some(k)` sends settlement `i` to it
+/// and `None` (or an index past `of`, or a `k` past `terms`) to the base. The
+/// caller -- `cartalith-godot`'s `CivData`, which holds the roster and the
+/// religion library this stateless crate cannot see -- builds one table per
+/// faction that needs one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BeliefRegime {
+    pub terms: Vec<BeliefTerms>,
+    pub of: Vec<Option<usize>>,
+}
+
+impl BeliefRegime {
+    /// The terms settlement `i` reads.
+    fn terms_for(&self, i: usize) -> &BeliefTerms {
+        match self.of.get(i).copied().flatten().and_then(|k| self.terms.get(k)) {
+            Some(t) => t,
+            None => belief_profile_terms(),
+        }
+    }
+
+    /// True when no settlement reads anything but the base.
+    pub fn is_uniform(&self) -> bool {
+        self.terms.is_empty() || self.of.iter().all(Option::is_none)
+    }
 }
 
 /// §19's `σ(x) = 1/(1+e^−x)`.
@@ -1242,14 +1369,30 @@ pub fn belief_step(
     culture_of: &[&str],
     rate: f64,
 ) {
+    belief_step_in(states, net, culture_of, rate, &BeliefRegime::default());
+}
+
+/// [`belief_step`] with each settlement's [`BeliefTerms`] chosen by `regime`
+/// (FH-R2 R2-3: a custom religion's overridden axes, read in its faction's
+/// territory). The same step: [`belief_step`] is this with the uniform
+/// regime, and a regime whose every settlement maps to the base computes
+/// bit-for-bit what [`belief_step`] computes (tested:
+/// `a_uniform_regime_is_the_plain_step_bit_for_bit`).
+pub fn belief_step_in(
+    states: &mut [SettlementReligionState],
+    net: &BeliefNetwork,
+    culture_of: &[&str],
+    rate: f64,
+    regime: &BeliefRegime,
+) {
     let n = states.len().min(net.len());
     if n == 0 {
         return;
     }
     let rate = rate.clamp(0.0, 1.0);
     let prev: Vec<SettlementReligionState> = states[..n].to_vec();
-    let (ret, w) = belief_profile_terms();
     for i in 0..n {
+        let BeliefTerms { ret, w } = regime.terms_for(i);
         let e = belief_exposure(net, &prev, i);
         let culture = culture_of.get(i).copied().unwrap_or("");
         let mut attract = [0.0f64; CIV_RELIGION_COUNT];
@@ -2983,5 +3126,132 @@ mod diffusion_tests {
         let mut extra = belief_seed(&[1, 2, 1, 1], &["none", "old_gods", "sun_cult"]);
         belief_step(&mut extra, &net, &cultures, BELIEF_STEP_RATE);
         assert_eq!(extra.len(), 4);
+    }
+
+    // -- FH-R2 R2-3: a custom religion's overridden axes ---------------------
+
+    /// A two-faith settlement trading with a third, the fixture the R2-3 tests
+    /// share: town 1 holds `sun_cult` and `one_god` half and half and trades
+    /// with town 0, wholly `sea_lords`.
+    fn r23_fixture() -> (BeliefNetwork, Vec<SettlementReligionState>, usize, usize) {
+        let sun = religion_index("sun_cult").unwrap();
+        let one = religion_index("one_god").unwrap();
+        let sea = religion_index("sea_lords").unwrap();
+        let pops = [20_000, 3000];
+        let net = BeliefNetwork::build(&pops, &[BeliefLink { a: 0, b: 1, km: 60.0 }])
+            .with_trade(&pops, &[flow(0, 1, 800.0)]);
+        let mut share = [0.0; CIV_RELIGION_COUNT];
+        share[sun] = 0.5;
+        share[one] = 0.5;
+        (net, vec![SettlementReligionState::wholly(sea), SettlementReligionState { share }], sun, one)
+    }
+
+    /// Protects: R2-3's identity by control flow. A regime that sends every
+    /// settlement to an explicit copy of the base table computes exactly what
+    /// the plain step computes, bit for bit, over 50 years; and overrides that
+    /// touch no belief-read axis build no table at all.
+    #[test]
+    fn a_uniform_regime_is_the_plain_step_bit_for_bit() {
+        use crate::religion_profile::{AxisOverrides, Institution, Locus, WorshipObject};
+        let (net, seed, sun, _) = r23_fixture();
+        let cultures = ["imperial", "imperial"];
+        let regime = BeliefRegime { terms: vec![BeliefTerms::base().clone()], of: vec![Some(0), Some(0)] };
+        let (mut a, mut b) = (seed.clone(), seed);
+        for _ in 0..50 {
+            belief_step(&mut a, &net, &cultures, BELIEF_STEP_RATE);
+            belief_step_in(&mut b, &net, &cultures, BELIEF_STEP_RATE, &regime);
+        }
+        for (x, y) in a.iter().zip(b.iter()) {
+            for r in 0..CIV_RELIGION_COUNT {
+                assert_eq!(x.share[r].to_bits(), y.share[r].to_bits(), "slot {r}");
+            }
+        }
+        let recorded_only = AxisOverrides {
+            object: Some(WorshipObject::Animism),
+            locus: Some(Locus::Portable),
+            institution: Some(Institution::Monastic),
+            ..Default::default()
+        };
+        assert_eq!(BeliefTerms::with_variant(sun, &recorded_only), None);
+        assert_eq!(BeliefTerms::with_variant(sun, &AxisOverrides::default()), None);
+        let birth = AxisOverrides {
+            membership: Some(crate::religion_profile::Membership::Birth),
+            ..Default::default()
+        };
+        assert_eq!(BeliefTerms::with_variant(RELIGION_NONE, &birth), None, "none has no axes");
+    }
+
+    /// Protects: `with_variant` re-derives exactly the variant slot's
+    /// retention, row and column, as literals from the tier constants, and
+    /// copies every other entry. `sun_cult` given birth membership: retention
+    /// 0 -> 0.75; `w(sun, one)` stays strong (1.0: the rule reads the RIVAL's
+    /// membership, and one_god is exclusive and universal); `w(one, sun)`
+    /// drops from medium (0.5) to weak (0.25), because sun is now a birth
+    /// rival that does not seek converts.
+    #[test]
+    fn a_variant_re_derives_only_its_own_slot() {
+        use crate::religion_profile::{AxisOverrides, Membership};
+        let (_, _, sun, one) = r23_fixture();
+        let sea = religion_index("sea_lords").unwrap();
+        let o = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        let t = BeliefTerms::with_variant(sun, &o).expect("membership touches belief");
+        let base = BeliefTerms::base();
+        assert_eq!(base.retention(sun), 0.0, "the reference sun_cult is unclassified");
+        assert_eq!(t.retention(sun), 0.75);
+        assert_eq!(base.competition(one, sun), 0.5, "exclusive one_god vs a non-universal");
+        assert_eq!(t.competition(one, sun), 0.25, "now a birth rival: weak");
+        assert_eq!(t.competition(sun, one), 1.0, "one_god is universal and exclusive: strong");
+        assert_eq!(t.competition(sun, sea), 0.25, "additive x additive stays weak");
+        // The variant's ROW reads its exclusivity: made exclusive, sun_cult
+        // now presses sea_lords at medium (no longer additive x additive).
+        let ex = AxisOverrides { exclusivity: Some(crate::religion_profile::Exclusivity::Exclusive), ..Default::default() };
+        let te = BeliefTerms::with_variant(sun, &ex).unwrap();
+        assert_eq!(te.competition(sun, sea), 0.5, "row: exclusive vs a non-universal");
+        assert_eq!(te.competition(sea, sun), 0.5, "column: the same pair the other way");
+        for r in 0..CIV_RELIGION_COUNT {
+            for q in 0..CIV_RELIGION_COUNT {
+                if r != sun && q != sun {
+                    assert_eq!(t.competition(r, q).to_bits(), base.competition(r, q).to_bits(), "({r},{q})");
+                }
+            }
+            if r != sun {
+                assert_eq!(t.retention(r).to_bits(), base.retention(r).to_bits(), "ret {r}");
+            }
+        }
+    }
+
+    /// Protects: the variant reaches the step (`MISTAKES.md`, "Add a
+    /// capability": attaching is not reading), in the settlement it is mapped
+    /// to and nowhere else. Giving the town's sun_cult birth membership keeps
+    /// more of it after 100 years than the base does, while the trading
+    /// partner mapped to the base is bit-identical either way at step one.
+    #[test]
+    fn an_overridden_membership_moves_only_its_mapped_settlement() {
+        use crate::religion_profile::{AxisOverrides, Membership};
+        let (net, seed, sun, _) = r23_fixture();
+        let cultures = ["imperial", "imperial"];
+        let o = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        let regime = BeliefRegime {
+            terms: vec![BeliefTerms::with_variant(sun, &o).unwrap()],
+            of: vec![None, Some(0)],
+        };
+        let (mut a, mut b) = (seed.clone(), seed);
+        belief_step(&mut a, &net, &cultures, BELIEF_STEP_RATE);
+        belief_step_in(&mut b, &net, &cultures, BELIEF_STEP_RATE, &regime);
+        for r in 0..CIV_RELIGION_COUNT {
+            assert_eq!(a[0].share[r].to_bits(), b[0].share[r].to_bits(), "the unmapped town, slot {r}");
+        }
+        assert_ne!(a[1].share[sun].to_bits(), b[1].share[sun].to_bits(), "the mapped town moved");
+        for _ in 1..100 {
+            belief_step(&mut a, &net, &cultures, BELIEF_STEP_RATE);
+            belief_step_in(&mut b, &net, &cultures, BELIEF_STEP_RATE, &regime);
+        }
+        assert!(
+            b[1].share[sun] > a[1].share[sun] + 0.01,
+            "birth retention must hold sun_cult: base {} variant {}",
+            a[1].share[sun],
+            b[1].share[sun]
+        );
+        assert!((sum(&b[1]) - 1.0).abs() < 1e-9);
     }
 }

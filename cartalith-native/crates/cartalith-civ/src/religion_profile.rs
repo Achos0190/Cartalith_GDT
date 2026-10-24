@@ -43,7 +43,9 @@
 //! shell's Religion table (TYPE, through `civ_religion_vocabulary`). Object,
 //! locus and institution are carried for FH-R2's later stages (S3's site
 //! threshold and siting rule, `FH_R2_PLAN.md` §2.2) and are read by nothing in
-//! the simulation today.
+//! the simulation today. Since FH-R2 R2-3 (2026-10-24) a custom religion may
+//! override any of axes 1-5 ([`AxisOverrides`], below); the belief terms then
+//! read [`effective_axes`] in the territory of the faction holding it.
 //!
 //! **What it must never do.** Never gain a row value with no source named in
 //! its `basis`; never fill a `None` with a plausible default (`MISTAKES.md`,
@@ -357,6 +359,142 @@ pub fn religion_profile(key: &str) -> Option<&'static ReligionProfile> {
     RELIGION_PROFILES.iter().find(|p| p.key == key)
 }
 
+// ===========================================================================
+// FH-R2 R2-3 -- a custom religion's own axis values (`FH_R2_PLAN.md` §7)
+// ===========================================================================
+//
+// **Default applied, for the owner to overrule (`FH_R2_PLAN.md` Q6, no ruling
+// yet; Ruling CW told this pass to take the plan's recommended default where a
+// question is unanswered):** a custom religion carries its **base's profile
+// plus overrides**, not free axis values. Each axis is either "as base" (no
+// override, `None` below) or one value. So an unedited custom religion is its
+// base exactly, which is the plan's M5 bar ("byte-identical to its base in
+// every M0 hash"), by control flow: no override means the base's table row is
+// read, untouched.
+//
+// An override can set a value; it cannot set an axis back to "not
+// classified" (the reference seven's `None` membership and institution).
+// That is deliberate: "not classified" is the absence of a source, and a
+// user choosing a value is a source; a user who wants the base's absence
+// chooses "as base".
+
+/// The stable key a saved document and the shell use for one axis value.
+/// Lower-case `snake_case`, never renamed (saves store it by string).
+pub trait AxisValue: Sized + Copy + 'static {
+    /// Every value, in the order the editor lists them.
+    const ALL: &'static [Self];
+    /// The saved key.
+    fn key(self) -> &'static str;
+    /// The editor's label.
+    fn label(self) -> &'static str;
+    /// The value for a saved key, or `None` for a key this build does not
+    /// know (a newer build's value, or damage): the caller then treats the
+    /// axis as "as base" and says so, never guesses a neighbour.
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|v| v.key() == key)
+    }
+}
+
+/// Implements [`AxisValue`] from one `(Variant, "key", "Label")` table, so
+/// the key, the label and `ALL` cannot drift apart.
+macro_rules! axis_value {
+    ($t:ty { $($v:ident => $k:literal, $l:literal;)+ }) => {
+        impl AxisValue for $t {
+            const ALL: &'static [Self] = &[$(<$t>::$v),+];
+            fn key(self) -> &'static str {
+                match self { $(<$t>::$v => $k),+ }
+            }
+            fn label(self) -> &'static str {
+                match self { $(<$t>::$v => $l),+ }
+            }
+        }
+    };
+}
+
+axis_value!(WorshipObject {
+    Monotheism => "monotheism", "Monotheism";
+    Henotheism => "henotheism", "Henotheism";
+    Polytheism => "polytheism", "Polytheism";
+    Dualism => "dualism", "Dualism";
+    Animism => "animism", "Animism";
+    AncestorVeneration => "ancestor_veneration", "Ancestor veneration";
+    NonTheistic => "non_theistic", "Non-theistic";
+    RulerCult => "ruler_cult", "Ruler cult";
+});
+axis_value!(Exclusivity {
+    Exclusive => "exclusive", "Exclusive";
+    ExclusiveLeaning => "exclusive_leaning", "Exclusive-leaning";
+    Mixed => "mixed", "Mixed (exclusive clergy, additive laity)";
+    Additive => "additive", "Additive";
+});
+axis_value!(Membership {
+    Birth => "birth", "Birth / ethnic";
+    Universal => "universal", "Universal / missionary";
+    Initiatory => "initiatory", "Initiatory";
+    Civic => "civic", "Civic";
+});
+axis_value!(Locus {
+    Household => "household", "Household / lineage";
+    Place => "place", "Place";
+    Civic => "civic", "Civic / state";
+    Portable => "portable", "Portable";
+});
+axis_value!(Institution {
+    HierarchicalClergy => "hierarchical_clergy", "Hierarchical clergy";
+    TemplePriesthood => "temple_priesthood", "Temple priesthood";
+    Monastic => "monastic", "Monastic";
+    Congregational => "congregational", "Congregational";
+    Specialist => "specialist", "Specialist (no temple)";
+});
+
+/// A custom religion's overrides of its base's profile, one per axis 1-5.
+/// `None` on a member is "as base". [`Default`] is no override at all, which
+/// is every custom religion created before R2-3 and every one never edited.
+///
+/// **What reads each member (2026-10-24):** `exclusivity` and `membership`
+/// feed `belief.rs`'s retention and competition through
+/// [`effective_axes`]. `object`, `locus` and `institution` are recorded and
+/// shown, and read by nothing in the simulation yet -- the same status those
+/// three axes have on the built-in table (module doc) -- so changing one of
+/// them moves no generated output. That is a stated limit, not a defect.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AxisOverrides {
+    pub object: Option<WorshipObject>,
+    pub exclusivity: Option<Exclusivity>,
+    pub membership: Option<Membership>,
+    /// One value, replacing the base's whole locus list (the base may hold
+    /// two, `one_god`'s "portable+civic"). One is enough for an editor row; a
+    /// later pass can widen it to a set without a save change, since the saved
+    /// form is already a list.
+    pub locus: Option<Locus>,
+    pub institution: Option<Institution>,
+}
+
+impl AxisOverrides {
+    /// True when no axis is overridden: the religion is its base exactly.
+    pub fn is_empty(&self) -> bool {
+        *self == AxisOverrides::default()
+    }
+
+    /// True when an axis the belief model reads (exclusivity or membership)
+    /// is overridden. The belief layer builds a per-territory term table only
+    /// for these, so an override of a recorded-only axis cannot move a run
+    /// even by floating-point accident.
+    pub fn touches_belief(&self) -> bool {
+        self.exclusivity.is_some() || self.membership.is_some()
+    }
+}
+
+/// The two axes the belief model reads, after overrides: what
+/// `belief::belief_retention_for` and `belief::belief_competition_for` take.
+/// `None` for `none` and any key with no profile row, overrides or not -- an
+/// unaffiliated "religion" has no structure to override (the library refuses
+/// overrides on a `none` base for the same reason).
+pub fn effective_axes(base_key: &str, o: &AxisOverrides) -> Option<(Exclusivity, Option<Membership>)> {
+    let p = religion_profile(base_key)?;
+    Some((o.exclusivity.unwrap_or(p.exclusivity), o.membership.or(p.membership)))
+}
+
 /// Tests for the profile table: coverage against the vocabulary, the approved
 /// literals, and the "no value is never a default" rule.
 #[cfg(test)]
@@ -440,6 +578,55 @@ mod tests {
         }
         assert_eq!(religion_profile("covenant_folk").unwrap().kind, None);
         assert_eq!(religion_profile("mysteries").unwrap().kind, Some(ReligionType::Cult));
+    }
+
+    /// Protects: every axis value's saved key round-trips and no two values of
+    /// one axis share a key (a duplicate would load as the wrong value). Keys
+    /// pinned as literals for the two belief-read axes, since saves store them.
+    #[test]
+    fn axis_keys_round_trip_and_are_unique() {
+        fn check<T: AxisValue + PartialEq + std::fmt::Debug>() {
+            let mut seen = std::collections::BTreeSet::new();
+            for &v in T::ALL {
+                assert!(seen.insert(v.key()), "duplicate key {}", v.key());
+                assert_eq!(T::from_key(v.key()), Some(v));
+                assert!(!v.label().is_empty());
+            }
+            assert_eq!(T::from_key("no_such_value"), None);
+        }
+        check::<WorshipObject>();
+        check::<Exclusivity>();
+        check::<Membership>();
+        check::<Locus>();
+        check::<Institution>();
+        let ex: Vec<&str> = Exclusivity::ALL.iter().map(|v| v.key()).collect();
+        assert_eq!(ex, ["exclusive", "exclusive_leaning", "mixed", "additive"]);
+        let m: Vec<&str> = Membership::ALL.iter().map(|v| v.key()).collect();
+        assert_eq!(m, ["birth", "universal", "initiatory", "civic"]);
+    }
+
+    /// Protects: R2-3's "base plus overrides" rule (Q6's default). No override
+    /// reads the base row exactly; one override replaces only its own axis;
+    /// `none` has no axes whatever is passed; and only exclusivity and
+    /// membership count as touching belief.
+    #[test]
+    fn overrides_replace_only_their_own_axis() {
+        let none = AxisOverrides::default();
+        assert!(none.is_empty() && !none.touches_belief());
+        assert_eq!(effective_axes("sun_cult", &none), Some((Exclusivity::Additive, None)));
+        let birth = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        assert_eq!(effective_axes("sun_cult", &birth), Some((Exclusivity::Additive, Some(Membership::Birth))));
+        let excl = AxisOverrides { exclusivity: Some(Exclusivity::Exclusive), ..Default::default() };
+        assert_eq!(effective_axes("one_god", &excl), Some((Exclusivity::Exclusive, Some(Membership::Universal))));
+        assert_eq!(effective_axes("none", &birth), None);
+        let recorded_only = AxisOverrides {
+            object: Some(WorshipObject::Animism),
+            locus: Some(Locus::Portable),
+            institution: Some(Institution::Monastic),
+            ..Default::default()
+        };
+        assert!(!recorded_only.is_empty() && !recorded_only.touches_belief());
+        assert!(birth.touches_belief() && excl.touches_belief());
     }
 
     /// Protects: the two derived predicates on exclusivity, including `Mixed`

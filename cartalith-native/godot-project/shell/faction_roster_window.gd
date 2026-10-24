@@ -2088,9 +2088,13 @@ func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: S
 
 # -- Religion picker and Religions library (FH-R1, `FACTION_HUB_DESIGN.md` §6 R1)
 
-## The plain statement R1 owes the user: a custom religion is a name over a
-## built-in, and nothing about its own beliefs is modelled yet (R2 is unbuilt).
-const RELIGION_R1_LIMIT := "A custom religion currently behaves exactly as its base religion: belief spread, relations and the religious power axis all read the base. Its own beliefs and rules are not built yet."
+## The plain statement owed to the user about what a custom religion is.
+## FH-R2 R2-3 (2026-10-24): it is its base religion plus the beliefs set on it
+## (base-plus-overrides, `FH_R2_PLAN.md` Q6's default). Which beliefs the
+## simulation reads is said in words, so a recorded-only belief never looks
+## like it does something (`civ_religion_axes_vocabulary()`'s `read` flag is
+## the engine's own list; this sentence names the same two).
+const RELIGION_R1_LIMIT := "A custom religion behaves as its base religion except for the beliefs you set on it. Belief spread reads its exclusivity and membership, in the lands of factions that hold it; object of worship, locus and institution are recorded but nothing reads them yet. Relations and the religious power axis read the base."
 
 ## Fetches `civ_custom_religions()` once per staleness (`_mark_data_stale`).
 func _ensure_custom_religions() -> void:
@@ -2156,10 +2160,36 @@ func _refresh_religion_note() -> void:
 	if bool(d.get("religion_missing", false)):
 		text = "%s: the custom religion this faction held is not in this project any more, so it behaves as having no religion. Pick another." % String(d.get("religion_name", "Missing religion"))
 	elif d.has("religion_choice"):
-		text = "Behaves as %s. Its own beliefs and rules are not built yet." \
-			% CivilizationWorkspace._religion_label(String(d.get("religion", "none")))
+		var own := _religion_axes_summary(String(d.get("religion_choice", "")))
+		text = "Behaves as %s%s." % [CivilizationWorkspace._religion_label(String(d.get("religion", "none"))),
+			(", except: " + own) if own != "" else ", with no belief of its own set"]
 	_religion_note.text = text
 	_religion_note.visible = text != ""
+
+
+## "Membership: Birth / ethnic; Locus: Portable" for a custom religion's
+## overridden beliefs (FH-R2 R2-3), from `civ_custom_religions()` and the axes
+## vocabulary; "" for a built-in, an unknown key, or no override.
+func _religion_axes_summary(key: String) -> String:
+	_ensure_custom_religions()
+	var axes := {}
+	for r in _custom_religions:
+		if String((r as Dictionary).get("key", "")) == key:
+			axes = (r as Dictionary).get("axes", {})
+	if axes.is_empty():
+		return ""
+	var parts := PackedStringArray()
+	for ax in bridge.civ_religion_axes_vocabulary():
+		var a: Dictionary = ax
+		var k := String(a.get("key", ""))
+		if not axes.has(k):
+			continue
+		var label := String(axes[k])
+		for v in a.get("values", []):
+			if String((v as Dictionary).get("key", "")) == String(axes[k]):
+				label = String((v as Dictionary).get("label", label))
+		parts.append("%s: %s" % [String(a.get("label", k)), label])
+	return "; ".join(parts)
 
 
 ## The Religions library group, under the Religion picker: every custom
@@ -2237,7 +2267,8 @@ func _religion_library_row(parent: Control, r: Dictionary) -> void:
 	row.add_child(sw)
 	var users: Array = Array(r.get("used_by", PackedInt32Array()))
 	var held := "held by no faction" if users.is_empty() else "held by " + _faction_names(users)
-	var l := DccTheme.label("%s — as %s · %s" % [String(r.get("name", "?")), String(r.get("base_label", "?")), held],
+	var own := "" if (r.get("axes", {}) as Dictionary).is_empty() else " · own beliefs"
+	var l := DccTheme.label("%s — as %s%s · %s" % [String(r.get("name", "?")), String(r.get("base_label", "?")), own, held],
 		"text", DccTheme.FS_SMALL)
 	l.name = "ReligionLabel_%d" % id
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2295,10 +2326,14 @@ func _religion_editor(parent: Control, r: Dictionary) -> void:
 	## "None / secular"), the likelier intent; an existing one shows its own.
 	var start := String(r.get("base_key", base_keys[1] if base_keys.size() > 1 else "none"))
 	var draft := {"base": start}
+	var axis_obs := {}
 	var base_ob := DccWidgets.choice(ed, "Behaves as", base_labels, maxi(0, base_keys.find(start)),
-		func(i: int): draft["base"] = String(base_keys[i]),
-		"Which built-in religion this one behaves as in the engine. " + RELIGION_R1_LIMIT)
+		func(i: int):
+			draft["base"] = String(base_keys[i])
+			_religion_axes_relabel(axis_obs, String(base_keys[i])),
+		"Which built-in religion this one behaves as in the engine, wherever a belief below is left as base. " + RELIGION_R1_LIMIT)
 	base_ob.name = "ReligionBase"
+	draft["axes"] = _religion_axes_editor(ed, r.get("axes", {}), start, axis_obs)
 
 	var crow := HBoxContainer.new()
 	crow.add_theme_constant_override("separation", 8)
@@ -2329,10 +2364,74 @@ func _religion_editor(parent: Control, r: Dictionary) -> void:
 	ed.add_child(buttons)
 	var save := DccWidgets.action(buttons, "Create religion" if creating else "Save", func():
 		_save_religion(int(r.get("id", 0)), name_le.text, String(draft["base"]), pick.color,
-			notes_le.text, status), true)
+			notes_le.text, status, draft["axes"]), true)
 	save.name = "ReligionSave"
 	var cancel := DccWidgets.text_button(buttons, "Cancel", func(): _open_religion_editor(-1))
 	cancel.name = "ReligionCancel"
+
+
+## FH-R2 R2-3's belief rows: one dropdown per axis (`civ_religion_axes_vocabulary()`
+## order), each "As base (value)" first and then the axis' values. Returns the
+## draft dictionary `{axis: value_key or ""}` the Save press sends whole, so the
+## engine's wholesale replace sees all five. `obs` collects the dropdowns so a
+## base change can relabel their "As base" entries. A heading names which two
+## the simulation reads (the vocabulary's `read` flag), and each row's tooltip
+## says whether it is read.
+func _religion_axes_editor(ed: VBoxContainer, current: Dictionary, base_key: String, obs: Dictionary) -> Dictionary:
+	var draft := {}
+	var vocab := bridge.civ_religion_axes_vocabulary()
+	if vocab.is_empty():
+		return draft
+	var head := DccTheme.mono_label("Beliefs", "text_dim", DccTheme.FS_SMALL, 0)
+	head.name = "ReligionBeliefsHead"
+	ed.add_child(head)
+	var read := PackedStringArray()
+	for ax in vocab:
+		if bool((ax as Dictionary).get("read", false)):
+			read.append(String((ax as Dictionary).get("label", "")).to_lower())
+	DccWidgets.note(ed, "Leave a belief as base to inherit it. Belief spread reads %s; the rest are recorded only." % " and ".join(read)).name = "ReligionBeliefsNote"
+	for ax in vocab:
+		var a: Dictionary = ax
+		var k := String(a.get("key", ""))
+		var keys: Array = [""]
+		var labels: Array = [""]
+		for v in a.get("values", []):
+			keys.append(String((v as Dictionary).get("key", "")))
+			labels.append(String((v as Dictionary).get("label", "?")))
+		var cur := String(current.get(k, ""))
+		draft[k] = cur if keys.has(cur) else ""
+		var tip := ("Read by belief spread, in the lands of factions holding this religion." if bool(a.get("read", false))
+			else "Recorded with the religion; nothing in the simulation reads it yet.")
+		var ob := DccWidgets.choice(ed, String(a.get("label", k)), labels, maxi(0, keys.find(draft[k])),
+			func(i: int): draft[k] = String(keys[i]), tip)
+		ob.name = "ReligionAxis_%s" % k
+		obs[k] = {"ob": ob, "values": a.get("values", [])}
+	_religion_axes_relabel(obs, base_key)
+	return draft
+
+
+## Rewrites each belief dropdown's first entry as "As base (Value)" for
+## `base_key` (the built-in's own axis from `civ_religion_vocabulary()`), or
+## "As base (not classified)" where the built-in's profile leaves it open --
+## the honest reading of a `None` axis, never a guessed value.
+func _religion_axes_relabel(obs: Dictionary, base_key: String) -> void:
+	var base_axes := {}
+	for e in bridge.civ_religion_vocabulary():
+		if String((e as Dictionary).get("key", "")) == base_key:
+			base_axes = (e as Dictionary).get("axes", {})
+	for k in obs:
+		var ob := (obs[k] as Dictionary)["ob"] as OptionButton
+		if ob == null or not is_instance_valid(ob):
+			continue
+		var raw := String(base_axes.get(k, ""))
+		var parts := PackedStringArray()
+		for part in raw.split("+", false):
+			var lab := part
+			for v in (obs[k] as Dictionary)["values"]:
+				if String((v as Dictionary).get("key", "")) == part:
+					lab = String((v as Dictionary).get("label", part))
+			parts.append(lab)
+		ob.set_item_text(0, "As base (%s)" % (" + ".join(parts) if not parts.is_empty() else "not classified"))
 
 
 ## One labelled LineEdit row of the editor (the currency rows' shape).
@@ -2371,13 +2470,28 @@ func _open_religion_editor(id: int) -> void:
 ## `roster_changed` fires AFTER the engine call, so the CIVIL dock's religion
 ## readouts re-read the new names (`MISTAKES.md`, "Emit a change signal").
 func _save_religion(id: int, religion_name: String, base_key: String, colour: Color,
-		notes: String, status: Label) -> void:
+		notes: String, status: Label, axes: Dictionary = {}) -> void:
 	var r: Dictionary
+	var any_axis := false
+	for k in axes:
+		any_axis = any_axis or String(axes[k]) != ""
 	if id == 0:
 		r = bridge.civ_add_religion(religion_name, base_key, colour, notes)
+		## Beliefs go in a second call (create takes none). A refusal there
+		## leaves the religion created as its base, and says so.
+		if bool(r.get("ok", false)) and any_axis:
+			var r2: Dictionary = bridge.civ_edit_religion(int(r.get("id", 0)), {"axes": axes})
+			if not bool(r2.get("ok", false)):
+				_religion_edit_id = int(r.get("id", 0))
+				_after_religion_library_change()
+				app.set_status("hint", "Religion created as its base; its beliefs were refused: " + String(r2.get("error", "")), "accent")
+				return
 	else:
-		r = bridge.civ_edit_religion(id, {"name": religion_name, "base_key": base_key,
-			"color_r": colour.r8, "color_g": colour.g8, "color_b": colour.b8, "notes": notes})
+		var fields := {"name": religion_name, "base_key": base_key,
+			"color_r": colour.r8, "color_g": colour.g8, "color_b": colour.b8, "notes": notes}
+		if not axes.is_empty():
+			fields["axes"] = axes
+		r = bridge.civ_edit_religion(id, fields)
 	if not bool(r.get("ok", false)):
 		status.text = String(r.get("error", "Refused."))
 		status.visible = true

@@ -3,13 +3,28 @@
 //!
 //! # What it is
 //!
-//! A custom religion is a record `{id, name, base_key, colour, notes}`
-//! ([`ReligionDef`]) whose engine behaviour **is its `base_key`'s**: one of
-//! the keys in [`crate::roster::CIV_RELIGIONS`] (the reference's eight, plus
-//! the seven FH-R2 R2-1 appended on 2026-10-12). A faction's stored
-//! religion may then be `custom:<id>` ([`custom_religion_key`]) instead of a
-//! built-in key. The user sees the custom name; the engine keeps reading the
-//! base key.
+//! A custom religion is a record `{id, name, base_key, colour, notes, axes}`
+//! ([`ReligionDef`]) whose engine behaviour **is its `base_key`'s, except
+//! where its own axis overrides say otherwise** (FH-R2 R2-3, below). The base
+//! is one of the keys in [`crate::roster::CIV_RELIGIONS`] (the reference's
+//! eight, plus the seven FH-R2 R2-1 appended on 2026-10-12). A faction's
+//! stored religion may then be `custom:<id>` ([`custom_religion_key`])
+//! instead of a built-in key. The user sees the custom name; the engine reads
+//! the base key, plus the overrides where a reader reads axes.
+//!
+//! # Real attributes (FH-R2 R2-3, 2026-10-24)
+//!
+//! Until R2-3 this module's rule was "never carry real attributes". It now
+//! carries one set: [`ReligionDef::axes`], the research document's axes 1-5
+//! as **overrides of the base's profile** (`FH_R2_PLAN.md` Q6's recommended
+//! default, applied under Ruling CW with no Q6 ruling yet; the owner may
+//! overrule). An unedited custom religion has no override and is its base
+//! exactly. What reads the overrides: the belief layer's retention and
+//! competition (exclusivity and membership only), through `cartalith-godot`'s
+//! regime builder and `belief::BeliefTerms::with_variant`. What still reads
+//! the base key alone, because those readers are keyed by the built-ins and
+//! have no axis input: `belief_seed`, `compat` (terrain fit), the relations
+//! faith term and the religious power axis.
 //!
 //! # The one rule this module exists to enforce
 //!
@@ -44,14 +59,18 @@
 //! - Never reissue an id. `next_id` only goes up, and is saved, so a deleted
 //!   religion's id cannot be handed to a new one and silently re-attach a
 //!   stale reference (the [`crate::conflict::ConflictStore`] rule).
-//! - Never carry real attributes. Phase **R2** (axes that drive coexistence
-//!   and retention) is blocked on the researched expansion and an owner
-//!   ruling; nothing here reads anything but `base_key`.
+//! - Never let an override stand on a `none` base: unaffiliation has no
+//!   structure, and the belief layer would have no slot to apply it to
+//!   ([`ReligionError::AxesOnNoReligion`]).
+//! - Never fill an axis the user did not set: "as base" is `None`, not the
+//!   base's value copied in, so a later change to the built-in table reaches
+//!   every unedited axis.
 //!
 //! Stateless helpers plus one small value type, like
 //! [`crate::conflict::ConflictStore`]: the library lives on
 //! `cartalith-godot`'s `CivData`, beside the roster that references it.
 
+use crate::religion_profile::AxisOverrides;
 use crate::roster::{has_key, CIV_RELIGIONS, CIV_RELIGIONS_REFERENCE_LEN};
 
 /// The prefix a faction's stored religion carries when it names a custom
@@ -76,7 +95,8 @@ pub const RELIGION_NOTES_MAX_CHARS: usize = 4000;
 /// one wearing either would be indistinguishable from that state.
 const RESERVED_NAMES: [&str; 2] = ["no religion", "missing religion"];
 
-/// One custom religion. Engine behaviour is `base_key`'s, nothing else.
+/// One custom religion. Engine behaviour is `base_key`'s, with `axes`
+/// overriding the base's profile where set (FH-R2 R2-3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReligionDef {
     /// Stable, never reused within a project ([`ReligionLibrary::next_id`]).
@@ -92,6 +112,9 @@ pub struct ReligionDef {
     pub colour: (u8, u8, u8),
     /// Free text, at most [`RELIGION_NOTES_MAX_CHARS`] characters.
     pub notes: String,
+    /// FH-R2 R2-3: overrides of the base's axes 1-5; empty (the default) is
+    /// "behaves as its base" exactly. Never non-empty on a `none` base.
+    pub axes: AxisOverrides,
 }
 
 /// Why a library edit was refused. Every refusal changes nothing.
@@ -116,6 +139,9 @@ pub enum ReligionError {
     InUse(Vec<usize>),
     /// `u32::MAX` ids issued; none left that was never used.
     IdsExhausted,
+    /// FH-R2 R2-3: axis overrides on (or a base change to) `none`, which has
+    /// no structure to override.
+    AxesOnNoReligion,
 }
 
 impl std::fmt::Display for ReligionError {
@@ -144,6 +170,10 @@ impl std::fmt::Display for ReligionError {
                 if fs.len() == 1 { "it" } else { "them" }
             ),
             Self::IdsExhausted => write!(f, "No unused religion id is left in this project."),
+            Self::AxesOnNoReligion => write!(
+                f,
+                "A religion that behaves as No religion has no beliefs to set; choose a faith to behave as first, or set every belief back to \"as base\"."
+            ),
         }
     }
 }
@@ -237,6 +267,14 @@ impl ReligionLibrary {
             match (ok_id, ok_base, name) {
                 (true, true, Ok(name)) => {
                     row.name = name;
+                    // Overrides on a `none` base cannot come from this app
+                    // (create, edit and set_axes refuse them); from a damaged
+                    // or hand-edited document they are cleared rather than
+                    // costing the row, the same "least load-bearing member"
+                    // rule the notes take.
+                    if row.base_key == "none" {
+                        row.axes = AxisOverrides::default();
+                    }
                     // Over-long notes are trimmed rather than costing the row:
                     // the notes are the least load-bearing member.
                     if row.notes.chars().count() > RELIGION_NOTES_MAX_CHARS {
@@ -410,6 +448,7 @@ impl ReligionLibrary {
             base_key: base_key.to_string(),
             colour,
             notes: notes.to_string(),
+            axes: AxisOverrides::default(),
         });
         Ok(id)
     }
@@ -430,6 +469,9 @@ impl ReligionLibrary {
         let name = name.map(|n| self.validate_name(n, Some(id))).transpose()?;
         if let Some(b) = base_key {
             Self::validate_base(b)?;
+            if b == "none" && !self.get(id).expect("checked above").axes.is_empty() {
+                return Err(ReligionError::AxesOnNoReligion);
+            }
         }
         if let Some(n) = notes {
             Self::validate_notes(n)?;
@@ -448,6 +490,30 @@ impl ReligionLibrary {
             d.notes = n.to_string();
         }
         Ok(())
+    }
+
+    /// FH-R2 R2-3: replaces religion `id`'s axis overrides wholesale
+    /// (`AxisOverrides::default()` clears them all, back to "behaves as its
+    /// base"). Refused, changing nothing, for an unknown id and for non-empty
+    /// overrides on a `none` base.
+    pub fn set_axes(&mut self, id: u32, axes: AxisOverrides) -> Result<(), ReligionError> {
+        let d = self.defs.iter_mut().find(|d| d.id == id).ok_or(ReligionError::NoSuchReligion(id))?;
+        if d.base_key == "none" && !axes.is_empty() {
+            return Err(ReligionError::AxesOnNoReligion);
+        }
+        d.axes = axes;
+        Ok(())
+    }
+
+    /// The axis overrides a faction's stored religion carries: a resolving
+    /// custom religion's own, or `None` for a built-in, a legacy unknown key, a
+    /// dangling `custom:` key and a custom religion with no override. What the
+    /// belief regime builder reads beside [`Self::engine_key`].
+    pub fn overrides_for<'a>(&'a self, key: &'a str) -> Option<&'a AxisOverrides> {
+        match self.choice(key) {
+            ReligionChoice::Custom(d) if !d.axes.is_empty() => Some(&d.axes),
+            _ => None,
+        }
     }
 
     /// Deletes religion `id`, refusing while any faction holds it.
@@ -604,6 +670,7 @@ mod tests {
             base_key: base.into(),
             colour: (1, 1, 1),
             notes: String::new(),
+            axes: AxisOverrides::default(),
         };
         let (lib, dropped) = ReligionLibrary::from_saved(
             0,
@@ -633,6 +700,7 @@ mod tests {
             base_key: "old_gods".into(),
             colour: (1, 1, 1),
             notes: String::new(),
+            axes: AxisOverrides::default(),
         };
         let (mut lib, dropped) = ReligionLibrary::from_saved(
             0,
@@ -652,5 +720,55 @@ mod tests {
         let mut lib = ReligionLibrary::new();
         let id = lib.create("Hall of Tablets", "revealed_law", (0, 0, 0), "").unwrap();
         assert_eq!(lib.engine_key(&custom_religion_key(id)), "revealed_law");
+    }
+
+    /// Protects: FH-R2 R2-3's overrides -- a new religion has none and
+    /// resolves to no overrides; `set_axes` writes and clears them; overrides
+    /// on a `none` base are refused, and so is a base change to `none` while
+    /// overrides stand (nothing written either time); `overrides_for` answers
+    /// only for a resolving custom key that carries some.
+    #[test]
+    fn axis_overrides_are_stored_validated_and_resolved() {
+        use crate::religion_profile::{Exclusivity, Membership};
+        let (mut lib, id) = lib_with_one();
+        let key = custom_religion_key(id);
+        assert!(lib.get(id).unwrap().axes.is_empty());
+        assert_eq!(lib.overrides_for(&key), None, "unedited: behaves as its base");
+        let o = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        lib.set_axes(id, o.clone()).unwrap();
+        assert_eq!(lib.overrides_for(&key), Some(&o));
+        assert_eq!(lib.overrides_for("sea_lords"), None);
+        assert_eq!(lib.overrides_for("custom:99"), None);
+        let before = lib.clone();
+        assert_eq!(lib.edit(id, None, Some("none"), None, None), Err(ReligionError::AxesOnNoReligion));
+        assert_eq!(lib, before, "a refused base change writes nothing");
+        lib.set_axes(id, AxisOverrides::default()).unwrap();
+        assert_eq!(lib.overrides_for(&key), None, "cleared");
+        let hearth = lib.create("Hearth Path", "none", (0, 0, 0), "").unwrap();
+        let ex = AxisOverrides { exclusivity: Some(Exclusivity::Exclusive), ..Default::default() };
+        assert_eq!(lib.set_axes(hearth, ex), Err(ReligionError::AxesOnNoReligion));
+        assert!(lib.get(hearth).unwrap().axes.is_empty());
+        assert_eq!(lib.set_axes(77, AxisOverrides::default()), Err(ReligionError::NoSuchReligion(77)));
+    }
+
+    /// Protects: a saved row carrying overrides on a `none` base (only a
+    /// damaged or hand-edited document can) keeps the row and drops the
+    /// overrides, rather than costing the religion its factions.
+    #[test]
+    fn from_saved_clears_overrides_on_a_none_base_and_keeps_the_rest() {
+        use crate::religion_profile::Membership;
+        let o = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        let row = |id, name: &str, base: &str| ReligionDef {
+            id,
+            name: name.into(),
+            base_key: base.into(),
+            colour: (1, 1, 1),
+            notes: String::new(),
+            axes: o.clone(),
+        };
+        let (lib, dropped) = ReligionLibrary::from_saved(0, vec![row(1, "A", "none"), row(2, "B", "sun_cult")]);
+        assert_eq!(dropped, 0);
+        assert!(lib.get(1).unwrap().axes.is_empty());
+        assert_eq!(lib.get(2).unwrap().axes, o);
     }
 }

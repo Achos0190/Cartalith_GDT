@@ -5164,8 +5164,9 @@ func civ_religion_vocabulary() -> Array:
 	return world_gen.civ_religion_vocabulary()
 
 ## `FACTION_HUB_DESIGN.md` §6 R1 (`civ_religion_bridge.rs`): the project's
-## custom religions, each a named variant that BEHAVES AS its `base_key` --
-## `{id, key, name, base_key, base_label, color_r/g/b, notes, used_by}`. `[]`
+## custom religions, each a named variant that BEHAVES AS its `base_key` except
+## for its own FH-R2 R2-3 beliefs (`axes`, only the overridden ones) --
+## `{id, key, name, base_key, base_label, color_r/g/b, notes, used_by, axes}`. `[]`
 ## before a world exists, and on a build without the binding (test
 ## `has_custom_religion_api()` to tell those apart).
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
@@ -5176,6 +5177,18 @@ func civ_custom_religions() -> Array:
 	if not _has("civ_custom_religions"):
 		return []
 	return world_gen.civ_custom_religions()
+
+## FH-R2 R2-3's belief vocabulary (`WorldGen.civ_religion_axes_vocabulary`):
+## one row per axis 1-5, `{key, label, read, values: [{key, label}]}`, where
+## `read` says whether the simulation reads that axis. `[]` without the API (an
+## older engine), in which case the editor draws no belief rows at all.
+## Refused while `generating`: answers [].
+func civ_religion_axes_vocabulary() -> Array:
+	if generating:
+		return []
+	if not _has("civ_religion_axes_vocabulary"):
+		return []
+	return world_gen.civ_religion_axes_vocabulary()
 
 ## Whether this build's engine has the R1 library at all. The hub hides the
 ## library group (with a note) rather than drawing controls nothing answers.

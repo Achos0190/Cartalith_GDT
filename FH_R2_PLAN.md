@@ -10,6 +10,8 @@ was built, measured and left out. Not a status column; the rest of this document
 **Later pointer (2026-10-18, Ruling CJ approved Q1 and Q4):** the rest of R2-1 (the `ReligionProfile` table, the
 Religion screen's TYPE column) and R2-2 (S2 coexistence) were built; `STATUS.md`'s 2026-10-18 FH-R2 entry has what
 was measured against §6's M1/M2 bars, including one bar not met.
+**Later pointer (2026-10-24, Ruling CW: outstanding work at the recommended defaults):** R2-3 was built at Q6's
+default; later milestones and the defaults each applied are in `STATUS.md`'s 2026-10-24 FH-R2 entries.
 
 Every number below names its source: a symbol opened on 2026-10-12, the research document, or a **labelled
 judgement** (Ruling BK). Every code citation names a symbol; line numbers are given only as a search aid and

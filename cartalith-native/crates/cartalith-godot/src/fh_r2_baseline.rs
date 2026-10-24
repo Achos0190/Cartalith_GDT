@@ -332,6 +332,48 @@ const M2_BELIEF: [u64; 20] = [
     0xb7e5e03852df7746, // 24601 40075 24  (M0 0x87a829e2db67aa25)
 ];
 
+/// The whole harness re-recorded at `0801fbce` (2026-10-24), the tree FH-R2
+/// R2-3 started from, one row per [`M0`] row in the same order.
+///
+/// RE-BASELINED 2026-10-24, and disclosed rather than ruled: **the harness was
+/// already red at `0801fbce`, before any R2-3 change.** Run there, 20 of 20
+/// worlds differ from [`M0`]/[`M2_BELIEF`] in the relations, belief and urban
+/// columns (the roster column is unchanged: same religion and government
+/// picks). Every one of those columns reads the generated world itself
+/// (territory, settlements, town sites), and between R2-2 (`820e0acd`) and
+/// `0801fbce` several ruled app-side terrain changes landed in
+/// `params::defaults()` -- Ruling CM's B-spline rain up-sample (`26ac5156`),
+/// Ruling CO's volcano pit fill (`21874074`, `2cfce96c`), Ruling CU's orogen
+/// ranges (`782ec8c7`) -- each of which moves app worlds by its own ruling.
+/// Which of them moved these worlds was **not bisected**; it is a candidate
+/// list, not a finding. The rows below were printed by this test on a clean
+/// `0801fbce` worktree; [`M0`] and [`M2_BELIEF`] stay as the historical
+/// record. From R2-3 on, a stage's "0 bytes moved" bar is measured against this
+/// table, and a stage that changes a column re-baselines it here with the old
+/// value beside the new.
+const AT_0801FBCE: [Row; 20] = [
+    (12345, 800, 6, 0x12ad5407c90b2d2f, 0x5c2004de10c6265f, 0x6ef29e9bcdae1ca9, 0xbcb3da126476c843), // 28 settlements, 15 pairs, 3 towns, 9596 buildings
+    (12345, 800, 24, 0x83fc2cde5ba874d6, 0x60b724792206c53b, 0xda772cea5a60f87b, 0xbbe3a8e71eb7a26c), // 28 settlements, 276 pairs, 3 towns, 12155 buildings
+    (12345, 40075, 6, 0x12ad5407c90b2d2f, 0x95c289cde0c804f7, 0x4e5ec3cf050eed16, 0xc472ed74011cea76), // 22 settlements, 15 pairs, 3 towns, 12548 buildings
+    (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xf6f43dba29d80ac0, 0xc224165ac8ab2daa), // 22 settlements, 276 pairs, 3 towns, 12322 buildings
+    (314159, 800, 6, 0x12ad5407c90b2d2f, 0xf0e680f532a2af86, 0xc8665b1a229e8bf0, 0xd7cadf5474989e2d), // 28 settlements, 15 pairs, 3 towns, 11458 buildings
+    (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x5ff9ad8480196a8b, 0x2dbc7beffcd5c5b2), // 28 settlements, 276 pairs, 3 towns, 11368 buildings
+    (314159, 40075, 6, 0x12ad5407c90b2d2f, 0x75596bb70531fc30, 0xaa708efde9b802f3, 0x1a21bca108e23078), // 22 settlements, 15 pairs, 3 towns, 13204 buildings
+    (314159, 40075, 24, 0x83fc2cde5ba874d6, 0xa6c3dfc12981ca11, 0xbd742606c68ee9b8, 0xb8cff3caea5af249), // 22 settlements, 276 pairs, 3 towns, 12727 buildings
+    (404, 800, 6, 0x12ad5407c90b2d2f, 0x6d489371e183bfe5, 0x08aa0d83b485a732, 0xe9eeb4ee8cd67eae), // 28 settlements, 15 pairs, 3 towns, 12004 buildings
+    (404, 800, 24, 0x83fc2cde5ba874d6, 0xd6cc372330159c4e, 0x55b6fc8b0c4f4641, 0x4a8d9f8fa5757d3a), // 28 settlements, 276 pairs, 3 towns, 13150 buildings
+    (404, 40075, 6, 0x12ad5407c90b2d2f, 0x02594796df689f67, 0xff7ffc1933569655, 0xc1fb1a8707c483e2), // 22 settlements, 15 pairs, 3 towns, 10299 buildings
+    (404, 40075, 24, 0x83fc2cde5ba874d6, 0xe4d590af380630db, 0x72e75e14a35ef867, 0x4c458d53a4752bed), // 22 settlements, 276 pairs, 3 towns, 11250 buildings
+    (707, 800, 6, 0x12ad5407c90b2d2f, 0x8b390478b554281e, 0x8e310cdb39d8269f, 0x6f78d2d6bac38e4b), // 28 settlements, 15 pairs, 3 towns, 10099 buildings
+    (707, 800, 24, 0x83fc2cde5ba874d6, 0xcedf35dd0eb2a5ae, 0xe518464aa3c95cd2, 0xdad31b17be184141), // 28 settlements, 276 pairs, 3 towns, 12989 buildings
+    (707, 40075, 6, 0x12ad5407c90b2d2f, 0x423e55d58efe8710, 0x9f49f53f1b3df459, 0x20c886252478cac2), // 22 settlements, 15 pairs, 3 towns, 12550 buildings
+    (707, 40075, 24, 0x83fc2cde5ba874d6, 0xad2e2e0b81d07e01, 0x4654513f79d40be8, 0xcef0e234416caaa9), // 22 settlements, 276 pairs, 3 towns, 14080 buildings
+    (24601, 800, 6, 0x12ad5407c90b2d2f, 0xbefe95773005588d, 0x72b0cabcba4b567f, 0x22a8f50c77d0cf82), // 28 settlements, 15 pairs, 3 towns, 11773 buildings
+    (24601, 800, 24, 0x83fc2cde5ba874d6, 0x06380ec2d44607f8, 0x1118b2972ae33d37, 0x0a0accc42b23eb4e), // 28 settlements, 276 pairs, 3 towns, 12159 buildings
+    (24601, 40075, 6, 0x12ad5407c90b2d2f, 0xce0f10490895e492, 0x1a72a4dd95c5a5e6, 0x528600d735c84d91), // 22 settlements, 15 pairs, 3 towns, 12035 buildings
+    (24601, 40075, 24, 0x83fc2cde5ba874d6, 0xc42b13d64411c63f, 0x0ff4132f780ff84a, 0x962e576450dcf773), // 22 settlements, 276 pairs, 3 towns, 13206 buildings
+];
+
 /// Protects: R2-1 (`FH_R2_PLAN.md` M1) moves zero bytes of the roster's
 /// religion/government picks, the relations they feed and the three largest
 /// towns' buildings on 20 real worlds against the M0 literals recorded before
@@ -361,9 +403,10 @@ fn fh_r2_m1_moves_zero_bytes_against_m0() {
         }
     }
     let mut moved = Vec::new();
-    for ((got, want), &belief) in rows.iter().zip(M0.iter()).zip(M2_BELIEF.iter()) {
-        let want = (want.0, want.1, want.2, want.3, want.4, belief, want.6);
-        if *got != want {
+    // Compared with `AT_0801FBCE` since R2-3 (2026-10-24): see that table's
+    // doc for why `M0`/`M2_BELIEF` no longer describe the app's worlds.
+    for (got, want) in rows.iter().zip(AT_0801FBCE.iter()) {
+        if got != want {
             moved.push(format!("got {got:?} want {want:?}"));
         }
     }
@@ -552,4 +595,117 @@ fn fh_r2_m2_belief_cost() {
             tf[4]
         );
     }
+}
+
+/// The relations and belief fingerprints of one civ as it stands (roster,
+/// custom religions and all): what FH-R2 R2-3's M5 bar compares.
+fn relations_and_belief(civ: &mut crate::CivData, gh: usize, wrap: bool, flows: &[TradeFlow]) -> (u64, u64) {
+    let cultures: Vec<&str> = civ.faction_roster.0.iter().map(|e| e.culture.as_str()).collect();
+    let religions: Vec<&str> = civ.faction_roster.engine_religions(&civ.religions);
+    let input = FactionRelationsInput {
+        faction_count: civ.faction_roster.0.len(),
+        gw: GW,
+        gh,
+        territory: Some(&civ.territory),
+        cultures: &cultures,
+        religions: &religions,
+        wrap_x: wrap,
+    };
+    let empty = cartalith_civ::FactionAggregates {
+        by_faction: Vec::new(),
+        max_pop: 0.0,
+        max_trade_volume: 0.0,
+        max_territory_km2: 0.0,
+        max_settlement_count: 0,
+        world_mean_resource: Default::default(),
+        world_mean_terrain: Default::default(),
+    };
+    let mut h = Fnv::new();
+    for r in civ_faction_relations(&input, &empty).pairs.iter() {
+        h.eat_str(&format!("{r:?}"));
+    }
+    let rel = h.0;
+    civ.belief.clear();
+    civ.civ_belief_run(100, flows);
+    let mut h = Fnv::new();
+    for s in civ.belief.iter() {
+        for v in s.share.iter() {
+            h.eat(&v.to_bits().to_le_bytes());
+        }
+    }
+    (rel, h.0)
+}
+
+/// FH-R2 R2-3's **M5 bar** (`FH_R2_PLAN.md` §6): a custom religion whose
+/// axis values equal its base's profile is byte-identical to its base in the
+/// belief and relations fingerprints, and changing one belief-read axis moves
+/// the belief run (and nothing the axes do not feed: relations). Over the
+/// five seeds at 800 km with 24 factions, faction 1 is re-pointed at a custom
+/// religion based on its own default religion, three ways: unedited; with
+/// exclusivity explicitly set to the base's own value (a table is built and
+/// must still equal the base bit for bit); with membership set to `birth`.
+/// The recorded-only axes (object, locus, institution) are set on the third
+/// variant's twin to show they move nothing. Ignored: it generates 5 worlds.
+///
+/// Protects: Q6's "base plus overrides" default is identity for an unedited
+/// or base-equal custom religion, and the override actually reaches the run.
+#[test]
+#[ignore = "M5 measurement over 5 generated worlds; run alone with --ignored"]
+fn fh_r2_m5_custom_axes() {
+    use cartalith_civ::religion_library::custom_religion_key;
+    use cartalith_civ::religion_profile::{
+        religion_profile, AxisOverrides, Institution, Locus, Membership, WorshipObject,
+    };
+    let (mut moved, mut worlds) = (0usize, 0usize);
+    for &seed in SEEDS.iter() {
+        let (ws, mut civ, gh, p) = generate_world(seed, 800.0, 24, GW);
+        let no_polys: Vec<Vec<(f64, f64)>> = Vec::new();
+        let flows = {
+            let uw = trade_world(&ws, &civ, GW, gh, &p, seed, &no_polys);
+            harness_flows(&civ, &uw)
+        };
+        let base_key = civ.faction_roster.0[1].religion.clone();
+        let base = religion_profile(&base_key).expect("faction 1 holds a faith with a profile");
+        let held = civ.settlements.iter().filter(|s| s.placement.faction == 1).count();
+        assert!(held > 0, "seed {seed}: faction 1 holds no settlement, the fixture proves nothing");
+        let plain = relations_and_belief(&mut civ, gh, p.world, &flows);
+        let id = civ.religions.create("Harness Variant", &base_key, (1, 2, 3), "").unwrap();
+        let key = custom_religion_key(id);
+        {
+            let crate::CivData { faction_roster, religions, .. } = &mut civ;
+            assert!(faction_roster.set_religion(1, &key, religions));
+        }
+        let unedited = relations_and_belief(&mut civ, gh, p.world, &flows);
+        civ.religions
+            .set_axes(id, AxisOverrides { exclusivity: Some(base.exclusivity), ..Default::default() })
+            .unwrap();
+        let same_value = relations_and_belief(&mut civ, gh, p.world, &flows);
+        let recorded_only = AxisOverrides {
+            object: Some(WorshipObject::Animism),
+            locus: Some(Locus::Portable),
+            institution: Some(Institution::Specialist),
+            ..Default::default()
+        };
+        civ.religions.set_axes(id, recorded_only).unwrap();
+        let recorded = relations_and_belief(&mut civ, gh, p.world, &flows);
+        // A membership the base does not already have.
+        let m = if base.membership == Some(Membership::Birth) { Membership::Universal } else { Membership::Birth };
+        civ.religions.set_axes(id, AxisOverrides { membership: Some(m), ..Default::default() }).unwrap();
+        let changed = relations_and_belief(&mut civ, gh, p.world, &flows);
+        println!(
+            "M5 seed {seed} base {base_key} ({held} settlements): plain {:016x}/{:016x} unedited {:016x} \
+             same-value {:016x} recorded-only {:016x} membership={m:?} {:016x}",
+            plain.0, plain.1, unedited.1, same_value.1, recorded.1, changed.1
+        );
+        assert_eq!(unedited, plain, "seed {seed}: an unedited custom religion moved");
+        assert_eq!(same_value, plain, "seed {seed}: an override equal to the base moved");
+        assert_eq!(recorded, plain, "seed {seed}: a recorded-only axis moved");
+        assert_eq!(changed.0, plain.0, "seed {seed}: relations read no axis");
+        worlds += 1;
+        if changed.1 != plain.1 {
+            moved += 1;
+        }
+    }
+    println!("M5 TOTAL: membership override moved the belief run on {moved} of {worlds} worlds");
+    assert_eq!(moved, worlds, "the override must reach every world's run");
 }

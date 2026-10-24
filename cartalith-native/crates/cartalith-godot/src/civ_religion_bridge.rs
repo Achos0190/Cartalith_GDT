@@ -6,9 +6,12 @@
 //! (`civ_set_faction_field(f, "religion", "custom:3")`). Its engine behaviour
 //! is its `base_key`'s: every engine reader resolves through
 //! `ReligionLibrary::engine_key` (`FactionRoster::engine_religions` /
-//! `has_religion_flags`), so this module adds names, colours and notes and
-//! **changes no generated output**. The shell must say so in words; R2 (real
-//! attributes) is not built.
+//! `has_religion_flags`). **Since FH-R2 R2-3 (2026-10-24)** a custom religion
+//! may also override its base's axes ([`axes_from_dict`], the `axes` field of
+//! `civ_edit_religion`); the belief layer reads the exclusivity and
+//! membership overrides in the holding faction's territory
+//! (`CivData::belief_regime`), and nothing else reads any override. An
+//! unedited custom religion still changes no generated output.
 //!
 //! The four funcs follow the roster's `civ_*` naming. Each mutation validates
 //! before it writes ([`ReligionLibrary`]'s rule) and answers with a
@@ -23,6 +26,9 @@
 use godot::prelude::*;
 
 use cartalith_civ::religion_library::{custom_religion_key, ReligionDef, ReligionError};
+use cartalith_civ::religion_profile::{
+    religion_profile, AxisOverrides, AxisValue, Exclusivity, Institution, Locus, Membership, WorshipObject,
+};
 use cartalith_civ::roster::CIV_RELIGIONS;
 
 use crate::{CivData, WorldGen};
@@ -52,7 +58,127 @@ fn id_from(id: i64) -> u32 {
     u32::try_from(id).unwrap_or(0)
 }
 
+/// The editor's names for axes 1-5, in display order: `(field key, label,
+/// read by the simulation)`. The third member is what the shell's note says
+/// ("belief spread reads exclusivity and membership; the rest are recorded"),
+/// so the words cannot drift from `AxisOverrides::touches_belief`.
+pub(crate) const AXIS_FIELDS: [(&str, &str, bool); 5] = [
+    ("object", "Object of worship", false),
+    ("exclusivity", "Exclusivity", true),
+    ("membership", "Membership", true),
+    ("locus", "Locus", false),
+    ("institution", "Institution", false),
+];
+
+/// `{axis: value_key}` for the overridden axes of `o` (absent = "as base").
+pub(crate) fn axes_dict(o: &AxisOverrides) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    if let Some(v) = o.object {
+        d.set("object", v.key());
+    }
+    if let Some(v) = o.exclusivity {
+        d.set("exclusivity", v.key());
+    }
+    if let Some(v) = o.membership {
+        d.set("membership", v.key());
+    }
+    if let Some(v) = o.locus {
+        d.set("locus", v.key());
+    }
+    if let Some(v) = o.institution {
+        d.set("institution", v.key());
+    }
+    d
+}
+
+/// One axis value from the shell: `""` is "as base" (`Ok(None)`); a known key
+/// is `Ok(Some)`; anything else is refused with the axis named.
+fn axis_from<T: AxisValue>(axis: &str, v: &str) -> Result<Option<T>, String> {
+    if v.is_empty() {
+        return Ok(None);
+    }
+    T::from_key(v).map(Some).ok_or_else(|| format!("\"{v}\" is not a value of {axis}."))
+}
+
+/// The shell's `axes` dictionary as overrides. Replaces wholesale: an axis the
+/// dictionary does not name is "as base", so the editor always sends all five
+/// (an empty string for "as base"). An unknown axis name, a non-text value or
+/// an unknown value key refuses the whole edit.
+pub(crate) fn axes_from_dict(d: &VarDictionary) -> Result<AxisOverrides, String> {
+    let mut o = AxisOverrides::default();
+    for (k, v) in d.iter_shared() {
+        let k = k.to_string();
+        let v = v.try_to::<GString>().map_err(|_| format!("Belief \"{k}\" must be text."))?.to_string();
+        match k.as_str() {
+            "object" => o.object = axis_from::<WorshipObject>(&k, &v)?,
+            "exclusivity" => o.exclusivity = axis_from::<Exclusivity>(&k, &v)?,
+            "membership" => o.membership = axis_from::<Membership>(&k, &v)?,
+            "locus" => o.locus = axis_from::<Locus>(&k, &v)?,
+            "institution" => o.institution = axis_from::<Institution>(&k, &v)?,
+            _ => return Err(format!("\"{k}\" is not a religion belief.")),
+        }
+    }
+    Ok(o)
+}
+
+/// A built-in religion's own axes as `{axis: value_key}` (locus joined by
+/// `+`, e.g. `portable+civic`), omitting every axis its profile leaves
+/// unclassified -- what the editor shows as "as base (...)". Empty for `none`.
+pub(crate) fn base_axes_dict(key: &str) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    let Some(p) = religion_profile(key) else { return d };
+    if let Some(v) = p.object {
+        d.set("object", v.key());
+    }
+    d.set("exclusivity", p.exclusivity.key());
+    if let Some(v) = p.membership {
+        d.set("membership", v.key());
+    }
+    if !p.locus.is_empty() {
+        let l: Vec<&str> = p.locus.iter().map(|v| v.key()).collect();
+        d.set("locus", l.join("+").as_str());
+    }
+    if let Some(v) = p.institution {
+        d.set("institution", v.key());
+    }
+    d
+}
+
+/// `[{key, label}]` for one axis' values, in `ALL` order.
+fn axis_values<T: AxisValue>() -> Array<VarDictionary> {
+    T::ALL.iter().map(|v| vdict! { "key" => v.key(), "label" => v.label() }).collect()
+}
+
 impl CivData {
+    /// FH-R2 R2-3's edit, all-or-nothing across both halves: the R1 members
+    /// (`edit`) and, when `axes` is `Some`, the overrides (`set_axes`), applied
+    /// to a copy and kept only if both succeed. So a base change to `none`
+    /// together with new overrides, or overrides on a `none` base, write
+    /// nothing at all.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn religion_edit(
+        &mut self,
+        id: u32,
+        name: Option<&str>,
+        base: Option<&str>,
+        colour: Option<(u8, u8, u8)>,
+        notes: Option<&str>,
+        axes: Option<AxisOverrides>,
+    ) -> Result<(), ReligionError> {
+        let mut next = self.religions.clone();
+        // Overrides first when they clear: a base change to `none` together
+        // with "every belief back to as base" is a legal edit.
+        if let Some(a) = axes.as_ref().filter(|a| a.is_empty()) {
+            next.set_axes(id, a.clone())?;
+        }
+        next.edit(id, name, base, colour, notes)?;
+        if let Some(a) = axes.filter(|a| !a.is_empty()) {
+            next.set_axes(id, a)?;
+        }
+        self.religions = next;
+        Ok(())
+    }
+
     /// Deletes custom religion `id`, refusing while any roster row holds it.
     /// Pure, so the refusal is unit-testable.
     pub(crate) fn religion_delete(&mut self, id: u32) -> Result<ReligionDef, ReligionError> {
@@ -82,10 +208,12 @@ fn refused(error: impl Into<String>) -> VarDictionary {
 impl WorldGen {
     /// The project's custom religions, in creation order, as
     /// `{id, key, name, base_key, base_label, color_r, color_g, color_b,
-    /// notes, used_by}` -- `key` is the `custom:<id>` a faction stores,
+    /// notes, used_by, axes}` -- `key` is the `custom:<id>` a faction stores,
     /// `base_label` the built-in's `CIV_RELIGIONS` label (what it behaves
     /// as), `used_by` the faction ids holding it (a delete is refused while
-    /// it is non-empty). Empty before any `generate()`.
+    /// it is non-empty), `axes` its FH-R2 R2-3 overrides as `{axis: value}`
+    /// with only the overridden axes present (empty = behaves as its base).
+    /// Empty before any `generate()`.
     #[func]
     fn civ_custom_religions(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
@@ -110,6 +238,7 @@ impl WorldGen {
                     "color_b" => d.colour.2 as i64,
                     "notes" => d.notes.as_str(),
                     "used_by" => &used_by,
+                    "axes" => &axes_dict(&d.axes),
                 }
             })
             .collect()
@@ -142,16 +271,21 @@ impl WorldGen {
     }
 
     /// Edits custom religion `id`. `fields` may carry `name`, `base_key`,
-    /// `notes` (Strings) and `color_r`/`color_g`/`color_b` (all three
-    /// together); an unknown key, a wrongly typed value or a partial colour is
-    /// refused. All-or-nothing: `{ok: true}` or `{ok: false, error}` with
-    /// nothing written. A new `base_key` changes what every faction holding
-    /// it behaves as, and so invalidates a belief run seeded from the old one
-    /// (`CivData::belief_key` covers the resolved column).
+    /// `notes` (Strings), `color_r`/`color_g`/`color_b` (all three
+    /// together) and, since FH-R2 R2-3, `axes`: a Dictionary of the five
+    /// beliefs (`object`, `exclusivity`, `membership`, `locus`,
+    /// `institution`), each a value key from `civ_religion_axes_vocabulary()`
+    /// or `""` for "as base", replacing the overrides wholesale. An unknown
+    /// key, a wrongly typed value or a partial colour is refused.
+    /// All-or-nothing across every member: `{ok: true}` or
+    /// `{ok: false, error}` with nothing written. A new `base_key` changes
+    /// what every faction holding it behaves as, and so invalidates a belief
+    /// run seeded from the old one (`CivData::belief_key` covers the resolved
+    /// column); an axis edit applies from the next run.
     #[func]
     fn civ_edit_religion(&mut self, id: i64, fields: VarDictionary) -> VarDictionary {
         let Some(civ) = self.civ.as_mut() else { return refused(NO_CIV) };
-        const KNOWN: [&str; 6] = ["name", "base_key", "notes", "color_r", "color_g", "color_b"];
+        const KNOWN: [&str; 7] = ["name", "base_key", "notes", "color_r", "color_g", "color_b", "axes"];
         for (k, _) in fields.iter_shared() {
             let k = k.to_string();
             if !KNOWN.contains(&k.as_str()) {
@@ -182,16 +316,45 @@ impl WorldGen {
                 (Some(r), Some(g), Some(b)) => Some(colour_from(r, g, b)?),
                 _ => return Err("A colour needs all three channels.".to_string()),
             };
-            Ok((name, base, notes, colour))
+            let axes = match fields.get("axes") {
+                None => None,
+                Some(v) => {
+                    let d = v.try_to::<VarDictionary>().map_err(|_| "\"axes\" must be a dictionary.".to_string())?;
+                    Some(axes_from_dict(&d)?)
+                }
+            };
+            Ok((name, base, notes, colour, axes))
         })();
-        let (name, base, notes, colour) = match parsed {
+        let (name, base, notes, colour, axes) = match parsed {
             Ok(p) => p,
             Err(e) => return refused(e),
         };
-        match civ.religions.edit(id_from(id), name.as_deref(), base.as_deref(), colour, notes.as_deref()) {
+        match civ.religion_edit(id_from(id), name.as_deref(), base.as_deref(), colour, notes.as_deref(), axes) {
             Ok(()) => vdict! { "ok" => true },
             Err(e) => refused(e.to_string()),
         }
+    }
+
+    /// FH-R2 R2-3's editor vocabulary: one row per axis 1-5, in display
+    /// order, as `{key, label, read, values: [{key, label}]}`. `read` is
+    /// whether the simulation reads the axis today (exclusivity and
+    /// membership, the belief layer); the other three are recorded and shown
+    /// only, and the shell says so rather than implying they do something.
+    #[func]
+    fn civ_religion_axes_vocabulary(&self) -> Array<VarDictionary> {
+        AXIS_FIELDS
+            .iter()
+            .map(|&(key, label, read)| {
+                let values = match key {
+                    "object" => axis_values::<WorshipObject>(),
+                    "exclusivity" => axis_values::<Exclusivity>(),
+                    "membership" => axis_values::<Membership>(),
+                    "locus" => axis_values::<Locus>(),
+                    _ => axis_values::<Institution>(),
+                };
+                vdict! { "key" => key, "label" => label, "read" => read, "values" => &values }
+            })
+            .collect()
     }
 
     /// Deletes custom religion `id` -- **refused while any faction holds
@@ -268,5 +431,82 @@ mod display_tests {
         assert_eq!(custom_religion_name(&lib, "none"), None);
         assert_eq!(custom_religion_name(&lib, "custom:99"), None);
         assert_eq!(custom_religion_name(&lib, "custom:x"), None);
+    }
+}
+
+/// Tests of R2-3's bridge logic that need no live engine: the all-or-nothing
+/// edit across R1 members and axes.
+#[cfg(test)]
+mod axes_tests {
+    use super::*;
+
+    /// Protects: `religion_edit` is all-or-nothing across both halves. A base
+    /// change to `none` with new overrides writes nothing (the name in the
+    /// same call included); a base change to `none` that also clears every
+    /// override is legal; overrides alone are written.
+    #[test]
+    fn an_edit_with_axes_is_all_or_nothing() {
+        let mut civ = crate::civ_timeline_tests::empty_civ(Vec::new(), Vec::new());
+        let id = civ.religions.create("Tide", "sea_lords", (1, 2, 3), "").unwrap();
+        let birth = AxisOverrides { membership: Some(Membership::Birth), ..Default::default() };
+        civ.religion_edit(id, None, None, None, None, Some(birth.clone())).unwrap();
+        assert_eq!(civ.religions.get(id).unwrap().axes, birth);
+        let before = civ.religions.clone();
+        assert_eq!(
+            civ.religion_edit(id, Some("Renamed"), Some("none"), None, None, Some(birth.clone())),
+            Err(ReligionError::AxesOnNoReligion)
+        );
+        assert_eq!(civ.religions, before, "nothing written");
+        assert_eq!(civ.religion_edit(id, None, Some("none"), None, None, None), Err(ReligionError::AxesOnNoReligion));
+        // The R1 half would succeed alone (a fresh religion has no overrides
+        // to block a base change), the axes half fails: nothing is written.
+        let fresh = civ.religions.create("Fresh", "sun_cult", (1, 1, 1), "").unwrap();
+        let before = civ.religions.clone();
+        assert_eq!(
+            civ.religion_edit(fresh, Some("Fresher"), Some("none"), None, None, Some(birth.clone())),
+            Err(ReligionError::AxesOnNoReligion)
+        );
+        assert_eq!(civ.religions, before, "the successful R1 half is not kept either");
+        civ.religion_edit(id, None, Some("none"), None, None, Some(AxisOverrides::default())).unwrap();
+        let d = civ.religions.get(id).unwrap();
+        assert_eq!((d.base_key.as_str(), d.axes.is_empty()), ("none", true));
+    }
+}
+
+/// Tests of `CivData::belief_regime`, R2-3's bridge from the roster to the
+/// belief step.
+#[cfg(test)]
+mod regime_tests {
+    use crate::civ_timeline_tests::{empty_civ, mk_settlement};
+    use cartalith_civ::religion_library::custom_religion_key;
+    use cartalith_civ::religion_profile::{AxisOverrides, Locus, Membership};
+
+    /// Protects: the regime maps a faction's settlements to a variant table
+    /// only when that faction holds a custom religion overriding a
+    /// belief-read axis; an unedited custom religion, a recorded-only
+    /// override and a built-in all leave the regime uniform. Mutation check:
+    /// a builder that never maps (`per_faction` all `None`) fails the second
+    /// half.
+    #[test]
+    fn the_regime_maps_only_a_belief_reading_override() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha"), mk_settlement(2, 9, "Beta")], vec![]);
+        civ.settlements[1].placement.faction = 2;
+        assert!(civ.belief_regime().is_uniform(), "built-ins only");
+        let id = civ.religions.create("Tide", "sea_lords", (1, 2, 3), "").unwrap();
+        {
+            let crate::CivData { faction_roster, religions, .. } = &mut civ;
+            assert!(faction_roster.set_religion(1, &custom_religion_key(id), religions));
+        }
+        assert!(civ.belief_regime().is_uniform(), "unedited custom religion");
+        civ.religions
+            .set_axes(id, AxisOverrides { locus: Some(Locus::Portable), ..Default::default() })
+            .unwrap();
+        assert!(civ.belief_regime().is_uniform(), "recorded-only override");
+        civ.religions
+            .set_axes(id, AxisOverrides { membership: Some(Membership::Birth), ..Default::default() })
+            .unwrap();
+        let r = civ.belief_regime();
+        assert_eq!(r.terms.len(), 1);
+        assert_eq!(r.of, vec![Some(0), None], "faction 1's settlement only");
     }
 }

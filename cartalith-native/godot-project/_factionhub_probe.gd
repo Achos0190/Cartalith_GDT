@@ -3305,7 +3305,7 @@ func _run_religions() -> void:
 		lib != null and picker != null and picker.get_parent().get_parent() == lib.get_parent()
 		and picker.get_parent().get_index() < lib.get_index())
 	_ok("R1 ... and it says plainly that a custom religion behaves as its base",
-		lib != null and _text_of(lib).contains("behaves exactly as its base religion"),
+		lib != null and _text_of(lib).contains("behaves as its base religion except for the beliefs you set"),
 		_text_of(lib).left(300) if lib != null else "none")
 	_ok("R1 ... with an honest empty state", _r1_node("ReligionsEmpty") != null)
 
@@ -3411,6 +3411,64 @@ func _run_religions() -> void:
 		String((_bridge.civ_custom_religions()[0] as Dictionary).get("name")) == "Church of the Long Dawn"
 		and picker.get_item_text(picker.selected) == "Church of the Long Dawn (as Old Gods)",
 		picker.get_item_text(picker.selected))
+	# FH-R2 R2-3: BELIEFS. Open the editor, set Membership through its own
+	# dropdown, Save; the engine stores exactly that override, the note under
+	# the picker and the library row say so, and the "As base" entries name
+	# the base's own value.
+	(_r1_node("ReligionEdit_%d" % id) as Button).pressed.emit()
+	await _frames(6)
+	var mob := _r1_node("ReligionAxis_membership") as OptionButton
+	var eob := _r1_node("ReligionAxis_exclusivity") as OptionButton
+	_ok("R2-3 the editor draws a dropdown per belief, each opening on As base",
+		mob != null and eob != null and mob.selected == 0 and eob.selected == 0
+		and _r1_node("ReligionAxis_object") != null and _r1_node("ReligionAxis_locus") != null
+		and _r1_node("ReligionAxis_institution") != null)
+	_ok("R2-3 ... As base names the base's own value, or says it is not classified",
+		eob != null and eob.get_item_text(0) == "As base (Additive)"
+		and mob != null and mob.get_item_text(0) == "As base (not classified)",
+		"%s / %s" % [eob.get_item_text(0) if eob else "-", mob.get_item_text(0) if mob else "-"])
+	var birth_i := -1
+	if mob != null:
+		for i in mob.item_count:
+			if mob.get_item_text(i) == "Birth / ethnic":
+				birth_i = i
+		mob.select(birth_i)
+		mob.item_selected.emit(birth_i)
+	await _r1_scroll_to("ReligionEditor")
+	await _shot("%s_religion_beliefs" % ("phone" if _phone else "desktop"))
+	if _phone:
+		var tiny := ""
+		for n in ["ReligionAxis_object", "ReligionAxis_exclusivity", "ReligionAxis_membership",
+				"ReligionAxis_locus", "ReligionAxis_institution"]:
+			var c := _r1_node(n) as Control
+			if c == null or c.size.y + 0.5 < DccTheme.PHONE_TAP_MIN or c.size.x + 0.5 < DccTheme.PHONE_TAP_MIN:
+				tiny += "%s=%s " % [n, "missing" if c == null else "%.0fx%.0f" % [c.size.x, c.size.y]]
+		_ok("R2-3 PHONE every belief dropdown is at least %d px on both axes" % DccTheme.PHONE_TAP_MIN, tiny == "", tiny)
+	(_r1_node("ReligionSave") as Button).pressed.emit()
+	await _frames(6)
+	var axes_now: Dictionary = (_bridge.civ_custom_religions()[0] as Dictionary).get("axes", {})
+	_ok("R2-3 Save stores exactly the one override in the engine",
+		axes_now.size() == 1 and String(axes_now.get("membership", "")) == "birth", str(axes_now))
+	note = _r1_node("ReligionBehavesAs") as Label
+	_ok("R2-3 ... the line under the picker names the override",
+		note != null and note.text.begins_with("Behaves as Old Gods, except: Membership: Birth / ethnic"),
+		note.text if note else "none")
+	_ok("R2-3 ... and the library row marks its own beliefs",
+		_text_of(_r1_node("Religion_%d" % id)).contains("own beliefs"))
+	# And back to base: a Save with every belief As base clears the override.
+	(_r1_node("ReligionEdit_%d" % id) as Button).pressed.emit()
+	await _frames(6)
+	mob = _r1_node("ReligionAxis_membership") as OptionButton
+	_ok("R2-3 the reopened editor shows the stored override", mob != null and mob.selected == birth_i)
+	if mob != null:
+		mob.select(0)
+		mob.item_selected.emit(0)
+	(_r1_node("ReligionSave") as Button).pressed.emit()
+	await _frames(6)
+	_ok("R2-3 As base on every belief clears the override",
+		((_bridge.civ_custom_religions()[0] as Dictionary).get("axes", {}) as Dictionary).is_empty())
+	picker = _r1_node("ReligionPicker") as OptionButton
+
 	if _phone:
 		var small := ""
 		for n in ["NewReligion", "ReligionEdit_%d" % id, "ReligionDelete_%d" % id]:
@@ -3440,6 +3498,9 @@ func _run_religions() -> void:
 	# SAVE / REOPEN: faction B holds the new one; both must come back.
 	_ok("R1 SAVE precondition: faction B takes the new religion through the engine",
 		_bridge.civ_set_faction_field(fb, "religion", String(again.get("key", ""))))
+	var set_axes: Dictionary = _bridge.civ_edit_religion(int(again.get("id", 0)),
+		{"axes": {"object": "", "exclusivity": "exclusive", "membership": "birth", "locus": "", "institution": ""}})
+	_ok("R2-3 SAVE precondition: beliefs set through the engine", bool(set_axes.get("ok", false)), str(set_axes))
 	var path := OS.get_user_data_dir().path_join("_factionhub_r1.zip")
 	var done := [false]
 	_app._write_project(path, func(): done[0] = true)
@@ -3463,6 +3524,10 @@ func _run_religions() -> void:
 		back.size() == 1 and String((back[0] as Dictionary).get("name")) == "Second Faith"
 		and String(rb.get("religion_choice", "")) == String(again.get("key", ""))
 		and String(rb.get("religion", "")) == "sun_cult", "%s / %s" % [str(back), str(rb)])
+	var back_axes: Dictionary = (back[0] as Dictionary).get("axes", {}) if back.size() == 1 else {}
+	_ok("R2-3 SAVE the religion's beliefs survive the reopen",
+		back_axes.size() == 2 and String(back_axes.get("exclusivity", "")) == "exclusive"
+		and String(back_axes.get("membership", "")) == "birth", str(back_axes))
 	var after: Dictionary = _bridge.civ_add_religion("Third Faith", "sun_cult", Color8(1, 2, 3), "")
 	_ok("R1 SAVE ... and the reopened project still never reissues an id",
 		int(after.get("id", 0)) > int(again.get("id", 0)), str(after))

@@ -3000,11 +3000,46 @@ impl CivData {
                         .map_or("", |e| e.culture.as_str())
                 })
                 .collect();
+            let regime = self.belief_regime();
             for _ in 0..years {
-                belief::belief_step(&mut self.belief, &net, &cultures, belief::BELIEF_STEP_RATE);
+                belief::belief_step_in(&mut self.belief, &net, &cultures, belief::BELIEF_STEP_RATE, &regime);
             }
         }
         (self.belief.len(), seeded, belief::belief_any_faith(&self.belief))
+    }
+
+    /// FH-R2 R2-3: which belief terms each settlement's step reads. One
+    /// `BeliefTerms::with_variant` table per faction whose stored religion is
+    /// a custom religion with an override of a belief-read axis (exclusivity
+    /// or membership), applied to that faction's settlements; every other
+    /// settlement reads the base table. For a world with no such faction --
+    /// every world with no edited custom religion -- `terms` is empty and the
+    /// run is the uniform step, by control flow (`BeliefRegime::is_uniform`).
+    ///
+    /// Read on every step like culture and trade, not part of
+    /// [`Self::belief_key`]: an axis edit after a run keeps the diffused layer
+    /// and applies from the next run, the same behaviour a culture edit has
+    /// (that key's own doc records why).
+    fn belief_regime(&self) -> cartalith_civ::belief::BeliefRegime {
+        use cartalith_civ::belief::{religion_index, BeliefRegime, BeliefTerms};
+        let mut terms = Vec::new();
+        let per_faction: Vec<Option<usize>> = self
+            .faction_roster
+            .0
+            .iter()
+            .map(|e| {
+                let overrides = self.religions.overrides_for(&e.religion)?;
+                let slot = religion_index(self.religions.engine_key(&e.religion))?;
+                terms.push(BeliefTerms::with_variant(slot, overrides)?);
+                Some(terms.len() - 1)
+            })
+            .collect();
+        let of = self
+            .settlements
+            .iter()
+            .map(|s| usize::try_from(s.placement.faction).ok().and_then(|f| per_faction.get(f).copied().flatten()))
+            .collect();
+        BeliefRegime { terms, of }
     }
 
     /// `civGotoYear` (reference lines 20615-20617, minus `_civBuildTimelineUI()`
@@ -3272,7 +3307,7 @@ mod civ_timeline_tests {
 
     /// A village `NamedSettlement` of faction 1 at `(x, 0)` with the given `tid` and name and a
     /// population of 100; fixture only.
-    fn mk_settlement(tid: u64, x: usize, name: &str) -> NamedSettlement {
+    pub(crate) fn mk_settlement(tid: u64, x: usize, name: &str) -> NamedSettlement {
         NamedSettlement {
             tid,
             placement: SettlementPlacement {
@@ -3291,7 +3326,7 @@ mod civ_timeline_tests {
 
     /// A `CivData` holding only the given settlements and claim grid, with every other layer empty
     /// and a default-seeded roster, so a timeline test sees nothing it did not put there.
-    fn empty_civ(settlements: Vec<NamedSettlement>, territory: Vec<i32>) -> CivData {
+    pub(crate) fn empty_civ(settlements: Vec<NamedSettlement>, territory: Vec<i32>) -> CivData {
         CivData {
             settlements,
             ways: Vec::new(),
@@ -24291,6 +24326,9 @@ impl WorldGen {
                 if let Some(t) = cartalith_civ::religion_profile::religion_profile(key).and_then(|p| p.kind) {
                     d.set("type", t.key());
                 }
+                // FH-R2 R2-3: the built-in's own axes, for the custom-religion
+                // editor's "as base (...)" entries; unclassified axes omitted.
+                d.set("axes", &civ_religion_bridge::base_axes_dict(key));
                 d
             })
             .collect()

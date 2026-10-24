@@ -1714,6 +1714,7 @@ one written before the slot existed, and an older reader ignores it (§6.3). No
 | `religions[].base_key` | string | MUST | One of the built-in religion keys (`cartalith_civ::roster::CIV_RELIGIONS`: the reference's eight, plus `one_god`, `revealed_law`, `covenant_folk`, `the_path`, `mysteries`, `spirit_ways`, `god_king` since 2026-10-12). **The engine behaviour of the religion is its base's**: every consumer (belief diffusion, the relations faith term, the religious power axis) reads `base_key` in place of `custom:<id>`. |
 | `religions[].colour` | array of 3 integers `[0,255]` | MUST | Display swatch only; nothing simulated reads it. |
 | `religions[].notes` | string | MAY | Free text, at most 4000 characters; omitted when empty. |
+| `religions[].axes` | object | MAY | **Since 2026-10-24 (FH-R2 R2-3).** The religion's own beliefs, as overrides of its base's profile: members `object`, `exclusivity`, `membership`, `institution` (each a value key string, e.g. `"membership": "birth"`) and `locus` (a list of value keys; this implementation writes one). Only overridden axes are present; an absent member is "as base". **Omitted entirely when nothing is overridden**, so an archive with no edited religion is byte-identical to the R1 format. Value keys are the `AxisValue::key()` strings of `cartalith_civ::religion_profile`. A reader MUST treat an unknown member, an unknown value key or a wrongly typed value as "as base" for that axis alone (this implementation warns, naming the religion and the axes); it MUST NOT drop the row for it. Overrides on a row whose `base_key` is `"none"` are discarded on load (no app path writes them). |
 
 A reader MUST treat an absent document as "no custom religions" and MUST NOT
 warn about it. A row with id `0`, a duplicate id, an unknown `base_key` or an
@@ -1741,12 +1742,18 @@ model reads it (retention by membership mode, competition by exclusivity and
 membership, a trade-diaspora influx). The profile is **engine vocabulary, not
 saved data**: no member is added to a `religions[]` row or to the roster, and
 an archive written before or after is byte-identical. A custom religion still
-behaves exactly as its `base_key`, profile included (giving a custom religion
-its own axis values is `FH_R2_PLAN.md` R2-3, not built). The belief layer
+behaved exactly as its `base_key`, profile included, until R2-3 (below). The belief layer
 itself is still **not persisted** (`project_bridge.rs` restores
 `belief: Vec::new()`), so R2-2's changed diffusion output reaches no saved
 file; an older build opening an archive simply runs its own (single-winner)
 model when the user next presses Run.
+
+**Custom religion beliefs, 2026-10-24 (FH-R2 R2-3, `FH_R2_PLAN.md` Q6's
+default under Ruling CW).** The additive `religions[].axes` member above.
+Older builds ignore it (an unknown member on a row is ignored, §6.3), so they
+open the religion as its base exactly; a re-save from such a build drops the
+member. The belief layer reads only `exclusivity` and `membership`, in the
+territory of factions holding the religion; the other three are recorded.
 
 **A dangling reference** — a faction whose `religion` is `custom:<id>` with no
 such row (or a malformed `custom:` key) — MUST be preserved on write-back, MUST

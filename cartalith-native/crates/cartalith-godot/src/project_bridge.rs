@@ -732,6 +732,81 @@ struct ReligionDto {
     colour: [u8; 3],
     #[serde(default, skip_serializing_if = "String::is_empty")]
     notes: String,
+    /// FH-R2 R2-3 (2026-10-24, `SAVEFILE_COMPAT.md` §9.9): the religion's axis
+    /// overrides as `{axis: value_key}`, only the axes the user set (absent =
+    /// "as base"), `locus` as a one-element list. **Omitted when there is no
+    /// override**, so an archive with no edited religion is byte-identical to
+    /// the pre-R2-3 format. Held as a raw JSON value, not a typed struct, so a
+    /// wrongly typed or unknown member costs that one axis (`axes_from_json`)
+    /// and never the whole document's parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    axes: Option<serde_json::Value>,
+}
+
+/// `AxisOverrides` as saved: only the overridden axes, by their stable keys.
+/// `None` for no override, so the member is not written at all.
+fn axes_to_json(o: &cartalith_civ::religion_profile::AxisOverrides) -> Option<serde_json::Value> {
+    use cartalith_civ::religion_profile::AxisValue;
+    if o.is_empty() {
+        return None;
+    }
+    let mut m = serde_json::Map::new();
+    if let Some(v) = o.object {
+        m.insert("object".into(), v.key().into());
+    }
+    if let Some(v) = o.exclusivity {
+        m.insert("exclusivity".into(), v.key().into());
+    }
+    if let Some(v) = o.membership {
+        m.insert("membership".into(), v.key().into());
+    }
+    if let Some(v) = o.locus {
+        m.insert("locus".into(), serde_json::Value::Array(vec![v.key().into()]));
+    }
+    if let Some(v) = o.institution {
+        m.insert("institution".into(), v.key().into());
+    }
+    Some(serde_json::Value::Object(m))
+}
+
+/// Reads a saved `axes` member back, axis by axis. A member this build does
+/// not know (a newer build's axis), a value key it does not know, or a wrong
+/// type reads as "as base" for that axis alone and is named in `bad`, so the
+/// caller can warn; it never guesses a neighbouring value
+/// (`MISTAKES.md`, "Return, marshal or default a value that can be absent").
+fn axes_from_json(v: Option<&serde_json::Value>, bad: &mut Vec<String>) -> cartalith_civ::religion_profile::AxisOverrides {
+    use cartalith_civ::religion_profile::{AxisOverrides, AxisValue, Exclusivity, Institution, Locus, Membership, WorshipObject};
+    let mut o = AxisOverrides::default();
+    let Some(v) = v else { return o };
+    let Some(m) = v.as_object() else {
+        bad.push("axes".to_string());
+        return o;
+    };
+    fn one<T: AxisValue>(m: &serde_json::Map<String, serde_json::Value>, k: &str, bad: &mut Vec<String>) -> Option<T> {
+        let v = m.get(k)?;
+        let key = match v {
+            serde_json::Value::String(s) => Some(s.as_str()),
+            // `locus` is saved as a list; one element is this build's form.
+            serde_json::Value::Array(a) if a.len() == 1 => a[0].as_str(),
+            _ => None,
+        };
+        let got = key.and_then(T::from_key);
+        if got.is_none() {
+            bad.push(k.to_string());
+        }
+        got
+    }
+    o.object = one::<WorshipObject>(m, "object", bad);
+    o.exclusivity = one::<Exclusivity>(m, "exclusivity", bad);
+    o.membership = one::<Membership>(m, "membership", bad);
+    o.locus = one::<Locus>(m, "locus", bad);
+    o.institution = one::<Institution>(m, "institution", bad);
+    for k in m.keys() {
+        if !["object", "exclusivity", "membership", "locus", "institution"].contains(&k.as_str()) {
+            bad.push(k.clone());
+        }
+    }
+    o
 }
 
 /// The document for a library, or `None` when nothing was ever created (the
@@ -748,6 +823,7 @@ fn religions_doc(lib: &cartalith_civ::religion_library::ReligionLibrary) -> Opti
                 base_key: d.base_key.clone(),
                 colour: [d.colour.0, d.colour.1, d.colour.2],
                 notes: d.notes.clone(),
+                axes: axes_to_json(&d.axes),
             })
             .collect(),
     })
@@ -773,17 +849,32 @@ fn religions_from_data(
             ReligionLibrary::new()
         }
         Some(Ok(doc)) => {
+            let mut unread_axes: Vec<String> = Vec::new();
             let rows = doc
                 .religions
                 .into_iter()
-                .map(|r| ReligionDef {
-                    id: r.id,
-                    name: r.name,
-                    base_key: r.base_key,
-                    colour: (r.colour[0], r.colour[1], r.colour[2]),
-                    notes: r.notes,
+                .map(|r| {
+                    let mut bad = Vec::new();
+                    let axes = axes_from_json(r.axes.as_ref(), &mut bad);
+                    if !bad.is_empty() {
+                        unread_axes.push(format!("{} ({})", r.name, bad.join(", ")));
+                    }
+                    ReligionDef {
+                        id: r.id,
+                        name: r.name,
+                        base_key: r.base_key,
+                        colour: (r.colour[0], r.colour[1], r.colour[2]),
+                        notes: r.notes,
+                        axes,
+                    }
                 })
                 .collect();
+            if !unread_axes.is_empty() {
+                warnings.push(format!(
+                    "{SLOT_RELIGIONS}: some custom religion beliefs could not be read and behave as their base religion's: {}",
+                    unread_axes.join("; ")
+                ));
+            }
             let (lib, dropped) = ReligionLibrary::from_saved(doc.next_id, rows);
             if dropped > 0 {
                 warnings.push(format!(
@@ -7129,6 +7220,63 @@ mod tests {
         assert_eq!(next, 3, "never 1: that id was issued before the save");
     }
 
+    /// Protects: FH-R2 R2-3's `axes` member (`SAVEFILE_COMPAT.md` §9.9). Set
+    /// overrides survive a real archive round trip; a religion with none
+    /// writes no `axes` key, so an R1-format document (the literal below is
+    /// the exact shape R1 wrote: `id, name, base_key, colour, notes`) reads
+    /// and re-serialises byte-identically; a bad value costs its axis only,
+    /// with a warning that names it.
+    #[test]
+    fn religion_axes_round_trip_and_an_r1_document_is_unchanged() {
+        use cartalith_civ::religion_profile::{AxisOverrides, Exclusivity, Locus, Membership};
+        let mut civ = sample_civ();
+        let id = civ.religions.create("Church of the Tide", "sea_lords", (10, 120, 200), "").unwrap();
+        let plain = civ.religions.create("Plain", "sun_cult", (1, 2, 3), "").unwrap();
+        let o = AxisOverrides {
+            exclusivity: Some(Exclusivity::Exclusive),
+            membership: Some(Membership::Birth),
+            locus: Some(Locus::Portable),
+            ..Default::default()
+        };
+        civ.religions.set_axes(id, o.clone()).unwrap();
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let text = &docs[SLOT_RELIGIONS];
+        let v: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            v["religions"][0]["axes"],
+            serde_json::json!({"exclusivity": "exclusive", "membership": "birth", "locus": ["portable"]}),
+            "{text}"
+        );
+        assert!(v["religions"][1].get("axes").is_none(), "only the edited religion writes axes: {text}");
+        let back = round_trip(&civ, 4, 3);
+        assert_eq!(back.religions.get(id).unwrap().axes, o);
+        assert!(back.religions.get(plain).unwrap().axes.is_empty());
+
+        // An R1-format document, as R1's `ReligionDto` serialised it.
+        let r1 = r#"{"next_id":2,"religions":[{"id":1,"name":"Church of the Tide","base_key":"sea_lords","colour":[10,120,200],"notes":"Harbour rites."}]}"#;
+        let doc: ReligionsDoc = serde_json::from_str(r1).unwrap();
+        assert_eq!(serde_json::to_string(&doc).unwrap(), r1, "an R1 document re-serialises byte for byte");
+
+        // A bad value costs its axis, not the religion or the document.
+        let mut data = round_trip_data(&civ, 4, 3, 1.0);
+        data.documents.insert(
+            SLOT_RELIGIONS.to_string(),
+            serde_json::json!({"next_id": 3, "religions": [
+                {"id": 1, "name": "Tide", "base_key": "sea_lords", "colour": [1, 1, 1],
+                 "axes": {"membership": "birth", "exclusivity": "zealous", "locus": 7}}
+            ]}),
+        );
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data, 12, &mut warnings).unwrap();
+        let axes = &back.religions.get(1).unwrap().axes;
+        assert_eq!(axes.membership, Some(Membership::Birth));
+        assert_eq!((axes.exclusivity, axes.locus), (None, None));
+        let w: Vec<&String> = warnings.iter().filter(|m| m.contains("beliefs could not be read")).collect();
+        assert_eq!(w.len(), 1, "{warnings:?}");
+        assert!(w[0].contains("Tide (exclusivity, locus)"), "{warnings:?}");
+    }
+
     /// Protects: R1 is additive. A project saved before custom religions
     /// existed (a real archive, not a hand-built one) opens with an empty
     /// library and **no warning**, and an untouched project writes no
@@ -7378,9 +7526,15 @@ mod tests {
         let mut warnings = Vec::new();
         let back = civ_from_project(&data, 12, &mut warnings).unwrap();
         let ids: Vec<u32> = back.religions.defs().iter().map(|d| d.id).collect();
-        assert_eq!(ids, vec![1, 3], "an unknown member is ignored, an unknown base costs its row");
+        assert_eq!(ids, vec![1, 3], "an unknown axis costs nothing but itself, an unknown base costs its row");
+        assert!(back.religions.get(3).unwrap().axes.is_empty(), "an unknown axis reads as its base");
         assert_eq!(back.religions.next_id(), 4);
-        assert_eq!(ours(&warnings).len(), 1, "{warnings:?}");
+        // CHANGED 2026-10-24 (FH-R2 R2-3): 1 -> 2. `axes` became a real member,
+        // so an axis this build does not know ("x") is now named in its own
+        // warning (it would be lost on the next save) instead of passing
+        // silently; the unknown-base row's warning is the other.
+        assert_eq!(ours(&warnings).len(), 2, "{warnings:?}");
+        assert!(ours(&warnings).iter().any(|w| w.contains("Future (x)")), "{warnings:?}");
     }
 
     /// Protects: Ruling AU's currencies ride `factions.json` (`SAVEFILE_COMPAT.md`
