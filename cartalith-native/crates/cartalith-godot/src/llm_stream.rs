@@ -46,6 +46,23 @@
 //! shell bug cannot make the retry unbounded: a `prepare` that did not follow a
 //! `will_retry` error always starts a fresh budget.
 //!
+//! **Generation parameters (LLM-6a/6b, `LLM_ASSISTANT_SCOPE.md` s.5b).** With the
+//! `commands` capability, `prepare` starts a
+//! `cartalith_llm::params_flow::ParamsConversation` over a catalogue built from the
+//! REAL registry (`param_catalogue::build`: `params::PARAMS`, `DESCS` and the
+//! world's current values the shell passes in) and offers only `get_param_schema`.
+//! The decoder's tool calls and text are collected here; at the reply's end the
+//! conversation decides, and the `done` event is REPLACED by one of:
+//! `params_continue` (a schema was shown: the shell calls [`LlmStream::prepare_continue`],
+//! which rebuilds the catalogue from the registry and runs the WHOLE gate again),
+//! `params_retry` (the proposal was refused and its errors went back once),
+//! `proposal` (the validated card data), `params_answer` (the model answered in
+//! words) or `params_failed`. **Nothing here writes a parameter**: the proposal is
+//! data, and only the panel's Apply handler writes, through the undo group and
+//! `engine_bridge.gd::param_write`. The flow also needs the "Send: generation
+//! parameters" context source ticked (Ruling DI P3: its own checkbox, off until
+//! ticked), because the schema carries the world's current values.
+//!
 //! **NO PANIC.** Every method answers with a dictionary; a poisoned lock is recovered
 //! rather than unwrapped (`cartalith-rust-conventions`).
 
@@ -60,11 +77,13 @@ use cartalith_llm::presets::request_hints;
 use cartalith_llm::retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
 use cartalith_llm::prompt::{Context, PromptError, Task, build_messages};
 use cartalith_llm::settings::Capability;
+use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
+use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
 use cartalith_llm::{Event, LlmError, StreamSession};
 use godot::classes::{IRefCounted, RefCounted};
 use godot::prelude::*;
 
-use crate::llm_bridge::{account_for, settings_from, text};
+use crate::llm_bridge::{account_for, flag, settings_from, text};
 use crate::llm_keystore::OsKeyStore;
 
 /// Default output cap when the shell names none. Labelled judgement: about a page
@@ -98,6 +117,138 @@ struct Inner {
     /// Set when an error was granted a retry; consumed by the next `prepare`, which
     /// then keeps the budget instead of starting a fresh one.
     retry_pending: bool,
+    /// The parameter conversation of the current request (LLM-6a/6b); `None` for prose.
+    params: Option<ParamsState>,
+}
+
+/// One parameter request in flight: the conversation, the catalogue the current
+/// turn was built from, and what the current reply has delivered so far.
+struct ParamsState {
+    conv: ParamsConversation,
+    cat: Catalogue,
+    text: String,
+    calls: Vec<IncomingCall>,
+    max_tokens: u32,
+    include_usage: bool,
+}
+
+/// The catalogue from the shell's `get_params()` snapshot (`current`). A key the
+/// snapshot lacks, or holds with a type the registry does not store, is sent with
+/// no current value (omitted, never 0).
+fn catalogue_from(current: &VarDictionary) -> Catalogue {
+    crate::param_catalogue::build(&|k| {
+        let v = current.get(k)?;
+        match v.get_type() {
+            VariantType::BOOL => Some(PValue::Bool(v.to::<bool>())),
+            VariantType::INT => Some(PValue::Num(v.to::<i64>() as f64)),
+            VariantType::FLOAT => Some(PValue::Num(v.to::<f64>())),
+            _ => None,
+        }
+    })
+}
+
+/// A value as the Variant the setter takes: ints as `int`, so `set_params` stores
+/// them without a rounding step.
+fn value_variant(v: PValue, kind: Kind) -> Variant {
+    match (v, kind) {
+        (PValue::Bool(b), _) => b.to_variant(),
+        (PValue::Num(n), Kind::Int) => (n as i64).to_variant(),
+        (PValue::Num(n), _) => n.to_variant(),
+    }
+}
+
+fn regen_id(r: Regen) -> &'static str {
+    match r {
+        Regen::Live => "live",
+        Regen::RefreshClimate => "climate",
+        Regen::RefreshSettlements => "settlements",
+        Regen::FullGenerate => "generate",
+    }
+}
+
+/// A verdict as the card reads it. Every value in `valid` passed V1-V12: in range,
+/// the registry's type, not equal to the current value. An absent old value or
+/// default is OMITTED (never 0).
+fn verdict_dict(v: &Verdict, groups: &[String]) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    if let Some((rule, why)) = &v.structural {
+        d.set("structural_rule", rule.id());
+        d.set("structural", why.as_str());
+    }
+    if let Some(s) = &v.summary {
+        d.set("summary", s.as_str());
+    }
+    let mut valid: Array<VarDictionary> = Array::new();
+    for c in &v.valid {
+        let mut e = vdict! {
+            "key" => c.key.as_str(), "label" => c.label.as_str(), "unit" => c.unit.as_str(),
+            "type" => c.kind.as_str(), "advanced" => c.advanced, "regen" => regen_id(c.regen),
+        };
+        e.set("new", &value_variant(c.new, c.kind));
+        if let Some(o) = c.old {
+            e.set("old", &value_variant(o, c.kind));
+        }
+        if let Some(df) = c.default {
+            e.set("default", &value_variant(df, c.kind));
+        }
+        if let Some(p) = c.pct {
+            e.set("pct", p);
+        }
+        if let Some(r) = &c.reason {
+            e.set("reason", r.as_str());
+        }
+        if let Some(i) = &c.inert {
+            e.set("inert", i.as_str());
+        }
+        valid.push(&e);
+    }
+    d.set("valid", &valid);
+    let mut rejected: Array<VarDictionary> = Array::new();
+    for r in &v.rejected {
+        let mut e = vdict! { "rule" => r.rule.id(), "why" => r.why.as_str() };
+        if let Some(k) = &r.key {
+            e.set("key", k.as_str());
+        }
+        rejected.push(&e);
+    }
+    d.set("rejected", &rejected);
+    let noop: PackedStringArray = v.noop.iter().map(|k| GString::from(k.as_str())).collect();
+    d.set("noop", &noop);
+    let cost: PackedStringArray = v.cost_note().iter().map(|k| GString::from(k.as_str())).collect();
+    d.set("cost", &cost);
+    let g: PackedStringArray = groups.iter().map(|k| GString::from(k.as_str())).collect();
+    d.set("groups", &g);
+    d
+}
+
+/// Feed the finished reply to the conversation and turn its step into the one
+/// event the shell acts on. Clears the reply buffers.
+fn params_step(p: &mut ParamsState) -> VarDictionary {
+    let text = std::mem::take(&mut p.text);
+    let calls = std::mem::take(&mut p.calls);
+    let step = p.conv.on_reply(&p.cat, &text, calls);
+    let groups: PackedStringArray = p.conv.shown_groups().iter().map(|g| GString::from(g.as_str())).collect();
+    let turns = p.conv.turns() as i64;
+    match step {
+        Step::Continue => {
+            let mut d = vdict! { "type" => "params_continue", "turns" => turns };
+            d.set("groups", &groups);
+            d
+        }
+        Step::Retry(v) => {
+            let mut d = vdict! { "type" => "params_retry", "turns" => turns };
+            d.set("verdict", &verdict_dict(&v, p.conv.shown_groups()));
+            d
+        }
+        Step::Proposal(v) => {
+            let mut d = verdict_dict(&v, p.conv.shown_groups());
+            d.set("type", "proposal");
+            d.set("turns", turns);
+            d
+        }
+        Step::Answer(t) => vdict! { "type" => "params_answer", "text" => t.as_str(), "turns" => turns },
+        Step::Failed(r) => vdict! { "type" => "params_failed", "reason" => r.as_str(), "turns" => turns },
+    }
 }
 
 /// The session's token counter. A static so every panel instance shares one total;
@@ -123,15 +274,112 @@ struct LlmStream {
 impl IRefCounted for LlmStream {
     /// Constructs an idle stream with no reply.
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, inner: Mutex::new(Inner { session: None, budget: RetryBudget::new(), retry_pending: false }) }
+        Self { base, inner: Mutex::new(Inner { session: None, budget: RetryBudget::new(), retry_pending: false, params: None }) }
     }
 }
+
+/// Default output cap of one parameter-flow turn. Labelled judgement: a schema call
+/// is a few dozen tokens and a twelve-change proposal with reasons about 600; the
+/// stage-1 run's longest valid proposal was well under this with thinking off.
+const PARAMS_MAX_TOKENS: i64 = 1024;
+
+/// The reason shown when the parameter context source is off (Ruling DI P3).
+const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters\" in Assistant settings first: a setting proposal shows the model the world's current generation settings.";
 
 impl LlmStream {
     /// Lock, recovering from a poisoned mutex (a panic elsewhere must not become a
     /// second panic across the boundary).
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// One turn of a parameter request (LLM-6a/6b): the gate, then the context-source
+    /// check, then a catalogue rebuilt from the registry and the shell's `current`
+    /// snapshot, then the conversation's next request built for the gate's wire.
+    /// `resume` keeps the conversation (a continue after a schema, or the one
+    /// automatic transient retry, which re-sends the same turn); otherwise a new one
+    /// starts from `args.request`. Answers like `prepare`.
+    fn prepare_params(&self, settings: &VarDictionary, consented: &[String], args: &VarDictionary, resume: bool) -> VarDictionary {
+        let s = settings_from(settings);
+        let (key_state, key) =
+            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+        // The gate's reason first, as on the prose path (a switched-off feature says so).
+        if let Err(r) = cartalith_llm::settings::authorize(&s, Some(Capability::Commands), &key_state, consented) {
+            let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
+            if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
+                d.set("origin", o.as_str());
+            }
+            return d;
+        }
+        if !flag(settings, "ctx_params") {
+            return refuse("params_context_off", PARAMS_CONTEXT_OFF);
+        }
+        let Some(current) = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok()) else {
+            return refuse("no_params", "No generation settings were readable, so there is nothing to propose changes to.");
+        };
+        let cat = catalogue_from(&current);
+        if let Some(p) = cat.problems().first() {
+            return refuse("catalogue", &format!("The settings catalogue is incomplete ({p}); nothing was sent."));
+        }
+        let hints = request_hints(&s.preset_id);
+        let mut inner = self.lock();
+        let (conv, max_tokens, include_usage) = if resume {
+            match inner.params.take() {
+                Some(p) if !p.conv.is_done() => (p.conv, p.max_tokens, p.include_usage),
+                _ => return refuse("no_conversation", "There is no setting request to continue."),
+            }
+        } else {
+            let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
+                Ok(c) => c,
+                Err(why) => return refuse("empty_request", why),
+            };
+            let max_tokens = args
+                .get("max_tokens")
+                .and_then(|v| v.try_to::<i64>().ok())
+                .unwrap_or(PARAMS_MAX_TOKENS)
+                .clamp(MAX_TOKENS_RANGE.0, MAX_TOKENS_RANGE.1) as u32;
+            let include_usage = args.get("include_usage").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+            (conv, max_tokens, include_usage)
+        };
+        let req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
+        let counted = counter().clone();
+        let prepared =
+            match prepare_authorized_chat(&s, Capability::Commands, &key_state, consented, &counted, key.as_ref(), &req) {
+                Ok(p) => p,
+                Err(e) => {
+                    let mut d = vdict! { "ok" => false, "code" => e.code(), "reason" => e.reason().as_str() };
+                    if let PrepareError::Refused(cartalith_llm::Refusal::ConsentNeeded(o)) = &e {
+                        d.set("origin", o.as_str());
+                    }
+                    return d;
+                }
+            };
+        counter().begin_call();
+        if !resume {
+            inner.budget = RetryBudget::new();
+        }
+        let tools: PackedStringArray = req.tools.iter().map(|t| GString::from(t.name.as_str())).collect();
+        inner.session = Some(StreamSession::for_style(prepared.authorized.style, &req.tools, key.as_ref()));
+        let turns = conv.turns() as i64;
+        inner.params = Some(ParamsState { conv, cat, text: String::new(), calls: Vec::new(), max_tokens, include_usage });
+        drop(inner);
+        let headers: PackedStringArray = prepared.http.header_lines().iter().map(|l| GString::from(l.as_str())).collect();
+        let mut d = vdict! {
+            "ok" => true,
+            "origin" => prepared.authorized.origin.as_str(),
+            "tls" => prepared.target.tls,
+            "host" => prepared.target.host.as_str(),
+            "port" => prepared.target.port as i64,
+            "path" => prepared.target.path.as_str(),
+            "model" => s.model.as_str(),
+            "hosted" => !prepared.authorized.local,
+            "style" => if prepared.authorized.style == cartalith_llm::ApiStyle::OpenAiCompatible { "openai" } else { "anthropic" },
+            "turns" => turns,
+        };
+        d.set("tools", &tools);
+        d.set("headers", &headers);
+        d.set("body", &PackedByteArray::from(prepared.http.body.as_slice()));
+        d
     }
 }
 
@@ -154,7 +402,12 @@ fn event_dict(e: &Event) -> VarDictionary {
         }
         // No tools are ever offered in LLM-3, so the decoder cannot produce one;
         // reported rather than dropped so a future change cannot lose one silently.
-        Event::ToolCall { name, .. } => vdict! { "type" => "tool_call", "name" => name.as_str() },
+        // The arguments travel as JSON TEXT for transcripts (the stage-2 driver);
+        // nothing in the shell parses or acts on them -- the card's data comes from
+        // the Rust validator (`proposal` events), never from here.
+        Event::ToolCall { name, arguments, .. } => {
+            vdict! { "type" => "tool_call", "name" => name.as_str(), "arguments" => arguments.to_string().as_str() }
+        }
         Event::Done { finish_reason } => {
             let mut d = vdict! { "type" => "done" };
             if let Some(r) = finish_reason {
@@ -202,6 +455,23 @@ fn process(inner: &mut Inner, events: Vec<Event>, allow_retry: bool) -> Array<Va
                 inner.retry_pending = true;
                 d.set("will_retry", true);
             }
+            Event::TextDelta(t) => {
+                if let Some(p) = inner.params.as_mut() {
+                    p.text.push_str(t);
+                }
+            }
+            Event::ToolCall { id, name, arguments } => {
+                if let Some(p) = inner.params.as_mut() {
+                    p.calls.push(IncomingCall { id: id.clone(), name: name.clone(), arguments: arguments.clone() });
+                }
+            }
+            // A parameter request's reply has ended: the conversation decides, and its
+            // step REPLACES `done` (module docs).
+            Event::Done { .. } => {
+                if let Some(p) = inner.params.as_mut() {
+                    d = params_step(p);
+                }
+            }
             _ => {}
         }
         out.push(&d);
@@ -236,13 +506,17 @@ impl LlmStream {
     ) -> VarDictionary {
         let cap = match capability.to_string().as_str() {
             "prose" => Capability::Prose,
-            _ => return refuse("unsupported_capability", "This build runs prose and note assist only."),
+            "commands" => Capability::Commands,
+            _ => return refuse("unsupported_capability", "This build runs prose, note assist and setting proposals only."),
         };
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
         // Read and clear in every path, so a refused retry cannot leave the flag set for a
         // later, unrelated request.
         let is_retry = std::mem::take(&mut self.lock().retry_pending);
+        if cap == Capability::Commands {
+            return self.prepare_params(&settings, &consented, &args, is_retry);
+        }
         let Some(task) = Task::from_id(&text(&args, "task")) else {
             return refuse("unknown_task", "Unknown assistant task.");
         };
@@ -305,6 +579,7 @@ impl LlmStream {
             max_tokens,
             max_tokens_field: hints.max_tokens_field,
             include_usage,
+            thinking: cartalith_llm::Thinking::Default,
         };
         let counted = counter().clone();
         let prepared = match prepare_authorized_chat(&s, cap, &key_state, &consented, &counted, key.as_ref(), &req) {
@@ -324,6 +599,7 @@ impl LlmStream {
                 inner.budget = RetryBudget::new();
             }
             inner.session = Some(StreamSession::for_style(prepared.authorized.style, &[], key.as_ref()));
+            inner.params = None;
         }
         let headers: PackedStringArray = prepared.http.header_lines().iter().map(|l| GString::from(l.as_str())).collect();
         let sent = &prompt.sent;
@@ -372,6 +648,50 @@ impl LlmStream {
             }
             Err(e) => vdict! { "ok" => false, "reason" => e.reason().as_str() },
         }
+    }
+
+    /// The next turn of the current parameter request, after a `params_continue` or
+    /// `params_retry` event: the gate is asked AGAIN and the catalogue is rebuilt from
+    /// the registry and `args.current` (the shell's fresh `get_params()`), so a setting
+    /// moved in between is what the model sees. Answers like `prepare`; refused with
+    /// `no_conversation` when no parameter request is open.
+    #[func]
+    fn prepare_continue(&self, settings: VarDictionary, consented: PackedStringArray, args: VarDictionary) -> VarDictionary {
+        let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
+        self.lock().retry_pending = false;
+        self.prepare_params(&settings, &consented, &args, true)
+    }
+
+    /// What a parameter request would send, without the gate, a request or the
+    /// network: `{ok, request_chars, offered, groups}` (the keys a model may be shown
+    /// and the groups they fall in) or `{ok: false, reason}`. For the panel's "This
+    /// will send" line.
+    #[func]
+    fn params_preview(&self, args: VarDictionary) -> VarDictionary {
+        let Some(current) = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok()) else {
+            return refuse("no_params", "No generation settings are readable.");
+        };
+        let cat = catalogue_from(&current);
+        if let Some(p) = cat.problems().first() {
+            return refuse("catalogue", &format!("The settings catalogue is incomplete ({p})."));
+        }
+        let request = text(&args, "request");
+        match ParamsConversation::new(&cat, &request) {
+            Ok(_) => vdict! {
+                "ok" => true,
+                "request_chars" => request.trim().chars().count() as i64,
+                "offered" => cat.rows.len() as i64,
+                "groups" => cat.groups.len() as i64,
+            },
+            Err(why) => refuse("empty_request", why),
+        }
+    }
+
+    /// V13 (scope s.5b.2): why Apply may not run now, or `""` when it may. The card
+    /// is shown either way; Apply is disabled with this text beside it.
+    #[func]
+    fn apply_availability(&self, generating: bool, finalized: bool) -> GString {
+        GString::from(apply_blocked(generating, finalized).unwrap_or(""))
     }
 
     /// The response head arrived with `status`. A no-op with no prepared reply.
@@ -461,6 +781,7 @@ impl LlmStream {
         let mut inner = self.lock();
         inner.session = None;
         inner.retry_pending = false;
+        inner.params = None;
     }
 
     /// The running token counter: `{calls, calls_reported}` always, `prompt` and

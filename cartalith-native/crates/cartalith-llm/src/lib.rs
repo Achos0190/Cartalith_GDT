@@ -1,6 +1,6 @@
 //! `cartalith-llm`: the protocol half of the optional LLM assistant.
 //!
-//! Milestones LLM-1 to LLM-4 of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
+//! Milestones LLM-1 to LLM-4 and LLM-6a/6b of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
 //! Rust, no Godot types, **no network use**: requests are built as bytes, responses
 //! arrive as bytes, and the wire is Godot's `HTTPClient` on a worker thread
 //! (`shell/llm_wire.gd`; Ruling DD Q4, hybrid transport). Two ways in: the pull-shaped
@@ -29,12 +29,15 @@
 //! | [`prompt`] | what the assistant is asked and exactly what is sent with it (LLM-3) |
 //! | [`note`] | the model-generated marker and the text a Vault note receives (LLM-3) |
 //! | [`session`] | [`session::run_chat`]: one request to a list of events |
+//! | [`catalogue`] | the generation-parameter catalogue, its tool schema and the proposal validator V1-V13 (LLM-6a/6b) |
+//! | [`params_flow`] | the two-step parameter conversation: schema, proposal, one retry (LLM-6a/6b) |
 //!
 //! Generation stays model-free: nothing in this crate is reachable from the
 //! seed-deterministic path, and nothing here depends on any other workspace
 //! crate. Progress is in `cartalith-native/docs/STATUS.md`.
 
 pub mod anthropic;
+pub mod catalogue;
 pub mod counter;
 pub mod error;
 pub mod event;
@@ -43,6 +46,7 @@ pub mod host;
 pub mod keystore;
 pub mod note;
 pub mod openai;
+pub mod params_flow;
 pub mod prepare;
 pub mod presets;
 pub mod request;
@@ -63,8 +67,8 @@ pub use presets::{ApiStyle, RequestHints, request_hints};
 pub use keystore::{KeySource, KeyState, KeyStore};
 pub use settings::{Authorized, Capability, LlmSettings, Refusal, authorize};
 pub use openai::{
-    ChatRequest, MaxTokensField, Message, OpenAiDecoder, Role, ToolSpec, build_chat_request,
-    endpoint,
+    ChatRequest, MaxTokensField, Message, OpenAiDecoder, Role, Thinking, ToolCallRecord, ToolSpec, ToolTurn,
+    build_chat_request, endpoint,
 };
 pub use secret::{ApiKey, Redactor};
 pub use anthropic::{AnthropicDecoder, build_messages_request};

@@ -80,7 +80,7 @@ const _SWITCHES := [
 	{"key": "prose", "label": "Prose and Vault assist",
 		"note": "Prose for a place, its story, or a Vault note, from Story ▸ Notes ▸ Assistant panel. Notes are written only on your click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
-		"unavailable": "Not available in this build yet: it needs grouped undo first."},
+		"note": "Generation-setting proposals (LLM-6): the model proposes, you review the card and press Apply; one Apply is one undo step and never regenerates. View and layer commands are not built yet."},
 	{"key": "edit", "label": "Edit actions: sculpt, paint",
 		"unavailable": "Not available in this build yet: it needs grouped undo and its own approval step."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "This computer and your local network."},
@@ -91,6 +91,10 @@ const _CONTEXT := [
 	{"key": "ctx_entity", "label": "Send: current entity"},
 	{"key": "ctx_selection", "label": "Send: selection"},
 	{"key": "ctx_notes", "label": "Send: named Vault notes"},
+	## Ruling DI P3: generation parameters are their own source, off until ticked. A setting
+	## proposal shows the model each offered setting's current value, so it needs this.
+	{"key": "ctx_params", "label": "Send: generation parameters",
+		"note": "Needed for setting proposals: the model is shown the current value of each setting in the groups it asks for."},
 ]
 ## The three GPU override values, in the picker's order (ids match `GpuOverride::id`).
 const _GPU_OVERRIDES := [

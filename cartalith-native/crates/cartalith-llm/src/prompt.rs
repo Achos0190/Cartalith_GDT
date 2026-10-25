@@ -270,8 +270,8 @@ pub fn build_messages(task: Task, request: &str, ctx: &Context<'_>) -> Result<Pr
     let user = if blocks.is_empty() { request.to_owned() } else { format!("{blocks}\n{request}") };
     Ok(Prompt {
         messages: vec![
-            Message { role: Role::System, content: system_prompt(task).to_owned() },
-            Message { role: Role::User, content: user },
+            Message { role: Role::System, content: system_prompt(task).to_owned(), tool: None },
+            Message { role: Role::User, content: user, tool: None },
         ],
         sent,
     })

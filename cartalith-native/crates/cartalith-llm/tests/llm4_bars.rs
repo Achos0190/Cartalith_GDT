@@ -24,13 +24,14 @@ fn req() -> ChatRequest {
     ChatRequest {
         model: "any-free-text-model".into(),
         messages: vec![
-            Message { role: Role::System, content: "You write short prose.".into() },
-            Message { role: Role::User, content: "describe the river".into() },
+            Message { role: Role::System, content: "You write short prose.".into(), tool: None },
+            Message { role: Role::User, content: "describe the river".into(), tool: None },
         ],
         tools: vec![],
         max_tokens: 256,
         max_tokens_field: MaxTokensField::MaxTokens,
         include_usage: false,
+        thinking: cartalith_llm::Thinking::Default,
     }
 }
 

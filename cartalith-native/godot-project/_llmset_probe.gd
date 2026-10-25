@@ -430,7 +430,7 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 2. defaults
 	print("== 2. defaults ==")
-	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed", "ctx_entity", "ctx_selection", "ctx_notes"]:
+	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed", "ctx_entity", "ctx_selection", "ctx_notes", "ctx_params"]:
 		var cb := _c(k) as CheckBox
 		_ok(cb != null and not cb.button_pressed, "switch '%s' ships OFF" % k)
 	_ok((_c("token_counter") as CheckBox).button_pressed, "the token counter ships visible")
@@ -451,11 +451,12 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 3. disabled reasons
 	print("== 3. disabled-reason text ==")
-	for k in ["commands", "edit"]:
+	## LLM-6b made Commands usable (setting proposals); only Edit is still unavailable.
+	for k in ["edit"]:
 		var cb := _c(k) as CheckBox
 		_ok(cb.disabled and not cb.button_pressed, "'%s' is disabled and off" % k)
 		_ok(_text_of(k + "_note").begins_with("Not available in this build yet"), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
-	for k in ["prose", "local_allowed", "remote_allowed"]:
+	for k in ["prose", "commands", "local_allowed", "remote_allowed"]:
 		_ok((_c(k) as CheckBox).disabled, "'%s' is disabled while the master switch is off" % k)
 		_ok(_text_of(k + "_note").ends_with("Needs the master switch."), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
 	_ok(not (_c("base_url") as LineEdit).editable and (_c("preset") as OptionButton).disabled,

@@ -41,11 +41,12 @@ mod tests {
     fn style_picks_the_wire() {
         let req = ChatRequest {
             model: "m".into(),
-            messages: vec![Message { role: Role::User, content: "hi".into() }],
+            messages: vec![Message { role: Role::User, content: "hi".into(), tool: None }],
             tools: vec![],
             max_tokens: 10,
             max_tokens_field: MaxTokensField::MaxTokens,
             include_usage: false,
+            thinking: crate::openai::Thinking::Default,
         };
         let key = ApiKey::new("sk-test-abcdef123456").unwrap();
         let o = build_request(ApiStyle::OpenAiCompatible, "https://h.test/v1", Some(&key), &req).unwrap();

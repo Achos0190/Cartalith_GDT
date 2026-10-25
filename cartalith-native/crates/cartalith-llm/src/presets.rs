@@ -18,7 +18,7 @@
 //! that a server is reachable. `supports_*` flags say what the protocol
 //! offers, not that every model behind it honours it (scope risk 4).
 
-use crate::openai::MaxTokensField;
+use crate::openai::{MaxTokensField, Thinking};
 
 /// Which wire protocol an adapter must speak.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +188,10 @@ pub struct RequestHints {
     pub max_tokens_field: MaxTokensField,
     /// Ask for the final usage chunk (`stream_options.include_usage`).
     pub include_usage: bool,
+    /// How to ask a reasoning model not to think, where the provider is known to
+    /// take a field for it (LLM-6a); `Thinking::Default` sends nothing. Used only
+    /// by the parameter-proposal task (`crate::params_flow`), never by prose.
+    pub no_thinking: Thinking,
 }
 
 /// The hints for a preset id (custom ids and unknown ids get the conservative
@@ -204,13 +208,24 @@ pub struct RequestHints {
 ///   server rejects fails the whole call, whereas a missing usage figure only shows
 ///   "not reported" in the counter. OpenRouter documents usage in the final chunk
 ///   without a flag [recalled].
+///
+/// `no_thinking` (LLM-6a): `ollama` gets `reasoning_effort: "none"` [verified, see
+/// `Thinking::ReasoningEffortNone`]; `llama_cpp` and `vllm` get the Qwen3
+/// `chat_template_kwargs` switch [recalled]; everything else, including LM Studio
+/// (no field verified) and every custom or hosted id, gets `Default`, i.e. nothing,
+/// because an unknown field can fail the whole call.
 pub fn request_hints(preset_id: &str) -> RequestHints {
+    let no_thinking = match preset_id {
+        "ollama" => Thinking::ReasoningEffortNone,
+        "llama_cpp" | "vllm" => Thinking::ChatTemplateNoThinking,
+        _ => Thinking::Default,
+    };
     match preset_id {
-        "openai" => RequestHints { max_tokens_field: MaxTokensField::MaxCompletionTokens, include_usage: true },
+        "openai" => RequestHints { max_tokens_field: MaxTokensField::MaxCompletionTokens, include_usage: true, no_thinking },
         "openrouter" | "gemini_openai" => {
-            RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: false }
+            RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: false, no_thinking }
         }
-        _ => RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: true },
+        _ => RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: true, no_thinking },
     }
 }
 
@@ -236,6 +251,19 @@ mod tests {
         }
         for id in ["ollama", "lm_studio", "llama_cpp", "vllm", "custom_openai", "nope", ""] {
             assert_eq!((h(id).max_tokens_field, h(id).include_usage), (MaxTokensField::MaxTokens, true), "{id}");
+        }
+    }
+
+    /// Protects (LLM-6a): the thinking switch is sent only to the presets whose
+    /// field is known, as literals per id. MUTATION: give `lm_studio` or a hosted
+    /// id a switch, or swap Ollama's for the chat-template one, and this goes red.
+    #[test]
+    fn no_thinking_only_where_the_field_is_known() {
+        assert_eq!(request_hints("ollama").no_thinking, Thinking::ReasoningEffortNone);
+        assert_eq!(request_hints("llama_cpp").no_thinking, Thinking::ChatTemplateNoThinking);
+        assert_eq!(request_hints("vllm").no_thinking, Thinking::ChatTemplateNoThinking);
+        for id in ["lm_studio", "openai", "openrouter", "gemini_openai", "anthropic", "custom_openai", "custom_anthropic", ""] {
+            assert_eq!(request_hints(id).no_thinking, Thinking::Default, "{id}");
         }
     }
 

@@ -32,8 +32,10 @@ use crate::transport::{Header, HttpRequest};
 /// already ends in `/v1` where the server needs it).
 pub const CHAT_PATH: &str = "/chat/completions";
 
-/// Chat role. Tool-result messages arrive with LLM-6, when there are tools to
-/// answer.
+/// Chat role. A tool result is not a role of its own here: it is a message
+/// carrying [`ToolTurn::Result`], because the two wires disagree about its role
+/// (`tool` on the OpenAI-compatible wire, a `user` message of `tool_result`
+/// blocks on Anthropic's) and each builder maps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     /// Instructions from the app.
@@ -62,6 +64,67 @@ pub struct Message {
     /// What was said. Private story text can live here, so `HttpRequest`'s
     /// `Debug` never prints the body.
     pub content: String,
+    /// Tool calls or a tool result carried by this message; `None` for text,
+    /// which is every message LLM-1 to LLM-5 built.
+    pub tool: Option<ToolTurn>,
+}
+
+impl Message {
+    /// A plain text message.
+    pub fn text(role: Role, content: impl Into<String>) -> Self {
+        Message { role, content: content.into(), tool: None }
+    }
+}
+
+/// One tool call a model made, as the app replays it on the next turn (LLM-6a,
+/// the two-step parameter flow). `id` is never empty: a server that sent none
+/// gets one assigned by the app ([`crate::params_flow`]), so a call and its
+/// result always pair up on the wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCallRecord {
+    /// The call id (the provider's, or one the app assigned).
+    pub id: String,
+    /// The tool's name (one the request offered).
+    pub name: String,
+    /// The arguments as the model sent them, a JSON object.
+    pub arguments: Value,
+}
+
+/// The tool half of a message (LLM-6a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolTurn {
+    /// An assistant turn that called tools (`content` is its text, often empty).
+    Calls(Vec<ToolCallRecord>),
+    /// The app's answer to one call; `content` is the result text (JSON). The
+    /// message's role is ignored by both builders: OpenAI sends `role: tool`,
+    /// Anthropic a `user` message of `tool_result` blocks.
+    Result {
+        /// The id of the call this answers.
+        call_id: String,
+    },
+}
+
+/// How a request asks a reasoning model not to think (LLM-6a). Sent only where
+/// the provider is known to take the field, because an unknown field can fail a
+/// whole call; [`crate::presets::request_hints`] says which preset gets which.
+/// WHY at all: in the LLM-6c stage-1 run (`docs/evidence/llm-model-eval-2026-10-26/REPORT.md`)
+/// qwen3:14b with thinking on invented keys and acted on impossible requests,
+/// and with it off made 15/15 clean proposals in about a ninth of the time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Thinking {
+    /// Send nothing: the server's own default.
+    Default,
+    /// `"reasoning_effort": "none"`. Ollama's OpenAI-compatible endpoint:
+    /// "`reasoning_effort` and `reasoning.effort` control model thinking"; for a
+    /// boolean-thinking model `"none"` requests `false` [verified
+    /// docs.ollama.com/api/openai-compatibility, fetched 2026-10-25]. That page
+    /// does NOT list Ollama's native `think` field for this endpoint, so `think:
+    /// false` (what the stage-1 script sent to the native `/api/chat`) is not used.
+    ReasoningEffortNone,
+    /// `"chat_template_kwargs": {"enable_thinking": false}`: the Qwen3 chat-template
+    /// switch, passed through by llama.cpp's server and vLLM [recalled, not
+    /// re-checked against either project's documentation].
+    ChatTemplateNoThinking,
 }
 
 /// A function the model may call. The app fixes this list per request.
@@ -105,6 +168,9 @@ pub struct ChatRequest {
     /// Ask for a final usage chunk (`stream_options.include_usage`). Off by
     /// default at call sites: some local servers reject unknown fields.
     pub include_usage: bool,
+    /// Ask a reasoning model not to think (OpenAI-compatible wire only; the
+    /// Anthropic builder ignores it: no thinking is ever requested there).
+    pub thinking: Thinking,
 }
 
 /// Join `base_url` and [`CHAT_PATH`], rejecting anything but a plain
@@ -157,11 +223,7 @@ pub fn build_chat_request(
     if req.max_tokens == 0 {
         return Err(LlmError::InvalidRequest("max_tokens must be positive"));
     }
-    let messages: Vec<Value> = req
-        .messages
-        .iter()
-        .map(|m| json!({"role": m.role.wire(), "content": m.content}))
-        .collect();
+    let messages: Vec<Value> = req.messages.iter().map(wire_message).collect();
     let mut body = json!({
         "model": req.model,
         "messages": messages,
@@ -186,6 +248,11 @@ pub fn build_chat_request(
     if req.include_usage {
         body["stream_options"] = json!({"include_usage": true});
     }
+    match req.thinking {
+        Thinking::Default => {}
+        Thinking::ReasoningEffortNone => body["reasoning_effort"] = json!("none"),
+        Thinking::ChatTemplateNoThinking => body["chat_template_kwargs"] = json!({"enable_thinking": false}),
+    }
     let mut headers = vec![
         Header::new("Content-Type", "application/json".to_owned(), false),
         Header::new("Accept", "text/event-stream".to_owned(), false),
@@ -196,6 +263,29 @@ pub fn build_chat_request(
     let body = serde_json::to_vec(&body)
         .map_err(|_| LlmError::InvalidRequest("request could not be serialised"))?;
     Ok(HttpRequest { url, headers, body })
+}
+
+/// One message in the OpenAI chat shape. A tool-call turn carries `tool_calls`
+/// with the arguments re-encoded as a JSON **string** (the wire's own type: the
+/// decoder parsed them from one); a tool result is `role: tool` with its
+/// `tool_call_id` (OpenAI chat reference [recalled]; Ollama's compatibility page
+/// lists `tools` but does not describe tool messages, so for Ollama this is
+/// [recalled] too, and the mock-server probes are the only evidence here).
+fn wire_message(m: &Message) -> Value {
+    match &m.tool {
+        None => json!({"role": m.role.wire(), "content": m.content}),
+        Some(ToolTurn::Calls(calls)) => {
+            let calls: Vec<Value> = calls
+                .iter()
+                .map(|c| {
+                    json!({"id": c.id, "type": "function", "function": {
+                        "name": c.name, "arguments": c.arguments.to_string()}})
+                })
+                .collect();
+            json!({"role": "assistant", "content": m.content, "tool_calls": calls})
+        }
+        Some(ToolTurn::Result { call_id }) => json!({"role": "tool", "tool_call_id": call_id, "content": m.content}),
+    }
 }
 
 /// A tool call being assembled from streamed fragments.

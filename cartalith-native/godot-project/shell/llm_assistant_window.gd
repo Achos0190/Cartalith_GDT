@@ -13,7 +13,27 @@ class_name LlmAssistantWindow
 ## surrounding shell is not built for them yet: the mock draws a *docked* panel and a settings
 ## tab, whereas this ships as a floating window (the right dock is context-specific and owns
 ## its own tabs) with a "Settings..." button that opens `LlmSettingsWindow`; and the mock's
-## "Proposed actions" list is absent because commands arrive with LLM-5/6.
+## "Proposed actions" list is the proposal CARD of LLM-6b (below), drawn in the message list.
+##
+## ## Commands: generation-setting proposals (LLM-6a/6b, scope s.5b)
+##
+## * **The model proposes; it never acts.** The Commands chip sends the request through
+##   `LlmRun.begin(..., "commands", ...)`. Rust runs the two-step flow (schema, then proposal)
+##   and validates every number (V1-V13, reject and never clamp: Ruling DI P1). What arrives
+##   here is the validated card data; NO handler writes a setting except `_apply_card`, which
+##   only a click on the card's Apply button reaches.
+## * **One Apply is one undo step, and never regenerates** (s.5b.4). `_apply_card` opens an
+##   `undo_group.gd` group, writes each change through `write_param` (which uses
+##   `engine_bridge.gd::param_write`, the setter every dialog uses), and commits; a write the
+##   engine refuses or clamps rolls the whole group back. No generate, refresh or recompute is
+##   called; the card says which follow-up each change needs.
+## * **Model text is drawn as data.** The card carries the MODEL PROPOSAL chip; the summary and
+##   every reason are plain `Label`s in a muted, quoted style (a `Label` renders no markup and
+##   makes no link). A refused change is listed under "Not applied" with its rule and reason;
+##   the scope's struck-through text is a muted list here, because Godot's `Label` has no
+##   strikethrough and a `RichTextLabel` would parse model text as markup (labelled deviation).
+## * **Unavailability shows its reason** (V13): while a world generates or is finalized, Apply
+##   is disabled with the reason beside it; a card with nothing valid has no Apply at all.
 ##
 ## ## What this window does and never does
 ##
@@ -104,6 +124,12 @@ const MAX_NOTES := 400
 const WRAP_MIN_W := 160
 ## Reply cap sent as `max_tokens`. Labelled judgement: about a page of prose.
 const REPLY_MAX_TOKENS := 1024
+## The proposal cards shown, oldest first, for probes: each `{info, box, apply, dismiss,
+## reason, state}` where `state` is "new", "applied", "dismissed" or "failed".
+var cards: Array = []
+## The prompt box's hint, per kind of task.
+const PLACEHOLDER_PROSE := "Ask for prose about the selected place, or for work on the chosen note…"
+const PLACEHOLDER_COMMANDS := "Ask for a change to the generation settings, e.g. a drier climate and lower mountains…"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -123,6 +149,11 @@ func setup(a, b: EngineBridge) -> void:
 	run.cancelled.connect(_on_cancelled)
 	run.retrying.connect(_on_retrying)
 	run.idle.connect(_refresh)
+	run.params_step.connect(_on_params_step)
+	run.proposal.connect(_on_proposal)
+	run.answered.connect(_on_answered)
+	## The next turn of a setting request reads the settings as they are THEN.
+	run.params_source = func() -> Dictionary: return bridge.param_snapshot()
 	var host := VBoxContainer.new()
 	host.add_theme_constant_override("separation", 0)
 	add_child(host)
@@ -257,12 +288,13 @@ func _rebuild() -> void:
 		b.custom_minimum_size.y = maxi(int(b.custom_minimum_size.y), _field_h())
 		_chips[id] = b
 		controls["task_" + id] = b
-	var cmd := DccWidgets.segment(chips, "Commands", func(): pass)
-	cmd.disabled = true
+	var cmd := DccWidgets.segment(chips, "Commands", func(): _pick_task("commands"))
 	cmd.custom_minimum_size.y = maxi(int(cmd.custom_minimum_size.y), _field_h())
-	cmd.tooltip_text = "Commands need grouped undo first (a later release). Nothing here changes the map."
+	cmd.tooltip_text = "Ask for generation-setting changes. The model proposes; nothing changes until you press Apply on its card."
+	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
-	_note_label(_body, "Commands and edits arrive in a later release; nothing here changes the map.")
+	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes for you to review; nothing changes until you press Apply. Edit actions arrive in a later release.")
+	controls["commands_note"] = cmd_note
 
 	# -- subject and note -----------------------------------------------------------
 	var place_l := DccTheme.label("", "text_secondary", DccTheme.FS_SMALL)
@@ -276,6 +308,7 @@ func _rebuild() -> void:
 	var note_row := HBoxContainer.new()
 	note_row.add_theme_constant_override("separation", 6)
 	_body.add_child(note_row)
+	controls["note_row"] = note_row
 	var nl := DccTheme.label("Note", "text_secondary", DccTheme.FS_SMALL)
 	nl.custom_minimum_size.x = 40 if _phone else 56
 	note_row.add_child(nl)
@@ -319,7 +352,7 @@ func _rebuild() -> void:
 
 	# -- input ------------------------------------------------------------------------------
 	_input = TextEdit.new()
-	_input.placeholder_text = "Ask for prose about the selected place, or for work on the chosen note…"
+	_input.placeholder_text = PLACEHOLDER_PROSE
 	_input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	_input.custom_minimum_size.y = 64
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -355,7 +388,7 @@ func _rebuild() -> void:
 	controls["save"] = _save
 	_save_reason = _note_label(save_row, "", "text_ghost")
 	controls["save_reason"] = _save_reason
-	_note_label(_body, "Saved text is appended to the note, marked model-generated. Your own text is never changed.")
+	controls["save_note"] = _note_label(_body, "Saved text is appended to the note, marked model-generated. Your own text is never changed.")
 
 	_fill_notes()
 	_building = false
@@ -475,9 +508,20 @@ func _task_id() -> String:
 # State
 # ---------------------------------------------------------------------------
 
+## The capability the current task needs: `commands` for setting proposals, else `prose`.
+func _capability() -> String:
+	return "commands" if _task == "commands" else "prose"
+
+
 ## The gate's answer for this capability: `{ok, ...}` or `{ok: false, code, reason}`.
 func _gate() -> Dictionary:
-	return bridge.llm_authorize(DccSettings.llm_gate_dict(), "prose", DccSettings.llm_consented_origins())
+	return bridge.llm_authorize(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins())
+
+
+## The arguments of a setting request: the user's words and the CURRENT settings (the engine's
+## own getter; the snapshot while a generate runs). Rust builds the catalogue from these.
+func _params_args(request: String) -> Dictionary:
+	return {"request": request, "current": bridge.param_snapshot(), "max_tokens": REPLY_MAX_TOKENS, "include_usage": true}
 
 
 ## Recomputes every label and enabled state from stored settings and the current inputs.
@@ -504,6 +548,10 @@ func _refresh() -> void:
 	(controls["note_action"] as OptionButton).visible = _task == "note"
 	(controls["note"] as OptionButton).disabled = busy or not bool(bridge.vault_info().get("bound", false))
 	(controls["place"] as Label).text = _place_text()
+	## A setting proposal uses neither a place nor a note.
+	(controls["place"] as Label).visible = _task != "commands"
+	(controls["note_row"] as Control).visible = _task != "commands"
+	_input.placeholder_text = PLACEHOLDER_COMMANDS if _task == "commands" else PLACEHOLDER_PROSE
 	(controls["note_reload"] as Button).disabled = busy or _note.is_empty()
 	_stop.visible = busy
 	_send.visible = true
@@ -517,8 +565,16 @@ func _refresh() -> void:
 		reason = String(g.get("reason", "Unavailable."))
 	elif not bool(cap_check.get("ok", true)):
 		reason = String(cap_check.get("reason", "The token cap is reached."))
+	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")):
+		reason = "Tick \"Send: generation parameters\" in Settings first: a proposal shows the model the current settings."
 	elif request == "":
 		reason = "Type a request first."
+	elif _task == "commands":
+		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
+		if bool(pp.get("ok", false)):
+			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value." % [int(pp["request_chars"]), int(pp["groups"])]
+		else:
+			reason = String(pp.get("reason", "Unavailable."))
 	else:
 		var pv: Dictionary = run.stream.preview(_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
 		if bool(pv.get("ok", false)):
@@ -551,6 +607,9 @@ func _refresh() -> void:
 	_save.tooltip_text = why
 	_save_reason.text = why
 	_save_reason.visible = why != ""
+	(_save.get_parent() as Control).visible = _task != "commands"
+	(controls["save_note"] as Control).visible = _task != "commands"
+	_refresh_cards()
 
 
 func _place_text() -> String:
@@ -654,7 +713,8 @@ func _on_send() -> void:
 	_add_msg("You", request, "text")
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
-	var r := run.begin(DccSettings.llm_gate_dict(), "prose", DccSettings.llm_consented_origins(), _args(request))
+	var args := _params_args(request) if _task == "commands" else _args(request)
+	var r := run.begin(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins(), args)
 	if not bool(r.get("ok", false)):
 		_reply_label.get_parent().get_parent().queue_free()
 		_reply_label = null
@@ -746,6 +806,228 @@ func _scroll_to_end() -> void:
 	await get_tree().process_frame
 	if is_instance_valid(_scroll):
 		_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value)
+
+
+# ---------------------------------------------------------------------------
+# Setting proposals (LLM-6b)
+# ---------------------------------------------------------------------------
+
+## A setting request moved on: say so in plain words (the model's own text, if any, is already
+## in its bubble). A retry names why the first proposal could not be used.
+func _on_params_step(info: Dictionary) -> void:
+	if String(info.get("type", "")) == "params_retry":
+		var v: Dictionary = info.get("verdict", {})
+		_add_msg("", "The model's proposal could not be used (%s). It was told why and asked once more." % _verdict_reasons(v), "warn")
+	else:
+		var gs: PackedStringArray = info.get("groups", PackedStringArray())
+		if gs.is_empty():
+			_add_msg("", "The model asked for setting groups that do not exist; it was told the valid ones.", "text_ghost")
+		else:
+			_add_msg("", "The model is reading the %s settings…" % ", ".join(gs), "text_ghost")
+	_refresh()
+
+
+## The model answered in words without proposing (an impossible request, a question).
+func _on_answered(_text: String) -> void:
+	_drop_empty_reply()
+	_add_msg("", "No setting change was proposed.", "text_ghost")
+	_refresh()
+
+
+## The refused changes or the structural failure, in one line.
+func _verdict_reasons(v: Dictionary) -> String:
+	if v.has("structural"):
+		return "%s: %s" % [String(v.get("structural_rule", "")), String(v["structural"])]
+	var parts: PackedStringArray = PackedStringArray()
+	for r in v.get("rejected", []):
+		var rd: Dictionary = r
+		parts.append("%s %s: %s" % [String(rd.get("rule", "")), String(rd.get("key", "(no key)")), String(rd.get("why", ""))])
+	return "; ".join(parts) if not parts.is_empty() else "nothing could be applied"
+
+
+## A value with its unit for the card ("4000 m", "1.00 x", "on").
+func _fmt_value(v, unit: String) -> String:
+	var t := ""
+	match typeof(v):
+		TYPE_BOOL:
+			t = "on" if bool(v) else "off"
+		TYPE_INT:
+			t = str(int(v))
+		TYPE_FLOAT:
+			## Two decimals below 100 (the scope's "1.00 x -> 0.70 x"), whole numbers above
+			## (metres, years); the card shows the value, the model's number is never rounded
+			## in what is applied (`_apply_card` writes `new` as received).
+			var f := float(v)
+			t = "%.2f" % f if absf(f) < 100.0 else "%d" % int(round(f))
+		_:
+			t = str(v)
+	return t if unit == "" or typeof(v) == TYPE_BOOL else "%s %s" % [t, unit]
+
+
+## Removes the assistant bubble of a setting request when the model streamed no words into
+## it (a pure tool call), so the card is not preceded by an empty model-generated box.
+func _drop_empty_reply() -> void:
+	if _reply_label != null and _reply.strip_edges() == "" and is_instance_valid(_reply_label):
+		_reply_label.get_parent().get_parent().queue_free()
+		_reply_label = null
+
+
+## Draws the proposal card (scope s.5b.3's text layout, in the DCC vocabulary). Builds
+## widgets only: nothing is written here.
+func _on_proposal(info: Dictionary) -> void:
+	_drop_empty_reply()
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", DccWidgets.box("warn", "sunken", 8, 6))
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	box.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 6)
+	var chip := DccTheme.label("MODEL PROPOSAL", "warn", DccTheme.FS_MICRO)
+	chip.tooltip_text = "Proposed by a language model. Nothing has changed; review it and press Apply or Dismiss."
+	head.add_child(chip)
+	col.add_child(head)
+	if info.has("summary"):
+		_card_text(col, "\u201c%s\u201d" % String(info["summary"]), "text_secondary")
+	var valid: Array = info.get("valid", [])
+	for c in valid:
+		var cd: Dictionary = c
+		var unit := String(cd.get("unit", ""))
+		var line := "%s  (%s)   %s  ->  %s" % [String(cd["label"]), String(cd["key"]),
+			_fmt_value(cd["old"], unit) if cd.has("old") else "not readable", _fmt_value(cd["new"], unit)]
+		if cd.has("pct"):
+			line += "   %+d%%" % int(round(float(cd["pct"])))
+		if cd.has("default") and cd.has("old") and str(cd["default"]) != str(cd["old"]):
+			line += "   (default %s)" % _fmt_value(cd["default"], unit)
+		var row_l := _card_text(col, line, "text")
+		if bool(cd.get("advanced", false)):
+			row_l.text += "   ADVANCED: ruled behaviour"
+		if cd.has("reason"):
+			_card_text(col, "    \u201c%s\u201d  (model's words)" % String(cd["reason"]), "text_dim")
+		if cd.has("inert"):
+			_card_text(col, "    " + String(cd["inert"]), "warn")
+	var rejected: Array = info.get("rejected", [])
+	if info.has("structural") or not rejected.is_empty():
+		_card_text(col, "Not applied:", "text_dim")
+		if info.has("structural"):
+			_card_text(col, "    %s: %s" % [String(info.get("structural_rule", "")), String(info["structural"])], "text_ghost")
+		for r in rejected:
+			var rd: Dictionary = r
+			_card_text(col, "    %s  %s: %s" % [String(rd.get("key", "(no key)")), String(rd["rule"]), String(rd["why"])], "text_ghost")
+	var noop: PackedStringArray = info.get("noop", PackedStringArray())
+	if not noop.is_empty():
+		_card_text(col, "No change (already at that value): %s" % ", ".join(noop), "text_ghost")
+	var apply_b: Button = null
+	var reason_l: Label = null
+	if valid.is_empty():
+		_card_text(col, "Nothing could be applied.", "warn")
+	else:
+		for line in info.get("cost", PackedStringArray()):
+			_card_text(col, String(line), "text_secondary")
+		_card_text(col, "Applying changes settings only. It does not regenerate.", "text_secondary")
+	## The reason sits on its OWN line above the buttons: beside them its wrap minimum plus the
+	## two buttons was wider than a 393 px phone sheet, and a horizontally-disabled scroller
+	## folds that width into every ancestor (measured: Send pushed off screen on the phone).
+	reason_l = _note_label(col, "", "warn")
+	reason_l.visible = false
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_END
+	col.add_child(row)
+	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new"}
+	var dismiss_b := _button(row, "Dismiss", func(): _dismiss_card(card))
+	card["dismiss"] = dismiss_b
+	if not valid.is_empty():
+		apply_b = _button(row, "Apply %d change%s" % [valid.size(), "" if valid.size() == 1 else "s"], func(): _apply_card(card), true)
+		card["apply"] = apply_b
+	_msgs.add_child(box)
+	cards.append(card)
+	_refresh_cards()
+	_scroll_to_end()
+
+
+## One wrapped line of card text.
+func _card_text(parent: Control, text: String, token: String) -> Label:
+	var l := DccTheme.label(text, token, DccTheme.FS_SMALL)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.custom_minimum_size.x = WRAP_MIN_W
+	parent.add_child(l)
+	return l
+
+
+## V13 for every open card: Apply is disabled with the reason beside it while a world
+## generates or is finalized (`LlmStream.apply_availability`, the Rust wording).
+func _refresh_cards() -> void:
+	for card in cards:
+		var b: Button = card["apply"]
+		var rl: Label = card["reason"]
+		if card["state"] != "new":
+			continue
+		var why := _apply_blocked()
+		if b != null:
+			b.disabled = why != ""
+			b.tooltip_text = why
+		rl.text = why
+		rl.visible = why != ""
+
+
+## Why Apply cannot run now, or "".
+func _apply_blocked() -> String:
+	if not run.available():
+		return "This build has no assistant support."
+	return String(run.stream.apply_availability(bridge.generating, bridge.is_finalized()))
+
+
+func _close_card(card: Dictionary, state: String, text: String, token: String) -> void:
+	card["state"] = state
+	for k in ["apply", "dismiss"]:
+		var b: Button = card[k]
+		if b != null:
+			b.disabled = true
+	var rl: Label = card["reason"]
+	rl.text = text
+	rl.visible = true
+	rl.add_theme_color_override("font_color", DccTheme.c(token))
+
+
+func _dismiss_card(card: Dictionary) -> void:
+	if card["state"] != "new":
+		return
+	_close_card(card, "dismissed", "Dismissed. Nothing was changed.", "text_ghost")
+
+
+## **The only writer of settings in this file**, reached only from the card's Apply button.
+## One undo group: every change through `write_param` (`param_write`, the dialogs' setter); a
+## refused or clamped write rolls the group back (`undo_group.gd`). Never regenerates.
+func _apply_card(card: Dictionary) -> void:
+	if card["state"] != "new":
+		return
+	var why := _apply_blocked()
+	if why != "":
+		_refresh_cards()
+		return
+	var info: Dictionary = card["info"]
+	var ug = app.undo_groups
+	var label := "Assistant: %s" % String(info.get("summary", "setting changes")).left(60)
+	var refused: String = ug.begin(label)
+	if refused != "":
+		_close_card(card, "failed", "Not applied: %s." % refused, "block")
+		return
+	for c in info.get("valid", []):
+		var cd: Dictionary = c
+		if not ug.write_param(String(cd["key"]), cd["new"]):
+			## `write_param` already rolled the whole group back.
+			_close_card(card, "failed", "Not applied: %s. Nothing was changed." % String(ug.last_reason), "block")
+			return
+	var r: Dictionary = ug.commit()
+	if not bool(r.get("ok", false)):
+		_close_card(card, "failed", "Not applied: %s. Nothing was changed." % String(r.get("reason", "")), "block")
+		return
+	_close_card(card, "applied", "Applied as one undo step (Edit ▸ Undo reverts all of it). Regenerate or Recompute to see it.", "good")
+	if app.has_method("set_status"):
+		app.set_status("hint", "Assistant: %d setting%s changed. Nothing was regenerated." % [int(r.get("members", 0)), "" if int(r.get("members", 0)) == 1 else "s"])
 
 
 ## **The only caller of `vault_write_file` in this file.** Writes the picked note's text as it

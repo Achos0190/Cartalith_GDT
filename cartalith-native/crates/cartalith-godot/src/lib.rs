@@ -68,6 +68,7 @@ mod measure_bridge;
 mod pack;
 mod ops_bridge;
 mod paint_bridge;
+mod param_catalogue;
 mod params;
 /// ET-E3's print (CMYK) gamut check behind `color_print_gamut`.
 mod print_gamut;

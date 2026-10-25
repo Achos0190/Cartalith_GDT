@@ -32,6 +32,14 @@ class_name LlmMockServer
 ## (default 529) with an Anthropic-shaped JSON error and nothing else -- the transient failure the
 ## one automatic retry is for. Each such request is still recorded in `requests`.
 ##
+##   "tools" / "tools_anthropic"  (LLM-6a/6b) a scripted TOOL conversation on the OpenAI-compatible
+##                   or the Anthropic wire. Each request takes the next entry of `tool_script` (the
+##                   last one repeats): `{"name": <tool>, "args": <Dictionary or raw JSON String>}`
+##                   answers with that one tool call, its arguments streamed in three fragments cut
+##                   mid-JSON (the realistic split); `{"text": <String>}` answers in words with no
+##                   call. Usage and the stop reason (`tool_calls` / `tool_use`) are sent as each
+##                   wire documents them.
+##
 ## Recorded: `accepted` (connections), `requests` (each: path, headers lower-cased, body text),
 ## `client_hangups` (connections the client closed before the server finished), `tokens_sent`.
 
@@ -45,6 +53,9 @@ var client_hangups := 0
 var tokens_sent := 0
 var fail_next := 0
 var fail_status := 529
+## The scripted replies of the "tools" scenarios, one per request, and how many were served.
+var tool_script: Array = []
+var tool_served := 0
 
 var _server := TCPServer.new()
 var _conns: Array = []
@@ -152,6 +163,9 @@ func _try_parse(c: Dictionary) -> void:
 		c["state"] = "done_soon"
 		c["i"] = 1_000_000
 		return
+	if String(c["scenario"]).begins_with("tools"):
+		c["step"] = tool_script[mini(tool_served, tool_script.size() - 1)] if not tool_script.is_empty() else {"text": "(no script)"}
+		tool_served += 1
 	p.put_data("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n\r\n".to_utf8_buffer())
 
 
@@ -169,6 +183,39 @@ func _a_event(type: String, payload: Dictionary) -> String:
 	return "event: %s\ndata: %s\n\n" % [type, JSON.stringify(d)]
 
 
+## One scripted tool-conversation reply (scenarios "tools" / "tools_anthropic"), written whole.
+func _tool_reply(p: StreamPeerTCP, step: Dictionary, anthropic: bool) -> void:
+	var args_text: String = step["args"] if step.get("args") is String else JSON.stringify(step.get("args", {}))
+	var n := args_text.length()
+	var parts := [args_text.substr(0, n / 3), args_text.substr(n / 3, n / 3), args_text.substr(2 * (n / 3))]
+	if anthropic:
+		_chunk(p, _a_event("message_start", {"message": {"id": "msg_t", "type": "message", "role": "assistant", "content": [], "model": "mock-model", "stop_reason": null, "usage": {"input_tokens": 120, "output_tokens": 1}}}))
+		if step.has("text"):
+			_chunk(p, _a_event("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}))
+			_chunk(p, _a_event("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": String(step["text"])}}))
+			_chunk(p, _a_event("content_block_stop", {"index": 0}))
+			_chunk(p, _a_event("message_delta", {"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}))
+		else:
+			_chunk(p, _a_event("content_block_start", {"index": 0, "content_block": {"type": "tool_use", "id": "toolu_%d" % tool_served, "name": String(step["name"]), "input": {}}}))
+			for part in parts:
+				_chunk(p, _a_event("content_block_delta", {"index": 0, "delta": {"type": "input_json_delta", "partial_json": part}}))
+			_chunk(p, _a_event("content_block_stop", {"index": 0}))
+			_chunk(p, _a_event("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 40}}))
+		_chunk(p, _a_event("message_stop", {}))
+		return
+	if step.has("text"):
+		_chunk(p, _delta_event(String(step["text"])))
+		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}) + "\n\n")
+	else:
+		var first := {"index": 0, "id": "call_%d" % tool_served, "type": "function", "function": {"name": String(step["name"]), "arguments": ""}}
+		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [first]}, "finish_reason": null}]}) + "\n\n")
+		for part in parts:
+			_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": part}}]}, "finish_reason": null}]}) + "\n\n")
+		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}) + "\n\n")
+	_chunk(p, "data: " + JSON.stringify({"choices": [], "usage": {"prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}}) + "\n\n")
+	_chunk(p, "data: [DONE]\n\n")
+
+
 func _delta_event(text: String) -> String:
 	return "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"content": text}, "finish_reason": null}]}) + "\n\n"
 
@@ -183,6 +230,11 @@ func _stream(c: Dictionary, p: StreamPeerTCP) -> bool:
 	var sc: String = c["scenario"]
 	if i >= 1_000_000:
 		return false
+	if sc.begins_with("tools"):
+		_tool_reply(p, c["step"], sc == "tools_anthropic")
+		p.put_data("0\r\n\r\n".to_utf8_buffer())
+		c["i"] = 1_000_000
+		return true
 	if sc.begins_with("anthropic"):
 		var with_usage := sc != "anthropic_no_usage"
 		if i == 0:

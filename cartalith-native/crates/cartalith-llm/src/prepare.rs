@@ -120,11 +120,12 @@ mod tests {
     fn req() -> ChatRequest {
         ChatRequest {
             model: "llama3".into(),
-            messages: vec![Message { role: Role::User, content: "hi".into() }],
+            messages: vec![Message { role: Role::User, content: "hi".into(), tool: None }],
             tools: vec![],
             max_tokens: 64,
             max_tokens_field: MaxTokensField::MaxTokens,
             include_usage: false,
+            thinking: crate::openai::Thinking::Default,
         }
     }
 

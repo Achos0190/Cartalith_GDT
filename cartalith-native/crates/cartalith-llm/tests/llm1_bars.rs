@@ -33,11 +33,12 @@ fn tool() -> ToolSpec {
 fn request(tools: Vec<ToolSpec>) -> ChatRequest {
     ChatRequest {
         model: "any-free-text-model".into(),
-        messages: vec![Message { role: Role::User, content: "describe the river".into() }],
+        messages: vec![Message { role: Role::User, content: "describe the river".into(), tool: None }],
         tools,
         max_tokens: 256,
         max_tokens_field: MaxTokensField::MaxTokens,
         include_usage: false,
+        thinking: cartalith_llm::Thinking::Default,
     }
 }
 

@@ -675,6 +675,18 @@ func param_get(key: String):
 	_params_cache = values
 	return values.get(key)
 
+## Every parameter's current value at once (LLM-6a/6b: the assistant's catalogue is rebuilt
+## from this on every request): `WorldGen.get_params()`, or a copy of the snapshot taken
+## before the worker started while `generating` (the same rule as `param_get`). `{}` with no
+## table, so a caller sends nothing rather than invented values.
+func param_snapshot() -> Dictionary:
+	if not _params_available:
+		return {}
+	if generating:
+		return _params_cache.duplicate()
+	_params_cache = world_gen.get_params()
+	return _params_cache.duplicate()
+
 ## Write one parameter. The engine validates and returns the values it actually
 ## took, so a rejected write is visible here rather than silently ignored.
 ##

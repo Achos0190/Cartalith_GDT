@@ -954,6 +954,7 @@ const LLM_DEFAULTS := {
 	"ctx_entity": false,       ## context source: current entity
 	"ctx_selection": false,    ## context source: selection
 	"ctx_notes": false,        ## context source: named Vault notes
+	"ctx_params": false,       ## context source: generation parameters (LLM-6a/6b; Ruling DI P3: its own box, off until ticked)
 }
 
 ## The stored value of one `[llm]` key, else its `LLM_DEFAULTS` entry. An unknown
@@ -984,7 +985,7 @@ static func set_llm_value(key: String, value) -> bool:
 static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
-			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap"]:
+			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params"]:
 		d[k] = llm_value(k)
 	return d
 

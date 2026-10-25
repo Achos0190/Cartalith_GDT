@@ -329,7 +329,8 @@ func _ready() -> void:
 	_ok(String((_c("send") as Button).tooltip_text) != "", "...and as its tooltip")
 	_ok((_c("save") as Button).disabled and (_c("save_reason") as Label).text == "No reply to save yet.", "Save is disabled: '%s'" % (_c("save_reason") as Label).text)
 	_ok(not (_c("stop") as Button).visible, "Stop is hidden when idle")
-	_ok((_c("task_commands") as Button).disabled and (_c("task_commands") as Button).tooltip_text.contains("grouped undo"), "Commands is disabled, saying why")
+	## LLM-6b enabled the chip (setting proposals); its own probe is `_llmparams_probe.gd`.
+	_ok(not (_c("task_commands") as Button).disabled and (_c("task_commands") as Button).tooltip_text.contains("Apply"), "Commands is enabled and says nothing changes until Apply")
 	var att0 := LlmWire.connect_attempts
 	_win._on_send()   # a forced Send, bypassing the disabled button
 	await _settle(8)

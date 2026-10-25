@@ -21,6 +21,17 @@ class_name LlmRun
 ## * **No thread outlives the node.** `_exit_tree` and `shutdown()` join the worker.
 ##
 ## `error_text` and `failed` messages come from the Rust side already scrubbed of the key.
+##
+## ## Setting proposals (LLM-6a/6b)
+##
+## With capability `commands` one user request is SEVERAL HTTP requests: Rust replaces the
+## reply's `done` with a step. `params_continue` / `params_retry` mean "the model was answered
+## (a schema, or the errors of a refused proposal); ask it again": this node waits for the
+## worker to be joined, then calls `LlmStream.prepare_continue`, which asks the WHOLE gate again
+## and rebuilds the catalogue from the registry and a fresh settings snapshot (`params_source`),
+## and starts the wire with that. `proposal` is the validated card data, emitted once, and
+## nothing here acts on it: the panel's Apply button is the only writer. `params_answer` and
+## `params_failed` end the request in words.
 
 ## One text fragment, as it was decoded.
 signal token(text: String)
@@ -39,6 +50,16 @@ signal retrying(reason: String)
 ## `failed` fire the moment the last event is decoded, while the thread is still closing its
 ## socket, so a UI that enables "Save" must wait for this, not for `finished`.
 signal idle()
+## A setting request moved on (`info.type` is `params_continue` or `params_retry`; a retry
+## carries the refused `verdict`). The next request is already on its way.
+signal params_step(info: Dictionary)
+## The validated proposal (Rust's `verdict_dict`). DATA: nothing is applied by this signal.
+signal proposal(info: Dictionary)
+## The model answered a setting request in words, without proposing (`text`).
+signal answered(text: String)
+## A tool call the decoder accepted (`name`, `arguments` as JSON TEXT), for transcripts only
+## (the stage-2 driver `_llmparams_cli.gd`). Nothing acts on it: the card comes from `proposal`.
+signal tool_called(info: Dictionary)
 
 ## The `LlmStream` Rust object (null on a build without it).
 var stream: Object
@@ -60,6 +81,12 @@ var _last: Dictionary = {}
 ## Set when an error carried `will_retry`; consumed once the worker is joined.
 var _retry_pending := false
 var _retry_reason := ""
+## Set when Rust answered a setting request's turn and wants the next one; consumed once the
+## worker is joined (`_continue_after_join`).
+var _continue_pending := false
+## Returns the CURRENT settings snapshot (`get_params()`) for the next turn's catalogue; when
+## invalid, the snapshot passed to `begin` is reused.
+var params_source: Callable
 
 ## Pause before the one automatic retry. Labelled judgement: long enough for a
 ## momentary 529 or 429 to clear, short enough to feel like part of the same request.
@@ -98,6 +125,7 @@ func begin(settings: Dictionary, capability: String, consented: PackedStringArra
 		return {"ok": false, "code": "busy", "reason": "A reply is already running. Stop it first."}
 	_last = {"settings": settings, "capability": capability, "consented": consented, "args": args}
 	_retry_pending = false
+	_continue_pending = false
 	var prep: Dictionary = stream.prepare(settings, capability, consented, args)
 	if not bool(prep.get("ok", false)):
 		return prep
@@ -127,6 +155,7 @@ func cancel() -> void:
 		return
 	_cancelling = true
 	_retry_pending = false
+	_continue_pending = false
 	stream.cancel()
 	wire.cancel()
 
@@ -134,6 +163,7 @@ func cancel() -> void:
 ## Cancels and blocks until the worker is joined. For close paths.
 func shutdown() -> void:
 	_retry_pending = false
+	_continue_pending = false
 	if stream != null:
 		stream.cancel()
 	wire.shutdown()
@@ -170,6 +200,10 @@ func pump() -> void:
 			"cancelled":
 				pass
 	if not wire.is_started():
+		if _continue_pending and not _cancelling:
+			_continue_pending = false
+			_continue_after_join()
+			return
 		if _retry_pending and not _cancelling:
 			_retry_pending = false
 			set_process(false)
@@ -196,6 +230,23 @@ func _dispatch(events: Array) -> void:
 				usage.emit(last_usage)
 			"done":
 				_terminal(func(): finished.emit(_without_type(ev)))
+			"tool_call":
+				tool_called.emit(_without_type(ev))
+			"params_continue", "params_retry":
+				## Rust answered the model's tool call(s); the next turn starts once this
+				## socket is closed and the worker joined.
+				if not _cancelling:
+					_continue_pending = true
+					wire.cancel()
+					params_step.emit(ev.duplicate())
+			"proposal":
+				var info: Dictionary = ev.duplicate()
+				_terminal(func(): proposal.emit(info); finished.emit({}))
+			"params_answer":
+				var said := String(ev.get("text", ""))
+				_terminal(func(): answered.emit(said); finished.emit({}))
+			"params_failed":
+				_terminal(func(): failed.emit(String(ev.get("reason", "The setting request failed."))))
 			"error":
 				if bool(ev.get("will_retry", false)) and not _cancelling:
 					## Rust granted the one retry (transient, nothing shown yet): hold the
@@ -224,6 +275,28 @@ func _terminal(notify: Callable) -> void:
 	_terminal_sent = true
 	wire.cancel()
 	notify.call()
+
+
+## The next turn of a setting request (LLM-6a/6b), once the previous socket is closed: the
+## gate is asked again (`prepare_continue`), with a fresh settings snapshot.
+func _continue_after_join() -> void:
+	var args := {"current": params_source.call() if params_source.is_valid() else Dictionary(_last["args"]).get("current", {})}
+	var prep: Dictionary = stream.prepare_continue(_last["settings"], _last["consented"], args)
+	if not bool(prep.get("ok", false)):
+		_active = false
+		set_process(false)
+		failed.emit(String(prep.get("reason", "The setting request could not continue.")))
+		idle.emit()
+		return
+	_terminal_sent = false
+	if not wire.start(prep):
+		stream.reset()
+		_active = false
+		set_process(false)
+		failed.emit("The connection could not be restarted.")
+		idle.emit()
+		return
+	_t0 = Time.get_ticks_msec()
 
 
 ## The one automatic retry (LLM-4; scope s.4 rule 7). Runs only after Rust marked the error

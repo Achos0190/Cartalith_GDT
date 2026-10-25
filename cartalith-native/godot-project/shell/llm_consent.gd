@@ -62,6 +62,8 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 	_line(sent, "the context sources you ticked, and no others: %s" % _context_sources())
 	if bool(DccSettings.llm_value("commands")):
 		_line(sent, "the list of commands the assistant may propose")
+		if bool(DccSettings.llm_value("ctx_params")):
+			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
 
 	var never := DccTheme.label(
 		"Never sent: your whole Vault, the save file, file paths, the machine name. Your key goes only in the provider request header.",
@@ -147,4 +149,6 @@ static func _context_sources() -> String:
 		on.append("selection")
 	if bool(DccSettings.llm_value("ctx_notes")):
 		on.append("named Vault notes")
+	if bool(DccSettings.llm_value("ctx_params")):
+		on.append("generation parameters")
 	return ", ".join(on) if not on.is_empty() else "none"

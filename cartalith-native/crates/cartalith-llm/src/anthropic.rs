@@ -50,7 +50,7 @@ use serde_json::{Value, json};
 
 use crate::error::LlmError;
 use crate::event::{Event, Usage};
-use crate::openai::{ChatRequest, Role, endpoint_with};
+use crate::openai::{ChatRequest, Role, ToolTurn, endpoint_with};
 use crate::presets::ANTHROPIC_VERSION;
 use crate::secret::{ApiKey, Redactor};
 use crate::sse::{MAX_EVENT_BYTES, SseMessage, SseParser};
@@ -80,15 +80,44 @@ pub fn build_messages_request(
         return Err(LlmError::InvalidRequest("max_tokens must be positive"));
     }
     let system: Vec<&str> = req.messages.iter().filter(|m| m.role == Role::System).map(|m| m.content.as_str()).collect();
-    let messages: Vec<Value> = req
-        .messages
-        .iter()
-        .filter(|m| m.role != Role::System)
-        .map(|m| {
-            let role = if m.role == Role::Assistant { "assistant" } else { "user" };
-            json!({"role": role, "content": m.content})
-        })
-        .collect();
+    let mut messages: Vec<Value> = Vec::new();
+    for m in req.messages.iter().filter(|m| m.role != Role::System) {
+        match &m.tool {
+            None => {
+                let role = if m.role == Role::Assistant { "assistant" } else { "user" };
+                messages.push(json!({"role": role, "content": m.content}));
+            }
+            // An assistant turn that used tools is a content-block array: its text
+            // (when any) then one `tool_use` block per call, `input` an object
+            // [verified platform.claude.com/docs/en/api/messages, 2026-10-26].
+            Some(ToolTurn::Calls(calls)) => {
+                let mut blocks: Vec<Value> = Vec::new();
+                if !m.content.trim().is_empty() {
+                    blocks.push(json!({"type": "text", "text": m.content}));
+                }
+                for c in calls {
+                    blocks.push(json!({"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments}));
+                }
+                messages.push(json!({"role": "assistant", "content": blocks}));
+            }
+            // A tool result is a `tool_result` block in a USER message. Consecutive
+            // results (one per call of the same turn) go into ONE user message,
+            // because every `tool_use` of a turn must be answered in the message
+            // that immediately follows it [verified, same reference, tool use].
+            Some(ToolTurn::Result { call_id }) => {
+                let block = json!({"type": "tool_result", "tool_use_id": call_id, "content": m.content});
+                let merged = messages.last_mut().and_then(|last| {
+                    let is_results = last["role"] == "user"
+                        && last["content"].as_array().is_some_and(|b| b.iter().all(|x| x["type"] == "tool_result"));
+                    if is_results { last["content"].as_array_mut() } else { None }
+                });
+                match merged {
+                    Some(arr) => arr.push(block),
+                    None => messages.push(json!({"role": "user", "content": [block]})),
+                }
+            }
+        }
+    }
     if messages.is_empty() {
         return Err(LlmError::InvalidRequest("no messages"));
     }
@@ -395,13 +424,14 @@ mod tests {
         ChatRequest {
             model: "claude-test".into(),
             messages: vec![
-                Message { role: Role::System, content: "be brief".into() },
-                Message { role: Role::User, content: "hello".into() },
+                Message { role: Role::System, content: "be brief".into(), tool: None },
+                Message { role: Role::User, content: "hello".into(), tool: None },
             ],
             tools: vec![],
             max_tokens: 321,
             max_tokens_field: MaxTokensField::MaxCompletionTokens, // must be ignored
             include_usage: true,                                   // must be ignored
+            thinking: crate::openai::Thinking::Default,
         }
     }
 
