@@ -9,8 +9,8 @@ questions with recommended defaults.
 **Why it exists.** `FH_R2_PLAN.md` Q9 put G1 outside FH-R2. Ruling CJ (2026-10-18) confirmed that: *"Q9
 (governments) stays out of FH-R2 and needs its own row and ruling; if governments are ever built, exclude the
 new forms from `civ_default_government` first."* The owner (2026-10-24/25) asked for governments to be scoped
-first and said he would approve before any build. **Nothing here is approved, and no code has been written for
-it.**
+first and said he would approve before any build. **Approved 2026-10-25 (Ruling CZ, `LARGE_ITEM_RULINGS.md`): every
+§9 question at its recommended default.** What has been built since is in `STATUS.md`, not here.
 
 **What it is not.** It is not a status record. Like every scope document, it defines milestones and does not
 track them. Progress lives in `cartalith-native/docs/STATUS.md` (`CLAUDE.md`, "One place holds state"). The

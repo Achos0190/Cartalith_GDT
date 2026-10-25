@@ -2329,3 +2329,19 @@ After FH-R2 R2-4 stopped at its switch (`49be2c5d`: the app draws no place of wo
 
 1. **Draw places of worship in town views, then switch the rite table on** (R2-4 / S3a). Draw every town's place of worship in its rite's building form in the City Viewer and anywhere towns are drawn, for every town including unaffiliated ones (a settlement with no faith takes the culture's default form). Then pass each settlement's faith into town layout, so the rite table applies: **temple** for `sun_cult`, `sky_pantheon`, `god_king`; **shrine** for `earth_mother`, `sea_lords`, `old_gods`; **mosque** for `revealed_law`; **church** for `one_god`. The other seven religions keep today's towns until S4 gives them forms of their own. The app today passes no faith to town layout and the shell never receives the town buildings (`Town::churches`); both are what this changes. Measured on the same bars as the R2-4 report: site count, centres and plots unchanged; every house that moves is explained by the new building. Any golden or pin that moves gets a RE-BASELINED comment and a `DECISIONS.md` §7p line; old saves reload as saved. **Not in this ruling:** S3b / R2-5 (plural sites, minority quarters, deity siting) and governments (G1, Q9).
 2. **FH-R2's defaults are confirmed as built:** Q6, a custom religion is its base profile plus overrides, applying in its holders' lands only (R2-3, `STATUS.md`); Q7, every faction starts on `plural`, with the lose/win rates tolerant x0.5/x0.5, exclusive x2/x0.25 and persecuting x4/x0.1 (R2-6, `STATUS.md`).
+
+## Ruling CZ — governments (G1) approved at every recommended default (owner, 2026-10-25)
+
+After `GOVERNMENTS_SCOPE.md` (`a2567163`), the owner **approved all nine of its §9 questions at the recommended defaults**:
+
+1. **Q1:** append the six core forms (`merchant_republic`, `city_league`, `sacral_monarchy`, `holy_order`, `feudal_realm`, `nomad_khanate`) after `city_state`, in the scope's §2 order.
+2. **Q2:** accept the 12 authored, uncalibrated manpower rows of §3.1-§3.2; each row's doc comment says "authored ordering" and names its anchor or labels its judgement.
+3. **Q3:** build the optional pair (`stratocracy`, `tributary_hegemony`) as G1-2, both at `CITIZEN_SHARE` 0.30, so §4.1 does not arise.
+4. **Q4:** freeze both derivations (`CITIZEN_MODERNISATION`'s identity and `SOLDIER_UPKEEP_BY_BRACKET`'s geometric mean) to the first nine forms, the reference's, with the 0.30 floor pinned as a literal. New forms are priced by the calibration, not into it.
+5. **Q5:** build the khanate's levy knob (`GOVERNMENT_LEVY_BONUS`, one row) as G1-5, its value set by §3.3's rule and pinned with its derivation.
+6. **Q6:** keep every new form out of `civ_default_government` (`CIV_GOVERNMENTS_REFERENCE_LEN = 9`), as Ruling CJ already required. G1-6 is not proposed and not built.
+7. **Q7:** no relabel of `theocracy`; the hierocracy reading goes in its doc comment only.
+8. **Q8:** no coupling of government to the economy, relations, religion or the timeline in G1; the picker hints say what is not modelled.
+9. **Q9:** group the picker by axis, with the stored vocabulary order unchanged.
+
+**Build order:** G1-0 (measurement column on the 20 FH-R2 harness worlds, with a positive control), G1-1 (the guards first, then the six core forms), G1-2, G1-3 (hub UI, including the unknown-key display that must never read "None / Unclaimed"), G1-4 (save compatibility, no `format_version` bump), G1-5, each with the scope's numeric bars and committed separately. Zero movement of generated output is the bar throughout; a pin that moves without the scope saying it should is a failure, not a re-baseline.
