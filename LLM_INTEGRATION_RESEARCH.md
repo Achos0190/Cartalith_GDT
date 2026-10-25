@@ -202,15 +202,15 @@ Deferred: grouped undo for sculpt/paint proposals (prerequisite for U4's edit ac
 
 | # | Question | Recommended default |
 |---|---|---|
-| Q1 | Do you want this feature at all, given the product is offline and deterministic today? | Yes, as an optional assistant, never in generation |
-| Q2 | Scope of v1: prose + name suggestions + Vault assist only, or also natural-language commands? | Prose and Vault assist first (LLM-3); commands (LLM-5) after, limited to view/layer/parameter actions |
-| Q3 | Providers for v1 | OpenAI-compatible (covers local and hosted) first; Anthropic second; others via routers |
+| Q1 | Do you want this feature at all, given the product is offline and deterministic today? | Yes, as an optional assistant, never in generation. **ANSWERED (Ruling DC, 2026-10-25): yes**, whole feature off by default |
+| Q2 | Scope of v1: prose + name suggestions + Vault assist only, or also natural-language commands? | Prose and Vault assist first (LLM-3); commands (LLM-5) after, limited to view/layer/parameter actions. **ANSWERED (Ruling DC): both prose and commands**, each behind its own setting; commands need a grouped-undo milestone first |
+| Q3 | Providers for v1 | OpenAI-compatible (covers local and hosted) first; Anthropic second; others via routers. **ANSWERED (Ruling DC): remote and local both** |
 | Q4 | Transport | Hybrid (4C): Rust protocol crate over Godot `HTTPClient`; revisit a Rust transport only if testing or throughput demands it |
 | Q5 | Key storage where no OS store is available | Environment variable or refuse; no plaintext file by default |
 | Q6 | Is the feature enabled by default on first run? | Off; one explicit consent screen naming what is sent |
 | Q7 | May model prose be written into the Vault, and how marked? | Only with a click, marked as model-generated |
 | Q8 | Cost caps | On by default: per-session token cap, visible counter; no dollar display unless the user enters prices |
-| Q9 | Android in v1? | Defer to LLM-8; desktop first, because of the TLS and Keystore unknowns and the open SAF vault milestone |
+| Q9 | Android in v1? | Defer to LLM-8; desktop first, because of the TLS and Keystore unknowns and the open SAF vault milestone. **Owner's answer to Q1-Q3 (c) puts the phone in v1 (Ruling DC); sequencing still open** |
 | Q10 | Is the model allowed to run **edit** actions (sculpt/paint) ever? | Not until a grouped undo exists and the owner rules |
 
 ---

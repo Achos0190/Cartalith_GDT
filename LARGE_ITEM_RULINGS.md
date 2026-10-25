@@ -2369,3 +2369,18 @@ The owner answered the three decisions Ruling DA left open (`OUTSTANDING_WORK.md
 Decisions taken inside the build (labelled judgements, open to the owner): the higher top is relative to the sea, `1 + (1 - sea)` in field units, i.e. twice `peak_m` in metres on every world (a fixed 2.0 let the Hawaii-like seed 8 reach about 26 600 m); the World Structure sea level is solved on the field as the old top left it, so no coast moves through the solve; the heightmap exports keep their 0..1 encoding and clip summits above 1 (a known limit, not changed).
 
 **Outcome of item 3 (2026-10-25):** built and on in the app (`STATUS.md`, Ruling DB item 3); every bar held.
+
+## Ruling DC — the optional LLM assistant: yes, with prose and commands, remote and local, phone and desktop, each behind its own setting (owner, 2026-10-25)
+
+The owner answered the first three questions of `LLM_INTEGRATION_RESEARCH.md` §7 (the research follows his question *"what if we added LLM integration to Cartalith with an API; call a local model or whatever the user has; it has to work with an API key"*). Verbatim: **(a)** scope = prose **and** map commands, both; **(b)** providers = remote **and** local; **(c)** platforms = phone as well as desktop; and **"all three, but guarded by settings"**.
+
+Read together: Q1 is yes (the feature is wanted); Q2 is both prose/Vault assist and natural-language commands; Q3 is both hosted and local providers. Each capability sits **behind its own setting**, and the **whole feature is off by default** (this is also the research's recommended Q6 default, but Q6 itself is not yet ruled). Generation stays model-free: the model never sits on the seed-deterministic generation path.
+
+Consequences, as labelled judgements the owner may overrule:
+
+1. **Command actions need a grouped-undo milestone first.** The research's own condition (§6 "Deferred", Risk 5, Q10): per-tool undo means a model-emitted batch is not one-step undoable today. Commands are therefore limited to view/layer/parameter actions (LLM-5) until a grouped undo exists; edit actions (sculpt/paint) remain a separate owner ruling (Q10 open). Every action is a proposal the user confirms, executed by the existing undoable setters.
+2. **Phone is in scope, not deferred.** Android needs the `INTERNET` permission declared in the export preset (none exists today), a cleartext/LAN policy for local servers, and **Android Keystore** key storage (a plugin); LLM-8 is promoted from "later" to a v1 deliverable. Its unknowns (TLS roots, Keystore plugin, the open SAF vault milestone) stay the largest risks.
+3. **Per-capability settings:** at least prose/Vault assist, commands, remote providers, local providers, each independently switchable, all off until the user turns them on; the consent screen names what is sent. With everything off, a full session opens zero sockets (the LLM-2 bar).
+4. Both an OpenAI-compatible adapter (covers local and hosted) and the Anthropic adapter are in v1 (LLM-1, LLM-4).
+
+**Still open:** Q4 (transport; default hybrid), Q5 (key storage with no OS store), Q6 (default state; the "off by default" above is the owner's wording but the consent-screen form is not ruled), Q7 (Vault writes marked as model-generated), Q8 (cost caps), Q9 (answered in substance by (c): Android is in v1; its sequencing relative to desktop is not ruled) and Q10 (edit actions). No scope document exists yet; the `OUTSTANDING_WORK.md` row records the next step.
