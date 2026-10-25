@@ -391,7 +391,7 @@ and γ, β and `FIELD_CAP` are labelled judgements unless the owner rules a valu
 | **EA-0** Measure | Commit §2.3's two diagnostics as one ignored harness test in `g1_baseline.rs`. It counts ordered / unordered / **empty** per world and per ag-tech row, and reports per-faction `E`, `α` and standing/field for the unordered | (1) Reproduces §2.2 exactly: 231 of 290 ordered, 59 unordered, 10 empty; forced 125 / 160 and 120 / 160; the 5 named worlds. (2) Ag-tech sweep reproduces §5's current row (290, 231, 235, 201, 165, 127). (3) Positive control: `ECOLOGICAL_CEILING` mutated to 2.0 in a scratch run (Python mutation discipline, restored in a `finally`) moves the unordered count, measured, and restores to 59. (4) 0 of 20 worlds move on `G1_0` | owner ruling |
 | **EA-1** The term | C1 at the ruled γ (default 0) in `manpower_with_levy_bonus`, with an `E` ≤ 1 branch that is the old expression by control flow. If Q2 = yes, C2 with `FIELD_CAP` as a named constant | (1) Ordered 290 of 290 (default govs), 160 of 160 forced G1, 160 of 160 forced reference, empty factions 10 excluded and counted. (2) Moved exactly the 114 factions with `E` > 1; the other 176 bit-identical. (3) Kingdom A 9 661 / 41 221 / 15 870 unchanged; Kingdom B at §5's replica value ±1. (4) `soldier_upkeep_is_derived_from_the_era_table` and `the_khanate_levy_bonus_is_derived_from_its_era_band` green with no literal changed. (5) Standing verdicts within ≥ 135 of 290 at γ = 0 (≥ 81 at γ = 0.5). (6) Mutations killed: γ → 1 (harness red), the `E` ≤ 1 branch removed (176 factions move, red), `FIELD_CAP` → 1.0 (field = levy possible, red) | EA-0; Q1, Q2 |
 | **EA-2** Re-baseline and prose | §6's table: `G1_0` re-recorded old beside new; pins re-baselined; probes re-run after `cargo build` with `.dll` and `.rs` mtimes stated at the end; prose scrubbed; `STATUS.md` and a `DECISIONS.md` §7p dated line | (1) `G1_0` governments 0 of 20 moved, manpower 20 of 20 re-recorded. (2) Every probe in §6 PASS, run after the rebuild. (3) `git grep` for the old chain-1 wording (`non_agricultural × ecological_factor`, "linear in this factor") returns only historical records | EA-1 |
-| *(not proposed here)* EA-3 Industrial levy | §3 point 4: chain 2 has no industrial mobilisation term | Its own scope and ruling (Q6) | — |
+| *(not proposed here)* EA-3 Industrial levy | §3 point 4: chain 2 has no industrial mobilisation term. Measured first on 2026-10-25 (§10): no candidate met the bars, so nothing is built; owner questions in §10.6 | Its own ruling (Q6) | — |
 
 Model tier is per lane when scheduled. EA-0 and EA-2 are routine for a strong builder. A separate verifier should
 re-run EA-1's mutations.
@@ -423,3 +423,188 @@ re-run EA-1's mutations.
   sweep in §2.3 varies `α` at fixed geography, not the reverse.
 - **Cross-lane drift.** `manpower.rs` and `g1_baseline.rs` were edited three times on 2026-10-25 (G1-1, G1-4,
   G1-5). Re-open every symbol at EA-0's start (`MISTAKES.md`, "re-open a backlog row at its symbol").
+
+---
+
+## 10. The industrial levy (§3 point 4, Ruling DE Q6): measured first, not built (2026-10-25)
+
+**What this section is.** The measure-first pass on the `OUTSTANDING_WORK.md` §2.3 row *"Military manpower: no
+industrial mobilisation term in the levy chain"*. It reproduces the failure, says exactly why the industrial rows
+fail, reviews how industrial mobilisation differed, and scores three candidate terms. **No candidate met the
+bars, so nothing was built and nothing was tuned.** The owner questions are in §10.6. Status lives in `STATUS.md`.
+
+**Method.** Tree `3da18424` (`origin/main`), worktree `C:/cw/in1`, its own target dir. Re-opened at the symbols:
+`manpower.rs` `manpower_with_levy_bonus` (chains 1-2), `military_drivers`, `era_for`, `ERA_BANDS`,
+`SOLDIER_UPKEEP_BY_BRACKET`, `ALPHA_BRACKETS`, `MILITARY_AGE_FRACTION`, `LEVY_*`, `FIELD_*`; `g1_baseline.rs`
+`ea0_ecological_ordering_diagnostic`, `g1_0_baseline_columns`. **Measured** numbers come from
+`cargo test -p cartalith-godot --lib ea0_ -j 2 -- --ignored --nocapture --test-threads 1`, run alone. For the run, a
+temporary line (since removed) printed each sweep row's drivers: `α`, `E`, `s`, `L`, citizen fraction, population,
+the three headcounts, the era and both verdicts, 1 800 rows in all. **Replica** numbers re-apply a formula to those
+rows. The replica reproduces the dumped standing, field and levy to a relative 4.2e-6, which is the dump's
+4-decimal rounding.
+
+### 10.1 The baseline moved before this pass began
+
+`ea0_ecological_ordering_diagnostic` and `g1_0_baseline_columns` were both **red on `origin/main`**. The ordering
+bars held: 290 / 0 / 10 with default governments, and 160 and 160 forced. What failed was the geography-bound
+literals:
+
+- standing verdicts: 132 / 10 / 148, against the pinned 138 / 9 / 143;
+- `E > 1`: 109 factions, against 112;
+- the cap binding: 21, against 18;
+- the sweep: `[290, 290, 290, 290, 264, 129]`, against `[290, 290, 290, 289, 264, 127]`;
+- `G1_0`: manpower moved on 20 of 20 worlds, governments on 0 of 20.
+
+**Bisected** on `G1_0`'s manpower column:
+
+| Tree | Worlds moved (of 20) |
+|---|---|
+| `5cfa2997^` | 0 |
+| `7877dfa8` | 0 |
+| `5cfa2997` (Ruling DG, lava domes on in the app) | 12 |
+| `1153bbee` (Ruling DJ, calderas, maars and the supervolcano on) | 20 |
+
+No manpower formula moved. This pass re-recorded both tests, with the old values beside the new and the bisection
+in their docs.
+
+**The `improvedAgrarian` miss (289 of 290) went with it.** The faction (314159/800/24, faction 21, a republic) read
+`E` 0.973 and logistics at the 0.150 floor on `50a6fc6d`. On today's worlds it reads `E` 0.294 and is ordered
+(standing 116, field 367, levy 991).
+
+Its old cause had nothing to do with industry:
+
+- `α` 0.50 is bracket 3, whose upkeep is 2.2214.
+- `E` just under 1 takes neither forage arm.
+- At the logistics floor, the field share is 0.37 of a levy at a reach near 0.25. So the field army was about 2.3 %
+  of population, against a standing army of about 2.4 %.
+
+That is a chain-1 against chain-2 balance at the logistics floor, in a pre-industrial bracket. Neither an
+industrial term (bracket 4 and above, by control flow) nor Ruling DE's terms (`E` > 1 only) can reach it. It may
+recur on another world. It is reported as its own class (§10.6 Q3), not fixed.
+
+### 10.2 Why the industrial rows fail (measured)
+
+All 300 default-government rows on the 20 worlds read `α` 0.900 (`traditionalAgrarian`). **No generated world uses
+an industrial row**, so the industrial rows appear only in the forced sweep, which forces every faction to one row:
+
+| Row | ordered | fails as standing ≥ field (< levy) | fails as standing ≥ levy | standing verdict within / above / below | mobilization verdict |
+|---|---|---|---|---|---|
+| `earlyIndustrial` (α 0.31, bracket 4) | **264 / 290** | 26 | 0 | 142 / 10 / 138 | **below on 290** |
+| `industrial` (α 0.13, bracket 5) | **129 / 290** | 65 | **96** | 111 / 28 / 151 | **below on 290** |
+
+**The cause is in chain 2.** Chain 1 grows with `1 − α`, and chain 2 does not read `α` at all:
+
+- **Standing** (chain 1), at `α` 0.13: `0.87 · E_b · (0.04 + 0.12 s) / 1.0714` of population, which is 3.2 % + 9.7 % · `s`.
+  The largest measured is 12.1 %.
+- **Levy** (chain 2): `0.25 · min(0.60, 0.04 + 0.30 s + 0.22 L)`. That is at most **15 % of population, whatever the
+  society**.
+- **Field**: at most 0.54 of the levy (0.90 with forage).
+
+So once the standing army passes 15 % of population it exceeds the levy itself. It overtakes the field army well
+before that.
+
+**A second, structural finding: the `Total industrial mobilization` band cannot be reached by construction.**
+
+- The levy is at most `MILITARY_AGE_FRACTION` × reach, so at most 0.25 × 1.0 of total population.
+- The citizen fraction is at most `CITIZEN_CEILING`, 0.98.
+- Mobilization is therefore at most 25.5 % of citizens.
+
+That band asks for 30-50 %, and `Railway / industrial mass army` for 20-40 %. No levy term inside the military-age
+pool can put a faction within it. Every candidate below leaves the `industrial` row **below on 290 of 290**.
+
+### 10.3 How industrial mobilisation differed: the evidence
+
+Tags as in §4. **[verified]** means confirmed by a web search in this pass. **[cited]** means named from the
+literature, with details not re-fetched in this pass.
+
+- **Conscription with a trained reserve reached most of the cohort.**
+  - France mobilised 8.3-8.4 million men in 1914-18 [verified] (INED, *"Farewell life, farewell love"*,
+    demographic note). That is about 21 % of a 39.6 million population.
+  - A table in Brill's encyclopedia of the First World War gives France **81 % of men fit for duty** mobilised
+    [verified as quoted; the denominator was not confirmed].
+  - Germany's peacetime army was about 0.70-0.84 million. Behind it stood about 3 million trained reservists
+    (1.3 million first line, 1.7 million second line), plus the Ersatz reserve [verified, secondary sources;
+    their figures disagree].
+  - The mechanism is the reserve system. Every conscript served two or three years, then spent most of his military
+    age in the reserve and the Landwehr. So the share of the cohort a state can call is set by how universal service
+    is, not by how far the state's roads reach.
+- **Development drives mobilisation.** Broadberry, S. and Harrison, M. (eds) (2005), *The Economics of World
+  War I*, Cambridge University Press [verified]. Their summary argues that mobilisation was explained largely by
+  each country's level of development [verified as an abstract-level claim]. That is the case for a term in
+  `1 − α` rather than in the government.
+- **Railways moved armies to the railhead, not beyond it** [cited]: van Creveld (1977), *Supplying War*, chs. 3-4;
+  Showalter, D. (1976), *Railroads and Rifles*, Archon. Railway concentration solved deployment and the feeding of
+  a front. Beyond the railhead, supply went back to horse and foot. So a railway term on the field share rests on
+  weaker evidence than the reserve term.
+- **The field share stayed near half in the railway era.** In 1914, Germany's field armies were 1.6-2.1 million of
+  the mobilised total [verified, secondary sources]. That is roughly the 0.34-0.54 this model already gives. It
+  argues **against** a railway term that pushes the field share toward `FIELD_CAP`.
+- **Industrial output and demography, not food, bound the mass army.** The era table's own constraint column says
+  so (*"Industrial logistics"*, *"Industrial capacity / demographics"*) [the owner's specification]. The
+  military-age pool stays near a quarter of the population, because the 15-49 male cohort does not grow with
+  industry. That is why §10.2's band is out of reach.
+
+### 10.4 Candidate terms (replica on the 1 800 sweep rows)
+
+**The shared gate.** All three candidates use an industrialisation index,
+`i = clamp((0.45 − α) / (0.45 − 0.10), 0, 1)`:
+
+- Its endpoints are `ALPHA_BRACKETS[3]` and `ALPHA_BRACKETS[5]`. The linear ramp between them is a labelled
+  judgement.
+- It reads 0 for `α` ≥ 0.45, 0.40 on `earlyIndustrial` and 0.914 on `industrial`.
+- **The term applies only where `alpha_bracket(α) ≥ 4`.** So the four pre-industrial rows, every generated world,
+  and Kingdoms A (α 0.75) and B (α 0.55) stay bit-identical by control flow.
+
+Ordered counts are out of 290, on subsistence / traditional / advanced / improved / early industrial / industrial.
+
+| Candidate | Formula | ordered | worst standing/field on `industrial` |
+|---|---|---|---|
+| current | none | 290 / 290 / 290 / 290 / 264 / **129** | — |
+| **K1** conscription reach, R = 0.80 (cited) | `reach' = reach + i·(R − reach)` | 290 / 290 / 290 / 290 / **290** / **274** | 1.345 |
+| K1, R = 0.70 / 0.90 / 1.00 | same | … / 290 / 261, 282, 288 | 1.53 / 1.20 / 1.09 |
+| **K2** K1 plus railway logistics in the field share, R = 0.80 | adds `fs = 0.34 + 0.20·(L + i·(1 − L))` | 290 / 290 / 290 / 290 / 290 / **287** | 1.137 |
+| K2, R = 0.70 / 0.90 / **1.00** | same | … / 290 / 279, 289, **290** | 1.29 / 1.016 / 0.919 |
+| K2 with the field share driven to `FIELD_CAP` (0.90), R = 0.80 | `fs' = fs + i·(0.90 − fs)` | … / 290 / 290 | — |
+| **K3** reserve multiplier, `Y` = 2.5 / 3.5 / 4.75, capped at R = 0.80 | `levy' = min(pool·R, levy + i·standing·(Y − 1))` | … / 290 / 278 (any `Y`) | — |
+
+**The three failures K2 leaves at R = 0.80 are all empires at state capacity 0.91:** 12345/40075/24 f7,
+314159/800/24 f15 and 707/800/24 f23. Their standing armies are 10.8-12.1 % of population (11.0-12.4 % of
+citizens), against the band's 5-10 %, so all three read **above** their own standing band. That is a chain-1
+excess at the top of the state-capacity range, the same shape as §2.2. A levy term cannot cure it without calling
+more of the pool than the cited figure supports.
+
+**Why none is built:**
+
+- **K1** at the cited R fails 16 of 290 on `industrial`.
+- **K2** at the cited R fails 3.
+- **K2 at R = 1.00** orders all 290, but only by calling the *whole* military-age pool, above the roughly 80 %
+  that §10.3 cites, and with a margin of only 0.919. Choosing R to clear the bar is the fit §9 warns against.
+- **K2 driven to `FIELD_CAP`** orders all 290, but it contradicts §10.3's evidence that the field share stayed
+  near half.
+- **K3** fails 12 whatever `Y` is. It also ties the levy to the standing army, so any bar it passes would be half
+  tautological (`MISTAKES.md`, "never assert a constant against itself").
+
+The forced-form readings on the industrial rows were not measured, because the default-government bar already
+fails.
+
+**No candidate reaches the band.** At R = 0.80, `earlyIndustrial` reads within its mobilisation band on 26 of 290
+and below on 264. `industrial` reads below on 290 of 290 under every candidate (§10.2).
+
+### 10.5 What a build would move
+
+**On the 20 harness worlds, nothing, by control flow:** all 300 rows read `α` 0.900 (measured).
+
+**The positive control for that claim is the forced sweep.** K1 and K2 move every non-empty `earlyIndustrial` and
+`industrial` row, because `i` > 0 on both.
+
+A build would re-record the `ea0_` sweep literals for the two industrial rows, old beside new. Windowed probes
+would move only where a user sets a faction's ag-tech to an industrial row.
+
+### 10.6 Owner questions, each with a recommended default
+
+| # | Question | Recommended default |
+|---|---|---|
+| **Q1** | Which industrial levy term, if any? Options: K2 at the cited R = 0.80 (`earlyIndustrial` 290, `industrial` 287 of 290; the 3 misses are above-band empires); K2 at R = 1.00 (290 of 290, but it calls the whole military-age pool); K1 alone (274); or none until a generated world uses an industrial row | **K2 at R = 0.80.** Keep the ordering asserted on the pre-industrial rows only (Ruling DE Q4, as ruled) and *report* it on the industrial rows. File the 3 misses with Q2 |
+| **Q2** | At the top of the state-capacity range on the industrial row, chain 1 pays a standing army of 11-12 % of population, above the 5-10 % band. Should chain 1 get its own industrial treatment (as Ruling DE gave `E`), or is that band reading accepted? | **File it as its own row, measured first.** Do not fold it into the levy term |
+| **Q3** | The `improvedAgrarian` miss of `50a6fc6d` (logistics floor, `E` just under 1, bracket 3's high upkeep) has gone from today's worlds but can recur. Pin it as a reported class, or add a guard? | **Report only.** `ea0_`'s `EA sweep unordered` print already names any recurrence |
+| **Q4** | `Total industrial mobilization` (30-50 %) and `Railway / industrial mass army` (20-40 %) cannot be reached with a military-age pool of 0.25 and a citizen ceiling of 0.98: the most is 25.5 %. Restate those bands (as shares of men, or as totals over a war), widen the pool for total war, or accept "below" as a known reading? | **Accept "below" and document it.** The pool is demography, and France's 8.4 million over four years was about 21 % of the population, inside the model's ceiling. The band appears to use a different denominator, which is the owner's to restate |
