@@ -25,6 +25,8 @@ var resource_overlay: ResourceOverlay
 var gen_info_dialog: GenInfoDialog
 ## The keyboard shortcuts dialog; its `UNLISTED` list names the shortcuts the menus do not carry.
 var shortcuts_dialog: ShortcutsDialog
+## `Preferences ▸ Assistant…` (LLM-2): the optional LLM assistant's settings and its consent card.
+var assistant_settings_window: LlmSettingsWindow
 ## The journey planner view (`JourneyPlannerView`).
 var journey_planner_view: JourneyPlannerView
 ## The layers popover (`LayersPopover`).
@@ -942,6 +944,17 @@ func _ready() -> void:
 	shortcuts_dialog = ShortcutsDialog.new()
 	add_child(shortcuts_dialog)
 	shortcuts_dialog.setup(self)
+
+	assistant_settings_window = LlmSettingsWindow.new()
+	add_child(assistant_settings_window)
+	assistant_settings_window.setup(self, bridge)
+	## Ruling DF at boot: if a local provider was left active, point the compute path at the
+	## low-power adapter again (the switch is never persisted, so a restart starts clean).
+	LlmGpuRule.sync(bridge)
+	## A sync refused during a generation is retried when it ends.
+	bridge.generation_finished.connect(func(_ok: bool):
+		if LlmGpuRule.is_pending():
+			LlmGpuRule.sync(bridge))
 
 	data_manager_window = DataManagerWindow.new()
 	add_child(data_manager_window)
@@ -4862,6 +4875,11 @@ func open_gen_info() -> void:
 ## menus every time it opens, so there is no table here to keep in step.
 func open_shortcuts() -> void:
 	shortcuts_dialog.open()
+
+## `Preferences ▸ Assistant…`: the optional LLM assistant's settings (LLM-2). Opens the window
+## on the stored state; nothing here contacts anything.
+func open_assistant_settings() -> void:
+	assistant_settings_window.open()
 
 ## Shows or hides the diagnostics HUD (`resource_overlay.gd`); the menu row's
 ## checkmark is read back from `resource_overlay.visible`.

@@ -80,6 +80,12 @@ const _SEC_LANDMARKS := "landmark_layer"
 ## install, like the recent-projects list, so they persist across a restart
 ## and never travel in a world or a pack (Ruling F keeps packs as they are).
 const _SEC_ASSET_LIBRARY := "asset_library"
+## The optional LLM assistant's settings (`LLM_ASSISTANT_SCOPE.md` s.5, milestone
+## LLM-2). **Holds no secret, ever**: see `LLM_DEFAULTS` and `set_llm_value()`.
+## Machine state like the rest of this file, never a world's: a `.zip` carrying
+## "the assistant is on, talking to this URL" would switch the feature on for
+## whoever opens the file.
+const _SEC_LLM := "llm"
 ## How many recently used slots are kept. **A labelled judgement**: one
 ## phone screen of the two-column slot grid holds about a dozen tiles.
 const MAX_RECENT_ASSETS := 12
@@ -911,6 +917,107 @@ static func reset_shortcuts(context: String) -> void:
 	if _cfg.has_section(section):
 		_cfg.erase_section(section)
 		_save()
+
+# -- The optional LLM assistant (LLM_ASSISTANT_SCOPE.md s.5, milestone LLM-2) --------
+
+## Every `[llm]` key that may exist, with its shipped default. **This table is the
+## whole allow-list**: `set_llm_value()` refuses any other key, so no code path can
+## write an API key (or anything else) into `cartalith_settings.cfg` by typing a new
+## key name. A test (`_llmset_probe.gd`) reads the file back and greps it for the key
+## it just entered. The key's own home is `WorldGen.llm_key_save` (OS credential store)
+## or an environment variable the user set; neither is this file.
+##
+## **Defaults are the scope's s.5 table: everything off, nothing chosen.** An empty
+## `preset_id`, `base_url` or `model` is "not set" and the gate refuses it; there is no
+## default provider, address or model name.
+const LLM_DEFAULTS := {
+	"enabled": false,          ## master switch; off means zero sockets
+	"prose": false,            ## Prose and Vault assist (LLM-3)
+	"commands": false,         ## view / layer / parameter commands (LLM-5, LLM-6)
+	"edit": false,             ## sculpt / paint edit actions (LLM-5, LLM-7); its own switch
+	"local_allowed": false,    ## localhost and LAN endpoints
+	"remote_allowed": false,   ## hosted endpoints
+	"preset_id": "",           ## a `WorldGen.llm_presets()` id, or ""
+	"base_url": "",
+	"model": "",               ## free text, never a list
+	"key_source": "env",       ## "env" or "store"; never a file
+	"env_var": "CART_LLM_KEY", ## the variable NAME, not a key
+	"token_counter": true,     ## visible by default; no cap is enforced (Ruling DD Q8)
+	"gpu_override": "automatic", ## Ruling DF: automatic / always / never
+	"ctx_entity": false,       ## context source: current entity
+	"ctx_selection": false,    ## context source: selection
+	"ctx_notes": false,        ## context source: named Vault notes
+}
+
+## The stored value of one `[llm]` key, else its `LLM_DEFAULTS` entry. An unknown
+## key is a bug in the caller and returns `null` so it cannot be mistaken for a
+## value. A stored value of the wrong type reads as the default (a hand-edited file
+## can make the feature more closed, never more open: every boolean defaults off
+## except the display-only `token_counter`).
+static func llm_value(key: String):
+	if not LLM_DEFAULTS.has(key):
+		return null
+	_ensure_loaded()
+	var dflt = LLM_DEFAULTS[key]
+	var v = _cfg.get_value(_SEC_LLM, key, dflt)
+	return v if typeof(v) == typeof(dflt) else dflt
+
+## Stores one `[llm]` key and saves. **Refuses a key not in `LLM_DEFAULTS` or a value
+## of the wrong type** (returns false, writes nothing): that refusal is what keeps a
+## secret out of the file. Text is stored trimmed.
+static func set_llm_value(key: String, value) -> bool:
+	if not LLM_DEFAULTS.has(key) or typeof(value) != typeof(LLM_DEFAULTS[key]):
+		return false
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LLM, key, String(value).strip_edges() if value is String else value)
+	_save()
+	return true
+
+## The dictionary `WorldGen.llm_authorize` reads: only the gate-relevant keys.
+static func llm_gate_dict() -> Dictionary:
+	var d := {}
+	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
+			"preset_id", "base_url", "model", "key_source", "env_var"]:
+		d[k] = llm_value(k)
+	return d
+
+## The origins the user has consented to (`scheme://host[:port]`, from
+## `WorldGen.llm_endpoint_info`). Consent is per endpoint (scope LLM-2: "appears before
+## the first call to each new endpoint"). Not secret.
+static func llm_consented_origins() -> PackedStringArray:
+	_ensure_loaded()
+	return _string_list(_cfg.get_value(_SEC_LLM, "consented_origins", PackedStringArray()))
+
+## Records consent for `origin` (never duplicating it) and saves. An empty origin is
+## ignored: consent with nothing named is not consent.
+static func llm_add_consent(origin: String) -> void:
+	if origin == "":
+		return
+	var list := llm_consented_origins()
+	if list.has(origin):
+		return
+	list.append(origin)
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LLM, "consented_origins", list)
+	_save()
+
+## Withdraws consent for `origin`, or for every endpoint when `origin` is `""`. The
+## next request to a withdrawn endpoint asks again.
+static func llm_withdraw_consent(origin: String = "") -> void:
+	_ensure_loaded()
+	var list := llm_consented_origins()
+	if origin == "":
+		list = PackedStringArray()
+	elif list.has(origin):
+		list.remove_at(list.find(origin))
+	else:
+		return
+	if list.is_empty():
+		if _cfg.has_section_key(_SEC_LLM, "consented_origins"):
+			_cfg.erase_section_key(_SEC_LLM, "consented_origins")
+	else:
+		_cfg.set_value(_SEC_LLM, "consented_origins", list)
+	_save()
 
 # -- Asset library favourites and recent (AP-9) ---------------------------------
 

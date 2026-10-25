@@ -237,6 +237,7 @@ dependencies = [
  "cartalith-hydrology",
  "cartalith-io",
  "cartalith-jsmath",
+ "cartalith-llm",
  "cartalith-noise",
  "cartalith-rng",
  "cartalith-spatial",
@@ -253,6 +254,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tiff",
+ "windows-sys",
  "zip",
 ]
 

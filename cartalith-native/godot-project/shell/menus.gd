@@ -325,6 +325,9 @@ const ID_PREF_UNITS_NMI := 604
 ## `Preferences ▸ Keyboard shortcuts…` (PR-16/HE-02). 605 is free by the same
 ## whole-file grep the neighbours above record making.
 const ID_PREF_SHORTCUTS := 605
+## `Preferences ▸ Assistant…` (LLM-2, `LLM_ASSISTANT_SCOPE.md` s.6). 900 is free: grepped
+## the whole file for every `ID_`/`_FIRST` value, the highest of which is 806 (the 3D tiers).
+const ID_PREF_ASSISTANT := 900
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
@@ -4091,6 +4094,11 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## Genuinely the same dialog `File ▸ Storage locations` opens --
 	## `DccApp.open_storage_locations()` is the one method both call.
 	_live(p, "Storage locations…", ID_PREF_STORAGE)
+	## LLM-2: the optional assistant's settings. One row, in the APPLICATION band beside
+	## Storage locations (scope s.6: "beside the Preferences and Performance groups");
+	## the dialog it opens is `LlmSettingsWindow`. It reaches the phone's Preferences screen
+	## the way every row does -- by being in this popup.
+	_live(p, "Assistant…", ID_PREF_ASSISTANT)
 
 	if full or include_theme:
 		_build_theme_submenu(p)
@@ -5644,6 +5652,9 @@ func _clear_caches() -> void:
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
+		return
+	if id == ID_PREF_ASSISTANT:
+		_host.open_assistant_settings()
 		return
 	if id == ID_PREF_SHORTCUTS:
 		## `_host` is `app.gd`'s `DccApp`, which already owns one

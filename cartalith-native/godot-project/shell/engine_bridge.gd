@@ -332,6 +332,13 @@ func _ready() -> void:
 	if ClassDB.class_exists("GenerationProgress"):
 		_progress = ClassDB.instantiate("GenerationProgress")
 		progress_api = _progress != null
+	## The assistant's settings surface (`LLM_ASSISTANT_SCOPE.md` LLM-2): another stateless
+	## `RefCounted` class for the same reason `GenerationProgress` is one, instantiated through
+	## `ClassDB` for the same reason. `llm_api` is false on an older cdylib and the settings window
+	## then says so and offers nothing.
+	if ClassDB.class_exists("LlmBridge"):
+		_llm = ClassDB.instantiate("LlmBridge")
+		llm_api = _llm != null
 	## `project_save`, not `save_project`. The latter still exists and still
 	## works, but since 2026-08-25 it writes the **flat interoperability
 	## export** (`SAVEFILE_COMPAT.md` §1.1) -- seven root entries and no
@@ -2551,6 +2558,77 @@ func _restore_gpu_prefs() -> void:
 	var fb := DccSettings.gpu_fallback()
 	if fb != "":
 		world_gen.gpu_set_vram_fallback(fb)
+
+# -- The optional LLM assistant (LLM_ASSISTANT_SCOPE.md, milestone LLM-2) -------------
+#
+# Pass-throughs to `LlmBridge` (`llm_bridge.rs`). **None of them touches `world_gen`**, so
+# none is guarded on `generating`: the settings window must work during a generate. None
+# of them opens a socket either; the wire is LLM-3. A missing binding degrades to the
+# safe answer (`{}`, `[]`, or a refusal dictionary), never to a plausible one.
+
+## True when the loaded GDExtension has `LlmBridge`.
+var llm_api := false
+## The `LlmBridge` instance (see `_ready`); null on a binary without it.
+var _llm: Object = null
+
+## The refusal every method returns when the binding is missing: `ok = false` with a
+## reason, so a caller that forgets to check `llm_api` still cannot read it as a yes.
+func _llm_missing() -> Dictionary:
+	return {"ok": false, "code": "no_binding",
+		"reason": "This build has no assistant support. Update the Cartalith library.",
+		"error": "This build has no assistant support."}
+
+## The provider picker's rows (`LlmBridge.llm_presets`); `[]` without the binding.
+func llm_presets() -> Array:
+	return _llm.llm_presets() if llm_api else []
+
+## `classify_host` for a base URL or host; see `LlmBridge.llm_classify_host`.
+func llm_classify_host(text: String) -> Dictionary:
+	return _llm.llm_classify_host(text) if llm_api else _llm_missing()
+
+## What the shell needs about the chosen endpoint; see `LlmBridge.llm_endpoint_info`.
+func llm_endpoint_info(preset_id: String, base_url: String) -> Dictionary:
+	return _llm.llm_endpoint_info(preset_id, base_url) if llm_api else _llm_missing()
+
+## The GPU rule's plan (Ruling DF); see `LlmBridge.llm_gpu_plan`. `devices` is `gpu_devices()`.
+func llm_gpu_plan(base_url: String, local_selected: bool, override_id: String, devices: Array) -> Dictionary:
+	if not llm_api:
+		return _llm_missing()
+	## The native parameter is an UNTYPED array, and a typed `Array[Dictionary]` (what
+	## `gpu_enumerate_devices` returns) is refused by the conversion, so copy into a plain one.
+	var plain: Array = []
+	plain.append_array(devices)
+	return _llm.llm_gpu_plan(base_url, local_selected, override_id, plain)
+
+## The settings gate; see `LlmBridge.llm_authorize`. `capability` is `""`, `"prose"`, `"commands"` or `"edit"`.
+func llm_authorize(settings: Dictionary, capability: String, consented: PackedStringArray) -> Dictionary:
+	return _llm.llm_authorize(settings, capability, consented) if llm_api else _llm_missing()
+
+## Whether a key is available and its masked form, never the key; see `LlmBridge.llm_key_status`.
+func llm_key_status(source: String, env_var: String, account: String) -> Dictionary:
+	return _llm.llm_key_status(source, env_var, account) if llm_api else _llm_missing()
+
+## Saves a key in the OS credential store, or refuses; see `LlmBridge.llm_key_save`.
+## The argument is the key: callers must not keep it, log it or put it in a signal.
+func llm_key_save(account: String, key: String) -> Dictionary:
+	return _llm.llm_key_save(account, key) if llm_api else _llm_missing()
+
+## Removes the saved key for `account`; see `LlmBridge.llm_key_forget`.
+func llm_key_forget(account: String) -> Dictionary:
+	return _llm.llm_key_forget(account) if llm_api else _llm_missing()
+
+## Points the compute path at `keys` for THIS SESSION ONLY: the engine's selection is set
+## but `DccSettings` is not written, so the user's own persisted choice (Preferences ▸
+## Performance ▸ Devices) is untouched and is what `LlmGpuRule` restores. Refused (false)
+## while generating or without the GPU API; takes effect on the next generate, like every
+## other GPU setting. An empty `keys` means automatic (the engine's own default), the same
+## meaning `gpu_set_selected_devices` gives it.
+func gpu_set_selected_devices_session(keys: PackedStringArray) -> bool:
+	if not gpu_api or generating:
+		return false
+	world_gen.gpu_set_selected_devices(keys)
+	_gpu_cache["selected"] = keys
+	return true
 
 # -- CPU worker threads (SS2.5 Performance) -----------------------------------
 #

@@ -124,6 +124,21 @@ moxcms = "0.8.1"
 # CPU the export runs on.
 jpeg-encoder = "0.7.1"
 
+# `LLM_ASSISTANT_SCOPE.md` milestone LLM-2: the settings gate, address
+# classification and the GPU rule are pure functions in the protocol crate; this
+# crate only exposes them to the shell (`llm_bridge.rs`). The crate has no
+# Godot types and no socket (its own `tests/no_network.rs` enforces that).
+cartalith-llm = { path = "../cartalith-llm" }
+
+# LLM-2, Ruling DD item 4: the Windows Credential Manager half of the key store
+# (`llm_keystore.rs`). **Windows only**, so no other platform's build grows by a
+# crate. Not a new package: 0.61.2 is already resolved in `Cargo.lock` (pulled
+# in by other crates); this only makes it direct and turns on the one feature
+# the three `Cred*` functions live behind. The same Cargo.lock entry, no new
+# download. The Android Keystore half is LLM-10.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", default-features = false, features = ["Win32_Security_Credentials", "Win32_Foundation"] }
+
 [dev-dependencies]
 # `tests/export_stream.rs`' own PNG and BigTIFF decoders inflate with it;
 # already in the lockfile through `png`/`zip`.
