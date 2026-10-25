@@ -331,6 +331,9 @@ const ID_PREF_ASSISTANT := 900
 ## LLM-3: `Story ▸ NOTES ▸ Assistant panel…` opens the prose and Vault assistant (`LlmAssistantWindow`);
 ## 900 above is its SETTINGS (Preferences ▸ Assistant…). 901 was unused (`grep -rn ":= 90"` over `shell/`, 2026-10-25).
 const ID_STORY_ASSISTANT := 901
+## CQ-3: `Preferences ▸ Quick bar…` opens the Customise window for the pinned commands
+## (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.5). 902 was unused (`grep -n ":= 90" shell/menus.gd`, 2026-10-26).
+const ID_PREF_QUICK_BAR := 902
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
@@ -4108,6 +4111,11 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## the dialog it opens is `LlmSettingsWindow`. It reaches the phone's Preferences screen
 	## the way every row does -- by being in this popup.
 	_live(p, "Assistant…", ID_PREF_ASSISTANT)
+	## CQ-3: the Customise window for the user's pinned quick-bar commands. Not on the phone: the
+	## phone has no palette bar to draw them in until CQ-6 gives it a chip row, and a window that
+	## edits an invisible list is a dead control (`quick_bar_window.gd`'s header).
+	if not _host.is_phone():
+		_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
 
 	if full or include_theme:
 		_build_theme_submenu(p)
@@ -5664,6 +5672,9 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		return
 	if id == ID_PREF_ASSISTANT:
 		_host.open_assistant_settings()
+		return
+	if id == ID_PREF_QUICK_BAR:
+		_host.open_quick_bar_window()
 		return
 	if id == ID_PREF_SHORTCUTS:
 		## `_host` is `app.gd`'s `DccApp`, which already owns one

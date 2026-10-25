@@ -1,0 +1,55 @@
+CQ-3 probe results, 2026-10-26, from a scratch worktree with a wiped user dir. Commands are in each probe's header.
+
+== _quickbar_window_probe w_desk
+143:RESULT: PASS (0 failed, 108 checks)
+
+== _quickbar_window_probe w_tab
+143:RESULT: PASS (0 failed, 108 checks)
+
+== _quickbar_window_probe w_phone
+12:RESULT: PASS (0 failed, 3 checks)
+
+== _quickbar_probe (desktop, tablet)
+RESULT: PASS (0 failed, 200 checks)
+RESULT: PASS (0 failed, 200 checks)
+
+== Q11 section of the desktop run
+== 9. Q11: right-click a menu row, windowed ==
+  ok    the app owns the gesture's hook
+  ok    the real cursor over the World menu's vault row makes it the focused item (at (388.0, 238.0))
+  ok    window_input received the right-button press with get_focused_item() naming the vault row: [[true, 4]]
+  ok    no id_pressed was emitted: nothing ran ([])
+  ok    a one-row menu offers 'Pin to quick bar' (visible=true, 'Pin to quick bar')
+SHOT C:/cw/cq4/shots/cq3_desktop_07_row_context_pin.png
+  ok    choosing it pins the command: ["menu:45"]
+  ok    and the chip is on the bar
+  ok    a pinned row offers 'Remove from quick bar'
+  ok    choosing it removes the pin and still writes the empty list
+  ok    a check row ('Autosave') offers no pin menu
+  ok    a check row was exercised
+  ok    the window lists a pin made elsewhere: ["Markdown vault"]
+RESULT: PASS (0 failed, 108 checks)
+
+== mutation (22 mutants)
+W1 picker rows leak into catalogue: KILLED  [RESULT: FAIL (1 failed, 108 checks)]
+W2 unpinnable always shown: KILLED  [RESULT: FAIL (1 failed, 108 checks)]
+W3 add_refusal lets unpinnable through: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+W4 Up moves down: KILLED  [RESULT: FAIL (14 failed, 107 checks)]
+W5 Down moves up: KILLED  [RESULT: FAIL (14 failed, 107 checks)]
+W6 Delete key is Backspace: KILLED  [RESULT: FAIL (11 failed, 107 checks)]
+W7 Alt+Up moves down: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+W8 reset without confirmation: KILLED  [RESULT: FAIL (11 failed, 107 checks)]
+W9 reset writes nothing: KILLED  [RESULT: FAIL (12 failed, 107 checks)]
+W10 change not announced: KILLED  [RESULT: FAIL (12 failed, 107 checks)]
+W11 Remove always enabled: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+W12 Add always enabled: KILLED  [RESULT: FAIL (9 failed, 107 checks)]
+W13 open keeps stale search: KILLED  [RESULT: FAIL (8 failed, 105 checks)]
+W14 no neighbour selected after remove: KILLED  [RESULT: FAIL (11 failed, 107 checks)]
+W15 ghost shown as live: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+Q1 plus chip does nothing: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+Q2 more-menu Customise ignored: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+Q3 chip-menu Customise ignored: KILLED  [RESULT: FAIL (8 failed, 107 checks)]
+P1 gesture ignores right button: KILLED  [RESULT: FAIL (7 failed, 107 checks)]
+P2 gesture offers on unpinnable rows: KILLED  [RESULT: FAIL (7 failed, 107 checks)]
+P3 gesture never offers Remove: KILLED  [RESULT: FAIL (7 failed, 107 checks)]
+M1 menus row on the phone: KILLED  [RESULT: FAIL (1 failed, 3 checks)]

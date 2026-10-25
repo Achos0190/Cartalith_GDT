@@ -27,19 +27,28 @@ class_name DccQuickBar
 ## not from the window's. No chip label uses `clip_text` (it collapses a Label's minimum to 1);
 ## a long title is cut in code (`MAX_LABEL_CHARS`) and the full title is the tooltip.
 ##
-## ## What CQ-2 does not do (the milestones after it)
+## ## Where pins are edited (CQ-3)
 ##
-## No Customise window (CQ-3): the `＋` chip opens a plain menu of the pinnable commands,
-## grouped as the command index groups them, and a chip's right-click menu removes or moves
-## it. No ring dock or shared sub-rings (CQ-4), no phone chip row (CQ-6: the phone has no
-## palette bar), no Assistant chip (CQ-7, gated on the assistant panel). Tools and check/radio
-## rows are not pinnable in v1 (Ruling DH Q8, Q10); `CommandIndex` says why per row.
+## All adding happens in the Customise window (`QuickBarWindow`, `Preferences ▸ Quick bar…`),
+## which the `＋` chip, the `⋯` menu's last row and a chip's right-click menu all open. The
+## interim grouped menu CQ-2 hung off `＋` is gone: the window lists the same pinnable rows, with
+## search and the reasons for the rest, so keeping both would be two ways to do one thing. A
+## chip's right-click menu still removes or moves it in place.
+##
+## ## What is not here (the milestones after it)
+##
+## No ring dock or shared sub-rings (CQ-4), no phone chip row (CQ-6: the phone has no palette
+## bar), no Assistant chip (CQ-7). Tools and check/radio rows are not pinnable in v1 (Ruling DH
+## Q8, Q10); `CommandIndex` says why per row.
 
 ## The gap between chips: the palette strip's own `separation` (`DccWidgets.tool_strip`).
 const GAP := 5
 ## Longest chip label in characters before it is cut with an ellipsis. A labelled judgement:
 ## about the width of "Journey planner" in the small mono face; the full title is the tooltip.
 const MAX_LABEL_CHARS := 16
+## The id of the `Customise…` row in the `⋯` and chip menus. Far above any pin index (the `⋯`
+## menu numbers its pins 0..23) so the two never collide.
+const ID_CUSTOMISE := 1000
 ## Reference to the owning `DccApp` for `bridge` and the menu walk; untyped for a harness stub.
 var _app
 ## Pinned chips in pin order, one per stored pin (hidden ones are overflow).
@@ -48,8 +57,7 @@ var _chips: Array[Button] = []
 var _plus: Button
 ## The `⋯` overflow chip: shown only while at least one pin does not fit.
 var _more: Button
-## The menus the `＋` and `⋯` chips pop up.
-var _plus_menu: PopupMenu
+## The menus the `⋯` chip and a pin's right-click pop up.
 var _more_menu: PopupMenu
 var _chip_menu: PopupMenu
 ## The pin the open chip context menu belongs to.
@@ -73,10 +81,9 @@ func _init() -> void:
 	_more = _make_chip("⋯", _on_more_pressed)
 	_more.name = "QuickBarMore"
 	_more.visible = false
-	_plus_menu = PopupMenu.new()
 	_more_menu = PopupMenu.new()
 	_chip_menu = PopupMenu.new()
-	for m in [_plus_menu, _more_menu, _chip_menu]:
+	for m in [_more_menu, _chip_menu]:
 		add_child(m)
 	_more_menu.id_pressed.connect(_on_more_item)
 	_chip_menu.id_pressed.connect(_on_chip_menu_item)
@@ -151,9 +158,9 @@ func refresh() -> void:
 	for p in pins:
 		_chips.append(_chip_for(String(p["k"]), String(p["t"])))
 	var full := pins.size() >= DccSettings.QUICK_BAR_MAX_BAR
-	_plus.disabled = full
-	_plus.tooltip_text = ("The quick bar is full (%d / %d). Right-click a chip to remove one." % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]) if full \
-		else "Pin a command here (%d / %d)" % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]
+	_plus.disabled = false
+	_plus.tooltip_text = ("Customise the quick bar. It is full (%d / %d): remove a pin to add another." % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]) if full \
+		else "Customise the quick bar: pin a command (%d / %d)" % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]
 	update_minimum_size()
 	queue_sort()
 
@@ -275,59 +282,20 @@ func _layout() -> void:
 
 # -- the ＋ chip: add a pin -----------------------------------------------------------
 
-## Opens a menu of every pinnable command that is not yet pinned, one submenu per command group.
-## **A stopgap by design**: the Customise window (CQ-3, a searchable catalogue with an ordered
-## list) replaces this entry point; until then this is the only way to add a pin, and it shows
-## the same rows (`CommandIndex` `pinnable`) the window will.
+## Opens the Customise window (CQ-3). The `＋` chip is the window's entry point on the bar;
+## it stays live when the bar is full, because the window is also where a pin is removed and it
+## states the cap's reason when an add is refused (scope s.3.5).
 func _on_plus_pressed() -> void:
-	if _app == null:
-		return
-	var idx := CommandIndex.new()
-	idx.build(_app, _app.bridge)
-	var pinned := {}
-	for p in DccSettings.quick_bar_value("bar"):
-		pinned[String(p["k"])] = true
-	for c in _plus_menu.get_children():
-		_plus_menu.remove_child(c)
-		c.queue_free()
-	_plus_menu.clear()
-	var by_group := {}
-	var order: Array = []
-	for r in idx.all():
-		if not bool(r.get("pinnable", false)) or pinned.has(String(r["pin_key"])):
-			continue
-		var g := String(r["group"])
-		if not by_group.has(g):
-			by_group[g] = []
-			order.append(g)
-		by_group[g].append(r)
-	if order.is_empty():
-		_plus_menu.add_item("Nothing left to pin", 0)
-		_plus_menu.set_item_disabled(0, true)
-	for g in order:
-		var sub := PopupMenu.new()
-		sub.name = "Sub_" + String(g).replace(" ", "_").replace("/", "_")
-		for r in by_group[g]:
-			var i := sub.item_count
-			sub.add_item(String(r["title"]), i)
-			sub.set_item_metadata(i, [String(r["pin_key"]), String(r["title"])])
-		sub.id_pressed.connect(func(id: int): _pin_from_menu(sub, id))
-		_plus_menu.add_child(sub)
-		DccWidgets.style_popup(sub)
-		_plus_menu.add_submenu_node_item(String(g), sub)
-	DccWidgets.style_popup(_plus_menu)
-	_popup_under(_plus_menu, _plus)
+	open_customise()
 
-func _pin_from_menu(sub: PopupMenu, id: int) -> void:
-	var meta = sub.get_item_metadata(sub.get_item_index(id))
-	if typeof(meta) != TYPE_ARRAY:
-		return
-	var why := DccSettings.quick_bar_add("bar", String(meta[0]), String(meta[1]))
-	if why != "":
-		_say(why)
-		return
-	refresh()
-	pins_changed.emit()
+## Opens `Preferences ▸ Quick bar…` through the app, the one method every entry point calls
+## (`menus.gd`'s row, this node's `＋`, `⋯ ▸ Customise…` and a pin's right-click), so they cannot
+## open different windows. A stub app without it says so in the status line, not silently.
+func open_customise() -> void:
+	if _app != null and _app.has_method("open_quick_bar_window"):
+		_app.open_quick_bar_window()
+	else:
+		_say("The Customise window is not available here.")
 
 # -- the ⋯ chip: pins that did not fit ------------------------------------------------
 
@@ -342,10 +310,15 @@ func _on_more_pressed() -> void:
 		_more_menu.set_item_disabled(i, c.disabled)
 		_more_menu.set_item_tooltip(i, c.tooltip_text)
 		i += 1
+	_more_menu.add_separator()
+	_more_menu.add_item("Customise…", ID_CUSTOMISE)
 	DccWidgets.style_popup(_more_menu)
 	_popup_under(_more_menu, _more)
 
 func _on_more_item(id: int) -> void:
+	if id == ID_CUSTOMISE:
+		open_customise()
+		return
 	_press(String(_more_menu.get_item_metadata(_more_menu.get_item_index(id))))
 
 # -- a chip's own right-click menu ----------------------------------------------------
@@ -371,12 +344,17 @@ func open_chip_menu(chip: Button, pin_key: String) -> void:
 	_chip_menu.add_item("Remove from quick bar", 0)
 	_chip_menu.add_item("Move left", 1)
 	_chip_menu.add_item("Move right", 2)
+	_chip_menu.add_separator()
+	_chip_menu.add_item("Customise…", ID_CUSTOMISE)
 	_chip_menu.set_item_disabled(1, at <= 0)
 	_chip_menu.set_item_disabled(2, at < 0 or at >= pins.size() - 1)
 	DccWidgets.style_popup(_chip_menu)
 	_popup_under(_chip_menu, chip)
 
 func _on_chip_menu_item(id: int) -> void:
+	if id == ID_CUSTOMISE:
+		open_customise()
+		return
 	var ok := false
 	match id:
 		0:

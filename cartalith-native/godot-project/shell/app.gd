@@ -27,6 +27,9 @@ var gen_info_dialog: GenInfoDialog
 var shortcuts_dialog: ShortcutsDialog
 ## `Preferences ▸ Assistant…` (LLM-2): the optional LLM assistant's settings and its consent card.
 var assistant_settings_window: LlmSettingsWindow
+## `Preferences ▸ Quick bar…` (CQ-3) and the menu-row right-click pin gesture.
+var quick_bar_window: QuickBarWindow
+var quick_bar_menu_pin: QuickBarMenuPin
 ## LLM-3: the prose and Vault assistant panel (`Story ▸ NOTES ▸ Assistant panel…`).
 var assistant_window: LlmAssistantWindow
 ## The journey planner view (`JourneyPlannerView`).
@@ -991,6 +994,17 @@ func _ready() -> void:
 	assistant_settings_window = LlmSettingsWindow.new()
 	add_child(assistant_settings_window)
 	assistant_settings_window.setup(self, bridge)
+	## CQ-3: the Customise window for the quick bar's pins, and the right-click-a-menu-row pin
+	## gesture (Q11). Pins changed in the window refresh the cluster in the same frame.
+	quick_bar_window = QuickBarWindow.new()
+	add_child(quick_bar_window)
+	quick_bar_window.setup(self)
+	quick_bar_window.pins_changed.connect(func():
+		if _quick_bar != null:
+			_quick_bar.refresh())
+	quick_bar_menu_pin = QuickBarMenuPin.new()
+	add_child(quick_bar_menu_pin)
+	quick_bar_menu_pin.setup(self)
 	assistant_window = LlmAssistantWindow.new()
 	add_child(assistant_window)
 	assistant_window.setup(self, bridge)
@@ -4928,6 +4942,11 @@ func open_shortcuts() -> void:
 ## on the stored state; nothing here contacts anything.
 func open_assistant_settings() -> void:
 	assistant_settings_window.open()
+
+## `Preferences ▸ Quick bar…`: the Customise window for the pinned commands (CQ-3). The one
+## method the menu row, the `＋` chip, `⋯ ▸ Customise…` and a pin's right-click all call.
+func open_quick_bar_window() -> void:
+	quick_bar_window.open()
 
 ## `Story ▸ NOTES ▸ Assistant panel…`: the prose and Vault assistant (LLM-3). Opening it contacts
 ## nothing; only Send does, and only through the gate.

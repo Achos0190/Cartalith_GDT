@@ -16,8 +16,9 @@ extends Node
 ## What it protects (CQ-2's bars, each against the real shell):
 ##   0. SHIPPED DEFAULT: with no pins the cluster is the `＋` chip alone, after a rule, at the
 ##      palette bar's right end, and the bar's laid height is the palette's;
-##   1. ADD: a real click on `＋` opens a menu of pinnable commands in groups (Journey planner
-##      and Markdown vault among them); choosing one stores the pin and draws its chip;
+##   1. ADD: a real click on `＋` opens the Customise window (CQ-3; the interim grouped menu is gone)
+##      and the window's add puts a pin on the bar in the same frame (the window itself is
+##      `_quickbar_window_probe.gd`'s subject);
 ##   2. RUN: a real click at each EDGE of the Markdown vault chip opens the vault window, and the
 ##      Journey planner chip opens `journey_planner_view` -- the same effect as the menu row;
 ##   3. SAME HANDLER: pressing a chip emits its popup's own `id_pressed` exactly once (counted
@@ -227,36 +228,23 @@ func _ready() -> void:
 	var min_empty := _qb.get_combined_minimum_size().x
 	await _shot("00_empty")
 
-	print("== 1. add a pin through the real ＋ chip ==")
+	print("== 1. add a pin through the real ＋ chip (CQ-3: it opens the Customise window) ==")
 	await _click(_qb.plus_chip(), 0)
-	var pm: PopupMenu = _qb._plus_menu
-	_ok(pm.visible, "a real click on ＋ opens its menu")
-	_ok(pm.item_count >= 3, "the menu lists %d command groups (a tablet folds the menu bar, so fewer than desktop's 8)" % pm.item_count)
-	var groups: Array = []
-	for g in pm.item_count:
-		groups.append(pm.get_item_text(g))
-	print("  info groups: ", groups)
-	await _shot("01_plus_menu")
-	var story_sub := _find_sub(pm, "Story")
-	var world_sub := _find_sub(pm, "World")
-	_ok(story_sub != null and _sub_has(story_sub, "Journey planner"), "Story offers Journey planner")
-	_ok(world_sub != null and _sub_has(world_sub, "Markdown vault"), "World offers Markdown vault")
-	## Choosing inside a popup: the popup's own `id_pressed`, the signal a click on its row emits
-	## (a synthetic click cannot reliably walk a two-level popup).
-	_pick(world_sub, "Markdown vault")
-	await _settle(4)
-	pm.hide()
+	var qw: QuickBarWindow = _app.quick_bar_window
+	_ok(qw.visible, "a real click on ＋ opens the Customise window (CQ-2's interim grouped menu is gone)")
+	await _shot("01_plus_window")
+	## The window is `_quickbar_window_probe.gd`'s subject; here it is only the way in. Adding by
+	## its own `add_row`, the call its Add button and Enter both reach.
+	var idx1 := _idx()
+	_ok(qw.add_row(idx1.find_pin("menu:%d" % DccMenus.ID_VAULT)) == "", "the window adds Markdown vault")
 	_ok(_stored_keys() == ["menu:%d" % DccMenus.ID_VAULT], "the pin is stored: %s" % str(_stored_keys()))
-	_ok(_qb.pin_count() == 1 and _qb.shown_count() == 1, "and its chip is drawn")
-	await _click(_qb.plus_chip(), 0)
-	_pick(_find_sub(pm, "Story"), "Journey planner")
-	await _settle(4)
-	pm.hide()
+	_ok(_qb.pin_count() == 1, "and the cluster has its chip at once (the window's change reaches the cluster in the same call)")
+	await _settle(3)
+	_ok(_qb.shown_count() == 1, "and it is laid out and drawn")
+	_ok(qw.add_row(idx1.find_pin("menu:%d" % DccMenus.ID_STORY_JOURNEY_PLANNER)) == "", "the window adds Journey planner")
 	_ok(_stored_keys() == ["menu:%d" % DccMenus.ID_VAULT, "menu:%d" % DccMenus.ID_STORY_JOURNEY_PLANNER], "second pin appended in order: %s" % str(_stored_keys()))
-	await _click(_qb.plus_chip(), 0)
-	var again := _find_sub(pm, "World")
-	_ok(again == null or not _sub_has(again, "Markdown vault"), "an already-pinned command is not offered again")
-	pm.hide()
+	qw.hide()
+	await _settle(3)
 	await _shot("02_two_pins")
 
 	print("== 2/3. run through real clicks; same handler as the menu ==")
@@ -352,7 +340,7 @@ func _ready() -> void:
 	await _set_pins(keys3)
 	await _click(_chip(keys3[0]), 0, MOUSE_BUTTON_RIGHT)
 	var cm: PopupMenu = _qb._chip_menu
-	_ok(cm.visible and cm.item_count == 3, "a real right-click opens a 3-row menu (%d)" % cm.item_count)
+	_ok(cm.visible and cm.item_count == 5 and cm.get_item_text(4) == "Customise…" and cm.is_item_separator(3), "a real right-click opens Remove / Move left / Move right, a rule and Customise… (%d rows)" % cm.item_count)
 	_ok(cm.is_item_disabled(1) and not cm.is_item_disabled(2), "the first pin cannot move left, can move right")
 	await _shot("04_chip_menu")
 	cm.id_pressed.emit(2)
@@ -458,7 +446,7 @@ func _ready() -> void:
 	var listed: Array = []
 	for r in mm.item_count:
 		listed.append(mm.get_item_text(r))
-	_ok(listed == Array(hidden_titles), "the menu lists exactly the hidden pins in pin order (%d)" % listed.size())
+	_ok(listed.size() == hidden_titles.size() + 2 and listed.slice(0, hidden_titles.size()) == Array(hidden_titles) and listed[-1] == "Customise…", "the menu lists exactly the hidden pins in pin order, then a rule and Customise… (%d rows)" % listed.size())
 	await _shot("06_overflow_menu")
 	mm.hide()
 	# pin the vault LAST so it is in the overflow, and run it from there
@@ -521,28 +509,3 @@ func _widest_visible_minimum(n: Node) -> Array:
 		if float(r[0]) > float(best[0]):
 			best = r
 	return best
-
-
-## The submenu node of `pm` whose item text is `title`, or null.
-func _find_sub(pm: PopupMenu, title: String) -> PopupMenu:
-	for i in pm.item_count:
-		if pm.get_item_text(i) == title:
-			var n := pm.get_item_submenu_node(i)
-			return n as PopupMenu
-	return null
-
-
-func _sub_has(sub: PopupMenu, title: String) -> bool:
-	for i in sub.item_count:
-		if sub.get_item_text(i) == title:
-			return true
-	return false
-
-
-## Chooses the row titled `title` in `sub` by emitting that popup's own `id_pressed`.
-func _pick(sub: PopupMenu, title: String) -> void:
-	for i in sub.item_count:
-		if sub.get_item_text(i) == title:
-			sub.id_pressed.emit(sub.get_item_id(i))
-			return
-	_ok(false, "row '%s' not found in the submenu" % title)
