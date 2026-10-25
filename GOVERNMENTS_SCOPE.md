@@ -460,6 +460,8 @@ what it does, why, what it must never do, and the source of each constant.
 | **G1-5** Khanate levy (optional) | `GOVERNMENT_LEVY_BONUS` with one row, its value derived by §3.3's rule and pinned with its derivation test | (1) 0 of 20 worlds move. (2) Every key except `nomad_khanate` reads exactly `0.0` (asserted over the whole vocabulary). (3) A median khanate's mobilization lands within ±0.5 percentage points of its era band's centre. (4) Its standing army is identical, to the bit, with and without the bonus | G1-1; Q5 |
 | *(not proposed)* G1-6 Defaults | New forms join `civ_default_government` | Would move 8-16 of 24 factions on large worlds (§4.3): an output change needing its own ruling and a `DECISIONS.md` §7p re-baseline. Listed only so the omission is explicit | Q6 |
 
+**Note on G1-1 bar 4's ordering half.** It did not hold as written, and not because of G1's rows: the reference's own forms broke `standing < field < levy` on the same worlds, because the standing budget was linear in the ecological factor. G1-1 asserted a one-directional guard instead (no form breaks an ordering its anchor keeps). Owner Ruling DE (2026-10-25, `ECOLOGICAL_ARMY_TERM_SCOPE.md`) fixed the model, and `g1_forced_forms_are_ordered_and_near_their_anchor` now asserts the ordering on every forced reading as well (160 of 160 G1, 160 of 160 reference, measured). Status is in `STATUS.md`.
+
 Model tier is decided per lane when a milestone is scheduled. G1-1's guards and G1-3's shell work are routine
 for a strong builder. A separate verifier should re-run G1-1's mutations.
 

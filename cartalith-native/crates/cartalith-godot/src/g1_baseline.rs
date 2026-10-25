@@ -54,27 +54,38 @@ type G1Row = (i32, u32, i32, u64, u64);
 /// G1-0's baseline, recorded on the pre-G1 tree (`09a217dd`, 2026-10-25) by
 /// running [`g1_0_baseline_columns`] with an empty table and pasting its
 /// printout. Never edit a value in passing; see the module doc.
+///
+/// **RE-BASELINED 2026-10-25 under owner Ruling DE** (EA-2,
+/// `ECOLOGICAL_ARMY_TERM_SCOPE.md` §6): the ecological army term moves every
+/// faction with `E > 1`, and every world has one, so the manpower column moved
+/// on 20 of 20 worlds and the governments column on 0 of 20 (control flow:
+/// the term reads no government key). Each row keeps its old manpower hashes
+/// beside the new, and there are two: the `09a217dd` recording, and the value
+/// at `9b0bec28`, where Ruling DB item 3 (the higher world ceiling) had
+/// already re-generated the harness worlds and moved this column on 20 of 20
+/// without re-recording it (measured by this lane before the term landed).
+/// The trailing `f1 standing` figures are the new tree's.
 const G1_0: [G1Row; 20] = [
-    (12345, 800, 6, 0x387148c99c9fda6a, 0x8d1fce680f420476), // 6 armed of 6; f1 standing 1153 -> 2240 under empire
-    (12345, 800, 24, 0x629827ce9cd3ce9b, 0xc0c340ff6043d71b), // 24 armed of 24; f1 standing 318 -> 619 under empire
-    (12345, 40075, 6, 0x387148c99c9fda6a, 0x90f507f70ee7a916), // 6 armed of 6; f1 standing 4699 -> 9128 under empire
-    (12345, 40075, 24, 0x629827ce9cd3ce9b, 0xf529f91b918f427d), // 22 armed of 24; f1 standing 323 -> 627 under empire
-    (314159, 800, 6, 0x387148c99c9fda6a, 0xcb20fec4ea5a37b0), // 6 armed of 6; f1 standing 551 -> 978 under empire
-    (314159, 800, 24, 0x629827ce9cd3ce9b, 0x5d4c0ef0357a761a), // 24 armed of 24; f1 standing 112 -> 217 under empire
-    (314159, 40075, 6, 0x387148c99c9fda6a, 0xaf1f666fba6a5ead), // 6 armed of 6; f1 standing 4658 -> 9049 under empire
-    (314159, 40075, 24, 0x629827ce9cd3ce9b, 0xdb356c6e0d222305), // 22 armed of 24; f1 standing 4284 -> 8323 under empire
-    (404, 800, 6, 0x387148c99c9fda6a, 0x6711bce069a6a764), // 6 armed of 6; f1 standing 4953 -> 9622 under empire
-    (404, 800, 24, 0x629827ce9cd3ce9b, 0x7495b670bef43d8a), // 24 armed of 24; f1 standing 523 -> 1016 under empire
-    (404, 40075, 6, 0x387148c99c9fda6a, 0x70e295d237feec7f), // 6 armed of 6; f1 standing 2215 -> 4304 under empire
-    (404, 40075, 24, 0x629827ce9cd3ce9b, 0x1d87ef0405ba9c73), // 22 armed of 24; f1 standing 1216 -> 2362 under empire
-    (707, 800, 6, 0x387148c99c9fda6a, 0x3c1b811a681ef994), // 6 armed of 6; f1 standing 3183 -> 6183 under empire
-    (707, 800, 24, 0x629827ce9cd3ce9b, 0x3373836f05fd2a9f), // 24 armed of 24; f1 standing 838 -> 1627 under empire
-    (707, 40075, 6, 0x387148c99c9fda6a, 0x57a839f04dd271e2), // 6 armed of 6; f1 standing 5017 -> 9747 under empire
-    (707, 40075, 24, 0x629827ce9cd3ce9b, 0xbbc834eb6fc9668d), // 22 armed of 24; f1 standing 526 -> 1021 under empire
-    (24601, 800, 6, 0x387148c99c9fda6a, 0xd9d08f090224da7b), // 6 armed of 6; f1 standing 982 -> 1908 under empire
-    (24601, 800, 24, 0x629827ce9cd3ce9b, 0xbea007d250cc6805), // 24 armed of 24; f1 standing 322 -> 625 under empire
-    (24601, 40075, 6, 0x387148c99c9fda6a, 0xecedd7798babe72c), // 6 armed of 6; f1 standing 809 -> 1572 under empire
-    (24601, 40075, 24, 0x629827ce9cd3ce9b, 0xde62503484bbd60a), // 22 armed of 24; f1 standing 417 -> 810 under empire
+    (12345, 800, 6, 0x387148c99c9fda6a, 0xfc0e51ebf531e378), // 6 armed of 6; f1 standing 1051 -> 2042 under empire; was 0x8d1fce680f420476 (09a217dd), 0x40afff69143a03b2 (9b0bec28)
+    (12345, 800, 24, 0x629827ce9cd3ce9b, 0x4550aad3635d01a6), // 24 armed of 24; f1 standing 129 -> 250 under empire; was 0xc0c340ff6043d71b (09a217dd), 0x9d68eb2559dbbfe5 (9b0bec28)
+    (12345, 40075, 6, 0x387148c99c9fda6a, 0x3c4c7779c7b93439), // 6 armed of 6; f1 standing 2121 -> 4120 under empire; was 0x90f507f70ee7a916 (09a217dd), 0x942515e5182ec33b (9b0bec28)
+    (12345, 40075, 24, 0x629827ce9cd3ce9b, 0xa3916268bad3166c), // 22 armed of 24; f1 standing 323 -> 627 under empire; was 0xf529f91b918f427d (09a217dd), 0xb9c622eafbea842e (9b0bec28)
+    (314159, 800, 6, 0x387148c99c9fda6a, 0xa5a30c7edd7dd4d9), // 6 armed of 6; f1 standing 246 -> 437 under empire; was 0xcb20fec4ea5a37b0 (09a217dd), 0x28cb137a53dc18cf (9b0bec28)
+    (314159, 800, 24, 0x629827ce9cd3ce9b, 0x01e8c323f75e71b5), // 24 armed of 24; f1 standing 109 -> 211 under empire; was 0x5d4c0ef0357a761a (09a217dd), 0x7598d6d00551485a (9b0bec28)
+    (314159, 40075, 6, 0x387148c99c9fda6a, 0x1462ad18fb283f0e), // 6 armed of 6; f1 standing 1379 -> 2678 under empire; was 0xaf1f666fba6a5ead (09a217dd), 0x614af03e5d92179d (9b0bec28)
+    (314159, 40075, 24, 0x629827ce9cd3ce9b, 0xc54496cb9e16f46b), // 22 armed of 24; f1 standing 1303 -> 2531 under empire; was 0xdb356c6e0d222305 (09a217dd), 0xbf2a75aef7bd012b (9b0bec28)
+    (404, 800, 6, 0x387148c99c9fda6a, 0xb0f7ef5cbe0949ae), // 6 armed of 6; f1 standing 2012 -> 3908 under empire; was 0x6711bce069a6a764 (09a217dd), 0x811803ddc0ede7a4 (9b0bec28)
+    (404, 800, 24, 0x629827ce9cd3ce9b, 0xea29d89d89d94327), // 24 armed of 24; f1 standing 131 -> 255 under empire; was 0x7495b670bef43d8a (09a217dd), 0xa1b881a5f02187d5 (9b0bec28)
+    (404, 40075, 6, 0x387148c99c9fda6a, 0xc8f1b87cc652c8da), // 6 armed of 6; f1 standing 2215 -> 4304 under empire; was 0x70e295d237feec7f (09a217dd), 0xef0b692385832191 (9b0bec28)
+    (404, 40075, 24, 0x629827ce9cd3ce9b, 0x79882e57d5958ea0), // 22 armed of 24; f1 standing 516 -> 1002 under empire; was 0x1d87ef0405ba9c73 (09a217dd), 0x628063fecd169372 (9b0bec28)
+    (707, 800, 6, 0x387148c99c9fda6a, 0x84c9fe7e30e6d628), // 6 armed of 6; f1 standing 2501 -> 4859 under empire; was 0x3c1b811a681ef994 (09a217dd), 0xd4faed791bc4806d (9b0bec28)
+    (707, 800, 24, 0x629827ce9cd3ce9b, 0xc4c1ab53dfbd0250), // 24 armed of 24; f1 standing 838 -> 1627 under empire; was 0x3373836f05fd2a9f (09a217dd), 0x5e8dfd4bb51afb57 (9b0bec28)
+    (707, 40075, 6, 0x387148c99c9fda6a, 0xba874abc6cef0dd8), // 6 armed of 6; f1 standing 3598 -> 6989 under empire; was 0x57a839f04dd271e2 (09a217dd), 0x6bfe018f56856cd0 (9b0bec28)
+    (707, 40075, 24, 0x629827ce9cd3ce9b, 0xab6410cafb16d9b9), // 22 armed of 24; f1 standing 131 -> 255 under empire; was 0xbbc834eb6fc9668d (09a217dd), 0x2156b64519909040 (9b0bec28)
+    (24601, 800, 6, 0x387148c99c9fda6a, 0x3aa52e78359cbdfd), // 6 armed of 6; f1 standing 991 -> 1924 under empire; was 0xd9d08f090224da7b (09a217dd), 0x84342cc840db9ca6 (9b0bec28)
+    (24601, 800, 24, 0x629827ce9cd3ce9b, 0xe7dda0f9e601d90b), // 24 armed of 24; f1 standing 322 -> 625 under empire; was 0xbea007d250cc6805 (09a217dd), 0x9bece34622fe2b8d (9b0bec28)
+    (24601, 40075, 6, 0x387148c99c9fda6a, 0x1b3ddb6b9ddbc34a), // 6 armed of 6; f1 standing 1096 -> 2129 under empire; was 0xecedd7798babe72c (09a217dd), 0x6310552278c1adf1 (9b0bec28)
+    (24601, 40075, 24, 0x629827ce9cd3ce9b, 0x98d63fc207bdb271), // 22 armed of 24; f1 standing 313 -> 608 under empire; was 0xde62503484bbd60a (09a217dd), 0xac90c4fd8ff4ddf3 (9b0bec28)
 ];
 
 /// One world's reading: the two column hashes, the FH-R2-shaped roster hash

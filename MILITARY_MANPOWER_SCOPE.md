@@ -353,7 +353,9 @@ genuinely standing, and one constant cannot carry both effects.
 **Standing army** (chain 1 — fiscal):
 
 ```
-military_budget = non_agricultural × ecological_factor × fiscal_extraction_efficiency
+budget_ecology  = ecological_factor            if ecological_factor ≤ 1
+                = 1  (ecological_factor^0)     if ecological_factor > 1
+military_budget = non_agricultural × budget_ecology × fiscal_extraction_efficiency
 standing_army   = military_budget / soldier_upkeep(α)
 professional_core = standing_army × professionalization
 ```
@@ -361,6 +363,14 @@ professional_core = standing_army × professionalization
 The non-agricultural population *is* the embodied surplus: those are the
 people the farmers' surplus already feeds. `soldier_upkeep` is what one
 standing soldier costs the treasury, in subsistence-equivalents.
+
+> **Owner Ruling DE, 2026-10-25** (`ECOLOGICAL_ARMY_TERM_SCOPE.md`, candidate
+> C1 at γ = 0): land that falls short of feeding its people still cuts the
+> budget in proportion, but land **above** the world's average adds no revenue
+> (`BUDGET_ECOLOGY_EXPONENT`, Domar 1970). Before the ruling the budget was
+> linear in the factor on both sides, which paid 59 standing armies on the 20
+> harness worlds more than the field army their levy could concentrate. The
+> linear budget is not kept as an option (`DECISIONS.md` §7p).
 
 > **Until 2026-09-23 this was one constant, `SOLDIER_UPKEEP = 3.0`** (Roman
 > legionary pay against a subsistence wage). Owner ruling AI, option (c),
@@ -403,12 +413,18 @@ men who live where the fighting is; what it cannot do is reach the rest.
 **Field army** (chain 2's logistical tail):
 
 ```
-field_army = emergency × (0.34 + 0.20 × logistics_capacity)
+field_share = 0.34 + 0.20 × logistics_capacity
+field_army  = emergency × field_share                                   if ecological_factor ≤ 1
+            = emergency × min(0.90, field_share × ecological_factor^0.5) if ecological_factor > 1
 ```
 
 The base is not zero because an army marches on what it carries and forages
 before any road matters; the logistics term is what lets it *stay*
-concentrated once that runs out.
+concentrated once that runs out. **Owner Ruling DE (candidate C2):** above the
+world's average, land lets a larger army be fed on the march (`FORAGE_EXPONENT`
+β = 0.5, a labelled judgement; Perjés 1970, Engels 1978), never more than
+`FIELD_CAP` = 0.90 of the levy (a labelled judgement: some of the levy always
+stays home). Below 1 the field army is the pre-ruling one by control flow.
 
 **War duration.** A two-parameter curve fitted through the owner's own two
 anchors — *"a state may raise 10 % for 30 days but only 2 % for a multi-year
@@ -892,6 +908,15 @@ separate question, and an old one.
 > `_manpower_probe.tscn` reported **PASS** after this ruling and printed
 > `ecological 0.438 … 2.912` on the 33-settlement world, where the ceiling used
 > to truncate it at 2.000 (before ruling AI (b) re-normalised the factor).
+>
+> **Later, owner Ruling DE (2026-10-25).** The control-flow list above is
+> ruling 11's tree. Since Ruling DE the factor's readers are different:
+> `military_budget` reads it below 1 only, and above 1 the field army reads it
+> (`E^0.5`, capped at 0.90 of the levy), which moves both durations with it;
+> `food_surplus_per_farmer` still reads it on both sides. On the 20 FH-R2
+> harness worlds the linear budget had broken `standing < field < levy` on 59
+> of 290 factions (one world's probe had not seen it); with the term the
+> harness holds it on 290 of 290 (`ECOLOGICAL_ARMY_TERM_SCOPE.md`, §2.4 above).
 >
 > **What the ruling did not fix, disclosed rather than tuned around.** The
 > raw ratio's *centre* tracks world size at a fixed faction count — median

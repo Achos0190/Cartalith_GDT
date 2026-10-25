@@ -15,8 +15,8 @@ Its doc names the cause as missing an ecological term in `field = levy x (0.34 +
 asserts a weaker one-directional bar instead.
 
 **What it is not.** It is not a status record and it carries no status column. Progress lives in
-`cartalith-native/docs/STATUS.md`. The backlog row is in `OUTSTANDING_WORK.md` §2.3. **Nothing here is built.**
-This pass made no code change. The diagnostic below ran in a throwaway worktree and was then discarded.
+`cartalith-native/docs/STATUS.md`. The backlog row is in `OUTSTANDING_WORK.md` §2.3. The owner's answer to §8 is
+Ruling DE (`LARGE_ITEM_RULINGS.md`). The pass that wrote this document made no code change. The diagnostic below ran in a throwaway worktree and was then discarded.
 
 **Method, and what was opened (2026-10-25, tree `61fc1585` = `origin/main`).** Every number is one of four kinds:
 
