@@ -830,7 +830,7 @@ mod tests {
         assert_eq!(fo.flows(), LavaFlows::trace(&[hot], inp).flows());
         let mut dead = e;
         dead.years = Some(2.0e6);
-        assert!(LavaFlows::trace(&[dead], inp).is_empty());
+        assert!(LavaFlows::trace(&[dead], inp).is_empty());
         // The hit cap a fissure field needs (`MAX_HITS`' doc), a literal.
         assert_eq!(MAX_HITS, 8);
     }
