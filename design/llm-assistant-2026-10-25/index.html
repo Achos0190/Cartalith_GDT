@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cartalith LLM assistant - input surface (LLM-0 mock)</title>
+<style>
+/* Tokens: DESIGN_HANDOFF.md dark (default) and light tables. Radius 0 for regions; buttons 8 px (desktop/phone), 12 px (tablet). */
+:root{--bg:#0d0e0f;--panel:#121314;--alt:#111210;--raised:#17191a;--sunken:#191c1e;
+--tb:#e8ebec;--t:#c8cbcd;--ts:#a9adb0;--td:#8d9296;--tf:#6f7478;--tg:#5f6468;
+--acc:#e0a34a;--acch:#f0bd72;--accd:#a4650f;--ink:#141005;--good:#6fae7d;--block:#c96a5a;--warn:#e0a840;--water:#6a9bc4;
+--line:rgba(255,255,255,.10);--soft:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16)}
+:root[data-theme=light]{--bg:#f4f2ee;--panel:#fbfaf7;--alt:#eeece7;--raised:#fbfaf7;--sunken:#eceae4;
+--tb:#16181a;--t:#2c2f31;--ts:#4a4e51;--td:#62676b;--tf:#74797d;--tg:#9a9ea1;
+--acc:#a4650f;--acch:#8a540b;--accd:#c58a3a;--ink:#f7f4ee;--good:#2f7a47;--block:#a8412f;--warn:#9a6a00;--water:#2f6a96;
+--line:rgba(0,0,0,.10);--soft:rgba(0,0,0,.07);--bord:rgba(0,0,0,.16)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--bg:#f4f2ee;--panel:#fbfaf7;--alt:#eeece7;--raised:#fbfaf7;--sunken:#eceae4;
+--tb:#16181a;--t:#2c2f31;--ts:#4a4e51;--td:#62676b;--tf:#74797d;--tg:#9a9ea1;--acc:#a4650f;--acch:#8a540b;--accd:#c58a3a;--ink:#f7f4ee;
+--good:#2f7a47;--block:#a8412f;--warn:#9a6a00;--water:#2f6a96;--line:rgba(0,0,0,.10);--soft:rgba(0,0,0,.07);--bord:rgba(0,0,0,.16)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t);font:13px/1.4 system-ui,Segoe UI,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+header h1{font-size:15px;margin:0;color:var(--tb)} header p{margin:0;color:var(--td);flex:1;min-width:260px}
+.boards{display:flex;gap:20px;padding:20px;align-items:flex-start;overflow-x:auto}
+.ab{flex:none}.ab>h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--td);margin:0 0 8px}
+.frame{background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;position:relative;overflow:hidden}
+.desk{width:304px;height:860px}.tab{width:400px;height:860px;--r:12px}.ph{width:390px;height:860px;background:var(--bg)}
+.desk,.ph{--r:8px}
+button,input,textarea{font:inherit;color:inherit}
+.btn{border:1px solid var(--bord);background:transparent;color:var(--t);border-radius:var(--r,8px);padding:0 12px;min-height:30px;cursor:pointer}
+.btn:hover{border-color:var(--acc);color:var(--tb)}
+.btn.pri{background:var(--acc);color:var(--ink);border-color:var(--acc);font-weight:600}.btn.pri:hover{background:var(--acch)}
+.btn[disabled]{color:var(--tg);border-color:var(--soft);background:transparent;cursor:not-allowed}
+.btn.pri[disabled]{background:var(--sunken)}
+.tab .btn,.tab .chip{min-height:40px}
+.ph .btn,.ph .chip,.ph .sw{min-height:44px}.ph .sw{min-width:44px}
+header .btn{border-radius:8px}
+.bar{height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line);color:var(--tb);font-weight:600;flex:none}
+.tab .bar{height:52px}.bar .sp{flex:1}
+.sub{font-weight:400;color:var(--td);font-size:11px}
+.body{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:10px;min-height:0}
+.msg{background:var(--sunken);border:1px solid var(--soft);padding:8px 10px}
+.msg.u{border-color:var(--bord)}.msg small{display:block;color:var(--tf);margin-bottom:2px;font-size:11px}
+.mark{display:inline-block;border:1px solid var(--warn);color:var(--warn);font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:0 5px;border-radius:2px;margin-left:6px;vertical-align:1px}
+.prop{background:var(--raised);border:1px solid var(--bord);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.prop code{background:var(--sunken);padding:2px 6px;color:var(--tb);font:12px ui-monospace,Consolas,monospace}
+.prop .row{display:flex;gap:8px}.prop .row .btn{flex:1}
+.prop.gone{opacity:.45}.hint{color:var(--td);font-size:12px}
+.sec{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--td);margin:2px 0 -4px}
+.input{border-top:1px solid var(--line);padding:8px 10px 10px;display:flex;flex-direction:column;gap:8px;flex:none;background:var(--panel)}
+.chips{display:flex;gap:6px;align-items:center}
+.chip{border:1px solid var(--bord);background:transparent;border-radius:999px;padding:0 12px;min-height:28px;cursor:pointer;color:var(--ts)}
+.chip[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:var(--ink);font-weight:600}
+.chip[disabled]{color:var(--tg);border-color:var(--soft);cursor:not-allowed}
+textarea{width:100%;resize:none;background:var(--sunken);border:1px solid var(--bord);padding:8px;min-height:64px;color:var(--tb);border-radius:0}
+textarea:focus{outline:2px solid var(--acc);outline-offset:-1px}textarea[disabled]{color:var(--tg);border-color:var(--soft)}
+.ph textarea{min-height:76px}
+.ctl{display:flex;gap:8px;align-items:center}.ctl .tok{flex:1;color:var(--td);font-size:12px;font-variant-numeric:tabular-nums}
+.tok b{color:var(--t);font-weight:600}
+.reason{border:1px solid var(--bord);border-left:3px solid var(--warn);background:var(--sunken);padding:8px 10px;color:var(--ts)}
+.reason b{color:var(--tb)}
+.status{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--td);flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}.dot.off{background:var(--tg)}.dot.bad{background:var(--block)}
+.status code{color:var(--t);font:12px ui-monospace,Consolas,monospace}
+.set{display:flex;flex-direction:column}
+.set .r{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--soft)}
+.set .r>div{flex:1}.set .r small{display:block;color:var(--tf);font-size:11px}
+.set .r.dis>div{color:var(--tg)}.set .r.dis small{color:var(--tg)}
+.sw{width:44px;height:26px;border-radius:13px;border:1px solid var(--bord);background:var(--sunken);position:relative;cursor:pointer;flex:none;padding:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--td);transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc);border-color:var(--acc)}.sw[aria-checked=true]::after{left:21px;background:var(--ink)}
+.sw[disabled]{opacity:.4;cursor:not-allowed}
+.ph .sw{height:44px;width:60px;border-radius:22px}.ph .sw::after{top:9px;left:9px;width:24px;height:24px}.ph .sw[aria-checked=true]::after{left:29px}
+.field{display:flex;gap:8px;align-items:center}.field label{width:84px;color:var(--td);flex:none}
+.field .v{flex:1;background:var(--sunken);border:1px solid var(--bord);padding:5px 8px;color:var(--t);min-height:28px;font:12px ui-monospace,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ph .field .v,.tab .field .v{min-height:44px;display:flex;align-items:center}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:14px;z-index:5}
+.scrim.on{display:flex}
+.modal{background:var(--raised);border:1px solid var(--bord);padding:14px;max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.ph .scrim{align-items:flex-end;padding:0}.ph .modal{width:100%}
+.modal h3{margin:0;color:var(--tb);font-size:14px}.modal ul{margin:0;padding-left:18px}.modal li{margin:2px 0}
+.modal .no{color:var(--ts)}.modal a{color:var(--water)}
+.grab{display:none;width:40px;height:4px;border-radius:2px;background:var(--bord);margin:6px auto 0;flex:none}
+.ph .grab{display:block}
+.mapstub{flex:1;background:repeating-linear-gradient(45deg,var(--alt) 0 12px,var(--bg) 12px 24px);display:flex;align-items:center;justify-content:center;color:var(--tf);min-height:0}
+.sheet{background:var(--panel);border-top:1px solid var(--bord);display:flex;flex-direction:column;height:86%;flex:none;min-height:0}
+.tabs{display:flex;border-bottom:1px solid var(--line);flex:none}
+.tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:var(--td);min-height:34px;cursor:pointer}
+.tabs button[aria-selected=true]{color:var(--tb);border-bottom-color:var(--acc)}
+.ph .tabs button{min-height:44px}.tab .tabs button{min-height:40px}
+.pane{display:none;flex:1;min-height:0;flex-direction:column}.pane.on{display:flex}
+.note{color:var(--tf);font-size:11px}
+.tgl{margin-left:auto}
+</style></head><body>
+<header><h1>Assistant - input surface (LLM-0 design mock)</h1>
+<p>Mock only. Not wired to any model; nothing leaves this page. Tokens from DESIGN_HANDOFF.md. Try: master switch (shows the disabled reason), mode chips, Send/Stop, Apply/Dismiss, consent, switches.</p>
+<button class="btn" id="theme">Theme: dark</button>
+<button class="btn" id="master">Feature: on</button>
+<button class="btn" id="consentbtn">Show consent screen</button></header>
+<div class="boards" id="boards"></div>
+<script>
+// One panel builder, three artboards. State is shared so all three stay in step.
+var S={on:true,mode:'prose',busy:false,tok:{i:1204,o:380},cap:{prose:true,cmd:true,edit:false,loc:true,rem:false,ctx:false},consent:true,cscr:false,tab:'chat'};
+var PROP=[{id:1,t:'Layer',c:'set layer "rivers" visible',x:'Show the rivers layer'},
+ {id:2,t:'Parameter',c:'set sea_level 0.42',x:'Lower sea level from 0.46 to 0.42'},
+ {id:3,t:'Edit',c:'paint biome=tundra in region R1',x:'Needs the Edit actions switch and grouped undo',edit:true}];
+var PS={1:'new',2:'new',3:'new'};
+var SW=[['Assistant enabled (master)','off means zero sockets','on'],
+['Prose and Vault assist','notes; written only on your click','prose'],
+['Commands: view, layer, parameter','proposals you Apply one by one','cmd'],
+['Edit actions: sculpt, paint','separate switch; needs grouped undo','edit'],
+['Local providers allowed','localhost and LAN','loc'],
+['Remote providers allowed','hosted endpoints','rem'],
+['Context sources: entity, selection, named notes','none sent unless ticked, per source','ctx']];
+function reason(){ if(!S.on) return ['Assistant is off.','Turn on "Assistant enabled" in Settings. Nothing is sent while off.'];
+ if(!S.cap.loc&&!S.cap.rem) return ['No provider allowed.','Allow local or remote providers in Settings.'];
+ if(!S.consent) return ['Consent needed.','Review what is sent before the first request.'];
+ return null}
+function esc(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function chat(){var r=reason(),dis=!!r,h='<div class="body">';
+ if(r) h+='<div class="reason" role="status"><b>'+r[0]+'</b> '+r[1]+'</div>';
+ h+='<div class="msg u"><small>You</small>Summarise the history of the port town of Veldmark for my notes.</div>';
+ h+='<div class="msg"><small>Assistant<span class="mark">model-generated</span></small>Veldmark began as a river-mouth ferry post... <span class="hint">(shown here only; saved to a note when you click Save to note)</span><div style="margin-top:6px"><button class="btn" '+(dis||!S.cap.prose?'disabled':'')+'>Save to note</button></div></div>';
+ h+='<div class="sec">Proposed actions</div>';
+ PROP.forEach(function(p){var st=PS[p.id],off=p.edit?!S.cap.edit:!S.cap.cmd;
+  h+='<div class="prop '+(st!='new'?'gone':'')+'"><div><b>'+p.t+'</b><span class="mark">model-generated</span></div><code>'+esc(p.c)+'</code><div class="hint">'+p.x+'</div>';
+  if(st=='new'){ if(off) h+='<div class="hint" style="color:var(--warn)">Unavailable: '+(p.edit?'Edit actions switch is off':'Commands switch is off')+'.</div>';
+   h+='<div class="row"><button class="btn pri" data-a="apply" data-id="'+p.id+'" '+(dis||off?'disabled':'')+'>Apply</button><button class="btn" data-a="dismiss" data-id="'+p.id+'">Dismiss</button></div>';}
+  else h+='<div class="hint">'+(st=='ok'?'Applied (one undo step)':'Dismissed')+'</div>';
+  h+='</div>'});
+ h+='<div class="note">Nothing runs on its own. Apply runs exactly the one action shown.</div></div>';
+ h+='<div class="input"><div class="chips" role="group" aria-label="Mode"><button class="chip" data-m="prose" aria-pressed="'+(S.mode=='prose')+'" '+(dis?'disabled':'')+'>Prose</button><button class="chip" data-m="cmd" aria-pressed="'+(S.mode=='cmd')+'" '+(dis?'disabled':'')+'>Command</button><span class="sub tgl">'+(S.mode=='cmd'?'proposes actions':'writes text')+'</span></div>'
+ +'<textarea '+(dis?'disabled':'')+' aria-label="Prompt" placeholder="'+(dis?'Assistant unavailable':(S.mode=='cmd'?'Ask for a view, layer or parameter change...':'Ask for prose about the selected entity...'))+'"></textarea>'
+ +'<div class="ctl"><span class="tok" title="No spend limit is enforced">Tokens <b>'+S.tok.i+'</b> in / <b>'+S.tok.o+'</b> out - no cap</span>'
+ +(S.busy?'<button class="btn" data-a="stop">Stop</button>':'<button class="btn pri" data-a="send" '+(dis?'disabled':'')+'>Send</button>')+'</div>'
+ +'<div class="status"><span class="dot '+(S.on?'':'off')+'"></span>'+(S.on?'<span>Local</span> <code>localhost:11434</code> <code>key: env var, ends f3a9</code>':'<span>No provider contacted</span>')+'</div></div>';
+ return h}
+function sets(){var h='<div class="body"><div class="sec">Assistant</div><div class="set">';
+ SW.forEach(function(s){var k=s[2],on=k=='on'?S.on:S.cap[k],dis=k!='on'&&!S.on;
+  h+='<div class="r '+(dis?'dis':'')+'"><div>'+s[0]+'<small>'+s[1]+(dis?' - needs master switch':'')+'</small></div><button class="sw" role="switch" aria-label="'+s[0]+'" aria-checked="'+on+'" data-k="'+k+'" '+(dis?'disabled':'')+'></button></div>'});
+ h+='</div><div class="sec">Provider</div>'
+ +'<div class="field"><label>Kind</label><div class="v">OpenAI-compatible</div></div>'
+ +'<div class="field"><label>Base URL</label><div class="v">http://localhost:11434/v1</div></div>'
+ +'<div class="field"><label>Model</label><div class="v">free text (List models)</div></div>'
+ +'<div class="field"><label>Key source</label><div class="v">Env var CART_LLM_KEY</div></div>'
+ +'<div class="status"><span class="dot"></span><span>Key present, ending <code>f3a9</code>. The key is never shown, saved to a file, or exported.</span></div>'
+ +'<div class="status"><span class="dot bad"></span><span>Other states are named, never a bare 0: key missing, store unavailable, offline.</span></div>'
+ +'<div class="set"><div class="r"><div>Token counter visible<small>no cap enforced; optional cap off</small></div><button class="sw" role="switch" aria-checked="true" aria-label="Token counter visible" data-k="x"></button></div></div>'
+ +'<div style="display:flex;gap:8px"><button class="btn" id="showc">Review consent</button><button class="btn" data-a="forget">Withdraw consent</button></div></div>';
+ return h}
+function consentH(){return '<div class="modal" role="dialog" aria-label="Consent"><h3>Before the first request</h3>'
+ +'<div>Turning this on sends text to <b>http://localhost:11434</b> (local), or to your remote provider if you allow one. Each request sends:</div>'
+ +'<ul><li>the text you type</li><li>the context sources you ticked (current entity, selection, named notes) and no others</li><li>the list of commands the assistant may propose</li></ul>'
+ +'<div class="no">Never sent: your whole Vault, the save file, file paths, the machine name. Your key goes only in the provider request header.</div>'
+ +'<div class="no"><b>No spend limit is enforced.</b> The token counter shows usage; hosted providers bill you directly. <a href="#">Provider terms</a> (linked, not paraphrased).</div>'
+ +'<div class="no">Output is marked model-generated and is data: nothing runs without your Apply. Worlds generate identically with this off.</div>'
+ +'<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" data-a="decline">Not now</button><button class="btn pri" data-a="agree">I understand, enable</button></div></div>'}
+function board(kind){var d=document.createElement('div');d.className='ab';
+ var title={desk:'Desktop - docked panel, 304 px',tab:'Tablet - right dock, 400 px, 40+ px targets',ph:'Phone - bottom sheet, 44 px targets'}[kind];
+ var tabs='<div class="tabs" role="tablist"><button role="tab" data-t="chat" aria-selected="'+(S.tab=='chat')+'">Assistant</button><button role="tab" data-t="set" aria-selected="'+(S.tab=='set')+'">Settings</button></div>';
+ var inner='<div class="bar">Assistant<span class="sub">'+(S.on?'on':'off')+'</span></div>'+tabs
+  +'<div class="pane '+(S.tab=='chat'?'on':'')+'">'+chat()+'</div><div class="pane '+(S.tab=='set'?'on':'')+'">'+sets()+'</div>';
+ var f;
+ if(kind=='ph'){f='<div class="frame ph"><div class="mapstub">map</div><div class="sheet"><div class="grab"></div>'+inner+'</div>'}
+ else f='<div class="frame '+kind+'">'+inner;
+ f+='<div class="scrim '+(S.cscr?'on':'')+'">'+consentH()+'</div></div>';
+ d.innerHTML='<h2>'+title+'</h2>'+f;return d}
+function render(){var b=document.getElementById('boards');b.innerHTML='';['desk','tab','ph'].forEach(function(k){b.appendChild(board(k))});
+ document.getElementById('master').textContent='Feature: '+(S.on?'on':'off');}
+document.addEventListener('click',function(e){var t=e.target.closest('button');if(!t)return;
+ if(t.id=='theme'){var l=document.documentElement.dataset.theme!='light';document.documentElement.dataset.theme=l?'light':'dark';t.textContent='Theme: '+(l?'light':'dark');return}
+ if(t.id=='master'){S.on=!S.on}
+ else if(t.id=='consentbtn'||t.id=='showc'){S.cscr=true}
+ else if(t.dataset.m){S.mode=t.dataset.m}
+ else if(t.dataset.t){S.tab=t.dataset.t}
+ else if(t.dataset.k){var k=t.dataset.k;if(k=='on')S.on=!S.on;else if(k!='x')S.cap[k]=!S.cap[k]}
+ else if(t.dataset.a){var a=t.dataset.a;
+  if(a=='send'){S.busy=true;render();setTimeout(function(){S.busy=false;S.tok.i+=96;S.tok.o+=140;render()},1600);return}
+  if(a=='stop')S.busy=false;
+  if(a=='apply')PS[t.dataset.id]='ok';
+  if(a=='dismiss')PS[t.dataset.id]='no';
+  if(a=='agree'){S.consent=true;S.cscr=false}
+  if(a=='decline')S.cscr=false;
+  if(a=='forget')S.consent=false}
+ else return;
+ render()});
+render();
+</script></body></html>
