@@ -141,20 +141,7 @@ fn read(
     }
     let mut m = Fnv::new();
     for row in rows.iter() {
-        for v in [
-            row.standing_army,
-            row.professional_core,
-            row.emergency_mobilization,
-            row.field_army,
-            row.field_duration_days,
-            row.emergency_duration_days,
-            row.drivers.citizen_fraction,
-        ] {
-            m.eat(&v.to_bits().to_le_bytes());
-        }
-        m.eat_str(row.era_band.name);
-        m.eat_str(row.era_standing_verdict);
-        m.eat_str(row.era_mobilization_verdict);
+        eat_manpower(&mut m, row);
     }
     Reading {
         governments: g.0,
@@ -164,6 +151,28 @@ fn read(
         armed: rows.iter().filter(|x| x.standing_army > 0.0).count(),
         rows,
     }
+}
+
+/// Feeds one faction's manpower reading into a column hash: standing army,
+/// professional core, levy, field army, both durations and the citizen
+/// fraction by `f64::to_bits`, then the era name and both verdicts. The one
+/// definition of the manpower column, shared by [`read`] (so [`G1_0`]'s bytes
+/// are what they always were) and by `ea0_`'s per-row sweep hashes.
+fn eat_manpower(h: &mut Fnv, row: &Manpower) {
+    for v in [
+        row.standing_army,
+        row.professional_core,
+        row.emergency_mobilization,
+        row.field_army,
+        row.field_duration_days,
+        row.emergency_duration_days,
+        row.drivers.citizen_fraction,
+    ] {
+        h.eat(&v.to_bits().to_le_bytes());
+    }
+    h.eat_str(row.era_band.name);
+    h.eat_str(row.era_standing_verdict);
+    h.eat_str(row.era_mobilization_verdict);
 }
 
 /// Every harness world, in [`G1_0`]'s order: `(seed, width_km, factions)`.
@@ -420,12 +429,27 @@ struct Tally {
     /// Non-empty rows whose field army is `FIELD_CAP` of the levy (Ruling
     /// DE's cap binding; reported, not barred).
     capped: usize,
+    /// Mobilization-band verdicts of the non-empty rows (within / above /
+    /// below), reported for the industrial levy term (Ruling DL Q1, Q4).
+    mob_within: usize,
+    mob_above: usize,
+    mob_below: usize,
 }
 
 impl Tally {
     /// Adds one row. Verdicts and the `E > 1` count skip empty rows, so the
     /// verdict totals equal [`Tally::armed`].
     fn add(&mut self, m: &Manpower) {
+        // The model classifies its own reading since Ruling DL Q3
+        // (`Manpower::ordering`); this harness's inequality is kept as the
+        // independent check, and the two must agree on every row.
+        use cartalith_civ::manpower::ManpowerOrder;
+        let model = match m.ordering {
+            ManpowerOrder::Ordered => Order::Ordered,
+            ManpowerOrder::Empty => Order::Empty,
+            ManpowerOrder::StandingNotBelowField | ManpowerOrder::FieldNotBelowLevy => Order::Unordered,
+        };
+        assert_eq!(model, order_of(m), "Manpower::ordering disagrees with the inequality");
         match order_of(m) {
             Order::Ordered => self.ordered += 1,
             Order::Unordered => self.unordered += 1,
@@ -442,6 +466,11 @@ impl Tally {
         self.eco_above_one += usize::from(m.drivers.ecological_factor > 1.0);
         let share = m.field_army / m.emergency_mobilization;
         self.capped += usize::from((share - cartalith_civ::manpower::FIELD_CAP).abs() < 1e-9);
+        match m.era_mobilization_verdict {
+            "within" => self.mob_within += 1,
+            "above" => self.mob_above += 1,
+            _ => self.mob_below += 1,
+        }
     }
 
     /// Adds another tally's counts into this one.
@@ -454,6 +483,9 @@ impl Tally {
         self.below += o.below;
         self.eco_above_one += o.eco_above_one;
         self.capped += o.capped;
+        self.mob_within += o.mob_within;
+        self.mob_above += o.mob_above;
+        self.mob_below += o.mob_below;
     }
 
     /// Non-empty rows: the population every ordering bar is a share of.
@@ -512,8 +544,22 @@ impl Tally {
 /// ordering bars are unchanged (290 / 0 / 10; 160 and 160). The verdicts, the
 /// `E > 1` count and the cap count moved with the geography. The
 /// `improvedAgrarian` exception is gone: the same faction now reads `E` 0.294
-/// and is ordered. `industrial` reads 129 of 290; it fails because chain 2 has
-/// no industrial term (§10), which is still open.
+/// and is ordered. `industrial` read 129 of 290 there, because chain 2 had
+/// no industrial term (§10).
+///
+/// **RE-BASELINED 2026-10-26 under owner Ruling DL** (`ECOLOGICAL_ARMY_TERM_SCOPE.md`
+/// §10.7). Q1's industrial levy term (K2: conscription reach 0.80 and railway
+/// logistics in the field share, on the two industrial brackets only) moved
+/// the sweep's industrial rows from 264 and 129 ordered to 290 and 287, the
+/// three exceptions being empires at state capacity 0.91, each above its own
+/// standing band (Q2's measure-first row). Q4's restated mobilization bands
+/// moved `industrial`'s mobilization verdicts from 0 / 0 / 290 to 290 / 0 / 0.
+/// The positive control is the per-row manpower hash: the four pre-industrial
+/// rows' hashes are the ones the tree before the term printed, and every
+/// default-government and forced reading is unchanged (all on
+/// `traditionalAgrarian`), as is [`G1_0`] (0 of 20 worlds moved, measured).
+/// Every reading's `Manpower::ordering` (Q3) must agree with this harness's own
+/// inequality.
 ///
 /// Run (alone): `cargo test -p cartalith-godot --lib ea0_ -j 2 -- --ignored --nocapture --test-threads 1`
 #[test]
@@ -523,6 +569,11 @@ fn ea0_ecological_ordering_diagnostic() {
     let mut default = Tally::default();
     let (mut g1, mut reference) = (Tally::default(), Tally::default());
     let mut sweep = [Tally::default(); 6];
+    // One manpower-column hash per ag-tech row over all 20 worlds' sweep
+    // readings: the positive control for Ruling DL's industrial term (it
+    // must move the two industrial rows' hashes and leave the four
+    // pre-industrial ones bit-identical, by control flow).
+    let mut sweep_hash: Vec<Fnv> = (0..6).map(|_| Fnv::new()).collect();
     let mut unordered_worlds: Vec<String> = Vec::new();
     for &(seed, width, factions) in worlds().iter() {
         let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
@@ -594,6 +645,7 @@ fn ea0_ecological_ordering_diagnostic() {
             }
             for (i, m) in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter().enumerate() {
                 sweep[ri].add(m);
+                eat_manpower(&mut sweep_hash[ri], m);
                 // The pre-industrial rows are where Ruling DE Q4 holds the
                 // ordering, so every exception there is printed with its drivers.
                 if ri < 4 && order_of(m) == Order::Unordered {
@@ -609,6 +661,27 @@ fn ea0_ecological_ordering_diagnostic() {
                         m.standing_army,
                         m.field_army,
                         m.emergency_mobilization
+                    );
+                }
+                // The industrial rows: the ordering is reported, not asserted
+                // (Ruling DE Q4, Ruling DL Q1), so each exception is printed
+                // with its drivers and its standing-band verdict (Q2's row).
+                if ri >= 4 && order_of(m) == Order::Unordered {
+                    let d = &m.drivers;
+                    println!(
+                        "EA industrial unordered: {} seed {seed} {width} {factions} f{} ({}): E {:.3} s {:.3} L {:.3} standing {:.1} ({:.2} % of citizens, {}) field {:.1} levy {:.1}{}",
+                        row.key,
+                        i + 1,
+                        civ.faction_roster.0[i + 1].government,
+                        d.ecological_factor,
+                        d.state_capacity,
+                        d.logistics_capacity,
+                        m.standing_army,
+                        100.0 * m.standing_citizen_share,
+                        m.era_standing_verdict,
+                        m.field_army,
+                        m.emergency_mobilization,
+                        if m.standing_army >= m.emergency_mobilization { " [standing >= levy]" } else { "" }
                     );
                 }
             }
@@ -643,15 +716,21 @@ fn ea0_ecological_ordering_diagnostic() {
         reference.armed(),
         reference.empty
     );
-    for (row, t) in AG_TECH_LEVELS.iter().zip(sweep.iter()) {
+    for ((row, t), h) in AG_TECH_LEVELS.iter().zip(sweep.iter()).zip(sweep_hash.iter()) {
         println!(
-            "EA sweep {}: ordered {} of {} (empty {}), standing within {}, field capped {}",
+            "EA sweep {}: ordered {} of {} (empty {}), standing within {} above {} below {}, mobilization within {} above {} below {}, field capped {}, hash 0x{:016x}",
             row.key,
             t.ordered,
             t.armed(),
             t.empty,
             t.within,
-            t.capped
+            t.above,
+            t.below,
+            t.mob_within,
+            t.mob_above,
+            t.mob_below,
+            t.capped,
+            h.0
         );
     }
 
@@ -679,8 +758,39 @@ fn ea0_ecological_ordering_diagnostic() {
     assert_eq!(unordered_worlds.len(), 0, "worlds with an unordered faction"); // before: 15
     assert_eq!((g1.ordered, g1.armed()), (160, 160), "forced G1 forms"); // before: 132
     assert_eq!((reference.ordered, reference.armed()), (160, 160), "forced reference forms"); // before: 128
-    // before Ruling DE: [290, 226, 239, 201, 170, 124]; [.., 289, 264, 127] at 50a6fc6d
-    assert_eq!(sweep_ordered, vec![290, 290, 290, 290, 264, 129], "ag-tech sweep, ordered of 290");
+    // Ruling DE Q4's invariant: every non-empty reading ordered on the four
+    // pre-industrial rows. The two industrial rows are a measurement, not the
+    // invariant (Ruling DL Q1: reported there), pinned so a change re-records
+    // them. RE-BASELINED 2026-10-26 under Ruling DL Q1 (K2, R = 0.80):
+    // industrial rows [264, 129] -> [290, 287]; the three left are empires at
+    // state capacity 0.91, all above their standing band (Ruling DL Q2's row).
+    // Before Ruling DE: [290, 226, 239, 201, 170, 124]; [.., 289, 264, 127] at 50a6fc6d.
+    assert_eq!(&sweep_ordered[..4], &[290, 290, 290, 290], "pre-industrial sweep, ordered of 290");
+    assert_eq!(&sweep_ordered[4..], &[290, 287], "industrial sweep, ordered of 290 (reported)");
+    // The positive control for Ruling DL's term: the four pre-industrial rows'
+    // manpower hashes are the ones the tree before the term printed
+    // (bit-identical by control flow), and the two industrial ones moved
+    // (before: 0x6284b8837856fbe7, 0x09c890128b4aa14c).
+    let hashes: Vec<u64> = sweep_hash.iter().map(|h| h.0).collect();
+    assert_eq!(
+        hashes,
+        vec![
+            0x3184c458b2557a65,
+            0x7f0ca386242f7e37,
+            0xd186f5e278d6eedf,
+            0x05328145f36770a5,
+            0x221420acde21dafc,
+            0x94bd879a79eca985,
+        ],
+        "ag-tech sweep manpower hashes"
+    );
+    // Mobilization verdicts on the industrial rows (within, above, below).
+    // Before Ruling DL: (0, 0, 290) on both. `earlyIndustrial`'s band was not
+    // restated (Q4 named the two unreachable cells); `industrial` reads its
+    // restated 15-25 % band (Ruling DL Q4).
+    let mob = |t: &Tally| (t.mob_within, t.mob_above, t.mob_below);
+    assert_eq!(mob(&sweep[4]), (26, 0, 264), "earlyIndustrial mobilization verdicts");
+    assert_eq!(mob(&sweep[5]), (290, 0, 0), "industrial mobilization verdicts");
     // Where FIELD_CAP binds (0 before the ruling: the share topped out at 0.54;
     // 18 at 50a6fc6d).
     assert_eq!(default.capped, 21, "field armies at FIELD_CAP of the levy");

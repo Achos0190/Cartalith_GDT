@@ -206,6 +206,39 @@ loudly rather than silently recalibrating a validated model.
 
 ---
 
+## 1b · Annotation — the owner's restatement of two industrial mobilization bands (Ruling DL, 2026-10-26)
+
+> **Not the owner's specification either.** §1's table stays verbatim; this records
+> an owner restatement of two of its cells, the same way §1a records a ruling.
+
+Two cells of §1's table could not be reached on the citizen denominator §1a
+ruled. The levy is at most `MILITARY_AGE_FRACTION` (0.25) of the population,
+and the citizen fraction at most `CITIZEN_CEILING` (0.98), so mobilization is
+at most 25.5 % of citizens. `Total industrial mobilization` asks for 30-50 %
+(`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.2). The owner asked for those bands to be
+restated against the denominator that makes them reachable (Ruling DL Q4).
+
+The two cells read as shares of **men**. France mobilised about 8.4 million in
+1914-18 from about 39.6 million people: about 21 % of its people, about 43 % of
+its men. Germany mobilised about 13.2 million from about 65 million: about 20 %
+and about 41 %. On the table's citizen denominator, which on the industrial
+rows is the whole population up to the ceiling, the cells are therefore
+**halved** (men are about half of a population, a labelled judgement):
+
+| Row | §1 (of men) | `ERA_BANDS` now (of citizens) |
+|---|---|---|
+| Railway / industrial mass army | ~20–40 %+ | 10–20 % |
+| Total industrial mobilization | ~30–50 %+ | 15–25 % |
+
+`Early industrial` (~15–30 %) and every standing band are unchanged: that cell
+can be reached as stated, and whether it shares the male denominator is an open
+owner question (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.8 Q7). The code, its
+tests and the measurements are in that scope's §10.7. The same ruling added
+the industrial levy term (`CONSCRIPTION_REACH`, conscription with a trained
+reserve reaching about 80 % of the cohort on the two industrial brackets).
+
+---
+
 ## 2 · The derivation
 
 Implemented in `cartalith-native/crates/cartalith-civ/src/manpower.rs`, a pure
@@ -410,10 +443,20 @@ high-mortality age structure (22-26 % of the whole population). `LEVY_BASE` is
 not zero because a state with no administration and no roads still raises the
 men who live where the fighting is; what it cannot do is reach the rest.
 
+**Owner Ruling DL (Q1, 2026-10-26), the industrial brackets only**
+(`alpha_bracket` 4 and above, so `α` < 0.45): with `i` the industrialisation
+index, a linear ramp from 0 at `α` 0.45 to 1 at `α` 0.10 (`industrialisation`),
+`levy_reach' = levy_reach + i·(0.80 − levy_reach)`. Conscription with a trained
+reserve reached most of the cohort whatever the roads: France called about 81 %
+of its men fit for duty in 1914-18 (`CONSCRIPTION_REACH`). Every pre-industrial
+row, every generated world and both worked examples take the old expression by
+control flow.
+
 **Field army** (chain 2's logistical tail):
 
 ```
-field_share = 0.34 + 0.20 × logistics_capacity
+field_share = 0.34 + 0.20 × logistics_capacity              (pre-industrial)
+            = 0.34 + 0.20 × (L + i·(1 − L))                  (industrial brackets, Ruling DL: railways)
 field_army  = emergency × field_share                                   if ecological_factor ≤ 1
             = emergency × min(0.90, field_share × ecological_factor^0.5) if ecological_factor > 1
 ```

@@ -55,7 +55,10 @@
 //!    abundant land raises ([`FORAGE_EXPONENT`]): an army on the march eats
 //!    what the country it crosses can spare.
 //! 3. [`Manpower::emergency_mobilization`] — who can be called up at all. A
-//!    **demographic** answer, filtered by administration.
+//!    **demographic** answer, filtered by administration, and on the two
+//!    industrial brackets by conscription with a trained reserve, which
+//!    reaches most of the cohort whatever the roads (owner Ruling DL,
+//!    [`CONSCRIPTION_REACH`]; railways raise those brackets' field share too).
 //! 4. [`Manpower::force_ladder`] — how long each of those can be kept away
 //!    from productive work. The one output that makes the other three
 //!    comparable, and the reason a single "military size" statistic is the
@@ -423,6 +426,52 @@ pub const FORAGE_EXPONENT: f64 = 0.5;
 /// at `1.0` one of them already reads a field army equal to its levy.
 pub const FIELD_CAP: f64 = 0.90;
 
+/// R: the share of the military-age pool ([`MILITARY_AGE_FRACTION`]) a fully
+/// industrial state's conscription reaches. **Owner Ruling DL Q1
+/// (2026-10-26), candidate K2 of `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.4, at the
+/// cited `0.80`.**
+///
+/// **Why.** A conscript served two or three years and then spent the rest of
+/// his military age in the reserve, so what an industrial state could call
+/// was set by how universal service was, not by how far its roads reached
+/// (scope §10.3). France mobilised about 8.1 million of the 10 million men
+/// it had fit for duty in 1914-18, **81 %** (the table in *Brill's
+/// Encyclopedia of the First World War*, as quoted; its denominator is men fit
+/// for duty, which is the closest thing to this pool the sources state). `0.80`
+/// is that figure, rounded down, not a value chosen to clear a bar: the scope
+/// measured that `1.00` would order every industrial reading and rejected it
+/// as a fit.
+///
+/// **What it must never do.** Act on a pre-industrial row. It is reached only
+/// through [`industrialisation`], which returns `None` below
+/// [`ALPHA_BRACKETS`]`[4]`'s bracket, so every generated world (all on
+/// `traditionalAgrarian` today) and both worked examples take the old levy
+/// expression by control flow. Never at or above `1.0`: the levy would then
+/// call more men than are of military age.
+pub const CONSCRIPTION_REACH: f64 = 0.80;
+
+/// How industrial a society is, `0..=1`, for the industrial levy term
+/// ([`CONSCRIPTION_REACH`] and the railway field share, owner Ruling DL Q1).
+///
+/// `None` for every pre-industrial labour ratio (`alpha_bracket(alpha) < 4`,
+/// that is `α ≥ 0.45`): there is **no** industrial term there, by control
+/// flow, never a `Some(0.0)` that happens to multiply out to the old value
+/// (`MISTAKES.md`, never encode "no value" as a plausible value).
+/// Otherwise a linear ramp from `ALPHA_BRACKETS[3]` (`0.45`, the last
+/// pre-industrial threshold, where it would read 0) to `ALPHA_BRACKETS[5]`
+/// (`0.10`, the industrial row's floor, where it reads 1), clamped: `0.399`
+/// on `earlyIndustrial` (α 0.3103) and `0.914` on `industrial` (α 0.1304).
+/// The endpoints are the era table's own thresholds; the **linear** ramp
+/// between them is a labelled judgement (scope §10.4). A `NaN` ratio
+/// propagates, as it already does through every other output.
+pub fn industrialisation(alpha: f64) -> Option<f64> {
+    if alpha_bracket(alpha) < 4 {
+        return None;
+    }
+    let i = (ALPHA_BRACKETS[3] - alpha) / (ALPHA_BRACKETS[3] - ALPHA_BRACKETS[5]);
+    Some(js_max(0.0, js_min(1.0, i)))
+}
+
 /// The two anchors the war-duration curve is fitted through, as
 /// `(share of total population mobilized, days sustainable)`, for a polity
 /// of median state capacity and median logistics.
@@ -676,9 +725,9 @@ pub fn citizen_share(key: &str) -> f64 {
 /// never a quiet re-derivation.
 ///
 /// That also keeps the model's own [`ERA_BANDS`] internally consistent at the
-/// top of the table: the industrial rows quote mobilization at 30-50 %, which
-/// is only reachable at all against a denominator close to the whole
-/// population.
+/// top of the table: the industrial rows' mobilization bands (15-25 % since
+/// the owner's restatement, Ruling DL Q4; 30-50 % of men before it) are
+/// shares of a denominator close to the whole population.
 pub const CITIZEN_MODERNISATION: f64 = 0.68;
 /// The band denominator's floor — no polity is modelled as drawing its
 /// soldiers from under a fifth of itself, whatever its government.
@@ -709,7 +758,39 @@ pub struct EraBand {
     pub constraint: &'static str,
 }
 
-/// The era table, verbatim from `MILITARY_MANPOWER_SCOPE.md`.
+/// The era table from `MILITARY_MANPOWER_SCOPE.md`, verbatim except two
+/// mobilization cells restated by the owner (below).
+///
+/// **Owner restatement, Ruling DL Q4 (2026-10-26): the two industrial-war
+/// mobilization bands, `Railway / industrial mass army` (was 20-40 %) and
+/// `Total industrial mobilization` (was 30-50 %).** As shares of the citizen
+/// body they could not be reached by construction: the levy is at most
+/// [`MILITARY_AGE_FRACTION`] of the population and the citizen fraction at
+/// most [`CITIZEN_CEILING`], so at most 25.5 % of citizens
+/// (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.2). They read as shares of **men**:
+/// France mobilised about 8.4 million in 1914-18 (INED) from a population of
+/// about 39.6 million, so about 21 % of its people and, men being about half
+/// of them, about 43 % of its men; Germany's about 13.2 million from about
+/// 65 million (the 1910 census, cited, not re-fetched) is about 20 % and
+/// about 41 %. Both sit inside the original 30-50 % only on the male
+/// denominator. The restated cells are the same figures on this table's own
+/// denominator, the citizen body, which on the industrial rows is the whole
+/// population up to [`CITIZEN_CEILING`] (the citizen fraction reaches it
+/// there for every government): **halved**, because men are about half of a
+/// population (a labelled judgement; the census sex ratios were not
+/// re-fetched). So 10-20 % and 15-25 %. France and Germany land inside the
+/// second. Neither the standing bands nor any other
+/// row moved, and no derivation reads these two cells
+/// ([`SOLDIER_UPKEEP_BY_BRACKET`] reads standing bands; the khanate's bonus
+/// reads a pre-industrial row). `Early industrial` (15-30 %) was **not**
+/// restated: the owner's question named the two unreachable cells, and that
+/// one can be reached as stated; whether it shares the male denominator is
+/// open (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.7).
+///
+/// `Railway / industrial mass army` is never returned by [`era_for`] (bracket
+/// 4 is `Early industrial`, bracket 5 `Total industrial mobilization` or
+/// `Modern mechanized`); it is kept so the table stays the owner's, like
+/// `HunterGatherer` below.
 ///
 /// `HunterGatherer` is retained and is **unreachable from this port's
 /// generated worlds**, because the lowest [`crate::roster::AG_TECH_LEVELS`]
@@ -794,13 +875,17 @@ pub const ERA_BANDS: [EraBand; 15] = [
     EraBand {
         name: "Railway / industrial mass army",
         standing: (0.03, 0.08),
-        mobilization: (0.20, 0.40),
+        // Owner restatement, Ruling DL Q4: was (0.20, 0.40) of men; see the
+        // table's doc for the conversion.
+        mobilization: (0.10, 0.20),
         constraint: "Industrial logistics",
     },
     EraBand {
         name: "Total industrial mobilization",
         standing: (0.05, 0.10),
-        mobilization: (0.30, 0.50),
+        // Owner restatement, Ruling DL Q4: was (0.30, 0.50) of men; France
+        // 1914-18 is about 21 % of its people and Germany about 20 %.
+        mobilization: (0.15, 0.25),
         constraint: "Industrial capacity / demographics",
     },
     EraBand {
@@ -970,6 +1055,65 @@ pub struct Manpower {
     /// [`emergency_citizen_share`](Self::emergency_citizen_share) against
     /// [`EraBand::mobilization`].
     pub era_mobilization_verdict: &'static str,
+    /// Where this reading stands against the model ordering
+    /// `standing < field < levy` (owner Rulings DE Q4 and DL Q3). Reported,
+    /// never enforced, like the era verdicts: see [`ManpowerOrder`].
+    pub ordering: ManpowerOrder,
+}
+
+/// How one [`Manpower`] reading stands against the ordering
+/// `standing < field < levy`, which Ruling DE Q4 keeps as a model invariant
+/// on the pre-industrial ag-tech rows (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §8).
+///
+/// **Why the model classifies its own output (owner Ruling DL Q3,
+/// 2026-10-26).** The owner asked that the `improvedAgrarian` case seen on
+/// `50a6fc6d` (a faction at the logistics floor, `E` just under 1, bracket 3's
+/// high soldier upkeep, so standing ≈ field) be prevented, or at least
+/// detected by a test and handled in the model, measured first and minimal.
+/// Measured over the whole input space
+/// (`the_ordering_holds_across_the_driver_space_but_one_class`): on the four
+/// pre-industrial rows it fails only on `improvedAgrarian` and only where
+/// logistics is under 0.20. No term was built to force it, because the
+/// measurement found the cause in chain 2 (that bracket's levy reads below its
+/// own mobilization band on most readings) and a cap on the standing army
+/// would make the ordering hold by asserting it (`MISTAKES.md`, never assert
+/// a constant against itself). So the model names the case on every reading
+/// instead, the test pins where it can occur, and the harness asserts it
+/// never occurs on the 20 generated worlds.
+///
+/// **What it must never do.** Read an empty faction (`0 / 0 / 0`) as either
+/// ordered or unordered: it is [`ManpowerOrder::Empty`] (`MISTAKES.md`, never
+/// encode "no value" as a plausible value).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManpowerOrder {
+    /// `standing < field < levy`.
+    Ordered,
+    /// The standing army is at or above the field army (and possibly the levy).
+    StandingNotBelowField,
+    /// Standing is below field, but the field army is at or above the levy.
+    /// Not reachable while [`FIELD_CAP`] and the base share stay below 1;
+    /// kept so a change that makes it reachable is named rather than folded in.
+    FieldNotBelowLevy,
+    /// No population: every headcount is zero.
+    Empty,
+}
+
+impl ManpowerOrder {
+    /// Classifies one reading's three headcounts. A non-positive or `NaN`
+    /// population is `Empty`; the comparisons are negated so a `NaN`
+    /// headcount reads as unordered rather than ordered.
+    pub fn of(total_population: f64, standing: f64, field: f64, levy: f64) -> Self {
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(total_population > 0.0) {
+            ManpowerOrder::Empty
+        } else if !(standing < field) {
+            ManpowerOrder::StandingNotBelowField
+        } else if !(field < levy) {
+            ManpowerOrder::FieldNotBelowLevy
+        } else {
+            ManpowerOrder::Ordered
+        }
+    }
 }
 
 /// Everything one faction's answer needs, all of it already computed
@@ -1298,11 +1442,24 @@ fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> M
         None => levy_raw,
     };
     let levy_reach = js_max(0.0, js_min(0.60, levy_raw));
+    // Owner Ruling DL Q1 (K2 at R = 0.80): on the two industrial brackets,
+    // conscription with a trained reserve moves the levy's reach toward
+    // CONSCRIPTION_REACH of the pool, and railways move the logistics the
+    // field share reads toward 1, both by the industrialisation index `i`.
+    // Every pre-industrial row takes the `None` arm: the reach and the
+    // logistics term are the expressions they always were, by control flow.
+    let (levy_reach, field_logistics) = match industrialisation(d.agricultural_labour_ratio) {
+        Some(i) => (
+            levy_reach + i * (CONSCRIPTION_REACH - levy_reach),
+            d.logistics_capacity + i * (1.0 - d.logistics_capacity),
+        ),
+        None => (levy_reach, d.logistics_capacity),
+    };
     let emergency = pool * levy_reach;
     // Owner Ruling DE (C2): abundant land feeds a larger concentration on the
     // march (`E^FORAGE_EXPONENT`), never past FIELD_CAP of the levy. One-sided:
     // the `E <= 1` arm is the pre-ruling share by control flow.
-    let field_share = FIELD_BASE + FIELD_LOGISTICS * d.logistics_capacity;
+    let field_share = FIELD_BASE + FIELD_LOGISTICS * field_logistics;
     let field_share =
         if e > 1.0 { js_min(FIELD_CAP, field_share * e.powf(FORAGE_EXPONENT)) } else { field_share };
     let field = emergency * field_share;
@@ -1356,6 +1513,7 @@ fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> M
         emergency_citizen_share,
         era_standing_verdict: band_verdict(standing_citizen_share, era.standing),
         era_mobilization_verdict: band_verdict(emergency_citizen_share, era.mobilization),
+        ordering: ManpowerOrder::of(total_pop, standing, field, emergency),
     }
 }
 
@@ -2339,8 +2497,8 @@ mod tests {
     /// the six by a wide margin.
     ///
     /// Protects: the six per-bracket standing-army literals, the one
-    /// deliberate Iron/High-medieval inversion, and that the levy does not
-    /// scale the same way.
+    /// deliberate Iron/High-medieval inversion, and that the levy, even with
+    /// Ruling DL's conscription term, scales by less than the standing army.
     #[test]
     fn standing_army_rises_with_industrialisation_at_equal_population() {
         let at = |key: &str| {
@@ -2382,12 +2540,18 @@ mod tests {
         // farm by hand (11.09x before option (c)).
         let ratio = at("industrial").standing_army / at("traditionalAgrarian").standing_army;
         assert!((ratio - 8.265).abs() < 0.001, "{ratio}");
-        // And the levy, which is demographic, does NOT scale that way -- the
-        // industrial advantage is fiscal, which is the owner's point.
-        assert!(
-            at("industrial").emergency_mobilization
-                < at("traditionalAgrarian").emergency_mobilization * 3.0
-        );
+        // The levy is demographic, and on the pre-industrial rows it does not
+        // scale with the ag-tech row at all. On the industrial bracket
+        // conscription now reaches most of the cohort (owner Ruling DL Q1,
+        // CONSCRIPTION_REACH), so it does climb -- but by less than the
+        // standing army, whose advantage is fiscal, the owner's point.
+        // RE-BASELINED 2026-10-26 under Ruling DL: industrial levy 50 455 ->
+        // 186 996 (1.294x -> 4.797x traditional); traditional unchanged.
+        let lt = at("traditionalAgrarian").emergency_mobilization;
+        let li = at("industrial").emergency_mobilization;
+        assert!((lt - 38_985.4).abs() < 0.1, "{lt}");
+        assert!((li - 186_996.087).abs() < 0.01, "{li}");
+        assert!(li / lt < ratio, "levy {} vs standing {ratio}", li / lt);
     }
 
     // ---- Owner ruling AI, option (c): the upkeep is the era table's.
@@ -2656,6 +2820,172 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Owner Ruling DL Q3 (2026-10-26): where in the whole input space the
+    /// ordering `standing < field < levy` can fail, so a recurrence of the
+    /// `50a6fc6d` `improvedAgrarian` case on any world is a case this test
+    /// already names, not a surprise.
+    ///
+    /// The grid: every [`crate::roster::AG_TECH_LEVELS`] row, every one of the
+    /// 17 [`crate::roster::CIV_GOVERNMENTS`] keys, capital reach 0..1 by 0.25,
+    /// road density 0..1 by 0.1 with navigable water and sea access each off
+    /// and on (logistics 0.15..1), and `E` 0.25..4.0 by 0.05 (76 values, the
+    /// whole clamp): 284 240 readings per row. Each reading is classified twice,
+    /// by [`ManpowerOrder`] and by an inequality written here, and the two
+    /// must agree.
+    ///
+    /// **Measured 2026-10-26** (the literals): the ordering never fails on
+    /// `subsistence`, `traditionalAgrarian` or `advancedAgrarian`. On
+    /// `improvedAgrarian` it fails on 853 readings, every one with the
+    /// standing army at or above the field army, at logistics below 0.20
+    /// (largest 0.195) and `E` 0.80..1.55: bracket 3's soldier upkeep
+    /// (2.2214) against a levy and field share that both fall with logistics.
+    /// On the industrial rows, after Ruling DL Q1's term, it fails on 0
+    /// (`earlyIndustrial`) and 1 003 (`industrial`; before the term 39 004 and
+    /// 227 309), the latter mostly empires and stratocracies at high state
+    /// capacity, which is Ruling DL Q2's measure-first row.
+    ///
+    /// Protects: the four pre-industrial counts (Ruling DE Q4's rows), the
+    /// logistics bound of the one class that fails there, the industrial
+    /// counts that pin [`CONSCRIPTION_REACH`] and the railway field share, and
+    /// that the model's own classification agrees with the inequality.
+    #[test]
+    fn the_ordering_holds_across_the_driver_space_but_one_class() {
+        use crate::roster::{AG_TECH_LEVELS, CIV_GOVERNMENTS};
+        let mut unordered = Vec::new();
+        let mut improved_l_max = 0.0f64;
+        let mut readings = 0usize;
+        for row in AG_TECH_LEVELS {
+            let f = row.farmers_per_urbanite;
+            let mut bad = 0usize;
+            for &(gov, _) in CIV_GOVERNMENTS.iter() {
+                for ri in 0..=4 {
+                    for road_i in 0..=10 {
+                        for nav in [0.0, 1.0] {
+                            for sea in [0.0, 1.0] {
+                                for ei in 0..=75 {
+                                    let e = 0.25 + 0.05 * f64::from(ei);
+                                    let nuc = 100_000.0;
+                                    let m = civ_military_manpower(&ManpowerInput {
+                                        nucleated_pop: nuc,
+                                        farmers_per_urbanite: f,
+                                        land_capacity: e * nuc * (1.0 + f),
+                                        government: gov,
+                                        capital_road_reach: f64::from(ri) * 0.25,
+                                        road_density: f64::from(road_i) * 0.1,
+                                        navigable_share: nav,
+                                        sea_share: sea,
+                                    });
+                                    readings += 1;
+                                    let ordered = m.standing_army < m.field_army
+                                        && m.field_army < m.emergency_mobilization;
+                                    assert_eq!(
+                                        m.ordering == ManpowerOrder::Ordered,
+                                        ordered,
+                                        "{} {gov}: {:?}",
+                                        row.key,
+                                        m.ordering
+                                    );
+                                    if !ordered {
+                                        bad += 1;
+                                        assert_eq!(m.ordering, ManpowerOrder::StandingNotBelowField);
+                                        if row.key == "improvedAgrarian" {
+                                            improved_l_max =
+                                                improved_l_max.max(m.drivers.logistics_capacity);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            unordered.push(bad);
+        }
+        assert_eq!(readings, 6 * 284_240, "the grid is the one the doc states");
+        assert_eq!(unordered, vec![0, 0, 0, 853, 0, 1_003], "unordered readings per ag-tech row");
+        assert!(improved_l_max > 0.15 && improved_l_max < 0.20, "{improved_l_max}");
+        // The empty case is its own answer, and a NaN headcount is not ordered.
+        assert_eq!(ManpowerOrder::of(0.0, 0.0, 0.0, 0.0), ManpowerOrder::Empty);
+        assert_eq!(ManpowerOrder::of(f64::NAN, 1.0, 2.0, 3.0), ManpowerOrder::Empty);
+        assert_eq!(ManpowerOrder::of(10.0, f64::NAN, 2.0, 3.0), ManpowerOrder::StandingNotBelowField);
+        assert_eq!(ManpowerOrder::of(10.0, 1.0, 3.0, 3.0), ManpowerOrder::FieldNotBelowLevy);
+        assert_eq!(ManpowerOrder::of(10.0, 1.0, 2.0, 3.0), ManpowerOrder::Ordered);
+    }
+
+    /// Owner Ruling DL Q1: the industrial levy term exists only on the two
+    /// industrial brackets, as `None` (not a zero) everywhere else, and its
+    /// index reads the literals the doc states.
+    ///
+    /// Protects: the bracket gate (a pre-industrial row reads `None`), the
+    /// ramp's endpoints and the two roster values, and that a `traditional`
+    /// reading is bit-identical to one computed with no term at all.
+    #[test]
+    fn the_industrial_term_reaches_only_the_industrial_rows() {
+        for alpha in [0.95, 0.90, 0.80, 0.75, 0.55, 0.50, 0.45] {
+            assert_eq!(industrialisation(alpha), None, "alpha {alpha}");
+        }
+        let early = industrialisation(0.45 / 1.45).unwrap();
+        let ind = industrialisation(0.15 / 1.15).unwrap();
+        assert!((early - 0.39901).abs() < 1e-4, "{early}");
+        assert!((ind - 0.91304).abs() < 1e-4, "{ind}");
+        assert_eq!(industrialisation(0.10), Some(1.0));
+        assert_eq!(industrialisation(0.02), Some(1.0));
+        // A conscript reach of 0.80 at i = 1: a fully industrial faction's
+        // levy is 0.80 of its pool whatever its roads (literal, not the
+        // constant), and its field share reads logistics 1 (0.34 + 0.20).
+        let m = civ_military_manpower(&ManpowerInput {
+            nucleated_pop: 100_000.0,
+            farmers_per_urbanite: 0.05,
+            land_capacity: 105_000.0,
+            government: "monarchy",
+            capital_road_reach: 0.0,
+            road_density: 0.0,
+            navigable_share: 0.0,
+            sea_share: 0.0,
+        });
+        assert!((m.emergency_mobilization / m.mobilization_pool - 0.80).abs() < 1e-12);
+        assert!((m.field_army / m.emergency_mobilization - 0.54).abs() < 1e-12);
+    }
+
+    /// Owner Ruling DL Q4: the two restated industrial-war mobilization bands
+    /// (shares of the citizen body, converted from the owner's shares of men)
+    /// and a median industrial polity reading inside the one [`era_for`]
+    /// assigns it, which the original 30-50 % could not hold by construction.
+    ///
+    /// Protects: the restated cells as literals (was 0.20-0.40 and
+    /// 0.30-0.50), the cells left alone (`Early industrial` 0.15-0.30 and every
+    /// standing band of the three rows), and the median polity's mobilization
+    /// share literal under the industrial term.
+    #[test]
+    fn the_restated_industrial_bands_are_reachable() {
+        let band = |name: &str| *ERA_BANDS.iter().find(|e| e.name == name).unwrap();
+        let rail = band("Railway / industrial mass army");
+        let total = band("Total industrial mobilization");
+        let early = band("Early industrial");
+        assert_eq!(rail.mobilization, (0.10, 0.20));
+        assert_eq!(total.mobilization, (0.15, 0.25));
+        assert_eq!(early.mobilization, (0.15, 0.30));
+        assert_eq!((rail.standing, total.standing, early.standing), ((0.03, 0.08), (0.05, 0.10), (0.02, 0.05)));
+        // The most the levy can be as a share of citizens: the whole pool over
+        // the citizen ceiling, 0.25 / 0.98 = 25.5 %, so 30-50 % was out of reach.
+        assert!(0.25 / 0.98 < 0.30 && 0.25 / 0.98 > total.mobilization.1);
+        let m = civ_military_manpower(&ManpowerInput {
+            nucleated_pop: 100_000.0,
+            farmers_per_urbanite: 0.15,
+            land_capacity: 115_000.0,
+            government: "monarchy",
+            capital_road_reach: 0.5,
+            road_density: 7.0 / 9.0,
+            navigable_share: 0.0,
+            sea_share: 0.0,
+        });
+        assert_eq!(m.era_band.name, "Total industrial mobilization");
+        let pct = 100.0 * m.emergency_citizen_share;
+        // Measured 2026-10-26 under the industrial term (Ruling DL Q1).
+        assert!((pct - 19.268).abs() < 0.001, "{pct}");
+        assert_eq!(m.era_mobilization_verdict, "within", "{pct}");
     }
 }
 
