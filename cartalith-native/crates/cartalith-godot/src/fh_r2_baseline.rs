@@ -381,7 +381,13 @@ const M2_BELIEF: [u64; 20] = [
 /// worlds: measured with this harness's urban column forced back to no
 /// faith, CX item 4 alone moved relations on 13 rows, belief on 20 and urban
 /// on 10 (roster 0); the S3 switch then moves urban on 20 of 20. Rows whose
-/// relations or belief moved carry their previous values in the comment. Which of a
+/// relations or belief moved carry their previous values in the comment.
+///
+/// RE-BASELINED AGAIN 2026-10-25, after rebasing onto `c52cc71a` (Ruling CX
+/// item 6, dry active craters ON): 2 rows moved (314159 x 800 km, 6 and 24
+/// factions: relations, belief and urban), and the same columns of the same
+/// rows move with the urban column forced to no faith, so the move is CX item
+/// 6's, not S3's. Their prior values are in their comments. Which of a
 /// row's three towns moved was not broken down; `fh_r2_m3_rite_only` shows
 /// that every house a rite moves sits under the new building.
 const AT_CURRENT: [Row; 20] = [
@@ -389,8 +395,8 @@ const AT_CURRENT: [Row; 20] = [
     (12345, 800, 24, 0x83fc2cde5ba874d6, 0x4e02807c519c4bb9, 0xd30c1bb2d9e9b400, 0xc1976b0e8f11e87d), // 28 settlements, 276 pairs, 3 towns, 12157 buildings; was (12345, 800, 24, 0x83fc2cde5ba874d6, 0x60b724792206c53b, 0xda772cea5a60f87b, 0xbbe3a8e71eb7a26c) at 0801fbce; urban was 0xbbe3a8e71eb7a26c before Ruling CY's rite switch-on; relations/belief were 0x3b274aea47b357fc/0x4273ed93cbb870b9 before Ruling CX item 4
     (12345, 40075, 6, 0x12ad5407c90b2d2f, 0x95c289cde0c804f7, 0x718ec2e4009a0414, 0xd68ac4500da544cc), // 22 settlements, 15 pairs, 3 towns, 12018 buildings; urban was 0xc472ed74011cea76 before Ruling CY's rite switch-on; relations/belief were 0x95c289cde0c804f7/0x4e5ec3cf050eed16 before Ruling CX item 4
     (12345, 40075, 24, 0x83fc2cde5ba874d6, 0xf2b266e1a38b4043, 0x0dc971fc84218e6c, 0xde9ae7219cc3f6b6), // 22 settlements, 276 pairs, 3 towns, 13015 buildings; was (12345, 40075, 24, 0x83fc2cde5ba874d6, 0x7d6ea6524e9aa563, 0xf6f43dba29d80ac0, 0xc224165ac8ab2daa) at 0801fbce; urban was 0xc224165ac8ab2daa before Ruling CY's rite switch-on; relations/belief were 0x7d6ea6524e9aa563/0xb95e53a1e3bf5400 before Ruling CX item 4
-    (314159, 800, 6, 0x12ad5407c90b2d2f, 0x2a1a393c17267114, 0x6245c5984dc80257, 0x081a049d34370c5f), // 28 settlements, 15 pairs, 3 towns, 11347 buildings; was (314159, 800, 6, 0x12ad5407c90b2d2f, 0xf0e680f532a2af86, 0xc8665b1a229e8bf0, 0xd7cadf5474989e2d) at 0801fbce; urban was 0x53aa8c9f1be57867 before Ruling CY's rite switch-on; relations/belief were 0x2a1a393c17267114/0x60694227da60a6e4 before Ruling CX item 4
-    (314159, 800, 24, 0x83fc2cde5ba874d6, 0x77a862c948cfc4b1, 0x3e206b6b41070523, 0xe8dd36aa36a8e532), // 28 settlements, 276 pairs, 3 towns, 11255 buildings; was (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x5ff9ad8480196a8b, 0x2dbc7beffcd5c5b2) at 0801fbce; urban was 0xd7e1e98e14b60bc4 before Ruling CY's rite switch-on; relations/belief were 0xab8459c721f3aa24/0x0eabaeb491f1e8cf before Ruling CX item 4
+    (314159, 800, 6, 0x12ad5407c90b2d2f, 0x5fd57fba2fc798b6, 0x87d409acab2f4c1c, 0x058a165d1e746dc7), // 28 settlements, 15 pairs, 3 towns, 13757 buildings; was (314159, 800, 6, 0x12ad5407c90b2d2f, 0xf0e680f532a2af86, 0xc8665b1a229e8bf0, 0xd7cadf5474989e2d) at 0801fbce; urban was 0x53aa8c9f1be57867 before Ruling CY's rite switch-on; relations/belief were 0x2a1a393c17267114/0x60694227da60a6e4 before Ruling CX item 4; relations/belief/urban were 0x2a1a393c17267114/0x6245c5984dc80257/0x081a049d34370c5f before Ruling CX item 6
+    (314159, 800, 24, 0x83fc2cde5ba874d6, 0x56a46f1dc061b336, 0xecfa4444ac076c5d, 0xa9848d16134cfc27), // 28 settlements, 276 pairs, 3 towns, 13814 buildings; was (314159, 800, 24, 0x83fc2cde5ba874d6, 0xab8459c721f3aa24, 0x5ff9ad8480196a8b, 0x2dbc7beffcd5c5b2) at 0801fbce; urban was 0xd7e1e98e14b60bc4 before Ruling CY's rite switch-on; relations/belief were 0xab8459c721f3aa24/0x0eabaeb491f1e8cf before Ruling CX item 4; relations/belief/urban were 0x77a862c948cfc4b1/0x3e206b6b41070523/0xe8dd36aa36a8e532 before Ruling CX item 6
     (314159, 40075, 6, 0x12ad5407c90b2d2f, 0x275abc9ea5deb8a1, 0x4a9b4555bd2f1462, 0xddb6edc862de69ad), // 22 settlements, 15 pairs, 3 towns, 13200 buildings; urban was 0x1a21bca108e23078 before Ruling CY's rite switch-on; relations/belief were 0x75596bb70531fc30/0xaa708efde9b802f3 before Ruling CX item 4
     (314159, 40075, 24, 0x83fc2cde5ba874d6, 0x28e9de78c8ff5474, 0x93c117b628b76927, 0xe4723c5aec1cd8b8), // 22 settlements, 276 pairs, 3 towns, 11793 buildings; urban was 0xb8cff3caea5af249 before Ruling CY's rite switch-on; relations/belief were 0xa6c3dfc12981ca11/0xbd742606c68ee9b8 before Ruling CX item 4
     (404, 800, 6, 0x12ad5407c90b2d2f, 0xe72a483510747a94, 0x5f1159474ea63b17, 0x076bad9e9a3789b0), // 28 settlements, 15 pairs, 3 towns, 11998 buildings; was (404, 800, 6, 0x12ad5407c90b2d2f, 0x6d489371e183bfe5, 0x08aa0d83b485a732, 0xe9eeb4ee8cd67eae) at 0801fbce; urban was 0xe9eeb4ee8cd67eae before Ruling CY's rite switch-on; relations/belief were 0xe72a483510747a94/0x21f13aaf362114ea before Ruling CX item 4
