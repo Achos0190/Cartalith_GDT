@@ -40,25 +40,25 @@ use godot::prelude::*;
 use crate::llm_keystore::OsKeyStore;
 
 /// `{"ok": false, "error": <static reason>}`.
-fn fail(message: &str) -> VarDictionary {
+pub(crate) fn fail(message: &str) -> VarDictionary {
     vdict! { "ok" => false, "error" => message }
 }
 
 /// A string field of `d`, or `""` when absent or not a string. An absent text
 /// field is "not set" and the gate refuses it, so `""` is safe here.
-fn text(d: &VarDictionary, key: &str) -> String {
+pub(crate) fn text(d: &VarDictionary, key: &str) -> String {
     d.get(key).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string()).unwrap_or_default()
 }
 
 /// A bool field of `d`, `false` when absent or not a bool (the off direction).
-fn flag(d: &VarDictionary, key: &str) -> bool {
+pub(crate) fn flag(d: &VarDictionary, key: &str) -> bool {
     d.get(key).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
 }
 
 /// The gate-relevant settings from the shell's dictionary. Anything missing or
 /// of the wrong type reads as **off or empty**: a corrupt or partial settings
 /// record can only make the feature more closed, never more open.
-fn settings_from(d: &VarDictionary) -> LlmSettings {
+pub(crate) fn settings_from(d: &VarDictionary) -> LlmSettings {
     let mut s = LlmSettings::off();
     s.enabled = flag(d, "enabled");
     s.prose = flag(d, "prose");
@@ -84,7 +84,7 @@ fn settings_from(d: &VarDictionary) -> LlmSettings {
 
 /// The credential-store account for a provider: its id. Presets and the two
 /// custom ids all satisfy `keystore::account_ok`.
-fn account_for(preset_id: &str) -> String {
+pub(crate) fn account_for(preset_id: &str) -> String {
     preset_id.to_owned()
 }
 

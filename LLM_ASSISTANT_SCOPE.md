@@ -22,7 +22,7 @@ Read `MISTAKES.md`'s preflight first. The rows that bite here: *Write a test tha
 `user request -> [model proposes] -> structured proposal (JSON) -> validator -> preview/confirm -> existing tool executes -> existing undo`. The model never mutates state. Proposals are a **closed enum** validated against `CommandIndex` availability (`shell/command_index.gd`) and `ParamSpec` ranges (`params.rs`). The tool set is fixed per request by the app, never widened by text the model reads. No network tool: the model cannot make the app fetch a URL. [research §2, §5.4; verified surfaces]
 
 - **`cartalith-llm` crate (new, no Godot types):** request building, both adapters behind one trait returning `TextDelta`, `ToolCall`, `Usage`, `Done`, `Error`; SSE parser; JSON-schema validation of proposals; redaction; a `Transport` trait. Tests use a mock transport. No HTTP or TLS dependency (the wire is Godot's). [DD Q4]
-- **Wire:** a thin GDScript class owning `HTTPClient` polling from the main thread (matches the rule in `cartalith-godot/src/lib.rs` that nothing off-thread calls Godot), feeding bytes to the crate through a `cartalith-godot` class. TLS limits of `HTTPClient` (TLSv1.2/1.3, no pinning) are accepted. [research §4]
+- **Wire:** a thin GDScript class (`shell/llm_wire.gd`) owning one worker `Thread` that polls `HTTPClient` and queues raw byte chunks; the **main thread** drains the queue each frame and feeds the bytes to the crate through a `cartalith-godot` class (`LlmStream`). The worker never calls a Rust object, because this build has no gdext `experimental-threads` and a `Dictionary`/`Array`/`GString` operation off the main thread panics (the rule `landmark_run` and `region_new_world` already document). *This replaced the earlier plan of polling from the main thread (LLM-3, 2026-10-25): a blocking connect or a slow poll on the main thread would freeze the shell while a local model loads its weights.* TLS limits of `HTTPClient` (TLSv1.2/1.3, no pinning) are accepted. [research §4]
 - **Grouped undo (new, prerequisite):** one command-bus-level group that wraps several per-tool undo entries (height edit, way, `LookHistory`, `ColourPaintTool`) into a single step. Per-tool undo is all that exists today [verified, `context_pick_bridge.rs`].
 - **Where state lives:** settings in `DccSettings` under a new `[llm]` section holding no secret; the key never in `cartalith_settings.cfg`. Nothing from this feature is written into a world `.zip`.
 
@@ -311,3 +311,15 @@ The prompt is a regression surface (security bar 3): any edit re-runs the LLM-9 
 ## 8. Owner questions still open
 
 None blocking. Optional: whether the opt-in cap (§5) should exist at all; whether Android Keystore alone suffices or an env var is meaningful on a phone.
+
+## 9. Tested with (dated evidence, appended per run; LLM-3 bar)
+
+A list of servers and models the local path has actually been run against, with what was measured. It is evidence, not status (status is `STATUS.md`'s) and not a promise: a model's quality varies, and an entry says only what happened on that date. Add a line per new server or model; never edit an old one.
+
+| Date | Server | Model | What was run | Measured |
+|---|---|---|---|---|
+| 2026-10-25 | Ollama 0.40.5, Windows 11, `http://localhost:11434/v1` | `phi4:latest` (9.1 GB, already pulled; nothing downloaded) | `_llmlive_probe.gd`: the panel's own path (gate, worker thread, `HTTPClient`, Rust parser) with a synthetic place; then a mid-stream Stop | first token 66 to 332 ms over two runs, whole three-sentence reply about 1.7 to 1.9 s, 86 to 87 completion tokens; usage reported by the server (`include_usage` is accepted); `finish_reason` `stop`; Stop to closed socket 31 ms with the open connection count 1 to 0; no token after Stop; worker joined |
+| 2026-10-25 | Ollama 0.40.5 (same) | `phi4:latest` | `curl` recordings under `crates/cartalith-llm/tests/fixtures/ollama_*_live_2026-10-25.*`, replayed by `tests/llm3_live_fixtures.rs` | a real `finish_reason: "length"`, a usage chunk with empty `choices` plus `timings`, a 404 for an unknown model, a 400 saying the model "does not support tools" (so a tool-offering request to this model fails in words, which LLM-6 must handle) |
+| not run | LM Studio | n/a | nothing was listening on `localhost:1234` on 2026-10-25 (`curl` got no answer) | no claim is made about LM Studio's wire; its preset values stay `[recalled]` |
+
+The other pulled models (`TheDrummer Cydonia 24B`, `Gemma The Writer 10B`, a writer fine-tune, two embedding models) were not run: LLM-3 needs one working model, and the owner asked for synthetic prompts only.

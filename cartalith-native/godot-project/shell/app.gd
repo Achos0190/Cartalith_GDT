@@ -27,6 +27,8 @@ var gen_info_dialog: GenInfoDialog
 var shortcuts_dialog: ShortcutsDialog
 ## `Preferences ▸ Assistant…` (LLM-2): the optional LLM assistant's settings and its consent card.
 var assistant_settings_window: LlmSettingsWindow
+## LLM-3: the prose and Vault assistant panel (`Story ▸ NOTES ▸ Assistant panel…`).
+var assistant_window: LlmAssistantWindow
 ## The journey planner view (`JourneyPlannerView`).
 var journey_planner_view: JourneyPlannerView
 ## The layers popover (`LayersPopover`).
@@ -948,6 +950,11 @@ func _ready() -> void:
 	assistant_settings_window = LlmSettingsWindow.new()
 	add_child(assistant_settings_window)
 	assistant_settings_window.setup(self, bridge)
+	assistant_window = LlmAssistantWindow.new()
+	add_child(assistant_window)
+	assistant_window.setup(self, bridge)
+	## A setting changed in the settings window must reach the open panel's status and reasons.
+	assistant_settings_window.settings_changed.connect(func(): assistant_window._refresh())
 	## Ruling DF at boot: if a local provider was left active, point the compute path at the
 	## low-power adapter again (the switch is never persisted, so a restart starts clean).
 	LlmGpuRule.sync(bridge)
@@ -4880,6 +4887,17 @@ func open_shortcuts() -> void:
 ## on the stored state; nothing here contacts anything.
 func open_assistant_settings() -> void:
 	assistant_settings_window.open()
+
+## `Story ▸ NOTES ▸ Assistant panel…`: the prose and Vault assistant (LLM-3). Opening it contacts
+## nothing; only Send does, and only through the gate.
+func open_assistant_panel() -> void:
+	assistant_window.open()
+
+## The shell is leaving: join every assistant worker thread before the library unloads (a thread
+## still running this library's code when Godot unmaps it dies with an access violation; the
+## `lib.rs` unload rule). `LlmRun._exit_tree` does it for its own wire; this covers a stray one.
+func _exit_tree() -> void:
+	LlmWire.shutdown_all()
 
 ## Shows or hides the diagnostics HUD (`resource_overlay.gd`); the menu row's
 ## checkmark is read back from `resource_overlay.visible`.

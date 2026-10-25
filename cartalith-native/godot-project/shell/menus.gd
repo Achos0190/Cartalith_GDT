@@ -328,6 +328,9 @@ const ID_PREF_SHORTCUTS := 605
 ## `Preferences ▸ Assistant…` (LLM-2, `LLM_ASSISTANT_SCOPE.md` s.6). 900 is free: grepped
 ## the whole file for every `ID_`/`_FIRST` value, the highest of which is 806 (the 3D tiers).
 const ID_PREF_ASSISTANT := 900
+## LLM-3: `Story ▸ NOTES ▸ Assistant panel…` opens the prose and Vault assistant (`LlmAssistantWindow`);
+## 900 above is its SETTINGS (Preferences ▸ Assistant…). 901 was unused (`grep -rn ":= 90"` over `shell/`, 2026-10-25).
+const ID_STORY_ASSISTANT := 901
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
@@ -3355,6 +3358,11 @@ func _story(p: PopupMenu) -> void:
 	## one id, one destination.
 	_live(p, "Places without notes…", ID_PLACES_WITHOUT_NOTES)
 	p.set_item_tooltip(p.item_count - 1, PLACES_WITHOUT_NOTES_TIP)
+	## LLM-3. Always enabled: the panel itself says why it cannot send (off, no provider, no
+	## consent), which is the `CommandIndex` rule -- a reason, never a dead row.
+	_live(p, "Assistant panel…", ID_STORY_ASSISTANT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Optional language-model help with prose for a place, its story, or a Vault note. Off until you turn it on in Preferences ▸ Assistant; saved only when you click.")
 
 	_refresh_story_menu()
 	p.about_to_popup.connect(_refresh_story_menu)
@@ -3445,6 +3453,7 @@ func _on_story(id: int) -> void:
 		ID_TRAVEL_LIBRARY: _host.open_travel_library()
 		ID_PLACES_WITHOUT_NOTES: _host.open_places_without_notes()
 		ID_SAVED_JOURNEYS: _host.open_saved_journeys()
+		ID_STORY_ASSISTANT: _host.open_assistant_panel()
 		ID_CONFLICTS_LIST: _host.open_conflicts_list()
 		ID_STORY_DRAW_CONFLICT:
 			if not bool(_bridge.has_world):

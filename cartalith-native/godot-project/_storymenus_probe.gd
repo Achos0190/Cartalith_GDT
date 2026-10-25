@@ -87,11 +87,13 @@ const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full m
 const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of this place…",
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
-	"|NOTES", "Notes for this place", "Places without notes…"]
+	"|NOTES", "Notes for this place", "Places without notes…", "Assistant panel…"]
 ## The rows SM-2 drew disabled, built by SM-5/SM-6: row -> the id it must carry
 ## (written as literals, not read from `DccMenus`, so a renumbered id fails here).
 const STORY_BUILT: Dictionary = {"Saved journeys…": 732, "Conflicts…": 733,
 	"Places without notes…": 731}
+## LLM-3's row in the NOTES band: the assistant panel (id 901, a literal so a renumbering fails here).
+const STORY_LLM3_ID := 901
 
 ## The tablet canvas's own World rows (`menus.gd::_world`), which must stay on
 ## top and unchanged (Q2: "nothing already in the tablet World menu moves").
@@ -628,6 +630,11 @@ func _sm2() -> void:
 			i >= 0 and not story.is_item_disabled(i) and story.get_item_id(i) == int(STORY_BUILT[t])
 				and story.get_item_tooltip(i) != "" and story.get_item_tooltip(i).findn("Not built") < 0,
 			story.get_item_tooltip(i) if i >= 0 else "missing")
+	var ai := _index_of(story, "Assistant panel…")
+	_check("Story ▸ Assistant panel… (LLM-3) is enabled with id 901 and a tooltip that says it is optional",
+		ai >= 0 and not story.is_item_disabled(ai) and story.get_item_id(ai) == STORY_LLM3_ID
+			and story.get_item_tooltip(ai).contains("Optional"),
+		story.get_item_tooltip(ai) if ai >= 0 else "missing")
 	var world := _menu_button("World").get_popup()
 	world_p = world
 	_check("Travel library left World (SM-2 moved it to Story)",

@@ -60,6 +60,7 @@ mod legacy_import;
 mod landmark_bridge;
 mod llm_bridge;
 mod llm_keystore;
+mod llm_stream;
 mod lod_bridge;
 mod lod_sweep;
 mod lod_worker;

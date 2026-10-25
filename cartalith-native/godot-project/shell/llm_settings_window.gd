@@ -78,7 +78,7 @@ var _building := false
 const _SWITCHES := [
 	{"key": "enabled", "label": "Assistant enabled", "note": "The master switch. Off means nothing is sent."},
 	{"key": "prose", "label": "Prose and Vault assist",
-		"note": "Notes are written only on your click. The assistant panel is not in this build yet; this records your choice."},
+		"note": "Prose for a place, its story, or a Vault note, from Story ▸ Notes ▸ Assistant panel. Notes are written only on your click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
 		"unavailable": "Not available in this build yet: it needs grouped undo first."},
 	{"key": "edit", "label": "Edit actions: sculpt, paint",

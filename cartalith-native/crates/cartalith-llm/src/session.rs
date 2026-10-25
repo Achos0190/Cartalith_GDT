@@ -5,18 +5,21 @@
 //! [`LlmError::Provider`] in exactly one place. A server that answers 401 and
 //! echoes the key is the realistic leak this guards (scope s.4 rule 2).
 //!
+//! Since LLM-3 the body is handled by [`crate::stream::StreamSession`], the same
+//! push-fed core the Godot `HTTPClient` wire uses, so the mock and the real wire
+//! cannot disagree about status handling or scrubbing.
+//!
 //! No retry here: scope s.4 rule 7 allows at most one automatic retry and that
 //! policy lands with the adapters' consumers (LLM-4).
 
 use crate::error::LlmError;
 use crate::event::Event;
-use crate::openai::{ChatRequest, OpenAiDecoder, build_chat_request};
-use crate::secret::{ApiKey, Redactor};
+use crate::openai::{ChatRequest, build_chat_request};
+use crate::secret::ApiKey;
+use crate::stream::StreamSession;
 use crate::transport::Transport;
 
-/// Most error-body bytes read from a non-2xx reply. Labelled judgement: error
-/// bodies are short JSON; 64 KiB bounds a misbehaving server.
-pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+pub use crate::stream::MAX_ERROR_BODY_BYTES;
 
 /// Send `req` to `base_url` over `transport` and return every event, ending in
 /// exactly one `Done` or `Error`. Setup errors (bad URL, empty model) are
@@ -28,7 +31,6 @@ pub fn run_chat(
     key: Option<&ApiKey>,
     req: &ChatRequest,
 ) -> Vec<Event> {
-    let redactor = Redactor::new(key);
     let http = match build_chat_request(base_url, key, req) {
         Ok(h) => h,
         Err(e) => return vec![Event::Error(e)],
@@ -37,51 +39,28 @@ pub fn run_chat(
         Ok(r) => r,
         Err(e) => return vec![Event::Error(e)],
     };
-    if !(200..300).contains(&resp.status) {
-        let mut bytes = Vec::new();
-        for chunk in resp.body {
-            match chunk {
-                Ok(c) => bytes.extend_from_slice(&c),
-                Err(e) => return vec![Event::Error(e)],
-            }
-            if bytes.len() >= MAX_ERROR_BODY_BYTES {
-                bytes.truncate(MAX_ERROR_BODY_BYTES);
-                break;
-            }
-        }
-        let text = String::from_utf8_lossy(&bytes);
-        let message = serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|v| {
-                v.pointer("/error/message").and_then(|m| m.as_str()).map(str::to_owned)
-            })
-            .unwrap_or_else(|| text.trim().to_owned());
-        return vec![Event::Error(LlmError::Provider {
-            status: Some(resp.status),
-            message: redactor.scrub(&message),
-        })];
-    }
-    let mut decoder = OpenAiDecoder::new(&req.tools, key);
+    let mut session = StreamSession::new(&req.tools, key);
+    session.on_head(resp.status);
     let mut events = Vec::new();
     for chunk in resp.body {
         match chunk {
-            Ok(c) => events.extend(decoder.push(&c)),
-            Err(e) => {
+            Ok(c) => events.extend(session.on_chunk(&c)),
+            Err(LlmError::Transport(t)) => {
                 // A transport error text may echo request headers.
-                let e = match e {
-                    LlmError::Transport(t) => LlmError::Transport(redactor.scrub(t.as_str())),
-                    other => other,
-                };
-                if !decoder.is_finished() {
-                    events.push(Event::Error(e));
+                events.extend(session.on_transport_error(t.as_str()));
+                return events;
+            }
+            Err(other) => {
+                if !session.is_finished() {
+                    events.push(Event::Error(other));
                 }
                 return events;
             }
         }
-        if decoder.is_finished() {
+        if session.is_finished() {
             return events;
         }
     }
-    events.extend(decoder.finish());
+    events.extend(session.on_end());
     events
 }

@@ -298,22 +298,27 @@ func _floor_px() -> float:
 	return 20.0
 
 
-## Parses `netstat -ano -p TCP` rows for `pid`: returns {"listening": n, "other": n, "rows": [...]}.
+## Parses `netstat -ano -p TCP` and `-p TCPv6` rows for `pid`: returns {"listening": n, "other": n, "rows": [...]}.
+## **Both families since LLM-3 (2026-10-25):** `-p TCP` lists IPv4 only, so a connection to `::1` (where
+## `localhost` resolves first on this machine) was invisible to this check; the LLM-3 live run saw 0 rows
+## for a real open socket until the IPv6 table was read too.
 func _netstat_tcp(pid: int) -> Dictionary:
-	var out: Array = []
-	OS.execute("netstat", ["-ano", "-p", "TCP"], out)
 	var listening := 0
 	var other := 0
 	var rows: Array = []
-	for line in String("".join(out)).split("\n"):
-		var cols := line.strip_edges().split(" ", false)
-		if cols.size() < 5 or cols[0] != "TCP" or int(cols[cols.size() - 1]) != pid:
-			continue
-		if cols[3] == "LISTENING":
-			listening += 1
-		else:
-			other += 1
-			rows.append(line.strip_edges())
+	for proto in ["TCP", "TCPv6"]:
+		var out: Array = []
+		OS.execute("netstat", ["-ano", "-p", proto], out)
+		for line in String("".join(out)).split("
+"):
+			var cols := line.strip_edges().split(" ", false)
+			if cols.size() < 5 or cols[0] != "TCP" or int(cols[cols.size() - 1]) != pid:
+				continue
+			if cols[3] == "LISTENING":
+				listening += 1
+			else:
+				other += 1
+				rows.append(line.strip_edges())
 	return {"listening": listening, "other": other, "rows": rows}
 
 
