@@ -29,7 +29,10 @@ extends RefCounted
 ## the signature (depth, bytes, label or redo flag moves), handing the next press
 ## back to the height stack; when one stack is empty the other answers.
 ##
-## **Entry shape**: `{"label": String, "before": Dictionary, "after": Dictionary}`
+## **Entry shape**: `{"label": String, "before": Dictionary, "after": Dictionary,
+## "n": int}`, plus `"group": int` while the entry belongs to an LLM-5 undo group
+## (`shell/undo_group.gd`; Edit > Undo then steps the whole group, never this
+## entry alone)
 ## where each snapshot holds only the parts the gesture could move (see
 ## `snapshot()`). `cursor` splits applied entries `[0, cursor)` from the redo tail
 ## `[cursor, size)`; a new entry drops the tail.
@@ -95,6 +98,12 @@ signal changed
 var entries: Array = []
 ## Entries `[0, cursor)` are applied; `[cursor, size)` is the redo tail.
 var cursor := 0
+## LLM-5: how many entries `commit()` has ever pushed. Each entry carries its
+## own value as `"n"`, and an undo group (`shell/undo_group.gd`) reads which
+## entries were pushed while it was open as "n greater than the serial when
+## I began". Never reset, not even by `clear()`, so a serial is never reused
+## and a group cannot mistake a new world's entry for its own.
+var serial := 0
 ## `height_sig()` at the most recent look push/undo/redo; see the header.
 var _sig := ""
 ## Snapshot taken when the current gesture began; `{}` when none is open.
@@ -139,7 +148,8 @@ func commit(label: String, after: Dictionary, bridge: Object, before: Dictionary
 	if b.is_empty() or after.is_empty() or _same(b, after):
 		return false
 	entries.resize(cursor)   ## a new edit drops the redo tail
-	entries.append({"label": label, "before": b, "after": after})
+	serial += 1
+	entries.append({"label": label, "before": b, "after": after, "n": serial})
 	if entries.size() > MAX_ENTRIES:
 		entries.pop_front()
 	cursor = entries.size()

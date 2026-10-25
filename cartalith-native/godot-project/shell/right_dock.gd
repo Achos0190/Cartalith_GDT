@@ -5150,6 +5150,15 @@ func _history_undone(parent: Control, committed_rows: int, labels: PackedStringA
 func _redo_to(steps: int) -> void:
 	if _engine_busy("Redo"):
 		return
+	## LLM-5: a walk that would re-apply part of an undone grouped change on
+	## its own is refused with the reason (`undo_group.gd::blocks_engine_redo`);
+	## a single-row click (`steps` 1) goes to `app.redo_last()`, which redoes a
+	## group whole when it owns the press.
+	if steps > 1 and "undo_groups" in app:
+		var split: String = app.undo_groups.blocks_engine_redo(steps)
+		if split != "":
+			app.set_status("hint", split, "warn")
+			return
 	for _i in range(steps - 1):
 		if not bridge.redo_available() or not bridge.redo_last():
 			break
@@ -5328,6 +5337,14 @@ func _confirm_revert(seq: int, steps: int) -> void:
 func _do_revert(seq: int) -> void:
 	if _engine_busy("Revert"):
 		return
+	## LLM-5: a revert that would pop part of a grouped change is refused with
+	## the reason (`undo_group.gd::blocks_revert_to`); no group, no change.
+	if "undo_groups" in app:
+		var split: String = app.undo_groups.blocks_revert_to(seq)
+		if split != "":
+			app.set_status("hint", split, "warn")
+			_rebuild()
+			return
 	var done := bridge.undo_revert_to(seq)
 	if done <= 0:
 		app.set_status("hint",

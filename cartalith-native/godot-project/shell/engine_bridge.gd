@@ -698,11 +698,25 @@ func param_set(key: String, value) -> bool:
 	## depends on this return value, `mark_dirty()`, was never firing from it).
 	## Found while wiring the GPU toggle's checkbox feedback, which needed the
 	## real answer to `did this write land`.
+	return bool(param_write(key, value)["ok"])
+
+## `param_set` with the engine's whole verdict (LLM-5, `LLM_ASSISTANT_SCOPE.md`
+## s.5b.4): `{"ok": bool, "clamped": bool, "rejected": bool}`. `ok` is exactly
+## what `param_set` returns (the write landed, possibly clamped); `clamped`
+## says the engine stored a DIFFERENT value than asked for, which a slider may
+## accept and an undo group must not (s.5b.2: a group treats `clamped` or
+## `rejected` as a failure and rolls back). Same refusals, same `mark_dirty()`
+## on a landed write: `param_set` is now this call, so there is still one
+## setter. Never regenerates.
+func param_write(key: String, value) -> Dictionary:
+	if not _params_available or generating:
+		return {"ok": false, "clamped": false, "rejected": true}
 	var result: Dictionary = world_gen.set_params({key: value})
-	var ok: bool = not (result.get("rejected", []) as Array).has(key)
-	if ok:
+	var rejected: bool = (result.get("rejected", []) as Array).has(key)
+	var clamped: bool = (result.get("clamped", []) as Array).has(key)
+	if not rejected:
 		mark_dirty()
-	return ok
+	return {"ok": not rejected, "clamped": clamped, "rejected": rejected}
 
 ## Restores the whole table (`WorldGen.reset_params`) or just `keys` from the
 ## defaults captured at `_ready` (unknown keys are skipped), then `mark_dirty()`.
@@ -3793,6 +3807,33 @@ func undo_stats() -> Dictionary:
 ## The last `undo_stats()` read from the engine, served while `generating`. Not state of its
 ## own: it is refreshed by every real read and is never consulted otherwise.
 var _undo_stats_cache: Dictionary = {}
+
+## LLM-5: the ledger's commit counter (`WorldGen.undo_commit_seq`): rises on
+## every recorded commit and every redo, never on an undo. **`-1`** while
+## `generating` or on a binary without it -- never `0`, which is a real value
+## (no commit yet) -- so `undo_group.gd` can refuse to open a group it could
+## not account for.
+func undo_commit_seq() -> int:
+	if generating or not _has("undo_commit_seq"):
+		return -1
+	return int(world_gen.undo_commit_seq())
+
+## LLM-5: the identities of the engine's redo offers in `redo_labels()` order
+## (`WorldGen.redo_offer_ids`). Empty while `generating`, on a binary without
+## it, or when nothing is offered.
+func redo_offer_ids() -> PackedInt64Array:
+	if generating or not _has("redo_offer_ids"):
+		return PackedInt64Array()
+	return world_gen.redo_offer_ids()
+
+## LLM-5: FNV-1a digests of the engine state an undo group can change
+## (`WorldGen.edit_state_digest`: field, column, ways, params, colour paint).
+## `{}` while `generating`, before a world, or on a binary without it.
+## Diagnostic: probes compare it; nothing decides from it at run time.
+func edit_state_digest() -> Dictionary:
+	if generating or not _has("edit_state_digest"):
+		return {}
+	return world_gen.edit_state_digest()
 
 ## Re-budgets the engine's undo stack in MB (`WorldGen.set_undo_budget_mb`; the engine
 ## floors it at 4 MiB). A no-op on a binary without it.

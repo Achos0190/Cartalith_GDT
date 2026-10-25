@@ -110,6 +110,7 @@
 //! without a column (every other kind) is exactly the step it always was.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cartalith_terrain::geology::GeologyColumn;
 
@@ -179,10 +180,32 @@ pub const MAX_STEPS: usize = 5;
 /// 8192² case at one step instead of five.
 pub const DEFAULT_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
+/// Source of [`UndoStep::id`] and `context_pick_bridge::DragRedo::id`: one
+/// process-wide counter, so an id is unique across the undo stack, the redo
+/// tail and the drag redo stack, and is never reissued (LLM-5).
+static NEXT_STEP_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A fresh step identity (LLM-5, `LLM_ASSISTANT_SCOPE.md` s.3). Never `0`
+/// and never repeated in a process. Every step a stack takes gets a new one,
+/// including a step an undo moves onto the redo tail (the tail re-snapshots
+/// the live field rather than moving the old step), so "the same id is still
+/// on top" means "nothing was pushed, popped and pushed back since".
+///
+/// Why it exists: the grouped undo (`shell/undo_group.gd`) must tell its own
+/// undone steps on the redo tail from an unrelated step committed and undone
+/// after them. Labels cannot (two `Carve fjords` look alike), depth and bytes
+/// cannot (a commit-then-undo leaves both where they were); an identity can.
+pub fn next_step_id() -> u64 {
+    NEXT_STEP_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 /// One reverted-to height field, with the name of the operation that was
 /// about to overwrite it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UndoStep {
+    /// Identity from [`next_step_id`] (LLM-5), assigned when the step is
+    /// pushed. Read by [`HeightUndo::ids`]; nothing restores from it.
+    pub id: u64,
     /// Short operation label (`"Sculpt commit"`, `"Carve fjords"`) — what the
     /// Edit menu shows after "Undo", the way every DCC labels the row.
     pub label: String,
@@ -243,7 +266,7 @@ impl HeightUndo {
         if field.is_empty() {
             return;
         }
-        let step = UndoStep { label: label.to_string(), field: field.to_vec(), column };
+        let step = UndoStep { id: next_step_id(), label: label.to_string(), field: field.to_vec(), column };
         self.bytes += step.bytes();
         self.stack.push_back(step);
         self.evict();
@@ -347,6 +370,14 @@ impl HeightUndo {
     /// what undo already keeps.
     pub fn labels(&self) -> impl ExactSizeIterator<Item = &str> {
         self.stack.iter().rev().map(|s| s.label.as_str())
+    }
+
+    /// Every held step's [`UndoStep::id`], **newest first** -- the same order
+    /// as [`Self::labels`], so element `i` of each describes the same step
+    /// (LLM-5's grouped undo reads the redo tail's through
+    /// `WorldGen::redo_offer_ids`). Evicted steps are gone from both.
+    pub fn ids(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
+        self.stack.iter().rev().map(|s| s.id)
     }
 
     /// Re-budget, evicting immediately if the new budget is smaller.
@@ -578,6 +609,39 @@ mod tests {
         u.push("op", &[]);
         assert!(u.is_empty());
         assert_eq!(u.bytes(), 0);
+    }
+
+    /// Protects (LLM-5): step ids are never 0, strictly newest first, one per
+    /// held step, and an evicted step's id leaves with it.
+    #[test]
+    fn ids_are_unique_newest_first_and_follow_eviction() {
+        let mut u = HeightUndo::new();
+        for v in 0..7 {
+            u.push("step", &field(4, v as f32));
+        }
+        let ids: Vec<u64> = u.ids().collect();
+        // MAX_STEPS (5) held; the literal, not the constant, so a changed
+        // bound is noticed here as well as in `count_bound_evicts_oldest`.
+        assert_eq!(ids.len(), 5);
+        assert!(ids.windows(2).all(|w| w[0] > w[1]), "newest first, strictly: {ids:?}");
+        assert!(ids.iter().all(|&i| i != 0), "0 is never issued");
+        assert_eq!(u.ids().len(), u.labels().len());
+    }
+
+    /// Protects (LLM-5): a step popped and an equal step pushed back is a
+    /// *different* identity, which is what lets the grouped undo tell its own
+    /// redo-tail entry from an unrelated commit-then-undo with the same label.
+    #[test]
+    fn a_pop_and_push_back_is_a_new_identity() {
+        let mut u = HeightUndo::new();
+        let mut f = field(4, 1.0);
+        u.push("Carve fjords", &f);
+        let first = u.ids().next().unwrap();
+        u.restore(&mut f).unwrap();
+        u.push("Carve fjords", &f);
+        let second = u.ids().next().unwrap();
+        assert_ne!(first, second);
+        assert_eq!(u.labels().next(), Some("Carve fjords"));
     }
 
     /// Protects: `clear` empties the stack, byte total and label, so a following restore finds nothing.

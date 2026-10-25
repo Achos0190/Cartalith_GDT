@@ -45,6 +45,13 @@ var right_dock_ctrl: RightDock
 ## most recent edit belonged to. Session-only, cleared by
 ## `_refresh_world_dependent()`.
 var look_history = preload("res://shell/look_history.gd").new()
+## LLM-5: the grouped undo (`shell/undo_group.gd`): several edits applied as one
+## change (an Assistant Apply) undo and redo as ONE step through `undo_last()` /
+## `redo_last()` below, which ask it first. Empty unless something opened a
+## group, and with no group every one of its checks answers "not mine", so the
+## single-step paths below behave exactly as before. Untyped for the reason
+## `look_history` is. Session-only; `_refresh_world_dependent()` tells it.
+var undo_groups = preload("res://shell/undo_group.gd").new()
 ## The cross-section's bottom strip (`design/Cartalith Measurement Toolbar
 ## .dc.html` state 2). A `viewport_content` overlay rather than a shell
 ## region -- see `section_strip.gd`'s own header for why. Hidden unless the
@@ -804,6 +811,7 @@ func _fit_dialog(w: Window) -> void:
 ## reordered so that a signal is connected before its emitter exists.
 func _ready() -> void:
 	super._ready()
+	undo_groups.app = self
 	get_tree().node_added.connect(_watch_dialog)
 	_enable_idle_mode()
 	tool_armed.connect(_sync_tool_strip)
@@ -1824,6 +1832,9 @@ func _refresh_world_dependent() -> void:
 	for ws in _workspaces:
 		if ws.has_method("on_world_changed"):
 			ws.on_world_changed()
+	## LLM-5: last, after the paint tool above cleared its stack -- groups keep
+	## only their parameter members now (settings, not a world; s.5b.4 item 3).
+	undo_groups.on_world_changed()
 
 ## The WORLD workspace, found by capability rather than by index — `_workspaces`
 ## also carries the right dock, which is not one.
@@ -5230,6 +5241,8 @@ func _engine_busy_for_history(what: String) -> bool:
 ## when nothing can be undone. Uses `look_history.wants_undo()`, i.e. exactly the
 ## routing `undo_last()` uses.
 func undo_target_label() -> String:
+	if undo_groups.wants_undo():
+		return undo_groups.undo_label()
 	if look_history.wants_undo(bridge):
 		return look_history.undo_label()
 	return bridge.undo_label() if bridge.can_undo() else ""
@@ -5237,6 +5250,8 @@ func undo_target_label() -> String:
 ## Label of the step `redo_last()` would take right now, or "" when none; the
 ## mirror of `undo_target_label()`.
 func redo_target_label() -> String:
+	if undo_groups.wants_redo():
+		return undo_groups.redo_label()
 	if look_history.wants_redo(bridge):
 		return look_history.redo_label()
 	return bridge.redo_label() if bridge.redo_available() else ""
@@ -5281,6 +5296,16 @@ func _refresh_undo_ui() -> void:
 func _undo_last_impl() -> void:
 	if _engine_busy_for_history("Undo"):
 		return
+	## LLM-5: a grouped change on top of every history is undone whole, in one
+	## press; a member of one that is NOT on top is refused rather than split.
+	## With no group both calls answer at once and nothing below changes.
+	if undo_groups.wants_undo():
+		_group_step(true)
+		return
+	var split: String = undo_groups.blocks_single_undo(look_history.wants_undo(bridge))
+	if split != "":
+		set_status("hint", split, "warn")
+		return
 	## Ruling BY item 2: when the most recent edit was a look edit, this press
 	## belongs to the look history (`look_history.wants_undo()` explains how "most
 	## recent" is derived). The heightmap path below is unchanged.
@@ -5320,6 +5345,33 @@ func _undo_last_impl() -> void:
 	## unless History is the live context.
 	if right_dock_ctrl != null:
 		right_dock_ctrl.refresh_history()
+
+## LLM-5: undo (`undo_side`) or redo the top grouped change in one step, then
+## repaint what its members moved, with the same lines the single-step paths
+## use: the map texture written directly (not `ViewportHost.refresh()`, which
+## resets the camera) when a height step moved, the way views when a way step
+## moved, the History panel always. Look and paint members refresh their own
+## editors inside the group (`_restore_look`, the paint tool's step). A
+## refused group changes nothing and says why. Never regenerates: a group
+## whose world was replaced restores settings only, and the hint says so.
+func _group_step(undo_side: bool) -> void:
+	var r: Dictionary = undo_groups.undo() if undo_side else undo_groups.redo()
+	if not bool(r.get("ok", false)):
+		set_status("hint", "Not done: %s" % String(r.get("reason", "")), "warn")
+		return
+	if int(r.get("height", 0)) > 0 and viewport != null:
+		viewport.map_view.texture = bridge.color_texture()
+		viewport.invalidate_lod_tiles()
+		viewport.set_preview_texture(null)
+	if int(r.get("way", 0)) > 0:
+		notify_ways_changed()
+	if right_dock_ctrl != null:
+		right_dock_ctrl.refresh_history()
+	set_status("pass", "%s %s" % ["undid" if undo_side else "redid", String(r.get("label", "")).to_lower()], "text_dim")
+	if bool(r.get("world_changed", false)):
+		set_status("hint", "settings %s · the world on screen was generated after this change; Generate to see them" % ["restored" if undo_side else "re-applied"], "text_ghost")
+	elif int(r.get("height", 0)) > 0:
+		set_status("hint", "one step · flow, rivers and climate are not re-run", "text_ghost")
 
 ## Undo one LOOK step: write the entry's `before` snapshot back through the same
 ## bridge setters the editors use, then refresh every view of it (CARTO rows and
@@ -5385,6 +5437,14 @@ func notify_ways_changed() -> void:
 ## redo path the way there is one undo path; the second copy it once held is gone.
 func _redo_last_impl() -> void:
 	if _engine_busy_for_history("Redo"):
+		return
+	## LLM-5: the mirror of `_undo_last_impl()`'s group branch and guard.
+	if undo_groups.wants_redo():
+		_group_step(false)
+		return
+	var split: String = undo_groups.blocks_single_redo(look_history.wants_redo(bridge))
+	if split != "":
+		set_status("hint", split, "warn")
 		return
 	## Ruling BY item 2: the mirror of `undo_last()`'s look branch.
 	if look_history.wants_redo(bridge):

@@ -9102,6 +9102,16 @@ func _phone_revert_history(seq: int) -> void:
 	var bridge := _find_engine_bridge()
 	if bridge == null:
 		return
+	## LLM-5: the desktop panel's `_do_revert` refusal, same reason
+	## (`undo_group.gd::blocks_revert_to`); `undo_groups` lives on `DccApp`.
+	var groups = get("undo_groups")
+	if groups != null:
+		var split: String = groups.blocks_revert_to(seq)
+		if split != "":
+			if _phone_undo_pop != null:
+				_phone_undo_pop.visible = false
+			_show_phone_toast(split, _phone_undo_chip, 3.2)
+			return
 	var done: int = bridge.undo_revert_to(seq)
 	if _phone_undo_pop != null:
 		_phone_undo_pop.visible = false

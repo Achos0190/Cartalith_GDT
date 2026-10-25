@@ -300,6 +300,11 @@ pub const MAX_WAY_UNDO: usize = 64;
 /// says the world is exactly as the undo left it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DragRedo {
+    /// Identity from `undo::next_step_id` (LLM-5), fresh on every undo: what
+    /// `WorldGen::redo_offer_ids` reports for this offer, so the grouped undo
+    /// can tell its own undone drag from a later, unrelated one with the same
+    /// label and the same `fp_before`.
+    pub id: u64,
     /// Index in `InfraTools::ways` where the drag's first way sat (and sits again).
     pub index: usize,
     /// The drag's ways, whole, in push order -- what the redo re-inserts.
@@ -676,6 +681,7 @@ pub fn undo_way_core_at(
             v.drain(index..end);
             ledger.remove_seq(seq);
             wu.push_redo(DragRedo {
+                id: undo::next_step_id(),
                 index,
                 ways,
                 fp_before,

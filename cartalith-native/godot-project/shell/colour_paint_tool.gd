@@ -112,6 +112,11 @@ var _open := false
 ## Undo/redo: whole documents ("" = no layer), newest last, with labels.
 var _undo: Array = []
 var _redo: Array = []
+## LLM-5: how many steps `_push_undo` has ever pushed; each entry carries its
+## own value as `"n"` and keeps it as it moves between `_undo` and `_redo`, so
+## an undo group (`shell/undo_group.gd`) can name its own steps after any
+## number of undos and redos. Never reset, so a serial is never reused.
+var serial := 0
 
 ## The section's live widgets, for `_refresh_ui`.
 var _status: Label
@@ -660,25 +665,61 @@ func clear() -> void:
 		_push_undo(before, "Clear colour paint")
 		_after_edit()
 
+## This tool's own Undo button. **Refuses a step that belongs to an LLM-5 undo
+## group** (`"group"` on the entry): taking it alone would half-undo a change
+## the user applied as one, so the status line points at Edit > Undo, which
+## undoes the whole group. An ungrouped step is undone exactly as before.
 func undo() -> void:
+	if _refuse_grouped(_undo, "Undo"):
+		return
 	_step(_undo, _redo)
 
+## This tool's own Redo button; the mirror of `undo()`, same group refusal.
 func redo() -> void:
+	if _refuse_grouped(_redo, "Redo"):
+		return
 	_step(_redo, _undo)
 
+## LLM-5: `true` (and a status line) when the step `from` would take next is
+## part of an undo group. The group's own label names it, read from the app's
+## `undo_groups`; with no app (a bare probe) the refusal still holds.
+func _refuse_grouped(from: Array, what: String) -> bool:
+	if from.is_empty() or not (from.back() as Dictionary).has("group"):
+		return false
+	if app != null and app.has_method("set_status"):
+		var label := "a grouped change"
+		if "undo_groups" in app and app.undo_groups != null:
+			label = app.undo_groups.label_of(int((from.back() as Dictionary)["group"]))
+		app.set_status("hint", "Not done: this paint step is part of \"%s\". Use Edit > %s, which takes the whole change." % [label, what], "warn")
+	return true
+
+## LLM-5: one step for an undo group (`shell/undo_group.gd`), bypassing the
+## refusal above because the group is the caller taking its own step. Returns
+## whether the document was restored.
+func step_for_group(undo_side: bool) -> bool:
+	return _step(_undo, _redo) if undo_side else _step(_redo, _undo)
+
 ## Moves one step from `from` to `to`: the current document goes onto `to`, the
-## stored one is restored.
-func _step(from: Array, to: Array) -> void:
+## stored one is restored. The entry's serial (`"n"`) and group tag (`"group"`)
+## travel with it (LLM-5). Returns whether anything moved: `false` for an empty
+## stack, a running generate, or a document the engine refused (the entry is
+## then put back where it was).
+func _step(from: Array, to: Array) -> bool:
 	if from.is_empty() or bridge == null or bridge.generating:
-		return
+		return false
 	var entry: Dictionary = from.pop_back()
 	var now: String = bridge.colour_paint_document()
 	var r: Dictionary = bridge.colour_paint_set_document(String(entry["doc"]))
 	if not bool(r.get("ok", false)):
 		from.append(entry)
-		return
-	to.append({"doc": now, "label": entry["label"]})
+		return false
+	var moved := {"doc": now, "label": entry["label"]}
+	for k in ["n", "group"]:
+		if entry.has(k):
+			moved[k] = entry[k]
+	to.append(moved)
 	_after_edit()
+	return true
 
 func can_undo() -> bool:
 	return not _undo.is_empty()
@@ -687,7 +728,8 @@ func can_redo() -> bool:
 	return not _redo.is_empty()
 
 func _push_undo(doc: String, label: String) -> void:
-	_undo.append({"doc": doc, "label": label})
+	serial += 1
+	_undo.append({"doc": doc, "label": label, "n": serial})
 	_redo.clear()
 	## The app's undo budget, shared: the engine's stack uses `bytes` of
 	## `budget_bytes`; this stack drops its oldest steps to stay inside what is
