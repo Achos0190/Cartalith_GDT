@@ -342,3 +342,268 @@ fn g1_forced_forms_are_ordered_and_near_their_anchor() {
     assert_eq!(same_as_anchor, n, "a G1 row broke an ordering its anchor keeps");
     assert_eq!(near, n, "standing within 0.5x-2x of the anchor row's");
 }
+
+// ======================================================== EA-0 (Ruling DE)
+
+/// How one faction's reading stands against the model ordering
+/// `standing < field < levy` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §2.2).
+///
+/// **Empty is its own answer, never a pass and never a failure.** A faction
+/// with no population reads `0 / 0 / 0`; `0 < 0` is false, so a plain
+/// inequality would call it unordered, and counting it as ordered would
+/// encode "no army" as a healthy one (`MISTAKES.md`, never encode "no value"
+/// as a plausible value). The ten such factions on the harness worlds are
+/// counted separately by every caller.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Order {
+    Ordered,
+    Unordered,
+    Empty,
+}
+
+/// [`Order`] for one row. Empty means zero total population, the only way a
+/// row reads `0 / 0 / 0` (`civ_military_manpower` absorbs non-finite input to
+/// zero, so there is no NaN case to classify; the negated test sends a NaN to
+/// `Empty` rather than to a verdict anyway).
+fn order_of(m: &Manpower) -> Order {
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(m.total_population > 0.0) {
+        Order::Empty
+    } else if m.standing_army < m.field_army && m.field_army < m.emergency_mobilization {
+        Order::Ordered
+    } else {
+        Order::Unordered
+    }
+}
+
+/// Counts over a set of rows: ordered / unordered / empty, the standing-band
+/// verdicts of the non-empty ones (within / above / below), and how many
+/// non-empty rows have an ecological factor above 1 (the factions EA-1's term
+/// may move; every other one must stay bit-identical).
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+struct Tally {
+    ordered: usize,
+    unordered: usize,
+    empty: usize,
+    within: usize,
+    above: usize,
+    below: usize,
+    eco_above_one: usize,
+}
+
+impl Tally {
+    /// Adds one row. Verdicts and the `E > 1` count skip empty rows, so the
+    /// verdict totals equal [`Tally::armed`].
+    fn add(&mut self, m: &Manpower) {
+        match order_of(m) {
+            Order::Ordered => self.ordered += 1,
+            Order::Unordered => self.unordered += 1,
+            Order::Empty => {
+                self.empty += 1;
+                return;
+            }
+        }
+        match m.era_standing_verdict {
+            "within" => self.within += 1,
+            "above" => self.above += 1,
+            _ => self.below += 1,
+        }
+        self.eco_above_one += usize::from(m.drivers.ecological_factor > 1.0);
+    }
+
+    /// Adds another tally's counts into this one.
+    fn merge(&mut self, o: &Tally) {
+        self.ordered += o.ordered;
+        self.unordered += o.unordered;
+        self.empty += o.empty;
+        self.within += o.within;
+        self.above += o.above;
+        self.below += o.below;
+        self.eco_above_one += o.eco_above_one;
+    }
+
+    /// Non-empty rows: the population every ordering bar is a share of.
+    fn armed(&self) -> usize {
+        self.ordered + self.unordered
+    }
+}
+
+/// EA-0's diagnostic (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §2.3 and §7, Ruling DE),
+/// committed as one ignored harness test over the 20 FH-R2 worlds and read
+/// through the app's own chain ([`read`]). Three readings per world:
+///
+/// 1. **Default governments**, every real faction as generated: ordered /
+///    unordered / empty, standing verdicts, and one `EA row` line per faction
+///    (its `E`, `α`, the three headcounts, and the bits of standing and field)
+///    so that two runs on two trees can be diffed faction by faction. That
+///    diff is how EA-1's "moved exactly the `E > 1` factions" bar is measured,
+///    rather than by a replica of the code it checks.
+/// 2. **Forced forms**: faction 1 under each [`G1_FORMS`] form, then each of
+///    the reference's eight real forms (the readings
+///    [`g1_forced_forms_are_ordered_and_near_their_anchor`] takes).
+/// 3. **The ag-tech sweep**: every faction forced to each
+///    `cartalith_civ::roster::AG_TECH_LEVELS` row in turn. `E` is world-
+///    relative, so it is unchanged when all factions share one row; the sweep
+///    therefore varies `α` at the measured geography (§2.3 point 2).
+///
+/// Every unordered non-empty faction is printed with its government, `E`, `α`
+/// and standing/field. The literals asserted at the end are the **measured**
+/// counts of the tree they were recorded on, not targets: a change that moves
+/// one re-records it with the old value beside the new (`MISTAKES.md`,
+/// "Change generated output").
+///
+/// Recorded 2026-10-25 on the tree before EA-1, twice, because the worlds
+/// moved under it. On `d423b13e` they reproduced the scope's §2.2 and §5
+/// "current" row exactly (231 / 59 / 10; verdicts 55 / 92 / 143; `E > 1` on
+/// 114; 17 worlds; forced 125 and 120 of 160; sweep 290, 231, 235, 201, 165,
+/// 127). Ruling DB item 3 (`9b0bec28`, the higher world ceiling, on in the
+/// app's `params::defaults()`) then re-generated the harness worlds' terrain;
+/// the literals below are the same measurement on `9b0bec28`, the tree EA-1
+/// is built on, with the `d423b13e` value beside each.
+///
+/// Run (alone): `cargo test -p cartalith-godot --lib ea0_ -j 2 -- --ignored --nocapture --test-threads 1`
+#[test]
+#[ignore = "EA-0 diagnostic over 20 generated worlds; run alone with --ignored"]
+fn ea0_ecological_ordering_diagnostic() {
+    use cartalith_civ::roster::{AG_TECH_LEVELS, CIV_GOVERNMENTS, CIV_GOVERNMENTS_REFERENCE_LEN};
+    let mut default = Tally::default();
+    let (mut g1, mut reference) = (Tally::default(), Tally::default());
+    let mut sweep = [Tally::default(); 6];
+    let mut unordered_worlds: Vec<String> = Vec::new();
+    for &(seed, width, factions) in worlds().iter() {
+        let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
+        let base = read(&civ, &ws, gh, p.map_width_km, seed, true);
+        assert_eq!(base.rows.len(), factions as usize, "one manpower row per real faction");
+        let mut here = Tally::default();
+        for (i, m) in base.rows.iter().enumerate() {
+            here.add(m);
+            let d = &m.drivers;
+            println!(
+                "EA row {seed} {width} {factions} f{} {:?} E {:.4} a {:.3} standing {:.1} field {:.1} levy {:.1} 0x{:016x} 0x{:016x}",
+                i + 1,
+                order_of(m),
+                d.ecological_factor,
+                d.agricultural_labour_ratio,
+                m.standing_army,
+                m.field_army,
+                m.emergency_mobilization,
+                m.standing_army.to_bits(),
+                m.field_army.to_bits()
+            );
+            if order_of(m) == Order::Unordered {
+                println!(
+                    "EA unordered: seed {seed} {width} {factions} f{} ({}): E {:.3} a {:.3} standing/field {:.3}",
+                    i + 1,
+                    civ.faction_roster.0[i + 1].government,
+                    d.ecological_factor,
+                    d.agricultural_labour_ratio,
+                    m.standing_army / m.field_army
+                );
+            }
+        }
+        println!(
+            "EA world {seed} {width} {factions}: ordered {} unordered {} empty {}; f1 E {:.3}",
+            here.ordered, here.unordered, here.empty, base.rows[0].drivers.ecological_factor
+        );
+        if here.unordered > 0 {
+            unordered_worlds.push(format!("{seed}/{width}/{factions}"));
+        }
+        default.merge(&here);
+
+        // Forced forms on faction 1, then restored.
+        let saved = civ.faction_roster.0[1].government.clone();
+        let (mut g1_here, mut ref_here) = (Tally::default(), Tally::default());
+        for &(form, _) in G1_FORMS.iter() {
+            civ.faction_roster.0[1].government = form.to_string();
+            g1_here.add(&read(&civ, &ws, gh, p.map_width_km, seed, true).rows[0]);
+        }
+        for &(form, _) in CIV_GOVERNMENTS[1..CIV_GOVERNMENTS_REFERENCE_LEN].iter() {
+            civ.faction_roster.0[1].government = form.to_string();
+            ref_here.add(&read(&civ, &ws, gh, p.map_width_km, seed, true).rows[0]);
+        }
+        civ.faction_roster.0[1].government = saved;
+        println!(
+            "EA forced {seed} {width} {factions}: G1 ordered {} of {}, reference ordered {} of {}",
+            g1_here.ordered,
+            g1_here.armed(),
+            ref_here.ordered,
+            ref_here.armed()
+        );
+        g1.merge(&g1_here);
+        reference.merge(&ref_here);
+
+        // The ag-tech sweep: every real faction on one row, then restored.
+        let saved_tech: Vec<String> = civ.faction_roster.0.iter().map(|e| e.ag_tech.clone()).collect();
+        for (ri, row) in AG_TECH_LEVELS.iter().enumerate() {
+            for e in civ.faction_roster.0.iter_mut().skip(1) {
+                e.ag_tech = row.key.to_string();
+            }
+            for m in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter() {
+                sweep[ri].add(m);
+            }
+        }
+        for (e, t) in civ.faction_roster.0.iter_mut().zip(saved_tech) {
+            e.ag_tech = t;
+        }
+        let back = read(&civ, &ws, gh, p.map_width_km, seed, true);
+        assert_eq!(back.manpower, base.manpower, "seed {seed} {width} {factions}: restore");
+    }
+
+    println!(
+        "EA default governments: ordered {} unordered {} empty {} (non-empty {}); standing verdicts within {} above {} below {}; E > 1 on {}; unordered on {} worlds {:?}",
+        default.ordered,
+        default.unordered,
+        default.empty,
+        default.armed(),
+        default.within,
+        default.above,
+        default.below,
+        default.eco_above_one,
+        unordered_worlds.len(),
+        unordered_worlds
+    );
+    println!(
+        "EA forced: G1 ordered {} of {} (empty {}); reference ordered {} of {} (empty {})",
+        g1.ordered,
+        g1.armed(),
+        g1.empty,
+        reference.ordered,
+        reference.armed(),
+        reference.empty
+    );
+    for (row, t) in AG_TECH_LEVELS.iter().zip(sweep.iter()) {
+        println!(
+            "EA sweep {}: ordered {} of {} (empty {}), standing within {}",
+            row.key,
+            t.ordered,
+            t.armed(),
+            t.empty,
+            t.within
+        );
+    }
+
+    // Shape guards first, so a silently empty reading cannot pass the counts.
+    assert_eq!(default.armed() + default.empty, 300, "10 worlds x 6 + 10 x 24 factions");
+    assert_eq!(g1.armed() + g1.empty, 20 * G1_FORMS.len());
+    assert_eq!(reference.armed() + reference.empty, 20 * 8);
+    for t in sweep.iter() {
+        assert_eq!(t.armed() + t.empty, 300);
+    }
+
+    // The measured bar (see the doc for the tree it was recorded on).
+    let sweep_ordered: Vec<usize> = sweep.iter().map(|t| t.ordered).collect();
+    // Each literal is the 9b0bec28 measurement; the d423b13e one is beside it.
+    assert_eq!(
+        (default.ordered, default.unordered, default.empty),
+        (226, 64, 10), // d423b13e: (231, 59, 10)
+        "default governments: ordered / unordered / empty"
+    );
+    // d423b13e: (55, 92, 143)
+    assert_eq!((default.within, default.above, default.below), (59, 88, 143), "standing verdicts");
+    assert_eq!(default.eco_above_one, 112, "non-empty factions with E > 1"); // d423b13e: 114
+    assert_eq!(unordered_worlds.len(), 15, "worlds with an unordered faction"); // d423b13e: 17
+    assert_eq!((g1.ordered, g1.armed()), (132, 160), "forced G1 forms"); // d423b13e: 125
+    assert_eq!((reference.ordered, reference.armed()), (128, 160), "forced reference forms"); // d423b13e: 120
+    // d423b13e: [290, 231, 235, 201, 165, 127]
+    assert_eq!(sweep_ordered, vec![290, 226, 239, 201, 170, 124], "ag-tech sweep, ordered of 290");
+}
