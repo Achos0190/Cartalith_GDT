@@ -72,6 +72,10 @@ pub(crate) const SEA_LIVE_NOTE: &str = "Moves the coastline, lakes, biomes, map 
 /// classification into `CivData::water_bodies` holds exactly what a civ
 /// recompute at that level would build. A mask of the wrong length forces
 /// nothing (`render::apply_forced_lakes`). Pure; never mutates its inputs.
+///
+/// `keep` is the world's volcano table (owner Ruling DJ item 2): a maar's
+/// lake stands under the floor (`render::water_bodies_floored_keep`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn water_bodies_at(
     field: &[f32],
     rainfall: &[f32],
@@ -80,8 +84,9 @@ pub(crate) fn water_bodies_at(
     sea: f64,
     world: bool,
     forced: Option<&[u8]>,
+    keep: Option<&[cartalith_terrain::PlacedEdifice]>,
 ) -> cartalith_civ::WaterBodies {
-    crate::render::water_bodies_floored(field, rainfall, gw, gh, sea, world, forced)
+    crate::render::water_bodies_floored_keep(field, rainfall, gw, gh, sea, world, forced, keep)
 }
 
 /// Ruling 17: every draft stamp re-stamped at `sea` through
@@ -312,7 +317,7 @@ mod tests {
         let (p, mut ws) = world();
         let base = ws.sea_level;
         let civ0 = civ_at(&p, &ws);
-        let at = |ws: &cartalith_engine::WorldState, s: f64| water_bodies_at(&ws.field, &ws.rainfall, p.gw, p.gh, s, p.world, None).classification;
+        let at = |ws: &cartalith_engine::WorldState, s: f64| water_bodies_at(&ws.field, &ws.rainfall, p.gw, p.gh, s, p.world, None, None).classification;
         assert_eq!(at(&ws, base), civ0.water_bodies, "control: the default level reproduces the generated civ copy");
         let (land0, _, _) = water_counts(&civ0.water_bodies);
         for s in [base + 0.06, base - 0.06] {
@@ -419,11 +424,11 @@ mod tests {
         let lakes = |c: &[u8]| c.iter().enumerate().filter(|&(_, &k)| k == 2).map(|(i, _)| i).collect::<Vec<_>>();
         let bare = cartalith_civ::build_water_bodies(&field, gw, gh, sea, false, Some(&rain));
         assert_eq!(lakes(&bare.classification), vec![one, two[0], two[1]], "control: both pits are lakes before the floor");
-        let drawn = water_bodies_at(&field, &rain, gw, gh, sea, false, None);
+        let drawn = water_bodies_at(&field, &rain, gw, gh, sea, false, None, None);
         assert_eq!(lakes(&drawn.classification), two.to_vec(), "the 1-cell pond is under the floor of 2");
         let mut paint = vec![0u8; gw * gh];
         paint[one] = 1;
-        let painted = water_bodies_at(&field, &rain, gw, gh, sea, false, Some(&paint));
+        let painted = water_bodies_at(&field, &rain, gw, gh, sea, false, Some(&paint), None);
         assert_eq!(lakes(&painted.classification), vec![one, two[0], two[1]], "a painted pond is never removed");
     }
 }

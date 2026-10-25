@@ -20,35 +20,41 @@
 //! - **maar** ([`late_kinds`]): a phreatomagmatic crater cut below the ground
 //!   beside a scoria cone, only where groundwater is plausible (a wet climate
 //!   or the coast close by);
-//! - **supervolcano** ([`supervolcano`]): at most one per world, only where a
-//!   hotspot sits under thick continental crust far from the sea (the
+//! - **supervolcano** ([`supervolcano_site`], [`stamp_supervolcano`],
+//!   [`record_supervolcano`]): at most one per world, only where a hotspot
+//!   sits under continental crust with its caldera and apron on land (the
 //!   Yellowstone setting), drawn as an old quiet caldera with an ash apron;
-//! - **flood basalt** ([`flood_basalt`]): a stepped plateau at the old end of a
-//!   continental hotspot track (a plume head's arrival).
+//! - **flood basalt** ([`flood_basalt_row`]): a province at the old end of a
+//!   continental hotspot track (a plume head's arrival), **render-only**.
 //!
 //! # What was measured, and what ships (2026-10-25)
 //!
 //! Each kind was measured first on six census worlds against owner Ruling
-//! CX's bars (`volcano_cx_bars.rs`; numbers in `STATUS.md`). **Only the dome
-//! ships** (`VolcanismParams::kind_dome`, on in the app). The caldera, the
-//! supervolcano and the flood basalt failed a bar and are kept as
-//! measurement prototypes, off at both boundaries; the maar held its bars
-//! but did not read on the map and is off too. A failed kind was not tuned
-//! to pass.
+//! CX's bars (`volcano_cx_bars.rs`; numbers in `STATUS.md`). Ruling DG built
+//! the dome. Owner **Ruling DJ** then answered the five questions: the
+//! caldera age rule ships as a disclosed re-baseline (it moves settlements,
+//! outlets and small lakes near old stratocones); the maar ships with its
+//! site rule relaxed to the crater and its lake kept under the lake-area
+//! floor; the supervolcano ships, exempted from the bars as a rare feature;
+//! the flood basalt ships as a render-only trap plateau (the terraced
+//! height-field prototype, which failed every bar, is gone). Each is on in
+//! `cartalith_godot::params::defaults` and off in `WorldParams::defaults`.
 //!
 //! # Why the steps sit where they sit in `generate_terrain`
 //!
-//! The caldera, the supervolcano and the flood basalt are old landforms that
-//! erosion should act on, so they are applied to the field right after the
-//! sea level is settled and before the geology column and erosion. Applied
-//! any earlier, a World Structure world's sea level (solved from the height
-//! histogram) would move with them, and every coast with it; applied there,
-//! the sea level is unchanged by construction, as under
-//! `TectonicParams::high_ceiling`. The dome and the maar are young landforms
-//! below the grid's erosion scale (a dome is a few hundred metres across), so
-//! they are stamped on the finished field like `lava_flows::lava_benches`,
-//! where nothing re-cuts them; each avoids river cells, so no drawn river runs
-//! over one.
+//! The caldera and the supervolcano are old landforms that erosion should
+//! act on, so they are applied to the field right after the sea level is
+//! settled and before the geology column and erosion. Applied any earlier, a
+//! World Structure world's sea level (solved from the height histogram)
+//! would move with them, and every coast with it; applied there, the sea
+//! level is unchanged by construction, as under
+//! `TectonicParams::high_ceiling`. The supervolcano's table row is written
+//! late, after the geology column has read the stamped rows. The dome and the
+//! maar are young landforms below the grid's erosion scale (a dome is a few
+//! hundred metres across), so they are stamped on the finished field like
+//! `lava_flows::lava_benches`, where nothing re-cuts them; each keeps its
+//! footprint (a maar its crater) off river cells, so no drawn river runs over
+//! one. The flood basalt moves no cell: its row is placed last.
 //!
 //! # What it must never do
 //!
@@ -351,6 +357,12 @@ pub fn late_kinds(
             // The record's radius is the ring's outer edge.
             (d_km / cell_km / 2.0 * MAAR_OUTER, 0.0, depth, ring, (1.3, 2.0), 0x3A10)
         };
+        // The disc a site must keep clear of rivers, the sea, the map edge and
+        // other summits. A dome: its whole footprint. A maar: its crater only
+        // (owner Ruling DJ item 2, 2026-10-25, "relax the site rule"); its
+        // low tuff ring may then reach a river or the shore, and the stamp
+        // below never raises a river or sea cell, so it dams neither.
+        let clear_r = if want_dome { r_cells } else { r_cells / MAAR_OUTER };
         // The site: 8 bearings from the hash's own, the first that admits.
         let b0 = h01(p.cx, p.cy, salt) * std::f64::consts::TAU;
         let tt = lerp(t_rng, h01(p.cx, p.cy, salt + 1));
@@ -360,15 +372,15 @@ pub fn late_kinds(
         for j in 0..8 {
             let b = b0 + j as f64 * std::f64::consts::TAU / 8.0;
             let (sx, sy) = (p.cx + b.cos() * tt * p.r, p.cy + b.sin() * tt * p.r);
-            if !in_grid(sx, sy, r_cells + 1.0) || !land_at(field, sx, sy) {
+            if !in_grid(sx, sy, clear_r + 1.0) || !land_at(field, sx, sy) {
                 why = 0;
                 continue;
             }
-            let rr = r_cells.ceil() as i64;
+            let rr = clear_r.ceil() as i64;
             let mut ok = true;
             'cells: for dy in -rr..=rr {
                 for dx in -rr..=rr {
-                    if ((dx * dx + dy * dy) as f64).sqrt() > r_cells {
+                    if ((dx * dx + dy * dy) as f64).sqrt() > clear_r {
                         continue;
                     }
                     let (x, y) = ((sx as i64 + dx) as usize, (sy as i64 + dy) as usize);
@@ -381,7 +393,7 @@ pub fn late_kinds(
             // Never on another edifice's summit zone (a crater or caldera).
             if ok
                 && edifices[..n0].iter().enumerate().any(|(q, o)| {
-                    q != k && crate::volcano_attr::summit_zone_t(o).is_some_and(|zt| (sx - o.cx).hypot(sy - o.cy) < o.r * zt + r_cells)
+                    q != k && crate::volcano_attr::summit_zone_t(o).is_some_and(|zt| (sx - o.cx).hypot(sy - o.cy) < o.r * zt + clear_r)
                 })
             {
                 ok = false;
@@ -488,6 +500,14 @@ pub fn late_kinds(
                     bowl + ring
                 };
                 let i = y as usize * gw + x as usize;
+                // Ruling DJ item 2: a maar's ring, which may now reach past its
+                // cleared crater, never raises a river cell (it would dam the
+                // river the drawn channel follows) or a sea cell (it would
+                // make new land). Maars only: a dome keeps its stamp exactly
+                // as before the ruling (its whole disc was cleared).
+                if !want_dome && add > 0.0 && (river_at(x as usize, y as usize) || (field[i] as f64) < sea) {
+                    continue;
+                }
                 // Bounded by the world's ceiling (`world_top`: 1, or Ruling
                 // DB's higher top), like every stamp before it.
                 field[i] = ((field[i] as f64 + add) as f32).clamp(0.0, top);
@@ -583,7 +603,7 @@ fn fill_new_pockets(field: &mut [f32], gw: usize, _gh: usize, sea: f64, before: 
 }
 
 // ===========================================================================
-// Supervolcano and flood basalt (measurement prototypes: failed their bars)
+// Supervolcano and flood basalt (owner Ruling DJ items 3 and 4, 2026-10-25)
 // ===========================================================================
 
 /// A supervolcano caldera's semi-major axis range, km: Yellowstone 45 x 85
@@ -602,10 +622,20 @@ pub const SUPER_DEPTH_M: f64 = 300.0;
 pub const SUPER_APRON_M: f64 = 150.0;
 /// See [`SUPER_APRON_M`].
 pub const SUPER_APRON_OUT: f64 = 2.2;
+/// The years since a supervolcano's last caldera-forming eruption, which its
+/// row records: Yellowstone's last, the Lava Creek Tuff, "about 631-640 ka"
+/// (research §2.2, cited USGS/NPS), taken at its younger end. Older than
+/// `volcano_attr::DORMANT_LIMIT_YEARS` (500 ka), so the row reads
+/// **extinct**: no glow, no stain, its caldera lake kept and plain, its ground
+/// greening by its climate -- the owner's "an old quiet caldera with an ash
+/// apron, not an active vent" (Ruling DJ item 3). A parent older than this
+/// keeps its own years.
+pub const SUPER_LAST_ERUPTION_YEARS: f64 = 631_000.0;
 
-/// Where a supervolcano would go and its shape, for a census: centre, the
-/// semi-axes in cells, the long axis's angle, and whether a hotspot rule
-/// chose it (`true`) or the measurement forced it (`false`).
+/// Where a supervolcano goes and its shape: centre, the semi-axes in cells,
+/// the long axis's angle, whether the hotspot rule chose it (`true`) or the
+/// measurement forced it (`false`), and the table row of the hotspot edifice
+/// it sits on (`None` when forced).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SuperSite {
     pub cx: f64,
@@ -614,6 +644,7 @@ pub struct SuperSite {
     pub b: f64,
     pub angle: f64,
     pub by_rule: bool,
+    pub parent: Option<usize>,
 }
 
 /// The ring of points at `k` times an ellipse's size, all on land.
@@ -626,15 +657,16 @@ fn ellipse_on_land(field: &[f32], gw: usize, gh: usize, sea: f64, s: &SuperSite,
     })
 }
 
-/// **The supervolcano rule (measurement prototype).** The youngest hotspot
-/// edifice whose centre lies on continental crust (`crust > 0`, the plate's
-/// `base`) with its whole caldera and apron on land: a plume under a
-/// continent, the Yellowstone setting (the owner's note: "placed by
-/// tectonics (a hotspot or a continental silicic setting)"). The long axis
-/// follows the plate's drift at the centre (the Snake River Plain track runs
-/// along the plate's motion over the plume). `None` -- the usual case -- when
-/// no hotspot sits so. `force` (measurement only) falls back to the land cell
-/// on continental crust farthest from the sea.
+/// **The supervolcano rule (switch `VolcanismParams::kind_supervolcano`).**
+/// The youngest hotspot edifice whose centre lies on continental crust
+/// (`crust > 0`, the plate's `base`) with its whole caldera and apron on
+/// land: a plume under a continent, the Yellowstone setting (the owner's
+/// note: "placed by tectonics (a hotspot or a continental silicic
+/// setting)"). The long axis follows the plate's drift at the centre (the
+/// Snake River Plain track runs along the plate's motion over the plume).
+/// `None` -- the usual case -- when no hotspot sits so, so a world has zero
+/// or one, never more. `force` (measurement only) falls back to the land
+/// cell on continental crust farthest from the sea.
 #[allow(clippy::too_many_arguments)]
 pub fn supervolcano_site(
     edifices: &[PlacedEdifice],
@@ -648,13 +680,13 @@ pub fn supervolcano_site(
     force: bool,
 ) -> Option<SuperSite> {
     let mut best: Option<(f64, SuperSite)> = None;
-    for e in edifices.iter().filter(|e| e.setting == VolcanicSetting::Hotspot) {
+    for (k, e) in edifices.iter().enumerate().filter(|(_, e)| e.setting == VolcanicSetting::Hotspot) {
         let (x, y) = (e.cx as usize, e.cy as usize);
         if x >= gw || y >= gh || crust[y * gw + x] <= 0.0 || (field[y * gw + x] as f64) < sea {
             continue;
         }
         let a = lerp(SUPER_SEMI_MAJOR_KM, h01(e.cx, e.cy, 0x5B01)) / cell_km;
-        let s = SuperSite { cx: e.cx, cy: e.cy, a, b: a * SUPER_ASPECT, angle: drift(e.cx, e.cy), by_rule: true };
+        let s = SuperSite { cx: e.cx, cy: e.cy, a, b: a * SUPER_ASPECT, angle: drift(e.cx, e.cy), by_rule: true, parent: Some(k) };
         if !ellipse_on_land(field, gw, gh, sea, &s, SUPER_APRON_OUT) {
             continue;
         }
@@ -682,7 +714,7 @@ pub fn supervolcano_site(
         }
         let (cx, cy, _) = far?;
         let a = lerp(SUPER_SEMI_MAJOR_KM, 0.5) / cell_km;
-        return Some(SuperSite { cx, cy, a, b: a * SUPER_ASPECT, angle: drift(cx, cy), by_rule: false });
+        return Some(SuperSite { cx, cy, a, b: a * SUPER_ASPECT, angle: drift(cx, cy), by_rule: false, parent: None });
     }
     best.map(|b| b.1)
 }
@@ -692,6 +724,16 @@ pub fn supervolcano_site(
 /// and an ash apron thinning outward to [`SUPER_APRON_OUT`] radii. Raises
 /// `volcanic_field` over the apron so the geology column reads it as
 /// volcanic ground. Returns the cells touched.
+///
+/// The caldera floor is set **relative to the ground at its rim** (the
+/// median height of the ring `q` 1.0-1.1 before the stamp), not to the
+/// ground it replaces: the collapse removes whatever stood inside, the
+/// hotspot edifice it sits on included. A first build offset the floor by
+/// `-SUPER_DEPTH_M` from the old ground and left the parent shield's summit
+/// and crater standing inside the caldera (s314159's x4 frame, 2026-10-25),
+/// which read as an active vent -- what owner Ruling DJ item 3 rules out.
+/// Inside, the floor blends into the offset profile across the ring-fault
+/// wall, so the stamp is continuous at the rim.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usize, gh: usize, s: &SuperSite, m_per_unit: f64, top: f32) -> usize {
     let m2n = |m: f64| m / m_per_unit.max(1e-6);
@@ -699,6 +741,15 @@ pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usi
     let reach = s.a * SUPER_APRON_OUT + 1.0;
     let (x0, x1) = (((s.cx - reach).floor().max(0.0)) as usize, ((s.cx + reach).ceil() as usize).min(gw - 1));
     let (y0, y1) = (((s.cy - reach).floor().max(0.0)) as usize, ((s.cy + reach).ceil() as usize).min(gh - 1));
+    let q_at = |x: usize, y: usize| {
+        let (dx, dy) = (x as f64 - s.cx, y as f64 - s.cy);
+        let (u, v) = (dx * ca + dy * sa, -dx * sa + dy * ca);
+        ((u / s.a).powi(2) + (v / s.b).powi(2)).sqrt()
+    };
+    // The rim ground: the median of the ring just outside the caldera.
+    let mut ring: Vec<f32> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| (1.0..=1.1).contains(&q_at(x, y))).map(|(x, y)| field[y * gw + x]).collect();
+    ring.sort_by(|a, b| a.total_cmp(b));
+    let rim_ground = ring.get(ring.len() / 2).map(|&v| v as f64);
     let mut n = 0;
     for y in y0..=y1 {
         for x in x0..=x1 {
@@ -708,6 +759,9 @@ pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usi
             if q > SUPER_APRON_OUT {
                 continue;
             }
+            // The ring-fault wall: a smoothstep over the caldera's outer
+            // 15 % (q 0.85..1), the floor inside it (a judgement: a wall of
+            // a few kilometres on a 20-42 km caldera).
             let wall = {
                 let w = ((q - 0.85) / 0.15).clamp(0.0, 1.0);
                 w * w * (3.0 - 2.0 * w)
@@ -719,6 +773,10 @@ pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usi
             } else {
                 add += SUPER_APRON_M * wall;
             }
+            // Two resurgent domes on the long axis at 0.4 of the semi-major
+            // axis, each 0.22 of it in radius and lifting 0.8 of the
+            // collapse (judgements on Yellowstone's Mallard Lake and Sour
+            // Creek domes, NPS, research §2.2).
             for side in [-1.0, 1.0] {
                 let du = (u - side * 0.4 * s.a) / (0.22 * s.a);
                 let dv = v / (0.22 * s.a);
@@ -728,7 +786,15 @@ pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usi
                 }
             }
             let i = y * gw + x;
-            field[i] = ((field[i] as f64 + m2n(add)) as f32).clamp(0.0, top);
+            let offset = field[i] as f64 + m2n(add);
+            // Inside the wall the floor follows the rim ground, not the
+            // ground it replaced (see the doc); the wall weight blends the
+            // two, so at the rim it is the offset profile exactly.
+            let h = match rim_ground {
+                Some(g) if q < 1.0 => g + m2n(add) + (offset - (g + m2n(add))) * wall,
+                _ => offset,
+            };
+            field[i] = (h as f32).clamp(0.0, top);
             let vf = (1.0 - q / SUPER_APRON_OUT) as f32;
             if vf > volcanic_field[i] {
                 volcanic_field[i] = vf;
@@ -739,94 +805,109 @@ pub fn stamp_supervolcano(field: &mut [f32], volcanic_field: &mut [f32], gw: usi
     n
 }
 
+/// **Ruling DJ item 3: the supervolcano's row.** The hotspot edifice the
+/// caldera was stamped on (`s.parent`) becomes the supervolcano -- its
+/// summit is gone into the collapse, so the table names what the field now
+/// holds: kind [`EdificeKind::Supervolcano`], the radius the ash apron's
+/// reach along the long axis (`a × SUPER_APRON_OUT`), the caldera's rim and
+/// wall in `crater` (`1 / SUPER_APRON_OUT`, `0.85` of that), the apron's
+/// thickness as its height, and at least [`SUPER_LAST_ERUPTION_YEARS`] of
+/// years, so it reads as an old quiet caldera and never as an active vent.
+/// It keeps the parent's index, setting and age draw, so no other row
+/// moves. A forced site (measurement only) has no parent and is appended.
+/// The row is circular; the caldera in the field is the ellipse (the look
+/// reads the circle, a judgement the frames show).
+///
+/// Must never: change the height field (the stamp already did), or touch a
+/// row but the parent.
+pub fn record_supervolcano(edifices: &mut Vec<PlacedEdifice>, s: &SuperSite, m_per_unit: f64) {
+    let base = s.parent.and_then(|k| edifices.get(k).copied());
+    let yrs = base.map_or(SUPER_LAST_ERUPTION_YEARS, |p| years(&p).max(SUPER_LAST_ERUPTION_YEARS));
+    let row = PlacedEdifice {
+        setting: VolcanicSetting::Hotspot,
+        cx: s.cx,
+        cy: s.cy,
+        r: s.a * SUPER_APRON_OUT,
+        h: SUPER_APRON_M / m_per_unit.max(1e-6),
+        kind: Some(EdificeKind::Supervolcano),
+        age: base.map_or(1.0, |p| p.age),
+        years: Some(yrs),
+        crater: Some((0.85 / SUPER_APRON_OUT, 1.0 / SUPER_APRON_OUT)),
+        rift_bearing: None,
+    };
+    match s.parent {
+        Some(k) if k < edifices.len() => edifices[k] = row,
+        _ => edifices.push(row),
+    }
+}
+
 /// The smallest area of a flood-basalt province, km^2: a large igneous
 /// province is at least 100 000 km^2 by definition (Bryan & Ernst 2008); the
 /// Columbia River basalts cover about 164 000 km^2 (research §2.2).
 pub const FLOOD_MIN_AREA_KM2: f64 = 100_000.0;
-/// The height of one step of the trap topography, metres. A labelled
-/// judgement: Columbia River flows are 10 to over 90 m thick (USGS, research
-/// §2.2); one grid step stands for a few flows.
+/// The height of one step of the trap topography, metres, which the
+/// renderer draws (`volcano_look::trap_riser`); the height field is never
+/// terraced (Ruling DJ item 4). A labelled judgement: Columbia River flows
+/// are 10 to over 90 m thick (USGS, research §2.2); one drawn step stands for
+/// a few flows.
 pub const FLOOD_STEP_M: f64 = 60.0;
+/// The youngest a flood basalt's row records, years: `10^6.5`, the top of
+/// the age map (Ruling CW's 3 Myr ceiling, `volcano_attr::AGE_LOG10_*`). A
+/// judgement: a province is older than the edifices of the track that grew
+/// from its plume, and every large igneous province is millions of years
+/// old; the row then reads extinct, greening by its climate.
+pub const FLOOD_MIN_YEARS: f64 = 3_162_277.660_168_379;
 
-/// **The flood-basalt rule (measurement prototype).** The oldest hotspot
-/// edifice on continental crust and land (a plume head arrives at the old
-/// end of its track), or with `force` the most interior continental land
-/// cell. Returns the province's centre and radius in cells for
-/// [`FLOOD_MIN_AREA_KM2`], capped at 0.45 of the map's short side.
+/// **The flood-basalt rule (switch `VolcanismParams::kind_flood_basalt`).**
+/// The oldest hotspot edifice on continental crust and land (a plume head
+/// arrives at the old end of its track). Returns the province's centre and
+/// radius in cells for [`FLOOD_MIN_AREA_KM2`], capped at 0.45 of the map's
+/// short side, and the parent's table row; `None` when no hotspot edifice
+/// with a morphology sits on a continent.
 #[allow(clippy::too_many_arguments)]
-pub fn flood_basalt_site(edifices: &[PlacedEdifice], field: &[f32], crust: &[f32], gw: usize, gh: usize, sea: f64, cell_km: f64, force: bool) -> Option<(f64, f64, f64)> {
+pub fn flood_basalt_site(edifices: &[PlacedEdifice], field: &[f32], crust: &[f32], gw: usize, gh: usize, sea: f64, cell_km: f64) -> Option<(f64, f64, f64, usize)> {
     let r = ((FLOOD_MIN_AREA_KM2 / std::f64::consts::PI).sqrt() / cell_km).min(gw.min(gh) as f64 * 0.45);
-    let pick = edifices
+    edifices
         .iter()
-        .filter(|e| {
+        .enumerate()
+        .filter(|(_, e)| {
             let (x, y) = (e.cx as usize, e.cy as usize);
-            e.setting == VolcanicSetting::Hotspot && x < gw && y < gh && crust[y * gw + x] > 0.0 && (field[y * gw + x] as f64) >= sea
+            e.setting == VolcanicSetting::Hotspot
+                && matches!(e.kind, Some(EdificeKind::Cinder | EdificeKind::Strato | EdificeKind::Shield))
+                && x < gw
+                && y < gh
+                && crust[y * gw + x] > 0.0
+                && (field[y * gw + x] as f64) >= sea
         })
-        .max_by(|a, b| years(a).total_cmp(&years(b)))
-        .map(|e| (e.cx, e.cy, r));
-    if pick.is_some() || !force {
-        return pick;
-    }
-    let mut best: Option<(f64, f64, usize)> = None;
-    for y in (0..gh).step_by(8) {
-        for x in (0..gw).step_by(8) {
-            if crust[y * gw + x] <= 0.0 || (field[y * gw + x] as f64) < sea {
-                continue;
-            }
-            let mut land = 0;
-            for yy in (y.saturating_sub(r as usize)..(y + r as usize).min(gh)).step_by(8) {
-                for xx in (x.saturating_sub(r as usize)..(x + r as usize).min(gw)).step_by(8) {
-                    land += usize::from(field[yy * gw + xx] as f64 >= sea);
-                }
-            }
-            if best.is_none_or(|b| land > b.2) {
-                best = Some((x as f64, y as f64, land));
-            }
-        }
-    }
-    best.map(|b| (b.0, b.1, r))
+        .max_by(|a, b| years(a.1).total_cmp(&years(b.1)))
+        .map(|(k, e)| (e.cx, e.cy, r, k))
 }
 
-/// Terraces the land inside a flood-basalt province into [`FLOOD_STEP_M`]
-/// steps: each step's tread flat, its riser the top fifth of the step (a
-/// smoothstep), blended to the untouched ground over the outer fifth of the
-/// radius. Monotone in height, so it opens no pit. Returns the cells moved.
+/// **Ruling DJ item 4: the flood basalt's row, render-only.** One row of
+/// kind [`EdificeKind::FloodBasalt`] at [`flood_basalt_site`]'s province:
+/// height 0 (nothing was stamped), the parent's setting and age draw, at
+/// least [`FLOOD_MIN_YEARS`] of years, no crater. The caller appends it after
+/// every other row, so no index moves. Satellite relief draws it as a dark
+/// basalt plateau with trap steps (`volcano_look`), under every other
+/// edifice (`volcano_attr::owner_value`).
+///
+/// Must never: move the height field, `volcanic_field` or any other row.
 #[allow(clippy::too_many_arguments)]
-pub fn terrace_flood_basalt(field: &mut [f32], gw: usize, gh: usize, sea: f64, cx: f64, cy: f64, r: f64, m_per_unit: f64) -> usize {
-    let step = FLOOD_STEP_M / m_per_unit.max(1e-6);
-    let mut n = 0;
-    let (x0, x1) = (((cx - r).floor().max(0.0)) as usize, ((cx + r).ceil() as usize).min(gw - 1));
-    let (y0, y1) = (((cy - r).floor().max(0.0)) as usize, ((cy + r).ceil() as usize).min(gh - 1));
-    for y in y0..=y1 {
-        for x in x0..=x1 {
-            let i = y * gw + x;
-            let h = field[i] as f64;
-            if h < sea {
-                continue;
-            }
-            let d = (x as f64 - cx).hypot(y as f64 - cy) / r;
-            if d > 1.0 {
-                continue;
-            }
-            let w = 1.0 - {
-                let u = ((d - 0.8) / 0.2).clamp(0.0, 1.0);
-                u * u * (3.0 - 2.0 * u)
-            };
-            let z = (h - sea) / step;
-            let (fl, fr) = (z.floor(), z - z.floor());
-            let g = {
-                let u = ((fr - 0.8) / 0.2).clamp(0.0, 1.0);
-                u * u * (3.0 - 2.0 * u)
-            };
-            let terr = sea + (fl + g) * step;
-            let nv = h + w * (terr - h);
-            if nv != h {
-                field[i] = nv as f32;
-                n += 1;
-            }
-        }
-    }
-    n
+pub fn flood_basalt_row(edifices: &[PlacedEdifice], field: &[f32], crust: &[f32], gw: usize, gh: usize, sea: f64, cell_km: f64) -> Option<PlacedEdifice> {
+    let (cx, cy, r, k) = flood_basalt_site(edifices, field, crust, gw, gh, sea, cell_km)?;
+    let p = edifices[k];
+    Some(PlacedEdifice {
+        setting: p.setting,
+        cx,
+        cy,
+        r,
+        h: 0.0,
+        kind: Some(EdificeKind::FloodBasalt),
+        age: p.age,
+        years: Some(years(&p).max(FLOOD_MIN_YEARS)),
+        crater: None,
+        rift_bearing: None,
+    })
 }
 
 #[cfg(test)]
@@ -1055,5 +1136,155 @@ mod tests {
         assert_eq!(idx.winner_at(61.9, 48.0).map(|h| h.index), Some(1), "out to the dome's rim");
         assert_eq!(idx.winner_at(62.5, 48.0).map(|h| h.index), Some(0), "past it, the parent");
         assert!((owner_value(&parent, 0.5) - 0.45).abs() < 1e-12, "(1 - 0.5)(1 - 0.1)");
+    }
+
+    /// Protects Ruling DJ item 2's relaxed maar site: a scoria cone whose
+    /// maar crater sits clear of a river but whose tuff ring would cross it
+    /// is admitted now (the whole-ring rule refused it), the river cells are
+    /// never raised by the ring, and a river through the crater itself still
+    /// refuses the site.
+    #[test]
+    fn a_maar_needs_only_its_crater_clear_and_never_dams_a_river() {
+        // 0.1 km a cell, so the tuff ring is several cells wide (at the
+        // census grid's 0.39 km it is under one cell and rounding hides it).
+        const K: f64 = 0.1;
+        let cone = ed(EdificeKind::Cinder, VolcanicSetting::Rift, 3_000.0, 48.0, 48.0, 8.0);
+        // Where the maar goes on open ground, and its crater radius.
+        let (mut f0, rain) = flat(0.5);
+        let mut r0 = vec![cone];
+        late_kinds(LateKinds { dome: false, maar: true }, &mut r0, &mut f0, GW, GH, SEA, &rain, None, K, MPU, 2.0);
+        let m = r0[1];
+        let crater_r = m.r / 1.6;
+        // A one-cell river column outside the crater, inside the ring.
+        let rx = (m.cx + crater_r + 0.5 * (m.r - crater_r)).round() as usize;
+        assert!((rx as f64 - m.cx) > crater_r + 1.0 && (rx as f64 - m.cx) < m.r - 1.0, "the river column lies on the ring: {rx} against {} / {crater_r} / {}", m.cx, m.r);
+        let mut chan = vec![0u8; GW * GH];
+        for y in 0..GH {
+            chan[y * GW + rx] = 1;
+        }
+        let (mut f, _) = flat(0.5);
+        let mut rows = vec![cone];
+        let rep = late_kinds(LateKinds { dome: false, maar: true }, &mut rows, &mut f, GW, GH, SEA, &rain, Some(&chan), K, MPU, 2.0);
+        assert_eq!(rep.maars, 1, "a river across the ring no longer refuses the site");
+        assert_eq!((rows[1].cx, rows[1].cy), (m.cx, m.cy), "the same site as on open ground");
+        for y in 0..GH {
+            assert_eq!(f[y * GW + rx], 0.5, "river cell {rx},{y} raised");
+        }
+        // The ring does rise beside the river (the control).
+        assert!(f.iter().any(|&v| v > 0.5), "the ring is stamped elsewhere");
+        // A river through the crater's centre refuses every bearing whose
+        // crater it crosses; with a river under every cell, none admits.
+        let all = vec![1u8; GW * GH];
+        let (mut fa, _) = flat(0.5);
+        let mut ra = vec![cone];
+        let repa = late_kinds(LateKinds { dome: false, maar: true }, &mut ra, &mut fa, GW, GH, SEA, &rain, Some(&all), K, MPU, 2.0);
+        assert_eq!((repa.maars, repa.refused_site), (0, 1));
+    }
+
+    /// A drift of 0 radians: the long axis along +x.
+    fn no_drift(_: f64, _: f64) -> f64 {
+        0.0
+    }
+
+    /// Protects the supervolcano rule (Ruling DJ item 3): of two hotspot
+    /// edifices on continental crust, the YOUNGER is chosen and named as the
+    /// parent; one on oceanic crust or with its apron off the land is never
+    /// chosen; with none on a continent there is no supervolcano. Semi-major
+    /// axis inside the cited 20-42 km (literals).
+    #[test]
+    fn the_supervolcano_sits_on_the_youngest_continental_hotspot() {
+        const N: usize = 1200;
+        let land = vec![0.6f32; N * N];
+        let crust = vec![1.0f32; N * N];
+        let old = ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 900_000.0, 600.0, 600.0, 20.0);
+        let young = ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 2_000.0, 610.0, 590.0, 20.0);
+        let arc = ed(EdificeKind::Strato, VolcanicSetting::Arc, 10.0, 600.0, 600.0, 20.0);
+        let rows = vec![arc, old, young];
+        let s = supervolcano_site(&rows, &land, &crust, N, N, SEA, KPC, &no_drift, false).expect("a continental hotspot");
+        assert_eq!(s.parent, Some(2), "the youngest hotspot edifice");
+        assert!(s.by_rule);
+        let a_km = s.a * KPC;
+        assert!((20.0..=42.0).contains(&a_km), "semi-major {a_km} km");
+        assert!((s.b / s.a - 0.53).abs() < 1e-12, "Yellowstone's aspect");
+        // Oceanic crust under every hotspot: none.
+        let ocean_crust = vec![-1.0f32; N * N];
+        assert_eq!(supervolcano_site(&rows, &land, &ocean_crust, N, N, SEA, KPC, &no_drift, false), None);
+        // The sea 30 cells (12 km) east of the young one: its apron is not on
+        // land, so it is refused.
+        let mut coast = land.clone();
+        for y in 0..N {
+            for x in 640..N {
+                coast[y * N + x] = 0.3;
+            }
+        }
+        let s2 = supervolcano_site(&rows, &coast, &crust, N, N, SEA, KPC, &no_drift, false);
+        assert!(s2.is_none_or(|s| s.parent != Some(2)), "an apron reaching the sea is refused");
+    }
+
+    /// Protects the supervolcano's row (Ruling DJ item 3): the parent row is
+    /// replaced in place (no other row and no index moves), as kind
+    /// `Supervolcano`, the apron's reach as its radius (2.2 semi-major axes),
+    /// the caldera rim and wall in `crater`, and at least 631 000 years --
+    /// extinct, so never an active vent -- while an older parent keeps its
+    /// years. The field is not touched (the function takes none).
+    #[test]
+    fn the_supervolcano_row_replaces_its_parent_as_an_old_quiet_caldera() {
+        let a = ed(EdificeKind::Strato, VolcanicSetting::Arc, 300.0, 10.0, 10.0, 8.0);
+        let parent = ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 20.0, 200.0, 200.0, 30.0);
+        let mut rows = vec![a, parent];
+        let s = SuperSite { cx: 200.0, cy: 200.0, a: 80.0, b: 42.4, angle: 0.0, by_rule: true, parent: Some(1) };
+        record_supervolcano(&mut rows, &s, MPU);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], a, "another row is untouched");
+        let r = rows[1];
+        assert_eq!(r.kind, Some(EdificeKind::Supervolcano));
+        assert!((r.r - 176.0).abs() < 1e-9, "2.2 x 80 cells");
+        assert_eq!(r.years, Some(631_000.0));
+        assert_eq!(crate::volcano_attr::activity(&r), Activity::Extinct);
+        let (fl, rim) = r.crater.unwrap();
+        assert!((rim - 1.0 / 2.2).abs() < 1e-12 && (fl - 0.85 / 2.2).abs() < 1e-12);
+        assert_eq!(r.age, parent.age, "the parent's draw is kept");
+        // An older parent keeps its own years.
+        let mut rows2 = vec![a, ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 2.0e6, 200.0, 200.0, 30.0)];
+        record_supervolcano(&mut rows2, &s, MPU);
+        assert_eq!(rows2[1].years, Some(2.0e6));
+        // It owns its whole disc over its old parent's neighbours.
+        assert!(crate::volcano_attr::owner_value(&r, 0.99) > 1.0);
+    }
+
+    /// Protects the flood basalt (Ruling DJ item 4): the row goes to the
+    /// OLDEST continental hotspot edifice with a stamped morphology, sized
+    /// for 100 000 km^2 (radius sqrt(1e5 / pi) km, a literal 178.4 km) or
+    /// 0.45 of the map's short side, at least 10^6.5 years old (extinct),
+    /// with no relief recorded; none without a continental hotspot; and a
+    /// stamped cone on the province still owns its own disc.
+    #[test]
+    fn the_flood_basalt_is_a_row_at_the_oldest_continental_hotspot() {
+        const N: usize = 1200;
+        let land = vec![0.6f32; N * N];
+        let crust = vec![1.0f32; N * N];
+        let young = ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 2_000.0, 600.0, 600.0, 20.0);
+        let old = ed(EdificeKind::Shield, VolcanicSetting::Hotspot, 900_000.0, 500.0, 600.0, 20.0);
+        let sv = PlacedEdifice { kind: Some(EdificeKind::Supervolcano), years: Some(5.0e6), ..old };
+        let rows = vec![young, old, sv];
+        let r = flood_basalt_row(&rows, &land, &crust, N, N, SEA, KPC).expect("a continental hotspot");
+        assert_eq!(r.kind, Some(EdificeKind::FloodBasalt));
+        assert_eq!((r.cx, r.cy), (500.0, 600.0), "the oldest stamped one, not the supervolcano row");
+        assert!((r.r * KPC - 178.412_411_615_277_1).abs() < 1e-6, "radius {} km", r.r * KPC);
+        assert!((r.years.unwrap() - 3_162_277.660_168_379).abs() < 1e-3);
+        assert_eq!(crate::volcano_attr::activity(&r), Activity::Extinct);
+        assert_eq!((r.h, r.crater), (0.0, None));
+        assert_eq!(crate::volcano_attr::summit_zone_t(&r), None, "a plateau has no summit zone");
+        // A small map caps the radius at 0.45 of its short side (literal).
+        let (sw, sh) = (300usize, 200usize);
+        let small = flood_basalt_row(&[PlacedEdifice { cx: 100.0, cy: 100.0, ..old }], &vec![0.6; sw * sh], &vec![1.0; sw * sh], sw, sh, SEA, KPC).unwrap();
+        assert!((small.r - 90.0).abs() < 1e-9);
+        assert_eq!(flood_basalt_row(&rows, &land, &vec![-1.0f32; N * N], N, N, SEA, KPC), None);
+        // Ownership: the cone on the province owns its centre and nearly all
+        // its disc; the province owns the ground off the cone.
+        let idx = crate::volcano_attr::VolcanoIndex::new(&[young, r], N, N);
+        assert_eq!(idx.winner_at(600.0, 600.0).map(|h| h.index), Some(0));
+        assert_eq!(idx.winner_at(615.0, 600.0).map(|h| h.index), Some(0), "three quarters out on the cone");
+        assert_eq!(idx.winner_at(650.0, 600.0).map(|h| h.index), Some(1), "off the cone, the province");
     }
 }

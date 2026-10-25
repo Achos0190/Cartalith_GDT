@@ -723,37 +723,50 @@ fn a_save_without_the_lava_bench_key_reloads_without_benches() {
     }
 }
 
-/// Protects: VA-6's load rule -- a save written before `volc.kind_dome` and
-/// `volc.kind_maar` existed reloads with neither (its volcanoes were
-/// generated without domes and maars), every other row still applies, and
-/// each key round-trips both ways. The fixture is a pre-VA-6 app save.
+/// Protects: VA-6's load rule (Rulings DG and DJ) -- a save written before
+/// the five kind keys (`volc.kind_dome`, `kind_maar`, `kind_caldera`,
+/// `kind_supervolcano`, `kind_flood_basalt`) reloads with all five off (its
+/// volcanoes were generated without them), every other row still applies,
+/// and each key round-trips both ways with the others held opposite. The
+/// fixture is a pre-VA-6 app save.
 #[test]
 fn a_save_without_the_va6_kind_keys_reloads_without_domes_or_maars() {
+    const KEYS: [&str; 5] = ["volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt"];
+    fn get(p: &cartalith_engine::WorldParams) -> [bool; 5] {
+        [p.volc.kind_dome, p.volc.kind_maar, p.volc.kind_caldera, p.volc.kind_supervolcano, p.volc.kind_flood_basalt]
+    }
+    fn set(p: &mut cartalith_engine::WorldParams, v: [bool; 5]) {
+        p.volc.kind_dome = v[0];
+        p.volc.kind_maar = v[1];
+        p.volc.kind_caldera = v[2];
+        p.volc.kind_supervolcano = v[3];
+        p.volc.kind_flood_basalt = v[4];
+    }
     let app = params::defaults();
-    assert!(app.volc.kind_dome && !app.volc.kind_maar, "the shipped app generates domes and no maars");
+    assert_eq!(get(&app), [true; 5], "the shipped app generates all five kinds (Rulings DG, DJ)");
     let mut old = params::defaults();
-    old.volc.kind_dome = false;
-    old.volc.kind_maar = false;
+    set(&mut old, [false; 5]);
     let mut state = params::save_state(&old);
     let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
-    assert!(native.remove("volc.kind_dome").is_some(), "save_state writes volc.kind_dome");
-    assert!(native.remove("volc.kind_maar").is_some(), "save_state writes volc.kind_maar");
+    for key in KEYS {
+        assert!(native.remove(key).is_some(), "save_state writes {key}");
+    }
     let rows = native.len();
     let mut p = params::defaults();
     assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of a pre-VA-6 save still applies");
     assert_eq!(p, old, "a pre-VA-6 save reloads as the world it was saved as");
     for on in [true, false] {
-        for key in ["volc.kind_dome", "volc.kind_maar"] {
+        for (k, key) in KEYS.iter().enumerate() {
+            let mut v = [!on; 5];
+            v[k] = on;
             let mut src = params::defaults();
-            src.volc.kind_dome = if key == "volc.kind_dome" { on } else { !on };
-            src.volc.kind_maar = if key == "volc.kind_maar" { on } else { !on };
+            set(&mut src, v);
             let state = params::save_state(&src);
-            assert_eq!(state[params::NATIVE_PARAMS_KEY][key], serde_json::json!(on));
+            assert_eq!(state[params::NATIVE_PARAMS_KEY][*key], serde_json::json!(on));
             let mut back = params::defaults();
-            back.volc.kind_dome = !src.volc.kind_dome;
-            back.volc.kind_maar = !src.volc.kind_maar;
+            set(&mut back, v.map(|b| !b));
             params::apply_saved_state(&mut back, &state);
-            assert_eq!((back.volc.kind_dome, back.volc.kind_maar), (src.volc.kind_dome, src.volc.kind_maar), "{key} {on}");
+            assert_eq!(get(&back), v, "{key} {on}");
         }
     }
 }
@@ -1135,9 +1148,12 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.tect.high_ceiling = false;
     // And Ruling DB item 2's lava benches, the same way.
     expect.volc.lava_bench = false;
-    // And VA-6's domes and maars, the same way.
+    // And VA-6's domes and maars, the same way; and Ruling DJ's three.
     expect.volc.kind_dome = false;
     expect.volc.kind_maar = false;
+    expect.volc.kind_caldera = false;
+    expect.volc.kind_supervolcano = false;
+    expect.volc.kind_flood_basalt = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1187,9 +1203,11 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)); and
 /// `volc.fill_edifice_pits` (Ruling CO, 2026-10-18,
 /// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)). (The count above is
-/// stale: the body asserts sixteen, the later ones being Ruling CU item 1's
+/// stale: the body asserts twenty, the later ones being Ruling CU item 1's
 /// orogen relief, Ruling CX items 1, 4 and 6, Ruling DB items 3 and 2's
-/// `tect.high_ceiling` and `volc.lava_bench`, and VA-6's `volc.kind_dome`.)
+/// `tect.high_ceiling` and `volc.lava_bench`, VA-6's `volc.kind_dome`, and
+/// owner Ruling DJ's `volc.kind_caldera`, `kind_maar`, `kind_supervolcano`
+/// and `kind_flood_basalt`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1214,13 +1232,12 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.tect.high_ceiling && !parity.tect.high_ceiling, "higher world ceiling, Ruling DB item 3");
     assert!(app.volc.lava_bench && !parity.volc.lava_bench, "lava benches, Ruling DB item 2");
     assert!(app.volc.kind_dome && !parity.volc.kind_dome, "lava domes, VA-6");
-    // VA-6's maar held its bars but did not read on the map: off at both.
-    assert!(!app.volc.kind_maar && !parity.volc.kind_maar, "VA-6 maars stay off");
-    // VA-6's three kinds that failed their bars are NOT divergences: off at
-    // both boundaries, like GF-2's processes.
-    assert!(!app.volc.kind_caldera && !parity.volc.kind_caldera, "VA-6 calderas failed their bars");
-    assert!(!app.volc.kind_supervolcano && !parity.volc.kind_supervolcano, "VA-6 supervolcano failed its bars");
-    assert!(!app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt failed its bars");
+    // Owner Ruling DJ (2026-10-25): the caldera age rule, the maar, the
+    // supervolcano and the render-only flood basalt.
+    assert!(app.volc.kind_caldera && !parity.volc.kind_caldera, "VA-6 calderas, Ruling DJ item 1");
+    assert!(app.volc.kind_maar && !parity.volc.kind_maar, "VA-6 maars, Ruling DJ item 2");
+    assert!(app.volc.kind_supervolcano && !parity.volc.kind_supervolcano, "VA-6 supervolcano, Ruling DJ item 3");
+    assert!(app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt, Ruling DJ item 4");
     assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
@@ -1235,8 +1252,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the sixteen must make the two identical --
-    // which catches a seventeenth divergence added without a ruling, in either
+    // And nothing else. Neutralising the twenty must make the two identical --
+    // which catches a twenty-first divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1255,10 +1272,14 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.tect.high_ceiling = false;
     neutral.volc.lava_bench = false;
     neutral.volc.kind_dome = false;
+    neutral.volc.kind_caldera = false;
+    neutral.volc.kind_maar = false;
+    neutral.volc.kind_supervolcano = false;
+    neutral.volc.kind_flood_basalt = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         sixteen authorised fields"
+         twenty authorised fields"
     );
 }
 

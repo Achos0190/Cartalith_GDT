@@ -1431,7 +1431,7 @@ impl VolcanoTrace {
 }
 
 /// The edifice morphologies this model distinguishes: the three the stampers
-/// draw ([`edifice_kind`]) and VA-6's two late kinds, which only
+/// draw ([`edifice_kind`]) and VA-6's four kinds, which only
 /// `volcano_kinds` makes.
 ///
 /// `pub` since VA-1 (Ruling CW) so the per-volcano record
@@ -1457,6 +1457,19 @@ pub enum EdificeKind {
     /// below the ground in a low tuff ring, beside a scoria cone where the
     /// ground holds water. Never drawn by [`edifice_kind`].
     Maar,
+    /// VA-6 supervolcano (owner Ruling DJ item 3, 2026-10-25): an old, quiet
+    /// collapse caldera with an ash apron where a hotspot sits under a
+    /// continent (`volcano_kinds::supervolcano_site`). Never drawn by
+    /// [`edifice_kind`]: the youngest continental hotspot edifice's row is
+    /// re-kinded to it once its caldera is stamped
+    /// (`volcano_kinds::record_supervolcano`); at most one a world.
+    Supervolcano,
+    /// VA-6 flood basalt (owner Ruling DJ item 4): a large igneous province
+    /// at the old end of a continental hotspot track, **render-only** -- it
+    /// never moves the height field; its row only tells Satellite relief to
+    /// draw a dark trap plateau (`volcano_kinds::flood_basalt_row`). Never
+    /// drawn by [`edifice_kind`].
+    FloodBasalt,
 }
 
 /// One edifice morphology's shape constants, for `h(t) = H*(1 - t^a)^b` over
@@ -1530,6 +1543,22 @@ fn edifice_shape(kind: EdificeKind) -> EdificeShape {
             depth: 0.0,
             rough: 0.0,
         },
+        // Ruling DJ: a supervolcano row's radius is its ash apron's reach
+        // along the caldera's long axis (`SUPER_APRON_OUT` semi-major axes),
+        // so the caldera's rim is `1 / SUPER_APRON_OUT` of it and its floor
+        // the ring-fault wall's inner edge (`0.85` of the rim, the stamp's
+        // own wall). The row records the same pair in `crater`; this row is
+        // the fallback a reader without it gets. A flood basalt has no
+        // summit depression (`volcano_attr::summit_zone_t` answers `None`).
+        EdificeKind::Supervolcano => EdificeShape {
+            a: 1.0,
+            b: 1.0,
+            rim: 1.0 / volcano_kinds::SUPER_APRON_OUT,
+            floor: 0.85 / volcano_kinds::SUPER_APRON_OUT,
+            depth: 0.0,
+            rough: 0.0,
+        },
+        EdificeKind::FloodBasalt => EdificeShape { a: 1.0, b: 1.0, rim: 0.0, floor: 0.0, depth: 0.0, rough: 0.0 },
     }
 }
 

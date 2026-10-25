@@ -957,7 +957,11 @@ impl LodSnapshot {
                 g: gravity,
                 meters_per_unit: if (1.0 - sea_level).abs() > 1e-9 { peak_m / (1.0 - sea_level) } else { peak_m / 1e-6 },
             };
-            let tf = TileFields::new(&ctx, grid_rgb.as_deref()).with_cryo(glacier, cryo);
+            // Owner Ruling DJ item 2: the maar lakes the base map keeps
+            // under the lake-area floor, kept here too.
+            let tf = TileFields::new(&ctx, grid_rgb.as_deref())
+                .with_cryo(glacier, cryo)
+                .with_maar_lakes(&ctx, litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()));
             // Ruling BO: the forced lakes the base map draws, drawn here too.
             match forced_lakes.as_deref() {
                 Some(m) => tf.with_forced_lakes(m),

@@ -4651,7 +4651,9 @@ fn compute_civilisation(
     // so a live sea-level move (`sea_live_bridge`) that refreshes
     // `CivData::water_bodies` from the drawn classification holds exactly
     // what this pass would have built at that level.
-    let mut wb = sea_live_bridge::water_bodies_at(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes);
+    // Owner Ruling DJ item 2: the world's own table, so a maar's lake stands
+    // under the lake-area floor here as on the drawn map.
+    let mut wb = sea_live_bridge::water_bodies_at(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
@@ -7425,15 +7427,17 @@ impl WorldGen {
     /// (`render::shore_field_forced`). A world with no forced lake gets the
     /// classification byte-identical to before this post-pass existed.
     pub(crate) fn drawn_water_bodies(&self) -> Option<cartalith_civ::WaterBodies> {
-        let (field, rainfall) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice()),
-            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice()),
+        // Owner Ruling DJ item 2: a generated world's table keeps its maar
+        // lakes under the floor; a loaded save carries no table here.
+        let (field, rainfall, table) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice(), ws.volcanoes.as_deref().map(|v| v.as_slice())),
+            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice(), None),
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if gw == 0 || gh == 0 || field.len() < gw * gh {
             return None;
         }
-        Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref()))
+        Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref(), table))
     }
 
     /// Clears [`Self::forced_lakes`] and moves [`Self::forced_lakes_epoch`],
@@ -14943,7 +14947,8 @@ impl WorldGen {
         // Ruling CC's floor and Ruling BO's forced lakes, the ones
         // `build_color_texture` draws, so the preview does not make a forced
         // lake vanish (or a floored pond appear) while a stroke is drafted.
-        let lakes = render::water_bodies_floored(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask()).classification;
+        // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
+        let lakes = render::water_bodies_floored_keep(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask(), ws.volcanoes.as_deref().map(|v| v.as_slice())).classification;
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,

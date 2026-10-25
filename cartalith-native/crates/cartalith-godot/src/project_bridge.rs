@@ -5071,14 +5071,16 @@ impl WorldGen {
         // Otherwise classified from the terrain -- from either source: a
         // project reopened with its substrate is `Generated` (§8.3), and this
         // used to answer all-land for it because only `Loaded` was matched.
-        let (field, rain): (&[f32], &[f32]) = match self.source.as_ref() {
-            Some(WorldSource::Loaded(save)) => (&save.fields.heightmap, &save.fields.rainfall),
-            Some(WorldSource::Generated(ws)) => (&ws.field, &ws.rainfall),
+        // Owner Ruling DJ item 2: a generated world's table keeps its maar
+        // lakes under the floor, as the drawn map does.
+        let (field, rain, table): (&[f32], &[f32], Option<&[cartalith_terrain::PlacedEdifice]>) = match self.source.as_ref() {
+            Some(WorldSource::Loaded(save)) => (&save.fields.heightmap, &save.fields.rainfall, None),
+            Some(WorldSource::Generated(ws)) => (&ws.field, &ws.rainfall, ws.volcanoes.as_deref().map(|v| v.as_slice())),
             // No world: nothing to classify.
             None => return std::sync::Arc::from(vec![0u8; n].as_slice()),
         };
         // Ruling CC's floor, as the drawn map applies it; no mask, as before.
-        let wb = crate::render::water_bodies_floored(field, rain, gw, gh, self.sea_level, self.world, None);
+        let wb = crate::render::water_bodies_floored_keep(field, rain, gw, gh, self.sea_level, self.world, None, table);
         std::sync::Arc::from(wb.classification.as_slice())
     }
 

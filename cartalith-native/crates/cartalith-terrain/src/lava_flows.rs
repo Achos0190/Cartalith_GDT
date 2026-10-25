@@ -213,7 +213,9 @@ pub struct LavaFlow {
 pub fn flank_log_years(kind: EdificeKind) -> Option<f64> {
     match kind {
         // A dome and a maar (VA-6) are monogenetic, like a scoria cone.
-        EdificeKind::Cinder | EdificeKind::Dome | EdificeKind::Maar => None,
+        // Ruling DJ: a supervolcano's surface is its one caldera eruption's
+        // ignimbrite, and a flood basalt's age is the province's own.
+        EdificeKind::Cinder | EdificeKind::Dome | EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt => None,
         EdificeKind::Strato => Some(4.5),
         EdificeKind::Shield => Some(5.0),
     }
@@ -231,6 +233,9 @@ fn flow_count(kind: EdificeKind) -> usize {
         // VA-6: a dome's viscous lava piles up over its vent instead of
         // flowing (its own stamp is the dome); a maar erupts tephra, not lava.
         EdificeKind::Dome | EdificeKind::Maar => 0,
+        // Ruling DJ: both are old and quiet by construction (no young vent
+        // sends a flow); `trace` skips them too.
+        EdificeKind::Supervolcano | EdificeKind::FloodBasalt => 0,
     }
 }
 
@@ -242,7 +247,7 @@ fn length_band(kind: EdificeKind, basaltic: bool) -> (f64, f64) {
         (EdificeKind::Strato, false) => (1.5, 8.0),
         (EdificeKind::Cinder, _) => (1.0, 8.0),
         // Never read: `flow_count` is 0 for both, and `trace` skips them.
-        (EdificeKind::Dome | EdificeKind::Maar, _) => (0.0, 0.0),
+        (EdificeKind::Dome | EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt, _) => (0.0, 0.0),
     }
 }
 
@@ -767,7 +772,8 @@ impl LavaFlows {
             let Some(kind) = e.kind else { continue };
             // VA-6's domes and maars erupt no flow (`flow_count`), and a
             // maar's parent setting must not open a fissure from it.
-            if matches!(kind, EdificeKind::Dome | EdificeKind::Maar) {
+            // Ruling DJ's supervolcano and flood basalt send none either.
+            if matches!(kind, EdificeKind::Dome | EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt) {
                 continue;
             }
             if !(e.cx.is_finite() && e.cy.is_finite() && e.r.is_finite() && e.r > 0.0) {

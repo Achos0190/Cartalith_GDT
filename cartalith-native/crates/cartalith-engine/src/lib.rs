@@ -491,13 +491,14 @@ pub struct VolcanismParams {
     /// keeps VA-5's summit crater (`cartalith_terrain::volcano_kinds::
     /// reprofile_calderas`), replacing VA-5's hash-picked caldera share.
     /// Needs [`Self::morphometry`] and the volcano table. Applied after the
-    /// sea level is settled, so no coast moves through the solve.
+    /// sea level is settled, so the sea level is unchanged by construction.
     ///
-    /// **Off at both boundaries: it failed its bars** (measured 2026-10-25 on
-    /// six census worlds, `STATUS.md`): settlements within 3 cells 0.775 and
-    /// 0.786 on 71077345 and seed 8, outlets within 5 cells 98.27 % and
-    /// 92.00 % on 24601 and seed 8, 1-3-cell lakes x1.25 and x0.79 on 24601
-    /// and 246371. Kept, unbuilt, so the measurement reproduces.
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**
+    /// since owner Ruling DJ item 1 (2026-10-25) accepted the age rule as a
+    /// disclosed re-baseline that moves settlements, outlets and small lakes
+    /// near the old stratocones (`DECISIONS.md` §7p; the moves and the
+    /// caldera diameters are measured in `STATUS.md`). A save without the key
+    /// reloads `false`.
     pub kind_caldera: bool,
     /// VA-6: a lava dome on the upper flank of every active or dormant arc
     /// stratocone (`volcano_kinds::late_kinds`), stamped on the finished
@@ -509,32 +510,43 @@ pub struct VolcanismParams {
     /// §7p). A save without the key reloads `false`.
     pub kind_dome: bool,
     /// VA-6: a maar beside every scoria cone whose ground holds water (wet
-    /// climate or the coast near), stamped on the finished field off river
-    /// cells; one volcano-table row each (kind `maar`).
+    /// climate or the coast near), stamped on the finished field; only its
+    /// crater must keep clear of rivers, the sea and other summits (owner
+    /// Ruling DJ item 2 relaxed the site rule from the whole tuff ring), and
+    /// its ring never raises a river or sea cell. One volcano-table row each
+    /// (kind `maar`). Its lake stands under the app's lake-area floor
+    /// (`cartalith_civ::apply_lake_area_floor`'s maar exemption).
     ///
-    /// **Off at both boundaries**: it held the water and settlement bars, but
-    /// its rules admitted one maar on six worlds, whose 3-cell lake falls
-    /// under the app's lake-area floor (Ruling CC: 4 cells at 2048 x 1311),
-    /// and it did not read at any zoom (`STATUS.md`, 2026-10-25). Left for
-    /// the owner.
+    /// **`false` here; at the app boundary as `STATUS.md`'s VA-6 entry
+    /// records** (Ruling DJ item 2: on if its bars hold). A save without the
+    /// key reloads `false`.
     pub kind_maar: bool,
-    /// VA-6 measurement prototype, **off at both boundaries: failed its
-    /// bars**: a supervolcano caldera where a hotspot sits under continental
-    /// crust far from the sea (at most one a world; admitted on 5 of 40
-    /// classic and 0 of 40 archipelago worlds). Where admitted it moved
-    /// outlets within 5 cells to 96.78 % (314159) and settlements within 3
-    /// cells to 0.700 (246371).
+    /// VA-6 (owner Ruling DJ item 3, 2026-10-25): a supervolcano where a
+    /// hotspot sits under continental crust with its caldera and ash apron
+    /// on land -- zero or one a world, usually none -- stamped as a 20-42 km
+    /// elliptical collapse with two resurgent domes and a 150 m ash apron,
+    /// and recorded as an old quiet caldera (`volcano_kinds::
+    /// record_supervolcano`: the youngest continental hotspot edifice's row,
+    /// at least 631 ka, never an active vent).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**:
+    /// the owner exempted this one rare feature from Ruling CX's bars; its
+    /// local effects are measured in `STATUS.md`. A save without the key
+    /// reloads `false`.
     pub kind_supervolcano: bool,
-    /// VA-6 measurement prototype, **off at both boundaries: failed its
-    /// bars** on every world it reached (outlets within 5 cells 75.88-96.98 %,
-    /// settlements within 3 cells 0.350-0.775): a stepped flood-basalt
-    /// plateau at the old end of a continental hotspot track, at the
-    /// 100 000 km^2 a large igneous province needs, which is a quarter of an
-    /// 800 km map.
+    /// VA-6 (owner Ruling DJ item 4, 2026-10-25): a flood-basalt province at
+    /// the old end of a continental hotspot track (100 000 km^2, the large
+    /// igneous province minimum), **render-only**: one volcano-table row
+    /// (`volcano_kinds::flood_basalt_row`) that Satellite relief draws as a
+    /// dark basalt plateau with trap steps; it never moves the height field
+    /// (the terraced prototype, which failed every bar, is gone).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**. A
+    /// save without the key reloads `false`.
     pub kind_flood_basalt: bool,
-    /// Measurement only (the VA-6 census): place the supervolcano and the
-    /// flood basalt at the most interior continental ground when no hotspot
-    /// rule admits one, to measure what one would change. Never on in the app.
+    /// Measurement only (the VA-6 census): place the supervolcano at the
+    /// most interior continental ground when no hotspot rule admits one, to
+    /// measure what one would change. Never on in the app.
     pub kinds_force_rare: bool,
 }
 
@@ -2932,12 +2944,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         p.sea_level
     };
 
-    // ---- VA-6 old volcano kinds (calderas, supervolcano, flood basalt) ----
+    // ---- VA-6 old volcano kinds (calderas, the supervolcano) ----
     // After the sea level is settled, so a World Structure world's solve
     // reads the field without them and no coast moves through it; before the
     // geology column and erosion, which act on them as on every edifice.
     // Each is off in `WorldParams::defaults`, so the parity path skips them
-    // by control flow. See `VolcanismParams::kind_caldera`.
+    // by control flow. See `VolcanismParams::kind_caldera`. The flood basalt
+    // (Ruling DJ item 4) is render-only and placed with the late kinds.
+    // The supervolcano's site, kept for its table row, which is written
+    // after the geology column has read the stamped rows (so the column
+    // reads exactly the rows it read before the ruling).
+    let mut super_site: Option<cartalith_terrain::volcano_kinds::SuperSite> = None;
     if let Some(t) = volcano_trace.as_mut() {
         let cell_km = p.map_width_km / gw as f64;
         let m_per_unit = p.peak_m / (1.0 - sea_level).max(1e-6);
@@ -2948,15 +2965,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             let pid = plate_id[(y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1)] as usize;
             plates[pid].vy.atan2(plates[pid].vx)
         };
-        if p.volc.kind_flood_basalt
-            && let Some((cx, cy, r)) = cartalith_terrain::volcano_kinds::flood_basalt_site(&t.edifices, &field, &base_raw, gw, gh, sea_level, cell_km, p.volc.kinds_force_rare)
-        {
-            cartalith_terrain::volcano_kinds::terrace_flood_basalt(&mut field, gw, gh, sea_level, cx, cy, r, m_per_unit);
-        }
         if p.volc.kind_supervolcano
             && let Some(s) = cartalith_terrain::volcano_kinds::supervolcano_site(&t.edifices, &field, &base_raw, gw, gh, sea_level, cell_km, &drift, p.volc.kinds_force_rare)
         {
             cartalith_terrain::volcano_kinds::stamp_supervolcano(&mut field, &mut volcanic_field, gw, gh, &s, m_per_unit, world_top);
+            super_site = Some(s);
         }
     }
 
@@ -3879,6 +3892,14 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let max_depth = cartalith_terrain::geology::m_to_norm(tune.breach_max_depth_m, sea_level, p.peak_m);
         cartalith_terrain::orogen::breach_belt_pits(gw, gh, &mut field, &mask, sea_level, max_depth);
     }
+    // Ruling DJ item 3: the supervolcano stamped above becomes its hotspot
+    // parent's row (an old quiet caldera), before the late kinds read the
+    // table's summit zones and before the dry craters and the flows read
+    // activity. Moves no cell. See `VolcanismParams::kind_supervolcano`.
+    if let (Some(s), Some(v)) = (super_site.as_ref(), volcanoes.as_mut()) {
+        let m_per_unit = p.peak_m / (1.0 - sea_level).max(1e-6);
+        cartalith_terrain::volcano_kinds::record_supervolcano(Arc::make_mut(v), s, m_per_unit);
+    }
     // VA-6 young volcano kinds (lava domes, maars): stamped on the finished
     // field, off river cells, and appended to the volcano table, before the
     // dry craters and the benches read it. Off in `WorldParams::defaults`.
@@ -3890,6 +3911,16 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let which = cartalith_terrain::volcano_kinds::LateKinds { dome: p.volc.kind_dome, maar: p.volc.kind_maar };
         let chan = channels.as_ref().map(|c| c.chan.as_slice());
         cartalith_terrain::volcano_kinds::late_kinds(which, Arc::make_mut(v), &mut field, gw, gh, sea_level, &rainfall, chan, p.map_width_km / gw as f64, m_per_unit, world_top);
+    }
+    // Ruling DJ item 4: the flood basalt, render-only -- one row appended
+    // last (no index moves), placed on the finished field; it never moves a
+    // cell. Off in `WorldParams::defaults`. See
+    // `VolcanismParams::kind_flood_basalt`.
+    if p.volc.kind_flood_basalt
+        && let Some(v) = volcanoes.as_mut()
+        && let Some(row) = cartalith_terrain::volcano_kinds::flood_basalt_row(v, &field, &base_raw, gw, gh, sea_level, p.map_width_km / gw as f64)
+    {
+        Arc::make_mut(v).push(row);
     }
     // Owner Ruling CX item 6 (2026-10-24): an active volcano keeps a dry
     // crater. Last of the field's shaping steps, so nothing after it can pool

@@ -2634,6 +2634,16 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         let which = cartalith_terrain::volcano_kinds::LateKinds { dome: p.volc.kind_dome, maar: p.volc.kind_maar };
         cartalith_terrain::volcano_kinds::late_kinds(which, std::sync::Arc::make_mut(v), &mut field, gw, gh, sea, &rainfall, Some(&ch.chan), p.map_width_km / gw as f64, p.peak_m / (1.0 - sea).max(1e-6), 1.0);
     }
+    // Owner Ruling DJ item 4's render-only flood-basalt row, appended last
+    // on the finished field, as `generate_terrain_inner` appends it. (The
+    // calderas and the supervolcano are applied before erosion, so `pre`
+    // already carries them and the supervolcano's row.)
+    if p.volc.kind_flood_basalt
+        && let Some(v) = volcanoes.as_mut()
+        && let Some(row) = cartalith_terrain::volcano_kinds::flood_basalt_row(v, &field, &pre.crust_field, gw, gh, sea, p.map_width_km / gw as f64)
+    {
+        std::sync::Arc::make_mut(v).push(row);
+    }
     // Owner Ruling CX item 6's dry active craters, after it, as
     // `generate_terrain_inner` runs them (`VolcanismParams::dry_active_craters`,
     // on in the app): only active summit zones move.
@@ -2692,6 +2702,9 @@ fn pre_erosion(p: &WorldParams) -> WorldState {
     // applies them).
     pp.volc.kind_dome = false;
     pp.volc.kind_maar = false;
+    // And Ruling DJ's flood-basalt row (appended after them; [`tail`]
+    // appends it).
+    pp.volc.kind_flood_basalt = false;
     generate_terrain(&pp)
 }
 

@@ -5535,13 +5535,28 @@ impl<'a> RenderCtx<'a> {
     /// look draws them (`lava_flows > 0`) and the index was built with
     /// them (`VolcanoIndex::with_lava_flows`); a flow reaches ground off
     /// every edifice, so the answer is `Some` there too.
+    ///
+    /// Owner Ruling DJ item 4: the pixel carries the world's own height at
+    /// `(gx, gy)` in metres above the sea (`VolcanoPx::h_m`: the water
+    /// height, bilinear, so the screen, the export and every tile read the
+    /// same value at the same point; `NaN` when the peak altitude is
+    /// unknown), for the flood basalt's trap steps, which follow the
+    /// ground's broad contours. Not a tile's amplified height: on that the
+    /// steps broke into noise at x64 (s314159, 2026-10-25).
     pub fn volcano_at(&self, gx: f64, gy: f64, cells_per_px: f64) -> Option<volcano_look::VolcanoPx> {
         if self.appearance.volcano_look <= 0.0 {
             return None;
         }
         let index = self.volcanoes?;
         let kpc = self.km_per_cell()?;
-        volcano_look::sample_px(index, gx, gy, kpc, cells_per_px * kpc, self.appearance.lava_flows > 0.0)
+        let peak = self.appearance.npr.peak_m;
+        let denom = 1.0 - self.sea_level;
+        let h_m = if peak.is_finite() && peak > 0.0 && denom > 1e-9 {
+            (sample_arr(self.water_height(), gx, gy, self.gw, self.gh) - self.sea_level) * peak / denom
+        } else {
+            f64::NAN
+        };
+        volcano_look::sample_px(index, gx, gy, kpc, cells_per_px * kpc, self.appearance.lava_flows > 0.0).map(|v| volcano_look::VolcanoPx { h_m, ..v })
     }
 
     /// Owner Ruling CX item 5: `lake` (a lake pixel's finished colour from
@@ -7351,6 +7366,21 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         let k = g.bare * (snow_k + (1.0 - snow_k) * g.over_snow) * appearance.volcano_look.min(1.0);
         if k > 0.0 {
             c = mix(c, g.rock, k);
+        }
+        // Owner Ruling DJ item 4: on a flood basalt that owns the pixel, the
+        // trap steps -- dark riser bands following the drawn ground's
+        // contours (`volcano_look::trap_riser`), on its footprint, under the
+        // same snow rule. Render-only: the height field is not terraced.
+        // Every other pixel, and a context without the real slope, skips it
+        // by control flow.
+        if let (Some(v), Some(deg)) = (volc, slope_deg)
+            && let Some(p) = v.edifice
+            && p.a.kind == cartalith_terrain::EdificeKind::FloodBasalt
+        {
+            let rk = volcano_look::trap_riser_at(v.h_m, deg, p.a.px_km, p.a.p_km) * g.vis * snow_k * appearance.volcano_look.min(1.0);
+            if rk > 0.0 {
+                c = mix(c, volcano_look::trap_riser_rock(), rk);
+            }
         }
     }
 
@@ -12276,6 +12306,25 @@ impl<'a> TileFields<'a> {
         self
     }
 
+    /// Owner Ruling DJ item 2: the maar lakes Ruling CC's floor dropped, back
+    /// (`keep_maar_lakes`), so the deep-zoom tiles draw the water the base
+    /// map draws (`water_bodies_floored_keep`). `ctx` must be the context
+    /// these fields were built from (its water height and rainfall are
+    /// re-classified without the floor to find the pooled crater cells).
+    /// `None`, a table with no maar, or a field whose lakes are off is left
+    /// alone, so every world without a maar is byte-identical.
+    #[allow(dead_code)]
+    pub fn with_maar_lakes(mut self, ctx: &RenderCtx, table: Option<&[cartalith_terrain::PlacedEdifice]>) -> Self {
+        let n = self.gw * self.gh;
+        let Some(v) = table.filter(|v| v.iter().any(|e| e.kind == Some(cartalith_terrain::EdificeKind::Maar))) else { return self };
+        if self.lake_class.len() != n || ctx.gw != self.gw || ctx.gh != self.gh {
+            return self;
+        }
+        let raw = cartalith_civ::build_water_bodies(ctx.water_height(), self.gw, self.gh, ctx.sea_level, ctx.world, Some(ctx.rainfall)).classification;
+        keep_maar_lakes(self.lake_class.to_mut(), &raw, v, self.gw, self.gh);
+        self
+    }
+
     /// Retained bytes, for the scope's own budget line. Counts the five
     /// rasters; the two `usize`s, the two enums and [`TileCryo`]'s three
     /// `f64`s are not worth counting and are not counted, which is stated so
@@ -14154,12 +14203,66 @@ pub fn apply_forced_lakes(classification: &mut [u8], forced: Option<&[u8]>) {
 /// byte-identical to the bare `build_water_bodies` + forced-lakes pair it
 /// replaced. Must never be given a `rainfall` other than the one the world
 /// was classified with, or a `field` other than its water height.
+///
+/// Owner Ruling DJ item 2 (2026-10-25): a maar's lake stands under the
+/// floor. `keep` is the world's volcano table (`WorldState::volcanoes`);
+/// every cell inside a maar row's crater that the classifier pooled as lake
+/// is a lake again after the floor ([`keep_maar_lakes`]). `None`, or a table
+/// with no maar, is exactly the floor as before. A caller with the world's
+/// table passes it, so every drawn path keeps the same maar lakes.
 #[allow(clippy::too_many_arguments, dead_code)]
 pub fn water_bodies_floored(field: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea: f64, world: bool, forced: Option<&[u8]>) -> cartalith_civ::WaterBodies {
+    water_bodies_floored_keep(field, rainfall, gw, gh, sea, world, forced, None)
+}
+
+/// [`water_bodies_floored`] with the maar exemption's table (`keep`).
+#[allow(clippy::too_many_arguments, dead_code)]
+pub fn water_bodies_floored_keep(field: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea: f64, world: bool, forced: Option<&[u8]>, keep: Option<&[cartalith_terrain::PlacedEdifice]>) -> cartalith_civ::WaterBodies {
     let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, sea, world, Some(rainfall));
+    // Only a table holding a maar pays for the clone below; `keep_maar_lakes`
+    // filters by kind itself, so dropping this filter changes no output (an
+    // equivalent mutant, 2026-10-25) -- it is a cost guard, not a rule.
+    let maars = keep.filter(|v| v.iter().any(|e| e.kind == Some(cartalith_terrain::EdificeKind::Maar)));
+    let before = maars.map(|_| wb.classification.clone());
     cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, cartalith_civ::lake_area_floor_cells(gw, gh));
+    if let (Some(v), Some(b)) = (maars, before.as_deref()) {
+        keep_maar_lakes(&mut wb.classification, b, v, gw, gh);
+    }
     apply_forced_lakes(&mut wb.classification, forced);
     wb
+}
+
+/// **Owner Ruling DJ item 2: a small maar lake stands.** Restores to lake
+/// (`2`) every cell inside a maar row's crater (its rim, `volcano_attr::
+/// zones`, times its radius) that was lake in `before` (the classification
+/// before Ruling CC's floor) and is not lake now. Only cells the classifier
+/// itself pooled: it never makes water where none pools. Returns the cells
+/// restored. Must never touch a cell outside a maar crater.
+pub fn keep_maar_lakes(class: &mut [u8], before: &[u8], edifices: &[cartalith_terrain::PlacedEdifice], gw: usize, gh: usize) -> usize {
+    let n = gw * gh;
+    if class.len() != n || before.len() != n {
+        return 0;
+    }
+    let mut k = 0;
+    for e in edifices.iter().filter(|e| e.kind == Some(cartalith_terrain::EdificeKind::Maar)) {
+        let Some((_, rim)) = cartalith_terrain::volcano_attr::zones(e) else { continue };
+        let rr = e.r * rim;
+        if !(rr.is_finite() && rr > 0.0) {
+            continue;
+        }
+        let (x0, x1) = ((e.cx - rr).floor().max(0.0) as usize, ((e.cx + rr).ceil().max(0.0) as usize).min(gw - 1));
+        let (y0, y1) = ((e.cy - rr).floor().max(0.0) as usize, ((e.cy + rr).ceil().max(0.0) as usize).min(gh - 1));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let i = y * gw + x;
+                if (x as f64 - e.cx).hypot(y as f64 - e.cy) <= rr && before[i] == 2 && class[i] != 2 {
+                    class[i] = 2;
+                    k += 1;
+                }
+            }
+        }
+    }
+    k
 }
 
 /// The grid's B4 biome-boundary distance (`sdf_biomes`): the water-body

@@ -5351,6 +5351,10 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
             // a dome has no crater to stain, a dry maar is still a maar.
             (_, EdificeKind::Dome) => "lava dome",
             (_, EdificeKind::Maar) => "maar",
+            // Ruling DJ's two, likewise named by their form: both are
+            // recorded old and quiet.
+            (_, EdificeKind::Supervolcano) => "supervolcano caldera",
+            (_, EdificeKind::FloodBasalt) => "flood basalt plateau",
             (Activity::Active, EdificeKind::Shield) => "active lava lake",
             (Activity::Active, EdificeKind::Cinder) => "active cone",
             (Activity::Active, EdificeKind::Strato) if e.crater.is_some() => "active crater",

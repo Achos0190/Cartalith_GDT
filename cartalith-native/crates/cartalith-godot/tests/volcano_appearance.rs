@@ -378,6 +378,98 @@ fn a_dome_is_pale_dacite_and_a_maar_holds_a_plain_lake() {
     assert_ne!(volcano_look::crater_lake(&ci, 30.3, 30.2, 0.4, 0.01, base, 1.0), base, "control: an active cone's crater lake is acid");
 }
 
+/// Protects owner Ruling DJ's two looks. A **supervolcano** reads the tephra
+/// slot (ignimbrite) and never glows or tints its caldera lake acid -- even
+/// a row whose years say active (the kind itself is quiet, "not an active
+/// vent") -- while an active stratocone at the same place does (control). A
+/// **flood basalt** reads the basalt slot, and its trap riser
+/// (`volcano_look::trap_riser`) is, against literals: 0 on flat ground (0.2
+/// degrees), the
+/// full 0.55 inside a step's top quarter (55 m of a 60 m step) on a 20-degree
+/// slope at 1 m a pixel, 0 on the tread (30 m), the mean 0.25 x 0.55 at
+/// both heights once the band is under the zoom law's Nyquist width (1 km a
+/// pixel), and 0 for an unknown height.
+#[test]
+fn a_supervolcano_is_quiet_ignimbrite_and_a_flood_basalt_has_trap_steps() {
+    let a = sat();
+    let row = |kind: EdificeKind, years: f64, crater: Option<(f64, f64)>| PlacedEdifice {
+        setting: VolcanicSetting::Hotspot,
+        cx: 40.0,
+        cy: 30.0,
+        r: 22.0,
+        h: 0.03,
+        kind: Some(kind),
+        age: 0.1,
+        years: Some(years),
+        crater,
+        rift_bearing: None,
+    };
+    let grid = |idx: &VolcanoIndex, rr: f64| -> Vec<volcano_look::VolcanoGround> {
+        (0..121)
+            .filter_map(|k| {
+                let (x, y) = (40.0 + ((k % 11) as f64 / 10.0 - 0.5) * rr, 30.0 + ((k / 11) as f64 / 10.0 - 0.5) * rr);
+                volcano_look::sample(idx, x, y, 1.0, 0.002).map(|v| volcano_look::ground(&a, &v, 0.2, 0.5))
+            })
+            .collect()
+    };
+    let caldera = Some((0.85 / 2.2, 1.0 / 2.2));
+    let sv = VolcanoIndex::new(&[row(EdificeKind::Supervolcano, 20.0, caldera)], 96, 64);
+    let g = grid(&sv, 20.0);
+    assert!(g.len() > 100 && g.iter().all(|g| g.glow.is_none()), "a supervolcano never glows, whatever its years");
+    assert!(g.iter().all(|g| g.lith == LithoSample::One(volcano_look::LITH_TEPHRA)), "its caldera and apron are ignimbrite");
+    let base = (40.0, 70.0, 110.0);
+    let quiet = VolcanoIndex::new(&[row(EdificeKind::Supervolcano, 631_000.0, caldera)], 96, 64);
+    assert_eq!(volcano_look::crater_lake(&quiet, 40.5, 30.2, 1.0, 0.01, base, 1.0), base, "its caldera lake keeps the lake palette");
+    let hot = VolcanoIndex::new(&[PlacedEdifice { setting: VolcanicSetting::Arc, ..row(EdificeKind::Strato, 20.0, Some((0.05, 0.12))) }], 96, 64);
+    assert!(grid(&hot, 4.0).iter().any(|g| g.glow.is_some()), "control: an active stratocone there glows");
+    let fb = VolcanoIndex::new(&[PlacedEdifice { h: 0.0, ..row(EdificeKind::FloodBasalt, 3.2e6, None) }], 96, 64);
+    assert!(grid(&fb, 20.0).iter().all(|g| g.lith == LithoSample::One(1) && g.glow.is_none()), "a flood basalt is basalt and quiet");
+    let r = volcano_look::trap_riser;
+    assert_eq!(r(55.0, 0.2, 0.001), 0.0, "flat ground (0.2 degrees) shows no riser");
+    assert!((r(55.0, 20.0, 0.001) - 0.55).abs() < 1e-9, "inside a step's top quarter: {}", r(55.0, 20.0, 0.001));
+    assert_eq!(r(30.0, 20.0, 0.001), 0.0, "on the tread");
+    assert!((r(55.0, 20.0, 1.0) - 0.25 * 0.55).abs() < 1e-9 && (r(30.0, 20.0, 1.0) - 0.25 * 0.55).abs() < 1e-9, "under Nyquist the band's mean");
+    assert_eq!(r(f64::NAN, 20.0, 0.001), 0.0);
+}
+
+/// Protects owner Ruling DJ item 2's maar exemption: on the census grid
+/// (2048 x 1311, where Ruling CC's floor is 4 cells) two identical 3-cell
+/// pits both fall under the floor, but with the volcano table one inside a
+/// maar's crater stands (`water_bodies_floored_keep`), the other does not;
+/// without a table, or with a table holding no maar, the result is the
+/// floor's exactly; `keep_maar_lakes` restores 3 cells, none outside.
+#[test]
+fn a_maar_lake_stands_under_the_lake_area_floor() {
+    let (gw, gh) = (2048usize, 1311usize);
+    assert_eq!(cartalith_civ::lake_area_floor_cells(gw, gh), 4, "the census grid's floor (literal)");
+    // A gentle tilt down to the west edge, so the plain drains and each pit
+    // is its own depression (on a dead-flat plain the classifier's fill
+    // joins both pits into one depression of 6 lake cells, above the floor).
+    let mut field: Vec<f32> = (0..gw * gh).map(|i| 0.45 + 0.00002 * (i % gw) as f32).collect();
+    let rain = vec![0.4f32; gw * gh];
+    let pit = |f: &mut [f32], x: usize, y: usize| {
+        for dx in 0..3 {
+            f[y * gw + x + dx] -= 0.01;
+        }
+    };
+    pit(&mut field, 400, 400);
+    pit(&mut field, 1200, 800);
+    let maar = PlacedEdifice { setting: VolcanicSetting::Rift, cx: 401.0, cy: 400.0, r: 4.8, h: 0.002, kind: Some(EdificeKind::Maar), age: 0.1, years: Some(3_000.0), crater: Some((0.3 / 1.6, 1.0 / 1.6)), rift_bearing: None };
+    let lake = |c: &[u8], x: usize, y: usize| c[y * gw + x] == 2;
+    let raw = cartalith_civ::build_water_bodies(&field, gw, gh, 0.42, false, Some(&rain)).classification;
+    assert!(lake(&raw, 401, 400) && lake(&raw, 1201, 800), "both pits pool before the floor");
+    let floored = render::water_bodies_floored(&field, &rain, gw, gh, 0.42, false, None).classification;
+    assert!(!lake(&floored, 401, 400) && !lake(&floored, 1201, 800), "the floor removes both");
+    let kept = render::water_bodies_floored_keep(&field, &rain, gw, gh, 0.42, false, None, Some(&[maar])).classification;
+    assert!((400..403).all(|x| lake(&kept, x, 400)), "the maar's lake stands");
+    assert!(!lake(&kept, 1201, 800), "the other small lake is still floored");
+    let cone = PlacedEdifice { kind: Some(EdificeKind::Cinder), crater: None, ..maar };
+    assert_eq!(render::water_bodies_floored_keep(&field, &rain, gw, gh, 0.42, false, None, Some(&[cone])).classification, floored, "no maar, no exemption");
+    let mut c = floored.clone();
+    assert_eq!(render::keep_maar_lakes(&mut c, &raw, &[maar], gw, gh), 3);
+    assert_eq!(c, kept);
+}
+
 /// Protects §6.3's cover reaching the pixel through `ground`: a
 /// 1 000-year-old cinder cone's flank (one age: monogenetic) is covered in
 /// 1 800 mm of rain and about half bare in 900 mm (the curve's literal
@@ -619,6 +711,16 @@ fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
             p.volc.kind_dome = false;
             p.volc.kind_maar = false;
         }
+        // Owner Ruling DJ: the app before it (its four kinds off), or without
+        // one of the two rare kinds.
+        "pre_dj" => {
+            p.volc.kind_caldera = false;
+            p.volc.kind_maar = false;
+            p.volc.kind_supervolcano = false;
+            p.volc.kind_flood_basalt = false;
+        }
+        "no_super" => p.volc.kind_supervolcano = false,
+        "no_flood" => p.volc.kind_flood_basalt = false,
         other => panic!("unknown VA_BEFORE arm {other:?}"),
     }
 }
@@ -1009,6 +1111,13 @@ fn volcano_census() {
         {
             picks.push(("caldera", k));
         }
+        // Ruling DJ: the supervolcano and the flood basalt, where the world
+        // has one (their own rows' centres).
+        for (what, kind) in [("supervolcano", EdificeKind::Supervolcano), ("flood_basalt", EdificeKind::FloodBasalt)] {
+            if let Some(k) = (0..vt.len()).find(|&k| vt[k].kind == Some(kind)) {
+                picks.push((what, k));
+            }
+        }
         picks.dedup_by_key(|p| p.1);
         // x1: the whole map, once per state.
         let fit = SCREEN_W as f64 / gw as f64;
@@ -1031,10 +1140,39 @@ fn volcano_census() {
             let m1 = |b: &[u8]| disc_measures(b, &idx, k, gw as f64 / 2.0, gh as f64 / 2.0, fit);
             let (mo, mn) = (m1(&b1_off), m1(&b1_on));
             println!("     x1  before: n {} green {:.2} dark {:.2} L {:.1} colours {} grad {:.2} | after: n {} green {:.2} dark {:.2} L {:.1} colours {} grad {:.2}", mo.0, mo.1, mo.2, mo.3, mo.4, mo.5, mn.0, mn.1, mn.2, mn.3, mn.4, mn.5);
+            // Ruling DJ item 4: a flood basalt's trap steps show on moderate
+            // slopes and bare rock, so its zoom frames centre on the dry land
+            // cell in the inner half of the province whose grid slope is
+            // nearest 2 degrees (a coarse 4-cell scan), not on its flat centre.
+            let (fx, fy) = if e.kind == Some(EdificeKind::FloodBasalt) {
+                let k_deg = m_per_unit / (kpc * 1000.0);
+                let mut best = (e.cx, e.cy, f64::MAX);
+                for y in (2..gh - 2).step_by(4) {
+                    for x in (2..gw - 2).step_by(4) {
+                        let i = y * gw + x;
+                        // Inside the inner half of the province, where its
+                        // lobate margin has not faded it.
+                        if (ws.field[i] as f64) < ws.sea_level || idx.winner_at(x as f64, y as f64).is_none_or(|h| h.index != k || h.t > 0.5) {
+                            continue;
+                        }
+                        let sl = 0.5 * ((ws.field[i + 1] - ws.field[i - 1]) as f64).hypot((ws.field[i + gw] - ws.field[i - gw]) as f64);
+                        // Dry ground first (rain under 0.3 of the 3 000 mm
+                        // scale), where the plateau's rock is bare.
+                        let off = ((sl * k_deg).atan().to_degrees() - 2.0).abs() + if ws.rainfall[i] < 0.3 { 0.0 } else { 100.0 };
+                        if off < best.2 {
+                            best = (x as f64, y as f64, off);
+                        }
+                    }
+                }
+                println!("     frames centred on the province's owned dry cell nearest a 2-degree slope ({:.0}, {:.0})", best.0, best.1);
+                (best.0, best.1)
+            } else {
+                (e.cx, e.cy)
+            };
             for &(rung, ppc) in &RUNGS {
-                let f_off = frame(&c_off, &tf_off, e.cx, e.cy, ppc, w.seed);
-                let f_on = frame(&c_on, &tf_on, e.cx, e.cy, ppc, w.seed);
-                let mm = |b: &[u8]| disc_measures(b, &idx, k, e.cx, e.cy, ppc);
+                let f_off = frame(&c_off, &tf_off, fx, fy, ppc, w.seed);
+                let f_on = frame(&c_on, &tf_on, fx, fy, ppc, w.seed);
+                let mm = |b: &[u8]| disc_measures(b, &idx, k, fx, fy, ppc);
                 let (mo, mn) = (mm(&f_off), mm(&f_on));
                 println!("     {rung:<3} before: n {} green {:.2} dark {:.2} L {:.1} colours {} grad {:.2} | after: n {} green {:.2} dark {:.2} L {:.1} colours {} grad {:.2}", mo.0, mo.1, mo.2, mo.3, mo.4, mo.5, mn.0, mn.1, mn.2, mn.3, mn.4, mn.5);
                 let (sw, sbs) = side_by_side(&f_off, &f_on);

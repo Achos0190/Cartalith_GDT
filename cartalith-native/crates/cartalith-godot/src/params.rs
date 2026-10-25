@@ -259,12 +259,21 @@ pub fn defaults() -> WorldParams {
     // lava dome on every active or dormant arc stratocone, the one kind whose
     // bars held on the six census worlds and that reads on the map
     // (`STATUS.md`). Off in `WorldParams::defaults`. See
-    // `VolcanismParams::kind_dome`. The maar held the water and settlement
-    // bars but its one lake fell under the app's lake-area floor and it did
-    // not read at any zoom, so `kind_maar` stays off at both boundaries, as
-    // do the caldera, supervolcano and flood-basalt kinds, which failed
-    // their bars.
+    // `VolcanismParams::kind_dome`.
     p.volc.kind_dome = true;
+    // Owner Ruling DJ (2026-10-25), the answers to Ruling DG's questions:
+    // item 1, the caldera age rule accepted as a disclosed re-baseline that
+    // moves settlements, outlets and small lakes near old stratocones;
+    // item 2, maars with the site rule relaxed to the crater; item 3, the
+    // supervolcano exempted from the bars (zero or one a world); item 4, the
+    // flood basalt as a render-only trap plateau. Each is off in
+    // `WorldParams::defaults` and for a save without its key; the moves are
+    // measured in `STATUS.md`'s VA-6 entry. See
+    // `VolcanismParams::kind_caldera` and its neighbours.
+    p.volc.kind_caldera = true;
+    p.volc.kind_maar = true;
+    p.volc.kind_supervolcano = true;
+    p.volc.kind_flood_basalt = true;
     p
 }
 
@@ -480,16 +489,26 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.lava_bench", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Young lava flows build benches at the sea (Ruling DB)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.lava_bench), set_fn: |p, v| p.volc.lava_bench = v != 0.0 },
-    // Port-only (VA-6): `kind_dome` ON at the app boundary, OFF in
-    // `WorldParams::defaults`; `kind_maar` OFF at both (it did not read on
-    // the map). A save without either key reloads it OFF
-    // (`apply_saved_state`). No GUI row.
+    // Port-only (VA-6, owner Rulings DG and DJ): the dome, the caldera age
+    // rule, the maar, the supervolcano and the flood basalt are each ON at
+    // the app boundary and OFF in `WorldParams::defaults`. A save without
+    // a key reloads it OFF (`apply_saved_state`), so an old project reopens
+    // as it was saved. No GUI row.
     ParamSpec { key: "volc.kind_dome", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Lava domes on young stratocones (VA-6)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.kind_dome), set_fn: |p, v| p.volc.kind_dome = v != 0.0 },
     ParamSpec { key: "volc.kind_maar", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Maars beside scoria cones on wet ground (VA-6)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.kind_maar), set_fn: |p, v| p.volc.kind_maar = v != 0.0 },
+    ParamSpec { key: "volc.kind_caldera", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Old arc stratocones collapse into calderas (VA-6)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.kind_caldera), set_fn: |p, v| p.volc.kind_caldera = v != 0.0 },
+    ParamSpec { key: "volc.kind_supervolcano", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "A supervolcano caldera where a hotspot sits under a continent (VA-6)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.kind_supervolcano), set_fn: |p, v| p.volc.kind_supervolcano = v != 0.0 },
+    ParamSpec { key: "volc.kind_flood_basalt", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "A flood-basalt plateau, drawn only (VA-6)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.kind_flood_basalt), set_fn: |p, v| p.volc.kind_flood_basalt = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -961,9 +980,13 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("volc.dry_active_craters", ""),
     // Port-only (Ruling DB item 2): the reference builds no new land.
     ("volc.lava_bench", ""),
-    // Port-only (VA-6): the reference has no dome or maar.
+    // Port-only (VA-6): the reference has no dome, maar, age-ruled caldera,
+    // supervolcano or flood basalt.
     ("volc.kind_dome", ""),
     ("volc.kind_maar", ""),
+    ("volc.kind_caldera", ""),
+    ("volc.kind_supervolcano", ""),
+    ("volc.kind_flood_basalt", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1253,9 +1276,13 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     p.volc.dry_active_craters = false;
     // And Ruling DB item 2's lava benches (2026-10-25), the same way.
     p.volc.lava_bench = false;
-    // And VA-6's domes and maars (2026-10-25), the same way.
+    // And VA-6's domes and maars (2026-10-25), the same way; and Ruling
+    // DJ's calderas, supervolcano and flood basalt (2026-10-25).
     p.volc.kind_dome = false;
     p.volc.kind_maar = false;
+    p.volc.kind_caldera = false;
+    p.volc.kind_supervolcano = false;
+    p.volc.kind_flood_basalt = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

@@ -131,6 +131,24 @@ const OBSIDIAN: Rgb = (28.0, 28.0, 32.0);
 /// 140) of §6.2, a little darker so it reads against a sunlit flank.
 /// Judgement.
 const TUFF_RING: Rgb = (160.0, 150.0, 128.0);
+/// Owner Ruling DJ item 3: a supervolcano's fresh ignimbrite (welded rhyolite
+/// tuff), pale pinkish buff. A labelled judgement on research §6.2's tuff
+/// and rhyolite colours (the Yellowstone canyon walls' pale yellow-buff
+/// tuffs); weathered toward the tephra slot's palette like every rock here.
+const IGNIMBRITE: Rgb = (196.0, 176.0, 150.0);
+/// Owner Ruling DJ item 4: an exposed trap riser, the dark columnar face of
+/// a basalt flow where a step breaks the plateau. A labelled judgement: the
+/// fresh basalt's near-black lifted a little, since a riser is weathered
+/// rock in shade, not glass.
+const TRAP_RISER: Rgb = (44.0, 42.0, 42.0);
+/// Owner Ruling DJ item 4: the flood basalt's plateau surface, weathered
+/// basalt darker than the palette's weathered basalt ramp, which the
+/// plateau's bare rock is pulled toward by [`PLATEAU_MIX`]. A labelled
+/// judgement, set on the first frames (2026-10-25, s314159: the plain aged
+/// basalt under the arid tint read as brown desert, not a dark plateau).
+const TRAP_PLATEAU: Rgb = (66.0, 61.0, 58.0);
+/// See [`TRAP_PLATEAU`]. A labelled judgement.
+const PLATEAU_MIX: f64 = 0.6;
 
 /// The tephra / tuff palette slot's default ramp: a pale grey-buff, the
 /// research's "tephra-grey fans (128, 124, 120)" as the middle stop
@@ -213,6 +231,13 @@ pub fn sample_pair(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km
     let ((h1, v1), second) = index.top2_at(x, y)?;
     let a = from_hit(h1, x, y, km_per_cell, px_km)?;
     let b = second.and_then(|(h2, v2)| {
+        // Owner Ruling DJ item 4: a flood basalt under another edifice is
+        // kept whatever the owner gap -- it is the ground that edifice's
+        // fading toe lies on, and `ground_pair` weighs it by how much of the
+        // toe has faded. Its weight here is a placeholder.
+        if h2.edifice.kind == Some(EdificeKind::FloodBasalt) && h1.edifice.kind != Some(EdificeKind::FloodBasalt) {
+            return from_hit(h2, x, y, km_per_cell, px_km).map(|s| (s, 0.0));
+        }
         let w = 0.5 * (1.0 - smoothstep(0.0, OWNER_BLEND, v1 - v2));
         if w <= 0.0 {
             return None;
@@ -229,6 +254,16 @@ pub fn sample_pair(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km
 pub fn ground_pair(a: &TerrainAppearance, p: &VolcanoPair, rain01: f64, tt: f64) -> VolcanoGround {
     let ga = ground(a, &p.a, rain01, tt);
     let Some((sb, w)) = p.b else { return ga };
+    // Owner Ruling DJ item 4: an edifice on a flood basalt fades into the
+    // plateau, not into plain ground: the province shows by the share of the
+    // winner's footprint that has faded (`1 - vis`), so no disc of plain
+    // ground rings an edifice or the supervolcano's apron edge (the first
+    // s246371 x4 frame drew the apron's edge as a hard arc). Every other
+    // runner-up keeps its owner-gap weight, exactly as before.
+    let w = if sb.kind == EdificeKind::FloodBasalt && p.a.kind != EdificeKind::FloodBasalt { (1.0 - ga.vis).clamp(0.0, 1.0) } else { w };
+    if w <= 0.0 {
+        return ga;
+    }
     let gb = ground(a, &sb, rain01, tt);
     let glow = match (ga.glow, gb.glow) {
         (None, None) => None,
@@ -375,10 +410,14 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     let core = if v.basaltic { 1.0 } else { smoothstep(0.62, 0.38, v.t) };
     // VA-6: a dome is dacite throughout (the andesite slot, the nearest of
     // the palette's rocks); a maar's ring is tuff (the tephra slot).
+    // Ruling DJ: a supervolcano's caldera and apron are ignimbrite (the
+    // tephra slot); a flood basalt is basalt.
     let lith = if v.kind == EdificeKind::Dome {
         LithoSample::One(2)
-    } else if v.kind == EdificeKind::Maar {
+    } else if matches!(v.kind, EdificeKind::Maar | EdificeKind::Supervolcano) {
         LithoSample::One(LITH_TEPHRA)
+    } else if v.kind == EdificeKind::FloodBasalt {
+        LithoSample::One(1)
     } else if v.basaltic {
         LithoSample::One(1)
     } else if core >= 1.0 {
@@ -419,6 +458,10 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         DOME_DACITE
     } else if v.kind == EdificeKind::Maar {
         TUFF_RING
+    } else if v.kind == EdificeKind::Supervolcano {
+        IGNIMBRITE
+    } else if v.kind == EdificeKind::FloodBasalt {
+        FRESH_BASALT
     } else if v.basaltic {
         if v.kind == EdificeKind::Cinder {
             FRESH_SCORIA
@@ -429,6 +472,9 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         mix(weathered, FRESH_ANDESITE, core)
     };
     let mut rock = aged_rock(weathered, fresh_c, lg, rain01);
+    if v.kind == EdificeKind::FloodBasalt {
+        rock = mix(rock, TRAP_PLATEAU, PLATEAU_MIX);
+    }
     // Young cinder craters: the interior oxidised red-brown, the outer wall
     // black (cited: Ejima 2017). Patchy, fading with age over log 3..4.5.
     if v.kind == EdificeKind::Cinder {
@@ -445,7 +491,10 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // centre, both in kilometre noise under the zoom law, so the blocks keep
     // resolving as the view zooms in. A maar: the ring's tuff, bedded in thin
     // concentric layers. Judgements on the research's §6.2 colours.
-    let monogenetic_vent = matches!(v.kind, EdificeKind::Dome | EdificeKind::Maar);
+    // Ruling DJ's two kinds carry no vent to stain or glow either: both are
+    // recorded old and quiet (`volcano_kinds::SUPER_LAST_ERUPTION_YEARS`,
+    // `FLOOD_MIN_YEARS`), and this keeps them so whatever a table says.
+    let monogenetic_vent = matches!(v.kind, EdificeKind::Dome | EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt);
     if v.kind == EdificeKind::Dome {
         let blocks = zoom_fbm(v.p_km, (v.r_km * 0.35).max(0.02), v.px_km, seed + 61);
         rock = mix(rock, DOME_DACITE, 0.55 + 0.35 * smoothstep(0.35, 0.65, blocks));
@@ -506,7 +555,7 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         // VA-6: a growing dome is bare rock all over; a maar's ring greens
         // like any flank.
         Activity::Active | Activity::Dormant if v.kind == EdificeKind::Dome => c *= smoothstep(4.0, 5.0, lg),
-        _ if v.kind == EdificeKind::Maar => {}
+        _ if matches!(v.kind, EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt) => {}
         // An active crater and its inner wall carry no plants.
         Activity::Active => c *= smoothstep(v.rim * 0.9, v.rim * 1.4, v.t),
         // A dormant crater floor stays mostly bare (alteration, gas).
@@ -517,13 +566,18 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // fade's radius wandering by kilometre noise so the toe meets the
     // surrounding ground along a ragged line, never a circle (judgement: the
     // first frames' 0.8..1 fade drew a disc with a visible edge).
-    let tw = v.t + 0.22 * (zoom_fbm(v.p_km, (v.r_km * 0.3).max(0.05), v.px_km, seed + 83) - 0.5);
-    let vis = smoothstep(1.0, 0.66, tw);
+    // Ruling DJ item 4: a flood basalt's margin is lobate -- flows that ran
+    // tens of kilometres past one another -- so it wanders twice as far,
+    // in lobes a third the size, over a wider fade (judgements on the first
+    // x1 frame, where the plain rule drew a soft disc).
+    let (amp, wl_k, fade) = if v.kind == EdificeKind::FloodBasalt { (0.5, 0.1, 0.5) } else { (0.22, 0.3, 0.66) };
+    let tw = v.t + amp * (zoom_fbm(v.p_km, (v.r_km * wl_k).max(0.05), v.px_km, seed + 83) - 0.5);
+    let vis = smoothstep(1.0, fade, tw);
     let mut bare = vis * (1.0 - c);
 
     // ---- VA-4: the active vent ---------------------------------------------
     let mut glow = None;
-    if v.activity == Activity::Active && v.kind != EdificeKind::Maar {
+    if v.activity == Activity::Active && !matches!(v.kind, EdificeKind::Maar | EdificeKind::Supervolcano | EdificeKind::FloodBasalt) {
         // A lava lake on a shield, an open vent on a cone (research §6.2's
         // heat by sub-type, 0.85 / 0.6, raised to 0.9 / 0.72 on the first
         // frames, where 0.6 under the daylight scale showed one dull seam),
@@ -598,6 +652,73 @@ fn aged_rock(weathered: Rgb, fresh_c: Rgb, lg: f64, rain01: f64) -> Rgb {
 /// shield about 100 ka; judgements inside research §2.1's cited spans).
 pub fn building_log_years(kind: EdificeKind) -> Option<f64> {
     cartalith_terrain::lava_flows::flank_log_years(kind)
+}
+
+/// The share of a riser in each trap step's height, the step's top: a
+/// labelled judgement (a basalt flow's colonnade and entablature are its
+/// upper part; a fifth to a third of a step reads as a cliff band, not a
+/// stripe of contour).
+const RISER_SHARE: f64 = 0.25;
+/// How dark a fully drawn riser is (the mix toward [`TRAP_RISER`]). A
+/// labelled judgement, set on the frames.
+const RISER_MIX: f64 = 0.55;
+
+/// **Owner Ruling DJ item 4: a flood basalt's trap steps, drawn only.** How
+/// much of [`TRAP_RISER`]'s dark rock the pixel shows (`0..=1`) at `h_m`
+/// metres above the sea on a slope of `slope_deg`, for a pixel `px_km`
+/// across: each [`cartalith_terrain::volcano_kinds::FLOOD_STEP_M`] of height
+/// is a flat tread and, over its top [`RISER_SHARE`], a riser, so the bands
+/// follow the drawn ground's own contours and the height field is never
+/// terraced. Risers show only where the ground falls (a smoothstep over
+/// 0.3-1.5 degrees: dead-flat ground is one tread, the plateau itself); a
+/// judgement set on the frames, where a 2-8 degree gate drew no step on a
+/// plateau whose mean slope is under 1 degree (s314159's province, 0.8). The zoom law: a riser band
+/// is `RISER_SHARE × step / tan(slope)` wide on the ground; once that spans
+/// [`NYQ_PX`] pixels it is drawn, and until then its mean (`RISER_SHARE`)
+/// darkens the slope evenly, so the tone holds across zoom and the steps
+/// resolve as the view zooms in. `0` where the height or the slope is
+/// unknown (`NaN`).
+pub fn trap_riser(h_m: f64, slope_deg: f64, px_km: f64) -> f64 {
+    if !(h_m.is_finite() && slope_deg.is_finite() && px_km.is_finite() && px_km > 0.0) {
+        return 0.0;
+    }
+    let on_slope = smoothstep(0.3, 1.5, slope_deg);
+    if on_slope <= 0.0 {
+        return 0.0;
+    }
+    let step = cartalith_terrain::volcano_kinds::FLOOD_STEP_M;
+    let phase = (h_m.max(0.0) / step).fract();
+    // A riser over the step's top `RISER_SHARE`, its lower edge softened over
+    // a tenth of the share (a judgement: a talus apron, not a ruled line).
+    let lo = 1.0 - RISER_SHARE;
+    let band = smoothstep(lo, lo + 0.1 * RISER_SHARE, phase);
+    let band_km = RISER_SHARE * step / 1000.0 / slope_deg.to_radians().tan().max(1e-6);
+    let k = smoothstep(NYQ_PX * px_km, 2.0 * NYQ_PX * px_km, band_km);
+    on_slope * (k * band + (1.0 - k) * RISER_SHARE) * RISER_MIX
+}
+
+/// How far, in metres, kilometre noise moves the height [`trap_riser_at`]
+/// reads its steps from, and the noise's longest wavelength. Labelled
+/// judgements set on the first x64 frames (s314159, 2026-10-25): the
+/// bilinear grid height alone draws each step's contour as straight segments
+/// along the grid, a square artefact; a few metres of warp in kilometre noise
+/// bends them into the wandering scarps of a real trap staircase, and its
+/// octaves arrive under the zoom law like every pattern here.
+const TRAP_WARP_M: f64 = 12.0;
+/// See [`TRAP_WARP_M`].
+const TRAP_WARP_KM: f64 = 1.5;
+
+/// [`trap_riser`] at the map point `p_km`: the height first warped by
+/// [`TRAP_WARP_M`] of kilometre noise, so the steps wander. What
+/// `land_color` calls.
+pub fn trap_riser_at(h_m: f64, slope_deg: f64, px_km: f64, p_km: [f64; 2]) -> f64 {
+    let warp = TRAP_WARP_M * 2.0 * (zoom_fbm(p_km, TRAP_WARP_KM, px_km, 9091) - 0.5);
+    trap_riser(h_m + warp, slope_deg, px_km)
+}
+
+/// The rock a trap riser shows ([`trap_riser`]'s target).
+pub fn trap_riser_rock() -> Rgb {
+    TRAP_RISER
 }
 
 // ===========================================================================
@@ -684,6 +805,11 @@ pub struct FlowPx {
 pub struct VolcanoPx {
     pub edifice: Option<VolcanoPair>,
     pub flows: FlowPx,
+    /// The pixel's height in metres above the sea, for the flood basalt's
+    /// trap steps ([`trap_riser`], owner Ruling DJ item 4); `NaN` -- no steps
+    /// -- when the caller did not give one ([`sample_px`] itself never
+    /// knows it; `RenderCtx::volcano_at` fills it).
+    pub h_m: f64,
 }
 
 /// The pixel at fractional grid position `(x, y)`: [`sample_pair`] for the
@@ -698,7 +824,7 @@ pub fn sample_px(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km: 
     if edifice.is_none() && flows.layers[0].is_none() {
         return None;
     }
-    Some(VolcanoPx { edifice, flows })
+    Some(VolcanoPx { edifice, flows, h_m: f64::NAN })
 }
 
 /// The two youngest flows reaching `(x, y)`, with their coverage under the

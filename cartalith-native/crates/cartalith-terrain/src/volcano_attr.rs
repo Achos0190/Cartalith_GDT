@@ -200,7 +200,8 @@ pub fn active_youth(e: &PlacedEdifice) -> f64 {
 
 impl EdificeKind {
     /// Every kind, in [`EdificeKind::code`] order.
-    pub const ALL: [EdificeKind; 5] = [EdificeKind::Cinder, EdificeKind::Strato, EdificeKind::Shield, EdificeKind::Dome, EdificeKind::Maar];
+    pub const ALL: [EdificeKind; 7] =
+        [EdificeKind::Cinder, EdificeKind::Strato, EdificeKind::Shield, EdificeKind::Dome, EdificeKind::Maar, EdificeKind::Supervolcano, EdificeKind::FloodBasalt];
 
     /// A stable storage / display key (the save's `volcanoes` table writes
     /// it). A format name: changing one orphans every archive that holds it.
@@ -213,6 +214,10 @@ impl EdificeKind {
             // VA-6 ("unknown kind"), which is the honest answer.
             EdificeKind::Dome => "dome",
             EdificeKind::Maar => "maar",
+            // Ruling DJ (2026-10-25). A table holding either is refused by a
+            // build before it, the same honest answer.
+            EdificeKind::Supervolcano => "supervolcano",
+            EdificeKind::FloodBasalt => "flood_basalt",
         }
     }
 
@@ -266,6 +271,12 @@ pub fn zones(e: &PlacedEdifice) -> Option<(f64, f64)> {
 /// shore sits on the inner wall, just outside the rim radius the stamp's
 /// shape table names.
 pub fn summit_zone_t(e: &PlacedEdifice) -> Option<f64> {
+    // Ruling DJ: a flood basalt is a plateau with no summit or crater, so
+    // it has no summit zone (else `SUMMIT_T` of a province's radius, tens of
+    // kilometres, would read as a crater to every consumer above).
+    if e.kind == Some(EdificeKind::FloodBasalt) {
+        return None;
+    }
     zones(e).map(|(_, rim)| (rim * 1.25).max(crate::edifice_pits::SUMMIT_T))
 }
 
@@ -284,6 +295,10 @@ pub fn is_basaltic(e: &PlacedEdifice) -> Option<bool> {
         // magma basaltic (phreatomagmatic, same source).
         EdificeKind::Dome => false,
         EdificeKind::Maar => true,
+        // Ruling DJ: a supervolcano erupts rhyolite (Yellowstone's tuffs,
+        // research §2.2); a flood basalt is basalt by name.
+        EdificeKind::Supervolcano => false,
+        EdificeKind::FloodBasalt => true,
     })
 }
 
@@ -293,13 +308,28 @@ pub fn is_basaltic(e: &PlacedEdifice) -> Option<bool> {
 /// finished field on top of whatever it sits on, so it claims its whole disc
 /// over any stamped edifice: `1 + (1 - t)`. Tables without either kind (every
 /// table saved before VA-6) answer exactly as before.
+///
+/// Ruling DJ adds two: a **supervolcano** claims its whole disc (caldera and
+/// ash apron) the same way, `1 + (1 - t)`, because its caldera and apron
+/// were stamped over the edifices there, its own parent among them; a
+/// **flood basalt** is the province's background, under every other
+/// edifice: [`FLOOD_OWNER_SCALE`]` × (1 - t)`, so it owns only ground no
+/// other disc reaches with a larger claim.
 pub fn owner_value(e: &PlacedEdifice, t: f64) -> f64 {
-    if matches!(e.kind, Some(EdificeKind::Dome | EdificeKind::Maar)) {
-        1.0 + (1.0 - t)
-    } else {
-        (1.0 - t) * (1.0 - e.age)
+    match e.kind {
+        Some(EdificeKind::Dome | EdificeKind::Maar | EdificeKind::Supervolcano) => 1.0 + (1.0 - t),
+        Some(EdificeKind::FloodBasalt) => FLOOD_OWNER_SCALE * (1.0 - t),
+        _ => (1.0 - t) * (1.0 - e.age),
     }
 }
+
+/// A flood basalt's claim at its centre ([`owner_value`]). A judgement: a
+/// stamped edifice's claim `(1 - t)(1 - age)` beats it wherever it exceeds
+/// `0.001` -- over all but the last 0.17 % of the edifice's radius at an age
+/// draw of 0.40 (the default slider's top), the last 10 % at 0.99 (an old
+/// hotspot chain's end) -- so a province does not paint over a cone on it;
+/// positive, so the province owns the ground between them.
+pub const FLOOD_OWNER_SCALE: f64 = 1.0e-3;
 
 /// Bucket edge, in cells, of [`VolcanoIndex`]'s lattice. A judgement for
 /// cost: the median edifice radius at 2048 cells across 800 km is about 15
@@ -582,6 +612,10 @@ mod tests {
         assert_eq!(EdificeKind::from_key("lava_dome"), None);
         assert_eq!(EdificeKind::Dome.key(), "dome");
         assert_eq!(EdificeKind::Maar.key(), "maar");
+        // Ruling DJ's two.
+        assert_eq!(EdificeKind::Supervolcano.key(), "supervolcano");
+        assert_eq!(EdificeKind::FloodBasalt.key(), "flood_basalt");
+        assert_eq!(EdificeKind::ALL.len(), 7);
         assert_eq!(EdificeKind::Cinder.key(), "cinder");
         assert_eq!(EdificeKind::Strato.key(), "strato");
         assert_eq!(EdificeKind::Shield.key(), "shield");

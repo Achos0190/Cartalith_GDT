@@ -108,24 +108,42 @@ fn arm(p: &mut WorldParams, name: &str) {
         }
         "no_dome" => p.volc.kind_dome = false,
         "no_maar" => p.volc.kind_maar = false,
-        // VA-6's kinds, each the app with one kind switched on.
-        "caldera" => p.volc.kind_caldera = true,
-        "dome" => p.volc.kind_dome = true,
-        "maar" => p.volc.kind_maar = true,
-        "super" => p.volc.kind_supervolcano = true,
-        "flood" => p.volc.kind_flood_basalt = true,
-        // Measurement only: the rare kinds placed at the most interior
+        // Owner Ruling DJ (2026-10-25): the app before it (its four kinds
+        // off: the caldera age rule, the maar, the supervolcano, the flood
+        // basalt), and that world with exactly one of them back on.
+        "pre_dj" => pre_dj(p),
+        "dj_caldera" => {
+            pre_dj(p);
+            p.volc.kind_caldera = true;
+        }
+        "dj_maar" => {
+            pre_dj(p);
+            p.volc.kind_maar = true;
+        }
+        "dj_super" => {
+            pre_dj(p);
+            p.volc.kind_supervolcano = true;
+        }
+        "dj_flood" => {
+            pre_dj(p);
+            p.volc.kind_flood_basalt = true;
+        }
+        // Measurement only: the supervolcano placed at the most interior
         // continental ground when no hotspot rule admits one.
         "super_forced" => {
             p.volc.kind_supervolcano = true;
             p.volc.kinds_force_rare = true;
         }
-        "flood_forced" => {
-            p.volc.kind_flood_basalt = true;
-            p.volc.kinds_force_rare = true;
-        }
         other => panic!("unknown arm {other:?}"),
     }
+}
+
+/// The app before owner Ruling DJ: its four kinds off.
+fn pre_dj(p: &mut WorldParams) {
+    p.volc.kind_caldera = false;
+    p.volc.kind_maar = false;
+    p.volc.kind_supervolcano = false;
+    p.volc.kind_flood_basalt = false;
 }
 
 /// RV-1's three B8 guards (`mountain_relief_civ.rs`' `b8`, copied):
@@ -305,6 +323,10 @@ fn landmarks(ws: &WorldState, p: &WorldParams, wb: &cartalith_civ::WaterBodies) 
 /// rim with a quarter's margin, whichever is wider. A measurement region, the
 /// same one item 6's dry-crater step and item 5's crater-lake colour use.
 fn crater_zone_t(e: &cartalith_terrain::PlacedEdifice) -> f64 {
+    // A flood basalt has no crater (`volcano_attr::summit_zone_t`).
+    if e.kind == Some(cartalith_terrain::EdificeKind::FloodBasalt) {
+        return 0.0;
+    }
     let rim = volcano_attr::zones(e).map_or(0.0, |z| z.1);
     (rim * 1.25).max(cartalith_terrain::edifice_pits::SUMMIT_T)
 }
@@ -364,6 +386,9 @@ fn small_lakes_by_place(vt: &[cartalith_terrain::PlacedEdifice], class: &[u8], g
         }
         match idx.winner_at((s0 % gw) as f64, (s0 / gw) as f64) {
             Some(h) if h.t < crater_zone_t(h.edifice) => summit += 1,
+            // A flood basalt is a background province, not an edifice's
+            // flank (Ruling DJ item 4): its ground counts as off.
+            Some(h) if h.edifice.kind == Some(cartalith_terrain::EdificeKind::FloodBasalt) => off += 1,
             Some(_) => flank += 1,
             None => off += 1,
         }
@@ -440,7 +465,30 @@ fn va6_census(tag: &str, arm: &str, ws: &WorldState, base: Option<&WorldState>, 
                 let rim = va::zones(e).map_or(0.0, |z| z.1);
                 let inner = cells_in(e, 0.0, rim);
                 let lake = inner.iter().filter(|&&i| class[i] == 2).count();
-                println!("VA6 {tag} {arm} caldera #{k} {:?} D {:.1} km, lake cells {lake} of {}, {} {:.0} yr", e.setting, 2.0 * e.r * rim * kpc, inner.len(), va::activity(e).key(), va::years(e));
+                // Ruling DJ item 1: the diameter against the cited 1.6-24 km
+                // ("1 to 15 miles", USGS, research §2.2), flagged above it.
+                let d_km = 2.0 * e.r * rim * kpc;
+                let flag = if d_km > 24.0 { " ABOVE-CITED-24km" } else { "" };
+                println!("VA6 {tag} {arm} caldera #{k} {:?} D {d_km:.1} km{flag} (edifice R {:.1} km), lake cells {lake} of {}, {} {:.0} yr", e.setting, e.r * kpc, inner.len(), va::activity(e).key(), va::years(e));
+            }
+            Some(EdificeKind::Supervolcano) => {
+                // Ruling DJ item 3: the caldera (rim) and the apron (the row's
+                // radius), the lake cells in each, and the height moved under
+                // it against the first arm.
+                let rim = va::zones(e).map_or(0.0, |z| z.1);
+                let cal = cells_in(e, 0.0, rim);
+                let apron = cells_in(e, rim, 1.0);
+                let lake_c = cal.iter().filter(|&&i| class[i] == 2).count();
+                let lake_a = apron.iter().filter(|&&i| class[i] == 2).count();
+                let (lo, hi) = match base {
+                    Some(b) => cells_in(e, 0.0, 1.0).iter().map(|&i| (ws.field[i] - b.field[i]) as f64 * m_per_unit).fold((f64::MAX, f64::MIN), |(l, h), d| (l.min(d), h.max(d))),
+                    None => (f64::NAN, f64::NAN),
+                };
+                println!("VA6 {tag} {arm} supervolcano #{k} at ({:.0},{:.0}) caldera semi-major {:.1} km, apron reach {:.1} km, lake cells caldera {lake_c} of {} apron {lake_a} of {}, height moved {lo:.0}..{hi:.0} m, {} {:.0} yr", e.cx, e.cy, e.r * rim * kpc, e.r * kpc, cal.len(), apron.len(), va::activity(e).key(), va::years(e));
+            }
+            Some(EdificeKind::FloodBasalt) => {
+                let land = cells_in(e, 0.0, 1.0).iter().filter(|&&i| ws.field[i] as f64 >= ws.sea_level).count();
+                println!("VA6 {tag} {arm} flood_basalt #{k} at ({:.0},{:.0}) R {:.0} km, land cells {land} ({:.0} km^2), {} {:.0} yr", e.cx, e.cy, e.r * kpc, land as f64 * kpc * kpc, va::activity(e).key(), va::years(e));
             }
             _ => {}
         }
@@ -600,13 +648,15 @@ fn volcano_cx_bars() {
 
 /// VA-6's rarity census for the two rare kinds: over seeds `1..=N` (`VA6_N`,
 /// default 40) at 1024 x 656 over 800 km, the classic world and the
-/// archipelago, how many worlds the supervolcano rule and the flood-basalt
-/// rule admit (the field differs from the same world with the kind off).
-/// The owner's note: a supervolcano is "very rare: zero or one per world,
-/// usually none".
+/// archipelago, how many worlds hold a supervolcano row and a flood-basalt
+/// row in the app's table (owner Ruling DJ: both on in the app; the
+/// supervolcano "very rare: zero or one per world, usually none"), and that
+/// the flood basalt moved no cell (its world equals the same world with it
+/// off, field and water alike -- render-only, Ruling DJ item 4).
 #[test]
 #[ignore = "generates up to 160 1024x656 worlds; run explicitly with --release"]
 fn va6_rare_kind_census() {
+    use cartalith_terrain::EdificeKind;
     let n: i32 = std::env::var("VA6_N").ok().and_then(|v| v.parse().ok()).unwrap_or(40);
     for (label, arche) in [("classic", None), ("archipelago", Some(ARCHIPELAGO))] {
         let (mut sup, mut flood, mut worlds) = (0, 0, 0);
@@ -615,23 +665,25 @@ fn va6_rare_kind_census() {
             let mut p = world_params(seed, arche, "app");
             p.gw = 1024;
             p.gh = 656;
-            let off = generate_terrain(&p);
-            let mut ps = p.clone();
-            ps.volc.kind_supervolcano = true;
-            let s_on = generate_terrain(&ps);
-            let mut pf = p.clone();
-            pf.volc.kind_flood_basalt = true;
-            let f_on = generate_terrain(&pf);
+            let on = generate_terrain(&p);
+            let rows = on.volcanoes.as_deref().map(|v| v.as_slice()).unwrap_or(&[]);
+            let ns = rows.iter().filter(|e| e.kind == Some(EdificeKind::Supervolcano)).count();
+            let nf = rows.iter().filter(|e| e.kind == Some(EdificeKind::FloodBasalt)).count();
+            assert!(ns <= 1 && nf <= 1, "seed {seed}: {ns} supervolcanoes, {nf} flood basalts");
+            if nf == 1 {
+                let mut pf = p.clone();
+                pf.volc.kind_flood_basalt = false;
+                let off = generate_terrain(&pf);
+                assert!(off.field == on.field, "seed {seed}: the flood basalt moved the height field");
+            }
             worlds += 1;
-            let s_hit = s_on.field != off.field;
-            let f_hit = f_on.field != off.field;
-            sup += usize::from(s_hit);
-            flood += usize::from(f_hit);
-            if s_hit || f_hit {
-                hits.push(format!("{seed}{}{}", if s_hit { "S" } else { "" }, if f_hit { "F" } else { "" }));
+            sup += ns;
+            flood += nf;
+            if ns + nf > 0 {
+                hits.push(format!("{seed}{}{}", if ns > 0 { "S" } else { "" }, if nf > 0 { "F" } else { "" }));
             }
         }
-        println!("RARE {label}: {worlds} worlds, supervolcano admitted on {sup}, flood basalt on {flood}; seeds {}", hits.join(" "));
+        println!("RARE {label}: {worlds} worlds, supervolcano on {sup}, flood basalt on {flood}; seeds {}", hits.join(" "));
     }
 }
 

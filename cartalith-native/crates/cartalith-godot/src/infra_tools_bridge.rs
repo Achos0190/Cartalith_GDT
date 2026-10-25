@@ -1226,7 +1226,8 @@ impl RouteInputs {
         let sea_level = ws.sea_level;
         // Ruling CC's floor, then the forced lakes: the drawn map's water
         // (`render::water_bodies_floored`).
-        let wb = crate::render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes);
+        // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
+        let wb = crate::render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()));
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
             let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);
