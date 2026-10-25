@@ -2407,3 +2407,16 @@ Consequences, as labelled judgements the owner may overrule:
 4. **No plaintext key anywhere.** Where neither Credential Manager nor Android Keystore is reachable, the key comes from an environment variable or the feature refuses to call a remote provider. This overrides the research's "last resort plain file".
 5. **Consent form:** one screen, shown before the first call, naming what is sent (the prompt and only the sources the user opted in), to which endpoint, and the cost-cap deviation above.
 6. `LLM_ASSISTANT_SCOPE.md` is the resulting scope document.
+
+## Ruling DE — the ecological army term: C1 at gamma 0 plus C2 (owner, 2026-10-25)
+
+After `ECOLOGICAL_ARMY_TERM_SCOPE.md` (`2789cf8a`), the owner approved the scope's recommended candidates, **C1 with gamma = 0 plus C2 (beta 0.5, capped at 0.90 of the levy), "as recommended"**. Q1 and Q2 are those words; Q3 to Q6 are read as the scope's recommended defaults, which is what "as recommended" names:
+
+1. **Q1:** C1 at gamma = 0. The standing army's budget reads the faction's ecological factor `E` only where the land falls short (`E` ≤ 1, linear, unchanged by control flow); above 1, abundant land adds no revenue (Domar 1970).
+2. **Q2:** yes, C2: a one-sided forage term on the field army, `field = levy · min(0.90, (0.34 + 0.20·L) · E^0.5)` for `E` > 1 only, so geography above 1 still moves a military output where the literature puts it (supply on the march). beta 0.5 and the 0.90 cap are labelled judgements the owner accepted.
+3. **Q3:** keep `E` ≤ 1 linear.
+4. **Q4:** keep `standing < field < levy` as an invariant asserted on the harness, empty factions excluded and counted, on the pre-industrial rows.
+5. **Q5:** accept the §6 re-baseline under `DECISIONS.md` §7p (`G1_0` manpower, Kingdom B, the discrimination test rewritten), no switch for the old budget, old values beside new.
+6. **Q6:** the industrial levy (§3 point 4) is its own row, not built here.
+
+**Build order:** EA-0 (the diagnostic harness, committed first), EA-1 (the term), EA-2 (re-baseline, probes and prose), each with the scope's numeric bars; a bar that fails stops the build for a report rather than a tuning.
