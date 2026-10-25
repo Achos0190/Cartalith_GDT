@@ -2742,6 +2742,16 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             );
         }
     }
+    // Owner Ruling DB item 1 (2026-10-25): every rift edifice records the
+    // trend of the plate boundary it sits on (`rift_trend`), read from this
+    // generation's own plate field, which nothing after this point keeps.
+    // Recorded beside the edifice only: no field value moves, and every other
+    // setting keeps `None`.
+    if let Some(t) = volcano_trace.as_mut() {
+        for e in t.edifices.iter_mut().filter(|e| e.setting == cartalith_terrain::VolcanicSetting::Rift) {
+            e.rift_bearing = cartalith_terrain::rift_trend::rift_trend(&plate_id, &plates, gw, gh, world, e.cx, e.cy);
+        }
+    }
     // Craters as a density over the map's real area, not an absolute count
     // (`DECISIONS.md` §7l). `physical_model: false` restores the reference's
     // own path exactly.
@@ -4109,6 +4119,34 @@ mod tests {
         cone.volc.fill_edifice_pits = true;
         let b = generate_terrain(&cone);
         assert_eq!(a.field, b.field, "without the morphological edifice the fill must be inert");
+    }
+
+    /// Protects: Ruling DB item 1's record -- with the volcano table on, every
+    /// rift edifice records its rift's trend as an axis in `0..PI` and every
+    /// other edifice records none; and the record is deterministic: two runs
+    /// agree bit for bit on the field and on every trend. (That it moves no
+    /// generated value holds by control flow: it is written after the stamps
+    /// and no later stage reads it.)
+    #[test]
+    fn rift_edifices_record_their_trend_and_nothing_else_does() {
+        let mut p = WorldParams::defaults(512, 328, 71_077_345);
+        p.geology_model = true;
+        let a = generate_terrain(&p);
+        let t = a.volcanoes.as_ref().expect("a volcano table");
+        let rifts = t.iter().filter(|e| e.setting == cartalith_terrain::VolcanicSetting::Rift).count();
+        assert!(rifts > 0, "premise: this world has rift edifices");
+        for e in t.iter() {
+            match (e.setting, e.rift_bearing) {
+                (cartalith_terrain::VolcanicSetting::Rift, Some(b)) => assert!((0.0..std::f64::consts::PI).contains(&b), "{b}"),
+                (cartalith_terrain::VolcanicSetting::Rift, None) => {}
+                (s, Some(b)) => panic!("a {s:?} edifice recorded a trend {b}"),
+                _ => {}
+            }
+        }
+        assert!(t.iter().any(|e| e.rift_bearing.is_some()), "no rift edifice found its boundary");
+        let b = generate_terrain(&p);
+        assert_eq!(a.field, b.field);
+        assert_eq!(t.iter().map(|e| e.rift_bearing.map(f64::to_bits)).collect::<Vec<_>>(), b.volcanoes.as_ref().unwrap().iter().map(|e| e.rift_bearing.map(f64::to_bits)).collect::<Vec<_>>());
     }
 
     /// Protects: Ruling DB item 3's `TectonicParams::high_ceiling` -- off in

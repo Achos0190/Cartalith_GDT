@@ -69,6 +69,34 @@
 //! moves (no draw is added to any stream), and a save reopens with the flows
 //! it was drawn with.
 //!
+//! # Fissure fields (owner Ruling DB item 1, 2026-10-25)
+//!
+//! A [`crate::VolcanicSetting::Rift`] edifice that records its rift's trend
+//! ([`crate::PlacedEdifice::rift_bearing`], read off the plate boundary at
+//! generation) and is active or dormant also erupts from **fissures** along
+//! that trend, as Iceland's rift volcanoes do: its newest eruption is a
+//! fissure (Krafla 1975-84, Holuhraun 2014-15), with an older one beside it,
+//! so the vent shows a fissure field. Each fissure is drawn as a few
+//! en-echelon segments (the stepped pattern of rift-zone fissures) carrying a
+//! spatter rampart ([`FlowSource::Fissure`]), and lava is fed from points
+//! along it downhill as broad sheet flows ([`FlowSource::FissureFed`]). A
+//! shield's rift-zone vents lie on the same recorded trend, so a shield, a
+//! scoria cone and a fissure on one rift line up (the owner's co-occurrence
+//! note: a shield coexists with cinder cones and fissures along its rift).
+//! Placement follows the recorded tectonics only; nothing here adds an
+//! edifice, and a table without the trend (every edifice that is not a
+//! rift's, and every table saved before the ruling) draws no fissure.
+//!
+//! | Quantity | Value | Source |
+//! |---|---|---|
+//! | Fissure length | 1.5-12 km, log-uniform | judgement inside cited spans: Holuhraun 2014's eruptive fissure about 1.5 km (Sigmundsson et al. 2015, *Nature* 517), Krafla's fissures of 1975-84 up to about 10 km (Einarsson 1991); Laki 1783's 27 km (Thordarson & Self 1993) is left out as the outlier |
+//! | Segments | 2-4, stepped 0.1-0.3 km sideways | judgement: en-echelon rift fissures (Gudmundsson 2000) |
+//! | Rampart half width | 0.05-0.09 km | judgement: spatter ramparts metres to tens of metres high and tens to ~150 m wide |
+//! | Fed flows | 4 on the newest fissure, 2 on the older | judgement |
+//! | Fed flow length | 3-20 km, log-uniform | anchors: Holuhraun 2014-15's field about 17 km long over about 84 km^2 (Pedersen et al. 2017) |
+//! | Fed flow half width | 6 % of its length, 0.4-1.5 km | judgement: sheet lava is broad (Holuhraun's field about 5 km across) |
+//! | The older fissure | 0.8-3 km to one side, aged between the last eruption and the flank's building age | judgement: a fissure swarm is several km wide (Gudmundsson 2000) |
+//!
 //! # What it must never do
 //!
 //! - Never change the height field, the land mask or any water: it reads the
@@ -118,6 +146,13 @@ pub struct FlowPoint {
 pub enum FlowSource {
     /// A central or flank vent of an edifice.
     Vent,
+    /// An eruptive fissure itself: a straight segment along the rift's trend
+    /// whose "flow" is the spatter rampart along it (Ruling DB item 1). The
+    /// renderer draws it as a rampart with a crack, glowing while active.
+    Fissure,
+    /// A sheet flow fed from a point on an eruptive fissure, traced downhill
+    /// like a vent's flow.
+    FissureFed,
 }
 
 /// One traced lava flow.
@@ -198,6 +233,16 @@ fn half_width_km(len_km: f64, basaltic: bool) -> f64 {
     }
 }
 
+/// A fissure's length band, km (module doc's fissure table).
+const FISSURE_LEN_KM: (f64, f64) = (1.5, 12.0);
+/// A fissure-fed flow's length band, km (module doc's fissure table).
+const FED_LEN_KM: (f64, f64) = (3.0, 20.0);
+
+/// A fissure-fed sheet flow's base half width, km (module doc's table).
+fn fed_half_width_km(len_km: f64) -> f64 {
+    (0.06 * len_km).clamp(0.4, 1.5)
+}
+
 /// The walk's step, cells. Half a cell: fine enough that a flow follows a
 /// one-cell valley, coarse enough that a 50 km flow at 0.39 km a cell is a
 /// few hundred steps.
@@ -268,8 +313,13 @@ const BUCKET_CELLS: f64 = 8.0;
 /// two together.
 pub const REACH_HW: f64 = 2.1;
 pub const REACH_KM: f64 = 0.15;
-/// The most flows [`LavaFlows::hits_at`] reports at one point.
-pub const MAX_HITS: usize = 4;
+/// The most flows [`LavaFlows::hits_at`] reports at one point. 8 since owner
+/// Ruling DB item 1: a fissure's segments and the sheets fed from it share
+/// one age and lie side by side, so at 4 the reach of two or three rampart
+/// segments (which cover nothing there) truncated away the sheet that did,
+/// and cut it along a straight line (the 2026-10-25 x64 frame of 314159).
+/// The renderer still draws at most two.
+pub const MAX_HITS: usize = 8;
 
 /// A world's traced flows with a lattice over their segments.
 #[derive(Clone, Debug, Default)]
@@ -476,6 +526,81 @@ fn edifice_salt(k: usize, e: &PlacedEdifice) -> i32 {
     (k as i32).wrapping_mul(7919) ^ ((e.cx * 16.0) as i32).wrapping_mul(31) ^ ((e.cy * 16.0) as i32).wrapping_mul(131)
 }
 
+/// One eruptive fissure of edifice `edifice` (`e`) along trend `bearing`,
+/// `off_km` to the side of the vent, `years` old: its en-echelon rampart
+/// segments ([`FlowSource::Fissure`]) and `fed` sheet flows traced downhill
+/// from points along it ([`FlowSource::FissureFed`]), pushed onto `flows`.
+/// Every choice is a hash of `salt` (module doc, Reproducibility). A segment
+/// is cut where it leaves the land (a fissure under the sea erupts no
+/// subaerial lava), and dropped when fewer than two of its points are dry.
+#[allow(clippy::too_many_arguments)]
+fn fissure(inp: &TraceInput, flows: &mut Vec<LavaFlow>, edifice: u32, e: &PlacedEdifice, bearing: f64, years: f64, active: bool, off_km: f64, fed: usize, salt: i32) {
+    let kpc = inp.km_per_cell;
+    let h = |j: i32, s: i32| hash(salt, j, s);
+    let (ux, uy) = (bearing.cos(), bearing.sin());
+    let (nx, ny) = (-uy, ux);
+    let len_km = FISSURE_LEN_KM.0 * (FISSURE_LEN_KM.1 / FISSURE_LEN_KM.0).powf(h(0, 11));
+    // The fissure's middle: beside the vent by `off_km`, slid along the trend
+    // by up to a third of its length (a fissure rarely centres on the cone).
+    let slide = (h(0, 13) - 0.5) * 0.66 * len_km;
+    let (mx, my) = (e.cx + (nx * off_km + ux * slide) / kpc, e.cy + (ny * off_km + uy * slide) / kpc);
+    let nseg = 2 + (h(0, 17) * 3.0) as usize;
+    let seg_km = len_km / nseg as f64;
+    let step_km = (STEP_CELLS * kpc).max(1e-6);
+    let mut line: Vec<(f64, f64, f64)> = Vec::new();
+    for sg in 0..nseg {
+        // En echelon: each segment stepped sideways, alternating, and a
+        // tenth longer so neighbours overlap a little.
+        let step = (0.1 + 0.2 * h(sg as i32, 19)) * if sg % 2 == 0 { 1.0 } else { -1.0 };
+        let hw = 0.05 + 0.04 * h(sg as i32, 23);
+        let a = -0.5 * len_km + sg as f64 * seg_km - 0.05 * seg_km;
+        let n = ((1.1 * seg_km / step_km).ceil() as usize).max(2);
+        let mut pts: Vec<FlowPoint> = Vec::new();
+        let push = |pts: &mut Vec<FlowPoint>, flows: &mut Vec<LavaFlow>| {
+            if pts.len() >= 2 {
+                let l = pts.last().unwrap().s_km - pts[0].s_km;
+                flows.push(LavaFlow { edifice, years, active, basaltic: true, source: FlowSource::Fissure, pts: std::mem::take(pts), len_km: l as f64, reached_sea: false, end: FlowEnd::Budget });
+            } else {
+                pts.clear();
+            }
+        };
+        for i in 0..=n {
+            let t = a + 1.1 * seg_km * i as f64 / n as f64;
+            let (x, y) = (mx + (ux * t + nx * step) / kpc, my + (uy * t + ny * step) / kpc);
+            let inside = x >= 0.0 && y >= 0.0 && x <= (inp.gw - 1) as f64 && y <= (inp.gh - 1) as f64;
+            if inside && height(inp, x, y) >= inp.sea_level {
+                pts.push(FlowPoint { x: x as f32, y: y as f32, s_km: (t - a) as f32, hw_km: hw as f32 });
+                line.push((x, y, t));
+            } else {
+                push(&mut pts, flows);
+            }
+        }
+        push(&mut pts, flows);
+    }
+    if line.is_empty() {
+        return;
+    }
+    // Sheet flows fed from points spread along the dry part of the fissure,
+    // each leaving downhill (or, on dead-flat ground, square to the fissure).
+    for j in 0..fed {
+        let pick = ((j as f64 + 0.15 + 0.7 * h(j as i32, 29)) / fed as f64 * line.len() as f64) as usize;
+        let (x, y, _) = line[pick.min(line.len() - 1)];
+        let (gx, gy) = gradient(inp, x, y);
+        let side = if h(j as i32, 31) < 0.5 { -1.0 } else { 1.0 };
+        let dir = normalise((-gx, -gy)).unwrap_or((nx * side, ny * side));
+        let budget = FED_LEN_KM.0 * (FED_LEN_KM.1 / FED_LEN_KM.0).powf(h(j as i32, 37));
+        let hw0 = fed_half_width_km(budget) * (0.8 + 0.4 * h(j as i32, 41));
+        let mut queue = vec![Walk { x, y, dir, budget_km: budget, hw0_km: hw0, salt: salt.wrapping_add(j as i32 * 104_729), s0_km: 0.0, may_branch: true }];
+        while let Some(w) = queue.pop() {
+            let mut more = Vec::new();
+            if let Some((pts, len, sea, end)) = walk(inp, &w, &mut more) {
+                flows.push(LavaFlow { edifice, years, active, basaltic: true, source: FlowSource::FissureFed, pts, len_km: w.s0_km + len, reached_sea: sea, end });
+            }
+            queue.extend(more);
+        }
+    }
+}
+
 impl LavaFlows {
     /// Traces every active or dormant edifice's flows (module doc). An empty
     /// set when the scales are unusable or the field is short -- never a
@@ -504,14 +629,21 @@ impl LavaFlows {
             let h = |j: usize, s: i32| hash(salt0, j as i32, s);
             // A shield's two rift zones (opposite bearings, a little bent):
             // its flank vents lie along them (Hawaiian shields' rift zones).
-            let rift = std::f64::consts::TAU * h(0, 9001);
+            // On a rift edifice that recorded its trend (Ruling DB item 1)
+            // they lie along the plate boundary's own trend; otherwise on a
+            // hashed bearing, as before the ruling.
+            let rift = e.rift_bearing.unwrap_or_else(|| std::f64::consts::TAU * h(0, 9001));
+            // With a recorded trend the edifice's newest eruption is its
+            // fissure (below), so none of its vent flows is the newest.
+            let fissured = e.rift_bearing.is_some() && e.setting == crate::VolcanicSetting::Rift && basaltic;
             for j in 0..flow_count(kind) {
                 let u_len = h(j, 9011);
                 let budget = lmin * (lmax / lmin).powf(u_len);
                 let hw0 = half_width_km(budget, basaltic) * (0.8 + 0.4 * h(j, 9013));
                 // Age: the newest flow is the last eruption; the rest spread
                 // between it and the flank's building age, weighted young.
-                let lgj = if j == 0 { lg } else { lg + (lb - lg) * h(j, 9017).powf(0.6) };
+                let newest = j == 0 && !fissured;
+                let lgj = if newest { lg } else { lg + (lb - lg) * h(j, 9017).powf(0.6) };
                 let (t_vent, bearing) = match kind {
                     EdificeKind::Shield if j % 3 != 2 => {
                         let side = if j % 2 == 0 { 0.0 } else { std::f64::consts::PI };
@@ -532,9 +664,19 @@ impl LavaFlows {
                 while let Some(w) = queue.pop() {
                     let mut more = Vec::new();
                     if let Some((pts, len, sea, end)) = walk(&inp, &w, &mut more) {
-                        flows.push(LavaFlow { edifice: k as u32, years: if j == 0 { volcano_attr::years(e) } else { 10f64.powf(lgj) }, active: j == 0 && act == Activity::Active, basaltic, source: FlowSource::Vent, pts, len_km: w.s0_km + len, reached_sea: sea, end });
+                        flows.push(LavaFlow { edifice: k as u32, years: if newest { volcano_attr::years(e) } else { 10f64.powf(lgj) }, active: newest && act == Activity::Active, basaltic, source: FlowSource::Vent, pts, len_km: w.s0_km + len, reached_sea: sea, end });
                     }
                     queue.extend(more);
+                }
+            }
+            if fissured && let Some(b) = e.rift_bearing {
+                // The newest fissure (the last eruption) and an older one
+                // beside it (module doc's fissure table).
+                let lg_old = lg + (lb - lg) * h(0, 9101).powf(0.6);
+                let side = if h(0, 9103) < 0.5 { -1.0 } else { 1.0 };
+                let off_km = side * (0.8 + 2.2 * h(0, 9107));
+                for (f, (years, active, off, fed)) in [(volcano_attr::years(e), act == Activity::Active, 0.0, 4usize), (10f64.powf(lg_old), false, off_km, 2)].into_iter().enumerate() {
+                    fissure(&inp, &mut flows, k as u32, e, b, years, active, off, fed, salt0.wrapping_add(31_337 * (f as i32 + 1)));
                 }
             }
         }
@@ -641,7 +783,56 @@ mod tests {
     }
 
     fn shield(cx: f64, cy: f64, years: f64) -> PlacedEdifice {
-        PlacedEdifice { setting: VolcanicSetting::Hotspot, cx, cy, r: 6.0, h: 0.1, kind: Some(EdificeKind::Shield), age: 0.0, years: Some(years), crater: None }
+        PlacedEdifice { rift_bearing: None, setting: VolcanicSetting::Hotspot, cx, cy, r: 6.0, h: 0.1, kind: Some(EdificeKind::Shield), age: 0.0, years: Some(years), crater: None }
+    }
+
+    /// Protects Ruling DB item 1's fissure field. A rift shield that records
+    /// a trend of 1.1 rad erupts rampart segments that each run along that
+    /// trend (to 1e-4 rad, as an axis), are 1.5-12 km long in total (each
+    /// segment at most a tenth longer than its share), and carry the
+    /// edifice's own age and activity; sheet flows are fed from them, and
+    /// with a fissure no vent flow is the newest or active. The same edifice
+    /// without a trend (every table saved before the ruling) draws no fissure
+    /// and is the pre-ruling trace bit for bit except for the setting; an
+    /// extinct one draws nothing.
+    #[test]
+    fn a_recorded_rift_trend_draws_a_fissure_field_along_it() {
+        let (gw, gh) = (160usize, 80usize);
+        let f = plane_with_valley(gw, gh);
+        let inp = TraceInput { field: &f, gw, gh, sea_level: 0.43, km_per_cell: 0.5, m_per_unit: 4000.0 };
+        let b = 1.1f64;
+        let mut e = shield(60.0, 30.0, 20.0);
+        e.setting = VolcanicSetting::Rift;
+        e.rift_bearing = Some(b);
+        let fl = LavaFlows::trace(&[e], inp);
+        let segs: Vec<&LavaFlow> = fl.flows().iter().filter(|l| l.source == FlowSource::Fissure).collect();
+        assert!(!segs.is_empty(), "no fissure segment");
+        for l in &segs {
+            let (p, q) = (l.pts[0], *l.pts.last().unwrap());
+            let a = ((q.y - p.y) as f64).atan2((q.x - p.x) as f64).rem_euclid(std::f64::consts::PI);
+            let d = (a - b).abs().min(std::f64::consts::PI - (a - b).abs());
+            assert!(d < 1e-4, "a segment at {a} against the trend {b}");
+            assert!(l.pts.iter().all(|p| p.hw_km >= 0.05 && p.hw_km <= 0.09 + 1e-6));
+        }
+        let newest: Vec<&&LavaFlow> = segs.iter().filter(|l| l.years == 20.0).collect();
+        assert!(!newest.is_empty() && newest.iter().all(|l| l.active), "the newest fissure is the last eruption, active");
+        let total: f64 = newest.iter().map(|l| l.len_km).sum();
+        assert!(total <= 12.0 * 1.1 + 1e-6 && total >= 1.5 * 0.5, "newest fissure {total} km");
+        assert!(fl.flows().iter().any(|l| l.source == FlowSource::FissureFed), "no sheet fed from the fissure");
+        assert!(fl.flows().iter().filter(|l| l.source == FlowSource::Vent).all(|l| !l.active && l.years > 20.0), "a vent flow kept the newest eruption");
+        // Without the trend: no fissure, and the setting alone changes nothing.
+        let mut old = e;
+        old.rift_bearing = None;
+        let fo = LavaFlows::trace(&[old], inp);
+        assert!(fo.flows().iter().all(|l| l.source == FlowSource::Vent));
+        let mut hot = old;
+        hot.setting = VolcanicSetting::Hotspot;
+        assert_eq!(fo.flows(), LavaFlows::trace(&[hot], inp).flows());
+        let mut dead = e;
+        dead.years = Some(2.0e6);
+        assert!(LavaFlows::trace(&[dead], inp).is_empty());
+        // The hit cap a fissure field needs (`MAX_HITS`' doc), a literal.
+        assert_eq!(MAX_HITS, 8);
     }
 
     /// Protects the walk's physics on a fixture built for it: every flow

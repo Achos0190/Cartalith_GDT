@@ -58,7 +58,7 @@ const PEAK_M: f64 = 4000.0;
 /// A basalt shield at (75, 40), radius 14 cells (7 km), of `years`: 35 km
 /// from the sea, inside a shield flow's 8-50 km band.
 fn shield(years: f64) -> PlacedEdifice {
-    PlacedEdifice { setting: VolcanicSetting::Hotspot, cx: 75.0, cy: 40.0, r: 14.0, h: 0.12, kind: Some(EdificeKind::Shield), age: 0.0, years: Some(years), crater: None }
+    PlacedEdifice { rift_bearing: None, setting: VolcanicSetting::Hotspot, cx: 75.0, cy: 40.0, r: 14.0, h: 0.12, kind: Some(EdificeKind::Shield), age: 0.0, years: Some(years), crater: None }
 }
 
 struct World {
@@ -678,6 +678,27 @@ fn lava_census() {
         let branches = fl.flows().iter().filter(|l| l.pts[0].s_km > 0.0).count();
         let maxlen = lens.iter().copied().fold(0.0, f64::max);
         println!("   lengths km: median {:.1}, max {:.1}; reached the sea {sea}; active {active}; branches {branches}", median(lens.clone()), maxlen);
+        // Ruling DB item 1: the rift edifices, the trend each recorded, and
+        // the fissure field drawn from it.
+        {
+            use cartalith_terrain::lava_flows::FlowSource;
+            let rifts: Vec<_> = vt.iter().filter(|e| e.setting == VolcanicSetting::Rift).collect();
+            let with_b = rifts.iter().filter(|e| e.rift_bearing.is_some()).count();
+            let young = rifts.iter().filter(|e| e.rift_bearing.is_some() && e.kind.is_some() && volcano_attr::activity(e) != volcano_attr::Activity::Extinct).count();
+            let segs: Vec<f64> = fl.flows().iter().filter(|l| l.source == FlowSource::Fissure).map(|l| l.len_km).collect();
+            let fed: Vec<f64> = fl.flows().iter().filter(|l| l.source == FlowSource::FissureFed).map(|l| l.len_km).collect();
+            let bearings: Vec<String> = rifts.iter().filter_map(|e| e.rift_bearing).map(|b| format!("{:.0}", b.to_degrees())).collect();
+            println!(
+                "   rift edifices {} (trend recorded {with_b}, active or dormant {young}; trends deg [{}]); fissure segments {} (total {:.1} km), fed flows {} (median {:.1} km, to the sea {})",
+                rifts.len(),
+                bearings.join(" "),
+                segs.len(),
+                segs.iter().sum::<f64>(),
+                fed.len(),
+                median(fed.clone()),
+                fl.flows().iter().filter(|l| l.source == FlowSource::FissureFed && l.reached_sea).count()
+            );
+        }
         for kind in [EdificeKind::Shield, EdificeKind::Strato, EdificeKind::Cinder] {
             let ends: Vec<String> = [FlowEnd::Budget, FlowEnd::Sea, FlowEnd::Ponded, FlowEnd::Stalled, FlowEnd::Edge]
                 .iter()
@@ -825,6 +846,25 @@ fn lava_census() {
         if let Some(l) = fl.flows().iter().filter(|l| l.active).max_by(|a, b| a.len_km.total_cmp(&b.len_km)) {
             let (x, y) = at(l, 0.33);
             picks.push(("active", x, y));
+        }
+        // Ruling DB item 1: the longest fissure segment of the youngest
+        // fissured edifice away from the map edges (its middle).
+        if let Some(l) = fl
+            .flows()
+            .iter()
+            .filter(|l| l.source == cartalith_terrain::lava_flows::FlowSource::Fissure)
+            // At least 120 cells from every map edge, so the x4 frame does
+            // not run off the grid.
+            .filter(|l| {
+                let m = l.pts[l.pts.len() / 2];
+                (120.0..(gw - 120) as f32).contains(&m.x) && (120.0..(gh - 120) as f32).contains(&m.y)
+            })
+            .min_by(|a, b| a.years.total_cmp(&b.years).then(b.len_km.total_cmp(&a.len_km)))
+        {
+            let (x, y) = at(l, 0.5);
+            let fp = volcano_look::flow_px(fl, x, y, kpc, kpc / 7.42);
+            println!("   fissure pick: {} pts, hw {:.3} km, {:.0} yr, active {}; at its middle {:?}", l.pts.len(), l.pts[0].hw_km, l.years, l.active, fp.layers.iter().flatten().map(|f| (f.flow, f.fissure, (f.cov * 100.0).round())).collect::<Vec<_>>());
+            picks.push(("fissure", x, y));
         }
         // Owner check (the brief): 71077345's largest edifice at x4, for
         // the caldera-lake straight edge an earlier agent noticed.

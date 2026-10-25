@@ -567,6 +567,19 @@ const MARGIN_MAT: EmissiveMaterial = EmissiveMaterial { ramp: GlowRamp::Fire, he
 /// How far a flow's width swells and pinches along its length, as a share of
 /// its half width (lobes and breakouts; judgement).
 const LOBE_AMP: f64 = 0.33;
+/// Fresh spatter on a fissure's rampart: oxidised red-brown scoria (the
+/// reddened spatter of Krafla's and Holuhraun's fissures in aerial imagery),
+/// mottled with the black glassy spatter below. Judgement, kept warm and
+/// dark so a rampart never reads as water or as a road.
+const SPATTER_RED: Rgb = (92.0, 50.0, 38.0);
+/// Black glassy spatter (as fresh pahoehoe, a little darker). Judgement.
+const SPATTER_BLACK: Rgb = (36.0, 33.0, 33.0);
+/// The open fissure along a rampart's crest, darker than the spatter
+/// (shadowed); drawn only where it resolves. Judgement.
+const FISSURE_CRACK: Rgb = (18.0, 16.0, 17.0);
+/// An active fissure's fountain emission at the crest, before the daylight
+/// scale: the orange of the Fire ramp's hot end. Judgement.
+const FOUNTAIN: Rgb = (255.0, 118.0, 28.0);
 
 /// One traced flow at one pixel.
 #[derive(Clone, Copy, Debug)]
@@ -590,6 +603,9 @@ pub struct FlowSample {
     pub u: f64,
     pub p_km: [f64; 2],
     pub px_km: f64,
+    /// An eruptive fissure's rampart (`FlowSource::Fissure`, owner Ruling DB
+    /// item 1), drawn as spatter with a crack rather than as a flow.
+    pub fissure: bool,
 }
 
 /// The flows at one pixel, youngest (on top) first; at most two are drawn
@@ -649,7 +665,13 @@ pub fn flow_px(fl: &cartalith_terrain::lava_flows::LavaFlows, x: f64, y: f64, km
         // drew hair-like spikes across the margin (2026-10-25).
         let hw0 = f.pts[0].hw_km.max(0.05) as f64;
         let lobe = 1.0 + LOBE_AMP * (vnoise(h.s_km / (3.0 * hw0), 0.61, seed + 3) - 0.5) * 2.0;
-        let hw = h.hw_km * lobe * (0.55 + 0.45 * smoothstep(0.0, 3.0 * h.hw_km, h.s_km));
+        // A fissure's rampart is as wide at its ends as along it (no vent to
+        // spread from), and swells only a little.
+        let hw = if f.source == cartalith_terrain::lava_flows::FlowSource::Fissure {
+            h.hw_km * (1.0 + 0.4 * (lobe - 1.0))
+        } else {
+            h.hw_km * lobe * (0.55 + 0.45 * smoothstep(0.0, 3.0 * h.hw_km, h.s_km))
+        };
         // The colour-paint lava material's own fractal margin (octave
         // amplitude proportional to wavelength, so lobes at every scale and
         // each octave arriving under the zoom law), scaled to the flow's
@@ -664,7 +686,8 @@ pub fn flow_px(fl: &cartalith_terrain::lava_flows::LavaFlows, x: f64, y: f64, km
             continue;
         }
         let u = if f.len_km > 0.0 { (h.s_km / f.len_km).clamp(0.0, 1.0) } else { 0.0 };
-        out.layers[n] = Some(FlowSample { flow: h.flow, log_years: f.years.max(1.0).log10(), active: f.active, basaltic: f.basaltic, cov, inside_km: inside, d_km: h.d_km, hw_km: hw, u, p_km, px_km });
+        let fissure = f.source == cartalith_terrain::lava_flows::FlowSource::Fissure;
+        out.layers[n] = Some(FlowSample { flow: h.flow, log_years: f.years.max(1.0).log10(), active: f.active, basaltic: f.basaltic, cov, inside_km: inside, d_km: h.d_km, hw_km: hw, u, p_km, px_km, fissure });
         n += 1;
     }
     out
@@ -689,6 +712,9 @@ pub fn flow_px(fl: &cartalith_terrain::lava_flows::LavaFlows, x: f64, y: f64, km
 ///   ([`ProceduralLava`]) -- chilled crust with glowing cracks, hottest at
 ///   the vent and cooling along its length, a hot front, a little halo.
 pub fn flow_ground(a: &TerrainAppearance, f: &FlowSample, rain01: f64, tt: f64) -> (Rgb, f64, [f64; 3]) {
+    if f.fissure {
+        return fissure_ground(a, f, rain01, tt);
+    }
     let rain01 = rain01.clamp(0.0, 1.0);
     let seed = (f.flow as i32).wrapping_mul(613).wrapping_add(29);
     let weathered = LithoSample::One(if f.basaltic { 1 } else { 2 }).ramp(a, tt);
@@ -730,6 +756,46 @@ pub fn flow_ground(a: &TerrainAppearance, f: &FlowSample, rain01: f64, tt: f64) 
                 e = [e[0] + h[0] * k, e[1] + h[1] * k, e[2] + h[2] * k];
             }
         }
+    }
+    (rock, alpha, e)
+}
+
+/// An eruptive fissure's rampart at its pixel (owner Ruling DB item 1), in
+/// [`flow_ground`]'s terms: spatter mottled red-brown and black in kilometre
+/// noise under the zoom law (so the rampart keeps gaining clots at x16 and
+/// x64), a dark open crack along its crest where the crest resolves, ageing
+/// and greening like a flow of the same age ([`aged_rock`], [`cover`]); while
+/// active, a curtain of fire along the crack (the colour-paint lava material
+/// at its hottest, under the same daytime glow cap) fading out over the
+/// rampart. What it must never do: draw anything off the rampart's own
+/// coverage except an active fissure's halo.
+fn fissure_ground(a: &TerrainAppearance, f: &FlowSample, rain01: f64, tt: f64) -> (Rgb, f64, [f64; 3]) {
+    let rain01 = rain01.clamp(0.0, 1.0);
+    let seed = (f.flow as i32).wrapping_mul(613).wrapping_add(43);
+    let weathered = LithoSample::One(1).ramp(a, tt);
+    let clots = zoom_fbm(f.p_km, 0.03, f.px_km, seed + 5);
+    let fresh_c = mix(SPATTER_BLACK, SPATTER_RED, smoothstep(0.35, 0.75, clots));
+    let r = f.d_km / f.hw_km.max(1e-6);
+    let crack_vis = smoothstep(NYQ_PX * f.px_km, 2.0 * NYQ_PX * f.px_km, 0.25 * f.hw_km);
+    let crack = smoothstep(0.28, 0.12, r) * crack_vis;
+    let fresh_c = mix(fresh_c, FISSURE_CRACK, crack);
+    let rock = aged_rock(weathered, fresh_c, f.log_years, rain01);
+    let c = cover(f.log_years, rain01 * RAIN_MM_FULL);
+    let mut alpha = f.cov * (1.0 - c);
+    let mut rock = rock;
+    let mut e = [0.0; 3];
+    if f.active {
+        // A curtain of fire along the crack: emission falling from the crest
+        // to nothing at 0.6 of the half width, the rampart's flanks chilled
+        // spatter. Drawn directly rather than through the colour-paint lava
+        // material: its crack network and halo at a rampart's width drew the
+        // rampart as a pale double line (the 2026-10-25 x64 frame of seed 8).
+        // The colour is the Fire ramp's orange end (judgement); daylight
+        // scaling and the luminance cap apply after (`capped_glow`).
+        let k = smoothstep(0.6, 0.0, r) * crack_vis.max(0.35);
+        rock = mix(SPATTER_BLACK, CRUST, 0.5);
+        alpha = f.cov;
+        e = [FOUNTAIN.0 * k * f.cov, FOUNTAIN.1 * k * f.cov, FOUNTAIN.2 * k * f.cov];
     }
     (rock, alpha, e)
 }
@@ -893,7 +959,7 @@ mod tests {
     #[test]
     fn active_and_dormant_crater_lakes_are_acid_and_extinct_ones_are_not() {
         use cartalith_terrain::{PlacedEdifice, VolcanicSetting};
-        let ed = |years: f64| PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 10.0, h: 0.2, kind: Some(EdificeKind::Cinder), age: 0.0, years: Some(years), crater: None };
+        let ed = |years: f64| PlacedEdifice { rift_bearing: None, setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 10.0, h: 0.2, kind: Some(EdificeKind::Cinder), age: 0.0, years: Some(years), crater: None };
         let base: Rgb = (40.0, 70.0, 110.0);
         for (years, acid) in [(10.0, true), (5_000.0, true), (2_000_000.0, false)] {
             let idx = VolcanoIndex::new(&[ed(years)], 64, 48);

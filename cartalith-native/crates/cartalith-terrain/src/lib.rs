@@ -10,6 +10,7 @@ pub mod amplify;
 pub mod analysis;
 pub mod volcano_attr;
 pub mod lava_flows;
+pub mod rift_trend;
 pub mod center;
 pub mod edifice_furrows;
 pub mod edifice_pits;
@@ -1385,6 +1386,16 @@ pub struct PlacedEdifice {
     /// ([`EdificeModel::Morphometric`]). `None` is the kind's own table
     /// ([`volcano_attr::zones`] answers either way).
     pub crater: Option<(f64, f64)>,
+    /// The trend of the rift this edifice sits on, radians in `0..PI` (an
+    /// axis; `atan2(dy, dx)` on the grid), read off the plate boundary at
+    /// generation by [`rift_trend::rift_trend`] (owner Ruling DB item 1,
+    /// 2026-10-25). `Some` only for a [`VolcanicSetting::Rift`] edifice whose
+    /// vent has a boundary within reach, and only in a table generated since
+    /// the ruling: `None` for every other edifice and for every table saved
+    /// before it, which then reopens as it was saved (no fissure is drawn and
+    /// a shield's rift zones keep their hashed bearing). Recorded beside the
+    /// edifice, never read back by generation: no generated value moves.
+    pub rift_bearing: Option<f64>,
 }
 
 /// What the volcano stampers record when asked (`*_traced`): every edifice,
@@ -2157,6 +2168,9 @@ fn stamp_one_volcano(
             age,
             years: Some(volcano_attr::respread_age_years(age)),
             crater: crater.map(|(f, rm, _)| (f, rm)),
+            // Filled in by the engine from the plate field after stamping
+            // (`rift_trend`), which this stamp does not see.
+            rift_bearing: None,
         });
         (t.edifices.len() - 1) as u32
     });

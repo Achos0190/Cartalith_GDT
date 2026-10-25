@@ -454,7 +454,7 @@ mod tests {
     use super::*;
 
     fn ed(cx: f64, cy: f64, r: f64, age: f64, kind: Option<EdificeKind>, setting: VolcanicSetting) -> PlacedEdifice {
-        PlacedEdifice { setting, cx, cy, r, h: 0.2, kind, age, years: None, crater: None }
+        PlacedEdifice { rift_bearing: None, setting, cx, cy, r, h: 0.2, kind, age, years: None, crater: None }
     }
 
     /// Protects Ruling CW's map (still read for old tables) at its two ends

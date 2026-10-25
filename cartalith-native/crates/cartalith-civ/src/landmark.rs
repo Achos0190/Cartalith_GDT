@@ -7797,7 +7797,7 @@ mod tests {
                 vol[y * gw + x] = (0.6 * (-d2 / 18.0).exp()) as f32;
             }
         }
-        let ed = |kind, age| cartalith_terrain::PlacedEdifice { setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age, years: None, crater: None };
+        let ed = |kind, age| cartalith_terrain::PlacedEdifice { rift_bearing: None, setting: cartalith_terrain::VolcanicSetting::Arc, cx: 40.0, cy: 32.0, r: 10.0, h: 0.2, kind: Some(kind), age, years: None, crater: None };
         let run = |table: Option<&[cartalith_terrain::PlacedEdifice]>, water: Option<&[u8]>| -> String {
             let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, 200.0);
             inp.peak_m = PEAK_M;

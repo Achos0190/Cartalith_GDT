@@ -10466,6 +10466,10 @@ mod geology_save_tests {
             // they come back bit for bit.
             assert!(a.years.is_some(), "premise: a new world records each edifice's years");
             assert_eq!(a.years.map(f64::to_bits), b.years.map(f64::to_bits));
+            // Ruling DB item 1: a rift row's trend comes back bit for bit,
+            // and only a rift row carries one.
+            assert_eq!(a.rift_bearing.map(f64::to_bits), b.rift_bearing.map(f64::to_bits));
+            assert!(a.rift_bearing.is_none() || a.setting == cartalith_terrain::VolcanicSetting::Rift);
         }
         // A table saved before Ruling CX carries no `years` key (VA-1's row
         // shape): the real table's own rows, serialised, with the key taken
@@ -10477,6 +10481,8 @@ mod geology_save_tests {
             .map(|r| {
                 let mut v = serde_json::to_value(r).unwrap();
                 assert!(v.as_object_mut().unwrap().remove("years").is_some(), "the writer writes the key");
+                // A pre-CX table predates Ruling DB's trend too.
+                v.as_object_mut().unwrap().remove("rift_bearing");
                 v
             })
             .collect();
@@ -10520,6 +10526,18 @@ mod geology_save_tests {
             let mut rows = volcano_rows_of(&table);
             rows[0].years = Some(bad);
             assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "years {bad} is refused");
+        }
+        // Ruling DB item 1's trend: kept when an axis in 0..PI, refused
+        // otherwise; a row without the key reloads with none.
+        let mut rows = volcano_rows_of(&table);
+        rows[0].rift_bearing = Some(1.25);
+        assert_eq!(geology_save::volcanoes_from_rows(&rows).unwrap()[0].rift_bearing, Some(1.25));
+        rows[0].rift_bearing = None;
+        assert_eq!(geology_save::volcanoes_from_rows(&rows).unwrap()[0].rift_bearing, None);
+        for bad in [-0.1, std::f64::consts::PI, 4.0, f64::NAN] {
+            let mut rows = volcano_rows_of(&table);
+            rows[0].rift_bearing = Some(bad);
+            assert!(geology_save::volcanoes_from_rows(&rows).is_err(), "bearing {bad} is refused");
         }
     }
 

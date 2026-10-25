@@ -40,6 +40,7 @@ fn world(other_years: f64) -> (Vec<f32>, Vec<PlacedEdifice>) {
         }
     }
     let ed = |cx: f64, years: f64| PlacedEdifice {
+        rift_bearing: None,
         setting: VolcanicSetting::Arc,
         cx,
         cy: 24.0,

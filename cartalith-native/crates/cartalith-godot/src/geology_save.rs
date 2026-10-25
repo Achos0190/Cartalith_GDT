@@ -118,6 +118,14 @@ pub(crate) struct VolcanoRow {
     /// reader ignores the key and reads the draw, as it always did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub years: Option<f64>,
+    /// The rift's trend at the edifice, radians in `0..PI`
+    /// (`PlacedEdifice::rift_bearing`, owner Ruling DB item 1, 2026-10-25):
+    /// present for a rift edifice generated since the ruling, absent for
+    /// every other row and in every table written before, which then reopens
+    /// as it was saved (no fissure field). Optional, so no version bump: an
+    /// older reader ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rift_bearing: Option<f64>,
 }
 
 /// The rows for `edifices`, in placement order (the order decides owner ties).
@@ -135,6 +143,7 @@ fn volcano_rows(edifices: &[cartalith_terrain::PlacedEdifice]) -> Vec<VolcanoRow
             age: e.age,
             crater: e.crater,
             years: e.years,
+            rift_bearing: e.rift_bearing,
         })
         .collect()
 }
@@ -169,7 +178,12 @@ pub(crate) fn volcanoes_from_rows(rows: &[VolcanoRow]) -> Result<Vec<cartalith_t
             {
                 return Err(format!("volcano {i}: an age in years that is not usable"));
             }
-            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age, years: r.years, crater: r.crater })
+            if let Some(b) = r.rift_bearing
+                && !(b.is_finite() && (0.0..std::f64::consts::PI).contains(&b))
+            {
+                return Err(format!("volcano {i}: a rift bearing that is not usable"));
+            }
+            Ok(cartalith_terrain::PlacedEdifice { setting, cx: r.cx, cy: r.cy, r: r.r, h: r.h, kind, age: r.age, years: r.years, crater: r.crater, rift_bearing: r.rift_bearing })
         })
         .collect()
 }

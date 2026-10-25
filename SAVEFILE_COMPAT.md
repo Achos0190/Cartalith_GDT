@@ -1092,7 +1092,7 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
   `VOLCANO_APPEARANCE_RESEARCH.md`; `version` stays 1) is the world's volcano
   table, one object per edifice in placement order (the order decides which
   edifice owns a cell where two discs tie):
-  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …, "crater": [floor, rim]?, "years": …?}`
+  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …, "crater": [floor, rim]?, "years": …?, "rift_bearing": …?}`
   -- the centre and radius in grid cells, the stamp's normalised summit height,
   and the edifice's own `0 … 1` age draw. `kind` is `null` for an
   edifice the reference model drew, which has no morphology. Two optional
@@ -1105,7 +1105,13 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
   `legacy_activity_of`), so a table saved before Ruling CX reopens with the
   ages, activity and colours it was saved with; a row with it is read by its
   years (`volcano_attr::years`, `activity`). A `years` that is not a positive
-  finite number refuses the table like any other unusable row. **Absent is no
+  finite number refuses the table like any other unusable row. A third
+  optional key, `rift_bearing` (owner Ruling DB item 1, 2026-10-25), is the
+  trend of the plate boundary at a rift edifice's vent, radians in `0 … PI`
+  (`PlacedEdifice::rift_bearing`), written only for a rift edifice generated
+  since; **a row without it draws no fissure field** (and a shield's rift
+  zones keep their hashed bearing), so an older table reopens as saved; one
+  outside `0 … PI` or non-finite refuses the table. **Absent is no
   table**, never an empty one: a world without a table writes no key, and a
   reader MUST NOT substitute one. A table this build cannot honour (an unknown
   setting or kind, a non-finite number, a radius that is not positive, an age
