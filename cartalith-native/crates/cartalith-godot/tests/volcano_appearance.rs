@@ -193,6 +193,39 @@ fn every_other_look_is_byte_identical_with_the_table_attached() {
     assert!(screen(&ctx(&w, sat(), Some(&idx))) != screen(&ctx(&w, sat(), None)), "positive control: the stage must reach Satellite relief");
 }
 
+/// Protects owner Ruling CX item 5 through `cell_color` (the screen's own
+/// lake branch): with a lake drawn in both craters, Satellite relief turns
+/// the ACTIVE shield's crater lake turquoise-to-emerald (green above red by
+/// 40 levels, a literal) while the EXTINCT stratocone's crater lake keeps the
+/// lake palette byte for byte; every other look draws both lakes identically
+/// with or without the table (identity by control flow).
+#[test]
+fn an_active_crater_lake_is_acid_and_only_in_satellite_relief() {
+    let w = world();
+    let idx = VolcanoIndex::new(&edifices(), GW, GH);
+    let mut lakes = vec![0u8; GW * GH];
+    for (cx, cy) in [(24usize, 32usize), (72, 32)] {
+        for dy in 0..2 {
+            for dx in 0..2 {
+                lakes[(cy + dy) * GW + cx + dx] = 2;
+            }
+        }
+    }
+    let px = |c: &RenderCtx, x: usize, y: usize| {
+        let (r, g, b) = render::cell_color(c, x, y);
+        ((r * 255.0) as i32, (g * 255.0) as i32, (b * 255.0) as i32)
+    };
+    let with = ctx(&w, sat(), Some(&idx)).with_lakes(&lakes);
+    let without = ctx(&w, sat(), None).with_lakes(&lakes);
+    let (a, b) = (px(&with, 24, 32), px(&without, 24, 32));
+    assert!(a.1 > a.0 + 40 && a != b, "the active crater lake is not acid: {a:?} (lake palette {b:?})");
+    assert_eq!(px(&with, 72, 32), px(&without, 72, 32), "the extinct crater lake changed");
+    for a in [TerrainAppearance::default().with_look(render::LOOK_VIBRANT), TerrainAppearance::js_reference()] {
+        let (x, y) = (ctx(&w, a.clone(), Some(&idx)).with_lakes(&lakes), ctx(&w, a, None).with_lakes(&lakes));
+        assert_eq!(px(&x, 24, 32), px(&y, 24, 32), "another look tinted the crater lake");
+    }
+}
+
 /// Protects: under Satellite relief only the edifices' own cells move;
 /// every cell off them (no owner) is byte-identical with and without the
 /// table, so the stage cannot leak onto the surrounding ground.

@@ -5489,6 +5489,23 @@ impl<'a> RenderCtx<'a> {
         volcano_look::sample_pair(index, gx, gy, kpc, cells_per_px * kpc)
     }
 
+    /// Owner Ruling CX item 5: `lake` (a lake pixel's finished colour from
+    /// [`lake_color`]) at fractional grid position `(gx, gy)`, recoloured as
+    /// an acid crater lake inside an active or dormant edifice's summit zone
+    /// ([`volcano_look::crater_lake`]). Identity -- `lake` returned
+    /// unchanged by control flow -- unless the look turns
+    /// [`TerrainAppearance::volcano_look`] on (Satellite relief only), a
+    /// volcano table is attached and the map width is known, the same gate
+    /// as [`Self::volcano_at`]. `cells_per_px` is the pixel's footprint in
+    /// cells (the zoom law).
+    pub fn crater_lake_tint(&self, lake: Rgb, gx: f64, gy: f64, cells_per_px: f64) -> Rgb {
+        if self.appearance.volcano_look <= 0.0 {
+            return lake;
+        }
+        let (Some(index), Some(kpc)) = (self.volcanoes, self.km_per_cell()) else { return lake };
+        volcano_look::crater_lake(index, gx, gy, kpc, cells_per_px * kpc, lake, self.appearance.volcano_look)
+    }
+
     /// Attach GF-6 §4.10's rock input ([`RockDetail`]) for the deep-zoom
     /// tiles. Ignored -- the tiles stay unstyled -- when its length does not
     /// match the grid, so a mismatched field can never index out of bounds
@@ -9846,7 +9863,9 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
     } else if ctx.lake_class.is_some_and(|l| l[i] == 2) {
         // v0.103 (8580): an above-sea lake is flat freshwater -- `lakeColor`
         // (8324), which is [`lake_color`], the same surface the tile draws.
-        ctx.paint_water(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y)), x as f64, y as f64, 1.0)
+        // Ruling CX item 5: an active or dormant crater's lake is acid.
+        let lake = ctx.crater_lake_tint(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y)), x as f64, y as f64, 1.0);
+        ctx.paint_water(lake, x as f64, y as f64, 1.0)
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
         let m = ctx.rainfall[i] as f64;
@@ -10191,7 +10210,8 @@ impl BakeFields {
         // Ruling CN: water-painting marks act on the finished water colour,
         // antialiased over this export's pixel (`paint_water`).
         let wpx = step.0.max(step.1);
-        let lake = || ctx.paint_water(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig), gx, gy, wpx);
+        // Ruling CX item 5: an active or dormant crater's lake is acid.
+        let lake = || ctx.paint_water(ctx.crater_lake_tint(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig), gx, gy, wpx), gx, gy, wpx);
         let (r, g, b) = match self.shore_cover(ctx, gx, gy, step) {
             // No shore field (every golden, `js_reference()`): the cell rule,
             // byte for byte what this bake drew before RV-5.
@@ -13454,7 +13474,8 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                 Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig, ctx.shelf_km_at_f(wx, wy)))
             } else if class == TILE_LAKE {
                 // v1.05 lake (11741-11742) -- see [`lake_color`].
-                Some(lake_color(a, t, sea_grain(a, wx, wy, gw), vig))
+                // Ruling CX item 5: an active or dormant crater's lake is acid.
+                Some(ctx.crater_lake_tint(lake_color(a, t, sea_grain(a, wx, wy, gw), vig), wx, wy, cells_per_px))
             } else {
                 None
             };

@@ -580,9 +580,109 @@ pub fn capped_glow(e: Rgb) -> Option<Rgb> {
     Some((e.0 * k, e.1 * k, e.2 * k))
 }
 
+/// Acid crater-lake water at its turquoise end: colloidal sulphur scatters
+/// blue (research §3.5 and §6.2; cited: Ohsawa et al. 2010, Aso's Yudamari
+/// "often turquoise or emerald green"). The RGB is the research's §6.2
+/// target, a labelled judgement.
+pub const ACID_TURQUOISE: Rgb = (64.0, 168.0, 160.0);
+/// Acid crater-lake water at its emerald end: dissolved ferrous iron
+/// (same citation; RGB the research's §6.2 target, a judgement).
+pub const ACID_EMERALD: Rgb = (70.0, 140.0, 96.0);
+/// A pale sulphur slick on the water (research §6.2: "flat; a pale sulphur
+/// slick"). Judgement.
+const SULPHUR_SLICK: Rgb = (196.0, 206.0, 168.0);
+/// How far the acid colour replaces the lake palette at the middle of a
+/// crater lake (owner Ruling CX item 5). Judgement: most of the way, so the
+/// lake reads turquoise or emerald, keeping a little of the look's own lake
+/// tone and its grain.
+pub const ACID_STRENGTH: f64 = 0.85;
+
+/// Owner Ruling CX item 5 (2026-10-24, research G10): the lake surface at
+/// grid position `(x, y)` when it lies inside the summit zone
+/// (`volcano_attr::summit_zone_t`) of an **active or dormant** edifice --
+/// an acid crater lake, turquoise to emerald -- else `base` unchanged. An
+/// extinct crater's lake is neutral and keeps the generic lake palette
+/// (research §3.5). Each edifice draws its own place on the turquoise-emerald
+/// line from a hash of its index (Yudamari moved between the two over
+/// years), mottled in kilometre noise and streaked with a pale sulphur slick
+/// under the zoom law, so the lake keeps gaining structure as the view zooms
+/// in without its overall tone moving. The colour fades in over the outer
+/// fifth of the zone so a lake straddling the zone's edge has no seam.
+/// `strength` is the look's `volcano_look`. What it must never do: tint a
+/// lake off every active or dormant summit zone, or change water/land: it
+/// only colours a pixel the caller already drew as lake.
+pub fn crater_lake(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km: f64, base: Rgb, strength: f64) -> Rgb {
+    if !(strength > 0.0 && km_per_cell.is_finite() && km_per_cell > 0.0 && px_km.is_finite() && px_km > 0.0) {
+        return base;
+    }
+    let Some(h) = index.winner_at(x, y) else { return base };
+    let e = h.edifice;
+    if volcano_attr::activity(e) == Activity::Extinct {
+        return base;
+    }
+    let Some(zt) = volcano_attr::summit_zone_t(e) else { return base };
+    let w = smoothstep(zt, zt * 0.8, h.t);
+    if w <= 0.0 {
+        return base;
+    }
+    let seed = (h.index as i32).wrapping_mul(977) + 401;
+    let p_km = [x * km_per_cell, y * km_per_cell];
+    let r_km = (e.r * zt * km_per_cell).max(0.05);
+    // Where this lake sits on the turquoise-emerald line, then a mottle of
+    // +-0.2 around it in kilometre noise.
+    let pick = cartalith_noise::hash(seed, 7, 11);
+    let mottle = zoom_fbm(p_km, r_km * 0.5, px_km, seed + 3) - 0.5;
+    let acid = mix(ACID_TURQUOISE, ACID_EMERALD, (pick + 0.4 * mottle).clamp(0.0, 1.0));
+    // The sulphur slick: thin pale blotches, a sixth of the surface at most.
+    let slick = smoothstep(0.64, 0.74, zoom_fbm(p_km, r_km * 0.25, px_km, seed + 5)) * 0.45;
+    let acid = mix(acid, SULPHUR_SLICK, slick);
+    mix(base, acid, ACID_STRENGTH * w * strength.min(1.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects owner Ruling CX item 5: a lake pixel at the centre of an
+    /// active or a dormant crater turns turquoise-to-emerald (green and blue
+    /// both above red by a margin, literals), an extinct crater's lake and a
+    /// lake outside every summit zone keep `base` exactly, strength 0 is
+    /// identity, and the mean colour over a crater stays put across a 100x
+    /// zoom (the zoom law: detail is added, tone is not moved).
+    #[test]
+    fn active_and_dormant_crater_lakes_are_acid_and_extinct_ones_are_not() {
+        use cartalith_terrain::{PlacedEdifice, VolcanicSetting};
+        let ed = |years: f64| PlacedEdifice { setting: VolcanicSetting::Arc, cx: 20.0, cy: 20.0, r: 10.0, h: 0.2, kind: Some(EdificeKind::Cinder), age: 0.0, years: Some(years), crater: None };
+        let base: Rgb = (40.0, 70.0, 110.0);
+        for (years, acid) in [(10.0, true), (5_000.0, true), (2_000_000.0, false)] {
+            let idx = VolcanoIndex::new(&[ed(years)], 64, 48);
+            let c = crater_lake(&idx, 20.3, 20.2, 0.4, 0.01, base, 1.0);
+            if acid {
+                assert!(c.1 > c.0 + 40.0 && c.2 > c.0 + 20.0, "{years} yr: {c:?} is not turquoise-emerald");
+            } else {
+                assert_eq!(c, base, "an extinct crater lake keeps the lake palette");
+            }
+            assert_eq!(crater_lake(&idx, 20.3, 20.2, 0.4, 0.01, base, 0.0), base, "strength 0 is identity");
+            if acid {
+                assert_ne!(crater_lake(&idx, 20.3, 20.2, 0.4, 0.01, base, 0.5), c, "half strength is half the tint");
+            }
+            assert_eq!(crater_lake(&idx, 20.0 + 8.0, 20.0, 0.4, 0.01, base, 1.0), base, "outside the summit zone");
+        }
+        let idx = VolcanoIndex::new(&[ed(10.0)], 64, 48);
+        let mean = |px: f64| {
+            let n = 60;
+            let mut s = (0.0, 0.0, 0.0);
+            for k in 0..n * n {
+                let (x, y) = (20.0 + ((k % n) as f64 / n as f64 - 0.5) * 3.0, 20.0 + ((k / n) as f64 / n as f64 - 0.5) * 3.0);
+                let c = crater_lake(&idx, x, y, 0.4, px, base, 1.0);
+                s = (s.0 + c.0, s.1 + c.1, s.2 + c.2);
+            }
+            let m = (n * n) as f64;
+            (s.0 / m, s.1 / m, s.2 / m)
+        };
+        let (a, b) = (mean(0.2), mean(0.002));
+        assert!((a.0 - b.0).abs() < 8.0 && (a.1 - b.1).abs() < 8.0 && (a.2 - b.2).abs() < 8.0, "tone moved with zoom: {a:?} vs {b:?}");
+    }
 
     /// Protects §6.3's four fitted points, read back from the function
     /// against the research's literals (50 yr, 150 yr, 5 000 yr, 50 000 yr).
