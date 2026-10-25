@@ -2471,3 +2471,17 @@ Owner, on `LLM_ASSISTANT_SCOPE.md` s.5b's owner questions P1-P5, approved the re
 5. **P5. Never send map images for now.** Deferred; it is a privacy and cost decision and would need a later ruling.
 
 Consequences: LLM-6a is unblocked with these as fixed inputs; the validator (`cartalith-llm` `catalogue.rs`) rejects rather than coerces; the context-source checkbox in LLM-3's panel gains a parameters-and-statistics entry; no image path is built; the scope's P1-P5 are marked answered and the `OUTSTANDING_WORK.md` LLM row carries the answers.
+
+## Ruling DJ — VA-6's five questions answered: calderas as a disclosed re-baseline, maars relaxed, the supervolcano exempted from the bars, the flood basalt render-only, domes unchanged (owner, 2026-10-25)
+
+The owner's answers to Ruling DG's five questions (the VA-6 row of `OUTSTANDING_WORK.md`), relayed by the coordinating session:
+
+1. **Q1 calderas: accept the age rule as a disclosed re-baseline** that moves settlements, outlets and lakes near old stratocones. On in `params::defaults`, off in `WorldParams::defaults` and `js_reference`; old saves reopen as saved (optional save key); `DECISIONS.md` §7p. Still re-measure every Ruling CX bar on six or more worlds and report the exact moves (settlements within 3 cells, outlets within 5 cells, small lakes), keep the sea level identical by construction, and **do not silently exceed sensible sizes: report the diameters**.
+2. **Q2 maars: relax the site rule and allow a small maar lake to stand** under the lake-area floor (check the 4-cell floor); measure; on in the app if the bars hold, else report numbers.
+3. **Q3 supervolcano: exempt this one rare feature from the bars and build it**: zero or one per world, usually none, an old quiet caldera with an ash apron, not an active vent, placed by the tectonic rule already prototyped; report its local effects on the few worlds that have one.
+4. **Q4 flood basalt: a render-only texture** (trap terrain and steps, a dark basalt plateau) that does **not** move the height field; Satellite relief only.
+5. **Q5 domes: keep the faithful cited sizes** (sub-pixel at fit view, visible from x4); no change.
+
+Binding, restated: placement follows tectonics, magma supply and history, never even spreading. Zoom detail at x1/x4/x16/x64 judged on frames looked at. If a kind fails a bar beyond what is accepted here, report numbers rather than tune.
+
+**Outcome (2026-10-25):** all four built and on in the app; the measured moves, the caldera diameters (four above the cited 24 km), the supervolcano's local effects, the maar exemption and the frames are in `STATUS.md`'s VA-6 entry.

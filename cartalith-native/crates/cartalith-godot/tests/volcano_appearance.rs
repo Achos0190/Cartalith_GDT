@@ -1045,8 +1045,10 @@ fn volcano_census() {
             }
         }
         let idx_b = VolcanoIndex::new(&vt_b, gw, gh);
-        let lakes = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
-        let lakes_b = render::water_bodies_floored(&ws_b.field, &ws_b.rainfall, gw, gh, ws_b.sea_level, p.world, None).classification;
+        // The app's drawn lakes: Ruling CC's floor with Ruling DJ's maar
+        // exemption, as `WorldGen::drawn_water_bodies` builds them.
+        let lakes = render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None, Some(vt.as_slice())).classification;
+        let lakes_b = render::water_bodies_floored_keep(&ws_b.field, &ws_b.rainfall, gw, gh, ws_b.sea_level, p.world, None, ws_b.volcanoes.as_deref().map(|v| v.as_slice())).classification;
         let pre_on = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a_on, Some(p.map_width_km));
         let pre_off = GridPrecompute::build(&ws_b.field, &ws_b.temperature, &ws_b.rainfall, Some(&ws_b.flow_discharge), gw, gh, ws_b.sea_level, p.world, &a_off, Some(p.map_width_km));
         let c_on = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a_on.clone(), &pre_on)
@@ -1059,7 +1061,11 @@ fn volcano_census() {
             .with_lithology(&lith_b)
             .with_lakes(&lakes_b)
             .with_volcanoes(&idx_b);
-        let (tf_on, tf_off) = (TileFields::new(&c_on, None), TileFields::new(&c_off, None));
+        // The tiles keep the maar lakes too, as `lod_worker` builds them.
+        let (tf_on, tf_off) = (
+            TileFields::new(&c_on, None).with_maar_lakes(&c_on, Some(vt.as_slice())),
+            TileFields::new(&c_off, None).with_maar_lakes(&c_off, ws_b.volcanoes.as_deref().map(|v| v.as_slice())),
+        );
         // The picks: largest, youngest, oldest (radius >= 4 km), on land.
         let land = |e: &PlacedEdifice| {
             let (x, y) = (e.cx as usize, e.cy as usize);

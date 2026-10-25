@@ -168,7 +168,8 @@ var _volc_cells: Array = []
 
 ## Leg 1: the cell dictionary.
 func _leg_sample() -> void:
-	var kinds := ["cinder", "strato", "shield", "dome", "maar"]
+	# Ruling DJ added "supervolcano" and "flood_basalt" (`EdificeKind::key`).
+	var kinds := ["cinder", "strato", "shield", "dome", "maar", "supervolcano", "flood_basalt"]
 	var acts := ["active", "dormant", "extinct"]
 	var bare_seen := false
 	for gy in range(0, GRID.y, 6):

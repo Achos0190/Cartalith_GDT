@@ -1092,7 +1092,7 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
   `VOLCANO_APPEARANCE_RESEARCH.md`; `version` stays 1) is the world's volcano
   table, one object per edifice in placement order (the order decides which
   edifice owns a cell where two discs tie):
-  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|"dome"|"maar"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …, "crater": [floor, rim]?, "years": …?, "rift_bearing": …?}`
+  `{"setting": "arc"|"rift"|"hotspot"|"unclassified", "kind": "cinder"|"strato"|"shield"|"dome"|"maar"|"supervolcano"|"flood_basalt"|null, "cx": …, "cy": …, "r": …, "h": …, "age": …, "crater": [floor, rim]?, "years": …?, "rift_bearing": …?}`
   -- the centre and radius in grid cells, the stamp's normalised summit height,
   and the edifice's own `0 … 1` age draw. `kind` is `null` for an
   edifice the reference model drew, which has no morphology. Two optional
@@ -1114,13 +1114,20 @@ Every `f32` is byte-plane shuffled under the `.shuffled.f32` name exactly as
   outside `0 … PI` or non-finite refuses the table. Two kinds were added
   2026-10-25 (VA-6, no version bump): `"dome"`, a lava dome on a
   stratocone's flank (`volc.kind_dome`, on in the app), and `"maar"`
-  (`volc.kind_maar`, off at both boundaries, so no app world writes one
-  today). Their rows are appended after every stamped edifice, so no older
+  (`volc.kind_maar`, on in the app since owner Ruling DJ, 2026-10-25). Two
+  more the same day (Ruling DJ, no version bump): `"supervolcano"`, an old
+  quiet caldera that **replaces its hotspot parent's row in place** (same
+  index; its `crater` is the caldera rim and wall, its `years` at least
+  631 000), and `"flood_basalt"`, a render-only province appended last
+  (`h` 0, no `crater`). The world keys `volc.kind_caldera`,
+  `volc.kind_supervolcano` and `volc.kind_flood_basalt` are optional like
+  the rest: **a save without one regenerates with that kind off**, so an
+  older project reopens as it was saved. Their rows are appended after every stamped edifice, so no older
   row's index moves, and each carries its parent's setting, age and `years`
   (a maar also its `crater`). **A table without them reads exactly as
   before** (and a save without `volc.kind_dome` regenerates without
   domes). **An older build
-  refuses a table holding either kind** (an unknown kind), so a project
+  refuses a table holding any of these kinds** (an unknown kind), so a project
   saved from this build and opened in an older one loses its volcano
   colours there (the column is still restored; a warning names the kind);
   that is the documented whole-table refusal below, not a silent guess.
