@@ -657,6 +657,26 @@ func _set_row_tip(v: Label, tip: String) -> void:
 ## `sculpt_draft_changed`, `layer_stack_changed`, `project_saved`, `workspace_changed`, `tool_armed`,
 ## the viewport's `map_clicked`), then does the first `_rebuild()`. Call once; the per-signal
 ## comments below say why each handler drops or keeps selection state.
+## The Faction card's Government value: the vocabulary label for the roster's
+## key, "Unknown form (<key>), from a newer build" for a key this build does not
+## know (kept as saved, `SAVEFILE_COMPAT.md` §9.2), or a dash with its reason
+## when the record has none. Never a substitute label (G1-3).
+func _government_label(roster: Dictionary) -> String:
+	if not roster.has("government"):
+		return "— (none recorded)"
+	var key := String(roster.get("government", ""))
+	var vocab := bridge.civ_government_vocabulary()
+	if vocab.is_empty():
+		## No vocabulary to judge against (mid-generation, or an older
+		## library): the stored key as-is, which §9.2 allows.
+		return key
+	for e in vocab:
+		var v: Dictionary = e
+		if String(v.get("key", "")) == key:
+			return String(v.get("label", key))
+	return "Unknown form (%s), from a newer build" % key
+
+
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -3464,7 +3484,7 @@ func _build_faction(body: Control) -> void:
 	## `dict!` (`cartalith-godot/src/lib.rs:6578-6579`, the `"government"` and
 	## `"ag_tech"` rows, two under `"culture"` at `:6365`) -- and were shown
 	## nowhere in this dock, while
-	## `faction_roster_window.gd`'s `_vocab_choice`/`_ag_tech_choice` rows
+	## `faction_roster_window.gd`'s `_government_choice`/`_ag_tech_choice` rows
 	## (`:432`, `:438`) both read *and* edit them. Named
 	## with that window's own labels rather than a second vocabulary for the
 	## same two fields. Found by the 2026-08-31 unwired audit.
@@ -3485,11 +3505,14 @@ func _build_faction(body: Control) -> void:
 			"No data for faction %d -- generate a world first." % _faction_id, false)
 	else:
 		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
+		## Government shows its vocabulary LABEL (G1-3, `GOVERNMENTS_SCOPE.md`
+		## §4.4): `capitalize()` on the key read "City State" for "City-State"
+		## and would only have read the G1 forms correctly by accident. A key
+		## this build does not know is named as such, never prettified into
+		## a plausible form; an absent one is dashed with its reason.
+		_field(sec, "Government", _government_label(roster))
 		## `capitalize()` is the same formatting `Culture` above uses, and it
-		## reads both vocabularies correctly: the government keys are
-		## snake_case and the ag-tech keys camelCase (`traditionalAgrarian`),
-		## which it splits into words either way.
-		_field(sec, "Government", String(roster.get("government", "?")).capitalize())
+		## reads the camelCase ag-tech keys (`traditionalAgrarian`) as words.
 		_field(sec, "Ag. technology", String(roster.get("ag_tech", "?")).capitalize())
 		_faction_colour_row(sec, roster)
 		_field(sec, "Settlements", str(int(roster.get("settlement_count", 0))))

@@ -24358,10 +24358,40 @@ impl WorldGen {
             .collect()
     }
 
-    /// `CIV_GOVERNMENTS` as `{key, label}`.
+    /// `CIV_GOVERNMENTS` as `{key, label, hint, reference}` plus `group` and
+    /// `anchor` where they exist, in stored order.
+    ///
+    /// G1-3 (Ruling CZ Q9, `GOVERNMENTS_SCOPE.md` §6) added every member but
+    /// `key` and `label`, additively, so a caller reading only those two is
+    /// unaffected: `group` (one of `GOVERNMENT_GROUPS`, the picker's display
+    /// grouping; absent for `none`), `hint` (one line saying what the form is
+    /// and what the model reads for it), `reference` (true for the reference's
+    /// nine, the only forms a fresh faction can default to) and `anchor` (an
+    /// appended form's anchor row key, absent for a reference form). Absent
+    /// members are omitted, never filled with a plausible value.
     #[func]
     fn civ_government_vocabulary(&self) -> Array<VarDictionary> {
-        key_label_array(&cartalith_civ::roster::CIV_GOVERNMENTS)
+        use cartalith_civ::roster::{CIV_GOVERNMENTS, CIV_GOVERNMENTS_REFERENCE_LEN, GOVERNMENT_DISPLAY};
+        CIV_GOVERNMENTS
+            .iter()
+            .zip(GOVERNMENT_DISPLAY.iter())
+            .enumerate()
+            .map(|(i, (&(key, label), d))| {
+                let mut row = vdict! {
+                    "key" => key,
+                    "label" => label,
+                    "hint" => d.hint,
+                    "reference" => i < CIV_GOVERNMENTS_REFERENCE_LEN,
+                };
+                if let Some(g) = d.group {
+                    row.set("group", g);
+                }
+                if let Some(a) = d.anchor {
+                    row.set("anchor", a);
+                }
+                row
+            })
+            .collect()
     }
 
     /// FH-R2 R2-6: `CIV_RELIGIOUS_POLICIES` as `{key, label}`, in display

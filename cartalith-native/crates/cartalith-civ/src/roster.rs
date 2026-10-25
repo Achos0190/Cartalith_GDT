@@ -326,6 +326,142 @@ pub const CIV_GOVERNMENTS: [(&str, &str); 17] = [
 /// [`CIV_RELIGIONS_REFERENCE_LEN`].
 pub const CIV_GOVERNMENTS_REFERENCE_LEN: usize = 9;
 
+/// How the faction hub's Government picker shows one [`CIV_GOVERNMENTS`] form
+/// (G1-3, Ruling CZ Q9, `GOVERNMENTS_SCOPE.md` §6). Display prose only: no
+/// computation reads it, and the stored keys and their order never change.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GovernmentDisplay {
+    /// The [`CIV_GOVERNMENTS`] key this row describes.
+    pub key: &'static str,
+    /// The display group, one of [`GOVERNMENT_GROUPS`]; `None` for `none`
+    /// (Unclaimed is not a form of government, so it heads the list ungrouped).
+    pub group: Option<&'static str>,
+    /// One line: what the form is, then what the manpower model reads for it,
+    /// including what it does **not** model (Ruling CZ Q8: no economy,
+    /// relations, religion or timeline coupling), so a label never claims
+    /// behaviour the engine lacks.
+    pub hint: &'static str,
+    /// For a G1-appended form, the reference row its citizen share is anchored
+    /// to (`GOVERNMENTS_SCOPE.md` §3.2); `None` for a reference form, which is
+    /// its own grounding. The Military tab names it.
+    pub anchor: Option<&'static str>,
+}
+
+/// The picker's groups, in display order: the axis the research document
+/// says the list mixes, made visible (Ruling CZ Q9).
+pub const GOVERNMENT_GROUPS: [&str; 5] =
+    ["Kin-based", "Monarchic", "Civic and mercantile", "Religious", "Imperial and military"];
+
+/// One [`GovernmentDisplay`] per [`CIV_GOVERNMENTS`] entry, in the same order
+/// (`government_display_covers_the_vocabulary_in_order` holds them together).
+/// The hints for `merchant_republic` and `holy_order` say outright that they
+/// read as `republic` and `oligarchy` (`GOVERNMENTS_SCOPE.md` §10, "labels
+/// without behaviour").
+pub const GOVERNMENT_DISPLAY: [GovernmentDisplay; 17] = [
+    GovernmentDisplay {
+        key: "none",
+        group: None,
+        hint: "Unclaimed land: no state at all. The manpower model reads the lowest extraction row.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "chiefdom",
+        group: Some("Kin-based"),
+        hint: "A paramount chief redistributes what he can see. Low extraction; nearly everyone counts as free.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "tribal_confederacy",
+        group: Some("Kin-based"),
+        hint: "Allied kin groups under a war leader. Low extraction; nearly everyone counts as free.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "monarchy",
+        group: Some("Monarchic"),
+        hint: "One ruler and an administrative court over free peasants and a tied substrate.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "oligarchy",
+        group: Some("Civic and mercantile"),
+        hint: "Rule by a few families; a narrow citizen body. The least-grounded citizen row.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "republic",
+        group: Some("Civic and mercantile"),
+        hint: "Elected magistrates taxing a small area intensively; half the population are citizens.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "theocracy",
+        group: Some("Religious"),
+        hint: "Rule by a priesthood (the Papal States, the prince-bishoprics). Reads as Monarchy in the manpower model.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "empire",
+        group: Some("Imperial and military"),
+        hint: "A professional revenue service over conquered subjects; the narrowest citizen body.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "city_state",
+        group: Some("Civic and mercantile"),
+        hint: "One city and its hinterland, taxed intensively; a slave-holding citizen body.",
+        anchor: None,
+    },
+    GovernmentDisplay {
+        key: "merchant_republic",
+        group: Some("Civic and mercantile"),
+        hint: "Venice, Genoa, Novgorod. Reads as Republic in the manpower model; the trade framing is not modelled yet.",
+        anchor: Some("republic"),
+    },
+    GovernmentDisplay {
+        key: "city_league",
+        group: Some("Civic and mercantile"),
+        hint: "The Hanseatic and Lombard leagues: strong towns, weak centre, no common treasury. Lower extraction than a monarchy.",
+        anchor: Some("republic"),
+    },
+    GovernmentDisplay {
+        key: "sacral_monarchy",
+        group: Some("Religious"),
+        hint: "A ruler whose authority is sacred (Byzantium, the Caliphate). A little more extraction than Monarchy; its religion is not modelled.",
+        anchor: Some("monarchy"),
+    },
+    GovernmentDisplay {
+        key: "holy_order",
+        group: Some("Religious"),
+        hint: "A military-monastic order (the Teutonic Order). Reads as Oligarchy in the manpower model.",
+        anchor: Some("oligarchy"),
+    },
+    GovernmentDisplay {
+        key: "feudal_realm",
+        group: Some("Monarchic"),
+        hint: "Revenue and troops sit with the vassals (Capetian France). A weak centre: lower extraction than Monarchy.",
+        anchor: Some("monarchy"),
+    },
+    GovernmentDisplay {
+        key: "nomad_khanate",
+        group: Some("Kin-based"),
+        hint: "The Mongols, the Turkic khaganates. Low extraction; its near-universal levy of free horsemen is not modelled yet.",
+        anchor: Some("tribal_confederacy"),
+    },
+    GovernmentDisplay {
+        key: "stratocracy",
+        group: Some("Imperial and military"),
+        hint: "The army is the state (the Mamluks, the Tokugawa bakufu). High extraction; Empire's citizen body.",
+        anchor: Some("empire"),
+    },
+    GovernmentDisplay {
+        key: "tributary_hegemony",
+        group: Some("Imperial and military"),
+        hint: "Tribute from nominally autonomous subjects (the Aztec Triple Alliance). Extraction without administration; Empire's citizen body.",
+        anchor: Some("empire"),
+    },
+];
+
 /// One `AG_TECH_LEVELS` row (reference line 14816).
 ///
 /// Fields: `key` is the persisted identifier (camelCase, as the reference
@@ -767,6 +903,31 @@ mod tests {
             let k = civ_default_government(i);
             let pos = CIV_GOVERNMENTS.iter().position(|&(gk, _)| gk == k).expect("a roster key");
             assert!(pos < 9, "i={i} picked appended {k:?}");
+        }
+    }
+
+    /// Protects G1-3's display table: one row per vocabulary key, in the same
+    /// order, every group one of the five, Unclaimed alone ungrouped, every
+    /// appended form (and only those) naming a reference anchor, and every
+    /// hint one non-empty line.
+    #[test]
+    fn government_display_covers_the_vocabulary_in_order() {
+        assert_eq!(GOVERNMENT_DISPLAY.len(), CIV_GOVERNMENTS.len());
+        for (i, (d, &(k, _))) in GOVERNMENT_DISPLAY.iter().zip(CIV_GOVERNMENTS.iter()).enumerate() {
+            assert_eq!(d.key, k, "row {i}");
+            assert_eq!(d.group.is_none(), k == "none", "{k}");
+            if let Some(g) = d.group {
+                assert!(GOVERNMENT_GROUPS.contains(&g), "{k}: {g}");
+            }
+            assert_eq!(d.anchor.is_some(), i >= CIV_GOVERNMENTS_REFERENCE_LEN, "{k}");
+            if let Some(a) = d.anchor {
+                let pos = CIV_GOVERNMENTS.iter().position(|&(rk, _)| rk == a);
+                assert!(pos.is_some_and(|p| p > 0 && p < CIV_GOVERNMENTS_REFERENCE_LEN), "{k}: {a}");
+            }
+            assert!(!d.hint.is_empty() && !d.hint.contains(char::from(10)), "{k}");
+        }
+        for g in GOVERNMENT_GROUPS {
+            assert!(GOVERNMENT_DISPLAY.iter().any(|d| d.group == Some(g)), "{g} is empty");
         }
     }
 

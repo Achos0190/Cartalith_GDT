@@ -4581,7 +4581,7 @@ func _religion_pin(index: int) -> void:
 ## summed adherents put a different faith in the plurality than the roster's own
 ## Religion dropdown holds; at 160x112 / 25 years, **two**. Nothing in this shell
 ## showed that. The roster window's inspector *edits* the flag
-## (`_vocab_choice(sec, "Religion", ...)`), `right_dock.gd`'s Faction context
+## (`_religion_choice`), `right_dock.gd`'s Faction context
 ## *prints* the flag ("State religion"), and the roll-up above this is
 ## world-wide. A faction is where the hand-set flag and the simulated population
 ## meet, and it had no surface.

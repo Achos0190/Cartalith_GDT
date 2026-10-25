@@ -5288,7 +5288,8 @@ func civ_belief_run(years: int) -> Dictionary:
 func has_belief_api() -> bool:
 	return _has("civ_belief_run")
 
-## Government `{key, label}` vocabulary (`WorldGen.civ_government_vocabulary`).
+## Government vocabulary (`WorldGen.civ_government_vocabulary`): `{key, label,
+## hint, reference}` plus `group` and `anchor` where they exist (G1-3).
 ## `[]` without the API.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers [].
 func civ_government_vocabulary() -> Array:

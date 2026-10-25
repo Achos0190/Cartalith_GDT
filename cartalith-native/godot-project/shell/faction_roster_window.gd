@@ -981,9 +981,7 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 
 	var sec := DccWidgets.section(pane, "Identity")
 	_colour_row(sec, d)
-	_vocab_choice(sec, "Government", bridge.civ_government_vocabulary(),
-		String(d.get("government", "monarchy")), "government",
-		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (see the Military tab).")
+	_government_choice(sec, d)
 	_culture_choice(sec, String(d.get("culture", "common")))
 	_build_culture_card(sec, String(d.get("culture", "common")))
 	_religion_choice(sec, d)
@@ -2071,22 +2069,104 @@ func _repaint_banners(c: Color) -> void:
 		(_phone_bar_banner as FactionBanner).configure(_selected, c, 22)
 
 
-## A dropdown over an engine vocabulary (`[{key, label}, ...]`) writing the chosen
-## key through `_set_field(key, ...)`. Draws nothing for an empty vocabulary, so a
-## build that lacks it shows no dead control. `current` selects the entry; an
-## unknown current key falls back to the first rather than inventing a label.
-func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String,
-		key: String, tip: String = "") -> void:
+## Shown for a stored government key this build's vocabulary does not hold (a
+## save from a newer build, or a hand edit). `SAVEFILE_COMPAT.md` §9.2: the key
+## is kept on write-back and MAY be shown as-is, but a reader MUST NOT
+## substitute a default silently. So it is named, with its reason, and is not
+## offered as a choice (G1-3, `GOVERNMENTS_SCOPE.md` §4.4).
+const GOV_UNKNOWN_FMT := "Unknown form (%s), from a newer build"
+## Shown when the faction record carries no government at all (absent, not
+## blank: a blank key is just another unknown key).
+const GOV_ABSENT := "— (no government recorded for this faction)"
+
+## The Government picker (G1-3, Ruling CZ Q9, `GOVERNMENTS_SCOPE.md` §6):
+## `civ_government_vocabulary()`'s forms grouped by axis, each group under a
+## disabled header row, in the vocabulary's own order inside each group; the
+## stored keys and their order never change, only the display groups them.
+## Unclaimed (`none`, the one ungrouped entry) heads the list. Below the
+## picker sits the selected form's one-line `hint`, rewritten on every pick
+## (the Identity pane is kept, not rebuilt, by `_set_field`'s government
+## branch).
+##
+## **Never shows an unknown or absent key as a real form.** It replaced
+## `_vocab_choice`, whose `maxi(0, keys.find(current))` displayed any key this
+## build does not know as entry 0, "None / Unclaimed" -- the plausible-value
+## substitution `MISTAKES.md` forbids, and one G1 made reachable (an older
+## build opening a G1 save). An unknown key is an extra disabled entry naming
+## the key ([`GOV_UNKNOWN_FMT`]); an absent one is dashed with its reason
+## ([`GOV_ABSENT`]). Neither can be picked, and picking a real form replaces it.
+func _government_choice(parent: Control, d: Dictionary) -> void:
+	var vocab := bridge.civ_government_vocabulary()
 	if vocab.is_empty():
 		return
-	var keys: Array = []
+	var current := String(d.get("government", "")) if d.has("government") else ""
 	var labels: Array = []
+	var keys: Array = []  ## "" for a header or the unknown/absent entry
+	var hints := {}
+	var groups: Array = []  ## display order: first appearance in the vocabulary
 	for e in vocab:
-		var d: Dictionary = e
-		keys.append(String(d.get("key", "")))
-		labels.append(String(d.get("label", "?")))
-	DccWidgets.choice(parent, label_text, labels, maxi(0, keys.find(current)),
-		func(i: int): _set_field(key, keys[i]), tip)
+		var v: Dictionary = e
+		hints[String(v.get("key", ""))] = String(v.get("hint", ""))
+		if not v.has("group"):
+			labels.append(String(v.get("label", "?")))
+			keys.append(String(v.get("key", "")))
+		elif not groups.has(String(v.get("group"))):
+			groups.append(String(v.get("group")))
+	for g in groups:
+		labels.append(String(g).to_upper())
+		keys.append("")
+		for e in vocab:
+			var v: Dictionary = e
+			if v.has("group") and String(v.get("group")) == g:
+				labels.append(String(v.get("label", "?")))
+				keys.append(String(v.get("key", "")))
+	var sel := keys.find(current) if current != "" else -1
+	var stray := -1
+	if sel < 0:
+		labels.append(GOV_UNKNOWN_FMT % current if d.has("government") else GOV_ABSENT)
+		keys.append("")
+		stray = labels.size() - 1
+		sel = stray
+	## A one-slot holder: a GDScript lambda captures a local by value when it
+	## is created, so the hint label made after the picker is reached through
+	## this shared Array.
+	var hint_ref: Array = [null]
+	var ob := DccWidgets.choice(parent, "Government", labels, sel,
+		func(i: int):
+			if String(keys[i]) == "":
+				return
+			_set_field("government", String(keys[i]))
+			var hl: Variant = hint_ref[0]
+			if hl != null and is_instance_valid(hl):
+				(hl as Label).text = String(hints.get(String(keys[i]), "")),
+		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (see the Military tab). Forms are grouped by kind; a fresh faction is only ever given one of the reference's nine.")
+	ob.name = "GovernmentPicker"
+	for i in keys.size():
+		if String(keys[i]) == "":
+			ob.set_item_disabled(i, true)
+			## A group header draws as the popup's titled separator band
+			## (`DccWidgets.style_popup`), not as a dimmed radio row; the
+			## unknown/absent entry stays an ordinary disabled row so the
+			## closed picker can show it.
+			if i != stray:
+				ob.get_popup().set_item_as_separator(i, true)
+	var hint_text := String(hints.get(current, ""))
+	if stray >= 0:
+		hint_text = ("This faction's stored government is not one this build knows; it is kept as saved. Pick a form to replace it."
+			if d.has("government") else "No government is recorded for this faction. Pick a form to set one.")
+	var hint_label := DccWidgets.note(parent, hint_text)
+	hint_label.name = "GovernmentHint"
+	hint_ref[0] = hint_label
+
+
+## The `civ_government_vocabulary()` row for `key`, or `{}` when this build
+## does not know it (never a substitute row).
+func _government_row(key: String) -> Dictionary:
+	for e in bridge.civ_government_vocabulary():
+		var v: Dictionary = e
+		if String(v.get("key", "")) == key:
+			return v
+	return {}
 
 
 # -- Religion picker and Religions library (FH-R1, `FACTION_HUB_DESIGN.md` §6 R1)
@@ -3473,10 +3553,21 @@ func _build_military_figures(parent: Control) -> void:
 	## rather than being an invisible divisor: a reader has to be able to see
 	## what the percentage is a percentage of, and how the government produced
 	## it.
+	var gov_key := String(m.get("government", ""))
+	var gov_row := _government_row(gov_key)
 	DccWidgets.note(sec, "Citizen / free population %s — %.0f%% of the total, the share a %s confers. This is what the era bands below are measured against, not the whole population." % [
 		_thousands(int(round(float(m.get("citizen_population", 0.0))))),
 		100.0 * float(m.get("citizen_fraction", 0.0)),
-		String(m.get("government", "?")).replace("_", " ")])
+		String(gov_row.get("label", gov_key.replace("_", " ")))])
+	## G1-3 (`GOVERNMENTS_SCOPE.md` §6, "The Military tab"): a form G1 appended
+	## says what its citizen row is, an authored ordering anchored to a
+	## reference row, so the band verdict below is not read as calibrated.
+	if not gov_row.is_empty() and not bool(gov_row.get("reference", true)):
+		var anchor_row := _government_row(String(gov_row.get("anchor", "")))
+		DccWidgets.note(sec, "%s is one of the added forms: its citizen share is the share a %s confers, an authored ordering placed against that row, not a calibrated value." % [
+			String(gov_row.get("label", gov_key)), String(anchor_row.get("label", gov_row.get("anchor", "?")))])
+		if gov_key == "nomad_khanate":
+			DccWidgets.note(sec, "Universal mobilisation of free horsemen is not modelled yet.")
 	DccWidgets.note(sec, "Reads as a %s (%s). Standing %.2f%% of citizens — %s that era's %.1f–%.1f%% band; mobilization %.1f%% — %s its %.0f–%.0f%%." % [
 		String(m.get("era", "?")), String(m.get("era_constraint", "")),
 		100.0 * float(m.get("standing_citizen_share", 0.0)),
