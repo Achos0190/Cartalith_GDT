@@ -930,7 +930,7 @@ impl LodSnapshot {
             .as_ref()
             .filter(|_| appearance.volcano_look > 0.0)
             .and_then(|l| l.volcanoes.as_ref())
-            .map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, gw, gh));
+            .map(|v| render::volcano_index_for(v, &field, gw, gh, sea_level, Some(map_width_km), &appearance));
         let info_age = litho.as_ref().map(|l| Arc::clone(&l.age));
         let info_resistance = litho.as_ref().map(|l| Arc::clone(&l.resistance));
         let info_flow_log_max = crate::sample_bridge::flow_log_max(flow.as_ref().map_or(&[][..], |v| v.as_slice()));

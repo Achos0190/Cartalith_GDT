@@ -11068,12 +11068,16 @@ impl WorldGen {
     /// 2026-10-24 on). The screen and the direct export call this; the tiles
     /// and the export session build the same index from
     /// `LithoSource::volcanoes` under the same condition.
-    pub(crate) fn volcano_index(&self, appearance: &TerrainAppearance) -> Option<cartalith_terrain::volcano_attr::VolcanoIndex> {
+    ///
+    /// Ruling DA: `field` is the height the render decides water from; the
+    /// lava flows are traced over it when the look draws them
+    /// (`render::volcano_index_for`, the constructor every consumer shares).
+    pub(crate) fn volcano_index(&self, appearance: &TerrainAppearance, field: &[f32]) -> Option<cartalith_terrain::volcano_attr::VolcanoIndex> {
         if appearance.volcano_look <= 0.0 {
             return None;
         }
         match self.source.as_ref()? {
-            WorldSource::Generated(ws) => ws.volcanoes.as_ref().map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, self.gw.max(0) as usize, self.gh.max(0) as usize)),
+            WorldSource::Generated(ws) => ws.volcanoes.as_ref().map(|v| render::volcano_index_for(v, field, self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level, Some(self.map_width_km), appearance)),
             WorldSource::Loaded(_) => None,
         }
     }
@@ -12255,7 +12259,7 @@ impl WorldGen {
         }
         // Ruling CW: the volcano colours (Satellite relief only; the index is
         // built only when the look draws them, `WorldGen::volcano_index`).
-        let volcano_index = self.volcano_index(&appearance);
+        let volcano_index = self.volcano_index(&appearance, field);
         if let Some(vi) = volcano_index.as_ref() {
             ctx = ctx.with_volcanoes(vi);
         }

@@ -578,7 +578,7 @@ impl WorldGen {
         }
         // Ruling CW: the volcano colours, as the screen attaches them, under
         // the export's own look.
-        let volcano_index = self.volcano_index(ctx.appearance());
+        let volcano_index = self.volcano_index(ctx.appearance(), ctx.water_height());
         if let Some(vi) = volcano_index.as_ref() {
             ctx = ctx.with_volcanoes(vi);
         }
@@ -3466,7 +3466,14 @@ mod adjust_census_tests {
             // unmoved -- this fixture attaches no volcano table, so the stage
             // is off by control flow -- and the four rows above did not move
             // at all (the field is `0.0` there and not serialized).
-            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0xc7d6ce92cfc9401c],
+            //
+            // RE-BASELINED 2026-10-25 under Ruling DA step 1 (the lava flows,
+            // `lava_flows` 1.0 in Satellite relief only): the FINGERPRINT
+            // column only, c7d6ce92cfc9401c -> 8265f450c3d141a5 (the new
+            // field serializes at 1.0). Every pixel column is unmoved -- this
+            // fixture attaches no volcano table, so no flow is traced -- and
+            // the four rows above did not move at all.
+            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x8265f450c3d141a5],
         ),
     ];
 

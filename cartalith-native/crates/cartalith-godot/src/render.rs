@@ -250,6 +250,28 @@ use self::adjust::AdjustStack;
 #[path = "volcano_look.rs"]
 pub mod volcano_look;
 
+/// The world's volcano table indexed for a look (Ruling CW), with Ruling
+/// CZ's lava flows traced over `field` -- the world's own height, the one
+/// water is decided from -- when the look draws them
+/// ([`TerrainAppearance::lava_flows`] `> 0`) and both scales are known (the
+/// map width and `appearance.npr.peak_m`, which `WorldGen` fills from the
+/// world's parameters). The **one** constructor the screen, the direct
+/// export, the export session and the deep-zoom tiles all call, so the four
+/// trace the same flows from the same inputs; without flows it is exactly
+/// `VolcanoIndex::new`.
+pub fn volcano_index_for(edifices: &[cartalith_terrain::PlacedEdifice], field: &[f32], gw: usize, gh: usize, sea_level: f64, map_width_km: Option<f64>, appearance: &TerrainAppearance) -> cartalith_terrain::volcano_attr::VolcanoIndex {
+    let idx = cartalith_terrain::volcano_attr::VolcanoIndex::new(edifices, gw, gh);
+    if appearance.lava_flows <= 0.0 {
+        return idx;
+    }
+    let peak = appearance.npr.peak_m;
+    let denom = 1.0 - sea_level;
+    match map_width_km {
+        Some(km) if km.is_finite() && km > 0.0 && gw > 0 && peak.is_finite() && peak > 0.0 && denom > 1e-9 && field.len() >= gw * gh => idx.with_lava_flows(cartalith_terrain::lava_flows::TraceInput { field, gw, gh, sea_level, km_per_cell: km / gw as f64, m_per_unit: peak / denom }),
+        _ => idx,
+    }
+}
+
 type Rgb = (f64, f64, f64);
 
 /// A colour and how much of it there is: `0-255` per channel like [`Rgb`], plus
@@ -2253,6 +2275,24 @@ pub struct TerrainAppearance {
     /// known map width.
     #[serde(skip_serializing_if = "is_zero_f64")]
     pub volcano_look: f64,
+    /// **Ruling DA step 1** (owner, 2026-10-25: *"Will the revised volcano
+    /// system also go with lava flows? Like in Iceland and Hawaii ... not
+    /// only at waterline but also on land"*): the strength, `0..=1`, of the
+    /// terrain-following lava flows -- each active or dormant vent's flows
+    /// traced down the world's own height field
+    /// (`cartalith_terrain::lava_flows`), drawn hot while active, cooling to
+    /// dark basalt, then weathering and greening by each flow's own eruption
+    /// age ([`volcano_look::flow_ground`]).
+    ///
+    /// Why: before this the only lava was a cone's seven radial ribbons,
+    /// blind to the ground and confined to the edifice.
+    ///
+    /// `0.0` -- `default()`, every look but Satellite relief, `js_reference()`
+    /// -- traces and draws nothing, by control flow (the index is built
+    /// without flows). Read only with [`Self::volcano_look`] on, a volcano
+    /// table, the map width and the peak altitude known.
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub lava_flows: f64,
     /// **Ruling CI** (owner order, 2026-10-18: after the square mottle, the
     /// forest canopy): the strength of [`canopy_relief`]'s tree-canopy
     /// texture over forest, `0..=1`. Fine light/dark broken-up variation --
@@ -2765,6 +2805,8 @@ impl Default for TerrainAppearance {
             rock_slope_warm_deg: 0.0,
             // Ruling CW's volcano colours: Satellite relief only.
             volcano_look: 0.0,
+            // Ruling DA's lava flows: Satellite relief only.
+            lava_flows: 0.0,
             // Ruling CI's canopy texture: Satellite relief and (since
             // 2026-10-24) Natural Vibrant; off in the tier's own image.
             canopy_texture: 0.0,
@@ -3077,6 +3119,8 @@ impl TerrainAppearance {
             rock_slope_warm_deg: 0.0,
             // Ruling CW's volcano colours: port-only, off by control flow.
             volcano_look: 0.0,
+            // Ruling DA's lava flows: port-only, off by control flow.
+            lava_flows: 0.0,
             // Ruling CI's canopy texture: port-only, off by control flow.
             canopy_texture: 0.0,
             // Unread while the texture is off; `default()`'s value.
@@ -3347,6 +3391,9 @@ fn satellite_relief(base: TerrainAppearance) -> TerrainAppearance {
         // Ruling CW (2026-10-24): the volcano colours, at full strength; see
         // the field's doc and `volcano_look`.
         volcano_look: 1.0,
+        // Ruling DA step 1 (2026-10-25): the terrain-following lava flows,
+        // at full strength; see the field's doc.
+        lava_flows: 1.0,
         // Ruling CI's forest canopy (2026-10-18). Full strength is
         // [`canopy_relief`]'s own scale; see the field's doc.
         canopy_texture: 1.0,
@@ -3586,6 +3633,9 @@ tunables! {
     // -- Not a reference row (Ruling CW, 2026-10-24): the Satellite relief
     //    volcano colours; see the field's doc --
     "volcano_look"          => volcano_look,          0.0,   1.0,  "Volcano colours";
+    // -- Not a reference row (Ruling DA, 2026-10-25): the Satellite relief
+    //    lava flows; see the field's doc --
+    "lava_flows"            => lava_flows,            0.0,   1.0,  "Lava flows";
     "canopy_texture"        => canopy_texture,        0.0,   1.0,  "Forest canopy texture";
     // -- Not a reference row (2026-10-24): the coarsest canopy octave drawn.
     //    The range is the octave walk's own span, `CANOPY_MIN_KM`'s 8 m up to
@@ -5480,13 +5530,18 @@ impl<'a> RenderCtx<'a> {
     /// [`TerrainAppearance::volcano_look`] on, a table is attached and the
     /// map width is known (a kilometre pattern is never drawn on a guessed
     /// scale).
-    pub fn volcano_at(&self, gx: f64, gy: f64, cells_per_px: f64) -> Option<volcano_look::VolcanoPair> {
+    ///
+    /// Ruling DA: the pixel also carries the lava flows over it when the
+    /// look draws them (`lava_flows > 0`) and the index was built with
+    /// them (`VolcanoIndex::with_lava_flows`); a flow reaches ground off
+    /// every edifice, so the answer is `Some` there too.
+    pub fn volcano_at(&self, gx: f64, gy: f64, cells_per_px: f64) -> Option<volcano_look::VolcanoPx> {
         if self.appearance.volcano_look <= 0.0 {
             return None;
         }
         let index = self.volcanoes?;
         let kpc = self.km_per_cell()?;
-        volcano_look::sample_pair(index, gx, gy, kpc, cells_per_px * kpc)
+        volcano_look::sample_px(index, gx, gy, kpc, cells_per_px * kpc, self.appearance.lava_flows > 0.0)
     }
 
     /// Owner Ruling CX item 5: `lake` (a lake pixel's finished colour from
@@ -7032,7 +7087,7 @@ pub(crate) fn flat_land_light(a: &TerrainAppearance, w_macro: f64, w_meso: f64, 
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>, volc: Option<volcano_look::VolcanoPair>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>, volc: Option<volcano_look::VolcanoPx>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -7138,9 +7193,12 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // term below (this blend, the slope tint, the bedrock exposure, the
     // microtexture) reads it. `None` -- every other look, no table, off the
     // edifices -- leaves `lith` exactly as it was, by control flow.
-    let vg = volc.map(|v| volcano_look::ground_pair(appearance, &v, m, tt));
+    // Ruling DA: the lava flows are laid over that ground inside
+    // `ground_px`; a flow off every edifice leaves the category alone
+    // unless it covers the pixel's middle (`PxGround::lith`).
+    let vg = volc.map(|v| volcano_look::ground_px(appearance, &v, m, tt, appearance.lava_flows.min(1.0)));
     let lith = match vg {
-        Some(g) => Some(g.lith),
+        Some(g) => g.lith.or(lith),
         None => lith,
     };
     add(&mut c, snow_c, w.snow);
@@ -7287,7 +7345,10 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // and the tint below then acts only on the covered share, where the
     // held knee keeps an old cone green. `None` skips it by control flow.
     if let Some(g) = vg {
-        let k = g.bare * (1.0 - smoothstep(0.0, 0.5, w.snow)) * appearance.volcano_look.min(1.0);
+        // Ruling DA: a moving or few-decades-old flow shows through the snow
+        // (`PxGround::over_snow`); `0` everywhere else keeps the rule above.
+        let snow_k = 1.0 - smoothstep(0.0, 0.5, w.snow);
+        let k = g.bare * (snow_k + (1.0 - snow_k) * g.over_snow) * appearance.volcano_look.min(1.0);
         if k > 0.0 {
             c = mix(c, g.rock, k);
         }

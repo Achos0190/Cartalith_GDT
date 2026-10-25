@@ -9,6 +9,7 @@ use rayon::prelude::*;
 pub mod amplify;
 pub mod analysis;
 pub mod volcano_attr;
+pub mod lava_flows;
 pub mod center;
 pub mod edifice_furrows;
 pub mod edifice_pits;

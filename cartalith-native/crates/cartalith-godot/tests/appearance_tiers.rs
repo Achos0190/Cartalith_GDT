@@ -559,7 +559,15 @@ fn every_tunable_is_load_bearing() {
     // `every_other_look_is_byte_identical_with_the_table_attached` (its
     // positive control moves Satellite relief) and
     // `a_young_cone_is_bare_and_an_old_one_green_on_the_same_slope`.
-    const EXEMPT: [&str; 27] = [
+    //
+    // `lava_flows` (Ruling DA, 2026-10-25) is the twenty-eighth, for
+    // `volcano_look`'s reason and one more: it draws only through an index
+    // built with traced flows (`render::volcano_index_for`, which also needs
+    // the peak altitude), none of which this fixture's context carries. Its
+    // replacement proofs are in `tests/lava_flows.rs`:
+    // `lava_flows_are_satellite_relief_only` (its positive control moves
+    // Satellite relief) and `flows_leave_the_edifice_and_run_downhill`.
+    const EXEMPT: [&str; 28] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -587,6 +595,7 @@ fn every_tunable_is_load_bearing() {
         "canopy_coarse_km",
         "edifice_furrows",
         "volcano_look",
+        "lava_flows",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

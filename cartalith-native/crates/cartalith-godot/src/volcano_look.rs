@@ -28,6 +28,13 @@
 //!   active craters (question 5), drawn by the colour-paint layer's own lava
 //!   material ([`cartalith_spatial::colour_paint::ProceduralLava`]) placed
 //!   from the world model instead of by a brush.
+//! - **Ruling DA, lava flows**: the flows each active or dormant vent sent
+//!   down the real height field (`cartalith_terrain::lava_flows`), laid over
+//!   the edifice and the ground beyond it ([`ground_px`], [`flow_ground`]):
+//!   pahoehoe turning to 'a'a downstream, hot and glowing while active,
+//!   cooling to dark basalt, then weathering and greening by each flow's own
+//!   eruption age under the same rules as the flank. They replaced the seven
+//!   radial ribbons this module once drew inside each cone.
 //!
 //! # Why this shape
 //!
@@ -56,6 +63,8 @@
 //!   sample only when `TerrainAppearance::volcano_look > 0` (Satellite relief
 //!   only), a volcano table is attached and the map width is known; every
 //!   other look, `default()` and `js_reference()` never reach this module.
+//!   The lava flows need `TerrainAppearance::lava_flows > 0` as well, and an
+//!   index built with them (`render::volcano_index_for`).
 //! - Never change world data or generation: it reads the edifice record and
 //!   the climate and returns colours.
 //! - Never guess a kind: an edifice with no morphology (the reference model)
@@ -165,9 +174,6 @@ pub struct VolcanoSample {
     pub d_km: f64,
     /// The pixel's position, km from the map's origin.
     pub p_km: [f64; 2],
-    /// The edifice's centre, km from the map's origin (the radial frame the
-    /// lava-flow lobes are laid out in).
-    pub c_km: [f64; 2],
     /// Km between neighbouring output pixels (the zoom law's footprint).
     pub px_km: f64,
 }
@@ -251,7 +257,6 @@ fn from_hit(hit: cartalith_terrain::volcano_attr::VolcanoHit<'_>, x: f64, y: f64
         r_km: e.r * km_per_cell,
         d_km: hit.t * e.r * km_per_cell,
         p_km: [x * km_per_cell, y * km_per_cell],
-        c_km: [e.cx * km_per_cell, e.cy * km_per_cell],
         px_km,
     })
 }
@@ -376,16 +381,16 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // episodes of up to ~100 ka, shields over tens to hundreds of ka
     // (research §2.1, cited: Davidson & De Silva 2000), and one shield
     // carries flows of many ages (Kinney et al. 2015, Kitayama et al. 1995).
-    // So the surface age is the edifice's on the summit and along the flow
-    // tongues and at least `building_log_years` on the outer flank. A cinder
-    // cone is monogenetic (research §2.2): its one eruption built and
-    // surfaced all of it, so it keeps one age. The flows radiate from the
-    // centre: bearing from a smooth angular noise (one per edifice,
-    // resolution free), length and ragged edges from kilometre noise under
-    // the zoom law.
-    let flow = flow_tongues(v, seed);
+    // So the surface age is the edifice's on the summit and at least
+    // `building_log_years` on the outer flank. A cinder cone is monogenetic
+    // (research §2.2): its one eruption built and surfaced all of it, so it
+    // keeps one age. The flows of the last eruptions are not drawn here:
+    // since Ruling DA they are traced down the real height field
+    // (`cartalith_terrain::lava_flows`) and laid over this ground by
+    // [`ground_px`], each at its own age -- which retired the seven radial
+    // ribbons (`flow_tongues`) this stage drew inside the disc before.
     let lg = match building_log_years(v.kind) {
-        Some(lb) if lb > lg => lg + (lb - lg) * smoothstep(0.2, 0.7, v.t) * (1.0 - flow),
+        Some(lb) if lb > lg => lg + (lb - lg) * smoothstep(0.2, 0.7, v.t),
         _ => lg,
     };
 
@@ -402,22 +407,7 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     } else {
         mix(weathered, FRESH_ANDESITE, core)
     };
-    let fresh = 1.0 - smoothstep(2.0, 4.0, lg);
-    let mut rock = mix(weathered, fresh_c, fresh);
-    // Arid: hematite grows on bare rock after a few decades (log 2..3.5),
-    // toward the old weathered red-brown past 500 ka (log 4..5.7). `rain01`
-    // 0.25..0.12 is 750..360 mm: the research's arid band (<500 mm).
-    let arid = smoothstep(0.25, 0.12, rain01);
-    if arid > 0.0 {
-        let ox = mix(ARID_OX_YOUNG, ARID_OX_OLD, smoothstep(4.0, 5.7, lg));
-        rock = mix(rock, ox, arid * smoothstep(2.0, 3.5, lg) * 0.85);
-    }
-    // Humid: once plants arrive, what shows between them is dark Andosol
-    // soil, not rock (research §3.2). `rain01` 0.30..0.55 is 900..1 650 mm.
-    let humid = smoothstep(0.30, 0.55, rain01) * smoothstep(2.0, 3.0, lg);
-    if humid > 0.0 {
-        rock = mix(rock, ANDOSOL, humid * 0.6);
-    }
+    let mut rock = aged_rock(weathered, fresh_c, lg, rain01);
     // Young cinder craters: the interior oxidised red-brown, the outer wall
     // black (cited: Ejima 2017). Patchy, fading with age over log 3..4.5.
     if v.kind == EdificeKind::Cinder {
@@ -511,60 +501,311 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     VolcanoGround { lith, rock, bare, vis, glow }
 }
 
-/// `log10` of the years a polygenetic edifice's outer flank has stood since
-/// it was last built over (see `ground`'s surface-age note), or `None` for a
-/// monogenetic cinder cone. Judgements inside the cited spans (research
-/// §2.1: composite "cone-building episodes generally <100 ka"; shields
-/// "many eruptions over tens to hundreds of ka"): a stratocone's flank about
-/// 30 ka (`10^4.5`), a shield's about 100 ka (`10^5`).
-pub fn building_log_years(kind: EdificeKind) -> Option<f64> {
-    match kind {
-        EdificeKind::Cinder => None,
-        EdificeKind::Strato => Some(4.5),
-        EdificeKind::Shield => Some(5.0),
+/// Bare rock of age `10^lg` years in `rain01` of rain: `fresh_c` under 100
+/// years brightening to the weathered palette `weathered` by 10 ka (the
+/// brightening of bare lava over decades to millennia, research §3.2; cited:
+/// the Tenerife study, Rose et al. 2011; log-years 2..4); in arid climates a
+/// hematite tint after a few decades (log 2..3.5) toward the old weathered
+/// red-brown past 500 ka (log 4..5.7), `rain01` 0.25..0.12 being 750..360
+/// mm, the research's arid band (<500 mm); in humid ones, once plants
+/// arrive, the dark Andosol soil that shows between them (research §3.2;
+/// `rain01` 0.30..0.55 is 900..1 650 mm). One rule for an edifice's flank
+/// ([`ground`]) and a lava flow ([`flow_ground`]), so a flow and the flank
+/// it lies on age alike.
+fn aged_rock(weathered: Rgb, fresh_c: Rgb, lg: f64, rain01: f64) -> Rgb {
+    let fresh = 1.0 - smoothstep(2.0, 4.0, lg);
+    let mut rock = mix(weathered, fresh_c, fresh);
+    let arid = smoothstep(0.25, 0.12, rain01);
+    if arid > 0.0 {
+        let ox = mix(ARID_OX_YOUNG, ARID_OX_OLD, smoothstep(4.0, 5.7, lg));
+        rock = mix(rock, ox, arid * smoothstep(2.0, 3.5, lg) * 0.85);
     }
+    let humid = smoothstep(0.30, 0.55, rain01) * smoothstep(2.0, 3.0, lg);
+    if humid > 0.0 {
+        rock = mix(rock, ANDOSOL, humid * 0.6);
+    }
+    rock
 }
 
-/// How many lava-flow ribbons the last eruption of a polygenetic edifice
-/// sent down its flanks. Judgement: enough to read as several flows at x4,
-/// few enough that the older flank stays the larger share.
-const FLOWS: usize = 7;
+/// `log10` of the years a polygenetic edifice's outer flank has stood since
+/// it was last built over (see `ground`'s surface-age note), or `None` for a
+/// monogenetic cinder cone: the terrain crate's
+/// [`cartalith_terrain::lava_flows::flank_log_years`], so the flank and the
+/// older flows traced on it read one figure (a stratocone about 30 ka, a
+/// shield about 100 ka; judgements inside research §2.1's cited spans).
+pub fn building_log_years(kind: EdificeKind) -> Option<f64> {
+    cartalith_terrain::lava_flows::flank_log_years(kind)
+}
 
-/// `0..=1`: whether the pixel lies on one of the last eruption's lava flows.
-/// Each flow is a ribbon from near the summit down a bearing drawn from a
-/// hash of the edifice (no RNG stream touched): a width in kilometres (0.3
-/// to 2.5 km, 3-7 % of the radius; a flow keeps its width downhill
-/// rather than widening like a wedge), a reach of 45-100 % of the radius,
-/// and a meander and ragged margin in kilometre noise under the zoom law, so
-/// the margin keeps gaining detail as the view zooms. Cinder cones erupt
-/// tephra rather than flows and return `0`.
-fn flow_tongues(v: &VolcanoSample, seed: i32) -> f64 {
-    if v.kind == EdificeKind::Cinder || v.d_km <= 0.0 {
-        return 0.0;
+// ===========================================================================
+// Ruling DA step 1: terrain-following lava flows
+// ===========================================================================
+
+/// Fresh pahoehoe: the smooth glassy rind, a little lighter than the
+/// research's fresh basalt (VNIR 0.02-0.04, research §3.1, cited: Reeder) for
+/// its sheen. Neutral, not blue, so a fresh flow never reads as water (the
+/// owner's "distinct from rivers"). Judgement.
+const FRESH_PAHOEHOE: Rgb = (52.0, 51.0, 52.0);
+/// Fresh 'a'a: rubbly clinker, darker and a little brown (research §3.1: "a
+/// colour difference: no source found"; the warmth is a judgement that keeps
+/// it apart from water).
+const FRESH_AA: Rgb = (40.0, 36.0, 34.0);
+/// The clinker of an 'a'a flow's levees, lighter than its channel where both
+/// resolve (the levee-and-channel form of channelised 'a'a, USGS/HVO).
+/// Judgement.
+const AA_CLINKER: Rgb = (64.0, 57.0, 52.0);
+/// The most the ragged margin moves the edge, in half widths: the lava
+/// material's edge reach (`ProceduralLava::edge_offset`, bounded by
+/// `2 x 0.16 x 1.6` interior depths) with the half width as the depth --
+/// lobes and embayments a little longer than the flow is wide, octaves down
+/// to 4 m under the zoom law. Kept inside
+/// `cartalith_terrain::lava_flows::REACH_HW` by a test.
+const MARGIN_AMP: f64 = 0.52;
+/// The material the margin is drawn from (only its edge is read; the heat
+/// and glow fields are unused).
+const MARGIN_MAT: EmissiveMaterial = EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.0, crack_density: 0.5, glow_radius_km: 0.0, heat_along: 0.0 };
+/// How far a flow's width swells and pinches along its length, as a share of
+/// its half width (lobes and breakouts; judgement).
+const LOBE_AMP: f64 = 0.33;
+
+/// One traced flow at one pixel.
+#[derive(Clone, Copy, Debug)]
+pub struct FlowSample {
+    /// Index into the world's `LavaFlows::flows` (seeds its patterns).
+    pub flow: usize,
+    /// `log10` of the flow's age in years.
+    pub log_years: f64,
+    /// Still moving (drawn hot).
+    pub active: bool,
+    pub basaltic: bool,
+    /// How much of the pixel the flow covers, `0..=1` (antialiased over one
+    /// pixel at its ragged margin).
+    pub cov: f64,
+    /// Km inside the ragged margin (negative outside).
+    pub inside_km: f64,
+    /// Km from the centre line, and the half width there.
+    pub d_km: f64,
+    pub hw_km: f64,
+    /// How far along the flow, `0` at the vent, `1` at its end.
+    pub u: f64,
+    pub p_km: [f64; 2],
+    pub px_km: f64,
+}
+
+/// The flows at one pixel, youngest (on top) first; at most two are drawn
+/// (a third flow under two others is hidden). `Default` is none.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FlowPx {
+    pub layers: [Option<FlowSample>; 2],
+}
+
+/// Everything volcanic at one pixel: the edifice under it (if any) and the
+/// lava flows over it (if any).
+#[derive(Clone, Copy, Debug)]
+pub struct VolcanoPx {
+    pub edifice: Option<VolcanoPair>,
+    pub flows: FlowPx,
+}
+
+/// The pixel at fractional grid position `(x, y)`: [`sample_pair`] for the
+/// edifice and, when `flows_on`, the attached flows ([`flow_px`]). `None`
+/// when neither reaches it.
+pub fn sample_px(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km: f64, flows_on: bool) -> Option<VolcanoPx> {
+    let edifice = sample_pair(index, x, y, km_per_cell, px_km);
+    let flows = match index.lava_flows() {
+        Some(f) if flows_on && km_per_cell.is_finite() && km_per_cell > 0.0 && px_km.is_finite() && px_km > 0.0 => flow_px(f, x, y, km_per_cell, px_km),
+        _ => FlowPx::default(),
+    };
+    if edifice.is_none() && flows.layers[0].is_none() {
+        return None;
     }
-    let (rx, ry) = (v.p_km[0] - v.c_km[0], v.p_km[1] - v.c_km[1]);
-    let h = |k: usize, salt: i32| cartalith_noise::hash(seed, k as i32, salt);
-    let mut m: f64 = 0.0;
-    for k in 0..FLOWS {
-        let phi = std::f64::consts::TAU * h(k, 911);
-        let (ux, uy) = (phi.cos(), phi.sin());
-        let along = rx * ux + ry * uy;
-        if along <= 0.0 {
+    Some(VolcanoPx { edifice, flows })
+}
+
+/// The two youngest flows reaching `(x, y)`, with their coverage under the
+/// ragged margin: the centre line's distance against the half width, the
+/// half width narrowed at the vent (a flow leaves its vent narrow and
+/// spreads), the margin moved by kilometre noise whose octaves arrive as the
+/// view zooms in (the zoom law), so the margin keeps gaining lobes at x4,
+/// x16 and x64 without the flow's area moving. An active flow is kept just
+/// outside its margin too, for its halo.
+pub fn flow_px(fl: &cartalith_terrain::lava_flows::LavaFlows, x: f64, y: f64, km_per_cell: f64, px_km: f64) -> FlowPx {
+    let mut out = FlowPx::default();
+    let mut n = 0;
+    let p_km = [x * km_per_cell, y * km_per_cell];
+    for h in fl.hits_at(x, y) {
+        if n == out.layers.len() {
+            break;
+        }
+        let f = &fl.flows()[h.flow];
+        let seed = (h.flow as i32).wrapping_mul(613).wrapping_add(17);
+        // Lobes along the flow: the width swells and pinches by up to a
+        // third over a few widths of its length (a flow advances by lobes
+        // and breakouts; judgement), read from the distance along the flow,
+        // so it is the same at every zoom.
+        // Every noise wavelength here is the flow's own base half width (its
+        // first point's), never the pixel's interpolated one: a wavelength
+        // that varies from pixel to pixel scrambles the noise's phase and
+        // drew hair-like spikes across the margin (2026-10-25).
+        let hw0 = f.pts[0].hw_km.max(0.05) as f64;
+        let lobe = 1.0 + LOBE_AMP * (vnoise(h.s_km / (3.0 * hw0), 0.61, seed + 3) - 0.5) * 2.0;
+        let hw = h.hw_km * lobe * (0.55 + 0.45 * smoothstep(0.0, 3.0 * h.hw_km, h.s_km));
+        // The colour-paint lava material's own fractal margin (octave
+        // amplitude proportional to wavelength, so lobes at every scale and
+        // each octave arriving under the zoom law), scaled to the flow's
+        // half width. Two earlier margins failed on the 2026-10-25 x64
+        // frames of 314159: a normalised fbm drew a ruler-straight edge, and
+        // the same stretched eightfold drew hair-like streaks.
+        let rag = ProceduralLava::new(&MARGIN_MAT, hw0).map_or(0.0, |m| m.edge_offset([p_km[0] + seed as f64 * 0.37, p_km[1]], px_km)) * (hw / hw0);
+        let inside = hw + rag - h.d_km;
+        let soft = 0.5 * px_km;
+        let cov = smoothstep(-soft, soft, inside);
+        if cov <= 0.0 && !(f.active && inside > -hw) {
             continue;
         }
-        let reach = v.r_km * (0.45 + 0.55 * h(k, 913));
-        let width = (v.r_km * (0.03 + 0.04 * h(k, 917))).clamp(0.3, 2.5);
-        // The meander: the ribbon's centre line wanders sideways by up to
-        // about three widths over a few kilometres.
-        let wander = 3.0 * width * (zoom_fbm([along, k as f64 * 37.0], (reach * 0.35).max(0.5), v.px_km, seed + 131 + k as i32) - 0.5) * 2.0;
-        let perp = (rx * -uy + ry * ux - wander).abs();
-        let rag = width * 0.5 * (zoom_fbm(v.p_km, (width * 0.8).max(0.02), v.px_km, seed + 151 + k as i32) - 0.5) * 2.0;
-        let w = width + rag;
-        let side = smoothstep(w + 0.5 * v.px_km.max(width * 0.15), w - 0.5 * v.px_km.max(width * 0.15), perp);
-        let end = smoothstep(reach, reach - width * 2.0, along) * smoothstep(v.r_km * v.floor, v.r_km * v.rim, along);
-        m = m.max(side * end);
+        let u = if f.len_km > 0.0 { (h.s_km / f.len_km).clamp(0.0, 1.0) } else { 0.0 };
+        out.layers[n] = Some(FlowSample { flow: h.flow, log_years: f.years.max(1.0).log10(), active: f.active, basaltic: f.basaltic, cov, inside_km: inside, d_km: h.d_km, hw_km: hw, u, p_km, px_km });
+        n += 1;
     }
-    m
+    out
+}
+
+/// One flow's colour at its pixel: the bare-rock colour, how much of the
+/// pixel shows it (coverage times the share vegetation has not yet reached),
+/// and its emission (0-255, before the daylight scale) while active.
+///
+/// - **Lava type.** Basaltic flows are pahoehoe near the vent turning to
+///   'a'a downstream (the usual change with distance and cooling on
+///   Hawaiian flows; the 0.2-0.55 split of the length is a judgement);
+///   andesitic flows are blocky throughout. 'A'a is rubble speckle in
+///   kilometres from 80 m down to 4 m, pahoehoe smooth lobes; where the
+///   flow is wide enough to resolve, a darker channel between lighter
+///   clinker levees.
+/// - **Age.** The same ageing as the flank it lies on ([`aged_rock`]), and
+///   the same log-time cover ([`cover`]) -- pahoehoe a third of a decade
+///   ahead (Kinney et al. 2015: pahoehoe vegetates faster than 'a'a), so
+///   older flows fade into the surrounding ground at the climate's rate.
+/// - **Activity.** An active flow is the colour-paint lava material
+///   ([`ProceduralLava`]) -- chilled crust with glowing cracks, hottest at
+///   the vent and cooling along its length, a hot front, a little halo.
+pub fn flow_ground(a: &TerrainAppearance, f: &FlowSample, rain01: f64, tt: f64) -> (Rgb, f64, [f64; 3]) {
+    let rain01 = rain01.clamp(0.0, 1.0);
+    let seed = (f.flow as i32).wrapping_mul(613).wrapping_add(29);
+    let weathered = LithoSample::One(if f.basaltic { 1 } else { 2 }).ramp(a, tt);
+    let aa = if f.basaltic { smoothstep(0.2, 0.55, f.u) } else { 1.0 };
+    let fresh_c = if f.basaltic { mix(FRESH_PAHOEHOE, FRESH_AA, aa) } else { FRESH_ANDESITE };
+    let r = f.d_km / f.hw_km.max(1e-6);
+    let lev_vis = smoothstep(NYQ_PX * f.px_km, 2.0 * NYQ_PX * f.px_km, 0.3 * f.hw_km);
+    let levee = smoothstep(0.25, 0.38, r) * smoothstep(0.7, 0.52, r) * aa * lev_vis;
+    let fresh_c = mix(fresh_c, AA_CLINKER, levee * 0.7);
+    // Texture: +-17 % rubble on 'a'a, +-8 % lobes on pahoehoe (judgement).
+    let rub = zoom_fbm(f.p_km, 0.08, f.px_km, seed + 5);
+    let lobes = zoom_fbm(f.p_km, 0.4, f.px_km, seed + 9);
+    let tex = 1.0 + aa * 0.34 * (rub - 0.5) + (1.0 - aa) * 0.16 * (lobes - 0.5);
+    let rock = aged_rock(weathered, fresh_c, f.log_years, rain01);
+    let mut rock = (rock.0 * tex, rock.1 * tex, rock.2 * tex);
+    let c = cover(f.log_years + 0.3 * (1.0 - aa), rain01 * RAIN_MM_FULL);
+    let mut alpha = f.cov * (1.0 - c);
+    let mut e = [0.0; 3];
+    if f.active {
+        // Hottest at the vent, cooling to a third along the flow; the front
+        // a little hotter again (a moving front shows incandescence as its
+        // crust breaks). Judgements on the first frames' scale.
+        let heat = (0.9 * (1.0 - 0.7 * f.u)).max(0.2);
+        let mat = EmissiveMaterial { ramp: GlowRamp::Fire, heat, crack_density: 0.75, glow_radius_km: (f.hw_km * 0.8).max(0.08), heat_along: 0.0 };
+        if let Some(lava) = ProceduralLava::new(&mat, f.hw_km.max(0.05)) {
+            if f.cov > 0.0 {
+                let front = 0.35 * smoothstep(0.85, 1.0, f.u);
+                let base = (lava.base_heat(f.inside_km.max(0.0)) + front).min(1.0);
+                let (ck, em) = lava.sample(f.p_km, base, f.px_km);
+                // A moving flow is all crust and cracks: nothing has grown on
+                // it, whatever the rain.
+                rock = (CRUST.0 * ck, CRUST.1 * ck, CRUST.2 * ck);
+                alpha = f.cov;
+                e = [em[0] * f.cov, em[1] * f.cov, em[2] * f.cov];
+            }
+            if f.inside_km < 0.5 * f.px_km {
+                let h = lava.halo((-f.inside_km).max(0.0));
+                let k = 1.0 - f.cov;
+                e = [e[0] + h[0] * k, e[1] + h[1] * k, e[2] + h[2] * k];
+            }
+        }
+    }
+    (rock, alpha, e)
+}
+
+/// What [`ground_px`] decides for one pixel: [`VolcanoGround`] with the rock
+/// category optional (`None` -- a flow off every edifice that does not
+/// cover the pixel's middle -- keeps the lithology `land_color` was handed).
+#[derive(Clone, Copy, Debug)]
+pub struct PxGround {
+    pub lith: Option<LithoSample>,
+    pub rock: Rgb,
+    pub bare: f64,
+    pub vis: f64,
+    pub glow: Option<Rgb>,
+    /// The share of `bare` that shows through snow: a flow that is moving
+    /// or a few decades old has melted or shed the snow on it (the dark
+    /// fresh flows across Etna's and Mauna Loa's snowfields), fading to none
+    /// by about 300 years (log-years 1.7..2.5, a judgement). `0` for an
+    /// edifice's own ground, which keeps `land_color`'s snow rule.
+    pub over_snow: f64,
+}
+
+/// The ground at a [`VolcanoPx`]: the edifice's ([`ground_pair`]) with the
+/// flows laid over it, oldest first, each by its bare share times
+/// `flow_k` (the look's `lava_flows`). Without flows it is exactly
+/// [`ground_pair`]'s (identity by control flow).
+pub fn ground_px(a: &TerrainAppearance, v: &VolcanoPx, rain01: f64, tt: f64, flow_k: f64) -> PxGround {
+    let g = v.edifice.map(|p| ground_pair(a, &p, rain01, tt));
+    let mut out = match g {
+        Some(g) => PxGround { lith: Some(g.lith), rock: g.rock, bare: g.bare, vis: g.vis, glow: g.glow, over_snow: 0.0 },
+        None => PxGround { lith: None, rock: (0.0, 0.0, 0.0), bare: 0.0, vis: 0.0, glow: None, over_snow: 0.0 },
+    };
+    if flow_k <= 0.0 || v.flows.layers[0].is_none() {
+        return out;
+    }
+    let mut em = [0.0; 3];
+    for f in v.flows.layers.iter().rev().flatten() {
+        let (fr, fa, fe) = flow_ground(a, f, rain01, tt);
+        let fa = (fa * flow_k).clamp(0.0, 1.0);
+        let na = fa + out.bare * (1.0 - fa);
+        if na > 0.0 {
+            let wb = out.bare * (1.0 - fa);
+            out.rock = ((fr.0 * fa + out.rock.0 * wb) / na, (fr.1 * fa + out.rock.1 * wb) / na, (fr.2 * fa + out.rock.2 * wb) / na);
+        }
+        let fresh = if f.active { 1.0 } else { 1.0 - smoothstep(1.7, 2.5, f.log_years) };
+        out.over_snow = if na > 0.0 { (fa * fresh + out.over_snow * out.bare * (1.0 - fa)) / na } else { 0.0 };
+        out.bare = na;
+        out.vis = out.vis.max(fa);
+        // A flow is one rock: off the edifices it sets the category where it
+        // covers the pixel's middle (a category is never averaged).
+        if out.lith.is_none() && f.cov >= 0.5 && fa > 0.0 {
+            out.lith = Some(LithoSample::One(if f.basaltic { 1 } else { 2 }));
+        }
+        // The younger flow hides the older one's glow where it covers it.
+        em = [em[0] * (1.0 - f.cov) + fe[0] * flow_k, em[1] * (1.0 - f.cov) + fe[1] * flow_k, em[2] * (1.0 - f.cov) + fe[2] * flow_k];
+    }
+    if let Some(fg) = capped_glow((em[0], em[1], em[2])) {
+        let sum = match out.glow {
+            Some(g0) => (g0.0 + fg.0, g0.1 + fg.1, g0.2 + fg.2),
+            None => fg,
+        };
+        out.glow = Some(cap_luma(sum));
+    }
+    out
+}
+
+/// `e` scaled down to [`GLOW_LUMA_CAP`] luminance if brighter (hue kept):
+/// for summing two already daylight-scaled glows without passing the cap.
+fn cap_luma(e: Rgb) -> Rgb {
+    let y = luma(e);
+    if y > GLOW_LUMA_CAP {
+        let k = GLOW_LUMA_CAP / y;
+        (e.0 * k, e.1 * k, e.2 * k)
+    } else {
+        e
+    }
 }
 
 /// The emission scaled to daylight ([`DAY_GLOW`]) and capped at
@@ -708,6 +949,16 @@ mod tests {
         assert_eq!(cover(l50 + 1.0, 1500.0), 1.0);
         assert!(cover(3.0, 2200.0) > 0.99);
         assert!(cover(3.0, 450.0) < 0.01);
+    }
+
+    /// Protects the lookup's reach against the drawn margin: the widest lobe
+    /// times the widest ragged margin must stay inside the half widths the
+    /// terrain crate's lattice answers for, or a flow is cut by a straight
+    /// line along a bucket edge. Not a constant against itself: two
+    /// constants from two crates, one bounding the other.
+    #[test]
+    fn the_lookup_reach_covers_the_widest_margin() {
+        assert!(cartalith_terrain::lava_flows::REACH_HW >= (1.0 + LOBE_AMP) * (1.0 + MARGIN_AMP), "reach {} under {}", cartalith_terrain::lava_flows::REACH_HW, (1.0 + LOBE_AMP) * (1.0 + MARGIN_AMP));
     }
 
     /// Protects the daylight cap: a white-hot emission is scaled to the cap's

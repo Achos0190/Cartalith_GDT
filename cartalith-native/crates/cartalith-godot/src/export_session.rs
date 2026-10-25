@@ -243,7 +243,7 @@ impl ExportSnapshot {
             .as_ref()
             .filter(|_| i.appearance.volcano_look > 0.0)
             .and_then(|l| l.volcanoes.as_ref())
-            .map(|v| cartalith_terrain::volcano_attr::VolcanoIndex::new(v, gw, gh));
+            .map(|v| render::volcano_index_for(v, &i.field, gw, gh, i.sea_level, Some(i.map_width_km), &i.appearance));
         // Ruling CC's floor and Ruling BO's forced lakes (the ones the screen
         // draws, carried in the same snapshot inputs the tiles read), in the
         // screen's own order (`render::water_bodies_floored`), so the export

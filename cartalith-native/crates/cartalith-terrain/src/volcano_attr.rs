@@ -294,6 +294,10 @@ pub struct VolcanoIndex {
     /// Per bucket, the indices (into `edifices`, ascending) of every edifice
     /// whose bounding box overlaps it.
     buckets: Vec<Vec<u32>>,
+    /// The world's traced lava flows ([`crate::lava_flows`]), attached by
+    /// [`Self::with_lava_flows`] only where a look draws them; `None` -- no
+    /// flows -- otherwise, so an index built as before answers as before.
+    flows: Option<std::sync::Arc<crate::lava_flows::LavaFlows>>,
 }
 
 /// The edifice that owns a point and where on it the point is.
@@ -326,7 +330,22 @@ impl VolcanoIndex {
                 }
             }
         }
-        VolcanoIndex { edifices: edifices.to_vec(), bw, bh, buckets }
+        VolcanoIndex { edifices: edifices.to_vec(), bw, bh, buckets, flows: None }
+    }
+
+    /// This index with the world's lava flows traced over `inp`'s height
+    /// field ([`crate::lava_flows::LavaFlows::trace`] of the indexed
+    /// edifices). The trace is a pure function of the table and the field,
+    /// so every consumer that builds its index this way from the same world
+    /// draws the same flows.
+    pub fn with_lava_flows(mut self, inp: crate::lava_flows::TraceInput) -> VolcanoIndex {
+        self.flows = Some(std::sync::Arc::new(crate::lava_flows::LavaFlows::trace(&self.edifices, inp)));
+        self
+    }
+
+    /// The attached lava flows, if any ([`Self::with_lava_flows`]).
+    pub fn lava_flows(&self) -> Option<&crate::lava_flows::LavaFlows> {
+        self.flows.as_deref()
     }
 
     /// The indexed edifices, in placement order.
