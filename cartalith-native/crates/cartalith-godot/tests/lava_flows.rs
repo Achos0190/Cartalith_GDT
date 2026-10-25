@@ -891,33 +891,60 @@ fn find_young_shield_worlds() {
     }
 }
 
-/// Probe for the brief's "caldera lake cut by a straight edge" on 71077345
-/// (the largest edifice at x4): prints, through its centre, the field, the
-/// volcanic field and the water classification row by row, and the same
-/// for each generation stage the engine exposes.
+/// The brief's "caldera lake cut by a straight edge" on 71077345, re-opened
+/// (2026-10-25): the edge is the contour where H2's soft ceiling
+/// (`orogen::soft_ceiling`, knee 0.9) saturates. A tall cone stamped on
+/// ground already near the top leaves a stamped height far above 1, which
+/// the tanh squeezes into the last few thousandths, so the part of the cone
+/// on the high side is flat at the ceiling and its edge follows a contour of
+/// the ground beneath, not the cone. This census counts, per world, the
+/// land cells at the ceiling (final height at least 0.999) and how many of
+/// them lie on an edifice's disc, and lists the edifices with any.
+///
+/// Measured 2026-10-25 (app defaults): 849, 328, 2 114 and 33 625 ceiling
+/// cells on 71077345, 24601's archipelago, 314159 and the Hawaii-like seed 8
+/// (0.05, 0.08, 0.11 and 25.04 % of the land), every one on an edifice. A
+/// trial that scaled each cone to keep its summit under the ceiling cut them
+/// to 493 / 4 / 57 / 12 759 but left 71077345's edge visible (its largest
+/// stratocone's disc covers a plateau already at the ceiling) and failed
+/// the settlement bar on the archipelago (0.265 within 3 cells: World
+/// Structure re-anchors the sea level on the height histogram), so it was
+/// not kept (`STATUS.md`, Ruling DA).
 #[test]
-#[ignore = "probe; run explicitly with --release"]
-fn caldera_edge_probe() {
-    let w = &WORLDS[0];
-    let p = world_params(w, 2048, 1311);
-    let (gw, gh) = (2048usize, 1311usize);
-    let ws = cartalith_engine::generate_terrain(&p);
-    let vt = ws.volcanoes.as_ref().unwrap();
-    let class = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
-    let (k, e) = vt.iter().enumerate().filter(|(_, e)| e.kind.is_some()).max_by(|a, b| a.1.r.total_cmp(&b.1.r)).unwrap();
-    println!("largest #{k}: {:?} activity {:?} sea {}", e, volcano_attr::activity(e), ws.sea_level);
-    let (cx, cy) = (e.cx.round() as i64, e.cy.round() as i64);
-    for dy in -24i64..=24 {
-        let y = (cy + dy) as usize;
-        let mut line = format!("{y:>5} ");
-        for dx in (-60i64..=60).step_by(3) {
-            let x = (cx + dx) as usize;
-            let i = y * gw + x;
-            line.push(match class[i] { 0 => if ws.field[i] as f64 > ws.sea_level { '.' } else { '?' }, 1 => '~', 2 => 'L', _ => '?' });
+#[ignore = "measurement; run explicitly with --release"]
+fn summit_ceiling_census() {
+    for w in &WORLDS {
+        let p = world_params(w, 2048, 1311);
+        let (gw, gh) = (2048usize, 1311usize);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let Some(vt) = ws.volcanoes.as_ref() else { continue };
+        let idx = VolcanoIndex::new(vt, gw, gh);
+        let (mut sat_all, mut sat_volc, mut land) = (0usize, 0usize, 0usize);
+        let mut per: std::collections::BTreeMap<usize, (usize, usize)> = Default::default();
+        for y in 0..gh {
+            for x in 0..gw {
+                let h = ws.field[y * gw + x] as f64;
+                if h <= ws.sea_level {
+                    continue;
+                }
+                land += 1;
+                let owner = idx.winner_at(x as f64, y as f64);
+                if let Some(o) = owner {
+                    per.entry(o.index).or_default().1 += 1;
+                }
+                if h >= 0.999 {
+                    sat_all += 1;
+                    if let Some(o) = owner {
+                        sat_volc += 1;
+                        per.entry(o.index).or_default().0 += 1;
+                    }
+                }
+            }
         }
-        let i = y * gw + cx as usize;
-        line.push_str(&format!("  h {:.4} volc {:.3} rain {:.3} temp {:.1}", ws.field[i], ws.volcanic_field[i], ws.rainfall[i], ws.temperature[i]));
-        println!("{line}");
+        println!("== {}: land {land}, at the ceiling {sat_all} ({:.2} %), of them on an edifice {sat_volc}", w.tag, 100.0 * sat_all as f64 / land.max(1) as f64);
+        for (k, (s, n)) in per.iter().filter(|(_, (s, _))| *s > 0) {
+            let e = &vt[*k];
+            println!("   #{k} {} r {:.1} km h {:.2}: {s} of {n} disc cells at the ceiling ({:.0} %)", e.kind.map_or("-", |k| k.key()), e.r * 800.0 / 2048.0, e.h, 100.0 * *s as f64 / *n as f64);
+        }
     }
 }
-
