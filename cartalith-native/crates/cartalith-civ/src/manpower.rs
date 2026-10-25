@@ -177,7 +177,7 @@ pub const MILITARY_AGE_FRACTION: f64 = 0.25;
 /// each of the six [`crate::roster::AG_TECH_LEVELS`] rows (each lands in
 /// exactly one bracket, so each bracket has exactly one roster α):
 ///
-/// > over every roster government but `none` × capital reach 0, 0.1 … 1.0,
+/// > over every reference roster government but `none` × capital reach 0, 0.1 … 1.0,
 /// > at `ecological_factor = 1` and median logistics 0.5, the bracket's
 /// > upkeep is the **geometric mean** of `share_at_upkeep_1 / band_centre`,
 /// > where `share_at_upkeep_1` is the model's own standing share of the
@@ -188,6 +188,16 @@ pub const MILITARY_AGE_FRACTION: f64 = 0.25;
 /// band, and which era it lands in is still decided by state capacity, as
 /// before. The `α < 0.10` entry has no roster row to derive from and repeats
 /// the industrial one — extended, not derived.
+///
+/// **"Every reference roster government" means the first
+/// [`crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN`] keys, the reference's nine
+/// (G1-1, Ruling CZ Q4, `GOVERNMENTS_SCOPE.md` §4.2).** The era bands were
+/// calibrated against that population of forms, and a G1-appended form is
+/// priced *by* that calibration, not *into* it. Letting the mean run over the
+/// appended forms too would move every faction's standing army, including
+/// factions whose government did not change (the scope computed Kingdom A
+/// 9 661 → 9 086 with all sixteen rows). Changing the set is a separately
+/// ruled re-baseline.
 ///
 /// **What the values say, read after the fact rather than fitted to:** the
 /// cost of a soldier to the state peaks in the paid-army, fiscal-military
@@ -361,7 +371,18 @@ const MAX_NON_AGRICULTURAL_SHARE: f64 = 1.0 / 1.15;
 /// Unknown keys read as `chiefdom`, which is the conservative end: a
 /// government this port cannot classify should not be credited with an
 /// imperial treasury.
-pub const GOVERNMENT_EXTRACTION: [(&str, f64); 9] = [
+///
+/// **The rows after `empire` are G1's (Ruling CZ Q2, `GOVERNMENTS_SCOPE.md`
+/// §3.1): authored orderings, not calibrated values.** Only the two worked
+/// examples exist to calibrate against, so each new row is placed against an
+/// existing one: a value equal to an anchor row reuses that row's grounding,
+/// and a value between two rows is a labelled judgement with its reason
+/// beside it. They do not enter [`SOLDIER_UPKEEP_BY_BRACKET`]'s derivation
+/// (reference rows only), so they move no other faction. No form gets extra
+/// standing army from its label alone (`MILITARY_MANPOWER_SCOPE.md` §1:
+/// *"'warrior societies' should not automatically get huge standing-army
+/// modifiers"*).
+pub const GOVERNMENT_EXTRACTION: [(&str, f64); 15] = [
     ("none", 0.10),
     ("chiefdom", 0.15),
     ("tribal_confederacy", 0.20),
@@ -371,6 +392,30 @@ pub const GOVERNMENT_EXTRACTION: [(&str, f64); 9] = [
     ("republic", 0.55),
     ("city_state", 0.55),
     ("empire", 0.70),
+    // G1-1 (2026-10-25, Ruling CZ). Authored orderings; see the doc above.
+    // Equals `republic`/`city_state`: the intensive small-area tax state. Its
+    // customs and excise are a monetised economy, which `state_capacity`'s
+    // urbanisation term already credits; a higher base would count trade twice.
+    ("merchant_republic", 0.55),
+    // Labelled judgement: confederated cities, weak centre, no common
+    // treasury. Above `tribal_confederacy` (a confederation without urban
+    // fiscal machinery), below `monarchy`.
+    ("city_league", 0.30),
+    // Labelled judgement: Byzantium's and the Caliphate's salaried fiscal
+    // bureaucracies, beyond an ordinary monarchy but not credited with
+    // `empire`'s revenue service at every scale. Equal to `oligarchy`.
+    ("sacral_monarchy", 0.50),
+    // Equals `oligarchy`: a military-monastic corporation is rule by a
+    // corporate few; that row's grounding, reused.
+    ("holy_order", 0.50),
+    // Labelled judgement: decentralised, revenue and troops sit with vassals,
+    // so the crown captures less than an administrative monarchy. Equal to
+    // `city_league`: both are weak centres over strong parts.
+    ("feudal_realm", 0.30),
+    // Labelled judgement: tribute and booty with a thin bureaucracy. Just
+    // above `tribal_confederacy` (a decimal command structure reaches further
+    // than a kin confederation), below `feudal_realm`.
+    ("nomad_khanate", 0.25),
 ];
 
 /// [`GOVERNMENT_EXTRACTION`]'s lookup, with its stated fallback.
@@ -431,7 +476,20 @@ pub fn government_extraction(key: &str) -> f64 {
 /// treasury; here, a **high** citizen fraction is the conservative one,
 /// because it makes a share of that body *smaller* and so cannot flatter a
 /// faction into its band.
-pub const CITIZEN_SHARE: [(&str, f64); 9] = [
+///
+/// **The rows after `empire` are G1's (Ruling CZ Q2, `GOVERNMENTS_SCOPE.md`
+/// §3.2): authored orderings, each equal to an anchor row whose grounding it
+/// reuses.** The row is the share holding full civic status (the citizen or
+/// free body), not the share holding political power, which is why a narrow
+/// franchise over a free populace reads as that populace. **Every row must
+/// be at least `0.30`** (§4.1): [`CITIZEN_MODERNISATION`] is derived from the
+/// lowest *reference* row, so a lower appended row would never reach the
+/// ceiling at the industrial row. `the_lowest_citizen_share_is_the_literal_floor`
+/// pins that; a form below `0.30` is a separate ruling. Like
+/// [`GOVERNMENT_EXTRACTION`]'s appended rows they stay out of
+/// [`SOLDIER_UPKEEP_BY_BRACKET`]'s derivation, so "editing a row here means
+/// re-deriving that table" above holds for the reference rows only.
+pub const CITIZEN_SHARE: [(&str, f64); 15] = [
     ("none", 0.90),
     ("chiefdom", 0.90),
     ("tribal_confederacy", 0.88),
@@ -441,6 +499,26 @@ pub const CITIZEN_SHARE: [(&str, f64); 9] = [
     ("republic", 0.50),
     ("city_state", 0.45),
     ("empire", 0.30),
+    // G1-1 (2026-10-25, Ruling CZ). Authored orderings; see the doc above.
+    // Equals `republic`: `oligarchy`'s own doc says Venice's patriciate over
+    // a free populace is far higher than 0.40; the free body is broad and the
+    // franchise narrow, and this table measures the first.
+    ("merchant_republic", 0.50),
+    // Equals `republic`: a league of burgher towns, the same free civic body.
+    ("city_league", 0.50),
+    // Equals `monarchy`: free peasants and townsfolk over a tied substrate;
+    // the Domesday grounding, reused.
+    ("sacral_monarchy", 0.55),
+    // Equals `oligarchy`: a small corporate ruling body over a heavily tied
+    // subject peasantry (the Prussian lands). Inherits that row's weak
+    // grounding ("the least-grounded row in this table"), stated, not hidden.
+    ("holy_order", 0.40),
+    // Equals `monarchy`, whose own grounding (Domesday England) is a feudal
+    // society.
+    ("feudal_realm", 0.55),
+    // Equals `tribal_confederacy`: kin-based free horsemen barely
+    // distinguish status at all.
+    ("nomad_khanate", 0.88),
 ];
 
 /// [`CITIZEN_SHARE`]'s lookup, with its stated fallback.
@@ -468,6 +546,15 @@ pub fn citizen_share(key: &str) -> f64 {
 /// [`CITIZEN_CEILING`] once its urbanisation term is 1, and every government
 /// above it has already been clamped there. A unit test pins the identity, so
 /// editing [`CITIZEN_SHARE`]'s lowest row without editing this fails loudly.
+///
+/// **The minimum is taken over the reference rows** (the first
+/// [`crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN`]; G1-1, Ruling CZ Q4,
+/// `GOVERNMENTS_SCOPE.md` §4.1), and every appended row is held at or above
+/// that `0.30` floor, so the statement still holds for every form. A form
+/// below `0.30` would demand a larger value here, which moves the citizen
+/// fraction of every government not already at the ceiling and, through the
+/// upkeep derivation, every standing army: a separately ruled re-baseline,
+/// never a quiet re-derivation.
 ///
 /// That also keeps the model's own [`ERA_BANDS`] internally consistent at the
 /// top of the table: the industrial rows quote mobilization at 30-50 %, which
@@ -1772,7 +1859,22 @@ mod tests {
         // CITIZEN_MODERNISATION is derived from exactly that statement, and
         // this is the identity it is derived from. Editing CITIZEN_SHARE's
         // lowest row without editing CITIZEN_MODERNISATION fails here.
-        let lowest = CITIZEN_SHARE.iter().map(|&(_, v)| v).fold(f64::INFINITY, f64::min);
+        // Over the reference rows only (G1-1, Ruling CZ Q4,
+        // `GOVERNMENTS_SCOPE.md` §4.1): the identity is the derivation's, and
+        // the derivation is stated over the reference's nine. The loop below
+        // still runs over every row, so an appended row under the floor fails
+        // there (and in `the_lowest_citizen_share_is_the_literal_floor`).
+        let reference: Vec<&str> = crate::roster::CIV_GOVERNMENTS
+            [..crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN]
+            .iter()
+            .map(|&(k, _)| k)
+            .collect();
+        let lowest = CITIZEN_SHARE
+            .iter()
+            .filter(|&&(k, _)| reference.contains(&k))
+            .map(|&(_, v)| v)
+            .fold(f64::INFINITY, f64::min);
+        assert_eq!(reference.len(), 9);
         assert!((CITIZEN_MODERNISATION - (CITIZEN_CEILING - lowest)).abs() < 1e-12);
         for (gov, _) in CITIZEN_SHARE {
             assert!(
@@ -1804,6 +1906,41 @@ mod tests {
         // gives: a large denominator cannot flatter a faction into its band.
         assert_eq!(citizen_share("not-a-government"), citizen_share("chiefdom"));
         assert!(citizen_share("chiefdom") > citizen_share("empire"));
+    }
+
+    /// Protects `GOVERNMENTS_SCOPE.md` §4.1's floor, as literals (`MISTAKES.md`:
+    /// never assert a constant against itself): the lowest citizen share over
+    /// the **whole** table, appended rows included, is exactly `0.30`, and
+    /// [`CITIZEN_MODERNISATION`] is exactly `0.68`. An appended row set below
+    /// `0.30` (a stratocracy at 0.25, say) fails the first; re-deriving the
+    /// constant to "fix" the identity test fails the second. Either is a
+    /// separate ruling, not an edit: see §4.1.
+    #[test]
+    fn the_lowest_citizen_share_is_the_literal_floor() {
+        let lowest = CITIZEN_SHARE.iter().map(|&(_, v)| v).fold(f64::INFINITY, f64::min);
+        assert_eq!(lowest, 0.30, "GOVERNMENTS_SCOPE.md §4.1: no citizen share below 0.30");
+        assert_eq!(CITIZEN_MODERNISATION, 0.68, "GOVERNMENTS_SCOPE.md §4.1: derived from the 0.30 floor");
+    }
+
+    /// Protects G1's appended manpower rows (`GOVERNMENTS_SCOPE.md` §3.1-§3.2,
+    /// Ruling CZ Q2) as literals, one assertion per value, so each row's
+    /// mutation is caught by name; and that every appended key is a roster
+    /// key past the reference's nine.
+    #[test]
+    fn appended_government_rows_are_the_scope_values() {
+        for (key, extraction, citizens) in [
+            ("merchant_republic", 0.55, 0.50),
+            ("city_league", 0.30, 0.50),
+            ("sacral_monarchy", 0.50, 0.55),
+            ("holy_order", 0.50, 0.40),
+            ("feudal_realm", 0.30, 0.55),
+            ("nomad_khanate", 0.25, 0.88),
+        ] {
+            let pos = crate::roster::CIV_GOVERNMENTS.iter().position(|&(k, _)| k == key);
+            assert!(pos.is_some_and(|p| p >= crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN), "{key}");
+            assert_eq!(government_extraction(key), extraction, "{key} extraction");
+            assert_eq!(citizen_share(key), citizens, "{key} citizen share");
+        }
     }
 
     /// Protects: `GOVERNMENT_EXTRACTION` covers every roster government
@@ -1964,7 +2101,13 @@ mod tests {
     /// re-deriving this one fails here.
     #[test]
     fn soldier_upkeep_is_derived_from_the_era_table() {
+        // The reference's nine minus `none` (G1-1, Ruling CZ Q4,
+        // `GOVERNMENTS_SCOPE.md` §4.2): the set the constant's doc states.
+        // Running it over every roster key would re-derive the table with the
+        // appended forms in it and move every standing army; the literal `8`
+        // keeps that from happening quietly.
         let govs: Vec<&str> = crate::roster::CIV_GOVERNMENTS
+            [..crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN]
             .iter()
             .map(|&(k, _)| k)
             .filter(|&k| k != "none")

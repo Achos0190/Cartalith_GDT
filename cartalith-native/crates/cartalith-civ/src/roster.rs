@@ -259,7 +259,28 @@ pub const CIV_RELIGIONS_REFERENCE_LEN: usize = 8;
 /// `cartalith-godot`'s `FactionEntry::default_for` now calls
 /// [`civ_default_government`] for every index but `0`, which stays
 /// `"none"`/Unclaimed as before.
-pub const CIV_GOVERNMENTS: [(&str, &str); 9] = [
+///
+/// **Appended 2026-10-25 (G1-1, Ruling CZ, `GOVERNMENTS_SCOPE.md` §2):** the
+/// six core forms of the research document
+/// `RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md` (its Governments table), with
+/// that table's keys and labels, in the scope's append order. **Append only**:
+/// indices 0-8 are the reference's list and keep their meaning in every save
+/// (saves store the key as a string). The first [`CIV_GOVERNMENTS_REFERENCE_LEN`]
+/// entries are the reference's; nothing past them is ever a fresh faction's
+/// default ([`civ_default_government`]) or part of `manpower`'s two
+/// derivations (`SOLDIER_UPKEEP_BY_BRACKET`, `CITIZEN_MODERNISATION`). A user
+/// reaches an appended form only by picking it.
+///
+/// The list mixes two axes, constitution (rule by one, few or many) and
+/// territorial scale (city-state against empire). That is documented rather
+/// than restructured (the research document's recommendation); the picker
+/// groups the forms for display without changing this order (Ruling CZ, Q9).
+///
+/// `theocracy` keeps its key and label. Read it as **hierocracy**, rule by a
+/// priesthood (the Papal States, the prince-bishoprics): the research
+/// document's re-documentation, recorded here only (Ruling CZ, Q7: no
+/// relabel). A god-king is `sacral_monarchy`, not this.
+pub const CIV_GOVERNMENTS: [(&str, &str); 15] = [
     ("none", "None / Unclaimed"),
     ("chiefdom", "Chiefdom"),
     ("tribal_confederacy", "Tribal Confederacy"),
@@ -269,7 +290,35 @@ pub const CIV_GOVERNMENTS: [(&str, &str); 9] = [
     ("theocracy", "Theocracy"),
     ("empire", "Empire"),
     ("city_state", "City-State"),
+    // G1-1 (2026-10-25, Ruling CZ), appended; never reorder above this line.
+    ("merchant_republic", "Merchant Republic"),
+    ("city_league", "City League"),
+    ("sacral_monarchy", "Sacral Monarchy"),
+    ("holy_order", "Holy Order"),
+    ("feudal_realm", "Feudal Realm"),
+    ("nomad_khanate", "Nomadic Khanate"),
 ];
+
+/// How many leading [`CIV_GOVERNMENTS`] entries are the reference's own list:
+/// `9`, `none` included (`CIV_GOVERNMENTS`, reference line 14794). Entries at
+/// and past this index were appended by G1 (Ruling CZ, 2026-10-25).
+///
+/// Three readers, each holding a line `GOVERNMENTS_SCOPE.md` §4 drew so that
+/// appending forms moves no generated output:
+///
+/// - [`civ_default_government`] picks only among these (§4.3; Ruling CJ:
+///   *"exclude the new forms from `civ_default_government` first"*).
+/// - `manpower::SOLDIER_UPKEEP_BY_BRACKET` is derived over these minus `none`
+///   (§4.2): an appended form is priced *by* the era-band calibration, not
+///   *into* it.
+/// - `manpower::CITIZEN_MODERNISATION` is derived from the lowest citizen
+///   share among these (§4.1).
+///
+/// Must never be raised to include an appended entry without a separately
+/// ruled pass: doing so changes every fresh roster's governments past index 8
+/// or every faction's standing army. The mirror of
+/// [`CIV_RELIGIONS_REFERENCE_LEN`].
+pub const CIV_GOVERNMENTS_REFERENCE_LEN: usize = 9;
 
 /// One `AG_TECH_LEVELS` row (reference line 14816).
 ///
@@ -426,15 +475,27 @@ pub fn civ_default_religion(culture_key: &str, faction_index: usize) -> &'static
 /// gives a culture a civic-structure lean ([`crate::Culture`] is `key`/`syl`/
 /// `sfx`, a naming pool only), so inventing one would be exactly the
 /// fabrication `belief.rs`'s module doc warns against. This is therefore a
-/// plain deterministic spread over [`CIV_GOVERNMENTS`]'s eight real forms
-/// (excluding `"none"`, which stays Unclaimed-only): `faction_index - 1`
-/// walked mod 8, so eight consecutive factions see each form exactly once
-/// before the cycle repeats. A future pass correlating this with something
-/// real (settlement count, `Rules`) is a refinement on top, not a
-/// replacement.
+/// plain deterministic spread over [`CIV_GOVERNMENTS`]'s eight real
+/// reference forms (excluding `"none"`, which stays Unclaimed-only):
+/// `faction_index - 1` walked mod 8, so eight consecutive factions see each
+/// form exactly once before the cycle repeats. A future pass correlating this
+/// with something real (settlement count, `Rules`) is a refinement on top, not
+/// a replacement.
+///
+/// **Candidates are the reference's nine only** (`CIV_GOVERNMENTS[..
+/// CIV_GOVERNMENTS_REFERENCE_LEN]`, minus `"none"`; G1-1, Ruling CZ Q6 and
+/// Ruling CJ). Without this bound the modulus would grow with every appended
+/// form and every fresh faction at index 9 or above would change government
+/// (`GOVERNMENTS_SCOPE.md` §4.3: 16 of 24 factions on a 24-faction world with
+/// the six core forms). Tested by
+/// `default_government_never_picks_an_appended_form`, and measured by
+/// `cartalith-godot`'s `g1_baseline` governments column.
 pub fn civ_default_government(faction_index: usize) -> &'static str {
-    let candidates: Vec<&'static str> =
-        CIV_GOVERNMENTS.iter().filter(|&&(k, _)| k != "none").map(|&(k, _)| k).collect();
+    let candidates: Vec<&'static str> = CIV_GOVERNMENTS[..CIV_GOVERNMENTS_REFERENCE_LEN]
+        .iter()
+        .filter(|&&(k, _)| k != "none")
+        .map(|&(k, _)| k)
+        .collect();
     candidates[faction_index.saturating_sub(1) % candidates.len()]
 }
 
@@ -493,7 +554,8 @@ mod tests {
     }
 
     /// Protects: the vocabulary table lengths (7 traits, 10 specialisations, 15 religions after the
-    /// Ruling CG re-baseline with the reference's 8 pinned separately, 9 governments, 6
+    /// Ruling CG re-baseline with the reference's 8 pinned separately, 15 governments after the
+    /// Ruling CZ re-baseline with the reference's 9 pinned separately, 6
     /// agricultural tech levels, 7 faction bases), the trait at index 6 being "administrative"
     /// (appended, never reordered), and `has_key` finding a real religion key and rejecting a
     /// near-miss.
@@ -506,7 +568,11 @@ mod tests {
         // literal, through `CIV_RELIGIONS_REFERENCE_LEN` below.
         assert_eq!(CIV_RELIGIONS.len(), 15);
         assert_eq!(CIV_RELIGIONS_REFERENCE_LEN, 8, "the reference's eight, `none` included");
-        assert_eq!(CIV_GOVERNMENTS.len(), 9);
+        // RE-BASELINED 2026-10-25 under Ruling CZ: 9 -> 15 (G1-1 appended the
+        // six core forms). The reference's own length is still pinned, as a
+        // literal, through `CIV_GOVERNMENTS_REFERENCE_LEN` below.
+        assert_eq!(CIV_GOVERNMENTS.len(), 15);
+        assert_eq!(CIV_GOVERNMENTS_REFERENCE_LEN, 9, "the reference's nine, `none` included");
         assert_eq!(AG_TECH_LEVELS.len(), 6);
         assert_eq!(CIV_FACTION_BASE.len(), 7);
         assert_eq!(CIV_TRAITS[6].0, "administrative", "v1.28 appended, never reordered");
@@ -634,7 +700,7 @@ mod tests {
         }
     }
 
-    /// `CIV_GOVERNMENTS` minus `"none"` is eight forms; the cycle must walk
+    /// The reference's nine `CIV_GOVERNMENTS` minus `"none"` are eight forms; the cycle must walk
     /// all eight before repeating, and index 1 (the first real faction) must
     /// not land on `"none"`.
     #[test]
@@ -649,6 +715,49 @@ mod tests {
         assert_eq!(civ_default_government(1), civ_default_government(9));
         // Deterministic.
         assert_eq!(civ_default_government(4), civ_default_government(4));
+    }
+
+    /// Protects: G1-1 is append-only. The reference's nine keep their index,
+    /// key and label (a save stores the key), and the appended forms are
+    /// `GOVERNMENTS_SCOPE.md` §2's table, keys and labels verbatim and in its
+    /// order -- literals, not a re-reading of the table under test.
+    #[test]
+    fn governments_are_appended_never_reordered() {
+        let reference = [
+            ("none", "None / Unclaimed"),
+            ("chiefdom", "Chiefdom"),
+            ("tribal_confederacy", "Tribal Confederacy"),
+            ("monarchy", "Monarchy"),
+            ("oligarchy", "Oligarchy"),
+            ("republic", "Republic"),
+            ("theocracy", "Theocracy"),
+            ("empire", "Empire"),
+            ("city_state", "City-State"),
+        ];
+        let appended = [
+            ("merchant_republic", "Merchant Republic"),
+            ("city_league", "City League"),
+            ("sacral_monarchy", "Sacral Monarchy"),
+            ("holy_order", "Holy Order"),
+            ("feudal_realm", "Feudal Realm"),
+            ("nomad_khanate", "Nomadic Khanate"),
+        ];
+        assert_eq!(CIV_GOVERNMENTS[..9], reference);
+        assert_eq!(CIV_GOVERNMENTS[9..], appended);
+    }
+
+    /// Protects: Ruling CJ's line and Ruling CZ Q6 -- no faction index ever
+    /// defaults to a G1-appended form. Without the
+    /// `CIV_GOVERNMENTS_REFERENCE_LEN` bound in `civ_default_government` the
+    /// cycle grows to fourteen and index 9 lands on `merchant_republic`, so
+    /// this fails (and so does the period-8 check above).
+    #[test]
+    fn default_government_never_picks_an_appended_form() {
+        for i in 0..64 {
+            let k = civ_default_government(i);
+            let pos = CIV_GOVERNMENTS.iter().position(|&(gk, _)| gk == k).expect("a roster key");
+            assert!(pos < 9, "i={i} picked appended {k:?}");
+        }
     }
 
     /// Protects: `civ_default_government` never returns `"none"` for any

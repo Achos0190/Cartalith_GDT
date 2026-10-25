@@ -40,8 +40,11 @@ extends Node
 const SEED := 483920
 
 ## One government per faction, so the citizen fraction has something to be
-## differentiated BY -- a default roster seeds every faction `monarchy`, which
-## would leave the denominator identical everywhere and prove nothing.
+## differentiated BY, set by hand rather than left to the default pick (which
+## the probe does not want to depend on). These are the reference's eight real
+## forms ON PURPOSE (`GOVERNMENTS_SCOPE.md` §4.4): the G1-appended forms are
+## measured by `g1_baseline.rs` and `_gov_probe`, and this list must never
+## silently become a partial list of the vocabulary.
 const GOVS := ["monarchy", "empire", "republic", "chiefdom", "oligarchy", "theocracy",
 	"city_state", "tribal_confederacy"]
 

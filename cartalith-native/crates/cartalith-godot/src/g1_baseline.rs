@@ -180,6 +180,7 @@ fn g1_0_baseline_columns() {
     let t0 = std::time::Instant::now();
     let mut rows: Vec<G1Row> = Vec::new();
     let (mut moved_mp, mut moved_gov) = (0usize, 0usize);
+    let mut roster_disagrees: Vec<String> = Vec::new();
     for (wi, &(seed, width, factions)) in worlds().iter().enumerate() {
         let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
         let base = read(&civ, &ws, gh, p.map_width_km, seed, true);
@@ -195,7 +196,9 @@ fn g1_0_baseline_columns() {
         // Bar 3: the same roster `fh_r2_baseline` pins.
         let fh = AT_CURRENT[wi];
         assert_eq!((fh.0, fh.1, fh.2), (seed, width, factions), "world order");
-        assert_eq!(base.roster_fh, fh.3, "seed {seed} {width} km {factions}: roster disagrees with fh_r2_baseline");
+        if base.roster_fh != fh.3 {
+            roster_disagrees.push(format!("seed {seed} {width} km {factions}"));
+        }
         // The resource-pass claim, checked once.
         if wi == 0 {
             let lean = read(&civ, &ws, gh, p.map_width_km, seed, false);
@@ -237,5 +240,97 @@ fn g1_0_baseline_columns() {
         .filter(|(g, w)| g != w)
         .map(|(g, w)| format!("got {g:?} want {w:?}"))
         .collect();
+    let gov_moved = rows.iter().zip(G1_0.iter()).filter(|(g, w)| g.3 != w.3).count();
+    let mp_moved = rows.iter().zip(G1_0.iter()).filter(|(g, w)| g.4 != w.4).count();
+    println!(
+        "G1 against G1_0: governments moved on {gov_moved} of 20, manpower on {mp_moved} of 20; roster disagrees with fh_r2_baseline on {} of 20",
+        roster_disagrees.len()
+    );
+    assert!(roster_disagrees.is_empty(), "roster disagrees with fh_r2_baseline: {roster_disagrees:?}");
     assert!(moved.is_empty(), "G1: {} of 20 worlds moved:\n{}", moved.len(), moved.join("\n"));
+}
+
+/// The G1-appended forms, each with the reference row it is placed against
+/// in `GOVERNMENTS_SCOPE.md` §3 (equal to, or the row its labelled judgement
+/// is measured from): G1-1's six core forms. G1-1's bar 4 and later stages'
+/// "forced readings" walk this list.
+const G1_FORMS: [(&str, &str); 6] = [
+    ("merchant_republic", "republic"),
+    ("city_league", "republic"),
+    ("sacral_monarchy", "monarchy"),
+    ("holy_order", "oligarchy"),
+    ("feudal_realm", "monarchy"),
+    ("nomad_khanate", "tribal_confederacy"),
+];
+
+/// G1-1's bar 4 (`GOVERNMENTS_SCOPE.md` §8): on every harness world, faction
+/// 1 forced to each appended form in turn (then to that form's anchor row,
+/// then restored). Its standing army must be within 0.5x-2x of the same
+/// faction under the anchor.
+///
+/// **The scope's other half, standing < field < levy in every reading, does
+/// not hold, and not because of G1's rows** (measured 2026-10-25, first run:
+/// 90 of 120). The control below forces faction 1 to each of the reference's
+/// eight real forms on the same worlds, and they break the ordering on the
+/// same worlds: a faction whose land feeds more than its people (a high
+/// `ecological_factor`) pays a standing army above the field army its levy
+/// can concentrate (`field = levy x (0.34 + 0.20 x logistics)` has no
+/// ecological term). That is the model's, reported, not tuned. What is
+/// asserted instead is the form's ordering verdict equals its anchor row's on
+/// every world, so a G1 row cannot be the cause of a break. The era-band
+/// verdict counts are printed, not barred (a form outside its band is a
+/// finding, `MILITARY_MANPOWER_SCOPE.md` §1). Ignored: it generates 20
+/// worlds.
+#[test]
+#[ignore = "G1-1 forced readings over 20 generated worlds; run alone with --ignored"]
+fn g1_forced_forms_are_ordered_and_near_their_anchor() {
+    let (mut n, mut ordered, mut near, mut same_as_anchor) = (0usize, 0usize, 0usize, 0usize);
+    let (mut ref_n, mut ref_ordered) = (0usize, 0usize);
+    let is_ordered = |m: &Manpower| m.standing_army < m.field_army && m.field_army < m.emergency_mobilization;
+    let mut verdicts: std::collections::BTreeMap<(String, &str, &str), usize> = Default::default();
+    let (mut lo, mut hi) = (f64::INFINITY, 0.0f64);
+    for &(seed, width, factions) in worlds().iter() {
+        let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
+        let saved = civ.faction_roster.0[1].government.clone();
+        for &(form, anchor) in G1_FORMS.iter() {
+            civ.faction_roster.0[1].government = form.to_string();
+            let m = read(&civ, &ws, gh, p.map_width_km, seed, true).rows.swap_remove(0);
+            civ.faction_roster.0[1].government = anchor.to_string();
+            let a = read(&civ, &ws, gh, p.map_width_km, seed, true).rows.swap_remove(0);
+            n += 1;
+            assert!(m.standing_army > 0.0, "seed {seed} {width} {factions} {form}: faction 1 has no army");
+            if is_ordered(&m) {
+                ordered += 1;
+            } else {
+                println!("G1 unordered: seed {seed} {width} {factions} {form}: {:.0} / {:.0} / {:.0} (anchor {anchor} ordered: {})", m.standing_army, m.field_army, m.emergency_mobilization, is_ordered(&a));
+            }
+            same_as_anchor += usize::from(is_ordered(&m) == is_ordered(&a));
+            let r = m.standing_army / a.standing_army;
+            lo = lo.min(r);
+            hi = hi.max(r);
+            if (0.5..=2.0).contains(&r) {
+                near += 1;
+            } else {
+                println!("G1 far from anchor: seed {seed} {width} {factions} {form}/{anchor}: {r:.3}");
+            }
+            *verdicts.entry((form.to_string(), m.era_standing_verdict, m.era_mobilization_verdict)).or_default() += 1;
+        }
+        // The control: the reference's eight real forms on the same faction.
+        for &(form, _) in cartalith_civ::roster::CIV_GOVERNMENTS[1..cartalith_civ::roster::CIV_GOVERNMENTS_REFERENCE_LEN].iter() {
+            civ.faction_roster.0[1].government = form.to_string();
+            let m = read(&civ, &ws, gh, p.map_width_km, seed, true).rows.swap_remove(0);
+            ref_n += 1;
+            ref_ordered += usize::from(is_ordered(&m));
+        }
+        civ.faction_roster.0[1].government = saved;
+    }
+    println!("G1 forced readings: {n}; ordered {ordered}; ordering verdict as the anchor's {same_as_anchor}; within 0.5x-2x of anchor {near} (ratio {lo:.3}..{hi:.3})");
+    println!("G1 control, reference forms on the same faction: {ref_n}; ordered {ref_ordered}");
+    for ((form, s, mob), c) in verdicts.iter() {
+        println!("G1 verdicts {form}: standing {s}, mobilization {mob}: {c}");
+    }
+    assert_eq!(n, 20 * G1_FORMS.len());
+    assert_eq!(ref_n, 20 * 8);
+    assert_eq!(same_as_anchor, n, "a G1 row broke an ordering its anchor keeps");
+    assert_eq!(near, n, "standing within 0.5x-2x of the anchor row's");
 }

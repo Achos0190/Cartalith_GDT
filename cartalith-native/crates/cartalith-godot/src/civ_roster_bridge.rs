@@ -822,7 +822,7 @@ mod tests {
         assert_eq!(r.0[1].name, "Aurelia");
         // The reference's own uniform "monarchy" is gone (wired 2026-09-23,
         // `MISTAKES.md` "Change generated output"): `civ_default_government`
-        // walks `faction_index - 1` mod the eight non-"none" forms, so index
+        // walks `faction_index - 1` mod the eight non-"none" reference forms (never a G1-appended one, Ruling CZ Q6), so index
         // 1 lands on the first of them, "chiefdom".
         assert_eq!(r.0[1].government, "chiefdom");
         // `civ_default_culture(1)` is "imperial", one of the two unthemed
