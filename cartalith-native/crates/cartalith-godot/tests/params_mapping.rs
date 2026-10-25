@@ -696,6 +696,33 @@ fn a_save_without_the_orogen_relief_key_reloads_without_it() {
     }
 }
 
+/// Protects: Ruling DB item 2's load rule -- a save written before `volc.lava_bench` existed
+/// reloads without benches (its coasts were generated without them), every other row still
+/// applies, and the key round-trips both ways. The fixture is a pre-ruling app save.
+#[test]
+fn a_save_without_the_lava_bench_key_reloads_without_benches() {
+    assert!(params::defaults().volc.lava_bench, "the shipped app generates with it on");
+    let mut old = params::defaults();
+    old.volc.lava_bench = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("volc.lava_bench").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of a pre-ruling save still applies");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.volc.lava_bench = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["volc.lava_bench"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.volc.lava_bench = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.volc.lava_bench, on);
+    }
+}
+
 /// Protects: Ruling DB item 3's load rule -- a save written before `tect.high_ceiling` existed
 /// reloads with the top at 1 (its summits were generated under it), every other row of it still
 /// applies, and the key round-trips both ways once written. The fixture is a pre-ruling app save
@@ -1071,6 +1098,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And the higher world ceiling (Ruling DB item 3), the same way
     // (`a_save_without_the_high_ceiling_key_reloads_with_the_old_top`).
     expect.tect.high_ceiling = false;
+    // And Ruling DB item 2's lava benches, the same way.
+    expect.volc.lava_bench = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1120,9 +1149,9 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)); and
 /// `volc.fill_edifice_pits` (Ruling CO, 2026-10-18,
 /// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)). (The count above is
-/// stale: the body asserts fourteen, the later ones being Ruling CU item 1's
-/// orogen relief, Ruling CX items 1, 4 and 6, and Ruling DB item 3's
-/// `tect.high_ceiling`.)
+/// stale: the body asserts fifteen, the later ones being Ruling CU item 1's
+/// orogen relief, Ruling CX items 1, 4 and 6, and Ruling DB items 3 and 2's
+/// `tect.high_ceiling` and `volc.lava_bench`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1145,6 +1174,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.cinder_grid_law && !parity.volc.cinder_grid_law, "grid-aware cinder law, Ruling CX item 4");
     assert!(app.volc.dry_active_craters && !parity.volc.dry_active_craters, "dry active craters, Ruling CX item 6");
     assert!(app.tect.high_ceiling && !parity.tect.high_ceiling, "higher world ceiling, Ruling DB item 3");
+    assert!(app.volc.lava_bench && !parity.volc.lava_bench, "lava benches, Ruling DB item 2");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1158,8 +1188,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the fourteen must make the two identical --
-    // which catches a fifteenth divergence added without a ruling, in either
+    // And nothing else. Neutralising the fifteen must make the two identical --
+    // which catches a sixteenth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1176,10 +1206,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.cinder_grid_law = false;
     neutral.volc.dry_active_craters = false;
     neutral.tect.high_ceiling = false;
+    neutral.volc.lava_bench = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         fourteen authorised fields"
+         fifteen authorised fields"
     );
 }
 
@@ -1187,7 +1218,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the fourteen shipped divergences -- the volcanism/crater ones -- are
+/// Three of the fifteen shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
 /// path behind it is dead. The other ten, `integrate_drainage`,

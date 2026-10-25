@@ -92,6 +92,8 @@ fn arm(p: &mut WorldParams, name: &str) {
         "wet_active" => p.volc.dry_active_craters = false,
         // The app before Ruling DB item 3 (the top back at 1).
         "old_ceiling" => p.tect.high_ceiling = false,
+        // The app before Ruling DB item 2 (no lava benches).
+        "no_bench" => p.volc.lava_bench = false,
         other => panic!("unknown arm {other:?}"),
     }
 }

@@ -97,12 +97,32 @@
 //! | Fed flow half width | 6 % of its length, 0.4-1.5 km | judgement: sheet lava is broad (Holuhraun's field about 5 km across) |
 //! | The older fissure | 0.8-3 km to one side, aged between the last eruption and the flank's building age | judgement: a fissure swarm is several km wide (Gudmundsson 2000) |
 //!
+//! # Lava benches (owner Ruling DB item 2, 2026-10-25)
+//!
+//! [`lava_benches`] is the one function here that writes: at generation's
+//! end (behind `VolcanismParams::lava_bench`), a young flow that reaches the
+//! sea builds a small bench of new land where it enters, as Kilauea's 2018
+//! fissure 8 flow did at Kapoho (about 1.5 km^2 of new land by 20 June 2018,
+//! USGS photo chronology). The flows are the same traced flows the renderer
+//! draws (traced on the field before the bench, which the renderer's later
+//! trace crosses), so the bench sits where the drawn flow meets the sea.
+//!
+//! | Quantity | Value | Source |
+//! |---|---|---|
+//! | Area per flow | at most 1.5 km^2 | the owner's cap: Kilauea 2018 (USGS) |
+//! | Flows that build one | younger than 1 000 years | judgement: a bench erodes back into the coast within centuries to millennia of wave attack |
+//! | Water it can fill | at most 50 m deep | judgement: a bench builds on the shallow shelf; deeper, lava builds a submarine slope (the lobe's apron raises such cells without lifting them out of the sea) |
+//! | Shape | a smooth lobe on the sea floor, widest seaward | judgement: a fan delta; smooth so the coast it makes is rounded at every zoom |
+//! | Height | 5 m above the sea | judgement: Kapoho's new land stands metres above the sea |
+//!
+//! A map whose cell is larger than the cap (above about 1.2 km a cell) gets
+//! no bench: a bench is sub-cell there, and is never rounded up to a cell.
+//!
 //! # What it must never do
 //!
-//! - Never change the height field, the land mask or any water: it reads the
-//!   field and returns geometry. A lava delta or bench that would move the
-//!   coast is a separate, measured, generation-side step (the backlog row's
-//!   step 3), not this module.
+//! - Never change the height field, the land mask or any water in
+//!   [`LavaFlows::trace`]: it reads the field and returns geometry. Only
+//!   [`lava_benches`] writes, and only cells below the sea within its caps.
 //! - Never trace from an edifice without a morphology (the reference model's
 //!   `kind: None`), an extinct one, or with an unknown or non-positive scale:
 //!   [`LavaFlows::trace`] returns no flows rather than guessing a scale.
@@ -601,6 +621,132 @@ fn fissure(inp: &TraceInput, flows: &mut Vec<LavaFlow>, edifice: u32, e: &Placed
     }
 }
 
+/// The most new land one flow's bench may add, km^2 (module doc's bench
+/// table: the owner's cap, Kilauea 2018).
+pub const BENCH_MAX_KM2: f64 = 1.5;
+/// Flows younger than this build a bench, years (module doc's table).
+pub const BENCH_MAX_YEARS: f64 = 1000.0;
+/// The deepest water a bench fills, metres (module doc's table).
+pub const BENCH_MAX_DEPTH_M: f64 = 50.0;
+/// A bench's height above the sea, metres (module doc's table).
+pub const BENCH_HEIGHT_M: f64 = 5.0;
+
+/// What [`lava_benches`] did: how many flows built a bench, how many cells
+/// (and km^2) became land, and the largest single bench in cells (never
+/// above the cap's cell count).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BenchReport {
+    pub benches: usize,
+    pub cells: usize,
+    pub km2: f64,
+    pub largest: usize,
+}
+
+/// Owner Ruling DB item 2: for every flow [`LavaFlows::trace`] draws for
+/// `edifices` on `field` that reaches the sea and is younger than
+/// [`BENCH_MAX_YEARS`], build a bench where it enters: a smooth lobe added
+/// to the sea floor around the entry point (the flow's last point), widest
+/// on the seaward side of its last heading, scaled up until the new land it
+/// makes holds [`BENCH_MAX_KM2`] (rounded down to whole cells) or until it
+/// fills water [`BENCH_MAX_DEPTH_M`] deep, and never higher than
+/// [`BENCH_HEIGHT_M`] above the sea. Sea cells the lobe raises without
+/// lifting them out of the water are its submarine apron (shallower, still
+/// sea). Pure: a function of the table, the field and the scales, no random
+/// stream; each flow's bench is laid on the field its predecessors left.
+///
+/// Why a smooth lobe rather than whole cells set to one height: the
+/// renderer interpolates the field, so a block of cells at one height beside
+/// deeper water drew a coast of straight, grid-aligned steps at x64 (the
+/// first 2026-10-25 frames of 483920); a lobe added to the existing sea
+/// floor keeps the floor's own smoothness and gives a rounded margin.
+///
+/// What it must never do: lower any cell, touch a cell at or above the sea,
+/// or add land on a map whose cell is larger than the cap (no bench is
+/// rounded up to a cell).
+pub fn lava_benches(edifices: &[PlacedEdifice], field: &mut [f32], gw: usize, gh: usize, sea_level: f64, km_per_cell: f64, m_per_unit: f64) -> BenchReport {
+    let mut rep = BenchReport::default();
+    let cell_km2 = km_per_cell * km_per_cell;
+    let max_cells = if cell_km2 > 0.0 && cell_km2.is_finite() { (BENCH_MAX_KM2 / cell_km2).floor() as usize } else { 0 };
+    if max_cells == 0 || !(m_per_unit.is_finite() && m_per_unit > 0.0) || field.len() < gw * gh {
+        return rep;
+    }
+    let fl = LavaFlows::trace(edifices, TraceInput { field, gw, gh, sea_level, km_per_cell, m_per_unit });
+    let top = sea_level + BENCH_HEIGHT_M / m_per_unit;
+    let a_max = (BENCH_MAX_DEPTH_M + BENCH_HEIGHT_M) / m_per_unit;
+    // The lobe's reach, cells: a disc of the cap's area has radius
+    // sqrt(cap / PI); twice that lets the lobe's soft shoulders and its
+    // seaward bias fit the cap without a hard rim (judgement).
+    let reach = 2.0 * (max_cells as f64 / std::f64::consts::PI).sqrt().max(1.0);
+    let ri = reach.ceil() as i64;
+    for l in fl.flows().iter().filter(|l| l.reached_sea && l.years < BENCH_MAX_YEARS && l.pts.len() >= 2) {
+        let (a, b) = (l.pts[l.pts.len() - 2], l.pts[l.pts.len() - 1]);
+        let Some((hx, hy)) = normalise(((b.x - a.x) as f64, (b.y - a.y) as f64)) else { continue };
+        let (ex, ey) = (b.x as f64, b.y as f64);
+        // The sea cells within reach and each one's lobe weight: a smooth
+        // radial falloff, times a seaward bias (full ahead of the heading,
+        // a fifth behind it), so the lobe is a fan, not a disc.
+        let mut cells: Vec<(usize, f64)> = Vec::new();
+        for dy in -ri..=ri {
+            for dx in -ri..=ri {
+                let (x, y) = (ex.round() as i64 + dx, ey.round() as i64 + dy);
+                if x < 0 || y < 0 || x >= gw as i64 || y >= gh as i64 {
+                    continue;
+                }
+                let i = y as usize * gw + x as usize;
+                if field[i] as f64 >= sea_level {
+                    continue;
+                }
+                let (ux, uy) = (x as f64 - ex, y as f64 - ey);
+                let d = ux.hypot(uy);
+                let ahead = if d > 1e-9 { (ux * hx + uy * hy) / d } else { 1.0 };
+                let w = smoothstep(reach, 0.0, d) * (0.2 + 0.8 * smoothstep(-0.6, 0.6, ahead));
+                if w > 0.0 {
+                    cells.push((i, w));
+                }
+            }
+        }
+        // New land at amplitude `amp`: the cells the lobe lifts out of the sea.
+        let land_at = |amp: f64| cells.iter().filter(|&&(i, w)| field[i] as f64 + amp * w > sea_level).count();
+        if land_at(a_max) == 0 {
+            continue;
+        }
+        // The largest amplitude whose new land fits the cap (the count only
+        // grows with the amplitude), by bisection.
+        let amp = if land_at(a_max) <= max_cells {
+            a_max
+        } else {
+            let (mut lo, mut hi) = (0.0, a_max);
+            for _ in 0..40 {
+                let mid = 0.5 * (lo + hi);
+                if land_at(mid) <= max_cells {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            lo
+        };
+        let mut made = 0usize;
+        for &(i, w) in &cells {
+            let v = field[i] as f64;
+            let nv = (v + amp * w).min(top);
+            if nv > v {
+                if v < sea_level && nv > sea_level {
+                    made += 1;
+                }
+                field[i] = nv as f32;
+            }
+        }
+        if made > 0 {
+            rep.benches += 1;
+            rep.cells += made;
+            rep.largest = rep.largest.max(made);
+        }
+    }
+    rep.km2 = rep.cells as f64 * cell_km2;
+    rep
+}
+
 impl LavaFlows {
     /// Traces every active or dormant edifice's flows (module doc). An empty
     /// set when the scales are unusable or the field is short -- never a
@@ -784,6 +930,58 @@ mod tests {
 
     fn shield(cx: f64, cy: f64, years: f64) -> PlacedEdifice {
         PlacedEdifice { rift_bearing: None, setting: VolcanicSetting::Hotspot, cx, cy, r: 6.0, h: 0.1, kind: Some(EdificeKind::Shield), age: 0.0, years: Some(years), crater: None }
+    }
+
+    /// Protects Ruling DB item 2's bench: on the plane falling into the
+    /// east sea (shallow: the sea floor 0.43 - 0.40 is 30 m deep at the
+    /// edge at 1 000 m a unit), a young shield's flows that reach the sea
+    /// add new land there, never more than the cap (1.5 km^2: 6 cells of
+    /// 0.25 km^2) per bench, never lower a cell or touch land, stay near the
+    /// coast, and are reproducible; an old edifice (2 000 years), a map whose
+    /// cell exceeds the cap (1.5 km cells) and the literal tuning are pinned.
+    #[test]
+    fn a_young_flow_at_the_sea_builds_a_capped_bench() {
+        let (gw, gh) = (160usize, 80usize);
+        let f0 = plane_with_valley(gw, gh);
+        let t = [shield(100.0, 34.0, 20.0)];
+        let mut f = f0.clone();
+        let r = lava_benches(&t, &mut f, gw, gh, 0.43, 0.5, 1000.0);
+        assert!(r.benches >= 1, "{r:?}");
+        assert!(r.largest <= 6, "{r:?}");
+        // Where the cap binds: land falling east to a coast at x = 110 and a
+        // sea half a metre deep beyond it, so the lobe at full amplitude
+        // would lift far more than the cap's 6 cells.
+        let flat: Vec<f32> = (0..gw * gh)
+            .map(|i| {
+                let x = (i % gw) as f64;
+                (if x < 110.0 { 0.432 + 0.003 * (110.0 - x) } else { 0.43 - 0.0005 }) as f32
+            })
+            .collect();
+        let mut c = flat.clone();
+        let rc = lava_benches(&[shield(95.0, 40.0, 20.0)], &mut c, gw, gh, 0.43, 0.5, 1000.0);
+        assert!(rc.benches >= 1 && rc.largest == 6, "{rc:?}");
+        let mut new_land = 0;
+        for (i, (a, b)) in f0.iter().zip(f.iter()).enumerate() {
+            assert!(b >= a, "cell {i} lowered");
+            if a.to_bits() != b.to_bits() {
+                assert!((*a as f64) < 0.43, "cell {i} was land");
+                assert!((i % gw) as f64 > 120.0, "cell {i} is far from the coast");
+                if (*b as f64) > 0.43 {
+                    new_land += 1;
+                    assert!((*b as f64) <= 0.43 + 5.0 / 1000.0 + 1e-6, "a bench above 5 m");
+                }
+            }
+        }
+        assert_eq!(new_land, r.cells);
+        let mut g = f0.clone();
+        assert_eq!(lava_benches(&t, &mut g, gw, gh, 0.43, 0.5, 1000.0), r);
+        assert_eq!(g, f);
+        let mut h = f0.clone();
+        assert_eq!(lava_benches(&[shield(100.0, 34.0, 2000.0)], &mut h, gw, gh, 0.43, 0.5, 1000.0).cells, 0);
+        let mut k = f0.clone();
+        assert_eq!(lava_benches(&t, &mut k, gw, gh, 0.43, 1.5, 1000.0), BenchReport::default());
+        assert_eq!(k, f0);
+        assert_eq!((BENCH_MAX_KM2, BENCH_MAX_YEARS, BENCH_MAX_DEPTH_M, BENCH_HEIGHT_M), (1.5, 1000.0, 50.0, 5.0));
     }
 
     /// Protects Ruling DB item 1's fissure field. A rift shield that records

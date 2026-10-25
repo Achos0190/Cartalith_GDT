@@ -2372,6 +2372,8 @@ Decisions taken inside the build (labelled judgements, open to the owner): the h
 
 **Outcome of item 1 (2026-10-25):** built (`STATUS.md`, Ruling DB item 1): the trend is recorded for every rift edifice (record-only, no generated value moves), and fissure fields are drawn in Satellite relief under the existing `lava_flows` look term. Judgements inside it (open to the owner): the fissure and sheet bands in `lava_flows`' module doc, an older second fissure beside the newest, and a shield's rift-zone vents taking the recorded trend.
 
+**Outcome of item 2 (2026-10-25):** built and on in the app (`STATUS.md`, Ruling DB item 2): every bar held on the five census worlds, so no switch-off was needed. Judgements inside it (open to the owner): flows under 1 000 years build benches, water up to 50 m deep, 5 m above the sea, a smooth seaward lobe; benches are rare and small on the census worlds because most young flows meet deep water.
+
 ## Ruling DC — the optional LLM assistant: yes, with prose and commands, remote and local, phone and desktop, each behind its own setting (owner, 2026-10-25)
 
 The owner answered the first three questions of `LLM_INTEGRATION_RESEARCH.md` §7 (the research follows his question *"what if we added LLM integration to Cartalith with an API; call a local model or whatever the user has; it has to work with an API key"*). Verbatim: **(a)** scope = prose **and** map commands, both; **(b)** providers = remote **and** local; **(c)** platforms = phone as well as desktop; and **"all three, but guarded by settings"**.

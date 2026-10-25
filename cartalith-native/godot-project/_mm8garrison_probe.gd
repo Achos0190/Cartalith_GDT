@@ -395,7 +395,14 @@ func _ready() -> void:
 ## own garrison drops from the pre-fix 2194/3679 to the correct 1940/3425 --
 ## less than before because it no longer carries a capital weight that was
 ## never really its due.
-const STANDING_F1_Y0 := 4741
-const STANDING_F1_Y10 := 5292
-const GARRISON_TOWN_Y0 := 1940
-const GARRISON_TOWN_Y10 := 3425
+## RE-BASELINED 2026-10-25 (Ruling DB item 3, the higher world ceiling, `9b0bec28`):
+## the pins above were already stale before it -- a DLL of `eeaa2d93` with the
+## ceiling forced off read 785 / 1187 / 214 / 707 (faction 5), so a generation change
+## between 2026-09-28 and Ruling DB (not broken down) had moved this world -- and the
+## ceiling then moves it to faction 1's 1927 / 2367 and the town's 923 / 1840, measured
+## windowed on the app tree rebased onto `50a6fc6d`. The previous pins were
+## 4741 / 5292 / 1940 / 3425.
+const STANDING_F1_Y0 := 1927
+const STANDING_F1_Y10 := 2367
+const GARRISON_TOWN_Y0 := 923
+const GARRISON_TOWN_Y10 := 1840

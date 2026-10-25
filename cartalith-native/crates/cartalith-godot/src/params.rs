@@ -251,6 +251,10 @@ pub fn defaults() -> WorldParams {
     // just under the classifier's lake depth. Off in `WorldParams::defaults`.
     // See `VolcanismParams::dry_active_craters`.
     p.volc.dry_active_craters = true;
+    // Owner Ruling DB item 2 (2026-10-25): a young lava flow that reaches the
+    // sea builds a small bench of new land (at most 1.5 km^2 a flow). Off in
+    // `WorldParams::defaults`. See `VolcanismParams::lava_bench`.
+    p.volc.lava_bench = true;
     p
 }
 
@@ -460,6 +464,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.dry_active_craters", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Active craters stay dry (Ruling CX)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.dry_active_craters), set_fn: |p, v| p.volc.dry_active_craters = v != 0.0 },
+    // Port-only (Ruling DB item 2): ON at the app boundary, OFF in
+    // `WorldParams::defaults`; a save without the key reloads OFF
+    // (`apply_saved_state`). No GUI row.
+    ParamSpec { key: "volc.lava_bench", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Young lava flows build benches at the sea (Ruling DB)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.lava_bench), set_fn: |p, v| p.volc.lava_bench = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -929,6 +939,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("volc.morphometry", ""),
     ("volc.cinder_grid_law", ""),
     ("volc.dry_active_craters", ""),
+    // Port-only (Ruling DB item 2): the reference builds no new land.
+    ("volc.lava_bench", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1216,6 +1228,8 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     p.volc.cinder_grid_law = false;
     // And Ruling CX item 6's dry active craters (2026-10-24), the same way.
     p.volc.dry_active_craters = false;
+    // And Ruling DB item 2's lava benches (2026-10-25), the same way.
+    p.volc.lava_bench = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

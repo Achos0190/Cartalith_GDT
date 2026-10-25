@@ -471,6 +471,20 @@ pub struct VolcanismParams {
     /// disclosed re-baseline (`DECISIONS.md` §7p). A save without the key
     /// reloads `false`.
     pub dry_active_craters: bool,
+    /// Owner Ruling DB item 2 (2026-10-25): a young lava flow that reaches
+    /// the sea builds a small **bench** of new land where it enters
+    /// (`cartalith_terrain::lava_flows::lava_benches`: at most 1.5 km^2 a
+    /// flow, Kilauea 2018's scale, USGS; flows under 1 000 years; water no
+    /// deeper than 50 m; 5 m above the sea). The flows are the ones the
+    /// renderer draws, traced on the finished field. The last field step, so
+    /// like `dry_active_craters` it moves only `field` (flow, channels and
+    /// climate are computed before it). Needs the volcano table.
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**
+    /// once its bars passed (`STATUS.md`, Ruling DB item 2): it moves the
+    /// land mask at a few coasts, a disclosed re-baseline (`DECISIONS.md`
+    /// §7p). A save without the key reloads `false`.
+    pub lava_bench: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -1201,6 +1215,7 @@ impl WorldParams {
                 cinder_grid_law: false,
                 // Ruling CX item 6: off on the parity path (see the field).
                 dry_active_craters: false,
+                lava_bench: false,
             },
             // `physical_model: false` HERE and `true` in the shipped app, on
             // purpose. `WorldParams::defaults` is what ~28 golden suites mean
@@ -3789,6 +3804,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         && let Some(v) = volcanoes.as_deref()
     {
         cartalith_terrain::edifice_pits::dry_active_craters(gw, gh, world, &mut field, sea_level, v);
+    }
+    // Owner Ruling DB item 2 (2026-10-25): lava benches where young flows
+    // meet the sea, after every other field step (`VolcanismParams::
+    // lava_bench`). Off in `WorldParams::defaults` by control flow.
+    if p.volc.lava_bench
+        && let Some(v) = volcanoes.as_deref()
+    {
+        let m_per_unit = p.peak_m / (1.0 - sea_level).max(1e-6);
+        cartalith_terrain::lava_flows::lava_benches(v, &mut field, gw, gh, sea_level, p.map_width_km / gw as f64, m_per_unit);
     }
 
     // PR-04: record each active device's real allocation total *before* the

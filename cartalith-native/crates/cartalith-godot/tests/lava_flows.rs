@@ -1087,3 +1087,143 @@ fn summit_ceiling_frames() {
         }
     }
 }
+
+/// Ruling DB item 2's coast metrics: per world (the four lava worlds and
+/// the other two CX census worlds), the app with `volc.lava_bench` off and
+/// on: the cells that changed (sea to land, or sea made shallower by a
+/// bench's apron; no other change is allowed), the
+/// benches and their area, the coastline (land cells beside sea, 4-connected)
+/// and the lake count of the shell's water classification, off -> on.
+///
+/// Protects: nothing by itself (a measurement, `#[ignore]`d); it asserts
+/// only that no cell moved except sea to land and that every bench is under
+/// its cap.
+#[test]
+#[ignore = "generates 2048x1311 worlds twice; run explicitly with --release"]
+fn bench_census() {
+    let extra = [WorldSpec { tag: "s483920_classic", seed: 483920, archetype: None }, WorldSpec { tag: "s246371_classic", seed: 246371, archetype: None }];
+    let (gw, gh) = (2048usize, 1311usize);
+    for w in WORLDS.iter().chain(extra.iter()) {
+        let mut p = world_params(w, gw, gh);
+        p.volc.lava_bench = false;
+        let off = cartalith_engine::generate_terrain(&p);
+        p.volc.lava_bench = true;
+        let on = cartalith_engine::generate_terrain(&p);
+        let sea = on.sea_level;
+        assert_eq!(off.sea_level, sea);
+        let (mut to_land, mut apron, mut other) = (0usize, 0usize, 0usize);
+        for (a, b) in off.field.iter().zip(on.field.iter()) {
+            if a.to_bits() != b.to_bits() {
+                if (*a as f64) < sea && (*b as f64) > sea {
+                    to_land += 1;
+                } else if (*a as f64) < sea && b > a {
+                    apron += 1;
+                } else {
+                    other += 1;
+                }
+            }
+        }
+        assert_eq!(other, 0, "{}: a bench lowered a cell or moved land", w.tag);
+        let coast = |f: &[f32]| {
+            (0..gw * gh)
+                .filter(|&i| {
+                    let (x, y) = (i % gw, i / gw);
+                    f[i] as f64 > sea && [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)].into_iter().flatten().any(|j| (f[j] as f64) <= sea)
+                })
+                .count()
+        };
+        let lakes = |ws: &cartalith_engine::WorldState| {
+            let c = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, sea, p.world, None).classification;
+            let mut seen = vec![false; gw * gh];
+            let mut n = 0usize;
+            for s0 in 0..gw * gh {
+                if c[s0] != 2 || seen[s0] {
+                    continue;
+                }
+                n += 1;
+                let mut st = vec![s0];
+                seen[s0] = true;
+                while let Some(i) = st.pop() {
+                    let (x, y) = (i % gw, i / gw);
+                    for j in [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)].into_iter().flatten() {
+                        if c[j] == 2 && !seen[j] {
+                            seen[j] = true;
+                            st.push(j);
+                        }
+                    }
+                }
+            }
+            n
+        };
+        let kpc = p.map_width_km / gw as f64;
+        // The candidates: flows on the bench-less field that reach the sea, and those young enough.
+        let fl0 = cartalith_terrain::lava_flows::LavaFlows::trace(off.volcanoes.as_deref().map_or(&[][..], |v| v.as_slice()), TraceInput { field: &off.field, gw, gh, sea_level: sea, km_per_cell: kpc, m_per_unit: p.peak_m / (1.0 - sea) });
+        let to_sea = fl0.flows().iter().filter(|l| l.reached_sea).count();
+        let young = fl0.flows().iter().filter(|l| l.reached_sea && l.years < cartalith_terrain::lava_flows::BENCH_MAX_YEARS).count();
+        println!("   flows to the sea {to_sea}, of them under {} years {young}", cartalith_terrain::lava_flows::BENCH_MAX_YEARS);
+        let mut f2 = off.field.as_ref().clone();
+        let rep = cartalith_terrain::lava_flows::lava_benches(off.volcanoes.as_deref().map_or(&[][..], |v| v.as_slice()), &mut f2, gw, gh, sea, kpc, p.peak_m / (1.0 - sea));
+        assert!(rep.cells as f64 * kpc * kpc <= rep.benches as f64 * cartalith_terrain::lava_flows::BENCH_MAX_KM2 + 1e-9);
+        println!(
+            "== {}: benches {} ({} cells, {:.2} km2; cap {:.2} km2 = {} cells); sea -> land {to_land}, sea made shallower {apron}; coast cells {} -> {}; lakes {} -> {}",
+            w.tag,
+            rep.benches,
+            rep.cells,
+            rep.km2,
+            cartalith_terrain::lava_flows::BENCH_MAX_KM2,
+            (cartalith_terrain::lava_flows::BENCH_MAX_KM2 / (kpc * kpc)).floor(),
+            coast(&off.field),
+            coast(&on.field),
+            lakes(&off),
+            lakes(&on)
+        );
+    }
+}
+
+/// Ruling DB item 2's frames: the same world with `volc.lava_bench` off
+/// (left) and on (right), Satellite relief at the Quality tier, at x4, x16
+/// and x64 around the first bench cell (in row order). `LV_OUT=<dir>`
+/// (required), `LV_ONLY=<tag part>` (default `s483920`).
+///
+/// Protects: nothing by itself (a measurement, `#[ignore]`d); it asserts
+/// only that the world has a bench and that each frame is not empty.
+#[test]
+#[ignore = "generates a 2048x1311 world twice and renders zoom frames; run explicitly with --release"]
+fn bench_frames() {
+    let o = std::env::var("LV_OUT").expect("LV_OUT=<dir>");
+    std::fs::create_dir_all(&o).unwrap();
+    let only = std::env::var("LV_ONLY").unwrap_or_else(|_| "s483920".into());
+    let w = WorldSpec { tag: "s483920_classic", seed: 483920, archetype: None };
+    let w = WORLDS.iter().find(|x| x.tag.contains(only.as_str())).unwrap_or(&w);
+    let (gw, gh) = (2048usize, 1311usize);
+    let make = |on: bool| {
+        let mut p = world_params(w, gw, gh);
+        p.volc.lava_bench = on;
+        (cartalith_engine::generate_terrain(&p), p)
+    };
+    let ((off, p), (on, _)) = (make(false), make(true));
+    let first = (0..gw * gh).find(|&i| off.field[i].to_bits() != on.field[i].to_bits()).expect("premise: a bench on this world");
+    let (gx, gy) = ((first % gw) as f64 + 0.5, (first / gw) as f64 + 0.5);
+    println!("== {}: first bench cell ({gx:.1}, {gy:.1})", w.tag);
+    let frames = |ws: &cartalith_engine::WorldState| -> Vec<Vec<u8>> {
+        let vt = ws.volcanoes.as_ref().expect("a volcano table");
+        let mut a = TerrainAppearance::for_tier(QualityTier::Quality).with_look(LOOK_SATELLITE);
+        a.npr.peak_m = p.peak_m;
+        let idx = render::volcano_index_for(vt, &ws.field, gw, gh, ws.sea_level, Some(p.map_width_km), &a);
+        let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
+        let lakes = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
+        let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a, Some(p.map_width_km));
+        let c = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a.clone(), &pre)
+            .expect("context")
+            .with_lithology(&lith)
+            .with_lakes(&lakes)
+            .with_volcanoes(&idx);
+        let tf = TileFields::new(&c, None);
+        RUNGS.iter().map(|&(_, ppc)| frame(&c, &tf, gx, gy, ppc, w.seed)).collect()
+    };
+    let (a, b) = (frames(&off), frames(&on));
+    for (k, (rung, _)) in RUNGS.iter().enumerate() {
+        let (sw, sbs) = side_by_side(&a[k], &b[k]);
+        write_png(&format!("{o}/{}_bench_{rung}_off_on.png", w.tag), sw, SCREEN_H, sbs);
+    }
+}
