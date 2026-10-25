@@ -288,6 +288,11 @@ var tool_palette_bar: PanelContainer
 var _tool_palette_row: HBoxContainer
 ## The strip `DccWidgets.tool_strip` returns; `is_instance_valid` is tested before use because the row is rebuilt.
 var _tool_strip_row: HBoxContainer
+## The user's quick cluster at the palette row's right end (`quick_bar.gd`, CQ-2 of
+## `CUSTOM_QUICK_BAR_SCOPE.md`) and the rule before it. Both outlive `_rebuild_tool_strip()`:
+## the pins live in `DccSettings`, so only their chips are re-derived, by `refresh()`.
+var _quick_bar: DccQuickBar
+var _quick_rule: Control
 
 ## Inserted into the shell's own top-level stack directly above
 ## `tool_options_bar`, from here rather than from `dcc_shell.gd`'s desktop
@@ -310,8 +315,32 @@ func _install_tool_palette_bar() -> void:
 	host.add_child(bar)
 	host.move_child(bar, tool_options_bar.get_index())
 	tool_palette_bar = bar
-	workspace_changed.connect(func(_id: String): _rebuild_tool_strip())
+	## The quick cluster: a rule, then the pins (CQ-2). Created here, filled by `setup()` once
+	## the menus exist (`_ready()` builds them after this call), so its first index walk sees
+	## every menu row.
+	_quick_rule = _quick_bar_rule()
+	_tool_palette_row.add_child(_quick_rule)
+	_quick_bar = DccQuickBar.new()
+	_tool_palette_row.add_child(_quick_bar)
+	_quick_bar.setup.call_deferred(self)
+	workspace_changed.connect(func(_id: String):
+		_rebuild_tool_strip()
+		_quick_bar.refresh())
 	_rebuild_tool_strip()
+
+## The 1 px rule between the palette cells and the quick cluster: the same mark
+## `DccWidgets.tool_strip()` draws between the global and the domain cells.
+func _quick_bar_rule() -> Control:
+	var div := ColorRect.new()
+	div.color = DccTheme.c("line_soft")
+	div.custom_minimum_size = Vector2(1, 30)
+	div.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var m := MarginContainer.new()
+	m.name = "QuickBarRule"
+	m.add_theme_constant_override("margin_left", 3)
+	m.add_theme_constant_override("margin_right", 3)
+	m.add_child(div)
+	return m
 
 ## Registers `domain`'s tool-palette entries (called by each domain's
 ## `DccWidgets.tools_block()`). Redraws the bar only when `domain` is the active
@@ -339,9 +368,15 @@ func _rebuild_tool_strip() -> void:
 	if _tool_palette_row == null:
 		return
 	for c in _tool_palette_row.get_children():
+		if c == _quick_bar or c == _quick_rule:
+			continue
 		_tool_palette_row.remove_child(c)
 		c.queue_free()
 	_tool_strip_row = DccWidgets.tool_strip(_tool_palette_row, self, tool_group, _strip_entries())
+	## `tool_strip()` appends its row, so the quick cluster is moved back to the end.
+	if _quick_rule != null:
+		_tool_palette_row.move_child(_quick_rule, -1)
+		_tool_palette_row.move_child(_quick_bar, -1)
 
 ## Keeps the palette's lit cell on `armed_tool` -- arming from a key, a menu,
 ## the WORLD feature grid or Escape does not rebuild the palette, and its
@@ -799,6 +834,12 @@ func _ready() -> void:
 	## owned the engine ends -- a generate/import (`generation_finished`, success or not) or a
 	## landmark pass / viewshed refine -- so every listener sees the new world.
 	bridge.generation_finished.connect(func(_ok: bool): _flush_deferred_arm.call_deferred())
+	## CQ-2: a chip's greyed/live state is read from the menus' built state, which a new world
+	## changes (Save, Export...), so re-derive the chips after a load or a generate. Deferred,
+	## so no listener of the same signal sees a half-updated cluster. Null on the phone (no bar).
+	if _quick_bar != null:
+		bridge.world_loaded.connect(func(): _quick_bar.refresh.call_deferred())
+		bridge.generation_finished.connect(func(_ok: bool): _quick_bar.refresh.call_deferred())
 	bridge.landmark_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
 	bridge.landmark_refine_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
 	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())

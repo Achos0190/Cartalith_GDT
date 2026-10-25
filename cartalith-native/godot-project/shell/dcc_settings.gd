@@ -86,6 +86,12 @@ const _SEC_ASSET_LIBRARY := "asset_library"
 ## "the assistant is on, talking to this URL" would switch the feature on for
 ## whoever opens the file.
 const _SEC_LLM := "llm"
+## The user's pinned commands (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.4, milestone CQ-1,
+## Ruling DH): which commands sit in the tool palette bar's quick cluster, under the
+## cartwheel, and in a shared sub-ring. **Per device and never in a world** -- a `.zip`
+## carrying one user's bar would hand it to whoever opens the file -- and written only
+## through the allow-listed `set_quick_bar_value()`, the `[llm]` section's pattern.
+const _SEC_QUICK_BAR := "quick_bar"
 ## How many recently used slots are kept. **A labelled judgement**: one
 ## phone screen of the two-column slot grid holds about a dozen tiles.
 const MAX_RECENT_ASSETS := 12
@@ -1018,6 +1024,221 @@ static func llm_withdraw_consent(origin: String = "") -> void:
 	else:
 		_cfg.set_value(_SEC_LLM, "consented_origins", list)
 	_save()
+
+# -- The custom quick bar (CUSTOM_QUICK_BAR_SCOPE.md s.3.4, milestone CQ-1, Ruling DH) ----
+
+## The schema version this build writes. A stored `version` above it (a newer build's
+## file) or of the wrong type is read as an EMPTY section, and is not rewritten until
+## the user next edits -- a downgrade must never destroy a newer build's pins.
+const QUICK_BAR_VERSION := 1
+## Pin caps, Ruling DH Q5: 24 in the bar and 4 in the ring dock are labelled judgements;
+## 9 per shared sub-ring is the geometric ceiling `radial_ring.gd` documents (a sub-ring
+## of n slots clears its neighbours only up to n = 9). Enforced on READ as well as write,
+## so a hand-edited file cannot overfill a surface.
+const QUICK_BAR_MAX_BAR := 24
+const QUICK_BAR_MAX_DOCK := 4
+const QUICK_BAR_MAX_SHARE := 9
+## Every `[quick_bar]` key that may exist, with its shipped default. **This table is the
+## whole allow-list**, as `LLM_DEFAULTS` is for `[llm]`: `quick_bar_value()` answers only
+## these and `set_quick_bar_value()` writes only the four user-settable ones (`version` is
+## the format's, not the user's). The shipped bar is EMPTY (Ruling DH Q4): there is no
+## seeded list, so no default pin can go stale against the menus.
+const QUICK_BAR_DEFAULTS := {
+	"version": 1,
+	"bar": [],                 ## ordered {k, t} pins, <= QUICK_BAR_MAX_BAR
+	"dock": [],                ## ordered {k, t} pins under the cartwheel, <= QUICK_BAR_MAX_DOCK
+	"share": {},               ## "<domain>.<DIR>" -> ordered {k, t} pins appended to that sub-ring
+	"assistant_button": true,  ## the user's switch for the conditional Assistant chip (CQ-7)
+}
+## The user-settable keys and the Variant type each must carry.
+const _QUICK_BAR_WRITABLE := {
+	"bar": TYPE_ARRAY,
+	"dock": TYPE_ARRAY,
+	"share": TYPE_DICTIONARY,
+	"assistant_button": TYPE_BOOL,
+}
+
+## Whether `[quick_bar]` can be read at all: an absent `version` (a file from before the
+## feature, or a section without one) is fine; a present one must be an int no newer
+## than `QUICK_BAR_VERSION`.
+static func _quick_bar_readable() -> bool:
+	_ensure_loaded()
+	if not _cfg.has_section_key(_SEC_QUICK_BAR, "version"):
+		return true
+	var v = _cfg.get_value(_SEC_QUICK_BAR, "version")
+	return typeof(v) == TYPE_INT and int(v) >= 1 and int(v) <= QUICK_BAR_VERSION
+
+## `raw` as a clean pin list: only well-formed `{k: non-empty String, t: String}` entries,
+## a repeated `k` dropped after its first occurrence, cut to `cap`. A malformed entry is
+## DROPPED, never repaired into a plausible one (`MISTAKES.md`: never encode "no value" as
+## a plausible value); a pin whose command no longer exists is NOT malformed and is kept --
+## the chip then shows "not in this build" and the user's pin survives a build that lacks
+## the menu row. A missing or non-string `t` reads as "" (no title recorded).
+static func _clean_pins(raw, cap: int) -> Array:
+	var out: Array = []
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	var seen := {}
+	for e in raw:
+		if out.size() >= cap:
+			break
+		if typeof(e) != TYPE_DICTIONARY:
+			continue
+		var k = (e as Dictionary).get("k")
+		if typeof(k) != TYPE_STRING or String(k) == "" or seen.has(String(k)):
+			continue
+		var t = (e as Dictionary).get("t", "")
+		seen[String(k)] = true
+		out.append({"k": String(k), "t": String(t) if typeof(t) == TYPE_STRING else ""})
+	return out
+
+## True when `key` is a `share` key: `<domain>.<DIR>` with a lowercase domain id and one of
+## the four diagonals (the cardinals are global and fixed, scope s.4.2).
+static func _is_share_key(key) -> bool:
+	if typeof(key) != TYPE_STRING:
+		return false
+	var parts := String(key).split(".")
+	if parts.size() != 2 or parts[0] == "" or parts[0] != parts[0].to_lower():
+		return false
+	return ["NW", "NE", "SE", "SW"].has(parts[1])
+
+## `raw` as a clean share map (see `_is_share_key`, `_clean_pins`, `QUICK_BAR_MAX_SHARE`);
+## a diagonal left with no pins is omitted.
+static func _clean_share(raw) -> Dictionary:
+	var out := {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	for k in raw:
+		if not _is_share_key(k):
+			continue
+		var pins := _clean_pins(raw[k], QUICK_BAR_MAX_SHARE)
+		if not pins.is_empty():
+			out[String(k)] = pins
+	return out
+
+## The stored value of one `[quick_bar]` key, else its default; `null` for a key outside
+## `QUICK_BAR_DEFAULTS` (a caller bug, never confusable with a value). A value of the wrong
+## type, a section with an unreadable `version`, or an over-cap list reads as empty or cut,
+## never as an error. Always a copy: mutating it changes nothing stored.
+static func quick_bar_value(key: String):
+	if not QUICK_BAR_DEFAULTS.has(key):
+		return null
+	_ensure_loaded()
+	var dflt = QUICK_BAR_DEFAULTS[key]
+	if key == "version":
+		return QUICK_BAR_VERSION if _quick_bar_readable() else 0
+	if not _quick_bar_readable() or not _cfg.has_section_key(_SEC_QUICK_BAR, key):
+		return dflt.duplicate(true) if typeof(dflt) in [TYPE_ARRAY, TYPE_DICTIONARY] else dflt
+	var v = _cfg.get_value(_SEC_QUICK_BAR, key)
+	match key:
+		"bar":
+			return _clean_pins(v, QUICK_BAR_MAX_BAR)
+		"dock":
+			return _clean_pins(v, QUICK_BAR_MAX_DOCK)
+		"share":
+			return _clean_share(v)
+	return v if typeof(v) == typeof(dflt) else dflt
+
+## Whether the user has ever stored `key` in a readable section. The Customise window can
+## then say "never configured" for a missing list and "empty" for a stored `[]`
+## (`MISTAKES.md`: omit rather than default a value that can be absent).
+static func has_quick_bar_value(key: String) -> bool:
+	if not QUICK_BAR_DEFAULTS.has(key):
+		return false
+	_ensure_loaded()
+	return _quick_bar_readable() and _cfg.has_section_key(_SEC_QUICK_BAR, key)
+
+## Stores one `[quick_bar]` key and saves. **Refuses -- returns false and writes nothing --
+## a key outside the four user-settable ones, a value of the wrong type, a malformed or
+## repeated pin, or a list over its cap.** The first user edit after an unreadable
+## (newer-version) section replaces that section; reading it never did. Writing an EMPTY
+## list is a real write: clearing the last pin must persist, or the old list reappears on
+## the next launch (`MISTAKES.md`, "Gate a write on is there anything to save").
+static func set_quick_bar_value(key: String, value) -> bool:
+	if not _QUICK_BAR_WRITABLE.has(key) or typeof(value) != int(_QUICK_BAR_WRITABLE[key]):
+		return false
+	match key:
+		"bar", "dock":
+			var cap := QUICK_BAR_MAX_BAR if key == "bar" else QUICK_BAR_MAX_DOCK
+			if not _pins_valid(value, cap):
+				return false
+			value = _clean_pins(value, cap)
+		"share":
+			for k in value:
+				if not _is_share_key(k) or typeof(value[k]) != TYPE_ARRAY \
+						or not _pins_valid(value[k], QUICK_BAR_MAX_SHARE):
+					return false
+			value = _clean_share(value)
+	_ensure_loaded()
+	if not _quick_bar_readable():
+		_cfg.erase_section(_SEC_QUICK_BAR)
+	_cfg.set_value(_SEC_QUICK_BAR, "version", QUICK_BAR_VERSION)
+	_cfg.set_value(_SEC_QUICK_BAR, key, value)
+	_save()
+	return true
+
+## True when `raw` is an Array of at most `cap` well-formed pins with no repeated `k` --
+## the WRITE-side strictness; `_clean_pins` is the lenient read side.
+static func _pins_valid(raw, cap: int) -> bool:
+	if typeof(raw) != TYPE_ARRAY or (raw as Array).size() > cap:
+		return false
+	var seen := {}
+	for e in raw:
+		if typeof(e) != TYPE_DICTIONARY:
+			return false
+		var k = (e as Dictionary).get("k")
+		var t = (e as Dictionary).get("t")
+		if typeof(k) != TYPE_STRING or String(k) == "" or typeof(t) != TYPE_STRING or seen.has(String(k)):
+			return false
+		seen[String(k)] = true
+	return true
+
+## Appends a pin to the `"bar"` or `"dock"` list. Answers "" on success, else the reason it
+## was refused (shown to the user verbatim, scope s.3.5: "refused with the reason, not
+## silently dropped"). `title` is the command's title at pin time, the display fallback for
+## a pin whose command is gone.
+static func quick_bar_add(list: String, pin_key: String, title: String) -> String:
+	if list != "bar" and list != "dock":
+		return "Unknown list '%s'." % list
+	if pin_key == "":
+		return "Nothing to pin."
+	var cur: Array = quick_bar_value(list)
+	for e in cur:
+		if String(e["k"]) == pin_key:
+			return "Already pinned."
+	var cap := QUICK_BAR_MAX_BAR if list == "bar" else QUICK_BAR_MAX_DOCK
+	if cur.size() >= cap:
+		return "The %s holds at most %d pins; remove one first." % ["quick bar" if list == "bar" else "ring dock", cap]
+	cur.append({"k": pin_key, "t": title})
+	return "" if set_quick_bar_value(list, cur) else "Could not store the pin."
+
+## Removes `pin_key` from `list` and saves (the empty list included). False when it was not there.
+static func quick_bar_remove(list: String, pin_key: String) -> bool:
+	if list != "bar" and list != "dock":
+		return false
+	var cur: Array = quick_bar_value(list)
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			cur.remove_at(i)
+			return set_quick_bar_value(list, cur)
+	return false
+
+## Moves `pin_key` by `delta` places within `list` (clamped to the ends) and saves. False
+## when it is not pinned or would not move.
+static func quick_bar_move(list: String, pin_key: String, delta: int) -> bool:
+	if list != "bar" and list != "dock":
+		return false
+	var cur: Array = quick_bar_value(list)
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			var j := clampi(i + delta, 0, cur.size() - 1)
+			if j == i:
+				return false
+			var e = cur[i]
+			cur.remove_at(i)
+			cur.insert(j, e)
+			return set_quick_bar_value(list, cur)
+	return false
 
 # -- Asset library favourites and recent (AP-9) ---------------------------------
 

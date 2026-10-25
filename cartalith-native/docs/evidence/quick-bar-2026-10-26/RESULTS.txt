@@ -1,0 +1,58 @@
+CQ-1 / CQ-2 probe results, 2026-10-26 (worktree off 5047cc99; dll: target/debug/cartalith_godot.dll of 2026-10-19, UI-only change)
+
+== store
+RESULT: PASS (0 failed, 114 checks)
+== desktop
+  info groups: ["File", "Edit", "Assets", "World", "Story", "Preferences", "Window", "Help"]
+  info min width (0 pins -> 24 pins): 1067.0..1116.0 -> 1067.0..1116.0
+  info index build: median 7.7 ms (min 7.6 .. max 8.3), 7 runs, 693 rows
+RESULT: PASS (0 failed, 201 checks)
+== tablet
+  info groups: ["☰", "File", "World", "Story"]
+  info min width (0 pins -> 24 pins): 975.0..1032.0 -> 975.0..1032.0
+  info index build: median 7.8 ms (min 7.7 .. max 9.9), 7 runs, 698 rows
+RESULT: PASS (0 failed, 201 checks)
+== phone
+RESULT: PASS (0 failed, 6 checks)
+
+== store mutants (first run, then the one re-run after a case was added)
+KILLED      read cap on bar                          RESULT: FAIL (1 failed, 113 checks) first: FAIL  30 valid + junk pins are cut to the 24 cap: 30
+KILLED      bar cap constant 24->25                  RESULT: FAIL (7 failed, 113 checks) first: FAIL  the 25th bar pin is refused WITH a reason: 'Already pinned.'
+KILLED      dock write cap off                       RESULT: FAIL (4 failed, 113 checks) first: FAIL  refused: 25 bar pins
+KILLED      assistant_button not allow-listed        RESULT: FAIL (4 failed, 113 checks) first: FAIL  assistant_button stored
+KILLED      type check dropped                       RESULT: FAIL (3 failed, 113 checks) first: FAIL  refused: assistant_button given an int
+KILLED      unknown key accepted                     RESULT: FAIL (4 failed, 113 checks) first: FAIL  refused: unknown key
+KILLED      clearing the last pin not written        RESULT: FAIL (3 failed, 113 checks) first: FAIL  the file now says bar=[]
+KILLED      newer version read as current            RESULT: FAIL (3 failed, 113 checks) first: FAIL  a version-2 section reads as empty
+SURVIVED    malformed (empty k) pin kept             RESULT: PASS (0 failed, 113 checks)
+KILLED      newer section not replaced on edit       RESULT: FAIL (1 failed, 113 checks) first: FAIL  the newer build's other keys were dropped by that edit (documented)
+KILLED      repeated pin accepted on write           RESULT: FAIL (3 failed, 113 checks) first: FAIL  refused: a repeated k
+KILLED      write not saved                          RESULT: FAIL (13 failed, 113 checks) first: FAIL  bar equals what was stored, in order, after a reload
+KILLED      cardinal share key accepted              RESULT: FAIL (3 failed, 113 checks) first: FAIL  refused: a cardinal share key
+KILLED      share cap off                            RESULT: FAIL (1 failed, 113 checks) first: FAIL  share keeps only the valid key, cut to 9
+RESTORED hash equal: True
+KILLED      malformed (empty k) pin kept             RESULT: FAIL (1 failed, 114 checks) first: FAIL  malformed entries (empty k, non-dict, no k, non-String k, a repeat) are dropped; a missing title reads a
+RESTORED hash equal: True
+
+== cluster mutants
+KILLED      min width grows with pins                  RESULT: FAIL (45 failed, 201 checks) first: FAIL  seed 1011 world @1280: shell min width 1067.0 with 0 pins == 1168.0 with 24
+KILLED      run_pin does not run the row               RESULT: FAIL (4 failed, 201 checks) first: FAIL  a real click at the left edge of the vault chip opens the vault window
+KILLED      a missing command's pin is deleted         RESULT: FAIL (2 failed, 201 checks) first: FAIL  and is NOT deleted from the store
+SURVIVED    no overflow ever                           RESULT: PASS (0 failed, 201 checks)
+KILLED      a disabled command's chip stays live       RESULT: FAIL (2 failed, 201 checks) first: FAIL  a pin on a disabled command is VISIBLE and DISABLED
+RESTORED quick_bar.gd hash equal: True
+RESTORED app.gd hash equal: True
+KILLED      no overflow ever                           RESULT: FAIL (21 failed, 186 checks) first: FAIL  seed 1011 world @1280: every shown chip is inside the cluster
+RESTORED quick_bar.gd hash equal: True
+RESTORED app.gd hash equal: True
+KILLED      chip floor removed                         RESULT: FAIL (1 failed, 201 checks) first: FAIL  the ＋ chip is 27 x 39, at least 30 on both axes
+KILLED      chip-menu Remove does nothing              RESULT: FAIL (2 failed, 201 checks) first: FAIL  Remove drops it
+KILLED      overflow menu lists shown pins instead     RESULT: FAIL (3 failed, 201 checks) first: FAIL  the menu lists exactly the hidden pins in pin order (10)
+KILLED      cluster not moved to the row's end         RESULT: FAIL (2 failed, 201 checks) first: FAIL  the cluster is to the RIGHT of the palette cells (plus at x=14, strip ends 1575)
+RESTORED quick_bar.gd hash equal: True
+RESTORED app.gd hash equal: True
+
+== other probes
+_cmdindex_probe: PASS
+TSP DONE fails=0
+[cq2] RESULT cq2 checks=339 fail=0 engine-panic-hits(total)=0
