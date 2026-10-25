@@ -252,15 +252,18 @@ fn g1_0_baseline_columns() {
 
 /// The G1-appended forms, each with the reference row it is placed against
 /// in `GOVERNMENTS_SCOPE.md` §3 (equal to, or the row its labelled judgement
-/// is measured from): G1-1's six core forms. G1-1's bar 4 and later stages'
-/// "forced readings" walk this list.
-const G1_FORMS: [(&str, &str); 6] = [
+/// is measured from): G1-1's six core forms, then G1-2's optional pair. G1-1's
+/// bar 4 and G1-2's "forced readings" walk this list.
+const G1_FORMS: [(&str, &str); 8] = [
     ("merchant_republic", "republic"),
     ("city_league", "republic"),
     ("sacral_monarchy", "monarchy"),
     ("holy_order", "oligarchy"),
     ("feudal_realm", "monarchy"),
     ("nomad_khanate", "tribal_confederacy"),
+    // G1-2 (Ruling CZ Q3): both share `empire`'s citizen row.
+    ("stratocracy", "empire"),
+    ("tributary_hegemony", "empire"),
 ];
 
 /// G1-1's bar 4 (`GOVERNMENTS_SCOPE.md` §8): on every harness world, faction

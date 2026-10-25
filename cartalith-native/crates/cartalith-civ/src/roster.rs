@@ -260,10 +260,12 @@ pub const CIV_RELIGIONS_REFERENCE_LEN: usize = 8;
 /// [`civ_default_government`] for every index but `0`, which stays
 /// `"none"`/Unclaimed as before.
 ///
-/// **Appended 2026-10-25 (G1-1, Ruling CZ, `GOVERNMENTS_SCOPE.md` §2):** the
-/// six core forms of the research document
-/// `RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md` (its Governments table), with
-/// that table's keys and labels, in the scope's append order. **Append only**:
+/// **Appended 2026-10-25 (G1-1 and G1-2, Ruling CZ, `GOVERNMENTS_SCOPE.md`
+/// §2):** the six core forms of the research document
+/// `RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md` (its Governments table), then
+/// its two optional forms (Q3), with that table's keys and labels, in the
+/// scope's append order: core first, so the optional pair never renumbers a
+/// core form. **Append only**:
 /// indices 0-8 are the reference's list and keep their meaning in every save
 /// (saves store the key as a string). The first [`CIV_GOVERNMENTS_REFERENCE_LEN`]
 /// entries are the reference's; nothing past them is ever a fresh faction's
@@ -280,7 +282,7 @@ pub const CIV_RELIGIONS_REFERENCE_LEN: usize = 8;
 /// priesthood (the Papal States, the prince-bishoprics): the research
 /// document's re-documentation, recorded here only (Ruling CZ, Q7: no
 /// relabel). A god-king is `sacral_monarchy`, not this.
-pub const CIV_GOVERNMENTS: [(&str, &str); 15] = [
+pub const CIV_GOVERNMENTS: [(&str, &str); 17] = [
     ("none", "None / Unclaimed"),
     ("chiefdom", "Chiefdom"),
     ("tribal_confederacy", "Tribal Confederacy"),
@@ -297,11 +299,15 @@ pub const CIV_GOVERNMENTS: [(&str, &str); 15] = [
     ("holy_order", "Holy Order"),
     ("feudal_realm", "Feudal Realm"),
     ("nomad_khanate", "Nomadic Khanate"),
+    // G1-2 (2026-10-25, Ruling CZ Q3), the optional pair, appended after the
+    // core six; never reorder above this line.
+    ("stratocracy", "Military Regime"),
+    ("tributary_hegemony", "Tributary Hegemony"),
 ];
 
 /// How many leading [`CIV_GOVERNMENTS`] entries are the reference's own list:
 /// `9`, `none` included (`CIV_GOVERNMENTS`, reference line 14794). Entries at
-/// and past this index were appended by G1 (Ruling CZ, 2026-10-25).
+/// and past this index were appended by G1-1 and G1-2 (Ruling CZ, 2026-10-25).
 ///
 /// Three readers, each holding a line `GOVERNMENTS_SCOPE.md` §4 drew so that
 /// appending forms moves no generated output:
@@ -569,9 +575,10 @@ mod tests {
         assert_eq!(CIV_RELIGIONS.len(), 15);
         assert_eq!(CIV_RELIGIONS_REFERENCE_LEN, 8, "the reference's eight, `none` included");
         // RE-BASELINED 2026-10-25 under Ruling CZ: 9 -> 15 (G1-1 appended the
-        // six core forms). The reference's own length is still pinned, as a
-        // literal, through `CIV_GOVERNMENTS_REFERENCE_LEN` below.
-        assert_eq!(CIV_GOVERNMENTS.len(), 15);
+        // six core forms), then 15 -> 17 (G1-2, the optional pair). The
+        // reference's own length is still pinned, as a literal, through
+        // `CIV_GOVERNMENTS_REFERENCE_LEN` below.
+        assert_eq!(CIV_GOVERNMENTS.len(), 17);
         assert_eq!(CIV_GOVERNMENTS_REFERENCE_LEN, 9, "the reference's nine, `none` included");
         assert_eq!(AG_TECH_LEVELS.len(), 6);
         assert_eq!(CIV_FACTION_BASE.len(), 7);
@@ -741,6 +748,9 @@ mod tests {
             ("holy_order", "Holy Order"),
             ("feudal_realm", "Feudal Realm"),
             ("nomad_khanate", "Nomadic Khanate"),
+            // G1-2, the optional pair.
+            ("stratocracy", "Military Regime"),
+            ("tributary_hegemony", "Tributary Hegemony"),
         ];
         assert_eq!(CIV_GOVERNMENTS[..9], reference);
         assert_eq!(CIV_GOVERNMENTS[9..], appended);

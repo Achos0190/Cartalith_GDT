@@ -382,7 +382,7 @@ const MAX_NON_AGRICULTURAL_SHARE: f64 = 1.0 / 1.15;
 /// standing army from its label alone (`MILITARY_MANPOWER_SCOPE.md` §1:
 /// *"'warrior societies' should not automatically get huge standing-army
 /// modifiers"*).
-pub const GOVERNMENT_EXTRACTION: [(&str, f64); 15] = [
+pub const GOVERNMENT_EXTRACTION: [(&str, f64); 17] = [
     ("none", 0.10),
     ("chiefdom", 0.15),
     ("tribal_confederacy", 0.20),
@@ -416,6 +416,14 @@ pub const GOVERNMENT_EXTRACTION: [(&str, f64); 15] = [
     // above `tribal_confederacy` (a decimal command structure reaches further
     // than a kin confederation), below `feudal_realm`.
     ("nomad_khanate", 0.25),
+    // G1-2 (2026-10-25, Ruling CZ Q3), the optional pair.
+    // Labelled judgement: the state exists to pay its soldiers (the Mamluk
+    // iqta', the bakufu's stipends). Between `city_state` and `empire`.
+    ("stratocracy", 0.60),
+    // Labelled judgement: tribute from nominally autonomous subjects is
+    // extraction without administration. Below `monarchy`, above
+    // `feudal_realm`.
+    ("tributary_hegemony", 0.40),
 ];
 
 /// [`GOVERNMENT_EXTRACTION`]'s lookup, with its stated fallback.
@@ -489,7 +497,7 @@ pub fn government_extraction(key: &str) -> f64 {
 /// [`GOVERNMENT_EXTRACTION`]'s appended rows they stay out of
 /// [`SOLDIER_UPKEEP_BY_BRACKET`]'s derivation, so "editing a row here means
 /// re-deriving that table" above holds for the reference rows only.
-pub const CITIZEN_SHARE: [(&str, f64); 15] = [
+pub const CITIZEN_SHARE: [(&str, f64); 17] = [
     ("none", 0.90),
     ("chiefdom", 0.90),
     ("tribal_confederacy", 0.88),
@@ -519,6 +527,16 @@ pub const CITIZEN_SHARE: [(&str, f64); 15] = [
     // Equals `tribal_confederacy`: kin-based free horsemen barely
     // distinguish status at all.
     ("nomad_khanate", 0.88),
+    // G1-2 (2026-10-25, Ruling CZ Q3: "both at 0.30, so §4.1 does not
+    // arise"), the optional pair.
+    // Equals `empire`, floor-bound: the ruling military caste is small, but
+    // the subject population of both models was legally free and not
+    // chattel, so the free body is not below a slave-holding empire's. A
+    // value below 0.30 is a different modelling claim and its own ruling.
+    ("stratocracy", 0.30),
+    // Equals `empire`: conquered subject peoples outside the ruling people's
+    // citizen body, the same grounding.
+    ("tributary_hegemony", 0.30),
 ];
 
 /// [`CITIZEN_SHARE`]'s lookup, with its stated fallback.
@@ -1935,6 +1953,9 @@ mod tests {
             ("holy_order", 0.50, 0.40),
             ("feudal_realm", 0.30, 0.55),
             ("nomad_khanate", 0.25, 0.88),
+            // G1-2, the optional pair (Ruling CZ Q3).
+            ("stratocracy", 0.60, 0.30),
+            ("tributary_hegemony", 0.40, 0.30),
         ] {
             let pos = crate::roster::CIV_GOVERNMENTS.iter().position(|&(k, _)| k == key);
             assert!(pos.is_some_and(|p| p >= crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN), "{key}");
