@@ -47,9 +47,13 @@
 //!
 //! 1. [`Manpower::standing_army`] — people continuously maintained under arms.
 //!    A **fiscal** answer: the state's captured surplus divided by what a
-//!    soldier costs.
+//!    soldier costs. Land that falls short of feeding its people cuts that
+//!    surplus; land above the world's average adds nothing to it (owner
+//!    Ruling DE, [`BUDGET_ECOLOGY_EXPONENT`]).
 //! 2. [`Manpower::field_army`] — what can be concentrated in one place and
-//!    fed there. A **logistical** answer.
+//!    fed there. A **logistical** answer, and since Ruling DE the one that
+//!    abundant land raises ([`FORAGE_EXPONENT`]): an army on the march eats
+//!    what the country it crosses can spare.
 //! 3. [`Manpower::emergency_mobilization`] — who can be called up at all. A
 //!    **demographic** answer, filtered by administration.
 //! 4. [`Manpower::force_ladder`] — how long each of those can be kept away
@@ -273,7 +277,7 @@ pub const EXTRACTION_CEILING: f64 = 0.16;
 /// much of the sample to be a guard -- 37 of 108 at 2.5 and 30 of 108 at 3.0,
 /// against 24 at 4.0 -- so the clamp would keep making the decision. Higher
 /// -- the measured p90, near 10 -- pins only a tenth of the sample, but
-/// [`Manpower::standing_army`] is *linear* in this factor, and at that
+/// [`Manpower::standing_army`] was then *linear* in this factor, and at that
 /// ceiling 20 of the same 108 factions read **above** their own [`ERA_BANDS`]
 /// standing row where none does at 4.0. That direction is wrong on the
 /// merits and not merely inconvenient: `military_budget`'s other term is the
@@ -281,6 +285,15 @@ pub const EXTRACTION_CEILING: f64 = 0.16;
 /// feed), while this factor is only what the land could support, and paying
 /// an army out of unfarmed potential is not a fiscal quantity. At 4.0, 24 of
 /// 108 stay pinned and none moves above its band.
+///
+/// **Owner Ruling DE (2026-10-25) took that argument to its end.** Measured on
+/// the 20 harness worlds after the world normalisation below, the linear
+/// budget still put 59 standing armies above their own field army (64 once
+/// Ruling DB item 3 re-generated the worlds), every one at `E` ≥ 2.5
+/// (`g1_baseline.rs`, `ea0_ecological_ordering_diagnostic`). The standing budget now reads this factor only
+/// where it is below 1 ([`BUDGET_ECOLOGY_EXPONENT`]), and the factor above 1
+/// moves the field army instead ([`FORAGE_EXPONENT`]). The clamp's bounds did
+/// not move: the ceiling still caps the forage term at `4.0^0.5 = 2`.
 ///
 /// **What moving the ceiling did not fix -- and what fixed it later.** The
 /// raw ratio's centre tracked world size at a fixed faction count -- median
@@ -355,6 +368,60 @@ pub fn government_levy_bonus(key: &str) -> Option<f64> {
 pub const FIELD_BASE: f64 = 0.34;
 /// See [`FIELD_BASE`].
 pub const FIELD_LOGISTICS: f64 = 0.20;
+
+/// gamma: how a faction's land **above** the world's average
+/// ([`MilitaryDrivers::ecological_factor`] `E > 1`) scales the standing army's
+/// budget, as `E^gamma`. **Owner Ruling DE (2026-10-25), candidate C1 of
+/// `ECOLOGICAL_ARMY_TERM_SCOPE.md` §5: `0`, so abundant land adds no revenue.**
+///
+/// **Why.** The budget's other term is the *realised* surplus (the
+/// non-agricultural population the farmers already feed), while `E` is only
+/// what the land could support. Domar (1970, *Journal of Economic History*
+/// 30(1)) is the rule: where land is abundant relative to labour it earns no
+/// rent, and a ruler extracts a surplus by binding labour, not by holding
+/// land; Hopkins (1980, *JRS* 70) reads Roman taxation as a share of realised
+/// output. Before the ruling the budget was `non_agricultural × E × extraction`
+/// for every `E`, so a faction with four times the world's land per head was
+/// credited with four times the revenue per head: on the 20 harness worlds
+/// that put 59 standing armies (64 after Ruling DB item 3) above their own
+/// field army, and the scope found all 59 above their era's standing band too
+/// (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §2.2). With the term the harness reads
+/// 138 of 290 within the band and 9 above, against 59 and 88 before.
+///
+/// **What it must never do.** Touch `E` ≤ 1: land that cannot feed its
+/// people does cut the surplus, in proportion, and that branch is the old
+/// expression by control flow (Ruling DE Q3), not `E^gamma` evaluated at a
+/// value that happens to agree. `0` is a rule (Domar), not a fit: the scope
+/// measured that any gamma ≤ 0.60 would order today's worlds, and only `0`
+/// orders every pre-industrial ag-tech row.
+pub const BUDGET_ECOLOGY_EXPONENT: f64 = 0.0;
+
+/// beta: how land above the world's average lets a faction **concentrate**
+/// a larger field army, as `E^beta` on [`FIELD_BASE`]`+`[`FIELD_LOGISTICS`]`·L`,
+/// for `E > 1` only. **Owner Ruling DE, candidate C2 (scope §5): `0.5`, a
+/// labelled judgement the owner accepted** (halfway on a log scale).
+///
+/// **Why.** Before railways an army lived off the country it crossed, so how
+/// large a force a region could feed depended on its density and surplus
+/// (Perjés 1970; Engels 1978; van Creveld 1977; Lynn 1993; scope §4.2). This
+/// is where ruling 11's "geography above 1 must discriminate" now lives, since
+/// [`BUDGET_ECOLOGY_EXPONENT`] took it out of the standing army.
+///
+/// **What it must never do.** Act below `E = 1` (one-sided by control flow, so
+/// every land-poor faction's field army is bit-identical to before), or lift
+/// the field share past [`FIELD_CAP`].
+pub const FORAGE_EXPONENT: f64 = 0.5;
+
+/// The largest share of the emergency levy [`FORAGE_EXPONENT`]'s term may
+/// concentrate into one field army. **Owner Ruling DE, `0.90`, a labelled
+/// judgement**: some of the levy always stays to defend its own valley, so
+/// `field < levy` holds by the construction of this cap rather than by an
+/// assertion. Without a forage term the share tops out at
+/// `FIELD_BASE + FIELD_LOGISTICS` = 0.54, so the cap binds only where land is
+/// abundant and logistics good: on 18 of the 290 non-empty harness factions
+/// (measured 2026-10-25, `ea0_ecological_ordering_diagnostic`). Never `≥ 1`:
+/// at `1.0` one of them already reads a field army equal to its levy.
+pub const FIELD_CAP: f64 = 0.90;
 
 /// The two anchors the war-duration curve is fitted through, as
 /// `(share of total population mobilized, days sustainable)`, for a polity
@@ -788,7 +855,10 @@ pub struct MilitaryDrivers {
     /// [`ECOLOGICAL_FLOOR`]..[`ECOLOGICAL_CEILING`] — whether the territory
     /// comfortably feeds the people on it (`>1`) or is drawn tight (`<1`).
     /// **This is the geography term**, and it is why two factions on the
-    /// same ag-tech row do not get the same answer. The bounds are stated at
+    /// same ag-tech row do not get the same answer. Three readers: the
+    /// standing budget below 1 only, the field army above 1 only (owner
+    /// Ruling DE, [`BUDGET_ECOLOGY_EXPONENT`] and [`FORAGE_EXPONENT`]), and
+    /// [`food_surplus_per_farmer`](Self::food_surplus_per_farmer) on both sides. The bounds are stated at
     /// [`ECOLOGICAL_FLOOR`] rather than repeated here, together with the
     /// measured distribution that set them; the ceiling last moved
     /// 2026-09-06.
@@ -1204,11 +1274,18 @@ fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> M
     //
     // The non-agricultural population IS the embodied surplus: those are the
     // people the farmers' surplus already feeds. The state captures
-    // `fiscal_extraction_efficiency` of it, scaled by whether the land is
-    // actually delivering, and a soldier costs `soldier_upkeep` of it --
-    // one value per agricultural-labour bracket (SOLDIER_UPKEEP_BY_BRACKET).
+    // `fiscal_extraction_efficiency` of it, cut where the land falls short of
+    // feeding its people, and a soldier costs `soldier_upkeep` of it -- one
+    // value per agricultural-labour bracket (SOLDIER_UPKEEP_BY_BRACKET).
+    //
+    // Owner Ruling DE (C1): land ABOVE the world's average adds no revenue
+    // (`E^BUDGET_ECOLOGY_EXPONENT`, gamma 0, so the factor is 1). The `E <= 1`
+    // arm is the pre-ruling expression, untouched by control flow, so every
+    // land-poor faction's standing army is bit-identical to before.
+    let e = d.ecological_factor;
+    let budget_ecology = if e > 1.0 { e.powf(BUDGET_ECOLOGY_EXPONENT) } else { e };
     let non_agricultural = total_pop * (1.0 - d.agricultural_labour_ratio);
-    let military_budget = non_agricultural * d.ecological_factor * d.fiscal_extraction_efficiency;
+    let military_budget = non_agricultural * budget_ecology * d.fiscal_extraction_efficiency;
     let standing = military_budget / d.soldier_upkeep;
     let professional_core = standing * d.professionalization;
 
@@ -1222,7 +1299,13 @@ fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> M
     };
     let levy_reach = js_max(0.0, js_min(0.60, levy_raw));
     let emergency = pool * levy_reach;
-    let field = emergency * (FIELD_BASE + FIELD_LOGISTICS * d.logistics_capacity);
+    // Owner Ruling DE (C2): abundant land feeds a larger concentration on the
+    // march (`E^FORAGE_EXPONENT`), never past FIELD_CAP of the levy. One-sided:
+    // the `E <= 1` arm is the pre-ruling share by control flow.
+    let field_share = FIELD_BASE + FIELD_LOGISTICS * d.logistics_capacity;
+    let field_share =
+        if e > 1.0 { js_min(FIELD_CAP, field_share * e.powf(FORAGE_EXPONENT)) } else { field_share };
+    let field = emergency * field_share;
 
     // ---- Chain 3: how long any of it can stay away from the fields.
     let capability = campaign_capability(&d);
@@ -1473,7 +1556,11 @@ mod tests {
         // 25 750 (+29 % on the stated figure; 19 067 before), 3.95 % of its
         // citizens against Military-fiscal's 1-4 % band -- inside, near the
         // top, as the strongest state the specification describes should be.
-        assert!((m.standing_army - 25_750.0).abs() < 1.0, "standing {}", m.standing_army);
+        // RE-BASELINED 2026-10-25 under owner Ruling DE: B's land feeds 1.05x
+        // its people, and land above the world's average no longer adds
+        // revenue (BUDGET_ECOLOGY_EXPONENT 0), so 25 750 / 1.05 = 24 524
+        // (+23 % on the stated figure; 25 750 before).
+        assert!((m.standing_army - 24_524.0).abs() < 1.0, "standing {}", m.standing_army);
         assert_eq!(m.era_band.name, "Military-fiscal state");
         assert_eq!(m.era_standing_verdict, "within");
         // Stated: mobilization pool 100 000+.
@@ -1482,7 +1569,8 @@ mod tests {
             "emergency {} below the stated 100 000+ (10 % tolerance)",
             m.emergency_mobilization
         );
-        // Stated: sustainable field army 40 000-60 000.
+        // Stated: sustainable field army 40 000-60 000. Ruling DE's forage
+        // term moves it 47 368 -> 48 538 (x sqrt(1.05)), still inside.
         assert!(
             (38_000.0..62_000.0).contains(&m.field_army),
             "field {} outside 38k-62k for a stated 40 000-60 000",
@@ -1567,7 +1655,10 @@ mod tests {
         // Geography alone, holding every institution fixed: a territory
         // that feeds its people four times over supports more than one that
         // is drawn tight. This is `ecological_factor`, and it is why two
-        // factions on one ag-tech row and one government still differ.
+        // factions on one ag-tech row and one government still differ. Since
+        // owner Ruling DE the standing gap comes from the barren side only
+        // (E 0.3 cuts the budget; E 4.0 adds nothing to it, so the ratio is
+        // 1 / 0.3 = 3.33 rather than 4.0 / 0.3).
         // `4_000_000` over a million people is exactly ECOLOGICAL_CEILING,
         // so this pair brackets the clamp rather than probing inside it --
         // `the_factor_still_discriminates_above_the_old_ceiling` does that.
@@ -1640,42 +1731,110 @@ mod tests {
         assert_eq!(eco_at(0.0), ECOLOGICAL_FLOOR);
     }
 
-    /// Protects: what the ruling was *for*. Two factions whose own land
-    /// feeds 2.5 and 3.5 times the people on it must get different answers;
-    /// under the old `2.0` ceiling both saturated and the ratio below was
-    /// exactly `1.0` -- the ceiling, not the ecology, deciding.
+    /// The input every Ruling DE test below reads: `total_pop` is exactly
+    /// `100 000` (`10 000 x (1 + 9)`), so `land / 100 000` **is** `E`, at
+    /// median institutions (logistics `0.15 + 0.45·road + 0.30·nav + 0.10·sea`).
+    fn dc_at(land: f64, links: f64) -> Manpower {
+        civ_military_manpower(&ManpowerInput {
+            nucleated_pop: 10_000.0,
+            farmers_per_urbanite: 9.0,
+            land_capacity: land,
+            government: "monarchy",
+            capital_road_reach: 0.5,
+            road_density: links,
+            navigable_share: links,
+            sea_share: links,
+        })
+    }
+
+    /// Protects: what owner ruling 11 was *for* -- two factions whose own land
+    /// feeds 2.5 and 3.5 times the people on it must get different answers
+    /// (under the old `2.0` ceiling both saturated and every ratio was
+    /// exactly `1.0`, the ceiling deciding) -- in the output where owner
+    /// Ruling DE (2026-10-25) put it.
+    ///
+    /// **Rewritten under Ruling DE.** Until then this asserted the
+    /// *standing* ratio `3.5 / 2.5 = 1.4`, because the budget was linear in
+    /// `E`. The ruling's C1 (gamma 0) makes land above the world's average add
+    /// no revenue, so the standing half of the discrimination ends: both read
+    /// the same standing army, asserted as the literal ratio `1.0`. Its C2
+    /// moves it to the field army, whose ratio is `sqrt(3.5 / 2.5) = sqrt(1.4)
+    /// = 1.18322`, pinned as a literal (logistics 0.575, so neither reading
+    /// reaches FIELD_CAP: 0.455 x sqrt(3.5) = 0.851). Literals rather than the
+    /// constants, so a mutated gamma (1 gives 1.4) or beta (0 gives 1.0)
+    /// goes red here.
     #[test]
     fn the_factor_still_discriminates_above_the_old_ceiling() {
-        let at = |land: f64| {
-            civ_military_manpower(&ManpowerInput {
-                nucleated_pop: 10_000.0,
-                farmers_per_urbanite: 9.0,
-                land_capacity: land,
-                government: "monarchy",
-                capital_road_reach: 0.5,
-                road_density: 0.5,
-                navigable_share: 0.5,
-                sea_share: 0.5,
-            })
-        };
-        let (a, b) = (at(250_000.0), at(350_000.0));
+        let (a, b) = (dc_at(250_000.0, 0.5), dc_at(350_000.0, 0.5));
         assert_eq!(a.drivers.ecological_factor, 2.5);
         assert_eq!(b.drivers.ecological_factor, 3.5);
-        // `standing_army` is linear in the factor, so their ratio is the
-        // ratio of the two land capacities and nothing else -- an
-        // independent relationship rather than the constant restated.
+        // The fiscal answer no longer reads abundant land.
         assert!(
-            (b.standing_army / a.standing_army - 1.4).abs() < 1e-9,
-            "{} / {} is not 3.5/2.5",
+            (b.standing_army / a.standing_army - 1.0).abs() < 1e-12,
+            "{} / {}: abundant land moved the standing army",
             b.standing_army,
             a.standing_army
         );
-        // And the demographic chain does not move with it, which is what
-        // makes the standing figure the *fiscal* answer of the four.
+        // The logistical one does, by sqrt(1.4).
+        assert!(
+            (b.field_army / a.field_army - 1.183_215_956_6).abs() < 1e-9,
+            "{} / {} is not sqrt(3.5/2.5)",
+            b.field_army,
+            a.field_army
+        );
+        // And the levy is still demographic: land moves none of it.
         assert_eq!(a.emergency_mobilization, b.emergency_mobilization);
-        assert_eq!(a.field_army, b.field_army);
         assert_eq!(a.force_ladder[3].force, b.force_ladder[3].force);
         assert_eq!(a.emergency_duration_days, b.emergency_duration_days);
+    }
+
+    /// Protects: owner Ruling DE Q3 -- land that cannot feed its people still
+    /// cuts the standing budget **in proportion**, and the field army below
+    /// `E = 1` is the pre-ruling one. `E` 0.5 against 1.0 must halve the
+    /// standing army (literal `0.5`) and leave the field army bit-identical.
+    /// A mutant that drops the `E <= 1` arm (`E^0` for every `E`) reads `1.0`
+    /// here; one that applies the forage term below 1 shrinks the field army.
+    #[test]
+    fn short_land_still_cuts_the_standing_budget_linearly() {
+        let (half, one) = (dc_at(50_000.0, 0.5), dc_at(100_000.0, 0.5));
+        assert_eq!(half.drivers.ecological_factor, 0.5);
+        assert_eq!(one.drivers.ecological_factor, 1.0);
+        assert!(
+            (half.standing_army / one.standing_army - 0.5).abs() < 1e-12,
+            "{} / {}",
+            half.standing_army,
+            one.standing_army
+        );
+        assert_eq!(half.field_army.to_bits(), one.field_army.to_bits());
+        // And the pre-ruling expressions, transcribed independently with
+        // literal coefficients, still give both figures at E 0.5 exactly.
+        let d = half.drivers;
+        let standing = 100_000.0 * (1.0 - d.agricultural_labour_ratio) * 0.5
+            * d.fiscal_extraction_efficiency
+            / d.soldier_upkeep;
+        let field = half.emergency_mobilization * (0.34 + 0.20 * d.logistics_capacity);
+        assert!((half.standing_army - standing).abs() < 1e-9, "{} vs {standing}", half.standing_army);
+        assert!((half.field_army - field).abs() < 1e-9, "{} vs {field}", half.field_army);
+    }
+
+    /// Protects: [`FIELD_CAP`] -- the forage term can never concentrate more
+    /// than 0.90 of the levy. At `E` 4 (the ceiling) and logistics 1.0 the
+    /// uncapped share would be `0.54 x sqrt(4) = 1.08`, a field army larger
+    /// than the levy it is drawn from; the literal `0.90` is asserted, so a
+    /// cap moved to `1.0` (field = levy) or removed goes red. One step under
+    /// the cap is checked too, so a cap that binds everywhere cannot pass.
+    #[test]
+    fn the_forage_term_is_capped_below_the_levy() {
+        let top = dc_at(400_000.0, 1.0);
+        assert_eq!(top.drivers.ecological_factor, 4.0);
+        // 0.15 + 0.45 + 0.30 + 0.10 sums to 1 - 1 ulp in f64.
+        assert!((top.drivers.logistics_capacity - 1.0).abs() < 1e-12);
+        let ratio = top.field_army / top.emergency_mobilization;
+        assert!((ratio - 0.90).abs() < 1e-12, "field / levy {ratio}");
+        // E 1.21 at logistics 1.0: 0.54 x 1.1 = 0.594, under the cap.
+        let mid = dc_at(121_000.0, 1.0);
+        let r = mid.field_army / mid.emergency_mobilization;
+        assert!((r - 0.594).abs() < 1e-12, "field / levy {r}");
     }
 
     /// Protects: the ladder must be monotonically decreasing in duration,
@@ -1701,17 +1860,20 @@ mod tests {
         }
         // A standing army is by definition indefinitely sustainable -- and
         // since owner ruling AI (c) that holds for Kingdom A only. Kingdom
-        // B's derived standing army (25 750) is 6.7 % ABOVE its own 365-day
-        // rung (24 129): the era table's Military-fiscal band (up to 4 % of
-        // citizens) and the duration curve's "2 % for a year" anchor
-        // disagree at the top of that band. Pinned as a disclosed tension
-        // between two parts of the specification, not silently clamped --
-        // capping one output by another is a ruling, not a fix.
+        // B's derived standing army is ABOVE its own 365-day rung: the era
+        // table's Military-fiscal band (up to 4 % of citizens) and the
+        // duration curve's "2 % for a year" anchor disagree at the top of
+        // that band. Pinned as a disclosed tension between two parts of the
+        // specification, not silently clamped -- capping one output by
+        // another is a ruling, not a fix. RE-BASELINED 2026-10-25 under owner
+        // Ruling DE: 25 750 -> 24 524 (land above the world's average adds no
+        // revenue), so the excess fell from 6.7 % to 1.6 %; the rung, which
+        // reads no ecological term, did not move.
         let a = civ_military_manpower(&kingdom_a());
         assert!(a.force_ladder[3].force > a.standing_army);
         let b = civ_military_manpower(&kingdom_b());
         let over = b.standing_army / b.force_ladder[3].force;
-        assert!((over - 1.067).abs() < 0.001, "B standing / 365-day rung = {over}");
+        assert!((over - 1.016).abs() < 0.001, "B standing / 365-day rung = {over}"); // 1.067 before Ruling DE
     }
 
     /// Protects: the plausibility check the owner asked for. Xerxes'
@@ -1770,6 +1932,12 @@ mod tests {
     /// moved the soldier upkeep and nothing else -- levy and field did not
     /// move, which this test also pins.
     ///
+    /// **RE-BASELINED 2026-10-25 under owner Ruling DE**, Kingdom B only (its
+    /// land feeds 1.05x its people; A's feeds exactly 1.0x and takes the
+    /// unchanged `E <= 1` arms): standing 25 750 -> 24 524 (land above the
+    /// world's average adds no revenue) and field 47 368 -> 48 538 (the forage
+    /// term, x sqrt(1.05)). The levy did not move.
+    ///
     /// Protects: the citizen-share denominator change moved standing/levy/
     /// field headcounts only where re-baselined, and the duration curve
     /// still reads against the total population, not the citizen one.
@@ -1777,7 +1945,8 @@ mod tests {
     fn the_citizen_ruling_moves_no_headcount() {
         for (input, standing, levy, field) in [
             (kingdom_a(), 9_661.0, 41_221.0, 15_870.0),
-            (kingdom_b(), 25_750.0, 98_889.0, 47_368.0),
+            // Before Ruling DE: (25_750.0, 98_889.0, 47_368.0).
+            (kingdom_b(), 24_524.0, 98_889.0, 48_538.0),
         ] {
             let m = civ_military_manpower(&input);
             assert!((m.standing_army - standing).abs() < 1.0, "standing {}", m.standing_army);
@@ -1808,6 +1977,13 @@ mod tests {
     /// High-medieval / Military-fiscal bracket value (1.8153 / 2.2214), whose
     /// own derivation `soldier_upkeep_is_derived_from_the_era_table` checks.
     ///
+    /// Owner Ruling DE's two terms are transcribed too, from the scope's
+    /// formulas (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §5 C1, C2) with gamma 0,
+    /// beta 0.5 and the 0.90 cap as literals: the budget reads `min(E, 1)`
+    /// (which is what `E^0` above 1 is) and the field share is
+    /// `min(0.90, share · sqrt(E))` above 1. Kingdom B (E 1.05) exercises both
+    /// arms above 1, Kingdom A (E 1.0) both arms at or below it.
+    ///
     /// Protects: the replica and the model agree to 1e-6 on all six figures,
     /// and both land on the literals `the_citizen_ruling_moves_no_headcount`
     /// pins.
@@ -1822,16 +1998,18 @@ mod tests {
             let state = (ext * (0.55 + 0.45 * reach) * (0.70 + 0.60 * urban)).clamp(0.03, 0.95);
             let logistics = (0.15 + 0.45 * road + 0.30 * nav + 0.10 * sea).clamp(0.0, 1.0);
             let fiscal = 0.04 + (0.16 - 0.04) * state;
-            let standing = total * (1.0 - alpha) * eco * fiscal / upkeep;
+            let standing = total * (1.0 - alpha) * eco.min(1.0) * fiscal / upkeep;
             let levy = total * 0.25 * (0.04 + 0.30 * state + 0.22 * logistics).clamp(0.0, 0.60);
-            let field = levy * (0.34 + 0.20 * logistics);
+            let share = 0.34 + 0.20 * logistics;
+            let field = levy * if eco > 1.0 { (share * eco.sqrt()).min(0.90) } else { share };
             (standing, levy, field)
         };
         let a = replica(3.0, 250_000.0, 1_000_000.0, 0.45, 0.20, 0.10, 0.10, 0.00, 1.8153);
         let b = replica(11.0 / 9.0, 450_000.0, 1_050_000.0, 0.70, 0.90, 0.70, 0.60, 0.50, 2.2214);
         for ((s, l, fl), input, want) in [
             (a, kingdom_a(), (9_661.0, 41_221.0, 15_870.0)),
-            (b, kingdom_b(), (25_750.0, 98_889.0, 47_368.0)),
+            // Before Ruling DE: (25_750.0, 98_889.0, 47_368.0).
+            (b, kingdom_b(), (24_524.0, 98_889.0, 48_538.0)),
         ] {
             let m = civ_military_manpower(&input);
             assert!((m.standing_army - s).abs() < 1e-6, "standing {} vs replica {s}", m.standing_army);

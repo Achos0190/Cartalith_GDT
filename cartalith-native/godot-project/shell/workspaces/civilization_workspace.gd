@@ -7359,7 +7359,10 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 			+ "factor %.2f -- how well this faction's own territory feeds the "
 			+ "people on it RELATIVE TO THE WORLD'S (1.0 = the world's own land "
 			+ "per person, so the map's scale drops out), and the reason "
-			+ "geography moves the answer at all. A soldier costs the treasury "
+			+ "geography moves the answer at all: below 1 it cuts the standing "
+			+ "army's budget in proportion; above 1 it adds no revenue but feeds "
+			+ "a larger field army on the march, up to 90% of the levy. "
+			+ "A soldier costs the treasury "
 			+ "%.2f subsistence-equivalents at this agricultural labour ratio.") % [
 			String(m.get("ag_tech", "?")), String(m.get("government", "?")),
 			float(m.get("state_capacity", 0.0)), float(m.get("ecological_factor", 0.0)),

@@ -271,18 +271,19 @@ const G1_FORMS: [(&str, &str); 8] = [
 /// then restored). Its standing army must be within 0.5x-2x of the same
 /// faction under the anchor.
 ///
-/// **The scope's other half, standing < field < levy in every reading, does
-/// not hold, and not because of G1's rows** (measured 2026-10-25, first run:
-/// 90 of 120). The control below forces faction 1 to each of the reference's
-/// eight real forms on the same worlds, and they break the ordering on the
-/// same worlds: a faction whose land feeds more than its people (a high
-/// `ecological_factor`) pays a standing army above the field army its levy
-/// can concentrate (`field = levy x (0.34 + 0.20 x logistics)` has no
-/// ecological term). That is the model's, reported, not tuned. What is
-/// asserted instead is that no form breaks an ordering its anchor row keeps,
-/// on any world, so a G1 row cannot be the cause of a break (since G1-5 the
-/// khanate's levy bonus makes it ordered on worlds where its anchor is not,
-/// which is allowed). The era-band
+/// **The scope's other half, standing < field < levy in every reading, did
+/// not hold until owner Ruling DE, and not because of G1's rows** (measured
+/// 2026-10-25, first run: 90 of 120). The control below forces faction 1 to
+/// each of the reference's eight real forms on the same worlds, and they broke
+/// the ordering on the same worlds: a faction whose land feeds more than its
+/// people (a high `ecological_factor`) was paid a standing army above the
+/// field army its levy could concentrate, because the standing budget was
+/// linear in the factor (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §2). Ruling DE's
+/// term (EA-1) fixed the model, and the ordering is now asserted on every
+/// forced reading, G1 and reference alike (160 and 160 of 160, measured). The
+/// one-directional guard stays too: no form breaks an ordering its anchor
+/// row keeps (since G1-5 the khanate's levy bonus may order it where its
+/// anchor is not, which is allowed). The era-band
 /// verdict counts are printed, not barred (a form outside its band is a
 /// finding, `MILITARY_MANPOWER_SCOPE.md` §1). Ignored: it generates 20
 /// worlds.
@@ -341,6 +342,12 @@ fn g1_forced_forms_are_ordered_and_near_their_anchor() {
     assert_eq!(ref_n, 20 * 8);
     assert_eq!(same_as_anchor, n, "a G1 row broke an ordering its anchor keeps");
     assert_eq!(near, n, "standing within 0.5x-2x of the anchor row's");
+    // Since owner Ruling DE (EA-1) the ordering itself holds on every forced
+    // reading, the scope's G1-1 bar 4 as first written. Faction 1 is never
+    // empty on these worlds (asserted above: a non-zero standing army), so
+    // there is no empty reading to exclude here; `ea0_` counts them apart.
+    assert_eq!(ordered, n, "standing < field < levy on every forced G1 reading");
+    assert_eq!(ref_ordered, ref_n, "standing < field < levy on every forced reference reading");
 }
 
 // ======================================================== EA-0 (Ruling DE)
@@ -389,6 +396,9 @@ struct Tally {
     above: usize,
     below: usize,
     eco_above_one: usize,
+    /// Non-empty rows whose field army is `FIELD_CAP` of the levy (Ruling
+    /// DE's cap binding; reported, not barred).
+    capped: usize,
 }
 
 impl Tally {
@@ -409,6 +419,8 @@ impl Tally {
             _ => self.below += 1,
         }
         self.eco_above_one += usize::from(m.drivers.ecological_factor > 1.0);
+        let share = m.field_army / m.emergency_mobilization;
+        self.capped += usize::from((share - cartalith_civ::manpower::FIELD_CAP).abs() < 1e-9);
     }
 
     /// Adds another tally's counts into this one.
@@ -420,6 +432,7 @@ impl Tally {
         self.above += o.above;
         self.below += o.below;
         self.eco_above_one += o.eco_above_one;
+        self.capped += o.capped;
     }
 
     /// Non-empty rows: the population every ordering bar is a share of.
@@ -458,8 +471,21 @@ impl Tally {
 /// 114; 17 worlds; forced 125 and 120 of 160; sweep 290, 231, 235, 201, 165,
 /// 127). Ruling DB item 3 (`9b0bec28`, the higher world ceiling, on in the
 /// app's `params::defaults()`) then re-generated the harness worlds' terrain;
-/// the literals below are the same measurement on `9b0bec28`, the tree EA-1
-/// is built on, with the `d423b13e` value beside each.
+/// the same measurement on `9b0bec28`, the tree EA-1 is built on, read 226 /
+/// 64 / 10, verdicts 59 / 88 / 143, `E > 1` on 112, 15 worlds, forced 132 and
+/// 128, sweep 290, 226, 239, 201, 170, 124.
+///
+/// **RE-BASELINED 2026-10-25 under owner Ruling DE (EA-1).** The literals
+/// below are the measurement after the ecological army term, with the
+/// `9b0bec28` pre-term value beside each. They are EA-1's bars: every
+/// non-empty faction ordered, both forced sets 160 of 160, the empties
+/// counted apart. The one pre-industrial exception in the sweep is printed
+/// (`EA sweep unordered`): an `improvedAgrarian` republic at `E` 0.973 and the
+/// logistics floor 0.150, whose standing army tops its field army with no
+/// ecological term involved (`E` ≤ 1 takes both pre-ruling arms by control
+/// flow). That is the scope's §3 point 4 class of failure, filed as its own
+/// row by Ruling DE Q6, and it is pinned here as measured rather than tuned
+/// away.
 ///
 /// Run (alone): `cargo test -p cartalith-godot --lib ea0_ -j 2 -- --ignored --nocapture --test-threads 1`
 #[test]
@@ -538,8 +564,25 @@ fn ea0_ecological_ordering_diagnostic() {
             for e in civ.faction_roster.0.iter_mut().skip(1) {
                 e.ag_tech = row.key.to_string();
             }
-            for m in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter() {
+            for (i, m) in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter().enumerate() {
                 sweep[ri].add(m);
+                // The pre-industrial rows are where Ruling DE Q4 holds the
+                // ordering, so every exception there is printed with its drivers.
+                if ri < 4 && order_of(m) == Order::Unordered {
+                    let d = &m.drivers;
+                    println!(
+                        "EA sweep unordered: {} seed {seed} {width} {factions} f{} ({}): E {:.3} s {:.3} L {:.3} standing {:.1} field {:.1} levy {:.1}",
+                        row.key,
+                        i + 1,
+                        civ.faction_roster.0[i + 1].government,
+                        d.ecological_factor,
+                        d.state_capacity,
+                        d.logistics_capacity,
+                        m.standing_army,
+                        m.field_army,
+                        m.emergency_mobilization
+                    );
+                }
             }
         }
         for (e, t) in civ.faction_roster.0.iter_mut().zip(saved_tech) {
@@ -550,7 +593,7 @@ fn ea0_ecological_ordering_diagnostic() {
     }
 
     println!(
-        "EA default governments: ordered {} unordered {} empty {} (non-empty {}); standing verdicts within {} above {} below {}; E > 1 on {}; unordered on {} worlds {:?}",
+        "EA default governments: ordered {} unordered {} empty {} (non-empty {}); standing verdicts within {} above {} below {}; E > 1 on {}; field capped {}; unordered on {} worlds {:?}",
         default.ordered,
         default.unordered,
         default.empty,
@@ -559,6 +602,7 @@ fn ea0_ecological_ordering_diagnostic() {
         default.above,
         default.below,
         default.eco_above_one,
+        default.capped,
         unordered_worlds.len(),
         unordered_worlds
     );
@@ -573,12 +617,13 @@ fn ea0_ecological_ordering_diagnostic() {
     );
     for (row, t) in AG_TECH_LEVELS.iter().zip(sweep.iter()) {
         println!(
-            "EA sweep {}: ordered {} of {} (empty {}), standing within {}",
+            "EA sweep {}: ordered {} of {} (empty {}), standing within {}, field capped {}",
             row.key,
             t.ordered,
             t.armed(),
             t.empty,
-            t.within
+            t.within,
+            t.capped
         );
     }
 
@@ -592,18 +637,21 @@ fn ea0_ecological_ordering_diagnostic() {
 
     // The measured bar (see the doc for the tree it was recorded on).
     let sweep_ordered: Vec<usize> = sweep.iter().map(|t| t.ordered).collect();
-    // Each literal is the 9b0bec28 measurement; the d423b13e one is beside it.
+    // Each literal is the post-Ruling-DE measurement; the 9b0bec28 pre-term
+    // one is beside it (the d423b13e ones are in the doc).
     assert_eq!(
         (default.ordered, default.unordered, default.empty),
-        (226, 64, 10), // d423b13e: (231, 59, 10)
+        (290, 0, 10), // before Ruling DE: (226, 64, 10)
         "default governments: ordered / unordered / empty"
     );
-    // d423b13e: (55, 92, 143)
-    assert_eq!((default.within, default.above, default.below), (59, 88, 143), "standing verdicts");
-    assert_eq!(default.eco_above_one, 112, "non-empty factions with E > 1"); // d423b13e: 114
-    assert_eq!(unordered_worlds.len(), 15, "worlds with an unordered faction"); // d423b13e: 17
-    assert_eq!((g1.ordered, g1.armed()), (132, 160), "forced G1 forms"); // d423b13e: 125
-    assert_eq!((reference.ordered, reference.armed()), (128, 160), "forced reference forms"); // d423b13e: 120
-    // d423b13e: [290, 231, 235, 201, 165, 127]
-    assert_eq!(sweep_ordered, vec![290, 226, 239, 201, 170, 124], "ag-tech sweep, ordered of 290");
+    // before Ruling DE: (59, 88, 143)
+    assert_eq!((default.within, default.above, default.below), (138, 9, 143), "standing verdicts");
+    assert_eq!(default.eco_above_one, 112, "non-empty factions with E > 1"); // unchanged: E does not move
+    assert_eq!(unordered_worlds.len(), 0, "worlds with an unordered faction"); // before: 15
+    assert_eq!((g1.ordered, g1.armed()), (160, 160), "forced G1 forms"); // before: 132
+    assert_eq!((reference.ordered, reference.armed()), (160, 160), "forced reference forms"); // before: 128
+    // before Ruling DE: [290, 226, 239, 201, 170, 124]
+    assert_eq!(sweep_ordered, vec![290, 290, 290, 289, 264, 127], "ag-tech sweep, ordered of 290");
+    // Where FIELD_CAP binds (0 before the ruling: the share topped out at 0.54).
+    assert_eq!(default.capped, 18, "field armies at FIELD_CAP of the levy");
 }
