@@ -296,6 +296,13 @@ name = "cartalith-jsmath"
 version = "0.1.0"
 
 [[package]]
+name = "cartalith-llm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cartalith-noise"
 version = "0.1.0"
 

@@ -1,0 +1,11 @@
+: SYNTHETIC fixture dated 2026-10-25. Hand-written from the documented streamed tool_calls shape (id and name in the first fragment, arguments split across fragments); NOT recorded from a live server.
+data: {"id":"c1","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_fixture_1","type":"function","function":{"name":"set_layer","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"layer\":\"ri"}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"vers\",\"visible\":true}"}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

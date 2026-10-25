@@ -1,0 +1,15 @@
+: SYNTHETIC fixture dated 2026-10-25. Written by hand from the documented OpenAI chat-completions streaming shape; NOT recorded from a live server. Re-record per provider in LLM-3/LLM-4 ("tested with" list).
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"The river "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Vael runs "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"south — past the café."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-fixture","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":42,"completion_tokens":11,"total_tokens":53}}
+
+data: [DONE]
+

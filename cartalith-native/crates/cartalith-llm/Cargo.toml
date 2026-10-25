@@ -1,0 +1,12 @@
+[package]
+name = "cartalith-llm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Protocol crate for the optional LLM assistant (LLM_ASSISTANT_SCOPE.md, milestone LLM-1): OpenAI-compatible request builder, SSE parser, stream decoder, key redaction, event enum and a mock transport. No Godot types, no sockets: the wire is Godot's HTTPClient (Ruling DD Q4)."
+
+# Deliberately one dependency. A test (`no_network_dependency`) fails if another
+# appears, because this crate must not be able to open a socket (scope s.2, s.4).
+[dependencies]
+serde_json = "1.0.151"
