@@ -71,6 +71,18 @@ pub(crate) fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
 
+/// The height a stamp writes: the reference's `clamp01(nh)`, except that a
+/// cell already above 1 (a summit under owner Ruling DB item 3's higher
+/// world ceiling, `TectonicParams::high_ceiling`) is bounded by its own
+/// height instead of 1, so a brush passing over it never cuts it back to a
+/// flat cap at 1. For `h0 <= 1` this is `clamp01(nh)` exactly (the bound is
+/// 1.0), so every reference-path stamp keeps its bits by control flow. A
+/// stamp cannot raise a cell above `max(1, h0)`: the old top stays the
+/// brush's ceiling.
+pub(crate) fn clamp_height(nh: f64, h0: f64) -> f64 {
+    nh.clamp(0.0, h0.max(1.0))
+}
+
 /// Reference `smoothstep(a,b,x)` (line 7569):
 /// `t=clamp01((x-a)/((b-a)||1e-6)); return t*t*(3-2*t)`.
 ///
@@ -1490,7 +1502,7 @@ impl SculptStamp {
                     // Coverage site 1 of 2 (ET-D3): `cov x intensity x p(s)`.
                     let k = weigh(ptab.as_ref(), cov * g.intensity, s_arc);
                     let avg = (l as f64 + rt as f64 + u as f64 + dn as f64) * 0.25;
-                    field[i] = clamp01(full[i] as f64 + (avg - full[i] as f64) * k) as f32;
+                    field[i] = clamp_height(full[i] as f64 + (avg - full[i] as f64) * k, full[i] as f64) as f32;
                 }
             }
             // Note: the reference returns here regardless of `water_only`,
@@ -1536,7 +1548,7 @@ impl SculptStamp {
                         Mode::Add => ctx.h0 + ctx.k * eff.val,
                         Mode::Set => ctx.h0 + ctx.k * (eff.val - ctx.h0),
                     };
-                    field[i] = clamp01(nh) as f32;
+                    field[i] = clamp_height(nh, ctx.h0) as f32;
                 }
                 if let (Some(wa), Some(wo)) = (water.as_deref_mut(), eff.water_out)
                     && wo > wa[i] as f64
@@ -2087,6 +2099,18 @@ impl Stamp for SculptStamp {
 mod tests {
     use super::*;
     use cartalith_spatial::{DirtyTracker, PassBuffer};
+
+    /// Protects: Ruling DB's stamp bound -- at or under 1 it is the
+    /// reference's `clamp01` (both ends), and a cell above 1 is neither cut
+    /// to 1 by a small change nor raised above itself.
+    #[test]
+    fn a_stamp_never_cuts_a_summit_above_one() {
+        assert_eq!(clamp_height(1.3, 0.9), 1.0);
+        assert_eq!(clamp_height(-0.2, 0.5), 0.0);
+        assert_eq!(clamp_height(0.7, 0.6), 0.7);
+        assert_eq!(clamp_height(1.29, 1.3), 1.29);
+        assert_eq!(clamp_height(1.5, 1.3), 1.3);
+    }
 
     /// A flat field of `w * h` cells, all at height `v`.
     fn flat(w: usize, h: usize, v: f32) -> Vec<f32> {

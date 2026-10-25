@@ -223,7 +223,9 @@ pub fn synthesize_info_tile(src: &InfoSource, view: InfoView, z: i32, col: i32, 
         // so an elevation, slope or aspect view at depth reads the relief the
         // terrain tile under it draws.
         let km = crate::render::zoom_detail_km_law(Some(src.map_width_km), gw, src.zoom_detail_km);
-        let opts = AmplifyOpts { seed: src.seed, sea: src.sea, z_base: lod_bridge::z_base(), km, ..AmplifyOpts::default() };
+        // `top` as the terrain tile's (`render::tile_amplify_opts`, Ruling DB).
+        let top = cartalith_terrain::orogen::field_top(src.field) as f64;
+        let opts = AmplifyOpts { seed: src.seed, sea: src.sea, z_base: lod_bridge::z_base(), km, top, ..AmplifyOpts::default() };
         let id = ChunkId::new(z as u32, col as u32, row as u32);
         let (tw, th, t) = pyramid_tile_padded(src.field, gw, gh, id, lod_bridge::TILE_PX, pad, &opts);
         if (tw, th) != (w, h) || t.len() != stride * (h + 2 * pad) {

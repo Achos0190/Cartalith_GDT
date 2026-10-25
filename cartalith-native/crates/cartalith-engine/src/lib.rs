@@ -204,7 +204,7 @@ use cartalith_climate::{
 };
 use cartalith_climate::tides::{compute_tide_field, TideParams};
 use cartalith_erosion::{
-    apply_tidal_sedimentation, coastal_process, glacial_kernel, hillslope_diffuse, isostatic_rebound,
+    apply_tidal_sedimentation, isostatic_rebound,
     recompute_resistance_after_erosion, route_sediment, stream_power_kernel, velocity_erode_kernel, CoastalParams,
     GlacialParams, StreamPowerParams, VelocityParams,
 };
@@ -291,6 +291,24 @@ pub struct TectonicParams {
     /// regenerates as it was saved. It never changes the land mask (see the
     /// orogen module's doc).
     pub orogen_relief: bool,
+    /// **Higher world ceiling** (owner Ruling DB item 3, 2026-10-25, chosen
+    /// from the options Ruling DA's summit census put to the owner): with
+    /// `orogen_relief` on, H2's smooth top saturates toward
+    /// [`cartalith_terrain::orogen::high_ceiling_top`] (twice `peak_m`) instead of 1, so the
+    /// height field may hold values above 1 and a tall cone on high ground
+    /// keeps its summit instead of a flat cap at 1 (71077345's "caldera lake
+    /// cut by a straight edge"). Inert unless `orogen_relief` is on (that
+    /// switch owns the smooth top). Heights at or below the knee (0.9) are
+    /// unchanged, and the World Structure sea-level solve reads the field as
+    /// the old top would have left it, so sea level is identical by
+    /// construction; what moves is the high ground and whatever erosion,
+    /// climate and water downstream make of it.
+    ///
+    /// **`false` here and `true` in the shipped app** (`params::defaults`),
+    /// the §7p split: the reference clips at 1. A save without the key
+    /// reloads `false`, so a project saved before the ruling regenerates as
+    /// it was saved.
+    pub high_ceiling: bool,
 }
 
 /// `PLATE_BASE_BLUR_K` (source v2.57, `RC_ENGINE_CHANGES.md` §6i): the
@@ -1148,6 +1166,8 @@ impl WorldParams {
                 // app boundary -- see the field's own doc comment.
                 narrow_plate_base_blur: false,
                 orogen_relief: false,
+                // The reference's clip at 1; on at the app boundary (Ruling DB).
+                high_ceiling: false,
             },
             // `provinces: true`, matching JS's own literal default.
             // stamp_volcanoes_provinces is golden-verified
@@ -1733,6 +1753,11 @@ struct RockContext {
     /// scales nothing while the processes are gated off. Every count call
     /// site reads it; at τ = 1 each returns today's expression.
     clock: geo_clock::GeoClock,
+    /// The world's top for the glacial and coastal kernels' clamps
+    /// (`glacial_kernel_to`, `coastal_process_to`): exactly 1.0, the
+    /// reference's clip, unless the world was generated under owner Ruling DB
+    /// item 3's higher ceiling (`TectonicParams::high_ceiling`).
+    top: f32,
 }
 
 impl RockContext {
@@ -1864,7 +1889,7 @@ impl RockContext {
         match geology.column_mut().filter(|_| self.on) {
             Some(column) => {
                 let before = field.to_vec();
-                cartalith_erosion::coastal_process_rock(
+                cartalith_erosion::coastal_process_to(
                     field,
                     flow,
                     gw,
@@ -1873,11 +1898,12 @@ impl RockContext {
                     world,
                     g,
                     cp,
-                    &cartalith_erosion::PassRock { column: &*column, contrast: self.contrast, r_expose: self.r_expose },
+                    Some(&cartalith_erosion::PassRock { column: &*column, contrast: self.contrast, r_expose: self.r_expose }),
+                    self.top,
                 );
                 cartalith_erosion::account_regolith(column, &before, field, true);
             }
-            None => coastal_process(field, flow, gw, gh, sea_level, world, g, cp),
+            None => cartalith_erosion::coastal_process_to(field, flow, gw, gh, sea_level, world, g, cp, None, self.top),
         }
     }
 
@@ -1919,15 +1945,16 @@ impl RockContext {
         };
         let pre = field.clone();
         match geology.column().filter(|_| self.on) {
-            Some(column) => cartalith_erosion::glacial_kernel_rock(
+            Some(column) => cartalith_erosion::glacial_kernel_to(
                 field,
                 temperature,
                 gw,
                 gh,
                 &gp,
-                &cartalith_erosion::PassRock { column, contrast: self.contrast, r_expose: self.r_expose },
+                Some(&cartalith_erosion::PassRock { column, contrast: self.contrast, r_expose: self.r_expose }),
+                self.top,
             ),
-            None => glacial_kernel(field, temperature, gw, gh, &gp),
+            None => cartalith_erosion::glacial_kernel_to(field, temperature, gw, gh, &gp, None, self.top),
         }
         // GF-2 (§4.9): glacial lowering strips regolith first.
         self.strip(geology, Some(&pre), field);
@@ -2765,13 +2792,46 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // have lifted crests past 1, so the top saturates smoothly here first; the
     // clamp below then bounds only the bottom. Off, the clamp alone runs, as
     // the reference does.
+    //
+    // Ruling DB item 3 (`TectonicParams::high_ceiling`): the same smooth top
+    // saturating toward `orogen::high_ceiling_top(sea_level)` instead of 1 --
+    // twice the world's land range above the sea, so twice `peak_m` in metres
+    // whatever the sea level. Because that top depends on the sea level, the
+    // sea level is settled first, and from the field as the old top would
+    // have left it (through `soft_ceiling` and the clamp at 1): the World
+    // Structure solve bins the histogram over the field's own min..max, so a
+    // higher maximum would widen every bin and move the threshold by up to
+    // one bin, which moves coasts on a flat archipelago (Ruling DA's
+    // cone-scaling trial failed 24601's bars this way). Read through the old
+    // top, the solve sees the same numbers as before, so the sea level is
+    // identical by construction. Off, the order is the reference's: top,
+    // clamp, then the solve on the clamped field.
+    let high_top = p.tect.orogen_relief && p.tect.high_ceiling;
+    let early_sea: Option<f64> = if high_top {
+        Some(if p.world_structure.enabled {
+            let old_top: Vec<f32> = field
+                .iter()
+                .map(|&v| (cartalith_terrain::orogen::soft_ceiling(v as f64) as f32).clamp(0.0, 1.0))
+                .collect();
+            apply_world_structure_sea_level(&old_top, p.world_structure.continentality)
+        } else {
+            p.sea_level
+        })
+    } else {
+        None
+    };
+    let top = early_sea.map_or(1.0, cartalith_terrain::orogen::high_ceiling_top);
     if p.tect.orogen_relief {
         for v in &mut field {
-            *v = cartalith_terrain::orogen::soft_ceiling(*v as f64) as f32;
+            *v = cartalith_terrain::orogen::soft_ceiling_to(*v as f64, top) as f32;
         }
     }
+    // The clamp bounds the bottom at 0 and the top at the world's ceiling: 1
+    // as the reference clips, or the higher top under Ruling DB (where the
+    // saturation above already holds the field under it).
+    let world_top = top as f32;
     for v in &mut field {
-        *v = v.clamp(0.0, 1.0);
+        *v = v.clamp(0.0, world_top);
     }
 
     // applyWorldStructureSeaLevel() (reference HTML lines 2603-2617): a
@@ -2780,8 +2840,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // against the ACTUAL generated field's histogram so the archetype's
     // promised land fraction holds regardless of how tectonicEnergy/
     // oceanDepth reshaped the height distribution -- everything from here
-    // down reads `sea_level`, not `p.sea_level`.
-    let sea_level = if p.world_structure.enabled {
+    // down reads `sea_level`, not `p.sea_level`. Under Ruling DB the level
+    // was settled above (`early_sea`), from the old-top field.
+    let sea_level = if let Some(s) = early_sea {
+        s
+    } else if p.world_structure.enabled {
         apply_world_structure_sea_level(&field, p.world_structure.continentality)
     } else {
         p.sea_level
@@ -2833,6 +2896,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // GF-7 (§4.12): the clock shares the rock gate, so with the processes
         // off (the app today) or at τ = 1 every count below is today's.
         clock: geo_clock::GeoClock::new(rock_on, p.geo_age),
+        // 1.0 unless Ruling DB's higher ceiling is on (`world_top` above).
+        top: world_top,
     };
 
     // ---- CONSTRUCTION (GF-11, `GEOLOGY_FIRST_SCOPE.md` §4.14, §4.16) ----
@@ -3491,7 +3556,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // so nothing moves there. `DECISIONS.md` §7m.
             let d_scale =
                 cartalith_erosion::hillslope_extent_scale(p.map_width_km, gw, q.diffuse_d);
-            hillslope_diffuse(&mut field, gw, gh, q.diffuse_passes, q.diffuse_d, d_scale, world);
+            // `world_top`: 1.0 unless Ruling DB's higher ceiling is on.
+            cartalith_erosion::hillslope_diffuse_to(&mut field, gw, gh, q.diffuse_passes, q.diffuse_d, d_scale, world, world_top);
         }
         // ---- evolveCoupled(cycles) (reference HTML lines 4270-4279) ----
         // Pure orchestration in the reference too; the per-cycle
@@ -3597,12 +3663,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // Not `f32::clamp`: this is the reference's own two-statement
         // `if(f<0)f=0; else if(f>1)f=1;`, transcribed -- the same reason
         // `cartalith_erosion::passes` gives for its own copy of this shape.
+        //
+        // The top is `world_top`, exactly 1.0 unless the world was generated
+        // under Ruling DB item 3's higher ceiling, where a clamp at 1 would
+        // cut every summit back to the flat cap the ruling removes; the 0..1
+        // assumption above then reads 0..`world_top`.
         #[allow(clippy::manual_clamp)]
         for v in field.iter_mut() {
             if *v < 0.0 {
                 *v = 0.0;
-            } else if *v > 1.0 {
-                *v = 1.0;
+            } else if *v > world_top {
+                *v = world_top;
             }
         }
 
@@ -4040,6 +4111,45 @@ mod tests {
         assert_eq!(a.field, b.field, "without the morphological edifice the fill must be inert");
     }
 
+    /// Protects: Ruling DB item 3's `TectonicParams::high_ceiling` -- off in
+    /// `WorldParams::defaults` (a literal); inert without `orogen_relief`
+    /// (bit-identical field); on, the field rises above 1 where it did, under
+    /// the sea-relative top, the World Structure sea level is **identical**
+    /// to the old top's (the solve reads the old-top field: replacing it by
+    /// the live field moves the level on this archipelago), and heights at
+    /// or below the knee before the erosion stages agree closely enough that
+    /// the land fraction moves by under 0.2 points. 24601 as the archipelago
+    /// archetype at 512 x 328.
+    #[test]
+    fn the_higher_ceiling_keeps_the_sea_level_and_lifts_only_summits() {
+        let mut base = WorldParams::defaults(512, 328, 24_601);
+        assert!(!base.tect.high_ceiling, "the parity baseline keeps the top at 1");
+        base.world_structure = WorldStructureParams {
+            enabled: true,
+            continentality: 0.15,
+            fragmentation: 0.90,
+            tectonic_energy: 0.80,
+            ocean_depth: 0.30,
+            hotspot_density: 0.50,
+        };
+        let mut inert = base.clone();
+        inert.tect.high_ceiling = true;
+        assert_eq!(generate_terrain(&inert).field, generate_terrain(&base).field, "inert without orogen_relief");
+        let mut old = base.clone();
+        old.tect.orogen_relief = true;
+        let mut new = old.clone();
+        new.tect.high_ceiling = true;
+        let (a, b) = (generate_terrain(&old), generate_terrain(&new));
+        assert_eq!(a.sea_level.to_bits(), b.sea_level.to_bits(), "the sea level must not move");
+        let top = cartalith_terrain::orogen::high_ceiling_top(b.sea_level) as f32;
+        let amax = a.field.iter().copied().fold(0.0f32, f32::max);
+        let bmax = b.field.iter().copied().fold(0.0f32, f32::max);
+        assert!(amax <= 1.0 && bmax > 1.0 && bmax <= top, "max {amax} -> {bmax}, top {top}");
+        let n = a.field.len();
+        let frac = |w: &WorldState| w.field.iter().filter(|&&h| h as f64 > w.sea_level).count() as f64 / n as f64;
+        assert!((frac(&a) - frac(&b)).abs() < 0.002, "land {} -> {}", frac(&a), frac(&b));
+    }
+
     /// Protects: Ruling CU item 1's `TectonicParams::orogen_relief` -- off in
     /// `WorldParams::defaults` (a literal), live when on (the field moves and
     /// the land's high ground gets steeper), and bounded: on a classic world,
@@ -4234,7 +4344,7 @@ mod tests {
         let (w, h) = (10usize, 6usize);
         let cp = CoastalParams { wave_str: 10.0, estuary_depth: 0.08, marsh_band: 0.0, passes: 1 };
         let flow = vec![0.0f32; w * h];
-        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0) };
+        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0), top: 1.0 };
         let (mut geo, mut f) = gf4_coast(Rock::Tuff);
         let before = f.clone();
         ctx(true).coastal(&mut geo, &mut f, &flow, w, h, 0.1, false, 1.0, &cp);
@@ -4253,7 +4363,7 @@ mod tests {
         );
         assert!(f.iter().zip(&expect).all(|(a, b)| a.to_bits() == b.to_bits()), "on: not the rock kernel at the context's contrast");
         let mut legacy = before.clone();
-        coastal_process(&mut legacy, &flow, w, h, 0.1, false, 1.0, &cp);
+        cartalith_erosion::coastal_process(&mut legacy, &flow, w, h, 0.1, false, 1.0, &cp);
         assert!(f != legacy, "on: the pass must read the rock (tuff moves more than the legacy pass)");
         let col = geo.column().unwrap();
         let mut gained = 0;
@@ -4301,7 +4411,7 @@ mod tests {
             construction: cartalith_terrain::geology::Construction::Off,
             painted: None,
         };
-        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0) };
+        let ctx = |on: bool| RockContext { on, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(on, 1.0), top: 1.0 };
         let gp = GlacialParams { kg: 5.0, mg: p.passes.glacial_mg, snowline: 0.0, u_factor: p.passes.glacial_u_factor, passes: 1, g: p.planet.g, sea: 0.1, world: false };
 
         let mut geo = Geology::Column(Box::new(col0.clone()));
@@ -4325,7 +4435,7 @@ mod tests {
         let mut f_off = field0.clone();
         ctx(false).glacial(&mut geo_off, &mut res, &mut f_off, &temp, w, h, 0.1, false, &p);
         let mut l = field0.clone();
-        glacial_kernel(&mut l, &temp, w, h, &gp);
+        cartalith_erosion::glacial_kernel(&mut l, &temp, w, h, &gp);
         isostatic_rebound(&mut l, &field0, w, h, p.tect.blur_r, false);
         assert!(f_off.iter().zip(&l).all(|(a, b)| a.to_bits() == b.to_bits()), "off: not the legacy kernel + rebound");
         assert!(f_off != f, "on must differ from off: the rock factor has to reach the field");
@@ -4358,7 +4468,7 @@ mod tests {
         // Protects: with geology_processes off, RockContext::threshold_hillslope
         // must be a true no-op -- field and regolith untouched bit for bit.
         let (mut geo, mut f) = gf3_row();
-        let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(false, 1.0) };
+        let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(false, 1.0), top: 1.0 };
         // 390.625 m cells: with the stage on, this step would shed (the next
         // test), so "untouched" here is the gate's doing, not the geometry's.
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
@@ -4377,7 +4487,7 @@ mod tests {
         // Protects: the GF-3 hillslope stage's per-pass relaxation fraction
         // and its "moved mass becomes regolith where it lands" bookkeeping.
         let (mut geo, mut f) = gf3_row();
-        let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0) };
+        let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0), top: 1.0 };
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0, 0.42, 4000.0);
         let t = cartalith_erosion::critical_talus(30.0, 800_000.0 / 2.0, 0.42, 4000.0);
         // Two cells over 800 km: 400 km cells, so t is huge and nothing sheds.
@@ -4418,7 +4528,7 @@ mod tests {
             };
             let mut geo = Geology::Column(Box::new(col));
             let mut f = vec![0.5f32, 0.5, 0.6];
-            let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0) };
+            let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0), top: 1.0 };
             rock.threshold_hillslope(&mut geo, &mut f, 3, 1, world, 3.0 * 390.625 / 1000.0, 0.42, 4000.0);
             f
         };
@@ -4438,7 +4548,7 @@ mod tests {
         // still fully disables the stage regardless of tau.
         let ratio_at = |on: bool, tau: f64| {
             let (mut geo, mut f) = gf3_row();
-            let rock = RockContext { on, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(on, tau) };
+            let rock = RockContext { on, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(on, tau), top: 1.0 };
             rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
             let t = cartalith_erosion::critical_talus(30.0, 390.625, 0.42, 4000.0);
             ((f[0] - f[1]) as f64 - t) / (0.1 - t)
@@ -4450,7 +4560,7 @@ mod tests {
         // Gate off: the stage does not run at any tau, so the row is untouched
         // bit for bit (a ratio would read f32 rounding of 0.6 - 0.5).
         let (mut geo, mut f) = gf3_row();
-        let rock = RockContext { on: false, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(false, 4.0) };
+        let rock = RockContext { on: false, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(false, 4.0), top: 1.0 };
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
         assert_eq!(f, vec![0.6f32, 0.5]);
     }

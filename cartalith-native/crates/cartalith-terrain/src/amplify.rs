@@ -89,6 +89,13 @@ pub struct AmplifyOpts {
     /// deep-zoom tiles set it (`cartalith-godot`'s `render::tile_amplify_opts`,
     /// gated on `TerrainAppearance::zoom_detail_km`). See [`KmZoomDetail`].
     pub km: Option<KmZoomDetail>,
+    /// The upper bound of the refined height. **1.0 -- the default -- is the
+    /// reference's own `v>1?1:v`**. The app passes
+    /// [`crate::orogen::field_top`] of the world's coarse field, which is
+    /// exactly 1.0 unless the world was generated under owner Ruling DB item
+    /// 3's higher ceiling (`TectonicParams::high_ceiling`), so a summit above
+    /// 1 keeps its relief and its detail at depth instead of a flat cap at 1.
+    pub top: f64,
 }
 
 impl Default for AmplifyOpts {
@@ -106,6 +113,8 @@ impl Default for AmplifyOpts {
             z_base: 2,
             zoom_detail_k: 1.0,
             km: None,
+            // The reference's clip at 1 (Ruling DB's higher top is app-side).
+            top: 1.0,
         }
     }
 }
@@ -623,7 +632,7 @@ pub fn amplify_region_padded(
             // expression exactly, NaN included: NaN fails both comparisons and
             // falls through unchanged, which is what makes the `out_w == 1`
             // case observable at all.
-            *o = v.clamp(0.0, 1.0) as f32;
+            *o = v.clamp(0.0, opts.top) as f32;
         }
     });
     out
@@ -1033,7 +1042,7 @@ pub fn sample_elevation(
     // texel` asserts this is the *same* field bit for bit, so guarding one
     // copy and not the other turns a pinned identity into a pinned lie.
     let refined =
-        (base + clamp_toward_sea(base, d * opts.detail_amp * taper, opts.sea)).clamp(0.0, 1.0) as f32;
+        (base + clamp_toward_sea(base, d * opts.detail_amp * taper, opts.sea)).clamp(0.0, opts.top) as f32;
 
     // ---- `add_zoom_detail`'s per-pixel body, at the same coordinate --------
     let b = refined as f64;
@@ -1506,6 +1515,28 @@ mod tests {
         assert_eq!(d.detail_amp, 0.14);
         assert_eq!(d.sea, 0.42);
         assert!(!d.ridged);
+        assert_eq!(d.top, 1.0, "the reference's clip at 1");
+    }
+
+    /// Protects: Ruling DB item 3's `AmplifyOpts::top` in both refined paths
+    /// (`amplify_region` and the tile path's `sample_elevation`): a summit
+    /// ramp at 1.1-1.5 is clipped to 1 at the default top, and keeps its
+    /// height and its spread (values both above and below 1.3) at a top of 1.6.
+    #[test]
+    fn a_higher_top_keeps_a_summit_above_one() {
+        let (cw, ch) = (16usize, 16usize);
+        // A ramp from 1.1 to 1.5 (detail fades on dead-flat ground).
+        let src: Vec<f32> = (0..cw * ch).map(|i| 1.1 + 0.4 * (i % cw) as f32 / (cw - 1) as f32).collect();
+        let r = FloatRegion { x: 2.0, y: 2.0, w: 8.0, h: 8.0 };
+        let low = amplify_region(&src, cw, ch, &r, 32, 32, &AmplifyOpts::default());
+        assert!(low.iter().all(|&v| v <= 1.0), "the default top clips at 1");
+        let hi_opts = AmplifyOpts { top: 1.6, ..AmplifyOpts::default() };
+        let hi = amplify_region(&src, cw, ch, &r, 32, 32, &hi_opts);
+        let (mn, mx) = hi.iter().fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(mx > 1.3 && mn < 1.3, "detail on both sides of the summit: {mn}..{mx}");
+        assert!(hi.iter().all(|&v| v > 1.0 && v <= 1.6));
+        assert!(sample_elevation(&src, cw, ch, 5.5, 5.5, 3, &AmplifyOpts::default()) <= 1.0);
+        assert!(sample_elevation(&src, cw, ch, 5.5, 5.5, 3, &hi_opts) > 1.0);
     }
 
     // -- EF-0: `sample_elevation` ------------------------------------------

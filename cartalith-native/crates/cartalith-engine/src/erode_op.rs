@@ -66,7 +66,7 @@
 
 use crate::{WorldParams, WorldState};
 use std::sync::Arc;
-use cartalith_erosion::{droplet_kernel, erode_thermal, isostatic_rebound, DropletParams};
+use cartalith_erosion::{droplet_kernel, erode_thermal_to, field_top, isostatic_rebound, DropletParams};
 
 /// `state.erosion` (reference HTML line 2268) — the fourteen knobs
 /// `dropletParams()` (line 3889) bundles, plus the two `erodeFinish` (line
@@ -215,6 +215,13 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     // `pre=field.slice()` — isostatic rebound is measured against the surface
     // as it stood *before* the droplets, not before the thermal pass.
     let pre: Vec<f32> = ws.field.as_ref().clone();
+    // The world's top before the op: exactly 1.0 unless the world was
+    // generated under owner Ruling DB item 3's higher ceiling, where its
+    // summits sit above 1. Thermal's per-pass clamp and the finishing clamp
+    // below use it, so on every reference-shaped world they clip at 1 as the
+    // reference does (the droplets' overshoot included) and on a higher-top
+    // world they never cut a summit back to 1.
+    let top = field_top(&pre);
 
     // One `make_mut` for the whole op rather than four: it is the point at
     // which a shared grid (an LOD snapshot still rendering) is copied, and
@@ -254,7 +261,9 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     // set is the process-wide cached one (Ruling Y), so an op after a GPU
     // generation pays no handshake. `use_gpu: false` -- the engine default --
     // never reaches `cartalith_gpu` at all.
-    let thermal_gpu = if p.use_gpu && opts.thermal_passes > 0 && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
+    // The GPU kernel clamps at 1 (its shader is the reference's clip), so a
+    // higher-top world (`top > 1`, Ruling DB) takes the CPU kernel.
+    let thermal_gpu = if p.use_gpu && top <= 1.0 && opts.thermal_passes > 0 && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
         cartalith_gpu::init_gpu_device_set()
             .ok()
             .filter(|s| s.supports_grid(gw, gh))
@@ -267,7 +276,7 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     let thermal_on_gpu = thermal_gpu.is_some();
     match thermal_gpu {
         Some(out) => f.copy_from_slice(&out),
-        None => erode_thermal(f, gw, gh, opts.thermal_passes, opts.talus),
+        None => erode_thermal_to(f, gw, gh, opts.thermal_passes, opts.talus, top),
     }
 
     // `erodeFinish`'s clamp, written as the reference's own two-branch
@@ -275,12 +284,13 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     // through both comparisons and survive, where `clamp` would absorb it --
     // the `cartalith-rust-conventions` "JS propagates NaN where Rust absorbs
     // it" rule. Reproducing the divergence is the point; a NaN that vanishes
-    // here would hide the bug that produced it.
+    // here would hide the bug that produced it. The top is `top` (1.0 unless
+    // Ruling DB's higher ceiling put the world above 1).
     for v in f.iter_mut() {
         if *v < 0.0 {
             *v = 0.0;
-        } else if *v > 1.0 {
-            *v = 1.0;
+        } else if *v > top {
+            *v = top;
         }
     }
     isostatic_rebound(f, &pre, gw, gh, p.tect.blur_r, p.world);
@@ -569,7 +579,7 @@ mod tests {
             let base = crate::generate_terrain(&WorldParams::defaults(gw, gh, seed)).field.as_ref().clone();
             for &(passes, talus) in &[(8i32, 0.012f64), (7, 0.001)] {
                 let mut cpu = base.clone();
-                erode_thermal(&mut cpu, gw, gh, passes, talus);
+                cartalith_erosion::erode_thermal(&mut cpu, gw, gh, passes, talus);
                 let Some(g) = cartalith_gpu::thermal_grid_gpu_with(gpu, &base, gw as u32, gh as u32, passes as u32, talus as f32)
                 else {
                     eprintln!("device refused {gw}x{gh} -- skipped");
@@ -597,7 +607,7 @@ mod tests {
         let hot: Vec<f32> = synthetic(gw, gh).iter().map(|&v| v * 1.4).collect();
         assert!(hot.iter().any(|&v| v > 1.0), "the fixture must reach above the clamp");
         let mut cpu = hot.clone();
-        erode_thermal(&mut cpu, gw, gh, 3, 0.012);
+        cartalith_erosion::erode_thermal(&mut cpu, gw, gh, 3, 0.012);
         if let Some(g) = cartalith_gpu::thermal_grid_gpu_with(gpu, &hot, gw as u32, gh as u32, 3, 0.012) {
             let worst = cpu.iter().zip(&g).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
             assert!(worst <= THERMAL_GPU_TOL, "out-of-range input: GPU clamp deviates by {worst:e}");
@@ -677,7 +687,7 @@ mod tests {
             for &(passes, talus) in &[(8i32, 0.012f64), (30, 0.001), (8, 0.040)] {
                 let (cpu_t, cpu_lo, cpu_hi, cpu) = timed(|| {
                     let mut f = base.clone();
-                    erode_thermal(&mut f, sz, sz, passes, talus);
+                    cartalith_erosion::erode_thermal(&mut f, sz, sz, passes, talus);
                     f
                 });
                 let (gpu_t, gpu_lo, gpu_hi, g) =

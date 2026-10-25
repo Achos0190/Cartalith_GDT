@@ -90,6 +90,8 @@ fn arm(p: &mut WorldParams, name: &str) {
         "no_cinder_law" => p.volc.cinder_grid_law = false,
         // The app before Ruling CX item 6 (active craters may pool).
         "wet_active" => p.volc.dry_active_craters = false,
+        // The app before Ruling DB item 3 (the top back at 1).
+        "old_ceiling" => p.tect.high_ceiling = false,
         other => panic!("unknown arm {other:?}"),
     }
 }

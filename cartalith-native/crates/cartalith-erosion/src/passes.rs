@@ -72,13 +72,18 @@ use std::cmp::Ordering;
 /// Not `f32::clamp`: this is the reference's own two-statement
 /// `if(f<0)f=0; if(f>1)f=1;`, transcribed. `clamp` would read the same today
 /// and would quietly stop reading like the source it is being checked against.
+///
+/// `top` is the upper bound: `1.0` is the reference's, which every
+/// reference entry point passes; the `_to` entry points pass the caller's
+/// world top, above 1 only under owner Ruling DB item 3's higher world
+/// ceiling, so a summit above 1 is not cut back to a flat cap at 1.
 #[allow(clippy::manual_clamp)]
-fn store_clamped01(slot: &mut f32, v: f64) {
+fn store_clamped01(slot: &mut f32, v: f64, top: f32) {
     let r = v as f32;
     *slot = if r < 0.0 {
         0.0
-    } else if r > 1.0 {
-        1.0
+    } else if r > top {
+        top
     } else {
         r
     };
@@ -191,6 +196,25 @@ pub fn hillslope_diffuse(
     d_scale: f64,
     world: bool,
 ) {
+    hillslope_diffuse_to(fld, w, h, passes, d, d_scale, world, 1.0);
+}
+
+/// [`hillslope_diffuse`] with the clamp's top given: `1.0` is
+/// [`hillslope_diffuse`] exactly (the reference's clip). The engine passes
+/// the world's top, which is above 1 only under owner Ruling DB item 3's
+/// higher ceiling, so a summit above 1 is not cut back to 1. Must never be
+/// passed a top below 1.
+#[allow(clippy::too_many_arguments)]
+pub fn hillslope_diffuse_to(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    passes: i32,
+    d: f64,
+    d_scale: f64,
+    world: bool,
+    top: f32,
+) {
     let d = d * d_scale;
     let n = w * h;
     for _ in 0..passes {
@@ -221,7 +245,7 @@ pub fn hillslope_diffuse(
         }
         for i in 0..n {
             let v = fld[i] as f64 + delta[i] as f64;
-            store_clamped01(&mut fld[i], v);
+            store_clamped01(&mut fld[i], v, top);
         }
     }
 }
@@ -610,7 +634,7 @@ pub struct GlacialParams {
 /// port — one seam column of a wrapped world gets trunk incision without
 /// flank widening.
 pub fn glacial_kernel(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams) {
-    glacial_core(fld, temp, w, h, p, None);
+    glacial_core(fld, temp, w, h, p, None, 1.0);
 }
 
 /// GF-4's rock input to the glacial and coastal passes
@@ -686,12 +710,24 @@ pub fn rho_multiplier(rock: cartalith_terrain::geology::Rock, contrast: f64) -> 
 /// must never be called with a column shorter than the grid (it asserts).
 pub fn glacial_kernel_rock(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: &PassRock) {
     assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
-    glacial_core(fld, temp, w, h, p, Some(rock));
+    glacial_core(fld, temp, w, h, p, Some(rock), 1.0);
+}
+
+/// [`glacial_kernel`] (`rock` `None`) or [`glacial_kernel_rock`] (`Some`)
+/// with the clamp's top given: `1.0` is those exactly. The engine passes the
+/// world's top, above 1 only under owner Ruling DB item 3's higher ceiling,
+/// so a glaciated summit above 1 is carved, never cut back to 1. Must never
+/// be passed a top below 1, nor a column shorter than the grid.
+pub fn glacial_kernel_to(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: Option<&PassRock>, top: f32) {
+    if let Some(r) = rock {
+        assert!(r.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", r.column.len(), w * h);
+    }
+    glacial_core(fld, temp, w, h, p, rock, top);
 }
 
 /// The body of [`glacial_kernel`] and [`glacial_kernel_rock`]. With `rock`
 /// `None` every statement is the reference port's, unchanged.
-fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: Option<&PassRock>) {
+fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialParams, rock: Option<&PassRock>, top: f32) {
     // GF-4: `γ^c` per rock, built once per call; `None` without rock.
     let gamma_c = rock.map(|r| r.table(|props| props.gamma));
     let n = w * h;
@@ -826,7 +862,7 @@ fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialPa
         }
         for i in 0..n {
             let v = fld[i] as f64 + delta[i] as f64;
-            store_clamped01(&mut fld[i], v);
+            store_clamped01(&mut fld[i], v, top);
         }
     }
 }
@@ -938,7 +974,7 @@ pub fn coastal_process(
     g: f64,
     p: &CoastalParams,
 ) {
-    coastal_core(fld, flow, w, h, sea, world, g, p, None);
+    coastal_core(fld, flow, w, h, sea, world, g, p, None, 1.0);
 }
 
 /// [`coastal_process`] reading the GF-1 rock column (`GEOLOGY_FIRST_SCOPE.md`
@@ -970,7 +1006,30 @@ pub fn coastal_process_rock(
     rock: &PassRock,
 ) {
     assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
-    coastal_core(fld, flow, w, h, sea, world, g, p, Some(rock));
+    coastal_core(fld, flow, w, h, sea, world, g, p, Some(rock), 1.0);
+}
+
+/// [`coastal_process`] (`rock` `None`) or [`coastal_process_rock`] (`Some`)
+/// with the clamp's top given: `1.0` is those exactly. The engine passes the
+/// world's top, above 1 only under owner Ruling DB item 3's higher ceiling.
+/// Must never be passed a top below 1, nor a column shorter than the grid.
+#[allow(clippy::too_many_arguments)]
+pub fn coastal_process_to(
+    fld: &mut [f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    g: f64,
+    p: &CoastalParams,
+    rock: Option<&PassRock>,
+    top: f32,
+) {
+    if let Some(r) = rock {
+        assert!(r.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", r.column.len(), w * h);
+    }
+    coastal_core(fld, flow, w, h, sea, world, g, p, rock, top);
 }
 
 /// The body of [`coastal_process`] and [`coastal_process_rock`]. With `rock`
@@ -986,6 +1045,7 @@ fn coastal_core(
     g: f64,
     p: &CoastalParams,
     rock: Option<&PassRock>,
+    top: f32,
 ) {
     // GF-4: `ρ^c` per rock, built once per call; `None` without rock.
     let rho_c = rock.map(|r| r.table(|props| props.rho));
@@ -1075,7 +1135,7 @@ fn coastal_core(
         }
         for i in 0..n {
             let v = fld[i] as f64 + delta[i] as f64;
-            store_clamped01(&mut fld[i], v);
+            store_clamped01(&mut fld[i], v, top);
         }
     }
 
@@ -1107,7 +1167,7 @@ fn coastal_core(
                     // re-recorded for it (DECISIONS §7p).
                     if bump > 0.0 {
                         let v = fld[i] as f64 + bump;
-                        store_clamped01(&mut fld[i], v);
+                        store_clamped01(&mut fld[i], v, top);
                     }
                 }
             }
@@ -1294,11 +1354,11 @@ mod tests {
         // Protects: store_clamped01's two-sided clamp (low, high, and the
         // pass-through middle) against the reference's own two-statement form.
         let mut v = 0.5f32;
-        store_clamped01(&mut v, -3.0);
+        store_clamped01(&mut v, -3.0, 1.0);
         assert_eq!(v, 0.0);
-        store_clamped01(&mut v, 7.5);
+        store_clamped01(&mut v, 7.5, 1.0);
         assert_eq!(v, 1.0);
-        store_clamped01(&mut v, 0.25);
+        store_clamped01(&mut v, 0.25, 1.0);
         assert_eq!(v, 0.25);
     }
 

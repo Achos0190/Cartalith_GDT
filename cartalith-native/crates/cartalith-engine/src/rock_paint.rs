@@ -487,6 +487,9 @@ pub fn reerode(
         contrast: p.tect.resist,
         r_expose: m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32,
         clock: geo_clock::GeoClock::new(true, p.geo_age),
+        // The world's own top (1.0 unless Ruling DB's higher ceiling put it
+        // above 1), so a re-erode never cuts a summit back to 1.
+        top: cartalith_terrain::orogen::field_top(&ws.field),
     };
     let constructed = matches!(after.construction, Construction::Built { .. });
     let mut not_rerun = vec![
@@ -530,7 +533,10 @@ pub fn reerode(
             let i = win.world(x, y, gw);
             if f_a[k].to_bits() != f_b[k].to_bits() {
                 // `field_in + (a − in) − (b − in)`, which is `field_in + a − b`.
-                let v = (field[i] as f64 + f_a[k] as f64 - f_b[k] as f64).clamp(0.0, 1.0) as f32;
+                // The top is `max(1, field[i])`: 1 as before for every cell at
+                // or under 1, and a summit above 1 (Ruling DB's higher world
+                // ceiling) bounded by its own height, never cut to 1.
+                let v = (field[i] as f64 + f_a[k] as f64 - f_b[k] as f64).clamp(0.0, (field[i] as f64).max(1.0)) as f32;
                 if v.to_bits() != field[i].to_bits() {
                     cells_moved += 1;
                     let d = (v as f64 - field[i] as f64).abs();

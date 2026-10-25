@@ -181,6 +181,9 @@ pub fn world_amplify_opts(state: &WorldState, p: &WorldParams, tile_size: usize)
         seed: p.tect.seed,
         sea: state.sea_level,
         z_base: z_base_for_tile_size(tile_size),
+        // The world's own top: exactly 1.0 unless it was generated under
+        // Ruling DB's higher ceiling (`orogen::field_top`).
+        top: cartalith_terrain::orogen::field_top(&state.field) as f64,
         ..AmplifyOpts::default()
     }
 }

@@ -901,7 +901,7 @@ fn find_young_shield_worlds() {
 /// land cells at the ceiling (final height at least 0.999) and how many of
 /// them lie on an edifice's disc, and lists the edifices with any.
 ///
-/// Measured 2026-10-25 (app defaults): 849, 328, 2 114 and 33 625 ceiling
+/// Measured 2026-10-25 (app defaults before Ruling DB; `CEIL_ARM=old` now): 849, 328, 2 114 and 33 625 ceiling
 /// cells on 71077345, 24601's archipelago, 314159 and the Hawaii-like seed 8
 /// (0.05, 0.08, 0.11 and 25.04 % of the land), every one on an edifice. A
 /// trial that scaled each cone to keep its summit under the ceiling cut them
@@ -910,13 +910,42 @@ fn find_young_shield_worlds() {
 /// the settlement bar on the archipelago (0.265 within 3 cells: World
 /// Structure re-anchors the sea level on the height histogram), so it was
 /// not kept (`STATUS.md`, Ruling DA).
+///
+/// Ruling DB item 3 (owner, 2026-10-25) chose the higher world ceiling
+/// (`TectonicParams::high_ceiling`, top `orogen::high_ceiling_top`). `CEIL_ARM`
+/// picks the arm: `app` (default, the ceiling on) or `old` (off, the top at
+/// 1). Each world's line adds the arm's top, the cells within 0.001 of it
+/// (a flat cap at the top), the field's maximum in metres, the sea level and
+/// an FNV digest of the land mask, so two arms' coasts compare by digest.
+/// Measured 2026-10-25 with `app`: maxima 1.2795 / 1.2077 / 1.2444 / 1.1420
+/// and 0 / 0 / 0 / 2 592 cells within 0.001 of the top (`STATUS.md`, Ruling DB
+/// item 3). The per-edifice lines below keep the 0.999 count of the old arm,
+/// which under `app` counts high ground, not a cap.
 #[test]
 #[ignore = "measurement; run explicitly with --release"]
 fn summit_ceiling_census() {
+    let arm = std::env::var("CEIL_ARM").unwrap_or_else(|_| "app".into());
     for w in &WORLDS {
-        let p = world_params(w, 2048, 1311);
+        let mut p = world_params(w, 2048, 1311);
+        match arm.as_str() {
+            "app" => {}
+            "old" => p.tect.high_ceiling = false,
+            other => panic!("unknown CEIL_ARM {other:?}"),
+        }
         let (gw, gh) = (2048usize, 1311usize);
         let ws = cartalith_engine::generate_terrain(&p);
+        let top = if p.tect.orogen_relief && p.tect.high_ceiling { cartalith_terrain::orogen::high_ceiling_top(ws.sea_level) } else { 1.0 };
+        let (mut at_top, mut hmax, mut digest) = (0usize, 0.0f64, 0xcbf2_9ce4_8422_2325u64);
+        for &v in ws.field.iter() {
+            let h = v as f64;
+            hmax = hmax.max(h);
+            if h > ws.sea_level && h >= top - 0.001 {
+                at_top += 1;
+            }
+            digest = (digest ^ u64::from(h > ws.sea_level)).wrapping_mul(0x100_0000_01b3);
+        }
+        let metres = (hmax - ws.sea_level) / (1.0 - ws.sea_level) * p.peak_m;
+        println!("== {} [{arm}, top {top}]: sea {:.6}, max {hmax:.4} ({metres:.0} m), within 0.001 of the top {at_top}, land-mask digest {digest:016x}", w.tag, ws.sea_level);
         let Some(vt) = ws.volcanoes.as_ref() else { continue };
         let idx = VolcanoIndex::new(vt, gw, gh);
         let (mut sat_all, mut sat_volc, mut land) = (0usize, 0usize, 0usize);
@@ -945,6 +974,76 @@ fn summit_ceiling_census() {
         for (k, (s, n)) in per.iter().filter(|(_, (s, _))| *s > 0) {
             let e = &vt[*k];
             println!("   #{k} {} r {:.1} km h {:.2}: {s} of {n} disc cells at the ceiling ({:.0} %)", e.kind.map_or("-", |k| k.key()), e.r * 800.0 / 2048.0, e.h, 100.0 * *s as f64 / *n as f64);
+        }
+    }
+}
+
+/// Ruling DB item 3's frames: the same world generated with the old top
+/// (`tect.high_ceiling` off) and the higher ceiling (the app), rendered in
+/// Satellite relief at the Quality tier at x1, x4, x16 and x64, side by side
+/// (old left, new right), around each world's largest edifice with ground at
+/// the old ceiling. `LV_OUT=<dir>` (required), `LV_ONLY=<tag part>`.
+///
+/// Protects: nothing by itself (a measurement, `#[ignore]`d); it asserts
+/// only that each frame is not empty (`write_png`).
+#[test]
+#[ignore = "generates 2048x1311 worlds twice and renders zoom frames; run explicitly with --release"]
+fn summit_ceiling_frames() {
+    let o = std::env::var("LV_OUT").expect("LV_OUT=<dir>");
+    std::fs::create_dir_all(&o).unwrap();
+    let only: Option<String> = std::env::var("LV_ONLY").ok();
+    let (gw, gh) = (2048usize, 1311usize);
+    // One arm's frames at (gx, gy), or the pick when `at` is None: the
+    // largest edifice with at least one disc cell at or above 0.999 in the
+    // old arm (the flat-capped one).
+    let render_arm = |w: &WorldSpec, high: bool, at: Option<(f64, f64)>| -> ((f64, f64), Vec<Vec<u8>>) {
+        let mut p = world_params(w, gw, gh);
+        p.tect.high_ceiling = high;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let vt = ws.volcanoes.as_ref().expect("a volcano table");
+        let mut a = TerrainAppearance::for_tier(QualityTier::Quality).with_look(LOOK_SATELLITE);
+        a.npr.peak_m = p.peak_m;
+        let idx = render::volcano_index_for(vt, &ws.field, gw, gh, ws.sea_level, Some(p.map_width_km), &a);
+        let at = at.unwrap_or_else(|| {
+            let capped = |e: &PlacedEdifice| {
+                let (cx, cy, r) = (e.cx as i64, e.cy as i64, e.r.max(1.0) as i64);
+                (-r..=r).any(|dy| (-r..=r).any(|dx| {
+                    let (x, y) = (cx + dx, cy + dy);
+                    x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && ws.field[y as usize * gw + x as usize] >= 0.999
+                }))
+            };
+            let e = vt.iter().filter(|e| e.kind.is_some() && capped(e)).max_by(|a, b| a.r.total_cmp(&b.r)).expect("a capped edifice");
+            (e.cx, e.cy)
+        });
+        let ci = at.1 as usize * gw + at.0 as usize;
+        println!("   [{}] at the pick: height {:.4}, temperature {:.2}, rain {:.3}, sea {:.4}", if high { "new" } else { "old" }, ws.field[ci], ws.temperature[ci], ws.rainfall[ci], ws.sea_level);
+        let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
+        let lakes = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, ws.sea_level, p.world, None).classification;
+        let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, &a, Some(p.map_width_km));
+        let c = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a.clone(), &pre)
+            .expect("context")
+            .with_lithology(&lith)
+            .with_lakes(&lakes)
+            .with_volcanoes(&idx);
+        let tf = TileFields::new(&c, None);
+        let mut frames = vec![base_frame(&c, gw as f64 / 2.0, gh as f64 / 2.0, SCREEN_W as f64 / gw as f64)];
+        for &(_, ppc) in &RUNGS {
+            frames.push(frame(&c, &tf, at.0, at.1, ppc, w.seed));
+        }
+        (at, frames)
+    };
+    for w in &WORLDS {
+        if only.as_ref().is_some_and(|t| !w.tag.contains(t.as_str())) {
+            continue;
+        }
+        let (at, old) = render_arm(w, false, None);
+        let (_, new) = render_arm(w, true, Some(at));
+        println!("== {}: frames at ({:.0}, {:.0})", w.tag, at.0, at.1);
+        for (k, rung) in ["x1", "x4", "x16", "x64"].iter().enumerate() {
+            let moved = old[k].chunks(3).zip(new[k].chunks(3)).filter(|(a, b)| a != b).count();
+            println!("   {rung}: {moved} of {} pixels differ", SCREEN_W * SCREEN_H);
+            let (sw, sbs) = side_by_side(&old[k], &new[k]);
+            write_png(&format!("{o}/{}_ceiling_{rung}_old_new.png", w.tag), sw, SCREEN_H, sbs);
         }
     }
 }

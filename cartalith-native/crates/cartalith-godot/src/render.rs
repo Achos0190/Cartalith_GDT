@@ -12552,7 +12552,12 @@ pub fn add_tile_furrows(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, p
 /// the JS-parity data products (`DECISIONS.md` §7p, the Ruling CI entry).
 pub fn tile_amplify_opts(ctx: &RenderCtx, seed: i32, z_base: i32) -> cartalith_terrain::amplify::AmplifyOpts {
     let km = zoom_detail_km_law(ctx.map_width_km, ctx.gw, ctx.appearance.zoom_detail_km);
-    cartalith_terrain::amplify::AmplifyOpts { seed, sea: ctx.sea_level, z_base, km, ..cartalith_terrain::amplify::AmplifyOpts::default() }
+    // `top`: the coarse field's own top (exactly 1.0 unless the world was
+    // generated under Ruling DB's higher ceiling), so the deep-zoom tiles
+    // keep a summit above 1 instead of clipping it flat. One pass over the
+    // coarse field per call (a max), small beside the tile it bounds.
+    let top = cartalith_terrain::orogen::field_top(ctx.field) as f64;
+    cartalith_terrain::amplify::AmplifyOpts { seed, sea: ctx.sea_level, z_base, km, top, ..cartalith_terrain::amplify::AmplifyOpts::default() }
 }
 
 /// The grid-scale gradient `(d/dx, d/dy)` at a fractional grid position, in

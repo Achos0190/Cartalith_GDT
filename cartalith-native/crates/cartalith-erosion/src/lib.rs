@@ -31,12 +31,15 @@ pub mod carve_width;
 
 pub use construction::{construct_relief, ConstructionInputs, ConstructionReport};
 pub use passes::{
-    apply_tidal_sedimentation, centrifugal_shear, coastal_process, coastal_process_rock,
-    gamma_multiplier, glacial_kernel, glacial_kernel_rock, hillslope_diffuse,
+    apply_tidal_sedimentation, centrifugal_shear, coastal_process, coastal_process_rock, coastal_process_to,
+    gamma_multiplier, glacial_kernel, glacial_kernel_rock, glacial_kernel_to, hillslope_diffuse, hillslope_diffuse_to,
     hillslope_extent_scale, rho_multiplier, route_sediment, velocity_erode_kernel,
     CoastalParams, GlacialParams, PassRock, VelocityField, VelocityParams, HILLSLOPE_REF_CELL_KM,
     HILLSLOPE_STABLE_D,
 };
+
+/// Re-exported for this crate's kernels: see its own doc (Ruling DB).
+pub use cartalith_terrain::orogen::field_top;
 
 /// [`hgrad`]'s return: the bilinearly-interpolated height at a fractional
 /// grid position plus its local gradient, both `f64` throughout — the
@@ -269,7 +272,18 @@ pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize,
 /// for, just with the accumulation spread across *different cells* within
 /// one pass here instead of multiple terms at *one* cell.
 pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64) {
-    thermal_core(fld, w, h, passes, talus, None, false);
+    thermal_core(fld, w, h, passes, talus, None, false, 1.0);
+}
+
+/// [`erode_thermal`] with the per-pass clamp's top given: `1.0` is
+/// [`erode_thermal`] exactly. For a caller on a world generated under owner
+/// Ruling DB item 3's higher ceiling (`TectonicParams::high_ceiling`), whose
+/// summits sit above 1: `erode_op` passes the field's top as it stood
+/// before the operation (`field_top`), so the droplet pass's overshoot is
+/// still clamped as the reference clamps it, and a summit is not cut to 1.
+/// Must never be passed a top below 1.
+pub fn erode_thermal_to(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64, top: f32) {
+    thermal_core(fld, w, h, passes, talus, None, false, top as f64);
 }
 
 /// The body shared by [`erode_thermal`] (the golden-verified reference port:
@@ -287,7 +301,13 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
 /// Must never change the move rule (`0.5·0.25` of the summed excess, split by
 /// each neighbour's share, clamped to 0..1) for either caller: that rule is the
 /// reference's, and §4.3 changes only the threshold.
-fn thermal_core(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64, per_cell: Option<&[f64]>, wrap: bool) {
+///
+/// `top` is the per-pass clamp's upper bound: 1.0 for [`erode_thermal`] (the
+/// reference's), the caller's for [`erode_thermal_to`], and for
+/// [`threshold_hillslope`] (port-only, GF-3) the field's own top on entry
+/// ([`field_top`]: 1.0 unless the field is above 1 under Ruling DB).
+#[allow(clippy::too_many_arguments)]
+fn thermal_core(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64, per_cell: Option<&[f64]>, wrap: bool, top: f64) {
     for _ in 0..passes {
         let mut delta = vec![0f32; w * h];
         // NOT parallelized: this loop writes `delta[i]` (its own cell) AND
@@ -353,8 +373,8 @@ fn thermal_core(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64, pe
             let stored = (*f as f64 + *d as f64) as f32;
             *f = if (stored as f64) < 0.0 {
                 0.0
-            } else if (stored as f64) > 1.0 {
-                1.0
+            } else if (stored as f64) > top {
+                top as f32
             } else {
                 stored
             };
@@ -458,6 +478,9 @@ pub fn threshold_hillslope(fld: &mut [f32], w: usize, h: usize, passes: i32, wra
         by_rock[r as usize] = critical_talus(r.props().theta_c_deg as f64, rock.cell_m, rock.sea, rock.peak_m);
     }
     let mut talus = vec![0f64; w * h];
+    // Port-only (GF-3): the field's own top on entry, 1.0 unless it is above
+    // 1 under Ruling DB's higher ceiling ([`field_top`]).
+    let top = field_top(fld) as f64;
     for _ in 0..passes {
         talus.par_iter_mut().enumerate().for_each(|(i, t)| {
             let r = rock
@@ -466,7 +489,7 @@ pub fn threshold_hillslope(fld: &mut [f32], w: usize, h: usize, passes: i32, wra
                 .unwrap_or_else(|| panic!("cell {i}: the column holds no valid rock (rock_top {})", rock.column.rock_top[i]));
             *t = by_rock[r as usize];
         });
-        thermal_core(fld, w, h, 1, 0.0, Some(&talus), wrap);
+        thermal_core(fld, w, h, 1, 0.0, Some(&talus), wrap, top);
     }
 }
 
@@ -887,6 +910,9 @@ fn stream_power_core(
     if let Some(a) = area_seed {
         assert!(a.len() == n, "area seed is {} cells, needs exactly {n} ({w}x{h})", a.len());
     }
+    // The final clamp's top: 1.0 unless the field came in above 1 (Ruling
+    // DB's higher ceiling; [`field_top`]).
+    let top = field_top(fld);
     // One closure rather than an `if let` at four sites. It is a runtime check,
     // **not** a compiled-away one: `pinned` is a value, and this function is
     // far too large for LLVM to inline into `stream_power_kernel` and
@@ -1052,7 +1078,7 @@ fn stream_power_core(
 
     fld.par_iter_mut().enumerate().for_each(|(i, v)| {
         if !is_pinned(i) {
-            *v = v.clamp(0.0, 1.0)
+            *v = v.clamp(0.0, top)
         }
     });
 }
@@ -1352,9 +1378,14 @@ pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, b
     }
     // only long-wavelength unloading rebounds
     let b = cartalith_terrain::gauss_blur(&d, blur_r.max(8.0), gw, gh, world);
+    // 1.0 unless the field was above 1 before the erosion pass (Ruling DB's
+    // higher ceiling; [`field_top`]): read from `pre`, the field as it stood
+    // before that pass, so the rebound may restore a summit to its pre-pass
+    // height but never above the world's top.
+    let top = field_top(pre) as f64;
     field.par_iter_mut().zip(b.par_iter()).for_each(|(f, bi)| {
         let v = *f as f64 + 0.8 * *bi as f64;
-        *f = v.clamp(0.0, 1.0) as f32;
+        *f = v.clamp(0.0, top) as f32;
     });
 }
 

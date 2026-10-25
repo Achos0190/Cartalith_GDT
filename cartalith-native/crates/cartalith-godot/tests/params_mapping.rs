@@ -696,6 +696,36 @@ fn a_save_without_the_orogen_relief_key_reloads_without_it() {
     }
 }
 
+/// Protects: Ruling DB item 3's load rule -- a save written before `tect.high_ceiling` existed
+/// reloads with the top at 1 (its summits were generated under it), every other row of it still
+/// applies, and the key round-trips both ways once written. The fixture is a pre-ruling app save
+/// (every row but the new one), not an empty block.
+#[test]
+fn a_save_without_the_high_ceiling_key_reloads_with_the_old_top() {
+    assert!(params::defaults().tect.high_ceiling, "the shipped app generates with it on");
+    let mut old = params::defaults();
+    old.tect.high_ceiling = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("tect.high_ceiling").is_some(), "save_state writes the key");
+    let rows = native.len();
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &state);
+    assert_eq!(n, rows, "every other row of a pre-ruling save still applies");
+    assert!(!p.tect.high_ceiling, "a pre-existing save must not silently gain the higher top");
+    assert_eq!(p, old, "a pre-ruling save reloads as the world it was saved as");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.tect.high_ceiling = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["tect.high_ceiling"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.tect.high_ceiling = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.tect.high_ceiling, on);
+    }
+}
+
 /// Protects: a save lacking `volc.dry_active_craters` reloading with its active craters as they
 /// were generated (owner Ruling CX item 6, 2026-10-24), while a saved true/false round-trips.
 /// The fixture is a real pre-ruling shape: `save_state` of the old app defaults with the key
@@ -990,7 +1020,10 @@ fn the_glacial_default_carves_a_default_world() {
     let moved = a.field.iter().zip(b.field.iter()).filter(|(x, y)| x != y).count();
     println!("glacial default: {moved} of {} cells differ from the same world without it", a.field.len());
     assert!(moved > 0, "the shipped glacial default changed nothing -- the flag is dead");
-    assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
+    // The app's range is 0..`orogen::high_ceiling_top(sea)` under Ruling DB
+    // item 3's higher world ceiling (above 1 only where a summit stands).
+    let top = cartalith_terrain::orogen::high_ceiling_top(a.sea_level) as f32;
+    assert!(a.field.iter().all(|&v| (0.0..=top).contains(&v)), "height escaped [0, {top}]");
 }
 
 /// Protects: `apply_saved_state` never panicking or half-applying on a reference export (no
@@ -1035,6 +1068,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.cinder_grid_law = false;
     // And the dry active craters (Ruling CX item 6), the same way.
     expect.volc.dry_active_craters = false;
+    // And the higher world ceiling (Ruling DB item 3), the same way
+    // (`a_save_without_the_high_ceiling_key_reloads_with_the_old_top`).
+    expect.tect.high_ceiling = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1083,7 +1119,10 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `climate.rain_bspline` (Ruling CM, 2026-10-18,
 /// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)); and
 /// `volc.fill_edifice_pits` (Ruling CO, 2026-10-18,
-/// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)).
+/// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)). (The count above is
+/// stale: the body asserts fourteen, the later ones being Ruling CU item 1's
+/// orogen relief, Ruling CX items 1, 4 and 6, and Ruling DB item 3's
+/// `tect.high_ceiling`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1105,6 +1144,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.morphometry && !parity.volc.morphometry, "volcano morphometry (VA-5), Ruling CX item 1");
     assert!(app.volc.cinder_grid_law && !parity.volc.cinder_grid_law, "grid-aware cinder law, Ruling CX item 4");
     assert!(app.volc.dry_active_craters && !parity.volc.dry_active_craters, "dry active craters, Ruling CX item 6");
+    assert!(app.tect.high_ceiling && !parity.tect.high_ceiling, "higher world ceiling, Ruling DB item 3");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1118,8 +1158,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the thirteen must make the two identical --
-    // which catches a fourteenth divergence added without a ruling, in either
+    // And nothing else. Neutralising the fourteen must make the two identical --
+    // which catches a fifteenth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1135,10 +1175,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.morphometry = false;
     neutral.volc.cinder_grid_law = false;
     neutral.volc.dry_active_craters = false;
+    neutral.tect.high_ceiling = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         thirteen authorised fields"
+         fourteen authorised fields"
     );
 }
 
@@ -1146,7 +1187,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
 /// small world generated with them differs from the parity world, by a mean height shift under
 /// 0.1 and a land fraction within a factor of two.
 ///
-/// Three of the thirteen shipped divergences -- the volcanism/crater ones -- are
+/// Three of the fourteen shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
 /// path behind it is dead. The other ten, `integrate_drainage`,
@@ -1201,7 +1242,10 @@ fn the_shipped_defaults_generate_a_different_world_from_the_parity_baseline() {
     // same chaotic sensitivity `DECISIONS.md` §7a already relies on. The
     // meaningful bound is on the *magnitude*: this must still be the same
     // world, differently detailed, not a different one.
-    assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
+    // 0..`orogen::high_ceiling_top(sea)` under Ruling DB item 3's higher
+    // world ceiling (the app's range; above 1 only where a summit stands).
+    let top = cartalith_terrain::orogen::high_ceiling_top(a.sea_level) as f32;
+    assert!(a.field.iter().all(|&v| (0.0..=top).contains(&v)), "height escaped [0, {top}]");
     assert!(
         mean_abs < 0.1,
         "mean height moved by {mean_abs} -- three volcanism/crater corrections should \

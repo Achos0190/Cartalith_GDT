@@ -238,6 +238,8 @@ fn the_write_back_is_unclamped_upward_and_stops_at_half_the_sea_headroom_downwar
         ridged: false,
         // The reference schedule (Ruling CI's kilometre law is app-side only).
         km: None,
+        // The reference's clip at 1 (Ruling DB's higher top is app-side).
+        top: 1.0,
     };
     add_zoom_detail(&mut data, w, h, &hi, cw, ch, &b, 8, &opts);
     assert_eq!(fnv_f32(&data), "723a6826d627b855");

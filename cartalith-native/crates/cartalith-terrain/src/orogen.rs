@@ -613,14 +613,72 @@ pub const SOFT_CEILING_KNEE: f64 = 0.9;
 /// difference falls below `f32` resolution far above the knee. Must never be
 /// applied on the parity path, whose reference clips hard.
 pub fn soft_ceiling(v: f64) -> f64 {
+    soft_ceiling_to(v, 1.0)
+}
+
+/// The headroom of the **higher world ceiling** (owner Ruling DB item 3,
+/// 2026-10-25; `TectonicParams::high_ceiling`), as a multiple of the world's
+/// land range above the sea: the top is [`high_ceiling_top`], `1 + (1 -
+/// sea)·HEADROOM` in field units, so in metres (`(h - sea)/(1 - sea)·peak_m`)
+/// it is `(1 + HEADROOM)·peak_m` on every world whatever its sea level.
+///
+/// With it on, [`soft_ceiling_to`] saturates toward that top instead of 1,
+/// so a tall cone stamped on ground already near 1 (71077345's stratocone
+/// #15: about 0.78 units on a plateau at about 1) keeps its shape instead of
+/// being squeezed into the last thousandths below 1, where `f32` rounds it
+/// to a flat cap edged by a contour of the ground beneath.
+///
+/// 1.0 (a top at twice `peak_m`: 8 000 m at the default 4 000 m, against
+/// Everest's 8 849 m) is a labelled judgement, not a measurement. A fixed
+/// top in field units was tried first, 2.0 (2026-10-25,
+/// `summit_ceiling_census`): on the Hawaii-like seed 8, whose World
+/// Structure sea level is 0.858, the same 0.85-unit shield stamps then
+/// reached 1.80, about 26 600 m, because one field unit there is 28 000 m;
+/// relative to the sea the top stays a mountain-sized number everywhere.
+/// Only heights above the knee (0.9) change; the knee itself is unchanged.
+pub const HIGH_CEILING_HEADROOM: f64 = 1.0;
+
+/// The higher world ceiling's top, in field units, for a world whose sea
+/// level is `sea`: `1 + (1 - sea)·`[`HIGH_CEILING_HEADROOM`]. Never below 1
+/// (a sea at or above 1 leaves the old top), so never at or below the knee.
+pub fn high_ceiling_top(sea: f64) -> f64 {
+    1.0 + (1.0 - sea).max(0.0) * HIGH_CEILING_HEADROOM
+}
+
+/// The top a kernel or the tile synthesis clamps the height field to: 1 for every field that is at
+/// or under 1 on entry (every field the reference produces, which clips at 1,
+/// and every app field without Ruling DB's higher ceiling), else the field's
+/// own maximum on entry.
+///
+/// Why: the reference's kernels clamp to `0..1` because the field never
+/// went above 1. Under the higher world ceiling (owner Ruling DB item 3,
+/// `TectonicParams::high_ceiling`, `orogen::high_ceiling_top`) summits sit
+/// above 1, and a clamp at 1 would cut each one back to the flat cap the
+/// ruling removes. Clamping at the entry maximum instead lets no pass push
+/// the world higher than it found it, and cuts no summit it did not erode.
+///
+/// Must never return less than 1: with the field at or under 1 the result is
+/// exactly 1.0, so every reference-path clamp keeps its bits by control flow.
+pub fn field_top(fld: &[f32]) -> f32 {
+    fld.iter().fold(1.0f32, |m, &v| if v > m { v } else { m })
+}
+
+/// [`soft_ceiling`] saturating toward `top` instead of 1:
+/// `v <= k` unchanged, above it `k + (top - k)·tanh((v - k)/(top - k))`,
+/// continuous with slope 1 at the knee, non-decreasing, never above `top`.
+/// `top` 1.0 is [`soft_ceiling`] exactly (the same expression, so the same
+/// bits); [`high_ceiling_top`] is Ruling DB's higher ceiling. Must never be
+/// called with `top <= SOFT_CEILING_KNEE` (the band would be empty or
+/// inverted); the engine passes only 1.0 or [`high_ceiling_top`].
+pub fn soft_ceiling_to(v: f64, top: f64) -> f64 {
     let k = SOFT_CEILING_KNEE;
     if v <= k {
         v
     } else {
         // `tanh(x) = 1 - 2 / (e^{2x} + 1)` through the vendored `js_exp`
         // (the host's `tanh` is not guaranteed identical across platforms).
-        let x = (v - k) / (1.0 - k);
-        k + (1.0 - k) * (1.0 - 2.0 / (js_exp(2.0 * x) + 1.0))
+        let x = (v - k) / (top - k);
+        k + (top - k) * (1.0 - 2.0 / (js_exp(2.0 * x) + 1.0))
     }
 }
 
@@ -645,6 +703,39 @@ mod tests {
             prev = s;
         }
         assert!(soft_ceiling(50.0) <= 1.0);
+    }
+
+    /// Protects: Ruling DB item 3's higher ceiling -- the headroom is the
+    /// literal 1.0 and the top `1 + (1 - sea)` (literals at two sea levels,
+    /// not the formula re-derived), heights at or below the knee are
+    /// untouched, `top` 1.0 is `soft_ceiling` bit for bit, and under the
+    /// higher top the curve is non-decreasing, never above the top, and keeps
+    /// a cone's relief: a summit stamped at 1.73 stands well above ground at
+    /// 1.0 instead of both rounding to the old cap.
+    #[test]
+    fn the_higher_ceiling_keeps_summits_apart_and_leaves_the_knee() {
+        assert_eq!(HIGH_CEILING_HEADROOM, 1.0);
+        assert!((high_ceiling_top(0.42) - 1.58).abs() < 1e-12);
+        assert!((high_ceiling_top(0.858) - 1.142).abs() < 1e-12);
+        assert_eq!(high_ceiling_top(1.2), 1.0);
+        let top = high_ceiling_top(0.42);
+        assert_eq!(soft_ceiling_to(0.9, top), 0.9);
+        assert_eq!(soft_ceiling_to(0.42, top), 0.42);
+        for k in 0..400 {
+            let v = 0.85 + k as f64 * 0.01;
+            assert_eq!(soft_ceiling_to(v, 1.0).to_bits(), soft_ceiling(v).to_bits(), "v {v}");
+        }
+        let mut prev = 0.0;
+        for k in 0..4000 {
+            let v = 0.85 + k as f64 * 0.001;
+            let s = soft_ceiling_to(v, top);
+            assert!(s >= prev && s <= top, "v {v}: {s} after {prev}");
+            prev = s;
+        }
+        let (ground, summit) = (soft_ceiling_to(1.0, top), soft_ceiling_to(1.73, top));
+        assert!(summit - ground > 0.3, "ground {ground}, summit {summit}");
+        // Under the old top both sit within 0.025 of 1.
+        assert!(soft_ceiling(1.73) - soft_ceiling(1.0) < 0.025);
     }
 
     /// Protects: the libm-free cosine and sine agree with the host's to
