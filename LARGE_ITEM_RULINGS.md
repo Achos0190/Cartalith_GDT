@@ -2384,3 +2384,24 @@ Consequences, as labelled judgements the owner may overrule:
 4. Both an OpenAI-compatible adapter (covers local and hosted) and the Anthropic adapter are in v1 (LLM-1, LLM-4).
 
 **Still open:** Q4 (transport; default hybrid), Q5 (key storage with no OS store), Q6 (default state; the "off by default" above is the owner's wording but the consent-screen form is not ruled), Q7 (Vault writes marked as model-generated), Q8 (cost caps), Q9 (answered in substance by (c): Android is in v1; its sequencing relative to desktop is not ruled) and Q10 (edit actions). No scope document exists yet; the `OUTSTANDING_WORK.md` row records the next step.
+
+## Ruling DD — the LLM assistant's remaining questions: hybrid transport, no plaintext key, consent screen, click-only Vault prose, no enforced cap, desktop-then-phone, edit actions behind grouped undo (owner, 2026-10-25)
+
+The owner answered the questions Ruling DC left open (`LLM_INTEGRATION_RESEARCH.md` §7), as recorded by the main loop:
+
+- **Q4 transport = Hybrid.** A Rust protocol crate (`cartalith-llm`: requests, SSE parsing, validation, redaction, mock-transport tests) over Godot's `HTTPClient` for the wire.
+- **Q5 key storage where no OS credential store exists = environment variable or refuse.** No plaintext key file.
+- **Q6 default = off by default, plus one consent screen naming what is sent.**
+- **Q7 Vault writes = model prose is written to the Vault only on a user click, and marked model-generated.**
+- **Q8 cost caps = NO enforced cap.** The owner chose "No cap". A token counter is still shown.
+- **Q9 phone sequencing:** answered by Ruling DC (phone is in v1). Within v1, the research default stands unless the owner says otherwise: desktop first, then phone.
+- **Q10 = the model MAY run edit actions (sculpt/paint)** once a grouped undo exists and is tested.
+
+Consequences, as labelled judgements the owner may overrule:
+
+1. **Grouped undo is a hard prerequisite for any edit action, and for commands generally.** No model-proposed action that changes the map runs before a single-step grouped undo exists and its test is green. Edit actions are still proposals the user confirms.
+2. **Settings guard each capability.** Prose/Vault assist, commands, view/layer/parameter actions, edit actions, remote providers and local providers are each their own switch, all off until turned on; edit actions are a separate switch from commands.
+3. **Q8 deviates from the research's recommendation, by owner choice.** `LLM_INTEGRATION_RESEARCH.md` §5.3 and Q8 recommended a default per-session token cap. The owner ruled no enforced cap. The deviation is recorded here rather than reverted: no cap is enforced by default, but a visible running token counter, `max_tokens` on every request and no automatic retry beyond one remain, since they limit a single runaway request, not spend. A cap setting may exist as an opt-in, off by default. The risk (an unbounded bill on a hosted key) is the user's and the consent screen must say so.
+4. **No plaintext key anywhere.** Where neither Credential Manager nor Android Keystore is reachable, the key comes from an environment variable or the feature refuses to call a remote provider. This overrides the research's "last resort plain file".
+5. **Consent form:** one screen, shown before the first call, naming what is sent (the prompt and only the sources the user opted in), to which endpoint, and the cost-cap deviation above.
+6. `LLM_ASSISTANT_SCOPE.md` is the resulting scope document.
