@@ -279,8 +279,10 @@ const G1_FORMS: [(&str, &str); 8] = [
 /// `ecological_factor`) pays a standing army above the field army its levy
 /// can concentrate (`field = levy x (0.34 + 0.20 x logistics)` has no
 /// ecological term). That is the model's, reported, not tuned. What is
-/// asserted instead is the form's ordering verdict equals its anchor row's on
-/// every world, so a G1 row cannot be the cause of a break. The era-band
+/// asserted instead is that no form breaks an ordering its anchor row keeps,
+/// on any world, so a G1 row cannot be the cause of a break (since G1-5 the
+/// khanate's levy bonus makes it ordered on worlds where its anchor is not,
+/// which is allowed). The era-band
 /// verdict counts are printed, not barred (a form outside its band is a
 /// finding, `MILITARY_MANPOWER_SCOPE.md` §1). Ignored: it generates 20
 /// worlds.
@@ -307,7 +309,10 @@ fn g1_forced_forms_are_ordered_and_near_their_anchor() {
             } else {
                 println!("G1 unordered: seed {seed} {width} {factions} {form}: {:.0} / {:.0} / {:.0} (anchor {anchor} ordered: {})", m.standing_army, m.field_army, m.emergency_mobilization, is_ordered(&a));
             }
-            same_as_anchor += usize::from(is_ordered(&m) == is_ordered(&a));
+            // One-directional: an appended form may be ordered where its anchor
+            // is not (G1-5's khanate levy bonus does exactly that), but must
+            // never break an ordering its anchor keeps.
+            same_as_anchor += usize::from(is_ordered(&m) || !is_ordered(&a));
             let r = m.standing_army / a.standing_army;
             lo = lo.min(r);
             hi = hi.max(r);
@@ -327,7 +332,7 @@ fn g1_forced_forms_are_ordered_and_near_their_anchor() {
         }
         civ.faction_roster.0[1].government = saved;
     }
-    println!("G1 forced readings: {n}; ordered {ordered}; ordering verdict as the anchor's {same_as_anchor}; within 0.5x-2x of anchor {near} (ratio {lo:.3}..{hi:.3})");
+    println!("G1 forced readings: {n}; ordered {ordered}; no ordering broken that the anchor keeps {same_as_anchor}; within 0.5x-2x of anchor {near} (ratio {lo:.3}..{hi:.3})");
     println!("G1 control, reference forms on the same faction: {ref_n}; ordered {ref_ordered}");
     for ((form, s, mob), c) in verdicts.iter() {
         println!("G1 verdicts {form}: standing {s}, mobilization {mob}: {c}");

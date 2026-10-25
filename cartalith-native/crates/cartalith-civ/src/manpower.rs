@@ -311,6 +311,40 @@ pub const LEVY_STATE: f64 = 0.30;
 /// See [`LEVY_BASE`].
 pub const LEVY_LOGISTICS: f64 = 0.22;
 
+/// An extra share of the military-age pool a government's levy reaches,
+/// added inside the levy's `0.60` cap, for the one form whose mobilisation the
+/// two-knob schema cannot express (G1-5, Ruling CZ Q5, `GOVERNMENTS_SCOPE.md`
+/// §3.3).
+///
+/// **Why only `nomad_khanate`.** The research document flags it: *"near-
+/// universal mobilisation of free horsemen ... the existing two-knob
+/// extraction/citizen-share schema may not express this well."* Government
+/// reaches the levy only through `state_capacity`, so a low-extraction
+/// khanate got a *low* levy, the opposite of the historical case. This adds
+/// to the levy and nothing else: no standing army, no upkeep, no era row
+/// (`era_for` reads neither), which is the shape the specification's caution
+/// allows (*"the military is the adult population temporarily switching
+/// occupation"*; no standing-army modifier from a label).
+///
+/// **The value is derived, not chosen** (`GOVERNMENTS_SCOPE.md` §3.3's rule):
+/// a median khanate (capital reach 0.5, logistics 0.5, ecological factor 1,
+/// the `traditionalAgrarian` row) lands at the **centre** of its own era's
+/// mobilization band, as a share of its citizen body.
+/// `the_khanate_levy_bonus_is_derived_from_its_era_band` re-derives it and
+/// fails if any input moves without this moving too. The scope's indicative
+/// "near 0.25" was its replica's sweep; the rule gives `0.1886`.
+///
+/// Every other key has **no row**, so [`government_levy_bonus`] returns
+/// `None` and the levy expression is the one it was before G1-5, unchanged by
+/// control flow rather than by adding zero.
+pub const GOVERNMENT_LEVY_BONUS: [(&str, f64); 1] = [("nomad_khanate", 0.1886)];
+
+/// [`GOVERNMENT_LEVY_BONUS`]'s lookup: `Some(bonus)` for the one keyed form,
+/// `None` for every other key (never a stand-in `0.0`).
+pub fn government_levy_bonus(key: &str) -> Option<f64> {
+    GOVERNMENT_LEVY_BONUS.iter().find(|&&(k, _)| k == key).map(|&(_, v)| v)
+}
+
 /// [`Manpower::field_army`] as a share of the emergency mobilization: what
 /// can be concentrated in one place and fed there rather than defending its
 /// own valley.
@@ -1142,6 +1176,15 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
 /// `js_num_or_zero` performs for the reference's `p.pop||0` — because the
 /// alternative is a `NaN` reaching a headcount, and a headcount is a claim.
 pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
+    manpower_with_levy_bonus(input, government_levy_bonus(input.government))
+}
+
+/// [`civ_military_manpower`] with the levy bonus passed in rather than looked
+/// up, so a test can read the same faction with and without
+/// [`GOVERNMENT_LEVY_BONUS`] (G1-5's bar 4: the bonus never touches the
+/// standing army). Must not be called with a bonus the table does not hold
+/// outside a test.
+fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> Manpower {
     let nucleated = if input.nucleated_pop.is_finite() {
         js_max(0.0, input.nucleated_pop)
     } else {
@@ -1170,13 +1213,14 @@ pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
     let professional_core = standing * d.professionalization;
 
     // ---- Chain 2: population -> military age -> levy -> logistics -> field.
-    let levy_reach = js_max(
-        0.0,
-        js_min(
-            0.60,
-            LEVY_BASE + LEVY_STATE * d.state_capacity + LEVY_LOGISTICS * d.logistics_capacity,
-        ),
-    );
+    // G1-5: the khanate's bonus joins the sum inside the cap; every other
+    // form takes the `None` arm and the expression it always had.
+    let levy_raw = LEVY_BASE + LEVY_STATE * d.state_capacity + LEVY_LOGISTICS * d.logistics_capacity;
+    let levy_raw = match levy_bonus {
+        Some(b) => levy_raw + b,
+        None => levy_raw,
+    };
+    let levy_reach = js_max(0.0, js_min(0.60, levy_raw));
     let emergency = pool * levy_reach;
     let field = emergency * (FIELD_BASE + FIELD_LOGISTICS * d.logistics_capacity);
 
@@ -1962,6 +2006,61 @@ mod tests {
             assert_eq!(government_extraction(key), extraction, "{key} extraction");
             assert_eq!(citizen_share(key), citizens, "{key} citizen share");
         }
+    }
+
+    /// Protects G1-5's bars 2-4 (`GOVERNMENTS_SCOPE.md` §8; Ruling CZ Q5).
+    /// The bonus is re-derived by §3.3's rule, independently of the constant:
+    /// at a median khanate (reach 0.5, logistics exactly 0.5, ecological 1,
+    /// `traditionalAgrarian`) the levy reach that puts the mobilization at the
+    /// centre of its era's band, minus the reach the model gives without it.
+    /// Then: the pinned value matches to 5e-5; that khanate's mobilization is
+    /// within 0.5 percentage points of the centre; its standing army is
+    /// bit-identical with and without the bonus; and every other vocabulary
+    /// key reads `None` (exactly no bonus) -- asserted over all 17.
+    #[test]
+    fn the_khanate_levy_bonus_is_derived_from_its_era_band() {
+        let f = crate::roster::civ_ag_tech_by_key("traditionalAgrarian").farmers_per_urbanite;
+        let input = ManpowerInput {
+            nucleated_pop: 100_000.0,
+            farmers_per_urbanite: f,
+            land_capacity: 100_000.0 * (1.0 + f),
+            government: "nomad_khanate",
+            capital_road_reach: 0.5,
+            road_density: 7.0 / 9.0, // logistics exactly 0.5
+            navigable_share: 0.0,
+            sea_share: 0.0,
+        };
+        let d = military_drivers(&input);
+        assert!((d.logistics_capacity - 0.5).abs() < 1e-12);
+        assert_eq!(d.ecological_factor, 1.0);
+        let era = era_for(&d);
+        let centre = (era.mobilization.0 + era.mobilization.1) / 2.0;
+        let base = 0.04 + 0.30 * d.state_capacity + 0.22 * d.logistics_capacity;
+        let derived = centre * d.citizen_fraction / 0.25 - base;
+        assert!(base + derived < 0.60, "the cap must not bind at the median");
+        let pinned = government_levy_bonus("nomad_khanate").expect("the khanate row");
+        assert!((pinned - derived).abs() < 5e-5, "pinned {pinned}, derived {derived} ({})", era.name);
+        let with = manpower_with_levy_bonus(&input, Some(pinned));
+        let without = manpower_with_levy_bonus(&input, None);
+        assert_eq!(civ_military_manpower(&input).emergency_mobilization.to_bits(), with.emergency_mobilization.to_bits());
+        assert!((100.0 * (with.emergency_citizen_share - centre)).abs() < 0.5, "{} vs {centre}", with.emergency_citizen_share);
+        println!(
+            "G1-5 khanate: derived bonus {derived:.6}, pinned {pinned}; mobilization {:.4}% of citizens vs centre {:.4}% ({}); levy {:.0} -> {:.0}",
+            100.0 * with.emergency_citizen_share, 100.0 * centre, era.name, without.emergency_mobilization, with.emergency_mobilization
+        );
+        assert!(with.emergency_mobilization > without.emergency_mobilization);
+        assert_eq!(with.standing_army.to_bits(), without.standing_army.to_bits());
+        assert_eq!(with.professional_core.to_bits(), without.professional_core.to_bits());
+        assert_eq!(with.era_band.name, without.era_band.name);
+        let mut none = 0;
+        for &(k, _) in crate::roster::CIV_GOVERNMENTS.iter() {
+            if k != "nomad_khanate" {
+                assert_eq!(government_levy_bonus(k), None, "{k}");
+                none += 1;
+            }
+        }
+        assert_eq!(none, 16);
+        assert_eq!(government_levy_bonus("not-a-government"), None);
     }
 
     /// Protects: `GOVERNMENT_EXTRACTION` covers every roster government

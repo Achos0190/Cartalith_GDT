@@ -3567,7 +3567,8 @@ func _build_military_figures(parent: Control) -> void:
 		DccWidgets.note(sec, "%s is one of the added forms: its citizen share is the share a %s confers, an authored ordering placed against that row, not a calibrated value." % [
 			String(gov_row.get("label", gov_key)), String(anchor_row.get("label", gov_row.get("anchor", "?")))])
 		if gov_key == "nomad_khanate":
-			DccWidgets.note(sec, "Universal mobilisation of free horsemen is not modelled yet.")
+			## G1-5 (`manpower::GOVERNMENT_LEVY_BONUS`, Ruling CZ Q5).
+			DccWidgets.note(sec, "Its levy reaches further than its extraction alone gives: a bonus for its free horsemen, set so a median khanate's mobilisation lands at the centre of its era's band. Its standing army is unchanged by it.")
 	DccWidgets.note(sec, "Reads as a %s (%s). Standing %.2f%% of citizens — %s that era's %.1f–%.1f%% band; mobilization %.1f%% — %s its %.0f–%.0f%%." % [
 		String(m.get("era", "?")), String(m.get("era_constraint", "")),
 		100.0 * float(m.get("standing_citizen_share", 0.0)),

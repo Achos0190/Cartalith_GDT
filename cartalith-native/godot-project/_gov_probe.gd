@@ -13,7 +13,8 @@ extends Node
 ##           "GovernmentHint" line under the picker follows the pick
 ##   DOCK    the right dock's Faction card shows the vocabulary label
 ##   MIL     a faction set to an added form gets the Military tab's
-##           authored-ordering line naming its anchor; a reference form does not
+##           authored-ordering line naming its anchor; a reference form does not;
+##           the khanate states its levy bonus (G1-5)
 ##   UNKNOWN a stored key this build does not know ("future_form") shows its
 ##           own name, is not choosable, and 0 rows read "None / Unclaimed"
 ##           as the selection; the dock names it the same way
@@ -256,8 +257,8 @@ func _run() -> void:
 	await _frames(12)
 	mil = PackedStringArray()
 	_texts(_fr, mil)
-	_ok("MIL the khanate says its universal levy is not modelled yet",
-		"\n".join(mil).contains("Universal mobilisation of free horsemen is not modelled yet."))
+	_ok("MIL the khanate states its levy bonus (G1-5)",
+		"\n".join(mil).contains("Its levy reaches further than its extraction alone gives"))
 	_bridge.civ_set_faction_field(f, "government", "monarchy")
 	_app.open_faction_roster(f, "military")
 	await _frames(12)

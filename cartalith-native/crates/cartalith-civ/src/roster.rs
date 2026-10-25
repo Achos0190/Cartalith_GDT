@@ -445,7 +445,7 @@ pub const GOVERNMENT_DISPLAY: [GovernmentDisplay; 17] = [
     GovernmentDisplay {
         key: "nomad_khanate",
         group: Some("Kin-based"),
-        hint: "The Mongols, the Turkic khaganates. Low extraction; its near-universal levy of free horsemen is not modelled yet.",
+        hint: "The Mongols, the Turkic khaganates. Low extraction, but its levy of free horsemen reaches further (a levy bonus, no larger standing army).",
         anchor: Some("tribal_confederacy"),
     },
     GovernmentDisplay {
