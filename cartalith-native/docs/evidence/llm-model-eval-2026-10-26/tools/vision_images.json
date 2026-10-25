@@ -1,0 +1,82 @@
+[
+ {
+  "id": "A_islands_describe",
+  "file": "va6-kinds-2026-10-25/01_s24601_x1_dome_off_left_on_right.jpg",
+  "q": "This image is a synthetic fantasy-map render (two panels side by side). Describe the map in three sentences."
+ },
+ {
+  "id": "A_islands_sea",
+  "file": "va6-kinds-2026-10-25/01_s24601_x1_dome_off_left_on_right.jpg",
+  "q": "Is there sea (open water) in this map? Answer yes or no, then say where."
+ },
+ {
+  "id": "A_islands_volc",
+  "file": "va6-kinds-2026-10-25/01_s24601_x1_dome_off_left_on_right.jpg",
+  "q": "How many volcano-like features (cones or crater lakes) can you see? Give a number and where each is."
+ },
+ {
+  "id": "A_islands_changed",
+  "file": "va6-kinds-2026-10-25/01_s24601_x1_dome_off_left_on_right.jpg",
+  "q": "The left and right panels are a before/after pair of the same map. What changed between them?"
+ },
+ {
+  "id": "B_island_describe",
+  "file": "ruling-db-2026-10-25/07_s24601_archipelago_ceiling_x16_old_left_new_right.jpg",
+  "q": "This image is a synthetic fantasy-map render (two panels side by side). Describe the map in three sentences."
+ },
+ {
+  "id": "B_island_sea",
+  "file": "ruling-db-2026-10-25/07_s24601_archipelago_ceiling_x16_old_left_new_right.jpg",
+  "q": "Is there sea (open water) in this map? Answer yes or no, then say where."
+ },
+ {
+  "id": "B_island_volc",
+  "file": "ruling-db-2026-10-25/07_s24601_archipelago_ceiling_x16_old_left_new_right.jpg",
+  "q": "How many volcano-like features (cones or crater lakes) can you see? Give a number and where each is."
+ },
+ {
+  "id": "B_island_changed",
+  "file": "ruling-db-2026-10-25/07_s24601_archipelago_ceiling_x16_old_left_new_right.jpg",
+  "q": "The left and right panels are a before/after pair of the same map. What changed between them?"
+ },
+ {
+  "id": "C_coast_describe",
+  "file": "va6-kinds-2026-10-25/08_s314159_x1_before_left_after_right.jpg",
+  "q": "This image is a synthetic fantasy-map render (two panels side by side). Describe the map in three sentences."
+ },
+ {
+  "id": "C_coast_sea",
+  "file": "va6-kinds-2026-10-25/08_s314159_x1_before_left_after_right.jpg",
+  "q": "Is there sea (open water) in this map? Answer yes or no, then say where."
+ },
+ {
+  "id": "C_coast_volc",
+  "file": "va6-kinds-2026-10-25/08_s314159_x1_before_left_after_right.jpg",
+  "q": "How many volcano-like features (cones or crater lakes) can you see? Give a number and where each is."
+ },
+ {
+  "id": "C_coast_changed",
+  "file": "va6-kinds-2026-10-25/08_s314159_x1_before_left_after_right.jpg",
+  "q": "The left and right panels are a before/after pair of the same map. What changed between them?"
+ },
+ {
+  "id": "D_caldera_describe",
+  "file": "va6-kinds-2026-10-25/16_s71077345_caldera_x4_before_left_after_right.jpg",
+  "q": "This image is a synthetic fantasy-map render (two panels side by side). Describe the map in three sentences."
+ },
+ {
+  "id": "D_caldera_sea",
+  "file": "va6-kinds-2026-10-25/16_s71077345_caldera_x4_before_left_after_right.jpg",
+  "q": "Is there sea (open water) in this map? Answer yes or no, then say where."
+ },
+ {
+  "id": "D_caldera_volc",
+  "file": "va6-kinds-2026-10-25/16_s71077345_caldera_x4_before_left_after_right.jpg",
+  "q": "How many volcano-like features (cones or crater lakes) can you see? Give a number and where each is."
+ },
+ {
+  "id": "D_caldera_changed",
+  "file": "va6-kinds-2026-10-25/16_s71077345_caldera_x4_before_left_after_right.jpg",
+  "q": "The left and right panels are a before/after pair of the same map. What changed between them?"
+ }
+]
