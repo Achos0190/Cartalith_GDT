@@ -306,6 +306,52 @@ Design facts the build fixed, each checked at its symbol; how far the milestones
 12. **Not built in LLM-6a/6b:** view and layer commands (so the bar's "a proposal naming an unavailable command is refused with the `CommandIndex` reason" has no command to apply to yet), the "Choose groups" chip fallback (s.5b.1), the "default differs" marker beyond the old value's line, and a "(undone)" state on a card after Edit > Undo.
 13. **Stage-2 driver.** `godot-project/_llmparams_cli.gd` (probe-only) runs one request against one preset headless through the app's own gate, conversation, validator and wire and prints `PARAMS_RESULT <json>` (proposal, verdicts, tool calls, steps, usage, timing); it never applies anything. Usage is in its header.
 
+## 5c. Future idea (unscheduled): paint an area, describe it, the model drives the sculpt tools
+
+**Owner idea, 2026-10-25, recorded as stated:** *"a tool to paint an area on the map and have the local LLM use the sculpt tools based on a description (for the future)."* Not scheduled: no Ruling schedules it, no milestone below is open, and nothing in it is built. It is a scope sketch so that the idea is not lost and so that LLM-7 is shaped with it in view. It has no status column; if the owner schedules it, it gets milestone rows in s.3 and a row in `STATUS.md`.
+
+**What it is.** The user paints a region on the map (a mask), types a description ("a ridge running north-south with a lake on its eastern flank"), and the assistant answers with a proposal of sculpt operations confined to that region. The user sees a preview, clicks Apply, and the whole thing is one undo step. It is LLM-7 (edit actions) with a spatial input; it inherits every LLM-7 bar and adds the ones below.
+
+**What it needs**
+
+1. **A region-select / paint-mask tool as the input.** A new editing tool that produces a mask over the world grid (brush strokes and a fill, with erase), shown as an overlay, held outside the world data (it is a request input, never saved into a world `.zip`). It must report its bounding box and cell count before anything is sent. Existing candidates to reuse, to be verified at their symbols when scheduled: the colour-paint tool's marks (`COLOUR_PAINT_SCOPE.md`) and the click-seeded fill helper. [judgement; not opened for this section]
+2. **The model gets cell coordinates and numbers, never images.** Ruling DI P5 bars map images in the app for now, so the request carries the mask as a compact description (bounding box in cells, cell count, and either run-length rows or a coarse polygon), plus per-region summary statistics (min / mean / max height, land fraction, slope, nearest coast and river distance) read from the engine's own getters. It needs its own context-source checkbox, off until ticked (the Ruling DI P3 pattern), because heights of the user's world are being sent. A mask larger than a labelled byte bound (a judgement, to be measured; the s.5b.1 schema bar of 12 000 bytes is the precedent) is refused with a reason or summarised, never silently truncated.
+3. **The sculpt tools exposed as tool calls (LLM-7 edit actions).** One closed tool per sculpt operation the shell already has (raise / lower / smooth / ridge / noise-style brushes and their parameters, as the sculpt panel lists them; `SCULPT_FUNCTION_CHART.md`), each with a typed schema of finite, bounded numbers, generated from the tool's own limits the way s.5b.1 generates the parameter catalogue from `params::PARAMS`, so the schema cannot drift from the tool. The model calls the proposal tool; the app never lets a call run directly.
+4. **Grouped undo exists (LLM-5).** The apply path is the one LLM-6b uses: one undo group wrapping several per-tool entries, one step to undo, one to redo, a failure inside rolls the group back. Note LLM-5's open finding: a `world_loaded` emission (a fjord carve, a centring pass, an applied asset pack) clears the look and colour-paint stacks; a sculpt group must not trigger it.
+
+**Validator bars for edit actions** (proposals; each to be stated with a mutation like the s.3 bars when scheduled)
+
+| Bar | What it checks |
+|---|---|
+| Bounds | Every stroke centre and extent lies inside the painted mask (or within a named margin of it) and inside the world grid; a stroke outside is rejected, not clipped |
+| Brush limits | Radius, strength, falloff and spacing are within the tool's own ranges; a per-proposal ceiling on stroke count and total touched area, each a named constant with a stated source (LLM-7's rule) |
+| Height ceiling | The predicted height change per cell is bounded (a labelled judgement); a result that would cross a labelled absolute limit is refused |
+| Rejection, not clamping | Out-of-range, fractional-where-integer, non-finite, duplicate or unknown values are rejected (Ruling DI P1 carried over) |
+| One undo step | Apply creates exactly one group; undo restores a world whose field hash equals the pre-apply hash on 3 seeds; redo re-applies it |
+| No side effects | Apply never starts generation or erosion; a probe counts `generate` calls over an Apply and expects 0 |
+| Preview and click | A preview of the predicted change is shown first and nothing runs without a click; the preview is computed by the app from the validated operations, not supplied by the model |
+| Hostile text | A mask description or a place name that carries instructions leaves the allowed tool set and the mask unchanged (an LLM-9 corpus extension) |
+
+**Risks**
+
+1. **Models do not know the numbers.** A local model has no feel for what "strength 0.4, radius 12 cells" does at this world's scale; it may produce valid but ugly or no-op edits. LLM-6c stage 1 measured direction agreement on parameter requests only; nothing here has been measured. Measure first (a scripted set of described regions with expected signs, as LLM-6c does) before any bar on quality.
+2. **Quality is judged by eye.** A valid, bounded edit can still look wrong; the preview and one-step undo are the remedy, not a guarantee. Zoom detail at several levels is the owner's standing requirement for judging terrain.
+3. **Mask encoding size and fidelity.** A text description of an irregular mask is lossy; the model may mis-place features within it. Prefer the app placing features from model-chosen anchors expressed in region-relative terms over raw absolute coordinates [judgement].
+4. **Privacy.** World heights and shapes leave the machine if the endpoint is not local; the context-source checkbox and consent text must say so.
+5. **Interaction with erosion.** Sculpted terrain that a later regeneration or erosion pass would overwrite must be marked or documented, as the live-sculpt scope already treats its edits.
+6. **Dependency chain.** It needs LLM-7 and LLM-5, and a local model that can call tools well; the s.5b.7 difficulty note applies.
+
+**Owner questions, with defaults** (none asked yet; recommended answers only)
+
+| # | Question | Default |
+|---|---|---|
+| E1 | Should the first version only raise / lower / smooth, leaving ridge and noise brushes out? | Yes: fewest operations, easiest to bound and to preview |
+| E2 | Mask as a coarse polygon plus statistics, or run-length rows? | Coarse polygon plus statistics; run-length only if measurement shows the polygon loses the shape |
+| E3 | Local endpoints only for this feature? | Yes at first: heights of the user's world are sent, and the Ruling DI P5 spirit is minimum data out |
+| E4 | May the model also paint (colour paint) in the region, or sculpt only? | Sculpt only; paint is a later row |
+| E5 | Is a model-supplied preview ever acceptable? | No: the app computes the preview from validated operations |
+| E6 | Schedule it now? | No; unscheduled until the owner says so. LLM-7 is its prerequisite |
+
 ## 6. UI forms (DCC shell; design pass LLM-0 first)
 
 - **Desktop:** a docked Assistant panel (message list, input, proposal list with Apply and Dismiss, token counter) and a settings group beside the Preferences and Performance groups in `dcc_settings.gd`; the consent screen is a modal.
@@ -328,7 +374,7 @@ Design facts the build fixed, each checked at its symbol; how far the milestones
 
 ## 8. Owner questions still open
 
-None blocking. Optional: whether the opt-in cap (§5) should exist at all; whether Android Keystore alone suffices or an env var is meaningful on a phone.
+None blocking. An unscheduled idea has its own recommended-default questions E1-E6 in s.5c (paint a region, describe it, the model drives the sculpt tools). Optional: whether the opt-in cap (§5) should exist at all; whether Android Keystore alone suffices or an env var is meaningful on a phone.
 
 ## 9. Tested with (dated evidence, appended per run; LLM-3 bar)
 
@@ -343,3 +389,22 @@ A list of servers and models the local path has actually been run against, with 
 | not run | LM Studio | n/a | nothing was listening on `localhost:1234` on 2026-10-25 (`curl` got no answer) | no claim is made about LM Studio's wire; its preset values stay `[recalled]` |
 
 The other pulled models (`TheDrummer Cydonia 24B`, `Gemma The Writer 10B`, a writer fine-tune, two embedding models) were not run: LLM-3 needs one working model, and the owner asked for synthetic prompts only.
+
+### 9a. Local-model tooling set up on the owner's machine (environment, 2026-10-25)
+
+Environment evidence for the s.5a local-provider path, kept beside the tested-with table and with the same rule: dated, appended, never edited. **Every number below was measured on 2026-10-25 by the working session, as a single run, on the owner's AMD Radeon RX 7800 XT (16 GB), Windows 11; none is a benchmark, none has a spread, and none has been repeated.** The tokens-per-second figures are generation speed as each tool reported it, not a fixed-prompt comparison.
+
+- **LM Studio 0.4.26** is installed. `winget` hung behind another stuck `winget`, so the signed installer was run directly after its hash was verified.
+- **Runtimes:** llama.cpp **ROCm 2.64.0** is selected; **Vulkan 2.64.0** is also installed.
+- **Models are shared with Ollama through NTFS hard links** under `C:\Users\Vincent\.lmstudio\models`: `qwen3-14b`, and `qwen3.8-27b` in the `UD-Q3_K_XL` quantisation with its `mmproj` file. Hard links, so no extra disk is used.
+- **Qwen3.8-27B `UD-Q3_K_XL`, generation speed, single runs:**
+
+| Server and backend | Measured speed | Note |
+|---|---|---|
+| Ollama, bundled build | 4 to 7 tok/s | Partly spilled to system memory; a stale `llama-server` runner from an earlier session was still holding VRAM at the time |
+| LM Studio, Vulkan | 14 to 17 tok/s | |
+| LM Studio, ROCm | 26 to 30 tok/s | 8192 context; 15.7 GB dedicated plus 7.9 GB shared GPU memory reported |
+
+- **Not yet tried:** the 4-bit build (`UD-Q4_K_M`) and the vision path (the `mmproj`). The app does not use vision in any case (Ruling DI P5).
+- **Desktop compositor:** about 0.3 GB of VRAM is in use with no model loaded.
+- **Consequence for s.5a:** the 27B model at this quantisation fills the 16 GB card almost entirely, so a same-machine model and the Cartalith compute path compete for VRAM; this is the situation the Ruling DF rule (prefer the lowest-power GPU for compute while a same-machine local provider is selected) exists for. These runs did not test that rule. The `LM Studio | not run` row above still describes the app: no run has yet gone through the app's own path against LM Studio.
