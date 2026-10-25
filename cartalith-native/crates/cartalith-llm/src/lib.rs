@@ -1,6 +1,6 @@
 //! `cartalith-llm`: the protocol half of the optional LLM assistant.
 //!
-//! Milestones LLM-1 to LLM-3 of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
+//! Milestones LLM-1 to LLM-4 of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
 //! Rust, no Godot types, **no network use**: requests are built as bytes, responses
 //! arrive as bytes, and the wire is Godot's `HTTPClient` on a worker thread
 //! (`shell/llm_wire.gd`; Ruling DD Q4, hybrid transport). Two ways in: the pull-shaped
@@ -13,6 +13,10 @@
 //! | [`error`] | [`error::LlmError`]; text variants hold only scrubbed text |
 //! | [`sse`] | chunk-safe Server-Sent-Events framing |
 //! | [`openai`] | OpenAI-compatible request builder and stream decoder |
+//! | [`anthropic`] | Anthropic Messages request builder and typed-event stream decoder (LLM-4) |
+//! | [`request`] | [`request::build_request`]: one builder entry, the wire chosen by the gate (LLM-4) |
+//! | [`counter`] | the running token counter and the opt-in cap check (LLM-4) |
+//! | [`retry`] | the one automatic retry, as a budget (LLM-4) |
 //! | [`presets`] | provider defaults as data (URLs, ports, auth, flags), evidence-tagged |
 //! | [`event`] | the one [`event::Event`] enum |
 //! | [`host`] | [`host::classify_host`]: same machine, local network, remote or unknown, from text alone |
@@ -30,6 +34,8 @@
 //! seed-deterministic path, and nothing here depends on any other workspace
 //! crate. Progress is in `cartalith-native/docs/STATUS.md`.
 
+pub mod anthropic;
+pub mod counter;
 pub mod error;
 pub mod event;
 pub mod gpu;
@@ -39,6 +45,8 @@ pub mod note;
 pub mod openai;
 pub mod prepare;
 pub mod presets;
+pub mod request;
+pub mod retry;
 pub mod prompt;
 pub mod secret;
 pub mod session;
@@ -51,6 +59,7 @@ pub use error::{LlmError, Scrubbed};
 pub use event::{Event, Usage};
 pub use gpu::{Adapter, GpuOverride, GpuPlan};
 pub use host::{HostClass, HostError, HostInfo, classify_host};
+pub use presets::{ApiStyle, RequestHints, request_hints};
 pub use keystore::{KeySource, KeyState, KeyStore};
 pub use settings::{Authorized, Capability, LlmSettings, Refusal, authorize};
 pub use openai::{
@@ -58,7 +67,11 @@ pub use openai::{
     endpoint,
 };
 pub use secret::{ApiKey, Redactor};
-pub use session::run_chat;
+pub use anthropic::{AnthropicDecoder, build_messages_request};
+pub use counter::{TokenCounter, check_cap};
+pub use request::build_request;
+pub use retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
+pub use session::{run_chat, run_chat_styled};
 pub use stream::StreamSession;
 pub use sse::{SseMessage, SseParser};
-pub use transport::{Header, HttpRequest, HttpResponse, MockTransport, Transport};
+pub use transport::{Header, HttpRequest, HttpResponse, MockTransport, Transport, WireTarget};

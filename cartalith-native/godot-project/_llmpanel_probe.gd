@@ -30,6 +30,11 @@ extends Node
 ##   7. TASKS: Story sends events, Note sends the chosen note only when its source is ticked.
 ##   8. CLOSE: hiding the window mid-stream cancels and joins.
 ##   9. TOUCH: tablet and phone controls meet the density floor and sit inside the window.
+##  11. LLM-4 (counter, cap, retry): Reset zeroes the counter line ("not reported yet"); a reply on
+##      the Anthropic wire shows its usage ("Tokens 30 in / N out", "no cap"); a cap that the
+##      counter has reached disables Send with the reason BEFORE the click and the line says "cap N";
+##      Reset lifts it; one 529 shows "Trying once more" and the reply still completes after exactly
+##      two requests; the status line says where the endpoint is (hosted or this computer).
 ##  10. LEAKS: the key is absent from the note, the settings file, every label in the window and
 ##      `godot.log`.
 ## Result: `RESULT: PASS|FAIL (<n> failed)`. Exit 0 pass, 1 fail, 2 bad argument or watchdog.
@@ -77,7 +82,8 @@ func _shot(tag: String) -> void:
 	if _shots == "":
 		return
 	await _settle(3)
-	var path := _shots.path_join("llm3_%s_%s.png" % [_mode, tag])
+	## Shots numbered 10 and up belong to LLM-4 (counter, cap, retry); the rest are LLM-3's.
+	var path := _shots.path_join("llm%s_%s_%s.png" % ["4" if int(tag.get_slice("_", 0)) >= 10 else "3", _mode, tag])
 	get_viewport().get_texture().get_image().save_png(path)
 	print("SHOT %s" % path)
 
@@ -506,6 +512,59 @@ func _ready() -> void:
 	_ok(LlmWire.live_threads == 0 and not _win.run.busy(), "hiding the window joined the worker")
 	_ok(await _until(func(): return _server.client_hangups > h0, 3000), "...and closed the socket")
 
+	# ------------------------------------------------------------------ 7b. LLM-4: counter, cap, retry
+	print("== 7b. counter, cap and retry (LLM-4) ==")
+	_win.open()
+	await _settle(8)
+	_configure({"preset_id": "custom_anthropic", "token_cap": 0})
+	_server.scenario = "anthropic"
+	_server.token_delay_ms = 10
+	_server.tokens = ["The ", "river ", "runs ", "south."]
+	_win._pick_task("prose")
+	await _type("Describe the river.")
+	await _click(_c("tokens_reset"))
+	await _settle(3)
+	_ok((_c("tokens") as Label).text == "Tokens: not reported yet · no cap", "Reset empties the counter line: '%s'" % (_c("tokens") as Label).text)
+	var st := (_c("status") as Label).text
+	_ok(st.contains("(this computer or network)") and st.begins_with("http://127.0.0.1:%d" % _port), "the status line says where the endpoint is: '%s'" % st.left(90))
+	_ok(not (_c("send") as Button).disabled, "Send is enabled on the Anthropic style")
+	var n4 := _server.requests.size()
+	await _click(_c("send"))
+	await _until(func(): return _server.requests.size() > n4 and not _win.run.busy(), 12000)
+	await _settle(6)
+	_ok(_assistant_text() == "The river runs south.", "the Anthropic reply is shown: '%s'" % _assistant_text())
+	_ok(_server.requests[n4]["path"] == "/v1/messages" and String(_server.requests[n4]["headers"].get("x-api-key", "")) == SECRET, "it went to /v1/messages with x-api-key")
+	var tok4 := (_c("tokens") as Label).text
+	_ok(tok4 == "Tokens 30 in / 4 out · no cap", "the counter shows usage and 'no cap': '%s'" % tok4)
+	await _shot("10_counter")
+	# A cap the counter has reached: Send is disabled with the reason before any click.
+	## `_configure` restores its own defaults for every key it is not given, INCLUDING the provider,
+	## so each call in this section names the Anthropic preset again (the first run of this section
+	## silently went back to the OpenAI wire and failed against the Anthropic server).
+	_configure({"preset_id": "custom_anthropic", "token_cap": 10})
+	_win._refresh()
+	await _settle(3)
+	_ok((_c("send") as Button).disabled and (_c("reason") as Label).text.contains("token cap is reached"), "a reached cap disables Send saying why: '%s'" % (_c("reason") as Label).text.left(70))
+	_ok((_c("tokens") as Label).text.ends_with("· cap 10"), "...and the counter line says 'cap 10': '%s'" % (_c("tokens") as Label).text)
+	await _shot("11_cap_reached")
+	await _type("Describe the river once more.")
+	await _click(_c("tokens_reset"))
+	await _settle(3)
+	_ok(not (_c("send") as Button).disabled and (_c("tokens") as Label).text == "Tokens: not reported yet · cap 10", "Reset lifts it: '%s'" % (_c("tokens") as Label).text)
+	_configure({"preset_id": "custom_anthropic", "token_cap": 0})
+	_win._refresh()
+	# One 529, then success: the retry is visible as words, and the reply completes.
+	n4 = _server.requests.size()
+	_server.fail_next = 1
+	await _type("Describe the river again.")
+	await _click(_c("send"))
+	await _until(func(): return _server.requests.size() - n4 >= 2 and not _win.run.busy(), 15000)
+	await _settle(6)
+	_ok(_server.requests.size() - n4 == 2, "exactly two requests for one 529 (%d)" % (_server.requests.size() - n4))
+	_ok(_window_text().contains("Overloaded. Trying once more;"), "the panel says it is trying once more")
+	_ok(_assistant_text() == "The river runs south.", "...and the reply completed: '%s'" % _assistant_text())
+	await _shot("12_retry")
+
 	# ------------------------------------------------------------------ 8. touch and layout
 	print("== 8. density ==")
 	_win.open()
@@ -516,7 +575,7 @@ func _ready() -> void:
 	elif _mode == "tablet":
 		floor_px = float(DccTheme.role_px("btn_min_h"))
 	var win_rect := Rect2(Vector2(_win.position), Vector2(_win.size))
-	for name in ["send", "stop", "save", "note_reload", "settings", "task_prose", "task_story", "task_note", "note", "input"]:
+	for name in ["send", "stop", "save", "tokens_reset", "note_reload", "settings", "task_prose", "task_story", "task_note", "note", "input"]:
 		var c := _c(name)
 		if c == null or not c.is_visible_in_tree():
 			continue

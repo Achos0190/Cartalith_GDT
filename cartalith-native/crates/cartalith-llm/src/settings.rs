@@ -24,10 +24,11 @@ use crate::error::LlmError;
 use crate::event::Event;
 use crate::host::{HostClass, HostError, classify_host};
 use crate::keystore::{KeySource, KeyState};
+use crate::counter::{TokenCounter, check_cap};
 use crate::openai::{ChatRequest, endpoint};
 use crate::presets::{self, ApiStyle, KeyRequirement};
 use crate::secret::ApiKey;
-use crate::session::run_chat;
+use crate::session::run_chat_styled;
 use crate::transport::Transport;
 
 /// What the user is asking the assistant to do; each has its own switch.
@@ -85,6 +86,10 @@ pub struct LlmSettings {
     pub key_source: KeySource,
     /// The environment variable name when the source is the environment.
     pub env_var: String,
+    /// Optional opt-in spend guard, in tokens the servers reported this run.
+    /// `None` -- the default and Ruling DD Q8's choice -- enforces nothing. The
+    /// shell maps its "0 = off" to `None`; `Some(0)` is never produced.
+    pub token_cap: Option<u64>,
 }
 
 impl LlmSettings {
@@ -102,6 +107,7 @@ impl LlmSettings {
             model: String::new(),
             key_source: KeySource::EnvVar,
             env_var: crate::keystore::DEFAULT_ENV_VAR.to_owned(),
+            token_cap: None,
         }
     }
 
@@ -166,6 +172,14 @@ pub enum Refusal {
     KeyStoreFailed,
     /// The first call to this endpoint needs the consent screen first.
     ConsentNeeded(String),
+    /// The user's own opt-in token cap is reached (LLM-4). Only possible when a
+    /// cap was set; with none, nothing produces this.
+    TokenCapReached {
+        /// The cap the user set.
+        cap: u64,
+        /// Tokens the servers have reported this run.
+        used: u64,
+    },
 }
 
 impl Refusal {
@@ -188,6 +202,7 @@ impl Refusal {
             Refusal::KeyStoreEmpty => "key_store_empty",
             Refusal::KeyStoreFailed => "key_store_failed",
             Refusal::ConsentNeeded(_) => "consent_needed",
+            Refusal::TokenCapReached { .. } => "token_cap_reached",
         }
     }
 
@@ -226,6 +241,11 @@ impl Refusal {
             Refusal::ConsentNeeded(origin) => {
                 format!("Consent needed for {origin}. Review what is sent before the first request.")
             }
+            Refusal::TokenCapReached { cap, used } => format!(
+                "Your token cap is reached: {used} tokens reported this session against a cap of {cap}. \
+                 Raise the cap, set it to 0 to turn it off, or reset the counter, in Settings. \
+                 The cap counts only what the servers report."
+            ),
         }
     }
 }
@@ -346,20 +366,40 @@ pub fn authorize(
     Ok(Authorized { origin, class: info.class, style, local, key_required })
 }
 
-/// The only way a later milestone sends: gate first, transport second. A
-/// refusal returns before `transport` is touched, which the counting-transport
-/// test below pins.
+/// The opt-in cap check, run after [`authorize`] and before a request is built.
+/// With `s.token_cap == None` (the default) it is `Ok` for every counter value:
+/// the scope's "no enforced cap exists by default" bar, tested with ten calls
+/// past a counter at `u64::MAX`.
+pub fn authorize_spend(s: &LlmSettings, counter: &TokenCounter) -> Result<(), Refusal> {
+    check_cap(s.token_cap, counter).map_err(|(cap, used)| Refusal::TokenCapReached { cap, used })
+}
+
+/// The only way a later milestone sends: gate first, cap second, transport third.
+/// A refusal returns before `transport` is touched, which the counting-transport
+/// test below pins. The wire follows the gate's decision (`Authorized::style`),
+/// each attempt is counted and each reply's usage is recorded in `counter`, and
+/// a transient failure is retried once ([`run_chat_styled`]).
+#[allow(clippy::too_many_arguments)] // gate inputs + counter + transport + request: each is a distinct decision
 pub fn run_authorized_chat(
     s: &LlmSettings,
     cap: Capability,
     key_state: &KeyState,
     consented: &[String],
+    counter: &mut TokenCounter,
     transport: &mut dyn Transport,
     key: Option<&ApiKey>,
     req: &ChatRequest,
 ) -> Result<Vec<Event>, Refusal> {
-    authorize(s, Some(cap), key_state, consented)?;
-    Ok(run_chat(transport, &s.base_url, key, req))
+    let authorized = authorize(s, Some(cap), key_state, consented)?;
+    authorize_spend(s, counter)?;
+    counter.begin_call();
+    let events = run_chat_styled(transport, authorized.style, &s.base_url, key, req);
+    for e in &events {
+        if let Event::Usage(u) = e {
+            counter.record(u);
+        }
+    }
+    Ok(events)
 }
 
 #[cfg(test)]
@@ -381,6 +421,7 @@ mod tests {
             model: "llama3".into(),
             key_source: KeySource::EnvVar,
             env_var: "K".into(),
+            token_cap: None,
         }
     }
 
@@ -599,6 +640,7 @@ mod tests {
             Refusal::KeyStoreEmpty,
             Refusal::KeyStoreFailed,
             Refusal::ConsentNeeded("http://x".into()),
+            Refusal::TokenCapReached { cap: 10, used: 12 },
         ];
         let codes: std::collections::BTreeSet<_> = all.iter().map(Refusal::code).collect();
         assert_eq!(codes.len(), all.len());
@@ -634,16 +676,16 @@ mod tests {
         let off = LlmSettings { enabled: false, ..ok_remote() };
         for _ in 0..10 {
             for cap in [Capability::Prose, Capability::Commands, Capability::Edit] {
-                let r = run_authorized_chat(&off, cap, &KEY_OK, &consent("https://api.openai.com"), &mut t, None, &req());
+                let r = run_authorized_chat(&off, cap, &KEY_OK, &consent("https://api.openai.com"), &mut TokenCounter::new(), &mut t, None, &req());
                 assert_eq!(r.unwrap_err(), Refusal::FeatureOff);
             }
         }
         // Master on but a piece missing: still nothing is sent.
         let unconsented = ok_remote();
-        let r = run_authorized_chat(&unconsented, Capability::Prose, &KEY_OK, &[], &mut t, None, &req());
+        let r = run_authorized_chat(&unconsented, Capability::Prose, &KEY_OK, &[], &mut TokenCounter::new(), &mut t, None, &req());
         assert!(matches!(r, Err(Refusal::ConsentNeeded(_))));
         let nokey = KeyState::EnvMissing { var: "K".into() };
-        let r = run_authorized_chat(&ok_remote(), Capability::Prose, &nokey, &consent("https://api.openai.com"), &mut t, None, &req());
+        let r = run_authorized_chat(&ok_remote(), Capability::Prose, &nokey, &consent("https://api.openai.com"), &mut TokenCounter::new(), &mut t, None, &req());
         assert!(matches!(r, Err(Refusal::KeyEnvMissing(_))));
         assert!(t.sent.is_empty(), "nothing may have reached the transport");
 
@@ -656,6 +698,7 @@ mod tests {
             Capability::Prose,
             &KEY_OK,
             &consent("https://api.openai.com"),
+            &mut TokenCounter::new(),
             &mut t2,
             Some(&key),
             &req(),
@@ -663,5 +706,126 @@ mod tests {
         .unwrap();
         assert_eq!(t2.sent.len(), 1);
         assert!(!ev.is_empty());
+    }
+
+    fn ok_stream(text: &str, usage: &str) -> Vec<u8> {
+        format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{text}\"}}}}]}}
+
+{usage}data: [DONE]
+
+"
+        )
+        .into_bytes()
+    }
+
+    /// Protects the LLM-4 bar "no enforced cap exists by default": a counter that
+    /// already holds `u64::MAX` tokens, and TEN sequential calls after it, all go
+    /// out (the mock records ten requests and each returns `Done`). The positive
+    /// control below proves the same harness DOES refuse once a cap is set, so
+    /// ten-out-of-ten is not an artefact of a harness that cannot refuse.
+    /// MUTATION: make `check_cap`'s `None` arm return `Err` and this goes red;
+    /// default `token_cap` to `Some(1)` in `LlmSettings::off` and
+    /// `ok_remote().token_cap` below is no longer None -> red.
+    #[test]
+    fn ten_calls_past_any_counter_value_all_go_out_without_a_cap() {
+        let s = ok_remote();
+        assert_eq!(s.token_cap, None, "the default is no cap");
+        assert_eq!(LlmSettings::off().token_cap, None);
+        let mut counter = TokenCounter::new();
+        counter.record(&crate::event::Usage {
+            prompt_tokens: Some(u64::MAX),
+            completion_tokens: Some(u64::MAX),
+            total_tokens: None,
+        });
+        let key = ApiKey::new("sk-test-abcdef1234").unwrap();
+        let mut t = MockTransport::new();
+        for _ in 0..10 {
+            t = t.reply(200, vec![ok_stream("ok", "")]);
+        }
+        for i in 0..10 {
+            let ev = run_authorized_chat(
+                &s, Capability::Prose, &KEY_OK, &consent("https://api.openai.com"),
+                &mut counter, &mut t, Some(&key), &req(),
+            )
+            .unwrap_or_else(|r| panic!("call {i} refused: {r:?}"));
+            assert!(matches!(ev.last(), Some(Event::Done { .. })), "call {i}: {ev:?}");
+        }
+        assert_eq!(t.sent.len(), 10);
+        assert_eq!(counter.snapshot().calls, 10);
+
+        // Positive control: the same counter with a cap set refuses, and sends nothing more.
+        let capped = LlmSettings { token_cap: Some(1000), ..s };
+        let r = run_authorized_chat(
+            &capped, Capability::Prose, &KEY_OK, &consent("https://api.openai.com"),
+            &mut counter, &mut t, Some(&key), &req(),
+        );
+        assert!(matches!(r, Err(Refusal::TokenCapReached { cap: 1000, .. })), "{r:?}");
+        assert_eq!(t.sent.len(), 10, "a refused call sends nothing");
+    }
+
+    /// Protects: usage from each reply is recorded (100 in / 7 out twice = 200 /
+    /// 14), a reply without usage is a call but not a reported call, and an
+    /// opt-in cap stops the NEXT call exactly when reported tokens reach it.
+    #[test]
+    fn replies_are_counted_and_an_optin_cap_bites() {
+        let usage = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":7,\"total_tokens\":107}}
+
+";
+        let s = LlmSettings { token_cap: Some(250), ..ok_remote() };
+        let key = ApiKey::new("sk-test-abcdef1234").unwrap();
+        let mut t = MockTransport::new()
+            .reply(200, vec![ok_stream("a", usage)])
+            .reply(200, vec![ok_stream("b", usage)])
+            .reply(200, vec![ok_stream("c", "")]);
+        let mut c = TokenCounter::new();
+        let go = |c: &mut TokenCounter, t: &mut MockTransport| {
+            run_authorized_chat(&s, Capability::Prose, &KEY_OK, &consent("https://api.openai.com"), c, t, Some(&key), &req())
+        };
+        go(&mut c, &mut t).unwrap();
+        go(&mut c, &mut t).unwrap();
+        let snap = c.snapshot();
+        assert_eq!((snap.prompt, snap.completion, snap.calls, snap.calls_reported), (Some(200), Some(14), 2, 2));
+        go(&mut c, &mut t).unwrap(); // 214 < 250: allowed; reports nothing
+        let snap = c.snapshot();
+        assert_eq!((snap.prompt, snap.calls, snap.calls_reported), (Some(200), 3, 2));
+        c.record(&crate::event::Usage { prompt_tokens: Some(40), completion_tokens: None, total_tokens: None });
+        let r = go(&mut c, &mut t);
+        assert_eq!(r, Err(Refusal::TokenCapReached { cap: 250, used: 254 }));
+        assert!(r.unwrap_err().reason().contains("250"));
+    }
+
+    /// Protects: the wire follows the GATE's decision. A custom Anthropic
+    /// endpoint is sent a `/messages` request with `x-api-key` and an
+    /// `anthropic-version` header and a `max_tokens`; an OpenAI one is not.
+    /// MUTATION: pass `ApiStyle::OpenAiCompatible` to `run_chat_styled` and the
+    /// URL assertion goes red.
+    #[test]
+    fn the_wire_follows_the_gate() {
+        let anth = LlmSettings {
+            preset_id: "anthropic".into(),
+            base_url: "https://api.anthropic.com/v1".into(),
+            model: "claude-test".into(),
+            ..ok_remote()
+        };
+        let key = ApiKey::new("sk-ant-test-0123456789").unwrap();
+        let body = b"event: message_stop
+data: {\"type\":\"message_stop\"}
+
+".to_vec();
+        let mut t = MockTransport::new().reply(200, vec![body]);
+        let ev = run_authorized_chat(
+            &anth, Capability::Prose, &KEY_OK, &consent("https://api.anthropic.com"),
+            &mut TokenCounter::new(), &mut t, Some(&key), &req(),
+        )
+        .unwrap();
+        assert!(matches!(ev.as_slice(), [Event::Done { .. }]), "{ev:?}");
+        let sent = &t.sent[0];
+        assert_eq!(sent.url, "https://api.anthropic.com/v1/messages");
+        let lines = sent.header_lines();
+        assert!(lines.iter().any(|l| l == "x-api-key: sk-ant-test-0123456789"));
+        assert!(lines.iter().any(|l| l == "anthropic-version: 2023-06-01"));
+        let b: serde_json::Value = serde_json::from_slice(&sent.body).unwrap();
+        assert_eq!(b["max_tokens"], 64);
     }
 }

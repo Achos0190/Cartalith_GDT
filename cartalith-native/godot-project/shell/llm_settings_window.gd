@@ -430,7 +430,13 @@ func _rebuild() -> void:
 	_floor(tc, true)
 	_give_label_the_slack(tc)
 	controls["token_counter"] = tc
-	_note(_body, "No spend limit is enforced. A hosted provider bills you directly.")
+	var cap := DccWidgets.number(_body, "Token cap (0 = off)", 0, 1000000000, 1000,
+		float(int(DccSettings.llm_value("token_cap"))),
+		func(v: float): _store("token_cap", int(v)),
+		"Optional. When the tokens servers have reported this session reach this number, Send is refused until you raise it, set it to 0, or reset the counter. 0 means no cap, which is the default.")
+	_floor(cap)
+	controls["token_cap"] = cap
+	_note(_body, "No spend limit is enforced unless you set a cap above. A cap counts only what servers report, so a server that reports nothing is not counted. A hosted provider bills you directly.")
 
 	# -- Consent ----------------------------------------------------------------
 	_heading("CONSENT")

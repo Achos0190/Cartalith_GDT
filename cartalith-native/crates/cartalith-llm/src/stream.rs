@@ -26,7 +26,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::LlmError;
 use crate::event::Event;
+use crate::anthropic::AnthropicDecoder;
 use crate::openai::{OpenAiDecoder, ToolSpec};
+use crate::presets::ApiStyle;
 use crate::secret::{ApiKey, Redactor};
 
 /// Most error-body bytes read from a non-2xx reply. Labelled judgement: error
@@ -43,21 +45,62 @@ enum Mode {
     Failing { status: u16, body: Vec<u8> },
 }
 
+/// The decoder for the provider's wire (LLM-4): both produce the same events.
+enum Decoder {
+    OpenAi(OpenAiDecoder),
+    Anthropic(AnthropicDecoder),
+}
+
+impl Decoder {
+    fn push(&mut self, chunk: &[u8]) -> Vec<Event> {
+        match self {
+            Decoder::OpenAi(d) => d.push(chunk),
+            Decoder::Anthropic(d) => d.push(chunk),
+        }
+    }
+    fn finish(&mut self) -> Vec<Event> {
+        match self {
+            Decoder::OpenAi(d) => d.finish(),
+            Decoder::Anthropic(d) => d.finish(),
+        }
+    }
+    fn is_finished(&self) -> bool {
+        match self {
+            Decoder::OpenAi(d) => d.is_finished(),
+            Decoder::Anthropic(d) => d.is_finished(),
+        }
+    }
+}
+
 /// One reply, push-fed. See the module docs.
 pub struct StreamSession {
-    decoder: OpenAiDecoder,
+    decoder: Decoder,
     redactor: Redactor,
     mode: Mode,
     cancel: Arc<AtomicBool>,
     /// True once a terminal event was produced (or the reply was cancelled).
     finished: bool,
+    /// True once any text or tool call was returned to the caller: the retry
+    /// rule's "nothing delivered yet" ([`crate::retry`]).
+    delivered: bool,
 }
 
 impl StreamSession {
-    /// A session for a request that offered `tools` and used `key`.
+    /// A session for an OpenAI-compatible request that offered `tools` and used
+    /// `key`. Shorthand for [`StreamSession::for_style`].
     pub fn new(tools: &[ToolSpec], key: Option<&ApiKey>) -> Self {
+        Self::for_style(ApiStyle::OpenAiCompatible, tools, key)
+    }
+
+    /// A session decoding `style`'s wire (LLM-4).
+    pub fn for_style(style: ApiStyle, tools: &[ToolSpec], key: Option<&ApiKey>) -> Self {
+        let decoder = match style {
+            ApiStyle::OpenAiCompatible => Decoder::OpenAi(OpenAiDecoder::new(tools, key)),
+            ApiStyle::AnthropicMessages => Decoder::Anthropic(AnthropicDecoder::new(tools, key)),
+        };
         StreamSession {
-            decoder: OpenAiDecoder::new(tools, key),
+            decoder,
+            delivered: false,
             redactor: Redactor::new(key),
             mode: Mode::AwaitingHead,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -81,6 +124,12 @@ impl StreamSession {
     /// True once [`cancel`](Self::cancel) was called (or the handle's flag was set).
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
+    }
+
+    /// True once any text or tool call was returned. A retry is allowed only
+    /// while this is false.
+    pub fn delivered_any(&self) -> bool {
+        self.delivered
     }
 
     /// True once a terminal event was produced or the reply was cancelled; the
@@ -118,6 +167,7 @@ impl StreamSession {
                 if self.decoder.is_finished() {
                     self.finished = true;
                 }
+                self.note_delivery(&events);
                 events
             }
             Mode::Failing { status, body } => {
@@ -145,7 +195,9 @@ impl StreamSession {
             }
             Mode::Streaming => {
                 self.finished = true;
-                self.decoder.finish()
+                let events = self.decoder.finish();
+                self.note_delivery(&events);
+                events
             }
             Mode::Failing { status, body } => {
                 let status = *status;
@@ -163,6 +215,13 @@ impl StreamSession {
         }
         self.finished = true;
         vec![Event::Error(LlmError::Transport(self.redactor.scrub(text)))]
+    }
+
+    /// Remember whether `events` put content in front of the user.
+    fn note_delivery(&mut self, events: &[Event]) {
+        if events.iter().any(|e| matches!(e, Event::TextDelta(_) | Event::ToolCall { .. })) {
+            self.delivered = true;
+        }
     }
 
     /// Turn a collected error body into the one terminal event.

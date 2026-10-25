@@ -5,7 +5,8 @@
 //! payload shape (`POST {base}/chat/completions`, `stream: true`, deltas under
 //! `choices[0].delta`). Provider payloads drift (LLM_ASSISTANT_SCOPE.md risk 5),
 //! so the decoder reads only the fields it needs and tolerates extras. The
-//! Anthropic adapter is LLM-4 and is not here.
+//! Anthropic adapter is [`crate::anthropic`] (LLM-4); both produce the same
+//! [`Event`]s.
 //!
 //! The decoder enforces the scope's closed-tool-set rule (s.2, s.4 rule 4):
 //! model output is data. A tool call is surfaced only when its name is one the
@@ -111,6 +112,13 @@ pub struct ChatRequest {
 /// the authority, where a key could be pasted), query and fragment. Errors
 /// name the reason and never echo the URL.
 pub fn endpoint(base_url: &str) -> Result<String, LlmError> {
+    endpoint_with(base_url, CHAT_PATH)
+}
+
+/// [`endpoint`] with the call path chosen by the caller: the one URL validator
+/// both adapters share (LLM-4), so the Anthropic adapter cannot accept a base
+/// URL the OpenAI-compatible one would refuse (userinfo, query, whitespace).
+pub fn endpoint_with(base_url: &str, path: &str) -> Result<String, LlmError> {
     let base = base_url.trim().trim_end_matches('/');
     let rest = base
         .strip_prefix("https://")
@@ -129,7 +137,7 @@ pub fn endpoint(base_url: &str) -> Result<String, LlmError> {
     if base.bytes().any(|b| b <= 0x20 || b == 0x7F) {
         return Err(LlmError::InvalidBaseUrl("whitespace or control character"));
     }
-    Ok(format!("{base}{CHAT_PATH}"))
+    Ok(format!("{base}{path}"))
 }
 
 /// Build the HTTP request. `key` is `None` for a keyless local server (then no

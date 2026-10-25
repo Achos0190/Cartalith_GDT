@@ -949,6 +949,7 @@ const LLM_DEFAULTS := {
 	"key_source": "env",       ## "env" or "store"; never a file
 	"env_var": "CART_LLM_KEY", ## the variable NAME, not a key
 	"token_counter": true,     ## visible by default; no cap is enforced (Ruling DD Q8)
+	"token_cap": 0,            ## OPTIONAL opt-in cap on reported tokens this session; 0 = OFF (the default)
 	"gpu_override": "automatic", ## Ruling DF: automatic / always / never
 	"ctx_entity": false,       ## context source: current entity
 	"ctx_selection": false,    ## context source: selection
@@ -983,7 +984,7 @@ static func set_llm_value(key: String, value) -> bool:
 static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
-			"preset_id", "base_url", "model", "key_source", "env_var"]:
+			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap"]:
 		d[k] = llm_value(k)
 	return d
 

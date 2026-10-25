@@ -1,12 +1,14 @@
 //! One streamed assistant reply, for the Godot shell (`LLM_ASSISTANT_SCOPE.md`
-//! milestone LLM-3; Ruling DD Q4, the hybrid transport).
+//! milestones LLM-3 and LLM-4; Ruling DD Q4, the hybrid transport).
 //!
 //! **The split.** Rust decides and decodes; Godot moves bytes. This class does the
 //! two Rust halves of one reply:
 //!
 //! 1. [`LlmStream::prepare`] runs `cartalith_llm::prepare_authorized_chat` -- the
-//!    LLM-2 gate (`authorize`), the local-only and OpenAI-compatible limits, then the
-//!    request build -- and returns *where to connect and what to send*. Nothing is
+//!    LLM-2 gate (`authorize`), the opt-in token cap, then the request build for the
+//!    wire the gate named (OpenAI-compatible or Anthropic Messages, local or hosted;
+//!    LLM-4 removed LLM-3's local-only and OpenAI-only refusals) -- and returns
+//!    *where to connect and what to send*. Nothing is
 //!    opened here, and a refused gate returns a reason and **no connection data**, so
 //!    the GDScript wire (`llm_wire.gd`) has nothing to connect to.
 //! 2. [`LlmStream::on_head`] / [`on_chunk`](LlmStream::on_chunk) /
@@ -34,15 +36,28 @@
 //! **ABSENT MEANS ABSENT.** Token counts and `finish_reason` are omitted from an event
 //! dictionary when the server did not send them; never `0` or `""`.
 //!
+//! **The counter and the retry (LLM-4).** One process-wide `TokenCounter` (a static,
+//! so every panel instance shows the same running total) is fed by every `usage`
+//! event and by every prepared call; [`LlmStream::token_counts`] reads it, omitting a
+//! total no server has reported. A failed reply that is transient, before any text
+//! was shown, and within the one-retry budget (`cartalith_llm::retry`) carries
+//! `will_retry: true`; the shell then calls `prepare` again, which goes through the
+//! whole gate a second time. The budget lives here, in Rust, not in the shell, so a
+//! shell bug cannot make the retry unbounded: a `prepare` that did not follow a
+//! `will_retry` error always starts a fresh budget.
+//!
 //! **NO PANIC.** Every method answers with a dictionary; a poisoned lock is recovered
 //! rather than unwrapped (`cartalith-rust-conventions`).
 
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use cartalith_llm::keystore::resolve_key;
 use cartalith_llm::note::{NoteError, append_block, model_generated_block};
-use cartalith_llm::openai::{ChatRequest, MaxTokensField};
+use cartalith_llm::counter::{Snapshot, TokenCounter};
+use cartalith_llm::openai::ChatRequest;
 use cartalith_llm::prepare::{PrepareError, prepare_authorized_chat};
+use cartalith_llm::presets::request_hints;
+use cartalith_llm::retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
 use cartalith_llm::prompt::{Context, PromptError, Task, build_messages};
 use cartalith_llm::settings::Capability;
 use cartalith_llm::{Event, LlmError, StreamSession};
@@ -78,6 +93,20 @@ fn refuse(code: &str, reason: &str) -> VarDictionary {
 struct Inner {
     /// `None` until `prepare` succeeds; replaced by the next `prepare`.
     session: Option<StreamSession>,
+    /// The one-retry budget of the current user-initiated request.
+    budget: RetryBudget,
+    /// Set when an error was granted a retry; consumed by the next `prepare`, which
+    /// then keeps the budget instead of starting a fresh one.
+    retry_pending: bool,
+}
+
+/// The session's token counter. A static so every panel instance shares one total;
+/// process-lifetime only, never persisted (`cartalith_llm::counter`).
+static COUNTER: Mutex<TokenCounter> = Mutex::new(TokenCounter::new());
+
+/// Lock the counter, recovering from a poisoned mutex.
+fn counter() -> MutexGuard<'static, TokenCounter> {
+    COUNTER.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// The Godot class the shell calls for one reply at a time. All methods take
@@ -94,7 +123,7 @@ struct LlmStream {
 impl IRefCounted for LlmStream {
     /// Constructs an idle stream with no reply.
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, inner: Mutex::new(Inner { session: None }) }
+        Self { base, inner: Mutex::new(Inner { session: None, budget: RetryBudget::new(), retry_pending: false }) }
     }
 }
 
@@ -159,9 +188,25 @@ fn sent_dict(s: &cartalith_llm::prompt::SentSummary) -> VarDictionary {
     }
 }
 
-/// A list of events as the array the shell iterates.
-fn events_array(events: &[Event]) -> Array<VarDictionary> {
-    events.iter().map(event_dict).collect()
+/// Decode-side bookkeeping shared by every `on_*` entry: feed each `usage` event to
+/// the counter, and mark a terminal error `will_retry` when the retry rule grants
+/// the one retry. Returns the array the shell iterates.
+fn process(inner: &mut Inner, events: Vec<Event>, allow_retry: bool) -> Array<VarDictionary> {
+    let delivered = inner.session.as_ref().is_some_and(StreamSession::delivered_any);
+    let mut out = Array::new();
+    for e in &events {
+        let mut d = event_dict(e);
+        match e {
+            Event::Usage(u) => counter().record(u),
+            Event::Error(err) if allow_retry && inner.budget.try_take(err, delivered) => {
+                inner.retry_pending = true;
+                d.set("will_retry", true);
+            }
+            _ => {}
+        }
+        out.push(&d);
+    }
+    out
 }
 
 #[godot_api]
@@ -195,6 +240,9 @@ impl LlmStream {
         };
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
+        // Read and clear in every path, so a refused retry cannot leave the flag set for a
+        // later, unrelated request.
+        let is_retry = std::mem::take(&mut self.lock().retry_pending);
         let Some(task) = Task::from_id(&text(&args, "task")) else {
             return refuse("unknown_task", "Unknown assistant task.");
         };
@@ -245,16 +293,21 @@ impl LlmStream {
             .and_then(|v| v.try_to::<i64>().ok())
             .unwrap_or(DEFAULT_MAX_TOKENS)
             .clamp(MAX_TOKENS_RANGE.0, MAX_TOKENS_RANGE.1) as u32;
-        let include_usage = args.get("include_usage").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+        // What the shell asks for AND what the provider takes: the hints can only turn
+        // `stream_options` off (a router that rejects the field fails the whole call), never on.
+        let hints = request_hints(&s.preset_id);
+        let include_usage = args.get("include_usage").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
+            && hints.include_usage;
         let req = ChatRequest {
             model: s.model.clone(),
             messages: prompt.messages,
             tools: Vec::new(),
             max_tokens,
-            max_tokens_field: MaxTokensField::MaxTokens,
+            max_tokens_field: hints.max_tokens_field,
             include_usage,
         };
-        let prepared = match prepare_authorized_chat(&s, cap, &key_state, &consented, key.as_ref(), &req) {
+        let counted = counter().clone();
+        let prepared = match prepare_authorized_chat(&s, cap, &key_state, &consented, &counted, key.as_ref(), &req) {
             Ok(p) => p,
             Err(e) => {
                 let mut d = vdict! { "ok" => false, "code" => e.code(), "reason" => e.reason().as_str() };
@@ -264,7 +317,14 @@ impl LlmStream {
                 return d;
             }
         };
-        self.lock().session = Some(StreamSession::new(&[], key.as_ref()));
+        counter().begin_call();
+        {
+            let mut inner = self.lock();
+            if !is_retry {
+                inner.budget = RetryBudget::new();
+            }
+            inner.session = Some(StreamSession::for_style(prepared.authorized.style, &[], key.as_ref()));
+        }
         let headers: PackedStringArray = prepared.http.header_lines().iter().map(|l| GString::from(l.as_str())).collect();
         let sent = &prompt.sent;
         let mut d = vdict! {
@@ -275,6 +335,8 @@ impl LlmStream {
             "port" => prepared.target.port as i64,
             "path" => prepared.target.path.as_str(),
             "model" => s.model.as_str(),
+            "hosted" => !prepared.authorized.local,
+            "style" => if prepared.authorized.style == cartalith_llm::ApiStyle::OpenAiCompatible { "openai" } else { "anthropic" },
         };
         d.set("headers", &headers);
         d.set("body", &PackedByteArray::from(prepared.http.body.as_slice()));
@@ -325,36 +387,58 @@ impl LlmStream {
     /// no prepared reply, after a terminal event, and after `cancel`.
     #[func]
     fn on_chunk(&self, chunk: PackedByteArray) -> Array<VarDictionary> {
-        match self.lock().session.as_mut() {
-            Some(s) => events_array(&s.on_chunk(chunk.as_slice())),
-            None => Array::new(),
-        }
+        let mut inner = self.lock();
+        let events = match inner.session.as_mut() {
+            Some(s) => s.on_chunk(chunk.as_slice()),
+            None => return Array::new(),
+        };
+        process(&mut inner, events, true)
     }
 
     /// The body ended; returns the final events (a clean `done`, or an error for a
     /// stream cut before its end marker).
     #[func]
     fn on_end(&self) -> Array<VarDictionary> {
-        match self.lock().session.as_mut() {
-            Some(s) => events_array(&s.on_end()),
-            None => Array::new(),
-        }
+        let mut inner = self.lock();
+        let events = match inner.session.as_mut() {
+            Some(s) => s.on_end(),
+            None => return Array::new(),
+        };
+        process(&mut inner, events, true)
     }
 
     /// The wire failed (refused, reset). `text` is scrubbed of the key here.
     #[func]
     fn on_transport_error(&self, text: GString) -> Array<VarDictionary> {
-        match self.lock().session.as_mut() {
-            Some(s) => events_array(&s.on_transport_error(&text.to_string())),
-            None => Array::new(),
-        }
+        let mut inner = self.lock();
+        let events = match inner.session.as_mut() {
+            Some(s) => s.on_transport_error(&text.to_string()),
+            None => return Array::new(),
+        };
+        process(&mut inner, events, true)
+    }
+
+    /// The wire could not CONNECT (refused, unreachable, timed out): like
+    /// `on_transport_error` but **never** marked `will_retry`. No server was reached, so
+    /// nothing was sent or billed, and a retry would only repeat the wait.
+    #[func]
+    fn on_connect_error(&self, text: GString) -> Array<VarDictionary> {
+        let mut inner = self.lock();
+        let events = match inner.session.as_mut() {
+            Some(s) => s.on_transport_error(&text.to_string()),
+            None => return Array::new(),
+        };
+        process(&mut inner, events, false)
     }
 
     /// Stop the reply: no event is returned after this, and `is_cancelled` is true so
     /// the wire thread closes its socket. Idempotent; a no-op with no reply.
     #[func]
     fn cancel(&self) {
-        if let Some(s) = self.lock().session.as_mut() {
+        let mut inner = self.lock();
+        // A Stop between a retryable error and its retry cancels the retry too.
+        inner.retry_pending = false;
+        if let Some(s) = inner.session.as_mut() {
             s.cancel();
         }
     }
@@ -374,7 +458,62 @@ impl LlmStream {
     /// Forget the current reply (the next `prepare` does this too).
     #[func]
     fn reset(&self) {
-        self.lock().session = None;
+        let mut inner = self.lock();
+        inner.session = None;
+        inner.retry_pending = false;
+    }
+
+    /// The running token counter: `{calls, calls_reported}` always, `prompt` and
+    /// `completion` **only once a server has reported them** (an absent total is
+    /// omitted, never `0`), and `max_retries` (the automatic-retry bound, a Rust
+    /// constant the shell displays rather than restates).
+    #[func]
+    fn token_counts(&self) -> VarDictionary {
+        let Snapshot { prompt, completion, calls, calls_reported } = counter().snapshot();
+        let mut d = vdict! {
+            "calls" => calls as i64,
+            "calls_reported" => calls_reported as i64,
+            "max_retries" => MAX_AUTOMATIC_RETRIES as i64,
+        };
+        if let Some(p) = prompt {
+            d.set("prompt", p as i64);
+        }
+        if let Some(c) = completion {
+            d.set("completion", c as i64);
+        }
+        d
+    }
+
+    /// Whether the opt-in cap (`token_cap`, 0 or negative = off) is reached, for the
+    /// panel to explain a disabled Send BEFORE the click: `{ok: true}` or
+    /// `{ok: false, code, reason}`. The same check `prepare` makes; with no cap it is
+    /// `{ok: true}` whatever the counter holds.
+    #[func]
+    fn cap_check(&self, token_cap: i64) -> VarDictionary {
+        let mut s = cartalith_llm::LlmSettings::off();
+        s.token_cap = u64::try_from(token_cap).ok().filter(|n| *n > 0);
+        match cartalith_llm::settings::authorize_spend(&s, &counter()) {
+            Ok(()) => vdict! { "ok" => true },
+            Err(r) => vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() },
+        }
+    }
+
+    /// Zero the counter (the panel's "Reset counter"). Does not touch a reply in flight.
+    #[func]
+    fn reset_token_counts(&self) {
+        counter().reset();
+    }
+
+    /// Record `prompt` and `completion` tokens as if a reply had reported them, for
+    /// the probes only (a probe cannot make a real server report). A negative number
+    /// is ignored, never recorded as 0. Not used by the shell proper.
+    #[func]
+    fn debug_record_usage(&self, prompt: i64, completion: i64) {
+        counter().record(&cartalith_llm::Usage {
+            prompt_tokens: u64::try_from(prompt).ok(),
+            completion_tokens: u64::try_from(completion).ok(),
+            total_tokens: None,
+        });
     }
 
     /// The text a note receives when the user clicks Save: `existing` with the

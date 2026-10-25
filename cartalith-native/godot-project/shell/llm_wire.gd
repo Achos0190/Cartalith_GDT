@@ -28,6 +28,10 @@ class_name LlmWire
 ## Queue items (plain dictionaries; bytes only for the body):
 ## `{"kind":"head","status":int}`, `{"kind":"chunk","bytes":PackedByteArray}`,
 ## `{"kind":"end"}`, `{"kind":"error","text":String}`, `{"kind":"cancelled"}`.
+## An `error` raised before the connection was established also carries `"connect": true`
+## (LLM-4): the server was never reached, so the one automatic retry is not offered for it --
+## a closed port or an unreachable host will fail the same way a second later, and a local
+## server that is not running should say so at once.
 
 ## Sockets this process has asked `HTTPClient` to open through this class. The "zero
 ## outbound connections when the feature is off" probe asserts it is unchanged by a refused
@@ -166,7 +170,7 @@ func _run(host: String, port: int, tls: bool, path: String, headers: PackedStrin
 	var tls_opts: TLSOptions = TLSOptions.client() if tls else null
 	var err := client.connect_to_host(host, port, tls_opts)
 	if err != OK:
-		_push({"kind": "error", "text": "Could not start a connection to %s:%d." % [host, port]})
+		_push({"kind": "error", "connect": true, "text": "Could not start a connection to %s:%d." % [host, port]})
 		return
 	var t0 := Time.get_ticks_msec()
 	while client.get_status() == HTTPClient.STATUS_RESOLVING or client.get_status() == HTTPClient.STATUS_CONNECTING:
@@ -177,12 +181,12 @@ func _run(host: String, port: int, tls: bool, path: String, headers: PackedStrin
 		client.poll()
 		if Time.get_ticks_msec() - t0 > CONNECT_TIMEOUT_MS:
 			client.close()
-			_push({"kind": "error", "text": "Timed out connecting to %s:%d. Is the server running?" % [host, port]})
+			_push({"kind": "error", "connect": true, "text": "Timed out connecting to %s:%d. Is the server running?" % [host, port]})
 			return
 		OS.delay_msec(IDLE_MS)
 	if client.get_status() != HTTPClient.STATUS_CONNECTED:
 		client.close()
-		_push({"kind": "error", "text": "Could not connect to %s:%d. Is the server running?" % [host, port]})
+		_push({"kind": "error", "connect": true, "text": "Could not connect to %s:%d. Is the server running?" % [host, port]})
 		return
 	err = client.request_raw(HTTPClient.METHOD_POST, path, headers, body)
 	if err != OK:

@@ -18,13 +18,15 @@
 //! that a server is reachable. `supports_*` flags say what the protocol
 //! offers, not that every model behind it honours it (scope risk 4).
 
+use crate::openai::MaxTokensField;
+
 /// Which wire protocol an adapter must speak.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiStyle {
     /// `POST {base}/chat/completions`, SSE `choices[].delta` (this crate's
     /// [`crate::openai`] adapter).
     OpenAiCompatible,
-    /// `POST {base}/messages`, typed SSE events (LLM-4; no adapter yet).
+    /// `POST {base}/messages`, typed SSE events ([`crate::anthropic`], LLM-4).
     AnthropicMessages,
 }
 
@@ -178,6 +180,40 @@ pub const PRESETS: &[Preset] = &[
     },
 ];
 
+/// Per-provider request details the wire needs but the protocol does not fix
+/// (LLM-4). Provider payloads drift (scope risk 5), so this is data with tags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestHints {
+    /// Which JSON field carries the output cap on the OpenAI-compatible wire.
+    pub max_tokens_field: MaxTokensField,
+    /// Ask for the final usage chunk (`stream_options.include_usage`).
+    pub include_usage: bool,
+}
+
+/// The hints for a preset id (custom ids and unknown ids get the conservative
+/// local-server default: `max_tokens`, usage requested, the shape LLM-3 ran against
+/// Ollama on 2026-10-25).
+///
+/// * `openai`: `max_completion_tokens`, because OpenAI's reference marks
+///   `max_tokens` deprecated and incompatible with its reasoning models [verified,
+///   OpenAI API reference and community thread, web search 2026-10-26];
+///   `stream_options.include_usage` is OpenAI's documented opt-in for usage in a
+///   stream [recalled].
+/// * `openrouter`, `gemini_openai`: `max_tokens`, and **no** `stream_options`. Whether
+///   those routers accept the field is not verified, and an unknown field that a
+///   server rejects fails the whole call, whereas a missing usage figure only shows
+///   "not reported" in the counter. OpenRouter documents usage in the final chunk
+///   without a flag [recalled].
+pub fn request_hints(preset_id: &str) -> RequestHints {
+    match preset_id {
+        "openai" => RequestHints { max_tokens_field: MaxTokensField::MaxCompletionTokens, include_usage: true },
+        "openrouter" | "gemini_openai" => {
+            RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: false }
+        }
+        _ => RequestHints { max_tokens_field: MaxTokensField::MaxTokens, include_usage: true },
+    }
+}
+
 /// Look a preset up by its stable id.
 pub fn find(id: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|p| p.id == id)
@@ -187,6 +223,21 @@ pub fn find(id: &str) -> Option<&'static Preset> {
 mod tests {
     use super::*;
     use crate::openai::endpoint;
+
+    /// Protects: the per-provider request hints as literals. MUTATION: swap the
+    /// `openai` field name, or give `openrouter` `include_usage`, and this goes red.
+    #[test]
+    fn request_hints_table() {
+        let h = |id| request_hints(id);
+        assert_eq!(h("openai").max_tokens_field, MaxTokensField::MaxCompletionTokens);
+        assert!(h("openai").include_usage);
+        for id in ["openrouter", "gemini_openai"] {
+            assert_eq!((h(id).max_tokens_field, h(id).include_usage), (MaxTokensField::MaxTokens, false), "{id}");
+        }
+        for id in ["ollama", "lm_studio", "llama_cpp", "vllm", "custom_openai", "nope", ""] {
+            assert_eq!((h(id).max_tokens_field, h(id).include_usage), (MaxTokensField::MaxTokens, true), "{id}");
+        }
+    }
 
     /// Protects: every preset's base URL passes the same validator a user's
     /// URL must pass (scheme, host, no credentials), and a stated port matches

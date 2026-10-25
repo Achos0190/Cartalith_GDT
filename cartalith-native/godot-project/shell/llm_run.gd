@@ -32,6 +32,9 @@ signal finished(info: Dictionary)
 signal failed(message: String)
 ## Cancel completed: the socket is closed and the thread joined.
 signal cancelled()
+## A transient failure before any text is being retried ONCE (LLM-4). `reason` is the
+## failed attempt's message, already free of the key. `failed` is not emitted for it.
+signal retrying(reason: String)
 ## The reply is over AND its worker thread is joined: `busy()` is now false. `finished` and
 ## `failed` fire the moment the last event is decoded, while the thread is still closing its
 ## socket, so a UI that enables "Save" must wait for this, not for `finished`.
@@ -50,6 +53,18 @@ var first_token_ms := -1
 var last_usage: Dictionary = {}
 ## The model name the request used, for the note marker.
 var model := ""
+
+## The arguments of the user-initiated request, kept so the one automatic retry can run
+## `prepare` again (and so pass the whole gate a second time).
+var _last: Dictionary = {}
+## Set when an error carried `will_retry`; consumed once the worker is joined.
+var _retry_pending := false
+var _retry_reason := ""
+
+## Pause before the one automatic retry. Labelled judgement: long enough for a
+## momentary 529 or 429 to clear, short enough to feel like part of the same request.
+## The server's `Retry-After` header is not honoured (the wire passes the status only).
+const RETRY_DELAY_S := 1.0
 
 var _t0 := 0
 var _active := false
@@ -81,6 +96,8 @@ func begin(settings: Dictionary, capability: String, consented: PackedStringArra
 		return {"ok": false, "code": "no_binding", "reason": "This build has no assistant support. Update the Cartalith library."}
 	if _active:
 		return {"ok": false, "code": "busy", "reason": "A reply is already running. Stop it first."}
+	_last = {"settings": settings, "capability": capability, "consented": consented, "args": args}
+	_retry_pending = false
 	var prep: Dictionary = stream.prepare(settings, capability, consented, args)
 	if not bool(prep.get("ok", false)):
 		return prep
@@ -109,12 +126,14 @@ func cancel() -> void:
 	if not _active or _cancelling:
 		return
 	_cancelling = true
+	_retry_pending = false
 	stream.cancel()
 	wire.cancel()
 
 
 ## Cancels and blocks until the worker is joined. For close paths.
 func shutdown() -> void:
+	_retry_pending = false
 	if stream != null:
 		stream.cancel()
 	wire.shutdown()
@@ -143,10 +162,19 @@ func pump() -> void:
 			"end":
 				_dispatch(stream.on_end())
 			"error":
-				_dispatch(stream.on_transport_error(String(item["text"])))
+				## A connect-phase failure never reached a server, so it is never retried.
+				if bool(item.get("connect", false)):
+					_dispatch(stream.on_connect_error(String(item["text"])))
+				else:
+					_dispatch(stream.on_transport_error(String(item["text"])))
 			"cancelled":
 				pass
 	if not wire.is_started():
+		if _retry_pending and not _cancelling:
+			_retry_pending = false
+			set_process(false)
+			_retry_after_pause()
+			return
 		_active = false
 		set_process(false)
 		if _cancelling:
@@ -169,7 +197,15 @@ func _dispatch(events: Array) -> void:
 			"done":
 				_terminal(func(): finished.emit(_without_type(ev)))
 			"error":
-				_terminal(func(): failed.emit(String(ev.get("message", "The reply failed."))))
+				if bool(ev.get("will_retry", false)) and not _cancelling:
+					## Rust granted the one retry (transient, nothing shown yet): hold the
+					## failure, close this socket, and let `pump` start the second attempt
+					## once the worker is joined.
+					_retry_pending = true
+					_retry_reason = String(ev.get("message", "The reply failed."))
+					wire.cancel()
+				else:
+					_terminal(func(): failed.emit(String(ev.get("message", "The reply failed."))))
 			_:
 				pass
 
@@ -188,3 +224,35 @@ func _terminal(notify: Callable) -> void:
 	_terminal_sent = true
 	wire.cancel()
 	notify.call()
+
+
+## The one automatic retry (LLM-4; scope s.4 rule 7). Runs only after Rust marked the error
+## `will_retry`: a transient provider or transport failure, before any text was shown, within
+## the budget `cartalith_llm::retry` owns. It waits `RETRY_DELAY_S`, then calls `prepare`
+## AGAIN, so the whole gate (switches, https, key, consent, the opt-in cap) is asked a second
+## time: nothing here goes round it. Stop during the wait ends the reply as cancelled.
+func _retry_after_pause() -> void:
+	retrying.emit(_retry_reason)
+	await get_tree().create_timer(RETRY_DELAY_S).timeout
+	if not _active:
+		return ## `shutdown()` ran during the wait.
+	if _cancelling:
+		_active = false
+		cancelled.emit()
+		idle.emit()
+		return
+	var prep: Dictionary = stream.prepare(_last["settings"], _last["capability"], _last["consented"], _last["args"])
+	if not bool(prep.get("ok", false)):
+		_active = false
+		failed.emit(String(prep.get("reason", _retry_reason)))
+		idle.emit()
+		return
+	_terminal_sent = false
+	if not wire.start(prep):
+		stream.reset()
+		_active = false
+		failed.emit("The connection could not be restarted.")
+		idle.emit()
+		return
+	_t0 = Time.get_ticks_msec()
+	set_process(true)

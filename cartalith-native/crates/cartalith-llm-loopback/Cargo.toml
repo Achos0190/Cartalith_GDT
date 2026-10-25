@@ -1,0 +1,11 @@
+[package]
+name = "cartalith-llm-loopback"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Test-only crate (LLM-4): drives cartalith-llm's gate, request builders and decoders over a REAL loopback TCP socket against an in-test mock server. It exists because cartalith-llm itself may not contain a socket (its tests/no_network.rs fails the build if one appears), and a mock server needs one. Nothing depends on this crate; it ships no code."
+
+[dependencies]
+cartalith-llm = { path = "../cartalith-llm" }
+serde_json = "1.0.151"

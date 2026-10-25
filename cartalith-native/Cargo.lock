@@ -305,6 +305,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cartalith-llm-loopback"
+version = "0.1.0"
+dependencies = [
+ "cartalith-llm",
+ "serde_json",
+]
+
+[[package]]
 name = "cartalith-noise"
 version = "0.1.0"
 

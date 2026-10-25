@@ -434,6 +434,10 @@ func _ready() -> void:
 		var cb := _c(k) as CheckBox
 		_ok(cb != null and not cb.button_pressed, "switch '%s' ships OFF" % k)
 	_ok((_c("token_counter") as CheckBox).button_pressed, "the token counter ships visible")
+	## LLM-4: the opt-in cap ships OFF (Ruling DD Q8: no enforced cap by default).
+	_ok(_c("token_cap") is SpinBox and int((_c("token_cap") as SpinBox).value) == 0, "the optional token cap ships at 0 = OFF")
+	_ok(int(DccSettings.llm_value("token_cap")) == 0 and int(DccSettings.llm_gate_dict().get("token_cap", -1)) == 0, "...in the stored default and in the gate dictionary the library reads")
+	_ok((_c("token_cap") as SpinBox).min_value == 0.0, "...and its minimum is 0, so it can always be turned back off")
 	_ok((_c("preset") as OptionButton).selected == 0, "provider ships as 'None chosen'")
 	_ok((_c("preset") as OptionButton).item_count == 1 + _bridge.llm_presets().size(), "the picker is fed by the presets table (%d rows + None)" % _bridge.llm_presets().size())
 	_ok(_bridge.llm_presets().size() == 10, "8 presets + 2 custom entries")
@@ -640,8 +644,13 @@ func _ready() -> void:
 	var cfg_pre := _cfg_text()
 	_ok(not DccSettings.set_llm_value("api_key", SECRET), "set_llm_value refuses a key name outside the allow-list")
 	_ok(not DccSettings.set_llm_value("model", 42), "set_llm_value refuses a value of the wrong type")
+	_ok(not DccSettings.set_llm_value("token_cap", "many") and not DccSettings.set_llm_value("token_cap", 1.5), "...and a token cap that is not an integer")
 	_ok(DccSettings.llm_value("api_key") == null, "an unknown [llm] key reads as null, never a value")
 	_ok(_cfg_text() == cfg_pre and not _cfg_text().contains("api_key"), "...and the refused writes changed nothing on disk")
+	var verdict_0: Dictionary = _bridge.llm_authorize(DccSettings.llm_gate_dict(), "", PackedStringArray())
+	_ok(DccSettings.set_llm_value("token_cap", 5000) and int(DccSettings.llm_value("token_cap")) == 5000 and int(DccSettings.llm_gate_dict()["token_cap"]) == 5000, "a cap of 5000 stores and reaches the gate dictionary")
+	_ok(_bridge.llm_authorize(DccSettings.llm_gate_dict(), "", PackedStringArray()) == verdict_0, "...and a cap does not change the gate's own verdict (it is the shell's own check, in `prepare`)")
+	_ok(DccSettings.set_llm_value("token_cap", 0) and int(DccSettings.llm_value("token_cap")) == 0, "a cap set back to 0 is off again")
 	for k in DccSettings.LLM_DEFAULTS:
 		_ok(not String(k).contains("secret") and k != "key" and k != "api_key" and k != "token", "allow-list entry '%s' is not a secret slot" % k)
 	_cleanup_account = "openai"

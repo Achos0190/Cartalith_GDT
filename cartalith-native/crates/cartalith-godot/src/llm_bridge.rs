@@ -75,6 +75,14 @@ pub(crate) fn settings_from(d: &VarDictionary) -> LlmSettings {
     if let Some(src) = KeySource::from_id(&text(d, "key_source")) {
         s.key_source = src;
     }
+    // The opt-in token cap: a positive integer turns it on; absent, zero, negative or
+    // of the wrong type is OFF (Ruling DD Q8: no cap by default, and a corrupt record
+    // must not invent one -- nor a `Some(0)` that would refuse everything).
+    s.token_cap = d
+        .get("token_cap")
+        .and_then(|v| v.try_to::<i64>().ok())
+        .and_then(|n| u64::try_from(n).ok())
+        .filter(|n| *n > 0);
     let env = text(d, "env_var");
     if !env.is_empty() {
         s.env_var = env;

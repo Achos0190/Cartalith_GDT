@@ -2,7 +2,9 @@ extends AcceptDialog
 class_name LlmAssistantWindow
 
 ## **The Assistant panel** (`LLM_ASSISTANT_SCOPE.md` milestone LLM-3: prose and Vault assist,
-## U1 / U3 / U6, streamed and cancellable; Rulings DC, DD, DF, DI).
+## U1 / U3 / U6, streamed and cancellable; LLM-4: hosted OpenAI-compatible and Anthropic
+## endpoints, the running token counter and its opt-in cap, the one automatic retry;
+## Rulings DC, DD, DF, DI).
 ##
 ## Design: `design/llm-assistant-2026-10-25/index.html` (LLM-0, owner-approved): mode chips, a
 ## prompt box, Send / Stop, a token counter that says "no cap", a status line naming the
@@ -31,6 +33,10 @@ class_name LlmAssistantWindow
 ##   line says exactly what will leave.
 ## * **Marks model text.** Every assistant message carries a "model-generated" chip and is
 ##   drawn in a muted ink so it cannot read as an app sentence.
+## * **The token counter is Rust's.** The totals come from `LlmStream.token_counts()` (one
+##   process-wide counter fed by every reply's `usage`), never from a GDScript tally, and a
+##   total no server has reported is shown as "not reported", never `0`. The cap, if the user
+##   set one, is checked in Rust before every request; here it is only displayed.
 ## * **Holds no key.** The key is resolved inside `LlmStream.prepare` and never returned to
 ##   this window; the status line shows the endpoint, not a secret.
 ## * **No thread outlives the window.** Closing it cancels a running reply and joins the worker.
@@ -69,17 +75,13 @@ var _status_text: Label
 var _sent_label: Label
 var _reason_label: Label
 var _tok_label: Label
+var _tok_reset: Button
 var _save_reason: Label
 var _input: TextEdit
 var _send: Button
 var _stop: Button
 var _save: Button
 var _building := false
-## Tokens as the servers reported them this session; only fields a server sent are counted, and
-## `reported` says whether any server ever did (so "not reported" is never shown as 0).
-var _tot_prompt := 0
-var _tot_completion := 0
-var _reported := false
 var _chips: Dictionary = {}
 ## Files listed in the Vault picker, index + 1 -> relative path.
 var _note_paths: PackedStringArray = PackedStringArray()
@@ -119,12 +121,13 @@ func setup(a, b: EngineBridge) -> void:
 	run.finished.connect(_on_finished)
 	run.failed.connect(_on_failed)
 	run.cancelled.connect(_on_cancelled)
+	run.retrying.connect(_on_retrying)
 	run.idle.connect(_refresh)
 	var host := VBoxContainer.new()
 	host.add_theme_constant_override("separation", 0)
 	add_child(host)
 	if _phone:
-		DccWidgets.phone_head(host, "Assistant", "optional · local model")
+		DccWidgets.phone_head(host, "Assistant", "optional · your model")
 	## A phone sheet draws its Close button over the bottom of the content (measured: it covered the
 	## closing note), so the phone body ends 60 px early; the pointer dialog reserves the row itself.
 	var pad := DccWidgets.pad(host, 14, 10, 14, 60 if _phone else 10)
@@ -334,9 +337,12 @@ func _rebuild() -> void:
 	_tok_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tok_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tok_label.custom_minimum_size.x = WRAP_MIN_W
-	_tok_label.tooltip_text = "No spend limit is enforced. Counts are what the server reported."
+	_tok_label.tooltip_text = "No spend limit is enforced unless you set a cap in Settings. Counts are what servers reported."
 	ctl.add_child(_tok_label)
 	controls["tokens"] = _tok_label
+	_tok_reset = _button(ctl, "Reset", _on_reset_counter)
+	_tok_reset.tooltip_text = "Zero the counter for this session. It does not change any cap setting."
+	controls["tokens_reset"] = _tok_reset
 	_stop = _button(ctl, "Stop", _on_stop)
 	controls["stop"] = _stop
 	_send = _button(ctl, "Send", _on_send, true)
@@ -482,8 +488,11 @@ func _refresh() -> void:
 	var g := _gate()
 	var gate_ok := bool(g.get("ok", false))
 	if gate_ok:
-		_status_text.text = "%s · model %s · key is read from the %s" % [
-			String(g["origin"]), String(DccSettings.llm_value("model")),
+		## A hosted endpoint is named as such, because it is the one place text leaves the
+		## machine for a third party; a local one is not alarming.
+		_status_text.text = "%s (%s) · model %s · key is read from the %s" % [
+			String(g["origin"]), "hosted, over the internet" if not bool(g.get("local", true)) else "this computer or network",
+			String(DccSettings.llm_value("model")),
 			"OS credential store" if String(DccSettings.llm_value("key_source")) == "store" else "environment variable"]
 		_dot("good")
 	else:
@@ -503,8 +512,11 @@ func _refresh() -> void:
 	var request := _input.text.strip_edges()
 	var reason := ""
 	var sent_text := ""
+	var cap_check: Dictionary = run.stream.cap_check(int(DccSettings.llm_value("token_cap"))) if run.available() else {"ok": true}
 	if not gate_ok:
 		reason = String(g.get("reason", "Unavailable."))
+	elif not bool(cap_check.get("ok", true)):
+		reason = String(cap_check.get("reason", "The token cap is reached."))
 	elif request == "":
 		reason = "Type a request first."
 	else:
@@ -523,6 +535,8 @@ func _refresh() -> void:
 	_send.tooltip_text = reason
 	_input.editable = not busy
 	_tok_label.visible = bool(DccSettings.llm_value("token_counter"))
+	_tok_reset.visible = _tok_label.visible
+	_tok_reset.disabled = busy
 	_tok_label.text = _token_text()
 
 	# Save: only with a finished reply and a picked note.
@@ -564,10 +578,21 @@ func _sent_text(s: Dictionary) -> String:
 	return t
 
 
+## The counter line. Totals are Rust's (`LlmStream.token_counts`); an absent total reads "not
+## reported", never 0, and when some replies reported nothing the line says how many did, so a
+## total is never presented as complete when it is not.
 func _token_text() -> String:
-	if not _reported:
-		return "Tokens: not reported by the server yet · no cap"
-	return "Tokens %d in / %d out · no cap" % [_tot_prompt, _tot_completion]
+	var c: Dictionary = run.stream.token_counts() if run.available() else {}
+	var cap := int(DccSettings.llm_value("token_cap"))
+	var cap_text := "no cap" if cap <= 0 else "cap %d" % cap
+	if not c.has("prompt") and not c.has("completion"):
+		return "Tokens: not reported yet · %s" % cap_text
+	var t := "Tokens %s in / %s out" % [
+		str(int(c["prompt"])) if c.has("prompt") else "not reported",
+		str(int(c["completion"])) if c.has("completion") else "not reported"]
+	if int(c.get("calls_reported", 0)) < int(c.get("calls", 0)):
+		t += " · %d of %d replies reported usage" % [int(c.get("calls_reported", 0)), int(c.get("calls", 0))]
+	return t + " · " + cap_text
 
 
 # ---------------------------------------------------------------------------
@@ -653,13 +678,20 @@ func _on_token(t: String) -> void:
 	_refresh()
 
 
-func _on_usage(info: Dictionary) -> void:
-	if info.has("prompt"):
-		_tot_prompt += int(info["prompt"])
-		_reported = true
-	if info.has("completion"):
-		_tot_completion += int(info["completion"])
-		_reported = true
+## The counter is Rust's and has already recorded this reply; only the line needs redrawing.
+func _on_usage(_info: Dictionary) -> void:
+	_refresh()
+
+
+func _on_reset_counter() -> void:
+	if run.available():
+		run.stream.reset_token_counts()
+	_refresh()
+
+
+## The one automatic retry has started. `failed` is NOT emitted for the first attempt, so say it here.
+func _on_retrying(reason: String) -> void:
+	_add_msg("", "%s. Trying once more; this is the only automatic retry." % reason.rstrip("."), "warn")
 	_refresh()
 
 
