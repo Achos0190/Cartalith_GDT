@@ -2420,3 +2420,16 @@ After `ECOLOGICAL_ARMY_TERM_SCOPE.md` (`2789cf8a`), the owner approved the scope
 6. **Q6:** the industrial levy (§3 point 4) is its own row, not built here.
 
 **Build order:** EA-0 (the diagnostic harness, committed first), EA-1 (the term), EA-2 (re-baseline, probes and prose), each with the scope's numeric bars; a bar that fails stops the build for a report rather than a tuning.
+
+## Ruling DF — a local LLM provider on the same machine scales Cartalith back to the lowest-power GPU (owner, 2026-10-25)
+
+Owner, on the LLM assistant (Rulings DC, DD): when a local provider is selected, show a warning that GPU resources should be changed; when the LLM software runs on the **same machine**, scale Cartalith back to the least powerful GPU (usually the CPU's integrated graphics) so the dedicated card is left to the LLM. He first said it need not be automatic if it cannot be checked, then: *"I think it should be easy to check though. It's visible in the ip address if it's on the local network or on the same machine. So maybe automatically switching should hinge on that with a user override."*
+
+The rule, with its labelled judgements (the owner may overrule):
+
+1. **Same-machine detection reads the base-URL host only.** `localhost`, `127.0.0.0/8` (so `127.0.0.1`), `::1` and `::ffff:127.0.0.1` count as the same machine. Private LAN ranges (`10/8`, `172.16/12`, `192.168/16`, link-local `169.254/16` and `fe80::/10`) and every remote host do **not**: the LLM runs on another computer, so nothing is switched.
+2. **Behaviour.** Same machine: the automatic low-power-GPU preference applies while that provider is the active one. LAN or remote: no switch. The **warning is always shown for a local preset** and states what was detected and what will happen.
+3. **User override**, a setting with three values: **Automatic** (default, rule 1), **Always low-power GPU**, **Never change**.
+4. **Edge cases are covered by the override and a visible "detected as" line**, not by guessing: Docker and WSL (a container's `localhost` may or may not be the host's GPU), SSH tunnels and port forwards (a `localhost` URL whose server is elsewhere), a hostname that resolves to localhost, `host.docker.internal`. Hostnames other than `localhost` are **not resolved** (no DNS call, no network) and are classed "unknown, no switch".
+5. **What the app can switch is limited, and the rule does not promise more.** See `LLM_ASSISTANT_SCOPE.md` s.5a: the compute path (wgpu) can be pointed at another adapter without a restart; the Godot display adapter is not known to be switchable from inside the running app, so for it the rule is the warning and the "detected as" line.
+6. **Address classification is a pure function tested with no network** (new bar, milestone LLM-2), covering IPv4, IPv6, bracketed forms, hostnames, ports and a refused userinfo.

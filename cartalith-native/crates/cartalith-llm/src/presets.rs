@@ -5,12 +5,14 @@
 //! defaults; the user's base URL, model and key still win, and the model is
 //! free text (scope s.5), so no model list lives here.
 //!
-//! EVIDENCE TAGS (per field, in the comments below): `[verified]` means read
-//! from the vendor's documentation by the agent that wrote this; `[recalled]`
-//! means written from memory and NOT checked against a vendor page in this
-//! session (no network was used, by rule). As written on 2026-10-25 EVERY value
-//! is `[recalled]`; re-verify against the vendor docs before LLM-3 publishes
-//! its "tested with" list. Provider endpoints drift (scope risk 5).
+//! EVIDENCE TAGS (per field, in the comments below): `[verified <source>]`
+//! means read from the vendor's documentation on 2026-10-25 (the page named);
+//! `[recalled]` means written from memory and not re-checked. The 2026-10-25
+//! vendor pass confirmed every value below except one, which it CHANGED: the
+//! llama.cpp server's default port is 9931 in the current README, not the 8080
+//! first recalled (8080 survives only in that README's Docker examples).
+//! Provider endpoints drift (scope risk 5): re-run the pass before LLM-3
+//! publishes its "tested with" list.
 //!
 //! MUST NEVER: hold a key, a model name or a secret; or be treated as proof
 //! that a server is reachable. `supports_*` flags say what the protocol
@@ -73,7 +75,7 @@ pub struct Preset {
 }
 
 /// Value of the fixed `anthropic-version` header. `[recalled]` from the
-/// Anthropic API docs; used by the LLM-4 adapter.
+/// Anthropic API docs; now [verified platform.claude.com streaming page, 2026-10-25]; used by the LLM-4 adapter.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Every preset. Order is the UI order: local first.
@@ -81,22 +83,22 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "ollama",
         display_name: "Ollama (local)",
-        base_url: "http://localhost:11434/v1", // [recalled] OpenAI-compat path is /v1
-        default_port: Some(11434),             // [recalled]
+        base_url: "http://localhost:11434/v1", // [verified docs.ollama.com/api/openai-compatibility]
+        default_port: Some(11434),             // [verified docs.ollama.com/api/openai-compatibility]
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::None, // [recalled] a key is ignored; clients send a dummy
+        auth: AuthScheme::None, // [verified ollama docs] a key is ignored; clients send a dummy
         key: KeyRequirement::Optional,
-        supports_streaming: true,  // [recalled]
-        supports_tool_calls: true, // [recalled] model-dependent
+        supports_streaming: true,  // [verified ollama docs]
+        supports_tool_calls: true, // [verified ollama docs] model-dependent
         is_local: true,
     },
     Preset {
         id: "lm_studio",
         display_name: "LM Studio (local)",
-        base_url: "http://localhost:1234/v1", // [recalled]
-        default_port: Some(1234),             // [recalled]
+        base_url: "http://localhost:1234/v1", // [verified lmstudio.ai/docs/developer/openai-compat]
+        default_port: Some(1234),             // [verified lmstudio.ai/docs/developer/openai-compat]
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::None, // [recalled]
+        auth: AuthScheme::None, // [verified lmstudio.ai/docs/developer/core/authentication] none by default; optional token is Bearer
         key: KeyRequirement::Optional,
         supports_streaming: true,  // [recalled]
         supports_tool_calls: true, // [recalled] model-dependent
@@ -105,46 +107,46 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "llama_cpp",
         display_name: "llama.cpp server (local)",
-        base_url: "http://localhost:8080/v1", // [recalled] llama-server default port
-        default_port: Some(8080),             // [recalled]
+        base_url: "http://localhost:9931/v1", // [verified llama.cpp tools/server/README.md, master, 2026-10-25] was 8080; --port default is now 9931
+        default_port: Some(9931),             // [verified same README: `--port` default 9931, `--host` 127.0.0.1]
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::None, // [recalled] optional --api-key flag turns Bearer on
+        auth: AuthScheme::None, // [verified README: --api-key exists, default none] the header form is not stated there; Bearer is [recalled]
         key: KeyRequirement::Optional,
         supports_streaming: true,  // [recalled]
-        supports_tool_calls: true, // [recalled] needs the server's --jinja template flag
+        supports_tool_calls: true, // [verified README] tools need --jinja, which is now ENABLED by default
         is_local: true,
     },
     Preset {
         id: "vllm",
         display_name: "vLLM (local or LAN)",
-        base_url: "http://localhost:8000/v1", // [recalled] `vllm serve` default port
-        default_port: Some(8000),             // [recalled]
+        base_url: "http://localhost:8000/v1", // [verified vLLM CLI docs v0.10.0, via search] `vllm serve` default port
+        default_port: Some(8000),             // [verified same]
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::None, // [recalled] optional --api-key turns Bearer on
+        auth: AuthScheme::None, // [verified vLLM docs] optional --api-key; clients send Authorization: Bearer
         key: KeyRequirement::Optional,
         supports_streaming: true,  // [recalled]
-        supports_tool_calls: true, // [recalled] needs tool-call flags at server start
+        supports_tool_calls: true, // [verified vLLM docs] needs --enable-auto-tool-choice and --tool-call-parser at server start
         is_local: true,
     },
     Preset {
         id: "openrouter",
         display_name: "OpenRouter",
-        base_url: "https://openrouter.ai/api/v1", // [recalled]
+        base_url: "https://openrouter.ai/api/v1", // [verified openrouter.ai/docs/api-reference/overview]
         default_port: None,
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::Bearer, // [recalled]
+        auth: AuthScheme::Bearer, // [verified same]
         key: KeyRequirement::Required,
-        supports_streaming: true,  // [recalled]
-        supports_tool_calls: true, // [recalled] per routed model
+        supports_streaming: true,  // [verified same] stream:true, SSE
+        supports_tool_calls: true, // [verified same] per routed model
         is_local: false,
     },
     Preset {
         id: "openai",
         display_name: "OpenAI",
-        base_url: "https://api.openai.com/v1", // [recalled]
+        base_url: "https://api.openai.com/v1", // [verified developers.openai.com/api/reference/overview]
         default_port: None,
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::Bearer, // [recalled]
+        auth: AuthScheme::Bearer, // [verified same]
         key: KeyRequirement::Required,
         supports_streaming: true,  // [recalled]
         supports_tool_calls: true, // [recalled]
@@ -153,25 +155,25 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "anthropic",
         display_name: "Anthropic",
-        base_url: "https://api.anthropic.com/v1", // [recalled] Messages is POST /v1/messages
+        base_url: "https://api.anthropic.com/v1", // [verified platform.claude.com/docs/en/build-with-claude/streaming] Messages is POST /v1/messages
         default_port: None,
         api_style: ApiStyle::AnthropicMessages,
-        auth: AuthScheme::XApiKey, // [recalled] plus anthropic-version, see ANTHROPIC_VERSION
+        auth: AuthScheme::XApiKey, // [verified same] x-api-key plus anthropic-version, see ANTHROPIC_VERSION
         key: KeyRequirement::Required,
-        supports_streaming: true,  // [cited] LLM_INTEGRATION_RESEARCH.md s.3 (stream:true)
+        supports_streaming: true,  // [verified same page] stream:true
         supports_tool_calls: true, // [cited] same table (tools / tool_use blocks)
         is_local: false,
     },
     Preset {
         id: "gemini_openai",
         display_name: "Google Gemini (OpenAI-compatible)",
-        base_url: "https://generativelanguage.googleapis.com/v1beta/openai", // [recalled]
+        base_url: "https://generativelanguage.googleapis.com/v1beta/openai", // [verified ai.google.dev/gemini-api/docs/openai]
         default_port: None,
         api_style: ApiStyle::OpenAiCompatible,
-        auth: AuthScheme::Bearer, // [recalled] the API key goes in the Bearer slot
+        auth: AuthScheme::Bearer, // [verified same] the API key goes in the Authorization Bearer slot
         key: KeyRequirement::Required,
-        supports_streaming: true,  // [recalled]
-        supports_tool_calls: true, // [recalled]
+        supports_streaming: true,  // [verified same]
+        supports_tool_calls: true, // [verified same] function calling; the page calls the OpenAI-library support beta
         is_local: false,
     },
 ];
@@ -245,7 +247,7 @@ mod tests {
         let port = |id| find(id).unwrap().default_port;
         assert_eq!(port("ollama"), Some(11434));
         assert_eq!(port("lm_studio"), Some(1234));
-        assert_eq!(port("llama_cpp"), Some(8080));
+        assert_eq!(port("llama_cpp"), Some(9931)); // README default as of 2026-10-25, was recalled as 8080
         assert_eq!(port("vllm"), Some(8000));
         assert_eq!(find("openrouter").unwrap().base_url, "https://openrouter.ai/api/v1");
         assert_eq!(find("openai").unwrap().base_url, "https://api.openai.com/v1");
