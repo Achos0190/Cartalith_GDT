@@ -280,13 +280,13 @@ The prompt is a regression surface (security bar 3): any edit re-runs the LLM-9 
 | Prompt and injection | The parameter-shaped hostile strings of LLM-9 produce no valid proposal outside the opened groups | LLM-9 |
 | Direction quality of real models | Measure first: 20 scripted requests ("drier", "lower mountains", "more islands", "colder poles", "fewer volcanoes" and so on), each with the *expected sign* of the key changes, run five times per model; report sign agreement, validity rate and spread per model in a dated "tested with" list. **No pass threshold is set before the numbers exist**; the owner sets one after seeing them | LLM-6c |
 
-**Owner questions for this part** (each with a default; none blocks LLM-6a):
+**Owner questions for this part** (each with a default; none blocks LLM-6a). **All five answered 2026-10-25 at the recommended defaults (Ruling DI, `LARGE_ITEM_RULINGS.md`):**
 
-- **P1** Reject an out-of-range or fractional model number (default), or clamp it as the slider setter does?
-- **P2** May the model flip boolean switches (default yes, tagged "advanced" where a ruling is involved; the six excluded keys stay out)?
-- **P3** Parameters and summary statistics as their own context-source checkbox (default yes, off until ticked)?
-- **P4** For a large-context hosted model, allow one-step "send the whole catalogue" (default no: two-step only, to keep one behaviour to test)?
-- **P5** Ever send the model a downsampled render of the map (default no, deferred; it is a privacy and cost decision)?
+- **P1** **Answered: reject, no clamping.** Reject an out-of-range or fractional model number (default), or clamp it as the slider setter does?
+- **P2** **Answered: yes.** May the model flip boolean switches (default yes, tagged "advanced" where a ruling is involved; the six excluded keys stay out)?
+- **P3** **Answered: yes.** Parameters and summary statistics as their own context-source checkbox (default yes, off until ticked)?
+- **P4** **Answered: two-step only.** For a large-context hosted model, allow one-step "send the whole catalogue" (default no: two-step only, to keep one behaviour to test)?
+- **P5** **Answered: never for now; deferred.** Ever send the model a downsampled render of the map (default no, deferred; it is a privacy and cost decision)?
 
 ## 6. UI forms (DCC shell; design pass LLM-0 first)
 

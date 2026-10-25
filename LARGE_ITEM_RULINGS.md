@@ -2459,3 +2459,15 @@ Owner, on `CUSTOM_QUICK_BAR_SCOPE.md`'s Q1-Q11, approved the scope's recommended
 11. **Q11. The Customise window and the chip only**, unless Godot's `PopupMenu` can report a right-click; CQ-3 decides that with a windowed check (CQ-0's headless finding is in the scope, section 11).
 
 Consequences: milestones CQ-0 to CQ-7 are unblocked in order (CQ-7 still gated on LLM-3); a pin is stored per device and never in a project, export or archive (CQ-1's leak bar); `MAP_CONTEXT_SCOPE.md` F5 and the "later" sentences listed in the scope's risk 9 are fixed when CQ-4 lands.
+
+## Ruling DI — the assistant's parameter-driving questions P1-P5: every recommended default approved (owner, 2026-10-25)
+
+Owner, on `LLM_ASSISTANT_SCOPE.md` s.5b's owner questions P1-P5, approved the recommended defaults. Recorded as answered:
+
+1. **P1. Reject an out-of-range or fractional model number; no clamping.** The proposal validator stays stricter than `params::set`, which clamps and rounds for a human's slider. After validation passes, any `clamped` or `rejected` entry from `set_params` is a bug and rolls the group back.
+2. **P2. The model may flip boolean switches**, tagged "advanced" where a ruling is involved. The six excluded keys stay out.
+3. **P3. Parameters and summary statistics are their own context-source checkbox**, off until ticked.
+4. **P4. Two-step catalogue only**: no one-step "send the whole catalogue", even for a large-context hosted model, so there is one behaviour to test.
+5. **P5. Never send map images for now.** Deferred; it is a privacy and cost decision and would need a later ruling.
+
+Consequences: LLM-6a is unblocked with these as fixed inputs; the validator (`cartalith-llm` `catalogue.rs`) rejects rather than coerces; the context-source checkbox in LLM-3's panel gains a parameters-and-statistics entry; no image path is built; the scope's P1-P5 are marked answered and the `OUTSTANDING_WORK.md` LLM row carries the answers.
