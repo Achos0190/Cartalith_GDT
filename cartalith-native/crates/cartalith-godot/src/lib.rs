@@ -29,6 +29,10 @@ mod bugsweep_seed707;
 // check, an ignored measurement over 20 generated worlds.
 #[cfg(test)]
 mod fh_r2_baseline;
+// G1-0 (GOVERNMENTS_SCOPE.md §8, Ruling CZ): the roster-government and
+// manpower columns over the same 20 worlds, an ignored measurement.
+#[cfg(test)]
+mod g1_baseline;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;

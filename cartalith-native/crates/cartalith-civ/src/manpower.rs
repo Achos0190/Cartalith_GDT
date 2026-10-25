@@ -1648,6 +1648,50 @@ mod tests {
         }
     }
 
+    /// G1-0 (`GOVERNMENTS_SCOPE.md` §7.1, §8): the scope sized its hazards
+    /// with a scratch replica of this chain, checked against the pinned
+    /// literals. This is that replica's check, kept: the Kingdom A/B standing,
+    /// levy and field figures recomputed by an **independent transcription**
+    /// of `military_drivers` and `civ_military_manpower`, every coefficient
+    /// written here as a literal rather than read from this module's
+    /// constants, so a constant that moved would fail here even if the
+    /// worked-example tests were re-recorded with it. Upkeep is the literal
+    /// High-medieval / Military-fiscal bracket value (1.8153 / 2.2214), whose
+    /// own derivation `soldier_upkeep_is_derived_from_the_era_table` checks.
+    ///
+    /// Protects: the replica and the model agree to 1e-6 on all six figures,
+    /// and both land on the literals `the_citizen_ruling_moves_no_headcount`
+    /// pins.
+    #[test]
+    fn an_independent_replica_reproduces_both_worked_examples() {
+        // (fpu, nucleated, land, extraction, reach, road, nav, sea, upkeep)
+        let replica = |f: f64, nucleated: f64, land: f64, ext: f64, reach: f64, road: f64, nav: f64, sea: f64, upkeep: f64| {
+            let alpha = f / (1.0 + f);
+            let total = nucleated * (1.0 + f);
+            let eco = (land / total).clamp(0.25, 4.0);
+            let urban = ((1.0 - alpha) / (1.0 / 1.15)).clamp(0.0, 1.0);
+            let state = (ext * (0.55 + 0.45 * reach) * (0.70 + 0.60 * urban)).clamp(0.03, 0.95);
+            let logistics = (0.15 + 0.45 * road + 0.30 * nav + 0.10 * sea).clamp(0.0, 1.0);
+            let fiscal = 0.04 + (0.16 - 0.04) * state;
+            let standing = total * (1.0 - alpha) * eco * fiscal / upkeep;
+            let levy = total * 0.25 * (0.04 + 0.30 * state + 0.22 * logistics).clamp(0.0, 0.60);
+            let field = levy * (0.34 + 0.20 * logistics);
+            (standing, levy, field)
+        };
+        let a = replica(3.0, 250_000.0, 1_000_000.0, 0.45, 0.20, 0.10, 0.10, 0.00, 1.8153);
+        let b = replica(11.0 / 9.0, 450_000.0, 1_050_000.0, 0.70, 0.90, 0.70, 0.60, 0.50, 2.2214);
+        for ((s, l, fl), input, want) in [
+            (a, kingdom_a(), (9_661.0, 41_221.0, 15_870.0)),
+            (b, kingdom_b(), (25_750.0, 98_889.0, 47_368.0)),
+        ] {
+            let m = civ_military_manpower(&input);
+            assert!((m.standing_army - s).abs() < 1e-6, "standing {} vs replica {s}", m.standing_army);
+            assert!((m.emergency_mobilization - l).abs() < 1e-6, "levy {} vs replica {l}", m.emergency_mobilization);
+            assert!((m.field_army - fl).abs() < 1e-6, "field {} vs replica {fl}", m.field_army);
+            assert!((s - want.0).abs() < 1.0 && (l - want.1).abs() < 1.0 && (fl - want.2).abs() < 1.0, "{s} {l} {fl}");
+        }
+    }
+
     /// Protects: what the ruling was *for* -- both worked examples land
     /// inside both bands against the citizen body, where the first build
     /// read one of them `below`.

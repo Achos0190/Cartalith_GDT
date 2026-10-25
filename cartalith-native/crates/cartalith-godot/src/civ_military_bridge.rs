@@ -125,7 +125,7 @@ const ROAD_DENSITY_REF_KM_PER_1000_KM2: f64 = 10.0;
 
 /// One settlement's fortification row, built once and reused by both
 /// entry points.
-struct Defence {
+pub(crate) struct Defence {
     tid: u64,
     name: String,
     faction: i32,
@@ -166,50 +166,10 @@ impl WorldGen {
         settlements: &[NamedSettlement],
         overrides: Option<&std::collections::BTreeMap<u64, YearPlaceOverride>>,
     ) -> Vec<Defence> {
-        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
-        else {
-            return Vec::new();
-        };
-        let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
-        settlements
-            .iter()
-            .map(|s| {
-                let e = civ.place_extras.resolve_for_reading(overrides, s.tid);
-                let r = civ_relative_elevation(
-                    &ws.field,
-                    gw,
-                    gh,
-                    sea,
-                    s.placement.x as f64,
-                    s.placement.y as f64,
-                );
-                let p = WallPlace {
-                    walls_override: e.walls,
-                    kind: s.placement.kind,
-                    pop: s.pop as f64,
-                    fortified_trait: e.traits.iter().any(|t| t == "fortified"),
-                    age_override: e.age.map(f64::from),
-                    specialisation: if e.specialisation.is_empty() {
-                        None
-                    } else {
-                        Some(e.specialisation.as_str())
-                    },
-                    relative_elevation: r,
-                };
-                let spec = um_wall_spec(&p);
-                let walled = um_infer_walls(&p);
-                Defence {
-                    tid: s.tid,
-                    name: s.name.clone(),
-                    faction: s.placement.faction,
-                    kind: kind_key(s.placement.kind),
-                    spec,
-                    walled,
-                    defensibility: civ_place_defensibility(r, walled),
-                    pop: s.pop,
-                }
-            })
-            .collect()
+        match self.mil_world() {
+            Some(m) => m.defences_of(settlements, overrides),
+            None => Vec::new(),
+        }
     }
 
     /// `civ_faction_aggregates` with the fortification term actually fed —
@@ -254,88 +214,7 @@ impl WorldGen {
         defences: &[Defence],
         with_resources: bool,
     ) -> Option<FactionAggregates> {
-        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
-        else {
-            return None;
-        };
-        let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
-        if !with_resources {
-            return self.aggregate_call(view, defences, None);
-        }
-        let biome = cartalith_civ::build_biome_raster(
-            &civ.water_bodies,
-            &ws.temperature,
-            &ws.rainfall,
-        );
-        let lithology = cartalith_civ::build_lithology(
-            &ws.field,
-            &ws.age_field,
-            &ws.volcanic_field,
-            &ws.crust_field,
-            &ws.resistance_field,
-            &ws.rainfall,
-            sea,
-        );
-        // `scarcity=true, scarcity_legacy=false` — the production defaults
-        // `currentResourcePotentials()` runs with, not a choice made here.
-        let resources = cartalith_civ::build_resource_potentials(
-            &lithology,
-            Some(&ws.boundary_type),
-            Some(&ws.shear_field),
-            Some(&ws.flow_discharge),
-            Some(&biome),
-            &ws.field,
-            &ws.rainfall,
-            &ws.age_field,
-            gw,
-            gh,
-            sea,
-            Some(&ws.volcanic_field),
-            true,
-            false,
-        );
-        self.aggregate_call(view, defences, Some(&resources))
-    }
-
-    /// Runs `faction_aggregates` over `view` (live or a recorded year) for the current generated world, with optional `resources`. Returns `None` when there is no civ layer or no generated world, which callers must report as unavailable rather than as zero armies.
-    fn aggregate_call(
-        &self,
-        view: &CivView,
-        defences: &[Defence],
-        resources: Option<&cartalith_civ::ResourcePotentials>,
-    ) -> Option<FactionAggregates> {
-        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
-        else {
-            return None;
-        };
-        let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
-        let has_religion = civ.faction_roster.has_religion_flags(&civ.religions);
-        let input = FactionAggregatesInput {
-            faction_count: civ.faction_roster.0.len(),
-            gw,
-            gh,
-            sea,
-            map_width_km: self.map_width_km,
-            field: &ws.field,
-            territory: Some(view.territory),
-            density: None,
-            resources,
-            // The terrain-mix half of the aggregate; neither readout here
-            // reads `terrain_mix`, and `civ_faction_terrain_fits` is the
-            // call that pays for those two extra passes.
-            biome: None,
-            flow: None,
-            flow_thresh: f64::INFINITY,
-            ocean_dist: None,
-            faction_has_religion: Some(&has_religion),
-        };
-        let places: Vec<FactionPlace> = view
-            .settlements
-            .iter()
-            .zip(defences)
-            .map(|(s, d)| FactionPlace { fortified: d.walled, ..FactionPlace::from_settlement(s) })
-            .collect();
-        Some(cartalith_civ::civ_faction_aggregates(&input, &places))
+        self.mil_world().map(|m| m.aggregates_of(view, defences, with_resources))
     }
 
     /// One [`cartalith_civ::manpower::Manpower`] per real faction, indexed
@@ -378,12 +257,196 @@ impl WorldGen {
     /// the year has one and from the live roster otherwise
     /// (`MILITARY_MANPOWER_SCOPE.md` §5.7, [`resolve_institutions`]).
     fn manpower_rows_of(&self, view: &CivView, agg: &FactionAggregates) -> Vec<ManpowerRow> {
+        match self.mil_world() {
+            Some(m) => m.manpower_rows_of(view, agg),
+            None => Vec::new(),
+        }
+    }
+
+    /// The borrowed world the military chain reads ([`MilWorld`]), or `None`
+    /// before a generated world with a civ layer exists (a loaded save has no
+    /// `WorldState`; every caller already reports that case as "no reading",
+    /// never as zero armies).
+    fn mil_world(&self) -> Option<MilWorld<'_>> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
-            return Vec::new();
+            return None;
         };
+        Some(MilWorld {
+            civ,
+            ws,
+            gw: self.gw.max(0) as usize,
+            gh: self.gh.max(0) as usize,
+            sea: self.sea_level,
+            map_width_km: self.map_width_km,
+            seed: self.seed,
+        })
+    }
+}
+
+/// What the military chain (defences -> aggregates -> manpower rows) reads
+/// from a [`WorldGen`], borrowed, so the same code runs without a live
+/// `WorldGen` (a `GodotClass`, not constructible in a unit test).
+///
+/// Introduced 2026-10-25 for G1-0 (`GOVERNMENTS_SCOPE.md` §8), whose harness
+/// (`g1_baseline.rs`) must measure **the app's** manpower figures on generated
+/// worlds rather than a copy of this file's input assembly. The `WorldGen`
+/// methods `defences_of`, `aggregates_of` and `manpower_rows_of` build one
+/// of these and delegate, so the app and the harness share one body. A pure
+/// move: no arithmetic, order or input changed. Must never grow a field the
+/// `WorldGen` path does not fill from the same source.
+pub(crate) struct MilWorld<'a> {
+    pub(crate) civ: &'a CivData,
+    pub(crate) ws: &'a cartalith_engine::WorldState,
+    pub(crate) gw: usize,
+    pub(crate) gh: usize,
+    /// `WorldGen::sea_level`, the effective sea level (kept equal to
+    /// `ws.sea_level` by that field's own invariant).
+    pub(crate) sea: f64,
+    pub(crate) map_width_km: f64,
+    /// `WorldGen::seed`, read only as `UrbanWorld::world_seed`.
+    pub(crate) seed: i32,
+}
+
+/// The military chain's bodies, moved here from `impl WorldGen` (see
+/// [`MilWorld`]).
+impl MilWorld<'_> {
+    pub(crate) fn aggregates_of(
+        &self,
+        view: &CivView,
+        defences: &[Defence],
+        with_resources: bool,
+    ) -> FactionAggregates {
+        let (civ, ws, gw, gh, sea) = (self.civ, self.ws, self.gw, self.gh, self.sea);
+        if !with_resources {
+            return self.aggregate_call(view, defences, None);
+        }
+        let biome = cartalith_civ::build_biome_raster(
+            &civ.water_bodies,
+            &ws.temperature,
+            &ws.rainfall,
+        );
+        let lithology = cartalith_civ::build_lithology(
+            &ws.field,
+            &ws.age_field,
+            &ws.volcanic_field,
+            &ws.crust_field,
+            &ws.resistance_field,
+            &ws.rainfall,
+            sea,
+        );
+        // `scarcity=true, scarcity_legacy=false` — the production defaults
+        // `currentResourcePotentials()` runs with, not a choice made here.
+        let resources = cartalith_civ::build_resource_potentials(
+            &lithology,
+            Some(&ws.boundary_type),
+            Some(&ws.shear_field),
+            Some(&ws.flow_discharge),
+            Some(&biome),
+            &ws.field,
+            &ws.rainfall,
+            &ws.age_field,
+            gw,
+            gh,
+            sea,
+            Some(&ws.volcanic_field),
+            true,
+            false,
+        );
+        self.aggregate_call(view, defences, Some(&resources))
+    }
+
+    pub(crate) fn defences_of(
+        &self,
+        settlements: &[NamedSettlement],
+        overrides: Option<&std::collections::BTreeMap<u64, YearPlaceOverride>>,
+    ) -> Vec<Defence> {
+        let (civ, ws) = (self.civ, self.ws);
+        let (gw, gh, sea) = (self.gw, self.gh, self.sea);
+        settlements
+            .iter()
+            .map(|s| {
+                let e = civ.place_extras.resolve_for_reading(overrides, s.tid);
+                let r = civ_relative_elevation(
+                    &ws.field,
+                    gw,
+                    gh,
+                    sea,
+                    s.placement.x as f64,
+                    s.placement.y as f64,
+                );
+                let p = WallPlace {
+                    walls_override: e.walls,
+                    kind: s.placement.kind,
+                    pop: s.pop as f64,
+                    fortified_trait: e.traits.iter().any(|t| t == "fortified"),
+                    age_override: e.age.map(f64::from),
+                    specialisation: if e.specialisation.is_empty() {
+                        None
+                    } else {
+                        Some(e.specialisation.as_str())
+                    },
+                    relative_elevation: r,
+                };
+                let spec = um_wall_spec(&p);
+                let walled = um_infer_walls(&p);
+                Defence {
+                    tid: s.tid,
+                    name: s.name.clone(),
+                    faction: s.placement.faction,
+                    kind: kind_key(s.placement.kind),
+                    spec,
+                    walled,
+                    defensibility: civ_place_defensibility(r, walled),
+                    pop: s.pop,
+                }
+            })
+            .collect()
+    }
+
+    /// Runs `faction_aggregates` over `view` (live or a recorded year) for this world, with
+    /// optional `resources`. The "no world" case is the caller's: [`WorldGen::mil_world`]
+    /// returns `None` there, which callers report as unavailable rather than as zero armies.
+    pub(crate) fn aggregate_call(
+        &self,
+        view: &CivView,
+        defences: &[Defence],
+        resources: Option<&cartalith_civ::ResourcePotentials>,
+    ) -> FactionAggregates {
+        let (civ, ws, gw, gh, sea) = (self.civ, self.ws, self.gw, self.gh, self.sea);
+        let has_religion = civ.faction_roster.has_religion_flags(&civ.religions);
+        let input = FactionAggregatesInput {
+            faction_count: civ.faction_roster.0.len(),
+            gw,
+            gh,
+            sea,
+            map_width_km: self.map_width_km,
+            field: &ws.field,
+            territory: Some(view.territory),
+            density: None,
+            resources,
+            // The terrain-mix half of the aggregate; neither readout here
+            // reads `terrain_mix`, and `civ_faction_terrain_fits` is the
+            // call that pays for those two extra passes.
+            biome: None,
+            flow: None,
+            flow_thresh: f64::INFINITY,
+            ocean_dist: None,
+            faction_has_religion: Some(&has_religion),
+        };
+        let places: Vec<FactionPlace> = view
+            .settlements
+            .iter()
+            .zip(defences)
+            .map(|(s, d)| FactionPlace { fortified: d.walled, ..FactionPlace::from_settlement(s) })
+            .collect();
+        cartalith_civ::civ_faction_aggregates(&input, &places)
+    }
+
+    pub(crate) fn manpower_rows_of(&self, view: &CivView, agg: &FactionAggregates) -> Vec<ManpowerRow> {
+        let (civ, ws) = (self.civ, self.ws);
         let n_f = civ.faction_roster.0.len();
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let (gw, gh) = (self.gw, self.gh);
         let cell_km = self.map_width_km / (gw.max(1) as f64);
         let cell_km2 = cell_km * cell_km;
 
@@ -412,7 +475,7 @@ impl WorldGen {
             river_polys: &polys,
             gw,
             gh,
-            sea_level: self.sea_level,
+            sea_level: self.sea,
             map_width_km: self.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
@@ -535,7 +598,7 @@ impl WorldGen {
 /// world, or one recorded year's snapshot (MM-8, `MILITARY_MANPOWER_SCOPE.md`
 /// §5.7). A snapshot's `ways` index into its own `settlements`, so the two
 /// always travel together.
-struct CivView<'a> {
+pub(crate) struct CivView<'a> {
     settlements: &'a [NamedSettlement],
     ways: &'a [Way],
     territory: &'a [i32],
@@ -558,7 +621,7 @@ impl<'a> CivView<'a> {
     }
 
     /// The live view: today's settlements, ways and territory, with no recorded year, so every `overrides`/`institutions` lookup falls back to today's tables.
-    fn live(civ: &'a CivData) -> Self {
+    pub(crate) fn live(civ: &'a CivData) -> Self {
         CivView { settlements: &civ.settlements, ways: &civ.ways, territory: &civ.territory, record: None }
     }
 }
@@ -990,8 +1053,8 @@ fn garrison_keys(row: &mut VarDictionary, g: &Garrison) {
 /// One faction's [`cartalith_civ::manpower::Manpower`], plus the two land
 /// figures its `ecological_factor` was read from, so the shell can show the
 /// working behind the normalisation rather than only its result.
-struct ManpowerRow {
-    manpower: cartalith_civ::manpower::Manpower,
+pub(crate) struct ManpowerRow {
+    pub(crate) manpower: cartalith_civ::manpower::Manpower,
     /// Σ `dens × cellKm²` over the faction's territory, before normalisation.
     land_capacity: f64,
     /// [`world_land_reference`]; `None` when the world has no land figures or

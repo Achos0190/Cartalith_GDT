@@ -85,18 +85,18 @@ fn harness_flows(civ: &crate::CivData, uw: &UrbanWorld) -> Vec<TradeFlow> {
 }
 
 /// Grid width for every harness world (see the module doc).
-const GW: usize = 384;
+pub(super) const GW: usize = 384;
 
 /// The five seeds: four already used by this repository's harnesses and
 /// probes (`12345`/`314159` by GF-13's bars, `404`/`707` by the Ruling CD
 /// probe and `bugsweep_seed707`), plus `24601` from the river comb captures.
 /// A labelled choice, not a sample design.
-const SEEDS: [i32; 5] = [12345, 314159, 404, 707, 24601];
+pub(super) const SEEDS: [i32; 5] = [12345, 314159, 404, 707, 24601];
 
 /// One recorded world: `(seed, width_km, factions, roster, relations, belief,
 /// urban)`. The four hashes were recorded at commit `8e5be475` on 2026-10-12,
 /// before any R2-1 code change, by running this test with an empty table.
-type Row = (i32, u32, i32, u64, u64, u64, u64);
+pub(super) type Row = (i32, u32, i32, u64, u64, u64, u64);
 
 /// The M0 baseline. See the module doc: never edit a value in passing.
 /// Kept as the historical record and read by no test since 2026-10-24 (see
@@ -130,15 +130,15 @@ const M0: [Row; 20] = [
 /// platforms and Rust versions (unlike `DefaultHasher`, whose algorithm the
 /// standard library does not promise).
 #[derive(Clone, Copy)]
-struct Fnv(u64);
+pub(super) struct Fnv(pub(super) u64);
 
 impl Fnv {
     /// The FNV-1a 64-bit offset basis (Fowler-Noll-Vo, published constant).
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Fnv(0xcbf2_9ce4_8422_2325)
     }
     /// Folds `bytes` in, using the FNV-1a 64-bit prime (published constant).
-    fn eat(&mut self, bytes: &[u8]) {
+    pub(super) fn eat(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.0 ^= u64::from(b);
             self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
@@ -146,7 +146,7 @@ impl Fnv {
     }
     /// Folds a string in followed by a separator byte, so `["ab","c"]` and
     /// `["a","bc"]` hash differently.
-    fn eat_str(&mut self, s: &str) {
+    pub(super) fn eat_str(&mut self, s: &str) {
         self.eat(s.as_bytes());
         self.eat(&[0x1f]);
     }
@@ -170,7 +170,7 @@ struct Print {
 /// Generates one world through the app's parameters (`params::defaults()`,
 /// CPU path), `gw` cells wide: the terrain, its civilisation layer, the grid
 /// height and the parameters used.
-fn generate_world(
+pub(super) fn generate_world(
     seed: i32,
     width_km: f64,
     factions: i32,
@@ -390,7 +390,7 @@ const M2_BELIEF: [u64; 20] = [
 /// 6's, not S3's. Their prior values are in their comments. Which of a
 /// row's three towns moved was not broken down; `fh_r2_m3_rite_only` shows
 /// that every house a rite moves sits under the new building.
-const AT_CURRENT: [Row; 20] = [
+pub(super) const AT_CURRENT: [Row; 20] = [
     (12345, 800, 6, 0x12ad5407c90b2d2f, 0x0d1a231ae44944af, 0xebec72f720a760e8, 0xfd7bfb7ce66a5c4b), // 28 settlements, 15 pairs, 3 towns, 9600 buildings; was (12345, 800, 6, 0x12ad5407c90b2d2f, 0x5c2004de10c6265f, 0x6ef29e9bcdae1ca9, 0xbcb3da126476c843) at 0801fbce; urban was 0xbcb3da126476c843 before Ruling CY's rite switch-on; relations/belief were 0x0d1a231ae44944af/0xc2bf20dd2d1c1a07 before Ruling CX item 4
     (12345, 800, 24, 0x83fc2cde5ba874d6, 0x4e02807c519c4bb9, 0xd30c1bb2d9e9b400, 0xc1976b0e8f11e87d), // 28 settlements, 276 pairs, 3 towns, 12157 buildings; was (12345, 800, 24, 0x83fc2cde5ba874d6, 0x60b724792206c53b, 0xda772cea5a60f87b, 0xbbe3a8e71eb7a26c) at 0801fbce; urban was 0xbbe3a8e71eb7a26c before Ruling CY's rite switch-on; relations/belief were 0x3b274aea47b357fc/0x4273ed93cbb870b9 before Ruling CX item 4
     (12345, 40075, 6, 0x12ad5407c90b2d2f, 0x95c289cde0c804f7, 0x718ec2e4009a0414, 0xd68ac4500da544cc), // 22 settlements, 15 pairs, 3 towns, 12018 buildings; urban was 0xc472ed74011cea76 before Ruling CY's rite switch-on; relations/belief were 0x95c289cde0c804f7/0x4e5ec3cf050eed16 before Ruling CX item 4
