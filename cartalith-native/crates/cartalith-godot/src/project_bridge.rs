@@ -8528,6 +8528,83 @@ mod tests {
         assert_eq!(r200.place_overrides, Some(Default::default()), "recorded-none is not unrecorded");
     }
 
+    /// Protects G1-4's bar 1 (`GOVERNMENTS_SCOPE.md` §7.2, §8; Ruling CZ): the
+    /// two **real** pre-G1 archives committed as fixtures (written 2026-09-24
+    /// and 2026-09-28, before any G1 form existed; `MISTAKES.md`: never a
+    /// fixture of empty collections) open with every faction on a reference
+    /// government, say nothing about governments, and re-serialise
+    /// `entities/factions.json` byte for byte. G1 adds vocabulary, not schema:
+    /// no new member, no `format_version` bump.
+    #[test]
+    fn a_project_saved_before_g1_reopens_and_re_saves_its_roster_byte_identically() {
+        for (name, bytes) in [
+            ("pre_substrate", &include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip")[..]),
+            ("384cap", &include_bytes!("../tests/fixtures/project_384cap_512x328_2026-09-28.zip")[..]),
+        ] {
+            let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+            let old = data.text_of(SLOT_FACTIONS).expect("it has a roster").to_string();
+            let n = data.save.params.gw * data.save.params.gh;
+            let mut warnings = Vec::new();
+            let civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer restores");
+            assert!(!warnings.iter().any(|w| w.contains("government")), "{name}: {warnings:?}");
+            assert!(civ.faction_roster.count() >= 2, "{name}: premise, real factions");
+            for (i, e) in civ.faction_roster.0.iter().enumerate() {
+                let pos = cartalith_civ::roster::CIV_GOVERNMENTS.iter().position(|&(k, _)| k == e.government);
+                assert!(
+                    pos.is_some_and(|p| p < cartalith_civ::roster::CIV_GOVERNMENTS_REFERENCE_LEN),
+                    "{name}: faction {i} holds {:?}, not a reference form",
+                    e.government
+                );
+            }
+            let mut docs = BTreeMap::new();
+            civ_documents(&civ, None, &mut docs);
+            assert_eq!(docs[SLOT_FACTIONS], old, "{name}: factions.json re-serialises byte for byte");
+        }
+    }
+
+    /// Protects G1-4's bar 2: every government key, the reference nine and the
+    /// eight G1 appended in turn, survives a save and reopen on a faction
+    /// (17 of 17), and a key this build does not know is kept verbatim on
+    /// write-back (`SAVEFILE_COMPAT.md` §9.2: preserved, never defaulted).
+    #[test]
+    fn every_government_key_round_trips_and_an_unknown_one_is_kept() {
+        let mut kept = 0;
+        for &(key, _) in cartalith_civ::roster::CIV_GOVERNMENTS.iter() {
+            let mut civ = sample_civ();
+            assert!(civ.faction_roster.set_field(1, "government", key), "{key} is settable");
+            let back = round_trip(&civ, 4, 3);
+            assert_eq!(back.faction_roster.0[1].government, key);
+            kept += 1;
+        }
+        assert_eq!(kept, 17);
+        let mut civ = sample_civ();
+        assert!(!civ.faction_roster.set_field(1, "government", "future_form"), "the setter still refuses unknown keys");
+        civ.faction_roster.0[1].government = "future_form".to_string();
+        let back = round_trip(&civ, 4, 3);
+        assert_eq!(back.faction_roster.0[1].government, "future_form", "unknown keys are preserved");
+    }
+
+    /// Protects G1-4's bar 3: a timeline year recorded while a faction was a
+    /// `merchant_republic` keeps that form through a save and reopen, and the
+    /// military reading of that year resolves to it (`resolve_institutions`)
+    /// even after today's roster moves the faction back to `monarchy`.
+    #[test]
+    fn a_recorded_year_keeps_a_g1_government_through_an_archive() {
+        let mut civ = sample_civ();
+        civ.timeline.clear();
+        civ.faction_roster.0[1].government = "merchant_republic".to_string();
+        civ.civ_add_year(100);
+        civ.faction_roster.0[1].government = "monarchy".to_string();
+        let back = round_trip(&civ, 4, 3);
+        let rec = back.timeline.iter().find(|s| s.year == 100).expect("year 100").record.clone();
+        let inst = rec.institutions.expect("institutions recorded");
+        assert_eq!(inst[1].government, "merchant_republic");
+        let live = (back.faction_roster.0[1].ag_tech.as_str(), back.faction_roster.0[1].government.as_str());
+        assert_eq!(live.1, "monarchy", "premise: today's roster differs");
+        let (_, gov) = crate::civ_military_bridge::resolve_institutions(live, Some(&inst), 1);
+        assert_eq!(gov, "merchant_republic");
+    }
+
     /// Records `year` the way an older writer (or the collapse run) did: a plain snapshot of
     /// the live lists with the default, unrecorded [`cartalith_civ::timeline::YearRecord`].
     fn civ_snapshot_save_for_test(civ: &mut CivData, year: i64) {

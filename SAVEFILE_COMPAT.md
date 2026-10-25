@@ -1290,6 +1290,22 @@ MUST NOT allow index `0` to be removed.
 | `currency` | object | MAY | The faction's own currency (Rulings R and AR; **Ruling AU**, added 2026-09-27): `name` (string), `symbol` (string, at most 6 characters) and `rate` (number, finite and `> 0`) — the rate is **units of this currency per one unit of the world trade price index**, the scarcity price every trade flow carries (`1` = a good whose world demand and supply balance). Every member is optional and present **only when the author set it**; an absent member means "not set", which a reader MUST show as a default and MUST NOT present as the author's choice (this implementation shows the name as `"<faction name> currency"`, the symbol as `¤`, and the rate as `1`, "at par"). A writer MUST omit the whole member when no field is set, so a file with no currency is byte-identical to one written before the member existed. A reader MUST treat an absent member as every field unset, MUST ignore a `currency` on faction `0` (Unclaimed issues none), MUST treat a blank `name`/`symbol` as unset, and MUST drop — not clamp, not replace with `1` — a `rate` that is not a finite number above zero, and SHOULD warn when it does. The rate is display-only: nothing generated or simulated reads it. |
 | `religious_policy` | string | MAY | **Since 2026-10-24 (FH-R2 R2-6).** The faction's religious policy: `plural`, `tolerant_establishment`, `exclusive_establishment` or `persecuting` (`cartalith_civ::religious_policy::CIV_RELIGIOUS_POLICIES`). A writer MUST omit the member for `plural`, the default, so a roster where no policy was changed is byte-identical to one written before the member existed; a reader MUST treat an absent member as `plural`. An unrecognised key MUST be preserved on write-back (the `religion` rule) and this implementation reads it as no modifier; a non-string value reads as `plural`, with a warning. It changes belief diffusion only (minority retention and conversion in that faction's settlements); an older reader ignores the member and runs with no policy. |
 
+**Government keys since G1 (2026-10-25, Ruling CZ, `GOVERNMENTS_SCOPE.md` §7.2).** The
+`government` vocabulary grew from the reference's nine keys to seventeen: `merchant_republic`,
+`city_league`, `sacral_monarchy`, `holy_order`, `feudal_realm`, `nomad_khanate`, `stratocracy` and
+`tributary_hegemony` were appended (`cartalith_civ::roster::CIV_GOVERNMENTS`). This is vocabulary,
+not schema: no member, no file and no `format_version` changed, and a project saved before G1
+reopens and re-saves `factions.json` byte-identically (asserted on the two committed pre-G1
+archives by `a_project_saved_before_g1_reopens_and_re_saves_its_roster_byte_identically`). A fresh
+faction is only ever given one of the reference nine, so a pre-G1 project's generated output is
+unchanged. **Forward compatibility:** a G1 save opened by a build older than G1 keeps the key on
+write-back (the MUST above), but that build's manpower model reads it through its documented
+fallbacks (extraction `0.15`, `chiefdom`'s; citizen share `0.90`) and its picker showed an unknown
+key as "None / Unclaimed"; that older build cannot be fixed. From G1-3 on, a build shows a key it
+does not know as "Unknown form (`<key>`), from a newer build" and never offers it as a choice. The
+same applies to `history/timeline.json`'s `years[].institutions[].government` (§10.1), which stores
+the key verbatim.
+
 **`color` is stored because it is not a function of the index.** An earlier
 revision of this document described it as "the palette colour derived from the
 faction index", which invited a reader to drop the member and regenerate it —

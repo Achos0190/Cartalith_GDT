@@ -633,7 +633,7 @@ impl<'a> CivView<'a> {
 /// today's for that one key rather than reading a blank as a government. A faction id at or
 /// past the end of `recorded` was added after the year and reads today's. Must never be
 /// called with a live entry for a different faction than `f`.
-fn resolve_institutions<'a>(
+pub(crate) fn resolve_institutions<'a>(
     live: (&'a str, &'a str),
     recorded: Option<&'a [YearFactionInstitutions]>,
     f: usize,
