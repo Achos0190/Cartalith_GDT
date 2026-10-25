@@ -2485,3 +2485,25 @@ The owner's answers to Ruling DG's five questions (the VA-6 row of `OUTSTANDING_
 Binding, restated: placement follows tectonics, magma supply and history, never even spreading. Zoom detail at x1/x4/x16/x64 judged on frames looked at. If a kind fails a bar beyond what is accepted here, report numbers rather than tune.
 
 **Outcome (2026-10-25):** all four built and on in the app; the measured moves, the caldera diameters (four above the cited 24 km), the supervolcano's local effects, the maar exemption and the frames are in `STATUS.md`'s VA-6 entry.
+
+## Ruling DK — pop-out windows scheduled with both a global setting and a per-window button; the small Cartalith LLM add-on not scheduled (owner, 2026-10-25)
+
+The owner's answers to `POPOUT_WINDOWS_SCOPE.md` §7 (Q1-Q7) and to `SMALL_LLM_ADDON_RESEARCH.md`, relayed by the coordinating session, recorded verbatim:
+
+**Pop-out windows**
+
+1. **Q1: default OFF.**
+2. **Q2: BOTH a global setting and a per-window pop-out button, from the start.** This **deviates** from the scope's recommendation ("global first, per-window later at PW-6"). Consequence: the per-window "Pop out / Dock" button moves into the pilot milestone (PW-2) and the old PW-6 is retired into it.
+3. **Q3: remember each window's monitor and position per device, clamped on-screen.**
+4. **Q4: v1 windows are the faction roster, then the other civilisation windows, then the planner.** Data Manager, Asset Library and file dialogs stay embedded.
+5. **Q5: keep the main map live while the planner is native.**
+6. **Q6: the OS title-bar frame is acceptable for v1.**
+7. **Q7: if PW-0 shows a large `gl_compatibility` cost, CONTINUE ANYWAY.** This **deviates** from the recommended "stop and report". Consequence: PW-0 and `STATUS.md` still record the measured numbers, and stop-and-report is kept **only** if the cost makes the app unusable, meaning it fails an existing bar in `PERFORMANCE_BENCHMARKS.md`.
+
+The feature is scheduled; the first milestone is PW-0 (a measurement spike, no shipped code).
+
+**Small Cartalith-tailored LLM add-on**
+
+The owner chose **"Not now."** The research stays on file, **nothing is scheduled**, and no milestone SL-0..SL-7 is opened. The owner will adopt the go/no-go gate pass rates after seeing SL-0 numbers; section 9's bars in the research are proposals until then.
+
+**Consequences:** `POPOUT_WINDOWS_SCOPE.md` marks Q1-Q7 answered and re-orders its milestones for Q2 and Q7; `SMALL_LLM_ADDON_RESEARCH.md` is marked not scheduled by owner decision; both `OUTSTANDING_WORK.md` rows are updated. Nothing is built by this ruling.
