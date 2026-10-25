@@ -723,6 +723,41 @@ fn a_save_without_the_lava_bench_key_reloads_without_benches() {
     }
 }
 
+/// Protects: VA-6's load rule -- a save written before `volc.kind_dome` and
+/// `volc.kind_maar` existed reloads with neither (its volcanoes were
+/// generated without domes and maars), every other row still applies, and
+/// each key round-trips both ways. The fixture is a pre-VA-6 app save.
+#[test]
+fn a_save_without_the_va6_kind_keys_reloads_without_domes_or_maars() {
+    let app = params::defaults();
+    assert!(app.volc.kind_dome && !app.volc.kind_maar, "the shipped app generates domes and no maars");
+    let mut old = params::defaults();
+    old.volc.kind_dome = false;
+    old.volc.kind_maar = false;
+    let mut state = params::save_state(&old);
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("volc.kind_dome").is_some(), "save_state writes volc.kind_dome");
+    assert!(native.remove("volc.kind_maar").is_some(), "save_state writes volc.kind_maar");
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of a pre-VA-6 save still applies");
+    assert_eq!(p, old, "a pre-VA-6 save reloads as the world it was saved as");
+    for on in [true, false] {
+        for key in ["volc.kind_dome", "volc.kind_maar"] {
+            let mut src = params::defaults();
+            src.volc.kind_dome = if key == "volc.kind_dome" { on } else { !on };
+            src.volc.kind_maar = if key == "volc.kind_maar" { on } else { !on };
+            let state = params::save_state(&src);
+            assert_eq!(state[params::NATIVE_PARAMS_KEY][key], serde_json::json!(on));
+            let mut back = params::defaults();
+            back.volc.kind_dome = !src.volc.kind_dome;
+            back.volc.kind_maar = !src.volc.kind_maar;
+            params::apply_saved_state(&mut back, &state);
+            assert_eq!((back.volc.kind_dome, back.volc.kind_maar), (src.volc.kind_dome, src.volc.kind_maar), "{key} {on}");
+        }
+    }
+}
+
 /// Protects: Ruling DB item 3's load rule -- a save written before `tect.high_ceiling` existed
 /// reloads with the top at 1 (its summits were generated under it), every other row of it still
 /// applies, and the key round-trips both ways once written. The fixture is a pre-ruling app save
@@ -1100,6 +1135,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.tect.high_ceiling = false;
     // And Ruling DB item 2's lava benches, the same way.
     expect.volc.lava_bench = false;
+    // And VA-6's domes and maars, the same way.
+    expect.volc.kind_dome = false;
+    expect.volc.kind_maar = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1149,9 +1187,9 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `TERRAIN_STREAK_SPIKE_2026-10-18.md` variant (a)); and
 /// `volc.fill_edifice_pits` (Ruling CO, 2026-10-18,
 /// `EDIFICE_AND_STREAKS_2026-10-18.md` variant (c-late)). (The count above is
-/// stale: the body asserts fifteen, the later ones being Ruling CU item 1's
-/// orogen relief, Ruling CX items 1, 4 and 6, and Ruling DB items 3 and 2's
-/// `tect.high_ceiling` and `volc.lava_bench`.)
+/// stale: the body asserts sixteen, the later ones being Ruling CU item 1's
+/// orogen relief, Ruling CX items 1, 4 and 6, Ruling DB items 3 and 2's
+/// `tect.high_ceiling` and `volc.lava_bench`, and VA-6's `volc.kind_dome`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1175,6 +1213,15 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.dry_active_craters && !parity.volc.dry_active_craters, "dry active craters, Ruling CX item 6");
     assert!(app.tect.high_ceiling && !parity.tect.high_ceiling, "higher world ceiling, Ruling DB item 3");
     assert!(app.volc.lava_bench && !parity.volc.lava_bench, "lava benches, Ruling DB item 2");
+    assert!(app.volc.kind_dome && !parity.volc.kind_dome, "lava domes, VA-6");
+    // VA-6's maar held its bars but did not read on the map: off at both.
+    assert!(!app.volc.kind_maar && !parity.volc.kind_maar, "VA-6 maars stay off");
+    // VA-6's three kinds that failed their bars are NOT divergences: off at
+    // both boundaries, like GF-2's processes.
+    assert!(!app.volc.kind_caldera && !parity.volc.kind_caldera, "VA-6 calderas failed their bars");
+    assert!(!app.volc.kind_supervolcano && !parity.volc.kind_supervolcano, "VA-6 supervolcano failed its bars");
+    assert!(!app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt failed its bars");
+    assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1188,8 +1235,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the fifteen must make the two identical --
-    // which catches a sixteenth divergence added without a ruling, in either
+    // And nothing else. Neutralising the sixteen must make the two identical --
+    // which catches a seventeenth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1207,10 +1254,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.dry_active_craters = false;
     neutral.tect.high_ceiling = false;
     neutral.volc.lava_bench = false;
+    neutral.volc.kind_dome = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         fifteen authorised fields"
+         sixteen authorised fields"
     );
 }
 

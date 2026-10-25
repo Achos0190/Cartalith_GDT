@@ -120,6 +120,17 @@ const SULPHUR: Rgb = (222.0, 204.0, 70.0);
 /// The chilled crust over an active vent: the shipped colour-paint Lava
 /// preset's crust (research §6.2).
 const CRUST: Rgb = (34.0, 33.0, 38.0);
+/// VA-6 lava dome rock: dacite / rhyolite, pale grey (research §6.2's
+/// "Rhyolitic dome / pumice (future kind)" row; "light", cited: USGS
+/// glossary; the RGB the research's judgement).
+const DOME_DACITE: Rgb = (176.0, 172.0, 166.0);
+/// Obsidian flow bands on a dome's carapace (same row: "black", cited: USGS
+/// glossary; the RGB the research's judgement).
+const OBSIDIAN: Rgb = (28.0, 28.0, 32.0);
+/// VA-6 maar tuff ring: pale buff tuff, the research's "tuff-pale" (170, 160,
+/// 140) of §6.2, a little darker so it reads against a sunlit flank.
+/// Judgement.
+const TUFF_RING: Rgb = (160.0, 150.0, 128.0);
 
 /// The tephra / tuff palette slot's default ramp: a pale grey-buff, the
 /// research's "tephra-grey fans (128, 124, 120)" as the middle stop
@@ -362,7 +373,13 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // "upper flank rim..0.5" / "lower flank 0.5..1" zones, softened so the
     // contact is not a ring).
     let core = if v.basaltic { 1.0 } else { smoothstep(0.62, 0.38, v.t) };
-    let lith = if v.basaltic {
+    // VA-6: a dome is dacite throughout (the andesite slot, the nearest of
+    // the palette's rocks); a maar's ring is tuff (the tephra slot).
+    let lith = if v.kind == EdificeKind::Dome {
+        LithoSample::One(2)
+    } else if v.kind == EdificeKind::Maar {
+        LithoSample::One(LITH_TEPHRA)
+    } else if v.basaltic {
         LithoSample::One(1)
     } else if core >= 1.0 {
         LithoSample::One(2)
@@ -398,7 +415,11 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // Fresh glass under 100 years, weathered (the palette) by 10 ka: the
     // brightening of bare lava over decades to millennia (research §3.2;
     // cited: the Tenerife study, Rose et al. 2011). Log-years 2..4.
-    let fresh_c = if v.basaltic {
+    let fresh_c = if v.kind == EdificeKind::Dome {
+        DOME_DACITE
+    } else if v.kind == EdificeKind::Maar {
+        TUFF_RING
+    } else if v.basaltic {
         if v.kind == EdificeKind::Cinder {
             FRESH_SCORIA
         } else {
@@ -419,6 +440,36 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         }
     }
 
+    // ---- VA-6: a dome's carapace and a maar's ring -------------------------
+    // A dome: blocky pale dacite with dark obsidian flow bands wrapping its
+    // centre, both in kilometre noise under the zoom law, so the blocks keep
+    // resolving as the view zooms in. A maar: the ring's tuff, bedded in thin
+    // concentric layers. Judgements on the research's §6.2 colours.
+    let monogenetic_vent = matches!(v.kind, EdificeKind::Dome | EdificeKind::Maar);
+    if v.kind == EdificeKind::Dome {
+        let blocks = zoom_fbm(v.p_km, (v.r_km * 0.35).max(0.02), v.px_km, seed + 61);
+        rock = mix(rock, DOME_DACITE, 0.55 + 0.35 * smoothstep(0.35, 0.65, blocks));
+        // The bands' spacing is a fifth of the radius; under the zoom law
+        // they fade in once that spacing spans `NYQ_PX` pixels, and until
+        // then contribute their mean cover (a sixth of the surface) as a
+        // uniform darkening, so the dome's tone holds across zoom.
+        let wl = (v.r_km * 0.22).max(0.01);
+        let wob = zoom_fbm(v.p_km, (v.r_km * 0.5).max(0.02), v.px_km, seed + 67) - 0.5;
+        // The wobble (2.5 band spacings) bends the bands into lobes, so they
+        // read as flow banding rather than a target (judgement on the first
+        // x64 frame of 24601, where 1.4 drew rings).
+        let band = ((v.d_km / wl + 2.5 * wob).fract() - 0.5).abs();
+        let sharp = smoothstep(0.1, 0.06, band);
+        let k = smoothstep(NYQ_PX * v.px_km, 2.0 * NYQ_PX * v.px_km, wl);
+        rock = mix(rock, OBSIDIAN, (k * sharp + (1.0 - k) * 0.16) * 0.4);
+    } else if v.kind == EdificeKind::Maar {
+        let ring = smoothstep(v.rim * 0.8, v.rim, v.t);
+        let wob = zoom_fbm(v.p_km, (v.r_km * 0.4).max(0.02), v.px_km, seed + 71) - 0.5;
+        let bed = ((v.d_km / 0.05 + 3.0 * wob).fract() - 0.5).abs();
+        let bedded = mix(TUFF_RING, mix(TUFF_RING, ANDOSOL, 0.35), smoothstep(0.3, 0.45, bed) * smoothstep(0.1, 0.4, 0.05 / v.px_km.max(1e-6)));
+        rock = mix(rock, bedded, ring);
+    }
+
     // ---- VA-4: alteration and sulphur -------------------------------------
     // Acid-sulfate staining on the summit of an active or dormant edifice
     // (research §3.3: persists after activity ends). Patches in km, the
@@ -430,7 +481,8 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
         Activity::Dormant => 0.35,
         Activity::Extinct => 0.0,
     };
-    if stain_k > 0.0 {
+    // VA-6: a dome has no crater to stain, a maar no vent.
+    if stain_k > 0.0 && !monogenetic_vent {
         let zone = smoothstep(v.rim * 1.35, v.rim * 0.85, v.t);
         if zone > 0.0 {
             let wl = (v.rim * v.r_km * 0.45).max(0.02);
@@ -440,7 +492,7 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
             rock = mix(rock, col, zone * patch * stain_k);
         }
     }
-    if v.activity == Activity::Active {
+    if v.activity == Activity::Active && !monogenetic_vent {
         let ring = smoothstep(v.floor * 0.4, v.floor, v.t) * smoothstep(v.rim * 1.15, v.rim * 0.9, v.t);
         if ring > 0.0 {
             let blot = smoothstep(0.62, 0.76, zoom_fbm(v.p_km, (v.floor * v.r_km * 0.3).max(0.01), v.px_km, seed + 53));
@@ -451,6 +503,10 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
     // ---- VA-3: how much of it is bare --------------------------------------
     let mut c = cover(lg, rain01 * RAIN_MM_FULL);
     match v.activity {
+        // VA-6: a growing dome is bare rock all over; a maar's ring greens
+        // like any flank.
+        Activity::Active | Activity::Dormant if v.kind == EdificeKind::Dome => c *= smoothstep(4.0, 5.0, lg),
+        _ if v.kind == EdificeKind::Maar => {}
         // An active crater and its inner wall carry no plants.
         Activity::Active => c *= smoothstep(v.rim * 0.9, v.rim * 1.4, v.t),
         // A dormant crater floor stays mostly bare (alteration, gas).
@@ -467,16 +523,23 @@ pub fn ground(a: &TerrainAppearance, v: &VolcanoSample, rain01: f64, tt: f64) ->
 
     // ---- VA-4: the active vent ---------------------------------------------
     let mut glow = None;
-    if v.activity == Activity::Active {
+    if v.activity == Activity::Active && v.kind != EdificeKind::Maar {
         // A lava lake on a shield, an open vent on a cone (research §6.2's
         // heat by sub-type, 0.85 / 0.6, raised to 0.9 / 0.72 on the first
         // frames, where 0.6 under the daylight scale showed one dull seam),
         // a little hotter the younger.
-        let heat = (if v.kind == EdificeKind::Shield { 0.9 } else { 0.72 }) * (0.8 + 0.2 * v.youth);
+        // VA-6: a cooling dome glows dull red (research §6.2's "cooling dome
+        // 0.35").
+        let heat = (match v.kind {
+            EdificeKind::Shield => 0.9,
+            EdificeKind::Dome => 0.35,
+            _ => 0.72,
+        }) * (0.8 + 0.2 * v.youth);
         // The vent's radius: inside the crater floor, 120 m to 900 m
         // (judgement: Halema'uma'u's lake is about 1 km across; a cone's open
         // vent a few hundred metres).
-        let rv = (v.floor * v.r_km * 0.6).clamp(0.12, 0.9);
+        // A dome's hot carapace cracks over its top third (judgement).
+        let rv = if v.kind == EdificeKind::Dome { (v.r_km * 0.35).clamp(0.05, 0.9) } else { (v.floor * v.r_km * 0.6).clamp(0.12, 0.9) };
         let mat = EmissiveMaterial { ramp: GlowRamp::Fire, heat, crack_density: 0.6, glow_radius_km: rv * 0.8, heat_along: 0.0 };
         if let Some(lava) = ProceduralLava::new(&mat, rv) {
             let s = rv + lava.edge_offset(v.p_km, v.px_km) - v.d_km;
@@ -924,7 +987,9 @@ pub fn crater_lake(index: &VolcanoIndex, x: f64, y: f64, km_per_cell: f64, px_km
     }
     let Some(h) = index.winner_at(x, y) else { return base };
     let e = h.edifice;
-    if volcano_attr::activity(e) == Activity::Extinct {
+    // VA-6: a maar's lake is groundwater, neutral like an extinct crater's
+    // (research §3.5's neutral-dilute class; judgement).
+    if volcano_attr::activity(e) == Activity::Extinct || e.kind == Some(EdificeKind::Maar) {
         return base;
     }
     let Some(zt) = volcano_attr::summit_zone_t(e) else { return base };

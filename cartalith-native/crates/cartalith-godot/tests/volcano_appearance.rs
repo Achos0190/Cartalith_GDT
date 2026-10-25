@@ -296,6 +296,88 @@ fn the_rock_follows_the_edifice() {
     assert_eq!(LithoSample::One(volcano_look::LITH_TEPHRA).ramp(&a, 0.5), volcano_look::TEPHRA_DEFAULT[1]);
 }
 
+/// Protects VA-6's two kinds in the look: a dormant lava dome is pale dacite
+/// (mean luma well above the dormant stratocone's andesite core beside it,
+/// literal margin), has no crater staining or sulphur, and gains obsidian
+/// banding as the view zooms in (more distinct rock colours over the dome at
+/// 4 m than at 400 m a pixel); an active dome glows under the daytime cap and
+/// an active maar never does; a maar's ring reads the tephra slot; a lake
+/// inside a maar keeps the lake palette even when the maar is active (its
+/// water is groundwater, not an acid vent lake).
+#[test]
+fn a_dome_is_pale_dacite_and_a_maar_holds_a_plain_lake() {
+    let a = sat();
+    let row = |kind: EdificeKind, years: f64, crater: Option<(f64, f64)>, r: f64| PlacedEdifice {
+        setting: VolcanicSetting::Arc,
+        cx: 30.0,
+        cy: 30.0,
+        r,
+        h: 0.03,
+        kind: Some(kind),
+        age: 0.1,
+        years: Some(years),
+        crater,
+        rift_bearing: None,
+    };
+    let strato = PlacedEdifice { r: 20.0, h: 0.3, crater: Some((0.02, 0.05)), ..row(EdificeKind::Strato, 5_000.0, None, 20.0) };
+    let dome = PlacedEdifice { cx: 40.0, ..row(EdificeKind::Dome, 5_000.0, None, 2.0) };
+    let idx = VolcanoIndex::new(&[strato, dome], 96, 64);
+    let luma = |c: (f64, f64, f64)| 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2;
+    let mean_rock = |x0: f64, px: f64| {
+        let (mut n, mut l, mut cols) = (0.0, 0.0, std::collections::HashSet::new());
+        for k in 0..400 {
+            let (x, y) = (x0 + ((k % 20) as f64 / 20.0 - 0.5) * 1.6, 30.0 + ((k / 20) as f64 / 20.0 - 0.5) * 1.6);
+            let v = volcano_look::sample(&idx, x, y, 0.4, px).expect("on an edifice");
+            let g = volcano_look::ground(&a, &v, 0.2, 0.5);
+            n += 1.0;
+            l += luma(g.rock);
+            cols.insert((g.rock.0 as i32, g.rock.1 as i32, g.rock.2 as i32));
+        }
+        (l / n, cols.len())
+    };
+    let (dome_l, dome_cols_far) = mean_rock(40.0, 0.4);
+    let (_, dome_cols_near) = mean_rock(40.0, 0.004);
+    let (core_l, _) = mean_rock(26.0, 0.4);
+    assert!(dome_l > core_l + 30.0, "the dome is pale dacite: luma {dome_l:.1} against the cone's core {core_l:.1}");
+    assert!(dome_cols_near > dome_cols_far, "obsidian bands and blocks resolve with zoom: {dome_cols_far} -> {dome_cols_near} colours");
+    let at = |x: f64, idx: &VolcanoIndex| volcano_look::sample(idx, x, 30.0, 0.4, 0.01).expect("on an edifice");
+    assert_eq!(volcano_look::ground(&a, &at(40.0, &idx), 0.2, 0.5).lith, LithoSample::One(2), "a dome reads the andesite slot (dacite)");
+    // Active: a dome glows (capped), a maar does not.
+    let hot_dome = PlacedEdifice { cx: 40.0, ..row(EdificeKind::Dome, 20.0, None, 2.0) };
+    let hi = VolcanoIndex::new(&[hot_dome], 96, 64);
+    // A cooling dome glows in its cracks, which need not cross the centre:
+    // its top (a third of the radius) is searched.
+    let glows: Vec<(f64, f64, f64)> = (0..81)
+        .filter_map(|k| {
+            let (x, y) = (40.0 + ((k % 9) as f64 / 8.0 - 0.5) * 1.3, 30.0 + ((k / 9) as f64 / 8.0 - 0.5) * 1.3);
+            volcano_look::sample(&hi, x, y, 0.4, 0.002).and_then(|v| volcano_look::ground(&a, &v, 0.2, 0.5).glow)
+        })
+        .collect();
+    assert!(!glows.is_empty(), "an active dome glows somewhere on its top");
+    assert!(glows.iter().all(|&g| luma(g) <= 110.0 + 1e-9), "under the daytime cap (110, literal)");
+    let cold = PlacedEdifice { cx: 40.0, ..row(EdificeKind::Dome, 5_000.0, None, 2.0) };
+    let ci0 = VolcanoIndex::new(&[cold], 96, 64);
+    assert!((0..81).all(|k| {
+        let (x, y) = (40.0 + ((k % 9) as f64 / 8.0 - 0.5) * 1.3, 30.0 + ((k / 9) as f64 / 8.0 - 0.5) * 1.3);
+        volcano_look::sample(&ci0, x, y, 0.4, 0.002).is_none_or(|v| volcano_look::ground(&a, &v, 0.2, 0.5).glow.is_none())
+    }), "control: a dormant dome does not glow");
+    let maar = row(EdificeKind::Maar, 20.0, Some((0.1875, 0.625)), 4.0);
+    let mi = VolcanoIndex::new(&[maar], 96, 64);
+    // Over the whole crater and ring, centre included: no glow.
+    assert!((0..81).all(|k| {
+        let (x, y) = (30.0 + ((k % 9) as f64 / 8.0 - 0.5) * 6.0, 30.0 + ((k / 9) as f64 / 8.0 - 0.5) * 6.0);
+        volcano_look::sample(&mi, x, y, 0.4, 0.002).is_none_or(|v| volcano_look::ground(&a, &v, 0.2, 0.5).glow.is_none())
+    }), "a maar has no vent to glow");
+    let gm = volcano_look::ground(&a, &at(30.0 + 3.0, &mi), 0.2, 0.5);
+    assert_eq!(gm.lith, LithoSample::One(volcano_look::LITH_TEPHRA), "a maar's ring is tuff");
+    let base = (40.0, 70.0, 110.0);
+    assert_eq!(volcano_look::crater_lake(&mi, 30.3, 30.2, 0.4, 0.01, base, 1.0), base, "a maar lake keeps the lake palette, even when the maar is active");
+    // The control: an active cinder cone of the same size tints its lake.
+    let cone = row(EdificeKind::Cinder, 20.0, None, 4.0);
+    let ci = VolcanoIndex::new(&[cone], 96, 64);
+    assert_ne!(volcano_look::crater_lake(&ci, 30.3, 30.2, 0.4, 0.01, base, 1.0), base, "control: an active cone's crater lake is acid");
+}
+
 /// Protects §6.3's cover reaching the pixel through `ground`: a
 /// 1 000-year-old cinder cone's flank (one age: monogenetic) is covered in
 /// 1 800 mm of rain and about half bare in 900 mm (the curve's literal
@@ -385,8 +467,24 @@ fn an_active_crater_holds_no_lake_and_glows_on_an_app_world() {
     a.npr.peak_m = p.peak_m;
     let kpc = p.map_width_km / gw as f64;
     for e in &active {
-        let v = volcano_look::sample(&idx, e.cx, e.cy, kpc, 0.005).expect("a sample at the vent");
-        assert!(volcano_look::ground(&a, &v, 0.6, 0.5).glow.is_some(), "an active vent at ({}, {}) carries no glow", e.cx, e.cy);
+        // VA-6: a maar has no vent, so it never glows; a cooling dome glows
+        // in its cracks (research §6.2's heat 0.35), which need not cross its
+        // centre, so its top is searched (a 9 x 9 lattice over a third of its
+        // radius) for a glowing pixel.
+        match e.kind {
+            Some(EdificeKind::Maar) => continue,
+            Some(EdificeKind::Dome) => {
+                let lit = (0..81).any(|k| {
+                    let (x, y) = (e.cx + ((k % 9) as f64 / 8.0 - 0.5) * 0.66 * e.r, e.cy + ((k / 9) as f64 / 8.0 - 0.5) * 0.66 * e.r);
+                    volcano_look::sample(&idx, x, y, kpc, 0.005).is_some_and(|v| volcano_look::ground(&a, &v, 0.6, 0.5).glow.is_some())
+                });
+                assert!(lit, "an active dome at ({}, {}) carries no glow on its top", e.cx, e.cy);
+            }
+            _ => {
+                let v = volcano_look::sample(&idx, e.cx, e.cy, kpc, 0.005).expect("a sample at the vent");
+                assert!(volcano_look::ground(&a, &v, 0.6, 0.5).glow.is_some(), "an active vent at ({}, {}) carries no glow", e.cx, e.cy);
+            }
+        }
     }
 }
 
@@ -465,12 +563,14 @@ const ARCHIPELAGO: [f64; 5] = [0.15, 0.90, 0.80, 0.30, 0.50];
 
 /// The census worlds: the brief's three (71077345 dome and cone, 24601
 /// archipelago, 314159) and two more seeds for the "at least five" bar.
-const WORLDS: [WorldSpec; 5] = [
+const WORLDS: [WorldSpec; 6] = [
     WorldSpec { tag: "s71077345_classic", seed: 71077345, archetype: None },
     WorldSpec { tag: "s24601_archipelago", seed: 24601, archetype: Some(ARCHIPELAGO) },
     WorldSpec { tag: "s314159_classic", seed: 314159, archetype: None },
     WorldSpec { tag: "s483920_classic", seed: 483920, archetype: None },
     WorldSpec { tag: "s246371_classic", seed: 246371, archetype: None },
+    // VA-6's brief added the Hawaii-like seed 8 (`lava_flows.rs`' world).
+    WorldSpec { tag: "s8_hawaii", seed: 8, archetype: Some([0.05, 0.85, 0.25, 0.85, 1.0]) },
 ];
 
 fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldParams {
@@ -510,6 +610,15 @@ fn before_arm(p: &mut cartalith_engine::WorldParams, name: &str) {
         // world, its table read under Ruling CW's age map (`years` dropped),
         // handled in `volcano_census` itself.
         "legacy_ages" => {}
+        // VA-6: the world without one of its kinds, or without all three.
+        "no_caldera" => p.volc.kind_caldera = false,
+        "no_dome" => p.volc.kind_dome = false,
+        "no_maar" => p.volc.kind_maar = false,
+        "no_kinds" => {
+            p.volc.kind_caldera = false;
+            p.volc.kind_dome = false;
+            p.volc.kind_maar = false;
+        }
         other => panic!("unknown VA_BEFORE arm {other:?}"),
     }
 }
@@ -878,6 +987,27 @@ fn volcano_census() {
             .max_by(|&&a, &&b| vt[a].h.total_cmp(&vt[b].h))
         {
             picks.push(("cinder", k));
+        }
+        // VA-6: the tallest dome and the widest maar on land that own their
+        // centre, and the widest arc caldera (an arc stratocone without a
+        // recorded crater).
+        for (what, kind) in [("dome", EdificeKind::Dome), ("maar", EdificeKind::Maar)] {
+            if let Some(&k) = (0..vt.len())
+                .filter(|&k| vt[k].kind == Some(kind) && land(&vt[k]) && owns_centre(k))
+                .collect::<Vec<_>>()
+                .iter()
+                .max_by(|&&a, &&b| (vt[a].h * vt[a].r).total_cmp(&(vt[b].h * vt[b].r)))
+            {
+                picks.push((what, k));
+            }
+        }
+        if let Some(&k) = (0..vt.len())
+            .filter(|&k| vt[k].kind == Some(EdificeKind::Strato) && vt[k].crater.is_none() && vt[k].setting == cartalith_terrain::VolcanicSetting::Arc && land(&vt[k]))
+            .collect::<Vec<_>>()
+            .iter()
+            .max_by(|&&a, &&b| vt[a].r.total_cmp(&vt[b].r))
+        {
+            picks.push(("caldera", k));
         }
         picks.dedup_by_key(|p| p.1);
         // x1: the whole map, once per state.

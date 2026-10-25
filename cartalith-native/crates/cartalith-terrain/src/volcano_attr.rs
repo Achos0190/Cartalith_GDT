@@ -200,7 +200,7 @@ pub fn active_youth(e: &PlacedEdifice) -> f64 {
 
 impl EdificeKind {
     /// Every kind, in [`EdificeKind::code`] order.
-    pub const ALL: [EdificeKind; 3] = [EdificeKind::Cinder, EdificeKind::Strato, EdificeKind::Shield];
+    pub const ALL: [EdificeKind; 5] = [EdificeKind::Cinder, EdificeKind::Strato, EdificeKind::Shield, EdificeKind::Dome, EdificeKind::Maar];
 
     /// A stable storage / display key (the save's `volcanoes` table writes
     /// it). A format name: changing one orphans every archive that holds it.
@@ -209,6 +209,10 @@ impl EdificeKind {
             EdificeKind::Cinder => "cinder",
             EdificeKind::Strato => "strato",
             EdificeKind::Shield => "shield",
+            // VA-6. A table holding either is refused by a build before
+            // VA-6 ("unknown kind"), which is the honest answer.
+            EdificeKind::Dome => "dome",
+            EdificeKind::Maar => "maar",
         }
     }
 
@@ -276,7 +280,25 @@ pub fn is_basaltic(e: &PlacedEdifice) -> Option<bool> {
     Some(match k {
         EdificeKind::Shield | EdificeKind::Cinder => true,
         EdificeKind::Strato => matches!(e.setting, VolcanicSetting::Rift | VolcanicSetting::Hotspot),
+        // VA-6: a lava dome is dacite-rhyolite (research §2.2), a maar's
+        // magma basaltic (phreatomagmatic, same source).
+        EdificeKind::Dome => false,
+        EdificeKind::Maar => true,
     })
+}
+
+/// An edifice's claim on a point at `t` of its radius: the stamp's own
+/// `volcanic_field` candidate `(1 - t)(1 - age)`, at most 1 -- except a VA-6
+/// dome or maar (`volcano_kinds::late_kinds`), which is stamped on the
+/// finished field on top of whatever it sits on, so it claims its whole disc
+/// over any stamped edifice: `1 + (1 - t)`. Tables without either kind (every
+/// table saved before VA-6) answer exactly as before.
+pub fn owner_value(e: &PlacedEdifice, t: f64) -> f64 {
+    if matches!(e.kind, Some(EdificeKind::Dome | EdificeKind::Maar)) {
+        1.0 + (1.0 - t)
+    } else {
+        (1.0 - t) * (1.0 - e.age)
+    }
 }
 
 /// Bucket edge, in cells, of [`VolcanoIndex`]'s lattice. A judgement for
@@ -355,7 +377,7 @@ impl VolcanoIndex {
 
     /// The edifice owning the point `(x, y)` (grid cells, fractional), by the
     /// stamp's own rule (`stamp_one_volcano`'s `volcanic_field` candidate): the
-    /// largest `(1 - t)(1 - age)` among the discs that reach the point
+    /// largest [`owner_value`] (`(1 - t)(1 - age)` for a stamped edifice) among the discs that reach the point
     /// (`d <= r`), strictly greater than zero, the earliest edifice on a tie.
     /// At an integer cell that is the cell the stamp gave the edifice (up to
     /// the `f32` rounding of the stored maximum); between cells it is the same
@@ -376,7 +398,7 @@ impl VolcanoIndex {
                 continue;
             }
             let t = d / e.r;
-            let v = (1.0 - t) * (1.0 - e.age);
+            let v = owner_value(e, t);
             if v > best_v {
                 best_v = v;
                 best = Some(VolcanoHit { index: k as usize, edifice: e, t });
@@ -386,7 +408,7 @@ impl VolcanoIndex {
     }
 
     /// The two strongest owners of `(x, y)` by [`Self::winner_at`]'s rule,
-    /// with their owner values `(1 - t)(1 - age)`: the winner first, then the
+    /// with their owner values ([`owner_value`]): the winner first, then the
     /// runner-up if a second disc reaches the point. For a consumer that
     /// must cross an owner boundary without a seam (the renderer blends the
     /// two near the boundary, where the values meet). The winner is exactly
@@ -406,7 +428,7 @@ impl VolcanoIndex {
                 continue;
             }
             let t = d / e.r;
-            let v = (1.0 - t) * (1.0 - e.age);
+            let v = owner_value(e, t);
             if v <= 0.0 {
                 continue;
             }
@@ -440,7 +462,7 @@ pub fn owner_of(edifices: &[PlacedEdifice], x: f64, y: f64) -> Option<VolcanoHit
             continue;
         }
         let t = d / e.r;
-        let v = (1.0 - t) * (1.0 - e.age);
+        let v = owner_value(e, t);
         if v > best_v {
             best_v = v;
             best = Some(VolcanoHit { index: k, edifice: e, t });
@@ -555,7 +577,11 @@ mod tests {
         for k in EdificeKind::ALL {
             assert_eq!(EdificeKind::from_key(k.key()), Some(k));
         }
-        assert_eq!(EdificeKind::from_key("dome"), None);
+        // VA-6 added "dome" and "maar" as format keys; an unknown key is
+        // still refused.
+        assert_eq!(EdificeKind::from_key("lava_dome"), None);
+        assert_eq!(EdificeKind::Dome.key(), "dome");
+        assert_eq!(EdificeKind::Maar.key(), "maar");
         assert_eq!(EdificeKind::Cinder.key(), "cinder");
         assert_eq!(EdificeKind::Strato.key(), "strato");
         assert_eq!(EdificeKind::Shield.key(), "shield");

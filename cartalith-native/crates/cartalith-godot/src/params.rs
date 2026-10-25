@@ -255,6 +255,16 @@ pub fn defaults() -> WorldParams {
     // sea builds a small bench of new land (at most 1.5 km^2 a flow). Off in
     // `WorldParams::defaults`. See `VolcanismParams::lava_bench`.
     p.volc.lava_bench = true;
+    // VA-6 (owner notes under the VA-6 row, 2026-10-25; measured first): a
+    // lava dome on every active or dormant arc stratocone, the one kind whose
+    // bars held on the six census worlds and that reads on the map
+    // (`STATUS.md`). Off in `WorldParams::defaults`. See
+    // `VolcanismParams::kind_dome`. The maar held the water and settlement
+    // bars but its one lake fell under the app's lake-area floor and it did
+    // not read at any zoom, so `kind_maar` stays off at both boundaries, as
+    // do the caldera, supervolcano and flood-basalt kinds, which failed
+    // their bars.
+    p.volc.kind_dome = true;
     p
 }
 
@@ -470,6 +480,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.lava_bench", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Young lava flows build benches at the sea (Ruling DB)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.volc.lava_bench), set_fn: |p, v| p.volc.lava_bench = v != 0.0 },
+    // Port-only (VA-6): `kind_dome` ON at the app boundary, OFF in
+    // `WorldParams::defaults`; `kind_maar` OFF at both (it did not read on
+    // the map). A save without either key reloads it OFF
+    // (`apply_saved_state`). No GUI row.
+    ParamSpec { key: "volc.kind_dome", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Lava domes on young stratocones (VA-6)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.kind_dome), set_fn: |p, v| p.volc.kind_dome = v != 0.0 },
+    ParamSpec { key: "volc.kind_maar", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Maars beside scoria cones on wet ground (VA-6)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.kind_maar), set_fn: |p, v| p.volc.kind_maar = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
@@ -941,6 +961,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("volc.dry_active_craters", ""),
     // Port-only (Ruling DB item 2): the reference builds no new land.
     ("volc.lava_bench", ""),
+    // Port-only (VA-6): the reference has no dome or maar.
+    ("volc.kind_dome", ""),
+    ("volc.kind_maar", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
     // No reference path: the reference has no density model and no geological
@@ -1230,6 +1253,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     p.volc.dry_active_craters = false;
     // And Ruling DB item 2's lava benches (2026-10-25), the same way.
     p.volc.lava_bench = false;
+    // And VA-6's domes and maars (2026-10-25), the same way.
+    p.volc.kind_dome = false;
+    p.volc.kind_maar = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

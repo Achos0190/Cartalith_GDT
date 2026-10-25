@@ -2623,11 +2623,22 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     if p.volc.fill_edifice_pits && p.volc.edifice_model {
         cartalith_terrain::edifice_pits::fill_edifice_pits(gw, gh, &mut field, &pre.volcanic_field);
     }
+    // VA-6's late kinds (`VolcanismParams::kind_dome`, on in the app), before
+    // the dry craters as `generate_terrain_inner` runs them: domes stamped on
+    // the finished field and appended to the table. The top is 1, this
+    // replica's own clamp above.
+    let mut volcanoes = pre.volcanoes.clone();
+    if (p.volc.kind_dome || p.volc.kind_maar)
+        && let Some(v) = volcanoes.as_mut()
+    {
+        let which = cartalith_terrain::volcano_kinds::LateKinds { dome: p.volc.kind_dome, maar: p.volc.kind_maar };
+        cartalith_terrain::volcano_kinds::late_kinds(which, std::sync::Arc::make_mut(v), &mut field, gw, gh, sea, &rainfall, Some(&ch.chan), p.map_width_km / gw as f64, p.peak_m / (1.0 - sea).max(1e-6), 1.0);
+    }
     // Owner Ruling CX item 6's dry active craters, after it, as
     // `generate_terrain_inner` runs them (`VolcanismParams::dry_active_craters`,
     // on in the app): only active summit zones move.
     if p.volc.dry_active_craters
-        && let Some(v) = pre.volcanoes.as_deref()
+        && let Some(v) = volcanoes.as_deref()
     {
         cartalith_terrain::edifice_pits::dry_active_craters(gw, gh, p.world, &mut field, sea, v);
     }
@@ -2658,7 +2669,7 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         river_floor: Some(rfloor),
         gpu_stages_used: Vec::new(),
         geology: cartalith_engine::Geology::Column(Box::new(column)),
-        volcanoes: pre.volcanoes.clone(),
+        volcanoes,
     }
 }
 
@@ -2677,6 +2688,10 @@ fn pre_erosion(p: &WorldParams) -> WorldState {
     // And Ruling CX item 6's dry active craters, for the same reason (the
     // last field step; [`tail`] applies it).
     pp.volc.dry_active_craters = false;
+    // And VA-6's domes and maars (stamped on the finished field; [`tail`]
+    // applies them).
+    pp.volc.kind_dome = false;
+    pp.volc.kind_maar = false;
     generate_terrain(&pp)
 }
 

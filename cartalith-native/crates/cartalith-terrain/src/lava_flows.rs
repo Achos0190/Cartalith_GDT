@@ -212,7 +212,8 @@ pub struct LavaFlow {
 /// and its older flows share one figure.
 pub fn flank_log_years(kind: EdificeKind) -> Option<f64> {
     match kind {
-        EdificeKind::Cinder => None,
+        // A dome and a maar (VA-6) are monogenetic, like a scoria cone.
+        EdificeKind::Cinder | EdificeKind::Dome | EdificeKind::Maar => None,
         EdificeKind::Strato => Some(4.5),
         EdificeKind::Shield => Some(5.0),
     }
@@ -227,6 +228,9 @@ fn flow_count(kind: EdificeKind) -> usize {
         EdificeKind::Shield => 6,
         EdificeKind::Strato => 4,
         EdificeKind::Cinder => 2,
+        // VA-6: a dome's viscous lava piles up over its vent instead of
+        // flowing (its own stamp is the dome); a maar erupts tephra, not lava.
+        EdificeKind::Dome | EdificeKind::Maar => 0,
     }
 }
 
@@ -237,6 +241,8 @@ fn length_band(kind: EdificeKind, basaltic: bool) -> (f64, f64) {
         (EdificeKind::Strato, true) => (4.0, 20.0),
         (EdificeKind::Strato, false) => (1.5, 8.0),
         (EdificeKind::Cinder, _) => (1.0, 8.0),
+        // Never read: `flow_count` is 0 for both, and `trace` skips them.
+        (EdificeKind::Dome | EdificeKind::Maar, _) => (0.0, 0.0),
     }
 }
 
@@ -759,6 +765,11 @@ impl LavaFlows {
         let mut flows = Vec::new();
         for (k, e) in edifices.iter().enumerate() {
             let Some(kind) = e.kind else { continue };
+            // VA-6's domes and maars erupt no flow (`flow_count`), and a
+            // maar's parent setting must not open a fissure from it.
+            if matches!(kind, EdificeKind::Dome | EdificeKind::Maar) {
+                continue;
+            }
             if !(e.cx.is_finite() && e.cy.is_finite() && e.r.is_finite() && e.r > 0.0) {
                 continue;
             }

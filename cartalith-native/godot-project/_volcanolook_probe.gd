@@ -168,7 +168,7 @@ var _volc_cells: Array = []
 
 ## Leg 1: the cell dictionary.
 func _leg_sample() -> void:
-	var kinds := ["cinder", "strato", "shield"]
+	var kinds := ["cinder", "strato", "shield", "dome", "maar"]
 	var acts := ["active", "dormant", "extinct"]
 	var bare_seen := false
 	for gy in range(0, GRID.y, 6):

@@ -9,6 +9,7 @@ use rayon::prelude::*;
 pub mod amplify;
 pub mod analysis;
 pub mod volcano_attr;
+pub mod volcano_kinds;
 pub mod lava_flows;
 pub mod rift_trend;
 pub mod center;
@@ -1429,7 +1430,9 @@ impl VolcanoTrace {
     }
 }
 
-/// The three edifice morphologies this model distinguishes.
+/// The edifice morphologies this model distinguishes: the three the stampers
+/// draw ([`edifice_kind`]) and VA-6's two late kinds, which only
+/// `volcano_kinds` makes.
 ///
 /// `pub` since VA-1 (Ruling CW) so the per-volcano record
 /// ([`PlacedEdifice::kind`]) can carry it to the save and the renderer; its
@@ -1445,6 +1448,15 @@ pub enum EdificeKind {
     Strato,
     /// Shield: broad flat summit region, low mid-flank slope, tapering toe.
     Shield,
+    /// VA-6 lava dome (`volcano_kinds::late_kinds`): a low, flat-topped
+    /// dome of viscous dacite on a stratocone's upper flank. Never drawn by
+    /// [`edifice_kind`]: only `volcano_kinds` makes one, and stamps it with
+    /// its own profile.
+    Dome,
+    /// VA-6 maar (`volcano_kinds::late_kinds`): a phreatomagmatic crater cut
+    /// below the ground in a low tuff ring, beside a scoria cone where the
+    /// ground holds water. Never drawn by [`edifice_kind`].
+    Maar,
 }
 
 /// One edifice morphology's shape constants, for `h(t) = H*(1 - t^a)^b` over
@@ -1504,6 +1516,20 @@ fn edifice_shape(kind: EdificeKind) -> EdificeShape {
         EdificeKind::Shield => {
             EdificeShape { a: 2.0, b: 1.40, rim: 0.12, floor: 0.05, depth: 0.10, rough: 0.05 }
         }
+        // VA-6's two kinds are never stamped through `Edifice` (their own
+        // profiles are in `volcano_kinds`); these rows exist for
+        // `volcano_attr::zone_fractions`. A dome has no summit depression; a
+        // maar's crater rim is `1 / MAAR_OUTER` of its record's radius (the
+        // tuff ring's outer edge) and its floor `0.3 / MAAR_OUTER`.
+        EdificeKind::Dome => EdificeShape { a: 4.0, b: 0.5, rim: 0.0, floor: 0.0, depth: 0.0, rough: 0.0 },
+        EdificeKind::Maar => EdificeShape {
+            a: 2.0,
+            b: 1.0,
+            rim: 1.0 / volcano_kinds::MAAR_OUTER,
+            floor: 0.3 / volcano_kinds::MAAR_OUTER,
+            depth: 0.0,
+            rough: 0.0,
+        },
     }
 }
 

@@ -46,13 +46,20 @@ const ARCHIPELAGO: [f64; 5] = [0.15, 0.90, 0.80, 0.30, 0.50];
 
 /// The VA-0 census worlds (`cartalith-godot/tests/volcano_appearance.rs`'
 /// `WORLDS`): (tag, seed, archetype).
-const WORLDS: [(&str, i32, Option<[f64; 5]>); 5] = [
+const WORLDS: [(&str, i32, Option<[f64; 5]>); 6] = [
     ("s71077345_classic", 71077345, None),
     ("s24601_archipelago", 24601, Some(ARCHIPELAGO)),
     ("s314159_classic", 314159, None),
     ("s483920_classic", 483920, None),
     ("s246371_classic", 246371, None),
+    // VA-6's fifth world (the brief's): `lava_flows.rs`' Hawaii-like seed 8.
+    ("s8_hawaii", 8, Some(HAWAII_LIKE)),
 ];
+
+/// `cartalith-godot/tests/lava_flows.rs`' `HAWAII_LIKE`, quoted: the World
+/// Structure model with little continent, much fragmentation, low tectonic
+/// energy, a deep ocean and the hotspot density at its top.
+const HAWAII_LIKE: [f64; 5] = [0.05, 0.85, 0.25, 0.85, 1.0];
 
 /// The app's parameters for one census world (2048 x 1311, 800 km, sea 0.42,
 /// as `volcano_appearance.rs` generates them), then the arm's change.
@@ -94,6 +101,29 @@ fn arm(p: &mut WorldParams, name: &str) {
         "old_ceiling" => p.tect.high_ceiling = false,
         // The app before Ruling DB item 2 (no lava benches).
         "no_bench" => p.volc.lava_bench = false,
+        // VA-6: the app before its two built kinds, or without one of them.
+        "no_kinds" => {
+            p.volc.kind_dome = false;
+            p.volc.kind_maar = false;
+        }
+        "no_dome" => p.volc.kind_dome = false,
+        "no_maar" => p.volc.kind_maar = false,
+        // VA-6's kinds, each the app with one kind switched on.
+        "caldera" => p.volc.kind_caldera = true,
+        "dome" => p.volc.kind_dome = true,
+        "maar" => p.volc.kind_maar = true,
+        "super" => p.volc.kind_supervolcano = true,
+        "flood" => p.volc.kind_flood_basalt = true,
+        // Measurement only: the rare kinds placed at the most interior
+        // continental ground when no hotspot rule admits one.
+        "super_forced" => {
+            p.volc.kind_supervolcano = true;
+            p.volc.kinds_force_rare = true;
+        }
+        "flood_forced" => {
+            p.volc.kind_flood_basalt = true;
+            p.volc.kinds_force_rare = true;
+        }
         other => panic!("unknown arm {other:?}"),
     }
 }
@@ -341,6 +371,133 @@ fn small_lakes_by_place(vt: &[cartalith_terrain::PlacedEdifice], class: &[u8], g
     (summit, flank, off)
 }
 
+/// VA-6's per-kind census from the FINAL field and the volcano table: per
+/// dome its height over the ground around it (`H`, the disc maximum minus
+/// the median of the ring 1.0-1.6 radii out) over its width; per maar the
+/// crater's diameter, its floor's depth below that ring, and the lake cells
+/// inside the crater (`class == 2`); per caldera (an arc stratocone without
+/// a recorded crater) its diameter and lake cells. Printed as `VA6` lines.
+fn va6_census(tag: &str, arm: &str, ws: &WorldState, base: Option<&WorldState>, class: &[u8], gw: usize, gh: usize, km: f64, peak_m: f64) {
+    use cartalith_terrain::{volcano_attr as va, EdificeKind, PlacedEdifice};
+    let Some(vt) = ws.volcanoes.as_deref() else { return };
+    let kpc = km / gw as f64;
+    let m_per_unit = peak_m / (1.0 - ws.sea_level).max(1e-6);
+    let cells_in = |e: &PlacedEdifice, t0: f64, t1: f64| {
+        let rr = e.r * t1;
+        let mut cells = Vec::new();
+        for y in ((e.cy - rr).floor().max(0.0) as usize)..=((e.cy + rr).ceil() as usize).min(gh - 1) {
+            for x in ((e.cx - rr).floor().max(0.0) as usize)..=((e.cx + rr).ceil() as usize).min(gw - 1) {
+                let t = (x as f64 - e.cx).hypot(y as f64 - e.cy) / e.r;
+                if t >= t0 && t <= t1 {
+                    cells.push(y * gw + x);
+                }
+            }
+        }
+        cells
+    };
+    let ring_med = |e: &PlacedEdifice, t0: f64, t1: f64| {
+        let mut v: Vec<f32> = cells_in(e, t0, t1).iter().map(|&i| ws.field[i]).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v.get(v.len() / 2).map(|&x| x as f64)
+    };
+    let (mut nd, mut nm, mut nc) = (0, 0, 0);
+    for (k, e) in vt.iter().enumerate() {
+        match e.kind {
+            Some(EdificeKind::Dome) => {
+                nd += 1;
+                // The dome's own relief: the largest rise over the first
+                // arm's field inside its disc (a ring median on a flank
+                // reads the slope, not the dome).
+                let h_m = match base {
+                    Some(b) => cells_in(e, 0.0, 1.0).iter().map(|&i| (ws.field[i] - b.field[i]) as f64).fold(f64::MIN, f64::max) * m_per_unit,
+                    None => f64::NAN,
+                };
+                let w_km = 2.0 * e.r * kpc;
+                println!("VA6 {tag} {arm} dome #{k} at ({:.0},{:.0}) W {:.2} km H {:.0} m H/W {:.3} {} {:.0} yr", e.cx, e.cy, w_km, h_m, h_m / (w_km * 1000.0), va::activity(e).key(), va::years(e));
+            }
+            Some(EdificeKind::Maar) => {
+                nm += 1;
+                let crater_t = 1.0 / cartalith_terrain::volcano_kinds::MAAR_OUTER;
+                let inner = cells_in(e, 0.0, crater_t);
+                // Depth below grade: the deepest cut under the first arm's
+                // field inside the crater; the ring's relief over the first
+                // arm's ground; the ground's own fall across the crater.
+                let (depth, fall) = match base {
+                    Some(b) => {
+                        let d = inner.iter().map(|&i| (b.field[i] - ws.field[i]) as f64).fold(f64::MIN, f64::max) * m_per_unit;
+                        let hi = inner.iter().map(|&i| b.field[i] as f64).fold(f64::MIN, f64::max);
+                        let lo = inner.iter().map(|&i| b.field[i] as f64).fold(f64::MAX, f64::min);
+                        (d, (hi - lo) * m_per_unit)
+                    }
+                    None => (f64::NAN, f64::NAN),
+                };
+                let _ = ring_med;
+                let lake = inner.iter().filter(|&&i| class[i] == 2).count();
+                println!("VA6 {tag} {arm} maar #{k} at ({:.0},{:.0}) D {:.2} km depth {depth:.0} m below grade (ground falls {fall:.0} m across it), lake cells {lake} of {} {:?} {}", e.cx, e.cy, 2.0 * e.r * crater_t * kpc, inner.len(), e.setting, va::activity(e).key());
+            }
+            Some(EdificeKind::Strato) if e.crater.is_none() => {
+                nc += 1;
+                let rim = va::zones(e).map_or(0.0, |z| z.1);
+                let inner = cells_in(e, 0.0, rim);
+                let lake = inner.iter().filter(|&&i| class[i] == 2).count();
+                println!("VA6 {tag} {arm} caldera #{k} {:?} D {:.1} km, lake cells {lake} of {}, {} {:.0} yr", e.setting, 2.0 * e.r * rim * kpc, inner.len(), va::activity(e).key(), va::years(e));
+            }
+            _ => {}
+        }
+    }
+    println!("VA6 {tag} {arm} rows {} domes {nd} maars {nm} calderas {nc}", vt.len());
+}
+
+/// The table's co-occurrence, per world: edifices by setting/kind/activity;
+/// arc stratocones the caldera age rule admits; rift scoria cones within 30
+/// km of a rift shield's flank; hotspot edifices on continental crust (the
+/// supervolcano rule's candidates). A measurement of the table, so the
+/// placement rules can be checked against the owner's notes.
+fn cooccurrence(tag: &str, ws: &WorldState, gw: usize, km: f64) {
+    use cartalith_terrain::{volcano_attr as va, EdificeKind, VolcanicSetting};
+    let Some(vt) = ws.volcanoes.as_deref() else { return };
+    let kpc = km / gw as f64;
+    let mut by = std::collections::BTreeMap::new();
+    for e in vt {
+        *by.entry(format!("{}/{}/{}", va::setting_key(e.setting), e.kind.map_or("-", |k| k.key()), va::activity(e).key())).or_insert(0usize) += 1;
+    }
+    let old_arc = vt.iter().filter(|e| cartalith_terrain::volcano_kinds::is_caldera_cone(e)).count();
+    let rift_cinder: Vec<_> = vt.iter().filter(|e| e.setting == VolcanicSetting::Rift && e.kind == Some(EdificeKind::Cinder)).collect();
+    let near_shield = rift_cinder
+        .iter()
+        .filter(|c| vt.iter().any(|s| s.setting == VolcanicSetting::Rift && s.kind == Some(EdificeKind::Shield) && (s.cx - c.cx).hypot(s.cy - c.cy) * kpc <= 30.0 + s.r * kpc))
+        .count();
+    let hot_cont = vt
+        .iter()
+        .filter(|e| {
+            let i = (e.cy as usize) * gw + e.cx as usize;
+            e.setting == VolcanicSetting::Hotspot && i < ws.crust_field.len() && ws.crust_field[i] > 0.0
+        })
+        .count();
+    println!("COOC {tag} {by:?} | old arc strato (caldera rule) {old_arc} | rift cinder {} of which within 30 km of a rift shield's flank {near_shield} | hotspot edifices on continental crust {hot_cont}", rift_cinder.len());
+}
+
+/// Cells whose height moved by more than 1 m against the first arm, the
+/// land cells that became sea or sea that became land, and the lake cells
+/// gained and lost: what an arm changed, wherever it was.
+fn moved(ws0: &WorldState, ws: &WorldState, class0: &[u8], class: &[u8], peak_m: f64) -> String {
+    let mpu = peak_m / (1.0 - ws.sea_level).max(1e-6);
+    let n = ws.field.len();
+    let mut mv = 0usize;
+    let (mut l2s, mut s2l, mut lk_gain, mut lk_loss) = (0usize, 0usize, 0usize, 0usize);
+    for i in 0..n {
+        if ((ws.field[i] - ws0.field[i]) as f64).abs() * mpu > 1.0 {
+            mv += 1;
+        }
+        let (a, b) = (ws0.field[i] as f64 >= ws0.sea_level, ws.field[i] as f64 >= ws.sea_level);
+        l2s += usize::from(a && !b);
+        s2l += usize::from(!a && b);
+        lk_gain += usize::from(class0[i] != 2 && class[i] == 2);
+        lk_loss += usize::from(class0[i] == 2 && class[i] != 2);
+    }
+    format!("moved>1m {mv} cells, land->sea {l2s} sea->land {s2l}, lake cells +{lk_gain} -{lk_loss}, sea {:.5} vs {:.5}", ws.sea_level, ws0.sea_level)
+}
+
 fn fnv(v: &[f32]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for x in v {
@@ -365,6 +522,8 @@ fn volcano_cx_bars() {
             continue;
         }
         let mut first: Option<(Vec<(usize, usize)>, std::collections::BTreeMap<String, usize>, Vec<usize>, usize)> = None;
+        // The first arm's world and water classes, for `moved`.
+        let mut base: Option<(WorldState, Vec<u8>)> = None;
         for &a in &arms {
             let p = world_params(seed, arche, a);
             let t0 = std::time::Instant::now();
@@ -381,6 +540,14 @@ fn volcano_cx_bars() {
             let vt = ws.volcanoes.as_deref().expect("the app records a volcano table");
             let (cl, cnt) = crater_lakes(vt, &wb.classification, gw, gh);
             let (ss, sf, so) = small_lakes_by_place(vt, &wb.classification, gw, gh);
+            va6_census(tag, a, &ws, base.as_ref().map(|b| &b.0), &wb.classification, gw, gh, p.map_width_km, p.peak_m);
+            let mv = match &base {
+                None => {
+                    cooccurrence(tag, &ws, gw, p.map_width_km);
+                    String::new()
+                }
+                Some((ws0, c0)) => format!(" | {}", moved(ws0, &ws, c0, &wb.classification, p.peak_m)),
+            };
             let cmp = match &first {
                 None => String::new(),
                 Some((st0, lm0, oc0, small0)) => {
@@ -408,7 +575,7 @@ fn volcano_cx_bars() {
                         100.0 * nr as f64 / tot.max(1) as f64,
                         near,
                         lmd
-                    )
+                    ) + &mv
                 }
             };
             println!(
@@ -425,7 +592,79 @@ fn volcano_cx_bars() {
             );
             if first.is_none() {
                 first = Some((st, lm, oc, small));
+                base = Some((ws, wb.classification));
             }
         }
+    }
+}
+
+/// VA-6's rarity census for the two rare kinds: over seeds `1..=N` (`VA6_N`,
+/// default 40) at 1024 x 656 over 800 km, the classic world and the
+/// archipelago, how many worlds the supervolcano rule and the flood-basalt
+/// rule admit (the field differs from the same world with the kind off).
+/// The owner's note: a supervolcano is "very rare: zero or one per world,
+/// usually none".
+#[test]
+#[ignore = "generates up to 160 1024x656 worlds; run explicitly with --release"]
+fn va6_rare_kind_census() {
+    let n: i32 = std::env::var("VA6_N").ok().and_then(|v| v.parse().ok()).unwrap_or(40);
+    for (label, arche) in [("classic", None), ("archipelago", Some(ARCHIPELAGO))] {
+        let (mut sup, mut flood, mut worlds) = (0, 0, 0);
+        let mut hits = Vec::new();
+        for seed in 1..=n {
+            let mut p = world_params(seed, arche, "app");
+            p.gw = 1024;
+            p.gh = 656;
+            let off = generate_terrain(&p);
+            let mut ps = p.clone();
+            ps.volc.kind_supervolcano = true;
+            let s_on = generate_terrain(&ps);
+            let mut pf = p.clone();
+            pf.volc.kind_flood_basalt = true;
+            let f_on = generate_terrain(&pf);
+            worlds += 1;
+            let s_hit = s_on.field != off.field;
+            let f_hit = f_on.field != off.field;
+            sup += usize::from(s_hit);
+            flood += usize::from(f_hit);
+            if s_hit || f_hit {
+                hits.push(format!("{seed}{}{}", if s_hit { "S" } else { "" }, if f_hit { "F" } else { "" }));
+            }
+        }
+        println!("RARE {label}: {worlds} worlds, supervolcano admitted on {sup}, flood basalt on {flood}; seeds {}", hits.join(" "));
+    }
+}
+
+/// Why VA-6's late kinds refuse the cones they refuse: per world, the app's
+/// finished field and table run through `late_kinds` once more (domes and
+/// maars together) and the report printed. A diagnostic of the placement
+/// rules (`LATE` lines), not a bar; the field it reads already carries the
+/// app's dry craters and benches, which touch no candidate site.
+#[test]
+#[ignore = "generates six 2048x1311 worlds; run explicitly with --release"]
+fn va6_late_kind_refusals() {
+    for &(tag, seed, arche) in &WORLDS {
+        let mut p = world_params(seed, arche, "app");
+        p.volc.kind_dome = false;
+        p.volc.kind_maar = false;
+        let ws = generate_terrain(&p);
+        let mut rows = ws.volcanoes.as_deref().cloned().unwrap_or_default();
+        let mut f = ws.field.as_ref().clone();
+        let chan = ws.channels.as_ref().map(|c| c.chan.as_slice());
+        let rep = cartalith_terrain::volcano_kinds::late_kinds(
+            cartalith_terrain::volcano_kinds::LateKinds { dome: true, maar: true },
+            &mut rows,
+            &mut f,
+            p.gw,
+            p.gh,
+            ws.sea_level,
+            &ws.rainfall,
+            chan,
+            p.map_width_km / p.gw as f64,
+            p.peak_m / (1.0 - ws.sea_level),
+            f32::MAX,
+        );
+        let cinders = ws.volcanoes.as_deref().map_or(0, |v| v.iter().filter(|e| e.kind == Some(cartalith_terrain::EdificeKind::Cinder)).count());
+        println!("LATE {tag}: cinder cones {cinders}; {rep:?}");
     }
 }

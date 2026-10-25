@@ -343,7 +343,13 @@ pub fn dry_active_craters(
     use crate::volcano_attr::{activity, summit_zone_t, Activity, VolcanoIndex};
     let n = gw * gh;
     assert!(field.len() >= n, "dry_active_craters: short field");
-    let active: Vec<usize> = (0..edifices.len()).filter(|&k| edifices[k].kind.is_some() && activity(&edifices[k]) == Activity::Active).collect();
+    // VA-6's domes have no crater and a maar's crater is a phreatomagmatic
+    // pit, not a vent holding magma: neither is dried.
+    let active: Vec<usize> = (0..edifices.len())
+        .filter(|&k| {
+            edifices[k].kind.is_some_and(|kd| !matches!(kd, crate::EdificeKind::Dome | crate::EdificeKind::Maar)) && activity(&edifices[k]) == Activity::Active
+        })
+        .collect();
     if active.is_empty() || n == 0 {
         return DryCraters::default();
     }

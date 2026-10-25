@@ -5309,6 +5309,7 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
 /// | dormant strato / shield | fumarole field (alteration persists after activity, research §3.3) |
 /// | extinct cinder / strato | extinct cone / extinct cone or extinct caldera |
 /// | extinct shield | lava field |
+/// | a VA-6 dome / maar, any state | lava dome / maar |
 ///
 /// A stratocone is a "caldera" when it carries the morphological model's
 /// collapse of about a quarter of its radius (research §4.2), and a
@@ -5346,6 +5347,10 @@ fn volcanic_sub_kind(c: &Ctx<'_>, x: usize, y: usize) -> String {
         "crater lake"
     } else {
         match (act, kind) {
+            // VA-6's two kinds are named by their form whatever their state:
+            // a dome has no crater to stain, a dry maar is still a maar.
+            (_, EdificeKind::Dome) => "lava dome",
+            (_, EdificeKind::Maar) => "maar",
             (Activity::Active, EdificeKind::Shield) => "active lava lake",
             (Activity::Active, EdificeKind::Cinder) => "active cone",
             (Activity::Active, EdificeKind::Strato) if e.crater.is_some() => "active crater",

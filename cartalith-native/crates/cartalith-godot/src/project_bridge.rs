@@ -10506,7 +10506,7 @@ mod geology_save_tests {
         assert!(data.geology.get("volcanoes").is_none(), "{}", data.geology);
         // A damaged row refuses the table, never the column.
         let mut rows = volcano_rows_of(&table);
-        rows[0].kind = Some("dome".to_string());
+        rows[0].kind = Some("lava_dome".to_string());
         assert!(geology_save::volcanoes_from_rows(&rows).unwrap_err().contains("unknown kind"));
         let mut rows = volcano_rows_of(&table);
         rows[1].age = 1.5;
