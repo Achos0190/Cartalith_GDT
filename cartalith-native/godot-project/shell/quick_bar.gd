@@ -78,8 +78,10 @@ func _init() -> void:
 	clip_contents = true
 	_plus = _make_chip("＋", _on_plus_pressed)
 	_plus.name = "QuickBarPlus"
+	_nudge(_plus, 1)
 	_more = _make_chip("⋯", _on_more_pressed)
 	_more.name = "QuickBarMore"
+	_nudge(_more, -1)
 	_more.visible = false
 	_more_menu = PopupMenu.new()
 	_chip_menu = PopupMenu.new()
@@ -107,6 +109,25 @@ func _make_chip(text: String, on_press: Callable) -> Button:
 	var b := DccWidgets.chip(self, text, on_press, false, px, py)
 	b.custom_minimum_size = Vector2(cell_px(), cell_px())
 	return b
+
+## Shifts a chip's text down by `dy` px (up when negative) by moving its content box, on every
+## stylebox state once (`normal` and `pressed` are one shared instance). Used for the two symbol
+## chips only: the `＋` and `⋯` glyphs have different vertical bearings in the mono face, so a
+## geometrically centred chip draws them 1.5 px high and 1 px low (measured by
+## `_alignment_probe.gd`, desktop, owner finding 2026-10-26). A labelled judgement, re-measured
+## per mode by that probe, not a font metric. A content box moves by half the margin difference,
+## so the margin change is twice the shift.
+static func _nudge(b: Button, dy: int) -> void:
+	var seen := {}
+	for st in ["normal", "pressed", "hover", "disabled"]:
+		var sb: StyleBox = b.get_theme_stylebox(st)
+		if seen.has(sb.get_instance_id()):
+			continue
+		seen[sb.get_instance_id()] = true
+		if dy > 0:
+			sb.content_margin_top += 2.0 * dy
+		else:
+			sb.content_margin_bottom += -2.0 * dy
 
 ## `title` as a chip label: cut to `MAX_LABEL_CHARS` with an ellipsis (never `clip_text`).
 static func label_for(title: String) -> String:
@@ -250,7 +271,12 @@ func _notification(what: int) -> void:
 ## in the `⋯` menu.
 func _layout() -> void:
 	var w := size.x
-	var h := size.y
+	## Chips are the cell SQUARE tall (`cell_px()`), centred in the height this node was given. The
+	## bar stretches this node to its own full height (39 px at desktop), and filling it made every
+	## chip a tall box around a symbol that sat 1-1.5 px off the middle (`_alignment_probe.gd`, owner
+	## finding 2026-10-26). `round()` keeps the chip on whole pixels so its 1 px border stays crisp.
+	var h := float(cell_px())
+	var y0 := roundf((size.y - h) * 0.5)
 	var pw := _plus.get_combined_minimum_size().x
 	var ow := _more.get_combined_minimum_size().x
 	var natural := 0.0
@@ -269,16 +295,16 @@ func _layout() -> void:
 		if c.visible != fits:
 			c.visible = fits
 		if fits:
-			fit_child_in_rect(c, Rect2(x, 0, cw, h))
+			fit_child_in_rect(c, Rect2(x, y0, cw, h))
 			x += cw + GAP
 			shown += 1
 	_shown = shown
 	if _more.visible != overflowed:
 		_more.visible = overflowed
 	if overflowed:
-		fit_child_in_rect(_more, Rect2(x, 0, ow, h))
+		fit_child_in_rect(_more, Rect2(x, y0, ow, h))
 		x += ow + GAP
-	fit_child_in_rect(_plus, Rect2(x, 0, pw, h))
+	fit_child_in_rect(_plus, Rect2(x, y0, pw, h))
 
 # -- the ＋ chip: add a pin -----------------------------------------------------------
 

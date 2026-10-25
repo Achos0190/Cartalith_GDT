@@ -1,0 +1,34 @@
+MEASURE after_desktop | palette cell 0 'inspect' icon | cell (14,40 30x30) | ink (21,47 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_desktop | palette cell 0 'inspect' highlight | cell (14,40 30x30) | highlight (14,40 30x30) | inset l,t,r,b = 0,0,0,0
+MEASURE after_desktop | palette cell 0 'inspect' icon inside highlight | gaps l,t,r,b = 7,7,8,8
+MEASURE after_desktop | palette cell 1 'measure' icon | cell (49,40 30x30) | ink (56,47 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_desktop | palette cell 1 'measure' highlight | cell (49,40 30x30) | highlight (49,40 30x30) | inset l,t,r,b = 0,0,0,0
+MEASURE after_desktop | palette cell 1 'measure' icon inside highlight | gaps l,t,r,b = 7,7,8,8
+MEASURE after_desktop | palette cell 2 'region' icon | cell (84,40 30x30) | ink (91,47 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_desktop | palette cell 2 'region' highlight | cell (84,40 30x30) | highlight (84,40 30x30) | inset l,t,r,b = 0,0,0,0
+MEASURE after_desktop | palette cell 2 'region' icon inside highlight | gaps l,t,r,b = 7,7,8,8
+MEASURE after_desktop | palette cell 3 'Pan / zoom — alway' icon | cell (119,40 30x30) | ink (126,47 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_desktop | chip 0 'New world' ink | cell (164,41 76x30) | ink (172,52 59x8) | centre offset (-0.5, 0.0)
+MEASURE after_desktop | chip 1 'Open project' ink | cell (245,41 96x30) | ink (253,51 79x11) | centre offset (-0.5, 0.5)
+MEASURE after_desktop | chip 2 'New world from …' ink | cell (346,41 122x30) | ink (354,52 106x8) | centre offset (0.0, 0.0)
+MEASURE after_desktop | chip 3 'Save project' ink | cell (473,41 96x30) | ink (481,51 79x11) | centre offset (-0.5, 0.5)
+MEASURE after_desktop | chip 4 'Save as' ink | cell (574,41 63x30) | ink (582,52 46x8) | centre offset (-0.5, 0.0)
+MEASURE after_desktop | chip 5 'Revert to last …' ink | cell (642,41 122x30) | ink (650,52 106x8) | centre offset (0.0, 0.0)
+MEASURE after_desktop | chip 6 'Close project' ink | cell (769,41 102x30) | ink (777,51 86x11) | centre offset (0.0, 0.5)
+MEASURE after_desktop | chip 7 'Player map' ink | cell (876,41 82x30) | ink (884,52 66x10) | centre offset (0.0, 1.0)
+MEASURE after_desktop | chip 8 'DM / full map' ink | cell (963,41 102x30) | ink (972,52 85x10) | centre offset (0.5, 1.0)
+MEASURE after_desktop | chip 9 'Export map image' ink | cell (1070,41 122x30) | ink (1078,51 105x11) | centre offset (-0.5, 0.5)
+MEASURE after_desktop | chip 10 'exports   /Expo…' ink | cell (1197,41 122x30) | ink (1205,52 106x10) | centre offset (0.0, 1.0)
+MEASURE after_desktop | chip 11 'Show project on…' ink | cell (1324,41 122x30) | ink (1332,51 106x11) | centre offset (0.0, 0.5)
+MEASURE after_desktop | chip 12 '⋯' ink | cell (1451,41 30x30) | ink (1461,55 9x2) | centre offset (-0.5, 0.0)
+MEASURE after_desktop | chip 13 '＋' ink | cell (1486,41 30x30) | ink (1497,52 7x7) | centre offset (-0.5, -0.5)
+MEASURE after_desktop | row centre lines 55.0..56.0, bar centre 56.0 (18 controls)
+MEASURE after_desktop | left header strip (40,116 323x38) | rule y 154.0 | title ink (52,131 35x7) | collapse button (332,116 25x38)
+MEASURE after_desktop | left header collapse button glyph | cell (52,116 305x38) | ink (342,132 4x7) | centre offset (139.5, 0.5)
+MEASURE after_desktop | left header title | cell (52,116 305x38) | ink (52,131 35x7) | centre offset (-135.0, -0.5)
+MEASURE after_desktop | left collapse button cell | cell (52,116 305x38) | ink (332,116 25x38) | centre offset (140.0, 0.0)
+MEASURE after_desktop | right header strip (1327,116 273x38) | rule y 154.0 | title ink (1362,131 42x7) | collapse button (1333,116 25x38)
+MEASURE after_desktop | right header collapse button glyph | cell (1333,116 255x38) | ink (1343,132 4x7) | centre offset (-115.5, 0.5)
+MEASURE after_desktop | right header title | cell (1333,116 255x38) | ink (1362,131 42x7) | centre offset (-77.5, -0.5)
+MEASURE after_desktop | right collapse button cell | cell (1333,116 255x38) | ink (1333,116 25x38) | centre offset (-115.0, 0.0)
+RESULT: PASS (0 failed, 81 checks)

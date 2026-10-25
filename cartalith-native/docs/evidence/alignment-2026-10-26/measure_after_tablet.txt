@@ -1,0 +1,31 @@
+MEASURE after_tablet | palette cell 0 'inspect' icon | cell (14,57 44x44) | ink (28,71 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_tablet | palette cell 0 'inspect' highlight | cell (14,57 44x44) | highlight (14,57 44x44) | inset l,t,r,b = 0,0,0,0
+MEASURE after_tablet | palette cell 0 'inspect' icon inside highlight | gaps l,t,r,b = 14,14,15,15
+MEASURE after_tablet | palette cell 1 'measure' icon | cell (63,57 44x44) | ink (77,71 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_tablet | palette cell 1 'measure' highlight | cell (63,57 44x44) | highlight (63,57 44x44) | inset l,t,r,b = 0,0,0,0
+MEASURE after_tablet | palette cell 1 'measure' icon inside highlight | gaps l,t,r,b = 14,14,15,15
+MEASURE after_tablet | palette cell 2 'region' icon | cell (112,57 44x44) | ink (126,71 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_tablet | palette cell 2 'region' highlight | cell (112,57 44x44) | highlight (112,57 44x44) | inset l,t,r,b = 0,0,0,0
+MEASURE after_tablet | palette cell 2 'region' icon inside highlight | gaps l,t,r,b = 14,14,15,15
+MEASURE after_tablet | palette cell 3 'Pan / zoom — alway' icon | cell (161,57 44x44) | ink (175,71 15x15) | centre offset (-0.5, -0.5)
+MEASURE after_tablet | chip 0 'Undo history' ink | cell (220,58 112x44) | ink (236,75 79x11) | centre offset (-0.5, 0.5)
+MEASURE after_tablet | chip 1 '⧉ Asset library' ink | cell (337,58 136x44) | ink (354,75 102x11) | centre offset (0.0, 0.5)
+MEASURE after_tablet | chip 2 'Toggle theme' ink | cell (478,58 112x44) | ink (494,76 79x10) | centre offset (-0.5, 1.0)
+MEASURE after_tablet | chip 3 'Keyboard shortc…' ink | cell (595,58 138x44) | ink (611,76 106x10) | centre offset (0.0, 1.0)
+MEASURE after_tablet | chip 4 'About' ink | cell (738,58 65x44) | ink (754,76 33x8) | centre offset (0.0, 0.0)
+MEASURE after_tablet | chip 5 'Cut' ink | cell (808,58 52x44) | ink (824,76 20x8) | centre offset (0.0, 0.0)
+MEASURE after_tablet | chip 6 'Copy' ink | cell (865,58 59x44) | ink (881,76 26x10) | centre offset (-0.5, 1.0)
+MEASURE after_tablet | chip 7 'Paste' ink | cell (929,58 65x44) | ink (945,76 33x8) | centre offset (0.0, 0.0)
+MEASURE after_tablet | chip 8 'Delete' ink | cell (999,58 72x44) | ink (1016,76 38x8) | centre offset (0.0, 0.0)
+MEASURE after_tablet | chip 9 '⋯' ink | cell (1076,58 44x44) | ink (1093,79 9x2) | centre offset (-0.5, 0.0)
+MEASURE after_tablet | chip 10 '＋' ink | cell (1125,58 44x44) | ink (1143,76 7x7) | centre offset (-0.5, -0.5)
+MEASURE after_tablet | row centre lines 79.0..80.0, bar centre 80.0 (15 controls)
+MEASURE after_tablet | left header strip (48,164 393x50) | rule y 214.0 | title ink (60,185 41x8) | collapse button (391,164 44x50)
+MEASURE after_tablet | left header collapse button glyph | cell (60,164 375x50) | ink (410,186 4x7) | centre offset (164.5, 0.5)
+MEASURE after_tablet | left header title | cell (60,164 375x50) | ink (60,185 41x8) | centre offset (-167.0, 0.0)
+MEASURE after_tablet | left collapse button cell | cell (60,164 375x50) | ink (391,164 44x50) | centre offset (165.5, 0.0)
+MEASURE after_tablet | right header strip (887,164 393x50) | rule y 214.0 | title ink (941,185 49x8) | collapse button (893,164 44x50)
+MEASURE after_tablet | right header collapse button glyph | cell (893,164 375x50) | ink (912,186 4x7) | centre offset (-166.5, 0.5)
+MEASURE after_tablet | right header title | cell (893,164 375x50) | ink (941,185 49x8) | centre offset (-115.0, 0.0)
+MEASURE after_tablet | right collapse button cell | cell (893,164 375x50) | ink (893,164 44x50) | centre offset (-165.5, 0.0)
+RESULT: PASS (0 failed, 72 checks)

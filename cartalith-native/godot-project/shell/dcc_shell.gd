@@ -3044,6 +3044,13 @@ func _phone_fit_tool_button(b: Button, unit: float) -> void:
 	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	## **Not centred vertically, deliberately.** `Button` stacks icon over caption from the top of its
+	## content box, and the cell's minimum height is content-driven (measured 2026-10-26,
+	## `_alignment_probe.gd`, 393x852: the 44 px cell holds a 35 px icon+caption group with 1 px above it
+	## and 8 px below, because the caption's line box reserves ~7 px under the baseline). A top margin
+	## to centre it would GROW every phone tool cell by that margin (tried: 44 -> 49 px) and move the
+	## sheet's detent budget, which is a behaviour change, so the horizontal centring (the
+	## owner's finding) is fixed and the vertical group offset is left and recorded in STATUS.md.
 
 ## The dock sheets carry every workspace panel -- the NPR Painter block, the
 ## CIVIL dock's Faction roster button, the right dock's Settlement ▸ City
@@ -4229,7 +4236,12 @@ const CTL_PX_TOUCH := 36
 ## canvas, not tokens -- only the horizontal `var(--pad)` moves with density --
 ## so they do not scale.
 const DOCK_HEAD_PAD_TOP := 8
-const DOCK_HEAD_PAD_BOTTOM_LEFT := 0    ## `ENV:305`: `padding:8px var(--pad) 0`
+## Owner, 2026-10-26: the left and right header dividers must sit at one height, so the two docks share ONE
+## header height. The canvas's `ENV:305` gives the left `padding:8px var(--pad) 0` (32 px, divider 6 px
+## higher than the right's); the owner's measured finding outranks it (`DCC_SHELL_SCOPE.md`: an owner
+## decision is newer than any canvas). 6, the right dock's own figure, so neither strip loses height.
+## Pinned by `_alignment_probe.gd` (divider y equal within 0.5 px at desktop and tablet).
+const DOCK_HEAD_PAD_BOTTOM_LEFT := 6
 const DOCK_HEAD_PAD_BOTTOM_RIGHT := 6   ## `ENV:948`: `padding:8px var(--pad) 6px`
 
 ## **A dock header's band, derived rather than pinned -- and the two docks are
@@ -6468,6 +6480,15 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 	if icon_name != "":
 		var ic := DccIcons.rect(icon_name, _pscale(16), token)
 		ic.set_anchors_preset(Control.PRESET_CENTER)
+		## `PRESET_CENTER` moves only the ANCHORS to the cell's centre; the offsets stay 0, so the icon's
+		## top-left corner sat on the centre and the 16 px glyph drew 8 px right and 8 px low
+		## (measured 2026-10-26, `_alignment_probe.gd`, 393x852). Half the icon's own size either side
+		## of the anchor puts its centre on the cell's.
+		var half := ic.custom_minimum_size * 0.5
+		ic.offset_left = -half.x
+		ic.offset_right = half.x
+		ic.offset_top = -half.y
+		ic.offset_bottom = half.y
 		b.add_child(ic)
 	else:
 		b.text = glyph
@@ -7219,6 +7240,10 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	var title_stack := VBoxContainer.new()
 	title_stack.add_theme_constant_override("separation", 0)
 	title_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Centred on the row's centre line, which the 44 dp close button sets. Left at the HBox default
+	## (top-aligned) the title and subtitle block sat 7 px above the button's centre
+	## (`_alignment_probe.gd`, 2026-10-26); the row's height is the button's, so nothing grows.
+	title_stack.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	title_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	## No `clip_text` -- `MISTAKES.md`'s own row: it collapses
 	## `get_minimum_size().x` to 1, and beside `close_btn` (a fixed-size

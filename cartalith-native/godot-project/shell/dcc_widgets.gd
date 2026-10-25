@@ -1314,6 +1314,11 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 	b.custom_minimum_size = Vector2(tb_size, tb_size)
 	b.icon = DccIcons.get_icon(glyph, 15)
 	b.expand_icon = false
+	## `Button.icon_alignment` defaults to LEFT, and an icon-only button draws its icon at the left
+	## of its content box -- measured 7.5 px left of centre in a 30 px cell (`_alignment_probe.gd`,
+	## owner finding 2026-10-26). CENTER puts the icon box on the cell's centre on both axes; the
+	## phone's stacked icon-over-caption layout (`phone_fit`) is centred horizontally by it too.
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.add_theme_stylebox_override("normal", DccTheme.empty())
 	## Radius 0 per §11, like everything else. Was 2.
 	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
@@ -1401,6 +1406,10 @@ static func tool_strip(parent: Control, app, group: ButtonGroup, domain_entries:
 		for e in domain_entries:
 			_tool_entry(row, e, app, group)
 	for b in row.find_children("*", "Button", true, false):
+		## A cell is the 30 px (tablet 44 px) SQUARE it is authored as, centred in the bar. Left to the
+		## HBox default it was stretched to the bar's full height (30 x 39), so its highlight was a tall
+		## rectangle, not a square around the icon (owner finding 2026-10-26).
+		(b as Button).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		if (b as Button).toggle_mode:
 			(b as Button).set_pressed_no_signal(String(b.get_meta(TOOL_ID_META, "")) == String(app.armed_tool))
 	parent.add_child(row)
@@ -1485,6 +1494,8 @@ static func _tool_legend(parent: Control, glyph: String, caption: String, tip: S
 	b.custom_minimum_size = Vector2(tb_size, tb_size)
 	b.icon = DccIcons.get_icon(glyph, 15)
 	b.expand_icon = false
+	## Same as `tool_button()`: the default LEFT alignment drew the pan icon 7.5 px off centre.
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.add_theme_stylebox_override("disabled", DccTheme.flat(DccTheme.c("sunken")))
 	b.add_theme_color_override("icon_disabled_color", DccTheme.c("text_ghost"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
