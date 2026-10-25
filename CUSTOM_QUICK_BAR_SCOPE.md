@@ -455,7 +455,9 @@ branch cites this scope or its ruling.
 
 ## 9 · Owner questions
 
-Defaults are recommendations, labelled [judgement]; answer by number.
+**All eleven answered 2026-10-25: every recommended default approved (Ruling DH, `LARGE_ITEM_RULINGS.md`).** Q6's answer also asked that the Assistant chip's condition be recorded as a ruling, which Ruling DH does. The table below is kept as the questions were asked; the "Recommended default" column is now the decision.
+
+Defaults were recommendations, labelled [judgement]; answered by number.
 
 | # | Question | Recommended default | Why |
 |---|---|---|---|
@@ -485,3 +487,20 @@ Defaults are recommendations, labelled [judgement]; answer by number.
 | A hand-written catalogue of pinnable commands | The stale-document trap; the index is built from the app |
 | Showing a dead Assistant chip before LLM-3 | A control that opens nothing is the defect this project's index exists to prevent |
 | Auto-pinning "recently used" | Makes the bar move under the user's hand; position must be the user's own |
+
+
+---
+
+## 11 · CQ-0 measurements (2026-10-25, live, by `_cmdindex_probe.gd` section 7)
+
+Re-measured against the tree rather than copied; these replace the **[grep]** counts above where they differ. Method: build a `CommandIndex` over the booted shell and classify each row.
+
+- **`ID_*` constants:** 127 `const ID_... := n` lines in `menus.gd` (the scope's 128 came from a slightly different pattern). Ids are per-`PopupMenu`: **small ids (0-7, 10-13) repeat across eight data-built popups** (the icon families, the texture sets, six landmark-family type lists), and `731` (`Places without notes`) is one command listed in both World and Story. Rule built: an item numbered from 0 marks an index popup (unpinnable, "generated row"); an identical id and title is one command (the second row is an unpinnable alias); any remaining collision is disambiguated as `menu:<group>/<id>`, which fires 0 times on this tree.
+- **Check/radio:** 45 mentions in `menus.gd` text, but **116 live rows** are checkable (ladders generate many); all refused, each with a reason.
+- **`about_to_popup`:** 36 connections in `menus.gd` text. Live, **every popup carries two baseline connections** (Godot's `MenuButton::_popup_visibility_changed`, and `dcc_widgets.gd`'s `style_popup` lambda), so the scope's "has a handler, so unpinnable" rule would have made **0 rows pinnable** (measured). Refined: only handlers that evict or enumerate (`_refresh_atlas_cache_menu`, `_on_gpu_devices_about_to_popup`) refuse a row; a handler that only refreshes enabled state leaves it pinnable and sets `refreshes_on_open`, so a chip must not copy `available` (**64 of the 65** pinnable rows). A lambda handler cannot be read by name; `command_index.gd::_open_handlers` states that limitation.
+- **Finding, not fixed here:** `_gather_menu_buttons` also collects the `MenuButton`s inside every embedded `ColorPicker`, so **264 of the index's 693 rows** have an empty group and are colour-preset rows. They pollute search; they are marked unpinnable with that reason. Excluding them from search is its own change.
+- **Totals:** 693 rows; **65 pinnable**. Unpinnable: 110 parameters, 112 check/radio, 101 generated, 19 readouts, 18 unavailable (`_todo`), 3 `EXTRAS` rows (no registered handler yet: Zoom to fit, Point sample, Theme), 264 embedded picker rows, 1 alias. (A row takes the first reason that applies, so a picker row that is also a check row counts once, under the picker.)
+- **The two named examples:** `Story > Journey planner` (`menu:726`) and `World > Markdown vault` (`menu:45`) are pinnable and, run through `CommandIndex.run_row()`, open `journey_planner_view` and `vault_window`. A pressed row emits the owning popup's own `id_pressed`, the signal a menu click emits, so the "same state as a click" bar holds by construction; no separate 10-row comparison was made.
+- **Ring diagonals (read at the `ring_slots` symbols, not run):** leaves are CARTO NW `Label` and CIVIL SW `Route`. Every other diagonal carries `children`: CARTO NE `Icon`, SE `View`, SW `Style`; CIVIL NW `Settle`, NE `Territory`, SE `Way`; WORLD NW `Uplift`, NE `Carve`, SE `Freehand`, SW `Paint`. Sharing (Q3) therefore offers 10 of 12 diagonals across the three domains.
+- **Q11:** a scratch probe in an embedded viewport showed a right-click does **not** emit `id_pressed` and leaves the popup open, but `PopupMenu.window_input` **does** receive the right-button event, and `get_focused_item()` names the hovered row after a motion event. Feasible in principle; the probe's first right-click read `focused=-1`, so CQ-3 must confirm item identification with a windowed check before promising the gesture.
+- **Mutation:** weakening the check/radio filter in `_why_not_pinnable` turns the probe red (`no check/radio row is pinnable got=78`); restored, green.

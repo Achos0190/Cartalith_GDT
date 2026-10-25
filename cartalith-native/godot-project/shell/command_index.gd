@@ -163,6 +163,7 @@ func build(app, bridge) -> void:
 	_rows.clear()
 	_add_parameters()
 	_add_menu_commands()
+	_disambiguate_pin_keys()
 	for e in EXTRAS:
 		_rows.append({
 			"title": String(e.get("title", "")),
@@ -172,7 +173,18 @@ func build(app, bridge) -> void:
 			"available": true,
 			"why": "",
 			"key": "",
+			"pin_key": "extra:" + _slug(String(e.get("title", ""))),
+			"pinnable": false,
+			"why_not": "No registered handler yet: an EXTRAS row is a search answer, not a callable command (CUSTOM_QUICK_BAR_SCOPE.md s.3.3; CQ-0 measured it).",
 		})
+
+## Lower-case ASCII slug of a title: the stable half of an `extra:` pin key.
+## Never used for a `menu:` key, which follows the persisted action id.
+static func _slug(t: String) -> String:
+	var out := ""
+	for ch in t.to_lower():
+		out += ch if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9") else "_"
+	return out.strip_edges()
 
 ## Generation parameters, straight off the engine's own spec table.
 func _add_parameters() -> void:
@@ -205,6 +217,9 @@ func _add_parameters() -> void:
 			## generate, which is a different statement from "unavailable".
 			"available": true,
 			"why": "" if has_world else "Takes effect on the next Generate",
+			"pin_key": "param:" + String(key),
+			"pinnable": false,
+			"why_not": "A generation parameter applies on a Generate and has its own dock control; a chip would only duplicate it.",
 		})
 
 ## Every menu row, walked off the live MenuBar. A `_todo` row is disabled and
@@ -286,6 +301,8 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 		## A readout is available: it has already told the searcher what they
 		## came for, in its own title. `why` stays empty for the same reason —
 		## there is nothing being withheld to explain.
+		var id := popup.get_item_id(i)
+		var why_not := _why_not_pinnable(popup, i, id, is_readout, menu_name)
 		_rows.append({
 			"title": text.replace("…", "").strip_edges(),
 			"blurb": tip if (disabled and tip != "") else (menu_name + " menu"),
@@ -294,7 +311,147 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 			"key": "",
 			"available": is_readout or not disabled,
 			"why": tip if (disabled and not is_readout) else "",
+			## CQ-0 (CUSTOM_QUICK_BAR_SCOPE.md s.3.3). `pin_key` follows the action id
+			## `shortcuts_dialog.gd` already persists, so a reword of the title
+			## cannot orphan a pin. Ids are dispatched per PopupMenu, so a collision
+			## between two popups is possible; `_disambiguate_pin_keys()` resolves it.
+			"pin_key": "menu:%d" % id,
+			"pinnable": why_not == "",
+			"why_not": why_not,
+			## Not stored anywhere: the owning popup and id, so `run_row()` can emit
+			## that popup's own `id_pressed`. Object refs never reach a config.
+			"_popup": popup,
+			"_id": id,
+			## True when the popup refreshes row state on open, so `available` here
+			## is the BUILT state and a chip must not copy it (scope s.3.3).
+			"refreshes_on_open": not _open_handlers(popup).is_empty(),
 		})
+
+## Id spans that are generated per item (a ladder, a list), never a fixed command.
+## A pin on one would point at whatever happens to sit at that index tomorrow.
+## Names are DccMenus constants so a renumber cannot silently desynchronise. The
+## span lengths (9, 14, 64, 32) are labelled judgements rounded up from the
+## constants' own comments; `_cmdindex_probe.gd` section 7 lists every pinnable
+## row so an over- or under-wide span is visible, not assumed.
+func _is_dynamic_id(id: int) -> bool:
+	return (id >= DccMenus.ID_AUTOSAVE_FIRST and id < DccMenus.ID_AUTOSAVE_FIRST + 9) 		or (id >= DccMenus.ID_DATA_ROUTE_FIRST and id < DccMenus.ID_DATA_ROUTE_FIRST + 14) 		or id >= DccMenus.ID_LM_FAMILY_FIRST and id < DccMenus.ID_LM_FAMILY_FIRST + 64 		or (id >= DccMenus.ID_WIN_LAYOUT_FIRST and id < DccMenus.ID_WIN_LAYOUT_FIRST + 32) 		or (id >= DccMenus.ID_RESET_STAGE_FIRST and id < DccMenus.ID_RESET_STAGE_FIRST + 10)
+
+## True when a popup numbers its items from 0. That is the signature of a list built
+## from data (the icon families, the texture sets, each landmark family's types):
+## the id means "the n-th entry today", so it is not a stable command identity and
+## the same small ids repeat in every such popup. No named `DccMenus.ID_*` command
+## is 0 (checked by grep 2026-10-25), so an item with id 0 marks an index popup.
+## Measured by `_cmdindex_probe.gd` section 7: without this rule 41 pinnable rows
+## shared 9 small ids across 8 such popups. (Not "id == position": a landmark
+## family's popup has gaps, so that test missed it on the first attempt.)
+func _is_index_popup(popup: PopupMenu) -> bool:
+	for i in popup.item_count:
+		if not popup.is_item_separator(i) and popup.get_item_id(i) == 0:
+			return true
+	return false
+
+## `about_to_popup` handlers (by method name) that DO things beyond refreshing a
+## row's enabled state, so a chip must never stand in for opening their menu.
+## Both are named in this file's header: `_refresh_atlas_cache_menu` calls
+## `_enforce_atlas_cap()` (evicts baked chunks) and `_on_gpu_devices_about_to_popup`
+## enumerates GPU adapters (the crash `menus.gd::_build_gpu_devices_menu`
+## documents). Labelled judgement from reading the handlers, 2026-10-25; a lambda
+## handler cannot be read by name and is counted by `_open_handlers()` instead.
+const UNSAFE_OPEN_HANDLERS: Array = ["_refresh_atlas_cache_menu", "_on_gpu_devices_about_to_popup"]
+
+## Names of the `about_to_popup` handlers that a popup carries beyond the ones every
+## popup has. Dropped as baseline: Godot's own `MenuButton::_popup_visibility_changed`
+## and `ColorPicker::_block_input_on_popup_show`, and ONE non-capturing anonymous
+## lambda, which is `dcc_widgets.gd::style_popup`'s re-style connection (line
+## `popup.about_to_popup.connect(func() -> void: style_popup(popup))`) that every
+## themed popup gets. Anything left is a menu-specific handler. Limitation: a
+## second non-capturing lambda would be miscounted as baseline; the probe lists
+## the handlers per popup so that is visible, not assumed.
+func _open_handlers(popup: PopupMenu) -> Array:
+	var out: Array = []
+	var dropped_style := false
+	for c in popup.about_to_popup.get_connections():
+		var cb: Callable = c["callable"]
+		var nm := String(cb.get_method())
+		var txt := str(cb)
+		if nm == "_popup_visibility_changed" or nm == "_block_input_on_popup_show":
+			continue
+		if not dropped_style and txt.ends_with("(lambda)"):
+			dropped_style = true
+			continue
+		out.append(nm if nm != "" else txt)
+	return out
+
+## Why a menu row cannot be pinned in v1, or "" when it can. Reads only state
+## the menu was BUILT in (never emits `about_to_popup`; see the header). A popup
+## whose only open-time handlers just refresh enabled state (Story, World, Edit...)
+## stays pinnable: the chip then stays enabled and the shared handler reports
+## "nothing to do" itself (CUSTOM_QUICK_BAR_SCOPE.md s.3.3, availability).
+func _why_not_pinnable(popup: PopupMenu, i: int, id: int, is_readout: bool, menu_name: String) -> String:
+	if menu_name == "":
+		return "Not an app menu: an embedded control's own popup (a ColorPicker's presets)."
+	if is_readout:
+		return "A readout shows a value; there is nothing to run."
+	if popup.is_item_disabled(i):
+		return "Not available yet: " + popup.get_item_tooltip(i)
+	if popup.is_item_checkable(i):
+		return "A check or radio row mirrors state a chip cannot read without opening the menu (CQ-8)."
+	if _is_dynamic_id(id) or _is_index_popup(popup):
+		return "A generated row (a ladder or list); its meaning changes with the data."
+	for h in _open_handlers(popup):
+		if UNSAFE_OPEN_HANDLERS.has(String(h)):
+			return "Its menu runs " + String(h) + " when opened (it evicts or enumerates); a chip cannot repeat that safely."
+	return ""
+
+## Makes `pin_key` unique among pinnable rows. First, a later row with the SAME id
+## and the SAME title as an earlier one is the same command shown in two menus
+## (`Places without notes` is in both World and Story): it becomes an unpinnable
+## alias of the first so the Customise list shows the command once. Then any
+## remaining `menu:<id>` shared by rows with different titles becomes
+## `menu:<group>/<id>`. Returns that second count (0 on the tree measured by
+## `_cmdindex_probe.gd`; the disambiguator exists for the day it is not).
+func _disambiguate_pin_keys() -> int:
+	var first := {}
+	for r in _rows:
+		if not bool(r.get("pinnable", false)):
+			continue
+		var sig := "%s|%s" % [String(r["pin_key"]), String(r["title"])]
+		if first.has(sig):
+			r["pinnable"] = false
+			r["why_not"] = "The same command as %s ▸ %s (same id, same title)." % [String(first[sig]["group"]), String(r["title"])]
+		else:
+			first[sig] = r
+	var seen := {}
+	for r in _rows:
+		if bool(r.get("pinnable", false)):
+			var k := String(r["pin_key"])
+			seen[k] = int(seen.get(k, 0)) + 1
+	var collisions := 0
+	for r in _rows:
+		if bool(r.get("pinnable", false)) and int(seen[String(r["pin_key"])]) > 1:
+			collisions += 1
+			r["pin_key"] = "menu:%s/%d" % [String(r["group"]).to_lower(), int(r["_id"])]
+	return collisions
+
+## Runs a pinnable row by emitting the owning popup's own `id_pressed`, the
+## signal its real handler is connected to, so a chip and a click cannot diverge.
+## Returns false (and does nothing) for an unpinnable row or a freed popup.
+func run_row(row: Dictionary) -> bool:
+	if not bool(row.get("pinnable", false)):
+		return false
+	var popup = row.get("_popup")
+	if popup == null or not is_instance_valid(popup):
+		return false
+	(popup as PopupMenu).id_pressed.emit(int(row["_id"]))
+	return true
+
+## The live row for a stored `pin_key`, or an empty Dictionary when the command
+## is gone from this build (callers show "not in this build"; never delete it).
+func find_pin(pin_key: String) -> Dictionary:
+	for r in _rows:
+		if String(r.get("pin_key", "")) == pin_key:
+			return r
+	return {}
 
 ## `get_children(true)` -- a MenuButton keeps its popup as an INTERNAL child,
 ## so the default walk finds none of them. `_loddbg_probe.gd` cost a run

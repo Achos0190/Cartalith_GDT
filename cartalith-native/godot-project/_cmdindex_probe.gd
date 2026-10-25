@@ -137,5 +137,86 @@ func _ready() -> void:
 	print("  info groups: ", gs.size(), " -> ", gs.slice(0, 8))
 	_ok("more than one group", gs.size() > 3, true)
 
+	await _cq0(app, idx)
+
 	print("\n_cmdindex_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
 	get_tree().quit(1 if _fail > 0 else 0)
+
+## CQ-0 (CUSTOM_QUICK_BAR_SCOPE.md s.7): pin identity and the pinnable set.
+## Protects: every pinnable row has a unique, stable `pin_key`; every unpinnable
+## row says why; the two named examples are pinnable and RUN (their windows
+## open); a pressed row reaches the same handler a menu click does.
+func _cq0(app: Node, idx: CommandIndex) -> void:
+	print("\n=== 7: CQ-0 pin identity and the pinnable set ===")
+	var by_reason := {}
+	var pinnable := 0
+	var keys := {}
+	var dup := 0
+	var no_reason := 0
+	var pins: Array = []
+	for r in idx.all():
+		if bool(r["pinnable"]):
+			pinnable += 1
+			pins.append(r)
+			var k := String(r["pin_key"])
+			if keys.has(k):
+				dup += 1
+			keys[k] = true
+		else:
+			var w := String(r["why_not"])
+			if w.strip_edges() == "":
+				no_reason += 1
+			var cat := "other"
+			if String(r["kind"]) == "param": cat = "param"
+			elif String(r["kind"]) == "readout": cat = "readout"
+			elif w.begins_with("Not available"): cat = "unavailable (_todo)"
+			elif w.begins_with("A check"): cat = "check/radio"
+			elif w.begins_with("A generated"): cat = "dynamic"
+			elif w.begins_with("The same command"): cat = "alias of another menu row"
+			elif w.begins_with("Its menu runs"): cat = "unsafe about_to_popup"
+			elif w.begins_with("Not an app menu"): cat = "embedded ColorPicker popup"
+			elif w.begins_with("No registered"): cat = "extra without handler"
+			by_reason[cat] = int(by_reason.get(cat, 0)) + 1
+	print("  info total rows %d · pinnable %d · unpinnable %d" % [idx.size(), pinnable, idx.size() - pinnable])
+	print("  info unpinnable by reason: ", by_reason)
+	var refreshing := 0
+	for r in pins:
+		if bool(r["refreshes_on_open"]):
+			refreshing += 1
+	print("  info pinnable rows whose popup refreshes state on open (chip must not copy `available`): ", refreshing)
+	_ok("some rows are pinnable (not silently empty)", pinnable > 10, true)
+	_ok("0 duplicate pin_keys among pinnable rows", dup, 0)
+	## Independent of `_why_not_pinnable`: ask the popup itself whether the row is
+	## checkable and require the index to have refused it. Goes red if the
+	## check/radio filter is weakened (mutation-tested 2026-10-25).
+	var checkable_pinned := 0
+	var checkable_seen := 0
+	for r in idx.all():
+		var pp = r.get("_popup")
+		if pp == null or String(r["group"]) == "":
+			continue
+		var ix: int = (pp as PopupMenu).get_item_index(int(r["_id"]))
+		if ix >= 0 and (pp as PopupMenu).is_item_checkable(ix):
+			checkable_seen += 1
+			if bool(r["pinnable"]):
+				checkable_pinned += 1
+	print("  info real (non-ColorPicker) check/radio rows: ", checkable_seen)
+	_ok("there ARE check/radio rows to refuse", checkable_seen > 20, true)
+	_ok("no check/radio row is pinnable", checkable_pinned, 0)
+	_ok("every unpinnable row has a non-empty why_not", no_reason, 0)
+	for r in pins:
+		print("  pin  %-34s %-18s %s" % [String(r["pin_key"]), String(r["group"]), String(r["title"])])
+	var jp := idx.find_pin("menu:%d" % DccMenus.ID_STORY_JOURNEY_PLANNER)
+	var vt := idx.find_pin("menu:%d" % DccMenus.ID_VAULT)
+	_ok("Journey planner is pinnable", bool(jp.get("pinnable", false)), true)
+	_ok("Markdown vault is pinnable", bool(vt.get("pinnable", false)), true)
+	_ok("an unknown pin_key resolves to {} rather than a plausible row", idx.find_pin("menu:999999").is_empty(), true)
+	_ok("running an unpinnable row is refused", idx.run_row(idx.search("Sea level")[0]), false)
+	if not jp.is_empty():
+		_ok("Journey planner chip runs", idx.run_row(jp), true)
+		await _frames(4)
+		_ok("...and journey_planner_view is visible", app.journey_planner_view != null and app.journey_planner_view.is_visible_in_tree(), true)
+	if not vt.is_empty():
+		_ok("Markdown vault chip runs", idx.run_row(vt), true)
+		await _frames(4)
+		_ok("...and vault_window is visible", app.vault_window != null and app.vault_window.visible, true)

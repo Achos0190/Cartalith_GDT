@@ -2442,3 +2442,20 @@ The coordinating session briefed VA-6 of `VOLCANO_APPEARANCE_RESEARCH.md` (calde
 
 **Outcome (2026-10-25):** the **lava dome** is built and on in the app (`volc.kind_dome`); the caldera rule, the supervolcano and the flood basalt failed bars; the maar held its bars but did not read on the map and is built off at both boundaries. Numbers in `STATUS.md`'s VA-6 entry; the questions for the owner in the VA-6 row of `OUTSTANDING_WORK.md`.
 
+## Ruling DH — the custom quick bar: every recommended default approved, with the Assistant chip's condition recorded (owner, 2026-10-25)
+
+Owner, on `CUSTOM_QUICK_BAR_SCOPE.md`'s Q1-Q11, approved the scope's recommended defaults. Recorded as answered:
+
+1. **Q1. One global pin list** (not one per domain). Per-domain visibility is CQ-8.
+2. **Q2. Pins sit at the palette bar's right end**, not in the contextual options bar.
+3. **Q3. The ring dock, plus sharing a diagonal's sub-ring; no replacement of a built-in slot.** This lifts `MAP_CONTEXT_SCOPE.md` fork F5 (Ruling AX, "ring customisation: later") for those two things only; replacing a diagonal stays declined (CQ-8).
+4. **Q4. The bar ships empty**, with the `＋` chip.
+5. **Q5. Caps: 24 bar pins, 4 dock pins (plus the Assistant chip), 9 children per shared sub-ring.** 9 is the geometric ceiling in `radial_ring.gd`; 24 and 4 are labelled judgements.
+6. **Q6. The Assistant chip appears automatically when the assistant is enabled AND a provider is configured, with a user switch to hide it; this condition is recorded as a ruling (this one).** The condition, exactly: *shown iff the assistant is enabled, a provider is configured, and the user has not turned the chip off.* The five states and the gate reason strings are `CUSTOM_QUICK_BAR_SCOPE.md` section 5, built in CQ-7 behind LLM-3's panel. It changes only by a later ruling.
+7. **Q7. Per-device storage only**; no sync between desktop and phone.
+8. **Q8. Toggle commands (check and radio rows) are not in v1** (CQ-8).
+9. **Q9. Phone: a chip row in the MAP sheet and a section in MORE.**
+10. **Q10. Tools are not pinnable in v1.**
+11. **Q11. The Customise window and the chip only**, unless Godot's `PopupMenu` can report a right-click; CQ-3 decides that with a windowed check (CQ-0's headless finding is in the scope, section 11).
+
+Consequences: milestones CQ-0 to CQ-7 are unblocked in order (CQ-7 still gated on LLM-3); a pin is stored per device and never in a project, export or archive (CQ-1's leak bar); `MAP_CONTEXT_SCOPE.md` F5 and the "later" sentences listed in the scope's risk 9 are fixed when CQ-4 lands.
