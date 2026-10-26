@@ -333,7 +333,7 @@ static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null
 		header_row.move_child(hb, maxi(header_row.get_child_count() - 2, 0))
 		hb.custom_minimum_size.x = BUTTON_MIN_W
 		hb.name = BUTTON_NAME
-		hb.tooltip_text = "Moves this panel into its own operating-system window, for a second monitor. Press again to dock it back. Your place in it (tab, selection, scroll) is kept."
+		hb.tooltip_text = "Opens this panel in its own window, for a second monitor. Press again to dock it back."
 		dlg.visibility_changed.connect(func() -> void: sync_button(dlg))
 		sync_button(dlg)
 		return hb
@@ -365,7 +365,7 @@ static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null
 	## by 1.5 px. So the balance follows the button's own size.
 	b.resized.connect(func() -> void: balance.custom_minimum_size.x = b.size.x)
 	b.name = BUTTON_NAME
-	b.tooltip_text = "Moves this panel into its own operating-system window, for a second monitor. Press again to dock it back. Your place in it (tab, selection, scroll) is kept."
+	b.tooltip_text = "Opens this panel in its own window, for a second monitor. Press again to dock it back."
 	dlg.visibility_changed.connect(func() -> void: sync_button(dlg))
 	sync_button(dlg)
 	return b

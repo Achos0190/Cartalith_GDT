@@ -3867,7 +3867,7 @@ func _religion_pane(parent: Control) -> VBoxContainer:
 func _religion_pane_diffusion(body: Control, st: Dictionary, state: String) -> void:
 	DccWidgets.note(body,
 		"Religion spreads along the generated road network, one step per simulated year "
-		+ "(RELIGION_DIFFUSION_SCOPE.md milestone 1). Each settlement starts wholly in its "
+		+ "Each settlement starts wholly in its "
 		+ "faction's state religion; exposure is weighted by neighbour population and by the "
 		+ "road network's own carriage decay, so ports and crossroads become hubs without any "
 		+ "spread radius being drawn. Sea lanes carry nothing yet -- SeaRoute has no endpoint "
@@ -7042,7 +7042,7 @@ func _fill_military(parent: Control) -> void:
 		"War campaigns over time are drawn on the map in CARTO ▸ Conflict: siege lines, fronts, and the cells that changed hands since each conflict began, following the year cursor. A siege names its besieged place's garrison. The conflict overlay shows each side's manpower.")
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Unit movement and battles that resolve themselves: Ruling AW did not ask for them, and nothing here moves a force or decides a fight. A year recorded before ag-tech, government and place overrides were kept with it is read with today's; the line above says which.")
+		"Units do not move and battles are not simulated; nothing here decides a fight. A year recorded before ag-tech, government and place overrides were kept with it is read with today's; the line above says which.")
 
 ## MM-8: the reading this panel was filled from, as a key -- the recorded year
 ## in force at `cursor` and the number of records, so adding or removing a year

@@ -3403,7 +3403,7 @@ func _build_inspector() -> Control:
 	ref_col.add_theme_constant_override("separation", 7)
 	ref_pad.add_child(ref_col)
 	var ref_head := DccTheme.mono_label("REFINE", "text_ghost", DccTheme.FS_MICRO, 1)
-	ref_head.tooltip_text = "Tools that fix the art itself. Each writes a new variant and leaves the original as it was (Ruling CQ Q7)."
+	ref_head.tooltip_text = "Tools that fix the art itself. Each writes a new variant and leaves the original as it was."
 	ref_head.mouse_filter = Control.MOUSE_FILTER_STOP
 	ref_col.add_child(ref_head)
 	var seam_box := VBoxContainer.new()

@@ -160,7 +160,7 @@ const PLACE_REPLY_MAX_TOKENS := 2048
 var cards: Array = []
 ## The prompt box's hint, per kind of task.
 const PLACEHOLDER_PROSE := "Ask for prose about the selected place, or for work on the chosen note…"
-const PLACEHOLDER_COMMANDS := "Ask for a settings change (a drier climate), a view change (hide the roads, centre on a cell, switch the style) or a question about the settings or the world…"
+const PLACEHOLDER_COMMANDS := "Ask for a settings change (a drier climate), a view change (hide the roads) or a question about the world…"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -328,7 +328,7 @@ func _rebuild() -> void:
 	controls.clear()
 	_chips.clear()
 	if not bridge.llm_api:
-		_note_label(_body, "This build has no assistant support. Update the Cartalith library to use it.", "block")
+		_note_label(_body, "The assistant is not available in this version of Cartalith.", "block")
 		_building = false
 		return
 	_place = _current_place()
@@ -371,7 +371,7 @@ func _rebuild() -> void:
 	cmd.tooltip_text = "Ask for generation-setting changes, or a question about the settings or the world. The model proposes; nothing changes until you press Apply on its card."
 	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
-	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes and view changes (layers, style preset, landmark types, centring and zooming, opening a window) for you to review, and answers questions from read-only lookups (and from your notes and world data when ticked in Settings); nothing changes until you press Apply. It never generates, saves, closes, exports or deletes. Edit actions arrive in a later release.")
+	var cmd_note := _note_label(_body, "Suggests setting and view changes and answers questions about your world. Nothing changes until you press Apply. It never generates, saves, exports or deletes.")
 	controls["commands_note"] = cmd_note
 	## "Choose groups" (scope s.5b.1): the fallback for a small model that cannot pick setting groups.
 	var grow := HFlowContainer.new()
@@ -741,11 +741,11 @@ func _refresh() -> void:
 	elif not bool(cap_check.get("ok", true)):
 		reason = String(cap_check.get("reason", "The token cap is reached."))
 	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")) and not _knowledge_ticked():
-		reason = "Tick \"Send: generation parameters and summary statistics\" in Settings first (a proposal or a question shows the model the current settings and figures), or tick \"Send: Vault notes found by search\" or \"Send: world data found by search\" to ask about your notes and world."
+		reason = "In Settings, tick \"Send: generation parameters and summary statistics\" to use this, or tick a search source (Vault notes or world data) to ask about your notes and world."
 	elif request == "":
 		reason = "Type a request first."
 	elif _task == "commands":
-		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
+		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "The assistant is not available in this version of Cartalith."}
 		if bool(pp.get("ok", false)) and not bool(DccSettings.llm_value("ctx_params")):
 			## Questions about the notes and the world only: no setting, figure or view is sent.
 			sent_text = "This will send: your request (%d characters)." % int(pp["request_chars"])
@@ -756,7 +756,7 @@ func _refresh() -> void:
 		else:
 			reason = String(pp.get("reason", "Unavailable."))
 	else:
-		var pv: Dictionary = run.stream.preview(_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
+		var pv: Dictionary = run.stream.preview(_args(request)) if run.available() else {"ok": false, "reason": "The assistant is not available in this version of Cartalith."}
 		if bool(pv.get("ok", false)):
 			sent_text = _sent_text(pv["sent"])
 		else:
@@ -1291,7 +1291,7 @@ func _on_params_step(info: Dictionary) -> void:
 	if String(info.get("type", "")) == "params_retry":
 		var v: Dictionary = info.get("verdict", {})
 		var why := _verdict_reasons(v) if info.has("verdict") else _view_reasons(info.get("view_verdict", {}))
-		_add_msg("", "The model's proposal could not be used (%s). It was told why and asked once more." % why, "warn")
+		_add_msg("", "The suggestion could not be used (%s). Asking the assistant to try again." % why, "warn")
 	else:
 		var gs: PackedStringArray = info.get("groups", PackedStringArray())
 		var qs: PackedStringArray = info.get("queries", PackedStringArray())
@@ -1300,7 +1300,7 @@ func _on_params_step(info: Dictionary) -> void:
 			## answers themselves go to the model, not to this list.
 			_add_msg("", "The model looked up: %s. Nothing was changed." % ", ".join(qs), "text_ghost")
 		elif gs.is_empty():
-			_add_msg("", "The model asked for setting groups that do not exist; it was told the valid ones.", "text_ghost")
+			_add_msg("", "The assistant asked for settings that do not exist; asking again.", "text_ghost")
 		else:
 			_add_msg("", "The model is reading the %s settings…" % ", ".join(gs), "text_ghost")
 	_refresh()
@@ -1313,7 +1313,7 @@ func _on_answered(_text: String) -> void:
 		## A knowledge answer: the text above is the answer and the sources card follows it.
 		_refresh()
 		return
-	var hint := "" if _groups_were_chosen else " If the model could not pick setting groups, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
+	var hint := "" if _groups_were_chosen else " If it could not find the right settings, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
 	_add_msg("", "Nothing was proposed.%s" % hint, "text_ghost")
 	_refresh()
 
@@ -1467,7 +1467,7 @@ func _refresh_cards() -> void:
 ## Why Apply cannot run now, or "".
 func _apply_blocked() -> String:
 	if not run.available():
-		return "This build has no assistant support."
+		return "The assistant is not available in this version of Cartalith."
 	return String(run.stream.apply_availability(bridge.generating, bridge.is_finalized()))
 
 
@@ -1620,7 +1620,7 @@ func _draw_view_card(v: Dictionary) -> void:
 ## are session state and do not depend on it.
 func _view_blocked(info: Dictionary) -> String:
 	if not run.available():
-		return "This build has no assistant support."
+		return "The assistant is not available in this version of Cartalith."
 	for c in info.get("valid", []):
 		if bool((c as Dictionary).get("undoable", false)) and bridge.generating:
 			return "A world is generating; the style cannot change until it finishes."

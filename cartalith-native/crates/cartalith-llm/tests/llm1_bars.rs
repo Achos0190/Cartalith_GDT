@@ -442,9 +442,9 @@ fn a_length_cut_tool_call_is_reported_as_a_cut() {
     let ev = run(cut, "set_layer", "length", Some(1024));
     assert_eq!(ev, vec![Event::Error(LlmError::ReplyCutAtLengthCap { max_tokens: Some(1024) })]);
     let LlmError::ReplyCutAtLengthCap { .. } = (match &ev[0] { Event::Error(e) => e.clone(), _ => unreachable!() }) else { panic!() };
-    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "the reply was cut at the length cap (max_tokens 1024)");
+    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "The reply was cut short by the reply length limit (1024 tokens).");
     let ev = run(cut, "set_layer", "length", None);
-    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "the reply was cut at the length cap");
+    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "The reply was cut short by the reply length limit.");
     for reason in ["stop", "tool_calls"] {
         assert!(matches!(run(cut, "set_layer", reason, Some(1024)).as_slice(), [Event::Error(LlmError::MalformedToolCall(_))]), "{reason}");
     }

@@ -120,7 +120,7 @@ const LAYERS := [
 	["labels", "Labels", true, "Place names."],
 	["icons", "Icons", true, "Landmark and settlement icons."],
 	["territory", "Borders", true, "Faction territory and province lines."],
-	["routes", "Journey routes", false, "Planned journey routes. Not in Ruling AZ's v1 list; off by default."],
+	["routes", "Journey routes", false, "Planned journey routes. Off by default."],
 ]
 
 ## SM-3 (`STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK): the File ▸ Export ▸ FOR
@@ -230,7 +230,7 @@ func setup(app: Node) -> void:
 	_settle = CheckBox.new()
 	_settle.text = "Settlements"
 	_settle.button_pressed = true
-	_settle.tooltip_text = "Settlement pins and plans, down to the tier on the right (Ruling AZ: towns by default)."
+	_settle.tooltip_text = "Settlement pins and plans, down to the tier on the right (towns by default)."
 	_settle.toggled.connect(func(on: bool): _tier.disabled = not on or _running)
 	srow.add_child(_settle)
 	_tier = OptionButton.new()

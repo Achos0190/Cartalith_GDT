@@ -2728,6 +2728,8 @@ own row in §2.10.*
 
 ## 1. In flight right now
 
+**UI copy pass (owner feedback 2026-10-26): first cut landed, remainder open.** Status is in `STATUS.md`. Left: the rest of the shell outside the Assistant (quick-bar `Not in this build` wording, engine-bridge `... on this binary` errors), the LLM-7 strings, and a windowed phone check at 393x852. Owner: `cartalith-native/docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
+
 Code exists for these; they are neither startable nor blocked, they are
 half-landed. Each needs finishing. (The "and, in most cases, committing" this
 sentence carried until 2026-09-01 is gone — see the correction below.)

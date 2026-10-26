@@ -90,16 +90,16 @@ var _ml_rows: Array = []
 ## The switches, in the mock's order: key in `DccSettings`, label, sub-note, and whether the
 ## switch can be used in this build at all (`unavailable` is the reason when it cannot).
 const _SWITCHES := [
-	{"key": "enabled", "label": "Assistant enabled", "note": "The master switch. Off means nothing is sent."},
+	{"key": "enabled", "label": "Assistant enabled", "note": "Off means nothing is ever sent."},
 	{"key": "prose", "label": "Prose and Vault assist",
-		"note": "Prose for a place, its story, or a Vault note, from Story ▸ Notes ▸ Assistant panel. Notes are written only on your click."},
+		"note": "Draft text for a place, its story or a note. Nothing is saved until you click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
-		"note": "Generation-setting proposals and view or layer commands (LLM-6): the model proposes, you review the card and press Apply; one Apply is one undo step and never regenerates. Also carries questions about the world and your notes."},
+		"note": "The assistant suggests settings, view and layer changes. You review each one and press Apply; one undo step reverses it."},
 	{"key": "edit", "label": "Edit actions: sculpt, paint",
-		"unavailable": "Not available in this build yet: edit actions (LLM-7) are not built. Grouped undo, which they need, exists."},
-	{"key": "local_allowed", "label": "Local providers allowed", "note": "This computer and your local network.",
-		"note_phone": "This phone and your local network, such as a model server on your computer."},
-	{"key": "remote_allowed", "label": "Remote providers allowed", "note": "Hosted endpoints on the internet."},
+		"unavailable": "Coming later."},
+	{"key": "local_allowed", "label": "Local providers allowed", "note": "Models on this computer or your network.",
+		"note_phone": "Models on this phone or your network."},
+	{"key": "remote_allowed", "label": "Remote providers allowed", "note": "Models run by a company on the internet."},
 ]
 ## The context sources (scope s.5: "none; per source"), each its own switch.
 const _CONTEXT := [
@@ -109,18 +109,18 @@ const _CONTEXT := [
 	## Ruling DI P3: generation parameters are their own source, off until ticked. A setting
 	## proposal shows the model each offered setting's current value, so it needs this.
 	{"key": "ctx_params", "label": "Send: generation parameters and summary statistics",
-		"note": "Needed for setting proposals and for questions: the model is shown the current value of each setting it asks about, and can read whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing."},
+		"note": "Lets the assistant see your current settings and world-wide figures such as sea level and rainfall. It only reads."},
 	## RK-5 (Rulings DM and DN K1): the knowledge base's two sources, each its own box, both off.
 	{"key": "ctx_rag_vault", "label": "Send: Vault notes found by search",
-		"note": "Excerpts of the notes that match your request, never a whole note unasked and never a note you marked private (dm or private in its properties, the tag dm-only or secret, or a DM, Private or Secrets folder)."},
+		"note": "Short excerpts of notes that match your request. Notes marked private, dm-only or secret, or kept in a DM, Private or Secrets folder, are never sent."},
 	{"key": "ctx_rag_world", "label": "Send: world data found by search",
-		"note": "The facts the app holds about this world that match your request: names, populations, who owns what, trade partners, faiths, history. World data has no private marker: everything in it is sent as found."},
+		"note": "World facts that match your request (names, populations, trade, faiths, history). World data has no private marker, so everything found is sent."},
 ]
 ## RK-5/RK-6 (K6): how the knowledge base reaches the model. Shown under the context sources.
 const _RAG_PRE := [
-	["auto", "Search before asking (automatic: on for a local model)"],
-	["on", "Search before asking (always)"],
-	["off", "Do not search before asking"],
+	["auto", "Search first (automatic for local models)"],
+	["on", "Search first (always)"],
+	["off", "Do not search first"],
 ]
 ## The three GPU override values, in the picker's order (ids match `GpuOverride::id`).
 const _GPU_OVERRIDES := [
@@ -329,13 +329,12 @@ func _rebuild() -> void:
 	_presets = bridge.llm_presets()
 
 	if not bridge.llm_api:
-		_note(_body, "This build has no assistant support. Update the Cartalith library to use it.",
+		_note(_body, "The assistant is not available in this version of Cartalith.",
 			"block")
 		_building = false
 		return
 
-	_note(_body, "Optional. Everything here is off until you turn it on, and with it off nothing is sent anywhere. " +
-		"A world generates the same with or without a model.", "text_secondary")
+	_note(_body, "Optional. Everything is off until you turn it on. Worlds generate the same with or without an assistant.", "text_secondary")
 	var st := _status_line(_body)
 	_status_dot = st[0]
 	_status_text = st[1]
@@ -349,10 +348,10 @@ func _rebuild() -> void:
 	for sw in _SWITCHES:
 		_switch_row(sw)
 	_heading("CONTEXT SENT WITH A REQUEST")
-	_note(_body, "Nothing is sent unless ticked, per source. Whole notes, the whole Vault, the save file, file paths and the machine name are never sent unasked.")
+	_note(_body, "Only ticked sources are sent. Whole notes, your whole Vault, save files, file paths and your computer name are never sent unasked.")
 	for sw in _CONTEXT:
 		_switch_row(sw)
-	_note(_body, "Search is used only when a box above is ticked. The app can search your request first and hand the model the best five excerpts (needed by models that never call a tool), and/or let the model search and read sources itself.", "text_secondary")
+	_note(_body, "Used only when a search box above is ticked. Cartalith can search for you first, or let the assistant search itself.", "text_secondary")
 	var pre_idx := 0
 	for i in _RAG_PRE.size():
 		if _RAG_PRE[i][0] == String(DccSettings.llm_value("rag_pre")):
@@ -361,15 +360,15 @@ func _rebuild() -> void:
 	for o in _RAG_PRE:
 		pre_names.append(String(o[1]))
 	var pre := DccWidgets.choice(_body, "Search first", pre_names, pre_idx, _on_rag_pre_picked,
-		"Automatic searches your request before the model sees it when the model is on this computer or your network, and not for a hosted model unless you allow it below.")
+		"Automatic searches first for models on this computer or network, and for hosted models only if you allow it below.")
 	_floor(pre)
 	_shrinkable(pre)
 	controls["rag_pre"] = pre
 	_dependent.append(pre)
 	_switch_row({"key": "rag_tools", "label": "Let the model search and read sources",
-		"note": "Offers the model three read-only tools (search, read one source, list what is connected to it). At most 12 lookups per question; each result is at most 12 000 bytes."})
+		"note": "The assistant can look things up itself, read-only, up to 12 times per question."})
 	var hosted_cb := DccWidgets.toggle(_body, "Allow knowledge search on this hosted endpoint", DccSettings.llm_rag_hosted_origins().has(String(_endpoint().get("origin", "-"))),
-		func(on: bool): _on_rag_hosted(on), "A hosted model is run by a third party. Excerpts of your notes and your world's data are sent to it only if you allow it here, per endpoint.")
+		func(on: bool): _on_rag_hosted(on), "Hosted models are run by a third party. Excerpts of your notes and world are sent only if you allow it, per service.")
 	_floor(hosted_cb, true)
 	_give_label_the_slack(hosted_cb)
 	controls["rag_hosted"] = hosted_cb
@@ -387,13 +386,13 @@ func _rebuild() -> void:
 		if String(_presets[i]["id"]) == chosen:
 			sel = i + 1
 	var pick := DccWidgets.choice(_body, "Provider", names, sel, _on_preset_picked,
-		"A provider only fills in defaults. Your address, model and key always win; the model is free text.")
+		"A provider fills in defaults. Your own address, model and key always win.")
 	_floor(pick)
 	_shrinkable(pick)
 	controls["preset"] = pick
 	var url := _field(_body, "Base URL", String(DccSettings.llm_value("base_url")),
 		"choose a provider, or type an address", _on_url_commit, false,
-		"Where requests go. http:// is allowed only for this computer or your network; a remote address must be https://.")
+		"Where requests go. Use http:// only for this computer or your network; other addresses need https://.")
 	controls["base_url"] = url
 	## LLM-10: a phone keyboard autocorrects ordinary text fields. The 6T's SwiftKey turned
 	## "qwen3.8-27b" into "qwen3. 8-27b" (a space after every full stop, 2026-10-26), which names
@@ -404,7 +403,7 @@ func _rebuild() -> void:
 	controls["endpoint"] = _endpoint_text
 	## The model: a dropdown filled from the server (`LlmModelList`), plus a typed fallback.
 	var model_pick := DccWidgets.choice(_body, "Model", ["Choose a model…"], 0, _on_model_picked,
-		"The models this server offers, asked when this window opens and when the address, key or a switch changes. Pick \"Type a name…\" to enter one by hand.")
+		"The models this server offers. Pick \"Type a name…\" to enter one yourself.")
 	_floor(model_pick)
 	_shrinkable(model_pick)
 	controls["model_pick"] = model_pick
@@ -414,7 +413,7 @@ func _rebuild() -> void:
 	controls["model_status"] = _note(_body, "", "text_secondary")
 	var model := _field(_body, "Model name", String(DccSettings.llm_value("model")),
 		"the model name your provider expects", _on_model_commit, false,
-		"Type a model id exactly as your provider expects it. Always available, whatever the list says.")
+		"Type the model name exactly as your provider spells it.")
 	controls["model"] = model
 	_model_field_row = model.get_parent()
 	for w in [pick, url, model, model_pick, refresh]:
@@ -434,7 +433,7 @@ func _rebuild() -> void:
 	var src := DccWidgets.choice(_body, "Key source", [env_label,
 		store_label + ("" if _store_available() else " (unavailable here)")],
 		src_idx, _on_key_source_picked,
-		"Where the key is read from. Cartalith never writes a key to a file.")
+		"Where the key comes from. Cartalith never saves a key to a file.")
 	if not _store_available():
 		src.set_item_disabled(1, true)
 	_floor(src)
@@ -444,13 +443,13 @@ func _rebuild() -> void:
 	if src_idx == 0:
 		var env := _field(_body, "Variable name", String(DccSettings.llm_value("env_var")),
 			"CART_LLM_KEY", _on_env_commit, false,
-			"The NAME of an environment variable that holds the key. Set it before starting Cartalith.")
+			"The name of the environment variable that holds the key. Set it before starting Cartalith.")
 		controls["env_var"] = env
 		env.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
 		_dependent.append(env)
 	else:
 		var kf := _field(_body, "Key", "", "paste the key, then Save key", func(_t: String): pass, true,
-			"Stored in the OS credential store, never in a file, under this profile's own entry. It is cleared from this field when you press Save and is never shown again.")
+			"Kept in your system credential store, never in a file. The field clears when you press Save and the key is never shown again.")
 		kf.secret = true
 		## LLM-10: `secret` masks the drawn text only; the on-screen keyboard is told the field's
 		## type separately. Without PASSWORD a phone keyboard treats the key as ordinary text: it
@@ -522,7 +521,7 @@ func _rebuild() -> void:
 	for o in _GPU_OVERRIDES:
 		ov_names.append(String(o[1]))
 	var ov := DccWidgets.choice(_gpu_box, "GPU override", ov_names, ov_idx, _on_gpu_override_picked,
-		"Automatic switches only when the model is on this computer. Always switches whatever the address says (for Docker, WSL, a tunnel). Never leaves your GPU choice alone.")
+		"Automatic switches only for models on this computer. Always switches for any address (Docker, WSL, tunnels). Never leaves your GPU alone.")
 	_floor(ov)
 	_shrinkable(ov)
 	controls["gpu_override"] = ov
@@ -535,17 +534,17 @@ func _rebuild() -> void:
 	_heading("COST")
 	var tc := DccWidgets.toggle(_body, "Token counter visible", bool(DccSettings.llm_value("token_counter")),
 		func(on: bool): _store("token_counter", on),
-		"Shows how many tokens a session has used. It is a readout, not a limit.")
+		"How many tokens this session has used. Not a limit.")
 	_floor(tc, true)
 	_give_label_the_slack(tc)
 	controls["token_counter"] = tc
 	var cap := DccWidgets.number(_body, "Token cap (0 = off)", 0, 1000000000, 1000,
 		float(int(DccSettings.llm_value("token_cap"))),
 		func(v: float): _store("token_cap", int(v)),
-		"Optional. When the tokens servers have reported this session reach this number, Send is refused until you raise it, set it to 0, or reset the counter. 0 means no cap, which is the default.")
+		"Optional. Send stops when this session reaches this many tokens. 0 means no cap.")
 	_floor(cap)
 	controls["token_cap"] = cap
-	_note(_body, "No spend limit is enforced unless you set a cap above. A cap counts only what servers report, so a server that reports nothing is not counted. A hosted provider bills you directly.")
+	_note(_body, "No spend limit is enforced unless you set a cap above. A cap counts only what the server reports. A hosted provider bills you directly.")
 
 	# -- Consent ----------------------------------------------------------------
 	_heading("CONSENT")
@@ -620,7 +619,7 @@ func _build_profiles() -> void:
 	controls["profile_switch"] = sw
 	controls["profile_option"] = sw.option
 	sw.picked.connect(func(_r: Dictionary): _refresh_profile_buttons())
-	_note(_body, "A profile is a whole set-up: provider, address, model, thinking, what is sent, reply cap, retries and (for a local model) the GPU choice. Switching applies all of it at once. The master switch, Commands, Edit and the Local / Remote provider switches belong to no profile and never change. A key is never part of a profile; each profile keeps its own in the OS credential store.")
+	_note(_body, "A profile is a saved set-up: provider, address, model and what is sent. Switching applies all of it. Assistant enabled, Commands and the Local / Remote switches are not part of a profile. Each profile keeps its own key in the credential store.")
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", 8)
 	row.add_theme_constant_override("v_separation", 8)
@@ -684,7 +683,7 @@ func _on_profile_new() -> void:
 			if not bool(sw.get("ok", false)):
 				_profile_say(sw, "")
 		_refresh_profile_buttons(),
-		"1 to 40 characters. A new profile starts empty with nothing sent; pick a provider and a model, then save a key for it if it needs one.")
+		"1 to 40 characters. A new profile starts empty: pick a provider and a model, then save a key if it needs one.")
 
 
 func _on_profile_duplicate() -> void:
@@ -749,20 +748,20 @@ func _build_reply() -> void:
 	var th_idx := 1 if String(DccSettings.llm_value("thinking")) == "none" else 0
 	var th := DccWidgets.choice(_body, "Thinking", ["Provider default", "Off for reasoning models"], th_idx,
 		func(i: int): _store("thinking", "none" if i == 1 else "default"),
-		"Off asks a reasoning model not to think first, on every request, using the field the provider is known to take (LM Studio and Ollama reasoning_effort none; llama.cpp and vLLM the template switch). A provider with no known field is sent nothing.")
+		"Off asks a reasoning model not to think first. Providers that cannot do this are left alone.")
 	_floor(th)
 	_shrinkable(th)
 	controls["thinking"] = th
 	var cap := DccWidgets.number(_body, "Reply cap, tokens (0 = automatic)", 0, 8192, 1,
 		float(int(DccSettings.llm_value("max_tokens"))),
 		func(v: float): _store("max_tokens", 0 if v < 16.0 else int(v)),
-		"Pins the longest reply this profile asks for. 0 uses each task's own cap (about a page of prose; longer for a place entry). From 16 to 8192.")
+		"The longest reply to ask for, 16 to 8192. 0 lets each task choose.")
 	_floor(cap)
 	controls["max_tokens"] = cap
 	var rt := DccWidgets.choice(_body, "Retries", ["No automatic retry", "One automatic retry"],
 		clampi(int(DccSettings.llm_value("retry_limit")), 0, 1),
 		func(i: int): _store("retry_limit", clampi(i, 0, 1)),
-		"After a transient failure (a busy server, a dropped connection before any text) the app can try once more. Never more than once.")
+		"After a brief failure, such as a busy server, try once more. Never more than once.")
 	_floor(rt)
 	_shrinkable(rt)
 	controls["retry_limit"] = rt
@@ -828,7 +827,7 @@ func _refresh_dynamic() -> void:
 		var k := String(sw["key"])
 		if k == "enabled" or not controls.has(k + "_note") or String(sw.get("unavailable", "")) != "":
 			continue
-		(controls[k + "_note"] as Label).text = _sw_note(sw) + ("" if enabled else " Needs the master switch.")
+		(controls[k + "_note"] as Label).text = _sw_note(sw) + ("" if enabled else " Turn on Assistant enabled first.")
 		_hide_if_empty(controls[k + "_note"] as Label)
 	## The hosted opt-in applies to a hosted endpoint only (K2); a local one never needs it.
 	if controls.has("rag_hosted"):
@@ -837,7 +836,7 @@ func _refresh_dynamic() -> void:
 		var cb := controls["rag_hosted"] as BaseButton
 		cb.disabled = not enabled or not hosted
 		cb.set_pressed_no_signal(hosted and DccSettings.llm_rag_hosted_origins().has(String(hep.get("origin", "-"))))
-		(controls["rag_hosted_note"] as Label).text = "" if hosted else "Not needed: this endpoint is on this computer or your network."
+		(controls["rag_hosted_note"] as Label).text = "" if hosted else "Not needed: this model is on this computer or your network."
 		_hide_if_empty(controls["rag_hosted_note"] as Label)
 	# Key-entry controls follow the master switch, but also the store/provider conditions.
 	if controls.has("key_save"):

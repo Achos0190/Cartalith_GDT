@@ -250,7 +250,7 @@ const CATEGORIES: Array = [
 	{"name": "Terrain", "stages": [],
 	 "lead": "Height molding by hand, over the current surface. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Layers ▸ Data overlays."},
 	{"name": "Biomes", "stages": [],
-	 "lead": "Painting biome and terrain classes by hand, over the classified fields. Ruling L decision 2: this is the brush's one home, and Biome paint (B) in the tool palette is the way to arm it."},
+	 "lead": "Paint biome and terrain classes by hand. Use Biome paint (B) in the tool palette to start."},
 ]
 
 ## The Sculpt category's body; `_build_categories()` creates and parents it, and the sculpt build/refresh paths fill it. Gated by `_sculpt_build_deferred` while the engine is busy.

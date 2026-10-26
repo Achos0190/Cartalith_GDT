@@ -73,7 +73,7 @@ static func available() -> bool:
 ## writes: opening a window must not create the section (`_llmset_probe.gd` asserts it).
 static func load_set() -> Dictionary:
 	if not available():
-		return {"ok": false, "error": "This build has no assistant support."}
+		return {"ok": false, "error": "The assistant is not available in this version of Cartalith."}
 	return _bridge.llm_profiles_parse(DccSettings.llm_profiles_data(), is_phone_set())
 
 
@@ -115,7 +115,7 @@ static func _live_configured() -> bool:
 ## write-through no).
 static func _op(op: String, args: Dictionary, notify: bool = true) -> Dictionary:
 	if not available():
-		return {"ok": false, "error": "This build has no assistant support."}
+		return {"ok": false, "error": "The assistant is not available in this version of Cartalith."}
 	var r: Dictionary = _bridge.llm_profiles_op(DccSettings.llm_profiles_data(), op, args, is_phone_set())
 	if not bool(r.get("ok", false)):
 		return r

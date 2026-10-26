@@ -43,7 +43,7 @@ func _init() -> void:
 	option.fit_to_longest_item = false
 	option.clip_text = true
 	option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	option.tooltip_text = "Switch the whole assistant set-up at once: provider, address, model, thinking, what is sent, reply cap and retries. The master switch, Commands and Edit are not part of a profile and never change."
+	option.tooltip_text = "Switch the whole assistant set-up at once: provider, address, model and what is sent. Assistant enabled and Commands are not part of a profile."
 	option.item_selected.connect(_on_item_selected)
 	row.add_child(option)
 	note = DccTheme.label("", "warn", DccTheme.FS_MICRO)

@@ -3269,14 +3269,11 @@ const GESTURES_ABSENT: Array = [
 ## checked at. Prose about behaviour, so it can go stale; it triggers nothing.
 func _fill_gestures(body: VBoxContainer) -> void:
 	for g in GESTURES:
-		_add(body, _row(String(g[0]), "%s  ·  %s" % [String(g[1]), String(g[2])],
+		_add(body, _row(String(g[0]), String(g[1]),
 			null, null, Callable(), false))
-	_head(body, "Not in this build")
+	_head(body, "Not available")
 	for g in GESTURES_ABSENT:
 		_add(body, _missing_row(String(g[0]), String(g[1])))
-	_info(body, "Each row above names the symbol it was checked at — re-check it "
-		+ "rather than trusting this list, which is prose about behaviour and "
-		+ "goes stale the way prose does.")
 
 # -- data-tiles ---------------------------------------------------------------
 

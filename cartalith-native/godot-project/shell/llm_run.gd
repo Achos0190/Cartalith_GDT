@@ -147,7 +147,7 @@ func busy() -> bool:
 ## `LlmStream.prepare` documents.
 func begin(settings: Dictionary, capability: String, consented: PackedStringArray, args: Dictionary) -> Dictionary:
 	if stream == null:
-		return {"ok": false, "code": "no_binding", "reason": "This build has no assistant support. Update the Cartalith library."}
+		return {"ok": false, "code": "no_binding", "reason": "The assistant is not available in this version of Cartalith."}
 	if _active:
 		return {"ok": false, "code": "busy", "reason": "A reply is already running. Stop it first."}
 	_last = {"settings": settings, "capability": capability, "consented": consented, "args": args}

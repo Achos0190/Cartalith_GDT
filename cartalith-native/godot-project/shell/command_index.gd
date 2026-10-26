@@ -175,7 +175,7 @@ func build(app, bridge) -> void:
 			"key": "",
 			"pin_key": "extra:" + _slug(String(e.get("title", ""))),
 			"pinnable": false,
-			"why_not": "No registered handler yet: an EXTRAS row is a search answer, not a callable command (CUSTOM_QUICK_BAR_SCOPE.md s.3.3; CQ-0 measured it).",
+			"why_not": "This is a search result, not a command, so it cannot be pinned.",
 		})
 
 ## Lower-case ASCII slug of a title: the stable half of an `extra:` pin key.
@@ -395,7 +395,7 @@ func _why_not_pinnable(popup: PopupMenu, i: int, id: int, is_readout: bool, menu
 	if popup.is_item_disabled(i):
 		return "Not available yet: " + popup.get_item_tooltip(i)
 	if popup.is_item_checkable(i):
-		return "A check or radio row mirrors state a chip cannot read without opening the menu (CQ-8)."
+		return "A check or radio row mirrors state a chip cannot read without opening the menu."
 	if _is_dynamic_id(id) or _is_index_popup(popup):
 		return "A generated row (a ladder or list); its meaning changes with the data."
 	for h in _open_handlers(popup):

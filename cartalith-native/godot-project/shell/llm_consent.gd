@@ -62,10 +62,10 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 	_line(sent, "the context sources you ticked, and no others: %s" % _context_sources())
 	if bool(DccSettings.llm_value("commands")):
 		_line(sent, "the list of commands the assistant may propose")
-		_line(sent, "for a view proposal: which map layers are on, the style preset names, the landmark types this world has, the grid size and zoom range, and the names of the windows it may open (a fixed list of read-only ones); a proposal changes nothing until you press Apply")
+		_line(sent, "for a view suggestion: which map layers are on, the style names, the landmark types, the grid size and zoom range, and the names of a few windows it may open; nothing changes until you press Apply")
 		if bool(DccSettings.llm_value("ctx_params")):
 			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
-			_line(sent, "for a question: any setting's value and default, whole-world summary figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells (elevation, slope, climate, biome); never a map image")
+			_line(sent, "for a question: setting values, world-wide figures (sea level, land fraction, rainfall, temperature) and up to 8 map cells (elevation, slope, climate, biome); never a map image")
 	if bool(DccSettings.llm_value("ctx_rag_vault")) or bool(DccSettings.llm_value("ctx_rag_world")):
 		## What a knowledge lookup sends, in the caps the code enforces (`LlmStream.knowledge_limits`).
 		var lim: Dictionary = _knowledge_limits()
@@ -74,7 +74,7 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 			what.append("Vault notes")
 		if bool(DccSettings.llm_value("ctx_rag_world")):
 			what.append("world data")
-		_line(sent, "for a lookup in %s: the words searched and the excerpts found, which may include names and notes you typed. Before the model answers, the app may send the best %d (up to %d characters in all); the model may ask for up to %d more lookups of at most %d bytes each. Every answer lists the sources sent." % [
+		_line(sent, "for a lookup in %s: the words searched and the excerpts found, which may include names and notes you typed. Up to %d excerpts (%d characters) may go first, and the assistant may look up to %d more times (%d bytes each). Every answer lists the sources sent." % [
 			" and ".join(what), int(lim.get("pack_hits", 5)), int(lim.get("pack_chars", 3000)), int(lim.get("calls_per_request", 12)), int(lim.get("result_bytes", 12000))])
 		_line(sent, "private notes are never searched. World data has no private marker: it is sent as found, so do not tick world data if a name or a fact in this world must stay secret from the provider")
 

@@ -24,7 +24,7 @@ extends Node
 ##   2. DEFAULTS: every switch off, provider/address/model empty, GPU box hidden, key source
 ##      environment, nothing written to `cartalith_settings.cfg` by merely opening;
 ##   3. disabled-reason text: Commands and Edit are disabled with a reason; dependents are disabled
-##      with "Needs the master switch" while it is off;
+##      with "Turn on Assistant enabled first" while it is off;
 ##   4. the gate's reasons, one at a time, in the order a user fixes them (no provider, local off,
 ##      consent needed, ready), and each is DISTINCT text;
 ##   5. the consent card: names the endpoint, says "No spend limit is enforced", has no terms link
@@ -455,10 +455,10 @@ func _ready() -> void:
 	for k in ["edit"]:
 		var cb := _c(k) as CheckBox
 		_ok(cb.disabled and not cb.button_pressed, "'%s' is disabled and off" % k)
-		_ok(_text_of(k + "_note").begins_with("Not available in this build yet"), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
+		_ok(_text_of(k + "_note") == "Coming later.", "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
 	for k in ["prose", "commands", "local_allowed", "remote_allowed"]:
 		_ok((_c(k) as CheckBox).disabled, "'%s' is disabled while the master switch is off" % k)
-		_ok(_text_of(k + "_note").ends_with("Needs the master switch."), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
+		_ok(_text_of(k + "_note").ends_with("Turn on Assistant enabled first."), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
 	_ok(not (_c("base_url") as LineEdit).editable and (_c("preset") as OptionButton).disabled,
 		"provider fields are disabled while the master switch is off")
 	_ok(not (_c("consent_review") as Button).visible or (_c("consent_review") as Button).disabled, "Review consent is disabled with no endpoint")

@@ -2614,8 +2614,8 @@ var _llm: Object = null
 ## reason, so a caller that forgets to check `llm_api` still cannot read it as a yes.
 func _llm_missing() -> Dictionary:
 	return {"ok": false, "code": "no_binding",
-		"reason": "This build has no assistant support. Update the Cartalith library.",
-		"error": "This build has no assistant support."}
+		"reason": "The assistant is not available in this version of Cartalith.",
+		"error": "The assistant is not available in this version of Cartalith."}
 
 ## The provider picker's rows (`LlmBridge.llm_presets`); `[]` without the binding.
 func llm_presets() -> Array:

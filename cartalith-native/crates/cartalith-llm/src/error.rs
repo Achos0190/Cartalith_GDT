@@ -94,25 +94,25 @@ pub enum LlmError {
 impl fmt::Display for LlmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LlmError::InvalidKey(why) => write!(f, "invalid API key: {why}"),
-            LlmError::InvalidRequest(why) => write!(f, "invalid request: {why}"),
-            LlmError::InvalidBaseUrl(why) => write!(f, "invalid base URL: {why}"),
-            LlmError::Transport(m) => write!(f, "transport error: {m}"),
+            LlmError::InvalidKey(why) => write!(f, "The API key is not valid: {why}"),
+            LlmError::InvalidRequest(why) => write!(f, "The request could not be sent: {why}"),
+            LlmError::InvalidBaseUrl(why) => write!(f, "The server address is not valid: {why}"),
+            LlmError::Transport(m) => write!(f, "Could not reach the server: {m}"),
             LlmError::Provider { status: Some(s), message } => {
-                write!(f, "provider error (HTTP {s}): {message}")
+                write!(f, "The server returned an error (code {s}): {message}")
             }
             LlmError::Provider { status: None, message } => {
-                write!(f, "provider error: {message}")
+                write!(f, "The server returned an error: {message}")
             }
-            LlmError::MalformedChunk(m) => write!(f, "malformed stream chunk: {m}"),
-            LlmError::MalformedToolCall(m) => write!(f, "malformed tool call: {m}"),
+            LlmError::MalformedChunk(m) => write!(f, "The server sent a reply Cartalith could not read: {m}"),
+            LlmError::MalformedToolCall(m) => write!(f, "The assistant asked for something Cartalith does not offer: {m}"),
             LlmError::ReplyCutAtLengthCap { max_tokens: Some(n) } => {
-                write!(f, "the reply was cut at the length cap (max_tokens {n})")
+                write!(f, "The reply was cut short by the reply length limit ({n} tokens).")
             }
-            LlmError::ReplyCutAtLengthCap { max_tokens: None } => f.write_str("the reply was cut at the length cap"),
-            LlmError::InvalidUtf8 => f.write_str("stream line was not valid UTF-8"),
-            LlmError::Oversized => f.write_str("stream line or event exceeded the size guard"),
-            LlmError::StreamEndedEarly => f.write_str("stream ended before its end marker"),
+            LlmError::ReplyCutAtLengthCap { max_tokens: None } => f.write_str("The reply was cut short by the reply length limit."),
+            LlmError::InvalidUtf8 => f.write_str("The server sent text Cartalith could not read."),
+            LlmError::Oversized => f.write_str("The server sent a reply that was too large."),
+            LlmError::StreamEndedEarly => f.write_str("The reply stopped before it finished."),
         }
     }
 }

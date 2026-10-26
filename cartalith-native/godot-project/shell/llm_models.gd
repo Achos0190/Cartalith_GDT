@@ -75,7 +75,7 @@ func is_active() -> bool:
 func refresh(settings: Dictionary, consented: PackedStringArray) -> Dictionary:
 	cancel()
 	if not ClassDB.class_exists("LlmModels"):
-		return {"ok": false, "code": "no_binding", "reason": "This build has no assistant support. Update the Cartalith library."}
+		return {"ok": false, "code": "no_binding", "reason": "The assistant is not available in this version of Cartalith."}
 	_rust = ClassDB.instantiate("LlmModels")
 	_max_body = int(_rust.max_body_bytes())
 	_key = key_for(settings)

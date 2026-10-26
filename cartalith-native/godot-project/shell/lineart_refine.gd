@@ -90,7 +90,7 @@ func build(parent: Control, win) -> void:
 	ink_row.add_theme_constant_override("v_separation", 4)
 	box.add_child(ink_row)
 	var ink_head := DccTheme.label("Ink", "text_ghost", DccTheme.FS_MICRO)
-	ink_head.tooltip_text = "The one colour the converted sprite is drawn in, from the current Look (Ruling CQ Q4). No paper colour survives, so there is no halo."
+	ink_head.tooltip_text = "The one colour the converted sprite is drawn in, from the current Look. No paper colour survives, so there is no halo."
 	ink_head.mouse_filter = Control.MOUSE_FILTER_STOP
 	ink_row.add_child(ink_head)
 	for i in INK_KEYS.size():
@@ -119,7 +119,7 @@ func build(parent: Control, win) -> void:
 	w_row.add_theme_constant_override("v_separation", 4)
 	box.add_child(w_row)
 	var w_head := DccTheme.label("Line weight", "text_ghost", DccTheme.FS_MICRO)
-	w_head.tooltip_text = "The thinnest line at map scale, in screen pixels (Ruling CR Q-L1). 1 px keeps every line solid; 0.5 keeps light art light, at the cost of faint lines."
+	w_head.tooltip_text = "The thinnest line at map scale, in screen pixels. 1 px keeps every line solid; 0.5 keeps light art light, at the cost of faint lines."
 	w_head.mouse_filter = Control.MOUSE_FILTER_STOP
 	w_row.add_child(w_head)
 	for wv in WEIGHTS:
@@ -133,7 +133,7 @@ func build(parent: Control, win) -> void:
 	g_row.add_theme_constant_override("v_separation", 4)
 	box.add_child(g_row)
 	var g_head := DccTheme.label("Gaps", "text_ghost", DccTheme.FS_MICRO)
-	g_head.tooltip_text = "Whether 1 px breaks in a line are closed before converting. Only scans need it (Ruling CR)."
+	g_head.tooltip_text = "Whether 1 px breaks in a line are closed before converting. Only scans need it."
 	g_head.mouse_filter = Control.MOUSE_FILTER_STOP
 	g_row.add_child(g_head)
 	for g in GAPS:

@@ -437,7 +437,7 @@ func _ensure_assistant_switch() -> void:
 	_assistant_chk.name = "AssistantChipSwitch"
 	_assistant_chk.text = "Show the Assistant chip when the assistant is ready"
 	_assistant_chk.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	_assistant_chk.tooltip_text = "The chip appears under the cartwheel and at the start of the bar once the assistant is enabled and a provider is set. This switch hides it; it is not one of your pins."
+	_assistant_chk.tooltip_text = "Shows the Assistant button once the assistant is ready. Turn off to hide it."
 	_assistant_chk.toggled.connect(func(on: bool): DccSettings.set_quick_bar_value("assistant_button", on))
 	_root_box.add_child(_assistant_chk)
 	_assistant_note = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
@@ -536,7 +536,7 @@ func _sync_assistant_switch() -> void:
 		AssistantChip.DISABLED:
 			_assistant_note.text = "The Assistant chip is shown greyed: %s" % String(st["reason"])
 		_:
-			_assistant_note.text = "The Assistant chip is hidden: it needs the assistant switched on in Preferences, a provider and a model, and this switch on."
+			_assistant_note.text = "The Assistant chip is hidden: turn on the assistant in Settings, choose a provider and model, and turn this on."
 
 ## Sizes the content to the dialog. The content is first laid out while its autowrap labels are 1 px
 ## wide, which measures them thousands of pixels tall, and `AcceptDialog` then leaves it at that size
@@ -611,9 +611,9 @@ func _apply_target_chrome() -> void:
 		"bar":
 			_tab_note.text = "Pins on the bar beside the tool palette."
 		"dock":
-			_tab_note.text = "Up to %d chips under the cartwheel, beside its eight slots (never replacing one). A quick flick never selects them." % DccSettings.QUICK_BAR_MAX_DOCK
+			_tab_note.text = "Up to %d buttons under the cartwheel, beside its eight slots." % DccSettings.QUICK_BAR_MAX_DOCK
 		"share":
-			_tab_note.text = "Pins go after a diagonal's built-in items (a sub-ring places at most %d). Single-tool diagonals cannot share." % DccSettings.QUICK_BAR_MAX_SHARE
+			_tab_note.text = "Pins go after a diagonal's own items (at most %d). Single-tool diagonals cannot take pins." % DccSettings.QUICK_BAR_MAX_SHARE
 	_tab_note.visible = not _phone_ready
 
 ## Fills the diagonal chooser from the live rings: one entry per domain and diagonal, a single-tool
