@@ -148,7 +148,8 @@ func _reset_llm() -> void:
 func _configure(over: Dictionary = {}) -> void:
 	var s := {"enabled": true, "commands": true, "prose": false, "local_allowed": true, "preset_id": "ollama",
 		"base_url": "http://127.0.0.1:%d/v1" % _port, "model": "mock-model",
-		"key_source": "env", "env_var": ENV_VAR, "ctx_params": true}
+		"key_source": "env", "env_var": ENV_VAR, "ctx_params": true,
+		"regen_on_apply": false}  ## Ruling DS: sections 1-9 are the switch-OFF behaviour; section 10 turns it on
 	s.merge(over, true)
 	for k in s:
 		DccSettings.set_llm_value(k, s[k])
@@ -330,7 +331,7 @@ func _ready() -> void:
 		for row in [["climate.ocean", "1.00", "0.70"], ["climate.evap", "0.12", "0.09"], ["climate.rain_dep", "0.35", "0.50"], ["peak_m", "4000", "2800"], ["tect.alpha", "0.85", "0.65"]]:
 			_ok(ct.contains("(%s)" % row[0]) and ct.contains(row[1]) and ct.contains(row[2]), "%s: card row %s shows %s -> %s" % [wire, row[0], row[1], row[2]])
 		_ok(ct.contains("4000 m") and ct.contains("2800 m") and ct.contains("-30%"), "%s: units and the percentage are shown" % wire)
-		_ok(ct.contains("full Generate") and ct.contains("Recompute") and ct.contains("does not regenerate"), "%s: the cost note says what each change needs" % wire)
+		_ok(ct.contains("full Generate") and ct.contains("Recompute") and ct.contains("settings only") and ct.contains("Press Generate"), "%s: the cost note says what each change needs" % wire)
 		_ok(card.get("apply") != null and (card["apply"] as Button).text == "Apply 5 changes" and not (card["apply"] as Button).disabled, "%s: 'Apply 5 changes' is enabled" % wire)
 		## The card must not widen the panel: a horizontally-disabled scroller folds a child's
 		## minimum width into every ancestor (`MISTAKES.md`), which pushed Send off a phone sheet.
@@ -480,4 +481,108 @@ func _ready() -> void:
 		await _settle(8)
 		if _app.open_project_dialog:
 			_app.open_project_dialog.hide()
+	await _regen_legs()
 	_finish()
+
+
+## Ruling DS: Apply also rebuilds the world while "Regenerate when I apply a proposal" is on.
+## Every leg asserts through the engine (params and the world digest) and the generation signal
+## count, never through the card text alone. Sections 1-9 above ran with the switch OFF and are
+## the old behaviour's regression gate.
+func _regen_legs() -> void:
+	print("== 10. Ruling DS: Apply and regenerate ==")
+	var want := {"climate.ocean": 0.7, "climate.evap": 0.09, "climate.rain_dep": 0.5, "peak_m": 2800.0, "tect.alpha": 0.65}
+	_configure({"regen_on_apply": true})
+	_win._refresh()
+	await _generate(4242)
+	var peak0 := float(_bridge.param_get("peak_m"))
+	var d0 := _digest()
+	var g0 := _gen_started
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "drier and lower")
+	var card := _last_card()
+	if card.is_empty() or card.get("apply") == null:
+		_ok(false, "10: no card with Apply; stopping")
+		return
+	_ok((card["apply"] as Button).text == "Apply and regenerate", "10: the button reads 'Apply and regenerate': '%s'" % (card["apply"] as Button).text)
+	var ct := _text_of(card["box"])
+	_ok(ct.contains("rebuilds the whole world") and ct.contains("you are asked first"), "10: the card says a full rebuild follows, after a question when needed")
+	_ok(_gen_started == g0 and _digest() == d0, "10: nothing happens before the click")
+	await _click(card["apply"])
+	_ok(card["state"] == "applied", "10: the click applied the card: %s" % (card["reason"] as Label).text)
+	_ok(_bridge.generating or _gen_started == g0 + 1, "10: a generate started at once")
+	while _bridge.generating:
+		await get_tree().create_timer(0.2).timeout
+	await _settle(8)
+	if _app.open_project_dialog:
+		_app.open_project_dialog.hide()
+	_ok(_gen_started == g0 + 1, "10: EXACTLY one generate started (%d)" % (_gen_started - g0))
+	var landed := true
+	for k in want:
+		landed = landed and absf(float(_bridge.param_get(k)) - float(want[k])) < 1e-9
+	_ok(landed, "10: the new world was built WITH the applied settings (all five read back after the generate)")
+	_ok(_digest() != d0, "10: the world digest changed (a new world)")
+	## Undo: settings only, no regenerate.
+	var g1 := _gen_started
+	_app.undo_last()
+	await _settle(6)
+	_ok(absf(float(_bridge.param_get("peak_m")) - peak0) < 1e-9 and absf(float(_bridge.param_get("tect.alpha")) - 0.85) < 1e-9, "10: one Edit > Undo restores the settings (peak_m %.0f)" % float(_bridge.param_get("peak_m")))
+	_ok(_gen_started == g1 and not _bridge.generating, "10: Undo started no generate")
+	_ok(_text_of(card["box"]).contains("press Generate to rebuild it") or (card["reason"] as Label).text.contains("press Generate to rebuild it"), "10: the undone card says the world was not rebuilt")
+
+	print("== 10b. hand edits: ask first, Cancel keeps the settings ==")
+	var ic := _bridge.icon_place(100.0, 80.0)
+	_ok(ic >= 0 and _bridge.icon_list().size() > 0, "10b: a hand-placed icon exists")
+	g0 = _gen_started
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "again")
+	var c2 := _last_card()
+	await _click(c2["apply"])
+	var dlg := _open_confirm()
+	_ok(dlg != null, "10b: the discard question is up right after Apply")
+	_ok(absf(float(_bridge.param_get("peak_m")) - 2800.0) < 1e-9 and _gen_started == g0 and not _bridge.generating, "10b: the settings are already written, nothing generates before the answer")
+	if dlg != null:
+		dlg.hide()
+	await _settle(6)
+	_ok(_gen_started == g0, "10b: declining generates nothing and leaves the settings applied")
+	_app.undo_last()
+	await _settle(4)
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "once more")
+	var c3 := _last_card()
+	await _click(c3["apply"])
+	var dlg2 := _open_confirm()
+	_ok(dlg2 != null, "10b: the question appears again")
+	if dlg2 != null:
+		dlg2.confirmed.emit()
+		dlg2.hide()
+	await _settle(2)
+	while _bridge.generating:
+		await get_tree().create_timer(0.2).timeout
+	await _settle(8)
+	if _app.open_project_dialog:
+		_app.open_project_dialog.hide()
+	_ok(_gen_started == g0 + 1, "10b: confirming generates exactly once (%d)" % (_gen_started - g0))
+
+	print("== 10c. climate-only proposals use the cheap refresh ==")
+	await _generate(4242)
+	g0 = _gen_started
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": {"changes": [{"key": "climate.ocean", "value": 0.6}]}}], "a bit drier")
+	var c4 := _last_card()
+	_ok((c4["apply"] as Button).text == "Apply and regenerate" and _text_of(c4["box"]).contains("refreshes the climate"), "10c: the card names the climate refresh")
+	await _click(c4["apply"])
+	await _settle(12)
+	_ok(_gen_started == g0 and absf(float(_bridge.param_get("climate.ocean")) - 0.6) < 1e-9, "10c: no full generate; the setting is written")
+
+	print("== 10d. a failed rebuild keeps the settings ==")
+	_win._on_regen_finished(false)
+	_ok(absf(float(_bridge.param_get("climate.ocean")) - 0.6) < 1e-9, "10d: the settings stay applied")
+	_configure({"regen_on_apply": false})
+
+
+## The open discard question (a ConfirmationDialog child of the world screen), or null.
+func _open_confirm() -> ConfirmationDialog:
+	var ww = _app._world_workspace()
+	if ww == null:
+		return null
+	for ch in ww.get_children():
+		if ch is ConfirmationDialog and (ch as ConfirmationDialog).visible:
+			return ch
+	return null
