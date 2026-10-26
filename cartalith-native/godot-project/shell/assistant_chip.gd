@@ -62,7 +62,7 @@ static func provider_configured(preset_id: String, base_url: String, model: Stri
 ## DISABLED, where it is the gate's own sentence. Reads only `DccSettings` and one local call into the
 ## bridge; opens nothing and contacts nothing.
 static func state_for_app(app) -> Dictionary:
-	var out := {"state": HIDDEN, "reason": ""}
+	var out := {"state": HIDDEN, "reason": "", "code": ""}
 	if app == null:
 		return out
 	var bridge = app.get("bridge")
@@ -86,6 +86,10 @@ static func state_for_app(app) -> Dictionary:
 	if st == DISABLED:
 		var why := String(gate.get("reason", ""))
 		out["reason"] = why if why != "" else NO_REASON
+		## The gate's machine code (`consent_needed`, `key_missing`, ...), carried so the PHONE's greyed chip can
+		## send a tap to the right place: the consent card for `consent_needed`, the settings for anything else
+		## (`QuickBarPhone.press`). Empty when the gate gave none; never invented.
+		out["code"] = String(gate.get("code", ""))
 	return out
 
 ## The tooltip for `st` (a [`state_for_app`] result): what a click does, or why it does nothing. The

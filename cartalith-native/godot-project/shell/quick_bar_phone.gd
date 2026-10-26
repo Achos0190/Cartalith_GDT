@@ -108,6 +108,18 @@ static func press(app, entry: Dictionary, near: Control = null) -> void:
 	if app == null:
 		return
 	if not bool(entry.get("live", false)):
+		## Owner decision 2026-10-26 (OnePlus 6T pass): the phone's greyed Assistant chip is a way IN, not a dead
+		## button. When the gate refuses it takes the user to where the missing piece is fixed and says what
+		## that is: the panel (which presents the consent card) for `consent_needed`, the Assistant settings for
+		## everything else. Desktop and tablet chips keep CQ-7's rule (disabled, with the reason as tooltip):
+		## they have a tooltip and a status bar to explain a dead control, the phone has neither.
+		if String(entry.get("kind", "")) == "assistant":
+			var st := AssistantChip.state_for_app(app)
+			if String(st["state"]) == AssistantChip.DISABLED:
+				if String(st.get("code", "")) == "consent_needed" and app.has_method("open_assistant_panel"):
+					app.open_assistant_panel()
+				elif app.has_method("open_assistant_settings"):
+					app.open_assistant_settings()
 		say(app, String(entry.get("reason", "")), near)
 		return
 	if String(entry.get("kind", "")) == "assistant":

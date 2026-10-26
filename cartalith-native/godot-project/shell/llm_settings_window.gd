@@ -201,6 +201,15 @@ func _note(parent: Control, text: String, token: String = "text_ghost") -> Label
 	return l
 
 
+## Phone only: an EMPTY note is hidden instead of drawn as a blank line. The three `Send:` switches carry no
+## note, and the label, empty, still reserved a full text line plus the body's 8 dp separation under each of
+## them: the large blank gaps the owner reported on the phone's Assistant settings (2026-10-26). Called wherever a
+## note's text is set, because a later refresh can fill one (`Needs the master switch.`). Other forms are untouched.
+func _hide_if_empty(l: Label) -> void:
+	if _phone:
+		l.visible = l.text != ""
+
+
 ## A tracked section heading.
 func _heading(text: String) -> void:
 	var l := DccTheme.mono_label(text, "text_dim", DccTheme.FS_HEADER, 1)
@@ -360,6 +369,7 @@ func _rebuild() -> void:
 	_give_label_the_slack(hosted_cb)
 	controls["rag_hosted"] = hosted_cb
 	controls["rag_hosted_note"] = _note(_body, "")
+	_hide_if_empty(controls["rag_hosted_note"] as Label)
 	_dependent.append(hosted_cb)
 
 	# -- Provider -------------------------------------------------------------
@@ -560,13 +570,26 @@ func _switch_row(sw: Dictionary) -> void:
 	var key := String(sw["key"])
 	var unavailable := String(sw.get("unavailable", ""))
 	var value := bool(DccSettings.llm_value(key)) if unavailable == "" else false
-	var cb := DccWidgets.toggle(_body, String(sw["label"]), value, func(on: bool): _on_switch(key, on),
+	## Phone only (owner finding 2026-10-26, OnePlus 6T: "large blank gaps under the toggle rows"). The switch
+	## row is floored to 44 dp, its label is centred in it, and the body adds 8 dp before the note, so the note
+	## sat about 20 dp under the label it explains and looked like it belonged to the next row. On a phone the
+	## row and its note go in one pair box whose separation is NEGATIVE (-6 dp): the note rides up into the
+	## row's bottom padding. That strip is only padding, and a `Label` takes no mouse events, so the 44 dp
+	## touch target and the tap on its lower edge are unchanged. Other forms keep the plain body spacing.
+	var host: Control = _body
+	if _phone:
+		var pair := VBoxContainer.new()
+		pair.add_theme_constant_override("separation", -6)
+		_body.add_child(pair)
+		host = pair
+	var cb := DccWidgets.toggle(host, String(sw["label"]), value, func(on: bool): _on_switch(key, on),
 		_sw_note(sw) if unavailable == "" else unavailable)
 	_floor(cb, true)
 	_give_label_the_slack(cb)
 	controls[key] = cb
-	var note := _note(_body, unavailable if unavailable != "" else _sw_note(sw))
+	var note := _note(host, unavailable if unavailable != "" else _sw_note(sw))
 	controls[key + "_note"] = note
+	_hide_if_empty(note)
 	if unavailable != "":
 		cb.disabled = true
 	elif key != "enabled":
@@ -634,6 +657,7 @@ func _refresh_dynamic() -> void:
 		if k == "enabled" or not controls.has(k + "_note") or String(sw.get("unavailable", "")) != "":
 			continue
 		(controls[k + "_note"] as Label).text = _sw_note(sw) + ("" if enabled else " Needs the master switch.")
+		_hide_if_empty(controls[k + "_note"] as Label)
 	## The hosted opt-in applies to a hosted endpoint only (K2); a local one never needs it.
 	if controls.has("rag_hosted"):
 		var hep := _endpoint()
@@ -642,6 +666,7 @@ func _refresh_dynamic() -> void:
 		cb.disabled = not enabled or not hosted
 		cb.set_pressed_no_signal(hosted and DccSettings.llm_rag_hosted_origins().has(String(hep.get("origin", "-"))))
 		(controls["rag_hosted_note"] as Label).text = "" if hosted else "Not needed: this endpoint is on this computer or your network."
+		_hide_if_empty(controls["rag_hosted_note"] as Label)
 	# Key-entry controls follow the master switch, but also the store/provider conditions.
 	if controls.has("key_save"):
 		var can := enabled and _store_available() and String(DccSettings.llm_value("preset_id")) != ""

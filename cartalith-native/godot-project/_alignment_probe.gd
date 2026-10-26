@@ -634,9 +634,9 @@ func _phone() -> void:
 		# The icon is stacked ABOVE its caption (`phone_fit`), so the thing that must be centred in
 		# the cell and its highlight, vertically, is the GROUP of icon box and caption ink.
 		var group: Rect2 = tboxes[k].merge(tinks[k]) if tinks[k].size != Vector2.ZERO else tboxes[k]
-		# Vertical offset of the group is MEASURED AND REPORTED, not asserted: it cannot be fixed without
-		# growing the cell (see `_phone_fit_tool_button`), so a bar here would be a bar nobody meets.
-		_check_centre(nm + " icon+caption group", group, tb.get_global_rect(), "x")
+		# Both axes are ASSERTED (owner decision 2026-10-26: the cell grows so the group is centred; it was
+		# measured 3.5-5 px high before). The group is the icon box merged with the caption ink.
+		_check_centre(nm + " icon+caption group", group, tb.get_global_rect(), "xy")
 		if tb.toggle_mode:
 			var hl := await _highlight(tb)
 			_check_highlight(nm, hl, tb.get_global_rect(), Rect2())
@@ -667,5 +667,10 @@ func _measure_phone_button(family: String, b: Button) -> void:
 	# The press/hover washes are rounded pills drawn in the cell: they must not poke out of it.
 	for st in ["hover", "pressed"]:
 		var sb := b.get_theme_stylebox(st)
-		var dr: Rect2 = sb.get_draw_rect(Rect2(Vector2.ZERO, cell.size))
+		# `StyleBox.get_draw_rect` is not callable on the 4.7.1 console build (two SCRIPT ERRORs in the
+		# 2026-10-26 baseline), so the rect a `StyleBoxFlat` draws is rebuilt from its own expand margins.
+		var dr := Rect2(Vector2.ZERO, cell.size)
+		if sb is StyleBoxFlat:
+			var sf := sb as StyleBoxFlat
+			dr = dr.grow_individual(sf.expand_margin_left, sf.expand_margin_top, sf.expand_margin_right, sf.expand_margin_bottom)
 		_ok(Rect2(Vector2.ZERO, cell.size).encloses(dr), "%s: %s wash drawn inside the cell (%s in %s)" % [nm, st, dr, cell.size])

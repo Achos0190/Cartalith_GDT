@@ -3049,13 +3049,28 @@ func _phone_fit_tool_button(b: Button, unit: float) -> void:
 	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	## **Not centred vertically, deliberately.** `Button` stacks icon over caption from the top of its
-	## content box, and the cell's minimum height is content-driven (measured 2026-10-26,
-	## `_alignment_probe.gd`, 393x852: the 44 px cell holds a 35 px icon+caption group with 1 px above it
-	## and 8 px below, because the caption's line box reserves ~7 px under the baseline). A top margin
-	## to centre it would GROW every phone tool cell by that margin (tried: 44 -> 49 px) and move the
-	## sheet's detent budget, which is a behaviour change, so the horizontal centring (the
-	## owner's finding) is fixed and the vertical group offset is left and recorded in STATUS.md.
+	## **Centred vertically (owner decision 2026-10-26; it was left high on purpose until then).** `Button`
+	## stacks icon over caption from the top of its content box and the cell's height is content-driven: the
+	## caption's line box reserves about 7 px under its baseline, so the 44 px cell held a 35 px group with 1 px
+	## above it and 8 px below (`_alignment_probe.gd`, 393x852; centre offsets -3.5 / -4.5 / -3.5 / -5.0 px for
+	## Inspect / Measure / Region select / Pan, the spread being the captions' own descenders). A top margin of
+	## `m` moves the group down by `m` AND grows the cell by `m` (its centre moves `m / 2`), so the group gains
+	## `m / 2` on the centre: `m = 9 dp` leaves -0.5 .. +0.5 px on those four (8 dp left -1.0 on two), inside the probe's 1 px bar.
+	## The cell therefore grows 44 -> 51-52 px at 393 wide (the owner expected about 49; the figure that centres
+	## it is measured, not chosen). The cells live in the full-height left sheet, not in the detent sheet whose
+	## height budget `_phone_map_sheet_content_height()` derives from content, so no detent changed. Same
+	## margin on all three states, or the content jumps under the finger on press (see the side margins above).
+	var top_pad: float = round(9.0 * unit)
+	for state2 in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		## `hover_pressed` (an armed tool under the finger or cursor, e.g. Pan) and `disabled` are NOT overridden
+		## above and resolve to the shared theme's boxes: copy those before touching their margins, and give the
+		## copy the same side margins so the content does not move sideways in that state either.
+		if not b.has_theme_stylebox_override(state2):
+			var own: StyleBox = b.get_theme_stylebox(state2).duplicate()
+			own.content_margin_left = pad
+			own.content_margin_right = pad
+			b.add_theme_stylebox_override(state2, own)
+		b.get_theme_stylebox(state2).content_margin_top = top_pad
 
 ## The dock sheets carry every workspace panel -- the NPR Painter block, the
 ## CIVIL dock's Faction roster button, the right dock's Settlement ▸ City
@@ -7555,6 +7570,13 @@ func phone_tap(dp: float) -> int:
 func phone_font(dp: float) -> int:
 	return _pfont(dp)
 
+## Phone only: the band, in device px, the armed-tool pill takes above the bottom of the map area (0 off phone
+## or while the pill is hidden). `ViewportHost` lifts the zoom row by it; see `ToolFan.pill_reserve()`.
+func phone_tool_pill_reserve() -> float:
+	if not _phone or _tool_fan == null:
+		return 0.0
+	return _tool_fan.pill_reserve()
+
 ## A short self-dismissing sentence over `near` (the shell's phone toast); nothing off the phone.
 func phone_toast(text: String, near: Control = null) -> void:
 	_show_phone_toast(text, near)
@@ -7958,6 +7980,10 @@ func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Con
 	row.focus_mode = Control.FOCUS_NONE
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.custom_minimum_size.y = _ptap(52)
+	## PASS, not the Button default STOP (owner finding 2026-10-26): STOP ends Godot's bubbling of a touch
+	## drag, so a swipe that began on a result row never reached the results list's `ScrollContainer`.
+	## The row still gets every press and release; `pressed` fires as before.
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_theme_stylebox_override("normal", DccTheme.empty())
 	row.add_theme_stylebox_override("focus", DccTheme.empty())
 	row.add_theme_stylebox_override("disabled", DccTheme.empty())
@@ -8485,23 +8511,28 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		if commands:
 			var why := String(d.get("why", ""))
 			var line2: String = why if why != "" else "%s menu" % String(d.get("group", ""))
-			var cmd := _phone_list_row(String(d.get("title", "")), line2, func(): pass)
-			(cmd as Button).disabled = true
-			(cmd as Button).accessibility_description = \
-				"%s. Lives under the %s menu." % [line2, String(d.get("group", ""))]
+			## 2026-10-26 (owner finding, OnePlus 6T): the row used to be a DISABLED readout, so a tap on a command
+			## did nothing at all and read as a dead list. A tap now does one of two things and is never silent:
+			## a pinnable command runs through the quick bar's own path (`DccQuickBar.run_pin_on`, the same
+			## `id_pressed` the menu emits) and the overlay closes; any other row toasts why it cannot run
+			## from here (the index's own `why_not`, or the row's `why` when it is unavailable) and stays open.
+			var cmd := _phone_list_row(String(d.get("title", "")), line2, _run_search_command.bind(d, close_fn))
+			(cmd as Button).accessibility_description = 				"%s. Lives under the %s menu. Tap to run it." % [line2, String(d.get("group", ""))]
+			if not _phone:
+				## The desktop dialog keeps its disabled readout: it has no toast to say why a row will not run,
+				## and Edit ▸ Find on map's commands are reached from the menus beside it.
+				(cmd as Button).disabled = true
+				(cmd as Button).accessibility_description = 					"%s. Lives under the %s menu." % [line2, String(d.get("group", ""))]
 			## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2): a pinnable command gets a star beside its row, the phone's
-			## equivalent of Blender's right-click ▸ Add to Quick Favorites. The row itself stays the disabled
-			## readout it was (a search hit still runs nothing); only a star is new, and only on a row the
-			## index calls pinnable, so a reason-bearing row keeps its reason and gains no control.
+			## equivalent of Blender's right-click ▸ Add to Quick Favorites. Only on a row the index calls
+			## pinnable, so a reason-bearing row keeps its reason and gains no control.
 			if String(d.get("pin_key", "")) != "" and bool(d.get("pinnable", false)):
 				cmd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				var line := HBoxContainer.new()
 				line.add_theme_constant_override("separation", 0)
-				## The results column sits in a scroller with no expand flag, so it is only as wide as its widest
-				## child (every row is a Button whose drawn text is a child label, so the narrowness was never
-				## visible). A star beside such a row would land right after the text; this width, the screen's
-				## less a scrollbar's allowance, puts it at the right edge and lets the row fill the rest.
-				line.custom_minimum_size.x = get_viewport_rect().size.x - float(_pscale(20))
+				## The column is `SIZE_EXPAND_FILL` inside its scroller now (see `_build_phone_search_overlay`),
+				## so the line fills it and the star lands at the right edge with no width hack.
+				line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				line.add_child(cmd)
 				line.add_child(_command_star(d))
 				container.add_child(line)
@@ -8513,6 +8544,21 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
 		container.add_child(_phone_list_row(String(d.get("name", "")), line2,
 			_select_search_hit.bind(d, close_fn)))
+
+## A tap on a `.` command row (phone and desktop dialog alike): run it when the index calls it pinnable, close
+## the surface that opened it, else say why not in a toast near the row's panel and stay open.
+func _run_search_command(d: Dictionary, close_fn: Callable) -> void:
+	var key := String(d.get("pin_key", ""))
+	if key != "" and bool(d.get("pinnable", false)) and String(d.get("why", "")) == "":
+		close_fn.call()
+		var why := DccQuickBar.run_pin_on(self, key)
+		if why != "":
+			phone_toast(why)
+		return
+	var reason := String(d.get("why", ""))
+	if reason == "":
+		reason = String(d.get("why_not", "This command cannot be run from search."))
+	phone_toast(reason)
 
 ## The pin / unpin star beside a pinnable command in the phone's `.` search results (CQ-6). 48 dp square (the
 ## quick bar's chip size, floor 44), `★` when the command is pinned and `☆` when not; a tap toggles it through
@@ -8828,9 +8874,17 @@ func _build_phone_search_overlay() -> Control:
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	## Phone fix 2026-10-26 (owner findings on the OnePlus 6T): the results column is the scroller's only
+	## child and a `ScrollContainer` gives a child its MINIMUM width unless that child carries
+	## `SIZE_EXPAND` -- so the column, and with it every row's hit area, was only as wide as the widest
+	## row (a tap on the right half of a short row fell on nothing), and an autowrap `No matches` notice
+	## had a minimum width of about one letter and drew one letter per line. Vertical only: a results list
+	## has no sideways content, so sideways scrolling is off and the column is exactly the panel's width.
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
 	_phone_search_results = VBoxContainer.new()
 	_phone_search_results.add_theme_constant_override("separation", 0)
+	_phone_search_results.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_phone_search_results)
 
 	overlay.add_child(panel)

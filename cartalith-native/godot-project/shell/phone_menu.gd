@@ -1514,6 +1514,23 @@ func _fill(body: VBoxContainer, step: _Step) -> void:
 	tail.custom_minimum_size.y = _ps(24)
 	tail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(tail)
+	_let_drags_reach_scroller(body)
+
+## Phone fix 2026-10-26 (owner finding, OnePlus 6T: the MORE list only scrolled by dragging its scrollbar
+## edge; measured with `adb shell input swipe`: a swipe that began on a band caption scrolled, one that began
+## on any row did not). A control with `MOUSE_FILTER_STOP` ends Godot's bubbling of a touch or drag event, so
+## the `ScrollContainer` above it never saw the drag. `PASS` still delivers every event to the row's own
+## `gui_input` (the press, the release and `_row_input`'s deadzone test are unchanged) and then lets it
+## bubble. Sliders are left alone: they have their own touch arbitration (`DccWidgets.touch_slider`), and a
+## drag that starts on one is meant to move it. Walks the freshly filled body once (`_fill`); a row a screen adds
+## later on its own refresh is NOT covered, and keeps STOP until the next `_fill`.
+func _let_drags_reach_scroller(root: Node) -> void:
+	for ch in root.get_children():
+		if ch is Control:
+			var c := ch as Control
+			if c.mouse_filter == Control.MOUSE_FILTER_STOP and (c is BaseButton or c is PanelContainer) 					and not (c is Slider):
+				c.mouse_filter = Control.MOUSE_FILTER_PASS
+		_let_drags_reach_scroller(ch)
 
 # -- Resolving a §6.6 row to a real menu item ---------------------------------
 

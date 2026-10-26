@@ -1344,8 +1344,26 @@ func move_view_to(gx: float, gy: float) -> void:
 	if g.x <= 0 or g.y <= 0:
 		return
 	var local := rect.position + Vector2((gx + 0.5) / float(g.x), (gy + 0.5) / float(g.y)) * rect.size
-	_camera.position = size * 0.5 - local * _zoom
+	_camera.position = _keep_map_covering(size * 0.5 - local * _zoom, rect)
 	_update_lod()
+
+## Owner finding 2026-10-26 (OnePlus 6T): picking a search result near a world edge centred it and left a black
+## strip of void, with the world frame running through it, over a third of the view. Centring a point is a
+## request to SHOW it, not to expose the area outside the world, so on each axis where the zoomed map is at
+## least as large as this node the camera is held so the map still covers the node; on an axis where the map
+## is smaller the centred position is kept (nothing can cover there). Applies to `move_view_to()` only: a
+## user's own pan, pinch and wheel zoom stay unclamped, exactly as before, so the view can still be dragged
+## past an edge on purpose. `rect` is `overlay.displayed_rect()` (the map in the camera's own space).
+func _keep_map_covering(pos: Vector2, rect: Rect2) -> Vector2:
+	var out := pos
+	for axis in 2:
+		var lo: float = rect.position[axis] * _zoom   # the map's near edge with the camera at offset 0
+		var span: float = rect.size[axis] * _zoom
+		if span >= size[axis]:
+			## Near edge must not pass the node's near edge (pos + lo <= 0); far edge must not stop short of the
+			## node's far edge (pos + lo + span >= size).
+			out[axis] = clampf(pos[axis], size[axis] - lo - span, -lo)
+	return out
 
 ## `_viewFill()` (reference 13294) -- the default/reset view, which in this app
 ## means **cover**, not fit: the map fills the display and whichever axis has
@@ -1944,8 +1962,13 @@ func _apply_safe_insets() -> void:
 	## instead of sitting the board's flat 12 above the sheet.
 	if _navpad != null:
 		var pad := _navpad.get_combined_minimum_size()
+		## The row also clears the phone's armed-tool pill (`DccShell.phone_tool_pill_reserve()`, 0 elsewhere):
+		## both float at the bottom of the map area and the pill is centred and 188 dp wide, so on a phone the
+		## zoom rocker sat on top of INSPECT (owner finding 2026-10-26). Lifting the row by the pill's band is
+		## the whole fix; the pill, the sheet and the detent budget are untouched.
+		var floor_y := maxf(coords_size.y, _pill_reserve())
 		_navpad.position = Vector2(size.x - maxf(r, float(NAVPAD_EDGE)) - pad.x,
-			size.y - b - coords_size.y - float(NAVPAD_GAP) - pad.y)
+			size.y - b - floor_y - float(NAVPAD_GAP) - pad.y)
 		## **Hidden when the band it would occupy is not there.** The board hides
 		## the whole cluster at the `full` detent, where §5.2 leaves 96 dp of map
 		## with nothing left to navigate. Written as the measurement rather than
@@ -1967,7 +1990,17 @@ func _apply_safe_insets() -> void:
 		## calls `set_safe_insets()` and would be relying on the `resized` signal
 		## to undo it.
 		_navpad.visible = size.y <= 0.0 \
-			or (size.y - t - b) >= (coords_size.y + float(NAVPAD_GAP) + pad.y)
+			or (size.y - t - b) >= (floor_y + float(NAVPAD_GAP) + pad.y)
+
+## The phone's armed-tool pill band (device px), found by capability so this node stays ignorant of the shell
+## (the same pattern as `_announce_pan_mode`); 0 when no ancestor offers it (desktop, tablet, a lone probe scene).
+func _pill_reserve() -> float:
+	var n: Node = get_parent()
+	while n != null:
+		if n.has_method("phone_tool_pill_reserve"):
+			return float(n.call("phone_tool_pill_reserve"))
+		n = n.get_parent()
+	return 0.0
 
 ## A full-rect, keep-aspect-centred, NEAREST-filtered, mouse-ignoring `TextureRect` -- the one
 ## factory every raster layer uses, so a layer can never differ in letterboxing or filtering from

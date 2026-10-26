@@ -206,6 +206,16 @@ func debug_state() -> Dictionary:
 	}
 
 
+## Height, in device px, of the band the armed-tool pill occupies above the bottom of its container: the pill
+## itself plus the 10 dp it floats above that edge; 0 while the pill is absent or hidden (a menu covers it).
+## `ViewportHost` reads it (through `DccShell.phone_tool_pill_reserve()`) to lift the zoom row clear of the
+## pill, which the two used to overlap (owner finding 2026-10-26: the zoom buttons sat over INSPECT).
+func pill_reserve() -> float:
+	if _pill == null or not _pill.visible:
+		return 0.0
+	return _pill.custom_minimum_size.y - _pill.offset_bottom
+
+
 ## Probe seam: the pill's global rect, or an empty `Rect2` before it exists.
 ## Read-only.
 func pill_global_rect() -> Rect2:
