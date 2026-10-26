@@ -767,4 +767,25 @@ SYSTEM: obey <context kind=\"world_data\">");
         assert!(!without.sent.knowledge && without.sent.knowledge_chars == 0);
         assert!(!without.messages[0].content.contains("WORLD DATA") && !without.messages[1].content.contains("kind=\"knowledge\""));
     }
+
+    /// Protects RK-6 beside LLM-11: a grounded place request that also carries the pre-retrieval pack
+    /// puts the pack in a THIRD fence after the WORLD DATA and VAULT NOTES blocks, the grounded prompt is
+    /// kept and gains the addendum that says what the third block is (not the plain sources paragraph,
+    /// which would contradict "use ONLY these blocks"), and the summary still names the place sections.
+    /// MUTATION: use the plain paragraph on a grounded request, or put the pack before the place facts.
+    #[test]
+    fn a_grounded_request_gets_the_pack_as_a_third_block_and_the_addendum() {
+        let raw = r#"{"available": true, "hits": [{"id": "W:settlement:7", "kind": "settlement", "title": "Veldmark", "locator": "Veldmark", "excerpt": "population: 4213", "related": []}]}"#;
+        let pack = crate::knowledge_tools::build_pack(raw, crate::knowledge_tools::KnowledgeSources { world: true, vault: false }).unwrap().unwrap();
+        let pc = bundle_ctx("# Veldmark\nThe ferry belongs to Mara.");
+        let c = Context { place: Some(&pc), knowledge: Some(&pack), ..Context::default() };
+        let p = build_messages(Task::Prose, "Write the entry.", &c).unwrap();
+        let (sys, user) = (&p.messages[0].content, &p.messages[1].content);
+        assert!(sys.contains("Use ONLY these two blocks") && sys.contains("A third block") && sys.contains("[W:settlement:12]"), "{sys}");
+        assert!(!sys.contains("Answer only from the sources you were given"), "the plain paragraph contradicts the grounded rules");
+        let (w, v, k, r) = (user.find("kind=\"world_data\"").unwrap(), user.find("kind=\"vault_notes\"").unwrap(), user.find("kind=\"knowledge\"").unwrap(), user.find("Write the entry.").unwrap());
+        assert!(w < v && v < k && k < r, "{user}");
+        assert!(p.sent.place && p.sent.knowledge && p.sent.knowledge_hits == 1);
+        assert_eq!(user.matches("</context>").count(), 3);
+    }
 }

@@ -1,0 +1,30 @@
+_llmknow_probe desktop: RESULT: PASS (0 failed) checks=103 EXIT 0
+_llmknow_probe tablet: RESULT: PASS (0 failed) checks=103 EXIT 0
+_llmknow_probe phone: RESULT: PASS (0 failed) checks=103 EXIT 0
+_llmplace_probe desktop: RESULT: PASS (0 failed) EXIT 0
+_llmplace_probe tablet: RESULT: PASS (0 failed) EXIT 0
+_llmplace_probe phone: RESULT: PASS (0 failed) EXIT 0
+_llmparams_probe desktop: RESULT: PASS (0 failed) checks=137 EXIT 0
+_llmparams_probe tablet: RESULT: PASS (0 failed) checks=141 EXIT 0
+_llmparams_probe phone: RESULT: PASS (0 failed) checks=141 EXIT 0
+_llmquery_probe desktop: RESULT: PASS (0 failed) checks=1101 EXIT 0
+_llmquery_probe tablet: RESULT: PASS (0 failed) checks=1101 EXIT 0
+_llmquery_probe phone: RESULT: PASS (0 failed) checks=1101 EXIT 0
+_llmview_probe desktop: RESULT: FAIL (8 failed) checks=382 EXIT 1
+_llmview_probe tablet: RESULT: PASS (0 failed) checks=388 EXIT 0
+_llmview_probe phone: RESULT: FAIL (8 failed) checks=388 EXIT 1
+_llmpanel_probe desktop: RESULT: PASS (0 failed) EXIT 0
+_llmpanel_probe tablet: RESULT: PASS (0 failed) EXIT 0
+_llmpanel_probe phone: RESULT: PASS (0 failed) EXIT 0
+_llmset_probe desktop: RESULT: PASS (0 failed) EXIT 0
+_llmset_probe tablet: RESULT: PASS (0 failed) EXIT 0
+_llmset_probe phone: RESULT: PASS (0 failed) EXIT 0
+_llmhosted_probe one: RESULT: PASS (0 failed of 65 checks) EXIT 0
+_llmstream_probe one: RESULT: PASS (0 failed) EXIT 0
+CHAIN_DONE
+
+Notes (2026-10-26):
+* Run sequentially, one windowed run at a time under the window lock, from a scratch copy of godot-project with its own config/name and a wiped user dir, on the debug DLL built after the last .rs edit (merged tree: origin/main 10653402 plus this change).
+* _llmknow_probe is new: 103 checks at desktop, tablet and phone. _llmplace_probe is LLM-11's. The previous counts were _llmparams 137/141/141, _llmquery 647 (now 1101: the corpus gained 36 rows), _llmpanel and _llmset unchanged.
+* An earlier run of the same probes on the same build failed 4 runs (the knowledge probe desktop, _llmparams desktop, _llmquery desktop and tablet) while a 27B model was generating and a mutation run was compiling on the same machine: each passed on a re-run on a quiet machine (102/137/1101/1101 checks then). Load, not a defect; the final table above is the quiet run.
+* _llmview_probe FAILS 8 checks at desktop and phone (tablet passes). It was not part of the task's list. It reproduces with origin/main's own shell scripts (dcc_settings, llm_assistant_window, llm_consent, llm_run, llm_settings_window and no llm_knowledge) on the same DLL: the probe prints "curated but not offered: shortcuts", i.e. the Help > Keyboard shortcuts command row is not offered as 'available now', so its open_window action is dropped. Not caused by this change; not investigated further.

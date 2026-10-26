@@ -1132,7 +1132,7 @@ func _on_send() -> void:
 	## words, so the place's own document is found (the place-facts context draws on the same base).
 	var kplan: Dictionary = LlmKnowledge.plan(run.stream, _capability()) if run.available() else {}
 	var kquery := request
-	if _task == "prose" and bool(DccSettings.llm_value("ctx_entity")) and not _place.is_empty():
+	if _task == "prose" and not _place.is_empty():
 		kquery = "%s %s" % [String(_place["name"]), request]
 	var kraw := LlmKnowledge.search_pack(bridge, kplan, kquery) if run.available() else ""
 	if kraw != "":

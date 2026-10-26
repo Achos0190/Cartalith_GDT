@@ -539,9 +539,17 @@ func _ready() -> void:
 	_ok(ut2.contains("no source matched") and ut2.contains("do not guess"), "an unanswerable question gets a pack that says nothing matched")
 
 	# ---------------------------------------------------------------- 3b. prose path
-	print("== 3b. the prose path carries the pack too, after the place's own fields ==")
-	_configure({"preset_id": "ollama", "ctx_params": false, "rag_pre": "on", "rag_tools": false, "ctx_entity": true, "prose": true})
-	_win._place = {"index": 0, "tid": tid2, "name": name_x}
+	print("== 3b. the grounded prose path (LLM-11) carries the pack as a third block ==")
+	_configure({"preset_id": "ollama", "ctx_params": false, "rag_pre": "on", "rag_tools": false, "prose": true})
+	var place_idx := -1
+	for pi in _x["rows"].size():
+		if int(_x["rows"][pi]["tid"]) == tid2:
+			place_idx = pi
+	_ok(place_idx >= 0, "the probe's settlement has an index on the map")
+	_app.right_dock_ctrl.on_settlement_selected(_bridge.settlements()[place_idx], place_idx)
+	await _settle(6)
+	_win.open()
+	await _settle(10)
 	_win.source_cards.clear()
 	_win._pick_task("prose")
 	await _type("Describe the harbour of this place in two sentences.")
@@ -554,9 +562,9 @@ func _ready() -> void:
 	var bp := _body(npr)
 	var up := _user_text(bp)
 	_ok(_server.requests.size() == npr + 1 and _tool_names(bp, false).is_empty(), "prose: one request and no tool (%d)" % (_server.requests.size() - npr))
-	_ok(up.contains("<context kind=\"entity\"") and up.contains("<context kind=\"knowledge\"") and up.find("kind=\"entity\"") < up.find("kind=\"knowledge\"") and up.find("kind=\"knowledge\"") < up.find("Describe the harbour"),
-		"prose: the entity block, then the pack, then the request")
-	_ok(up.contains("[W:settlement:%d] WORLD DATA" % tid2) and _system_text(bp, false).contains("[W:settlement:12]"), "prose: the place's own world document is in the pack and the prompt carries the sources rule")
+	_ok(up.contains("<context kind=\"world_data\"") and up.contains("<context kind=\"knowledge\"") and up.find("kind=\"world_data\"") < up.find("kind=\"knowledge\"") and up.find("kind=\"knowledge\"") < up.find("Describe the harbour"),
+		"prose: the place's WORLD DATA block, then the pack, then the request")
+	_ok(up.contains("[W:settlement:%d] WORLD DATA" % tid2) and _system_text(bp, false).contains("A third block") and (_system_text(bp, false).contains("Use ONLY these") or _system_text(bp, false).contains("Use ONLY this block")), "prose: the pack holds the place's own world document and the grounded prompt says what the third block is")
 	_ok(_win.source_cards.size() == 1 and _text_of(_win._msgs).contains("SOURCES SENT TO THE MODEL"), "prose: the sources list is drawn under the reply")
 	_configure({"ctx_entity": false})
 

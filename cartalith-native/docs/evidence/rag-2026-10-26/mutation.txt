@@ -1,0 +1,56 @@
+Literal mutation run, 2026-10-26, on the final merged tree (origin/main 10653402 plus this change).
+Method: Python harness, exact literal replace that must occur once, BUILD_ERROR classified apart from SURVIVED, file restored in a finally and its sha256 compared, never sed.
+Test commands: cargo test -p cartalith-llm --lib / -p cartalith-knowledge --lib / -p cartalith-godot --lib knowledge_service / --test rk7_knowledge_hardening / --test llm9_corpus.
+
+M01  KILLED     MAX_LIMIT 8->9
+M02  KILLED     MAX_QUERY_CHARS 200->201
+M03  KILLED     MAX_RESULT_BYTES 12000->12001
+M04  KILLED     PACK_MAX_HITS 5->6
+M05  KILLED     vault source always allowed
+M06  KILLED     world source always allowed
+M07  KILLED     invisible not removed
+M08  KILLED     tag block not invisible
+M09  KILLED     fence not defused
+M10  KILLED     chat template token not defused
+M11  KILLED     role line not defused
+M12  KILLED     citation opener not broken
+M13  KILLED     id minimum 3->1
+M14  KILLED     nearest ids 3->4
+M15  KILLED     source of a hit not filtered
+M16  KILLED     tools offered with no source
+M17  KILLED     empty pack says nothing
+M18  KILLED     citation verified by prefix
+M19  KILLED     query bound off
+M20  KILLED     fractional limit accepted
+M21  KILLED     unknown field accepted
+M22  KILLED     scope not checked
+M23  KILLED     related cap ignored
+M24  KILLED     result cap not enforced
+M25  KILLED     ledger not filled
+M26  KILLED     knowledge-only keeps the schema tool
+M27  KILLED     forged proposal honoured in knowledge-only
+M28  KILLED     call budget not enforced
+M29  KILLED     pack after the request
+M30  KILLED     prose sources paragraph dropped
+M48  KILLED     grounded request gets the plain paragraph
+M31  KILLED     fence word skips no invisibles
+M32  KILLED     service builds vault when unticked
+M33  KILLED     service keeps stale world
+M34  KILLED     resolve of a note id removed
+M35  KILLED     miss returns a body
+M36  KILLED     related filter dropped
+M37  KILLED     guessed id executed (answer path)
+M38  KILLED     guessed id offered to the shell
+M39  KILLED     mentions without the existence check
+M40  KILLED     mentioned ids not source-filtered
+M41  KILLED     every unverified citation is named
+M42  KILLED     marker overflows the budget
+M43  KILLED     marker miscounts
+M44  KILLED     any id counts as known
+M45  KILLED     term list not sorted by text
+M46  KILLED     one text gets two ids
+M47  KILLED     postings keyed by the wrong text
+
+48 mutants, 48 killed, 0 survived.
+Survivors of an earlier round, each closed by a new test or by removing a redundant check: M13, M15, M24, M30, M35, M40.
+M09/M10/M31 and the K09 corpus row found a real defect (prompt.rs defuse_fence ignored a zero-width character inside the word context): fixed in code.

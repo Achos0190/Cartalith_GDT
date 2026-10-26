@@ -421,7 +421,7 @@ pub fn parse(name: &str, args: &Value, sources: KnowledgeSources) -> Result<Know
         match obj.get("id") {
             Some(Value::String(s)) => {
                 let n = s.chars().count();
-                if n < 3 || n > MAX_ID_CHARS {
+                if !(3..=MAX_ID_CHARS).contains(&n) {
                     return Err(format!("id must be 3 to {MAX_ID_CHARS} characters"));
                 }
                 if s.chars().any(|c| c.is_control() || is_invisible(c)) {
