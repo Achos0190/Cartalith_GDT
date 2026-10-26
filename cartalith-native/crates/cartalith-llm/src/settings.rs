@@ -305,6 +305,30 @@ pub fn authorize(
     key: &KeyState,
     consented: &[String],
 ) -> Result<Authorized, Refusal> {
+    authorize_inner(s, cap, key, consented, true)
+}
+
+/// The same gate for LISTING a server's models (the settings model dropdown). It is
+/// [`authorize`] with exactly one difference: it does not demand a model name, because
+/// the model is what the list is for. Every other check is unchanged and in the same
+/// order (master switch, provider, URL, local/remote switch, https rule, key, consent),
+/// so a listing can never go where a chat could not. No capability switch applies (the
+/// list is not a request about the world), only the master switch.
+///
+/// MUST NEVER: be used to skip the model check for a chat; the chat path calls
+/// [`authorize`], which still refuses an empty model with [`Refusal::ModelMissing`].
+pub fn authorize_models(s: &LlmSettings, key: &KeyState, consented: &[String]) -> Result<Authorized, Refusal> {
+    authorize_inner(s, None, key, consented, false)
+}
+
+/// Shared body of [`authorize`] and [`authorize_models`]; `need_model` is the only switch.
+fn authorize_inner(
+    s: &LlmSettings,
+    cap: Option<Capability>,
+    key: &KeyState,
+    consented: &[String],
+    need_model: bool,
+) -> Result<Authorized, Refusal> {
     if !s.enabled {
         return Err(Refusal::FeatureOff);
     }
@@ -332,7 +356,7 @@ pub fn authorize(
     }
     let info = classify_host(&s.base_url).map_err(|e| Refusal::BaseUrl(e.reason()))?;
     let origin = origin_of(&s.base_url).map_err(|e| Refusal::BaseUrl(e.reason()))?;
-    if s.model.trim().is_empty() {
+    if need_model && s.model.trim().is_empty() {
         return Err(Refusal::ModelMissing);
     }
     let local = matches!(info.class, HostClass::SameMachine | HostClass::LocalNetwork);

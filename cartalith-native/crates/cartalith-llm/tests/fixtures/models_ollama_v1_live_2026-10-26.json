@@ -1,0 +1,53 @@
+{
+ "object": "list",
+ "data": [
+  {
+   "id": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q3_K_XL",
+   "object": "model",
+   "created": 1792960864,
+   "owned_by": "unsloth"
+  },
+  {
+   "id": "qwen3:14b",
+   "object": "model",
+   "created": 1792951700,
+   "owned_by": "library"
+  },
+  {
+   "id": "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF:TheDrummer_Cydonia-24B-v4.1-Q4_K_L.gguf",
+   "object": "model",
+   "created": 1770823451,
+   "owned_by": "bartowski"
+  },
+  {
+   "id": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+   "object": "model",
+   "created": 1756110618,
+   "owned_by": "Qwen"
+  },
+  {
+   "id": "hf.co/DavidAU/Gemma-The-Writer-N-Restless-Quill-V2-Enhanced32-10B-Uncensored-GGUF:Q8_0",
+   "object": "model",
+   "created": 1755681251,
+   "owned_by": "DavidAU"
+  },
+  {
+   "id": "phi4:latest",
+   "object": "model",
+   "created": 1747245192,
+   "owned_by": "library"
+  },
+  {
+   "id": "writer-model-q6_k:latest",
+   "object": "model",
+   "created": 1742762220,
+   "owned_by": "library"
+  },
+  {
+   "id": "nomic-embed-text:latest",
+   "object": "model",
+   "created": 1742502808,
+   "owned_by": "library"
+  }
+ ]
+}

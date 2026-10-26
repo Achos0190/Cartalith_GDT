@@ -1,0 +1,62 @@
+  ok    the in-process server listens on 127.0.0.1:60083
+  ok    the loaded library has LlmBridge and the window exists
+  ok    the loaded library has LlmModels (a stale DLL fails here)
+  ok    feature off: the status says why (Not listed. The assistant is off. Turn on "Assistant enabled" in Settings. Nothing is sent)
+  ok    feature off: zero connection attempts (wire 0 -> 0, server accepted 0)
+  ok    feature off: the typed name field is shown, so a name can always be entered
+  ok    local providers off: the status says why (Not listed. This address is on this computer or your network, and "Local providers allowed)
+  ok    local providers off: zero connection attempts (wire 0 -> 0, server accepted 0)
+  ok    local providers off: the typed name field is shown, so a name can always be entered
+  ok    no provider: the status says why (Not listed. No provider is chosen. Pick one in Settings.)
+  ok    no provider: zero connection attempts (wire 0 -> 0, server accepted 0)
+  ok    no provider: the typed name field is shown, so a name can always be entered
+  ok    no consent for the origin: refused with 'Consent needed', nothing dialled (Not listed. Consent needed for http://127.0.0.1:60083. Review what is sent befor)
+  ok    one GET /api/v0/models (["GET /api/v0/models"])
+  ok    no key set: no credential header
+  ok    2 chat models listed, the embedding model hidden: ["● qwen3-14b · loaded · 40K ctx", "qwen3.8-27b · 256K ctx"]
+  ok    the loaded model is first, marked, with its context: ● qwen3-14b · loaded · 40K ctx
+  ok    the not-loaded model shows its context only: qwen3.8-27b · 256K ctx
+  ok    status: count, hidden embedding, age: 2 models, listed just now. 1 embedding model hidden.
+  ok    with a list, the typed field is hidden until asked for
+  ok    the pick is persisted: 'qwen3.8-27b'
+  ok    the chat request carries the picked model (prepare.model 'qwen3.8-27b', body.model 'qwen3.8-27b')
+  ok    reopening shows the saved model selected in the list
+  ok    a saved model absent from the list is kept and marked: 'ghost-model (not in list)'
+  ok    the last row is 'Type a name…'
+  ok    'Type a name…' shows the typed field
+  ok    a typed name is stored: 'my-own-model'
+  ok    exactly two requests: native then standard (["/api/v0/models", "/v1/models"])
+  ok    the standard list is shown: ["a", "b"]
+  ok    empty list: says so and shows the typed field (The server answered but lists no chat models. Load or download one, th)
+  ok    401: names the wrong key: Could not list: the server did not accept the key (401). Check the key, and that it belongs to this provider. Showing the list from just now.
+  ok    401 is final: one request, no retry (1)
+  ok    the key travelled in the Authorization header
+  ok    the key appears in no label, button or row of the window
+  ok    a redirect is reported, not followed (1 request)
+  ok    an HTML page with status 200: Could not list: the server did not answer with a model list (it may be a web pag
+  ok    raw control characters make the document invalid JSON: refused whole, nothing half-read (Could not list: the server did not answer with a model list )
+  ok    capped at exactly 500 rows (500)
+  ok    no control or bidi character reaches a row
+  ok    the cut is said: 500 models, listed just now. Only the first 500 are shown.
+  ok    a clean list first: ["alpha", "beta"]
+  ok    a failed refresh keeps the last list, marked: Could not list: the server did not accept the key (401). Check the key, and that it belongs to this provider. Showing th
+  ok    opening the window asks once (1)
+  ok    3 s idle: still one request, nothing polls in the background (1)
+  ok    Refresh asks once more (2)
+  ok    committing a changed address asks again (3)
+  ok    committing the SAME address asks nothing (3)
+  ok    changing the key's variable name asks again (4)
+  ok    a list over http://localhost:<port> arrives: ["via-localhost"] (1 model, listed just now.)
+  ok    and quickly (294 ms), not after a connect timeout
+  ok    the body's minimum width 328 fits the scroller 560
+  ok    Refresh is inside the viewport after scrolling to it: [P: (447.0, 660.0), S: (81.0, 26.0)] in [P: (0.0, 0.0), S: (1600.0, 1000.0)]
+  ok    Close stays on screen: [P: (245.0, 731.0), S: (52.0, 29.0)]
+  ok    a closed port: Could not list: could not reach the server. Is it running, and is the address right? You can type a 
+  ok    a refused connection is not retried (1 attempts)
+  ok    the typed field is shown
+  ok    (the dead port was 60083)
+  ok    a second server listens
+  ok    timeout reason: Could not list: the server did not answer in time. You can type a name below.
+  ok    exactly one retry: 2 requests
+  ok    took 20354 ms (two 10 s waits)
+RESULT: PASS (0 failed)

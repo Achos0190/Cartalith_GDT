@@ -73,6 +73,20 @@ var _dependent: Array = []
 ## True while `_rebuild()` is filling controls, so their signals do not write settings.
 var _building := false
 
+## The model dropdown's state lives HERE, not in the controls, so a rebuild (which frees them) does not
+## lose it. `_ml_state` is `idle`, `loading`, `ok`, `failed` or `refused`.
+var _ml: LlmModelList
+var _ml_state := "idle"
+var _ml_msg := ""
+var _ml_code := ""
+var _ml_key := ""
+var _ml_manual := false
+var _ml_tick := 0.0
+## The "Model name" field's row, shown only while typing a name by hand.
+var _model_field_row: Control
+## The dropdown's rows, `[{id, text}]`, and how many hidden embedding models the last list held.
+var _ml_rows: Array = []
+
 ## The switches, in the mock's order: key in `DccSettings`, label, sub-note, and whether the
 ## switch can be used in this build at all (`unavailable` is the reason when it cannot).
 const _SWITCHES := [
@@ -142,6 +156,11 @@ func setup(a, b: EngineBridge) -> void:
 	_body.add_theme_constant_override("separation", 8)
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
+	_ml = LlmModelList.new()
+	add_child(_ml)
+	_ml.finished.connect(_on_models_finished)
+	## Only ticks the age text of a list that is already shown once a second; starts nothing.
+	set_process(true)
 	## Closing must not leave a key in a field. `_rebuild` clears it on open too.
 	visibility_changed.connect(func():
 		if not visible and controls.has("key_field") and is_instance_valid(controls["key_field"]):
@@ -151,6 +170,9 @@ func setup(a, b: EngineBridge) -> void:
 ## Opens the window with the stored state.
 func open() -> void:
 	_rebuild()
+	## Opening the window asks the server for its models (when the gate allows: a refusal draws
+	## its reason and dials nothing).
+	_models_refresh()
 	if _phone:
 		app.phone_fit(self, 1.0)
 	if not DccWidgets.phone_present(self, app):
@@ -359,12 +381,22 @@ func _rebuild() -> void:
 	controls["base_url"] = url
 	_endpoint_text = _note(_body, "")
 	controls["endpoint"] = _endpoint_text
-	var model := _field(_body, "Model", String(DccSettings.llm_value("model")),
+	## The model: a dropdown filled from the server (`LlmModelList`), plus a typed fallback.
+	var model_pick := DccWidgets.choice(_body, "Model", ["Choose a model…"], 0, _on_model_picked,
+		"The models this server offers, asked when this window opens and when the address, key or a switch changes. Pick \"Type a name…\" to enter one by hand.")
+	_floor(model_pick)
+	_shrinkable(model_pick)
+	controls["model_pick"] = model_pick
+	var refresh := _button(model_pick.get_parent(), "Refresh", func(): _models_refresh(), false)
+	refresh.tooltip_text = "Ask the server for its models again."
+	controls["model_refresh"] = refresh
+	controls["model_status"] = _note(_body, "", "text_secondary")
+	var model := _field(_body, "Model name", String(DccSettings.llm_value("model")),
 		"the model name your provider expects", _on_model_commit, false,
-		"Free text; Cartalith keeps no list of model names.")
+		"Type a model id exactly as your provider expects it. Always available, whatever the list says.")
 	controls["model"] = model
-	_note(_body, "Listing a server's models arrives with the first request; type the name for now.")
-	for w in [pick, url, model]:
+	_model_field_row = model.get_parent()
+	for w in [pick, url, model, model_pick, refresh]:
 		_dependent.append(w)
 
 	# -- Key ------------------------------------------------------------------
@@ -490,6 +522,7 @@ func _rebuild() -> void:
 
 	_building = false
 	_refresh_dynamic()
+	_models_render()
 
 
 ## One switch row plus its sub-note. A switch that cannot be used in this build is shown off
@@ -664,7 +697,8 @@ func _on_switch(key: String, on: bool) -> void:
 		if origin != "" and not DccSettings.llm_consented_origins().has(origin):
 			_ask_consent(ep, func():
 				_store("enabled", true)
-				_after_change(),
+				_after_change()
+				_models_refresh(),
 				func():
 					_store("enabled", false)
 					_rebuild_deferred())
@@ -673,6 +707,9 @@ func _on_switch(key: String, on: bool) -> void:
 	if key == "enabled":
 		_rebuild_deferred()
 	_after_change()
+	## The gate's own switches decide whether the list may be asked for at all.
+	if key in ["enabled", "local_allowed", "remote_allowed"]:
+		_models_refresh()
 
 
 ## The "Search first" picker (RK-6, K6).
@@ -715,6 +752,7 @@ func _on_preset_picked(index: int) -> void:
 	_store("preset_id", id)
 	_store("base_url", url)
 	_after_change()
+	_models_refresh()
 	_rebuild_deferred()
 
 
@@ -724,14 +762,188 @@ func _on_url_commit(text: String) -> void:
 		return
 	_store("base_url", text)
 	_after_change()
+	_models_refresh()
 
 
-## The model name committed.
+## The model name committed (typed by hand).
 func _on_model_commit(text: String) -> void:
 	if _building or text.strip_edges() == String(DccSettings.llm_value("model")):
 		return
 	_store("model", text)
 	_after_change()
+	_models_render()
+
+
+# ---------------------------------------------------------------------------
+# The model dropdown (the owner's 2026-10-26 request)
+# ---------------------------------------------------------------------------
+
+## The dropdown's metadata marker for the "Type a name…" row. Not a model id (it holds a control
+## character, which the parser drops from every id), and that row is never stored as a model.
+const _TYPE_A_NAME := "\u0001type-a-name"
+
+## Asks the configured server for its models. Called when the window opens, when the address, the
+## key, the provider or a gate switch changes, and by the Refresh button; never on a timer. The gate
+## decides first (`LlmModels.begin`): a refusal is drawn as its reason and nothing is dialled.
+func _models_refresh() -> void:
+	if _ml == null:
+		return
+	var r := _ml.refresh(DccSettings.llm_gate_dict(), DccSettings.llm_consented_origins())
+	if bool(r.get("ok", false)):
+		_ml_state = "loading"
+		_ml_msg = ""
+		_ml_code = ""
+	else:
+		_ml_state = "refused"
+		_ml_code = String(r.get("code", ""))
+		_ml_msg = String(r.get("reason", "Models cannot be listed."))
+	_models_render()
+
+
+## A listing finished (the wire is joined). A result for an endpoint the user has since left is dropped.
+func _on_models_finished(result: Dictionary) -> void:
+	if String(result.get("key", "")) != LlmModelList.key_for(DccSettings.llm_gate_dict()):
+		return
+	if bool(result.get("ok", false)):
+		_ml_state = "ok"
+		_ml_msg = ""
+		_ml_code = ""
+	else:
+		_ml_state = "failed"
+		_ml_code = String(result.get("code", ""))
+		_ml_msg = String(result.get("reason", ""))
+	_models_render()
+
+
+## "just now", "12 s ago", "3 min ago", "2 h ago".
+static func _age_text(seconds: float) -> String:
+	if seconds < 5.0:
+		return "just now"
+	if seconds < 60.0:
+		return "%d s ago" % int(seconds)
+	if seconds < 3600.0:
+		return "%d min ago" % int(seconds / 60.0)
+	return "%d h ago" % int(seconds / 3600.0)
+
+
+## The last good list for the current endpoint (memory only), or `{}`.
+func _ml_cached() -> Dictionary:
+	return LlmModelList.last_for(LlmModelList.key_for(DccSettings.llm_gate_dict()))
+
+
+## Draws the dropdown, the typed-name field and the status line from stored state. Safe to call at
+## any time, including while the controls were just rebuilt or are about to be freed.
+func _models_render() -> void:
+	if not controls.has("model_pick") or not is_instance_valid(controls["model_pick"]):
+		return
+	var ob := controls["model_pick"] as OptionButton
+	var saved := String(DccSettings.llm_value("model")).strip_edges()
+	var cached := _ml_cached()
+	var models: Array = cached.get("models", [])
+	var was_building := _building
+	_building = true
+	ob.clear()
+	_ml_rows.clear()
+	var sel := -1
+	var in_list := false
+	for m in models:
+		if String(m["id"]) == saved:
+			in_list = true
+	if saved == "":
+		ob.add_item("Choose a model…")
+		ob.set_item_metadata(0, "")
+		_ml_rows.append({"id": "", "text": "Choose a model…"})
+		sel = 0
+	elif not in_list:
+		var t0 := saved + (" (not in list)" if not models.is_empty() else "")
+		ob.add_item(t0)
+		ob.set_item_metadata(0, saved)
+		_ml_rows.append({"id": saved, "text": t0})
+		sel = 0
+	for m in models:
+		var t := LlmModelList.item_text(m)
+		ob.add_item(t)
+		var i := ob.item_count - 1
+		ob.set_item_metadata(i, String(m["id"]))
+		_ml_rows.append({"id": String(m["id"]), "text": t})
+		if String(m["id"]) == saved:
+			sel = i
+	ob.add_item("Type a name…")
+	ob.set_item_metadata(ob.item_count - 1, _TYPE_A_NAME)
+	ob.select(sel if sel >= 0 else 0)
+	_building = was_building
+	## The typed field is shown while the user chose "Type a name…" and whenever there is no list to pick from.
+	if _model_field_row != null and is_instance_valid(_model_field_row):
+		_model_field_row.visible = _ml_manual or models.is_empty()
+	var field := controls.get("model") as LineEdit
+	if field != null and is_instance_valid(field) and not field.has_focus() and field.text != saved:
+		field.text = saved
+	_models_render_status()
+
+
+## Only the status line (the age text changes every second without a rebuild).
+func _models_render_status() -> void:
+	if not controls.has("model_status") or not is_instance_valid(controls["model_status"]):
+		return
+	var cached := _ml_cached()
+	var n := (cached.get("models", []) as Array).size()
+	var stale := ""
+	if not cached.is_empty():
+		stale = "the list from %s" % _age_text(float(cached["age_s"]))
+	var txt := ""
+	match _ml_state:
+		"loading":
+			txt = "Listing models…" + ((" Showing " + stale + " meanwhile.") if stale != "" else "")
+		"refused":
+			txt = "Not listed. " + _ml_msg
+		"failed":
+			txt = "Could not list: " + _ml_msg + ((" Showing " + stale + ".") if stale != "" else " You can type a name below.")
+		"ok":
+			if n == 0:
+				txt = "The server answered but lists no chat models. Load or download one, then press Refresh, or type a name below."
+			else:
+				txt = "%d model%s, listed %s." % [n, "" if n == 1 else "s", _age_text(float(cached.get("age_s", 0.0)))]
+				if int(cached.get("hidden", 0)) > 0:
+					txt += " %d embedding model%s hidden." % [int(cached["hidden"]), "" if int(cached["hidden"]) == 1 else "s"]
+				if bool(cached.get("truncated", false)):
+					txt += " Only the first 500 are shown."
+		_:
+			txt = "" if cached.is_empty() else "%d models, listed %s." % [n, _age_text(float(cached["age_s"]))]
+	(controls["model_status"] as Label).text = txt
+	var rb := controls.get("model_refresh") as Button
+	if rb != null and is_instance_valid(rb):
+		rb.text = "Listing…" if _ml_state == "loading" else "Refresh"
+
+
+## A dropdown row chosen: a model is stored and made the one chat uses; "Type a name…" shows the field.
+func _on_model_picked(index: int) -> void:
+	if _building or not controls.has("model_pick"):
+		return
+	var ob := controls["model_pick"] as OptionButton
+	var meta := String(ob.get_item_metadata(index))
+	if meta == _TYPE_A_NAME:
+		_ml_manual = true
+		_models_render()
+		var f := controls.get("model") as LineEdit
+		if f != null:
+			f.grab_focus()
+		return
+	if meta == "":
+		return
+	_ml_manual = false
+	_store("model", meta)
+	_after_change()
+	_models_render()
+
+
+## Re-ticks the status line's age once a second while the window is shown. Starts nothing.
+func _process(delta: float) -> void:
+	if not visible:
+		return
+	_ml_tick += delta
+	if _ml_tick >= 1.0:
+		_ml_tick = 0.0
+		_models_render_status()
 
 
 ## The environment variable NAME committed.
@@ -740,6 +952,7 @@ func _on_env_commit(text: String) -> void:
 		return
 	_store("env_var", text if text.strip_edges() != "" else String(DccSettings.LLM_DEFAULTS["env_var"]))
 	_after_change()
+	_models_refresh()
 
 
 ## Key source picked: `env` or `store`.
@@ -748,6 +961,7 @@ func _on_key_source_picked(index: int) -> void:
 		return
 	_store("key_source", String(_KEY_SOURCES[index][0]))
 	_after_change()
+	_models_refresh()
 	_rebuild_deferred()
 
 
@@ -774,6 +988,8 @@ func _on_key_save() -> void:
 	## The Assistant chip's greyed/live state depends on whether a key exists (CQ-7).
 	DccSettings.notify_assistant_state()
 	settings_changed.emit()
+	## A new or removed key changes what the server will answer: ask again.
+	_models_refresh()
 
 
 ## Forget key: removes the saved key for the chosen provider.
@@ -784,6 +1000,8 @@ func _on_key_forget() -> void:
 	## The Assistant chip's greyed/live state depends on whether a key exists (CQ-7).
 	DccSettings.notify_assistant_state()
 	settings_changed.emit()
+	## A new or removed key changes what the server will answer: ask again.
+	_models_refresh()
 
 
 ## Review consent: shows the card for the current endpoint (agreeing records it).
@@ -793,7 +1011,8 @@ func _on_review_consent() -> void:
 		return
 	_ask_consent(ep, func():
 		_refresh_dynamic()
-		settings_changed.emit())
+		settings_changed.emit()
+		_models_refresh())
 
 
 ## Withdraw every recorded consent; the next request asks again.

@@ -3,7 +3,8 @@
 //! WHY: the settings screen (LLM-2) needs a one-click starting point per
 //! provider so a user does not hand-type a base URL. A preset only fills in
 //! defaults; the user's base URL, model and key still win, and the model is
-//! free text (scope s.5), so no model list lives here.
+//! free text (scope s.5), so no model list lives here: the settings dropdown asks
+//! the server for its own ([`crate::models`], scope s.5e).
 //!
 //! EVIDENCE TAGS (per field, in the comments below): `[verified <source>]`
 //! means read from the vendor's documentation on 2026-10-25 (the page named);

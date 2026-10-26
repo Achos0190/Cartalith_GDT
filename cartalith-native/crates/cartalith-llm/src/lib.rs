@@ -22,6 +22,7 @@
 //! | [`host`] | [`host::classify_host`]: same machine, local network, remote or unknown, from text alone |
 //! | [`gpu`] | the local-provider GPU rule (Ruling DF) as pure decisions |
 //! | [`keystore`] | key sources, the [`keystore::KeyStore`] trait and resolution order (LLM-2) |
+//! | [`models`] | the model list per wire: `GET` builders, defensive parsers, the one-retry job and the gated [`models::prepare_model_list`] (settings dropdown) |
 //! | [`settings`] | [`settings::authorize`]: the gate every request passes (LLM-2) |
 //! | [`transport`] | the `Transport` trait, `HttpRequest` (and its connect target), `MockTransport` |
 //! | [`stream`] | [`stream::StreamSession`]: one reply, push-fed by the wire, cancellable (LLM-3) |
@@ -49,6 +50,7 @@ pub mod event;
 pub mod gpu;
 pub mod host;
 pub mod keystore;
+pub mod models;
 pub mod grounding;
 pub mod knowledge_tools;
 pub mod note;

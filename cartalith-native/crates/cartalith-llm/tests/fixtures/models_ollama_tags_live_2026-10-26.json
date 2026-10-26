@@ -1,0 +1,196 @@
+{
+ "models": [
+  {
+   "name": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q3_K_XL",
+   "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q3_K_XL",
+   "modified_at": "2026-10-25T21:41:04.3054648+01:00",
+   "size": 14077541042,
+   "digest": "da1cab12ae5c31691fdb8e3fbd349c132c23e147c15a3faef32d160fb42e02e8",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "qwen35",
+    "families": [
+     "qwen35"
+    ],
+    "parameter_size": "27.3B",
+    "quantization_level": "Q3_K_L",
+    "context_length": 262144,
+    "embedding_length": 5120,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "tools",
+    "thinking",
+    "completion",
+    "vision"
+   ]
+  },
+  {
+   "name": "qwen3:14b",
+   "model": "qwen3:14b",
+   "modified_at": "2026-10-25T19:08:20.7939573+01:00",
+   "size": 9276198565,
+   "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "qwen3",
+    "families": [
+     "qwen3"
+    ],
+    "parameter_size": "14.8B",
+    "quantization_level": "Q4_K_M",
+    "context_length": 40960,
+    "embedding_length": 5120,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion",
+    "tools",
+    "thinking"
+   ]
+  },
+  {
+   "name": "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF:TheDrummer_Cydonia-24B-v4.1-Q4_K_L.gguf",
+   "model": "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF:TheDrummer_Cydonia-24B-v4.1-Q4_K_L.gguf",
+   "modified_at": "2026-02-11T16:24:11.7390001+01:00",
+   "size": 14831985650,
+   "digest": "529b6ae4a09edea4adfea801d0396e61e8b3631e6f06ec605f9971555129af92",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "llama",
+    "families": [
+     "llama"
+    ],
+    "parameter_size": "23.6B",
+    "quantization_level": "Q4_K_M",
+    "context_length": 131072,
+    "embedding_length": 5120,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion",
+    "tools"
+   ]
+  },
+  {
+   "name": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+   "model": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+   "modified_at": "2025-08-25T10:30:18.0993749+02:00",
+   "size": 639152722,
+   "digest": "9d61ad4da73ad9f18eeb1d08df157d6317c92d1d9ba4430c5b840087449dc7e1",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "qwen3",
+    "families": [
+     "qwen3"
+    ],
+    "parameter_size": "596M",
+    "quantization_level": "Q8_0",
+    "context_length": 32768,
+    "embedding_length": 1024,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "tools",
+    "thinking",
+    "embedding"
+   ]
+  },
+  {
+   "name": "hf.co/DavidAU/Gemma-The-Writer-N-Restless-Quill-V2-Enhanced32-10B-Uncensored-GGUF:Q8_0",
+   "model": "hf.co/DavidAU/Gemma-The-Writer-N-Restless-Quill-V2-Enhanced32-10B-Uncensored-GGUF:Q8_0",
+   "modified_at": "2025-08-20T11:14:11.9791514+02:00",
+   "size": 10669650393,
+   "digest": "d98dd75ceda6a93a34c45e327261544284e313d44271d2bef6ab770b0de7147c",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "gemma2",
+    "families": [
+     "gemma2"
+    ],
+    "parameter_size": "10B",
+    "quantization_level": "Q8_0",
+    "context_length": 8192,
+    "embedding_length": 3584,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion"
+   ]
+  },
+  {
+   "name": "phi4:latest",
+   "model": "phi4:latest",
+   "modified_at": "2025-05-14T19:53:12.0824743+02:00",
+   "size": 9053116391,
+   "digest": "ac896e5b8b34a1f4efa7b14d7520725140d5512484457fab45d2a4ea14c69dba",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "phi3",
+    "families": [
+     "phi3"
+    ],
+    "parameter_size": "14.7B",
+    "quantization_level": "Q4_K_M",
+    "context_length": 16384,
+    "embedding_length": 5120,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion"
+   ]
+  },
+  {
+   "name": "writer-model-q6_k:latest",
+   "model": "writer-model-q6_k:latest",
+   "modified_at": "2025-03-23T21:37:00.5127832+01:00",
+   "size": 7589071579,
+   "digest": "c577141ad97fef5b5ac0563b3e089a135314ec556f6d366746c346e2c962cdd2",
+   "details": {
+    "parent_model": "C:\\Users\\Vincent\\.ollama\\models\\blobs\\sha256-a2aeafb1c647bad30adc1c3cb4ddec22bf82d97b43a632974e7843dab04e8c1f",
+    "format": "gguf",
+    "family": "gemma2",
+    "families": [
+     "gemma2"
+    ],
+    "parameter_size": "9.2B",
+    "quantization_level": "Q6_K",
+    "context_length": 8192,
+    "embedding_length": 3584,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "completion"
+   ]
+  },
+  {
+   "name": "nomic-embed-text:latest",
+   "model": "nomic-embed-text:latest",
+   "modified_at": "2025-03-20T21:33:28.2833751+01:00",
+   "size": 274302450,
+   "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+   "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "nomic-bert",
+    "families": [
+     "nomic-bert"
+    ],
+    "parameter_size": "137M",
+    "quantization_level": "F16",
+    "context_length": 2048,
+    "embedding_length": 768,
+    "runner": "ggml"
+   },
+   "capabilities": [
+    "embedding"
+   ]
+  }
+ ]
+}

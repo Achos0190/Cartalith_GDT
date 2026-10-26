@@ -28,6 +28,11 @@ class_name LlmWire
 ## Queue items (plain dictionaries; bytes only for the body):
 ## `{"kind":"head","status":int}`, `{"kind":"chunk","bytes":PackedByteArray}`,
 ## `{"kind":"end"}`, `{"kind":"error","text":String}`, `{"kind":"cancelled"}`.
+## **Listing models.** The same wire carries a `GET` for the settings dropdown: the target
+## dictionary (`LlmModels.begin`) may carry `"method": "GET"` (default `POST`) and the short
+## timeouts `"connect_ms"` and `"first_byte_ms"` (defaults: the chat constants below). A chat
+## target carries none of them, so chat is unchanged. An `error` caused by a timeout also carries
+## `"timeout": true`, which the listing maps to its "did not answer in time" reason.
 ## An `error` raised before the connection was established also carries `"connect": true`
 ## (LLM-4): the server was never reached, so the one automatic retry is not offered for it --
 ## a closed port or an unreachable host will fail the same way a second later, and a local
@@ -80,9 +85,12 @@ func start(target: Dictionary) -> bool:
 	_thread = Thread.new()
 	live_threads += 1
 	var headers: PackedStringArray = target.get("headers", PackedStringArray())
+	## A listing is a GET with short timeouts (`LlmModels.begin`); a chat target has neither key.
+	var method := HTTPClient.METHOD_GET if String(target.get("method", "POST")) == "GET" else HTTPClient.METHOD_POST
 	var err := _thread.start(_run.bind(String(target["host"]), int(target["port"]),
 			bool(target.get("tls", false)), String(target.get("path", "/")), headers,
-			target.get("body", PackedByteArray())))
+			target.get("body", PackedByteArray()), method,
+			int(target.get("connect_ms", CONNECT_TIMEOUT_MS)), int(target.get("first_byte_ms", FIRST_BYTE_TIMEOUT_MS))))
 	if err != OK:
 		live_threads -= 1
 		_started = false
@@ -162,33 +170,58 @@ func _push(item: Dictionary) -> void:
 	_mutex.unlock()
 
 
-## The worker body. Runs off the main thread: only `HTTPClient`, `OS.delay_msec`, `Time` and
-## this object's mutex-guarded members are touched.
-func _run(host: String, port: int, tls: bool, path: String, headers: PackedStringArray,
-		body: PackedByteArray) -> void:
-	var client := HTTPClient.new()
-	var tls_opts: TLSOptions = TLSOptions.client() if tls else null
-	var err := client.connect_to_host(host, port, tls_opts)
-	if err != OK:
-		_push({"kind": "error", "connect": true, "text": "Could not start a connection to %s:%d." % [host, port]})
-		return
+## One connection attempt to `h`: `"ok"`, `"start"` (could not even begin), `"timeout"`, `"cancelled"` or
+## `"fail"` (refused or unreachable). Worker thread only; touches nothing but `client` and the cancel flag.
+func _connect(client: HTTPClient, h: String, port: int, tls_opts: TLSOptions, connect_ms: int) -> String:
+	client.close()
+	if client.connect_to_host(h, port, tls_opts) != OK:
+		return "start"
 	var t0 := Time.get_ticks_msec()
 	while client.get_status() == HTTPClient.STATUS_RESOLVING or client.get_status() == HTTPClient.STATUS_CONNECTING:
 		if _cancelled():
-			client.close()
-			_push({"kind": "cancelled"})
-			return
+			return "cancelled"
 		client.poll()
-		if Time.get_ticks_msec() - t0 > CONNECT_TIMEOUT_MS:
-			client.close()
-			_push({"kind": "error", "connect": true, "text": "Timed out connecting to %s:%d. Is the server running?" % [host, port]})
-			return
+		if Time.get_ticks_msec() - t0 > connect_ms:
+			return "timeout"
 		OS.delay_msec(IDLE_MS)
-	if client.get_status() != HTTPClient.STATUS_CONNECTED:
+	return "ok" if client.get_status() == HTTPClient.STATUS_CONNECTED else "fail"
+
+
+## The worker body. Runs off the main thread: only `HTTPClient`, `OS.delay_msec`, `Time` and
+## this object's mutex-guarded members are touched.
+func _run(host: String, port: int, tls: bool, path: String, headers: PackedStringArray,
+		body: PackedByteArray, method: int = HTTPClient.METHOD_POST, connect_ms: int = CONNECT_TIMEOUT_MS,
+		first_byte_ms: int = FIRST_BYTE_TIMEOUT_MS) -> void:
+	var client := HTTPClient.new()
+	var tls_opts: TLSOptions = TLSOptions.client() if tls else null
+	## **`localhost` is tried as `127.0.0.1`, then `::1`.** Godot's `HTTPClient` resolves `localhost`
+	## to `::1` and does not fall back to IPv4, so a server bound to 127.0.0.1 only (LM Studio, Ollama
+	## and llama.cpp by default) never answered: measured 2026-10-26, `localhost:1234` timed out after
+	## 20 s against a live LM Studio while `127.0.0.1:1234` answered in 64 ms. Every local preset's
+	## default address is `localhost`, so the chat wire had the same defect; the gate and the consent
+	## origin still see the name the user typed.
+	var candidates: Array = ["127.0.0.1", "::1"] if host.to_lower() == "localhost" else [host]
+	var outcome := ""
+	for cand in candidates:
+		outcome = _connect(client, String(cand), port, tls_opts, connect_ms)
+		if outcome == "ok" or outcome == "cancelled":
+			break
+	if outcome == "cancelled":
+		client.close()
+		_push({"kind": "cancelled"})
+		return
+	if outcome == "start":
+		_push({"kind": "error", "connect": true, "text": "Could not start a connection to %s:%d." % [host, port]})
+		return
+	if outcome == "timeout":
+		client.close()
+		_push({"kind": "error", "connect": true, "timeout": true, "text": "Timed out connecting to %s:%d. Is the server running?" % [host, port]})
+		return
+	if outcome != "ok":
 		client.close()
 		_push({"kind": "error", "connect": true, "text": "Could not connect to %s:%d. Is the server running?" % [host, port]})
 		return
-	err = client.request_raw(HTTPClient.METHOD_POST, path, headers, body)
+	var err := client.request_raw(method, path, headers, body)
 	if err != OK:
 		client.close()
 		_push({"kind": "error", "text": "The request could not be sent."})
@@ -230,8 +263,8 @@ func _run(host: String, port: int, tls: bool, path: String, headers: PackedStrin
 			_push({"kind": "error", "text": "The connection to the server failed or was lost."})
 			return
 		var waited := Time.get_ticks_msec() - last_data
-		if (got_head and waited > STALL_TIMEOUT_MS) or (not got_head and waited > FIRST_BYTE_TIMEOUT_MS):
+		if (got_head and waited > STALL_TIMEOUT_MS) or (not got_head and waited > first_byte_ms):
 			client.close()
-			_push({"kind": "error", "text": "The server stopped sending. Press Stop, or check that the model is loaded."})
+			_push({"kind": "error", "timeout": true, "text": "The server stopped sending. Press Stop, or check that the model is loaded."})
 			return
 		OS.delay_msec(IDLE_MS)
