@@ -431,8 +431,12 @@ func _ring_clearance() -> Dictionary:
 	if ring == null or not ring.is_open():
 		return {"ring_clear": 0.0, "sub_x": 0.0, "sub_clear": 0.0}
 	var rs := ring.debug_state()
+	## CQ-4: the dock hangs below the disc and can be wider than the slot ring on a touch ring, so the
+	## card clears whichever reaches further sideways. `dock_half_w` is 0.0 for the shipped empty dock
+	## (and is 0 while a sub-ring hides it), which leaves `ring_clear` exactly as it was.
 	var out := {
-		"ring_clear": float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5,
+		"ring_clear": maxf(float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5,
+			float(rs.get("dock_half_w", 0.0)) if int(rs.get("dock_count", 0)) > 0 and not bool(rs.get("sub_open", false)) else 0.0),
 		"sub_x": 0.0, "sub_clear": 0.0,
 	}
 	if bool(rs.get("sub_open", false)):
@@ -491,14 +495,36 @@ func ring_collect(req: Dictionary) -> Dictionary:
 			var diag: Dictionary = ws.ring_slots(req)
 			for dir in diag:
 				slots[dir] = diag[dir]
+	_append_shared_pins(slots, String(req.get("domain", "")))
 	return slots
+
+## CQ-4 (`CUSTOM_QUICK_BAR_SCOPE.md` s.4.3): appends the user's pins AFTER the built-in children of
+## each diagonal that already has a sub-ring (`children`). The compass stays eight slots and the
+## built-in children are never moved, replaced or dropped; a leaf diagonal (no `children` key) is
+## never converted, and a diagonal whose built-ins already fill the ring takes nothing
+## (`QuickBarRing.allowance`). A no-op, with no command index built, while nothing is shared.
+func _append_shared_pins(slots: Dictionary, domain: String) -> void:
+	if domain == "" or (DccSettings.quick_bar_value("share") as Dictionary).is_empty():
+		return
+	var idx: CommandIndex = null   ## built once, on the first diagonal that has pins to resolve
+	for dir in QuickBarRing.DIAGONALS:
+		var row: Dictionary = slots.get(dir, {})
+		if row.is_empty() or not row.has("children"):
+			continue
+		var built: Array = row["children"]
+		if idx == null and not (DccSettings.quick_bar_share_pins(QuickBarRing.share_key(domain, dir)).is_empty()):
+			idx = CommandIndex.new()
+			idx.build(app, app.bridge)
+		var extra := QuickBarRing.shared_children(app, domain, dir, built.size(), idx)
+		if not extra.is_empty():
+			row["children"] = built + extra
 
 ## `map_overlay.gd`'s RMB press: local space, converted the same way
 ## `present()` converts a card's `screen_pos` above.
 func ring_press(local_pos: Vector2) -> void:
 	_ring_press_local = local_pos
 	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
-	_ensure_ring().arm(at, ring_collect(ring_domain_req()), false)
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), false, QuickBarRing.dock_items(app))
 
 ## CM-3 residual, continuous nested flick: `radial_ring.gd::pointer()` can now
 ## call its own `_open_sub()` directly (dragging PAST a `▸` slot, §5.2 rule 2),
@@ -567,7 +593,7 @@ func ring_key_press(local_pos: Vector2) -> void:
 		return
 	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
 	_ring_press_local = local_pos
-	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true)
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true, QuickBarRing.dock_items(app))
 
 ## Q key-up. Returns true when the key event should count as handled: either
 ## it picked something, or the ring is (still) open, sticky, waiting for a
@@ -608,7 +634,7 @@ func _on_ring_hold_fired() -> void:
 func ring_touch_open(local_pos: Vector2) -> void:
 	_ring_press_local = local_pos
 	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
-	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true)
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true, QuickBarRing.dock_items(app))
 	app._haptic("sample")   ## §7.1's own table: "sample haptic pulse (the table has it)"
 	var req: Dictionary = app.viewport.overlay.request_at(local_pos, "touch")
 	if not req.is_empty():

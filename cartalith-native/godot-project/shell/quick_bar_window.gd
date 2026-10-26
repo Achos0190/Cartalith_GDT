@@ -35,13 +35,25 @@ class_name QuickBarWindow
 ## footer counts them, so the list is not padded with colour swatches. A deliberate divergence
 ## from "every unpinnable row appears", disclosed here and in the scope.
 ##
-## ## What this milestone does not build (CQ-4 and later)
+## ## Three tabs, one catalogue (CQ-4)
 ##
-## The scope draws three tabs (Bar, Ring dock, Ring slots). Only **Bar** exists here, as a plain
-## page rather than a one-tab `TabContainer`: the other two edit lists that nothing draws until
-## CQ-4 puts the dock and the shared sub-rings on the ring, and a control that edits an invisible
-## list is the dead control this project forbids. CQ-4 adds the tabs with their consumers. The
-## phone gets no row for this window (`menus.gd`) until CQ-6 gives it a cluster to edit.
+## The scope draws three tabs (s.3.5). Milestone CQ-3 built only **Bar** because the other two edit
+## lists nothing drew; CQ-4 puts the dock and the shared sub-rings on the cartwheel
+## (`radial_ring.gd`, `quick_bar_ring.gd`), so it adds them here together with their consumers.
+## The tabs are a `TabBar` over ONE catalogue and ONE pins list: the tab only decides which stored
+## list the right-hand column edits and which cap applies.
+##
+##  * **Bar** -- the quick cluster, cap 24.
+##  * **Ring dock** -- up to 4 chips beneath the cartwheel, cap 4.
+##  * **Ring slots** -- a chooser over every diagonal of every domain. A diagonal that opens a
+##    sub-ring (`children`) accepts pins after its built-in children, capped so built-ins plus pins
+##    never exceed 9; the built-ins are listed read-only, read from the LIVE `ring_slots()` (so
+##    this tab needs a loaded world: before one, the real count is unknown and the tab says so
+##    instead of guessing). A diagonal that is a single tool (CARTO Label, CIVIL Route) is listed
+##    disabled with the reason it cannot share.
+##
+## The phone gets no row for this window (`menus.gd`) until CQ-6 gives it a cluster to edit, and the
+## phone has no cartwheel.
 
 ## A pin was added, removed, moved or the list was reset.
 signal pins_changed
@@ -62,10 +74,27 @@ var _down_btn: Button
 var _remove_btn: Button
 var _reset_btn: Button
 var _count: Label
+## The tab strip (Bar / Ring dock / Ring slots) and the list the right column edits.
+var _tabs: TabBar
+## "bar", "dock" or "share" -- which stored list `_pins_now()` reads and every action writes.
+var _target := "bar"
+## The one-line explanation under the tabs.
+var _tab_note: Label
+## Ring slots tab only: the diagonal chooser, the read-only list of that diagonal's built-in items,
+## and the rows behind the chooser's entries.
+var _diag: OptionButton
+var _builtin_lbl: Label
+var _diag_rows: Array = []
+## The selected diagonal's `<domain>.<DIR>` key (or "" with none), and how many built-in children it
+## has now (-1 for a single-tool diagonal).
+var _share_key := ""
+var _share_builtin := -1
 var _foot: Label
 var _msg: Label
 var _detail: Label
 var _reset_dlg: ConfirmationDialog
+## The inset container holding everything; sized by `_fit_content`.
+var _content: MarginContainer
 ## Row dictionaries parallel to `_catalogue`'s items (`{}` for a placeholder line).
 var _cat_rows: Array = []
 ## Pin keys parallel to `_pins_list`'s items.
@@ -96,16 +125,17 @@ static func count_picker_rows(rows: Array) -> int:
 			n += 1
 	return n
 
-## The text of one catalogue row: `Group › Title`, then `· on the bar` when pinned, or the reason
-## it cannot be pinned (cut to `MAX_REASON_CHARS`; the whole reason is the tooltip).
-static func row_text(row: Dictionary, is_pinned: bool) -> String:
+## The text of one catalogue row: `Group › Title`, then `· on the <where>` when pinned in the list
+## being edited (`where` is "bar", "ring dock" or "sub-ring"), or the reason it cannot be pinned (cut
+## to `MAX_REASON_CHARS`; the whole reason is the tooltip).
+static func row_text(row: Dictionary, is_pinned: bool, where: String = "bar") -> String:
 	var t := "%s  ›  %s" % [String(row["group"]), String(row["title"])]
 	if not bool(row.get("pinnable", false)):
 		var why := String(row.get("why_not", ""))
 		if why.length() > MAX_REASON_CHARS:
 			why = why.substr(0, MAX_REASON_CHARS - 1) + "…"
 		return "%s  --  %s" % [t, why]
-	return t + ("  ·  on the bar" if is_pinned else "")
+	return t + (("  ·  on the %s" % where) if is_pinned else "")
 
 ## Why `row` cannot be added right now, or "" when it can. Only the row's OWN state is judged
 ## here (a placeholder, or unpinnable); "already pinned" and "the bar is full" are
@@ -133,8 +163,10 @@ static func pin_text(row: Dictionary, stored_title: String, pin_key: String) -> 
 func setup(a) -> void:
 	app = a
 	title = "Quick bar"
-	size = Vector2i(820, 580)
-	min_size = Vector2i(660, 440)
+	## Taller than CQ-3's 580 x 440: the tab strip and its note add about 70 px, and at 580 the Add
+	## button and the footer fell below the window's bottom edge (the CQ-4 probe's first screenshot).
+	size = Vector2i(820, 660)
+	min_size = Vector2i(660, 520)
 	DccWidgets.phone_window(self, a)
 	get_ok_button().text = "Close"
 	var tablet := DccTheme.is_tablet()
@@ -147,6 +179,24 @@ func setup(a) -> void:
 	lead.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lead.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(lead)
+	_tabs = TabBar.new()
+	_tabs.name = "Tabs"
+	_tabs.add_tab("Bar")
+	_tabs.add_tab("Ring dock")
+	_tabs.add_tab("Ring slots")
+	_tabs.focus_mode = Control.FOCUS_ALL
+	if tablet:
+		_tabs.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
+	_tabs.tab_changed.connect(func(_i: int): _on_tab_changed())
+	root.add_child(_tabs)
+	_tab_note = DccTheme.label("", "text_secondary", DccTheme.FS_SMALL)
+	_tab_note.name = "TabNote"
+	_tab_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tab_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Width floor: an autowrap label measures its minimum height at its current width (1 px before the
+	## first layout) -- see `_builtin_lbl`.
+	_tab_note.custom_minimum_size = Vector2(320, 0)
+	root.add_child(_tab_note)
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 14)
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -194,6 +244,29 @@ func setup(a) -> void:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cols.add_child(right)
+	_diag = OptionButton.new()
+	_diag.name = "Diagonal"
+	_diag.focus_mode = Control.FOCUS_ALL
+	_diag.add_theme_font_override("font", DccTheme.mono(0))
+	_diag.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	_diag.fit_to_longest_item = false
+	_diag.clip_text = false
+	_diag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if tablet:
+		_diag.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
+	_diag.item_selected.connect(func(_i: int): _on_diagonal_selected())
+	_diag.visible = false
+	right.add_child(_diag)
+	_builtin_lbl = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
+	_builtin_lbl.name = "Builtin"
+	_builtin_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_builtin_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## An autowrap label reports its minimum height at its CURRENT width, which is 1 px until it is laid
+	## out: a long built-in list then measured 1 152 px and the dialog grew to 3 700 px, pushing Add and
+	## the footer out of sight (found by the CQ-4 probe). A width floor stops that.
+	_builtin_lbl.custom_minimum_size = Vector2(240, 0)
+	_builtin_lbl.visible = false
+	right.add_child(_builtin_lbl)
 	_count = DccTheme.mono_label("", "text_dim", DccTheme.FS_HEADER, 1)
 	_count.name = "Count"
 	right.add_child(_count)
@@ -230,6 +303,7 @@ func setup(a) -> void:
 ## dialog is a `Window`, so this builds the same four-margin container directly).
 func _inset() -> MarginContainer:
 	var m := MarginContainer.new()
+	_content = m
 	for side in ["left", "right"]:
 		m.add_theme_constant_override("margin_" + side, 14)
 	for side in ["top", "bottom"]:
@@ -294,21 +368,172 @@ func open() -> void:
 	_msg.text = ""
 	_search.text = ""
 	_show_unpinnable.set_pressed_no_signal(false)
+	_tabs.set_current_tab(0)
+	_target = "bar"
 	_rebuild_all()
 	popup_centered()
 	_search.grab_focus.call_deferred()
+	## Follow the user's own resizes of the dialog from now on. Connected here, not in `setup()`:
+	## connected at boot it changed the PHONE's CARTO layout (the `_quickbar_ringid_probe.gd` phone run
+	## differed by 26 014 px, and by none with this one line removed), for a window the phone never opens.
+	if not size_changed.is_connected(_fit_content):
+		size_changed.connect(_fit_content)
+	## After the dialog's own first layout (a deferred call ran too early and was overwritten).
+	await get_tree().process_frame
+	_fit_content()
+
+## Sizes the content to the dialog. The content is first laid out while its autowrap labels are 1 px
+## wide, which measures them thousands of pixels tall, and `AcceptDialog` then leaves it at that size
+## (measured on `open()` with the full catalogue: content 3 147 px tall in a 660 px window, so the Add
+## button and the footer sat at y = 3 073, below the window's bottom edge, out of sight and out of
+## reach of a click; the very same happens in CQ-3's 580 px window, which its probe never saw because
+## it searched first, leaving a short list). The content's minimum is only 439 px; setting its size
+## by hand is what fixes it (measured: Add at y = 486). It stops at the top of the Close row.
+func _fit_content() -> void:
+	if _content == null or not visible:
+		return
+	var row: Control = get_ok_button().get_parent() as Control
+	var bottom := row.position.y if row != null else float(size.y)
+	_content.size = Vector2(float(size.x) - _content.position.x * 2.0, bottom - _content.position.y)
 
 ## Rebuilds the index and both lists. The index is rebuilt (not cached) so a pin's "not in this
 ## build" state and every row's availability are those of the moment, not of the last open.
 func _rebuild_all() -> void:
 	_idx = CommandIndex.new()
 	_idx.build(app, app.bridge)
+	_render_diagonals()
+	_apply_target_chrome()
 	_render_catalogue()
 	_render_pins()
 
+# -- the three targets (CQ-4) ---------------------------------------------------------------
+
+## The stored list the right-hand column is editing, in order.
+func _pins_now() -> Array:
+	match _target:
+		"dock":
+			return DccSettings.quick_bar_value("dock")
+		"share":
+			return DccSettings.quick_bar_share_pins(_share_key)
+	return DccSettings.quick_bar_value("bar")
+
+## The word the catalogue puts after `on the` for a command already in the edited list.
+func _where() -> String:
+	match _target:
+		"dock":
+			return "ring dock"
+		"share":
+			return "sub-ring"
+	return "bar"
+
+## The cap of the edited list right now (24, 4, or the diagonal's allowance).
+func _cap_now() -> int:
+	match _target:
+		"dock":
+			return DccSettings.QUICK_BAR_MAX_DOCK
+		"share":
+			return DccSettings.quick_bar_share_allowance(maxi(0, _share_builtin)) if _share_builtin >= 0 else 0
+	return DccSettings.QUICK_BAR_MAX_BAR
+
+## A tab was chosen: switch the edited list, redraw both columns.
+func _on_tab_changed() -> void:
+	_target = ["bar", "dock", "share"][clampi(_tabs.current_tab, 0, 2)]
+	_msg.text = ""
+	_render_diagonals()
+	_apply_target_chrome()
+	_render_catalogue()
+	_render_pins()
+
+## Shows or hides the diagonal chooser and writes the explanation line for the current tab.
+func _apply_target_chrome() -> void:
+	_diag.visible = _target == "share"
+	_builtin_lbl.visible = _target == "share"
+	match _target:
+		"bar":
+			_tab_note.text = "Pins on the bar beside the tool palette."
+		"dock":
+			_tab_note.text = "Up to %d chips under the cartwheel, beside its eight slots (never replacing one). A quick flick never selects them." % DccSettings.QUICK_BAR_MAX_DOCK
+		"share":
+			_tab_note.text = "Pins go after a diagonal's built-in items (a sub-ring places at most %d). Single-tool diagonals cannot share." % DccSettings.QUICK_BAR_MAX_SHARE
+	_tab_note.visible = true
+
+## Fills the diagonal chooser from the live rings: one entry per domain and diagonal, a single-tool
+## diagonal or one that cannot be read yet disabled with the reason in its own text. Keeps the
+## selected diagonal selected when it is still listed, else picks the first that can share.
+func _render_diagonals() -> void:
+	var keep := _share_key
+	_diag.clear()
+	_diag_rows.clear()
+	var world: bool = app.bridge != null and app.bridge.has_world
+	for d in QuickBarRing.DOMAINS:
+		var built: Dictionary = QuickBarRing.builtin_diagonals(app, d)
+		for dir in QuickBarRing.DIAGONALS:
+			var key := QuickBarRing.share_key(d, dir)
+			var head := "%s · %s" % [String(QuickBarRing.DOMAIN_NAMES.get(d, d)), dir]
+			var row := {"key": key, "domain": d, "dir": dir, "children": -2, "label": dir}
+			var text := ""
+			var usable := false
+			if not built.has(dir):
+				text = "%s  --  %s" % [head, "load a world to read this ring" if not world else "no ring here"]
+			else:
+				var b: Dictionary = built[dir]
+				row["label"] = String(b["label"])
+				row["children"] = int(b["children"])
+				if int(b["children"]) < 0:
+					text = "%s · %s  --  a single tool with no sub-ring: cannot share" % [head, String(b["label"])]
+				else:
+					var n := DccSettings.quick_bar_share_pins(key).size()
+					text = "%s · %s  --  %d built-in, %d of %d pinned" % [head, String(b["label"]), int(b["children"]), n, DccSettings.quick_bar_share_allowance(int(b["children"]))]
+					usable = true
+			var i := _diag.item_count
+			_diag.add_item(text)
+			_diag.set_item_disabled(i, not usable)
+			_diag_rows.append(row)
+	var at := -1
+	for i in _diag_rows.size():
+		if _diag.is_item_disabled(i):
+			continue
+		if at < 0:
+			at = i
+		if String(_diag_rows[i]["key"]) == keep:
+			at = i
+			break
+	if at >= 0:
+		_diag.select(at)
+		_share_key = String(_diag_rows[at]["key"])
+		_share_builtin = int(_diag_rows[at]["children"])
+	else:
+		_diag.select(-1)
+		_share_key = ""
+		_share_builtin = -1
+	_update_builtin_label()
+
+## The chooser changed.
+func _on_diagonal_selected() -> void:
+	var i := _diag.selected
+	if i < 0 or i >= _diag_rows.size():
+		return
+	_share_key = String(_diag_rows[i]["key"])
+	_share_builtin = int(_diag_rows[i]["children"])
+	_msg.text = ""
+	_update_builtin_label()
+	_render_catalogue()
+	_render_pins()
+
+## The read-only list of the selected diagonal's built-in children (or why there is none).
+func _update_builtin_label() -> void:
+	if _share_key == "":
+		var world: bool = app.bridge != null and app.bridge.has_world
+		_builtin_lbl.text = "Load or generate a world first: a diagonal's built-in items are read from the live ring, and how many more fit depends on them." if not world \
+			else "No diagonal can share a sub-ring here."
+		return
+	var parts := _share_key.split(".")
+	var kids := QuickBarRing.builtin_child_labels(app, parts[0], parts[1])
+	_builtin_lbl.text = "Built in, always first (%d): %s" % [kids.size(), ", ".join(PackedStringArray(kids))]
+
 func _pinned_keys() -> Dictionary:
 	var out := {}
-	for p in DccSettings.quick_bar_value("bar"):
+	for p in _pins_now():
 		out[String(p["k"])] = true
 	return out
 
@@ -328,7 +553,7 @@ func _render_catalogue() -> void:
 	var reselect := -1
 	for r in rows:
 		var is_pinned := pinned.has(String(r["pin_key"]))
-		var i := _catalogue.add_item(row_text(r, is_pinned))
+		var i := _catalogue.add_item(row_text(r, is_pinned, _where()))
 		_cat_rows.append(r)
 		var pinnable := bool(r.get("pinnable", false))
 		_catalogue.set_item_disabled(i, not pinnable)
@@ -357,7 +582,7 @@ func _render_pins(select_key: String = "") -> void:
 		var sel := _pins_list.get_selected_items()
 		if sel.size() > 0 and sel[0] < _pin_keys.size():
 			keep = String(_pin_keys[sel[0]])
-	var pins: Array = DccSettings.quick_bar_value("bar")
+	var pins: Array = _pins_now()
 	_pins_list.clear()
 	_pin_keys.clear()
 	var at := -1
@@ -374,7 +599,13 @@ func _render_pins(select_key: String = "") -> void:
 			at = i
 	if at >= 0:
 		_pins_list.select(at)
-	_count.text = "ON THE BAR  %d / %d" % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]
+	match _target:
+		"dock":
+			_count.text = "ON THE RING DOCK  %d / %d" % [pins.size(), _cap_now()]
+		"share":
+			_count.text = ("ON %s  %d / %d" % [_share_key.to_upper(), pins.size(), _cap_now()]) if _share_key != "" else "NO DIAGONAL"
+		_:
+			_count.text = "ON THE BAR  %d / %d" % [pins.size(), _cap_now()]
 	_sync_buttons()
 
 ## The detail line under the catalogue and the Add button's state follow the selected row.
@@ -424,7 +655,7 @@ func _add_selected() -> String:
 func add_row(row: Dictionary) -> String:
 	var why := add_refusal(row)
 	if why == "":
-		why = DccSettings.quick_bar_add("bar", String(row["pin_key"]), String(row["title"]))
+		why = _add_to_target(String(row["pin_key"]), String(row["title"]))
 	if why != "":
 		_say(why)
 		return why
@@ -432,12 +663,36 @@ func add_row(row: Dictionary) -> String:
 	_changed(String(row["pin_key"]))
 	return ""
 
+## Appends to the edited list through `DccSettings`, whose caps and sentences are the store's: ""
+## on success, else the sentence to show. A diagonal that cannot share is refused here with the
+## chooser's own reason (the store refuses a leaf too, but the window knows which one is chosen).
+func _add_to_target(pin_key: String, title: String) -> String:
+	match _target:
+		"dock":
+			return DccSettings.quick_bar_add("dock", pin_key, title)
+		"share":
+			if _share_key == "":
+				return "Load a world, then choose a diagonal that opens a sub-ring."
+			return DccSettings.quick_bar_share_add(_share_key, pin_key, title, _share_builtin)
+	return DccSettings.quick_bar_add("bar", pin_key, title)
+
+## `quick_bar_move` / `_remove` for the edited list.
+func _move_in_target(key: String, delta: int) -> bool:
+	if _target == "share":
+		return DccSettings.quick_bar_share_move(_share_key, key, delta)
+	return DccSettings.quick_bar_move("dock" if _target == "dock" else "bar", key, delta)
+
+func _remove_in_target(key: String) -> bool:
+	if _target == "share":
+		return DccSettings.quick_bar_share_remove(_share_key, key)
+	return DccSettings.quick_bar_remove("dock" if _target == "dock" else "bar", key)
+
 func _move(delta: int) -> bool:
 	var i := _selected_pin_index()
 	if i < 0:
 		return false
 	var key := String(_pin_keys[i])
-	if not DccSettings.quick_bar_move("bar", key, delta):
+	if not _move_in_target(key, delta):
 		return false
 	_say("", "text_secondary")
 	_changed(key)
@@ -449,7 +704,7 @@ func _remove_selected() -> bool:
 		return false
 	var key := String(_pin_keys[i])
 	var title := String(_pins_list.get_item_text(i))
-	if not DccSettings.quick_bar_remove("bar", key):
+	if not _remove_in_target(key):
 		return false
 	_say("Removed %s." % title.get_slice("  --  ", 0), "text_secondary")
 	## Select the neighbour that slides into the gap, so repeated Delete clears the list
@@ -469,20 +724,30 @@ func _neighbour_after_remove(i: int) -> String:
 func _ask_reset() -> void:
 	var n := _pin_keys.size()
 	if n == 0:
-		_say("The quick bar is already empty.")
+		_say("The %s is already empty." % ("quick bar" if _target == "bar" else _where()))
 		return
-	_reset_dlg.dialog_text = "Remove all %d pins from the quick bar? The commands themselves are not affected." % n
+	_reset_dlg.dialog_text = "Remove all %d pins from the %s? The commands themselves are not affected." % [n, "quick bar" if _target == "bar" else ("ring dock" if _target == "dock" else "sub-ring %s" % _share_key)]
 	_reset_dlg.popup_centered()
 
 ## Writes the EMPTY list (not "no write": clearing the last pin must persist, or an old list
 ## reappears on reload, scope s.3.4). Reached only through the confirmation dialog.
 func _do_reset() -> void:
-	if DccSettings.set_quick_bar_value("bar", []):
-		_say("The quick bar is empty.", "text_secondary")
+	var ok := false
+	match _target:
+		"dock":
+			ok = DccSettings.set_quick_bar_value("dock", [])
+		"share":
+			ok = DccSettings.quick_bar_share_clear(_share_key)
+		_:
+			ok = DccSettings.set_quick_bar_value("bar", [])
+	if ok:
+		_say("The %s is empty." % ("quick bar" if _target == "bar" else _where()), "text_secondary")
 		_changed("")
 
 ## Common tail of every change: re-render both lists, tell the shell.
 func _changed(select_key: String) -> void:
+	if _target == "share":
+		_render_diagonals()
 	_render_catalogue()
 	_render_pins(select_key)
 	pins_changed.emit()

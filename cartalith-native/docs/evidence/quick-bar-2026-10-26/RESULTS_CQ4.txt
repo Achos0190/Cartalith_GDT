@@ -1,0 +1,321 @@
+CQ-4 probe results, 2026-10-26, from a scratch worktree (C:/cw/cq5) with its own config/name and a wiped user dir. Commands are in each probe's header.
+
+== _quickbar_ring_probe ringf_desktop
+== 0. shipped default ==
+== mode desktop, viewport (1600.0, 1000.0) ==
+== 0b. empty: the ring is the compass alone ==
+== 1. the window's Ring dock and Ring slots tabs ==
+== 2. dock geometry ==
+== 3. a slow drag onto a dock chip runs it; 4. a flick never does ==
+== 5. a docked pin whose command is gone ==
+== 6. the dock is never clipped at an edge ==
+== 7. the context card clears the dock ==
+== 8. shared sub-rings ==
+RESULT: PASS (0 failed, 164 checks)
+
+== _quickbar_ring_probe ringf_tablet
+== 0. shipped default ==
+== mode tablet, viewport (1280.0, 800.0) ==
+== 0b. empty: the ring is the compass alone ==
+== 1. the window's Ring dock and Ring slots tabs ==
+== 2. dock geometry ==
+== 3. a slow drag onto a dock chip runs it; 4. a flick never does ==
+== 5. a docked pin whose command is gone ==
+== 6. the dock is never clipped at an edge ==
+== 7. the context card clears the dock ==
+== 8. shared sub-rings ==
+RESULT: PASS (0 failed, 165 checks)
+
+== _quickbar_ring_probe ringf_phone
+== 0. shipped default ==
+== mode phone, viewport (393.0, 852.0) ==
+== phone: no cartwheel, so no dock and no window row ==
+RESULT: PASS (0 failed, 4 checks)
+
+== _quickbar_ring_probe desktop, full output
+== 0. shipped default ==
+  ok    the dock and share stores are empty at launch (the user dir was wiped)
+== mode desktop, viewport (1600.0, 1000.0) ==
+  ok    four distinct pinnable dock pins found: ["menu:45", "menu:726", "menu:902", "menu:10"]
+== 0b. empty: the ring is the compass alone ==
+  ok    a ring opens
+  ok    no dock count and no dock rects with nothing docked
+  ok    exactly the 8 compass slots: ["E", "N", "NE", "NW", "S", "SE", "SW", "W"]
+  ok    with the four fixed cardinals Inspect / Measure / Undo / Region
+== 1. the window's Ring dock and Ring slots tabs ==
+  ok    the window has three tabs
+  ok    named Bar, Ring dock, Ring slots
+  ok    the Add button and the footer are inside the window on the Ring dock tab (add [P: (14.0, 557.0), S: (432.0, 24.0)], window [P: (0.0, 0.0), S: (820.0, 660.0)])
+  ok    a real click on the Ring dock tab switches to it: 'ON THE RING DOCK  0 / 4'
+  ok    the diagonal chooser is hidden on this tab
+  ok    four real add clicks stored the dock in order: ["menu:45", "menu:726", "menu:902", "menu:10"]
+  ok    count reads 4 / 4: 'ON THE RING DOCK  4 / 4'
+  ok    a 5th dock pin is refused with the store's sentence and stores nothing: 'The ring dock holds at most 4 pins; remove one first.'
+  ok    the Up button moved pin 3 above pin 2: ["menu:45", "menu:902", "menu:726", "menu:10"]
+  ok    the Down button moved it back
+  ok    the Remove button removed the last pin: ["menu:45", "menu:726", "menu:902"]
+  ok    the dock survives a reload of the settings file from disk
+  ok    and adds back to four
+  ok    nothing leaked into the bar list
+  ok    and on the Ring slots tab, with the chooser showing (add [P: (14.0, 557.0), S: (412.0, 24.0)])
+  ok    the Ring slots tab shows the diagonal chooser
+  ok    12 diagonals are listed (3 domains x 4): 12
+  ok    a disabled entry says why: Civilization · SW · Route  --  a single tool with no sub-ring: cannot share
+  ok    a disabled entry says why: Cartography · NW · Label  --  a single tool with no sub-ring: cannot share
+  ok    two single-tool diagonals disabled, ten shareable: 2 / 10
+  ok    World SE reports 8 built-in children (8)
+  ok    Cartography SW reports 7 built-in children (7)
+  ok    World SE chosen: 'ON WORLD.SE  0 / 1'
+  ok    its built-in items are listed read-only: Built in, always first (8): Raise, Lower, Smooth, Cliff, Rid
+  ok    one pin added to World SE
+  ok    a second is refused, naming the allowance: 'That sub-ring has 8 built-in items, so at most 1 more fit (a ring places 9); remove one first.'
+  ok    Cartography SW takes 2 and refuses the 3rd: 'That sub-ring has 7 built-in items, so at most 2 more fit (a ring places 9); remove one first.'
+  ok    the store refuses a pin on the single-tool Label slot: 'That slot is a single tool with no sub-ring, so it cannot share one.'
+  ok    share cleared for the ring sections
+== 2. dock geometry ==
+  ok    four chips with four docked pins (4)
+  ok    four rects
+  ok    every chip sits below the disc's lower edge (disc 134 px, first chip top 157 px below the centre)
+  ok    chips do not overlap one another
+  ok    desktop: chips are the scope's 40 px tall (40)
+== 3. a slow drag onto a dock chip runs it; 4. a flick never does ==
+  ok    the vault window is closed before the gestures
+  ok    the flick lasted 0 ms from press to release (bar: 150)
+  ok    the flick never drew the ring (visible=false)
+  ok    no dock chip was hovered during the flick
+  ok    and the vault did not open: a flick never selects a dock chip
+  ok    the flick was read as the compass flick toward SW (its sub-ring is open), not as a dock pick
+  ok    the slow drag drew the ring
+  ok    the pointer is over dock chip 0 (hover 0)
+  ok    the caption names the chip's full title: 'Dock · Markdown vault'
+  ok    releasing over it ran the pinned command: the vault window opened
+  ok    and closed the ring
+  ok    chip 3 hovered with its own title: 'Dock · Quick bar'
+== 5. a docked pin whose command is gone ==
+  ok    stored 2 dock pins
+  ok    two chips
+  ok    hovering the ghost chip says why: 'Dock · ghost  — Not in this build'
+  ok    a click on it runs nothing and closes the ring
+  ok    the pin is kept, not deleted
+== 6. the dock is never clipped at an edge ==
+  ok    stored 4 dock pins
+  ok    top edge: all 4 chips inside the window (1600.0, 1000.0) (centre (845.0001, 164.0))
+  ok    top edge: the disc is inside too
+  ok    bottom edge: all 4 chips inside the window (1600.0, 1000.0) (centre (845.0001, 797.0))
+  ok    bottom edge: the disc is inside too
+  ok    left edge: all 4 chips inside the window (1600.0, 1000.0) (centre (285.0, 545.0))
+  ok    left edge: the disc is inside too
+  ok    right edge: all 4 chips inside the window (1600.0, 1000.0) (centre (1405.0, 545.0))
+  ok    right edge: the disc is inside too
+  ok    top-left edge: all 4 chips inside the window (1600.0, 1000.0) (centre (285.0, 164.0))
+  ok    top-left edge: the disc is inside too
+  ok    bottom-right edge: all 4 chips inside the window (1600.0, 1000.0) (centre (1405.0, 797.0))
+  ok    bottom-right edge: the disc is inside too
+  ok    dock emptied
+  ok    positive control: at the bottom edge the docked ring sits 39 px higher than the dock-less one
+  ok    and the emptied dock leaves no rects
+  ok    stored 4 dock pins
+  ok    dock emptied again
+  ok    the top edge is unaffected by the dock (same centre y 164.0)
+== 7. the context card clears the dock ==
+  ok    stored 4 dock pins
+  ok    ring and card are both open
+  ok    the card [P: (977.0, 551.0), S: (294.0, 342.0)] overlaps no dock chip and no slot
+== 8. shared sub-rings ==
+  ok    dock emptied
+  ok    10 shareable diagonals and 2 single-tool ones: 10 / ["civilization.SW", "cartography.NW"]
+  ok    the single-tool ones are Cartography Label and Civilization Route
+  ok    world.NW: 6 built in + 3 pinned = 9
+  ok    world.NW: pin number 10 is refused: 'That sub-ring has 6 built-in items, so at most 3 more fit (a ring places 9); remove one first.'
+  ok    world.NE: 6 built in + 3 pinned = 9
+  ok    world.NE: pin number 10 is refused: 'That sub-ring has 6 built-in items, so at most 3 more fit (a ring places 9); remove one first.'
+  ok    world.SE: 8 built in + 1 pinned = 9
+  ok    world.SE: pin number 10 is refused: 'That sub-ring has 8 built-in items, so at most 1 more fit (a ring places 9); remove one first.'
+  ok    world.SW: 3 built in + 6 pinned = 9
+  ok    world.SW: pin number 10 is refused: 'That sub-ring has 3 built-in items, so at most 6 more fit (a ring places 9); remove one first.'
+  ok    civilization.NW: 5 built in + 4 pinned = 9
+  ok    civilization.NW: pin number 10 is refused: 'That sub-ring has 5 built-in items, so at most 4 more fit (a ring places 9); remove one first.'
+  ok    civilization.NE: 2 built in + 7 pinned = 9
+  ok    civilization.NE: pin number 10 is refused: 'That sub-ring has 2 built-in items, so at most 7 more fit (a ring places 9); remove one first.'
+  ok    civilization.SE: 4 built in + 5 pinned = 9
+  ok    civilization.SE: pin number 10 is refused: 'That sub-ring has 4 built-in items, so at most 5 more fit (a ring places 9); remove one first.'
+  ok    cartography.NE: 4 built in + 5 pinned = 9
+  ok    cartography.NE: pin number 10 is refused: 'That sub-ring has 4 built-in items, so at most 5 more fit (a ring places 9); remove one first.'
+  ok    cartography.SE: 8 built in + 1 pinned = 9
+  ok    cartography.SE: pin number 10 is refused: 'That sub-ring has 8 built-in items, so at most 1 more fit (a ring places 9); remove one first.'
+  ok    cartography.SW: 7 built in + 2 pinned = 9
+  ok    cartography.SW: pin number 10 is refused: 'That sub-ring has 7 built-in items, so at most 2 more fit (a ring places 9); remove one first.'
+  ok    a 9-pin list for World SE is storable (the store only knows the 9 cap)
+  ok    world: still exactly 8 compass slots with shares stored
+  ok    world.NW: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    world.NW: the 6 built-in children are first, in order and untouched
+  ok    world.NW: everything after them is a pinned child
+  ok    world: still exactly 8 compass slots with shares stored
+  ok    world.NE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    world.NE: the 6 built-in children are first, in order and untouched
+  ok    world.NE: everything after them is a pinned child
+  ok    world: still exactly 8 compass slots with shares stored
+  ok    world.SE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    world.SE: the 8 built-in children are first, in order and untouched
+  ok    world.SE: everything after them is a pinned child
+  ok    world: still exactly 8 compass slots with shares stored
+  ok    world.SW: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    world.SW: the 3 built-in children are first, in order and untouched
+  ok    world.SW: everything after them is a pinned child
+  ok    civilization: still exactly 8 compass slots with shares stored
+  ok    civilization.NW: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    civilization.NW: the 5 built-in children are first, in order and untouched
+  ok    civilization.NW: everything after them is a pinned child
+  ok    civilization: still exactly 8 compass slots with shares stored
+  ok    civilization.NE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    civilization.NE: the 2 built-in children are first, in order and untouched
+  ok    civilization.NE: everything after them is a pinned child
+  ok    civilization: still exactly 8 compass slots with shares stored
+  ok    civilization.SE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    civilization.SE: the 4 built-in children are first, in order and untouched
+  ok    civilization.SE: everything after them is a pinned child
+  ok    cartography: still exactly 8 compass slots with shares stored
+  ok    cartography.NE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    cartography.NE: the 4 built-in children are first, in order and untouched
+  ok    cartography.NE: everything after them is a pinned child
+  ok    cartography: still exactly 8 compass slots with shares stored
+  ok    cartography.SE: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    cartography.SE: the 8 built-in children are first, in order and untouched
+  ok    cartography.SE: everything after them is a pinned child
+  ok    cartography: still exactly 8 compass slots with shares stored
+  ok    cartography.SW: the ring places exactly 9 children (9), the hand-edited overfill was cut
+  ok    cartography.SW: the 7 built-in children are first, in order and untouched
+  ok    cartography.SW: everything after them is a pinned child
+  ok    world.NW: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    world.NE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    world.SE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    world.SW: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    civilization.NW: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    civilization.NE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    civilization.SE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    cartography.NE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    cartography.SE: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    cartography.SW: 9 slots open and the closest pair is 57.5 px apart (slot 56.0)
+  ok    positive control: a ten-child ring packs its closest pair to 51.9 px, under the 56.0 slot size
+  ok    a hand-written pin for CARTO Label is storable
+  ok    CARTO Label is still a single tool with no sub-ring
+  ok    World SW: vault + a ghost pinned (3 built in + 2 = 5, under the ceiling)
+  ok    World SW now has 3 + 2 children (5)
+  ok    the unavailable child's caption says why: 'Paint ▸ Gone command  (pinned)  — Not in this build'
+  ok    a real click on it runs nothing and closes the ring (vault open: false, ring active: false)
+  ok    the pinned child's caption: 'Paint ▸ Markdown vault  (pinned)'
+  ok    a real click on the shared child ran its command: the vault window opened
+  ok    share cleared
+  ok    and World SW is back to its 3 built-in children
+RESULT: PASS (0 failed, 164 checks)
+
+== _quickbar_ringid_probe idh_desktop (this tree vs two pristine captures of 9a83061c)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 14608 px
+ID edge world bottom centre=(845.0001, 836.0)
+ID edge world top centre=(845.0001, 164.0)
+ID edge civilization bottom centre=(845.0001, 836.0)
+ID edge civilization top centre=(845.0001, 164.0)
+ID edge cartography bottom centre=(845.0001, 836.0)
+ID edge cartography top centre=(845.0001, 164.0)
+ID same   world/open                   ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_E                ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_W                ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/sub_NE                 ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_bottom            ring region [P: (607, 598), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_top               ring region [P: (607, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/open            ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/hover_E         ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/sub_NE          ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_bottom     ring region [P: (607, 598), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_top        ring region [P: (607, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/open             ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/hover_E          ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/sub_NE           ring region [P: (607, 307), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_bottom      ring region [P: (607, 598), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_top         ring region [P: (607, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: desktop)
+
+== _quickbar_ringid_probe idh_tablet (this tree vs two pristine captures of 9a83061c)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 32803 px
+ID edge world bottom centre=(664.0, 564.98)
+ID edge world top centre=(664.0, 235.02)
+ID edge civilization bottom centre=(664.0, 564.98)
+ID edge civilization top centre=(664.0, 235.02)
+ID edge cartography bottom centre=(664.0, 564.98)
+ID edge cartography top centre=(664.0, 235.02)
+ID same   world/open                   ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_E                ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_W                ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/sub_NE                 ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_bottom            ring region [P: (312, 213), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_top               ring region [P: (312, -116), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/open            ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/hover_E         ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/sub_NE          ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_bottom     ring region [P: (312, 213), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_top        ring region [P: (312, -116), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/open             ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/hover_E          ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/sub_NE           ring region [P: (312, 112), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_bottom      ring region [P: (312, 213), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_top         ring region [P: (312, -116), S: (702, 762)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: tablet)
+
+== _quickbar_ringid_probe idh_phone (this tree vs two pristine captures of 9a83061c)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 14605 px
+ID edge world bottom centre=(196.4999, 688.0)
+ID edge world top centre=(196.4999, 164.0)
+ID edge civilization bottom centre=(196.4999, 688.0)
+ID edge civilization top centre=(196.4999, 164.0)
+ID edge cartography bottom centre=(196.4999, 688.0)
+ID edge cartography top centre=(196.4999, 164.0)
+ID same   world/open                   ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_E                ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_W                ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/sub_NE                 ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_bottom            ring region [P: (-41, 450), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_top               ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/open            ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/hover_E         ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/sub_NE          ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID DIFFER civilization/edge_bottom     ring region [P: (-41, 450), S: (476, 536)]: 17712 differing px | whole window outside the mask: 17712, bbox [P: (73, 655), S: (248, 72)] | dynamic mask 0 px
+ID same   civilization/edge_top        ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 13024, bbox [P: (73, 548), S: (248, 179)] | dynamic mask 17704 px
+ID DIFFER cartography/open             ring region [P: (-41, 187), S: (476, 536)]: 26014 differing px | whole window outside the mask: 26014, bbox [P: (73, 548), S: (248, 114)] | dynamic mask 0 px
+ID DIFFER cartography/hover_E          ring region [P: (-41, 187), S: (476, 536)]: 26014 differing px | whole window outside the mask: 26014, bbox [P: (73, 548), S: (248, 114)] | dynamic mask 0 px
+ID DIFFER cartography/sub_NE           ring region [P: (-41, 187), S: (476, 536)]: 26014 differing px | whole window outside the mask: 26014, bbox [P: (73, 548), S: (248, 114)] | dynamic mask 0 px
+ID DIFFER cartography/edge_bottom      ring region [P: (-41, 450), S: (476, 536)]: 26014 differing px | whole window outside the mask: 26014, bbox [P: (73, 548), S: (248, 114)] | dynamic mask 0 px
+ID same   cartography/edge_top         ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 26014, bbox [P: (73, 548), S: (248, 114)] | dynamic mask 0 px
+RESULT: DIFFERS 11/16 states (0 differing pixels required; this mode: phone)
+
+== mutation (ring probe desktop; id mutants against the pristine captures)
+MUTANT clamp      KILLED  ['RESULT: FAIL (3 failed, 164 checks)']  first fails: ['  FAIL  bottom edge: all 4 chips inside the window (1600.0, 1000.0) (centre (845.0001, 836.0))', '  FAIL  bottom-ri
+MUTANT dockcap    KILLED  ['RESULT: FAIL (8 failed, 165 checks)']  first fails: ["  FAIL  a real click on the Ring dock tab switches to it: 'ON THE RING DOCK  0 / 5'", "  FAIL  count reads 4 / 4: '
+MUTANT dockread   KILLED  ['RESULT: FAIL (22 failed, 158 checks)']  first fails: ['  FAIL  four real add clicks stored the dock in order: []', "  FAIL  count reads 4 / 4: 'ON THE RING DOCK  0 / 4'
+MUTANT flick      KILLED  ['RESULT: FAIL (2 failed, 164 checks)']  first fails: ['  FAIL  and the vault did not open: a flick never selects a dock chip', '  FAIL  the flick was read as the compass 
+MUTANT funnel     KILLED  ['RESULT: FAIL (6 failed, 161 checks)']  first fails: ['  FAIL  Cartography SW takes 2 and refuses the 3rd: \'Pinned "Journey planner".\'', '  FAIL  four rects']
+MUTANT idclamp    KILLED  ['RESULT: DIFFERS 13/16 states (0 differing pixels required; this mode: desktop)']  first fails: []
+MUTANT iddraw     KILLED  ['RESULT: DIFFERS 0/16 states (0 differing pixels required; this mode: desktop)']  first fails: []
+MUTANT idsub      KILLED  ['RESULT: DIFFERS 13/16 states (0 differing pixels required; this mode: desktop)']  first fails: []
+MUTANT leafshare  KILLED  ['RESULT: FAIL (1 failed, 164 checks)']  first fails: ["  FAIL  the store refuses a pin on the single-tool Label slot: ''"]
+MUTANT order      KILLED  ['RESULT: FAIL (23 failed, 164 checks)']  first fails: ['  FAIL  world.NW: the 6 built-in children are first, in order and untouched', '  FAIL  world.NW: everything after 
+MUTANT persist    KILLED  ['RESULT: FAIL (31 failed, 164 checks)']  first fails: ['  FAIL  one pin added to World SE', '  FAIL  a second is refused, naming the allowance: \'Pinned "Journey planner"
+MUTANT readcap    KILLED  ['RESULT: FAIL (2 failed, 164 checks)']  first fails: ['  FAIL  world.SE: the ring places exactly 9 children (17), the hand-edited overfill was cut', '  FAIL  world.SE: 9 
+MUTANT sharecap   KILLED  ['RESULT: FAIL (33 failed, 164 checks)']  first fails: ["  FAIL  World SE chosen: 'ON WORLD.SE  0 / 2'", '  FAIL  a second is refused, naming the allowance: \'Pinned "Jour
+MUTANT tabs       KILLED  ['RESULT: FAIL (15 failed, 165 checks)']  first fails: ["  FAIL  a real click on the Ring dock tab switches to it: 'ON THE BAR  0 / 24'", '  FAIL  four real add clicks st
+MUTANT ghostlive KILLED ['RESULT: FAIL (2 failed, 164 checks)'] (its print crashed on a non-ASCII caption; result read from mut_ghostlive.log)
+
+== final re-run after moving the size_changed connection
+z_ring_desktop: RESULT: PASS (0 failed, 164 checks)
+z_ring_tablet: RESULT: PASS (0 failed, 165 checks)
+z_ring_phone: RESULT: PASS (0 failed, 4 checks)
+z_id_desktop: RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: desktop)
+z_id_tablet: RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: tablet)
+z_qw_desktop: RESULT: PASS (0 failed, 108 checks)
+z_qw_tablet: RESULT: PASS (0 failed, 108 checks)
+z_qw_phone: RESULT: PASS (0 failed, 3 checks)
+z_qp_desktop: RESULT: PASS (0 failed, 200 checks)
+z_qp_tablet: RESULT: PASS (0 failed, 200 checks)
+idi_phone: RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: phone)

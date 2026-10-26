@@ -328,7 +328,11 @@ path, area, radius, cross-section, Δ vertical).
    above. Letting users re-slot the diagonals is Blender's and Procreate's
    answer to power users. It belongs in the keymap editor `GUI_GAP_REGISTER.md`
    already proposes, where *"right-click a tool button → Assign to ring slot"*
-   would sit beside *Assign shortcut*.
+   would sit beside *Assign shortcut*. **Partly delivered, 2026-10-26 (Ruling
+   DH Q3, `CUSTOM_QUICK_BAR_SCOPE.md` CQ-4):** a user-pinned *ring dock* under
+   the ring and user pins appended to a `▸` diagonal's existing sub-ring.
+   Neither moves or replaces a built-in slot, so this rule's *re-slotting a
+   diagonal* is still later (that scope's section 4.4, CQ-8).
 
 ---
 
@@ -528,7 +532,7 @@ tool switch, which works today. The fan is the smaller half of this proposal.
 | **F2** | Build the phone's thumb fan (§8.2)? | **Yes, after CM-5** | Tool switching without the sheet is the phone's most frequent unmet need. It is optional because the sheet chips already work |
 | **F3** | The ring's cardinals: global **Inspect / Measure / Undo / Region** as in §5.1? | **Yes** | The only assignment where every domain's diagonals are exactly its four tool families |
 | **F4** | A settlement right-clicked in CARTO: show CIVIL's verbs **inline**, or one *"…in CIVIL ›"* row? | **One row** | Keeps each domain's charter (*what exists / who occupies it / how it is shown*) visible in the UI. Inline makes the card as long as all three domains together |
-| **F5** | Ring customisation and the tablet edge sliders (§5.2.6, §7.3) — v1 or later? | **Later** | Both are power-user features that need the fixed layout to exist first, so there is something to customise |
+| **F5** | Ring customisation and the tablet edge sliders (§5.2.6, §7.3) — v1 or later? | **Later** | Both are power-user features that need the fixed layout to exist first, so there is something to customise. *Lifted for the ring dock and shared sub-rings only by Ruling DH Q3 (2026-10-25), built as CQ-4 (2026-10-26); replacing a built-in slot and the tablet edge sliders stay later* |
 
 ---
 

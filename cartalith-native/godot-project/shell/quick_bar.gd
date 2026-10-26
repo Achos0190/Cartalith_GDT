@@ -37,7 +37,8 @@ class_name DccQuickBar
 ##
 ## ## What is not here (the milestones after it)
 ##
-## No ring dock or shared sub-rings (CQ-4), no phone chip row (CQ-6: the phone has no palette
+## The ring dock and the shared sub-rings are `quick_bar_ring.gd`'s (CQ-4); it reuses `run_pin_on`,
+## `accelerator_text` and `label_for` from here. No phone chip row (CQ-6: the phone has no palette
 ## bar), no Assistant chip (CQ-7). Tools and check/radio rows are not pinnable in v1 (Ruling DH
 ## Q8, Q10); `CommandIndex` says why per row.
 
@@ -202,7 +203,7 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 		b.disabled = true
 		b.tooltip_text = "Not in this build: \"%s\". The pin is kept; right-click to remove it." % title
 		return b
-	var accel := _accelerator_text(row)
+	var accel := accelerator_text(row)
 	if accel != "":
 		tip += "  (%s)" % accel
 	## **A chip is live exactly when the index calls the row pinnable now** (`CommandIndex.run_row`
@@ -220,8 +221,9 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 	return b
 
 ## The accelerator the menu row currently shows ("Ctrl+S"), or "". Read from the popup, which
-## `menus.gd` binds from `DccSettings.shortcut_binding`, so a rebind shows here.
-func _accelerator_text(row: Dictionary) -> String:
+## `menus.gd` binds from `DccSettings.shortcut_binding`, so a rebind shows here. Static since CQ-4
+## so the ring dock's tooltip and caption (`quick_bar_ring.gd`) read it the same way a chip does.
+static func accelerator_text(row: Dictionary) -> String:
 	var popup = row.get("_popup")
 	if popup == null or not is_instance_valid(popup):
 		return ""
@@ -243,10 +245,16 @@ func _press(pin_key: String) -> void:
 ## (also shown in the status line by the caller). Resolves against a FRESH index, so a command
 ## re-homed or removed since the last refresh is found or refused honestly.
 func run_pin(pin_key: String) -> String:
-	if _app == null:
+	return DccQuickBar.run_pin_on(_app, pin_key)
+
+## The body of `run_pin`, static since CQ-4 (`CUSTOM_QUICK_BAR_SCOPE.md` s.4) so the ring dock and a
+## shared sub-ring child run a pin through the SAME code a chip does -- one resolution, one refusal
+## sentence each, no second implementation of "press a pin".
+static func run_pin_on(app, pin_key: String) -> String:
+	if app == null:
 		return "The quick bar is not attached to the app."
 	var idx := CommandIndex.new()
-	idx.build(_app, _app.bridge)
+	idx.build(app, app.bridge)
 	var row := idx.find_pin(pin_key)
 	if row.is_empty():
 		return "Not in this build."
@@ -402,5 +410,9 @@ func _popup_under(menu: PopupMenu, anchor: Control) -> void:
 ## One warning line in the status bar's hint slot (`DccShell.set_status`), the same place a
 ## refused tool arm reports (`app.gd`'s "Not done: ..." line).
 func _say(text: String) -> void:
-	if _app != null and _app.has_method("set_status"):
-		_app.set_status("hint", text, "warn")
+	DccQuickBar.say_on(_app, text)
+
+## `_say` for a caller that holds only the app (the ring rows, `quick_bar_ring.gd`).
+static func say_on(app, text: String) -> void:
+	if app != null and app.has_method("set_status"):
+		app.set_status("hint", text, "warn")

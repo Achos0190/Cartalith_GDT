@@ -56,6 +56,22 @@ const SUB_SLOT_RATIO := 56.0 / 60.0
 ## `46/60`, which for the same reason now resolves to a literal 46.
 const CENTRE_RATIO := 46.0 / 60.0
 
+## The ring DOCK (`CUSTOM_QUICK_BAR_SCOPE.md` s.4.1, milestone CQ-4, Ruling DH Q3): up to four user
+## chips in a row directly beneath the caption pill, outside the eight slots. These are the desktop
+## figures; `_apply_touch_scale()` multiplies them by `DccTheme.TOUCH_SCALE` and floors both axes at
+## `DOCK_TOUCH_FLOOR`. A chip is wider than tall so a short command title can wrap onto two lines
+## (the scope's 40 px square cannot hold one); 40 px tall is the scope's figure, 56 px wide is a
+## labelled judgement: four chips plus gaps (242 px) stay inside the disc's own width (268 px), so the
+## dock never makes the ring wider than it already is.
+const DOCK_CHIP_W := 56.0
+const DOCK_CHIP_H := 40.0
+const DOCK_GAP := 6.0
+## `DESIGN_HANDOFF.md`: "Minimum touch target 44 px ... no exceptions".
+const DOCK_TOUCH_FLOOR := 44.0
+## Vertical gap between the caption pill's bottom edge and the dock's top edge. A labelled judgement
+## (the pill's own padding is 5 px).
+const DOCK_PILL_GAP := 4.0
+
 ## CM-3 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §5.2 rule 2):
 ## the mockup's own `ringHover`'s `dist>RR+18` gate -- how far PAST the main
 ## ring's own radius a continuous RMB drag must travel, while hovering a
@@ -99,6 +115,10 @@ var _r_disc_margin := DISC_MARGIN
 var _r_sub_disc_margin := SUB_DISC_MARGIN
 ## Live push-past threshold: `PUSH_PAST` times `DccTheme.TOUCH_SCALE`; reported by `debug_state`.
 var _r_push_past := PUSH_PAST
+## Live dock chip width, height and gap (the `DOCK_*` figures, touch-scaled and floored).
+var _r_dock_w := DOCK_CHIP_W
+var _r_dock_h := DOCK_CHIP_H
+var _r_dock_gap := DOCK_GAP
 
 ## Still-hold threshold in milliseconds (MAP_CONTEXT_SCOPE.md §6, quoted
 ## beside it) after which an unmoved RMB press opens ring and card together.
@@ -166,6 +186,13 @@ var _moved_ms := -1
 ## Hovered direction key from [`DIRS`], or `""` for the dead zone / none.
 var _hover := ""
 var _sub: Dictionary = {}   ## {} closed; else {"dir","items","centre","hover"}
+## The ring dock's items (`QuickBarRing.dock_items`: `{title, label, shortcut, enabled, reason,
+## callable}`), set by [`arm`] and EMPTY unless the user docked something -- an empty dock draws
+## nothing, reserves nothing and changes no hit test (the pixel-identity bar, scope s.7 CQ-4).
+var _dock: Array = []
+## Hovered dock chip index, or -1. Set only while the ring is DRAWN: a no-wait flick never selects a
+## dock chip (the dock is not part of the compass, scope s.4.1).
+var _dock_hover := -1
 
 
 ## One-time wiring: stores the app, makes this node a top-level, input-transparent
@@ -212,6 +239,9 @@ func _apply_touch_scale() -> void:
 	_r_disc_margin = DISC_MARGIN * DccTheme.TOUCH_SCALE
 	_r_sub_disc_margin = SUB_DISC_MARGIN * DccTheme.TOUCH_SCALE
 	_r_push_past = PUSH_PAST * DccTheme.TOUCH_SCALE
+	_r_dock_w = maxf(DOCK_TOUCH_FLOOR, DOCK_CHIP_W * DccTheme.TOUCH_SCALE)
+	_r_dock_h = maxf(DOCK_TOUCH_FLOOR, DOCK_CHIP_H * DccTheme.TOUCH_SCALE)
+	_r_dock_gap = DOCK_GAP * DccTheme.TOUCH_SCALE
 
 
 ## The disc's own radius (mockup `RD=RR+SLOT/2+12`) -- the panel-toned ground
@@ -286,6 +316,14 @@ func debug_state() -> Dictionary:
 		## threshold a probe presses out to, rather than re-declaring
 		## `PUSH_PAST` and asserting it against itself.
 		"push_past": _r_push_past,
+		## CQ-4: the dock's LIVE geometry and hover, and the sub-ring's drawn slot centres, so
+		## a probe measures what this node drew (pairwise distances, 44 px floors, edge clipping)
+		## instead of re-deriving it -- `MISTAKES.md`: never assert a constant against itself.
+		"dock_count": _dock.size(), "dock_hover": _dock_hover,
+		"dock_rects": _dock_rects(), "dock_half_w": _dock_width() * 0.5,
+		"dock_chip": Vector2(_r_dock_w, _r_dock_h),
+		"sub_slot_centres": _sub_slot_centres(),
+		"caption": _caption_text(),
 	}
 
 
@@ -301,10 +339,16 @@ func _fit_to_viewport() -> void:
 ## Begin a gesture at `pos` (already converted to this control's space by
 ## `context_broker.gd`). `slots` is the 8-entry compass `ring_collect()`
 ## built; `q` is true only for the Q-key path, which is visible immediately
-## and carries no hold/flick timing at all (§6's row for Q has none).
-func arm(pos: Vector2, slots: Dictionary, q: bool) -> void:
+## and carries no hold/flick timing at all (§6's row for Q has none). `dock` is the ring
+## dock's items (CQ-4, `QuickBarRing.dock_items`); `[]`, the default and the shipped state,
+## leaves every pixel and hit test exactly as they were before the dock existed.
+func arm(pos: Vector2, slots: Dictionary, q: bool, dock: Array = []) -> void:
 	_fit_to_viewport()
 	_slots = slots
+	## The dock is set BEFORE `_clamp_centre` reads it, and reset on every arm so a dock from the
+	## previous gesture can never outlive the setting that produced it.
+	_dock = dock
+	_dock_hover = -1
 	_centre = _clamp_centre(pos)
 	_press_pos = pos
 	_press_ms = Time.get_ticks_msec()
@@ -412,6 +456,15 @@ func release() -> Callable:
 			visible = true
 			set_process(false)
 		return Callable()
+	if _dock_hover >= 0 and _dock_hover < _dock.size():
+		## A dock chip chosen on release. `_dock_hover` is only ever set while the ring is
+		## drawn (see `_update_hover`), so a no-wait flick, which releases before the ring is
+		## visible, can never reach this branch. A disabled chip closes the ring and runs
+		## nothing, exactly as a disabled slot does.
+		var drow: Dictionary = _dock[_dock_hover]
+		var dcb: Callable = drow.get("callable", Callable())
+		close()
+		return dcb if bool(drow.get("enabled", false)) else Callable()
 	if _hover != "":
 		var row: Dictionary = _slots.get(_hover, {})
 		if row.is_empty() or not bool(row.get("enabled", true)):
@@ -463,6 +516,7 @@ func close() -> void:
 	_visible = false
 	_sticky = false
 	_sub = {}
+	_dock_hover = -1
 	visible = false
 	set_process(false)
 	queue_redraw()
@@ -475,7 +529,10 @@ func close() -> void:
 func _open_sub(dir: String, items: Array) -> void:
 	var ang := deg_to_rad(ANGLES[dir])
 	var sub_centre: Vector2 = _centre + Vector2(cos(ang), sin(ang)) * _r_ring
-	_sub = {"dir": dir, "items": items, "centre": _clamp_centre(sub_centre), "hover": -1}
+	## The dock is hidden while a sub-ring is up, so the sub-ring is clamped without the dock's extra
+	## room (otherwise it would jump by the dock's height when the user has docked something).
+	_dock_hover = -1
+	_sub = {"dir": dir, "items": items, "centre": _clamp_centre(sub_centre, false), "hover": -1}
 	_visible = true
 	visible = true
 	set_process(false)
@@ -488,7 +545,21 @@ func _open_sub(dir: String, items: Array) -> void:
 ## instead. Emits [`hover_entered`] only on a change to a real slot.
 func _update_hover(pos: Vector2) -> void:
 	var prev := _hover
+	var prev_dock := _dock_hover
+	_dock_hover = -1
 	var dist := pos.distance_to(_centre)
+	## CQ-4 (scope s.4.1): the dock is hit-tested RECTANGLE FIRST, and only when the pointer is
+	## outside the disc and the ring is DRAWN. Inside the disc the 45-degree sector rule below is
+	## untouched; while the ring is not drawn (a flick inside `FLICK_MS`) the dock does not exist,
+	## so a flick can never select a chip. Over the dock band the compass is neutral (`_hover` is
+	## empty): without that, the gap between two chips would count as the SW or SE slot, whose
+	## push-past would open a sub-ring under the pointer.
+	if _visible and not _dock.is_empty() and dist > _disc_radius() and _in_dock_band(pos):
+		_hover = ""
+		_dock_hover = _dock_index_at(pos)
+		if _dock_hover >= 0 and _dock_hover != prev_dock:
+			hover_entered.emit()
+		return
 	if dist <= _r_dead:
 		_hover = ""
 		return
@@ -511,7 +582,11 @@ func _update_hover(pos: Vector2) -> void:
 	## closes on a disabled slot instead, per its own `slotDisabled` check --
 	## letting a drag alone bypass that would be a second, inconsistent rule
 	## for the exact same slot.
-	if best != "" and dist > _r_ring + _r_push_past:
+	## CQ-4: while a dock is drawn, a drag from the centre toward it must not open the SW or SE
+	## sub-ring on the way (the outer chips lie in those sectors). Inside the funnel between the
+	## centre and the dock the push-past gate is suppressed; the hover still follows the compass and a
+	## release there behaves as before. With no dock `_in_dock_funnel` is false and nothing changes.
+	if best != "" and dist > _r_ring + _r_push_past and not (_visible and _in_dock_funnel(pos)):
 		var row: Dictionary = _slots.get(best, {})
 		if not row.is_empty() and row.has("children") and bool(row.get("enabled", true)):
 			_hover = best
@@ -550,7 +625,7 @@ func _update_sub_hover(pos: Vector2) -> void:
 ## Keeps the ring's own outer edge, plus room for the caption band under it,
 ## inside the viewport at all four screen edges (§5's "the ring stays on
 ## screen at the four edges" -- the probe's own check).
-func _clamp_centre(pos: Vector2) -> Vector2:
+func _clamp_centre(pos: Vector2, with_dock: bool = true) -> Vector2:
 	## The disc's own radius plus room for the caption pill below it (mockup:
 	## `capT: cy+RD+6`, then the pill's own ~20 px height/padding) -- was a
 	## bare `_r_ring + _r_slot*0.5 + 40`, which the disc (`_disc_radius()`,
@@ -559,9 +634,106 @@ func _clamp_centre(pos: Vector2) -> Vector2:
 	var sz := size
 	if sz.x <= 0.0 or sz.y <= 0.0:
 		return pos
+	## CQ-4: with a dock the ring needs room for it, so it slides inward at an edge until the dock is
+	## on screen (scope s.4.1). Side and bottom only: the dock hangs below the disc and is no wider
+	## than it. With no dock `pad_x == pad_b == pad` and this is the function it was.
+	var pad_x := pad
+	var pad_b := pad
+	if with_dock and not _dock.is_empty():
+		pad_x = maxf(pad, _dock_width() * 0.5 + 6.0)
+		pad_b = maxf(pad, _dock_bottom_offset() + 6.0)
 	return Vector2(
-		clampf(pos.x, pad, maxf(pad, sz.x - pad)),
-		clampf(pos.y, pad, maxf(pad, sz.y - pad)))
+		clampf(pos.x, pad_x, maxf(pad_x, sz.x - pad_x)),
+		clampf(pos.y, pad, maxf(pad, sz.y - pad_b)))
+
+
+# -- The dock (CQ-4) -----------------------------------------------------------------------
+
+## Total width of the dock's chip row.
+func _dock_width() -> float:
+	if _dock.is_empty():
+		return 0.0
+	return _r_dock_w * float(_dock.size()) + _r_dock_gap * float(_dock.size() - 1)
+
+
+## Height of the caption pill (`_draw_caption` pads the text by 5 px top and bottom). Computed from
+## the font's line height, which does not depend on the caption text.
+func _pill_height() -> float:
+	return DccTheme.mono().get_string_size("Ag", HORIZONTAL_ALIGNMENT_LEFT, -1, DccTheme.FS_SMALL).y + 10.0
+
+
+## Offset of the dock's TOP edge below the ring centre: past the disc, the pill (centred 6 px below
+## the disc edge, so it reaches half its height further) and a small gap.
+func _dock_top_offset() -> float:
+	return _disc_radius() + 6.0 + _pill_height() * 0.5 + DOCK_PILL_GAP
+
+
+## Offset of the dock's BOTTOM edge below the ring centre.
+func _dock_bottom_offset() -> float:
+	return _dock_top_offset() + _r_dock_h
+
+
+## The dock chips' rectangles in this control's space, left to right; `[]` with no dock or while a
+## sub-ring is open (the dock is not drawn then).
+func _dock_rects() -> Array:
+	var out: Array = []
+	if _dock.is_empty() or not _sub.is_empty():
+		return out
+	var x0 := _centre.x - _dock_width() * 0.5
+	var y0 := _centre.y + _dock_top_offset()
+	for i in _dock.size():
+		out.append(Rect2(x0 + float(i) * (_r_dock_w + _r_dock_gap), y0, _r_dock_w, _r_dock_h))
+	return out
+
+
+## Whether `pos` lies in the dock's row, gaps between chips included (see `_update_hover`).
+func _in_dock_band(pos: Vector2) -> bool:
+	var rs := _dock_rects()
+	if rs.is_empty():
+		return false
+	var first: Rect2 = rs[0]
+	var last: Rect2 = rs[rs.size() - 1]
+	return Rect2(first.position, Vector2(last.end.x - first.position.x, first.size.y)).has_point(pos)
+
+
+## Whether `pos` lies in the triangle from the ring centre to the dock row's lower corners: the
+## straight-line approach to ANY chip, outer ones included (see `_update_hover`). False with no dock.
+func _in_dock_funnel(pos: Vector2) -> bool:
+	var rs := _dock_rects()
+	if rs.is_empty():
+		return false
+	var dy := pos.y - _centre.y
+	var base_dy: float = (rs[0] as Rect2).end.y - _centre.y
+	if dy <= 0.0 or base_dy <= 0.0:
+		return false
+	return absf(pos.x - _centre.x) <= _dock_width() * 0.5 * dy / base_dy
+
+
+## The dock chip under `pos`, else -1 (a gap).
+func _dock_index_at(pos: Vector2) -> int:
+	var rs := _dock_rects()
+	for i in rs.size():
+		if (rs[i] as Rect2).has_point(pos):
+			return i
+	return -1
+
+
+## Centre of sub-ring slot `i` of `n` around `centre`: evenly spread from north, `360/n` apart. The
+## one place that formula lives; drawing and the probe's pairwise-distance bar both read it.
+func _sub_slot_pos(centre: Vector2, i: int, n: int) -> Vector2:
+	var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
+	return centre + Vector2(cos(ang), sin(ang)) * _r_sub_ring
+
+
+## Centres of the open sub-ring's slots (`[]` when none is open), for `debug_state()`.
+func _sub_slot_centres() -> Array:
+	var out: Array = []
+	if _sub.is_empty():
+		return out
+	var n: int = (_sub["items"] as Array).size()
+	for i in n:
+		out.append(_sub_slot_pos(_sub["centre"], i, n))
+	return out
 
 
 # -- Drawing ------------------------------------------------------------------
@@ -592,6 +764,9 @@ func _draw() -> void:
 			var ang := -90.0 + 360.0 * float(hi) / float(maxi(1, n))
 			_draw_wedge(sc, _r_sub_dead, _sub_disc_radius() - 4.0, ang, 180.0 / float(maxi(1, n)))
 		_draw_sub_ring(sc, _sub["items"], hi)
+	## CQ-4: the dock is drawn only when the user docked something and no sub-ring is up. With the
+	## shipped empty dock this call returns at its first line and draws nothing.
+	_draw_dock()
 	_draw_centre_button()
 	_draw_caption()
 
@@ -739,14 +914,24 @@ func _draw_sub_ring(centre: Vector2, items: Array, hover_i: int) -> void:
 	var d := _sub_slot_size()
 	for i in n:
 		var row: Dictionary = items[i]
-		var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
-		var pos: Vector2 = centre + Vector2(cos(ang), sin(ang)) * _r_sub_ring
+		var pos: Vector2 = _sub_slot_pos(centre, i, n)
 		var hovered := i == hover_i
+		## CQ-4: a child the USER appended (`shared`, from `QuickBarRing`) is told apart from the
+		## built-ins by a second, inner ring, and is dimmed to 35 % when its command is unavailable
+		## (the reason shows in the caption). A built-in child takes none of these branches, so every
+		## pixel of a sub-ring without user pins is what it was.
+		var shared := bool(row.get("shared", false))
+		var dim := 0.35 if shared and not bool(row.get("enabled", true)) else 1.0
 		var ground := DccTheme.c("accent") if hovered else DccTheme.c("sunken")
+		ground.a *= dim
 		draw_circle(pos, d * 0.5, ground)
 		var border := DccTheme.c("accent") if hovered else DccTheme.c("border")
+		border.a *= dim
 		draw_arc(pos, d * 0.5, 0.0, TAU, 24, border, 2.0 if hovered else 1.0, true)
+		if shared:
+			draw_arc(pos, d * 0.5 - 4.0, 0.0, TAU, 24, Color(border.r, border.g, border.b, 0.6 * dim), 1.0, true)
 		var ink := DccTheme.c("accent_ink") if hovered else DccTheme.c("text_bright")
+		ink.a *= dim
 		var glyph := String(row.get("glyph", ""))
 		## The mockup's own sub-ring buttons carry text only, no icon
 		## (`kidsOf()`'s children have no `glyph`) -- `_draw_fitted_slot()`
@@ -758,9 +943,11 @@ func _draw_sub_ring(centre: Vector2, items: Array, hover_i: int) -> void:
 
 ## §5.2 rule 4: "the centre shows the hovered slot's full label and shortcut,
 ## so labels on the ring can stay short."
-func _draw_caption() -> void:
+## The caption's text for the current state (centre-cancels hint, a hovered slot's readout, a hovered
+## sub-ring child's, or -- CQ-4 -- a hovered dock chip's). Split out of `_draw_caption` so a probe can
+## read what the user would read (`debug_state()["caption"]`) instead of inferring it from pixels.
+func _caption_text() -> String:
 	var text := "ring · centre cancels"
-	var below_centre := _centre
 	if not _sub.is_empty():
 		var items: Array = _sub["items"]
 		var hi := int(_sub.get("hover", -1))
@@ -768,8 +955,22 @@ func _draw_caption() -> void:
 		var picked := "pick one"
 		if hi >= 0 and hi < items.size():
 			picked = String((items[hi] as Dictionary).get("label", ""))
+			var kid: Dictionary = items[hi]
+			if bool(kid.get("shared", false)):
+				## A user pin: the full title (the slot shows a cut label), then why it cannot run.
+				picked = String(kid.get("title", picked)) + "  (pinned)"
+				if not bool(kid.get("enabled", true)):
+					picked += "  — %s" % String(kid.get("reason", "unavailable"))
 		text = "%s ▸ %s" % [String(parent.get("label", "")), picked]
-		below_centre = _sub["centre"]
+	elif _dock_hover >= 0 and _dock_hover < _dock.size():
+		## CQ-4 (scope s.4.1): hovering a dock chip puts its full title, accelerator and, when it
+		## cannot run, the reason in the caption -- the same readout a slot gets.
+		var drow: Dictionary = _dock[_dock_hover]
+		text = "Dock · %s" % String(drow.get("title", ""))
+		if String(drow.get("shortcut", "")) != "":
+			text += "  (%s)" % String(drow["shortcut"])
+		if not bool(drow.get("enabled", true)):
+			text += "  — %s" % String(drow.get("reason", "unavailable"))
 	elif _hover != "":
 		var row: Dictionary = _slots.get(_hover, {})
 		var shortcut := String(row.get("shortcut", ""))
@@ -778,6 +979,13 @@ func _draw_caption() -> void:
 			text += "  (%s)" % shortcut
 		if not bool(row.get("enabled", true)):
 			text += "  — %s" % String(row.get("reason", "unavailable"))
+	return text
+
+
+## Draws the caption pill under whichever disc is showing; the text is `_caption_text()`.
+func _draw_caption() -> void:
+	var text := _caption_text()
+	var below_centre: Vector2 = _sub["centre"] if not _sub.is_empty() else _centre
 	var font := DccTheme.mono()
 	var fs := DccTheme.FS_SMALL
 	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
@@ -792,6 +1000,75 @@ func _draw_caption() -> void:
 	draw_rect(rect, DccTheme.c("line"), false, 1.0)
 	draw_string(font, cap_centre - Vector2(ts.x * 0.5, -ts.y * 0.32), text,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DccTheme.c("text_bright"))
+
+
+## Draws the ring dock: one rounded chip per docked pin, in the sunken ground the slots use, the
+## hovered chip in the accent wash, an unavailable one at 35 % opacity (disabled-with-reason, never
+## removed, `MAP_CONTEXT_SCOPE.md` s.5.2 rule 1). Returns at once for an empty dock or while a
+## sub-ring is open, so the shipped state draws nothing here.
+func _draw_dock() -> void:
+	var rects := _dock_rects()
+	for i in rects.size():
+		var r: Rect2 = rects[i]
+		var row: Dictionary = _dock[i]
+		var enabled := bool(row.get("enabled", true))
+		var hovered := i == _dock_hover and enabled
+		var alpha := 1.0 if enabled else 0.35
+		var sb := StyleBoxFlat.new()
+		var ground := DccTheme.c("sunken")
+		ground.a *= alpha
+		sb.bg_color = ground
+		var border := DccTheme.c("accent") if hovered else DccTheme.c("border")
+		border.a *= alpha
+		sb.border_color = border
+		sb.set_border_width_all(2 if hovered else 1)
+		sb.set_corner_radius_all(int(round(6.0 * _r_dock_h / DOCK_CHIP_H)))
+		sb.anti_aliasing = true
+		draw_style_box(sb, r)
+		if hovered:
+			draw_rect(r.grow(-1.0), DccTheme.c("accent_wash_2"))
+		var ink := DccTheme.c("accent_hover") if hovered else DccTheme.c("text_bright")
+		ink.a *= alpha
+		_draw_dock_label(r, String(row.get("label", row.get("title", ""))), ink)
+
+
+## A dock chip's label: up to two lines inside the chip, wrapped at the space nearest the middle and
+## shrunk (never below `MIN_LABEL_FS`) until each line fits the chip's width less a 6 px margin; a
+## line that still does not fit at the smallest size is cut with an ellipsis, so no ink leaves the
+## chip. The full title is in the caption when the chip is hovered.
+func _draw_dock_label(r: Rect2, text: String, ink: Color) -> void:
+	var font := DccTheme.mono()
+	var fs := DccTheme.FS_MICRO
+	var avail := r.size.x - 6.0
+	var lines: Array = [text]
+	while true:
+		var w_one := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		if w_one <= avail:
+			lines = [text]
+			break
+		var parts := _split_label(text)
+		if not parts.is_empty():
+			var w1 := font.get_string_size(String(parts[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var w2 := font.get_string_size(String(parts[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if w1 <= avail and w2 <= avail:
+				lines = parts
+				break
+		if fs <= MIN_LABEL_FS:
+			lines = parts if not parts.is_empty() else [text]
+			break
+		fs -= 1
+	for li in lines.size():
+		var line := String(lines[li])
+		while line.length() > 1 and font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > avail:
+			line = line.substr(0, line.length() - 2) + "…"
+		lines[li] = line
+	var lh := float(fs) * 1.15
+	var top := r.get_center().y - lh * float(lines.size()) * 0.5
+	for li in lines.size():
+		var line := String(lines[li])
+		var ts := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		draw_string(font, Vector2(r.get_center().x - ts.x * 0.5, top + lh * float(li) + lh * 0.5 + ts.y * 0.32), line,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 
 
 ## `name` is a `DccIcons` glyph name, or `"sym:<key>"` for one of

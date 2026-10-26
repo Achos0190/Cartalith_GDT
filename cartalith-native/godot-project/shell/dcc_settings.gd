@@ -1242,6 +1242,88 @@ static func quick_bar_move(list: String, pin_key: String, delta: int) -> bool:
 			return set_quick_bar_value(list, cur)
 	return false
 
+# -- Pins appended to a shared sub-ring (CQ-4, scope s.4.3) -------------------------------
+#
+# The `share` map is "<domain>.<DIR>" -> ordered pins, stored and capped by the CQ-1 accessors above.
+# These helpers add the one rule the store cannot know: a diagonal's BUILT-IN children share its
+# nine slots, so how many pins may be appended depends on how many built-ins that diagonal has
+# right now. The caller (the Customise window) reads that count from the live `ring_slots()` and
+# passes it; the ring applies the same arithmetic again on read (`QuickBarRing.allowance`), so a
+# stale number here can never overfill a sub-ring.
+
+## How many pins a sub-ring with `builtin_count` built-in children may carry: nine less the built-ins.
+static func quick_bar_share_allowance(builtin_count: int) -> int:
+	return clampi(QUICK_BAR_MAX_SHARE - builtin_count, 0, QUICK_BAR_MAX_SHARE)
+
+## The stored pins for one diagonal (`"cartography.NE"`), in order; `[]` for none or a bad key.
+static func quick_bar_share_pins(share_key: String) -> Array:
+	if not _is_share_key(share_key):
+		return []
+	var share: Dictionary = quick_bar_value("share")
+	return share.get(share_key, []).duplicate(true)
+
+## Stores `pins` as the list for `share_key`, leaving every other diagonal as it was. An empty list
+## removes the diagonal's entry; the write itself still happens (clearing the last pin must persist).
+static func _quick_bar_share_set(share_key: String, pins: Array) -> bool:
+	var share: Dictionary = quick_bar_value("share")
+	if pins.is_empty():
+		share.erase(share_key)
+	else:
+		share[share_key] = pins
+	return set_quick_bar_value("share", share)
+
+## Appends a pin to a diagonal's sub-ring. Answers "" on success, else the sentence to show.
+## `builtin_count` is the number of built-in children the diagonal has now; a leaf diagonal (no
+## sub-ring) is `-1` and is refused, because converting a one-flick tool into a two-step one is
+## declined (scope s.4.3).
+static func quick_bar_share_add(share_key: String, pin_key: String, title: String, builtin_count: int) -> String:
+	if not _is_share_key(share_key):
+		return "That is not a ring diagonal."
+	if pin_key == "":
+		return "Nothing to pin."
+	if builtin_count < 0:
+		return "That slot is a single tool with no sub-ring, so it cannot share one."
+	var cur: Array = quick_bar_share_pins(share_key)
+	for e in cur:
+		if String(e["k"]) == pin_key:
+			return "Already pinned there."
+	var room := quick_bar_share_allowance(builtin_count)
+	if cur.size() >= room:
+		if room == 0:
+			return "That sub-ring already holds %d built-in items, the most a ring can place (%d); nothing can be added." % [builtin_count, QUICK_BAR_MAX_SHARE]
+		return "That sub-ring has %d built-in items, so at most %d more fit (a ring places %d); remove one first." % [builtin_count, room, QUICK_BAR_MAX_SHARE]
+	cur.append({"k": pin_key, "t": title})
+	return "" if _quick_bar_share_set(share_key, cur) else "Could not store the pin."
+
+## Removes `pin_key` from a diagonal and saves. False when it was not there.
+static func quick_bar_share_remove(share_key: String, pin_key: String) -> bool:
+	var cur: Array = quick_bar_share_pins(share_key)
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			cur.remove_at(i)
+			return _quick_bar_share_set(share_key, cur)
+	return false
+
+## Moves `pin_key` by `delta` places within a diagonal and saves. False when it would not move.
+static func quick_bar_share_move(share_key: String, pin_key: String, delta: int) -> bool:
+	var cur: Array = quick_bar_share_pins(share_key)
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			var j := clampi(i + delta, 0, cur.size() - 1)
+			if j == i:
+				return false
+			var e = cur[i]
+			cur.remove_at(i)
+			cur.insert(j, e)
+			return _quick_bar_share_set(share_key, cur)
+	return false
+
+## Clears one diagonal's pins (a real write of the map without that key).
+static func quick_bar_share_clear(share_key: String) -> bool:
+	if not _is_share_key(share_key):
+		return false
+	return _quick_bar_share_set(share_key, [])
+
 # -- Asset library favourites and recent (AP-9) ---------------------------------
 
 ## The favourite slot uids, in the order they were starred (a missing or
