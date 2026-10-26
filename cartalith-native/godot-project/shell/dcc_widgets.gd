@@ -2999,6 +2999,10 @@ static func phone_window(dlg: AcceptDialog, host) -> bool:
 	dlg.ok_button_text = "Close"
 	if host == null or not host.has_method("is_phone") or not host.is_phone():
 		_desktop_window_size(dlg)
+		## PW-1: the single decision point for "is this window a native OS window".
+		## With the pop-out setting off (the default) this sets `force_native = false`
+		## and nothing else, so no native window can exist (`popout_host.gd`).
+		PopoutHost.prepare(dlg)
 		return false
 	## The embedded window's own title bar is drawn by the PARENT viewport, at
 	## the parent's scale -- so it does not grow with `content_scale_factor` and

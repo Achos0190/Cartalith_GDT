@@ -334,6 +334,9 @@ const ID_STORY_ASSISTANT := 901
 ## CQ-3: `Preferences ▸ Quick bar…` opens the Customise window for the pinned commands
 ## (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.5). 902 was unused (`grep -n ":= 90" shell/menus.gd`, 2026-10-26).
 const ID_PREF_QUICK_BAR := 902
+## PW-1: `Preferences ▸ Open panels in their own window` (`POPOUT_WINDOWS_SCOPE.md` s.4, Ruling DK).
+## 903 was unused (`grep -rn "903" shell/*.gd`, 2026-10-26).
+const ID_PREF_POPOUT := 903
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
@@ -497,6 +500,7 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
+var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
 var _hand_popup: PopupMenu   ## `Preferences ▸ Handedness` -- CM-4's touch-hold
 	## ring/card dock side (`MAP_CONTEXT_SCOPE.md` §7.1), read by
 	## `context_broker.gd`'s tablet path via `DccSettings.dominant_hand()`.
@@ -4116,6 +4120,17 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## edits an invisible list is a dead control (`quick_bar_window.gd`'s header).
 	if not _host.is_phone():
 		_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
+	## PW-1: the pop-out switch (Ruling DK Q1: off by default). Desktop only -- the phone and the
+	## tablet keep every window embedded (`PopoutHost.supported()`); the tablet's disabled-with-
+	## reason row is PW-5's. The tooltip says what the switch does TODAY: no window is allowed to
+	## leave the main window until PW-2 closes the busy-overlay and shortcut holes PW-0 measured.
+	if PopoutHost.supported():
+		p.add_check_item("Open panels in their own window", ID_PREF_POPOUT)
+		var popout_idx := p.item_count - 1
+		p.set_item_checked(popout_idx, DccSettings.popout_enabled())
+		p.set_item_tooltip(popout_idx,
+			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to a panel once it supports it: today none does (the faction roster is the first, milestone PW-2), so turning this on changes nothing yet. Stored per device, never in a world.")
+		_popout_pref_row = popout_idx
 
 	if full or include_theme:
 		_build_theme_submenu(p)
@@ -5667,6 +5682,12 @@ func _clear_caches() -> void:
 ## matches the tick). `p` is the popup whose GPU row is rewritten. The GPU-retry status
 ## reports what the call returned, since the row's gating can be one popup stale.
 func _on_preferences(id: int, p: PopupMenu) -> void:
+	if id == ID_PREF_POPOUT:
+		var on := not DccSettings.popout_enabled()
+		DccSettings.set_popout_enabled(on)
+		if _popout_pref_row >= 0 and _popout_pref_row < p.item_count:
+			p.set_item_checked(_popout_pref_row, on)
+		return
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
 		return

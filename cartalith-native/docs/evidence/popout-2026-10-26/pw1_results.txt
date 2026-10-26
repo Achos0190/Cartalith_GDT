@@ -1,0 +1,14 @@
+PW-1 probe results (2026-10-26, _popout_settings_probe.gd; final runs, wiped user dir, unique config name)
+f_d_off: RESULT: PASS (0 failed, 183 checks) form=desktop setting=off
+f_d_on: RESULT: PASS (0 failed, 70 checks) form=desktop setting=on
+f_t_off: RESULT: PASS (0 failed, 40 checks) form=tablet setting=off
+f_p_on: RESULT: PASS (0 failed, 41 checks) form=phone setting=on
+d_off: RESULT: PASS (0 failed, 182 checks) form=desktop setting=off
+d_on: RESULT: PASS (0 failed, 69 checks) form=desktop setting=on
+t_off: RESULT: PASS (0 failed, 40 checks) form=tablet setting=off
+t_on: RESULT: PASS (0 failed, 41 checks) form=tablet setting=on
+p_off: RESULT: PASS (0 failed, 40 checks) form=phone setting=off
+p_on: RESULT: PASS (0 failed, 41 checks) form=phone setting=on
+
+  ok    DisplayServer.get_window_list().size() == 1 at all 19 steps
+  ok    setting off: embedded, window count 1

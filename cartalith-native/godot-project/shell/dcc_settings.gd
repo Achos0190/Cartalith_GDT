@@ -86,6 +86,12 @@ const _SEC_ASSET_LIBRARY := "asset_library"
 ## "the assistant is on, talking to this URL" would switch the feature on for
 ## whoever opens the file.
 const _SEC_LLM := "llm"
+## Pop-out windows (`POPOUT_WINDOWS_SCOPE.md` s.4, milestone PW-1, Ruling DK): the switch that
+## lets the listed panels open as native OS windows, and where each one was last left.
+## **Per device and never in a world** -- a `.zip` carrying "open on monitor 2 at (1920, 40)"
+## would place a window on whoever opens the file, on a screen they may not have -- and written
+## only through the allow-listed `set_popout_value()`, the `[quick_bar]`/`[llm]` pattern.
+const _SEC_POPOUT := "popout"
 ## The user's pinned commands (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.4, milestone CQ-1,
 ## Ruling DH): which commands sit in the tool palette bar's quick cluster, under the
 ## cartwheel, and in a shared sub-ring. **Per device and never in a world** -- a `.zip`
@@ -1404,3 +1410,142 @@ static func _string_list(v) -> PackedStringArray:
 			out.append(String(x))
 		return out
 	return PackedStringArray()
+
+# -- Pop-out windows (POPOUT_WINDOWS_SCOPE.md s.4, milestone PW-1, Ruling DK) ----
+
+## The schema version this build writes. A stored `version` above it (a newer build's file) or of
+## the wrong type reads as the shipped defaults and is not rewritten until the user next edits.
+const POPOUT_VERSION := 1
+## How many windows' geometry is kept. **A labelled judgement**: the v1 roster is about seven
+## windows (`POPOUT_WINDOWS_SCOPE.md` s.4); 32 leaves room for the planner and later windows while
+## stopping a hand-edited file from growing without bound. Enforced on READ and on write.
+const POPOUT_MAX_WINDOWS := 32
+## Every `[popout]` key that may exist, with its shipped default. **This table is the whole
+## allow-list.** `enabled` is OFF by default (Ruling DK Q1): off means every window is built and
+## shown exactly as before, with zero native windows. `geometry` maps a window key
+## (`PopoutHost.key_for()`) to its last rectangle and the screen rectangle it was on, see
+## `popout_geometry()`.
+const POPOUT_DEFAULTS := {
+	"version": 1,
+	"enabled": false,
+	"geometry": {},
+}
+## The user-settable keys and the Variant type each must carry (`version` is the format's).
+const _POPOUT_WRITABLE := {
+	"enabled": TYPE_BOOL,
+	"geometry": TYPE_DICTIONARY,
+}
+## The eight integers one stored geometry entry carries: the window's own client rectangle
+## (`x y w h`) and the FULL rectangle of the screen it was on (`sx sy sw sh`), so a restore can
+## tell "the same monitor" from "a different monitor now at that index".
+const POPOUT_GEOMETRY_KEYS: Array[String] = ["x", "y", "w", "h", "sx", "sy", "sw", "sh"]
+
+## Whether `[popout]` can be read at all: an absent `version` is fine; a present one must be an
+## int no newer than `POPOUT_VERSION`.
+static func _popout_readable() -> bool:
+	_ensure_loaded()
+	if not _cfg.has_section_key(_SEC_POPOUT, "version"):
+		return true
+	var v = _cfg.get_value(_SEC_POPOUT, "version")
+	return typeof(v) == TYPE_INT and int(v) >= 1 and int(v) <= POPOUT_VERSION
+
+## `raw` as one clean geometry entry, or `{}` when it is not one: a Dictionary holding all eight
+## `POPOUT_GEOMETRY_KEYS` as ints with positive `w h sw sh`. A malformed entry is DROPPED, never
+## repaired into a plausible rectangle (`MISTAKES.md`: never encode "no value" as a value).
+static func _clean_geometry_entry(raw) -> Dictionary:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {}
+	var out := {}
+	for k in POPOUT_GEOMETRY_KEYS:
+		if not (raw as Dictionary).has(k) or typeof(raw[k]) != TYPE_INT:
+			return {}
+		out[k] = int(raw[k])
+	if int(out["w"]) <= 0 or int(out["h"]) <= 0 or int(out["sw"]) <= 0 or int(out["sh"]) <= 0:
+		return {}
+	return out
+
+## `raw` as a clean geometry map: only non-empty String window keys with a clean entry, cut to
+## `POPOUT_MAX_WINDOWS` in key order. Lenient (read side); `set_popout_value` is strict.
+static func _clean_geometry(raw) -> Dictionary:
+	var out := {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var keys: Array = (raw as Dictionary).keys()
+	keys.sort()
+	for k in keys:
+		if out.size() >= POPOUT_MAX_WINDOWS:
+			break
+		if typeof(k) != TYPE_STRING or String(k) == "":
+			continue
+		var e := _clean_geometry_entry(raw[k])
+		if not e.is_empty():
+			out[String(k)] = e
+	return out
+
+## The stored value of one `[popout]` key, else its default; `null` for a key outside
+## `POPOUT_DEFAULTS` (a caller bug, never confusable with a value). A value of the wrong type
+## reads as its default.
+static func popout_value(key: String):
+	if not POPOUT_DEFAULTS.has(key):
+		return null
+	_ensure_loaded()
+	var dflt = POPOUT_DEFAULTS[key]
+	if key == "version":
+		return POPOUT_VERSION if _popout_readable() else 0
+	if not _popout_readable() or not _cfg.has_section_key(_SEC_POPOUT, key):
+		return dflt.duplicate(true) if typeof(dflt) == TYPE_DICTIONARY else dflt
+	var v = _cfg.get_value(_SEC_POPOUT, key)
+	if key == "geometry":
+		return _clean_geometry(v)
+	return v if typeof(v) == typeof(dflt) else dflt
+
+## Whether the user ever stored `key` (distinct from "stored the default").
+static func has_popout_value(key: String) -> bool:
+	if not POPOUT_DEFAULTS.has(key):
+		return false
+	_ensure_loaded()
+	return _popout_readable() and _cfg.has_section_key(_SEC_POPOUT, key)
+
+## Stores one `[popout]` key and saves. **Refuses -- returns false and writes nothing -- a key
+## outside the two user-settable ones, a value of the wrong type, or a geometry map with a
+## malformed entry, an empty window key, or more than `POPOUT_MAX_WINDOWS` windows.**
+static func set_popout_value(key: String, value) -> bool:
+	if not _POPOUT_WRITABLE.has(key) or typeof(value) != int(_POPOUT_WRITABLE[key]):
+		return false
+	if key == "geometry":
+		if (value as Dictionary).size() > POPOUT_MAX_WINDOWS:
+			return false
+		for k in value:
+			if typeof(k) != TYPE_STRING or String(k) == "" or _clean_geometry_entry(value[k]).is_empty():
+				return false
+		value = _clean_geometry(value)
+	_ensure_loaded()
+	if not _popout_readable():
+		_cfg.erase_section(_SEC_POPOUT)
+	_cfg.set_value(_SEC_POPOUT, "version", POPOUT_VERSION)
+	_cfg.set_value(_SEC_POPOUT, key, value)
+	_save()
+	return true
+
+## `Preferences > Windows > Open panels in their own window`. False until the user turns it on.
+static func popout_enabled() -> bool:
+	return bool(popout_value("enabled"))
+
+## Stores the switch. Returns false only if the write was refused (it never is for a bool).
+static func set_popout_enabled(on: bool) -> bool:
+	return set_popout_value("enabled", on)
+
+## One window's remembered geometry (`POPOUT_GEOMETRY_KEYS`), or `{}` when none is stored.
+## **Absence is the empty Dictionary, not a zero rectangle**: callers test `.is_empty()`.
+static func popout_geometry(window_key: String) -> Dictionary:
+	var g: Dictionary = popout_value("geometry")
+	return (g[window_key] as Dictionary).duplicate() if g.has(window_key) else {}
+
+## Remembers one window's geometry (merged into the stored map, other windows kept). Returns
+## false, writing nothing, for an empty key, a malformed entry, or a new key beyond the cap.
+static func set_popout_geometry(window_key: String, geo: Dictionary) -> bool:
+	if window_key == "" or _clean_geometry_entry(geo).is_empty():
+		return false
+	var g: Dictionary = popout_value("geometry")
+	g[window_key] = _clean_geometry_entry(geo)
+	return set_popout_value("geometry", g)
