@@ -89,3 +89,9 @@ Also: `This build has no assistant support[. Update the Cartalith library]` -> `
 - Long place-facts, knowledge and view-preview texts in `llm_assistant_window.gd` (the `This will send:` preview) are safety text and were left whole.
 - Strings LLM-7 was adding were not touched.
 - Screenshots: see this folder if present.
+
+## Verification state
+
+- cargo test -p cartalith-llm: all green (two literals in `llm1_bars.rs` updated to the new exact text).
+- Windowed probes green: `_llmset_probe` (272 ok, 0 fail), `_llmpanel_probe` (93), `_quickbar_assistant_probe` (107). Probe literals changed only for `Coming later.` and `Turn on Assistant enabled first.` (exact-match assertions).
+- NOT run (budget): `_quickbar_window_probe`, `_llmview_probe`, `_llmknow_probe`, `_llmmodels_probe`, `_llmprofiles_probe`, `_quickbar_*_probe`, `_popout_roster_probe`, `_phoneui_probe`, `_alignment_probe`, the phone 393x852 clipping check, and the before/after screenshots. Strings changed outside the Assistant surfaces (asset library, line art, export, workspaces, command index, popout tooltip, phone gestures page) are unverified by probes.
