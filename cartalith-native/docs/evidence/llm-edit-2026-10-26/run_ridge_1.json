@@ -1,0 +1,60 @@
+{
+  "applied": true,
+  "apply_enabled": true,
+  "cards": 1,
+  "field_changed": true,
+  "finished": true,
+  "first_token_ms": -1,
+  "model": "qwen3-14b",
+  "ms": 7206,
+  "panel_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 300 m high.\nThe model's proposal could not be used (R7 raise: raise does not take strength; it takes: amount_m, falloff, softness). It was told why and asked once more.\nMODEL PROPOSAL · TERRAIN EDIT\n1. Raise the region by 300 m (smooth falloff, softness 1)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1070 m to 1074 m, mean 2286 m to 2422 m, highest 3911 m to 3951 m.\n    2902 cells change; largest rise 300 m, largest fall 0 m.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n\nDismiss\nApply 1 edit",
+  "preview": {
+    "after": {
+      "land_fraction": 1.0,
+      "max_m": 3951.47275924683,
+      "mean_m": 2421.50430873211,
+      "mean_slope_m_per_km": 21.3267953795512,
+      "min_m": 1073.67849349976
+    },
+    "became_land": 0,
+    "became_sea": 0,
+    "before": {
+      "land_fraction": 1.0,
+      "max_m": 3910.81047058105,
+      "mean_m": 2286.36598225547,
+      "mean_slope_m_per_km": 20.252612251675,
+      "min_m": 1070.47367095947
+    },
+    "capped": 0,
+    "changed": 2902,
+    "floored": 0,
+    "max_down_m": 0.0,
+    "max_up_m": 300.000190734863
+  },
+  "prompt": "Raise the area I painted into a ridge about 300 m high.",
+  "region": "diagonal stroke from (76, 24)",
+  "rejected": [],
+  "run": 1,
+  "structural": "",
+  "summary": "",
+  "undo_groups_added": 1,
+  "undo_restores_field": true,
+  "usage": {
+    "completion": 71,
+    "prompt": 1518,
+    "total": 1589
+  },
+  "valid": [
+    {
+      "amount_m": 300.0,
+      "defaulted": false,
+      "falloff": "smooth",
+      "operation": "raise",
+      "passes": null,
+      "reason": "",
+      "softness": 1.0,
+      "strength": null,
+      "text": "Raise the region by 300 m (smooth falloff, softness 1)"
+    }
+  ]
+}

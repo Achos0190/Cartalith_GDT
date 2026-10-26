@@ -749,7 +749,10 @@ func _refresh() -> void:
 	(controls["commands_note"] as Control).visible = _task == "commands"
 	(controls["note_row"] as Control).visible = _task != "commands" and _task != "edit"
 	## LLM-7: the Edit task's explainer and region row.
-	(controls["edit_note"] as Control).visible = _task == "edit"
+	## The long explainer is for the desktop window; on a tablet or phone the vertical space is the scarcer
+	## thing (measured 2026-10-26: with the explainer and a typed request the tablet's Send row fell under
+	## the dialog's Close row), and the region line below already says what to do first.
+	(controls["edit_note"] as Control).visible = _task == "edit" and not (_phone or DccTheme.is_tablet())
 	_refresh_region(busy)
 	## "Choose groups" opens SETTING groups, which a questions-only request (the parameter source unticked, a
 	## knowledge box ticked) does not have; hiding it also gives the phone sheet its row back.

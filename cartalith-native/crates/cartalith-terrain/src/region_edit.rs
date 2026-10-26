@@ -716,12 +716,16 @@ mod tests {
         assert!(rasterise(&ok, 64, 64).is_ok());
     }
 
-    /// A disc of radius 10 holds about pi r^2 = 314 cell centres; the exact count is pinned as a
-    /// literal so a change to the centre rule (`+ 0.5`) or the inclusive edge turns it red.
+    /// A disc of radius 10 holds about pi r^2 = 314 cell centres; the exact counts are pinned as literals so a
+    /// change to the centre rule (`+ 0.5`) or the inclusive edge turns it red. A dab centred ON a cell centre
+    /// (32.5, 32.5) has lattice points at exactly distance 10 ((+-10, 0), (0, +-10), (+-6, +-8), (+-8, +-6): 12 of
+    /// them), so only that case can tell `<=` from `<`: Gauss's count N(10) = 317 inclusive, 305 exclusive.
     #[test]
     fn a_dab_uses_cell_centres_and_an_inclusive_edge() {
         let m = rasterise(&RegionSpec { rect: None, dabs: vec![[32.0, 32.0, 10.0]] }, 64, 64).unwrap();
         assert_eq!(m.count, 316);
+        let on_centre = rasterise(&RegionSpec { rect: None, dabs: vec![[32.5, 32.5, 10.0]] }, 64, 64).unwrap();
+        assert_eq!(on_centre.count, 317, "the edge is inclusive: the 12 cells exactly 10 away are in");
     }
 
     fn base_world() -> (Vec<f32>, usize, usize) {
@@ -924,6 +928,47 @@ mod tests {
         assert_eq!(apply_ops(&mut w, &mask, &[ok], 0.0, 0.0), Err(EditError::NoScale));
         assert_eq!(apply_ops(&mut w, &mask, &[ok], 1.0, 1000.0), Err(EditError::NoScale));
         assert_eq!(w, keep);
+    }
+
+    /// Protects `write_back`'s own mask rule (defence in depth: `apply_ops` already writes only mask cells, so a
+    /// window altered OUTSIDE the mask is the only way to see it). A stray value planted outside the mask in the
+    /// window must not reach the field; a value inside must. MUTATION: write every cell and the first assertion
+    /// goes red.
+    #[test]
+    fn write_back_never_writes_outside_the_mask() {
+        let field = flat(64, 64, 0.5);
+        // A disc: its bounding box has corner cells that are NOT in the region.
+        let mask = rasterise(&RegionSpec { rect: None, dabs: vec![[32.0, 32.0, 10.0]] }, 64, 64).unwrap();
+        assert!(!mask.cells[0], "the box's top-left corner is outside the disc");
+        let mut w = window(&mask, &field, 64, 64);
+        let corner = (mask.y0 - w.y0) * w.w + (mask.x0 - w.x0); // a window cell inside the box, outside the mask
+        let pad = 0; // the padding cell at the window's own corner (outside the box)
+        let inside = (32 - w.y0) * w.w + 32 - w.x0;
+        w.data[corner] = 0.9;
+        w.data[pad] = 0.8;
+        w.data[inside] = 0.7;
+        let mut f = field.clone();
+        write_back(&w, &mask, &mut f, 64);
+        assert_eq!(f[mask.y0 * 64 + mask.x0], 0.5, "a box cell outside the mask is not the region's");
+        assert_eq!(f[w.y0 * 64 + w.x0], 0.5, "the padding is not the region's");
+        assert_eq!(f[32 * 64 + 32], 0.7);
+    }
+
+    /// Protects `softness`: with Linear and softness 0 a cell two deep is already at full weight (the ramp is
+    /// 1.5 cells wide); with softness 1 the same cell, in a region 5 deep, gets 2/5 of the amount. MUTATION:
+    /// ignore softness and the two cases become equal.
+    #[test]
+    fn softness_sets_the_ramp_width_as_a_share_of_the_region_depth() {
+        let field = flat(64, 64, 0.5);
+        let mask = rasterise(&rect_spec(10.0, 20.0, 40.0, 10.0), 64, 64).unwrap();
+        let rise_at_depth_two = |soft: f64| {
+            let mut w = window(&mask, &field, 64, 64);
+            let op = EditOp { op: Op::Raise { amount_m: 100.0 }, falloff: Falloff::Linear, softness: soft };
+            apply_ops(&mut w, &mask, &[op], 0.0, 1000.0).unwrap();
+            (w.data[(21 - w.y0) * w.w + 30 - w.x0] as f64 - 0.5) * 1000.0
+        };
+        assert!((rise_at_depth_two(0.0) - 100.0).abs() < 0.01, "{}", rise_at_depth_two(0.0));
+        assert!((rise_at_depth_two(1.0) - 40.0).abs() < 0.01, "{}", rise_at_depth_two(1.0));
     }
 
     /// The statistics are literal on a built field: a region whose left half is 0.4 and right half 0.6

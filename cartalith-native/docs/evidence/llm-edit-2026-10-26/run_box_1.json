@@ -1,0 +1,60 @@
+{
+  "applied": true,
+  "apply_enabled": true,
+  "cards": 1,
+  "field_changed": true,
+  "finished": true,
+  "first_token_ms": -1,
+  "model": "qwen3-14b",
+  "ms": 4887,
+  "panel_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nLower this boxed area by about 150 m so it becomes a shallow basin.\nMODEL PROPOSAL · TERRAIN EDIT\n1. Lower the region by 150 m (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\n    “Lower the region to create a shallow basin.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1483 m to 1333 m, mean 2252 m to 2155 m, highest 4136 m to 4132 m.\n    2000 cells change; largest rise 0 m, largest fall 150 m.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n\nDismiss\nApply 1 edit",
+  "preview": {
+    "after": {
+      "land_fraction": 1.0,
+      "max_m": 4131.64234161377,
+      "mean_m": 2154.6532125473,
+      "mean_slope_m_per_km": 21.3825652626354,
+      "min_m": 1333.43887329102
+    },
+    "became_land": 0,
+    "became_sea": 0,
+    "before": {
+      "land_fraction": 1.0,
+      "max_m": 4135.84232330322,
+      "mean_m": 2251.50286388397,
+      "mean_slope_m_per_km": 20.6958257348057,
+      "min_m": 1482.5119972229
+    },
+    "capped": 0,
+    "changed": 2000,
+    "floored": 0,
+    "max_down_m": 150.000095367432,
+    "max_up_m": 0.0
+  },
+  "prompt": "Lower this boxed area by about 150 m so it becomes a shallow basin.",
+  "region": "box 50 x 40 at (20, 20)",
+  "rejected": [],
+  "run": 1,
+  "structural": "",
+  "summary": "",
+  "undo_groups_added": 1,
+  "undo_restores_field": true,
+  "usage": {
+    "completion": 67,
+    "prompt": 1319,
+    "total": 1386
+  },
+  "valid": [
+    {
+      "amount_m": 150.0,
+      "defaulted": true,
+      "falloff": "smooth",
+      "operation": "lower",
+      "passes": null,
+      "reason": "Lower the region to create a shallow basin.",
+      "softness": 0.5,
+      "strength": null,
+      "text": "Lower the region by 150 m (smooth falloff, softness 0.50)"
+    }
+  ]
+}

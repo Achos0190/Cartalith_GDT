@@ -1,0 +1,66 @@
+{
+  "applied": true,
+  "apply_enabled": true,
+  "cards": 1,
+  "field_changed": true,
+  "finished": true,
+  "first_token_ms": -1,
+  "model": "qwen3-14b",
+  "ms": 9808,
+  "panel_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nSmooth this coastline area.\nThe model's proposal could not be used (R7 smooth: smooth needs passes; R7 smooth: smooth needs passes). It was told why and asked once more.\nMODEL PROPOSAL · TERRAIN EDIT\n1. Smooth the region, strength 0.75, 2 passes (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\nNot applied:\n    smooth  R7: smooth needs passes\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest -2422 m to -2422 m, mean 692 m to 690 m, highest 6955 m to 6867 m.\n    2199 cells change; largest rise 419 m, largest fall 451 m.\n    12 land cells would go under the sea.\n    2 sea cells would become land.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n\nDismiss\nApply 1 edit",
+  "preview": {
+    "after": {
+      "land_fraction": 0.560414788097385,
+      "max_m": 6866.8327331543,
+      "mean_m": 690.179764579501,
+      "mean_slope_m_per_km": 51.6004125863157,
+      "min_m": -2421.61023616791
+    },
+    "became_land": 2,
+    "became_sea": 12,
+    "before": {
+      "land_fraction": 0.564923354373309,
+      "max_m": 6955.02185821533,
+      "mean_m": 692.396016836811,
+      "mean_slope_m_per_km": 54.9348815856653,
+      "min_m": -2422.07252979279
+    },
+    "capped": 0,
+    "changed": 2199,
+    "floored": 0,
+    "max_down_m": 451.118469238281,
+    "max_up_m": 419.154167175293
+  },
+  "prompt": "Smooth this coastline area.",
+  "region": "coast strip around (162, 30)",
+  "rejected": [
+    {
+      "operation": "smooth",
+      "rule": "R7",
+      "why": "smooth needs passes"
+    }
+  ],
+  "run": 1,
+  "structural": "",
+  "summary": "",
+  "undo_groups_added": 1,
+  "undo_restores_field": true,
+  "usage": {
+    "completion": 125,
+    "prompt": 1545,
+    "total": 1670
+  },
+  "valid": [
+    {
+      "amount_m": null,
+      "defaulted": true,
+      "falloff": "smooth",
+      "operation": "smooth",
+      "passes": 2,
+      "reason": "",
+      "softness": 0.5,
+      "strength": 0.751243865321584,
+      "text": "Smooth the region, strength 0.75, 2 passes (smooth falloff, softness 0.50)"
+    }
+  ]
+}

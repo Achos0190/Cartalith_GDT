@@ -97,18 +97,23 @@ func _paint() -> String:
 					break
 			if found.x >= 0:
 				break
+		if found.x < 0:
+			print("ABORT: no coastline found on the 4-cell lattice of this world")
+			get_tree().quit(2)
+			return "no site"
 		for k in range(-3, 4):
 			drag.call(float(found.x + 2), float(found.y + k * 9))
 		rel.call(float(found.x), float(found.y), true)
 		desc = "coast strip around (%d, %d)" % [found.x, found.y]
 	else:
+		## Inland ground: five samples along the stroke, all land (10 m up to 3 000 m). The first match in scan order.
 		var start := Vector2i(-1, -1)
-		for y in range(24, g.y - 50, 6):
-			for x in range(24, g.x - 80, 6):
+		for y in range(24, g.y - 50, 4):
+			for x in range(24, g.x - 80, 4):
 				var ok := true
-				for k in 6:
-					var e := _land(x + k * 12, y + k * 6)
-					if e < 30.0 or e > 1500.0:
+				for k in 5:
+					var e := _land(x + k * 14, y + k * 7)
+					if e < 10.0 or e > 3000.0:
 						ok = false
 						break
 				if ok:
@@ -116,6 +121,10 @@ func _paint() -> String:
 					break
 			if start.x >= 0:
 				break
+		if start.x < 0:
+			print("ABORT: no inland stroke site found on this world")
+			get_tree().quit(2)
+			return "no site"
 		for k in 12:
 			drag.call(float(start.x + k * 6), float(start.y + k * 3))
 		rel.call(float(start.x + 66), float(start.y + 33), true)

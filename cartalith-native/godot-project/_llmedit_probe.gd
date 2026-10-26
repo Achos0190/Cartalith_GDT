@@ -47,6 +47,9 @@ const _EDIT_SCRIPT := preload("res://shell/llm_edit.gd")
 
 var _fails := 0
 var _checks := 0
+## `--failfast`: end the run (RESULT: FAIL) at the first failed check. Used by the mutation runs, where the
+## first red check is the answer and the rest of a four-minute run is wasted.
+var _failfast := false
 var _mode := "desktop"
 var _shots := ""
 var _corpus_path := "../crates/cartalith-llm/tests/fixtures/hostile_corpus_edit_2026-10-26.json"
@@ -63,6 +66,8 @@ func _ok(cond: bool, what: String) -> void:
 	print(("  ok    " if cond else "  FAIL  ") + what)
 	if not cond:
 		_fails += 1
+		if _failfast:
+			_finish()
 
 
 func _settle(frames: int = 4) -> void:
@@ -330,6 +335,8 @@ func _ready() -> void:
 		elif args[i] == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]
+		elif args[i] == "--failfast":
+			_failfast = true
 		elif args[i] == "--corpus" and i + 1 < args.size():
 			i += 1
 			_corpus_path = args[i]
@@ -408,6 +415,15 @@ func _ready() -> void:
 	var r_none: String = reason_of.call()
 	_ok((_c("send") as Button).disabled and r_none.to_lower().contains("no region"), "no region: Send disabled, '%s'" % r_none.left(90))
 	_ok((_c("region_status") as Label).text.begins_with("Region: none"), "the region line says none: '%s'" % (_c("region_status") as Label).text.left(60))
+	# The region SOURCE is a Rust gate too (not only the window's reason line): a request made with it off is refused
+	# before anything is dialled, with its own code.
+	_configure({"ctx_region": false})
+	_paint_region()
+	var acc_src: int = _server.accepted
+	var no_src: Dictionary = _win.run.begin(DccSettings.llm_gate_dict(), "edit", DccSettings.llm_consented_origins(),
+		{"request": "raise it", "edit": REGION_SCRIPT.facts_json(_bridge), "max_tokens": 256})
+	_ok(not bool(no_src.get("ok", true)) and String(no_src.get("code", "")) == "region_context_off" and _server.accepted == acc_src, "Rust refuses an edit request while 'Send: the painted region' is off (code %s), nothing dialled" % str(no_src.get("code", "")))
+	_configure({"ctx_region": true})
 	# A hosted endpoint is refused by Rust for this feature, with zero connections.
 	_configure({"preset_id": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-x", "remote_allowed": true, "local_allowed": false})
 	DccSettings.llm_add_consent("https://api.openai.com")
@@ -626,6 +642,27 @@ func _ready() -> void:
 		_app.undo_last()
 		await _settle(6)
 		_ok(_digest()["field"] == snap0["field"], "seed %d: undone again, back to the original" % seed_)
+
+	# ---------------------------------------------------------------- 4b. the region must still be the region
+	print("== 4b. a region changed after the proposal is refused at Apply ==")
+	_configure({})
+	_paint_region()
+	_win._edit_key = ""
+	var rid4b := _region_id()
+	await _ask("tools", [_edit_call([_edit("raise", {"amount_m": 20}, rid4b)])], "Raise the painted area by 20 m.")
+	var c4b := _edit_card()
+	if c4b.is_empty() or c4b.get("apply") == null:
+		_ok(false, "4b: no edit card with Apply; stopping")
+		_finish()
+		return
+	var d4b := _digest()
+	var g4b: int = _app.undo_groups.cursor
+	REGION_SCRIPT.dabs.append(Vector3(40.0, 40.0, 16.0))
+	_ok(_region_id() != rid4b, "4b: painting one more dab changed the region's id")
+	await _click_until(c4b["apply"], func(): return c4b["state"] != "new")
+	_ok(c4b["state"] == "failed" and (c4b["reason"] as Label).text.contains("region changed"), "4b: Apply was refused with the reason: '%s'" % (c4b["reason"] as Label).text.left(90))
+	_ok(_digest() == d4b and _app.undo_groups.cursor == g4b, "4b: nothing changed and no undo group was opened")
+	REGION_SCRIPT.dabs.pop_back()
 
 	# ---------------------------------------------------------------- 5. refusals
 	for wire in ["openai", "anthropic"]:

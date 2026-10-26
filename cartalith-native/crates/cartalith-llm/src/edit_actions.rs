@@ -405,7 +405,7 @@ impl EditCatalogue {
                 "Propose edits to the ground inside the user's region. The user reviews a preview and applies; \
                  nothing happens by this call. At most {MAX_EDIT_OPS} edits. Each edit is {{operation, region_id, ...}} with region_id exactly \"{id}\". \
                  raise {{amount_m: >0..{MAX_AMOUNT_M}}} lifts the ground; lower {{amount_m: >0..{MAX_AMOUNT_M}}} sinks it; \
-                 smooth {{strength: {}..{}, passes: whole number 1..{MAX_SMOOTH_PASSES}}} evens it out. Every edit may also give \
+                 smooth {{strength: {}..{}, passes: whole number 1..{MAX_SMOOTH_PASSES}}} evens it out. Give an edit ONLY the arguments listed for its operation (raise and lower take no strength or passes, smooth takes no amount_m); any other argument gets the edit refused. Every edit may also give \
                  falloff ({}; default smooth) and softness (0..1; default {DEFAULT_SOFTNESS}): softness 0 edits the whole region evenly with a thin edge, \
                  softness 1 makes the change strongest in the middle of the shape and fade towards its edge. All raises and lowers together \
                  move at most {MAX_TOTAL_AMOUNT_M} m.",
@@ -841,7 +841,8 @@ mod tests {
         assert_eq!(rule_of(call(json!([{"operation": "raise", "region_id": "region_ab12cd34"}]))).0, EditRule::R7, "missing amount");
         assert_eq!(rule_of(call(json!([raise(json!("300"))]))).0, EditRule::R7, "a string is not a number");
         assert_eq!(rule_of(call(json!([raise(json!(true))]))).0, EditRule::R7);
-        assert_eq!(rule_of(call(json!([{"operation": "smooth", "region_id": "region_ab12cd34", "amount_m": 5}]))).0, EditRule::R7, "amount on a smooth");
+        assert_eq!(rule_of(call(json!([{"operation": "smooth", "region_id": "region_ab12cd34", "strength": 0.5, "passes": 2, "amount_m": 5}]))).0, EditRule::R7, "an amount on an otherwise valid smooth");
+        assert_eq!(rule_of(call(json!([{"operation": "smooth", "region_id": "region_ab12cd34", "amount_m": 5}]))).0, EditRule::R7, "a smooth with an amount and no strength");
         assert_eq!(rule_of(call(json!([{"operation": "raise", "region_id": "region_ab12cd34", "amount_m": 5, "strength": 0.5}]))).0, EditRule::R7);
         assert_eq!(rule_of(call(json!([{"operation": "smooth", "region_id": "region_ab12cd34", "strength": 0.5}]))).0, EditRule::R7, "missing passes");
         assert_eq!(rule_of(call(json!([{"operation": "smooth", "region_id": "region_ab12cd34", "strength": 0.5, "passes": 2.5}]))).0, EditRule::R7);
