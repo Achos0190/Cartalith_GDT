@@ -530,8 +530,16 @@ func _regen_legs() -> void:
 	_ok(_text_of(card["box"]).contains("press Generate to rebuild it") or (card["reason"] as Label).text.contains("press Generate to rebuild it"), "10: the undone card says the world was not rebuilt")
 
 	print("== 10b. hand edits: ask first, Cancel keeps the settings ==")
-	var ic := _bridge.icon_place(100.0, 80.0)
-	_ok(ic >= 0 and _bridge.icon_list().size() > 0, "10b: a hand-placed icon exists")
+	## A hand-drawn route between the two farthest settlements is the cheapest authored work the
+	## discard question counts (`world_workspace.gd::_authored_inventory`).
+	var towns: Array = _bridge.settlements()
+	var ridx := -1
+	if towns.size() >= 2:
+		_bridge.route_begin("mixed")
+		_bridge.route_append_stop(float(towns[0]["x"]), float(towns[0]["y"]))
+		_bridge.route_append_stop(float(towns[towns.size() - 1]["x"]), float(towns[towns.size() - 1]["y"]))
+		ridx = _bridge.route_commit()
+	_ok(ridx >= 0 and _bridge.route_count() > 0, "10b: a hand-drawn route exists (%d settlements)" % towns.size())
 	g0 = _gen_started
 	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "again")
 	var c2 := _last_card()
