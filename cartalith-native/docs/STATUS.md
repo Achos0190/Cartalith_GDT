@@ -15,6 +15,38 @@ become a second changelog and mis-stamped itself 2026-08-25.
 
 ---
 
+## Where we left off — 2026-10-26 (read this first; the dated entries below carry the evidence)
+
+Written by a docs-only reconciliation against `git log` (all hashes cited in the 2026-10-25/26 entries were checked to
+exist; no entry was re-measured). Head at the time: `e2cd6832`.
+
+**Verified (entry says what was run):** lava flows (Ruling DB), EA (DE), G1 (CZ), VA-6 (DG, DJ), the industrial levy
+(DL, `9a83061c`), LLM-1 to LLM-6d, LLM-8, LLM-9, LLM-10 (run on the OnePlus 6T), LLM-11, LLM-12, CQ-0 to CQ-7, PW-0 to
+PW-3, RK-0 to RK-7 with term interning, profiles (DQ), New world is untitled (`5585284e`), the phone GUI pass
+(`960dadc0`), the APK deliveries (the newest is from `0c723857`; the entry for `bea8561e` below is superseded by it).
+
+**Work in progress or unverified (the agents' own reports):**
+- `_llmpanel_probe`: 5 failing checks, not attributed to a cause.
+- `_nethint_probe`: green at desktop and tablet sizes; the phone-size leg has 1 failing check. The JNI "Open app
+  settings" call has never been run on a device.
+- Apply-and-regenerate (Ruling DS, `ad1a40c9`): verified on the desktop only.
+- LLM-7 (Ruling DR, `29fa45e4`, `c19ae198`, `0550e1b1`): the apply-path mutation tests were not run.
+- UI copy pass (`93b80da8`): verified only for Assistant settings, the Assistant panel and the quick-bar chip; the rest
+  of the shell was not covered.
+- Phone scroll and Assistant save (`2d5b1e5d`): partial fix. The central touch-scroll fix is NOT built, and neither is
+  the consent UX fix (the owner had to hunt for "Review consent" before Refresh/Send worked; top priority).
+- **Open gate:** `cargo test --workspace -j 2` has not been recorded as run on the current head.
+
+**Next:** `OUTSTANDING_WORK.md` section "Open after 2026-10-26" is the router. This line is the only "next" in this
+block; older "next" lines further down are dated and may be stale.
+
+**Housekeeping for the owner:** `C:\cw` leftovers (`uc1` locked by a process, `an1`, `an1t`, and the `.py` scripts that
+entries cite: `e15.py`, `e16.py`, `e17.py`, `e19.py`, `lv2_mut*.py`, `rk_edit.py`); manual items: the uncommitted
+`MISTAKES.md` edits and `MISTAKES_CANDIDATES_2026-10-26.md` to merge, the uncommitted `project.godot` decision, the
+Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratch folder.
+
+---
+
 ## Orientation — read this screen, then stop if that is all you need
 
 **Phase.** Phases 0, 1, 2, 4 and 5 are complete. **Phase 3 (rendering) is the
