@@ -121,6 +121,9 @@ var _note_paths: PackedStringArray = PackedStringArray()
 ## LLM-6d: the shell half of the view and layer actions (`llm_view.gd`: the facts the validator is
 ## built from, and the one place a validated view change is applied). No `class_name` on purpose.
 const _VIEW := preload("res://shell/llm_view.gd")
+## LLM-7: the edit card and its one writer (`llm_edit.gd`), and the region the user chose (`llm_region.gd`).
+const _EDIT := preload("res://shell/llm_edit.gd")
+const _REGION := preload("res://shell/llm_region.gd")
 ## "Choose groups" (scope s.5b.1 fallback, LLM-6d): the setting groups the USER ticked, at most
 ## `MAX_CHOSEN_GROUPS`. When non-empty, Send hands them to `LlmStream.prepare` as `args.groups` and
 ## the app performs the model's step one itself. Cleared after each Send.
@@ -133,6 +136,13 @@ var _groups_flow: HFlowContainer
 ## Most groups one request may open: the catalogue's `MAX_SCHEMA_GROUPS`, restated because the
 ## chip row must stop a fourth tick before Rust would refuse it (a labelled copy; Rust re-checks).
 const MAX_CHOSEN_GROUPS := 3
+## The prompt text typed before the window hid itself to let the user paint a region (`open()` rebuilds
+## the window, which would lose it). Empty when there is none.
+var _pending_input := ""
+## The region facts as last read from the engine (`{world, region}` or `{withheld}`) with the key they
+## were read for, so a keystroke does not re-rasterise the region. Send and Apply always re-read.
+var _edit_facts: Dictionary = {}
+var _edit_key := ""
 
 const _TASKS := [
 	["prose", "Describe place"],
@@ -161,6 +171,7 @@ var cards: Array = []
 ## The prompt box's hint, per kind of task.
 const PLACEHOLDER_PROSE := "Ask for prose about the selected place, or for work on the chosen note…"
 const PLACEHOLDER_COMMANDS := "Ask for a settings change (a drier climate), a view change (hide the roads) or a question about the world…"
+const PLACEHOLDER_EDIT := "Ask for a terrain change inside your region (raise it into a ridge about 300 m high, smooth this coastline, lower the middle into a basin)…"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -192,9 +203,15 @@ func setup(a, b: EngineBridge) -> void:
 	run.proposal.connect(_on_proposal)
 	run.answered.connect(_on_answered)
 	run.view_proposal.connect(_on_view_proposal)
+	run.edit_proposal.connect(_on_edit_proposal)
 	run.sources_shown.connect(_on_sources)
 	## The view and layer facts are read from the live app every turn (LLM-6d).
 	run.view_source = func() -> String: return _VIEW.facts_json(app, bridge)
+	## The next turn of an edit request reads the region as it is THEN (LLM-7).
+	run.edit_source = func() -> String: return _REGION.facts_json(bridge)
+	## A region painted on one world means nothing on the next: a generate or an open drops it.
+	bridge.generation_finished.connect(func(_ok): _on_world_replaced())
+	bridge.world_loaded.connect(func(): _on_world_replaced())
 	## The next turn of a setting request reads the settings as they are THEN.
 	run.params_source = func() -> Dictionary: return bridge.param_snapshot()
 	## The model's read-only lookups (LLM-8) are answered from the engine's own getters, read by
@@ -371,8 +388,31 @@ func _rebuild() -> void:
 	cmd.tooltip_text = "Ask for generation-setting changes, or a question about the settings or the world. The model proposes; nothing changes until you press Apply on its card."
 	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
+	## LLM-7: the Edit task (raise, lower, smooth inside a region the user chose).
+	var edit_chip := DccWidgets.segment(chips, "Edit", func(): _pick_task("edit"))
+	edit_chip.custom_minimum_size.y = maxi(int(edit_chip.custom_minimum_size.y), _field_h())
+	edit_chip.tooltip_text = "Ask for terrain changes inside an area you paint or box on the map. The model proposes; you see a preview and nothing changes until you press Apply."
+	_chips["edit"] = edit_chip
+	controls["task_edit"] = edit_chip
 	var cmd_note := _note_label(_body, "Suggests setting and view changes and answers questions about your world. Nothing changes until you press Apply. It never generates, saves, exports or deletes.")
 	controls["commands_note"] = cmd_note
+	## LLM-7 (scope s.5c): what the Edit task is, and where its region comes from.
+	var edit_note := _note_label(_body, "Edit proposes terrain changes (raise, lower, smooth) to an area YOU choose: paint it on the map or use a box. You see a preview worked out by the app; nothing changes until you press Apply, and one Apply is one undo step. It never generates, erodes or changes settings, and it goes only to a model on this computer or your local network. Turn it on in Settings (Edit actions, and Send: the painted region).")
+	controls["edit_note"] = edit_note
+	var region_status := DccTheme.label("", "text_secondary", DccTheme.FS_SMALL)
+	region_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	region_status.custom_minimum_size.x = WRAP_MIN_W
+	_body.add_child(region_status)
+	controls["region_status"] = region_status
+	var region_row := HFlowContainer.new()
+	region_row.add_theme_constant_override("h_separation", 6)
+	region_row.add_theme_constant_override("v_separation", 6)
+	_body.add_child(region_row)
+	controls["region_row"] = region_row
+	controls["region_paint"] = _button(region_row, "Paint region", _on_region_paint)
+	controls["region_box"] = _button(region_row, "Use the box", _on_region_box)
+	controls["region_clear"] = _button(region_row, "Clear region", _on_region_clear)
+	controls["region_view"] = _button(region_row, "View what is sent", _on_view_region)
 	## "Choose groups" (scope s.5b.1): the fallback for a small model that cannot pick setting groups.
 	var grow := HFlowContainer.new()
 	grow.add_theme_constant_override("h_separation", 6)
@@ -492,6 +532,9 @@ func _rebuild() -> void:
 	_input.text_changed.connect(_refresh)
 	_body.add_child(_input)
 	controls["input"] = _input
+	if _pending_input != "":
+		_input.text = _pending_input
+		_pending_input = ""
 
 	_reason_label = _note_label(_body, "", "warn")
 	controls["reason"] = _reason_label
@@ -649,6 +692,8 @@ func _task_id() -> String:
 
 ## The capability the current task needs: `commands` for setting proposals, else `prose`.
 func _capability() -> String:
+	if _task == "edit":
+		return "edit"
 	return "commands" if _task == "commands" else "prose"
 
 
@@ -698,11 +743,14 @@ func _refresh() -> void:
 	(controls["note"] as OptionButton).disabled = busy or not bool(bridge.vault_info().get("bound", false))
 	(controls["place"] as Label).text = _place_text()
 	## A setting proposal uses neither a place nor a note.
-	(controls["place"] as Label).visible = _task != "commands"
+	(controls["place"] as Label).visible = _task != "commands" and _task != "edit"
 	## The Commands explainer is about Commands only; hiding it elsewhere gives the place entry's longer
 	## "this will send" line room on a tablet or phone sheet (measured: with it, the Save row was clipped).
 	(controls["commands_note"] as Control).visible = _task == "commands"
-	(controls["note_row"] as Control).visible = _task != "commands"
+	(controls["note_row"] as Control).visible = _task != "commands" and _task != "edit"
+	## LLM-7: the Edit task's explainer and region row.
+	(controls["edit_note"] as Control).visible = _task == "edit"
+	_refresh_region(busy)
 	## "Choose groups" opens SETTING groups, which a questions-only request (the parameter source unticked, a
 	## knowledge box ticked) does not have; hiding it also gives the phone sheet its row back.
 	var groups_ok: bool = _task == "commands" and bool(DccSettings.llm_value("ctx_params"))
@@ -716,7 +764,7 @@ func _refresh() -> void:
 		gbtn.tooltip_text = "At most %d groups; untick one first." % MAX_CHOSEN_GROUPS if gbtn.disabled and not busy else "Open the %s settings for the model." % gn
 	(controls["groups_toggle"] as Button).disabled = busy
 	DccWidgets.set_segment_on(controls["groups_toggle"], _groups_flow.visible or not _chosen_groups.is_empty())
-	_input.placeholder_text = PLACEHOLDER_COMMANDS if _task == "commands" else PLACEHOLDER_PROSE
+	_input.placeholder_text = PLACEHOLDER_EDIT if _task == "edit" else (PLACEHOLDER_COMMANDS if _task == "commands" else PLACEHOLDER_PROSE)
 	(controls["note_reload"] as Button).disabled = busy or _note.is_empty()
 	_stop.visible = busy
 	_send.visible = true
@@ -742,8 +790,20 @@ func _refresh() -> void:
 		reason = String(cap_check.get("reason", "The token cap is reached."))
 	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")) and not _knowledge_ticked():
 		reason = "In Settings, tick \"Send: generation parameters and summary statistics\" to use this, or tick a search source (Vault notes or world data) to ask about your notes and world."
+	elif _task == "edit" and not bool(DccSettings.llm_value("ctx_region")):
+		reason = "Tick \"Send: the painted region and its heights\" in Settings first: an edit request shows the model the region's shape and its measured heights, as numbers."
+	elif _task == "edit" and not bool(DccSettings.llm_value("edit")):
+		reason = "Turn on \"Edit actions\" in Settings first."
+	elif _task == "edit" and _edit_region_reason() != "":
+		reason = _edit_region_reason()
 	elif request == "":
 		reason = "Type a request first."
+	elif _task == "edit":
+		var ep: Dictionary = run.stream.edit_preview({"request": request, "edit": _edit_facts_json()}) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
+		if bool(ep.get("ok", false)):
+			sent_text = "This will send: your request (%d characters) and the region you chose, as numbers only: its bounding box, %d cells and area, %d rows of x ranges, and its lowest, mean and highest height, land share and slope (%d characters; \"View what is sent\" shows the exact text). The model may propose raising, lowering or smoothing inside that region; nothing changes until you press Apply. No picture of the map is sent, and only a model on this computer or your local network receives it." % [int(ep["request_chars"]), int(ep["cells"]), int(ep["rows"]), int(ep["region_chars"])]
+		else:
+			reason = String(ep.get("reason", "Unavailable."))
 	elif _task == "commands":
 		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "The assistant is not available in this version of Cartalith."}
 		if bool(pp.get("ok", false)) and not bool(DccSettings.llm_value("ctx_params")):
@@ -791,8 +851,8 @@ func _refresh() -> void:
 	_save.tooltip_text = why
 	_save_reason.text = why
 	_save_reason.visible = why != ""
-	(_save.get_parent() as Control).visible = _task != "commands"
-	(controls["save_note"] as Control).visible = _task != "commands"
+	(_save.get_parent() as Control).visible = _task != "commands" and _task != "edit"
+	(controls["save_note"] as Control).visible = _task != "commands" and _task != "edit"
 	_refresh_cards()
 
 
@@ -1157,12 +1217,12 @@ func _on_send() -> void:
 	_add_msg("You", request, "text")
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
-	var args := _params_args(request) if _task == "commands" else _args(request)
+	var args: Dictionary = _edit_args(request) if _task == "edit" else (_params_args(request) if _task == "commands" else _args(request))
 	_sources_seen = false
 	## RK-6: the pre-retrieval search, run HERE (the shell holds the engine) only when Rust's plan for
 	## this endpoint and these settings asks for it. For a place the place's name is added to the
 	## words, so the place's own document is found (the place-facts context draws on the same base).
-	var kplan: Dictionary = LlmKnowledge.plan(run.stream, _capability()) if run.available() else {}
+	var kplan: Dictionary = LlmKnowledge.plan(run.stream, _capability()) if run.available() and _task != "edit" else {}
 	var kquery := request
 	if _task == "prose" and not _place.is_empty():
 		kquery = "%s %s" % [String(_place["name"]), request]
@@ -1290,7 +1350,7 @@ func _scroll_to_end() -> void:
 func _on_params_step(info: Dictionary) -> void:
 	if String(info.get("type", "")) == "params_retry":
 		var v: Dictionary = info.get("verdict", {})
-		var why := _verdict_reasons(v) if info.has("verdict") else _view_reasons(info.get("view_verdict", {}))
+		var why := _verdict_reasons(v) if info.has("verdict") else (_edit_reasons(info.get("edit_verdict", {})) if info.has("edit_verdict") else _view_reasons(info.get("view_verdict", {})))
 		_add_msg("", "The suggestion could not be used (%s). Asking the assistant to try again." % why, "warn")
 	else:
 		var gs: PackedStringArray = info.get("groups", PackedStringArray())
@@ -1313,7 +1373,7 @@ func _on_answered(_text: String) -> void:
 		## A knowledge answer: the text above is the answer and the sources card follows it.
 		_refresh()
 		return
-	var hint := "" if _groups_were_chosen else " If it could not find the right settings, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
+	var hint := "" if (_groups_were_chosen or _task == "edit") else " If it could not find the right settings, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
 	_add_msg("", "Nothing was proposed.%s" % hint, "text_ghost")
 	_refresh()
 
@@ -1456,7 +1516,8 @@ func _refresh_cards() -> void:
 		var rl: Label = card["reason"]
 		if card["state"] != "new":
 			continue
-		var why := _view_blocked(card["info"]) if String(card.get("kind", "params")) == "view" else _apply_blocked()
+		var kind := String(card.get("kind", "params"))
+		var why := _view_blocked(card["info"]) if kind == "view" else (_EDIT.blocked(bridge, card) if kind == "edit" else _apply_blocked())
 		if b != null:
 			b.disabled = why != ""
 			b.tooltip_text = why
@@ -1680,13 +1741,14 @@ func _sync_card_undo() -> void:
 		if gid <= 0 or (st != "applied" and st != "undone"):
 			continue
 		var is_view := String(card.get("kind", "params")) == "view"
+		var is_edit := String(card.get("kind", "params")) == "edit"
 		match String(ug.state_of(gid)):
 			"applied":
 				if st == "undone":
 					_close_card(card, "applied", String(card.get("applied_text", "Applied.")), "good")
 			"undone":
 				if st == "applied":
-					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
+					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it." if is_edit else "Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
 						else "Undone with Edit ▸ Undo: the settings are back to what they were before this card. Nothing was regenerated. Edit ▸ Redo re-applies them."), "text_dim")
 			_:
 				if st == "undone":
@@ -1694,6 +1756,165 @@ func _sync_card_undo() -> void:
 				elif not bool(card.get("gone", false)):
 					card["gone"] = true
 					_close_card(card, "applied", String(card.get("applied_text", "Applied.")) + " It is no longer on the undo stack (a newer edit or a different world replaced it).", "text_dim")
+
+
+# ---------------------------------------------------------------------------
+# Edit actions (LLM-7)
+# ---------------------------------------------------------------------------
+
+## A world was generated or opened: the painted region belongs to the old one. Cleared, and the
+## cached facts with it.
+func _on_world_replaced() -> void:
+	_REGION.on_world_changed(app)
+	_edit_key = ""
+	if visible and _task == "edit":
+		_refresh()
+
+
+## The region facts, read from the engine only when the region (or the generating flag) changed since
+## the last read; `{world, region}` or `{withheld}`. Send passes `force` through `_edit_key = ""`.
+func _edit_facts_dict() -> Dictionary:
+	var key := "%s|%s|%s" % [JSON.stringify(_REGION.spec()), str(bridge.generating), str(bridge.has_world)]
+	if key != _edit_key:
+		_edit_key = key
+		_edit_facts = _REGION.facts(bridge)
+	return _edit_facts
+
+
+func _edit_facts_json() -> String:
+	return JSON.stringify(_edit_facts_dict())
+
+
+## Why the region cannot be sent now (none, too large, outside the world, a generation running), or "".
+func _edit_region_reason() -> String:
+	var f := _edit_facts_dict()
+	return String(f["withheld"]) if f.has("withheld") else ""
+
+
+## The arguments of an edit request: the user's words and the region as the engine just read it.
+func _edit_args(request: String) -> Dictionary:
+	_edit_key = ""
+	return {"request": request, "edit": _edit_facts_json(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
+
+
+## The one-line region status and the row's buttons, each with the reason it is off.
+func _refresh_region(busy: bool) -> void:
+	var is_edit := _task == "edit"
+	(controls["region_status"] as Control).visible = is_edit
+	(controls["region_row"] as Control).visible = is_edit
+	if not is_edit:
+		return
+	var t := ""
+	if _REGION.is_empty():
+		t = "Region: none. Paint an area on the map, or draw a box with Region select (R) and press Use the box."
+	else:
+		var f := _edit_facts_dict()
+		if f.has("withheld"):
+			t = "Region: %s" % String(f["withheld"])
+		else:
+			var r: Dictionary = f["region"]
+			var bb: Array = r["bbox"]
+			t = "Region: %s, %d cells, x %d to %d, y %d to %d" % ["a box" if String(r.get("shape", "")) == "box" else "painted", int(r["cells"]), int(bb[0]), int(bb[0]) + int(bb[2]) - 1, int(bb[1]), int(bb[1]) + int(bb[3]) - 1]
+			if r.has("ground"):
+				var g: Dictionary = r["ground"]
+				t += "; heights %d to %d m above sea (mean %d)" % [int(roundf(float(g["min_m"]))), int(roundf(float(g["max_m"]))), int(roundf(float(g["mean_m"])))]
+			if bool(r.get("clipped", false)):
+				t += "; part of your shape lay outside the world and was cut off"
+	(controls["region_status"] as Label).text = t
+	var can := bridge.has_world and not bridge.generating and not busy
+	var paint := controls["region_paint"] as Button
+	paint.disabled = not can or _phone
+	paint.tooltip_text = "Painting a region needs a pointer or the tablet layout for now; on a phone use a box." if _phone else ("Hide this window and paint on the map; press Done to come back." if can else "Open a world first (and wait for a generation to finish).")
+	var use_box := controls["region_box"] as Button
+	use_box.disabled = not can
+	use_box.tooltip_text = "Use the box you drew with Region select (R) as the region." if can else "Open a world first."
+	(controls["region_clear"] as Button).disabled = busy or _REGION.is_empty()
+	(controls["region_view"] as Button).disabled = busy or _REGION.is_empty() or _edit_region_reason() != ""
+
+
+## Paint: this window hides, the brush is armed, the bar's Done brings it back on the Edit task with the
+## prompt as the user left it.
+func _on_region_paint() -> void:
+	if run.busy() or _phone:
+		return
+	_pending_input = _input.text
+	_REGION.begin_paint(app, func(): _after_paint())
+	hide()
+
+
+func _after_paint() -> void:
+	_task = "edit"
+	_edit_key = ""
+	open()
+
+
+func _on_region_box() -> void:
+	var why: String = _REGION.use_box(app, bridge)
+	if why != "":
+		_add_msg("", why, "warn")
+	_edit_key = ""
+	_refresh()
+
+
+func _on_region_clear() -> void:
+	_REGION.clear(app)
+	_edit_key = ""
+	_refresh()
+
+
+## Shows the exact region text the model would read, in the transcript (nothing is sent by this).
+func _on_view_region() -> void:
+	var f := _edit_facts_dict()
+	if f.has("withheld"):
+		return
+	var ep: Dictionary = run.stream.edit_preview({"request": "x", "edit": _edit_facts_json()}) if run.available() else {}
+	if not bool(ep.get("ok", false)):
+		return
+	_add_msg("Region facts (shown to you; sent only when you press Send)", String(ep["region_text"]), "text_secondary")
+	controls["region_shown"] = true
+
+
+## The edit proposal of a reply (an Edit request's only tool).
+func _on_edit_proposal(info: Dictionary) -> void:
+	_drop_empty_reply()
+	_EDIT.draw_card(self, info.get("edit", {}))
+	_watch_undo()
+	_refresh_cards()
+
+
+## The refused edits or the structural failure, in one line.
+func _edit_reasons(v: Dictionary) -> String:
+	if v.has("structural"):
+		return "%s: %s" % [String(v.get("structural_rule", "")), String(v["structural"])]
+	var parts: PackedStringArray = PackedStringArray()
+	for r in v.get("rejected", []):
+		var rd: Dictionary = r
+		parts.append("%s %s: %s" % [String(rd.get("rule", "")), String(rd.get("operation", "(no operation)")), String(rd.get("why", ""))])
+	return "; ".join(parts) if not parts.is_empty() else "nothing could be applied"
+
+
+## **The only writer of terrain in the Assistant**, reached only from an edit card's Apply. One undo
+## group through `llm_edit.gd::apply` (the engine call records one height step the group collects); a
+## refusal rolls the group back and nothing changes. Never regenerates, erodes or touches settings.
+func _apply_edit_card(card: Dictionary) -> void:
+	if card["state"] != "new":
+		return
+	var why := _EDIT.blocked(bridge, card)
+	if why != "":
+		_refresh_cards()
+		return
+	var info: Dictionary = card["info"]
+	var r: Dictionary = _EDIT.apply(app, bridge, app.undo_groups, info, info.get("valid", []))
+	if not bool(r.get("ok", false)):
+		_close_card(card, "failed", "Not applied: %s Nothing was changed." % String(r.get("reason", "")), "block")
+		return
+	card["group_id"] = int(r.get("group_id", 0))
+	card["applied_text"] = "Applied: %d cells changed, as one undo step (Edit \u25b8 Undo reverts all of it). Rivers and climate were re-run for the area; nothing else was regenerated." % int(r.get("changed", 0))
+	_close_card(card, "applied", String(card["applied_text"]), "good")
+	_edit_key = ""
+	if app.has_method("set_status"):
+		app.set_status("hint", "Assistant: terrain edited (%d cells). One undo step." % int(r.get("changed", 0)))
+	_refresh()
 
 
 ## The setting groups, in the registry's order (read from the engine's own parameter table, not typed here).

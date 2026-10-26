@@ -972,6 +972,10 @@ const LLM_DEFAULTS := {
 	"ctx_selection": false,    ## context source: selection
 	"ctx_notes": false,        ## context source: named Vault notes
 	"ctx_params": false,       ## context source: generation parameters (LLM-6a/6b; Ruling DI P3: its own box, off until ticked)
+	## LLM-7 (scope s.5c): the painted region's shape and measured heights, for an edit request. Its own box,
+	## off until ticked. NOT carried by profiles (`LLM_PROFILE_KEYS` omits it): a profile switch never turns
+	## it on, and an edit request is local-only whatever the profile (owner question E3's default).
+	"ctx_region": false,
 	## RK-5/RK-6 (Rulings DM and DN): the knowledge base is two SEPARATE context sources, both off until
 	## ticked (K1), and each is searched only for the words of a request. A hosted endpoint additionally
 	## needs the per-endpoint opt-in below (K2).
@@ -1090,7 +1094,7 @@ static func llm_key_account() -> String:
 static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
-			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params", "thinking", "key_account",
+			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params", "ctx_region", "thinking", "key_account",
 			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools"]:
 		d[k] = llm_value(k)
 	## The hosted endpoints the user allowed knowledge search for (K2); Rust compares the endpoint's

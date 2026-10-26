@@ -43,6 +43,10 @@ var region_rect := Rect2()   ## Grid-cell coords; zero size means "none".
 ## True while the region marquee is being dragged (set by [`set_region`]); kept
 ## for callers and probes, [`_draw`] currently draws both states identically.
 var region_dragging := false
+## LLM-7: the Assistant's painted region, as round dabs `Vector3(cx, cy, radius)` in grid cells (the
+## same numbers `WorldGen.region_describe` rasterises). Empty means none. Drawn as a translucent fill
+## with a dashed-look outline per dab; the Assistant's own rectangle is drawn by [`set_region`].
+var assist_dabs: Array = []
 
 ## §10's "brush ring for paint and sculpt" -- a hollow circle at the cursor,
 ## radius in grid cells so it scales correctly under zoom the same way the
@@ -248,6 +252,11 @@ func set_region(rect: Rect2, dragging: bool = false) -> void:
 	region_dragging = dragging
 	queue_redraw()
 
+## LLM-7: sets the Assistant's painted region (see [`assist_dabs`]); an empty array clears it.
+func set_assist_region(dabs: Array) -> void:
+	assist_dabs = dabs
+	queue_redraw()
+
 ## Shows or hides the brush ring at grid position `(gx, gy)` with the given
 ## radius in grid cells. Cheap to call every cursor sample; a non-positive
 ## radius draws nothing.
@@ -379,6 +388,18 @@ func _draw() -> void:
 		for corner in [screen_rect.position, screen_rect.position + Vector2(screen_rect.size.x, 0),
 				screen_rect.position + screen_rect.size, screen_rect.position + Vector2(0, screen_rect.size.y)]:
 			draw_rect(Rect2(corner - Vector2(3, 3), Vector2(6, 6)), REGION_COLOR, true)
+
+	## LLM-7: the Assistant's painted region. Each dab is a filled disc at the same translucency as the
+	## marquee (where dabs overlap the fill is slightly stronger); the outline is drawn per dab (the union's true edge
+	## is the engine's mask, which the Assistant's status line counts).
+	for d in assist_dabs:
+		var dv := d as Vector3
+		var dc := _grid_to_screen(Vector2(dv.x, dv.y), rect, k)
+		draw_circle(dc, dv.z * cell_px, REGION_FILL, true, -1.0, true)
+	for d in assist_dabs:
+		var dv := d as Vector3
+		var dc := _grid_to_screen(Vector2(dv.x, dv.y), rect, k)
+		draw_arc(dc, dv.z * cell_px, 0, TAU, 40, REGION_COLOR, 1.2, true)
 
 	if brush_visible and brush_radius_cells > 0.0:
 		var center_screen := _grid_to_screen(brush_center, rect, k)

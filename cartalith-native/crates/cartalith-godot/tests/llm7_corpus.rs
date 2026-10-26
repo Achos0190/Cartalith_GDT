@@ -9,7 +9,7 @@
 //! model reads is built from typed numbers, so the strings here arrive as the user's own pasted
 //! request. Every row is made to act, on BOTH wires (the OpenAI-compatible and the Anthropic
 //! decoders), through a `ParamsConversation` in edit mode over a fixture region (highest cell 3 900 m
-//! of a 4 000 m world, so a raise of more than 100 m reaches the ceiling).
+//! of a 4 000 m world; there is no ceiling rule, the engine's clamp and the preview handle the summit).
 //!
 //! # What must hold, for every row and wire
 //!
@@ -306,9 +306,6 @@ fn check(row: &Row, wire: Wire, o: &Outcome) {
             let a = v["amount_m"].as_f64().unwrap();
             assert!(a > 0.0 && a <= 500.0, "{ctx}: amount {a}");
             moved += a;
-            if op == "raise" {
-                assert!(3900.0 + a <= 4000.0 + 1e-9, "{ctx}: a raise of {a} m passes the ceiling from 3900 m");
-            }
         }
     }
     assert!(moved <= 600.0, "{ctx}: {moved} m moved in all");

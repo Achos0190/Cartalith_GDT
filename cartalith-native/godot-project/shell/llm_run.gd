@@ -66,6 +66,9 @@ signal proposal(info: Dictionary)
 ## `propose_view_actions`. DATA: nothing is applied by this signal. A reply that carried both tools
 ## arrives as `proposal` with the view half under `info.view`.
 signal view_proposal(info: Dictionary)
+## The validated EDIT proposal (LLM-7, Rust's `edit_verdict_dict`) of an Edit request, whose only tool is
+## `propose_edit_actions`. DATA: nothing is applied by this signal.
+signal edit_proposal(info: Dictionary)
 ## The model answered a setting request in words, without proposing (`text`).
 signal answered(text: String)
 ## The sources a knowledge-assisted reply drew on and the citations in it, checked by Rust against what
@@ -106,6 +109,9 @@ var params_source: Callable
 ## catalogue (LLM-6d); when invalid the first turn's facts are reused. Read from the live app each
 ## turn, like `params_source`, so a layer switched between turns is what the validator compares to.
 var view_source: Callable
+## Returns the CURRENT region facts as JSON text (`LlmRegion.facts_json`) for the next turn of an Edit
+## request (LLM-7); when invalid the first turn's facts are reused. Read fresh each turn, like the others.
+var edit_source: Callable
 ## Reads the world for the model's waiting read-only lookups (LLM-8). Called with
 ## `LlmStream.pending_needs()`; returns the Dictionary Rust reads as `args.facts` (`LlmFacts.read`).
 ## When invalid nothing is read and every world lookup answers "not available".
@@ -274,6 +280,9 @@ func _dispatch(events: Array) -> void:
 			"view_proposal":
 				var vinfo: Dictionary = ev.duplicate()
 				_terminal(func(): view_proposal.emit(vinfo); finished.emit({}))
+			"edit_proposal":
+				var einfo: Dictionary = ev.duplicate()
+				_terminal(func(): edit_proposal.emit(einfo); finished.emit({}))
 			"params_answer":
 				var said := String(ev.get("text", ""))
 				if ev.has("sources"):
@@ -323,6 +332,12 @@ func _continue_after_join() -> void:
 		args["view"] = view_source.call()
 	elif Dictionary(_last["args"]).has("view"):
 		args["view"] = Dictionary(_last["args"])["view"]
+	## An Edit request (LLM-7) re-reads the region for every turn the same way.
+	if String(_last["capability"]) == "edit":
+		if edit_source.is_valid():
+			args["edit"] = edit_source.call()
+		elif Dictionary(_last["args"]).has("edit"):
+			args["edit"] = Dictionary(_last["args"])["edit"]
 	var needs: Dictionary = stream.pending_needs()
 	if facts_source.is_valid():
 		args["facts"] = facts_source.call(needs)

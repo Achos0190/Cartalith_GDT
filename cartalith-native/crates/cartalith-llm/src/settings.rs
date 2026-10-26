@@ -38,7 +38,7 @@ pub enum Capability {
     Prose,
     /// Commands: view, layer, parameter.
     Commands,
-    /// Edit actions: sculpt, paint (a separate switch, scope s.5).
+    /// Edit actions: raise, lower, smooth inside a region the user chose (a separate switch, scope s.5; LLM-7 built the first three operations).
     Edit,
 }
 
@@ -48,7 +48,7 @@ impl Capability {
         match self {
             Capability::Prose => "Prose and Vault assist",
             Capability::Commands => "Commands: view, layer, parameter",
-            Capability::Edit => "Edit actions: sculpt, paint",
+            Capability::Edit => "Edit actions: raise, lower, smooth",
         }
     }
 }

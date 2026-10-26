@@ -95,8 +95,8 @@ const _SWITCHES := [
 		"note": "Draft text for a place, its story or a note. Nothing is saved until you click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
 		"note": "The assistant suggests settings, view and layer changes. You review each one and press Apply; one undo step reverses it."},
-	{"key": "edit", "label": "Edit actions: sculpt, paint",
-		"unavailable": "Coming later."},
+	{"key": "edit", "label": "Edit actions: raise, lower, smooth",
+		"note": "The model proposes terrain edits to an area you paint or box on the map (Assistant > Edit). You see a preview computed by the app; nothing changes until you press Apply, and one Apply is one undo step. It never generates, erodes or changes settings. Only raise, lower and smooth in this release; painting colours comes later. Needs the region source below, and goes only to a model on this computer or your network."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "Models on this computer or your network.",
 		"note_phone": "Models on this phone or your network."},
 	{"key": "remote_allowed", "label": "Remote providers allowed", "note": "Models run by a company on the internet."},
@@ -108,6 +108,10 @@ const _CONTEXT := [
 	{"key": "ctx_notes", "label": "Send: named Vault notes"},
 	## Ruling DI P3: generation parameters are their own source, off until ticked. A setting
 	## proposal shows the model each offered setting's current value, so it needs this.
+	## LLM-7 (scope s.5c, owner question E3's default): an edit request shows the model the region you
+	## painted and its measured heights, so this is its own box, off until ticked.
+	{"key": "ctx_region", "label": "Send: the painted region and its heights",
+		"note": "Needed for edit actions: the model is shown the region's shape (a few rows of x ranges), its bounding box, cell count and area, and its lowest, mean and highest height, land share and mean slope, as numbers. Never a picture, never the rest of the map. Edit requests go only to a model on this computer or your local network."},
 	{"key": "ctx_params", "label": "Send: generation parameters and summary statistics",
 		"note": "Lets the assistant see your current settings and world-wide figures such as sea level and rainfall. It only reads."},
 	## RK-5 (Rulings DM and DN K1): the knowledge base's two sources, each its own box, both off.
@@ -582,6 +586,20 @@ func _rebuild() -> void:
 	_models_render()
 
 
+## Why Edit actions cannot be turned on in this build, or "" when they can. The grouped undo
+## (`undo_group.gd`: `begin`, `commit`, `abort`) must exist, and so must the engine's three region
+## functions; a library older than the shell lacks them and says so.
+func _edit_unavailable() -> String:
+	var ug = app.get("undo_groups") if app != null else null
+	if ug == null or not (ug.has_method("begin") and ug.has_method("commit") and ug.has_method("abort")):
+		return "Not available in this build: edit actions need the grouped undo, which is missing."
+	if not (bridge.has_method("region_describe") and bridge.has_method("region_edit_preview") and bridge.has_method("region_edit_apply")):
+		return "Not available in this build: the shell has no region editing."
+	if not (bridge._has("region_describe") and bridge._has("region_edit_preview") and bridge._has("region_edit_apply")):
+		return "Not available: the Cartalith library is older than the shell and cannot edit a region. Update it."
+	return ""
+
+
 ## A switch's sub-note: its `note_phone` on Android where it has one (LLM-10: "this computer" is
 ## not where a phone user is), else its `note`, else "".
 func _sw_note(sw: Dictionary) -> String:
@@ -595,6 +613,12 @@ func _sw_note(sw: Dictionary) -> String:
 func _switch_row(sw: Dictionary) -> void:
 	var key := String(sw["key"])
 	var unavailable := String(sw.get("unavailable", ""))
+	## LLM-7 (scope LLM-7 bar: "refuses to enable unless LLM-5's grouped undo is present in the build"):
+	## the Edit switch is available only when this build has the grouped undo AND the three region
+	## functions. Presence is checked at run time (the tests that it WORKS are the probes and the
+	## cargo suite, which this cannot run), and the reason is shown, never a dead switch.
+	if key == "edit" and unavailable == "":
+		unavailable = _edit_unavailable()
 	var value := bool(DccSettings.llm_value(key)) if unavailable == "" else false
 	## Phone only (owner finding 2026-10-26, OnePlus 6T: "large blank gaps under the toggle rows"). The switch
 	## row is floored to 44 dp, its label is centred in it, and the body adds 8 dp before the note, so the note

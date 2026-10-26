@@ -472,6 +472,9 @@ fn run(row: &Row, wire: Wire, vector: Vector) -> Outcome {
                         o.last = "view_proposal".into();
                         break;
                     }
+                    // LLM-7: the edit tool exists only in an Edit request (`llm7_corpus.rs`); a settings
+                    // conversation offering it would be a hole in the closed tool set.
+                    Step::EditRetry(_) | Step::EditProposal(_) => panic!("{}: an edit proposal came out of a settings conversation", row.id),
                     Step::Answer(a) => {
                         o.answered = Some(a);
                         o.last = "answer".into();

@@ -66,6 +66,7 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 		if bool(DccSettings.llm_value("ctx_params")):
 			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
 			_line(sent, "for a question: setting values, world-wide figures (sea level, land fraction, rainfall, temperature) and up to 8 map cells (elevation, slope, climate, biome); never a map image")
+		_line(sent, "for an edit request (Assistant > Edit): the shape of the region you painted or boxed (its bounding box, cell count and area, and a few rows of x ranges) and, when its source is ticked, the region's lowest, mean and highest height, land share and mean slope, all as numbers; never a picture and never the rest of the map. Only a model on this computer or your local network receives it. A proposal changes nothing until you press Apply, and one Apply is one undo step")
 	if bool(DccSettings.llm_value("ctx_rag_vault")) or bool(DccSettings.llm_value("ctx_rag_world")):
 		## What a knowledge lookup sends, in the caps the code enforces (`LlmStream.knowledge_limits`).
 		var lim: Dictionary = _knowledge_limits()
@@ -164,6 +165,8 @@ static func _context_sources() -> String:
 		on.append("named Vault notes")
 	if bool(DccSettings.llm_value("ctx_params")):
 		on.append("generation parameters and summary statistics")
+	if bool(DccSettings.llm_value("ctx_region")):
+		on.append("the painted region and its heights")
 	if bool(DccSettings.llm_value("ctx_rag_vault")):
 		on.append("Vault notes found by search")
 	if bool(DccSettings.llm_value("ctx_rag_world")):

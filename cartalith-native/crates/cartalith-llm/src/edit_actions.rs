@@ -33,8 +33,14 @@
 //! missing or wrongly typed argument (a string for a number, `3.5` for the integer `passes`, an
 //! amount on a `smooth`); `R8` a number outside its range or a falloff that is not offered (never
 //! clamped: the refusal quotes the number as written); `R9` the proposal as a whole would move
-//! more than [`MAX_TOTAL_AMOUNT_M`] metres or raise the region's highest cell past the world's
-//! ceiling; `R10` the same operation twice on the region.
+//! more than [`MAX_TOTAL_AMOUNT_M`] metres; `R10` the same operation twice on the region.
+//!
+//! **The world's ceiling is not a rule.** A first cut refused a raise whose region maximum plus the
+//! raise passed the world's peak altitude; three real worlds showed why that is wrong: the generator
+//! lets ground stand above `peak_m` (Ruling DB item 3's higher ceiling), so a region holding one such
+//! summit had NO headroom and every raise was refused, though the engine would simply stop that summit
+//! (the sculpt clamp) and raise the rest. The engine's clamp does the job, the model is told the
+//! ceiling in the region text, and the app's preview counts the cells it stopped.
 //!
 //! The same limits are enforced a second time by the engine call (`region_edit::check_ops`);
 //! `cartalith-godot/tests/region_edit_limits.rs` pins that the two sets of constants are equal,
@@ -357,6 +363,9 @@ impl EditCatalogue {
         if r.clipped {
             t.push_str("Part of the painted shape lay outside the world and was cut off.\n");
         }
+        if let Some(w) = &self.world {
+            t.push_str(&format!("The world's peak altitude is {:.0} m; ground already there cannot be raised further.\n", w.peak_m));
+        }
         if let Some(g) = &r.ground {
             t.push_str(&format!(
                 "Ground (metres above sea level, negative is below): lowest {:.0}, mean {:.0}, highest {:.0}; {:.0}% land",
@@ -551,7 +560,7 @@ impl EditCatalogue {
         if list.len() > MAX_EDIT_OPS {
             return EditVerdict::structural(EditRule::R3, format!("{} edits is more than the {MAX_EDIT_OPS} one proposal may carry", list.len()));
         }
-        let (Some(region), Some(world)) = (self.region.as_ref(), self.world.as_ref()) else {
+        let Some(region) = self.region.as_ref().filter(|_| self.world.is_some()) else {
             return EditVerdict::structural(EditRule::R6, "no region is available for this request");
         };
         let summary = obj.get("summary").and_then(Value::as_str).map(|s| inert_text(s, MAX_EDIT_REASON_CHARS)).filter(|s| !s.is_empty());
@@ -667,24 +676,6 @@ impl EditCatalogue {
                 if total + a > MAX_TOTAL_AMOUNT_M + 1e-9 {
                     reject(EditRule::R9, format!("with this edit the proposal would move {} m in all; at most {} m may be moved at once", num_text(total + a), num_text(MAX_TOTAL_AMOUNT_M)));
                     continue;
-                }
-                if op == "raise" {
-                    if let Some(g) = &region.ground {
-                        let raised: f64 = v.valid.iter().filter(|c| c.operation == "raise").filter_map(|c| c.amount_m).sum::<f64>() + a;
-                        if g.max_m + raised > world.peak_m + 1e-9 {
-                            reject(
-                                EditRule::R9,
-                                format!(
-                                    "the region's highest cell is {} m; raising by {} m would pass the world's ceiling of {} m. Raise by at most {} m, or lower the request",
-                                    num_text(g.max_m),
-                                    num_text(raised),
-                                    num_text(world.peak_m),
-                                    num_text((world.peak_m - g.max_m).max(0.0).floor())
-                                ),
-                            );
-                            continue;
-                        }
-                    }
                 }
                 total += a;
             }
@@ -884,8 +875,9 @@ mod tests {
         assert!(why.contains("99999") && why.contains("500"), "{why}");
     }
 
-    /// R9 with literals: 300 + 300 is exactly the 600 m budget and passes, one more metre fails; the
-    /// ceiling rule uses the region's highest cell (800 m of a 4000 m world: 3200 m of headroom).
+    /// R9 with literals: 300 + 300 is exactly the 600 m budget and passes, one more metre fails. The world's
+    /// ceiling is NOT a rule (module docs): a raise is valid however close the region's highest cell is to
+    /// the peak, even above it; the engine's clamp and the preview handle those cells.
     #[test]
     fn whole_proposal_limits_hold_at_their_edges() {
         let two = |a: f64, b: f64| {
@@ -896,21 +888,17 @@ mod tests {
         assert_eq!(two(300.0, 300.0).valid.len(), 2);
         let over = two(300.0, 301.0);
         assert_eq!((over.valid.len(), over.rejected[0].rule), (1, EditRule::R9));
-        // The ceiling: a region whose highest cell is 3 900 m in a 4 000 m world.
-        let mut f = facts();
-        f["region"]["ground"]["max_m"] = json!(3900.0);
-        f["region"]["ground"]["mean_m"] = json!(3000.0);
-        let c = EditCatalogue::from_json(&f).unwrap();
-        assert_eq!(c.validate(&call(json!([raise(json!(100))]))).valid.len(), 1, "3900 + 100 reaches the ceiling exactly");
-        let v = c.validate(&call(json!([raise(json!(101))])));
-        assert_eq!(v.rejected[0].rule, EditRule::R9);
-        assert!(v.rejected[0].why.contains("3900") && v.rejected[0].why.contains("4000") && v.rejected[0].why.contains("at most 100 m"), "{}", v.rejected[0].why);
-        // A lower is never held to the ceiling.
-        assert_eq!(c.validate(&call(json!([{"operation": "lower", "region_id": "region_ab12cd34", "amount_m": 400}]))).valid.len(), 1);
-        // No ground figures: the ceiling rule cannot run, and does not pretend to.
-        let mut g = facts();
-        g["region"].as_object_mut().unwrap().remove("ground");
-        assert_eq!(EditCatalogue::from_json(&g).unwrap().validate(&call(json!([raise(json!(500))]))).valid.len(), 1);
+        // The ceiling is not a rule: a region whose highest cell is 3 900 m, or 4 350 m (above the 4 000 m peak,
+        // as three generated worlds had), still takes a 500 m raise; the engine's clamp stops the summit.
+        for max in [3900.0, 4350.0] {
+            let mut f = facts();
+            f["region"]["ground"]["max_m"] = json!(max);
+            f["region"]["ground"]["mean_m"] = json!(3000.0);
+            let c = EditCatalogue::from_json(&f).unwrap();
+            assert_eq!(c.validate(&call(json!([raise(json!(500))]))).valid.len(), 1, "max {max}: a raise is never refused for the ceiling");
+        }
+        // The model is TOLD the ceiling, so it can choose sensibly.
+        assert!(cat().region_text().contains("The world's peak altitude is 4000 m"), "{}", cat().region_text());
     }
 
     #[test]

@@ -81,18 +81,15 @@ fn a_described_validated_applied_region_behaves_as_the_card_promises_on_three_se
         assert!(cat.is_offered(), "seed {seed}: {:?}", cat.refusal());
         let id = "region_0123456789ab";
         let max_m = re::stats(&mask, &field, gw, gh, sea, peak, None).unwrap().max_m;
-        let amt = (peak - max_m).floor().min(300.0);
-        assert!(amt >= 50.0, "seed {seed}: the fixture needs 50 m of headroom (highest cell {max_m} of {peak})");
+        // No ceiling rule: the raise is 300 m whatever the headroom (the engine's clamp stops summits).
+        let amt = 300.0f64;
         let ok = json!({"edits": [{"operation": "raise", "region_id": id, "amount_m": amt, "falloff": "linear", "softness": 1.0},
                                    {"operation": "smooth", "region_id": id, "strength": 0.5, "passes": 2}]});
         let v = cat.validate(&ok);
         assert!(v.structural.is_none() && v.rejected.is_empty() && v.valid.len() == 2, "seed {seed}: {v:?}");
-        // The ceiling rule: raising by 500 m a region whose highest cell is within 500 m of the peak is refused.
-        let too_much = (peak - max_m).floor() + 1.0;
-        if too_much <= re::MAX_AMOUNT_M {
-            let bad = json!({"edits": [{"operation": "raise", "region_id": id, "amount_m": too_much}]});
-            assert_eq!(cat.validate(&bad).rejected[0].rule.id(), "R9", "seed {seed}: raise {too_much} on max {max_m} of {peak}");
-        }
+        // No ceiling rule: a 500 m raise is valid even where the highest cell is within 500 m of the peak or above it.
+        let big = json!({"edits": [{"operation": "raise", "region_id": id, "amount_m": 500}]});
+        assert_eq!(cat.validate(&big).valid.len(), 1, "seed {seed}: highest cell {max_m} of {peak}");
         // Map the validated rows to engine operations exactly as the bridge does.
         let ops: Vec<re::EditOp> = v
             .valid
@@ -139,6 +136,11 @@ fn a_described_validated_applied_region_behaves_as_the_card_promises_on_three_se
             assert!((up[i] as f64 - field[i] as f64) * m_per_unit <= amt + 0.01, "seed {seed}: cell {i} rose past {amt} m");
         }
         assert!(rep_up.max_up_m <= amt + 0.01 && rep_up.max_up_m > amt * 0.3, "seed {seed}: {rep_up:?}");
+        // The per-cell limit: raise then smooth may move a cell by the smooth too, but never by more than 600 m.
+        for i in 0..field.len() {
+            assert!((after[i] as f64 - field[i] as f64).abs() * m_per_unit <= re::MAX_TOTAL_AMOUNT_M + 0.01, "seed {seed}: cell {i} moved more than the per-cell limit");
+        }
+        println!("seed {seed}: raise {amt} m then smooth: {} cells changed, largest rise {:.1} m, largest fall {:.1} m, held to the limit {}", rep.changed, rep.max_up_m, rep.max_down_m, rep.limited);
         // A lower never raises a cell.
         let low = [re::EditOp { op: re::Op::Lower { amount_m: 200.0 }, falloff: Falloff::Smooth, softness: 0.5 }];
         let (down, _) = run(&low);

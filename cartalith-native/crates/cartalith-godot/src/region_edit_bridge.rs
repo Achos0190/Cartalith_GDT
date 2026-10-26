@@ -196,7 +196,7 @@ impl WorldGen {
     }
 
     /// Preview `ops` on a COPY of the region's window (read-only; the world does not change).
-    /// Answers `{ok: true, changed, max_up_m, max_down_m, became_sea, became_land, capped, floored,
+    /// Answers `{ok: true, changed, max_up_m, max_down_m, became_sea, became_land, capped, floored, limited,
     /// paint_cells, before: {min_m, mean_m, max_m}, after: {..}, mean_change_m, thumb_w, thumb_h,
     /// thumb_before, thumb_after}` (the thumbnails are RGB8 `PackedByteArray`s on one shared height
     /// scale), or `{ok: false, reason}`. The operations pass the same limits Apply enforces.
@@ -241,6 +241,7 @@ impl WorldGen {
             "became_land" => rep.became_land as i64,
             "capped" => rep.capped as i64,
             "floored" => rep.floored as i64,
+            "limited" => rep.limited as i64,
             "paint_cells" => paint as i64,
             "mean_change_m" => sa.mean_m - sb.mean_m,
             "thumb_w" => tw as i64,

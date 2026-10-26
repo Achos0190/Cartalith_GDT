@@ -6251,6 +6251,41 @@ func region_get() -> Dictionary:
 		return {}
 	return world_gen.region_get()
 
+## LLM-7 (`LLM_ASSISTANT_SCOPE.md` s.5c): describes the region `spec` (`{rect: [x, y, w, h]?, dabs:
+## [[cx, cy, r], ...]?}`, grid cells) for the assistant -- id, bounding box, cell count, run-length
+## rows, heights in metres (`WorldGen.region_describe`, read-only). `{ok: false, reason}` without a
+## world, while `generating` (the worker holds `WorldGen`; see `param_get`) or on a binary without it.
+func region_describe(spec: Dictionary) -> Dictionary:
+	if generating:
+		return {"ok": false, "reason": "A world is generating; the region cannot be read until it finishes."}
+	if not _has("region_describe"):
+		return {"ok": false, "reason": "This build has no region reading. Update the Cartalith library."}
+	return world_gen.region_describe(spec)
+
+## LLM-7: previews `ops` (the validated rows of an edit card) on a copy of the region
+## (`WorldGen.region_edit_preview`, read-only): before and after figures, cells that crossed sea level
+## or hit a clamp, and two small RGB thumbnails. Same refusals as `region_describe`.
+func region_edit_preview(spec: Dictionary, ops: Array) -> Dictionary:
+	if generating:
+		return {"ok": false, "reason": "A world is generating; the edit cannot be previewed until it finishes."}
+	if not _has("region_edit_preview"):
+		return {"ok": false, "reason": "This build cannot preview edits. Update the Cartalith library."}
+	return world_gen.region_edit_preview(spec, ops)
+
+## LLM-7: applies `ops` to the region as ONE height undo row (`WorldGen.region_edit_apply`). **Callers
+## go through an open `undo_group.gd` group** (the Assistant's Apply is the only one); the engine
+## records the row, re-runs hydrology and climate for the touched tiles and never generates or
+## erodes. Marks the world dirty on success. `{ok: false, reason}` writes nothing.
+func region_edit_apply(spec: Dictionary, ops: Array, label: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "reason": "A world is generating; the edit cannot be applied until it finishes."}
+	if not _has("region_edit_apply"):
+		return {"ok": false, "reason": "This build cannot apply edits. Update the Cartalith library."}
+	var r: Dictionary = world_gen.region_edit_apply(spec, ops, label)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
 ## Clears the marquee (`WorldGen.region_clear`). Does not mark the world dirty.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func region_clear() -> void:

@@ -59,7 +59,11 @@ pub const MAX_EDIT_OPS: usize = 3;
 /// whole mountain range.
 pub const MAX_AMOUNT_M: f64 = 500.0;
 /// Most metres all raises and lowers of one proposal may move together (a labelled judgement: the
-/// per-operation cap plus one third).
+/// per-operation cap plus one third). **It is also the most any ONE CELL may move in one edit, whatever
+/// the operations** ([`apply_ops`]'s last pass holds a cell to it and counts it in `Applied::limited`):
+/// raises and lowers can sum to no more than this, but a smooth moves a cell toward its neighbours, and
+/// beside a cliff that can be hundreds of metres (measured on three seeds, a 300 m raise then a smooth
+/// moved a cell 431.8 m). This is the scope's "predicted height change per cell is bounded".
 pub const MAX_TOTAL_AMOUNT_M: f64 = 600.0;
 /// Most smoothing passes in one operation. Labelled judgement: eight blurs of weight 1 flatten
 /// detail finer than about three cells, which is the most a "smooth this" request needs.
@@ -448,6 +452,8 @@ pub struct Applied {
     pub capped: usize,
     /// Cells a lower wanted to push below 0 and the clamp stopped.
     pub floored: usize,
+    /// Cells the per-cell limit ([`MAX_TOTAL_AMOUNT_M`]) held to that many metres of change.
+    pub limited: usize,
 }
 
 /// Apply `ops` in order to `win` inside `mask`. The ONE function both the preview and the apply
@@ -512,7 +518,23 @@ pub fn apply_ops(win: &mut Window, mask: &RegionMask, ops: &[EditOp], sea: f64, 
             }
         }
     }
-    let mut rep = Applied { changed: 0, max_up_m: 0.0, max_down_m: 0.0, became_sea: 0, became_land: 0, capped, floored };
+    // The per-cell limit: no cell ends further than MAX_TOTAL_AMOUNT_M from where it began.
+    let limit = MAX_TOTAL_AMOUNT_M / m_per_unit;
+    let mut limited = 0usize;
+    for row in 0..mask.h {
+        for col in 0..mask.w {
+            if !mask.cells[row * mask.w + col] {
+                continue;
+            }
+            let i = (row + oy) * win.w + col + ox;
+            let d = win.data[i] as f64 - before[i] as f64;
+            if d.abs() > limit {
+                win.data[i] = (before[i] as f64 + d.signum() * limit) as f32;
+                limited += 1;
+            }
+        }
+    }
+    let mut rep = Applied { changed: 0, max_up_m: 0.0, max_down_m: 0.0, became_sea: 0, became_land: 0, capped, floored, limited };
     for row in 0..mask.h {
         for col in 0..mask.w {
             if !mask.cells[row * mask.w + col] {
@@ -766,6 +788,29 @@ mod tests {
         assert!(rep.max_up_m <= 300.0 + 1e-3 && rep.max_up_m > 299.9, "{rep:?}");
     }
 
+    /// Protects the per-cell limit with literals: a spike of 1.0 over 0.0 at peak 1000 m smoothed hard would
+    /// fall 1000 m; the limit holds it to 600 m (0.6 units), and the report counts it. MUTATION: remove the
+    /// limit pass and the spike falls to 0.0 (or the count is 0).
+    #[test]
+    fn no_cell_moves_more_than_the_total_cap_whatever_the_operations() {
+        let mut field = flat(64, 64, 0.0);
+        field[20 * 64 + 20] = 1.0;
+        let mask = rasterise(&rect_spec(15.0, 15.0, 10.0, 10.0), 64, 64).unwrap();
+        let op = EditOp { op: Op::Smooth { strength: 1.0, passes: 1 }, falloff: Falloff::Constant, softness: 0.0 };
+        // At peak 100 m the same smooth falls 100 m, inside the limit, and the limit does nothing.
+        let mut small = window(&mask, &field, 64, 64);
+        let rep_small = apply_ops(&mut small, &mask, &[op], 0.0, 100.0).unwrap();
+        assert_eq!((small.data[(20 - small.y0) * small.w + 20 - small.x0], rep_small.limited), (0.0, 0), "100 m of fall is under the 600 m limit");
+        // At peak 1000 m one full smooth pass would take the spike to its neighbours' average, 1000 m of fall;
+        // the limit lets it fall only 600 m = 0.6 units.
+        let mut w = window(&mask, &field, 64, 64);
+        let rep = apply_ops(&mut w, &mask, &[op], 0.0, 1000.0).unwrap();
+        let v = w.data[(20 - w.y0) * w.w + 20 - w.x0];
+        assert!((v - 0.4).abs() < 1e-6, "the spike fell 0.6, not 1.0: {v}");
+        assert_eq!(rep.limited, 1, "{rep:?}");
+        assert!((rep.max_down_m - 600.0).abs() < 0.01, "{rep:?}");
+    }
+
     /// Protects the sculpt tools' clamp: a raise cannot pass the stamp's ceiling (`max(1, h0)`), and
     /// the report counts the cells it stopped; a lower cannot pass 0 and counts too.
     #[test]
@@ -796,7 +841,7 @@ mod tests {
         let mask = rasterise(&rect_spec(15.0, 15.0, 10.0, 10.0), 64, 64).unwrap();
         let mut w = window(&mask, &field, 64, 64);
         let op = EditOp { op: Op::Smooth { strength: 1.0, passes: 1 }, falloff: Falloff::Constant, softness: 0.0 };
-        apply_ops(&mut w, &mask, &[op], 0.0, 1000.0).unwrap();
+        apply_ops(&mut w, &mask, &[op], 0.0, 100.0).unwrap();
         let mut after = field.clone();
         write_back(&w, &mask, &mut after, 64);
         assert_eq!(after[20 * 64 + 20], 0.0, "the spike took its neighbours' average");
