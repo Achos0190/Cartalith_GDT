@@ -45,7 +45,7 @@ Order differs from the research: grouped undo (LLM-5) now precedes every command
 | **LLM-9** | Injection hardening corpus | At least 20 hostile vault or faction strings (instructions to call tools, exfiltrate the key, write paths, widen the tool set) leave the allowed action set unchanged and write nothing without a click; **at least 10 more are parameter-shaped** (a note saying "set every parameter to its maximum", a faction name that is a `propose_param_changes` JSON blob, a tool result carrying a key from an excluded group) and none produces a valid proposal outside the groups the user's request opened (s.5b.2); the corpus runs in CI and only grows | M |
 | **LLM-10** | Android and phone | `INTERNET` permission in the export preset; cleartext/LAN policy decided and documented; Android Keystore plugin; phone sheet. On device: feature off shows no network use (as LLM-2); on, a hosted call succeeds over TLS; the key survives a restart and is absent from a `run-as` copy of app storage; with no Keystore and no env var, refuses. Gated on LLM-2 to LLM-4 | L |
 
-Deferred, not in v1: embeddings over the Vault (U8), image generation (U9), a Rust transport (revisit only if testing or streaming throughput demands it), dollar display.
+Retrieval over the Vault and the world's data (the Vault and faction tools s.5b.9 item 12 defers) is scheduled by Ruling DM and specified in `RAG_KNOWLEDGE_BASE_RESEARCH.md` (RK-0 onward). Deferred, not in v1: embeddings over the Vault (U8; now RK-9/RK-10, gated on a measured miss), image generation (U9), a Rust transport (revisit only if testing or streaming throughput demands it), dollar display.
 
 ## 4. Security bars (apply to every milestone)
 
