@@ -23,7 +23,8 @@ otherwise identical runs over 160 MB (§3.8).
 Checked fresh on the first pass (2026-08-17) and all already in place:
 `rustup` target `aarch64-linux-android`; `cargo-ndk` (4.1.2); the NDK at
 `AppData\Local\Android\Sdk\ndk\29.0.14206865` with `ANDROID_NDK_HOME` set;
-Godot 4.7.1. The `godot4` WinGet shim is on PowerShell's `PATH` and **not** Git
+Godot 4.7.1 at that date; **since 2026-10-26 the editor is Godot 4.7.2 with the 4.7.2 export templates installed**, and the WinGet `godot4.cmd` shim still points to 4.7.1, so call the 4.7.2 console exe by full path
+(`C:\Users\Vincent\AppData\Local\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe`). The `godot4` WinGet shim is on PowerShell's `PATH` and **not** Git
 Bash's, so Godot invocations go through PowerShell or the full path
 (`Godot_v4.7.1-stable_win64_console.exe`). `TOOLCHAIN.md` called Android "the
 single highest-risk item in the toolchain"; the risk never materialised.

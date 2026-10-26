@@ -37,6 +37,8 @@ minimum-supported Rust version at setup time.
 Install the latest stable Godot 4.x (`DECISIONS.md` §9) and download the matching
 **export templates** — no platform export works without them.
 
+*As of 2026-10-26 this machine has Godot 4.7.2 with the 4.7.2 export templates installed; the WinGet `godot4.cmd` shim still points to 4.7.1, so call the 4.7.2 console exe by its full path (see `ANDROID_BUILD_SCOPE.md` section 1.1).*
+
 Godot ships a **headless build** for CI-style exports without a display. Confirm
 it can drive Windows and Android exports non-interactively before assuming the
 GUI editor is needed for every step.
