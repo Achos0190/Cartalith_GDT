@@ -707,7 +707,7 @@ impl LlmStream {
     fn prepare_edit(&self, settings: &VarDictionary, consented: &[String], args: &VarDictionary, resume: bool) -> VarDictionary {
         let s = settings_from(settings);
         let (key_state, key) =
-            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+            resolve_key(s.key_source, &s.env_var, &account_for(settings, &s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         let auth = match cartalith_llm::settings::authorize(&s, Some(Capability::Edit), &key_state, consented) {
             Ok(a) => a,
             Err(r) => {
