@@ -1,0 +1,1 @@
+run3, run5, run6: native configurations first; run4: --embedded-first. run3 to run5 predate the PrintWindow and key-helper fixes (their chrome and OS-key lines are failed attempts); run6 is the final probe build. Verbatim [PW0] lines; the probe is cartalith-native/godot-project/_popout_probe.gd.

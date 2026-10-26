@@ -1,0 +1,79 @@
+[PW0 env] godot=4.7.2-stable (official) renderer=gl_compatibility adapter=AMD Radeon RX 7800 XT ATI Technologies Inc. | main window (1400, 900) on screen 0 | OS=Windows
+[PW0 embed] project.godot text mentions embed_subwindows=false (keys set under [display]: window/handheld/orientation only)
+[PW0 embed] ProjectSettings.has_setting=true value=true ; root.gui_embed_subwindows=true ; FEATURE_SUBWINDOWS=true
+[PW0 embed] windows before any dialog: 1
+[PW0 embed] roster (no force_native) open: is_embedded=true force_native=false visible=true windows=1
+[PW0 control] ok   embed: the engine default embeds an unmodified shell dialog  
+[PW0 world] generated 2048x2048 seed 483920 in 23.8 s
+[PW0 control] ok   world: a factions list exists to open the roster on  factions=6
+[PW0 screens] count=1 primary=0  FEATURE_SUBWINDOWS=true  display_server=Windows
+[PW0 screens] #0 position=(0, 0) size=(1680, 1050) usable=[P: (0, 0), S: (1680, 1002)] dpi=96 scale=1.000 refresh=60.00 Hz
+[PW0 screens] assigned current_screen=0 -> readback=0 position=(400, 215) (before: screen 0 at (400, 215); main window on screen 0)
+[PW0 control] ok   screens: current_screen=0 reads back 0  
+[PW0 screens] ...and the window position lies inside screen 0's usable rect
+[PW0 screens] ONLY ONE SCREEN attached: the second-monitor bars (a window dragged to a monitor of different scale, restore-onto-monitor-2, screen-absent clamp with a real second screen) are NOT measured and need the owner's two monitors
+[PW0 theme] embedded: is_embedded=true ok=[P: (405.0, 591.0), S: (52.0, 29.0)] other=[P: (38.0, 50.0), S: (286.0, 30.0)]
+[PW0 theme] native:   is_embedded=false  window_list=2  size=(880, 620)  content_scale_factor=1.0 mode=0  theme_set=false
+[PW0 theme] native texture image=(880, 620)  OS screen capture=(896, 668)
+[PW0 theme] sample bg_left_of_ok     native=#121314 embedded=#121314 equal=true
+[PW0 theme] sample ok_centre         native=#8d9091 embedded=#8d9091 equal=true
+[PW0 theme] sample other_btn_centre  native=#55534e embedded=#55534e equal=true
+[PW0 theme] StyleBox colours: AcceptDialog/panel=#121314  OK normal=#1a1b1d ; project theme custom=res://theme/dark_theme.tres
+[PW0 theme] samples equal native vs embedded: 3 of 3
+[PW0 control] ok   theme: native pixels sampled are not all one flat colour  
+[PW0 scale] ok button size native=(52.0, 29.0) embedded=(52.0, 29.0) ; visible_rect native=(880.0, 620.0) embedded=(880.0, 620.0) ; screen scale=1.0 dpi=96
+[PW0 scale] native content_scale_factor=1.5/CANVAS_ITEMS: size=(880, 620) visible_rect=(586.6667, 413.3333) (expect visible ~ size/1.5)
+[PW0 control] ok   keys: control -- event pushed to the MAIN window reaches the main tree's _unhandled_key_input  main=1 win=0
+[PW0 control] ok   keys: control -- event pushed to the NATIVE window reaches that window's tree  win=1
+[PW0 keys] pushed into native window: main-tree _unhandled_key_input hits=0 (the DccApp path), window-tree hits=1
+[PW0 keys] native window OS-focused=true (wid 2)
+[PW0 keys] helper output: #< CLIXML
+[PW0 keys] after the helper process: native window still OS-focused=true
+[PW0 keys] real OS F13 while native window focused: window-tree hits=0, MAIN-tree hits=0
+[PW0 keys] (OS key did not arrive in the window at all: inconclusive; the push_input result above stands)
+[PW0 keys] summary: key events typed in a native window reach the main tree = false
+[PW0 control] ok   busy: control (no generate) -- click lands in the native window's button  native=1
+[PW0 control] ok   busy: control (no generate) -- click lands in the embedded window's button  embedded=1
+[PW0 control] ok   busy: the overlay is blocking when sampled  blocking=true generating=true
+[PW0 busy] during generate: native roster in get_embedded_subwindows=false  embedded settlement-types in it=true  mirror_count=1  native.gui_disable_input=false  embedded.gui_disable_input=true
+[PW0 busy] click DURING generate: native window button presses=1 (1 = the overlay did NOT mute it), embedded window button presses=0 (0 = muted)
+[PW0 control] ok   busy: control -- the embedded window IS muted during the run  
+[PW0 open-latency embedded] native=false n=20 median=92.210 ms (min 88.841 .. max 100.033)  [vsync on: ~2 frames of floor]
+[PW0 open-latency native] native=true n=20 median=105.104 ms (min 102.366 .. max 109.026)  [vsync on: ~2 frames of floor]
+[PW0 open-latency embedded-again] native=false n=20 median=92.745 ms (min 90.865 .. max 96.466)  [vsync on: ~2 frames of floor]
+[PW0 open-latency native-again] native=true n=20 median=104.692 ms (min 101.548 .. max 108.251)  [vsync on: ~2 frames of floor]
+[PW0 mem baseline-0] gpu_dedicated=1445.4 MB gpu_shared=81.8 MB ws=1542.2 MB private=2815.3 MB | Performance: video=296.1 MB tex=147.8 MB buf=148.4 MB | windows=1
+[PW0 frame embedded0-a vsync=off] windows=0 native=false | frame ms median-of-3-medians=8.992 (reps 8.991..8.992) min=8.903 max=11.382 p95(med)=9.195 | draw-span ms median=8.969 (8.966..8.970) | n=3x300
+[PW0 frame embedded0-a vsync=on ] windows=0 native=false | frame ms median=16.681 min=16.072 max=17.473 p95=17.035 | n=300
+[PW0 mem embedded0-a] gpu_dedicated=1433.6 MB gpu_shared=81.8 MB ws=1542.2 MB private=2803.5 MB | Performance: video=296.1 MB tex=147.8 MB buf=148.4 MB | windows=1
+[PW0 memdelta embedded0-a] windows=0 native=false | Performance video +0.0 MB (texture +0.0, buffer +0.0) vs the same run's closed state just before opening
+[PW0 frame embedded1 vsync=off] windows=1 native=false | frame ms median-of-3-medians=9.092 (reps 9.081..9.101) min=9.000 max=10.596 p95(med)=9.315 | draw-span ms median=9.070 (9.059..9.076) | n=3x300
+[PW0 frame embedded1 vsync=on ] windows=1 native=false | frame ms median=16.675 min=15.979 max=17.341 p95=17.013 | n=300
+[PW0 mem embedded1] gpu_dedicated=1513.6 MB gpu_shared=81.8 MB ws=1542.2 MB private=2883.2 MB | Performance: video=334.5 MB tex=151.9 MB buf=182.6 MB | windows=1
+[PW0 memdelta embedded1] windows=1 native=false | Performance video +38.4 MB (texture +4.2, buffer +34.2) vs the same run's closed state just before opening
+[PW0 frame embedded3 vsync=off] windows=3 native=false | frame ms median-of-3-medians=9.223 (reps 9.215..9.363) min=9.125 max=10.107 p95(med)=9.536 | draw-span ms median=9.198 (9.193..9.326) | n=3x300
+[PW0 frame embedded3 vsync=on ] windows=3 native=false | frame ms median=16.701 min=15.901 max=17.305 p95=17.009 | n=300
+[PW0 mem embedded3] gpu_dedicated=1672.6 MB gpu_shared=81.8 MB ws=1542.2 MB private=3042.4 MB | Performance: video=411.9 MB tex=161.2 MB buf=250.7 MB | windows=1
+[PW0 memdelta embedded3] windows=3 native=false | Performance video +81.7 MB (texture +13.4, buffer +68.3) vs the same run's closed state just before opening
+[PW0 frame native0-a vsync=off] windows=0 native=true | frame ms median-of-3-medians=9.016 (reps 8.982..9.072) min=8.895 max=11.913 p95(med)=9.236 | draw-span ms median=8.982 (8.962..9.037) | n=3x300
+[PW0 frame native0-a vsync=on ] windows=0 native=true | frame ms median=16.688 min=16.048 max=17.477 p95=17.022 | n=300
+[PW0 mem native0-a] gpu_dedicated=1650.1 MB gpu_shared=81.8 MB ws=1542.2 MB private=3019.8 MB | Performance: video=398.7 MB tex=148.2 MB buf=250.5 MB | windows=1
+[PW0 memdelta native0-a] windows=0 native=true | Performance video +0.0 MB (texture +0.0, buffer +0.0) vs the same run's closed state just before opening
+[PW0 frame native1 vsync=off] windows=1 native=true | frame ms median-of-3-medians=10.225 (reps 10.194..10.287) min=9.972 max=11.369 p95(med)=10.769 | draw-span ms median=10.160 (10.124..10.208) | n=3x300
+[PW0 frame native1 vsync=on ] windows=1 native=true | frame ms median=16.689 min=15.413 max=18.080 p95=17.409 | n=300
+[PW0 mem native1] gpu_dedicated=1549.4 MB gpu_shared=81.8 MB ws=1542.2 MB private=3031.7 MB | Performance: video=403.0 MB tex=152.4 MB buf=250.6 MB | windows=2
+[PW0 memdelta native1] windows=1 native=true | Performance video +4.3 MB (texture +4.2, buffer +0.2) vs the same run's closed state just before opening
+[PW0 frame native3 vsync=off] windows=3 native=true | frame ms median-of-3-medians=10.740 (reps 10.629..10.780) min=10.347 max=15.212 p95(med)=11.269 | draw-span ms median=10.663 (10.558..10.699) | n=3x300
+[PW0 frame native3 vsync=on ] windows=3 native=true | frame ms median=16.697 min=15.928 max=17.439 p95=17.124 | n=300
+[PW0 mem native3] gpu_dedicated=1590.9 MB gpu_shared=81.9 MB ws=1542.3 MB private=3055.3 MB | Performance: video=411.9 MB tex=161.2 MB buf=250.7 MB | windows=4
+[PW0 memdelta native3] windows=3 native=true | Performance video +13.2 MB (texture +12.9, buffer +0.3) vs the same run's closed state just before opening
+[PW0 frame native0-after vsync=off] windows=0 native=true | frame ms median-of-3-medians=8.997 (reps 8.984..9.004) min=8.898 max=11.914 p95(med)=9.250 | draw-span ms median=8.971 (8.959..8.974) | n=3x300
+[PW0 frame native0-after vsync=on ] windows=0 native=true | frame ms median=16.686 min=16.207 max=17.331 p95=17.026 | n=300
+[PW0 mem native0-after] gpu_dedicated=1539.1 MB gpu_shared=81.9 MB ws=1542.3 MB private=3019.9 MB | Performance: video=398.7 MB tex=148.2 MB buf=250.5 MB | windows=1
+[PW0 memdelta native0-after] windows=0 native=true | Performance video +0.0 MB (texture +0.0, buffer +0.0) vs the same run's closed state just before opening
+[PW0 idle idle-0] native windows=0 low_processor=true drawn=0 (0.0/s) cpu=110 ms over 4.86s (2.3% of a core)
+[PW0 idle idle-1-native] native windows=1 low_processor=true drawn=0 (0.0/s) cpu=109 ms over 4.86s (2.2% of a core)
+[PW0 idle idle-3-native] native windows=3 low_processor=true drawn=0 (0.0/s) cpu=16 ms over 4.85s (0.3% of a core)
+[PW0 idle idle-0-after] native windows=0 low_processor=true drawn=0 (0.0/s) cpu=47 ms over 4.86s (1.0% of a core)
+[VERDICT] CONTROLS OK
+EXIT 0
