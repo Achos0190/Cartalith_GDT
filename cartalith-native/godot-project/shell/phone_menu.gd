@@ -4279,8 +4279,12 @@ func _row_input(ev: InputEvent, row: PanelContainer, on_press: Callable) -> void
 				and ((ev as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0)):
 		pos = (ev as InputEventScreenDrag).position if ev is InputEventScreenDrag \
 			else (ev as InputEventMouseMotion).position
-		var origin: Vector2 = row.get_meta(_META_PRESS_POS, pos)
-		if pos.distance_to(origin) > _ps(DccShell.PHONE_SCROLL_DEADZONE):
+		## 2026-10-26: compared in VIEWPORT coordinates. `ev.position` is local to the row, and once the
+		## ScrollContainer starts scrolling the row moves with the finger, so the local distance stayed under the
+		## deadzone forever and a scroll that began on a row opened it on release (reproduced by
+		## `_phonescroll_probe.gd`: the first MORE row, "New world...", ran after a 110 px drag).
+		var origin: Vector2 = row.get_meta(_META_PRESS_POS, row.get_global_transform_with_canvas() * pos)
+		if (row.get_global_transform_with_canvas() * pos).distance_to(origin) > _ps(DccShell.PHONE_SCROLL_DEADZONE):
 			row.set_meta(_META_PRESSED, false)
 			row.add_theme_stylebox_override("panel", DccTheme.empty())
 		return
@@ -4288,7 +4292,7 @@ func _row_input(ev: InputEvent, row: PanelContainer, on_press: Callable) -> void
 		return
 	if down:
 		row.set_meta(_META_PRESSED, true)
-		row.set_meta(_META_PRESS_POS, pos)
+		row.set_meta(_META_PRESS_POS, row.get_global_transform_with_canvas() * pos)
 		row.add_theme_stylebox_override("panel", DccTheme.active_row(false))
 		return
 	if not up or not row.get_meta(_META_PRESSED, false):

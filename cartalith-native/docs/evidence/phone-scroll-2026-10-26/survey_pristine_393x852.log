@@ -1,0 +1,186 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+  ok    the assistant is off at launch (the user dir was wiped)
+Cartalith shell build b9d5361549da
+== phone portrait, viewport (393.0, 852.0), phone_scale 1.0000 ==
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1993eef3990, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1993eef3990, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1993eef3990, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+== phone tab MAP half: 0 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 8 px; windows [] ==
+== phone tab MAP full: 0 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== phone tab GENERATE full: 1 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 573 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from VBoxContainer|filter=1|- scrolls it (402 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from Button|filter=1|- scrolls it (317 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from HSlider|filter=0| scrolls it (110 px) and activates nothing
+== left sheet domain world full: 1 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 573 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from VBoxContainer|filter=1|- scrolls it (393 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from Button|filter=1|- scrolls it (573 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@84 in root: a drag from HSlider|filter=0| scrolls it (110 px) and activates nothing
+== left sheet domain civilization full: 0 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== left sheet domain cartography full: 0 overflowing scroller(s); 1 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== right sheet: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 994 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@229 in root: a drag from HBoxContainer|filter=1|- scrolls it (269 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@229 in root: a drag from VBoxContainer|filter=1|- scrolls it (994 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@229 in root: a drag from OptionButton|filter=1|- scrolls it (430 px) and activates nothing
+== search results: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 15283 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@144 in root: a drag from MarginContainer|filter=1|- scrolls it (441 px) and activates nothing
+== MORE root: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 526 px; windows [] ==
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing (ACTIVATED SOMETHING)
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (363 px) and activates nothing
+== MORE screen more: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 526 px; windows [] ==
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing (ACTIVATED SOMETHING)
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (516 px) and activates nothing
+== MORE screen project: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 639 px; windows [] ==
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing (ACTIVATED SOMETHING)
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (639 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from Button|filter=1|- scrolls it (418 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from HFlowContainer|filter=1|- scrolls it (398 px) and activates nothing
+== MORE screen civ: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 22 px; windows [] ==
+== MORE screen data: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 227 px; windows [] ==
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing (ACTIVATED SOMETHING)
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (227 px) and activates nothing
+== MORE screen sim: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 57 px; windows [] ==
+== MORE screen prefs: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 2379 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (502 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from MarginContainer|filter=1|- scrolls it (406 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from Button|filter=1|- scrolls it (375 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from HFlowContainer|filter=1|- scrolls it (1791 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing
+== MORE screen assets: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 832 px; windows [] ==
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from Button|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from GridContainer|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from ScrollContainer|filter=1|- scrolls it (0 px) and activates nothing
+== MORE screen assets-grid: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen asset-slot: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen travel: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen travel-item: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen landmarks: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 37 px; windows [] ==
+== MORE screen lm-fam: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen help: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows [] ==
+== MORE screen gestures: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 87 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (87 px) and activates nothing
+== MORE screen data-tiles: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 112 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from Button|filter=1|- scrolls it (112 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from HFlowContainer|filter=1|- scrolls it (112 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from PanelContainer|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@162 in root: a drag from Control|filter=0|- scrolls it (0 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@162 in root: a drag from VBoxContainer|filter=1|- scrolls it (112 px) and activates nothing
+== Assistant settings: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 1925 px; windows ["@AcceptDialog@1280\'Assistant\'"] ==
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from HBoxContainer|filter=1|- scrolls it (389 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from OptionButton|filter=1|- scrolls it (395 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from VBoxContainer|filter=1|- scrolls it (390 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from Button|filter=1|- scrolls it (395 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from HFlowContainer|filter=1|- scrolls it (389 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1289 in @AcceptDialog@1280: a drag from CheckBox|filter=1|- scrolls it (389 px) and activates nothing
+== Assistant panel: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@1354\'Assistant\'"] ==
+== Customise / quick bar window: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@1299\'Quick bar\'"] ==
+  FAIL  ItemList Catalogue in @AcceptDialog@1299: a drag from ItemList|filter=0|- scrolls it (0 px) and activates nothing
+== Vault overview: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 165 px; windows ["@AcceptDialog@2149\'Markdown vault\'"] ==
+  ok    ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149: a drag from MarginContainer|filter=1|- scrolls it (165 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149: a drag from VBoxContainer|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149: a drag from Button|filter=1|- scrolls it (0 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149: a drag from LineEdit|filter=0| scrolls it (110 px) and activates nothing
+== Vault browse: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@2149\'Markdown vault — Browse a note\'"] ==
+== Faction roster: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 1125 px; windows ["@AcceptDialog@1120\'Factions\'"] ==
+  ok    ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from HBoxContainer|filter=1|- scrolls it (273 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from Button|filter=1|- scrolls it (363 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from GridContainer|filter=1|- scrolls it (0 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from Control|filter=0|faction_banner.gd scrolls it (0 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from LineEdit|filter=0| scrolls it (110 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from MarginContainer|filter=1|- scrolls it (364 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120: a drag from OptionButton|filter=1|- scrolls it (363 px) and activates nothing
+== Settlement types: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@1155\'Settlement types\'"] ==
+== New world dialog: 1 overflowing scroller(s); 3 visible ScrollContainer(s), max overflow 565 px; windows ["@AcceptDialog@774\'New world\'"] ==
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from PanelContainer|filter=1|- scrolls it (364 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from VBoxContainer|filter=1|- scrolls it (375 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from MarginContainer|filter=1|- scrolls it (362 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from HBoxContainer|filter=1|- scrolls it (359 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from SpinBoxLineEdit|filter=1| scrolls it (110 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@798 in @AcceptDialog@774: a drag from Button|filter=1|- scrolls it (391 px) and activates nothing
+== Open project picker: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["PhoneProjectPicker\'Cartalith\'"] ==
+== Layers popover: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 2254 px; windows ["@PopupPanel@2162"] ==
+  ok    ScrollContainer @ScrollContainer@2175 in @PopupPanel@2162: a drag from HBoxContainer|filter=1|- scrolls it (363 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@2175 in @PopupPanel@2162: a drag from Control|filter=1|- scrolls it (359 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@2175 in @PopupPanel@2162: a drag from CheckBox|filter=1|- scrolls it (395 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@2175 in @PopupPanel@2162: a drag from MarginContainer|filter=1|- scrolls it (364 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@2175 in @PopupPanel@2162: a drag from Button|filter=1|- scrolls it (360 px) and activates nothing
+== Data manager: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@1370\'⧉ DATA MANAGER\'"] ==
+== Asset library: 1 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 373 px; windows ["@AcceptDialog@1511\'⧉ ASSET LIBRARY\'"] ==
+  FAIL  ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from Control|filter=0| scrolls it (0 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from VBoxContainer|filter=1|- scrolls it (376 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from HBoxContainer|filter=1|- scrolls it (359 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from HSlider|filter=0| scrolls it (0 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from SpinBoxLineEdit|filter=1| scrolls it (110 px) and activates nothing
+  FAIL  ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511: a drag from SpinBox|filter=0| scrolls it (0 px) and activates nothing
+== Travel library: 0 overflowing scroller(s); 2 visible ScrollContainer(s), max overflow 0 px; windows ["@AcceptDialog@2009\'⧉ TRAVEL LIBRARY\'"] ==
+== Journey planner: 1 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 888 px; windows [] ==
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from HBoxContainer|filter=1|- scrolls it (381 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from OptionButton|filter=1|- scrolls it (888 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from SpinBoxLineEdit|filter=1| scrolls it (110 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from SpinBox|filter=0| scrolls it (110 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from Control|filter=1|- scrolls it (888 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@215 in root: a drag from CheckBox|filter=1|- scrolls it (345 px) and activates nothing
+== Export dialog: 1 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 342 px; windows ["@AcceptDialog@27218\'Export map image\'"] ==
+  ok    ScrollContainer @ScrollContainer@27127 in @AcceptDialog@27218: a drag from OptionButton|filter=1|- scrolls it (273 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@27127 in @AcceptDialog@27218: a drag from VBoxContainer|filter=1|- scrolls it (342 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@27127 in @AcceptDialog@27218: a drag from CheckBox|filter=1|- scrolls it (342 px) and activates nothing
+  ok    ScrollContainer @ScrollContainer@27127 in @AcceptDialog@27218: a drag from GridContainer|filter=1|- scrolls it (342 px) and activates nothing
+== Undo history: 0 overflowing scroller(s); 3 visible ScrollContainer(s), max overflow 12 px; windows [] ==
+== World data: 1 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 2397 px; windows ["@AcceptDialog@1030\'World data\'"] ==
+  ok    ScrollContainer Settlements in @AcceptDialog@1030: a drag from MarginContainer|filter=1|- scrolls it (325 px) and activates nothing
+  ok    ScrollContainer Settlements in @AcceptDialog@1030: a drag from VBoxContainer|filter=1|- scrolls it (359 px) and activates nothing
+  FAIL  ScrollContainer Settlements in @AcceptDialog@1030: a drag from ColorRect|filter=0|- scrolls it (0 px) and activates nothing
+== Generation info: 1 overflowing scroller(s); 3 visible ScrollContainer(s), max overflow 12 px; windows ["@AcceptDialog@1233\'Generation info\'"] ==
+  FAIL  TextEdit @TextEdit@1250 in @AcceptDialog@1233: a drag from TextEdit|filter=0|- scrolls it (0 px) and activates nothing
+== Shortcuts: 1 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 683 px; windows ["@AcceptDialog@1259\'Keyboard shortcuts\'"] ==
+  ok    ScrollContainer @ScrollContainer@1272 in @AcceptDialog@1259: a drag from HBoxContainer|filter=1|- scrolls it (411 px) and activates nothing
+== Saved journeys: 0 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 12 px; windows ["@AcceptDialog@27888\'Saved journeys\'"] ==
+== Conflicts list: 0 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 12 px; windows ["@AcceptDialog@27908\'Conflicts\'"] ==
+== Credits: 1 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 1217 px; windows ["@AcceptDialog@27940\'Credits & academic principles\'"] ==
+  FAIL  ScrollContainer @ScrollContainer@27938 in @AcceptDialog@27940: a drag from RichTextLabel|filter=0|- scrolls it (0 px) and activates nothing
+== About: 0 overflowing scroller(s); 3 visible ScrollContainer(s), max overflow 12 px; windows ["@AcceptDialog@27947\'About Cartalith\'"] ==
+== Storage locations: 0 overflowing scroller(s); 4 visible ScrollContainer(s), max overflow 12 px; windows ["@AcceptDialog@27962\'Storage locations\'"] ==
+---- SURVEY (failing rows) ----
+BROKEN | MORE root | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen more | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen project | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen data | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen prefs | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen assets | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen assets | ScrollContainer @ScrollContainer@162 in root | Button|filter=1|- | moved 0
+BROKEN | MORE screen assets | ScrollContainer @ScrollContainer@162 in root | GridContainer|filter=1|- | moved 0
+BROKEN | MORE screen assets | ScrollContainer @ScrollContainer@162 in root | ScrollContainer|filter=1|- | moved 0
+BROKEN | MORE screen data-tiles | ScrollContainer @ScrollContainer@162 in root | PanelContainer|filter=1|- | moved 0
+BROKEN | MORE screen data-tiles | ScrollContainer @ScrollContainer@162 in root | Control|filter=0|- | moved 0
+BROKEN | Customise / quick bar window | ItemList Catalogue in @AcceptDialog@1299 | ItemList|filter=0|- | moved 0
+BROKEN | Vault overview | ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149 | VBoxContainer|filter=1|- | moved 0
+BROKEN | Vault overview | ScrollContainer @ScrollContainer@2153 in @AcceptDialog@2149 | Button|filter=1|- | moved 0
+BROKEN | Faction roster | ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120 | GridContainer|filter=1|- | moved 0
+BROKEN | Faction roster | ScrollContainer @ScrollContainer@1123 in @AcceptDialog@1120 | Control|filter=0|faction_banner.gd | moved 0
+BROKEN | Asset library | ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511 | Control|filter=0| | moved 0
+BROKEN | Asset library | ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511 | HSlider|filter=0| | moved 0
+BROKEN | Asset library | ScrollContainer @ScrollContainer@1647 in @AcceptDialog@1511 | SpinBox|filter=0| | moved 0
+BROKEN | World data | ScrollContainer Settlements in @AcceptDialog@1030 | ColorRect|filter=0|- | moved 0
+BROKEN | Generation info | TextEdit @TextEdit@1250 in @AcceptDialog@1233 | TextEdit|filter=0|- | moved 0
+BROKEN | Credits | ScrollContainer @ScrollContainer@27938 in @AcceptDialog@27940 | RichTextLabel|filter=0|- | moved 0
+RESULT: PASS (0 failed, 87 checks)
+ERROR: 26 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.
+ERROR: 91 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' were leaked at exit.
+ERROR: 3 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.
+ERROR: 2 RID allocations of type 'PN18TextServerAdvanced27FontAdvancedLinkedVariationE' were leaked at exit.
+WARNING: 2 RIDs of type "CanvasItem" were leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2735)
+WARNING: 174 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 3 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

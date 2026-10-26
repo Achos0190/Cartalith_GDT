@@ -459,8 +459,8 @@ func _ready() -> void:
 	for k in ["prose", "commands", "local_allowed", "remote_allowed"]:
 		_ok((_c(k) as CheckBox).disabled, "'%s' is disabled while the master switch is off" % k)
 		_ok(_text_of(k + "_note").ends_with("Turn on Assistant enabled first."), "'%s' says why: '%s'" % [k, _text_of(k + "_note")])
-	_ok(not (_c("base_url") as LineEdit).editable and (_c("preset") as OptionButton).disabled,
-		"provider fields are disabled while the master switch is off")
+	_ok((_c("base_url") as LineEdit).editable and not (_c("preset") as OptionButton).disabled,
+		"provider, address, model and key fields stay editable while the master switch is off (2026-10-26: setting them up sends nothing)")
 	_ok(not (_c("consent_review") as Button).visible or (_c("consent_review") as Button).disabled, "Review consent is disabled with no endpoint")
 	_ok(String((_c("consent_review") as Button).tooltip_text) != "", "...and carries its reason")
 

@@ -165,9 +165,26 @@ func setup(a, b: EngineBridge) -> void:
 	## Only ticks the age text of a list that is already shown once a second; starts nothing.
 	set_process(true)
 	## Closing must not leave a key in a field. `_rebuild` clears it on open too.
+	## 2026-10-26: a field commits on Enter or on focus loss, and on a phone neither is guaranteed (the soft
+	## keyboard's Done may be dismissed by Back, and a window that closes does not always move focus first), so
+	## text typed into the address, model and variable-name fields and then "closed over" was lost. Closing
+	## commits whatever the fields hold (each commit is a no-op when the text equals the stored value).
 	visibility_changed.connect(func():
+		if not visible:
+			_commit_pending_fields()
 		if not visible and controls.has("key_field") and is_instance_valid(controls["key_field"]):
 			(controls["key_field"] as LineEdit).text = "")
+
+
+## Commits the text currently held by the address, model and variable-name fields. Safe to call at any time:
+## The address goes LAST: its handler asks for the model list, which can rebuild the body and replace the other fields. `_building` guards a rebuild, and each handler returns early when the text equals the stored value.
+func _commit_pending_fields() -> void:
+	if _building:
+		return
+	for pair in [["model", _on_model_commit], ["env_var", _on_env_commit], ["base_url", _on_url_commit]]:
+		var f = controls.get(pair[0])
+		if f is LineEdit and is_instance_valid(f):
+			(pair[1] as Callable).call((f as LineEdit).text)
 
 
 ## Opens the window with the stored state.
@@ -378,6 +395,7 @@ func _rebuild() -> void:
 
 	# -- Provider -------------------------------------------------------------
 	_heading("PROVIDER")
+	_note(_body, "Setting up a provider, address, model and key sends nothing. Requests start only when Assistant enabled is on.")
 	var names: Array = ["None chosen"]
 	var chosen := String(DccSettings.llm_value("preset_id"))
 	var sel := 0
@@ -416,8 +434,12 @@ func _rebuild() -> void:
 		"Type the model name exactly as your provider spells it.")
 	controls["model"] = model
 	_model_field_row = model.get_parent()
-	for w in [pick, url, model, model_pick, refresh]:
-		_dependent.append(w)
+	## 2026-10-26 owner report ("I can't seem to save the LLM on my phone"): the provider, address, model and key
+	## controls used to follow the master switch, so with it off (the shipped default, and the state an earlier
+	## test left on the owner's handset) every one of them was greyed and READ-ONLY with nothing saying why: the
+	## address and key could not be typed, so nothing could be saved. Setting them up sends nothing -- the gate
+	## (`_gate()`) still refuses every request until the master switch is on -- so they no longer follow it. The
+	## switches that choose WHAT may be sent still do (`_switch_row`, `rag_pre`, the hosted opt-in).
 
 	# -- Reply: thinking, cap and retries (part of a profile, Ruling DQ) -------------------
 	_build_reply()
@@ -439,14 +461,12 @@ func _rebuild() -> void:
 	_floor(src)
 	_shrinkable(src)
 	controls["key_source"] = src
-	_dependent.append(src)
 	if src_idx == 0:
 		var env := _field(_body, "Variable name", String(DccSettings.llm_value("env_var")),
 			"CART_LLM_KEY", _on_env_commit, false,
 			"The name of the environment variable that holds the key. Set it before starting Cartalith.")
 		controls["env_var"] = env
 		env.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
-		_dependent.append(env)
 	else:
 		var kf := _field(_body, "Key", "", "paste the key, then Save key", func(_t: String): pass, true,
 			"Kept in your system credential store, never in a file. The field clears when you press Save and the key is never shown again.")
@@ -464,7 +484,6 @@ func _rebuild() -> void:
 		var forget := _button(row, "Forget key", _on_key_forget)
 		controls["key_save"] = save
 		controls["key_forget"] = forget
-		_dependent.append(kf)
 		var has_provider := String(DccSettings.llm_value("preset_id")) != ""
 		var can := _store_available() and has_provider
 		save.disabled = not can
@@ -840,7 +859,7 @@ func _refresh_dynamic() -> void:
 		_hide_if_empty(controls["rag_hosted_note"] as Label)
 	# Key-entry controls follow the master switch, but also the store/provider conditions.
 	if controls.has("key_save"):
-		var can := enabled and _store_available() and String(DccSettings.llm_value("preset_id")) != ""
+		var can := _store_available() and String(DccSettings.llm_value("preset_id")) != ""
 		(controls["key_save"] as Button).disabled = not can
 		(controls["key_forget"] as Button).disabled = not can
 	# Status line: the gate's own answer.
