@@ -957,6 +957,24 @@ const LLM_DEFAULTS := {
 	"ctx_params": false,       ## context source: generation parameters (LLM-6a/6b; Ruling DI P3: its own box, off until ticked)
 }
 
+## The conditional Assistant chip's change notice (`CUSTOM_QUICK_BAR_SCOPE.md` s.5, milestone CQ-7,
+## Ruling DH Q6). `DccSettings` is static and has no signals of its own, so the chip's two homes (the
+## quick cluster and, on the next arm, the ring dock) need one place to hear "an input of the Assistant
+## chip's state changed". Every writer of those inputs -- `set_llm_value`, `llm_add_consent`,
+## `llm_withdraw_consent`, `set_quick_bar_value("assistant_button")` and, from the settings window,
+## `notify_assistant_state()` after a key is saved or forgotten -- emits it synchronously, so the chip
+## follows the setting in the same call, well inside the scope's one-process-frame bar. It carries no
+## data: a listener re-reads the state (`AssistantChip.state_for_app`). It never reads a secret.
+class AssistantHub extends RefCounted:
+	signal changed
+
+static var assistant_hub := AssistantHub.new()
+
+## Announces that an input of the Assistant chip's state may have changed (a key saved or forgotten
+## in the OS credential store is the one input that is not stored in `cartalith_settings.cfg`).
+static func notify_assistant_state() -> void:
+	assistant_hub.changed.emit()
+
 ## The stored value of one `[llm]` key, else its `LLM_DEFAULTS` entry. An unknown
 ## key is a bug in the caller and returns `null` so it cannot be mistaken for a
 ## value. A stored value of the wrong type reads as the default (a hand-edited file
@@ -979,6 +997,7 @@ static func set_llm_value(key: String, value) -> bool:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LLM, key, String(value).strip_edges() if value is String else value)
 	_save()
+	notify_assistant_state()
 	return true
 
 ## The dictionary `WorldGen.llm_authorize` reads: only the gate-relevant keys.
@@ -1008,6 +1027,7 @@ static func llm_add_consent(origin: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LLM, "consented_origins", list)
 	_save()
+	notify_assistant_state()
 
 ## Withdraws consent for `origin`, or for every endpoint when `origin` is `""`. The
 ## next request to a withdrawn endpoint asks again.
@@ -1026,6 +1046,7 @@ static func llm_withdraw_consent(origin: String = "") -> void:
 	else:
 		_cfg.set_value(_SEC_LLM, "consented_origins", list)
 	_save()
+	notify_assistant_state()
 
 # -- The custom quick bar (CUSTOM_QUICK_BAR_SCOPE.md s.3.4, milestone CQ-1, Ruling DH) ----
 
@@ -1177,6 +1198,8 @@ static func set_quick_bar_value(key: String, value) -> bool:
 	_cfg.set_value(_SEC_QUICK_BAR, "version", QUICK_BAR_VERSION)
 	_cfg.set_value(_SEC_QUICK_BAR, key, value)
 	_save()
+	if key == "assistant_button":
+		notify_assistant_state()
 	return true
 
 ## True when `raw` is an Array of at most `cap` well-formed pins with no repeated `k` --

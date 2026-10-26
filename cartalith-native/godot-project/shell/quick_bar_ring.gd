@@ -18,8 +18,9 @@ class_name QuickBarRing
 ## quick cluster's chip and the menu click do.
 ##
 ## **Nothing is built when nothing is pinned.** Both entry points return `[]` before touching the
-## command index, so the shipped empty store costs the ring zero work and draws zero pixels more than
-## it did before this milestone (the pixel-identity bar, `_quickbar_ringid_probe.gd`).
+## command index (the Assistant chip, CQ-7, reads settings only and is hidden by default), so the
+## shipped empty store costs the ring zero work and draws zero pixels more than it did before this
+## milestone (the pixel-identity bar, `_quickbar_ringid_probe.gd`).
 ##
 ## ## The 9-child ceiling (scope s.1, s.4.3)
 ##
@@ -80,17 +81,42 @@ static func _run(app, key: String) -> void:
 	if why != "":
 		DccQuickBar.say_on(app, why)
 
-## The ring DOCK's items in stored order (at most `QUICK_BAR_MAX_DOCK`, enforced by the store on
-## read), or `[]` when nothing is docked -- without building an index in that case.
+## The ring DOCK's items: the conditional Assistant chip first (CQ-7) when it is shown, then the
+## stored pins in order (at most `QUICK_BAR_MAX_DOCK`, enforced by the store on read). `[]` when the
+## Assistant chip is hidden and nothing is docked -- the shipped state, which builds no index and
+## draws nothing (the pixel-identity bar, `_quickbar_ringid_probe.gd`, in its assistant-off default).
 static func dock_items(app) -> Array:
+	var out: Array = []
+	var chip := assistant_item(app)
+	if not chip.is_empty():
+		out.append(chip)
 	var pins: Array = DccSettings.quick_bar_value("dock")
 	if pins.is_empty():
-		return []
+		return out
 	var idx := CommandIndex.new()
 	idx.build(app, app.bridge)
-	var out: Array = []
 	for p in pins:
 		out.append(_item(app, idx, p))
+	return out
+
+## The Assistant chip as a ring row, or `{}` while it is hidden (`AssistantChip.state_for_app`). It is
+## NOT a pin: it has no `pin_key`, is not stored, and is not counted against `QUICK_BAR_MAX_DOCK`, so a
+## full dock of four pins plus this chip is five items (Ruling DH Q5). A refused gate leaves the row
+## disabled with the gate's own sentence as its `reason`, which `radial_ring.gd` already puts in the
+## caption of a hovered disabled dock chip and draws dimmed. Marked `assistant` so a caller or a test
+## can tell it from a pin.
+static func assistant_item(app) -> Dictionary:
+	var st := AssistantChip.state_for_app(app)
+	var state := String(st["state"])
+	if state == AssistantChip.HIDDEN:
+		return {}
+	var out := {"title": AssistantChip.LABEL, "label": AssistantChip.LABEL, "shortcut": "", "assistant": true}
+	if state == AssistantChip.LIVE:
+		out["enabled"] = true
+		out["callable"] = AssistantChip.open_panel.bind(app)
+	else:
+		out["enabled"] = false
+		out["reason"] = String(st["reason"])
 	return out
 
 ## The user children to append AFTER a diagonal's built-in children: the stored pins for

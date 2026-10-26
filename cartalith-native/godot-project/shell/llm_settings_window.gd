@@ -712,6 +712,8 @@ func _on_key_save() -> void:
 	typed = ""
 	_key_msg.text = "Key saved in the OS credential store." if bool(r.get("ok", false)) else String(r.get("error", "Not saved."))
 	_refresh_dynamic()
+	## The Assistant chip's greyed/live state depends on whether a key exists (CQ-7).
+	DccSettings.notify_assistant_state()
 	settings_changed.emit()
 
 
@@ -720,6 +722,8 @@ func _on_key_forget() -> void:
 	var r := bridge.llm_key_forget(String(DccSettings.llm_value("preset_id")))
 	_key_msg.text = "Saved key removed." if bool(r.get("ok", false)) else String(r.get("error", "Not removed."))
 	_refresh_dynamic()
+	## The Assistant chip's greyed/live state depends on whether a key exists (CQ-7).
+	DccSettings.notify_assistant_state()
 	settings_changed.emit()
 
 

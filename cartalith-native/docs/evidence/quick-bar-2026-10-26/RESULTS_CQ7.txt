@@ -1,0 +1,74 @@
+CQ-7 results, 2026-10-26 (windowed runs from a scratch worktree, own config/name, wiped user dir; produced by the probes named)
+--- _quickbar_assistant_probe d
+RESULT: PASS (0 failed, 107 checks)
+--- _quickbar_assistant_probe t
+RESULT: PASS (0 failed, 108 checks)
+--- _quickbar_assistant_probe p
+RESULT: PASS (0 failed, 24 checks)
+--- pixel identity (assistant OFF default, _quickbar_ringid_probe vs two captures of 408047a5)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 14608 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: desktop)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 32803 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: tablet)
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 14605 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: phone)
+--- identity mutant (hidden chip still drawn): RESULT: DIFFERS 3/16 states (0 differing pixels required; this mode: desktop)
+--- mutation (cq6_mut.py): 21 of 21 mutants die after two survivors were closed (chip-not-first, chip-widens-bar)
+  FAIL  assistant disabled -> hidden
+  FAIL  no provider configured -> hidden
+  FAIL  no model set -> hidden
+  FAIL  user switched the chip off -> hidden
+  FAIL  no panel to open -> hidden
+  FAIL  no assistant bindings in the build -> hidden
+  FAIL  everything true, gate refuses -> disabled
+  FAIL  provider_configured: a preset OR an address, AND a model
+  FAIL  provider_configured: a preset OR an address, AND a model
+  FAIL  switched off: hidden within a frame although the gate allows
+  FAIL  the tooltip is the gate's own reason, word for word
+  FAIL  the state follows the write inside the same call (no frame yet)
+  FAIL  one frame later the chip is live
+  FAIL  with nothing docked, `dock_items` is the Assistant chip alone, enabled, with no pin_key
+  FAIL  greyed: the caption carries the gate's own reason: 'Dock · Assistant'
+  FAIL  one process frame after the model is set the chip is drawn, greyed
+  FAIL  with pins present the Assistant chip is still the FIRST child and lies left of every shown pin
+  FAIL  choosing it stores the switch off and the chip is gone within a frame
+  FAIL  a real click on the checkbox stores the switch ON
+  FAIL  and `open_panel` refuses too (a second line of defence)
+  FAIL  and the cluster's minimum is exactly the `＋` chip's, as before the Assistant chip existed (106)
+--- regression
+asst_d: RESULT: PASS (0 failed, 107 checks) SCRIPTERR=0
+asst_t: RESULT: PASS (0 failed, 108 checks) SCRIPTERR=0
+asst_p: RESULT: PASS (0 failed, 24 checks) SCRIPTERR=0
+win_d: RESULT: PASS (0 failed, 108 checks) SCRIPTERR=0
+win_t: RESULT: PASS (0 failed, 108 checks) SCRIPTERR=0
+win_p: RESULT: PASS (0 failed, 3 checks) SCRIPTERR=0
+ring_d: RESULT: PASS (0 failed, 164 checks) SCRIPTERR=0
+ring_t: RESULT: PASS (0 failed, 165 checks) SCRIPTERR=0
+qb_d: RESULT: PASS (0 failed, 200 checks) SCRIPTERR=0
+qb_t: RESULT: PASS (0 failed, 200 checks) SCRIPTERR=0
+store: RESULT: PASS (0 failed, 114 checks) SCRIPTERR=0
+align_d: RESULT: PASS (0 failed, 81 checks) SCRIPTERR=0
+align_t: RESULT: PASS (0 failed, 72 checks) SCRIPTERR=0
+ctxring_d:  SCRIPTERR=0
+toolstrip_d:  SCRIPTERR=0
+ALLDONE
+TSP DONE fails=0
+### CTXRING GREEN  132/132 checks passed ###
+ring_d: RESULT: PASS (0 failed, 164 checks)  SCRIPTERR=0
+qb_d: RESULT: PASS (0 failed, 200 checks)  SCRIPTERR=0
+win_d: RESULT: PASS (0 failed, 108 checks)  SCRIPTERR=0
+align_d: RESULT: PASS (0 failed, 81 checks)  SCRIPTERR=0
+ring_t: RESULT: PASS (0 failed, 165 checks)  SCRIPTERR=0
+qb_t: RESULT: PASS (0 failed, 200 checks)  SCRIPTERR=0
+win_t: RESULT: PASS (0 failed, 108 checks)  SCRIPTERR=0
+align_t: RESULT: PASS (0 failed, 72 checks)  SCRIPTERR=0
+store_t: RESULT: PASS (0 failed, 114 checks)  SCRIPTERR=0
+llmset_d: RESULT: PASS (0 failed)  SCRIPTERR=0
+llmpanel_d: RESULT: PASS (0 failed)  SCRIPTERR=0
+gsw_d: [gsw] RESULT gsw checks=339 fail=0 engine-panic-hits(total)=0  SCRIPTERR=0
+_quickbar_ring_probe_p: RESULT: PASS (0 failed, 4 checks)  SCRIPTERR=0
+_quickbar_probe_p: RESULT: PASS (0 failed, 6 checks)  SCRIPTERR=0
+_quickbar_window_probe_p: RESULT: PASS (0 failed, 3 checks)  SCRIPTERR=0

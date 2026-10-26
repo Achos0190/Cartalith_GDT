@@ -93,6 +93,12 @@ var _foot: Label
 var _msg: Label
 var _detail: Label
 var _reset_dlg: ConfirmationDialog
+## The user's switch for the conditional Assistant chip (CQ-7, Ruling DH Q6) and the line saying what
+## the chip is doing right now and why.
+var _assistant_chk: CheckBox
+var _assistant_note: Label
+## The dialog's content column, kept so the Assistant switch can be added on first open (below).
+var _root_box: VBoxContainer
 ## The inset container holding everything; sized by `_fit_content`.
 var _content: MarginContainer
 ## Row dictionaries parallel to `_catalogue`'s items (`{}` for a placeholder line).
@@ -179,6 +185,7 @@ func setup(a) -> void:
 	lead.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lead.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(lead)
+	_root_box = root
 	_tabs = TabBar.new()
 	_tabs.name = "Tabs"
 	_tabs.add_tab("Bar")
@@ -370,6 +377,12 @@ func open() -> void:
 	_show_unpinnable.set_pressed_no_signal(false)
 	_tabs.set_current_tab(0)
 	_target = "bar"
+	## CQ-7: the Assistant chip's switch follows the store, and its note follows every setting change
+	## while the window is open. Connected here, not in `setup()` (the phone lesson below).
+	if not DccSettings.assistant_hub.changed.is_connected(_sync_assistant_switch):
+		DccSettings.assistant_hub.changed.connect(_sync_assistant_switch)
+	_ensure_assistant_switch()
+	_sync_assistant_switch()
 	_rebuild_all()
 	popup_centered()
 	_search.grab_focus.call_deferred()
@@ -381,6 +394,48 @@ func open() -> void:
 	## After the dialog's own first layout (a deferred call ran too early and was overwritten).
 	await get_tree().process_frame
 	_fit_content()
+
+## Builds the Assistant chip's switch and its note on the FIRST `open()`, below the lead paragraph. **Not in
+## `setup()`**: creating these two controls at boot changed 26 014 pixels of the phone's Cartography sheet
+## in `_quickbar_ringid_probe.gd` (desktop and tablet were untouched), on a phone that never opens this
+## window -- the same unexplained shape as the `size_changed` connection that `open()` already avoids (see
+## its comment). Deferring them to the first open removes the difference (measured, section 15 of the
+## scope). Why a never-shown dialog's children moved pixels elsewhere was not traced.
+func _ensure_assistant_switch() -> void:
+	if _assistant_chk != null:
+		return
+	_assistant_chk = CheckBox.new()
+	_assistant_chk.name = "AssistantChipSwitch"
+	_assistant_chk.text = "Show the Assistant chip when the assistant is ready"
+	_assistant_chk.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	_assistant_chk.tooltip_text = "The chip appears under the cartwheel and at the start of the bar once the assistant is enabled and a provider is set. This switch hides it; it is not one of your pins."
+	_assistant_chk.toggled.connect(func(on: bool): DccSettings.set_quick_bar_value("assistant_button", on))
+	_root_box.add_child(_assistant_chk)
+	_assistant_note = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
+	_assistant_note.name = "AssistantChipNote"
+	_assistant_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_assistant_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_assistant_note.custom_minimum_size = Vector2(320, 0)
+	_root_box.add_child(_assistant_note)
+	## Directly under the lead paragraph (child 0), above the tabs.
+	_root_box.move_child(_assistant_chk, 1)
+	_root_box.move_child(_assistant_note, 2)
+
+## Brings the Assistant chip's checkbox and its note up to date with the store. The note names the
+## chip's actual state in words, with the gate's own reason when it is greyed, so a user who sees no
+## chip can read why (switch off, assistant off, no provider or model).
+func _sync_assistant_switch() -> void:
+	if _assistant_chk == null:
+		return
+	_assistant_chk.set_pressed_no_signal(bool(DccSettings.quick_bar_value("assistant_button")))
+	var st := AssistantChip.state_for_app(app)
+	match String(st["state"]):
+		AssistantChip.LIVE:
+			_assistant_note.text = "The Assistant chip is shown and opens the assistant panel."
+		AssistantChip.DISABLED:
+			_assistant_note.text = "The Assistant chip is shown greyed: %s" % String(st["reason"])
+		_:
+			_assistant_note.text = "The Assistant chip is hidden: it needs the assistant switched on in Preferences, a provider and a model, and this switch on."
 
 ## Sizes the content to the dialog. The content is first laid out while its autowrap labels are 1 px
 ## wide, which measures them thousands of pixels tall, and `AcceptDialog` then leaves it at that size

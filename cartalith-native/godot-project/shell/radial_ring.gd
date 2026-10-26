@@ -62,7 +62,11 @@ const CENTRE_RATIO := 46.0 / 60.0
 ## `DOCK_TOUCH_FLOOR`. A chip is wider than tall so a short command title can wrap onto two lines
 ## (the scope's 40 px square cannot hold one); 40 px tall is the scope's figure, 56 px wide is a
 ## labelled judgement: four chips plus gaps (242 px) stay inside the disc's own width (268 px), so the
-## dock never makes the ring wider than it already is.
+## dock never makes the ring wider than it already is. The conditional Assistant chip (CQ-7) is a fifth
+## chip when shown: five chips and gaps are 304 px, 36 px wider than the disc. That is deliberate and
+## measured on screen by `_quickbar_assistant_probe.gd` (the clamp reads `_dock_width()`, so it still
+## fits at every edge); the alternative, a narrower chip for everything, would have changed the CQ-4
+## geometry that is already verified.
 const DOCK_CHIP_W := 56.0
 const DOCK_CHIP_H := 40.0
 const DOCK_GAP := 6.0

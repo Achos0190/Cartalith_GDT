@@ -39,8 +39,18 @@ class_name DccQuickBar
 ##
 ## The ring dock and the shared sub-rings are `quick_bar_ring.gd`'s (CQ-4); it reuses `run_pin_on`,
 ## `accelerator_text` and `label_for` from here. No phone chip row (CQ-6: the phone has no palette
-## bar), no Assistant chip (CQ-7). Tools and check/radio rows are not pinnable in v1 (Ruling DH
-## Q8, Q10); `CommandIndex` says why per row.
+## bar). Tools and check/radio rows are not pinnable in v1 (Ruling DH Q8, Q10); `CommandIndex` says
+## why per row.
+##
+## ## The Assistant chip (CQ-7, Ruling DH Q6)
+##
+## The first chip of the cluster, when `AssistantChip.state_for_app` says it is shown (the assistant
+## is enabled, a provider is configured and the user has not hidden it; greyed with the gate's own
+## reason when the gate refuses). It is a built-in conditional item, NOT one of the stored pins: it
+## is not in `_chips`, is not counted by `pin_count()`, and is not part of the 24-pin cap. It is
+## re-evaluated, with no index build, whenever `DccSettings.assistant_hub` announces a change, so it
+## follows a setting inside the same call. It does not change `_get_minimum_size()`: when the bar is
+## too narrow for it, it moves into the `⋯` menu's first row rather than widening the shell.
 
 ## The gap between chips: the palette strip's own `separation` (`DccWidgets.tool_strip`).
 const GAP := 5
@@ -50,6 +60,9 @@ const MAX_LABEL_CHARS := 16
 ## The id of the `Customise…` row in the `⋯` and chip menus. Far above any pin index (the `⋯`
 ## menu numbers its pins 0..23) so the two never collide.
 const ID_CUSTOMISE := 1000
+## The `⋯` menu's Assistant row and the Assistant chip's menu rows (CQ-7); above any pin index.
+const ID_ASSISTANT := 1001
+const ID_ASSISTANT_HIDE := 1002
 ## Reference to the owning `DccApp` for `bridge` and the menu walk; untyped for a harness stub.
 var _app
 ## Pinned chips in pin order, one per stored pin (hidden ones are overflow).
@@ -58,6 +71,13 @@ var _chips: Array[Button] = []
 var _plus: Button
 ## The `⋯` overflow chip: shown only while at least one pin does not fit.
 var _more: Button
+## The conditional Assistant chip (CQ-7): always a child, visible only while `_assistant_state` is not
+## hidden and it fits. NOT a pin (module header).
+var _assistant: Button
+## The last `AssistantChip.state_for_app` result: `{state, reason}`.
+var _assistant_state := {"state": AssistantChip.HIDDEN, "reason": ""}
+## The menu the Assistant chip's right-click pops up (Hide, Customise).
+var _assistant_menu: PopupMenu
 ## The menus the `⋯` chip and a pin's right-click pop up.
 var _more_menu: PopupMenu
 var _chip_menu: PopupMenu
@@ -77,6 +97,12 @@ func _init() -> void:
 	name = "QuickBar"
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clip_contents = true
+	## Created BEFORE the `＋` chip so it is the first child and the first thing drawn (scope s.5:
+	## "first chip of the quick cluster"); pins are inserted before `＋`, hence after it.
+	_assistant = _make_chip(AssistantChip.LABEL, _on_assistant_pressed)
+	_assistant.name = "QuickBarAssistant"
+	_assistant.visible = false
+	_assistant.gui_input.connect(_assistant_input)
 	_plus = _make_chip("＋", _on_plus_pressed)
 	_plus.name = "QuickBarPlus"
 	_nudge(_plus, 1)
@@ -86,14 +112,20 @@ func _init() -> void:
 	_more.visible = false
 	_more_menu = PopupMenu.new()
 	_chip_menu = PopupMenu.new()
-	for m in [_more_menu, _chip_menu]:
+	_assistant_menu = PopupMenu.new()
+	for m in [_more_menu, _chip_menu, _assistant_menu]:
 		add_child(m)
+	_assistant_menu.id_pressed.connect(_on_assistant_menu_item)
 	_more_menu.id_pressed.connect(_on_more_item)
 	_chip_menu.id_pressed.connect(_on_chip_menu_item)
 
 ## Binds the owning app and draws the pins. Call once, after the shell is built.
 func setup(app) -> void:
 	_app = app
+	## Follow the settings that decide the Assistant chip (CQ-7). Connected once; the hub is a static
+	## on `DccSettings`, so a connection to a freed bar is dropped by the engine.
+	if not DccSettings.assistant_hub.changed.is_connected(refresh_assistant):
+		DccSettings.assistant_hub.changed.connect(refresh_assistant)
 	refresh()
 
 ## The chip height every chip is floored to: the palette cell's. Desktop 30 (the palette's own
@@ -183,8 +215,29 @@ func refresh() -> void:
 	_plus.disabled = false
 	_plus.tooltip_text = ("Customise the quick bar. It is full (%d / %d): remove a pin to add another." % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]) if full \
 		else "Customise the quick bar: pin a command (%d / %d)" % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]
+	refresh_assistant()
 	update_minimum_size()
 	queue_sort()
+
+## Re-evaluates the Assistant chip from the settings and re-lays the bar. No index build, no network:
+## cheap enough for every settings write (the hub calls it synchronously, so the chip is current in
+## the same frame as the setting).
+func refresh_assistant() -> void:
+	if _app == null:
+		return
+	_assistant_state = AssistantChip.state_for_app(_app)
+	var st := String(_assistant_state["state"])
+	_assistant.disabled = st != AssistantChip.LIVE
+	_assistant.tooltip_text = AssistantChip.tooltip_for(_assistant_state)
+	queue_sort()
+
+## The Assistant chip's state, `hidden`, `disabled` or `live`, as last evaluated (for tests).
+func assistant_state() -> String:
+	return String(_assistant_state["state"])
+
+## The Assistant chip, for tests. It is visible only when shown AND it fits the bar's width.
+func assistant_chip() -> Button:
+	return _assistant
 
 ## Builds the chip for one stored pin against the live index row (or "not in this build").
 func _chip_for(pin_key: String, stored_title: String) -> Button:
@@ -287,14 +340,27 @@ func _layout() -> void:
 	var y0 := roundf((size.y - h) * 0.5)
 	var pw := _plus.get_combined_minimum_size().x
 	var ow := _more.get_combined_minimum_size().x
+	## The Assistant chip leads the row when it is wanted and the bar can hold it beside `＋`. When it
+	## is wanted and does not fit it is shown in the `⋯` menu instead, so the bar's own minimum
+	## width never depends on it (module header).
+	var aw := _assistant.get_combined_minimum_size().x
+	var wanted := String(_assistant_state["state"]) != AssistantChip.HIDDEN
+	var lead := aw + GAP if wanted and aw + GAP + pw <= w else 0.0
+	var assistant_fits := lead > 0.0
 	var natural := 0.0
 	for c in _chips:
 		natural += c.get_combined_minimum_size().x + GAP
-	var all_fit := natural + pw <= w
-	var avail := (w - pw - GAP) if all_fit else (w - pw - ow - 2 * GAP)
-	var x := 0.0
+	## `⋯` is needed when a pin does not fit OR the Assistant chip was moved into its menu.
+	var all_fit := lead + natural + pw <= w
+	var assistant_in_more := wanted and not assistant_fits
+	var avail := (w - lead - pw - GAP) if all_fit and not assistant_in_more else (w - lead - pw - ow - 2 * GAP)
+	var x := lead
 	var shown := 0
 	var overflowed := false
+	if _assistant.visible != assistant_fits:
+		_assistant.visible = assistant_fits
+	if assistant_fits:
+		fit_child_in_rect(_assistant, Rect2(0.0, y0, aw, h))
 	for c in _chips:
 		var cw := c.get_combined_minimum_size().x
 		var fits := not overflowed and x + cw <= avail
@@ -307,6 +373,7 @@ func _layout() -> void:
 			x += cw + GAP
 			shown += 1
 	_shown = shown
+	overflowed = overflowed or assistant_in_more
 	if _more.visible != overflowed:
 		_more.visible = overflowed
 	if overflowed:
@@ -335,14 +402,23 @@ func open_customise() -> void:
 
 func _on_more_pressed() -> void:
 	_more_menu.clear()
+	## A wanted Assistant chip that did not fit the bar is the menu's first row (CQ-7), with its
+	## own state: greyed with the gate's reason when the gate refuses.
+	if String(_assistant_state["state"]) != AssistantChip.HIDDEN and not _assistant.visible:
+		_more_menu.add_item(AssistantChip.LABEL, ID_ASSISTANT)
+		_more_menu.set_item_disabled(_more_menu.get_item_index(ID_ASSISTANT), _assistant.disabled)
+		_more_menu.set_item_tooltip(_more_menu.get_item_index(ID_ASSISTANT), _assistant.tooltip_text)
 	var i := 0
 	for c in _chips:
 		if c.visible:
 			continue
 		_more_menu.add_item(String(c.get_meta("title", "")), i)
-		_more_menu.set_item_metadata(i, String(c.get_meta("pin_key", "")))
-		_more_menu.set_item_disabled(i, c.disabled)
-		_more_menu.set_item_tooltip(i, c.tooltip_text)
+		## The ITEM INDEX, not the id: the Assistant row (CQ-7) may already sit at index 0, so a pin's
+		## id (0..23) is no longer its position. Using `i` here set the wrong rows' state.
+		var at := _more_menu.item_count - 1
+		_more_menu.set_item_metadata(at, String(c.get_meta("pin_key", "")))
+		_more_menu.set_item_disabled(at, c.disabled)
+		_more_menu.set_item_tooltip(at, c.tooltip_text)
 		i += 1
 	_more_menu.add_separator()
 	_more_menu.add_item("Customise…", ID_CUSTOMISE)
@@ -352,6 +428,9 @@ func _on_more_pressed() -> void:
 func _on_more_item(id: int) -> void:
 	if id == ID_CUSTOMISE:
 		open_customise()
+		return
+	if id == ID_ASSISTANT:
+		_on_assistant_pressed()
 		return
 	_press(String(_more_menu.get_item_metadata(_more_menu.get_item_index(id))))
 
@@ -400,6 +479,37 @@ func _on_chip_menu_item(id: int) -> void:
 	if ok:
 		refresh()
 		pins_changed.emit()
+
+# -- the Assistant chip (CQ-7) --------------------------------------------------------
+
+## A press opens the assistant panel, and does nothing else: showing the chip makes no call, and
+## neither does pressing it (the panel's Send is the only thing that does, through the gate). A chip
+## that is not live is disabled and cannot be pressed; `AssistantChip.open_panel` re-checks anyway.
+func _on_assistant_pressed() -> void:
+	if not AssistantChip.open_panel(_app):
+		_say(AssistantChip.tooltip_for(_assistant_state))
+
+## The Assistant chip's right-click menu: the user's switch to hide it (Ruling DH Q6) and Customise.
+## The same switch is a checkbox in the Customise window, where it can be turned back on.
+func _assistant_input(ev: InputEvent) -> void:
+	if not (ev is InputEventMouseButton) or not (ev as InputEventMouseButton).pressed:
+		return
+	if (ev as InputEventMouseButton).button_index != MOUSE_BUTTON_RIGHT:
+		return
+	_assistant_menu.clear()
+	_assistant_menu.add_item("Hide the Assistant chip", ID_ASSISTANT_HIDE)
+	_assistant_menu.add_separator()
+	_assistant_menu.add_item("Customise…", ID_CUSTOMISE)
+	DccWidgets.style_popup(_assistant_menu)
+	_popup_under(_assistant_menu, _assistant)
+	_assistant.accept_event()
+
+func _on_assistant_menu_item(id: int) -> void:
+	if id == ID_CUSTOMISE:
+		open_customise()
+	elif id == ID_ASSISTANT_HIDE:
+		## The hub's announcement re-evaluates this chip; nothing else to do.
+		DccSettings.set_quick_bar_value("assistant_button", false)
 
 # -- helpers --------------------------------------------------------------------------
 
