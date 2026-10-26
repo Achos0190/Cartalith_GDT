@@ -2437,17 +2437,21 @@ func _on_archetype_selected(index: int) -> void:
 ## regenerate with whatever `tect.plates` holds.
 func _on_create() -> void:
 	_apply_plates_to_engine()
-	generate_checked(_represent_form)
+	generate_checked(_represent_form, true)
 
 ## **Every generate at this dialog's size goes through here** -- Create, WORLD ▸
 ## Generate / the live regenerate (`world_workspace.gd::_regenerate_now`) and the
 ## tool-options row's Generate (`app.gd::_run_pipeline`). Before 2026-09-24 only
 ## Create asked; the other two regenerated a phone at 4K or 8K without a word.
 ## `on_cancel` runs when the question is declined; nothing is generated then.
-func generate_checked(on_cancel: Callable = Callable()) -> void:
+##
+## `new_world` is true only for Create (File > New world): the result is a different world, so
+## `EngineBridge.generate` flags it and the shell drops the old project path. Every other route
+## (WORLD > Generate, the tool-options row) regenerates the open project and keeps its path.
+func generate_checked(on_cancel: Callable = Callable(), new_world: bool = false) -> void:
 	var r := request()
 	confirm_phone_memory_then(int(r["grid_w"]), int(r["grid_h"]),
-		func(): bridge.generate(r), on_cancel)
+		func(): bridge.generate(r, new_world), on_cancel)
 
 ## The one gate, for any pipeline run whose grid is `gw` x `gh`: `proceed` runs
 ## at once on desktop, on tablet, and on a phone at or under the ceiling;

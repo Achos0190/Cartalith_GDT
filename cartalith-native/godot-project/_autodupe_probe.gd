@@ -227,7 +227,9 @@ func _ready() -> void:
 	var before_text: String = app.status_slot_text("autosave")
 	app._autosave_tick()
 	await _frames(2)
-	var target := ProjectSettings.globalize_path("user://_autodupe_target.autosave.zip")
+	## `.ctl` since the 2026-09-07 rename (`_autosave_tick` writes `<basename>.autosave.ctl`); this line
+	## still said `.zip`, so the check failed on origin/main before the new-world path fix (2026-10-26).
+	var target := ProjectSettings.globalize_path("user://_autodupe_target.autosave.ctl")
 	var wrote := FileAccess.file_exists(target)
 	var after_text: String = app.status_slot_text("autosave")
 	_check("a real `_autosave_tick()` wrote the archive beside the project",

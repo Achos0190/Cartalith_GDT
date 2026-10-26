@@ -1382,6 +1382,13 @@ func _wire_status() -> void:
 		if is_instance_valid(_tool_options_stale):
 			_tool_options_stale.text = "generating…")
 	bridge.generation_finished.connect(func(ok: bool):
+		## A new world (File > New world, heightmap import, region resample) is UNTITLED: it must
+		## not inherit the previous world's project file. Read-and-cleared here on every finish so
+		## a failed run leaves the open project, and its path, as they were.
+		var was_new_world := bridge.new_world_pending
+		bridge.new_world_pending = false
+		if ok and was_new_world:
+			_begin_untitled_world()
 		if ok:
 			_mid_stage = _mid_running_stage
 		_mid_running_stage = ""
@@ -4701,6 +4708,18 @@ func _close_requested() -> void:
 	_quit_prompt.tree_exiting.connect(func():
 		_quit_prompt = null
 		_quit_asked = false)
+
+## The world on screen is a NEW one, not the project file it replaced: forget that file.
+## `current_project_path = ""` makes Save behave as Save as (`save_project`), suggests a fresh
+## `world_<seed>.ctl` (`save_project_as`), stops the autosave (`_autosave_tick` writes nowhere
+## without a path, so `<old>.autosave.ctl` is never touched either), and makes the exit card say the
+## world has never been saved. The old file on disk is not read or written here. Called only from the
+## `generation_finished` handler when `EngineBridge.new_world_pending` was set; a plain re-generate
+## never reaches it, so it keeps its project path.
+func _begin_untitled_world() -> void:
+	current_project_path = ""
+	_last_autosave_at = ""   ## the card's "last autosave" row belongs to the previous world
+	_refresh_save_status()
 
 ## Closes the current world after its confirmation: drops the engine world, clears
 ## `current_project_path` and returns the status bar to the empty-world state

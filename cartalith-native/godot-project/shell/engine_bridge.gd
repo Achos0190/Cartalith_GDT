@@ -132,6 +132,16 @@ var world_gen: WorldGen = WorldGen.new()
 ## True from the moment `generate`/import/resample/landmarks/viewshed start a run until its finish
 ## handler clears it; the gate every `world_gen` wrapper tests. `busy_kind` says which run.
 var generating := false
+
+## **Set by a run that replaces the world with a DIFFERENT one** -- `generate(request, true)` (File >
+## New world's Create), `import_heightmap` and `region_new_world` -- and cleared by the next
+## `generation_finished`, success or not. The shell reads it there: a success with this set means the
+## world on screen is no longer the project file it was opened from, so the project path is dropped
+## (`DccApp._begin_untitled_world`). **A plain regenerate leaves it false**, which is what keeps a
+## re-generate on the same project saving to the same file. Without it, a new world kept the old
+## world's path and a plain Save overwrote the saved world (OUTSTANDING_WORK.md 3.3, 2026-10-26).
+## Never set while `generating`: the run that would clear it was refused.
+var new_world_pending := false
 ## WHICH run set `generating` last: `"generate"`, `"import"`, `"resample"`, `"landmarks"` or
 ## `"viewshed"`, written by each of the five entry points immediately before it sets `generating`
 ## and never cleared (read it only while `generating` is true). Read by `busy_overlay.gd` so its
@@ -862,9 +872,11 @@ var _gen_start_msec := 0
 ## outcome arrives as `generation_finished(ok)` (and `params_applied` on success).
 ## Ignored while one is already running; may refuse on the VRAM policy. Never call
 ## a `world_gen` `#[func]` from the main thread until that signal.
-func generate(request: Dictionary) -> void:
+func generate(request: Dictionary, new_world: bool = false) -> void:
 	if generating:
 		return
+	## Before the VRAM refusal below, whose own `generation_finished(false)` clears it again.
+	new_world_pending = new_world
 	## PR-05, `Fallback when VRAM full ▸ Fail with error`. The check belongs
 	## here rather than in Rust: `generate_terrain` returns a world, not a
 	## `Result`, and "refuse and say why" is a UI act. The other two settings
@@ -1032,6 +1044,7 @@ func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 func import_heightmap(path: String, request: Dictionary) -> void:
 	if generating or not import_api:
 		return
+	new_world_pending = true   ## a heightmap import is a new world, never the open project's regenerate
 	## Snapshot the parameter table before the worker takes the engine: from
 	## here until `_finish`, `param_get` answers from this and nothing reaches
 	## a `#[func]` on the borrowed object.
@@ -6301,6 +6314,7 @@ func region_new_world(tile_size: int = 0, ridged: bool = false,
 		detail_freq: float = 0.0, detail_amp: float = 0.0) -> void:
 	if generating or not _has("region_new_world"):
 		return
+	new_world_pending = true   ## the resample is a different world; the original file must not be its Save target
 	## Snapshot the parameter table before the worker takes the engine, the
 	## same contract `generate()`/`import_heightmap()` hold: from here until
 	## `_finish_region_new_world`, `param_get` answers from this cache and
