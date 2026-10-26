@@ -129,7 +129,7 @@ const REPLY_MAX_TOKENS := 1024
 var cards: Array = []
 ## The prompt box's hint, per kind of task.
 const PLACEHOLDER_PROSE := "Ask for prose about the selected place, or for work on the chosen note…"
-const PLACEHOLDER_COMMANDS := "Ask for a change to the generation settings, e.g. a drier climate and lower mountains…"
+const PLACEHOLDER_COMMANDS := "Ask for a change to the generation settings (a drier climate, lower mountains), or ask a question about them or the world…"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -154,6 +154,9 @@ func setup(a, b: EngineBridge) -> void:
 	run.answered.connect(_on_answered)
 	## The next turn of a setting request reads the settings as they are THEN.
 	run.params_source = func() -> Dictionary: return bridge.param_snapshot()
+	## The model's read-only lookups (LLM-8) are answered from the engine's own getters, read by
+	## `LlmFacts` and only when no generation is running.
+	run.facts_source = func(needs: Dictionary) -> Dictionary: return LlmFacts.read(bridge, needs)
 	var host := VBoxContainer.new()
 	host.add_theme_constant_override("separation", 0)
 	add_child(host)
@@ -303,10 +306,10 @@ func _rebuild() -> void:
 		controls["task_" + id] = b
 	var cmd := DccWidgets.segment(chips, "Commands", func(): _pick_task("commands"))
 	cmd.custom_minimum_size.y = maxi(int(cmd.custom_minimum_size.y), _field_h())
-	cmd.tooltip_text = "Ask for generation-setting changes. The model proposes; nothing changes until you press Apply on its card."
+	cmd.tooltip_text = "Ask for generation-setting changes, or a question about the settings or the world. The model proposes; nothing changes until you press Apply on its card."
 	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
-	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes for you to review; nothing changes until you press Apply. Edit actions arrive in a later release.")
+	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes for you to review, and answers questions about the settings and the world from read-only lookups; nothing changes until you press Apply. Edit actions arrive in a later release.")
 	controls["commands_note"] = cmd_note
 
 	# -- subject and note -----------------------------------------------------------
@@ -582,13 +585,13 @@ func _refresh() -> void:
 	elif not bool(cap_check.get("ok", true)):
 		reason = String(cap_check.get("reason", "The token cap is reached."))
 	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")):
-		reason = "Tick \"Send: generation parameters\" in Settings first: a proposal shows the model the current settings."
+		reason = "Tick \"Send: generation parameters and summary statistics\" in Settings first: a proposal or a question shows the model the current settings and figures."
 	elif request == "":
 		reason = "Type a request first."
 	elif _task == "commands":
 		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
 		if bool(pp.get("ok", false)):
-			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value." % [int(pp["request_chars"]), int(pp["groups"])]
+			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value. If you ask a question, it can also read any setting's value, whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing." % [int(pp["request_chars"]), int(pp["groups"])]
 		else:
 			reason = String(pp.get("reason", "Unavailable."))
 	else:
@@ -836,7 +839,12 @@ func _on_params_step(info: Dictionary) -> void:
 		_add_msg("", "The model's proposal could not be used (%s). It was told why and asked once more." % _verdict_reasons(v), "warn")
 	else:
 		var gs: PackedStringArray = info.get("groups", PackedStringArray())
-		if gs.is_empty():
+		var qs: PackedStringArray = info.get("queries", PackedStringArray())
+		if not qs.is_empty():
+			## Read-only lookups (LLM-8): name them, so the user can see what the model read. The
+			## answers themselves go to the model, not to this list.
+			_add_msg("", "The model looked up: %s. Nothing was changed." % ", ".join(qs), "text_ghost")
+		elif gs.is_empty():
 			_add_msg("", "The model asked for setting groups that do not exist; it was told the valid ones.", "text_ghost")
 		else:
 			_add_msg("", "The model is reading the %s settings…" % ", ".join(gs), "text_ghost")

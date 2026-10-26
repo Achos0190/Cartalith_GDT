@@ -1,0 +1,30 @@
+LLM-8 and LLM-9 verification data, 2026-10-26 (one machine, debug DLL built after the last .rs edit; every probe windowed, from a project copy with its own config/name and a wiped user dir, one at a time under C:/cw/.win_lock).
+
+== new probe godot-project/_llmquery_probe.gd (647 checks per size: questions on both wires, three seeds, a running generation, the 43-row hostile corpus on both wires)
+desktop 1600x1000: RESULT: PASS (0 failed) checks=647 SCRIPT_ERROR=0
+tablet 1280x800: RESULT: PASS (0 failed) checks=647 SCRIPT_ERROR=0
+phone 393x852: RESULT: PASS (0 failed) checks=647 SCRIPT_ERROR=0
+
+== existing LLM probes re-run on the same build
+old_params_desktop: RESULT: PASS (0 failed) checks=137 ok=137 SCRIPT_ERROR=0
+old_params_tablet: RESULT: PASS (0 failed) checks=141 ok=141 SCRIPT_ERROR=0
+old_params_phone: RESULT: PASS (0 failed) checks=141 ok=141 SCRIPT_ERROR=0
+old_panel_desktop: RESULT: PASS (0 failed) ok=92 SCRIPT_ERROR=0
+old_panel_tablet: RESULT: PASS (0 failed) ok=102 SCRIPT_ERROR=0
+old_panel_phone: RESULT: PASS (0 failed) ok=102 SCRIPT_ERROR=0
+old_set_desktop: RESULT: PASS (0 failed) ok=232 SCRIPT_ERROR=0
+old_set_tablet: RESULT: PASS (0 failed) ok=266 SCRIPT_ERROR=0
+old_set_phone: RESULT: PASS (0 failed) ok=266 SCRIPT_ERROR=0
+old_hosted: RESULT: PASS (0 failed of 65 checks) ok=65 SCRIPT_ERROR=0
+old_stream: RESULT: PASS (0 failed) ok=151 SCRIPT_ERROR=0
+
+== cargo test --workspace --no-fail-fast -j 2
+252 result lines, 7417 passed, 0 failed, 139 ignored
+
+== get_parameters answer sizes (cargo test -p cartalith-godot --test param_catalogue -- --nocapture), bytes of JSON
+world 749, planet 372, world_structure 769, tectonics 1885, volcanism 2501, erosion 3378, climate 1126, weather 1414, civ 1584; all nine together 13778 (over the 12000 cap, so no-argument is an overview of 504 bytes)
+
+== mutation (exact literal, occurs once, restored in a finally, hashes checked)
+Rust, 28 mutants: 27 killed at first run, 1 survived (pending_needs ignoring the remaining cell allowance) and was killed after a literal test was added.
+Shell, 6 mutants against _llmquery_probe.gd --no-corpus: facts never passed, generating not checked, lookups not listed, samples not read, ecology not read, summary not read: 6 killed (2 to 20 failed checks each; logs not kept).
+Library through the probe, 1 mutant: DictFacts cell.is_empty() disabled: killed (Q9, both wires).

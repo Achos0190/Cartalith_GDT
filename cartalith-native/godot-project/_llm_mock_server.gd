@@ -38,7 +38,11 @@ class_name LlmMockServer
 ##                   answers with that one tool call, its arguments streamed in three fragments cut
 ##                   mid-JSON (the realistic split); `{"text": <String>}` answers in words with no
 ##                   call. Usage and the stop reason (`tool_calls` / `tool_use`) are sent as each
-##                   wire documents them.
+##                   wire documents them. LLM-8/LLM-9: a step may instead be
+##                   `{"calls": [{"name", "args"}, ...]}`, several tool calls in ONE reply (the
+##                   probe `_llmquery_probe.gd` uses it for lookups and for the hostile corpus), and
+##                   control characters in a call's arguments are written as \u00XX so the JSON the
+##                   client receives is always valid.
 ##
 ## Recorded: `accepted` (connections), `requests` (each: path, headers lower-cased, body text),
 ## `client_hangups` (connections the client closed before the server finished), `tokens_sent`.
@@ -184,36 +188,65 @@ func _a_event(type: String, payload: Dictionary) -> String:
 
 
 ## One scripted tool-conversation reply (scenarios "tools" / "tools_anthropic"), written whole.
+## A step is `{"text": ...}` (words, no call), `{"name": ..., "args": ...}` (one call) or
+## `{"calls": [{"name": ..., "args": ...}, ...]}` (several calls in ONE reply, LLM-8/LLM-9), each
+## call's arguments streamed in three fragments cut mid-JSON (the realistic split). An optional
+## `"text"` beside `"calls"` is streamed first.
 func _tool_reply(p: StreamPeerTCP, step: Dictionary, anthropic: bool) -> void:
-	var args_text: String = step["args"] if step.get("args") is String else JSON.stringify(step.get("args", {}))
-	var n := args_text.length()
-	var parts := [args_text.substr(0, n / 3), args_text.substr(n / 3, n / 3), args_text.substr(2 * (n / 3))]
+	var calls: Array = []
+	if step.has("calls"):
+		calls = step["calls"]
+	elif not step.has("text"):
+		calls = [step]
 	if anthropic:
 		_chunk(p, _a_event("message_start", {"message": {"id": "msg_t", "type": "message", "role": "assistant", "content": [], "model": "mock-model", "stop_reason": null, "usage": {"input_tokens": 120, "output_tokens": 1}}}))
+		var idx := 0
 		if step.has("text"):
 			_chunk(p, _a_event("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}))
 			_chunk(p, _a_event("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": String(step["text"])}}))
 			_chunk(p, _a_event("content_block_stop", {"index": 0}))
-			_chunk(p, _a_event("message_delta", {"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}))
-		else:
-			_chunk(p, _a_event("content_block_start", {"index": 0, "content_block": {"type": "tool_use", "id": "toolu_%d" % tool_served, "name": String(step["name"]), "input": {}}}))
+			idx = 1
+		for k in calls.size():
+			var parts := _arg_parts(calls[k])
+			_chunk(p, _a_event("content_block_start", {"index": idx + k, "content_block": {"type": "tool_use", "id": "toolu_%d_%d" % [tool_served, k], "name": String(calls[k]["name"]), "input": {}}}))
 			for part in parts:
-				_chunk(p, _a_event("content_block_delta", {"index": 0, "delta": {"type": "input_json_delta", "partial_json": part}}))
-			_chunk(p, _a_event("content_block_stop", {"index": 0}))
-			_chunk(p, _a_event("message_delta", {"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 40}}))
+				_chunk(p, _a_event("content_block_delta", {"index": idx + k, "delta": {"type": "input_json_delta", "partial_json": part}}))
+			_chunk(p, _a_event("content_block_stop", {"index": idx + k}))
+		_chunk(p, _a_event("message_delta", {"delta": {"stop_reason": "tool_use" if not calls.is_empty() else "end_turn"}, "usage": {"output_tokens": 40}}))
 		_chunk(p, _a_event("message_stop", {}))
 		return
 	if step.has("text"):
 		_chunk(p, _delta_event(String(step["text"])))
+	if calls.is_empty():
 		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}) + "\n\n")
 	else:
-		var first := {"index": 0, "id": "call_%d" % tool_served, "type": "function", "function": {"name": String(step["name"]), "arguments": ""}}
-		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [first]}, "finish_reason": null}]}) + "\n\n")
-		for part in parts:
-			_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": part}}]}, "finish_reason": null}]}) + "\n\n")
+		for k in calls.size():
+			var first := {"index": k, "id": "call_%d_%d" % [tool_served, k], "type": "function", "function": {"name": String(calls[k]["name"]), "arguments": ""}}
+			_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [first]}, "finish_reason": null}]}) + "\n\n")
+			for part in _arg_parts(calls[k]):
+				_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": k, "function": {"arguments": part}}]}, "finish_reason": null}]}) + "\n\n")
 		_chunk(p, "data: " + JSON.stringify({"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}) + "\n\n")
 	_chunk(p, "data: " + JSON.stringify({"choices": [], "usage": {"prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}}) + "\n\n")
 	_chunk(p, "data: [DONE]\n\n")
+
+
+## A call's arguments (a Dictionary, or a raw String) cut into three fragments mid-JSON.
+func _arg_parts(call: Dictionary) -> Array:
+	var args_text: String = call["args"] if call.get("args") is String else _json_safe(JSON.stringify(call.get("args", {})))
+	var n := args_text.length()
+	return [args_text.substr(0, n / 3), args_text.substr(n / 3, n / 3), args_text.substr(2 * (n / 3))]
+
+
+## `JSON.stringify` writes control characters other than \n \r \t \b \f RAW, which is invalid JSON.
+## Any that remain are written as \u00XX, so a hostile string with an ESC or a BEL in it reaches the
+## client as valid JSON: otherwise the probe would test the decoder's JSON error and never reach
+## the validator it is meant to exercise (corpus row G18).
+func _json_safe(s: String) -> String:
+	var out := ""
+	for i in s.length():
+		var c := s.unicode_at(i)
+		out += ("\\u%04x" % c) if c < 32 else s[i]
+	return out
 
 
 func _delta_event(text: String) -> String:

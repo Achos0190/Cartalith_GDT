@@ -32,6 +32,13 @@ class_name LlmRun
 ## and starts the wire with that. `proposal` is the validated card data, emitted once, and
 ## nothing here acts on it: the panel's Apply button is the only writer. `params_answer` and
 ## `params_failed` end the request in words.
+##
+## ## Read-only lookups (LLM-8)
+##
+## A `params_continue` whose `queries` is not empty means the model called read-only tools. Rust holds
+## them pending; the next turn asks `LlmStream.pending_needs()`, reads exactly that through
+## `facts_source` (the engine's own getters, never while a generation runs) and passes it to
+## `prepare_continue` as `args.facts`. This node reads no engine state itself and writes nothing.
 
 ## One text fragment, as it was decoded.
 signal token(text: String)
@@ -87,6 +94,10 @@ var _continue_pending := false
 ## Returns the CURRENT settings snapshot (`get_params()`) for the next turn's catalogue; when
 ## invalid, the snapshot passed to `begin` is reused.
 var params_source: Callable
+## Reads the world for the model's waiting read-only lookups (LLM-8). Called with
+## `LlmStream.pending_needs()`; returns the Dictionary Rust reads as `args.facts` (`LlmFacts.read`).
+## When invalid nothing is read and every world lookup answers "not available".
+var facts_source: Callable
 
 ## Pause before the one automatic retry. Labelled judgement: long enough for a
 ## momentary 529 or 429 to clear, short enough to feel like part of the same request.
@@ -281,6 +292,11 @@ func _terminal(notify: Callable) -> void:
 ## gate is asked again (`prepare_continue`), with a fresh settings snapshot.
 func _continue_after_join() -> void:
 	var args := {"current": params_source.call() if params_source.is_valid() else Dictionary(_last["args"]).get("current", {})}
+	## The model's waiting lookups (LLM-8) are answered from what is read NOW, not from when its
+	## reply ended: a generation may have started since, and `LlmFacts.read` then reads nothing.
+	var needs: Dictionary = stream.pending_needs()
+	if facts_source.is_valid():
+		args["facts"] = facts_source.call(needs)
 	var prep: Dictionary = stream.prepare_continue(_last["settings"], _last["consented"], args)
 	if not bool(prep.get("ok", false)):
 		_active = false

@@ -64,6 +64,7 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 		_line(sent, "the list of commands the assistant may propose")
 		if bool(DccSettings.llm_value("ctx_params")):
 			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
+			_line(sent, "for a question: any setting's value and default, whole-world summary figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells (elevation, slope, climate, biome); never a map image, a name or a note")
 
 	var never := DccTheme.label(
 		"Never sent: your whole Vault, the save file, file paths, the machine name. Your key goes only in the provider request header.",
@@ -150,5 +151,5 @@ static func _context_sources() -> String:
 	if bool(DccSettings.llm_value("ctx_notes")):
 		on.append("named Vault notes")
 	if bool(DccSettings.llm_value("ctx_params")):
-		on.append("generation parameters")
+		on.append("generation parameters and summary statistics")
 	return ", ".join(on) if not on.is_empty() else "none"

@@ -63,6 +63,17 @@
 //! parameters" context source ticked (Ruling DI P3: its own checkbox, off until
 //! ticked), because the schema carries the world's current values.
 //!
+//! **Read-only questions (LLM-8, scope s.5b.5).** With "Send: generation parameters and summary
+//! statistics" ticked (Ruling DI P3) the same conversation also offers the six query tools of
+//! `cartalith_llm::query`. A query call is NOT answered when the reply ends: the conversation keeps
+//! it pending, and the `params_continue` event names the tools called. The shell then asks
+//! [`LlmStream::pending_needs`] what to read, reads exactly that from the ENGINE'S OWN GETTERS
+//! (`ecology_summary`, `sample_cell`, `world_summary`; `shell/llm_facts.gd`) and only when no
+//! generation is running, and hands the result to [`LlmStream::prepare_continue`] as
+//! `args.facts`, where it becomes a `DictFacts`. **This class never borrows `WorldGen`**
+//! (`llm_bridge.rs` explains why: a `bind()` fails while a generation holds the engine on its
+//! worker thread). A fact the shell did not supply is "not available", never a guess.
+//!
 //! **NO PANIC.** Every method answers with a dictionary; a poisoned lock is recovered
 //! rather than unwrapped (`cartalith-rust-conventions`).
 
@@ -79,6 +90,7 @@ use cartalith_llm::prompt::{Context, PromptError, Task, build_messages};
 use cartalith_llm::settings::Capability;
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
+use cartalith_llm::query::{EcologyFacts, Fact, NoWorld, SUMMARY_PERCENTILES, SampleFacts, SummaryFacts, WorldFacts};
 use cartalith_llm::{Event, LlmError, StreamSession};
 use godot::classes::{IRefCounted, RefCounted};
 use godot::prelude::*;
@@ -145,6 +157,145 @@ fn catalogue_from(current: &VarDictionary) -> Catalogue {
             _ => None,
         }
     })
+}
+
+/// A number out of a Variant, whether Godot stored it as `int` or `float`; `None` for anything else
+/// (a string is never read as a number).
+fn vnum(v: &Variant) -> Option<f64> {
+    match v.get_type() {
+        VariantType::FLOAT => Some(v.to::<f64>()),
+        VariantType::INT => Some(v.to::<i64>() as f64),
+        _ => None,
+    }
+}
+
+/// `d[key]` as a number, `None` when the key is absent or not a number.
+fn dnum(d: &VarDictionary, key: &str) -> Option<f64> {
+    d.get(key).and_then(|v| vnum(&v))
+}
+
+/// `d[key]` as an integer-valued number.
+fn dint(d: &VarDictionary, key: &str) -> Option<i64> {
+    d.get(key).and_then(|v| match v.get_type() {
+        VariantType::INT => Some(v.to::<i64>()),
+        VariantType::FLOAT => Some(v.to::<f64>()).filter(|f| f.fract() == 0.0).map(|f| f as i64),
+        _ => None,
+    })
+}
+
+/// The world's readings the shell took from the engine's own getters for this turn's lookups
+/// (`shell/llm_facts.gd`), as the read side `cartalith_llm::query` answers from. Holds only what
+/// the shell passed in `args.facts`; it can read nothing else. Keys: `reason` (String; the world
+/// cannot be read, so every world tool answers "not available" with it), `generating` (bool),
+/// `grid_width`/`grid_height` (ints, for the out-of-grid message), `ecology` (the
+/// `ecology_summary` Dictionary), `summary` (the `world_summary` Dictionary) and `samples`
+/// (a Dictionary keyed `"x,y"` of `sample_cell` results; an empty one means outside the grid).
+struct DictFacts {
+    facts: VarDictionary,
+}
+
+impl DictFacts {
+    /// Why the world cannot be read at all, if the shell said so.
+    fn reason(&self) -> Option<String> {
+        self.facts.get("reason").and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string()).filter(|r| !r.trim().is_empty())
+    }
+
+    /// A sub-dictionary by key.
+    fn dict(&self, key: &str) -> Option<VarDictionary> {
+        self.facts.get(key).and_then(|v| v.try_to::<VarDictionary>().ok())
+    }
+}
+
+impl WorldFacts for DictFacts {
+    fn ecology(&self) -> Fact<EcologyFacts> {
+        if let Some(r) = self.reason() {
+            return Fact::Unavailable(r);
+        }
+        let Some(d) = self.dict("ecology") else {
+            return Fact::Unavailable("The app did not read the ecology for this lookup.".into());
+        };
+        if d.is_empty() {
+            return Fact::Unavailable("The engine has no ecology figures for this world.".into());
+        }
+        let land = dint(&d, "land_cells");
+        // `ecology_summary` writes `npp_mean: 0.0` when there is no land to average; that is "no
+        // value", not a zero productivity, so it is withheld here (MISTAKES.md: never encode "no
+        // value" as a plausible value).
+        let has_land = land.is_none_or(|n| n > 0);
+        Fact::Value(EcologyFacts {
+            npp_mean: dnum(&d, "npp_mean").filter(|_| has_land),
+            npp_max: dnum(&d, "npp_max").filter(|_| has_land),
+            land_cells: land,
+        })
+    }
+
+    fn sample(&self, x: i64, y: i64) -> Fact<SampleFacts> {
+        if let Some(r) = self.reason() {
+            return Fact::Unavailable(r);
+        }
+        let grid = match (self.facts.get("grid_width").and_then(|v| vnum(&v)), self.facts.get("grid_height").and_then(|v| vnum(&v))) {
+            (Some(w), Some(h)) => format!(" (columns 0 to {}, rows 0 to {})", w as i64 - 1, h as i64 - 1),
+            _ => String::new(),
+        };
+        let Some(samples) = self.dict("samples") else {
+            return Fact::Unavailable("The app did not read any map cell for this lookup.".into());
+        };
+        let Some(cell) = samples.get(format!("{x},{y}").as_str()).and_then(|v| v.try_to::<VarDictionary>().ok()) else {
+            return Fact::Unavailable(format!("The app did not read the cell at {x},{y}{grid}."));
+        };
+        if cell.is_empty() {
+            return Fact::Unavailable(format!("The cell at {x},{y} is outside the map{grid}."));
+        }
+        let word = |k: &str| cell.get(k).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string());
+        Fact::Value(SampleFacts {
+            x,
+            y,
+            elevation_m: dnum(&cell, "elevation_m"),
+            slope_deg: dnum(&cell, "slope_deg"),
+            temperature_c: dnum(&cell, "temperature_c"),
+            precipitation: dnum(&cell, "precipitation"),
+            water: word("water"),
+            biome: word("biome"),
+            river_order: dint(&cell, "river_order"),
+        })
+    }
+
+    fn summary(&self) -> Fact<SummaryFacts> {
+        if let Some(r) = self.reason() {
+            return Fact::Unavailable(r);
+        }
+        let Some(d) = self.dict("summary") else {
+            return Fact::Unavailable("The app did not read the world summary for this lookup.".into());
+        };
+        let (Some(gw), Some(gh), Some(sea), Some(frac), Some(land)) =
+            (dint(&d, "grid_width"), dint(&d, "grid_height"), dnum(&d, "sea_level"), dnum(&d, "land_fraction"), dint(&d, "land_cells"))
+        else {
+            return Fact::Unavailable("The engine has no summary for this world.".into());
+        };
+        let elev = d.get("land_elevation_m").and_then(|v| v.try_to::<VarDictionary>().ok());
+        let percentiles = elev.as_ref().map(|e| {
+            SUMMARY_PERCENTILES.iter().filter_map(|&p| dnum(e, &format!("p{p:02}")).map(|m| (p, m))).collect::<Vec<_>>()
+        });
+        Fact::Value(SummaryFacts {
+            grid_width: gw,
+            grid_height: gh,
+            sea_level: sea,
+            land_fraction: frac,
+            land_cells: land,
+            elevation_m: percentiles.filter(|p| !p.is_empty()),
+            elevation_max_m: elev.as_ref().and_then(|e| dnum(e, "max")),
+            land_rainfall_mean: dnum(&d, "land_rainfall_mean"),
+            land_temperature_mean_c: dnum(&d, "land_temperature_mean_c"),
+        })
+    }
+
+    fn parameters_note(&self) -> Option<String> {
+        self.facts
+            .get("generating")
+            .and_then(|v| v.try_to::<bool>().ok())
+            .filter(|g| *g)
+            .map(|_| "A world is generating: these are the settings as they were when it started.".to_owned())
+    }
 }
 
 /// A value as the Variant the setter takes: ints as `int`, so `set_params` stores
@@ -233,6 +384,10 @@ fn params_step(p: &mut ParamsState) -> VarDictionary {
         Step::Continue => {
             let mut d = vdict! { "type" => "params_continue", "turns" => turns };
             d.set("groups", &groups);
+            // The read-only tools the model called this turn (LLM-8): the panel lists them so the
+            // user can see what was looked up. Names only; the answers go to the model.
+            let queries: PackedStringArray = p.conv.pending_query_names().iter().map(|n| GString::from(n.as_str())).collect();
+            d.set("queries", &queries);
             d
         }
         Step::Retry(v) => {
@@ -284,7 +439,7 @@ impl IRefCounted for LlmStream {
 const PARAMS_MAX_TOKENS: i64 = 1024;
 
 /// The reason shown when the parameter context source is off (Ruling DI P3).
-const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters\" in Assistant settings first: a setting proposal shows the model the world's current generation settings.";
+const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters and summary statistics\" in Assistant settings first: a setting proposal or a question shows the model the world's current generation settings and figures.";
 
 impl LlmStream {
     /// Lock, recovering from a poisoned mutex (a panic elsewhere must not become a
@@ -325,12 +480,28 @@ impl LlmStream {
         let mut inner = self.lock();
         let (conv, max_tokens, include_usage) = if resume {
             match inner.params.take() {
-                Some(p) if !p.conv.is_done() => (p.conv, p.max_tokens, p.include_usage),
+                Some(p) if !p.conv.is_done() => {
+                    let mut conv = p.conv;
+                    // Answer the model's waiting lookups from what the shell read this turn. No
+                    // `facts` at all means the shell read nothing, which every world tool reports
+                    // as "not available" (never a guess).
+                    if conv.has_pending() {
+                        match args.get("facts").and_then(|v| v.try_to::<VarDictionary>().ok()) {
+                            Some(facts) => conv.answer_pending(&cat, &DictFacts { facts }),
+                            None => conv.answer_pending(&cat, &NoWorld("The app did not read the world for this lookup.".into())),
+                        }
+                    }
+                    (conv, p.max_tokens, p.include_usage)
+                }
                 _ => return refuse("no_conversation", "There is no setting request to continue."),
             }
         } else {
+            // The query tools follow the "generation parameters and summary statistics" source
+            // (Ruling DI P3). This function already refused when it is off, so today this is
+            // always true; reading the flag here (not writing `true`) keeps the tools tied to the
+            // checkbox if the refusal above is ever relaxed for settings-only proposals.
             let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
-                Ok(c) => c,
+                Ok(c) => c.with_queries(&cat, flag(settings, "ctx_params")),
                 Err(why) => return refuse("empty_request", why),
             };
             let max_tokens = args
@@ -666,6 +837,25 @@ impl LlmStream {
     /// network: `{ok, request_chars, offered, groups}` (the keys a model may be shown
     /// and the groups they fall in) or `{ok: false, reason}`. For the panel's "This
     /// will send" line.
+    /// What the model's waiting read-only lookups need read from the WORLD before the next turn
+    /// (LLM-8): `{ecology: bool, summary: bool, samples: Array of {x, y}}`. Empty (all false and no
+    /// samples) when nothing is waiting. The shell reads exactly these from the engine's own
+    /// getters, and only when no generation is running (`shell/llm_facts.gd`), then passes the
+    /// result to [`LlmStream::prepare_continue`] as `args.facts`. `samples` is already inside the
+    /// request's remaining `sample_point` allowance, so a model cannot make the shell read more.
+    #[func]
+    fn pending_needs(&self) -> VarDictionary {
+        let inner = self.lock();
+        let n = inner.params.as_ref().map(|p| p.conv.pending_needs()).unwrap_or_default();
+        let mut samples: Array<VarDictionary> = Array::new();
+        for (x, y) in &n.samples {
+            samples.push(&vdict! { "x" => *x, "y" => *y });
+        }
+        let mut d = vdict! { "ecology" => n.ecology, "summary" => n.summary };
+        d.set("samples", &samples);
+        d
+    }
+
     #[func]
     fn params_preview(&self, args: VarDictionary) -> VarDictionary {
         let Some(current) = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok()) else {

@@ -13,8 +13,9 @@ extends Node
 ## What it protects (every check names it):
 ##   1. GATE: with Commands on but "Send: generation parameters" off, Send is disabled with that
 ##      reason and a forced Send opens NO connection (Ruling DI P3).
-##   2. TWO STEPS, per wire: the first request offers ONLY `get_param_schema`; the second offers
-##      both tools, its key enum is exactly the 34 keys of weather + world + tectonics, and it
+##   2. TWO STEPS, per wire: the first request offers `get_param_schema` and the six read-only
+##      query tools of LLM-8 (`_llmquery_probe.gd` owns those) and NOT the proposal tool; the second
+##      adds `set_generation_params`, its key enum is exactly the 34 keys of weather + world + tectonics, and it
 ##      replays the call and the tool result in the wire's own shape; the Ollama preset asks for
 ##      `reasoning_effort: none`, the Anthropic wire sends no such field.
 ##   3. CARD: the worked example (s.5b.3) arrives as a card with the MODEL PROPOSAL chip, the five
@@ -37,6 +38,9 @@ extends Node
 const ENV_VAR := "CART_LLM_PROBE_KEYVAR"
 const SECRET := "sk-PROBE-SECRET-params-0123456789"
 const SEEDS := [9137, 24601, 71077345]
+## The six read-only tools (LLM-8) the Commands flow offers beside `get_param_schema`, in the order
+## `cartalith_llm::query::QUERY_TOOLS` lists them.
+const QUERY_TOOLS := ["get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary"]
 
 ## The worked example's step-4 arguments (scope s.5b.3), as the model would send them.
 const WORKED := {"summary": "Less ocean moisture and a lower relief ceiling.", "changes": [
@@ -300,8 +304,8 @@ func _ready() -> void:
 		var r0: int = _server.requests.size() - nreq
 		var b1 := _body(r0)
 		var b2 := _body(r0 + 1)
-		_ok(_tool_names(b1, anth) == ["get_param_schema"], "%s: request 1 offers only get_param_schema: %s" % [wire, str(_tool_names(b1, anth))])
-		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"], "%s: request 2 offers both tools" % wire)
+		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS, "%s: request 1 offers get_param_schema and the six read-only tools, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
+		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"] + QUERY_TOOLS, "%s: request 2 adds the proposal tool to the same set" % wire)
 		_ok(_key_enum(b2, anth).size() == 34, "%s: the key enum is the 34 keys of weather + world + tectonics: %d" % [wire, _key_enum(b2, anth).size()])
 		_ok(not _key_enum(b2, anth).has("use_gpu") and not _key_enum(b2, anth).has("geology_model"), "%s: no excluded key is offered" % wire)
 		var replay := String(_server.requests[r0 + 1]["body"]) if r0 + 1 < _server.requests.size() else ""

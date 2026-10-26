@@ -323,3 +323,208 @@ fn claude_more_volcanoes_replay_accepts_the_earlier_groups_key() {
     let Step::Retry(v) = conv.on_reply(&c, "", propose("climate.ocean", 0.7)) else { panic!() };
     assert_eq!(v.rejected[0].rule, Rule::V6);
 }
+
+// ---------------------------------------------------------------------------
+// LLM-8: the read-only query tools over the REAL registry rows
+// (`LLM_ASSISTANT_SCOPE.md` s.5b.5; bar: `get_parameters` returns, for 100% of the
+// offered keys, a value equal to the engine's own getter).
+// ---------------------------------------------------------------------------
+
+use cartalith_llm::query::{
+    GET_CHANGED_TOOL, GET_PARAMETERS_TOOL, MAX_CHANGED_LISTED, MAX_RESULT_BYTES, NoWorld, QueryBudget, QueryCall, answer, parse,
+};
+
+/// The catalogue as a world whose settings are `p` sees it.
+fn catalogue_of(p: &cartalith_engine::WorldParams) -> Catalogue {
+    param_catalogue::build(&|k| {
+        params::get(p, k).map(|v| match v {
+            params::Value::Bool(b) => PValue::Bool(b),
+            params::Value::Num(n) => PValue::Num(n),
+        })
+    })
+}
+
+/// A world's settings with a few keys moved off their defaults through the registry's own setter
+/// (the one `WorldGen::set_params` uses), so "changed" has something to find. Six keys: under the
+/// 40-key list cap, in four groups, covering floats, an int and a bool.
+fn moved() -> (cartalith_engine::WorldParams, Vec<&'static str>) {
+    let mut p = params::defaults();
+    let keys = ["sea_level", "peak_m", "climate.evap", "tect.plates", "volc.count", "climate.wind_manual"];
+    for k in keys {
+        let spec = params::spec(k).unwrap();
+        let v = match params::get(&p, k).unwrap() {
+            params::Value::Bool(b) => params::Value::Bool(!b),
+            params::Value::Num(n) => {
+                let mid = (spec.min + spec.max) / 2.0;
+                let to = if (n - mid).abs() > 1e-9 { mid } else { spec.min };
+                params::Value::Num(if spec.kind == params::Kind::Int { to.round() } else { to })
+            }
+        };
+        assert!(matches!(params::set(&mut p, k, v), params::Outcome::Applied), "{k} must store exactly");
+        assert_ne!(params::get(&p, k), params::get(&params::defaults(), k), "{k} must differ from its default");
+    }
+    (p, keys.to_vec())
+}
+
+fn json_of(v: params::Value, kind: params::Kind) -> Value {
+    match (v, kind) {
+        (params::Value::Bool(b), _) => json!(b),
+        (params::Value::Num(n), params::Kind::Int) => json!(n as i64),
+        (params::Value::Num(n), _) => json!(n),
+    }
+}
+
+/// Protects the LLM-8 bar "`get_parameters` returns, for 100% of the registry's offered keys, a value
+/// equal to `get_params()[key]`" over the real registry: for each of the 114 offered keys, across the
+/// nine group queries, `current` equals the setter-side value (read back through `params::get`, the
+/// function `get_params()` is built from) and `default` equals `params::defaults()`'s, with
+/// `changed` agreeing with the difference. Counts 114 so a skipped group fails. MUTATION: make
+/// `setting_line` write `default` into `current`, or drop a row from a group's answer: red.
+#[test]
+fn get_parameters_equals_the_registry_for_every_offered_key() {
+    let (p, moved_keys) = moved();
+    let cat = catalogue_of(&p);
+    let defaults = params::defaults();
+    let mut seen = 0;
+    for g in cat.group_names() {
+        let call = parse(GET_PARAMETERS_TOOL, &json!({"group": g}), &cat).unwrap();
+        let v = answer(&call, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+        let rows = v["settings"].as_array().unwrap_or_else(|| panic!("group {g}: {v}"));
+        for r in rows {
+            let key = r["key"].as_str().unwrap();
+            let spec = params::spec(key).unwrap();
+            assert_eq!(r["current"], json_of(params::get(&p, key).unwrap(), spec.kind), "{key} current");
+            assert_eq!(r["default"], json_of(params::get(&defaults, key).unwrap(), spec.kind), "{key} default");
+            assert_eq!(r["changed"], json!(moved_keys.contains(&key)), "{key} changed");
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 114, "every offered key is answered exactly once across the nine groups");
+}
+
+/// Protects `get_changed_parameters` against an independent diff of the two registry snapshots, and
+/// that it reports no excluded key even if one was moved (a machine setting is not the assistant's
+/// to see). MUTATION: compare with `<` instead of `!=`, or list `use_gpu`: red.
+#[test]
+fn changed_parameters_equal_an_independent_diff() {
+    let (mut p, moved_keys) = moved();
+    // An excluded key moved too: the machine setting must not appear in the answer.
+    let Some(params::Value::Bool(now)) = params::get(&p, "use_gpu") else { panic!("use_gpu is a switch") };
+    let _ = params::set(&mut p, "use_gpu", params::Value::Bool(!now));
+    assert_ne!(params::get(&p, "use_gpu"), params::get(&params::defaults(), "use_gpu"), "the excluded key really moved");
+    let cat = catalogue_of(&p);
+    let defaults = params::defaults();
+    let mut want: Vec<&str> = params::PARAMS
+        .iter()
+        .map(|s| s.key)
+        .filter(|k| !param_catalogue::EXCLUDED.contains(k))
+        .filter(|k| params::get(&p, k) != params::get(&defaults, k))
+        .collect();
+    want.sort();
+    let v = answer(&parse(GET_CHANGED_TOOL, &json!({}), &cat).unwrap(), &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+    let mut got: Vec<&str> = v["settings"].as_array().unwrap().iter().map(|r| r["key"].as_str().unwrap()).collect();
+    got.sort();
+    assert_eq!(got, want);
+    assert_eq!(got.len(), moved_keys.len(), "the six moved keys and nothing else: {got:?}");
+    assert_eq!(v["changed_count"], json!(want.len()));
+    assert!(!got.contains(&"use_gpu"));
+    assert!(want.len() < MAX_CHANGED_LISTED);
+}
+
+/// Protects `describe_parameter` over all 114 offered keys: the group, the description, the "had a
+/// control in the original" flag and the "what a change needs" word each equal an independent read
+/// of the registry (`ParamSpec::group`, `param_catalogue::desc`, `reference_control`,
+/// `params::invalidates`), and the six excluded keys are refused in words. MUTATION: swap the
+/// climate and settlements words, or invert `from_reference`: red.
+#[test]
+fn describe_parameter_equals_the_registry_for_every_offered_key() {
+    use cartalith_engine::staleness::PipelineStage;
+    let cat = fresh();
+    let mut n = 0;
+    for s in params::PARAMS.iter().filter(|s| !param_catalogue::EXCLUDED.contains(&s.key)) {
+        let v = answer(&QueryCall::Describe { key: s.key.to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+        assert_eq!(v["group"], s.group, "{}", s.key);
+        assert_eq!(v["desc"], param_catalogue::desc(s.key).unwrap(), "{}", s.key);
+        assert_eq!(v["in_original_cartalith"], json!(!s.reference_control.is_empty()), "{}", s.key);
+        let needs = match params::invalidates(s.key) {
+            Some(PipelineStage::Hydrology) => "climate_refresh",
+            Some(PipelineStage::Climate) => "settlements_refresh",
+            Some(_) => "full_generate",
+            None if s.key == "civ.garrison_exposure_scale" => "live",
+            None => "full_generate",
+        };
+        assert_eq!(v["needs"], needs, "{}", s.key);
+        n += 1;
+    }
+    assert_eq!(n, 114);
+    for e in param_catalogue::EXCLUDED {
+        let v = answer(&QueryCall::Describe { key: (*e).to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+        assert!(v["error"].as_str().unwrap().contains("not offered"), "{e}: {v}");
+        assert!(v.get("desc").is_none());
+    }
+}
+
+/// Protects the size bar: every group's `get_parameters` answer is under the result cap, the sizes
+/// are printed (`--nocapture`; the numbers go into STATUS.md), and "every setting at once" either
+/// fits or is REFUSED with advice (never cut).
+#[test]
+fn query_answers_fit_the_result_cap() {
+    let cat = fresh();
+    let mut biggest = (String::new(), 0usize);
+    let mut total = 0usize;
+    for g in all_groups(&cat) {
+        let v = answer(&QueryCall::Parameters { group: Some(g.clone()), keys: None }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+        let n = v.to_string().len();
+        println!("get_parameters group {g}: {n} bytes");
+        assert!(v.get("error").is_none() && n <= MAX_RESULT_BYTES, "{g}: {n}");
+        total += n;
+        if n > biggest.1 {
+            biggest = (g, n);
+        }
+    }
+    let all = answer(&QueryCall::Parameters { group: None, keys: None }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+    println!("get_parameters (no arguments, the overview): {} bytes; biggest group {} {} bytes; all nine groups together would be {} bytes", all.to_string().len(), biggest.0, biggest.1, total);
+    assert!(total > MAX_RESULT_BYTES, "all 114 at once would not fit, which is why no-argument is an overview: {total}");
+    let groups = all["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 9);
+    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 114);
+    assert!(all.get("settings").is_none(), "the overview carries no values");
+    let ch = answer(&QueryCall::Changed, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
+    assert_eq!(ch["changed_count"], 0, "a fresh world has nothing changed");
+}
+
+/// Protects the tool-result vocabulary against a world's free text: no catalogue field a query can
+/// return is a place for a user's own words (labels and descriptions are app constants), so every
+/// string in a full dump is from the registry or one of the fixed phrases. MUTATION: add a
+/// world-name field to an answer and this reds.
+#[test]
+fn query_results_contain_only_registry_vocabulary() {
+    let cat = fresh();
+    let mut allowed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for r in &cat.rows {
+        for s in [&r.key, &r.group, &r.label, &r.unit, &r.desc] {
+            allowed.insert(s.clone());
+        }
+    }
+    for w in ["float", "int", "bool", "live", "climate_refresh", "settlements_refresh", "full_generate"] {
+        allowed.insert(w.into());
+    }
+    fn strings(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::String(s) => out.push(s.clone()),
+            Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+            Value::Object(m) => m.values().for_each(|x| strings(x, out)),
+            _ => {}
+        }
+    }
+    let mut got = Vec::new();
+    for g in all_groups(&cat) {
+        strings(&answer(&QueryCall::Parameters { group: Some(g), keys: None }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default()), &mut got);
+    }
+    for r in &cat.rows {
+        strings(&answer(&QueryCall::Describe { key: r.key.clone() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default()), &mut got);
+    }
+    let fixed = ["read fresh", "the climate refresh", "the settlements refresh", "only a full Generate", "ruled behaviour", "Will have no effect"];
+    let foreign: Vec<&String> = got.iter().filter(|s| !allowed.contains(*s) && !fixed.iter().any(|f| s.starts_with(f))).collect();
+    assert!(foreign.is_empty(), "strings outside the registry vocabulary: {foreign:?}");
+}

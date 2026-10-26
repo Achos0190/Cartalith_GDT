@@ -93,8 +93,8 @@ const _CONTEXT := [
 	{"key": "ctx_notes", "label": "Send: named Vault notes"},
 	## Ruling DI P3: generation parameters are their own source, off until ticked. A setting
 	## proposal shows the model each offered setting's current value, so it needs this.
-	{"key": "ctx_params", "label": "Send: generation parameters",
-		"note": "Needed for setting proposals: the model is shown the current value of each setting in the groups it asks for."},
+	{"key": "ctx_params", "label": "Send: generation parameters and summary statistics",
+		"note": "Needed for setting proposals and for questions: the model is shown the current value of each setting it asks about, and can read whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing."},
 ]
 ## The three GPU override values, in the picker's order (ids match `GpuOverride::id`).
 const _GPU_OVERRIDES := [

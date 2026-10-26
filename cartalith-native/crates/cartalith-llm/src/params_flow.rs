@@ -32,6 +32,10 @@ use serde_json::{Value, json};
 use crate::catalogue::{Catalogue, GET_SCHEMA_TOOL, SET_PARAMS_TOOL, Verdict};
 use crate::openai::{ChatRequest, MaxTokensField, Message, Role, Thinking, ToolCallRecord, ToolSpec, ToolTurn};
 use crate::prompt::MAX_REQUEST_CHARS;
+use crate::query::{
+    MAX_QUERY_CALLS_PER_REPLY, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
+    tool_specs as query_tool_specs,
+};
 
 /// Most model replies one user request may take. Copied from the stage-1
 /// prototype's `MAX_TURNS` (`docs/evidence/llm-model-eval-2026-10-26/tools/run_eval.py`),
@@ -89,6 +93,36 @@ pub struct ParamsConversation {
     retries: usize,
     next_id: u64,
     done: bool,
+    /// LLM-8: whether the read-only query tools are offered this request (the "generation
+    /// parameters and summary statistics" context source, Ruling DI P3). Off means the tools are
+    /// not in the request at all, the prompt does not name them, and a call to one is "unknown tool".
+    queries: bool,
+    /// Query calls the model made whose answers are not yet in the conversation: the world is read
+    /// at the moment of the NEXT request ([`ParamsConversation::answer_pending`]), not when the
+    /// reply ended, because the world can change (a generate can start) in between.
+    pending: Vec<PendingQuery>,
+    /// Counters the query caps read.
+    budget: QueryBudget,
+}
+
+/// What a batch of waiting query calls needs read from the world.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorldNeeds {
+    /// `get_ecology_summary` was called.
+    pub ecology: bool,
+    /// `get_world_summary` was called.
+    pub summary: bool,
+    /// The `sample_point` cells to read (already inside the request's remaining allowance).
+    pub samples: Vec<(i64, i64)>,
+}
+
+/// One query call waiting for its answer: its id (to pair the result) and the validated call, or
+/// the reason its arguments were refused (told to the model as the result).
+#[derive(Debug, Clone)]
+struct PendingQuery {
+    id: String,
+    name: String,
+    call: Result<QueryCall, String>,
 }
 
 impl ParamsConversation {
@@ -110,7 +144,75 @@ impl ParamsConversation {
             retries: 0,
             next_id: 1,
             done: false,
+            queries: false,
+            pending: Vec::new(),
+            budget: QueryBudget::default(),
         })
+    }
+
+    /// Offer (or stop offering) the six read-only query tools of LLM-8 for this request. Call it
+    /// right after [`ParamsConversation::new`], before the first request: it rewrites the system
+    /// prompt so the prompt names the tools exactly when they are offered.
+    pub fn with_queries(mut self, cat: &Catalogue, on: bool) -> Self {
+        self.queries = on;
+        if let Some(m) = self.messages.first_mut() {
+            m.content = cat.system_prompt_for(on);
+        }
+        self
+    }
+
+    /// True when query tools are offered this request.
+    pub fn queries_offered(&self) -> bool {
+        self.queries
+    }
+
+    /// The names of the query calls waiting for an answer, in order (for the panel's "looked up" line).
+    pub fn pending_query_names(&self) -> Vec<String> {
+        self.pending.iter().map(|p| p.name.clone()).collect()
+    }
+
+    /// True when a model reply's query calls still need [`ParamsConversation::answer_pending`]
+    /// before the next request may be built (a request without them would have tool calls with no
+    /// result, which every provider refuses).
+    pub fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// What the waiting query calls need read from the WORLD (the three tools that are not answered
+    /// from the catalogue). The shell reads exactly these from the engine's own getters, and only
+    /// when no generation is running, then hands them to [`ParamsConversation::answer_pending`]:
+    /// the engine is never read for a tool the model did not call, and never for more
+    /// `sample_point` cells than the request's remaining allowance.
+    pub fn pending_needs(&self) -> WorldNeeds {
+        let mut n = WorldNeeds::default();
+        let mut room = MAX_SAMPLES_PER_REQUEST.saturating_sub(self.budget.samples);
+        for p in &self.pending {
+            match &p.call {
+                Ok(QueryCall::Ecology) => n.ecology = true,
+                Ok(QueryCall::WorldSummary) => n.summary = true,
+                Ok(QueryCall::Sample { x, y }) if room > 0 => {
+                    room -= 1;
+                    n.samples.push((*x, *y));
+                }
+                _ => {}
+            }
+        }
+        n
+    }
+
+    /// Answer every waiting query call from `facts` and append the results to the conversation.
+    /// Read-only: it reads `cat` and `facts` and writes only this conversation's own messages. It
+    /// never touches `shown_groups` or `shown_keys`, so a query cannot widen what a proposal may
+    /// name (V6). Idempotent when nothing is pending.
+    pub fn answer_pending(&mut self, cat: &Catalogue, facts: &dyn WorldFacts) {
+        let pending = std::mem::take(&mut self.pending);
+        for p in pending {
+            let body = match &p.call {
+                Ok(call) => answer_query(call, cat, facts, &mut self.budget),
+                Err(why) => json!({"error": why}),
+            };
+            self.messages.push(Message { role: Role::User, content: body.to_string(), tool: Some(ToolTurn::Result { call_id: p.id }) });
+        }
     }
 
     /// The groups the model has opened so far (the union of its valid schema calls).
@@ -139,6 +241,9 @@ impl ParamsConversation {
         let mut t = vec![cat.tool_get_schema()];
         if !self.shown_keys.is_empty() {
             t.push(Catalogue::tool_set_params(&self.shown_keys));
+        }
+        if self.queries {
+            t.extend(query_tool_specs(cat));
         }
         t
     }
@@ -218,8 +323,20 @@ impl ParamsConversation {
             return Step::Retry(verdict);
         }
 
-        // Otherwise every call is a schema call (the decoder admits only offered names).
+        // Otherwise every call is a schema call or a query call (the decoder admits only offered
+        // names). Query answers wait for the world (`answer_pending`); everything else is answered now.
+        let mut query_calls_this_reply = 0usize;
         for r in &records {
+            if self.queries && is_query_tool(&r.name) {
+                query_calls_this_reply += 1;
+                let call = if query_calls_this_reply > MAX_QUERY_CALLS_PER_REPLY {
+                    Err(format!("at most {MAX_QUERY_CALLS_PER_REPLY} lookups are answered per reply"))
+                } else {
+                    parse_query(&r.name, &r.arguments, cat)
+                };
+                self.pending.push(PendingQuery { id: r.id.clone(), name: r.name.clone(), call });
+                continue;
+            }
             let body = if r.name == GET_SCHEMA_TOOL {
                 match cat.schema_for(r.arguments.get("groups")) {
                     Ok((groups, value, keys)) => {
@@ -456,5 +573,148 @@ mod tests {
         assert_eq!(c.shown_keys.len(), MAX_SHOWN_KEYS);
         let m = &c.messages().last().unwrap().content;
         assert!(m.contains("more than 80") && m.contains("weather"), "{m}");
+    }
+    // ---- LLM-8: the read-only query tools ----
+
+    use crate::query::{GET_CHANGED_TOOL, GET_PARAMETERS_TOOL, NoWorld, QUERY_TOOLS, SAMPLE_POINT_TOOL};
+
+    fn with_q(cat: &Catalogue, req_text: &str) -> ParamsConversation {
+        ParamsConversation::new(cat, req_text).unwrap().with_queries(cat, true)
+    }
+
+    /// Protects Ruling DI P3 at the request: with the query switch off the six tools are NOT in the
+    /// request (turn 1 offers the schema tool alone) and the system prompt does not name them; with
+    /// it on they are offered from turn 1 and the prompt names them. MUTATION: offer the tools
+    /// regardless of `queries`, or name them in the prompt regardless, and this goes red.
+    #[test]
+    fn query_tools_are_offered_only_when_the_source_is_ticked() {
+        let cat = fixture();
+        let off = ParamsConversation::new(&cat, "what is the sea level?").unwrap();
+        let names = |c: &ParamsConversation| c.tools(&cat).into_iter().map(|t| t.name).collect::<Vec<_>>();
+        assert_eq!(names(&off), vec![GET_SCHEMA_TOOL]);
+        assert!(!off.queries_offered());
+        for q in QUERY_TOOLS {
+            assert!(!off.messages()[0].content.contains(q), "prompt names {q} with the tools off");
+        }
+        let on = with_q(&cat, "what is the sea level?");
+        let mut want = vec![GET_SCHEMA_TOOL.to_string()];
+        want.extend(QUERY_TOOLS.iter().map(|s| s.to_string()));
+        assert_eq!(names(&on), want);
+        for q in QUERY_TOOLS {
+            assert!(on.messages()[0].content.contains(q), "prompt omits {q}");
+        }
+        // Back off again: the prompt is rewritten, not left naming tools.
+        let again = on.with_queries(&cat, false);
+        assert_eq!(names(&again), vec![GET_SCHEMA_TOOL]);
+        assert!(!again.messages()[0].content.contains("get_world_summary"));
+    }
+
+    /// Protects the question flow end to end: a query call is recorded, its answer is NOT in the
+    /// conversation until `answer_pending`, then it is, paired to the call id, and equals the
+    /// catalogue's own value. `has_pending` is the guard a request must check first.
+    #[test]
+    fn a_query_is_answered_at_the_next_request_from_the_world() {
+        let cat = fixture();
+        let mut c = with_q(&cat, "what is the peak height?");
+        let s = c.on_reply(&cat, "", vec![call(Some("q1"), GET_PARAMETERS_TOOL, json!({"keys": ["peak_m"]}))]);
+        assert_eq!(s, Step::Continue);
+        assert!(c.has_pending());
+        assert_eq!(c.pending_query_names(), vec![GET_PARAMETERS_TOOL.to_string()]);
+        let before = c.messages().len();
+        assert!(matches!(&c.messages()[before - 1].tool, Some(ToolTurn::Calls(_))), "no result yet");
+        c.answer_pending(&cat, &NoWorld("n/a".into()));
+        assert!(!c.has_pending());
+        let last = c.messages().last().unwrap();
+        assert!(matches!(&last.tool, Some(ToolTurn::Result { call_id }) if call_id == "q1"));
+        let v: Value = serde_json::from_str(&last.content).unwrap();
+        assert_eq!(v["settings"][0]["key"], "peak_m");
+        assert_eq!(v["settings"][0]["current"], 4000.0);
+        // A world question with no world: "not available", not a made-up number.
+        c.on_reply(&cat, "", vec![call(Some("q2"), SAMPLE_POINT_TOOL, json!({"x": 3, "y": 4}))]);
+        c.answer_pending(&cat, &NoWorld("No world is open.".into()));
+        let v: Value = serde_json::from_str(&c.messages().last().unwrap().content).unwrap();
+        assert_eq!(v, json!({"available": false, "reason": "No world is open."}));
+    }
+
+    /// Protects V6 against the read tools: reading the `tectonics` group (a query) does not make a
+    /// tectonics key proposable; only get_param_schema opens a group. MUTATION: make a query call
+    /// extend `shown_keys` and the proposal becomes valid, so this goes red.
+    #[test]
+    fn reading_a_setting_does_not_open_it_for_proposals() {
+        let cat = fixture();
+        let mut c = with_q(&cat, "set plates to 20");
+        c.on_reply(&cat, "", vec![call(Some("a"), GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        c.on_reply(&cat, "", vec![call(Some("b"), GET_PARAMETERS_TOOL, json!({"group": "tectonics"}))]);
+        c.answer_pending(&cat, &NoWorld("n/a".into()));
+        assert_eq!(c.shown_groups(), &["weather".to_string()], "a query opened nothing");
+        let r = req(&c, &cat);
+        let en: Vec<String> = r.tools.iter().find(|t| t.name == SET_PARAMS_TOOL).unwrap().parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"]
+            .as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
+        assert!(!en.iter().any(|k| k.starts_with("tect.")), "enum widened by a read: {en:?}");
+        let Step::Retry(v) = c.on_reply(&cat, "", vec![call(Some("c"), SET_PARAMS_TOOL, json!({"changes": [{"key": "tect.plates", "value": 20}]}))]) else { panic!() };
+        assert_eq!(v.rejected[0].rule, crate::catalogue::Rule::V6);
+    }
+
+    /// Protects the per-reply cap: of seven query calls in one reply the first six are answered and
+    /// the seventh is told why not; every call still gets exactly one result (providers refuse a
+    /// call without one). MUTATION: 6 -> 7.
+    #[test]
+    fn at_most_six_queries_are_answered_per_reply() {
+        assert_eq!(MAX_QUERY_CALLS_PER_REPLY, 6);
+        let cat = fixture();
+        let mut c = with_q(&cat, "x");
+        let calls: Vec<IncomingCall> = (0..7).map(|i| call(Some(&format!("q{i}")), GET_CHANGED_TOOL, json!({}))).collect();
+        c.on_reply(&cat, "", calls);
+        c.answer_pending(&cat, &NoWorld("n/a".into()));
+        let results: Vec<&Message> = c.messages().iter().filter(|m| matches!(m.tool, Some(ToolTurn::Result { .. }))).collect();
+        assert_eq!(results.len(), 7);
+        assert!(results[5].content.contains("changed_count"));
+        assert!(results[6].content.contains("at most 6 lookups"), "{}", results[6].content);
+    }
+
+    /// Protects the closed set when the switch is off: a model that calls a query tool anyway (a
+    /// server ignoring the tool list) gets "unknown tool" and nothing is pending. MUTATION: handle
+    /// query calls regardless of `queries`.
+    #[test]
+    fn a_query_call_with_the_switch_off_is_an_unknown_tool() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        c.on_reply(&cat, "", vec![call(Some("q"), GET_CHANGED_TOOL, json!({}))]);
+        assert!(!c.has_pending());
+        assert!(c.messages().last().unwrap().content.contains("unknown tool"));
+    }
+
+    /// Protects the argument errors: a refused argument is a result the model reads, not a panic and
+    /// not a guess; the request continues.
+    #[test]
+    fn a_bad_query_argument_is_told_to_the_model() {
+        let cat = fixture();
+        let mut c = with_q(&cat, "x");
+        assert_eq!(c.on_reply(&cat, "", vec![call(Some("q"), SAMPLE_POINT_TOOL, json!({"x": "3", "y": 4}))]), Step::Continue);
+        c.answer_pending(&cat, &NoWorld("n/a".into()));
+        let v: Value = serde_json::from_str(&c.messages().last().unwrap().content).unwrap();
+        assert!(v["error"].as_str().unwrap().contains("whole number"), "{v}");
+    }
+    /// Protects what the shell is told to read: `pending_needs` names the world tools asked for and
+    /// only as many `sample_point` cells as the request still has room for (8 in all), never a cell
+    /// whose arguments were refused. MUTATION: ignore the remaining allowance and the second batch
+    /// asks for 6 cells instead of 2.
+    #[test]
+    fn pending_needs_trims_to_the_remaining_cell_allowance() {
+        let cat = fixture();
+        let mut c = with_q(&cat, "x");
+        let sample = |i: i64| call(Some(&format!("s{i}")), SAMPLE_POINT_TOOL, json!({"x": i, "y": 0}));
+        c.on_reply(&cat, "", (1..=6).map(sample).collect());
+        let n = c.pending_needs();
+        assert_eq!(n.samples.len(), 6);
+        assert!(!n.ecology && !n.summary);
+        c.answer_pending(&cat, &NoWorld("n/a".into()));
+        // Six calls fit one reply: ecology, five cells (the bad one would be a seventh).
+        let mut second: Vec<IncomingCall> = vec![call(Some("e"), "get_ecology_summary", json!({}))];
+        second.extend((7..=11).map(sample));
+        c.on_reply(&cat, "", second);
+        let n = c.pending_needs();
+        assert_eq!(n.samples, vec![(7, 0), (8, 0)], "6 already read, room for 2");
+        assert!(n.ecology && !n.summary);
     }
 }

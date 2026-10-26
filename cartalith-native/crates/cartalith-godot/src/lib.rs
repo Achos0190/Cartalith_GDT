@@ -94,6 +94,7 @@ mod urban_bridge;
 mod valley_shade;
 mod vault_bridge;
 mod vault_saf;
+mod world_summary;
 /// ET-E2's tests for `pack::colour_import`, kept out of that module because
 /// they need `export_stream` and `asset_bridge`, which the `#[path]` test
 /// targets compiling `pack.rs` do not have.
@@ -22435,6 +22436,48 @@ impl WorldGen {
         d.set("regions", &rows);
         d.set("region_count", eco.regions.len() as i64);
         d.set("species_total", species_total as i64);
+        d
+    }
+
+    /// Whole-world summary statistics (`LLM_ASSISTANT_SCOPE.md` s.5b.5, LLM-8): the figures the
+    /// assistant's `get_world_summary` tool reports, computed by `world_summary::summarise` over
+    /// the same height, temperature and rainfall rasters `ecology_summary` reads. Read-only.
+    ///
+    /// Keys: `grid_width`, `grid_height` (cells), `sea_level` (0-1 height scale), `land_cells`,
+    /// `land_fraction` (0-1; a real 0 for an all-sea world), and -- ONLY when there is land --
+    /// `land_elevation_m` (a Dictionary `p05`, `p25`, `p50`, `p75`, `p95` and `max`, metres above
+    /// sea level, nearest-rank), `land_rainfall_mean` (the engine's 0-1 index, not millimetres)
+    /// and `land_temperature_mean_c`. Empty `Dictionary` when no world is generated. An absent
+    /// figure is OMITTED, never `0`.
+    #[func]
+    fn world_summary(&self) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let Some(s) = world_summary::summarise(f.field, f.temperature, f.rainfall, f.sea_level, f.peak_m, f.gw, f.gh) else {
+            return VarDictionary::new();
+        };
+        let mut d = vdict! {
+            "grid_width" => s.grid_width as i64,
+            "grid_height" => s.grid_height as i64,
+            "sea_level" => s.sea_level,
+            "land_cells" => s.land_cells as i64,
+            "land_fraction" => s.land_fraction,
+        };
+        if let Some(ps) = &s.elevation_m {
+            let mut e = VarDictionary::new();
+            for (p, m) in ps {
+                e.set(format!("p{p:02}"), *m);
+            }
+            if let Some(m) = s.elevation_max_m {
+                e.set("max", m);
+            }
+            d.set("land_elevation_m", &e);
+        }
+        if let Some(r) = s.land_rainfall_mean {
+            d.set("land_rainfall_mean", r);
+        }
+        if let Some(t) = s.land_temperature_mean_c {
+            d.set("land_temperature_mean_c", t);
+        }
         d
     }
 

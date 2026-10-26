@@ -1,6 +1,6 @@
 //! `cartalith-llm`: the protocol half of the optional LLM assistant.
 //!
-//! Milestones LLM-1 to LLM-4 and LLM-6a/6b of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
+//! Milestones LLM-1 to LLM-4, LLM-6a/6b and LLM-8 of `LLM_ASSISTANT_SCOPE.md` (Rulings DC and DD). Pure
 //! Rust, no Godot types, **no network use**: requests are built as bytes, responses
 //! arrive as bytes, and the wire is Godot's `HTTPClient` on a worker thread
 //! (`shell/llm_wire.gd`; Ruling DD Q4, hybrid transport). Two ways in: the pull-shaped
@@ -31,6 +31,7 @@
 //! | [`session`] | [`session::run_chat`]: one request to a list of events |
 //! | [`catalogue`] | the generation-parameter catalogue, its tool schema and the proposal validator V1-V13 (LLM-6a/6b) |
 //! | [`params_flow`] | the two-step parameter conversation: schema, proposal, one retry (LLM-6a/6b) |
+//! | [`query`] | the six read-only query tools for questions and their bounds (LLM-8) |
 //!
 //! Generation stays model-free: nothing in this crate is reachable from the
 //! seed-deterministic path, and nothing here depends on any other workspace
@@ -52,6 +53,7 @@ pub mod presets;
 pub mod request;
 pub mod retry;
 pub mod prompt;
+pub mod query;
 pub mod secret;
 pub mod session;
 pub mod settings;

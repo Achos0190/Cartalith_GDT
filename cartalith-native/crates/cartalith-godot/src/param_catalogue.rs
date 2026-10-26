@@ -317,6 +317,7 @@ pub fn build(current: &dyn Fn(&str) -> Option<PValue>) -> Catalogue {
                 advanced: is_ruled_divergence(s.key),
                 inert,
                 regen: regen(s.key),
+                from_reference: !s.reference_control.is_empty(),
             }
         })
         .collect();
