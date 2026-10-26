@@ -103,42 +103,8 @@ impl WorldGen {
             return None;
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw == 0 || gh == 0 || civ.settlements.is_empty() {
-            return None;
-        }
-        // `um_site_kind_from_terrain` reads `field`, `flow` and
-        // `flow_thresh` and nothing else, so the expensive
-        // `trace_river_polylines` pass `urban_bridge.rs` hoists is
-        // deliberately not made here — an empty slice is the reference's own
-        // "no traced network" case and this code path never consults it.
-        let polys: Vec<Vec<(f64, f64)>> = Vec::new();
-        let world = UrbanWorld {
-            field: &ws.field,
-            flow: &ws.flow_discharge,
-            water_bodies: &civ.water_bodies,
-            order: ws.stream_order.as_deref(),
-            river_polys: &polys,
-            gw,
-            gh,
-            sea_level: self.sea_level,
-            map_width_km: self.map_width_km,
-            // The same call `compute_civilisation` makes, with the same
-            // arguments — a settlement's site kind must agree with the river
-            // network the rest of the civ layer was built against.
-            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
-            world_seed: self.seed,
-        };
-        let tariffs = civ.faction_roster.tariff_rows();
-        let input = TradeInput {
-            settlements: &civ.settlements,
-            balances: &civ.trade_balances,
-            ways: &civ.ways,
-            map_width_km: self.map_width_km,
-            gw,
-            tariffs: &tariffs,
-        };
         let t0 = std::time::Instant::now();
-        let net = cartalith_civ::trade::trade_flows(&input, &world);
+        let net = trade_network_for(ws, civ, gw, gh, self.sea_level, self.map_width_km, self.seed)?;
         Some((net, t0.elapsed().as_millis()))
     }
 
@@ -398,6 +364,57 @@ impl WorldGen {
             .collect();
         Some((rows, t0.elapsed().as_millis()))
     }
+}
+
+/// The trade match over borrowed world parts: the body of [`WorldGen::trade_network`], moved out
+/// of the `GodotClass` so the knowledge bridge (`knowledge_bridge.rs`) can run the SAME match in a
+/// unit test on a generated world (a `WorldGen` is not constructible under `cargo test`; the
+/// `MilWorld` precedent). A pure move: no argument, order or arithmetic changed. `None` when the
+/// grid is empty or there is no settlement. Never grow an input the `WorldGen` path does not fill.
+pub(crate) fn trade_network_for(
+    ws: &cartalith_engine::WorldState,
+    civ: &CivData,
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    map_width_km: f64,
+    seed: i32,
+) -> Option<TradeNetwork> {
+    if gw == 0 || gh == 0 || civ.settlements.is_empty() {
+        return None;
+    }
+    // `um_site_kind_from_terrain` reads `field`, `flow` and
+    // `flow_thresh` and nothing else, so the expensive
+    // `trace_river_polylines` pass `urban_bridge.rs` hoists is
+    // deliberately not made here -- an empty slice is the reference's own
+    // "no traced network" case and this code path never consults it.
+    let polys: Vec<Vec<(f64, f64)>> = Vec::new();
+    let world = UrbanWorld {
+        field: &ws.field,
+        flow: &ws.flow_discharge,
+        water_bodies: &civ.water_bodies,
+        order: ws.stream_order.as_deref(),
+        river_polys: &polys,
+        gw,
+        gh,
+        sea_level,
+        map_width_km,
+        // The same call `compute_civilisation` makes, with the same
+        // arguments -- a settlement's site kind must agree with the river
+        // network the rest of the civ layer was built against.
+        flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km),
+        world_seed: seed,
+    };
+    let tariffs = civ.faction_roster.tariff_rows();
+    let input = TradeInput {
+        settlements: &civ.settlements,
+        balances: &civ.trade_balances,
+        ways: &civ.ways,
+        map_width_km,
+        gw,
+        tariffs: &tariffs,
+    };
+    Some(cartalith_civ::trade::trade_flows(&input, &world))
 }
 
 #[godot_api(secondary)]

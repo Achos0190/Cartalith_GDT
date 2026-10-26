@@ -2532,3 +2532,20 @@ The owner, after `RAG_KNOWLEDGE_BASE_RESEARCH.md`'s first form (a study of retri
 5. Milestones RK-0 onward, with numeric bars, are in `RAG_KNOWLEDGE_BASE_RESEARCH.md` section 8; its section 10 holds the questions K1-K10 with recommended defaults, still open.
 
 Consequences recorded by the writing session, open to the owner: (i) the knowledge tools return world and note free text, a **deliberate departure** from `LLM_ASSISTANT_SCOPE.md` s.5b.9 item 9 ("no free text from the world reaches a result"), confined to these tools and the pre-retrieval pack and gated by a hostile-corpus extension (RK-7) before they can be turned on (question K5); (ii) the feature is off by default with its own context-source settings, and zero sockets when off, as every assistant capability; (iii) generation output must not move.
+
+## Ruling DN — the retrieval knowledge base's ten questions K1-K10 answered (owner, 2026-10-26)
+
+The owner's answers to `RAG_KNOWLEDGE_BASE_RESEARCH.md` section 10, relayed by the coordinating session when it released RK-0 to RK-3, recorded here and not as a note on Ruling DM because they are decisions, not clarifications:
+
+1. **K1: the Vault and the world's data are two separate checkboxes, both OFF by default** (the Ruling DI P3 pattern). The plumbing is RK-5/RK-6; nothing is sent today.
+2. **K2: local endpoints only until a hosted endpoint is opted in, per endpoint.**
+3. **K3: private and DM notes are fully excluded**: frontmatter `dm: true` or `private: true`, tag `dm-only` or `secret` (frontmatter or inline `#hashtag`), or a folder named `DM`, `Private` or `Secrets`. An excluded note yields zero chunks, zero gazetteer entries and zero edges, and is not counted. **World data has no marker today, and the consent text must say so** (RK-5/RK-6).
+4. **K4: the Vault index is not persisted in step 1.** It is persisted (per vault, in its own `user://` file, with the word-list disclosure) only if RK-3's cold-build bar fails; if the bar fails at 10 000 notes the build stops and reports the number and this question instead of persisting.
+5. **K5: the knowledge tools may return world and note free text**, gated by RK-7's hardening. **Until RK-7 the tools stay unexposed to the model** (nothing in `cartalith-llm` or the shell offers `search_knowledge`, `read_source` or `related_sources`; the retrieval library is not wired to the assistant) and, when exposed, only behind the existing hostile-corpus gates.
+6. **K6: pre-retrieval on for local presets, the tools offered to all** (later milestones, RK-5/RK-6).
+7. **K7: a whole small vault is never sent to a hosted model**; retrieval only.
+8. **K8: a sources list on every answer.**
+9. **K9: the Vault holds roughly 2 000 to 10 000 notes.** `cartalith_vault::LIST_CAP` is raised from 2 000 to 12 000 (a labelled judgement: headroom above the stated maximum), the Rust defaults that followed it follow the new number, and the cold-build time and memory at 2 000, 5 000 and 10 000 synthetic notes are measured against RK-3's bar.
+10. **K10: no embedding model and no new crate until RK-9's numbers.** Step 1 uses an in-repo BM25 (small, deterministic, mutation-tested); `tantivy` is proposed, with numbers, only if the in-repo index misses a bar.
+
+Decisions taken inside the build (labelled judgements, open to the owner): BM25 constants are Robertson's defaults (k1 1.2, b 0.75) and field weights title 3.0, header 0.5, body 1.0 (the research puts the header below the body); the gazetteer adds a fixed 4.0 to a document whose name the query contains; stop words are a 61-word English list removed from query and index; the tokenizer folds diacritics and joins a thousands comma; a world's rivers get documents from order 3 up (rivers are unnamed); the continent a settlement stands on is found by re-labelling the land components and matching `civ_continents` by cell count and bounding box. Outcome and numbers: `STATUS.md`, Ruling DN.

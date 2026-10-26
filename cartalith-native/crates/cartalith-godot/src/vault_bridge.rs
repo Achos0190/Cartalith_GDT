@@ -183,10 +183,11 @@ impl WorldGen {
 
     /// Markdown files in the bound vault, `/`-separated and sorted, capped at
     /// `limit` (§31: the vault is never walked exhaustively and no file is
-    /// opened by this call). A non-positive `limit` uses 2000.
+    /// opened by this call). A non-positive `limit` uses `cartalith_vault::LIST_CAP`
+    /// (12 000 since owner answer K9, 2026-10-26; it was 2 000).
     #[func]
     fn vault_list_files(&self, limit: i64) -> PackedStringArray {
-        let limit = if limit > 0 { limit as usize } else { 2000 };
+        let limit = if limit > 0 { limit as usize } else { cartalith_vault::LIST_CAP };
         self.vault.list(limit).unwrap_or_default().into_iter().map(|p| GString::from(p.as_str())).collect()
     }
 
@@ -1145,7 +1146,7 @@ impl WorldGen {
     /// bytes, refreshed_at}`, or `{ok:false, error}` with no vault bound.
     #[func]
     fn vault_refresh_backlinks(&mut self, limit: i64) -> VarDictionary {
-        let limit = if limit > 0 { limit as usize } else { 2000 };
+        let limit = if limit > 0 { limit as usize } else { cartalith_vault::LIST_CAP };
         match self.vault.refresh_backlinks(limit) {
             Ok(s) => {
                 let mut d = vdict! {

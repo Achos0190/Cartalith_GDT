@@ -39,6 +39,7 @@ cartalith-native/                 (workspace root, new repository)
 │   ├── cartalith-noise/          hash/vnoise/fbm/ridged — hand-ported, see below  []
 │   ├── cartalith-rng/            mulberry32, ported exactly (PARITY_TESTING.md)   []
 │   ├── cartalith-vault/          Markdown Vault: sections, links, fs provider      []
+│   ├── cartalith-knowledge/      retrieval: BM25, world documents, Vault chunks [vault]
 │   ├── cartalith-spatial/        tiling, dirty-tracking, draft stack, geometry [jsmath]
 │   ├── cartalith-urban/          urban morphology (UME engine)        [jsmath, rng]
 │   ├── cartalith-assets/         asset packs, library, PNG            [jsmath, noise]

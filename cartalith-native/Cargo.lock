@@ -237,6 +237,7 @@ dependencies = [
  "cartalith-hydrology",
  "cartalith-io",
  "cartalith-jsmath",
+ "cartalith-knowledge",
  "cartalith-llm",
  "cartalith-noise",
  "cartalith-rng",
@@ -296,6 +297,15 @@ dependencies = [
 [[package]]
 name = "cartalith-jsmath"
 version = "0.1.0"
+
+[[package]]
+name = "cartalith-knowledge"
+version = "0.1.0"
+dependencies = [
+ "cartalith-vault",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cartalith-llm"

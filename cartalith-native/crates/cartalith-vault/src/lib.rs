@@ -132,9 +132,20 @@ impl From<BlockError> for Error {
 pub type FieldFillPreview = (String, String, Vec<(String, FieldOutcome)>);
 
 /// The bound on any single vault walk, shared by browsing, the backlink
-/// refresh and [`VaultSession::search`] so §31's "do not load the entire
-/// vault" is one number rather than three.
-pub const LIST_CAP: usize = 2000;
+/// refresh, [`VaultSession::search`] and the retrieval index
+/// (`cartalith-knowledge`) so §31's "do not load the entire vault" is one
+/// number rather than four.
+///
+/// **12 000, raised from 2 000 on 2026-10-26** (owner answer K9,
+/// `RAG_KNOWLEDGE_BASE_RESEARCH.md` s.10: the owner's vault holds "roughly 2 000
+/// to 10 000 notes", and 2 000 silently truncated the top of that range). A
+/// labelled judgement, not an engine limit: headroom above the stated maximum.
+/// The cold-build time and memory at 2 000, 5 000 and 10 000 notes are measured
+/// in `docs/evidence/rag-2026-10-26/REPORT.md`. Shell call sites that pass an
+/// explicit `2000` (`vault_window.gd`) still cap those screens at 2 000; the
+/// Rust defaults (`vault_list_files`, `vault_refresh_backlinks` with a
+/// non-positive limit) follow this constant.
+pub const LIST_CAP: usize = 12_000;
 
 // ---------------------------------------------------------------- searching
 

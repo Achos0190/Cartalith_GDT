@@ -55,6 +55,7 @@ mod icon_bridge;
 mod info_tile;
 mod infra_tools_bridge;
 mod journey_bridge;
+mod knowledge_bridge;
 mod label_bridge;
 mod legacy_import;
 mod landmark_bridge;

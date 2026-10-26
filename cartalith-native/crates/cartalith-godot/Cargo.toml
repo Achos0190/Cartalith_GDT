@@ -130,6 +130,11 @@ jpeg-encoder = "0.7.1"
 # Godot types and no socket (its own `tests/no_network.rs` enforces that).
 cartalith-llm = { path = "../cartalith-llm" }
 
+# `RAG_KNOWLEDGE_BASE_RESEARCH.md` RK-1 (Ruling DM): `knowledge_bridge.rs` reads the engine's state
+# into this crate's plain input structs and renders the world as retrievable documents. The crate
+# has no Godot type, no model and no socket (its own `tests/no_network.rs` enforces that).
+cartalith-knowledge = { path = "../cartalith-knowledge" }
+
 # LLM-2, Ruling DD item 4: the Windows Credential Manager half of the key store
 # (`llm_keystore.rs`). **Windows only**, so no other platform's build grows by a
 # crate. Not a new package: 0.61.2 is already resolved in `Cargo.lock` (pulled
