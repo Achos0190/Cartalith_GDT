@@ -91,6 +91,53 @@ Each entry gives a suggested preflight trigger (the left-column phrase), the roo
 
 ---
 
+## 11. A mocked test using the literal 127.0.0.1 hid a localhost -> ::1 resolution failure
+
+The mock server listened on `127.0.0.1` and the test dialled the same literal, so the test passed while the shipped
+default URL `localhost` resolved to `::1` and failed. Rule: a network test must dial the name the product ships with
+and the mock must listen on both families. Verify: run the test with the product's default URL.
+
+## 12. A fixture that cannot fail (canary words in the user's own question)
+
+The injection canary words were placed in the user's own question, so any answer that echoed the question passed. Rule:
+a fixture must be able to fail; put the canary where only the thing under test can have read it, and run it once against
+a deliberately broken implementation.
+
+## 13. A phone sheet keeps a stale child size
+
+A phone sheet reused a child whose minimum size was set for a previous layout; the sheet kept the old size after the
+content changed. Rule: re-measure children when a sheet's content changes, and check the phone leg after any relayout.
+
+## 14. `git checkout <file>` on a file with uncommitted work loses it
+
+An agent restored a file to clear a diff and discarded uncommitted work. Rule: never `git checkout`/`restore` a path that
+has uncommitted changes you did not make; copy it aside or `git stash` first, and name the explicit path in commits.
+
+## 15. A probe with a parse error hangs while holding the lock
+
+A GDScript probe with a parse error never exits, and the `C:/cw/.win_lock` directory stayed held. Rule: run
+`--check-only` (or parse-check) before the windowed run, always use a hard timeout, and release the lock in a trap.
+
+## 16. Two agents installing on the phone at once collide
+
+Same family as entry 7: two agents driving adb or installing the APK concurrently corrupt each other's state. Rule: take
+the same lock convention for the phone, one device owner at a time.
+
+## 17. An agent stopping the shared LM Studio server
+
+An agent stopped the LM Studio server the owner leaves running on the LAN for other agents and devices. Rule: agents never
+start or stop LM Studio or Ollama unless the brief says so; the server is the owner's.
+
+## 18. A preset command-line scene path loops the splash
+
+Putting a scene path on the export preset's command line made the app restart into the splash repeatedly. Rule: never a
+scene path in the preset command line; the main scene belongs in `project.godot`.
+
+## 19. Project path not reset on New world overwrote a world
+
+New world inherited the previous world's project path, so the first Save overwrote that world (fixed in `5585284e`).
+Rule: any "new" action resets every identity field (path, name, dirty flag), tested by Save-after-New.
+
 ## Suggested handling
 
 - Entry 6 merges into an existing row; the rest are new triggers.
