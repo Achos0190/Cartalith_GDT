@@ -36,6 +36,7 @@
 //! | [`session`] | [`session::run_chat`]: one request to a list of events |
 //! | [`catalogue`] | the generation-parameter catalogue, its tool schema and the proposal validator V1-V13 (LLM-6a/6b) |
 //! | [`params_flow`] | the two-step parameter conversation: schema, proposal, one retry (LLM-6a/6b) |
+//! | [`edit_actions`] | the region edit tool `propose_edit_actions`, its closed schema and the validator R1-R10 (LLM-7) |
 //! | [`query`] | the six read-only query tools for questions and their bounds (LLM-8) |
 //! | [`knowledge_tools`] | the three knowledge tools, the pre-retrieval pack, result hardening and the citation check (RK-5 to RK-7) |
 //!
@@ -46,6 +47,7 @@
 pub mod anthropic;
 pub mod catalogue;
 pub mod counter;
+pub mod edit_actions;
 pub mod error;
 pub mod event;
 pub mod gpu;

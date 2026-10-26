@@ -84,6 +84,7 @@ mod river_field;
 mod river_stroke;
 mod sample_bridge;
 mod sculpt_bridge;
+mod region_edit_bridge;
 mod sea_live_bridge;
 mod selection;
 mod story_bridge;

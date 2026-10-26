@@ -42,6 +42,7 @@ use crate::knowledge_tools::{
     self, KnowledgeCall, KnowledgeSources, Pack, Retrieved, is_knowledge_tool, knowledge_only_prompt, sanitize as sanitize_knowledge,
 };
 use crate::view_actions::{VIEW_TOOL, ViewCatalogue, ViewVerdict};
+use crate::edit_actions::{EDIT_TOOL, EditCatalogue, EditVerdict};
 use crate::query::{
     MAX_QUERY_CALLS_PER_REPLY, MAX_QUERY_CALLS_PER_REQUEST, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
     tool_specs as query_tool_specs,
@@ -95,6 +96,11 @@ pub enum Step {
     ViewRetry(ViewVerdict),
     /// LLM-6d: terminal, a reply that carried only `propose_view_actions`: the view card.
     ViewProposal(ViewVerdict),
+    /// LLM-7: the edit proposal was refused and its errors went back for the one retry (an Edit
+    /// request, where `propose_edit_actions` is the only tool).
+    EditRetry(EditVerdict),
+    /// LLM-7: terminal, the edit card.
+    EditProposal(EditVerdict),
     /// Terminal: the model answered in words without proposing.
     Answer(String),
     /// Terminal: the conversation could not finish, in words.
@@ -128,6 +134,13 @@ pub struct ParamsConversation {
     /// LLM-6d: the view verdict that rode along a terminal or retried [`Step::Proposal`] /
     /// [`Step::Retry`] when one reply carried both tools. Read with [`ParamsConversation::take_view_verdict`].
     view_out: Option<ViewVerdict>,
+    /// LLM-7: the region edit catalogue of an EDIT request (Assistant task "Edit"). With it the
+    /// conversation is `edit_only`: `propose_edit_actions` is the ONLY tool, no schema, setting,
+    /// query, view or knowledge tool exists, and the system prompt names none of them. `None` for
+    /// every other request, so the Commands and prose requests are byte-for-byte what they were.
+    edit: Option<EditCatalogue>,
+    /// LLM-7: true when `edit` is set, see above.
+    edit_only: bool,
     /// RK-5: which knowledge sources are on this request (both off means no knowledge tool, no
     /// pack, and no sentence about sources in the prompt).
     knowledge: KnowledgeSources,
@@ -212,6 +225,8 @@ impl ParamsConversation {
             budget: QueryBudget::default(),
             view: None,
             view_out: None,
+            edit: None,
+            edit_only: false,
             knowledge: KnowledgeSources::default(),
             knowledge_tools_on: false,
             knowledge_only: false,
@@ -226,7 +241,9 @@ impl ParamsConversation {
     /// therefore does not matter.
     fn rebuild_prompt(&mut self, cat: &Catalogue) {
         let view_on = self.view.as_ref().is_some_and(ViewCatalogue::is_offered);
-        let mut p = if self.knowledge_only {
+        let mut p = if self.edit_only {
+            self.edit.as_ref().map(EditCatalogue::system_prompt).unwrap_or_default()
+        } else if self.knowledge_only {
             knowledge_only_prompt(self.knowledge_tools_on, self.pack_present)
         } else {
             let mut p = cat.system_prompt_full(self.queries, view_on);
@@ -240,7 +257,7 @@ impl ParamsConversation {
             }
             p
         };
-        if self.pack_present && !self.knowledge_only {
+        if self.pack_present && !self.knowledge_only && !self.edit_only {
             p.push_str("\n\nSources for this request are in the <context> block of the user's message.");
         }
         if let Some(m) = self.messages.first_mut() {
@@ -333,6 +350,36 @@ impl ParamsConversation {
         self.view = if self.knowledge_only { None } else { view };
         self.rebuild_prompt(cat);
         self
+    }
+
+    /// LLM-7: make this an EDIT request: `propose_edit_actions` over the user's region is the only
+    /// tool and the system prompt is the edit prompt (role, rules, the region block). Call right
+    /// after [`ParamsConversation::new`]. A catalogue that offers nothing makes a request with NO
+    /// tool, which the shell must not send (it checks [`EditCatalogue::is_offered`] first and shows
+    /// the refusal instead). Clears every other tool source so none can ride along.
+    pub fn with_edit(mut self, cat: &Catalogue, edit: EditCatalogue) -> Self {
+        self.queries = false;
+        self.view = None;
+        self.knowledge = KnowledgeSources::default();
+        self.knowledge_tools_on = false;
+        self.knowledge_only = false;
+        self.pack_present = false;
+        self.edit = Some(edit);
+        self.edit_only = true;
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// LLM-7: replace the edit catalogue with this turn's facts. Does not touch the prompt.
+    pub fn set_edit(&mut self, edit: Option<EditCatalogue>) {
+        if self.edit_only {
+            self.edit = edit;
+        }
+    }
+
+    /// LLM-7: true when this is an edit request.
+    pub fn is_edit(&self) -> bool {
+        self.edit_only
     }
 
     /// LLM-6d: replace the view catalogue with this turn's facts (the shell rebuilds them from
@@ -501,6 +548,12 @@ impl ParamsConversation {
     /// tool only once a schema was shown, with its enum of the shown keys.
     pub fn tools(&self, cat: &Catalogue) -> Vec<ToolSpec> {
         let mut t = Vec::new();
+        if self.edit_only {
+            if let Some(e) = self.edit.as_ref().filter(|e| e.is_offered()) {
+                t.push(e.tool_spec());
+            }
+            return t;
+        }
         if !self.knowledge_only {
             t.push(cat.tool_get_schema());
             if !self.shown_keys.is_empty() {
@@ -573,6 +626,34 @@ impl ParamsConversation {
             })
             .collect();
         self.messages.push(Message { role: Role::Assistant, content: text.to_owned(), tool: Some(ToolTurn::Calls(records.clone())) });
+
+        // LLM-7: an EDIT request offers one tool. A valid-or-not call to it ends the request as the
+        // edit card (or the one retry); any other call is an unknown tool, answered in words.
+        if self.edit_only {
+            let rec = records.iter().find(|r| r.name == EDIT_TOOL);
+            if let (Some(r), Some(e)) = (rec, self.edit.as_ref().filter(|e| e.is_offered())) {
+                let ev = e.validate(&r.arguments);
+                let can_retry = ev.wants_retry() && self.retries < MAX_PROPOSAL_RETRIES && self.turns < MAX_TURNS;
+                if !can_retry {
+                    return self.finish(Step::EditProposal(ev));
+                }
+                self.retries += 1;
+                let feedback = ev.feedback().to_string();
+                for x in &records {
+                    let body = if x.name == EDIT_TOOL { feedback.clone() } else { json!({"error": "answer ignored: a proposal was made in the same turn"}).to_string() };
+                    self.messages.push(Message { role: Role::User, content: body, tool: Some(ToolTurn::Result { call_id: x.id.clone() }) });
+                }
+                return Step::EditRetry(ev);
+            }
+            for x in &records {
+                let body = json!({"error": format!("unknown tool {}", x.name)}).to_string();
+                self.messages.push(Message { role: Role::User, content: body, tool: Some(ToolTurn::Result { call_id: x.id.clone() }) });
+            }
+            if self.turns >= MAX_TURNS {
+                return self.finish(Step::Failed(format!("The model did not make a proposal within {MAX_TURNS} replies, so the request was stopped.")));
+            }
+            return Step::Continue;
+        }
 
         // A proposal ends the conversation unless the outcome rule grants the retry. LLM-6d: a
         // reply may carry `set_generation_params`, `propose_view_actions` or both. Each is
@@ -1363,5 +1444,87 @@ mod tests {
         ]);
         assert_eq!(s2, Step::Continue);
         assert_eq!(c.pending_needs().knowledge.iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["g4", "g5", "g6"], "g7 is a note nothing returned");
+    }
+
+    fn edit_cat() -> EditCatalogue {
+        EditCatalogue::from_json(&json!({
+            "world": {"w": 2048, "h": 1311, "peak_m": 4000.0},
+            "region": {"id": "region_ab12cd34", "bbox": [100, 200, 60, 40], "cells": 1800,
+                "ground": {"min_m": 120.0, "mean_m": 340.0, "max_m": 800.0, "land_fraction": 1.0}}
+        }))
+        .unwrap()
+    }
+
+    fn edit_call(id: &str, args: Value) -> IncomingCall {
+        call(Some(id), EDIT_TOOL, args)
+    }
+
+    /// Protects the closed tool set of an EDIT request (LLM-7): the one tool is
+    /// `propose_edit_actions`, no schema, setting, query, view or knowledge tool rides along, and the
+    /// system prompt names the region and the tool and none of the others. MUTATION: let `tools()` fall
+    /// through to the schema tool in edit mode and the first assertion goes red.
+    #[test]
+    fn an_edit_request_offers_exactly_one_tool_and_names_only_it() {
+        let cat = fixture();
+        let c = ParamsConversation::new(&cat, "raise this into a ridge").unwrap().with_view(&cat, Some(view_cat())).with_edit(&cat, edit_cat());
+        assert_eq!(names(&c, &cat), vec![EDIT_TOOL]);
+        let p = &c.messages()[0].content;
+        assert!(p.contains("propose_edit_actions") && p.contains("REGION region_ab12cd34"));
+        for other in [GET_SCHEMA_TOOL, SET_PARAMS_TOOL, VIEW_TOOL, "get_parameters", "search_knowledge"] {
+            assert!(!p.contains(other), "the edit prompt must not name {other}");
+        }
+        assert!(c.is_edit());
+        // A request that never called with_edit is untouched.
+        let plain = ParamsConversation::new(&cat, "x").unwrap();
+        assert!(!plain.is_edit() && !names(&plain, &cat).contains(&EDIT_TOOL.to_string()));
+        // A catalogue that offers nothing yields NO tool at all (the shell must not send it).
+        let none = EditCatalogue::from_json(&json!({"world": {"w": 10, "h": 10, "peak_m": 4000}})).unwrap();
+        let empty = ParamsConversation::new(&cat, "x").unwrap().with_edit(&cat, none);
+        assert!(names(&empty, &cat).is_empty());
+    }
+
+    /// Protects the edit outcome: a valid call ends the request with the card; a bad one gets exactly
+    /// one retry (the errors go back as the tool result), then the card whatever it holds; and the
+    /// conversation never consumes more than the one retry.
+    #[test]
+    fn an_edit_proposal_is_one_step_and_retried_once() {
+        let cat = fixture();
+        let ok = json!({"edits": [{"operation": "raise", "region_id": "region_ab12cd34", "amount_m": 300, "softness": 1}]});
+        let mut c = ParamsConversation::new(&cat, "ridge").unwrap().with_edit(&cat, edit_cat());
+        let Step::EditProposal(v) = c.on_reply(&cat, "", vec![edit_call("e1", ok)]) else { panic!() };
+        assert_eq!(v.valid.len(), 1);
+        assert!(c.is_done() && c.turns() == 1);
+        let bad = json!({"edits": [{"operation": "raise", "region_id": "region_ab12cd34", "amount_m": 9000}]});
+        let mut c = ParamsConversation::new(&cat, "ridge").unwrap().with_edit(&cat, edit_cat());
+        let Step::EditRetry(v) = c.on_reply(&cat, "", vec![edit_call("e1", bad.clone())]) else { panic!() };
+        assert!(v.valid.is_empty() && v.rejected[0].rule.id() == "R8");
+        let last = c.messages().last().unwrap();
+        assert!(last.content.contains("R8") && matches!(&last.tool, Some(ToolTurn::Result { call_id }) if call_id == "e1"));
+        assert!(!c.is_done());
+        assert!(matches!(c.on_reply(&cat, "", vec![edit_call("e2", bad)]), Step::EditProposal(_)), "the second refusal is the card");
+        assert!(c.is_done());
+    }
+
+    /// Protects the closed set at the decoder's edge: in an edit request a call to any other tool is an
+    /// unknown tool (answered in words, never validated), words alone are an answer, and the turn cap
+    /// still ends a model that loops.
+    #[test]
+    fn in_an_edit_request_every_other_tool_is_unknown() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap().with_edit(&cat, edit_cat());
+        let args = json!({"changes": [{"key": "peak_m", "value": 100}]});
+        assert_eq!(c.on_reply(&cat, "", vec![call(Some("s"), SET_PARAMS_TOOL, args)]), Step::Continue);
+        assert!(c.messages().last().unwrap().content.contains("unknown tool set_generation_params"));
+        assert_eq!(c.on_reply(&cat, "", vec![call(Some("g"), GET_SCHEMA_TOOL, json!({"groups": ["world"]}))]), Step::Continue);
+        assert!(c.messages().last().unwrap().content.contains("unknown tool get_param_schema"));
+        assert!(c.shown_groups().is_empty(), "a schema call in an edit request opens nothing");
+        let mut d = ParamsConversation::new(&cat, "x").unwrap().with_edit(&cat, edit_cat());
+        assert!(matches!(d.on_reply(&cat, "I cannot do that with raise, lower or smooth.", vec![]), Step::Answer(_)));
+        let mut loops = ParamsConversation::new(&cat, "x").unwrap().with_edit(&cat, edit_cat());
+        let mut last = Step::Continue;
+        for i in 0..MAX_TURNS {
+            last = loops.on_reply(&cat, "", vec![call(Some(&format!("c{i}")), "regenerate", json!({}))]);
+        }
+        assert!(matches!(last, Step::Failed(_)));
     }
 }

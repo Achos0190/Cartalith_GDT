@@ -82,6 +82,16 @@
 //! user's groups are opened by the app before the first request. Like everything here this class
 //! writes nothing: the verdict is DATA and only the panel's Apply acts on it.
 //!
+//! **Edit actions (LLM-7, scope s.5c).** The Assistant's Edit task starts a conversation with
+//! capability `edit` ([`LlmStream::prepare`] with `"edit"`): `args.edit` (JSON text, the user's
+//! region read by `WorldGen::region_describe` and passed on by `shell/llm_region.gd`) becomes a
+//! `cartalith_llm::edit_actions::EditCatalogue`, and the conversation is `edit_only`:
+//! `propose_edit_actions` is the only tool. Four gates, all in Rust: the master switch and the Edit
+//! switch (`authorize`), the "Send: the painted region and its heights" source (`ctx_region`), the
+//! LOCAL endpoint rule (owner question E3's default: heights of the user's world are sent, so a
+//! hosted endpoint is refused for this feature), and a valid region. The verdict reaches the shell
+//! as an `edit_proposal` event; this class writes nothing and the panel's Apply is the only writer.
+//!
 //! **NO PANIC.** Every method answers with a dictionary; a poisoned lock is recovered
 //! rather than unwrapped (`cartalith-rust-conventions`).
 
@@ -100,6 +110,7 @@ use cartalith_llm::settings::{Authorized, Capability};
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
 use cartalith_llm::view_actions::{ViewCatalogue, ViewVerdict};
+use cartalith_llm::edit_actions::{EditCatalogue, EditVerdict};
 use cartalith_llm::query::{EcologyFacts, Fact, NoWorld, SUMMARY_PERCENTILES, SampleFacts, SummaryFacts, WorldFacts};
 use cartalith_llm::{Event, LlmError, StreamSession};
 use godot::classes::{IRefCounted, RefCounted};
@@ -522,6 +533,52 @@ fn view_verdict_dict(v: &ViewVerdict) -> VarDictionary {
     d
 }
 
+/// An edit verdict as the edit card reads it (LLM-7). Every `valid` row passed R1-R10: its
+/// operation, numbers and falloff are the validated ones, and the shell hands exactly these to the
+/// engine's preview and apply, so the shell never parses the model's text. An absent number is
+/// OMITTED (a raise has no `strength`), never `0`.
+fn edit_verdict_dict(v: &EditVerdict) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    if let Some((rule, why)) = &v.structural {
+        d.set("structural_rule", rule.id());
+        d.set("structural", why.as_str());
+    }
+    if let Some(s) = &v.summary {
+        d.set("summary", s.as_str());
+    }
+    if let Some(r) = &v.region_id {
+        d.set("region_id", r.as_str());
+    }
+    let mut valid: Array<VarDictionary> = Array::new();
+    for c in &v.valid {
+        let mut e = vdict! { "operation" => c.operation, "falloff" => c.falloff, "softness" => c.softness, "defaulted" => c.defaulted, "text" => c.text.as_str() };
+        if let Some(a) = c.amount_m {
+            e.set("amount_m", a);
+        }
+        if let Some(s) = c.strength {
+            e.set("strength", s);
+        }
+        if let Some(p) = c.passes {
+            e.set("passes", p as i64);
+        }
+        if let Some(r) = &c.reason {
+            e.set("reason", r.as_str());
+        }
+        valid.push(&e);
+    }
+    d.set("valid", &valid);
+    let mut rejected: Array<VarDictionary> = Array::new();
+    for r in &v.rejected {
+        let mut e = vdict! { "rule" => r.rule.id(), "why" => r.why.as_str() };
+        if let Some(a) = &r.operation {
+            e.set("operation", a.as_str());
+        }
+        rejected.push(&e);
+    }
+    d.set("rejected", &rejected);
+    d
+}
+
 /// Feed the finished reply to the conversation and turn its step into the one
 /// event the shell acts on. Clears the reply buffers.
 fn params_step(p: &mut ParamsState) -> VarDictionary {
@@ -566,6 +623,16 @@ fn params_step(p: &mut ParamsState) -> VarDictionary {
         Step::ViewProposal(v) => {
             let mut d = vdict! { "type" => "view_proposal", "turns" => turns };
             d.set("view", &view_verdict_dict(&v));
+            d
+        }
+        Step::EditRetry(v) => {
+            let mut d = vdict! { "type" => "params_retry", "turns" => turns };
+            d.set("edit_verdict", &edit_verdict_dict(&v));
+            d
+        }
+        Step::EditProposal(v) => {
+            let mut d = vdict! { "type" => "edit_proposal", "turns" => turns };
+            d.set("edit", &edit_verdict_dict(&v));
             d
         }
         Step::Answer(t) => {
@@ -615,6 +682,14 @@ impl IRefCounted for LlmStream {
 /// stage-1 run's longest valid proposal was well under this with thinking off.
 const PARAMS_MAX_TOKENS: i64 = 1024;
 
+/// The reason shown when the region source is off (LLM-7: heights of the user's world are sent).
+const EDIT_CONTEXT_OFF: &str = "Tick \"Send: the painted region and its heights\" in Assistant settings first: an edit request shows the model the region's shape and its measured heights (numbers only, never a picture).";
+
+/// The reason shown when the endpoint is not on this computer or its network (owner question E3's
+/// default, `LLM_ASSISTANT_SCOPE.md` s.5c: heights of the user's world are sent, so for now this
+/// feature goes only to a local model).
+const EDIT_LOCAL_ONLY: &str = "Edit actions send the region's heights, so for now they go only to a model on this computer or your local network, not to a hosted endpoint.";
+
 /// The reason shown when the parameter context source is off (Ruling DI P3).
 const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters and summary statistics\" in Assistant settings first (a setting proposal or a question shows the model the world's current generation settings and figures), or tick \"Send: Vault notes found by search\" or \"Send: world data found by search\" to ask questions about the world's own data.";
 
@@ -623,6 +698,99 @@ impl LlmStream {
     /// second panic across the boundary).
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// One turn of an EDIT request (LLM-7, scope s.5c): the gate with capability `edit`, the
+    /// `ctx_region` source, the local-endpoint rule (E3), the region, then the one-tool conversation
+    /// built for the gate's wire. `resume` keeps the conversation (the one automatic retry or an
+    /// unknown-tool turn). Answers like [`LlmStream::prepare_params`]. Nothing is opened here.
+    fn prepare_edit(&self, settings: &VarDictionary, consented: &[String], args: &VarDictionary, resume: bool) -> VarDictionary {
+        let s = settings_from(settings);
+        let (key_state, key) =
+            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+        let auth = match cartalith_llm::settings::authorize(&s, Some(Capability::Edit), &key_state, consented) {
+            Ok(a) => a,
+            Err(r) => {
+                let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
+                if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
+                    d.set("origin", o.as_str());
+                }
+                return d;
+            }
+        };
+        if !flag(settings, "ctx_region") {
+            return refuse("region_context_off", EDIT_CONTEXT_OFF);
+        }
+        if !auth.local {
+            return refuse("edit_local_only", EDIT_LOCAL_ONLY);
+        }
+        let edit = match opt_text(args, "edit").map(|t| EditCatalogue::from_json_text(&t)) {
+            Some(Ok(e)) => e,
+            _ => return refuse("no_region", "No region was read for this request. Paint or box an area on the map first."),
+        };
+        if let Some(why) = edit.refusal() {
+            return refuse("no_region", why);
+        }
+        let cat = catalogue_from(&VarDictionary::new());
+        let hints = request_hints(&s.preset_id);
+        let mut inner = self.lock();
+        let (mut conv, max_tokens, include_usage) = if resume {
+            match inner.params.take() {
+                Some(p) if p.conv.is_edit() && !p.conv.is_done() => (p.conv, p.max_tokens, p.include_usage),
+                _ => return refuse("no_conversation", "There is no edit request to continue."),
+            }
+        } else {
+            let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
+                Ok(c) => c.with_edit(&cat, edit.clone()),
+                Err(why) => return refuse("empty_request", why),
+            };
+            let max_tokens = args
+                .get("max_tokens")
+                .and_then(|v| v.try_to::<i64>().ok())
+                .unwrap_or(PARAMS_MAX_TOKENS)
+                .clamp(MAX_TOKENS_RANGE.0, MAX_TOKENS_RANGE.1) as u32;
+            let include_usage = args.get("include_usage").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+            (conv, max_tokens, include_usage)
+        };
+        conv.set_edit(Some(edit));
+        let req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
+        let counted = counter().clone();
+        let prepared = match prepare_authorized_chat(&s, Capability::Edit, &key_state, consented, &counted, key.as_ref(), &req) {
+            Ok(p) => p,
+            Err(e) => {
+                let mut d = vdict! { "ok" => false, "code" => e.code(), "reason" => e.reason().as_str() };
+                if let PrepareError::Refused(cartalith_llm::Refusal::ConsentNeeded(o)) = &e {
+                    d.set("origin", o.as_str());
+                }
+                return d;
+            }
+        };
+        counter().begin_call();
+        if !resume {
+            inner.budget = RetryBudget::new();
+        }
+        let tools: PackedStringArray = req.tools.iter().map(|t| GString::from(t.name.as_str())).collect();
+        inner.session = Some(StreamSession::for_style(prepared.authorized.style, &req.tools, key.as_ref()).with_max_tokens(req.max_tokens));
+        let turns = conv.turns() as i64;
+        inner.params = Some(ParamsState { conv, cat, text: String::new(), calls: Vec::new(), max_tokens, include_usage });
+        drop(inner);
+        let headers: PackedStringArray = prepared.http.header_lines().iter().map(|l| GString::from(l.as_str())).collect();
+        let mut d = vdict! {
+            "ok" => true,
+            "origin" => prepared.authorized.origin.as_str(),
+            "tls" => prepared.target.tls,
+            "host" => prepared.target.host.as_str(),
+            "port" => prepared.target.port as i64,
+            "path" => prepared.target.path.as_str(),
+            "model" => s.model.as_str(),
+            "hosted" => !prepared.authorized.local,
+            "style" => if prepared.authorized.style == cartalith_llm::ApiStyle::OpenAiCompatible { "openai" } else { "anthropic" },
+            "turns" => turns,
+        };
+        d.set("tools", &tools);
+        d.set("headers", &headers);
+        d.set("body", &PackedByteArray::from(prepared.http.body.as_slice()));
+        d
     }
 
     /// One turn of a parameter request (LLM-6a/6b): the gate, then the context-source
@@ -969,7 +1137,8 @@ impl LlmStream {
         let cap = match capability.to_string().as_str() {
             "prose" => Capability::Prose,
             "commands" => Capability::Commands,
-            _ => return refuse("unsupported_capability", "This build runs prose, note assist and setting proposals only."),
+            "edit" => Capability::Edit,
+            _ => return refuse("unsupported_capability", "This build runs prose, note assist, setting proposals and region edits only."),
         };
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
@@ -978,6 +1147,9 @@ impl LlmStream {
         let is_retry = std::mem::take(&mut self.lock().retry_pending);
         if cap == Capability::Commands {
             return self.prepare_params(&settings, &consented, &args, is_retry);
+        }
+        if cap == Capability::Edit {
+            return self.prepare_edit(&settings, &consented, &args, is_retry);
         }
         let Some(task) = Task::from_id(&text(&args, "task")) else {
             return refuse("unknown_task", "Unknown assistant task.");
@@ -1177,6 +1349,10 @@ impl LlmStream {
     fn prepare_continue(&self, settings: VarDictionary, consented: PackedStringArray, args: VarDictionary) -> VarDictionary {
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
         self.lock().retry_pending = false;
+        let editing = self.lock().params.as_ref().is_some_and(|p| p.conv.is_edit());
+        if editing {
+            return self.prepare_edit(&settings, &consented, &args, true);
+        }
         self.prepare_params(&settings, &consented, &args, true)
     }
 
@@ -1246,6 +1422,39 @@ impl LlmStream {
             "result_bytes" => kt::MAX_RESULT_BYTES as i64,
             "calls_per_request" => cartalith_llm::query::MAX_QUERY_CALLS_PER_REQUEST as i64,
             "excerpt_chars" => kt::MAX_EXCERPT_CHARS as i64,
+        }
+    }
+
+    /// What an EDIT request would send, without the gate, a request or the network:
+    /// `{ok, request_chars, region_chars, region_text, rows, cells}` or `{ok: false, code, reason}`.
+    /// `region_text` is EXACTLY the region block the model reads (numbers only), so the panel can
+    /// show the user what leaves the machine. For the "This will send" line.
+    #[func]
+    fn edit_preview(&self, args: VarDictionary) -> VarDictionary {
+        let edit = match opt_text(&args, "edit").map(|t| EditCatalogue::from_json_text(&t)) {
+            Some(Ok(e)) => e,
+            _ => return refuse("no_region", "No region was read for this request."),
+        };
+        if let Some(why) = edit.refusal() {
+            return refuse("no_region", why);
+        }
+        let request = text(&args, "request");
+        let cat = catalogue_from(&VarDictionary::new());
+        match ParamsConversation::new(&cat, &request) {
+            Ok(_) => {
+                let t = edit.region_text();
+                let rows = edit.region().map_or(0, |r| r.rows.len());
+                let cells = edit.region().map_or(0, |r| r.cells);
+                vdict! {
+                    "ok" => true,
+                    "request_chars" => request.trim().chars().count() as i64,
+                    "region_chars" => t.chars().count() as i64,
+                    "region_text" => t.as_str(),
+                    "rows" => rows as i64,
+                    "cells" => cells as i64,
+                }
+            }
+            Err(why) => refuse("empty_request", why),
         }
     }
 

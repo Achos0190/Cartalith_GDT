@@ -1053,6 +1053,17 @@ impl PaintEditor {
         !(self.biome.is_unallocated() && self.terrain.is_unallocated() && self.splat.is_unallocated())
     }
 
+    /// Read-only twin of [`Self::clear_cells_under`]: how many **committed** painted cells (all
+    /// three layers together) lie where `footprint[i]` is set. Skips a layer that is unallocated
+    /// or whose length is not `n`, exactly as the clear does. Added for the assistant's region
+    /// edit (LLM-7), which refuses to edit where paint would be lost.
+    pub fn count_cells_under(&self, n: usize, footprint: &[bool]) -> usize {
+        [&self.biome, &self.terrain, &self.splat]
+            .iter()
+            .map(|l| l.cells().filter(|c| c.len() == n).map_or(0, |c| c.iter().zip(footprint).filter(|(c, f)| **f && **c != 0).count()))
+            .sum()
+    }
+
     /// Ruling AS (2026-09-24): a sculpt commit clears the painted override
     /// cells it covers. Zeroes every **committed** cell of all three layers
     /// where `footprint[i]` is set, and returns how many painted cells each
