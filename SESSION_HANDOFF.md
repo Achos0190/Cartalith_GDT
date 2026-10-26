@@ -314,3 +314,40 @@ Two live sources of real defects, productive every time they are opened:
 `UNWIRED_FUNCTIONS.md` (a backlog with a `file:line` per row, plus a
 dangerous-class section) and §6 of `OUTSTANDING_WORK.md` (contradictions in the
 project record).
+
+
+## Refresh, 2026-10-26: environment recipes and where we left off
+
+Supersedes the 2026-10-19 "in flight" section above where they differ. No hash or count here; derive them.
+
+**Derive the state:** `git fetch; git log --oneline -30 origin/main`; `git worktree list`; `git status`; read the
+"Where we left off" block at the top of `cartalith-native/docs/STATUS.md` (verified vs WIP), then
+`OUTSTANDING_WORK.md` "Open after 2026-10-26". The top priority there is the Assistant consent UX.
+
+**Godot:** the editor is 4.7.2 with 4.7.2 export templates. The WinGet `godot4.cmd` shim still points to 4.7.1, so call
+`C:\Users\Vincent\AppData\Local\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe`.
+
+**Grey window after a pull:** rebuild the debug DLL (`cargo build -p cartalith-godot`) and run a headless `--import`.
+The import strips the `;` comments from `project.godot`: back it up first and diff it afterwards. The owner has
+uncommitted edits in `project.godot` and `MISTAKES.md`: never stage either.
+
+**Windowed Godot and the phone: one agent at a time.** Take the lock with `mkdir C:/cw/.win_lock` (fails if held),
+release with `rmdir`. Run a probe's parse check first; a probe with a parse error hangs while holding the lock.
+Never run two windowed instances, or two installs on the phone, at once.
+
+**LM Studio (the local model server):** LM Studio 0.4.26, CLI `C:\Users\Vincent\.lmstudio\bin\lms.exe`, ROCm runtime
+only. The server listens on the LAN `0.0.0.0:1234` and is **left running by the owner's wish: never start or stop it,
+and never stop Ollama either** (stopping Ollama by process name leaves `llama-server` runners holding VRAM). Models:
+`qwen3.8-27b` UD-Q3_K_XL and `qwen3-14b`, hard-linked from Ollama's blobs. Best settings found: GPU offload max,
+context 8192, parallel 1, flash attention on, MTP on, thinking off via `reasoning_effort` = `none`.
+
+**APK recipe:** build the `android-dev` `.so` fresh (`cargo ndk`), export with `--export-debug` (debug keystore signing),
+never a scene path in the export preset's command line (it loops the splash), `adb install -r`. Drop path:
+`D:\Users\Vincent\Documents\Vincent\Persoonlijk\Writing\Tools & writing hacks\Mapping Tools\Cartalith.apk`, the
+previous one kept as `Cartalith.previous.apk`. On the LineageOS phone check "Allow network access" for the app.
+
+**Rules to put in every brief (see `MISTAKES_CANDIDATES_2026-10-26.md`):** never `git checkout` a file with
+uncommitted work; a mocked network test must use the product's real default URL; a fixture must be able to fail;
+"new" actions reset every identity field including the project path.
+
+**Housekeeping the owner owes:** see the end of the "Where we left off" block in `STATUS.md`.
