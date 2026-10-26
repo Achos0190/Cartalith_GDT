@@ -481,7 +481,12 @@ func _clicks() -> void:
 	## right-click menu
 	await _click(_bar.assistant_chip(), MOUSE_BUTTON_RIGHT)
 	var m: PopupMenu = _bar._assistant_menu
-	_ok(m.visible and m.item_count == 3 and m.get_item_text(0) == "Hide the Assistant chip" and m.get_item_text(2) == "Customise…", "a real right-click pops its menu: Hide the Assistant chip / Customise…")
+	## Ruling DQ: the menu now leads with one "Profile: <name>" row per assistant profile (the two built-ins on a
+	## fresh settings file) and a separator, then the two rows it always had.
+	var mt: Array = []
+	for k in m.item_count:
+		mt.append(m.get_item_text(k))
+	_ok(m.visible and m.item_count == 6 and mt[0] == "Profile: Local" and mt[1] == "Profile: External" and mt[3] == "Hide the Assistant chip" and mt[5] == "Customise…", "a real right-click pops its menu: the profiles, then Hide the Assistant chip / Customise…: %s" % str(mt))
 	await _shot("04_chip_menu")
 	m.id_pressed.emit(DccQuickBar.ID_ASSISTANT_HIDE)   ## the row is chosen through its signal, not a pointer
 	m.hide()

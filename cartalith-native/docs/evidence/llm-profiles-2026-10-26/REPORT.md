@@ -26,6 +26,10 @@ The new probe covers: nothing written by opening; the shipped profiles as litera
 
 `_llmprofiles_live_probe` against LM Studio with `qwen3-14b` (`lms load qwen3-14b --gpu max -c 8192 --parallel 1 -y`, server on 127.0.0.1:1234, unloaded, stopped and `llama-server` killed afterwards): switching to Local with the master switch on asked for consent first; the panel's reply cap was the profile's pin (48); the reply finished with visible text; the server reported `prompt 207, completion 48, total 255`, i.e. the pinned cap was honoured with thinking off. One run, a single observation.
 
+## After the rebase onto origin/main (which brought the phone GUI pass and PW-3)
+
+The profile probe at all three sizes, `_llmset_probe` and `_llmpanel_probe` at all three, and `_quickbar_assistant_probe`, `_llmstream_probe`, `_llmhosted_probe`, `_llmquery_probe`, `_llmknow_probe` at desktop PASS. `_quickbar_assistant_probe` asserted the chip's menu held exactly three rows; it now expects the profile rows ahead of the two it always had (a deliberate change to a regression gate). **`_llmview_probe` fails 8 checks** (a window row reading "will be opened", the shortcuts window opening, "Apply 4 view changes") **identically on origin/main's own GDScript** (run from a second scratch copy of `git archive origin/main` with the same DLL), so it is not caused by this change; it is left for whoever owns PW-3.
+
 ## Findings
 
 - **The phone sheets' stock Close button measures 29 px tall** (the Assistant panel and Assistant settings). `phone_window` floors it to 44 px before `phone_fit` resizes the sheet, and the floor is lost; two attempts to re-seat it after the resize did not move it and were reverted. Every control this work added is 44 px or more. Not fixed here.
