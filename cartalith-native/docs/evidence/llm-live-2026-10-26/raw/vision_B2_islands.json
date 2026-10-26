@@ -1,0 +1,49 @@
+{
+ "model": "qwen3.8-27b",
+ "before": "shots/B2_base_s71077345_x1.jpg",
+ "after": "shots/B2_islands_s71077345_after_x1.jpg",
+ "answers": [
+  {
+   "q": "before",
+   "question": "This is a generated fantasy map. Describe the land and sea in three sentences: how much is sea, where the land is, any mountains or volcanoes.",
+   "seconds": 9.5,
+   "text": "The sea dominates roughly half of the visible map, surrounding a large central landmass that extends from the northwest to the southeast; this continent features diverse biomes including arid northern plains (Anwesilaeshosh and Brentorgtorgkaeskby Provinces) transitioning into lush green lowlands in the south (Sahmipashrest and Ghalbahrgaltzdune Provinces). Prominent mountain ranges run along the eastern edge of the continent, with snow-capped peaks visible near \u201cDagr Grimk\u201d on the far right. Two major volcanoes are clearly depicted: one large active volcano with a white plume erupting in the central-southern region (near Sahmipashrest Province), and another smaller volcanic peak just north of it \u2014 both situated within or adjacent to forested highlands, suggesting tectonic activity along this inland corridor.",
+   "usage": {
+    "prompt_tokens": 856,
+    "completion_tokens": 178,
+    "total_tokens": 1034,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  {
+   "q": "after",
+   "question": "This is a generated fantasy map. Describe the land and sea in three sentences: how much is sea, where the land is, any mountains or volcanoes.",
+   "seconds": 8.1,
+   "text": "The ocean dominates this world, covering roughly two-thirds of the visible surface with vast, deep-blue waters that stretch across the center and left side of the map. Landmasses are concentrated along the periphery \u2014 a large continental shelf on the right (east) featuring mountainous terrain labeled \u201cDagrhurnridge Province\u201d and \u201cFornbrakhaskeidge Province,\u201d while smaller islands and peninsulas dot the central sea, including the prominent \u201cKarskfjormorskerry Province.\u201d No active volcanoes are explicitly marked or visually depicted as erupting; however, elevated highlands and rugged peaks suggest tectonic activity in the eastern mountains, particularly near \u201cDunstainpeak\u201d and \u201cGrimandcairn,\u201d which may imply dormant or potential volcanic zones.",
+   "usage": {
+    "prompt_tokens": 856,
+    "completion_tokens": 159,
+    "total_tokens": 1015,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  {
+   "q": "diff",
+   "question": "These are two renders of the same generated fantasy map, before and after a settings change. In two or three sentences, say what changed between the first and the second image.",
+   "seconds": 7.1,
+   "text": "The map has been panned to show a different region, moving from the northern provinces down to a more southern area with new landmasses and sea names visible. The zoom level appears consistent, but the focus has shifted entirely to reveal new geographical features like \"Karskfjormorskerry Province\" that were not present in the first view.",
+   "usage": {
+    "prompt_tokens": 1671,
+    "completion_tokens": 71,
+    "total_tokens": 1742,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  }
+ ]
+}

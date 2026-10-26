@@ -1,0 +1,49 @@
+{
+ "model": "qwen3.8-27b",
+ "before": "shots/B2_base_s71077345_x1.jpg",
+ "after": "shots/B2_no_sea_s71077345_after_x1.jpg",
+ "answers": [
+  {
+   "q": "before",
+   "question": "This is a generated fantasy map. Describe the land and sea in three sentences: how much is sea, where the land is, any mountains or volcanoes.",
+   "seconds": 5.1,
+   "text": "The sea dominates roughly half of the visible map, surrounding a large central landmass that extends from the northwest to the southeast, with smaller islands scattered offshore. The land features varied terrain, including arid plains in the north and lush green lowlands in the south, while prominent mountain ranges rise along the eastern edge and near the center \u2014 most notably a massive snow-capped volcano or high peak labeled \u201cSahmiashrest Province\u201d that stands out with its radial ridges and white summit. Another smaller volcanic feature is visible just northeast of it, suggesting tectonic activity in this region.",
+   "usage": {
+    "prompt_tokens": 856,
+    "completion_tokens": 120,
+    "total_tokens": 976,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  {
+   "q": "after",
+   "question": "This is a generated fantasy map. Describe the land and sea in three sentences: how much is sea, where the land is, any mountains or volcanoes.",
+   "seconds": 8.2,
+   "text": "The sea occupies only a small portion of the upper-left corner, bordering the coastal provinces of Ovaanwemd and Abedsar, while the vast majority of the map is dominated by expansive landmasses stretching from the northern forests to the southern lowlands. The terrain features prominent mountain ranges along the western edge and in the far northeast, with several striking radial-patterned volcanoes or calderas clustered in the central desert region\u2014some appearing active with white peaks suggesting snow or ash. A lush green forested area labeled \u201cThorndunthornbaldst\u201d lies in the southeast, contrasting sharply with the arid tan plains that dominate the center and south, all crisscrossed by rivers flowing toward inland lakes like Lake Castreporcorium and Lake Imarvaelis.",
+   "usage": {
+    "prompt_tokens": 856,
+    "completion_tokens": 164,
+    "total_tokens": 1020,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  },
+  {
+   "q": "diff",
+   "question": "These are two renders of the same generated fantasy map, before and after a settings change. In two or three sentences, say what changed between the first and the second image.",
+   "seconds": 6.0,
+   "text": "Between the two images, the map's color palette has shifted from warm, earthy tones to cooler, more muted greens and grays. The overall lighting appears dimmer in the second render, giving it a slightly desaturated look compared to the vibrant first image.",
+   "usage": {
+    "prompt_tokens": 1671,
+    "completion_tokens": 54,
+    "total_tokens": 1725,
+    "completion_tokens_details": {
+     "reasoning_tokens": 0
+    }
+   }
+  }
+ ]
+}
