@@ -97,6 +97,8 @@ const _SWITCHES := [
 		"note": "Draft text for a place, its story or a note. Nothing is saved until you click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
 		"note": "The assistant suggests settings, view and layer changes. You review each one and press Apply; one undo step reverses it."},
+	{"key": "regen_on_apply", "label": "Regenerate when I apply a proposal",
+		"note": "Applying a settings proposal also rebuilds the world with the new settings (asking first if you have hand edits that a rebuild would discard). Turn off to only change the settings and press Generate yourself."},
 	{"key": "edit", "label": "Edit actions: raise, lower, smooth",
 		"note": "The model proposes terrain edits to an area you paint or box on the map (Assistant > Edit). You see a preview computed by the app; nothing changes until you press Apply, and one Apply is one undo step. It never generates, erodes or changes settings. Only raise, lower and smooth in this release; painting colours comes later. Needs the region source below, and goes only to a model on this computer or your network."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "Models on this computer or your network.",

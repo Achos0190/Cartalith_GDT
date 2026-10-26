@@ -959,6 +959,7 @@ const LLM_DEFAULTS := {
 	"prose": false,            ## Prose and Vault assist (LLM-3)
 	"commands": false,         ## view / layer / parameter commands (LLM-5, LLM-6)
 	"edit": false,             ## sculpt / paint edit actions (LLM-5, LLM-7); its own switch
+	"regen_on_apply": true,    ## Ruling DS: Apply on a setting proposal also rebuilds the world (owner wants ON); global, not per profile
 	"local_allowed": false,    ## localhost and LAN endpoints
 	"remote_allowed": false,   ## hosted endpoints
 	"preset_id": "",           ## a `WorldGen.llm_presets()` id, or ""

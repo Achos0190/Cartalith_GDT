@@ -22,7 +22,12 @@ class_name LlmAssistantWindow
 ##   and validates every number (V1-V13, reject and never clamp: Ruling DI P1). What arrives
 ##   here is the validated card data; NO handler writes a setting except `_apply_card`, which
 ##   only a click on the card's Apply button reaches.
-## * **One Apply is one undo step, and never regenerates** (s.5b.4). `_apply_card` opens an
+## * **Ruling DS (owner): Apply then rebuilds the world, unless the user turned that off.** It
+##   overrides DD/DI s.5b "Apply never regenerates". The settings are written and committed FIRST
+##   as one undo step; only then does `_regenerate_after_apply` run the app's own user path (the
+##   discard confirmation, busy overlay, progress, cancel and failure handling are that path's).
+##   Undo restores settings only. The "no generate" sentences below describe the switch-off case.
+## * **One Apply is one undo step** (s.5b.4). `_apply_card` opens an
 ##   `undo_group.gd` group, writes each change through `write_param` (which uses
 ##   `engine_bridge.gd::param_write`, the setter every dialog uses), and commits; a write the
 ##   engine refuses or clamps rolls the whole group back. No generate, refresh or recompute is
@@ -1475,7 +1480,7 @@ func _on_proposal(info: Dictionary) -> void:
 	else:
 		for line in info.get("cost", PackedStringArray()):
 			_card_text(col, String(line), "text_secondary")
-		_card_text(col, "Applying changes settings only. It does not regenerate.", "text_secondary")
+		_card_text(col, _apply_effect_text(info), "text_secondary")
 	## The reason sits on its OWN line above the buttons: beside them its wrap minimum plus the
 	## two buttons was wider than a 393 px phone sheet, and a horizontally-disabled scroller
 	## folds that width into every ancestor (measured: Send pushed off screen on the phone).
@@ -1489,7 +1494,7 @@ func _on_proposal(info: Dictionary) -> void:
 	var dismiss_b := _button(row, "Dismiss", func(): _dismiss_card(card))
 	card["dismiss"] = dismiss_b
 	if not valid.is_empty():
-		apply_b = _button(row, "Apply %d change%s" % [valid.size(), "" if valid.size() == 1 else "s"], func(): _apply_card(card), true)
+		apply_b = _button(row, _apply_button_text(info), func(): _apply_card(card), true)
 		card["apply"] = apply_b
 	_msgs.add_child(box)
 	cards.append(card)
@@ -1584,10 +1589,84 @@ func _apply_card(card: Dictionary) -> void:
 		_close_card(card, "failed", "Not applied: %s. Nothing was changed." % String(r.get("reason", "")), "block")
 		return
 	card["group_id"] = int(r.get("id", 0))
-	card["applied_text"] = "Applied as one undo step (Edit ▸ Undo reverts all of it). Regenerate or Recompute to see it."
+	var plan := _regen_plan(info)
+	var rebuild: bool = plan != "none" and _regen_on_apply()
+	card["applied_text"] = ("Applied as one undo step (Edit ▸ Undo restores the settings only, it does not rebuild the world). Rebuilding now."
+		if rebuild else "Applied as one undo step (Edit ▸ Undo restores the settings only). Press Generate to see the effect.")
 	_close_card(card, "applied", String(card["applied_text"]), "good")
+	var n := int(r.get("members", 0))
 	if app.has_method("set_status"):
-		app.set_status("hint", "Assistant: %d setting%s changed. Nothing was regenerated." % [int(r.get("members", 0)), "" if int(r.get("members", 0)) == 1 else "s"])
+		app.set_status("hint", "Assistant: %d setting%s changed.%s" % [n, "" if n == 1 else "s",
+			" Rebuilding the world with them." if rebuild else " The world was not rebuilt."])
+	if rebuild:
+		_regenerate_after_apply(plan)
+
+
+## Ruling DS: the user's global switch "Regenerate when I apply a proposal" (default ON).
+func _regen_on_apply() -> bool:
+	return bool(DccSettings.llm_value("regen_on_apply"))
+
+
+## What the valid changes need, from the engine's own cost class per key (`params::invalidates`,
+## carried as the verdict's `regen`): "generate" when any change needs a full Generate, else
+## "climate" when any needs the cheap refresh (climate or settlements), else "none" (all take
+## effect at once). A missing or unknown class counts as "generate": the complete rebuild is
+## the safe answer, never a plausible "nothing needed".
+func _regen_plan(info: Dictionary) -> String:
+	var plan := "none"
+	for c in info.get("valid", []):
+		match String((c as Dictionary).get("regen", "generate")):
+			"live":
+				pass
+			"climate", "settlements":
+				plan = "climate"
+			_:
+				return "generate"
+	return plan
+
+
+## The card's one effect line, in plain words, from the plan and the switch.
+func _apply_effect_text(info: Dictionary) -> String:
+	var plan := _regen_plan(info)
+	if plan == "none":
+		return "Applying changes the settings only; they take effect at once."
+	if not _regen_on_apply():
+		return "Applying changes the settings only. Press Generate afterwards to rebuild the world."
+	if plan == "climate":
+		return "Applying changes the settings, then refreshes the climate. The world itself is not replaced."
+	return "Applying changes the settings, then rebuilds the whole world with them. If you have hand edits, you are asked first."
+
+
+## "Apply and regenerate" whenever Apply will rebuild something, else the old count button.
+func _apply_button_text(info: Dictionary) -> String:
+	if _regen_on_apply() and _regen_plan(info) != "none":
+		return "Apply and regenerate"
+	var n: int = (info.get("valid", []) as Array).size()
+	return "Apply %d change%s" % [n, "" if n == 1 else "s"]
+
+
+## Starts the rebuild through the app's own user paths, AFTER the settings are written and
+## committed (a declined confirmation or a failed run leaves them applied and undoable): a full
+## Generate through WORLD > Generate's guard (`world_workspace.gd::_regenerate_live`: discard
+## question, phone memory question, busy overlay, cancel, failure), the cheap refresh through the
+## status bar's Recompute (`app.gd::_recompute_stale`). Calls generate at most once.
+func _regenerate_after_apply(plan: String) -> void:
+	if plan == "climate":
+		app._recompute_stale()
+		return
+	var ww = app._world_workspace()
+	if ww == null:
+		app.set_status("hint", "Settings applied. The world screen is not available; press Generate to rebuild.")
+		return
+	if not bridge.generation_finished.is_connected(_on_regen_finished):
+		bridge.generation_finished.connect(_on_regen_finished, CONNECT_ONE_SHOT)
+	ww._regenerate_live()
+
+
+## A failed rebuild leaves the new settings applied and says so.
+func _on_regen_finished(ok: bool) -> void:
+	if not ok and app.has_method("set_status"):
+		app.set_status("hint", "The world could not be rebuilt. The new settings are still applied; press Generate to try again, or Edit ▸ Undo to restore the old settings.")
 
 
 # ---------------------------------------------------------------------------
@@ -1755,7 +1834,7 @@ func _sync_card_undo() -> void:
 			"undone":
 				if st == "applied":
 					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it." if is_edit else "Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
-						else "Undone with Edit ▸ Undo: the settings are back to what they were before this card. Nothing was regenerated. Edit ▸ Redo re-applies them."), "text_dim")
+						else "Undone with Edit ▸ Undo: the settings are back to what they were before this card. The world was not rebuilt; press Generate to rebuild it. Edit ▸ Redo re-applies the settings."), "text_dim")
 			_:
 				if st == "undone":
 					_close_card(card, "undone", "Undone. A newer change replaced it, so it can no longer be redone.", "text_ghost")
