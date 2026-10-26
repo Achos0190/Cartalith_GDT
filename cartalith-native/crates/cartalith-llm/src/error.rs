@@ -73,6 +73,16 @@ pub enum LlmError {
     /// A tool call had unparsable arguments, a non-object argument value, no
     /// name, or a name the app did not offer (scope s.2: closed tool set).
     MalformedToolCall(Scrubbed),
+    /// The provider ended the reply with `finish_reason: "length"` while a tool
+    /// call's arguments were still incomplete JSON: the output cap cut the call
+    /// short, which is the app's `max_tokens`, not a malformed call. `max_tokens`
+    /// is the cap the request carried when the caller told the decoder
+    /// ([`crate::openai::OpenAiDecoder::with_max_tokens`]); absent otherwise,
+    /// never a stand-in number (MISTAKES.md: no value is not a plausible value).
+    ReplyCutAtLengthCap {
+        /// The request's cap, when known.
+        max_tokens: Option<u32>,
+    },
     /// A line was not valid UTF-8.
     InvalidUtf8,
     /// A single SSE line or event exceeded the size guard.
@@ -96,6 +106,10 @@ impl fmt::Display for LlmError {
             }
             LlmError::MalformedChunk(m) => write!(f, "malformed stream chunk: {m}"),
             LlmError::MalformedToolCall(m) => write!(f, "malformed tool call: {m}"),
+            LlmError::ReplyCutAtLengthCap { max_tokens: Some(n) } => {
+                write!(f, "the reply was cut at the length cap (max_tokens {n})")
+            }
+            LlmError::ReplyCutAtLengthCap { max_tokens: None } => f.write_str("the reply was cut at the length cap"),
             LlmError::InvalidUtf8 => f.write_str("stream line was not valid UTF-8"),
             LlmError::Oversized => f.write_str("stream line or event exceeded the size guard"),
             LlmError::StreamEndedEarly => f.write_str("stream ended before its end marker"),

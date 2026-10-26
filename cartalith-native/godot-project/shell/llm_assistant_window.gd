@@ -253,6 +253,19 @@ func _dot(token: String) -> void:
 
 func _rebuild() -> void:
 	_building = true
+	## **Drop the cards with the widgets that held them.** `_clear(_body)` frees every card box
+	## and its buttons; the array that indexes them must go in the same breath, or the next
+	## `_refresh_cards` reads `card["apply"]` off a freed instance ("previously freed instance",
+	## 132 to 437 times per arm log in the live comparison of 2026-10-26, REPORT.md Defects 2).
+	## Decision: a reopened panel starts a fresh conversation (the transcript is rebuilt empty
+	## too), so the cards are CLEARED, not re-created; the note below says so for any card that
+	## was still waiting, because a silently vanished proposal would look like a lost change.
+	## Nothing is applied or undone by this.
+	var dropped := 0
+	for card in cards:
+		if card["state"] == "new" and card["apply"] != null:
+			dropped += 1
+	cards.clear()
 	_clear(_body)
 	controls.clear()
 	_chips.clear()
@@ -346,6 +359,9 @@ func _rebuild() -> void:
 	_msgs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_msgs)
 	controls["messages"] = _msgs
+	if dropped > 0:
+		var gone := _note_label(_msgs, "%d proposal%s from before the panel was reopened %s cleared. Nothing was applied; ask again to get a new one." % [dropped, "" if dropped == 1 else "s", "was" if dropped == 1 else "were"], "text_dim")
+		controls["cleared_note"] = gone
 	_reply = ""
 	_reply_label = null
 	_add_msg("", "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.", "text_ghost")
@@ -960,6 +976,9 @@ func _card_text(parent: Control, text: String, token: String) -> Label:
 ## V13 for every open card: Apply is disabled with the reason beside it while a world
 ## generates or is finalized (`LlmStream.apply_availability`, the Rust wording).
 func _refresh_cards() -> void:
+	## A card whose widgets were freed (a rebuild that missed the array) is dropped, never read:
+	## belt and braces over `_rebuild`'s clear, so a stale entry cannot raise again.
+	cards = cards.filter(func(c): return is_instance_valid(c["box"]))
 	for card in cards:
 		var b: Button = card["apply"]
 		var rl: Label = card["reason"]
@@ -984,7 +1003,7 @@ func _close_card(card: Dictionary, state: String, text: String, token: String) -
 	card["state"] = state
 	for k in ["apply", "dismiss"]:
 		var b: Button = card[k]
-		if b != null:
+		if b != null and is_instance_valid(b):
 			b.disabled = true
 	var rl: Label = card["reason"]
 	rl.text = text

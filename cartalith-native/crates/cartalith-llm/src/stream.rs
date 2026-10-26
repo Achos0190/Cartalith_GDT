@@ -108,6 +108,16 @@ impl StreamSession {
         }
     }
 
+    /// Tell the session the output cap the request carried, so a tool call cut by
+    /// it is reported with the real number (OpenAI-compatible wire only; the
+    /// Anthropic decoder ignores it).
+    pub fn with_max_tokens(mut self, n: u32) -> Self {
+        if let Decoder::OpenAi(d) = self.decoder {
+            self.decoder = Decoder::OpenAi(d.with_max_tokens(n));
+        }
+        self
+    }
+
     /// The flag the wire polls to know it must close the socket. Cloning the
     /// `Arc` is the only thing a second thread needs; it never touches the
     /// decoder.

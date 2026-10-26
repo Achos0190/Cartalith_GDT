@@ -28,6 +28,8 @@ extends Node
 ##      ONCE (3 requests), offer no Apply, and write nothing (digest unchanged).
 ##   6. WORDS: a model that answers in text gives "No setting change was proposed" and no card.
 ##   7. V13: while a world generates, an open card's Apply is disabled with the reason.
+##   9. REOPEN: reopening the panel twice with cards present clears the cards array (no freed
+##      buttons kept), notes a dropped waiting card, and a card made after the reopen obeys V13.
 ##   8. DISMISS and TOUCH: Dismiss closes a card writing nothing; on tablet and phone the card's
 ##      buttons meet the touch floor.
 ## Result: `RESULT: PASS|FAIL (<n> failed) checks=<n>`. Exit 0 pass, 1 fail, 2 bad argument/watchdog.
@@ -441,4 +443,36 @@ func _ready() -> void:
 	_ok(c7["state"] == "dismissed" and (c7["apply"] as Button).disabled and _digest() == d8, "Dismiss closes the card and writes nothing")
 	_ok(not _text_of(_win).contains(SECRET), "the key is in no label or tooltip of the panel")
 	await _shot("8_dismissed")
+
+	print("== 9. Reopening the panel with cards present (REPORT.md Defects 2) ==")
+	## Two cards (one new, one dismissed) exist; reopen TWICE. Before the fix `cards` kept the
+	## freed buttons and `_refresh_cards` raised "previously freed instance" on the next refresh;
+	## the runner greps the log for SCRIPT ERROR, and the checks below assert the array is
+	## cleared, a note says a waiting card was dropped, and a card made AFTER the reopen is
+	## fully live: Apply is disabled with the reason while a world generates.
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "drier again")
+	var c9 := _last_card()
+	_ok(not c9.is_empty() and c9["state"] == "new" and _win.cards.size() >= 2, "9: a waiting card and an older one exist before the reopen (%d cards)" % _win.cards.size())
+	for n in 2:
+		_win.open()
+		await _settle(4)
+		_win._refresh()
+		await _settle(2)
+		_ok(_win.controls.has("cleared_note") == (n == 0), "9: reopen %d: the cleared-proposal note shows once, on the reopen that dropped a waiting card" % (n + 1))
+		_ok(_win.cards.is_empty(), "9: reopen %d clears the cards array (was holding freed buttons)" % (n + 1))
+		_ok(not is_instance_valid(c9["box"]) or not c9["box"].is_inside_tree(), "9: reopen %d: the old card's widgets are gone from the panel" % (n + 1))
+	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "drier after reopen")
+	var c9b := _last_card()
+	_ok(not c9b.is_empty() and c9b.get("apply") != null and not (c9b["apply"] as Button).disabled, "9: a card made after the reopen has an enabled Apply")
+	if not c9b.is_empty() and c9b.get("apply") != null:
+		_bridge.generate({"seed": 4343, "width_km": 1200.0, "grid_w": 256, "grid_h": 164, "archetype": "", "villages": false})
+		await _settle(2)
+		_win._refresh()
+		await _settle(2)
+		_ok(_bridge.generating and (c9b["apply"] as Button).disabled and (c9b["reason"] as Label).text.contains("generating"), "9: V13 holds for a card made after the reopen: '%s'" % (c9b["reason"] as Label).text)
+		while _bridge.generating:
+			await get_tree().create_timer(0.2).timeout
+		await _settle(8)
+		if _app.open_project_dialog:
+			_app.open_project_dialog.hide()
 	_finish()

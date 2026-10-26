@@ -359,7 +359,7 @@ impl LlmStream {
             inner.budget = RetryBudget::new();
         }
         let tools: PackedStringArray = req.tools.iter().map(|t| GString::from(t.name.as_str())).collect();
-        inner.session = Some(StreamSession::for_style(prepared.authorized.style, &req.tools, key.as_ref()));
+        inner.session = Some(StreamSession::for_style(prepared.authorized.style, &req.tools, key.as_ref()).with_max_tokens(req.max_tokens));
         let turns = conv.turns() as i64;
         inner.params = Some(ParamsState { conv, cat, text: String::new(), calls: Vec::new(), max_tokens, include_usage });
         drop(inner);

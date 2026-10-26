@@ -82,7 +82,7 @@ fn attempt(
         Ok(r) => r,
         Err(e) => return (vec![Event::Error(e)], false),
     };
-    let mut session = StreamSession::for_style(style, &req.tools, key);
+    let mut session = StreamSession::for_style(style, &req.tools, key).with_max_tokens(req.max_tokens);
     session.on_head(resp.status);
     let mut events = Vec::new();
     for chunk in resp.body {

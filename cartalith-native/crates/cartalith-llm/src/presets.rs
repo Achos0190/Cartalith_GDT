@@ -210,13 +210,18 @@ pub struct RequestHints {
 ///   without a flag [recalled].
 ///
 /// `no_thinking` (LLM-6a): `ollama` gets `reasoning_effort: "none"` [verified, see
-/// `Thinking::ReasoningEffortNone`]; `llama_cpp` and `vllm` get the Qwen3
-/// `chat_template_kwargs` switch [recalled]; everything else, including LM Studio
-/// (no field verified) and every custom or hosted id, gets `Default`, i.e. nothing,
-/// because an unknown field can fail the whole call.
+/// `Thinking::ReasoningEffortNone`], and so does `lm_studio` [verified by measurement
+/// 2026-10-26 on LM Studio 0.4.26: 0 reasoning tokens, REPORT.md of the live
+/// comparison]; `llama_cpp` and `vllm` get the Qwen3 `chat_template_kwargs` switch
+/// [recalled]; every custom or hosted id gets `Default`, i.e. nothing, because an
+/// unknown field can fail the whole call. The field is sent only by the
+/// parameter-proposal task, never by prose.
 pub fn request_hints(preset_id: &str) -> RequestHints {
     let no_thinking = match preset_id {
-        "ollama" => Thinking::ReasoningEffortNone,
+        // [verified by measurement 2026-10-26 on LM Studio 0.4.26]: the live comparison
+        // (docs/evidence/llm-live-2026-10-26/REPORT.md) sent `reasoning_effort: "none"` to
+        // LM Studio's /v1/chat/completions with Qwen3.8-27B and got 0 reasoning tokens.
+        "ollama" | "lm_studio" => Thinking::ReasoningEffortNone,
         "llama_cpp" | "vllm" => Thinking::ChatTemplateNoThinking,
         _ => Thinking::Default,
     };
@@ -255,16 +260,40 @@ mod tests {
     }
 
     /// Protects (LLM-6a): the thinking switch is sent only to the presets whose
-    /// field is known, as literals per id. MUTATION: give `lm_studio` or a hosted
+    /// field is known, as literals per id. MUTATION: remove `lm_studio`'s switch, or give a hosted
     /// id a switch, or swap Ollama's for the chat-template one, and this goes red.
     #[test]
     fn no_thinking_only_where_the_field_is_known() {
         assert_eq!(request_hints("ollama").no_thinking, Thinking::ReasoningEffortNone);
+        assert_eq!(request_hints("lm_studio").no_thinking, Thinking::ReasoningEffortNone);
         assert_eq!(request_hints("llama_cpp").no_thinking, Thinking::ChatTemplateNoThinking);
         assert_eq!(request_hints("vllm").no_thinking, Thinking::ChatTemplateNoThinking);
-        for id in ["lm_studio", "openai", "openrouter", "gemini_openai", "anthropic", "custom_openai", "custom_anthropic", ""] {
+        for id in ["openai", "openrouter", "gemini_openai", "anthropic", "custom_openai", "custom_anthropic", ""] {
             assert_eq!(request_hints(id).no_thinking, Thinking::Default, "{id}");
         }
+    }
+
+    /// Protects the LM Studio switch end to end: the hints for `lm_studio` put the
+    /// literal `"reasoning_effort": "none"` in the request body, and the same body
+    /// built with the prose default carries no such field (so prose is untouched).
+    /// [verified by measurement 2026-10-26 on LM Studio 0.4.26]. MUTATION: change
+    /// `lm_studio`'s arm back to `Default`.
+    #[test]
+    fn lm_studio_body_carries_reasoning_effort_none() {
+        let mk = |t| crate::openai::ChatRequest {
+            model: "m".into(),
+            messages: vec![crate::openai::Message::text(crate::openai::Role::User, "hi")],
+            tools: vec![],
+            max_tokens: 64,
+            max_tokens_field: request_hints("lm_studio").max_tokens_field,
+            include_usage: false,
+            thinking: t,
+        };
+        let body = |t| -> serde_json::Value {
+            serde_json::from_slice(&crate::openai::build_chat_request("http://localhost:1234/v1", None, &mk(t)).unwrap().body).unwrap()
+        };
+        assert_eq!(body(request_hints("lm_studio").no_thinking)["reasoning_effort"], "none");
+        assert!(body(Thinking::Default).get("reasoning_effort").is_none());
     }
 
     /// Protects: every preset's base URL passes the same validator a user's

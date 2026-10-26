@@ -102,14 +102,18 @@ fn a_streamed_tool_call_is_reassembled_and_validated() {
 }
 
 /// Protects: bar 3, "a malformed tool-call JSON is rejected": truncated
-/// arguments yield exactly one `MalformedToolCall` error and no `ToolCall`.
+/// arguments yield exactly one error and no `ToolCall`. Since 2026-10-26 this
+/// fixture (cut arguments, `finish_reason: "length"`) is reported as a length cut
+/// carrying the request's real cap (the helper's 256), no longer as
+/// `MalformedToolCall`; the malformed case under `stop` is in
+/// `a_length_cut_tool_call_is_reported_as_a_cut`.
 #[test]
 fn malformed_tool_call_json_is_rejected() {
     let mut t = MockTransport::new().reply(200, chunked(TOOL_MALFORMED, 13));
     let events = run_chat(&mut t, BASE, None, &request(vec![tool()]));
     assert!(!events.iter().any(|e| matches!(e, Event::ToolCall { .. })), "{events:?}");
     assert!(
-        matches!(events.last(), Some(Event::Error(LlmError::MalformedToolCall(_)))),
+        matches!(events.last(), Some(Event::Error(LlmError::ReplyCutAtLengthCap { max_tokens: Some(256) }))),
         "{events:?}"
     );
 }
@@ -413,4 +417,39 @@ fn the_mock_records_requests() {
         let b: serde_json::Value = serde_json::from_slice(&h.body).unwrap();
         assert!(b["max_tokens"].as_u64().unwrap() > 0);
     }
+}
+
+/// Protects the length-cut report (live comparison 2026-10-26, B1): a tool call
+/// whose arguments end mid-JSON under `finish_reason: "length"` is reported as
+/// "the reply was cut at the length cap (max_tokens 1024)" with the request's
+/// real cap, NOT "malformed tool call"; the same truncated arguments under
+/// `tool_calls`/`stop` stay malformed; a wrong tool name under `length` stays
+/// malformed; with no cap told, the message carries no number. MUTATION: drop
+/// the `cut &&` test (then the `stop` case turns into a length cut) or
+/// the `is_eof()` test (then the wrong-shape-under-length case does).
+#[test]
+fn a_length_cut_tool_call_is_reported_as_a_cut() {
+    let run = |args: &str, name: &str, reason: &str, cap: Option<u32>| -> Vec<Event> {
+        let v = json!({"choices":[{"delta":{"tool_calls":[
+            {"index":0,"id":"a","function":{"name":name,"arguments":args}}]},"finish_reason":reason}]});
+        let d = OpenAiDecoder::new(&[tool()], None);
+        let mut d = if let Some(n) = cap { d.with_max_tokens(n) } else { d };
+        d.push(format!("data: {v}
+
+").as_bytes())
+    };
+    let cut = r#"{"groups": ["wea"#;
+    let ev = run(cut, "set_layer", "length", Some(1024));
+    assert_eq!(ev, vec![Event::Error(LlmError::ReplyCutAtLengthCap { max_tokens: Some(1024) })]);
+    let LlmError::ReplyCutAtLengthCap { .. } = (match &ev[0] { Event::Error(e) => e.clone(), _ => unreachable!() }) else { panic!() };
+    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "the reply was cut at the length cap (max_tokens 1024)");
+    let ev = run(cut, "set_layer", "length", None);
+    assert_eq!(match &ev[0] { Event::Error(e) => e.to_string(), _ => String::new() }, "the reply was cut at the length cap");
+    for reason in ["stop", "tool_calls"] {
+        assert!(matches!(run(cut, "set_layer", reason, Some(1024)).as_slice(), [Event::Error(LlmError::MalformedToolCall(_))]), "{reason}");
+    }
+    // Garbage that is wrong mid-text (not merely ended early) is malformed even under `length`.
+    assert!(matches!(run(r#"{"a": }"#, "set_layer", "length", Some(1024)).as_slice(), [Event::Error(LlmError::MalformedToolCall(_))]));
+    assert!(matches!(run("[1]", "set_layer", "length", Some(1024)).as_slice(), [Event::Error(LlmError::MalformedToolCall(_))]));
+    assert!(matches!(run(cut, "delete_world", "length", Some(1024)).as_slice(), [Event::Error(LlmError::MalformedToolCall(_))]));
 }

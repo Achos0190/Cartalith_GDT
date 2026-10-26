@@ -310,6 +310,8 @@ pub struct OpenAiDecoder {
     /// Calls by the provider's `index`, so interleaved fragments reassemble.
     calls: BTreeMap<u64, PartialCall>,
     finish_reason: Option<String>,
+    /// The request's output cap, for the length-cut message only.
+    max_tokens: Option<u32>,
     ended: bool,
 }
 
@@ -322,8 +324,16 @@ impl OpenAiDecoder {
             allowed: tools.iter().map(|t| t.name.clone()).collect(),
             calls: BTreeMap::new(),
             finish_reason: None,
+            max_tokens: None,
             ended: false,
         }
+    }
+
+    /// Tell the decoder the cap the request carried, so a tool call cut by it is
+    /// reported as "cut at the length cap (max_tokens N)" with the real N.
+    pub fn with_max_tokens(mut self, n: u32) -> Self {
+        self.max_tokens = Some(n);
+        self
     }
 
     /// True once `Done` or `Error` has been produced.
@@ -474,8 +484,18 @@ impl OpenAiDecoder {
             if !self.allowed.contains(&c.name) {
                 return Err(bad("tool call names a tool that was not offered"));
             }
-            let arguments: Value = serde_json::from_str(&c.arguments)
-                .map_err(|e| bad(&format!("arguments are not valid JSON ({e})")))?;
+            // A reply that stopped on the length cap with unparsable arguments was cut, not
+            // malformed (REPORT.md of the live comparison, 2026-10-26: B1's truncated tool
+            // call). Only a JSON syntax/EOF failure counts; a wrong name or shape stays
+            // MalformedToolCall even under `length`.
+            let cut = self.finish_reason.as_deref() == Some("length");
+            let arguments: Value = serde_json::from_str(&c.arguments).map_err(|e| {
+                if cut && e.is_eof() {
+                    LlmError::ReplyCutAtLengthCap { max_tokens: self.max_tokens }
+                } else {
+                    bad(&format!("arguments are not valid JSON ({e})"))
+                }
+            })?;
             if !arguments.is_object() {
                 return Err(bad("arguments are not a JSON object"));
             }

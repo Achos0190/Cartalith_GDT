@@ -39,6 +39,15 @@ use crate::prompt::MAX_REQUEST_CHARS;
 /// model that asks for a wrong group first.
 pub const MAX_TURNS: usize = 5;
 
+/// The most settings one request may have opened across all its schema calls
+/// (the union of the groups shown, scope s.5b.1/5b.8). [judgement, 2026-10-26]:
+/// 80 is above the three largest groups together (erosion 29 + volcanism 19 +
+/// tectonics 16 = 64 offered keys on 2026-10-26) so any reasonable request fits,
+/// and below the 114 offered keys so the V6 set and the proposal tool's key enum
+/// cannot grow to the whole catalogue by repeated calls. Each call is still
+/// capped at three groups by the catalogue.
+pub const MAX_SHOWN_KEYS: usize = 80;
+
 /// Automatic retries after a proposal the validator refused (scope s.5b.2
 /// outcome rule and s.4 item 7: "allows **one** automatic retry").
 pub const MAX_PROPOSAL_RETRIES: usize = 1;
@@ -104,7 +113,7 @@ impl ParamsConversation {
         })
     }
 
-    /// The groups the model opened with its last valid schema call.
+    /// The groups the model has opened so far (the union of its valid schema calls).
     pub fn shown_groups(&self) -> &[String] {
         &self.shown_groups
     }
@@ -214,9 +223,35 @@ impl ParamsConversation {
             let body = if r.name == GET_SCHEMA_TOOL {
                 match cat.schema_for(r.arguments.get("groups")) {
                     Ok((groups, value, keys)) => {
-                        self.shown_groups = groups;
-                        self.shown_keys = keys;
-                        value.to_string()
+                        // UNION, never replace: the live comparison of 2026-10-26 showed a
+                        // second call (world, then volcanism) dropping the first call's keys
+                        // and costing Claude its volcano card (REPORT.md, Defects 1). Order is
+                        // first-shown first, so the offered enum is stable across calls.
+                        let mut g = self.shown_groups.clone();
+                        for x in groups {
+                            if !g.contains(&x) {
+                                g.push(x);
+                            }
+                        }
+                        let mut k = self.shown_keys.clone();
+                        for x in keys {
+                            if !k.contains(&x) {
+                                k.push(x);
+                            }
+                        }
+                        if k.len() > MAX_SHOWN_KEYS {
+                            // Nothing is added: the earlier groups stay offered and the model
+                            // is told why, so a loop of schema calls cannot widen V6's set
+                            // without bound.
+                            json!({"error": format!(
+                                "that would open more than {MAX_SHOWN_KEYS} settings in this request;                                  propose with the groups already opened ({})",
+                                self.shown_groups.join(", "))})
+                            .to_string()
+                        } else {
+                            self.shown_groups = g;
+                            self.shown_keys = k;
+                            value.to_string()
+                        }
                     }
                     Err(e) => json!({"error": e}).to_string(),
                 }
@@ -378,5 +413,48 @@ mod tests {
         assert!(matches!(c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["world"]}))]), Step::Failed(_)));
         assert!(ParamsConversation::new(&cat, "   ").is_err());
         assert!(ParamsConversation::new(&cat, &"a".repeat(MAX_REQUEST_CHARS + 1)).is_err());
+    }
+
+    /// Protects the union: schema(climate) then schema(tectonics) keeps both, so
+    /// a climate key and a tectonics key are both accepted; a volcanism key never
+    /// shown is refused V6. MUTATION: restore `shown_groups = groups` (replace) and
+    /// the climate key becomes V6; or make V6 accept every group and the
+    /// volcanism key is accepted. Fixture groups are those of `catalogue::tests`.
+    #[test]
+    fn a_second_schema_call_adds_to_the_offered_keys() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["tectonics"]}))]);
+        assert_eq!(c.shown_groups(), &["weather".to_string(), "tectonics".to_string()], "union in first-shown order");
+        let en = req(&c, &cat).tools[1].parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"].as_array().unwrap().len();
+        assert_eq!(en, 8, "weather 4 + tectonics 4 in the fixture, not tectonics alone");
+        let ok = json!({"changes": [{"key": "climate.ocean", "value": 0.7}, {"key": "tect.alpha", "value": 0.65}]});
+        let v = cat.validate(&ok, c.shown_groups());
+        assert_eq!(v.valid.len(), 2, "both the first-opened and the later-opened group's key are accepted: {v:?}");
+        assert!(v.rejected.is_empty());
+        // A group never opened stays refused, whichever other groups are open.
+        let bad = json!({"changes": [{"key": "civ.factions", "value": 9}]});
+        let v = cat.validate(&bad, c.shown_groups());
+        assert_eq!(v.rejected.len(), 1);
+        assert_eq!(v.rejected[0].rule, crate::catalogue::Rule::V6);
+    }
+
+    /// Protects the budget: a call that would push the union over
+    /// [`MAX_SHOWN_KEYS`] opens nothing and the error names the groups still
+    /// open; the cap is a literal. MUTATION: 80 -> 81, or drop the check.
+    #[test]
+    fn the_union_is_capped() {
+        assert_eq!(MAX_SHOWN_KEYS, 80);
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        // Force the budget low by pre-filling shown_keys (the fixture has only ~20 rows).
+        c.shown_groups = vec!["weather".into()];
+        c.shown_keys = (0..MAX_SHOWN_KEYS).map(|i| format!("pad.{i}")).collect();
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["tectonics"]}))]);
+        assert_eq!(c.shown_groups(), &["weather".to_string()], "nothing added");
+        assert_eq!(c.shown_keys.len(), MAX_SHOWN_KEYS);
+        let m = &c.messages().last().unwrap().content;
+        assert!(m.contains("more than 80") && m.contains("weather"), "{m}");
     }
 }

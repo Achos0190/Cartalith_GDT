@@ -294,3 +294,32 @@ fn two_step_flow_over_real_rows() {
     bad.on_reply(&c, "", vec![IncomingCall { id: None, name: "get_param_schema".into(), arguments: json!({"groups": ["rainfall"]}) }]);
     assert!(bad.shown_groups().is_empty() && bad.tools(&c).len() == 1);
 }
+
+/// Replays Claude's "more volcanoes" run of 2026-10-26 (REPORT.md, Defects 1)
+/// over the REAL rows: schema call 1 for `world`, schema call 2 for `volcanism`,
+/// then `volc.count`. Before the union fix call 2 replaced call 1's groups and
+/// the model still had `volc.count` (so this one passes under replace too); the
+/// DISTINGUISHING half is the reverse order: `volcanism` first, then `world`,
+/// then `volc.count` -- which the old replace refused V6. Also: a `climate` key
+/// never opened is still V6. MUTATION: `shown_groups = groups` in params_flow.rs
+/// turns the second proposal red.
+#[test]
+fn claude_more_volcanoes_replay_accepts_the_earlier_groups_key() {
+    let c = fresh();
+    let call = |g: &str| vec![IncomingCall { id: None, name: "get_param_schema".into(), arguments: json!({"groups": [g]}) }];
+    let propose = |key: &str, v: f64| vec![IncomingCall { id: None, name: "set_generation_params".into(), arguments: json!({"changes": [{"key": key, "value": v}]}) }];
+    for order in [["world", "volcanism"], ["volcanism", "world"]] {
+        let mut conv = ParamsConversation::new(&c, "more volcanoes").unwrap();
+        assert_eq!(conv.on_reply(&c, "", call(order[0])), Step::Continue);
+        assert_eq!(conv.on_reply(&c, "", call(order[1])), Step::Continue);
+        assert_eq!(conv.shown_groups().len(), 2, "{order:?}");
+        let st = conv.on_reply(&c, "", propose("volc.count", 30.0));
+        let Step::Proposal(v) = st else { panic!("{order:?}: {st:?}") };
+        assert_eq!(v.valid.len(), 1, "{order:?}: {v:?}");
+    }
+    let mut conv = ParamsConversation::new(&c, "more volcanoes").unwrap();
+    conv.on_reply(&c, "", call("world"));
+    conv.on_reply(&c, "", call("volcanism"));
+    let Step::Retry(v) = conv.on_reply(&c, "", propose("climate.ocean", 0.7)) else { panic!() };
+    assert_eq!(v.rejected[0].rule, Rule::V6);
+}
