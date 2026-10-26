@@ -47,10 +47,12 @@ class_name LlmAssistantWindow
 ##   note was PICKED, so an edit made in between is refused and nothing is written. The text
 ##   is the picked note's own text with a model-generated block appended
 ##   (`LlmStream.compose_note`): the user's words are never edited.
-## * **Sends only ticked sources.** The current place's fields and events are sent only when
-##   "Send: current entity" is on; a note's text only when "Send: named Vault notes" is on. A
-##   source that is not allowed is absent from the request, not empty, and the "This will send"
-##   line says exactly what will leave.
+## * **Sends only ticked sources, except the subject of a place entry.** A Story request sends the
+##   place's events only when "Send: current entity" is on; a named note's text, and the Vault notes
+##   that bear on a place, only when "Send: named Vault notes" is on. A source that is not allowed
+##   is absent from the request, not empty. **A "Describe place" entry always carries the place's
+##   generated data** (the place IS its subject: `LlmPlaceFacts`, LLM-11, owner 2026-10-26), listed
+##   exactly in the "This will send" line, and hosted providers still need their per-origin consent.
 ## * **Marks model text.** Every assistant message carries a "model-generated" chip and is
 ##   drawn in a muted ink so it cannot read as an app sentence.
 ## * **The token counter is Rust's.** The totals come from `LlmStream.token_counts()` (one
@@ -103,6 +105,16 @@ var _stop: Button
 var _save: Button
 var _building := false
 var _chips: Dictionary = {}
+## The gathered place facts (LLM-11): `{key, tid, name, bundle: <LlmStream.place_bundle result>,
+## gather_ms, vault: <LlmPlaceFacts.gather_vault result or {}>}`, or `{}`. Rebuilt when the place, the
+## picked note or the Vault setting changes, and always at Send so the model sees the world as it is.
+var _facts: Dictionary = {}
+## The facts the CURRENT reply was written from (the bundle's grounding corpus lives here), and the
+## last grounding check, for probes.
+var _sent_facts: Dictionary = {}
+var last_grounding: Dictionary = {}
+## The reply the grounding check last ran on (so a repeat finish does not add a second card).
+var _grounded_reply := ""
 ## Files listed in the Vault picker, index + 1 -> relative path.
 var _note_paths: PackedStringArray = PackedStringArray()
 
@@ -140,6 +152,9 @@ const MAX_NOTES := 400
 const WRAP_MIN_W := 160
 ## Reply cap sent as `max_tokens`. Labelled judgement: about a page of prose.
 const REPLY_MAX_TOKENS := 1024
+## Reply cap for a grounded place entry (LLM-11). Labelled judgement: a 600-word entry with topics
+## is about 900 tokens, and 1 024 cut two of eight stage-1 replies mid-sentence.
+const PLACE_REPLY_MAX_TOKENS := 2048
 ## The proposal cards shown, oldest first, for probes: each `{info, box, apply, dismiss,
 ## reason, state}` where `state` is "new", "applied", "dismissed" or "failed".
 var cards: Array = []
@@ -360,6 +375,24 @@ func _rebuild() -> void:
 	place_l.custom_minimum_size.x = WRAP_MIN_W
 	_body.add_child(place_l)
 	controls["place"] = place_l
+	## Grounded prose (LLM-11): the facts sent for the chosen place are viewable before and after
+	## sending. Local only: this button shows the text, it sends nothing.
+	var facts_row := HBoxContainer.new()
+	facts_row.add_theme_constant_override("separation", 6)
+	_body.add_child(facts_row)
+	controls["facts_row"] = facts_row
+	var facts_l := DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
+	facts_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	facts_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	facts_l.custom_minimum_size.x = WRAP_MIN_W
+	facts_row.add_child(facts_l)
+	controls["facts_status"] = facts_l
+	var facts_btn := _button(facts_row, "View facts", _on_view_facts)
+	facts_btn.tooltip_text = "Show the generated data and Vault notes that will be sent with a place entry. Nothing is sent by this."
+	controls["facts_view"] = facts_btn
+	var facts_re := _button(facts_row, "Refresh", _on_refresh_facts)
+	facts_re.tooltip_text = "Read the place's data and notes again (it is also read fresh at every Send)."
+	controls["facts_refresh"] = facts_re
 
 	## One row on every density (a phone's stacked label, picker and Reload cost 55 px the sheet
 	## does not have: with them the body overflowed the sheet by 30 px, measured on 393x852).
@@ -389,8 +422,19 @@ func _rebuild() -> void:
 	_body.add_child(act)
 	controls["note_action"] = act
 
-	_sent_label = _note_label(_body, "", "text_secondary")
+	## The "this will send" line itemises every section, count, cut and Vault note title (LLM-11), which
+	## is long: it scrolls inside a bounded box so it never pushes the Send and Save rows off a phone
+	## sheet (measured on 393x852: the unbounded line was 190 px and hid the Save row). Horizontal scroll is
+	## disabled, so the label states a minimum width (a disabled axis folds its child's minimum into the
+	## container's: `_note_label` sets one).
+	var sent_scroll := ScrollContainer.new()
+	sent_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sent_scroll.custom_minimum_size.y = 64 if _phone else 80
+	sent_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.add_child(sent_scroll)
+	_sent_label = _note_label(sent_scroll, "", "text_secondary")
 	controls["sent"] = _sent_label
+	controls["sent_scroll"] = sent_scroll
 
 	# -- messages -----------------------------------------------------------------------
 	_scroll = ScrollContainer.new()
@@ -547,13 +591,19 @@ func _entity_events() -> String:
 ## allowed or not available is ABSENT (not empty), so it is neither sent nor mentioned.
 func _args(request: String) -> Dictionary:
 	var a := {"task": _task_id(), "request": request, "max_tokens": REPLY_MAX_TOKENS, "include_usage": true}
-	if _task == "prose" or _task == "story":
+	if _task == "prose" and not _place.is_empty():
+		## Grounded prose (LLM-11): the place's generated data (and, when allowed, its Vault notes)
+		## is the SUBJECT of the entry, so it is attached whatever the "current entity" switch says;
+		## that switch still governs the Story task. Hosted providers still need their consent (the
+		## gate), and the key rule is unchanged.
+		a["entity_label"] = String(_place["name"])
+		a["max_tokens"] = PLACE_REPLY_MAX_TOKENS
+		if not _facts.is_empty() and bool(_facts.get("bundle", {}).get("ok", false)):
+			a["place_bundle"] = String(_facts["bundle"]["bundle"])
+	elif _task == "story":
 		if bool(DccSettings.llm_value("ctx_entity")) and not _place.is_empty():
 			a["entity_label"] = String(_place["name"])
-			if _task == "prose":
-				a["entity_fields"] = _entity_fields()
-			else:
-				a["events"] = _entity_events()
+			a["events"] = _entity_events()
 	elif _task == "note":
 		if bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty():
 			a["note_path"] = String(_note["rel"])
@@ -611,6 +661,9 @@ func _refresh() -> void:
 	(controls["place"] as Label).text = _place_text()
 	## A setting proposal uses neither a place nor a note.
 	(controls["place"] as Label).visible = _task != "commands"
+	## The Commands explainer is about Commands only; hiding it elsewhere gives the place entry's longer
+	## "this will send" line room on a tablet or phone sheet (measured: with it, the Save row was clipped).
+	(controls["commands_note"] as Control).visible = _task == "commands"
 	(controls["note_row"] as Control).visible = _task != "commands"
 	(controls["groups_row"] as Control).visible = _task == "commands"
 	_groups_flow.visible = _task == "commands" and _groups_flow.visible
@@ -626,6 +679,16 @@ func _refresh() -> void:
 	(controls["note_reload"] as Button).disabled = busy or _note.is_empty()
 	_stop.visible = busy
 	_send.visible = true
+
+	## Grounded prose: make sure the facts for the chosen place are gathered (cached by place,
+	## picked note and Vault setting; Send always regathers).
+	if _task == "prose" and not _place.is_empty() and not busy:
+		_ensure_facts(false)
+	(controls["facts_row"] as Control).visible = _task == "prose"
+	(controls["facts_status"] as Label).text = _facts_status_text()
+	(controls["facts_status"] as Label).tooltip_text = _facts_status_detail()
+	(controls["facts_view"] as Button).disabled = busy or _facts.is_empty()
+	(controls["facts_refresh"] as Button).disabled = busy or _place.is_empty()
 
 	# What would be sent, and why Send is unavailable.
 	var request := _input.text.strip_edges()
@@ -657,6 +720,8 @@ func _refresh() -> void:
 	if reason == "" and sent_text == "":
 		sent_text = "This will send: nothing yet."
 	_sent_label.text = sent_text
+	## An empty line takes no room: the box only exists while there is something to itemise.
+	(controls["sent_scroll"] as Control).visible = sent_text != ""
 	_reason_label.text = reason
 	_reason_label.visible = reason != ""
 	_send.disabled = busy or (reason != "" and String(g.get("code", "")) != "consent_needed")
@@ -698,6 +763,8 @@ func _place_text() -> String:
 ## The "This will send" line: the request, then each ticked source with its size.
 func _sent_text(s: Dictionary) -> String:
 	var parts: PackedStringArray = PackedStringArray(["your request (%d characters)" % int(s["request_chars"])])
+	if bool(s.get("place", false)):
+		parts.append(_place_sent_text(s))
 	if bool(s["entity"]):
 		parts.append("the place's recorded fields (%d characters)" % int(s["entity_chars"]))
 	if bool(s["events"]):
@@ -707,6 +774,37 @@ func _sent_text(s: Dictionary) -> String:
 	var t := "This will send: " + ", ".join(parts) + "."
 	if bool(s["truncated"]):
 		t += " A source is long and will be cut."
+	return t
+
+
+## What the grounded place facts amount to, in the user's words: the sections with their line
+## counts, how many neighbours, what is stated as not available, and EXACTLY which Vault notes
+## (by title) go too. Every figure is Rust's (`LlmStream.preview`'s `sent`), none is recomputed here.
+func _place_sent_text(s: Dictionary) -> String:
+	var secs: PackedStringArray = PackedStringArray()
+	for sec in s.get("place_sections", []):
+		secs.append("%s (%d)" % [String(sec[0]), int(sec[1])])
+	var t := "the generated world data for %s (%d characters: %s; %d of %d settlements within 25 km listed" % [
+		String(_place.get("name", "this place")), int(s.get("place_chars", 0)), ", ".join(secs),
+		int(s.get("place_neighbours_listed", 0)), int(s.get("place_neighbours_within", 0))]
+	if int(s.get("place_not_available", 0)) > 0:
+		t += "; %d items stated as not available" % int(s["place_not_available"])
+	t += ")"
+	var titles: PackedStringArray = PackedStringArray(s.get("vault_titles", PackedStringArray()))
+	if not titles.is_empty():
+		var q := PackedStringArray()
+		for ti in titles:
+			q.append("\"%s\"" % ti)
+		t += ", and %d Vault note%s (%d characters): %s" % [titles.size(), "" if titles.size() == 1 else "s", int(s.get("vault_chars", 0)), ", ".join(q)]
+	elif not bool(s.get("vault_allowed", false)):
+		t += ", and no Vault notes (tick \"Send: named Vault notes\" in Settings to add the notes that bear on this place)"
+	else:
+		t += ", and no Vault notes (none relevant were found)"
+	if int(s.get("vault_withheld", 0)) > 0:
+		t += "; %d note%s withheld by a private mark" % [int(s["vault_withheld"]), "" if int(s["vault_withheld"]) == 1 else "s"]
+	var cuts: Array = s.get("place_truncated", [])
+	if not cuts.is_empty():
+		t += ". Cut or left out: %s" % "; ".join(PackedStringArray(cuts))
 	return t
 
 
@@ -725,6 +823,119 @@ func _token_text() -> String:
 	if int(c.get("calls_reported", 0)) < int(c.get("calls", 0)):
 		t += " · %d of %d replies reported usage" % [int(c.get("calls_reported", 0)), int(c.get("calls", 0))]
 	return t + " · " + cap_text
+
+
+# ---------------------------------------------------------------------------
+# Grounded place facts (LLM-11)
+# ---------------------------------------------------------------------------
+
+## Gathers the facts for the current place now (engine getters and, when allowed, Vault notes), and
+## stores `_facts`. `force` skips the cache. Read-only; opens no socket.
+func _ensure_facts(force: bool) -> bool:
+	if _place.is_empty() or not run.available():
+		_facts = {}
+		return false
+	var allow_notes := bool(DccSettings.llm_value("ctx_notes"))
+	var key := "%d|%s|%s|%s" % [int(_place["tid"]), allow_notes, String(_note.get("rel", "")), String(_note.get("hash", ""))]
+	if not force and not _facts.is_empty() and String(_facts.get("key", "")) == key:
+		return true
+	var g: Dictionary = LlmPlaceFacts.gather(bridge, run.stream, int(_place["index"]))
+	if not bool(g.get("ok", false)):
+		## An empty key, so a failure is retried (a generation may have just finished), never cached.
+		_facts = {"key": "", "tid": int(_place["tid"]), "bundle": {"ok": false, "reason": String(g.get("reason", ""))}}
+		return false
+	var vault := {}
+	var read: Array = []
+	var own_text := ""
+	if allow_notes:
+		vault = LlmPlaceFacts.gather_vault(bridge, run.stream, g, _note)
+		if bool(vault.get("ok", false)):
+			read = vault["read"]
+			own_text = String(vault.get("own_note_text", ""))
+	elif not _note.is_empty():
+		## Not sent, but the place's note is still the grounding corpus: a name the user wrote counts.
+		own_text = String(_note.get("text", ""))
+	var b: Dictionary = run.stream.place_bundle(JSON.stringify(g["raw"]), JSON.stringify(read), own_text, allow_notes)
+	_facts = {"key": key, "tid": int(_place["tid"]), "name": String(_place["name"]), "bundle": b, "gather_ms": int(g.get("ms", 0)), "vault": vault}
+	return bool(b.get("ok", false))
+
+
+## One short line: the long caveats (an unbuilt Vault index, why Vault notes are unavailable) are in the
+## tooltip (`_facts_status_detail`) so the line does not grow the window.
+func _facts_status_text() -> String:
+	if _place.is_empty():
+		return ""
+	if _facts.is_empty():
+		return "Place facts: not read yet."
+	var b: Dictionary = _facts.get("bundle", {})
+	if not bool(b.get("ok", false)):
+		return "Place facts: not available. %s" % String(b.get("reason", ""))
+	var t := "Place facts: %d sections, %d characters (%d ms)." % [(b.get("sections", []) as Array).size(), int(b.get("chars", 0)), int(_facts.get("gather_ms", 0))]
+	var vault: Dictionary = _facts.get("vault", {})
+	if bool(DccSettings.llm_value("ctx_notes")) and (not bool(vault.get("ok", true)) or not (vault.get("notes", []) as Array).is_empty()):
+		t += " Vault: see the tooltip."
+	return t
+
+
+## What the short facts line leaves out: why the Vault half is unavailable, and the Vault's own caveats.
+func _facts_status_detail() -> String:
+	var vault: Dictionary = _facts.get("vault", {})
+	var parts := PackedStringArray()
+	if bool(DccSettings.llm_value("ctx_notes")) and not bool(vault.get("ok", true)):
+		parts.append("Vault notes: %s" % String(vault.get("reason", "not available")))
+	for n in vault.get("notes", []):
+		parts.append(String(n))
+	return "
+".join(parts)
+
+
+func _on_view_facts() -> void:
+	if _facts.is_empty() or not bool(_facts.get("bundle", {}).get("ok", false)):
+		return
+	var b: Dictionary = _facts["bundle"]
+	var bundle: Dictionary = JSON.parse_string(String(b["bundle"]))
+	var text := "WORLD DATA (generated, authoritative for figures)\n" + String(b["text"])
+	if String(bundle.get("vault_text", "")) != "":
+		text += "\nVAULT NOTES (your writing, authoritative for names and story)\n" + String(bundle["vault_text"])
+	_add_msg("Facts for %s (shown to you; sent only when you press Send)" % String(_facts.get("name", "")), text, "text_secondary")
+	controls["facts_shown"] = true
+
+
+func _on_refresh_facts() -> void:
+	_place = _current_place()
+	_ensure_facts(true)
+	_refresh()
+
+
+## The grounding check, shown on a card after a place entry finishes. It never blocks and never
+## edits the reply: it lists which numbers and names came from the data (facts used) and which
+## the data does not support (unverified claims), plus anything the model marked as flavour.
+func _show_grounding() -> void:
+	if _task != "prose" or _sent_facts.is_empty() or _reply.strip_edges() == "" or _reply == _grounded_reply:
+		return
+	_grounded_reply = _reply
+	var g: Dictionary = run.stream.grounding_check(_reply, String(_sent_facts["bundle"].get("corpus", "")))
+	last_grounding = g
+	var used := PackedStringArray()
+	for n in g.get("numbers_matched", []):
+		used.append(String(n))
+	for pair in g.get("numbers_approx", []):
+		used.append("%s (about %s)" % [String(pair[0]), String(pair[1])])
+	for n in g.get("names_matched", []):
+		used.append(String(n))
+	var bad := PackedStringArray()
+	for n in g.get("numbers_unverified", []):
+		bad.append("%s (number)" % String(n))
+	for n in g.get("names_unverified", []):
+		bad.append("%s (name)" % String(n))
+	var t := "Facts used (%d): %s" % [used.size(), ", ".join(used) if not used.is_empty() else "none found in the reply"]
+	t += "\nUnverified claims (%d): %s" % [bad.size(), ", ".join(bad) if not bad.is_empty() else "none"]
+	var fl: Array = g.get("flavour", [])
+	if not fl.is_empty():
+		t += "\nMarked as invented flavour (%d): %s" % [fl.size(), " | ".join(PackedStringArray(fl))]
+	t += "\nThis only compares numbers and names with the data; it cannot judge whether a sentence contradicts it. Nothing is blocked."
+	var lab := _add_msg("Grounding check", t, "warn" if bad.size() > 0 else "good")
+	controls["grounding"] = lab
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +994,13 @@ func _on_send() -> void:
 		last_consent = LlmConsent.present(app, ep, preset, func(): _refresh(), func(): _refresh())
 		return
 	var request := _input.text.strip_edges()
+	if _task == "prose" and not _place.is_empty():
+		## Fresh at every Send: the model is given the world as it is NOW, not as the cache last saw it.
+		_place = _current_place()
+		if _place.is_empty() or not _ensure_facts(true):
+			_add_msg("", "The place's data could not be read, so no entry was requested. %s" % String(_facts.get("bundle", {}).get("reason", "")), "block")
+			_refresh()
+			return
 	_add_msg("You", request, "text")
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
@@ -801,6 +1019,8 @@ func _on_send() -> void:
 		_input.text = ""
 		_groups_were_chosen = not _chosen_groups.is_empty()
 		_chosen_groups.clear()
+		_sent_facts = _facts.duplicate(true) if args.has("place_bundle") else {}
+		_grounded_reply = ""
 	_refresh()
 
 
@@ -838,6 +1058,7 @@ func _on_retrying(reason: String) -> void:
 func _on_finished(info: Dictionary) -> void:
 	if info.get("finish_reason", "") == "length":
 		_add_msg("", "The reply was cut at the length limit.", "warn")
+	_show_grounding()
 	_refresh()
 
 

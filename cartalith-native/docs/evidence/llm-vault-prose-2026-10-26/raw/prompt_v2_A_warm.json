@@ -1,0 +1,1 @@
+{"model": "qwen3-14b", "speed_check": [{"ttft_s": 0.439, "total_s": 4.38, "prompt_tokens": 504, "completion_tokens": 200, "tok_s": 50.47}, {"ttft_s": 0.038, "total_s": 3.99, "prompt_tokens": 504, "completion_tokens": 200, "tok_s": 50.34}]}

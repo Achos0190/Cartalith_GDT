@@ -1,0 +1,18 @@
+Probe results on the rebased tree (upstream RK-0..3 and LLM-6d merged), 2026-10-26. Scratch copy re-imported (new class_name), own config/name, wiped user dir, windowed, sequential, one lock held for the batch. DLL built after the last .rs edit. Zero SCRIPT ERROR lines in any log.
+_llmpanel_probe_desktop: RESULT: PASS (0 failed) 
+_llmpanel_probe_phone: RESULT: PASS (0 failed) 
+_llmpanel_probe_tablet: RESULT: PASS (0 failed) 
+_llmparams_probe_desktop: RESULT: PASS (0 failed) checks=137 
+_llmparams_probe_phone: RESULT: PASS (0 failed) checks=141 
+_llmparams_probe_tablet: RESULT: PASS (0 failed) checks=141 
+_llmplace_probe_desktop: RESULT: PASS (0 failed) 
+_llmplace_probe_phone: RESULT: PASS (0 failed) 
+_llmplace_probe_tablet: RESULT: PASS (0 failed) 
+_llmquery_probe_desktop: RESULT: PASS (0 failed) checks=647 
+_llmquery_probe_phone: RESULT: PASS (0 failed) checks=647 
+_llmquery_probe_tablet: RESULT: PASS (0 failed) checks=647 
+_llmset_probe_desktop: RESULT: PASS (0 failed) 
+_llmset_probe_phone: RESULT: PASS (0 failed) 
+_llmset_probe_tablet: RESULT: PASS (0 failed) 
+
+cargo test --workspace -j 2 on the pre-rebase tree: 7452 passed, 0 failed. After the rebase: cargo test -p cartalith-llm -p cartalith-godot: all green after the corpus test's hard-coded row count was replaced by the corpus length (the corpus grew from 43 to 63 rows upstream).

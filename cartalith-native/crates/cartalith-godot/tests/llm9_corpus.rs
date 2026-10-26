@@ -814,3 +814,65 @@ fn the_prose_path_offers_no_tool_and_keeps_its_fence() {
     assert_eq!(built, 63 * 5);
     assert!(benign.messages.len() == 2);
 }
+
+/// Protects the GROUNDED place path (LLM-11, vector C) for every corpus string (at least 43) used as a settlement name,
+/// a faction name, a faction culture and government, a place's history text, a trait and the text of
+/// a Vault note: the grounded system prompt is byte-identical to the one built from benign text, the
+/// hostile text cannot close or reopen either of the two fences (`world_data`, `vault_notes`: one
+/// closing and one opening tag per block that is sent; the note block is absent when the string
+/// carries a private mark and is withheld), and the request offers no tools.
+/// MUTATION: build the place blocks without `defuse_fence` and row G27 reds this.
+#[test]
+fn the_grounded_place_path_keeps_its_fences() {
+    use cartalith_llm::place_facts::{build, bundle};
+    use cartalith_llm::place_vault::select;
+    use cartalith_llm::prompt::PlaceContext;
+    // The system prompt depends on whether a Vault note is sent (two variants), never on any text.
+    let reference = |notes: serde_json::Value| {
+        let raw = json!({"world": {"map_width_km": 800.0, "gw": 2000, "gh": 1500}, "place_index": 0,
+            "settlements": [{"i": 0, "tid": 1, "name": "Veldmark", "x": 10.0, "y": 10.0, "pop": 5, "kind": "town", "faction": 1}],
+            "factions": [{"id": 1, "name": "Vael"}]});
+        let ctx = PlaceContext::from_json(&bundle(&build(&raw), &select(&notes), "", true).to_string()).unwrap();
+        build_messages(Task::Prose, "Do the task.", &Context { place: Some(&ctx), ..Context::default() }).unwrap()
+    };
+    let (ref_none, ref_notes) = (reference(json!([])), reference(json!([{"rel": "n.md", "why": "w", "text": "# N\nplain"}])));
+    assert_ne!(ref_none.messages[0], ref_notes.messages[0]);
+    let mut built = 0;
+    for row in rows() {
+        let text = row.text.as_str();
+        let raw = json!({"world": {"map_width_km": 800.0, "gw": 2000, "gh": 1500}, "place_index": 0,
+            "settlements": [{"i": 0, "tid": 1, "name": text, "x": 10.0, "y": 10.0, "pop": 5, "kind": "town", "faction": 1}],
+            "factions": [{"id": 1, "name": text, "culture": text, "government": text}],
+            "place": {"history": text, "traits": [text], "specialisation": text}});
+        let notes = select(&json!([{"rel": "n.md", "why": "attached to this place", "text": text}]));
+        let ctx = PlaceContext::from_json(&bundle(&build(&raw), &notes, text, true).to_string()).unwrap();
+        let p = build_messages(Task::Prose, "Do the task.", &Context { place: Some(&ctx), ..Context::default() })
+            .unwrap_or_else(|e| panic!("{}: {e:?}", row.id));
+        built += 1;
+        let want = if p.sent.vault_titles.is_empty() { &ref_none } else { &ref_notes };
+        assert_eq!(p.messages[0], want.messages[0], "{}: the grounded system prompt must not depend on the text", row.id);
+        let user = &p.messages[1].content;
+        let squashed: String = user
+            .to_lowercase()
+            .chars()
+            .filter(|c| !c.is_whitespace() && !matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}' | '\u{feff}'))
+            .collect();
+        let blocks = 1 + usize::from(!p.sent.vault_titles.is_empty());
+        assert_eq!(squashed.matches("</context").count(), blocks, "{}: hostile text closed a fence", row.id);
+        assert_eq!(squashed.matches("<contextkind").count(), blocks, "{}: hostile text opened a fence", row.id);
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: p.messages.clone(),
+            tools: Vec::new(),
+            max_tokens: 64,
+            max_tokens_field: MaxTokensField::MaxTokens,
+            include_usage: false,
+            thinking: Thinking::Default,
+        };
+        let o: Value = serde_json::from_slice(&build_chat_request("http://127.0.0.1:1/v1", None, &req).unwrap().body).unwrap();
+        assert!(o.get("tools").is_none(), "{}: the grounded prose request offered tools", row.id);
+    }
+    // Every row of the corpus ran (the corpus only grows, so this is its length, not a literal).
+    assert_eq!(built, rows().len());
+    assert!(built >= 43);
+}

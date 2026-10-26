@@ -28,6 +28,9 @@
 //! | [`prepare`] | [`prepare::prepare_authorized_chat`]: gate, then build; the only door a request leaves through (LLM-3) |
 //! | [`prompt`] | what the assistant is asked and exactly what is sent with it (LLM-3) |
 //! | [`note`] | the model-generated marker and the text a Vault note receives (LLM-3) |
+//! | [`place_facts`] | the grounded place facts: 25 km radius, caps, one JSON object and a text rendering (LLM-11) |
+//! | [`place_vault`] | which Vault notes are relevant to a place, private marks, caps (LLM-11) |
+//! | [`grounding`] | the post-reply check: facts used and unverified claims (LLM-11) |
 //! | [`session`] | [`session::run_chat`]: one request to a list of events |
 //! | [`catalogue`] | the generation-parameter catalogue, its tool schema and the proposal validator V1-V13 (LLM-6a/6b) |
 //! | [`params_flow`] | the two-step parameter conversation: schema, proposal, one retry (LLM-6a/6b) |
@@ -45,9 +48,12 @@ pub mod event;
 pub mod gpu;
 pub mod host;
 pub mod keystore;
+pub mod grounding;
 pub mod note;
 pub mod openai;
 pub mod params_flow;
+pub mod place_facts;
+pub mod place_vault;
 pub mod prepare;
 pub mod presets;
 pub mod request;

@@ -94,7 +94,7 @@ use cartalith_llm::openai::ChatRequest;
 use cartalith_llm::prepare::{PrepareError, prepare_authorized_chat};
 use cartalith_llm::presets::request_hints;
 use cartalith_llm::retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
-use cartalith_llm::prompt::{Context, PromptError, Task, build_messages};
+use cartalith_llm::prompt::{Context, PlaceContext, PromptError, Task, build_messages};
 use cartalith_llm::settings::Capability;
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
@@ -714,6 +714,48 @@ fn sent_dict(s: &cartalith_llm::prompt::SentSummary) -> VarDictionary {
         "note" => s.note,
         "note_chars" => s.note_chars as i64,
         "truncated" => s.truncated,
+        // LLM-11: the grounded place facts and Vault notes, itemised so the panel's "this will
+        // send" line can name exactly what leaves the machine.
+        "place" => s.place,
+        "place_chars" => s.place_chars as i64,
+        "place_sections" => &place_sections_array(&s.place_sections),
+        "place_neighbours_listed" => s.place_neighbours.0 as i64,
+        "place_neighbours_within" => s.place_neighbours.1 as i64,
+        "place_not_available" => s.place_not_available as i64,
+        "place_truncated" => &string_array(&s.place_truncated),
+        "vault_titles" => &string_array(&s.vault_titles),
+        "vault_chars" => s.vault_chars as i64,
+        "vault_withheld" => s.vault_withheld as i64,
+        "vault_allowed" => s.vault_allowed,
+    }
+}
+
+/// `[[label, count], ...]` for the "this will send" line.
+fn place_sections_array(v: &[(String, usize)]) -> Array<VarArray> {
+    v.iter()
+        .map(|(l, n)| {
+            let mut a = VarArray::new();
+            a.push(&Variant::from(l.as_str()));
+            a.push(&Variant::from(*n as i64));
+            a
+        })
+        .collect()
+}
+
+/// A `PackedStringArray` of `v`.
+fn string_array(v: &[String]) -> PackedStringArray {
+    v.iter().map(|s| GString::from(s.as_str())).collect()
+}
+
+/// Parse the optional `place_bundle` argument (the JSON `LlmStream.place_bundle` returned). A
+/// bundle that is present but malformed is an error the caller turns into a refusal: it is never
+/// ignored, because silently dropping the facts would send ungrounded prose.
+fn place_context(args: &VarDictionary) -> Result<Option<PlaceContext>, VarDictionary> {
+    match opt_text(args, "place_bundle") {
+        None => Ok(None),
+        Some(j) => PlaceContext::from_json(&j)
+            .map(Some)
+            .ok_or_else(|| refuse("bad_place_bundle", "The place facts could not be read. Close and reopen the panel.")),
     }
 }
 
@@ -801,12 +843,17 @@ impl LlmStream {
         let events = opt_text(&args, "events");
         let note_path = opt_text(&args, "note_path");
         let note_text = opt_text(&args, "note_text");
+        let place = match place_context(&args) {
+            Ok(p) => p,
+            Err(r) => return r,
+        };
         let ctx = Context {
             entity_label: entity_label.as_deref(),
             entity_fields: entity_fields.as_deref(),
             events: events.as_deref(),
             note_path: note_path.as_deref(),
             note_text: note_text.as_deref(),
+            place: place.as_ref(),
         };
         // The gate is asked FIRST, for its reason only: a request that is refused for being
         // switched off must say so, not complain that a source is missing (a forced Send with
@@ -855,7 +902,12 @@ impl LlmStream {
             max_tokens,
             max_tokens_field: hints.max_tokens_field,
             include_usage,
-            thinking: cartalith_llm::Thinking::Default,
+            // Grounded place prose (LLM-11) is a data-to-prose transform: a reasoning model that
+            // thinks first spends the reply cap on hidden tokens and answers minutes later, so the
+            // preset's known "no thinking" field is sent (LM Studio and Ollama
+            // `reasoning_effort: "none"`, llama.cpp and vLLM the template switch). Other prose
+            // tasks, and every preset without a verified switch, send nothing, as before.
+            thinking: if place.is_some() && task == Task::Prose { hints.no_thinking } else { cartalith_llm::Thinking::Default },
         };
         let counted = counter().clone();
         let prepared = match prepare_authorized_chat(&s, cap, &key_state, &consented, &counted, key.as_ref(), &req) {
@@ -909,12 +961,17 @@ impl LlmStream {
         let events = opt_text(&args, "events");
         let note_path = opt_text(&args, "note_path");
         let note_text = opt_text(&args, "note_text");
+        let place = match place_context(&args) {
+            Ok(p) => p,
+            Err(r) => return r,
+        };
         let ctx = Context {
             entity_label: entity_label.as_deref(),
             entity_fields: entity_fields.as_deref(),
             events: events.as_deref(),
             note_path: note_path.as_deref(),
             note_text: note_text.as_deref(),
+            place: place.as_ref(),
         };
         match build_messages(task, &text(&args, "request"), &ctx) {
             Ok(p) => {
@@ -1130,6 +1187,146 @@ impl LlmStream {
             completion_tokens: u64::try_from(completion).ok(),
             total_tokens: None,
         });
+    }
+
+    // ------------------------------------------------------------------
+    // Grounded place prose (LLM-11). Every function below is PURE: it reads only what the shell
+    // passes in, borrows no `WorldGen`, writes nothing and opens no socket. The shell
+    // (`llm_place_facts.gd`) is the only code that reads the engine and the Vault.
+    // ------------------------------------------------------------------
+
+    /// The 25 km radius, the neighbour cap and the lattice spacing the facts use, so the shell
+    /// and the probes never hard-code a second copy: `{radius_km, max_neighbours, lattice_km,
+    /// max_notes, max_note_chars, max_reads}`.
+    #[func]
+    fn place_limits(&self) -> VarDictionary {
+        vdict! {
+            "radius_km" => cartalith_llm::place_facts::RADIUS_KM,
+            "max_neighbours" => cartalith_llm::place_facts::MAX_NEIGHBOURS as i64,
+            "lattice_km" => cartalith_llm::place_facts::LATTICE_STEP_KM,
+            "max_notes" => cartalith_llm::place_vault::MAX_NOTES as i64,
+            "max_note_chars" => cartalith_llm::place_vault::MAX_NOTE_CHARS as i64,
+            "max_reads" => cartalith_llm::place_vault::MAX_READS as i64,
+        }
+    }
+
+    /// The neighbours the facts will list, from a minimal raw object
+    /// (`{world, place_index, settlements}` as JSON text): `{ok, within, indices, omitted,
+    /// unavailable?}`. `indices` are the kept settlements' list indices, nearest first, so the shell
+    /// reads their details and nothing else.
+    #[func]
+    fn place_neighbours(&self, raw_json: GString) -> VarDictionary {
+        let Ok(raw) = serde_json::from_str::<serde_json::Value>(&raw_json.to_string()) else {
+            return vdict! { "ok" => false, "reason" => "The place data could not be read." };
+        };
+        let sel = cartalith_llm::place_facts::select_neighbours(&raw);
+        let mut idx = PackedInt32Array::new();
+        for n in &sel.kept {
+            idx.push(n.index as i32);
+        }
+        let omitted: PackedStringArray = sel.omitted.iter().map(|n| GString::from(n.name.as_str())).collect();
+        let mut d = vdict! { "ok" => sel.unavailable.is_none(), "within" => sel.within as i64 };
+        d.set("indices", &idx);
+        d.set("omitted", &omitted);
+        if let Some(u) = &sel.unavailable {
+            d.set("unavailable", u.as_str());
+        }
+        d
+    }
+
+    /// The lattice of cells to read with `sample_cell`, flat `[x0, y0, x1, y1, ...]` (empty when
+    /// the cell size is unknown). Anchored on `(cx, cy)`; see `place_facts::sample_points`.
+    #[func]
+    fn place_sample_points(&self, cx: i64, cy: i64, cell_km: f64, gw: i64, gh: i64, wrap_x: bool) -> PackedInt32Array {
+        let mut out = PackedInt32Array::new();
+        for (x, y) in cartalith_llm::place_facts::sample_points(cx, cy, cell_km, gw, gh, wrap_x) {
+            out.push(x as i32);
+            out.push(y as i32);
+        }
+        out
+    }
+
+    /// Rank the Vault notes worth reading, from a JSON plan input (see `place_vault::plan`):
+    /// `{ok, candidates: [{rel, why, detail}]}` best first, at most `max_reads`.
+    #[func]
+    fn place_vault_plan(&self, input_json: GString) -> VarDictionary {
+        let Ok(input) = serde_json::from_str::<serde_json::Value>(&input_json.to_string()) else {
+            return vdict! { "ok" => false, "reason" => "The Vault plan could not be read." };
+        };
+        let cands = cartalith_llm::place_vault::plan(&input);
+        let mut arr: Array<VarDictionary> = Array::new();
+        for c in &cands {
+            arr.push(&vdict! { "rel" => c.rel.as_str(), "why" => c.why.label(), "detail" => c.detail.as_str() });
+        }
+        let mut d = vdict! { "ok" => true };
+        d.set("candidates", &arr);
+        d
+    }
+
+    /// Build the facts and the bundle `prepare` takes as `place_bundle`. `raw_json` is the shell's
+    /// gathered object (see `place_facts` module docs); `vault_read_json` is `[{rel, why, detail,
+    /// text}]` for the notes the shell read (`[]` when none or not allowed); `own_note_text` is the
+    /// place's existing note; `vault_allowed` is the user's "named Vault notes" setting.
+    /// Returns `{ok, bundle, facts_json, text, sections, chars, truncated, not_available,
+    /// neighbours_listed, neighbours_within, vault_titles, vault_withheld, corpus}`.
+    #[func]
+    fn place_bundle(&self, raw_json: GString, vault_read_json: GString, own_note_text: GString, vault_allowed: bool) -> VarDictionary {
+        let Ok(raw) = serde_json::from_str::<serde_json::Value>(&raw_json.to_string()) else {
+            return vdict! { "ok" => false, "reason" => "The place data could not be read." };
+        };
+        let read = serde_json::from_str::<serde_json::Value>(&vault_read_json.to_string()).unwrap_or(serde_json::Value::Null);
+        let facts = cartalith_llm::place_facts::build(&raw);
+        // Notes are selected only when the user's setting allows them; otherwise none is touched.
+        let notes = if vault_allowed { cartalith_llm::place_vault::select(&read) } else { Default::default() };
+        let b = cartalith_llm::place_facts::bundle(&facts, &notes, &own_note_text.to_string(), vault_allowed);
+        let mut d = vdict! {
+            "ok" => true,
+            "bundle" => b.to_string().as_str(),
+            "facts_json" => facts.json.to_string().as_str(),
+            "text" => facts.text.as_str(),
+            "chars" => facts.summary.chars as i64,
+            "neighbours_listed" => facts.summary.neighbours_listed as i64,
+            "neighbours_within" => facts.summary.neighbours_within as i64,
+            "vault_withheld" => notes.withheld as i64,
+            "corpus" => b["corpus"].as_str().unwrap_or(""),
+        };
+        d.set("sections", &place_sections_array(&facts.summary.sections));
+        let mut trunc = facts.summary.truncated.clone();
+        trunc.extend(notes.truncated.iter().cloned());
+        d.set("truncated", &string_array(&trunc));
+        let na: PackedStringArray = facts.summary.not_available.iter().map(|(i, r)| GString::from(format!("{i}: {r}").as_str())).collect();
+        d.set("not_available", &na);
+        let titles: PackedStringArray = notes.sent.iter().map(|n| GString::from(n.title.as_str())).collect();
+        d.set("vault_titles", &titles);
+        d
+    }
+
+    /// The grounding check (LLM-11): compare `reply` with `corpus` (the bundle's `corpus`) and
+    /// return `{numbers_matched, numbers_approx: [[written, fact]], numbers_unverified,
+    /// names_matched, names_unverified, flavour, numbers_checked, names_checked, unverified}`.
+    /// Pure; blocks and edits nothing.
+    #[func]
+    fn grounding_check(&self, reply: GString, corpus: GString) -> VarDictionary {
+        let g = cartalith_llm::grounding::check(&reply.to_string(), &corpus.to_string());
+        let mut approx: Array<VarArray> = Array::new();
+        for (w, f) in &g.numbers_approx {
+            let mut a = VarArray::new();
+            a.push(&Variant::from(w.as_str()));
+            a.push(&Variant::from(f.as_str()));
+            approx.push(&a);
+        }
+        let mut d = vdict! {
+            "numbers_checked" => g.numbers_checked as i64,
+            "names_checked" => g.names_checked as i64,
+            "unverified" => g.unverified() as i64,
+        };
+        d.set("numbers_matched", &string_array(&g.numbers_matched));
+        d.set("numbers_approx", &approx);
+        d.set("numbers_unverified", &string_array(&g.numbers_unverified));
+        d.set("names_matched", &string_array(&g.names_matched));
+        d.set("names_unverified", &string_array(&g.names_unverified));
+        d.set("flavour", &string_array(&g.flavour));
+        d
     }
 
     /// The text a note receives when the user clicks Save: `existing` with the

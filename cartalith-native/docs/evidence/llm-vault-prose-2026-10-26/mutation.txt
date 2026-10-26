@@ -1,0 +1,28 @@
+Mutation run for the grounded place prose modules (LLM-11), 2026-10-26. Tool: mutate.py (exact literal replace, target must occur once, restore in a finally, hashes compared after). Each line: the change made, and whether cargo test -p cartalith-llm --lib went red.
+radius 25 -> 26                               KILLED
+radius inclusive -> exclusive                 KILLED
+neighbour cap 12 -> 13                        KILLED
+lattice 2.5 -> 2.0 km                         KILLED
+north down the map                            KILLED
+user text cap 600 -> 601                      KILLED
+keep smallest instead of largest              KILLED
+ignore cell size in the radius                KILLED
+size cap lifted                               KILLED
+rounding adds a 3rd significant figure        KILLED
+integer rounding loosened to 1.5              KILLED
+wrap flag inverted                            KILLED
+flavour spans not split                       KILLED
+every number matched                          KILLED
+note cap 1500 -> 1501                         KILLED
+note count 6 -> 7                             KILLED
+total cap 6000 -> 6001                        KILLED
+drop the secret tag                           KILLED
+private notes sent                            KILLED
+read cap lifted                               KILLED
+wikilinks ignored                             KILLED
+grounded prompt rule 1 weakened               KILLED
+notes prompt never used                       KILLED
+no-notes rule inverted                        KILLED
+sentence openers flagged                      KILLED  (re-run after the test was strengthened: it SURVIVED in the first pass because the heading and stop-word rules masked it)
+SUMMARY: 25 killed, 0 survived, 0 build errors. Earlier passes: three survivors (size cap lifted, third significant figure, secret tag) were fixed by strengthening their tests and re-killed.
+hashes restored: True

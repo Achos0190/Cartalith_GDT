@@ -353,13 +353,19 @@ func _ready() -> void:
 	await _settle(8)
 	await _type("Describe the port.")
 	_ok((_c("place") as Label).text == "Place: %s" % place_name, "the place line names the selected settlement: '%s'" % (_c("place") as Label).text)
-	_ok((_c("send") as Button).disabled and (_c("reason") as Label).text.contains("Send: current entity"), "with the entity source off, Send says which switch: '%s'" % (_c("reason") as Label).text.left(80))
+	## LLM-11 (2026-10-26): a place entry's data is its SUBJECT, so "Describe place" no longer needs the
+	## "current entity" switch; Story still does.
+	_ok(not (_c("send") as Button).disabled, "Describe place is sendable with the entity switch off (the place's data is the subject)")
+	_win._pick_task("story")
+	await _settle(3)
+	_ok((_c("send") as Button).disabled and (_c("reason") as Label).text.contains("Send: current entity"), "...while Story with the entity source off says which switch: '%s'" % (_c("reason") as Label).text.left(80))
+	_win._pick_task("prose")
 	_configure({"ctx_entity": true})
 	_win._refresh()
 	await _settle(3)
-	_ok(not (_c("send") as Button).disabled, "with the source ticked and the gate open, Send is enabled")
-	_ok((_c("sent") as Label).text.begins_with("This will send: your request (18 characters), the place's recorded fields ("), "the sent line names the request and the fields: '%s'" % (_c("sent") as Label).text.left(120))
-	_ok(not (_c("sent") as Label).text.contains("note"), "...and no note")
+	_ok(not (_c("send") as Button).disabled, "with the gate open, Send is enabled")
+	_ok((_c("sent") as Label).text.begins_with("This will send: your request (18 characters), the generated world data for %s (" % place_name), "the sent line names the request and the place's generated data: '%s'" % (_c("sent") as Label).text.left(120))
+	_ok(not (_c("sent") as Label).text.contains("the note's text"), "...and no named note's text")
 	_ok(String((_c("status") as Label).text).begins_with("http://127.0.0.1:%d" % _port), "status names the endpoint: '%s'" % (_c("status") as Label).text.left(70))
 	await _shot("2_ready")
 
@@ -403,7 +409,7 @@ func _ready() -> void:
 	_ok(_assistant_text() == expected, "the finished reply equals what the server sent")
 	_ok(_server.requests.size() == 1 and String(_server.requests[0]["headers"].get("authorization", "")) == "Bearer " + SECRET, "the request carried the key")
 	var b1 := _last_body()
-	_ok(_user_content(b1).contains("kind=\"entity\"") and _user_content(b1).contains(place_name) and not _user_content(b1).contains("kind=\"note\""), "the request body holds the place's fields and no note")
+	_ok(_user_content(b1).contains("kind=\"world_data\" name=\"%s\"" % place_name) and _user_content(b1).contains("[The place]") and not _user_content(b1).contains("kind=\"note\"") and not _user_content(b1).contains("kind=\"entity\""), "the request body holds the place's generated data (world_data fence) and no named note")
 	var tok := (_c("tokens") as Label).text
 	_ok(tok.begins_with("Tokens 42 in / %d out" % _server.tokens.size()), "the counter shows what the server reported: '%s'" % tok)
 	_ok(_window_text().contains("MODEL-GENERATED"), "the reply carries the MODEL-GENERATED chip")
