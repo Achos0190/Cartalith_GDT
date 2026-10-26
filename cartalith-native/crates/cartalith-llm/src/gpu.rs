@@ -170,9 +170,81 @@ pub fn plan(local_selected: bool, class: Option<HostClass>, ov: GpuOverride, ada
     }
 }
 
+/// The rule on a phone (LLM-10; Ruling DF read for a handset). A phone has one
+/// GPU, so there is nothing to scale back to and nothing is ever switched,
+/// whatever the override says; the override picker is not shown there. The
+/// warning still names the detected class (Ruling DF rule 4), and the text
+/// never gives desktop advice: no "dedicated card", no "low-power GPU", no
+/// Windows settings.
+///
+/// * The model on another computer on the LAN (the expected phone set-up, an
+///   LM Studio or Ollama server on the user's PC): nothing is shared.
+/// * The model on the phone itself (a server app on `localhost`): it shares
+///   the one GPU and the memory, which is worth saying, and nothing switches.
+pub fn plan_phone(local_selected: bool, class: Option<HostClass>) -> GpuPlan {
+    if !local_selected {
+        return GpuPlan {
+            warn: false,
+            headline: String::new(),
+            detected: String::new(),
+            effect: String::new(),
+            switch: false,
+            target: None,
+        };
+    }
+    let headline =
+        "A language model running on this phone shares its one GPU and its memory with Cartalith.".to_owned();
+    let detected = match class {
+        Some(c) => format!("Detected as: {}.", c.label()),
+        None => "Detected as: unknown (the address could not be read).".to_owned(),
+    };
+    let effect = match class {
+        Some(HostClass::SameMachine) => {
+            "The model is on this phone, so generating and the model will slow each other down. A phone has one \
+             GPU, so nothing is switched."
+        }
+        Some(HostClass::LocalNetwork) => {
+            "The model is on another computer on your network, so this phone's GPU is not shared and nothing is \
+             switched."
+        }
+        Some(HostClass::Remote) => "The model is remote, so this phone's GPU is not shared and nothing is switched.",
+        _ => "The address does not say where the model runs. A phone has one GPU, so nothing is switched either way.",
+    }
+    .to_owned();
+    GpuPlan { warn: true, headline, detected, effect, switch: false, target: None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects the LLM-10 phone form: it never switches, always names the
+    /// class, and never carries desktop advice. MUTATION: return `switch:
+    /// true` for SameMachine, or reuse the desktop headline or display note,
+    /// and a row goes red.
+    #[test]
+    fn the_phone_plan_switches_nothing_and_gives_no_desktop_advice() {
+        for c in [HostClass::SameMachine, HostClass::LocalNetwork, HostClass::Remote, HostClass::Unknown] {
+            let p = plan_phone(true, Some(c));
+            assert!(p.warn && !p.switch && p.target.is_none(), "{c:?}");
+            assert_eq!(p.detected, format!("Detected as: {}.", c.label()));
+            let all = format!("{} {} {}", p.headline, p.detected, p.effect).to_lowercase();
+            for banned in ["low-power", "integrated", "dedicated", "windows", "computer's gpu", "display adapter"] {
+                assert!(!all.contains(banned), "{c:?}: {banned:?} in {all:?}");
+            }
+            assert!(!p.effect.contains("  ") && !p.headline.contains("  "), "double space");
+        }
+        assert_eq!(
+            plan_phone(true, Some(HostClass::LocalNetwork)).effect,
+            "The model is on another computer on your network, so this phone's GPU is not shared and nothing is \
+             switched."
+        );
+        assert!(plan_phone(true, Some(HostClass::SameMachine)).effect.contains("on this phone"));
+        let p = plan_phone(true, None);
+        assert!(p.detected.contains("unknown") && !p.switch);
+        let off = plan_phone(false, Some(HostClass::SameMachine));
+        assert!(!off.warn && off.headline.is_empty() && off.detected.is_empty() && off.effect.is_empty());
+    }
 
     fn rig() -> Vec<Adapter> {
         vec![

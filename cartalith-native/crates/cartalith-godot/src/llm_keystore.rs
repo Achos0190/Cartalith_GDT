@@ -121,34 +121,54 @@ mod win {
 }
 
 impl KeyStore for OsKeyStore {
+    /// Windows: always. Android: when the process JVM can be reached
+    /// (`libnativehelper.so`, API 31+); see `llm_keystore_android`.
+    /// Elsewhere: never.
     fn available(&self) -> bool {
-        cfg!(windows)
+        #[cfg(target_os = "android")]
+        {
+            crate::llm_keystore_android::available()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            cfg!(windows)
+        }
     }
 
-    #[cfg(windows)]
     fn read(&self, account: &str) -> Result<Option<String>, StoreError> {
-        win::read(account)
-    }
-    #[cfg(not(windows))]
-    fn read(&self, _: &str) -> Result<Option<String>, StoreError> {
+        target(account).ok_or(StoreError::Failed("the account id is not valid"))?;
+        #[cfg(windows)]
+        return win::read(account);
+        #[cfg(target_os = "android")]
+        return if self.available() { crate::llm_keystore_android::read(account) } else { Err(StoreError::Unavailable) };
+        #[cfg(not(any(windows, target_os = "android")))]
         Err(StoreError::Unavailable)
     }
 
-    #[cfg(windows)]
     fn write(&self, account: &str, secret: &str) -> Result<(), StoreError> {
-        win::write(account, secret)
-    }
-    #[cfg(not(windows))]
-    fn write(&self, _: &str, _: &str) -> Result<(), StoreError> {
+        target(account).ok_or(StoreError::Failed("the account id is not valid"))?;
+        if secret.is_empty() || secret.len() > MAX_SECRET_BYTES {
+            return Err(StoreError::Failed("the secret is empty or too long"));
+        }
+        #[cfg(windows)]
+        return win::write(account, secret);
+        #[cfg(target_os = "android")]
+        return if self.available() {
+            crate::llm_keystore_android::write(account, secret)
+        } else {
+            Err(StoreError::Unavailable)
+        };
+        #[cfg(not(any(windows, target_os = "android")))]
         Err(StoreError::Unavailable)
     }
 
-    #[cfg(windows)]
     fn delete(&self, account: &str) -> Result<(), StoreError> {
-        win::delete(account)
-    }
-    #[cfg(not(windows))]
-    fn delete(&self, _: &str) -> Result<(), StoreError> {
+        target(account).ok_or(StoreError::Failed("the account id is not valid"))?;
+        #[cfg(windows)]
+        return win::delete(account);
+        #[cfg(target_os = "android")]
+        return if self.available() { crate::llm_keystore_android::delete(account) } else { Err(StoreError::Unavailable) };
+        #[cfg(not(any(windows, target_os = "android")))]
         Err(StoreError::Unavailable)
     }
 }

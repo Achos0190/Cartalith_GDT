@@ -63,6 +63,7 @@ mod landmark_bridge;
 mod llm_bridge;
 mod llm_keystore;
 mod llm_models;
+mod llm_keystore_android;
 mod llm_stream;
 mod lod_bridge;
 mod lod_sweep;

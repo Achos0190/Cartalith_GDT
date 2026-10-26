@@ -26,9 +26,9 @@
 //! device) is omitted from the dictionary when there is none; it is never `-1`,
 //! `""` or `0` standing for "none". Callers test `has()`.
 
-use cartalith_llm::gpu::{Adapter, GpuOverride, plan};
+use cartalith_llm::gpu::{Adapter, GpuOverride, GpuPlan, plan, plan_phone};
 use cartalith_llm::host::classify_host;
-use cartalith_llm::keystore::{KeySource, KeyStore, resolve_key};
+use cartalith_llm::keystore::{KeySource, KeyStore, StoreError, resolve_key};
 use cartalith_llm::presets::{ApiStyle, KeyRequirement, PRESETS};
 use cartalith_llm::settings::{
     CUSTOM_ANTHROPIC, CUSTOM_OPENAI, Capability, LlmSettings, authorize, origin_of, terms_url,
@@ -38,6 +38,16 @@ use godot::classes::{IRefCounted, RefCounted};
 use godot::prelude::*;
 
 use crate::llm_keystore::OsKeyStore;
+
+/// Why a key cannot be saved where no OS store exists. On Android the
+/// environment-variable route is not offered (an app's environment cannot be
+/// set on a phone), so the text names the Keystore's requirement instead
+/// (LLM-10). Never suggests a file: there is no file route (Ruling DD Q5).
+#[cfg(target_os = "android")]
+const NO_STORE_SAVE: &str = "The Android Keystore cannot be reached on this device (it needs Android 12 or later), so no key can be saved. Cartalith never saves a key to a file.";
+#[cfg(not(target_os = "android"))]
+const NO_STORE_SAVE: &str =
+    "No OS credential store is available here. Use an environment variable; Cartalith never saves a key to a file.";
 
 /// `{"ok": false, "error": <static reason>}`.
 pub(crate) fn fail(message: &str) -> VarDictionary {
@@ -94,6 +104,41 @@ pub(crate) fn settings_from(d: &VarDictionary) -> LlmSettings {
 /// custom ids all satisfy `keystore::account_ok`.
 pub(crate) fn account_for(preset_id: &str) -> String {
     preset_id.to_owned()
+}
+
+/// The key problem as the user should read it on this platform. On Android
+/// (LLM-10) an environment-variable problem is replaced: an app's environment
+/// cannot be set on a phone, so "set it and restart" is advice nobody can
+/// follow there; the Keystore is the route. Elsewhere the text is unchanged.
+fn phone_problem(src: KeySource, problem: String) -> String {
+    if cfg!(target_os = "android") && src == KeySource::EnvVar {
+        PHONE_ENV_PROBLEM.to_owned()
+    } else {
+        problem
+    }
+}
+
+/// What [`phone_problem`] says on Android for the environment source.
+const PHONE_ENV_PROBLEM: &str = "Key missing: an app's environment cannot be set on a phone. Choose Android Keystore as the key source and save the key there.";
+
+/// A GPU plan as the dictionary `LlmBridge::llm_gpu_plan` documents: `target`
+/// only when there is one, `class`/`class_label` only when the URL parsed.
+fn plan_dict(p: GpuPlan, class: Option<HostClass>) -> VarDictionary {
+    let mut d = vdict! {
+        "ok" => true,
+        "warn" => p.warn,
+        "headline" => p.headline.as_str(),
+        "detected" => p.detected.as_str(),
+        "effect" => p.effect.as_str(),
+        "switch" => p.switch,
+    };
+    if let Some(c) = class {
+        put_class(&mut d, c);
+    }
+    if let Some(t) = p.target {
+        d.set("target", t.as_str());
+    }
+    d
 }
 
 /// A class as the dictionary fields the shell reads.
@@ -237,22 +282,17 @@ impl LlmBridge {
             .filter(|a| !a.key.is_empty())
             .collect();
         let class = classify_host(&base_url.to_string()).ok().map(|h| h.class);
-        let p = plan(local_selected, class, ov, &adapters);
-        let mut d = vdict! {
-            "ok" => true,
-            "warn" => p.warn,
-            "headline" => p.headline.as_str(),
-            "detected" => p.detected.as_str(),
-            "effect" => p.effect.as_str(),
-            "switch" => p.switch,
-        };
-        if let Some(c) = class {
-            put_class(&mut d, c);
-        }
-        if let Some(t) = p.target {
-            d.set("target", t.as_str());
-        }
-        d
+        plan_dict(plan(local_selected, class, ov, &adapters), class)
+    }
+
+    /// The same rule on a phone (LLM-10, `cartalith_llm::gpu::plan_phone`):
+    /// the same dictionary shape, `switch` always false and no `target`. The
+    /// shell calls this when `OS.has_feature("android")`; no override is read
+    /// because a phone has one GPU and nothing to switch to.
+    #[func]
+    fn llm_gpu_plan_phone(&self, base_url: GString, local_selected: bool) -> VarDictionary {
+        let class = classify_host(&base_url.to_string()).ok().map(|h| h.class);
+        plan_dict(plan_phone(local_selected, class), class)
     }
 
     /// The settings gate. `settings` carries `enabled`, `prose`, `commands`,
@@ -322,7 +362,7 @@ impl LlmBridge {
             d.set("masked", k.masked().as_str());
         }
         if let Some(p) = state.problem() {
-            d.set("problem", p.as_str());
+            d.set("problem", phone_problem(src, p).as_str());
         }
         d
     }
@@ -334,7 +374,7 @@ impl LlmBridge {
     fn llm_key_save(&self, account: GString, key: GString) -> VarDictionary {
         let store = OsKeyStore;
         if !store.available() {
-            return fail("No OS credential store is available here. Use an environment variable; Cartalith never saves a key to a file.");
+            return fail(NO_STORE_SAVE);
         }
         let raw = key.to_string();
         let raw = raw.trim();
@@ -344,7 +384,8 @@ impl LlmBridge {
         drop(valid);
         match store.write(&account.to_string(), raw) {
             Ok(()) => vdict! { "ok" => true },
-            Err(_) => fail("The OS credential store refused to save the key."),
+            Err(StoreError::Failed(why)) => fail(&format!("The OS credential store refused to save the key: {why}.")),
+            Err(StoreError::Unavailable) => fail(NO_STORE_SAVE),
         }
     }
 
@@ -357,7 +398,8 @@ impl LlmBridge {
         }
         match store.delete(&account.to_string()) {
             Ok(()) => vdict! { "ok" => true },
-            Err(_) => fail("The OS credential store refused to remove the key."),
+            Err(StoreError::Failed(why)) => fail(&format!("The OS credential store refused to remove the key: {why}.")),
+            Err(StoreError::Unavailable) => fail("No OS credential store is available here."),
         }
     }
 }

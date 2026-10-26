@@ -551,6 +551,7 @@ a supportable comparison. The 2026-09-07 row is `OUTSTANDING_WORK.md`'s archived
 | 2026-09-27 | `android-dev` `.so`, `debug = "line-tables-only"` (pre-Ruling-AZ baseline, rebuilt this pass) | 199 937 792 |
 | 2026-09-27 | `android-dev` `.so` / `--export-debug` APK, `strip = "debuginfo"` (Ruling AZ) — **verified 2026-09-28** | 35 464 168 / 68 134 680 |
 | 2026-09-27 | release `.so` / signed release APK (unaffected by Ruling AZ; recipe re-run to confirm) — **verified 2026-09-28** | 29 660 088 / 60 511 545 |
+| 2026-10-26 | `android-dev` `.so` / `--export-debug` APK (LLM-10, §3.11) | 44 531 856 / 78 090 140 |
 
 ### 3.10 After 2026-08-25
 
@@ -560,3 +561,148 @@ this file — among them the `push_warning` control and the release-signed drop
 zoom-notch stall and its stutter follow-up, boot-to-welcome time, and idle
 redraw measured on a OnePlus 12. Read each there; this file records the method
 they used, not their state.
+
+### 3.11 LLM-10 (2026-10-26): INTERNET, the Keystore key store, and how to run a probe on the handset
+
+`LLM_ASSISTANT_SCOPE.md` LLM-10. Stage A ran on the OnePlus 6T (`9608b26b`,
+ONEPLUS_A6013, Android 15 / API 35) with no network beyond the handset itself;
+stage B, the LAN and TLS legs, waits on an LM Studio server on the PC and is
+written out at the end of this section.
+
+**The preset.** `export_presets.cfg`'s `Android` preset gains one key,
+`permissions/internet=true`, and nothing else (the least permission the
+assistant can work with; `aapt2 dump permissions` on the exported APK lists
+`android.permission.INTERNET` alone). Without it every socket fails, loopback
+included. `export_presets.cfg` cannot keep comments (Godot rewrites it), so the
+reason lives here.
+
+**Cleartext policy, decided.** Android's cleartext rules (`usesCleartextTraffic`,
+a network security config) are enforced by the Java HTTP stacks; Godot's
+`HTTPClient` opens native sockets, so no network security config is added. The
+gate is the same on the phone as on the desktop: `http://` is accepted for
+same-machine and private-LAN hosts (`10/8`, `172.16/12`, `192.168/16`,
+link-local) and refused for every other host (`cleartext_remote`). Measured on
+the handset by the probe below: a LAN `http://192.168.1.238:1234` address passes
+the gate (`local_network`) and asks for consent first, and `http://8.8.8.8:1234`
+is refused. **Whether an `http://` request really crosses Wi-Fi is stage B**:
+the per-app network block found below stopped the in-process loopback leg.
+
+**The key store.** `crates/cartalith-godot/src/llm_keystore_android.rs`: the key
+is encrypted with AES-256-GCM under a per-account key held in the Android
+Keystore (alias `cartalith_llm_<account>`, non-exportable, no user
+authentication), and only `CLK1 | 12-byte nonce | ciphertext+tag` reaches
+`files/llm_keystore/<account>.bin`; the account id is the GCM additional data.
+It is raw JNI from Rust (`jni-sys`, already in `Cargo.lock`), not a `.aar`: a
+v2 Godot Android plugin needs the Gradle build, which this project does not use
+(Ruling AV's plugin precedent; labelled judgement, the owner may overrule). The
+JVM is found through `JNI_GetCreatedJavaVMs` in `libnativehelper.so`, a public
+NDK library from API 31; before that the store reports unavailable and the gate
+refuses (Ruling DD Q5: no file fallback, ever).
+
+**Running a probe on the handset: never through the command line.** On
+2026-10-26 a probe APK exported with
+`command_line/extra_args="res://_llmandroid_probe.tscn"` put the phone in a
+restart loop at the Godot splash: the export template aborts with *"Scene path
+was specified on the command line, but this Godot binary was compiled without
+support for path overrides. Aborting."* (`main/main.cpp:4106`), about 60 times
+a second, and the owner saw the splash "spazzing out". Export templates are
+built without path overrides, so **no scene path, in `extra_args` or anywhere
+on the command line, ever works on Android.** The method that does work:
+
+1. A temporary copy of the `Android` preset with
+   `custom_features="llm_device_probe"` and an `exclude_filter` that keeps
+   `_*.gd`/`_*.tscn` (`addons/godotsteam/*,addons/godot_ai/*,_*.png,_*.raw,_*.py,_*.txt,_*.json,_*.csv,_*.md`).
+2. `shell/app.gd::_ready` hands the tree to `res://_llmandroid_probe.tscn`
+   before the shell builds when `OS.has_feature("llm_device_probe")`. No
+   shipping preset carries that feature, and the shipping preset's `_*` filter
+   leaves the probe out of the real APK (checked: 0 `assets/_llm*` entries).
+3. Export with `--export-debug` (debuggable, so `run-as` works), restore the
+   real preset at once (a script with `trap ... EXIT`), install, launch with
+   `am start -n org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher`,
+   and read the `LLMA` lines from logcat.
+4. **Always finish by installing the normal build and checking that it boots**:
+   a screencap showing the shell, the same `pidof` ten seconds apart, and 0
+   `Aborting` lines in logcat. `adb install` reports `Success` for an APK that
+   then loops.
+
+**Measured on the handset (2026-10-26, stage A).** `_llmandroid_probe.gd`,
+launch 1: 24 ok, 1 FAIL (the loopback leg, below); launch 2, a new process: 6
+ok, 0 failed. The Keystore store is available; one save took 48.2 ms and one
+read 14.8 ms (single samples, an order of magnitude only); the hosted gate
+refuses with `key_store_empty` before a key is saved and with `key_env_missing`
+for the environment source, and passes once the key is saved; the file is
+exactly 33 + key-length bytes, starts `CLK1` with a 12-byte nonce, and holds no
+copy of the key; no file in app storage holds it; after the restart the key
+reads back masked (`****` and its last four characters); Forget removes the file
+and the alias; forgetting nothing is not an error. `tools/llm10_device.sh
+storage-grep` over a `run-as` tar of the whole app directory (18 files, 7.4 MB)
+found the key in **0** files while it was saved, against a positive control
+(`CLK1`, found in exactly `files/llm_keystore/openai.bin`). The phone GPU text
+(`cartalith_llm::gpu::plan_phone`) names the class for all four kinds of address
+and carries no "low-power", "dedicated", "integrated" or Windows advice; the
+override picker is not shown on a phone.
+
+**Zero sockets with the feature off.** `tools/llm10_device.sh sockets` reads
+`/proc/net/{tcp,tcp6,udp,udp6}` from `adb shell` and counts the rows whose owner
+uid is the app's (10320 on this handset; `ss -p` needs root on Android 15). The
+normal build, feature off, from launch through opening a saved world and the
+Assistant settings: **0 rows** in every sample (20 samples over about 20 s
+while the world loaded, and single samples before and after). Positive
+controls: the probe build while it ran showed `rows=2 listen=1` for the same
+uid, and `com.google.android.gms` showed 3.
+
+**Found: this handset blocks the app's network at the OS.** `dumpsys netpolicy`
+lists `UID=10320 policy=262144 (REJECT_ALL)` and `Restricted networking mode:
+true`: network access for Cartalith is switched off in Android's settings. With
+it, even a connection from the app to its own `127.0.0.1` listener stays
+`CONNECTING` (the probe's TCP diagnostic: 0 of 4 bind/target pairs connected,
+3 s each; `localhost` does not resolve, err 26). So the loopback `HTTPClient`
+leg could not test cleartext here, and **stage B needs network access for
+Cartalith allowed first** (Settings, Apps, Cartalith, Mobile data and Wi-Fi).
+This pass did not change that setting. **LineageOS gotcha:** the block was
+most likely set when an earlier build without `INTERNET` was installed; the
+owner cleared it the same day (Settings, Apps, Cartalith, "Allow network
+access"; `dumpsys netpolicy` then shows no `REJECT_ALL` and `effective=NONE`).
+Re-check `dumpsys netpolicy | grep UID=<uid>` after every reinstall and before
+any network leg.
+
+**Stage B, run the same day.** Both arms worked from the handset once the block
+was lifted: Claude (`https://api.anthropic.com`, TLS fine) and LM Studio on the
+PC over `http://192.168.1.238:1234`. The timings, tokens and failure messages
+are in `STATUS.md`'s LLM-10 entry; the screenshots are in
+`cartalith-native/docs/evidence/llm-android-2026-10-26/`. A 40 MB world made the
+shell unusable on the 6T for this work (about 10 s per search keystroke, 1.8 GB
+PSS), so the tests ran on a 512 x 328 world (7.6 s to generate, 0.9 GB PSS).
+
+**Sizes.** `android-dev` `.so` 44 531 856 bytes; `--export-debug` APK
+78 090 140 bytes; the sha256 of the `.so` inside the APK equals the file built.
+
+**Stage B, the steps** (`T=cartalith-native/tools/llm10_device.sh`):
+
+1. Owner: allow network access for Cartalith on the phone; start LM Studio on
+   the PC serving on `0.0.0.0:1234` with the model loaded, allowed through the
+   Windows firewall for the private network. From the PC:
+   `curl http://192.168.1.238:1234/v1/models`.
+2. `bash $T sockets` with the feature still off: 0 rows, now with network
+   allowed.
+3. In the app: MORE, Preferences, Assistant…: Assistant enabled (the consent
+   card: shot), Local providers allowed, provider LM Studio, Base URL
+   `http://192.168.1.238:1234/v1`, model `qwen3.8-27b` (or `qwen3-14b`); shots of
+   the GPU box (phone text, no override row) and the consent card.
+4. Story, Notes, Assistant panel: a prose request on a place; time to first
+   token and to the end (logcat timestamps from the tap); `bash $T
+   watch-sockets 20` during it (one connection to `192.168.1.238:1234`); Stop
+   mid-stream: the row goes within a second.
+5. Commands on, a parameter request ("make the mountains lower"): the card,
+   Apply, Edit ▸ Undo; shots in portrait and landscape (`adb shell settings put
+   system accelerometer_rotation 0` then `user_rotation 1`, and back).
+6. Stop the LM Studio server and send again: the failure message (shot).
+7. TLS: with Remote providers allowed and the OpenAI preset, Send with no key
+   saved must refuse before any connection (`key_store_empty`); a real TLS
+   handshake to a hosted API needs a real key, the owner's to supply or skip.
+8. The device-only bars the quick-bar and pop-out lanes left: a finger tap at
+   the edge of a 48 dp chip, the chip row drag against the sheet drag, the
+   keyboard over the Customise search, gesture insets; shots.
+9. End: if anything else was installed, install the normal build and check it
+   boots (shot, stable pid, no `Aborting`); turn the assistant off again.
+

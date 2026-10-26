@@ -2626,6 +2626,13 @@ func llm_gpu_plan(base_url: String, local_selected: bool, override_id: String, d
 	plain.append_array(devices)
 	return _llm.llm_gpu_plan(base_url, local_selected, override_id, plain)
 
+## The phone form of the GPU rule (LLM-10): same dictionary, never a switch, no override
+## read, and text without desktop advice. `LlmGpuRule.current_plan` calls this on Android.
+func llm_gpu_plan_phone(base_url: String, local_selected: bool) -> Dictionary:
+	if not llm_api:
+		return _llm_missing()
+	return _llm.llm_gpu_plan_phone(base_url, local_selected)
+
 ## The settings gate; see `LlmBridge.llm_authorize`. `capability` is `""`, `"prose"`, `"commands"` or `"edit"`.
 func llm_authorize(settings: Dictionary, capability: String, consented: PackedStringArray) -> Dictionary:
 	return _llm.llm_authorize(settings, capability, consented) if llm_api else _llm_missing()

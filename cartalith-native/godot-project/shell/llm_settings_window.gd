@@ -96,8 +96,9 @@ const _SWITCHES := [
 	{"key": "commands", "label": "Commands: view, layer, parameter",
 		"note": "Generation-setting proposals and view or layer commands (LLM-6): the model proposes, you review the card and press Apply; one Apply is one undo step and never regenerates. Also carries questions about the world and your notes."},
 	{"key": "edit", "label": "Edit actions: sculpt, paint",
-		"unavailable": "Not available in this build yet: it needs grouped undo and its own approval step."},
-	{"key": "local_allowed", "label": "Local providers allowed", "note": "This computer and your local network."},
+		"unavailable": "Not available in this build yet: edit actions (LLM-7) are not built. Grouped undo, which they need, exists."},
+	{"key": "local_allowed", "label": "Local providers allowed", "note": "This computer and your local network.",
+		"note_phone": "This phone and your local network, such as a model server on your computer."},
 	{"key": "remote_allowed", "label": "Remote providers allowed", "note": "Hosted endpoints on the internet."},
 ]
 ## The context sources (scope s.5: "none; per source"), each its own switch.
@@ -379,6 +380,11 @@ func _rebuild() -> void:
 		"choose a provider, or type an address", _on_url_commit, false,
 		"Where requests go. http:// is allowed only for this computer or your network; a remote address must be https://.")
 	controls["base_url"] = url
+	## LLM-10: a phone keyboard autocorrects ordinary text fields. The 6T's SwiftKey turned
+	## "qwen3.8-27b" into "qwen3. 8-27b" (a space after every full stop, 2026-10-26), which names
+	## a model no server has. KEYBOARD_TYPE_URL asks for Android's URI input type, which keyboards treat as an
+	## identifier rather than prose; the base URL, the model name and the variable name all are.
+	url.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
 	_endpoint_text = _note(_body, "")
 	controls["endpoint"] = _endpoint_text
 	## The model: a dropdown filled from the server (`LlmModelList`), plus a typed fallback.
@@ -402,8 +408,13 @@ func _rebuild() -> void:
 	# -- Key ------------------------------------------------------------------
 	_heading("KEY")
 	var src_idx := 1 if String(DccSettings.llm_value("key_source")) == "store" else 0
-	var src := DccWidgets.choice(_body, "Key source", [String(_KEY_SOURCES[0][1]),
-		String(_KEY_SOURCES[1][1]) + ("" if _store_available() else " (unavailable here)")],
+	## LLM-10: on Android the OS store is the Android Keystore, and an app's environment cannot
+	## be set on a phone, so both labels say so there (the ids stay `env` / `store`).
+	var on_android := OS.has_feature("android")
+	var env_label := String(_KEY_SOURCES[0][1]) + (" (cannot be set on a phone)" if on_android else "")
+	var store_label := "Android Keystore" if on_android else String(_KEY_SOURCES[1][1])
+	var src := DccWidgets.choice(_body, "Key source", [env_label,
+		store_label + ("" if _store_available() else " (unavailable here)")],
 		src_idx, _on_key_source_picked,
 		"Where the key is read from. Cartalith never writes a key to a file.")
 	if not _store_available():
@@ -417,11 +428,17 @@ func _rebuild() -> void:
 			"CART_LLM_KEY", _on_env_commit, false,
 			"The NAME of an environment variable that holds the key. Set it before starting Cartalith.")
 		controls["env_var"] = env
+		env.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
 		_dependent.append(env)
 	else:
 		var kf := _field(_body, "Key", "", "paste the key, then Save key", func(_t: String): pass, true,
 			"Stored in the OS credential store, never in a file. It is cleared from this field when you press Save and is never shown again.")
 		kf.secret = true
+		## LLM-10: `secret` masks the drawn text only; the on-screen keyboard is told the field's
+		## type separately. Without PASSWORD a phone keyboard treats the key as ordinary text: it
+		## shows it in the suggestion strip and may learn it into its dictionary (the 6T's SwiftKey
+		## showed the variable-name field's text in its strip, 2026-10-26). PASSWORD turns them off.
+		kf.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_PASSWORD
 		controls["key_field"] = kf
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -491,6 +508,10 @@ func _rebuild() -> void:
 	_floor(ov)
 	_shrinkable(ov)
 	controls["gpu_override"] = ov
+	## LLM-10: a phone has one GPU, so the override has nothing to choose between and its row
+	## is not shown; the plan's effect line says why (`LlmGpuRule.is_phone`).
+	if LlmGpuRule.is_phone():
+		ov.get_parent().visible = false
 
 	# -- Cost -------------------------------------------------------------------
 	_heading("COST")
@@ -525,6 +546,14 @@ func _rebuild() -> void:
 	_models_render()
 
 
+## A switch's sub-note: its `note_phone` on Android where it has one (LLM-10: "this computer" is
+## not where a phone user is), else its `note`, else "".
+func _sw_note(sw: Dictionary) -> String:
+	if OS.has_feature("android") and sw.has("note_phone"):
+		return String(sw["note_phone"])
+	return String(sw.get("note", ""))
+
+
 ## One switch row plus its sub-note. A switch that cannot be used in this build is shown off
 ## and disabled, with the reason as its note (never a dead control without a reason).
 func _switch_row(sw: Dictionary) -> void:
@@ -532,11 +561,11 @@ func _switch_row(sw: Dictionary) -> void:
 	var unavailable := String(sw.get("unavailable", ""))
 	var value := bool(DccSettings.llm_value(key)) if unavailable == "" else false
 	var cb := DccWidgets.toggle(_body, String(sw["label"]), value, func(on: bool): _on_switch(key, on),
-		String(sw.get("note", unavailable)))
+		_sw_note(sw) if unavailable == "" else unavailable)
 	_floor(cb, true)
 	_give_label_the_slack(cb)
 	controls[key] = cb
-	var note := _note(_body, unavailable if unavailable != "" else String(sw.get("note", "")))
+	var note := _note(_body, unavailable if unavailable != "" else _sw_note(sw))
 	controls[key + "_note"] = note
 	if unavailable != "":
 		cb.disabled = true
@@ -604,7 +633,7 @@ func _refresh_dynamic() -> void:
 		var k := String(sw["key"])
 		if k == "enabled" or not controls.has(k + "_note") or String(sw.get("unavailable", "")) != "":
 			continue
-		(controls[k + "_note"] as Label).text = String(sw.get("note", "")) + ("" if enabled else " Needs the master switch.")
+		(controls[k + "_note"] as Label).text = _sw_note(sw) + ("" if enabled else " Needs the master switch.")
 	## The hosted opt-in applies to a hosted endpoint only (K2); a local one never needs it.
 	if controls.has("rag_hosted"):
 		var hep := _endpoint()

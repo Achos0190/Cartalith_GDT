@@ -197,3 +197,9 @@ zip = { version = "8.6.0", features = ["deflate"] }
 # what keeps a reload from panicking across the gdext boundary.
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = { version = "0.15.1", default-features = false }
+# The raw JNI declarations `llm_keystore.rs`'s Android half calls the Android
+# Keystore through (LLM-10, Ruling DD Q5). Already in `Cargo.lock` (as a
+# dependency of `jni-sys 0.3.1`, itself pulled by the wgpu/ndk stack), so this
+# adds no new crate to the build, and only on Android. Declarations only: no
+# build script, no Java, no bundled library; `no_std`.
+jni-sys = { version = "0.4.1", default-features = false }

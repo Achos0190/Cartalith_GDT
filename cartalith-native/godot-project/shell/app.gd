@@ -813,6 +813,15 @@ func _fit_dialog(w: Window) -> void:
 ## `_wire_selection()`); each step's own comment gives its reason. Must not be
 ## reordered so that a signal is connected before its emitter exists.
 func _ready() -> void:
+	## LLM-10's on-device probe (`_llmandroid_probe.gd`). An exported template refuses a scene
+	## path on its command line ("compiled without support for path overrides"), so a probe APK
+	## is a temporary copy of the Android preset with `custom_features="llm_device_probe"`, and
+	## this hands the tree to the probe before the shell builds. No shipping preset carries the
+	## feature, and the shipping preset excludes `_*` so the probe is not in that APK at all.
+	if OS.has_feature("llm_device_probe"):
+		set_process(false)
+		get_tree().change_scene_to_file.call_deferred("res://_llmandroid_probe.tscn")
+		return
 	super._ready()
 	undo_groups.app = self
 	get_tree().node_added.connect(_watch_dialog)

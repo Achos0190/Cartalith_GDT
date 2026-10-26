@@ -451,6 +451,16 @@ Design facts the build fixed, each checked at its symbol; how far the milestone 
 
 **Open (not built):** recording OpenAI's, OpenRouter's, Gemini's and vLLM's real replies (needs those keys); an embedding filter for OpenAI-style servers that do not say; a per-model "supports tools" mark.
 
+## 5f. What building LLM-10 settled (2026-10-26)
+
+Design facts, not status (status is `STATUS.md`'s; the device method and measurements are `ANDROID_BUILD_SCOPE.md` s.3.11).
+
+1. **Permission:** the `Android` preset carries `permissions/internet=true` and no other permission.
+2. **Cleartext/LAN policy:** no network security config. Android's cleartext rules bind the Java HTTP stacks, and `HTTPClient` uses native sockets. The gate (`authorize`) is the policy, and it is the same on every platform: `http://` for same-machine and private-LAN hosts, `https://` for everything else (`cleartext_remote`). A phone's normal set-up is a LAN server on the user's computer (`192.168.x.x` = "local network", no GPU switch).
+3. **Keystore without a plugin [judgement]:** `llm_keystore_android.rs` calls the Android Keystore through raw JNI from Rust (AES-256-GCM, a non-exportable per-account key, the account as GCM additional data, ciphertext only in `files/llm_keystore/`). A `.aar` would need the Gradle build this project does not use. Where the JVM cannot be reached (before API 31) the store is unavailable and a remote call is refused (Ruling DD Q5). Forget deletes the file and the Keystore key.
+4. **Environment variable on a phone:** not settable, so it is labelled "(cannot be set on a phone)" and its missing-key text points to the Keystore instead. It stays selectable because a local server needs no key. This answers s.8's question about whether an env var means anything on a phone, as a default the owner may overrule.
+5. **GPU rule on a phone:** `gpu::plan_phone` never switches and gives no desktop advice; the override picker is hidden on Android (one GPU, nothing to choose).
+
 ## 6. UI forms (DCC shell; design pass LLM-0 first)
 
 - **Desktop:** a docked Assistant panel (message list, input, proposal list with Apply and Dismiss, token counter) and a settings group beside the Preferences and Performance groups in `dcc_settings.gd`; the consent screen is a modal.
@@ -465,7 +475,7 @@ Design facts the build fixed, each checked at its symbol; how far the milestone 
 3. **Edit actions by a model:** correctness depends wholly on LLM-5; bound per-proposal size; preview and click always.
 4. **Local-model quality varies:** tool calls and JSON output are model-dependent even where the server accepts the field; validate, retry once, then show the failure.
 5. **Provider drift:** payloads and model names change; dated fixtures, free-text model.
-6. **Android:** TLS roots under `HTTPClient`, the Keystore plugin, cleartext LAN policy and the open SAF Vault milestone are the largest unknowns.
+6. **Android:** the open SAF Vault milestone is the largest unknown. The Keystore, the cleartext LAN policy and TLS under `HTTPClient` (a real call to api.anthropic.com from the 6T) were settled by LLM-10 (s.5f).
 7. **No credential store and no env var** leaves a user unable to use a remote provider; this is intended (refuse), but the message must say how to fix it.
 8. **Grouped undo is large:** it touches four undo systems; LLM-5 may reveal that a tool's undo cannot be wrapped without change.
 

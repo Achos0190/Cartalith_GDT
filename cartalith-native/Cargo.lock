@@ -246,6 +246,7 @@ dependencies = [
  "cartalith-vault",
  "flate2",
  "godot",
+ "jni-sys 0.4.1",
  "jpeg-decoder",
  "jpeg-encoder",
  "log",

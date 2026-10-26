@@ -65,6 +65,12 @@ static func is_active(bridge) -> bool:
 		and bool(DccSettings.llm_value("local_allowed")) \
 		and local_selected(bridge)
 
+## Whether the phone form of the rule applies: the running OS is Android. Decided by the
+## platform, not the shell's density, so a desktop probe at phone size still gets the
+## desktop rule (that machine does have a dedicated card to give away).
+static func is_phone() -> bool:
+	return OS.has_feature("android")
+
 ## The plan the settings screen shows right now: `WorldGen`'s `llm_gpu_plan` over this
 ## machine's adapters and the stored override. `{}` when the binding is missing.
 static func current_plan(bridge) -> Dictionary:
@@ -75,6 +81,10 @@ static func current_plan(bridge) -> Dictionary:
 	## every boot and every settings change. With none selected the plan has no warning and no
 	## target whatever the adapter list is, so an empty list answers the same.
 	var selected := local_selected(bridge)
+	## LLM-10: a phone has one GPU, so its plan never switches and never enumerates adapters
+	## (no wgpu instance is brought up for it); the text is the phone's, not the desktop's.
+	if is_phone():
+		return bridge.llm_gpu_plan_phone(String(DccSettings.llm_value("base_url")), selected)
 	var devices: Array = bridge.gpu_devices() if (selected and bridge.gpu_api) else []
 	return bridge.llm_gpu_plan(String(DccSettings.llm_value("base_url")), selected,
 		String(DccSettings.llm_value("gpu_override")), devices)
