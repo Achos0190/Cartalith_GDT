@@ -709,7 +709,11 @@ func _assistant() -> void:
 	var before := _count_toasts()
 	await _click(row.chips()[0])
 	await _settle(4)
-	_ok(_count_toasts() == before + 1 and not _app.assistant_window.visible, "tapping the greyed chip toasts the reason and opens nothing")
+	## Owner decision 2026-10-26 (phone pass, OnePlus 6T): the phone's greyed chip is a way in, not a dead button. It still
+	## toasts the reason, and now also opens the Assistant settings (`QuickBarPhone.press`); it never opens the panel.
+	_ok(_count_toasts() == before + 1 and not _app.assistant_window.visible and _app.assistant_settings_window.visible, "tapping the greyed chip toasts the reason and opens the Assistant settings (not the panel)")
+	_app.assistant_settings_window.hide()
+	await _settle(4)
 	## MORE shows it first, dim, with the reason on its second line
 	await _show("more", "half")
 	var pm = _app._phone_menu
