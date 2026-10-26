@@ -185,6 +185,9 @@ func setup(a, b: EngineBridge) -> void:
 	run.cancelled.connect(_on_cancelled)
 	run.retrying.connect(_on_retrying)
 	run.idle.connect(_refresh)
+	## A profile was applied (the switch above, the settings window or the chip's menu): the status line,
+	## the "this will send" line and the reasons all read the live values it wrote.
+	LlmProfiles.hub.switched.connect(func(): _refresh())
 	run.params_step.connect(_on_params_step)
 	run.proposal.connect(_on_proposal)
 	run.answered.connect(_on_answered)
@@ -344,6 +347,13 @@ func _rebuild() -> void:
 	controls["status"] = _status_text
 	var settings_btn := _button(top, "Settings…", _open_settings)
 	controls["settings"] = settings_btn
+	## Ruling DQ: the profile switch (Local / External / the user's own). Applies a whole profile at once;
+	## disabled while a reply runs (a switch mid-stream would describe a different endpoint than the one
+	## answering).
+	var profile_switch := LlmProfileSwitch.new()
+	_body.add_child(profile_switch)
+	controls["profile_switch"] = profile_switch
+	controls["profile"] = profile_switch.option
 
 	# -- task chips ----------------------------------------------------------------
 	var chips := HFlowContainer.new()
@@ -608,14 +618,14 @@ func _entity_events() -> String:
 ## The request arguments for the current task and the ticked sources. A source that is not
 ## allowed or not available is ABSENT (not empty), so it is neither sent nor mentioned.
 func _args(request: String) -> Dictionary:
-	var a := {"task": _task_id(), "request": request, "max_tokens": REPLY_MAX_TOKENS, "include_usage": true}
+	var a := {"task": _task_id(), "request": request, "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
 	if _task == "prose" and not _place.is_empty():
 		## Grounded prose (LLM-11): the place's generated data (and, when allowed, its Vault notes)
 		## is the SUBJECT of the entry, so it is attached whatever the "current entity" switch says;
 		## that switch still governs the Story task. Hosted providers still need their consent (the
 		## gate), and the key rule is unchanged.
 		a["entity_label"] = String(_place["name"])
-		a["max_tokens"] = PLACE_REPLY_MAX_TOKENS
+		a["max_tokens"] = _reply_cap(PLACE_REPLY_MAX_TOKENS)
 		if not _facts.is_empty() and bool(_facts.get("bundle", {}).get("ok", false)):
 			a["place_bundle"] = String(_facts["bundle"]["bundle"])
 	elif _task == "story":
@@ -650,7 +660,15 @@ func _gate() -> Dictionary:
 ## The arguments of a setting request: the user's words and the CURRENT settings (the engine's
 ## own getter; the snapshot while a generate runs). Rust builds the catalogue from these.
 func _params_args(request: String) -> Dictionary:
-	return {"request": request, "current": bridge.param_snapshot(), "max_tokens": REPLY_MAX_TOKENS, "include_usage": true}
+	return {"request": request, "current": bridge.param_snapshot(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
+
+
+## The reply cap for a request: the active profile's pinned reply cap when it has one (Ruling DQ;
+## 0 = not pinned), else the task's own default. The pin applies to every task, so a profile that
+## wants short replies gets them for a place entry too; Rust clamps it to its 16..8192 range anyway.
+func _reply_cap(task_default: int) -> int:
+	var pin := int(DccSettings.llm_value("max_tokens"))
+	return pin if pin > 0 else task_default
 
 
 ## Recomputes every label and enabled state from stored settings and the current inputs.
@@ -658,6 +676,8 @@ func _refresh() -> void:
 	if _building or _send == null:
 		return
 	var busy := run.busy()
+	if controls.has("profile") and is_instance_valid(controls["profile"]):
+		(controls["profile"] as OptionButton).disabled = busy or not LlmProfiles.available()
 	var g := _gate()
 	var gate_ok := bool(g.get("ok", false))
 	if gate_ok:

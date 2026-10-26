@@ -86,6 +86,17 @@ const _SEC_ASSET_LIBRARY := "asset_library"
 ## "the assistant is on, talking to this URL" would switch the feature on for
 ## whoever opens the file.
 const _SEC_LLM := "llm"
+## The assistant PROFILES (`LLM_ASSISTANT_SCOPE.md` s.5g, Ruling DQ): named bundles of provider,
+## address, model, context ticks and reply cap, switched as a unit. **Per device and never in a
+## world** (a `.zip` carrying "use this profile" would point whoever opens it at an endpoint), and
+## **holds no key**: the section has ONE allow-listed key, `data`, whose text `cartalith-llm`'s
+## `profiles` module writes and reads, and that type has no field a key could go in. The `[quick_bar]`
+## and `[llm]` sections' pattern: written only through `set_llm_profiles_data()`.
+const _SEC_LLM_PROFILES := "llm_profiles"
+## The most bytes `data` may hold. 16 profiles of at most ~1.2 KB each (a 300-character address, a
+## 200-character model, a 40-character name and the ticks) are about 19 KB; 64 KiB is a labelled
+## judgement that leaves room and still refuses a runaway write.
+const LLM_PROFILES_MAX_BYTES := 65536
 ## Pop-out windows (`POPOUT_WINDOWS_SCOPE.md` s.4, milestone PW-1, Ruling DK): the switch that
 ## lets the listed panels open as native OS windows, and where each one was last left.
 ## **Per device and never in a world** -- a `.zip` carrying "open on monitor 2 at (1920, 40)"
@@ -968,7 +979,27 @@ const LLM_DEFAULTS := {
 	"ctx_rag_vault": false,    ## context source: Vault notes found by search
 	"rag_pre": "auto",         ## search before the model call: "auto" (on for a local endpoint), "on" or "off" (K6)
 	"rag_tools": true,         ## offer the model the three search tools (K6); only matters when a source is ticked
+	## Ruling DQ (profiles): the live values a profile writes. They are ordinary settings, so every
+	## existing reader keeps working; the active profile mirrors them (`LlmProfiles`).
+	"thinking": "default",     ## "default" sends nothing extra; "none" asks a reasoning model not to think (the preset's known field only)
+	"max_tokens": 0,           ## a pinned reply cap in tokens; 0 = not pinned (each task's own cap)
+	"retry_limit": 1,          ## automatic retries after a transient failure: 0 or 1 (never more, scope s.4 rule 7)
+	"key_account": "",         ## the credential-store ENTRY NAME the key is read from and saved under ("" = the provider id, as before profiles). A name, never a key
 }
+
+## The `[llm]` keys a profile carries (`cartalith_llm::profiles::Profile::live`). Writing one of these
+## writes it THROUGH to the active profile (`profile_hook`), so the profile always equals what the
+## settings window shows. `key_account` is deliberately not here: a profile owns its account, the
+## window never edits it.
+const LLM_PROFILE_KEYS := ["preset_id", "base_url", "model", "thinking", "max_tokens", "retry_limit", "gpu_override",
+	"ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"]
+
+## Set by `LlmProfiles.install`: called (no arguments) after a profile-carried `[llm]` key was written
+## outside a profile switch, so the active profile follows. Unset in a build or probe without profiles.
+static var profile_hook := Callable()
+## True while `LlmProfiles` is applying a whole profile: the hook must not write the half-applied
+## state back into the profile it is reading from.
+static var profile_applying := false
 
 ## The conditional Assistant chip's change notice (`CUSTOM_QUICK_BAR_SCOPE.md` s.5, milestone CQ-7,
 ## Ruling DH Q6). `DccSettings` is static and has no signals of its own, so the chip's two homes (the
@@ -1010,14 +1041,56 @@ static func set_llm_value(key: String, value) -> bool:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LLM, key, String(value).strip_edges() if value is String else value)
 	_save()
+	## Write-through to the active profile (Ruling DQ), after the value is stored so the hook reads it.
+	if not profile_applying and profile_hook.is_valid() and LLM_PROFILE_KEYS.has(key):
+		profile_hook.call()
 	notify_assistant_state()
 	return true
+
+## Stores several `[llm]` keys in one save and one notice (a profile switch writes fourteen).
+## **All or nothing**: if any key is outside `LLM_DEFAULTS` or of the wrong type, nothing is written
+## and false is returned. Does NOT call the profile hook (the caller is the profile logic).
+static func set_llm_values(values: Dictionary) -> bool:
+	for k in values:
+		if not LLM_DEFAULTS.has(k) or typeof(values[k]) != typeof(LLM_DEFAULTS[k]):
+			return false
+	_ensure_loaded()
+	for k in values:
+		var v = values[k]
+		_cfg.set_value(_SEC_LLM, k, String(v).strip_edges() if v is String else v)
+	_save()
+	notify_assistant_state()
+	return true
+
+## The stored profile text (`cartalith_llm::profiles`), or "" when none was ever stored. Not secret.
+static func llm_profiles_data() -> String:
+	_ensure_loaded()
+	var v = _cfg.get_value(_SEC_LLM_PROFILES, "data", "")
+	return v if v is String else ""
+
+## Stores the profile text. **Refuses (false, nothing written)** anything that is not a String or is
+## over `LLM_PROFILES_MAX_BYTES`. Does not validate the content: `cartalith-llm` parses it tolerantly
+## on every read, and no code path can put a key here because the type that writes it has no key field.
+static func set_llm_profiles_data(text) -> bool:
+	if typeof(text) != TYPE_STRING or String(text).to_utf8_buffer().size() > LLM_PROFILES_MAX_BYTES:
+		return false
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LLM_PROFILES, "data", text)
+	_save()
+	notify_assistant_state()
+	return true
+
+## The account the key is saved under and read from for the CURRENT settings: the active profile's own
+## entry, else the provider id (where keys lived before profiles). Mirrors `llm_bridge.rs::account_for`.
+static func llm_key_account() -> String:
+	var own := String(llm_value("key_account"))
+	return own if own != "" else String(llm_value("preset_id"))
 
 ## The dictionary `WorldGen.llm_authorize` reads: only the gate-relevant keys.
 static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
-			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params",
+			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params", "thinking", "key_account",
 			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools"]:
 		d[k] = llm_value(k)
 	## The hosted endpoints the user allowed knowledge search for (K2); Rust compares the endpoint's

@@ -160,6 +160,8 @@ func setup(a, b: EngineBridge) -> void:
 	_ml = LlmModelList.new()
 	add_child(_ml)
 	_ml.finished.connect(_on_models_finished)
+	## A profile was applied (here, in the panel or from the chip's menu): redraw from the live values.
+	LlmProfiles.hub.switched.connect(_on_profile_switched)
 	## Only ticks the age text of a list that is already shown once a second; starts nothing.
 	set_process(true)
 	## Closing must not leave a key in a field. `_rebuild` clears it on open too.
@@ -339,6 +341,9 @@ func _rebuild() -> void:
 	_status_text = st[1]
 	controls["status"] = _status_text
 
+	# -- Profiles (Ruling DQ) ---------------------------------------------------
+	_build_profiles()
+
 	# -- Assistant switches ---------------------------------------------------
 	_heading("ASSISTANT")
 	for sw in _SWITCHES:
@@ -415,6 +420,9 @@ func _rebuild() -> void:
 	for w in [pick, url, model, model_pick, refresh]:
 		_dependent.append(w)
 
+	# -- Reply: thinking, cap and retries (part of a profile, Ruling DQ) -------------------
+	_build_reply()
+
 	# -- Key ------------------------------------------------------------------
 	_heading("KEY")
 	var src_idx := 1 if String(DccSettings.llm_value("key_source")) == "store" else 0
@@ -442,7 +450,7 @@ func _rebuild() -> void:
 		_dependent.append(env)
 	else:
 		var kf := _field(_body, "Key", "", "paste the key, then Save key", func(_t: String): pass, true,
-			"Stored in the OS credential store, never in a file. It is cleared from this field when you press Save and is never shown again.")
+			"Stored in the OS credential store, never in a file, under this profile's own entry. It is cleared from this field when you press Save and is never shown again.")
 		kf.secret = true
 		## LLM-10: `secret` masks the drawn text only; the on-screen keyboard is told the field's
 		## type separately. Without PASSWORD a phone keyboard treats the key as ordinary text: it
@@ -464,7 +472,7 @@ func _rebuild() -> void:
 		forget.disabled = not can
 		if not can:
 			var why := "No OS credential store is available here. Use an environment variable; Cartalith never saves a key to a file." \
-				if not _store_available() else "Choose a provider first: a saved key belongs to one provider."
+				if not _store_available() else "Choose a provider first: a saved key belongs to one profile."
 			save.tooltip_text = why
 			forget.tooltip_text = why
 	var ks := _status_line(_body)
@@ -597,6 +605,170 @@ func _switch_row(sw: Dictionary) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Profiles (Ruling DQ, LLM_ASSISTANT_SCOPE.md s.5g)
+# ---------------------------------------------------------------------------
+
+## The profile line under the buttons: the last refusal or confirmation, in words.
+var _profile_msg: Label
+
+## The PROFILE group: the switch, what a profile is, and the list operations. The switch applies a
+## whole profile at once (`LlmProfiles.switch_to`); the buttons edit the LIST, never the live values.
+func _build_profiles() -> void:
+	_heading("PROFILE")
+	var sw := LlmProfileSwitch.new()
+	_body.add_child(sw)
+	controls["profile_switch"] = sw
+	controls["profile_option"] = sw.option
+	sw.picked.connect(func(_r: Dictionary): _refresh_profile_buttons())
+	_note(_body, "A profile is a whole set-up: provider, address, model, thinking, what is sent, reply cap, retries and (for a local model) the GPU choice. Switching applies all of it at once. The master switch, Commands, Edit and the Local / Remote provider switches belong to no profile and never change. A key is never part of a profile; each profile keeps its own in the OS credential store.")
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 8)
+	_body.add_child(row)
+	controls["profile_buttons"] = row
+	controls["profile_new"] = _button(row, "New…", _on_profile_new)
+	controls["profile_duplicate"] = _button(row, "Duplicate", _on_profile_duplicate)
+	controls["profile_rename"] = _button(row, "Rename…", _on_profile_rename)
+	controls["profile_delete"] = _button(row, "Delete…", _on_profile_delete)
+	controls["profile_default"] = _button(row, "Make default", _on_profile_default)
+	controls["profile_reset"] = _button(row, "Reset", _on_profile_reset)
+	_profile_msg = _note(_body, "", "text_secondary")
+	controls["profile_msg"] = _profile_msg
+	_refresh_profile_buttons()
+
+
+## Enables each list button for the active profile, with the reason on the one that cannot act.
+func _refresh_profile_buttons() -> void:
+	if not controls.has("profile_new") or not is_instance_valid(controls["profile_new"]):
+		return
+	var set := LlmProfiles.load_set()
+	var id := LlmProfiles.active_id()
+	var row := LlmProfiles.find(set, id)
+	var count := (set.get("profiles", []) as Array).size()
+	var full := count >= int(set.get("max_profiles", 16))
+	var none_active := row.is_empty()
+	var builtin := bool(row.get("builtin", false))
+	var why_none := "No profile is active: the settings are your own. Pick a profile, or press New to start one."
+	var why_full := "There are already %d profiles. Delete one first." % count
+	_profile_button("profile_new", full, why_full)
+	_profile_button("profile_duplicate", none_active or full, why_none if none_active else why_full)
+	_profile_button("profile_rename", none_active or builtin, why_none if none_active else "The built-in profiles cannot be renamed.")
+	_profile_button("profile_delete", none_active or builtin, why_none if none_active else "The built-in profiles cannot be deleted. You can edit and reset them.")
+	_profile_button("profile_default", none_active or id == String(set.get("default", "")), why_none if none_active else "It is already the default.")
+	_profile_button("profile_reset", none_active or not builtin, why_none if none_active else "Only a built-in profile can be reset to its shipped values.")
+
+
+## Disables a profile-list button with its reason as the tooltip, or enables it and clears the tooltip.
+func _profile_button(key: String, off: bool, reason: String) -> void:
+	var btn := controls[key] as Button
+	btn.disabled = off
+	btn.tooltip_text = reason if off else ""
+
+
+## Shows `r`'s refusal under the buttons, or `ok_text` when it succeeded.
+func _profile_say(r: Dictionary, ok_text: String) -> void:
+	if _profile_msg == null or not is_instance_valid(_profile_msg):
+		return
+	_profile_msg.text = ok_text if bool(r.get("ok", false)) else String(r.get("error", "Not done."))
+
+
+## New: asks for a name, creates a BLANK profile (every "Send" tick off, nothing chosen) and
+## switches to it, so the fields below are the new profile's to fill in. The settings that were live
+## are kept as "Previous settings" first when no profile held them.
+func _on_profile_new() -> void:
+	DccWidgets.prompt(app, "New profile", "Name", "", "Create", func(name: String):
+		var r := LlmProfiles.add(name)
+		_profile_say(r, "Profile \"%s\" created." % name)
+		if bool(r.get("ok", false)):
+			var sw := LlmProfiles.switch_to(String(r["id"]))
+			if not bool(sw.get("ok", false)):
+				_profile_say(sw, "")
+		_refresh_profile_buttons(),
+		"1 to 40 characters. A new profile starts empty with nothing sent; pick a provider and a model, then save a key for it if it needs one.")
+
+
+func _on_profile_duplicate() -> void:
+	var id := LlmProfiles.active_id()
+	if id == "":
+		return
+	var r := LlmProfiles.copy_profile(id)
+	var copy := LlmProfiles.find(LlmProfiles.load_set(), String(r.get("id", "")))
+	_profile_say(r, "Copied as \"%s\". The key is not copied: save one under the copy if it needs it." % String(copy.get("name", "")))
+	_refresh_profile_buttons()
+
+
+func _on_profile_rename() -> void:
+	var id := LlmProfiles.active_id()
+	var row := LlmProfiles.find(LlmProfiles.load_set(), id)
+	if row.is_empty():
+		return
+	DccWidgets.prompt(app, "Rename profile", "Name", String(row["name"]), "Rename", func(name: String):
+		_profile_say(LlmProfiles.rename(id, name), "Renamed.")
+		_refresh_profile_buttons())
+
+
+## Delete: a confirmation card; a stored key is forgotten only if the card's answer says so.
+func _on_profile_delete() -> void:
+	var id := LlmProfiles.active_id()
+	if id == "":
+		return
+	LlmProfiles.request_delete(app, id, func(deleted: bool, forgot: bool):
+		_profile_say({"ok": deleted, "error": "Not deleted."},
+			"Deleted." + (" Its saved key was removed." if forgot else ""))
+		_rebuild_deferred())
+
+
+func _on_profile_default() -> void:
+	var id := LlmProfiles.active_id()
+	if id != "":
+		_profile_say(LlmProfiles.set_default(id), "Now the default profile on this device.")
+		_refresh_profile_buttons()
+
+
+func _on_profile_reset() -> void:
+	var id := LlmProfiles.active_id()
+	if id != "":
+		_profile_say(LlmProfiles.reset(id), "Reset to its shipped values.")
+		_rebuild_deferred()
+
+
+## A profile was applied somewhere: redraw every control from the live values it wrote and ask the
+## new server for its models. Does nothing while hidden (the next `open()` rebuilds).
+func _on_profile_switched() -> void:
+	if not visible:
+		return
+	_rebuild_deferred()
+	_models_refresh.call_deferred()
+	settings_changed.emit()
+
+
+## The REPLY group: thinking mode, a pinned reply cap and the retry limit. All three are profile
+## values (a local reasoning model wants thinking off and a short cap; a hosted one does not).
+func _build_reply() -> void:
+	_heading("REPLY")
+	var th_idx := 1 if String(DccSettings.llm_value("thinking")) == "none" else 0
+	var th := DccWidgets.choice(_body, "Thinking", ["Provider default", "Off for reasoning models"], th_idx,
+		func(i: int): _store("thinking", "none" if i == 1 else "default"),
+		"Off asks a reasoning model not to think first, on every request, using the field the provider is known to take (LM Studio and Ollama reasoning_effort none; llama.cpp and vLLM the template switch). A provider with no known field is sent nothing.")
+	_floor(th)
+	_shrinkable(th)
+	controls["thinking"] = th
+	var cap := DccWidgets.number(_body, "Reply cap, tokens (0 = automatic)", 0, 8192, 1,
+		float(int(DccSettings.llm_value("max_tokens"))),
+		func(v: float): _store("max_tokens", 0 if v < 16.0 else int(v)),
+		"Pins the longest reply this profile asks for. 0 uses each task's own cap (about a page of prose; longer for a place entry). From 16 to 8192.")
+	_floor(cap)
+	controls["max_tokens"] = cap
+	var rt := DccWidgets.choice(_body, "Retries", ["No automatic retry", "One automatic retry"],
+		clampi(int(DccSettings.llm_value("retry_limit")), 0, 1),
+		func(i: int): _store("retry_limit", clampi(i, 0, 1)),
+		"After a transient failure (a busy server, a dropped connection before any text) the app can try once more. Never more than once.")
+	_floor(rt)
+	_shrinkable(rt)
+	controls["retry_limit"] = rt
+
+
+# ---------------------------------------------------------------------------
 # State helpers
 # ---------------------------------------------------------------------------
 
@@ -716,7 +888,7 @@ func _refresh_dynamic() -> void:
 func _refresh_key_line() -> void:
 	var src := String(DccSettings.llm_value("key_source"))
 	var r: Dictionary = bridge.llm_key_status(src, String(DccSettings.llm_value("env_var")),
-		String(DccSettings.llm_value("preset_id")))
+		DccSettings.llm_key_account())
 	if not bool(r.get("ok", false)):
 		_key_text.text = String(r.get("error", ""))
 		_dot(_key_dot, "block")
@@ -1035,7 +1207,7 @@ func _on_key_save() -> void:
 		return
 	var typed := field.text
 	field.text = ""
-	var r := bridge.llm_key_save(String(DccSettings.llm_value("preset_id")), typed)
+	var r := bridge.llm_key_save(DccSettings.llm_key_account(), typed)
 	typed = ""
 	_key_msg.text = "Key saved in the OS credential store." if bool(r.get("ok", false)) else String(r.get("error", "Not saved."))
 	_refresh_dynamic()
@@ -1048,7 +1220,7 @@ func _on_key_save() -> void:
 
 ## Forget key: removes the saved key for the chosen provider.
 func _on_key_forget() -> void:
-	var r := bridge.llm_key_forget(String(DccSettings.llm_value("preset_id")))
+	var r := bridge.llm_key_forget(DccSettings.llm_key_account())
 	_key_msg.text = "Saved key removed." if bool(r.get("ok", false)) else String(r.get("error", "Not removed."))
 	_refresh_dynamic()
 	## The Assistant chip's greyed/live state depends on whether a key exists (CQ-7).

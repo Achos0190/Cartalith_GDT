@@ -2650,6 +2650,16 @@ func llm_key_save(account: String, key: String) -> Dictionary:
 func llm_key_forget(account: String) -> Dictionary:
 	return _llm.llm_key_forget(account) if llm_api else _llm_missing()
 
+## Reads the stored assistant-profile text into a set (Ruling DQ); see `LlmBridge.llm_profiles_parse`.
+## Never fails: unreadable text is the shipped set. `phone` shapes the built-in Local profile.
+func llm_profiles_parse(text: String, phone: bool) -> Dictionary:
+	return _llm.llm_profiles_parse(text, phone) if llm_api else _llm_missing()
+
+## One edit of the stored profile text; see `LlmBridge.llm_profiles_op`. The answer carries the new
+## text to store, or `{ok: false, error}` with nothing changed.
+func llm_profiles_op(text: String, op: String, args: Dictionary, phone: bool) -> Dictionary:
+	return _llm.llm_profiles_op(text, op, args, phone) if llm_api else _llm_missing()
+
 ## Points the compute path at `keys` for THIS SESSION ONLY: the engine's selection is set
 ## but `DccSettings` is not written, so the user's own persisted choice (Preferences ▸
 ## Performance ▸ Devices) is untouched and is what `LlmGpuRule` restores. Refused (false)

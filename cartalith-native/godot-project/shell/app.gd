@@ -1043,6 +1043,11 @@ func _ready() -> void:
 	assistant_settings_window.settings_changed.connect(func(): assistant_window._refresh())
 	## Ruling DF at boot: if a local provider was left active, point the compute path at the
 	## low-power adapter again (the switch is never persisted, so a restart starts clean).
+	## Ruling DQ: wire the assistant profiles to this bridge, then restore the last used one (only when
+	## profiles were ever stored; a fresh install changes nothing). Before the GPU sync below so that
+	## sync sees the restored provider.
+	LlmProfiles.install(self, bridge)
+	LlmProfiles.restore()
 	LlmGpuRule.sync(bridge)
 	## A sync refused during a generation is retried when it ends.
 	bridge.generation_finished.connect(func(_ok: bool):

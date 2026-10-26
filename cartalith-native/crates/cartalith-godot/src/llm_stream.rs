@@ -634,7 +634,7 @@ impl LlmStream {
     fn prepare_params(&self, settings: &VarDictionary, consented: &[String], args: &VarDictionary, resume: bool) -> VarDictionary {
         let s = settings_from(settings);
         let (key_state, key) =
-            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+            resolve_key(s.key_source, &s.env_var, &account_for(settings, &s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         // The gate's reason first, as on the prose path (a switched-off feature says so).
         let auth = match cartalith_llm::settings::authorize(&s, Some(Capability::Commands), &key_state, consented) {
             Ok(a) => a,
@@ -999,7 +999,7 @@ impl LlmStream {
         let (key_state, key) = resolve_key(
             s.key_source,
             &s.env_var,
-            &account_for(&s.preset_id),
+            &account_for(&settings, &s.preset_id),
             &|n| std::env::var(n).ok(),
             &OsKeyStore,
         );
@@ -1072,8 +1072,15 @@ impl LlmStream {
             // thinks first spends the reply cap on hidden tokens and answers minutes later, so the
             // preset's known "no thinking" field is sent (LM Studio and Ollama
             // `reasoning_effort: "none"`, llama.cpp and vLLM the template switch). Other prose
-            // tasks, and every preset without a verified switch, send nothing, as before.
-            thinking: if place.is_some() && task == Task::Prose { hints.no_thinking } else { cartalith_llm::Thinking::Default },
+            // tasks send it only when the active profile's thinking mode is "none" (below), and
+            // every preset without a verified switch sends nothing, as before.
+            // Ruling DQ: a profile whose thinking mode is "none" asks for it on EVERY request, the
+            // preset's known field only (a preset without one sends nothing, as before).
+            thinking: if (place.is_some() && task == Task::Prose) || text(&settings, "thinking") == "none" {
+                hints.no_thinking
+            } else {
+                cartalith_llm::Thinking::Default
+            },
         };
         let counted = counter().clone();
         let prepared = match prepare_authorized_chat(&s, cap, &key_state, &consented, &counted, key.as_ref(), &req) {
@@ -1217,7 +1224,7 @@ impl LlmStream {
         };
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
-        let (key_state, _) = resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+        let (key_state, _) = resolve_key(s.key_source, &s.env_var, &account_for(&settings, &s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         match cartalith_llm::settings::authorize(&s, Some(cap), &key_state, &consented) {
             Err(r) => vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str(), "world" => false, "vault" => false, "pre" => false, "tools" => false },
             Ok(a) => {

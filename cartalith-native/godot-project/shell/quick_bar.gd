@@ -63,6 +63,9 @@ const ID_CUSTOMISE := 1000
 ## The `⋯` menu's Assistant row and the Assistant chip's menu rows (CQ-7); above any pin index.
 const ID_ASSISTANT := 1001
 const ID_ASSISTANT_HIDE := 1002
+## Ruling DQ: the Assistant chip's menu lists the profiles; row `i` carries id `ID_PROFILE_BASE + i`.
+## Above every other id in this file and well below Godot's menu id limits; 16 profiles at most.
+const ID_PROFILE_BASE := 1100
 ## Reference to the owning `DccApp` for `bridge` and the menu walk; untyped for a harness stub.
 var _app
 ## Pinned chips in pin order, one per stored pin (hidden ones are overflow).
@@ -497,6 +500,7 @@ func _assistant_input(ev: InputEvent) -> void:
 	if (ev as InputEventMouseButton).button_index != MOUSE_BUTTON_RIGHT:
 		return
 	_assistant_menu.clear()
+	_fill_profile_rows(_assistant_menu)
 	_assistant_menu.add_item("Hide the Assistant chip", ID_ASSISTANT_HIDE)
 	_assistant_menu.add_separator()
 	_assistant_menu.add_item("Customise…", ID_CUSTOMISE)
@@ -504,7 +508,28 @@ func _assistant_input(ev: InputEvent) -> void:
 	_popup_under(_assistant_menu, _assistant)
 	_assistant.accept_event()
 
+## Adds one radio row per profile (the active one checked) and a separator, to `menu`. Nothing is added
+## when profiles are unavailable. A pick calls `LlmProfiles.switch_to`, which applies the whole profile
+## and shows the consent card first when the new endpoint has none.
+func _fill_profile_rows(menu: PopupMenu) -> void:
+	var set := LlmProfiles.load_set()
+	if not bool(set.get("ok", false)):
+		return
+	var active := LlmProfiles.active_id()
+	var rows: Array = set["profiles"]
+	for i in rows.size():
+		menu.add_radio_check_item("Profile: " + String(rows[i]["name"]), ID_PROFILE_BASE + i)
+		menu.set_item_checked(menu.item_count - 1, String(rows[i]["id"]) == active)
+		menu.set_item_metadata(menu.item_count - 1, String(rows[i]["id"]))
+	menu.add_separator()
+
 func _on_assistant_menu_item(id: int) -> void:
+	if id >= ID_PROFILE_BASE and id < ID_PROFILE_BASE + 16:
+		var idx := _assistant_menu.get_item_index(id)
+		var r := LlmProfiles.switch_to(String(_assistant_menu.get_item_metadata(idx)))
+		if not bool(r.get("ok", false)):
+			_say(String(r.get("reason", "Not switched.")))
+		return
 	if id == ID_CUSTOMISE:
 		open_customise()
 	elif id == ID_ASSISTANT_HIDE:

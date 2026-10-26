@@ -282,7 +282,9 @@ func _dispatch(events: Array) -> void:
 			"params_failed":
 				_terminal(func(): failed.emit(String(ev.get("reason", "The setting request failed."))))
 			"error":
-				if bool(ev.get("will_retry", false)) and not _cancelling:
+				## Ruling DQ: the active profile's retry limit can be 0, which turns the one automatic retry
+				## off (it can never be more than one: Rust grants at most one).
+				if bool(ev.get("will_retry", false)) and not _cancelling and int(DccSettings.llm_value("retry_limit")) > 0:
 					## Rust granted the one retry (transient, nothing shown yet): hold the
 					## failure, close this socket, and let `pump` start the second attempt
 					## once the worker is joined.

@@ -18,6 +18,7 @@
 //! | [`counter`] | the running token counter and the opt-in cap check (LLM-4) |
 //! | [`retry`] | the one automatic retry, as a budget (LLM-4) |
 //! | [`presets`] | provider defaults as data (URLs, ports, auth, flags), evidence-tagged |
+//! | [`profiles`] | assistant profiles: named bundles of provider, address, model, context ticks, reply cap, with caps and validation (Ruling DQ) |
 //! | [`event`] | the one [`event::Event`] enum |
 //! | [`host`] | [`host::classify_host`]: same machine, local network, remote or unknown, from text alone |
 //! | [`gpu`] | the local-provider GPU rule (Ruling DF) as pure decisions |
@@ -60,6 +61,7 @@ pub mod place_facts;
 pub mod place_vault;
 pub mod prepare;
 pub mod presets;
+pub mod profiles;
 pub mod request;
 pub mod retry;
 pub mod prompt;

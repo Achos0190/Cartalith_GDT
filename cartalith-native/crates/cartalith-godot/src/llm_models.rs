@@ -160,7 +160,7 @@ impl LlmModels {
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
         let (key_state, key) =
-            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+            resolve_key(s.key_source, &s.env_var, &account_for(&settings, &s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         match prepare_model_list(&s, &key_state, &consented, key) {
             Ok(p) => {
                 let mut d = step_dict(p.job.first());

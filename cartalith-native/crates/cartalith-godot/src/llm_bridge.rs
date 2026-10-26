@@ -30,6 +30,7 @@ use cartalith_llm::gpu::{Adapter, GpuOverride, GpuPlan, plan, plan_phone};
 use cartalith_llm::host::classify_host;
 use cartalith_llm::keystore::{KeySource, KeyStore, StoreError, resolve_key};
 use cartalith_llm::presets::{ApiStyle, KeyRequirement, PRESETS};
+use cartalith_llm::profiles::{MAX_NAME_CHARS, MAX_PROFILES, OpError, ProfileSet};
 use cartalith_llm::settings::{
     CUSTOM_ANTHROPIC, CUSTOM_OPENAI, Capability, LlmSettings, authorize, origin_of, terms_url,
 };
@@ -100,10 +101,14 @@ pub(crate) fn settings_from(d: &VarDictionary) -> LlmSettings {
     s
 }
 
-/// The credential-store account for a provider: its id. Presets and the two
-/// custom ids all satisfy `keystore::account_ok`.
-pub(crate) fn account_for(preset_id: &str) -> String {
-    preset_id.to_owned()
+/// The credential-store account the key is read from and saved under: the active profile's
+/// own account (`key_account`, one entry per profile, Ruling DQ) when the settings carry a legal
+/// one, else the provider id, which is where every key was kept before profiles existed.
+/// Presets, the two custom ids and every profile account satisfy `keystore::account_ok`; an
+/// illegal `key_account` (a hand-edited file) falls back, it is never used to build a target.
+pub(crate) fn account_for(settings: &VarDictionary, preset_id: &str) -> String {
+    let own = text(settings, "key_account");
+    if cartalith_llm::keystore::account_ok(&own) { own } else { preset_id.to_owned() }
 }
 
 /// The key problem as the user should read it on this platform. On Android
@@ -318,7 +323,7 @@ impl LlmBridge {
         let s = settings_from(&settings);
         let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
         let (key_state, _key) =
-            resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+            resolve_key(s.key_source, &s.env_var, &account_for(&settings, &s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         match authorize(&s, cap, &key_state, &consented) {
             Ok(a) => {
                 let mut d = vdict! {
@@ -402,4 +407,128 @@ impl LlmBridge {
             Err(StoreError::Unavailable) => fail("No OS credential store is available here."),
         }
     }
+
+    // -- Assistant profiles (Ruling DQ, LLM_ASSISTANT_SCOPE.md s.5g) ---------------------------
+    //
+    // Every rule lives in `cartalith_llm::profiles`; these two functions only move text and
+    // dictionaries across the boundary. The stored text holds no key (the profile type has no
+    // field for one); `account` fields are credential-store entry NAMES.
+
+    /// Reads the stored profile text (`""` or anything unreadable gives the shipped set) and
+    /// answers the dictionary documented at [`profiles_result`]. `phone` shapes the built-in
+    /// Local profile (no address on a phone). Never fails: bad input is the shipped set.
+    #[func]
+    fn llm_profiles_parse(&self, text: GString, phone: bool) -> VarDictionary {
+        let parsed = ProfileSet::parse(&text.to_string(), phone);
+        let mut d = profiles_result(&parsed.set, "");
+        d.set("newer", parsed.newer);
+        d.set("dropped", parsed.dropped.len() as i64);
+        d
+    }
+
+    /// Applies one edit to the stored profile text and answers [`profiles_result`] with the NEW
+    /// text, or `{ok: false, error}` with the text untouched (the caller keeps its copy). `op` is
+    /// `add` (`name`, optional `from`), `duplicate` (`id`), `rename` (`id`, `name`), `delete`
+    /// (`id`; answers `account`, the key entry the caller may offer to forget), `sync` (`id`,
+    /// `live`: the live `[llm]` values written through to the profile), `last`, `default`,
+    /// `reset` (each `id`) and `adopt` (`live`, `account`: pre-profile settings kept as a custom
+    /// profile). The new profile's id is `id` in the answer.
+    #[func]
+    fn llm_profiles_op(&self, text: GString, op: GString, args: VarDictionary, phone: bool) -> VarDictionary {
+        let mut set = ProfileSet::parse(&text.to_string(), phone).set;
+        let id = self::text(&args, "id");
+        let name = self::text(&args, "name");
+        let live = live_json(&args);
+        let result: Result<String, OpError> = match op.to_string().as_str() {
+            "add" => {
+                let from = self::text(&args, "from");
+                set.add(&name, if from.is_empty() { None } else { Some(from.as_str()) })
+            }
+            "duplicate" => set.duplicate(&id),
+            "rename" => set.rename(&id, &name).map(|()| id.clone()),
+            "delete" => set.delete(&id),
+            "sync" => set.sync_live(&id, &live).map(|()| id.clone()),
+            "last" => set.set_last(&id).map(|()| id.clone()),
+            "default" => set.set_default(&id).map(|()| id.clone()),
+            "reset" => set.reset_builtin(&id, phone).map(|()| id.clone()),
+            "adopt" => set.adopt_legacy(&live, &self::text(&args, "account")),
+            _ => return fail("unknown profile operation"),
+        };
+        match result {
+            Ok(out) => {
+                let mut d = profiles_result(&set, &out);
+                if op.to_string() == "delete" {
+                    d.set("account", out.as_str());
+                    d.set("id", id.as_str());
+                }
+                d
+            }
+            Err(e) => {
+                let mut d = fail(e.reason());
+                d.set("code", format!("{e:?}").as_str());
+                d
+            }
+        }
+    }
 }
+
+/// The live `[llm]` keys a profile carries, read from a shell dictionary into the JSON shape
+/// `Profile::with_live` takes. A key that is absent stays absent (so it keeps the profile's
+/// value); nothing else in the dictionary is read, so a stray key cannot ride along.
+fn live_json(d: &VarDictionary) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    let live = d.get("live").and_then(|v| v.try_to::<VarDictionary>().ok()).unwrap_or_default();
+    for k in ["preset_id", "base_url", "model", "thinking", "gpu_override"] {
+        if let Some(v) = live.get(k).and_then(|v| v.try_to::<GString>().ok()) {
+            m.insert(k.into(), serde_json::Value::String(v.to_string()));
+        }
+    }
+    for k in ["max_tokens", "retry_limit"] {
+        if let Some(v) = live.get(k).and_then(|v| v.try_to::<i64>().ok()) {
+            m.insert(k.into(), serde_json::Value::from(v));
+        }
+    }
+    for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"] {
+        if let Some(v) = live.get(k).and_then(|v| v.try_to::<bool>().ok()) {
+            m.insert(k.into(), serde_json::Value::Bool(v));
+        }
+    }
+    serde_json::Value::Object(m)
+}
+
+/// A set as the shell reads it: `{ok: true, json, id, last, default, startup, profiles: [...]}`.
+/// Each profile row is `{id, name, builtin, is_local, live: {the 14 live keys}, problems:
+/// [{code, reason}]}`. `json` is the text to store; `id` is the profile an operation touched.
+fn profiles_result(set: &ProfileSet, id: &str) -> VarDictionary {
+    let mut rows = VarArray::new();
+    for p in &set.profiles {
+        let mut live = VarDictionary::new();
+        for (k, v) in p.live() {
+            match v {
+                serde_json::Value::Bool(b) => live.set(k.as_str(), b),
+                serde_json::Value::Number(n) => live.set(k.as_str(), n.as_i64().unwrap_or(0)),
+                serde_json::Value::String(t) => live.set(k.as_str(), t.as_str()),
+                _ => {}
+            }
+        }
+        let mut problems = VarArray::new();
+        for pr in p.problems() {
+            problems.push(&vdict! { "code" => pr.code(), "reason" => pr.reason().as_str() }.to_variant());
+        }
+        let mut row = vdict! {
+            "id" => p.id.as_str(), "name" => p.name.as_str(), "builtin" => p.builtin,
+            "is_local" => p.is_local(),
+        };
+        row.set("live", &live.to_variant());
+        row.set("problems", &problems.to_variant());
+        rows.push(&row.to_variant());
+    }
+    let mut out = vdict! {
+        "ok" => true, "json" => set.to_json().as_str(), "id" => id,
+        "last" => set.last.as_str(), "default" => set.default.as_str(), "startup" => set.startup_id(),
+        "max_profiles" => MAX_PROFILES as i64, "max_name" => MAX_NAME_CHARS as i64,
+    };
+    out.set("profiles", &rows.to_variant());
+    out
+}
+
