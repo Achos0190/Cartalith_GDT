@@ -503,7 +503,8 @@ impl VaultIndex {
             b += p.len() + 96;
             for c in &n.chunks {
                 b += c.doc.id.len() + c.doc.title.len() + c.doc.locator.len() + c.doc.header.len() + c.doc.body.len() + 160;
-                b += c.stats.tf.iter().map(|(t, _)| t.len() + 24 + 8).sum::<usize>();
+                // Interned: 4 bytes of id plus 6 of counts, padded to 12 (the strings live once in the table).
+                b += c.stats.tf.len() * std::mem::size_of::<(crate::bm25::TermId, [u16; 3])>();
             }
         }
         b

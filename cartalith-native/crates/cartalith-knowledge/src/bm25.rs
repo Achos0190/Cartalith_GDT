@@ -36,7 +36,59 @@
 //! Return a hit for a query whose terms occur in no document; return a non-finite score; depend on
 //! anything but its inputs.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// A term interned in the process-wide table: four bytes instead of a heap `String` per term per
+/// chunk (owner answer, 2026-10-26: the 10 000-note index peaked near 1.5 GB because every chunk
+/// owned its own copy of every term it contained; phone memory matters).
+///
+/// Ids are handed out in first-seen order, so **their numeric order means nothing**: every place
+/// that needs a deterministic order sorts by the term's STRING ([`TermStats::from_fields`] does,
+/// and [`Bm25Index`] keys its postings by string), which is why ranking is byte-identical to the
+/// pre-interning index. The table only grows (a term, once seen, is kept for the process): it is
+/// bounded by the number of DISTINCT tokens ever indexed, not by the number of chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TermId(u32);
+
+/// The process-wide table behind [`TermId`]: `strings[id]` is the term, `ids` the reverse map.
+#[derive(Default)]
+struct Interner {
+    ids: HashMap<Arc<str>, u32>,
+    strings: Vec<Arc<str>>,
+}
+
+/// Locks the table. A poisoned lock (a panic elsewhere while holding it) is recovered: the table is
+/// append-only, so a half-finished intern leaves it consistent.
+fn interner() -> std::sync::MutexGuard<'static, Interner> {
+    static T: OnceLock<Mutex<Interner>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(Interner::default())).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Interner {
+    fn intern(&mut self, t: &str) -> u32 {
+        if let Some(&id) = self.ids.get(t) {
+            return id;
+        }
+        let id = self.strings.len() as u32;
+        let a: Arc<str> = Arc::from(t);
+        self.strings.push(a.clone());
+        self.ids.insert(a, id);
+        id
+    }
+}
+
+impl TermId {
+    /// The term's text.
+    pub fn text(self) -> Arc<str> {
+        interner().strings[self.0 as usize].clone()
+    }
+
+    /// The id of `term` if it has been interned (it has been seen by some document), else `None`.
+    pub fn lookup(term: &str) -> Option<TermId> {
+        interner().ids.get(term).map(|&i| TermId(i))
+    }
+}
 
 /// BM25 term-saturation constant. Robertson's default [recalled]; pinned by a literal test.
 pub const K1: f64 = 1.2;
@@ -47,14 +99,15 @@ pub const FIELD_WEIGHTS: [f64; 3] = [3.0, 0.5, 1.0];
 /// Names of the three fields, in the order of [`FIELD_WEIGHTS`].
 pub const FIELD_NAMES: [&str; 3] = ["title", "header", "body"];
 
-/// One document's term statistics: per-field token counts and a sorted `(term, tf per field)` list.
+/// One document's term statistics: per-field token counts and a `(term, tf per field)` list sorted
+/// by the term's STRING.
 /// This is what a Vault note's chunks cache so that a refresh re-tokenizes only changed notes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TermStats {
     /// Token counts of [title, header, body].
     pub len: [u32; 3],
-    /// `(term, [tf_title, tf_header, tf_body])`, sorted by term, each term once.
-    pub tf: Vec<(String, [u16; 3])>,
+    /// `(term, [tf_title, tf_header, tf_body])`, sorted by the term's text, each term once.
+    pub tf: Vec<(TermId, [u16; 3])>,
 }
 
 impl TermStats {
@@ -69,7 +122,9 @@ impl TermStats {
                 e[f] = e[f].saturating_add(1);
             }
         }
-        TermStats { len, tf: map.into_iter().map(|(t, c)| (t.to_string(), c)).collect() }
+        // One lock for the whole call; the BTreeMap already orders the terms by text.
+        let mut table = interner();
+        TermStats { len, tf: map.into_iter().map(|(t, c)| (TermId(table.intern(t)), c)).collect() }
     }
 }
 
@@ -91,7 +146,8 @@ pub struct Bm25Index {
 impl Bm25Index {
     /// Builds an index over `docs` in the given order (document index = position).
     pub fn build(docs: &[&TermStats]) -> Self {
-        let mut postings: BTreeMap<String, Vec<Posting>> = BTreeMap::new();
+        // Postings are gathered by id (cheap, no string clone per entry) and keyed by text once.
+        let mut by_id: HashMap<TermId, Vec<Posting>> = HashMap::new();
         let mut lens = Vec::with_capacity(docs.len());
         let mut sums = [0f64; 3];
         for (i, d) in docs.iter().enumerate() {
@@ -100,9 +156,13 @@ impl Bm25Index {
                 sums[f] += d.len[f] as f64;
             }
             for (t, tf) in d.tf.iter() {
-                postings.entry(t.clone()).or_default().push(Posting { doc: i as u32, tf: *tf });
+                by_id.entry(*t).or_default().push(Posting { doc: i as u32, tf: *tf });
             }
         }
+        let postings: BTreeMap<String, Vec<Posting>> = {
+            let table = interner();
+            by_id.into_iter().map(|(t, p)| (table.strings[t.0 as usize].to_string(), p)).collect()
+        };
         let n = docs.len().max(1) as f64;
         Bm25Index { postings, lens, avg_len: [sums[0] / n, sums[1] / n, sums[2] / n] }
     }
@@ -194,6 +254,21 @@ mod tests {
         assert_eq!(B, 0.75);
         assert_eq!(FIELD_WEIGHTS, [3.0, 0.5, 1.0]);
         assert_eq!(FIELD_NAMES, ["title", "header", "body"]);
+    }
+
+    /// Protects the interning contract: a term list is sorted by the term's TEXT even when the ids
+    /// were handed out in the opposite order, the same text always gets the same id, and the id
+    /// reads back as its text. MUTATION: sort by id instead of text and "aaa" listed after "zzz" goes red.
+    #[test]
+    fn interned_terms_sort_by_text_not_by_id_and_round_trip() {
+        let first = stats("", "", "zzzinterned");
+        let second = stats("", "", "aaainterned zzzinterned");
+        let texts: Vec<String> = second.tf.iter().map(|(t, _)| t.text().to_string()).collect();
+        assert_eq!(texts, vec!["aaainterned", "zzzinterned"]);
+        assert_eq!(first.tf[0].0, second.tf[1].0, "one text, one id");
+        assert_eq!(TermId::lookup("zzzinterned"), Some(first.tf[0].0));
+        assert_eq!(TermId::lookup("never-seen-term-q9x"), None);
+        assert_eq!(second.tf.iter().map(|(_, c)| c[2]).collect::<Vec<_>>(), vec![1, 1]);
     }
 
     /// Protects the formula on a one-term, one-document case worked by hand: N=2, df=1,
