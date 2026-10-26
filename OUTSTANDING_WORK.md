@@ -54,6 +54,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 **Assistant and consent (top priority first)**
 - **Consent UX (TOP PRIORITY).** The owner had to hunt for "Review consent" before Refresh or Send worked. Make consent
   reachable from the place the user is stuck. Owner: `LLM_ASSISTANT_SCOPE.md`; symbols `llm_consent.gd`, `llm_assistant_window.gd`.
+  **Built 2026-10-27, mostly done:** the card now opens at once on Refresh, an entered address and Send when consent is the only refusal, Allow continues the action, and master-off shows "Turn on Assistant enabled first" with a button. Probed at 1600x1000, 1280x800, 393x852 against the in-test mock only; real LM Studio, a real remote host and a device are not done. `STATUS.md` has the entry.
 - **Undo-and-regenerate offer** after an Apply and regenerate (Ruling DS follow-up). `LLM_ASSISTANT_SCOPE.md` s.5b.4.
 - **LLM-7 remainder:** remaining edit operations, touch painting of the region, profile as region source; the apply-path
   mutation tests were not run. `LLM_ASSISTANT_SCOPE.md` LLM-7.
