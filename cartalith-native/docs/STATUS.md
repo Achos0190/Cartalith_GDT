@@ -35,7 +35,7 @@ PW-3, RK-0 to RK-7 with term interning, profiles (DQ), New world is untitled (`5
   of the shell was not covered.
 - Phone scroll and Assistant save (`2d5b1e5d`): partial fix. The central touch-scroll fix is NOT built, and neither is
   the consent UX fix (the owner had to hunt for "Review consent" before Refresh/Send worked; top priority).
-- **Open gate:** `cargo test --workspace -j 2` has not been recorded as run on the current head.
+- **Gate run 2026-10-26 on head `e2cd6832` (clean worktree, fresh target dir): `cargo test --workspace -j 2` exited 0: 262 test suites, 7 670 passed, 0 failed, 142 ignored.** It does not exercise the Godot shell (GDScript probes), so the failing probes above stand.
 
 **Next:** `OUTSTANDING_WORK.md` section "Open after 2026-10-26" is the router. This line is the only "next" in this
 block; older "next" lines further down are dated and may be stale.

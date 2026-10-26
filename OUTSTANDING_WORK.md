@@ -79,7 +79,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **CQ-5 and CQ-8.** `CUSTOM_QUICK_BAR_SCOPE.md`.
 
 **Housekeeping and gates**
-- **Open gate:** `cargo test --workspace -j 2` on the current head.
+- **Gate:** the Rust workspace test is recorded in `STATUS.md` (2026-10-26); re-run it after any Rust change. GDScript probes are separate.
 - **Test hygiene list** (the probe and fixture rules in `MISTAKES_CANDIDATES_2026-10-26.md`).
 - **Manual items for the owner:** merge the candidates into `MISTAKES.md`, decide the uncommitted `project.godot` change,
   the Credential Manager entry `Cartalith/LLM/anthropic`, the Cartalith CPL Scratch folder, `C:\cw` leftovers.
