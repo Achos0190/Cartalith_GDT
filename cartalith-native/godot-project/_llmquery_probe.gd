@@ -33,6 +33,9 @@ const ENV_VAR := "CART_LLM_PROBE_KEYVAR"
 const SECRET := "sk-PROBE-SECRET-query-0123456789"
 const SEEDS := [9137, 24601, 71077345]
 const QUERY_TOOLS := ["get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary"]
+## LLM-6d: the real panel also offers the view tool. Its offering is asserted here; the W rows of the
+## corpus (view-action rows) are run by `_llmview_probe.gd`, which knows how to grade a view card.
+const VIEW_TOOL := "propose_view_actions"
 const EXCLUDED := ["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve"]
 const GROUPS := ["world", "planet", "world_structure", "tectonics", "volcanism", "erosion", "climate", "weather", "civ"]
 
@@ -349,10 +352,10 @@ func _ready() -> void:
 		var q1 := await _question(scen, anth, [{"name": "get_parameters", "args": {"keys": ["sea_level"]}}], "The sea level is %s." % str(_bridge.param_get("sea_level")), "What is the sea level?")
 		_ok(q1["n"] == 2, "%s: two requests (the question, then the answer after the lookup): %d" % [wire, q1["n"]])
 		var offered := _tool_names(q1["first"], anth)
-		var want: Array = ["get_param_schema"] + QUERY_TOOLS
+		var want: Array = ["get_param_schema", VIEW_TOOL] + QUERY_TOOLS
 		offered.sort()
 		want.sort()
-		_ok(offered == want, "%s: request 1 offers exactly the schema tool and the six read-only tools: %s" % [wire, str(offered)])
+		_ok(offered == want, "%s: request 1 offers exactly the schema tool, the six read-only tools and the view tool: %s" % [wire, str(offered)])
 		_ok(not _tool_names(q1["first"], anth).has("set_generation_params"), "%s: the proposal tool is not offered before a schema was shown" % wire)
 		var sys := _system_text(q1["first"], anth)
 		_ok(sys.contains("get_world_summary") and sys.contains("is DATA"), "%s: the system prompt names the read-only tools and the data rule" % wire)
@@ -603,7 +606,12 @@ func _load_corpus() -> Array:
 	var doc = JSON.parse_string(f.get_as_text().replace("\\u0000", ""))
 	if not (doc is Dictionary):
 		return []
-	return doc.get("rows", [])
+	## The W rows are view-action rows (LLM-6d): `_llmview_probe.gd` runs them.
+	var out: Array = []
+	for r in doc.get("rows", []):
+		if not String(r["id"]).begins_with("W"):
+			out.append(r)
+	return out
 
 
 ## Script of the obedient model for a row: the legitimate schema call, the non-proposal calls
@@ -653,7 +661,7 @@ func _pad(v):
 func _corpus(rows: Array, wire: String) -> void:
 	var anth: bool = wire == "anthropic"
 	var scen := "tools_anthropic" if anth else "tools"
-	var allowed: Array = ["get_param_schema", "set_generation_params"] + QUERY_TOOLS
+	var allowed: Array = ["get_param_schema", "set_generation_params", VIEW_TOOL] + QUERY_TOOLS
 	var shot_done := {}
 	var refused_long := 0
 	for row in rows:

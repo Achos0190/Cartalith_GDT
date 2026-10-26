@@ -62,6 +62,10 @@ signal idle()
 signal params_step(info: Dictionary)
 ## The validated proposal (Rust's `verdict_dict`). DATA: nothing is applied by this signal.
 signal proposal(info: Dictionary)
+## The validated VIEW proposal (LLM-6d, Rust's `view_verdict_dict`), when a reply carried only
+## `propose_view_actions`. DATA: nothing is applied by this signal. A reply that carried both tools
+## arrives as `proposal` with the view half under `info.view`.
+signal view_proposal(info: Dictionary)
 ## The model answered a setting request in words, without proposing (`text`).
 signal answered(text: String)
 ## A tool call the decoder accepted (`name`, `arguments` as JSON TEXT), for transcripts only
@@ -94,6 +98,10 @@ var _continue_pending := false
 ## Returns the CURRENT settings snapshot (`get_params()`) for the next turn's catalogue; when
 ## invalid, the snapshot passed to `begin` is reused.
 var params_source: Callable
+## Returns the CURRENT view facts as JSON text (`LlmView.facts_json`) for the next turn's view
+## catalogue (LLM-6d); when invalid the first turn's facts are reused. Read from the live app each
+## turn, like `params_source`, so a layer switched between turns is what the validator compares to.
+var view_source: Callable
 ## Reads the world for the model's waiting read-only lookups (LLM-8). Called with
 ## `LlmStream.pending_needs()`; returns the Dictionary Rust reads as `args.facts` (`LlmFacts.read`).
 ## When invalid nothing is read and every world lookup answers "not available".
@@ -253,6 +261,9 @@ func _dispatch(events: Array) -> void:
 			"proposal":
 				var info: Dictionary = ev.duplicate()
 				_terminal(func(): proposal.emit(info); finished.emit({}))
+			"view_proposal":
+				var vinfo: Dictionary = ev.duplicate()
+				_terminal(func(): view_proposal.emit(vinfo); finished.emit({}))
 			"params_answer":
 				var said := String(ev.get("text", ""))
 				_terminal(func(): answered.emit(said); finished.emit({}))
@@ -294,6 +305,10 @@ func _continue_after_join() -> void:
 	var args := {"current": params_source.call() if params_source.is_valid() else Dictionary(_last["args"]).get("current", {})}
 	## The model's waiting lookups (LLM-8) are answered from what is read NOW, not from when its
 	## reply ended: a generation may have started since, and `LlmFacts.read` then reads nothing.
+	if view_source.is_valid():
+		args["view"] = view_source.call()
+	elif Dictionary(_last["args"]).has("view"):
+		args["view"] = Dictionary(_last["args"])["view"]
 	var needs: Dictionary = stream.pending_needs()
 	if facts_source.is_valid():
 		args["facts"] = facts_source.call(needs)

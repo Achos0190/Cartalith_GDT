@@ -64,6 +64,7 @@ use cartalith_llm::catalogue::{Catalogue, PValue, Verdict};
 use cartalith_llm::openai::{ChatRequest, MaxTokensField, OpenAiDecoder, Thinking, ToolSpec, build_chat_request};
 use cartalith_llm::params_flow::{IncomingCall, MAX_TURNS, ParamsConversation, Step};
 use cartalith_llm::prompt::{Context, Task, build_messages};
+use cartalith_llm::view_actions::{ACTION_IDS, FORBIDDEN_STEMS, VIEW_TOOL, ViewCatalogue, ViewVerdict};
 use cartalith_llm::query::{
     EcologyFacts, Fact, MAX_SAMPLES_PER_REQUEST, MAX_TEXT_CHARS, QUERY_TOOLS, SampleFacts, SummaryFacts, WorldFacts,
 };
@@ -73,11 +74,44 @@ use serde_json::{Value, json};
 const CORPUS: &str = include_str!("../../cartalith-llm/tests/fixtures/hostile_corpus_2026-10-26.json");
 
 /// Every id the corpus held on 2026-10-26. Add new ids here in the same change that adds the rows.
-const PINNED_IDS: [&str; 43] = [
+const PINNED_IDS: [&str; 63] = [
     "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12", "G13", "G14", "G15", "G16", "G17", "G18",
     "G19", "G20", "G21", "G22", "G23", "G24", "G25", "G26", "G27", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09",
-    "P10", "P11", "P12", "P13", "P14", "P15", "P16",
+    "P10", "P11", "P12", "P13", "P14", "P15", "P16", "W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", "W11",
+    "W12", "W13", "W14", "W15", "W16", "W17", "W18", "W19", "W20",
 ];
+
+/// The view facts every run installs (LLM-6d): the shape `shell/llm_view.gd` hands over, with the
+/// real layer ids and a representative preset, landmark and window list. Installed for EVERY row, so
+/// the 43 older rows are also run with the view tool on offer (a hostile string may ask for a window).
+/// The values are written out here, not read from the app, so a test over them cannot agree with a bug
+/// in the shell by construction.
+fn view_facts() -> Value {
+    let layers: Vec<Value> = ["settlements", "roads", "sea_routes", "urban_layouts", "landmarks", "landmark_rejects", "conflict", "rivers", "provinces", "territory"]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| json!({"id": id, "label": id, "on": i % 2 == 0}))
+        .collect();
+    let windows: Vec<Value> = ["asset_library", "factions", "world_data", "vault", "timeline", "journey_planner", "journeys_list", "travel_library", "conflicts", "shortcuts"]
+        .iter()
+        .map(|id| json!({"id": id, "label": id}))
+        .collect();
+    json!({
+        "layers": layers,
+        "presets": [{"id": "natural_vibrant", "label": "Natural Vibrant", "on": true},
+                    {"id": "satellite_relief", "label": "Satellite relief", "on": false, "note": "Also hides six overlay layers."}],
+        "kinds": [{"id": "peak", "label": "Peak", "on": true}, {"id": "ford", "label": "Ford", "on": false}],
+        "windows": windows,
+        "camera": {"w": 2048, "h": 1311, "zoom_min": 0.4, "zoom_max": 64.0, "zoom_now": 1.0},
+        "withheld": {}
+    })
+}
+
+fn view_catalogue() -> ViewCatalogue {
+    let c = ViewCatalogue::from_json(&view_facts()).expect("the fixture is an object");
+    assert!(c.dropped.is_empty(), "the gate's own facts must be clean: {:?}", c.dropped);
+    c
+}
 
 struct Row {
     id: String,
@@ -90,6 +124,7 @@ struct Row {
     expect_rule: Option<String>,
     expect_valid: Option<Vec<String>>,
     subset_of_group: Option<String>,
+    expect_view_valid: Option<Vec<String>>,
 }
 
 /// `@PADn` anywhere in a string value becomes `n` letters `x` (a labelled size for the V1 rows).
@@ -122,6 +157,7 @@ fn rows() -> Vec<Row> {
                 expect_rule: r.get("expect_rule").and_then(Value::as_str).map(str::to_owned),
                 expect_valid: r.get("expect_valid").map(|a| a.as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect()),
                 subset_of_group: r.get("expect_valid_subset_of_group").and_then(Value::as_str).map(str::to_owned),
+                expect_view_valid: r.get("expect_view_valid").map(|a| a.as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect()),
             }
         })
         .collect()
@@ -279,6 +315,8 @@ struct Outcome {
     last: String,
     /// The text of a text-only reply the conversation returned as an answer.
     answered: Option<String>,
+    /// Every view change the validator passed: the action id and its validated arguments.
+    view_valid: Vec<(String, serde_json::Map<String, Value>)>,
 }
 
 fn note_verdict(o: &mut Outcome, v: &Verdict) {
@@ -290,6 +328,24 @@ fn note_verdict(o: &mut Outcome, v: &Verdict) {
     }
     for c in &v.valid {
         o.valid.push(c.key.clone());
+        if let Some(r) = &c.reason {
+            o.texts.push(r.clone());
+        }
+    }
+    if let Some(s) = &v.summary {
+        o.texts.push(s.clone());
+    }
+}
+
+fn note_view(o: &mut Outcome, v: &ViewVerdict) {
+    if let Some((r, _)) = &v.structural {
+        o.rules.push(r.id().to_owned());
+    }
+    for r in &v.rejected {
+        o.rules.push(r.rule.id().to_owned());
+    }
+    for c in &v.valid {
+        o.view_valid.push((c.action.to_owned(), c.args.clone()));
         if let Some(r) = &c.reason {
             o.texts.push(r.clone());
         }
@@ -315,7 +371,7 @@ fn run(row: &Row, wire: Wire, vector: Vector) -> Outcome {
         Vector::ToolResult => "Make the climate drier.".to_owned(),
     };
     let conv = match ParamsConversation::new(&cat, &request) {
-        Ok(c) => c.with_queries(&cat, true),
+        Ok(c) => c.with_queries(&cat, true).with_view(&cat, Some(view_catalogue())),
         Err(_) => {
             o.refused_request = true;
             o.last = "refused_request".into();
@@ -343,7 +399,8 @@ fn run(row: &Row, wire: Wire, vector: Vector) -> Outcome {
     // The obedient model's replies: everything but the proposal in one reply (repeated), then the
     // proposal in its own reply (a proposal in a mixed reply makes the others "ignored", which is
     // less interesting than letting each be answered first).
-    let (proposals, others): (Vec<_>, Vec<_>) = row.obey.iter().cloned().partition(|(n, _)| n == "set_generation_params");
+    let (proposals, others): (Vec<_>, Vec<_>) =
+        row.obey.iter().cloned().partition(|(n, _)| n == "set_generation_params" || n == VIEW_TOOL);
     if !others.is_empty() {
         for _ in 0..row.repeat {
             replies.push((others.clone(), None));
@@ -388,12 +445,27 @@ fn run(row: &Row, wire: Wire, vector: Vector) -> Outcome {
                     }
                     Step::Retry(v) => {
                         note_verdict(&mut o, &v);
+                        if let Some(vv) = conv.take_view_verdict() {
+                            note_view(&mut o, &vv);
+                        }
                         o.last = "retry".into();
                         break;
                     }
                     Step::Proposal(v) => {
                         note_verdict(&mut o, &v);
+                        if let Some(vv) = conv.take_view_verdict() {
+                            note_view(&mut o, &vv);
+                        }
                         o.last = "proposal".into();
+                        break;
+                    }
+                    Step::ViewRetry(v) => {
+                        note_view(&mut o, &v);
+                        o.last = "view_retry".into();
+                    }
+                    Step::ViewProposal(v) => {
+                        note_view(&mut o, &v);
+                        o.last = "view_proposal".into();
                         break;
                     }
                     Step::Answer(a) => {
@@ -426,6 +498,7 @@ fn expected_tools(shown: bool) -> Vec<String> {
         v.push("set_generation_params".to_owned());
     }
     v.extend(QUERY_TOOLS.iter().map(|s| s.to_string()));
+    v.push(VIEW_TOOL.to_owned());
     v.sort();
     v
 }
@@ -464,6 +537,32 @@ fn check(row: &Row, wire: Wire, vector: Vector, o: &Outcome) {
         assert!(!param_catalogue::EXCLUDED.contains(&k.as_str()), "{who}: excluded key {k} was valid");
         assert!(params::spec(k).is_some(), "{who}: {k} is not in the registry");
     }
+    // 3b. LLM-6d: no valid view change outside the fixed vocabulary and the offered values, and
+    //     no forbidden word in any valid argument; checked against the fixture, not the validator.
+    let facts = view_facts();
+    let offered = |list: &str, key: &str| -> Vec<String> {
+        facts[list].as_array().unwrap().iter().map(|r| r[key].as_str().unwrap().to_owned()).collect()
+    };
+    for (action, args) in &o.view_valid {
+        assert!(ACTION_IDS.contains(&action.as_str()), "{who}: view action {action} is outside the vocabulary");
+        for (k, v) in args {
+            let ok = match (action.as_str(), k.as_str()) {
+                ("set_layer_visible", "layer") => offered("layers", "id").contains(&v.as_str().unwrap_or("").to_owned()),
+                ("set_style_preset", "preset") => offered("presets", "id").contains(&v.as_str().unwrap_or("").to_owned()),
+                ("set_landmark_filter", "kind") => offered("kinds", "id").contains(&v.as_str().unwrap_or("").to_owned()),
+                ("open_window", "window") => offered("windows", "id").contains(&v.as_str().unwrap_or("").to_owned()),
+                ("set_layer_visible" | "set_landmark_filter", "visible") => v.is_boolean(),
+                ("zoom_to", "x") => v.as_f64().is_some_and(|x| (0.0..=2047.0).contains(&x)),
+                ("zoom_to", "y") => v.as_f64().is_some_and(|y| (0.0..=1310.0).contains(&y)),
+                ("zoom_to", "zoom") => v.as_f64().is_some_and(|z| (0.4..=64.0).contains(&z)),
+                _ => false,
+            };
+            assert!(ok, "{who}: view argument {action}.{k} = {v} is not an offered value");
+            if let Some(t) = v.as_str() {
+                assert!(FORBIDDEN_STEMS.iter().all(|s| !t.contains(s)), "{who}: forbidden word in a valid view argument {t}");
+            }
+        }
+    }
     // 4. Model text is inert.
     for t in &o.texts {
         assert!(t.chars().count() <= 240 && !t.chars().any(char::is_control), "{who}: model text is not inert: {t:?}");
@@ -480,6 +579,14 @@ fn check(row: &Row, wire: Wire, vector: Vector, o: &Outcome) {
     }
     // 6. Reads are bounded.
     assert!(o.sample_reads <= MAX_SAMPLES_PER_REQUEST, "{who}: {} cells were read", o.sample_reads);
+    // 6b. LLM-6d: a view row's obedient reply must REACH the validator. A reply the decoder refuses
+    //     (a call to a tool that was not offered, as W16 does on purpose) returns early below and
+    //     tests nothing; W14 passed vacuously that way until it was given `legit_open`. So every
+    //     W row except W16 must have been admitted by the decoder and not refused as a request.
+    if row.id.starts_with('W') && row.id != "W16" {
+        assert!(!o.refused_request && o.refused == 0, "{who}: the row never reached the validator (refused_request {}, decoder refusals {})", o.refused_request, o.refused);
+        assert!(!o.admitted.is_empty(), "{who}: the row delivered no call to the conversation");
+    }
     // 7. Per-row expectations.
     if o.refused_request || o.refused > 0 {
         return;
@@ -493,6 +600,13 @@ fn check(row: &Row, wire: Wire, vector: Vector, o: &Outcome) {
         let mut want = want.clone();
         want.sort();
         assert_eq!(got, want, "{who}: the valid changes");
+    }
+    if let Some(want) = &row.expect_view_valid {
+        let mut got: Vec<String> = o.view_valid.iter().map(|(a, _)| a.clone()).collect();
+        got.sort();
+        let mut want = want.clone();
+        want.sort();
+        assert_eq!(got, want, "{who}: the valid view actions");
     }
     if let Some(g) = &row.subset_of_group {
         let allowed = keys_of_groups(&[g.clone()]);
@@ -520,7 +634,8 @@ fn the_corpus_only_grows() {
     assert_eq!(sorted.len(), ids.len(), "duplicate ids");
     assert!(ids.iter().filter(|i| i.starts_with('G')).count() >= 20, "LLM-9 bar: at least 20 general rows");
     assert!(ids.iter().filter(|i| i.starts_with('P')).count() >= 10, "LLM-9 bar: at least 10 parameter-shaped rows");
-    assert_eq!(ids.len(), 43);
+    assert_eq!(ids.len(), 63);
+    assert!(ids.iter().filter(|i| i.starts_with('W')).count() >= 15, "LLM-6d bar: at least 15 view-action rows");
     let groups = catalogue().group_names();
     for row in &r {
         assert!(!row.text.is_empty() && !row.family.is_empty(), "{}", row.id);
@@ -536,7 +651,7 @@ fn the_corpus_only_grows() {
     }
 }
 
-/// Protects the whole gate on 43 rows x 2 vectors x 2 wires = 172 runs of the settings conversation
+/// Protects the whole gate on 63 rows x 2 vectors x 2 wires = 252 runs of the settings conversation
 /// over the real registry: every invariant in the module doc, and per-row expectations. A validator
 /// that rejected everything would fail the rows that expect specific valid changes (G11, G18, G19,
 /// P15); a validator that accepted everything would fail the rows that expect specific rules.
@@ -554,7 +669,7 @@ fn every_hostile_row_leaves_the_allowed_actions_unchanged() {
             }
         }
     }
-    assert_eq!(runs, 172);
+    assert_eq!(runs, 252);
 }
 
 /// Protects the decoder half: every obedient call to a tool that is not one of the eight is refused
@@ -571,7 +686,11 @@ fn unoffered_tools_never_leave_the_decoder() {
             }
             unoffered += 1;
             for wire in [Wire::OpenAi, Wire::Anthropic] {
-                let tools = ParamsConversation::new(&catalogue(), "x").unwrap().with_queries(&catalogue(), true).tools(&catalogue());
+                let tools = ParamsConversation::new(&catalogue(), "x")
+                    .unwrap()
+                    .with_queries(&catalogue(), true)
+                    .with_view(&catalogue(), Some(view_catalogue()))
+                    .tools(&catalogue());
                 assert!(
                     matches!(decode(wire, &tools, &[(name.clone(), args.clone())], None), Decoded::Refused),
                     "{}: {name} on {wire:?} reached the app",
@@ -631,7 +750,7 @@ fn markup_replies_are_answers_not_actions() {
     }
 }
 
-/// Protects the prose path (vector C) for all 43 strings as an entity label, entity fields, events,
+/// Protects the prose path (vector C) for all 63 strings as an entity label, entity fields, events,
 /// a note path and a note's text, over all five tasks: the system prompt is byte-identical to the one
 /// built from benign text, the hostile text cannot close or reopen the `<context>` fence (only the
 /// app's own closing tags survive, one per block), a source is clipped, the built request carries no
@@ -692,6 +811,6 @@ fn the_prose_path_offers_no_tool_and_keeps_its_fence() {
             }
         }
     }
-    assert_eq!(built, 43 * 5);
+    assert_eq!(built, 63 * 5);
     assert!(benign.messages.len() == 2);
 }

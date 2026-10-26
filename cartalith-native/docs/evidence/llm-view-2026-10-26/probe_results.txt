@@ -1,0 +1,85 @@
+LLM-6d probe results, 2026-10-26 (windowed, loopback mock server, wiped user dir, unique config/name; Godot 4.7.2, gdext debug DLL built from this tree).
+
+== _llmview_probe.gd (new) ==
+desktop: RESULT: PASS (0 failed) checks=382; SCRIPT ERROR lines: 0
+tablet: RESULT: PASS (0 failed) checks=388; SCRIPT ERROR lines: 0
+phone: RESULT: PASS (0 failed) checks=388; SCRIPT ERROR lines: 0
+
+== printed measurements (desktop run) ==
+(facts() cost: median 7.61 ms, min 7.58, max 8.05, over 9 calls; one per request and per turn)
+(windows offered: ["asset_library", "factions", "world_data", "vault", "timeline", "journey_planner", "journeys_list", "travel_library", "conflicts", "shortcuts"]; curated but not offered: [])
+(index row 'Save project…' pinnable: true)
+(index row 'Close project…' pinnable: true)
+(index row 'Generate…' pinnable: false)
+(index row 'Export…' pinnable: true)
+(index row 'New world…' pinnable: true)
+(index row 'Open project…' pinnable: true)
+openai: the shortcuts window is open (through the command index row)
+(after Edit > Undo: zoom 1.40980744544288, centre cell (127.5, 81.5); before it: zoom 4, cell (100, 80))
+anthropic: the shortcuts window is open (through the command index row)
+(after Edit > Undo: zoom 1.40980744544288, centre cell (127.5, 81.5); before it: zoom 4, cell (100, 80))
+3b: zoom 3.0 -> 1.40980744544288 after the style change and 1.40980744544288 after its undo: the app re-fits the view (the cover fit of this world, the same both ways), not the zoom the user had
+6: after Edit > Undo the parameter card reads Undone: 'Undone with Edit ▸ Undo: the settings are back to what they were before this card. Nothing'
+8b: after landmark_run the facts carry 25 landmark types
+(phone) 3b: zoom 3.0 -> 3.38409979519643 after the style change and 3.38409979519643 after its undo: the app re-fits the view (the cover fit of this world, the same both ways), not the zoom the user had
+
+== existing LLM probes re-run sequentially ==
+_llmparams (final DLL): desktop 137, tablet 141, phone 141 checks, 0 failed
+_llmquery_probe desktop: RESULT: PASS (0 failed) checks=647 | scripterr=0
+_llmpanel_probe desktop: RESULT: PASS (0 failed) | scripterr=0
+_llmset_probe desktop: RESULT: PASS (0 failed) | scripterr=0
+_llmhosted_probe one: RESULT: PASS (0 failed of 65 checks) | scripterr=0
+_llmstream_probe one: RESULT: PASS (0 failed) | scripterr=0
+(tablet/phone runs of _llmquery 647/647, _llmpanel 102/102 and _llmset 266/266 were on the build before the arg_variant nil-fallback edit)
+
+== cargo ==
+cargo test -p cartalith-llm: 156 passed; cargo test --workspace -j 2: 252 result lines, 7435 passed, 0 failed, 139 ignored
+
+== mutation (Rust) ==
+round1: baseline run
+round1: baseline cargo test -p cartalith-llm: rc=0
+round1: baseline gate: rc=0
+round1: KILLED       cap 8 -> 9
+round1: KILLED       action id renamed
+round1: KILLED       x bound off by one
+round1: KILLED       y bound off by one
+round1: KILLED       a number accepted as a bool
+round1: KILLED       stem save -> sav
+round1: KILLED       duplicate targets accepted
+round1: KILLED       no-op not detected (layer/kind)
+round1: KILLED       open_window always offered
+round1: KILLED       reason not made inert
+round1: KILLED       preset exemption removed
+round1: KILLED       value membership not checked
+round1: KILLED       depth cap off
+round1: KILLED       retry when EITHER half wants it
+round1: KILLED       choose-groups allowed after a reply
+round1: KILLED       choose-groups opens no keys
+round1: SURVIVED     view call admitted with nothing offered
+round1: KILLED       GATE: value membership not checked
+round1: BUILD_ERROR  GATE: unknown arguments accepted
+round1: SURVIVED     GATE: action ids case-insensitive
+round1: hashes restored; KILLED=17, SURVIVED=2, BUILD_ERROR=1, SKIP=0
+round2: baseline ['-p', 'cartalith-llm', '-j']: rc=0
+round2: baseline ['-p', 'cartalith-godot', '--test']: rc=0
+round2: KILLED       view call admitted with nothing offered
+round2: KILLED       GATE: unknown arguments accepted
+round2: KILLED       GATE: action ids case-insensitive
+round2: SURVIVED     state word on a stateless row
+round2: KILLED       state words swapped
+round2: hashes restored; KILLED=4, SURVIVED=1, BUILD_ERROR=0, SKIP=0
+round3: a state word on a stateless row: KILLED (after the test was added)
+
+== mutation (GDScript, desktop probe) ==
+round1: KILLED RESULT: FAIL (2 failed) checks=381 camera x/y swapped
+round1: KILLED RESULT: FAIL (1 failed) checks=381 style Apply not blocked while generating
+round1: KILLED RESULT: FAIL (7 failed) checks=381 cards never follow the undo group
+round1: NO_RESULT                                chosen groups not sent
+round1: KILLED RESULT: FAIL (17 failed) checks=381 style applied outside the undo group
+round1: KILLED RESULT: FAIL (7 failed) checks=381 state_of never says undone
+round1: KILLED RESULT: FAIL (14 failed) checks=136 view facts not refreshed on later turns
+round1: SURVIVED                                 landmarks master written without persisting (equivalent for the probe?)
+round1: hashes restored
+round2: KILLED RESULT: FAIL (5 failed) checks=157 chosen groups not sent
+round2: KILLED RESULT: FAIL (1 failed) checks=382 landmarks master written without persisting (equivalent for the probe?)
+round2: hashes restored

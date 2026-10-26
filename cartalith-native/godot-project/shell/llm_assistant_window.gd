@@ -106,6 +106,22 @@ var _chips: Dictionary = {}
 ## Files listed in the Vault picker, index + 1 -> relative path.
 var _note_paths: PackedStringArray = PackedStringArray()
 
+## LLM-6d: the shell half of the view and layer actions (`llm_view.gd`: the facts the validator is
+## built from, and the one place a validated view change is applied). No `class_name` on purpose.
+const _VIEW := preload("res://shell/llm_view.gd")
+## "Choose groups" (scope s.5b.1 fallback, LLM-6d): the setting groups the USER ticked, at most
+## `MAX_CHOSEN_GROUPS`. When non-empty, Send hands them to `LlmStream.prepare` as `args.groups` and
+## the app performs the model's step one itself. Cleared after each Send.
+var _chosen_groups: Array = []
+## True when the LAST Send carried chosen groups (the ticks are cleared at Send), so an answer without
+## a proposal does not tell a user who DID choose groups to choose them.
+var _groups_were_chosen := false
+var _group_chips: Dictionary = {}
+var _groups_flow: HFlowContainer
+## Most groups one request may open: the catalogue's `MAX_SCHEMA_GROUPS`, restated because the
+## chip row must stop a fourth tick before Rust would refuse it (a labelled copy; Rust re-checks).
+const MAX_CHOSEN_GROUPS := 3
+
 const _TASKS := [
 	["prose", "Describe place"],
 	["story", "Story"],
@@ -129,7 +145,7 @@ const REPLY_MAX_TOKENS := 1024
 var cards: Array = []
 ## The prompt box's hint, per kind of task.
 const PLACEHOLDER_PROSE := "Ask for prose about the selected place, or for work on the chosen note…"
-const PLACEHOLDER_COMMANDS := "Ask for a change to the generation settings (a drier climate, lower mountains), or ask a question about them or the world…"
+const PLACEHOLDER_COMMANDS := "Ask for a settings change (a drier climate), a view change (hide the roads, centre on a cell, switch the style) or a question about the settings or the world…"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -152,6 +168,9 @@ func setup(a, b: EngineBridge) -> void:
 	run.params_step.connect(_on_params_step)
 	run.proposal.connect(_on_proposal)
 	run.answered.connect(_on_answered)
+	run.view_proposal.connect(_on_view_proposal)
+	## The view and layer facts are read from the live app every turn (LLM-6d).
+	run.view_source = func() -> String: return _VIEW.facts_json(app, bridge)
 	## The next turn of a setting request reads the settings as they are THEN.
 	run.params_source = func() -> Dictionary: return bridge.param_snapshot()
 	## The model's read-only lookups (LLM-8) are answered from the engine's own getters, read by
@@ -309,8 +328,31 @@ func _rebuild() -> void:
 	cmd.tooltip_text = "Ask for generation-setting changes, or a question about the settings or the world. The model proposes; nothing changes until you press Apply on its card."
 	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
-	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes for you to review, and answers questions about the settings and the world from read-only lookups; nothing changes until you press Apply. Edit actions arrive in a later release.")
+	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes and view changes (layers, style preset, landmark types, centring and zooming, opening a window) for you to review, and answers questions from read-only lookups; nothing changes until you press Apply. It never generates, saves, closes, exports or deletes. Edit actions arrive in a later release.")
 	controls["commands_note"] = cmd_note
+	## "Choose groups" (scope s.5b.1): the fallback for a small model that cannot pick setting groups.
+	var grow := HFlowContainer.new()
+	grow.add_theme_constant_override("h_separation", 6)
+	grow.add_theme_constant_override("v_separation", 6)
+	_body.add_child(grow)
+	controls["groups_row"] = grow
+	var gtoggle := DccWidgets.segment(grow, "Choose groups", func(): _toggle_groups())
+	gtoggle.custom_minimum_size.y = maxi(int(gtoggle.custom_minimum_size.y), _field_h())
+	gtoggle.tooltip_text = "Optional. Tick up to %d setting groups and Send: the app opens them for the model itself, so a small model that cannot pick groups can still propose changes." % MAX_CHOSEN_GROUPS
+	controls["groups_toggle"] = gtoggle
+	_groups_flow = HFlowContainer.new()
+	_groups_flow.add_theme_constant_override("h_separation", 6)
+	_groups_flow.add_theme_constant_override("v_separation", 6)
+	_groups_flow.visible = false
+	_body.add_child(_groups_flow)
+	controls["groups_flow"] = _groups_flow
+	_group_chips.clear()
+	for gname in _group_names():
+		var gn: String = gname
+		var gb := DccWidgets.segment(_groups_flow, gn, func(): _tick_group(gn))
+		gb.custom_minimum_size.y = maxi(int(gb.custom_minimum_size.y), _field_h())
+		_group_chips[gn] = gb
+		controls["group_" + gn] = gb
 
 	# -- subject and note -----------------------------------------------------------
 	var place_l := DccTheme.label("", "text_secondary", DccTheme.FS_SMALL)
@@ -570,6 +612,16 @@ func _refresh() -> void:
 	## A setting proposal uses neither a place nor a note.
 	(controls["place"] as Label).visible = _task != "commands"
 	(controls["note_row"] as Control).visible = _task != "commands"
+	(controls["groups_row"] as Control).visible = _task == "commands"
+	_groups_flow.visible = _task == "commands" and _groups_flow.visible
+	for gn in _group_chips:
+		var gbtn: Button = _group_chips[gn]
+		var on: bool = _chosen_groups.has(gn)
+		DccWidgets.set_segment_on(gbtn, on)
+		gbtn.disabled = busy or (not on and _chosen_groups.size() >= MAX_CHOSEN_GROUPS)
+		gbtn.tooltip_text = "At most %d groups; untick one first." % MAX_CHOSEN_GROUPS if gbtn.disabled and not busy else "Open the %s settings for the model." % gn
+	(controls["groups_toggle"] as Button).disabled = busy
+	DccWidgets.set_segment_on(controls["groups_toggle"], _groups_flow.visible or not _chosen_groups.is_empty())
 	_input.placeholder_text = PLACEHOLDER_COMMANDS if _task == "commands" else PLACEHOLDER_PROSE
 	(controls["note_reload"] as Button).disabled = busy or _note.is_empty()
 	_stop.visible = busy
@@ -591,7 +643,9 @@ func _refresh() -> void:
 	elif _task == "commands":
 		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
 		if bool(pp.get("ok", false)):
-			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value. If you ask a question, it can also read any setting's value, whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing." % [int(pp["request_chars"]), int(pp["groups"])]
+			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value. %s If you ask a question, it can also read any setting's value, whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing." % [int(pp["request_chars"]), int(pp["groups"]), _view_sent_text()]
+			if not _chosen_groups.is_empty():
+				sent_text += " You chose the %s group%s, so those settings are sent with the first request." % [", ".join(PackedStringArray(_chosen_groups)), "" if _chosen_groups.size() == 1 else "s"]
 		else:
 			reason = String(pp.get("reason", "Unavailable."))
 	else:
@@ -733,6 +787,11 @@ func _on_send() -> void:
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
 	var args := _params_args(request) if _task == "commands" else _args(request)
+	if _task == "commands":
+		## LLM-6d: the live view facts (JSON text) and the groups the user ticked, if any.
+		args["view"] = _VIEW.facts_json(app, bridge)
+		if not _chosen_groups.is_empty():
+			args["groups"] = PackedStringArray(_chosen_groups)
 	var r := run.begin(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins(), args)
 	if not bool(r.get("ok", false)):
 		_reply_label.get_parent().get_parent().queue_free()
@@ -740,6 +799,8 @@ func _on_send() -> void:
 		_add_msg("", String(r.get("reason", "The request could not be started.")), "block")
 	else:
 		_input.text = ""
+		_groups_were_chosen = not _chosen_groups.is_empty()
+		_chosen_groups.clear()
 	_refresh()
 
 
@@ -836,7 +897,8 @@ func _scroll_to_end() -> void:
 func _on_params_step(info: Dictionary) -> void:
 	if String(info.get("type", "")) == "params_retry":
 		var v: Dictionary = info.get("verdict", {})
-		_add_msg("", "The model's proposal could not be used (%s). It was told why and asked once more." % _verdict_reasons(v), "warn")
+		var why := _verdict_reasons(v) if info.has("verdict") else _view_reasons(info.get("view_verdict", {}))
+		_add_msg("", "The model's proposal could not be used (%s). It was told why and asked once more." % why, "warn")
 	else:
 		var gs: PackedStringArray = info.get("groups", PackedStringArray())
 		var qs: PackedStringArray = info.get("queries", PackedStringArray())
@@ -854,7 +916,8 @@ func _on_params_step(info: Dictionary) -> void:
 ## The model answered in words without proposing (an impossible request, a question).
 func _on_answered(_text: String) -> void:
 	_drop_empty_reply()
-	_add_msg("", "No setting change was proposed.", "text_ghost")
+	var hint := "" if _groups_were_chosen else " If the model could not pick setting groups, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
+	_add_msg("", "Nothing was proposed.%s" % hint, "text_ghost")
 	_refresh()
 
 
@@ -959,7 +1022,7 @@ func _on_proposal(info: Dictionary) -> void:
 	row.add_theme_constant_override("separation", 8)
 	row.alignment = BoxContainer.ALIGNMENT_END
 	col.add_child(row)
-	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new"}
+	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "params", "group_id": 0}
 	var dismiss_b := _button(row, "Dismiss", func(): _dismiss_card(card))
 	card["dismiss"] = dismiss_b
 	if not valid.is_empty():
@@ -967,6 +1030,10 @@ func _on_proposal(info: Dictionary) -> void:
 		card["apply"] = apply_b
 	_msgs.add_child(box)
 	cards.append(card)
+	_watch_undo()
+	if info.has("view"):
+		## A reply that carried both tools: the second card is the view half.
+		_draw_view_card(info["view"])
 	_refresh_cards()
 	_scroll_to_end()
 
@@ -992,7 +1059,7 @@ func _refresh_cards() -> void:
 		var rl: Label = card["reason"]
 		if card["state"] != "new":
 			continue
-		var why := _apply_blocked()
+		var why := _view_blocked(card["info"]) if String(card.get("kind", "params")) == "view" else _apply_blocked()
 		if b != null:
 			b.disabled = why != ""
 			b.tooltip_text = why
@@ -1052,9 +1119,211 @@ func _apply_card(card: Dictionary) -> void:
 	if not bool(r.get("ok", false)):
 		_close_card(card, "failed", "Not applied: %s. Nothing was changed." % String(r.get("reason", "")), "block")
 		return
-	_close_card(card, "applied", "Applied as one undo step (Edit ▸ Undo reverts all of it). Regenerate or Recompute to see it.", "good")
+	card["group_id"] = int(r.get("id", 0))
+	card["applied_text"] = "Applied as one undo step (Edit ▸ Undo reverts all of it). Regenerate or Recompute to see it."
+	_close_card(card, "applied", String(card["applied_text"]), "good")
 	if app.has_method("set_status"):
 		app.set_status("hint", "Assistant: %d setting%s changed. Nothing was regenerated." % [int(r.get("members", 0)), "" if int(r.get("members", 0)) == 1 else "s"])
+
+
+# ---------------------------------------------------------------------------
+# View and layer actions (LLM-6d)
+# ---------------------------------------------------------------------------
+
+## The view proposal of a reply that carried only `propose_view_actions`.
+func _on_view_proposal(info: Dictionary) -> void:
+	_drop_empty_reply()
+	_draw_view_card(info.get("view", {}))
+	_watch_undo()
+	_refresh_cards()
+	_scroll_to_end()
+
+
+## The refused actions or the structural failure, in one line.
+func _view_reasons(v: Dictionary) -> String:
+	if v.has("structural"):
+		return "%s: %s" % [String(v.get("structural_rule", "")), String(v["structural"])]
+	var parts: PackedStringArray = PackedStringArray()
+	for r in v.get("rejected", []):
+		var rd: Dictionary = r
+		parts.append("%s %s: %s" % [String(rd.get("rule", "")), String(rd.get("action", "(no action)")), String(rd.get("why", ""))])
+	return "; ".join(parts) if not parts.is_empty() else "nothing could be applied"
+
+
+## What the view facts disclose, for the "This will send" line: states and names the user can
+## already see on screen, no world data.
+func _view_sent_text() -> String:
+	return "It also receives what the map shows (the layers and whether each is on, the style preset names, the landmark types this world has, the grid size and zoom range, and the names of windows it may open) so it can propose view changes."
+
+
+## Draws the view card (the parameter card's vocabulary): each valid action as `label  was -> will
+## be`, the model's reason as its own words, the refused actions with their rule, the undo
+## statement Rust wrote, and Apply / Dismiss. Builds widgets only: nothing is applied here.
+func _draw_view_card(v: Dictionary) -> void:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", DccWidgets.box("warn", "sunken", 8, 6))
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	box.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 6)
+	var chip := DccTheme.label("MODEL PROPOSAL · VIEW", "warn", DccTheme.FS_MICRO)
+	chip.tooltip_text = "Proposed by a language model. Nothing has changed; review it and press Apply or Dismiss."
+	head.add_child(chip)
+	col.add_child(head)
+	if v.has("summary"):
+		_card_text(col, "\u201c%s\u201d" % String(v["summary"]), "text_secondary")
+	var valid: Array = v.get("valid", [])
+	for c in valid:
+		var cd: Dictionary = c
+		## A window has no "before" to show: it reads "<name>   will be opened". Anything else with no
+		## readable old value says so (never a blank or a default).
+		var line := "%s   will be opened" % String(cd["label"]) if String(cd.get("action", "")) == "open_window" else "%s   %s  ->  %s" % [String(cd["label"]), String(cd["from"]) if cd.has("from") else "not readable", String(cd["to"])]
+		if bool(cd.get("undoable", false)):
+			line += "   (one undo step)"
+		_card_text(col, line, "text")
+		if cd.has("reason"):
+			_card_text(col, "    \u201c%s\u201d  (model's words)" % String(cd["reason"]), "text_dim")
+		if cd.has("note"):
+			_card_text(col, "    " + String(cd["note"]), "warn")
+	var rejected: Array = v.get("rejected", [])
+	if v.has("structural") or not rejected.is_empty():
+		_card_text(col, "Not applied:", "text_dim")
+		if v.has("structural"):
+			_card_text(col, "    %s: %s" % [String(v.get("structural_rule", "")), String(v["structural"])], "text_ghost")
+		for r in rejected:
+			var rd: Dictionary = r
+			_card_text(col, "    %s  %s: %s" % [String(rd.get("action", "(no action)")), String(rd["rule"]), String(rd["why"])], "text_ghost")
+	var noop: PackedStringArray = v.get("noop", PackedStringArray())
+	if not noop.is_empty():
+		_card_text(col, "No change: %s" % "; ".join(noop), "text_ghost")
+	if valid.is_empty():
+		_card_text(col, "Nothing could be applied.", "warn")
+	else:
+		for line in v.get("undo", PackedStringArray()):
+			_card_text(col, String(line), "text_secondary")
+		_card_text(col, "Applying changes how the map is shown. It does not change the world or its settings.", "text_secondary")
+	var reason_l := _note_label(col, "", "warn")
+	reason_l.visible = false
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_END
+	col.add_child(row)
+	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "view", "group_id": 0}
+	card["dismiss"] = _button(row, "Dismiss", func(): _dismiss_card(card))
+	if not valid.is_empty():
+		card["apply"] = _button(row, "Apply %d view change%s" % [valid.size(), "" if valid.size() == 1 else "s"], func(): _apply_view_card(card), true)
+	_msgs.add_child(box)
+	cards.append(card)
+
+
+## Why a view card cannot be applied now, or "". Only the style preset is blocked by a running
+## generation (it writes the engine's look); layers, landmark filters, the camera and windows
+## are session state and do not depend on it.
+func _view_blocked(info: Dictionary) -> String:
+	if not run.available():
+		return "This build has no assistant support."
+	for c in info.get("valid", []):
+		if bool((c as Dictionary).get("undoable", false)) and bridge.generating:
+			return "A world is generating; the style cannot change until it finishes."
+	return ""
+
+
+## **The only writer of view state in this file**, reached only from a view card's Apply. The
+## style preset goes through the grouped undo (one step); everything else is instant session state
+## (`llm_view.gd::apply` has the order and the re-check). Never regenerates.
+func _apply_view_card(card: Dictionary) -> void:
+	if card["state"] != "new":
+		return
+	var why := _view_blocked(card["info"])
+	if why != "":
+		_refresh_cards()
+		return
+	var valid: Array = card["info"].get("valid", [])
+	var r: Dictionary = _VIEW.apply(app, bridge, app.undo_groups, valid)
+	if not bool(r.get("ok", false)):
+		_close_card(card, "failed", String(r.get("reason", "Not applied.")), "block")
+		return
+	card["group_id"] = int(r.get("group_id", 0))
+	var n := int(r.get("applied", 0))
+	var text := "Applied %d view change%s." % [n, "" if n == 1 else "s"]
+	if int(card["group_id"]) > 0:
+		text += " Edit ▸ Undo reverts the style preset in one step; the other changes are session state and are not on the undo stack."
+	elif n > 0:
+		text += " They are session state, not on the undo stack."
+	var failed: Array = r.get("failed", [])
+	if not failed.is_empty():
+		text += " Not applied: %s." % "; ".join(PackedStringArray(failed))
+	card["applied_text"] = text
+	_close_card(card, "applied", text, "warn" if not failed.is_empty() else "good")
+	if app.has_method("set_status"):
+		app.set_status("hint", "Assistant: %d view change%s applied." % [n, "" if n == 1 else "s"])
+
+
+## Connects `app.undo_groups.changed` once, so a card learns when Edit ▸ Undo or Redo moved its group.
+func _watch_undo() -> void:
+	var ug = app.get("undo_groups")
+	if ug != null and not ug.changed.is_connected(_sync_card_undo):
+		ug.changed.connect(_sync_card_undo)
+
+
+## The "(undone)" state (LLM-6d): a card that was applied inside an undo group follows that group.
+## `applied` -> `undone` when Edit ▸ Undo took the group, back to `applied` on Redo, and a group that
+## left the stack for good (a newer edit, a different world) is said to be gone, never shown as
+## still revertible. Only cards that own a group (`group_id` > 0) are touched.
+func _sync_card_undo() -> void:
+	cards = cards.filter(func(c): return is_instance_valid(c["box"]))
+	var ug = app.get("undo_groups")
+	if ug == null:
+		return
+	for card in cards:
+		var gid := int(card.get("group_id", 0))
+		var st := String(card["state"])
+		if gid <= 0 or (st != "applied" and st != "undone"):
+			continue
+		var is_view := String(card.get("kind", "params")) == "view"
+		match String(ug.state_of(gid)):
+			"applied":
+				if st == "undone":
+					_close_card(card, "applied", String(card.get("applied_text", "Applied.")), "good")
+			"undone":
+				if st == "applied":
+					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
+						else "Undone with Edit ▸ Undo: the settings are back to what they were before this card. Nothing was regenerated. Edit ▸ Redo re-applies them."), "text_dim")
+			_:
+				if st == "undone":
+					_close_card(card, "undone", "Undone. A newer change replaced it, so it can no longer be redone.", "text_ghost")
+				elif not bool(card.get("gone", false)):
+					card["gone"] = true
+					_close_card(card, "applied", String(card.get("applied_text", "Applied.")) + " It is no longer on the undo stack (a newer edit or a different world replaced it).", "text_dim")
+
+
+## The setting groups, in the registry's order (read from the engine's own parameter table, not typed here).
+func _group_names() -> Array:
+	var seen: Array = []
+	for k in bridge.param_keys():
+		var g := String(bridge.param_info(String(k)).get("group", ""))
+		if g != "" and not seen.has(g):
+			seen.append(g)
+	return seen
+
+
+func _toggle_groups() -> void:
+	_groups_flow.visible = not _groups_flow.visible
+	_refresh()
+
+
+## Ticks or unticks a setting group for the next Send. A fourth tick is refused (the chip is
+## disabled with the reason); Rust re-validates the list anyway.
+func _tick_group(name: String) -> void:
+	if run.busy():
+		return
+	if _chosen_groups.has(name):
+		_chosen_groups.erase(name)
+	elif _chosen_groups.size() < MAX_CHOSEN_GROUPS:
+		_chosen_groups.append(name)
+	_refresh()
 
 
 ## **The only caller of `vault_write_file` in this file.** Writes the picked note's text as it

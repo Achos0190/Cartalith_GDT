@@ -74,6 +74,14 @@
 //! (`llm_bridge.rs` explains why: a `bind()` fails while a generation holds the engine on its
 //! worker thread). A fact the shell did not supply is "not available", never a guess.
 //!
+//! **View and layer actions (LLM-6d, scope s.5b.10).** `args.view` (JSON text, read from the live app
+//! by `shell/llm_view.gd` at every turn) becomes a `cartalith_llm::view_actions::ViewCatalogue`; when it
+//! offers at least one action the request carries `propose_view_actions`, whose verdict reaches the
+//! shell as a `view_proposal` event (or as `info.view` beside a parameter `proposal` when one reply
+//! carried both tools). `args.groups` (a `PackedStringArray`) is the "Choose groups" fallback: the
+//! user's groups are opened by the app before the first request. Like everything here this class
+//! writes nothing: the verdict is DATA and only the panel's Apply acts on it.
+//!
 //! **NO PANIC.** Every method answers with a dictionary; a poisoned lock is recovered
 //! rather than unwrapped (`cartalith-rust-conventions`).
 
@@ -90,6 +98,7 @@ use cartalith_llm::prompt::{Context, PromptError, Task, build_messages};
 use cartalith_llm::settings::Capability;
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
+use cartalith_llm::view_actions::{ViewCatalogue, ViewVerdict};
 use cartalith_llm::query::{EcologyFacts, Fact, NoWorld, SUMMARY_PERCENTILES, SampleFacts, SummaryFacts, WorldFacts};
 use cartalith_llm::{Event, LlmError, StreamSession};
 use godot::classes::{IRefCounted, RefCounted};
@@ -372,6 +381,69 @@ fn verdict_dict(v: &Verdict, groups: &[String]) -> VarDictionary {
     d
 }
 
+/// A validated JSON argument as the Variant the shell applies: booleans stay booleans and
+/// numbers become floats (the only numeric arguments are `zoom_to`'s), text stays text.
+/// Nothing else can be in a validated change's `args`.
+fn arg_variant(v: &serde_json::Value) -> Variant {
+    match v {
+        serde_json::Value::Bool(b) => b.to_variant(),
+        // A validated number is finite, so `as_f64` cannot fail; if it ever did, no value (nil) is
+        // returned, never a plausible `0.0` (the shell would read it as "no argument").
+        serde_json::Value::Number(n) => n.as_f64().map_or_else(Variant::nil, |x| x.to_variant()),
+        serde_json::Value::String(t) => GString::from(t.as_str()).to_variant(),
+        _ => Variant::nil(),
+    }
+}
+
+/// A view verdict as the view card reads it (LLM-6d). Every `valid` row passed A1-A9: it names
+/// an offered action and offered values. An absent old value is OMITTED (never a default), and
+/// `args` holds exactly the validated arguments the shell applies, so the shell never parses
+/// the model's text.
+fn view_verdict_dict(v: &ViewVerdict) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    if let Some((rule, why)) = &v.structural {
+        d.set("structural_rule", rule.id());
+        d.set("structural", why.as_str());
+    }
+    if let Some(s) = &v.summary {
+        d.set("summary", s.as_str());
+    }
+    let mut valid: Array<VarDictionary> = Array::new();
+    for c in &v.valid {
+        let mut args = VarDictionary::new();
+        for (k, val) in &c.args {
+            args.set(k.as_str(), &arg_variant(val));
+        }
+        let mut e = vdict! { "action" => c.action, "label" => c.label.as_str(), "to" => c.to.as_str(), "undoable" => c.undoable };
+        e.set("args", &args);
+        if let Some(f) = &c.from {
+            e.set("from", f.as_str());
+        }
+        if let Some(n) = &c.note {
+            e.set("note", n.as_str());
+        }
+        if let Some(r) = &c.reason {
+            e.set("reason", r.as_str());
+        }
+        valid.push(&e);
+    }
+    d.set("valid", &valid);
+    let mut rejected: Array<VarDictionary> = Array::new();
+    for r in &v.rejected {
+        let mut e = vdict! { "rule" => r.rule.id(), "why" => r.why.as_str() };
+        if let Some(a) = &r.action {
+            e.set("action", a.as_str());
+        }
+        rejected.push(&e);
+    }
+    d.set("rejected", &rejected);
+    let noop: PackedStringArray = v.noop.iter().map(|k| GString::from(k.as_str())).collect();
+    d.set("noop", &noop);
+    let undo: PackedStringArray = v.undo_note().iter().map(|k| GString::from(k.as_str())).collect();
+    d.set("undo", &undo);
+    d
+}
+
 /// Feed the finished reply to the conversation and turn its step into the one
 /// event the shell acts on. Clears the reply buffers.
 fn params_step(p: &mut ParamsState) -> VarDictionary {
@@ -393,12 +465,29 @@ fn params_step(p: &mut ParamsState) -> VarDictionary {
         Step::Retry(v) => {
             let mut d = vdict! { "type" => "params_retry", "turns" => turns };
             d.set("verdict", &verdict_dict(&v, p.conv.shown_groups()));
+            if let Some(vv) = p.conv.take_view_verdict() {
+                d.set("view_verdict", &view_verdict_dict(&vv));
+            }
             d
         }
         Step::Proposal(v) => {
             let mut d = verdict_dict(&v, p.conv.shown_groups());
             d.set("type", "proposal");
             d.set("turns", turns);
+            // LLM-6d: a reply that carried both tools rides one event; the shell draws two cards.
+            if let Some(vv) = p.conv.take_view_verdict() {
+                d.set("view", &view_verdict_dict(&vv));
+            }
+            d
+        }
+        Step::ViewRetry(v) => {
+            let mut d = vdict! { "type" => "params_retry", "turns" => turns };
+            d.set("view_verdict", &view_verdict_dict(&v));
+            d
+        }
+        Step::ViewProposal(v) => {
+            let mut d = vdict! { "type" => "view_proposal", "turns" => turns };
+            d.set("view", &view_verdict_dict(&v));
             d
         }
         Step::Answer(t) => vdict! { "type" => "params_answer", "text" => t.as_str(), "turns" => turns },
@@ -477,8 +566,11 @@ impl LlmStream {
             return refuse("catalogue", &format!("The settings catalogue is incomplete ({p}); nothing was sent."));
         }
         let hints = request_hints(&s.preset_id);
+        // LLM-6d: the view and layer facts the shell read from the live app THIS turn (JSON text).
+        // Absent, unreadable or with nothing offered, the tool is simply not in the request.
+        let view = opt_text(args, "view").and_then(|t| ViewCatalogue::from_json_text(&t).ok()).filter(ViewCatalogue::is_offered);
         let mut inner = self.lock();
-        let (conv, max_tokens, include_usage) = if resume {
+        let (mut conv, max_tokens, include_usage) = if resume {
             match inner.params.take() {
                 Some(p) if !p.conv.is_done() => {
                     let mut conv = p.conv;
@@ -501,9 +593,21 @@ impl LlmStream {
             // always true; reading the flag here (not writing `true`) keeps the tools tied to the
             // checkbox if the refusal above is ever relaxed for settings-only proposals.
             let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
-                Ok(c) => c.with_queries(&cat, flag(settings, "ctx_params")),
+                Ok(c) => c.with_queries(&cat, flag(settings, "ctx_params")).with_view(&cat, view.clone()),
                 Err(why) => return refuse("empty_request", why),
             };
+            let mut conv = conv;
+            // "Choose groups" (scope s.5b.1 fallback): the USER ticked groups, so the app does
+            // step one itself. The same validation as a model's call; a bad list is refused
+            // with the reason and nothing is sent.
+            if let Some(g) = args.get("groups").and_then(|v| v.try_to::<PackedStringArray>().ok()) {
+                let groups: Vec<String> = g.as_slice().iter().map(GString::to_string).collect();
+                if !groups.is_empty() {
+                    if let Err(why) = conv.open_groups(&cat, &groups) {
+                        return refuse("bad_groups", &why);
+                    }
+                }
+            }
             let max_tokens = args
                 .get("max_tokens")
                 .and_then(|v| v.try_to::<i64>().ok())
@@ -512,6 +616,7 @@ impl LlmStream {
             let include_usage = args.get("include_usage").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
             (conv, max_tokens, include_usage)
         };
+        conv.set_view(view);
         let req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
         let counted = counter().clone();
         let prepared =

@@ -60,6 +60,7 @@ pub mod settings;
 pub mod sse;
 pub mod stream;
 pub mod transport;
+pub mod view_actions;
 
 pub use error::{LlmError, Scrubbed};
 pub use event::{Event, Usage};

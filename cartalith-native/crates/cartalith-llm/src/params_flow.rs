@@ -23,6 +23,12 @@
 //!    "this cannot be done with these settings" is a legitimate outcome.
 //! 5. After [`MAX_TURNS`] model replies the conversation stops ([`Step::Failed`]).
 //!
+//! LLM-6d adds a second proposal tool, `propose_view_actions` (`crate::view_actions`), offered from
+//! the first turn when the shell's facts offer an action, and the "Choose groups" fallback
+//! ([`ParamsConversation::open_groups`]), where the USER performs step 1 and the conversation starts
+//! with the groups already opened. A reply may carry either proposal tool or both; each is validated
+//! on its own and the one retry is granted only when every verdict present wants it.
+//!
 //! MUST NEVER: apply anything (this module has no setter to call); offer
 //! `set_generation_params` before a schema was shown; let text the model read
 //! widen the tool set or the opened groups.
@@ -32,6 +38,7 @@ use serde_json::{Value, json};
 use crate::catalogue::{Catalogue, GET_SCHEMA_TOOL, SET_PARAMS_TOOL, Verdict};
 use crate::openai::{ChatRequest, MaxTokensField, Message, Role, Thinking, ToolCallRecord, ToolSpec, ToolTurn};
 use crate::prompt::MAX_REQUEST_CHARS;
+use crate::view_actions::{VIEW_TOOL, ViewCatalogue, ViewVerdict};
 use crate::query::{
     MAX_QUERY_CALLS_PER_REPLY, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
     tool_specs as query_tool_specs,
@@ -77,6 +84,11 @@ pub enum Step {
     Retry(Verdict),
     /// Terminal: the proposal to show on the card.
     Proposal(Verdict),
+    /// LLM-6d: the view proposal was refused and its errors went back for the one retry
+    /// (a reply that carried only `propose_view_actions`).
+    ViewRetry(ViewVerdict),
+    /// LLM-6d: terminal, a reply that carried only `propose_view_actions`: the view card.
+    ViewProposal(ViewVerdict),
     /// Terminal: the model answered in words without proposing.
     Answer(String),
     /// Terminal: the conversation could not finish, in words.
@@ -103,6 +115,13 @@ pub struct ParamsConversation {
     pending: Vec<PendingQuery>,
     /// Counters the query caps read.
     budget: QueryBudget,
+    /// LLM-6d: the view and layer action catalogue of THIS turn (the shell hands the facts over
+    /// every turn, so a layer switched in between is what the validator compares against). `None`
+    /// means the tool is not in the request at all.
+    view: Option<ViewCatalogue>,
+    /// LLM-6d: the view verdict that rode along a terminal or retried [`Step::Proposal`] /
+    /// [`Step::Retry`] when one reply carried both tools. Read with [`ParamsConversation::take_view_verdict`].
+    view_out: Option<ViewVerdict>,
 }
 
 /// What a batch of waiting query calls needs read from the world.
@@ -147,7 +166,60 @@ impl ParamsConversation {
             queries: false,
             pending: Vec::new(),
             budget: QueryBudget::default(),
+            view: None,
+            view_out: None,
         })
+    }
+
+    /// LLM-6d: offer (or stop offering) the view and layer action tool for this request. Call it
+    /// right after [`ParamsConversation::new`] with the facts of the first turn: it rewrites the
+    /// system prompt so the prompt names the tool exactly when it is offered (the same rule as
+    /// [`ParamsConversation::with_queries`]). Pass `None`, or a catalogue with nothing offered,
+    /// for no tool and no prompt text.
+    pub fn with_view(mut self, cat: &Catalogue, view: Option<ViewCatalogue>) -> Self {
+        let on = view.as_ref().is_some_and(ViewCatalogue::is_offered);
+        self.view = view;
+        if let Some(m) = self.messages.first_mut() {
+            m.content = cat.system_prompt_full(self.queries, on);
+        }
+        self
+    }
+
+    /// LLM-6d: replace the view catalogue with this turn's facts (the shell rebuilds them from
+    /// the live app before every request). Does not touch the system prompt.
+    pub fn set_view(&mut self, view: Option<ViewCatalogue>) {
+        self.view = view;
+    }
+
+    /// LLM-6d: the view verdict that accompanied the last [`Step::Proposal`] or [`Step::Retry`],
+    /// taken (a second call answers `None`).
+    pub fn take_view_verdict(&mut self) -> Option<ViewVerdict> {
+        self.view_out.take()
+    }
+
+    /// LLM-6d, the "Choose groups" fallback (scope s.5b.1): the USER picked the groups, so the
+    /// app performs step one itself. Appends exactly what a model's valid `get_param_schema`
+    /// call would have produced (an assistant tool call and its result) and opens the groups,
+    /// so the first request already offers `set_generation_params` with the key enum of those
+    /// groups. The same validation as the model's call applies (1 to 3 real groups), so this
+    /// cannot open more than the model could. Refused after any model reply.
+    pub fn open_groups(&mut self, cat: &Catalogue, groups: &[String]) -> Result<(), String> {
+        if self.turns > 0 || !self.shown_groups.is_empty() {
+            return Err("groups can only be chosen before the first model reply".into());
+        }
+        let arg = json!(groups);
+        let (chosen, value, keys) = cat.schema_for(Some(&arg))?;
+        let id = format!("call_cartalith_{}", self.next_id);
+        self.next_id += 1;
+        self.messages.push(Message {
+            role: Role::Assistant,
+            content: String::new(),
+            tool: Some(ToolTurn::Calls(vec![ToolCallRecord { id: id.clone(), name: GET_SCHEMA_TOOL.into(), arguments: json!({"groups": chosen}) }])),
+        });
+        self.messages.push(Message { role: Role::User, content: value.to_string(), tool: Some(ToolTurn::Result { call_id: id }) });
+        self.shown_groups = chosen;
+        self.shown_keys = keys;
+        Ok(())
     }
 
     /// Offer (or stop offering) the six read-only query tools of LLM-8 for this request. Call it
@@ -245,6 +317,9 @@ impl ParamsConversation {
         if self.queries {
             t.extend(query_tool_specs(cat));
         }
+        if let Some(v) = self.view.as_ref().filter(|v| v.is_offered()) {
+            t.push(v.tool_spec());
+        }
         t
     }
 
@@ -303,24 +378,51 @@ impl ParamsConversation {
             .collect();
         self.messages.push(Message { role: Role::Assistant, content: text.to_owned(), tool: Some(ToolTurn::Calls(records.clone())) });
 
-        // A proposal ends the conversation unless the outcome rule grants the retry.
-        if let Some(p) = records.iter().find(|r| r.name == SET_PARAMS_TOOL) {
-            let verdict = cat.validate(&p.arguments, &self.shown_groups);
-            let can_retry = verdict.wants_retry() && self.retries < MAX_PROPOSAL_RETRIES && self.turns < MAX_TURNS;
+        // A proposal ends the conversation unless the outcome rule grants the retry. LLM-6d: a
+        // reply may carry `set_generation_params`, `propose_view_actions` or both. Each is
+        // validated on its own; the retry is granted only when EVERY verdict present wants it,
+        // so a usable half is never thrown away because the other half was bad. With only
+        // `set_generation_params` present this is the LLM-6b rule unchanged.
+        let view_on = self.view.as_ref().is_some_and(ViewCatalogue::is_offered);
+        let params_rec = records.iter().find(|r| r.name == SET_PARAMS_TOOL);
+        let view_rec = if view_on { records.iter().find(|r| r.name == VIEW_TOOL) } else { None };
+        if params_rec.is_some() || view_rec.is_some() {
+            let pv = params_rec.map(|p| cat.validate(&p.arguments, &self.shown_groups));
+            let vv = match (view_rec, self.view.as_ref()) {
+                (Some(r), Some(v)) => Some(v.validate(&r.arguments)),
+                _ => None,
+            };
+            let wants = pv.as_ref().is_none_or(Verdict::wants_retry) && vv.as_ref().is_none_or(ViewVerdict::wants_retry);
+            let can_retry = wants && self.retries < MAX_PROPOSAL_RETRIES && self.turns < MAX_TURNS;
             if !can_retry {
-                return self.finish(Step::Proposal(verdict));
+                return match (pv, vv) {
+                    (Some(p), v) => {
+                        self.view_out = v;
+                        self.finish(Step::Proposal(p))
+                    }
+                    (None, Some(v)) => self.finish(Step::ViewProposal(v)),
+                    (None, None) => self.finish(Step::Failed("The proposal could not be read.".into())),
+                };
             }
             self.retries += 1;
-            let feedback = verdict.feedback().to_string();
+            let p_feedback = pv.as_ref().map(|v| v.feedback().to_string());
+            let v_feedback = vv.as_ref().map(|v| v.feedback().to_string());
             for r in &records {
-                let body = if r.name == SET_PARAMS_TOOL {
-                    feedback.clone()
-                } else {
-                    json!({"error": "answer ignored: a proposal was made in the same turn"}).to_string()
+                let body = match (r.name.as_str(), &p_feedback, &v_feedback) {
+                    (SET_PARAMS_TOOL, Some(f), _) => f.clone(),
+                    (VIEW_TOOL, _, Some(f)) => f.clone(),
+                    _ => json!({"error": "answer ignored: a proposal was made in the same turn"}).to_string(),
                 };
                 self.messages.push(Message { role: Role::User, content: body, tool: Some(ToolTurn::Result { call_id: r.id.clone() }) });
             }
-            return Step::Retry(verdict);
+            return match (pv, vv) {
+                (Some(p), v) => {
+                    self.view_out = v;
+                    Step::Retry(p)
+                }
+                (None, Some(v)) => Step::ViewRetry(v),
+                (None, None) => Step::Failed("The proposal could not be read.".into()),
+            };
         }
 
         // Otherwise every call is a schema call or a query call (the decoder admits only offered
@@ -716,5 +818,160 @@ mod tests {
         let n = c.pending_needs();
         assert_eq!(n.samples, vec![(7, 0), (8, 0)], "6 already read, room for 2");
         assert!(n.ecology && !n.summary);
+    }
+
+    fn view_cat() -> ViewCatalogue {
+        ViewCatalogue::from_json(&json!({
+            "layers": [{"id": "roads", "label": "Roads", "on": true}, {"id": "rivers", "label": "Rivers", "on": false}],
+            "windows": [{"id": "vault", "label": "Vault"}]
+        }))
+        .unwrap()
+    }
+
+    fn view_call(id: &str, args: Value) -> IncomingCall {
+        call(Some(id), VIEW_TOOL, args)
+    }
+
+    /// Protects the closed tool set for LLM-6d: `propose_view_actions` is in the request (and the
+    /// prompt names it) exactly when the shell handed over facts that offer an action, from the
+    /// FIRST turn (it needs no schema step), and not otherwise. MUTATION: always push the tool, or
+    /// always add the prompt paragraph, and the "none" half fails.
+    #[test]
+    fn the_view_tool_is_offered_only_with_facts() {
+        let cat = fixture();
+        let names = |c: &ParamsConversation| req(c, &cat).tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+        let none = ParamsConversation::new(&cat, "hide the roads").unwrap().with_view(&cat, None);
+        assert_eq!(names(&none), vec![GET_SCHEMA_TOOL]);
+        assert!(!none.messages()[0].content.contains("propose_view_actions"));
+        let empty = ParamsConversation::new(&cat, "x").unwrap().with_view(&cat, Some(ViewCatalogue::from_json(&json!({})).unwrap()));
+        assert_eq!(names(&empty), vec![GET_SCHEMA_TOOL]);
+        let on = ParamsConversation::new(&cat, "hide the roads").unwrap().with_view(&cat, Some(view_cat()));
+        assert_eq!(names(&on), vec![GET_SCHEMA_TOOL, VIEW_TOOL]);
+        assert!(on.messages()[0].content.contains("propose_view_actions") && on.messages()[0].content.contains("cannot generate, save, close"));
+        // Facts of a later turn replace the earlier ones; an emptied catalogue withdraws the tool.
+        let mut c = on;
+        c.set_view(None);
+        assert_eq!(names(&c), vec![GET_SCHEMA_TOOL]);
+    }
+
+    /// Protects the view-only path: one valid call ends the request with the view card, no schema
+    /// step needed; a refused one is retried ONCE and the second answer is final. MUTATION:
+    /// MAX_PROPOSAL_RETRIES 1 -> 2 and the second block goes red.
+    #[test]
+    fn a_view_proposal_is_one_step_and_retried_once() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "hide the roads").unwrap().with_view(&cat, Some(view_cat()));
+        let ok = json!({"actions": [{"action": "set_layer_visible", "args": {"layer": "roads", "visible": false}}]});
+        let Step::ViewProposal(v) = c.on_reply(&cat, "", vec![view_call("v1", ok)]) else { panic!() };
+        assert_eq!(v.valid.len(), 1);
+        assert!(c.is_done() && c.turns() == 1 && c.take_view_verdict().is_none());
+
+        let mut c = ParamsConversation::new(&cat, "x").unwrap().with_view(&cat, Some(view_cat()));
+        let bad = json!({"actions": [{"action": "set_layer_visible", "args": {"layer": "road", "visible": false}}]});
+        let Step::ViewRetry(v) = c.on_reply(&cat, "", vec![view_call("v1", bad.clone())]) else { panic!() };
+        assert_eq!(v.rejected[0].rule.id(), "A8");
+        // The errors went back as the tool result, in the call's own id.
+        let last = c.messages().last().unwrap();
+        assert!(matches!(&last.tool, Some(ToolTurn::Result { call_id }) if call_id == "v1"));
+        assert!(last.content.contains("nearest: roads"), "{}", last.content);
+        assert!(matches!(c.on_reply(&cat, "", vec![view_call("v2", bad)]), Step::ViewProposal(_)));
+        assert_eq!(c.turns(), 2);
+    }
+
+    /// Protects the mixed reply: `set_generation_params` and `propose_view_actions` in one reply
+    /// are validated separately and both reach the shell; a bad half does not discard a good half
+    /// (no retry unless EVERY verdict wants one). MUTATION: retry when either wants it, and the
+    /// second block returns Retry instead of Proposal.
+    #[test]
+    fn one_reply_may_carry_both_proposals() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "drier and hide roads").unwrap().with_view(&cat, Some(view_cat()));
+        c.on_reply(&cat, "", vec![call(Some("s"), GET_SCHEMA_TOOL, json!({"groups": ["weather", "world", "tectonics"]}))]);
+        let params: Value = serde_json::from_str(WORKED).unwrap();
+        let view = json!({"actions": [{"action": "open_window", "args": {"window": "vault"}}]});
+        let Step::Proposal(p) = c.on_reply(&cat, "", vec![call(Some("p"), SET_PARAMS_TOOL, params), view_call("v", view)]) else { panic!() };
+        assert_eq!(p.valid.len(), 5);
+        let vv = c.take_view_verdict().expect("the view half rode along");
+        assert_eq!(vv.valid.len(), 1);
+        assert!(c.take_view_verdict().is_none(), "taken once");
+
+        let mut c = ParamsConversation::new(&cat, "x").unwrap().with_view(&cat, Some(view_cat()));
+        c.on_reply(&cat, "", vec![call(Some("s"), GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        let bad_params = json!({"changes": [{"key": "peak_m", "value": 9000}]}); // peak_m is in `world`, not opened: V6
+        let view = json!({"actions": [{"action": "open_window", "args": {"window": "vault"}}]});
+        let Step::Proposal(p) = c.on_reply(&cat, "", vec![call(Some("p"), SET_PARAMS_TOOL, bad_params), view_call("v", view)]) else {
+            panic!("retried a usable half")
+        };
+        assert!(p.valid.is_empty() && !p.rejected.is_empty());
+        assert_eq!(c.take_view_verdict().unwrap().valid.len(), 1);
+    }
+
+    /// Protects the closed tool set the other way: with no facts, OR facts that offer nothing, a
+    /// call to `propose_view_actions` is an unknown tool (answered with an error, never validated,
+    /// never a card). MUTATION: admit the call whenever a catalogue exists (`self.view.is_some()`)
+    /// and the empty-facts half goes red (it would end the request with a refusal card).
+    #[test]
+    fn a_view_call_without_facts_is_an_unknown_tool() {
+        let cat = fixture();
+        let args = json!({"actions": [{"action": "open_window", "args": {"window": "vault"}}]});
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        assert_eq!(c.on_reply(&cat, "", vec![view_call("v", args.clone())]), Step::Continue);
+        assert!(c.messages().last().unwrap().content.contains("unknown tool propose_view_actions"));
+        let mut e = ParamsConversation::new(&cat, "x").unwrap().with_view(&cat, Some(ViewCatalogue::from_json(&json!({})).unwrap()));
+        assert_eq!(e.on_reply(&cat, "", vec![view_call("v", args)]), Step::Continue, "a catalogue that offers nothing is no catalogue");
+        assert!(e.messages().last().unwrap().content.contains("unknown tool propose_view_actions"));
+        assert!(!e.is_done());
+    }
+
+    /// Protects the "Choose groups" fallback: the user's groups are opened by the app, so the FIRST
+    /// request already offers the proposal tool with the key enum of exactly those groups, the
+    /// replayed history holds a synthetic schema call and its result on both wires, and the same
+    /// limits as a model's call apply (1 to 3 real groups; nothing after a model reply).
+    /// MUTATION: skip `shown_keys` and the enum is empty/absent.
+    #[test]
+    fn choose_groups_performs_step_one_for_the_user() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "drier please").unwrap();
+        c.open_groups(&cat, &["weather".to_owned(), "tectonics".to_owned()]).unwrap();
+        let r = req(&c, &cat);
+        let names: Vec<_> = r.tools.iter().map(|t| t.name.clone()).collect();
+        assert_eq!(names, vec![GET_SCHEMA_TOOL, SET_PARAMS_TOOL]);
+        let en = r.tools[1].parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"].as_array().unwrap();
+        assert_eq!(en.len(), 8, "weather 4 + tectonics 4 in the fixture, world not opened");
+        assert!(!en.iter().any(|k| k == "peak_m"));
+        assert_eq!(c.shown_groups(), &["weather".to_owned(), "tectonics".to_owned()]);
+        assert_eq!(c.turns(), 0, "no model reply was consumed");
+        // OpenAI wire: assistant tool_calls turn then a role:tool result.
+        let o = crate::openai::build_chat_request("http://localhost:11434/v1", None, &r).unwrap();
+        let b: Value = serde_json::from_slice(&o.body).unwrap();
+        let m = b["messages"].as_array().unwrap();
+        assert_eq!(m.len(), 4);
+        assert_eq!(m[2]["tool_calls"][0]["function"]["name"], GET_SCHEMA_TOOL);
+        assert_eq!(m[3]["role"], "tool");
+        assert_eq!(m[3]["tool_call_id"], m[2]["tool_calls"][0]["id"]);
+        // Anthropic wire: tool_use then tool_result.
+        let key = crate::secret::ApiKey::new("sk-ant-test-0123456789").unwrap();
+        let a = crate::anthropic::build_messages_request("https://api.anthropic.com/v1", Some(&key), &r).unwrap();
+        let b: Value = serde_json::from_slice(&a.body).unwrap();
+        let m = b["messages"].as_array().unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m[1]["content"][0]["type"], "tool_use", "an empty assistant text is not sent as a text block: {m:?}");
+        assert_eq!(m[2]["content"][0]["type"], "tool_result");
+        // A proposal over a chosen group validates (V6 satisfied).
+        let ok = json!({"changes": [{"key": "climate.ocean", "value": 0.7}]});
+        let Step::Proposal(v) = c.on_reply(&cat, "", vec![call(Some("p"), SET_PARAMS_TOOL, ok)]) else { panic!() };
+        assert_eq!(v.valid.len(), 1);
+
+        // The limits.
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        for bad in [vec![], vec!["nope".to_owned()], vec!["weather".into(), "world".into(), "tectonics".into(), "civ".into()]] {
+            assert!(c.open_groups(&cat, &bad).is_err(), "{bad:?}");
+            assert!(c.shown_groups().is_empty() && c.messages().len() == 2, "a refused list opened nothing");
+        }
+        c.open_groups(&cat, &["weather".to_owned()]).unwrap();
+        assert!(c.open_groups(&cat, &["world".to_owned()]).is_err(), "a second choice is refused");
+        let mut late = ParamsConversation::new(&cat, "x").unwrap();
+        late.on_reply(&cat, "", vec![call(Some("s"), GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        assert!(late.open_groups(&cat, &["world".to_owned()]).is_err(), "not after a model reply");
     }
 }

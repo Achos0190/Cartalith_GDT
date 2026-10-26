@@ -227,7 +227,19 @@ func commit() -> Dictionary:
 	cursor = groups.size()
 	_open = {}
 	changed.emit()
-	return {"ok": true, "reason": "", "members": n}
+	return {"ok": true, "reason": "", "members": n, "id": int(g["id"])}
+
+## Where group `id` stands now, for a card that wants to say so (LLM-6d, the "(undone)" state):
+## `"applied"` (on the undo side), `"undone"` (on the redo side) or `"gone"` (not on either:
+## dissolved, replaced by a newer edit, or never created). Read-only apart from the same pruning
+## `wants_undo()` does, so a group something outside any history destroyed answers `"gone"`.
+func state_of(id: int) -> String:
+	if not _busy:
+		_prune()
+	for i in groups.size():
+		if int((groups[i] as Dictionary).get("id", -1)) == id:
+			return "applied" if i < cursor else "undone"
+	return "gone"
 
 ## Roll the open group back (every member taken so far, inverse order) and
 ## close it. Returns `{ok: false, reason, members: 0, rolled_back: bool}`;

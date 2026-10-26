@@ -27,7 +27,7 @@ extends Node
 ##   5. HOSTILE, per wire: an unknown key, an out-of-range number, a fractional int, a duplicate,
 ##      an excluded key and 25 changes each show a refusal reason naming the rule, are retried
 ##      ONCE (3 requests), offer no Apply, and write nothing (digest unchanged).
-##   6. WORDS: a model that answers in text gives "No setting change was proposed" and no card.
+##   6. WORDS: a model that answers in text gives "Nothing was proposed" and no card.
 ##   7. V13: while a world generates, an open card's Apply is disabled with the reason.
 ##   9. REOPEN: reopening the panel twice with cards present clears the cards array (no freed
 ##      buttons kept), notes a dropped waiting card, and a card made after the reopen obeys V13.
@@ -40,7 +40,8 @@ const SECRET := "sk-PROBE-SECRET-params-0123456789"
 const SEEDS := [9137, 24601, 71077345]
 ## The six read-only tools (LLM-8) the Commands flow offers beside `get_param_schema`, in the order
 ## `cartalith_llm::query::QUERY_TOOLS` lists them.
-const QUERY_TOOLS := ["get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary"]
+## LLM-6d: the view tool (`propose_view_actions`) follows the six lookups in every request the real panel builds.
+const QUERY_TOOLS := ["get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary", "propose_view_actions"]
 
 ## The worked example's step-4 arguments (scope s.5b.3), as the model would send them.
 const WORKED := {"summary": "Less ocean moisture and a lower relief ceiling.", "changes": [
@@ -304,7 +305,7 @@ func _ready() -> void:
 		var r0: int = _server.requests.size() - nreq
 		var b1 := _body(r0)
 		var b2 := _body(r0 + 1)
-		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS, "%s: request 1 offers get_param_schema and the six read-only tools, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
+		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS, "%s: request 1 offers get_param_schema, the six read-only tools and the view tool, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
 		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"] + QUERY_TOOLS, "%s: request 2 adds the proposal tool to the same set" % wire)
 		_ok(_key_enum(b2, anth).size() == 34, "%s: the key enum is the 34 keys of weather + world + tectonics: %d" % [wire, _key_enum(b2, anth).size()])
 		_ok(not _key_enum(b2, anth).has("use_gpu") and not _key_enum(b2, anth).has("geology_model"), "%s: no excluded key is offered" % wire)
@@ -398,7 +399,7 @@ func _ready() -> void:
 		print("== 6. %s: an answer in words ==" % wire)
 		var cards1: int = _win.cards.size()
 		var nn := await _ask(scen, [{"text": "I cannot delete a named ocean; these settings change the whole world."}], "delete the Pacific")
-		_ok(nn == 1 and _win.cards.size() == cards1 and _text_of(_win._msgs).contains("No setting change was proposed"), "%s: words, no card (requests %d)" % [wire, nn])
+		_ok(nn == 1 and _win.cards.size() == cards1 and _text_of(_win._msgs).contains("Nothing was proposed"), "%s: words, no card (requests %d)" % [wire, nn])
 
 	print("== 4b. Apply then one undo on two more seeds ==")
 	_configure({"preset_id": "ollama"})

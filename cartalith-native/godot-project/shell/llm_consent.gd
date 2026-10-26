@@ -62,6 +62,7 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 	_line(sent, "the context sources you ticked, and no others: %s" % _context_sources())
 	if bool(DccSettings.llm_value("commands")):
 		_line(sent, "the list of commands the assistant may propose")
+		_line(sent, "for a view proposal: which map layers are on, the style preset names, the landmark types this world has, the grid size and zoom range, and the names of the windows it may open (a fixed list of read-only ones); a proposal changes nothing until you press Apply")
 		if bool(DccSettings.llm_value("ctx_params")):
 			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
 			_line(sent, "for a question: any setting's value and default, whole-world summary figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells (elevation, slope, climate, biome); never a map image, a name or a note")
