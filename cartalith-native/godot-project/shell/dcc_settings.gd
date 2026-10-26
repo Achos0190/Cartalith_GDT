@@ -955,6 +955,7 @@ static func reset_shortcuts(context: String) -> void:
 ## default provider, address or model name.
 const LLM_DEFAULTS := {
 	"enabled": false,          ## master switch; off means zero sockets
+	"net_hint_seen": false,    ## Android: the one-time "check Wi-Fi data usage" note was shown (display-only; not in any profile)
 	"prose": false,            ## Prose and Vault assist (LLM-3)
 	"commands": false,         ## view / layer / parameter commands (LLM-5, LLM-6)
 	"edit": false,             ## sculpt / paint edit actions (LLM-5, LLM-7); its own switch

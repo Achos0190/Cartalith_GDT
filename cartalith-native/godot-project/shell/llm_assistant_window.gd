@@ -1298,7 +1298,10 @@ func _on_finished(info: Dictionary) -> void:
 
 
 func _on_failed(message: String) -> void:
-	_add_msg("", message, "block")
+	var transport: bool = run.last_failure_connect
+	_add_msg("", LlmNetHint.with_hint(message, transport), "block")
+	if transport and LlmNetHint.is_android():
+		LlmNetHint.make_button(_msgs, DccTheme.PHONE_TAP_MIN if _phone else 0.0)
 	_refresh()
 
 

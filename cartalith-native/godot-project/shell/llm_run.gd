@@ -88,6 +88,9 @@ var text_so_far := ""
 ## Milliseconds from `begin` to the first token; -1 until one arrives. (An internal
 ## sentinel for the probe, never displayed as a number when -1.)
 var first_token_ms := -1
+## True when the most recent wire error was a CONNECT-phase failure (never reached a server). The window reads it
+## to decide whether `LlmNetHint` applies; an HTTP status error or a mid-reply fault leaves it false.
+var last_failure_connect := false
 ## Token counts as last reported (keys present only when the server sent them).
 var last_usage: Dictionary = {}
 ## The model name the request used, for the note marker.
@@ -168,6 +171,7 @@ func begin(settings: Dictionary, capability: String, consented: PackedStringArra
 	model = String(prep.get("model", ""))
 	_cancelling = false
 	_terminal_sent = false
+	last_failure_connect = false
 	if not wire.start(prep):
 		stream.reset()
 		return {"ok": false, "code": "wire", "reason": "The connection could not be started."}
@@ -226,6 +230,7 @@ func pump() -> void:
 				_dispatch(stream.on_end())
 			"error":
 				## A connect-phase failure never reached a server, so it is never retried.
+				last_failure_connect = bool(item.get("connect", false))
 				if bool(item.get("connect", false)):
 					_dispatch(stream.on_connect_error(String(item["text"])))
 				else:

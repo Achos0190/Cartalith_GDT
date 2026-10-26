@@ -666,6 +666,24 @@ access"; `dumpsys netpolicy` then shows no `REJECT_ALL` and `effective=NONE`).
 Re-check `dumpsys netpolicy | grep UID=<uid>` after every reinstall and before
 any network leg.
 
+**For the user: turning network access on (LineageOS).** `INTERNET` is an
+install-time permission, so Settings, Apps, Cartalith, Permissions says "No
+permissions requested" and has nothing to switch. LineageOS adds its own
+per-app switch instead: Settings, Apps, Cartalith, **Wi-Fi data usage**, then
+**Allow network access** (and the Wi-Fi / Mobile data switches there). If it is
+off, every connection fails with "Timed out connecting". The app now says so
+itself (owner report 2026-10-26: *"the build apk doesn't even have an option to
+set network permissions"*): on Android only, a connect-level failure of a model
+list or an assistant reply gets the line *"Network access may be off for
+Cartalith. Turn it on: Settings > Apps > Cartalith > Wi-Fi data usage > Allow
+network access."* with an **Open app settings** button (also under the provider
+group in the Assistant settings, and beside a one-time note when the Assistant
+is first switched on). The button starts `android.settings.APPLICATION_DETAILS_SETTINGS`
+with data `package:<package>` through `AndroidRuntime` and `JavaClassWrapper`
+(`shell/llm_net_hint.gd`). HTTP status errors never get the hint. The JNI call
+is untested on glass until the next APK; the logic is probed on the desktop
+with a fake platform flag and a recording opener (`_nethint_probe`).
+
 **Stage B, run the same day.** Both arms worked from the handset once the block
 was lifted: Claude (`https://api.anthropic.com`, TLS fine) and LM Studio on the
 PC over `http://192.168.1.238:1234`. The timings, tokens and failure messages

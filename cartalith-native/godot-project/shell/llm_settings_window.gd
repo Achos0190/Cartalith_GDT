@@ -78,6 +78,8 @@ var _building := false
 var _ml: LlmModelList
 var _ml_state := "idle"
 var _ml_msg := ""
+## True while the first-run network note is on screen; closing the window then records it as seen.
+var _net_note_shown := false
 var _ml_code := ""
 var _ml_key := ""
 var _ml_manual := false
@@ -176,6 +178,9 @@ func setup(a, b: EngineBridge) -> void:
 	visibility_changed.connect(func():
 		if not visible:
 			_commit_pending_fields()
+		if not visible and _net_note_shown:
+			_net_note_shown = false
+			DccSettings.set_llm_value("net_hint_seen", true)
 		if not visible and controls.has("key_field") and is_instance_valid(controls["key_field"]):
 			(controls["key_field"] as LineEdit).text = "")
 
@@ -433,6 +438,9 @@ func _rebuild() -> void:
 	refresh.tooltip_text = "Ask the server for its models again."
 	controls["model_refresh"] = refresh
 	controls["model_status"] = _note(_body, "", "text_secondary")
+	## Android only (`LlmNetHint`): the way to the system page where LineageOS can block the app's network.
+	if LlmNetHint.is_android():
+		controls["net_settings"] = LlmNetHint.make_button(_body, DccTheme.PHONE_TAP_MIN if _phone else 0.0)
 	var model := _field(_body, "Model name", String(DccSettings.llm_value("model")),
 		"the model name your provider expects", _on_model_commit, false,
 		"Type the model name exactly as your provider spells it.")
@@ -644,6 +652,11 @@ func _switch_row(sw: Dictionary) -> void:
 		cb.disabled = true
 	elif key != "enabled":
 		_dependent.append(cb)
+	## First time the Assistant is on, on Android: one line and the button (shown until the window closes once).
+	if key == "enabled" and value and LlmNetHint.is_android() and not bool(DccSettings.llm_value("net_hint_seen")):
+		_note(host, LlmNetHint.FIRST_RUN_NOTE, "text_secondary")
+		LlmNetHint.make_button(host, DccTheme.PHONE_TAP_MIN if _phone else 0.0)
+		_net_note_shown = true
 
 
 # ---------------------------------------------------------------------------
@@ -1165,7 +1178,7 @@ func _models_render_status() -> void:
 		"refused":
 			txt = "Not listed. " + _ml_msg
 		"failed":
-			txt = "Could not list: " + _ml_msg + ((" Showing " + stale + ".") if stale != "" else " You can type a name below.")
+			txt = "Could not list: " + LlmNetHint.with_hint(_ml_msg, LlmNetHint.applies(_ml_code)) + ((" Showing " + stale + ".") if stale != "" else " You can type a name below.")
 		"ok":
 			if n == 0:
 				txt = "The server answered but lists no chat models. Load or download one, then press Refresh, or type a name below."
