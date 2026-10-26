@@ -312,6 +312,7 @@ dependencies = [
 name = "cartalith-llm"
 version = "0.1.0"
 dependencies = [
+ "cartalith-vault",
  "serde_json",
 ]
 

@@ -52,9 +52,10 @@ fn no_source_file_touches_the_network() {
     }
 }
 
-/// Protects: the dependency list is exactly `serde_json`. Adding any other
-/// dependency (or a `[dev-dependencies]` section) fails here and needs a
-/// ruling-level reason.
+/// Protects: the dependency list is exactly `serde_json` plus the workspace's own `cartalith-vault`
+/// (Ruling DP: the one shared private-note rule lives there; the Vault crate itself depends only on
+/// `serde` and `serde_json`, checked below, so it adds no socket path). Adding any other dependency
+/// (or a `[dev-dependencies]` section) fails here and needs a ruling-level reason.
 #[test]
 fn no_network_dependency() {
     let manifest = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
@@ -66,8 +67,20 @@ fn no_network_dependency() {
         .take_while(|l| !l.starts_with('['))
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
-    assert_eq!(deps.len(), 1, "{deps:?}");
+    assert_eq!(deps.len(), 2, "{deps:?}");
     assert!(deps[0].starts_with("serde_json "), "{deps:?}");
+    assert_eq!(deps[1], "cartalith-vault = { path = \"../cartalith-vault\" }", "{deps:?}");
+    let vault = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../cartalith-vault/Cargo.toml")).unwrap();
+    let vdeps: Vec<&str> = vault
+        .lines()
+        .map(str::trim)
+        .skip_while(|l| *l != "[dependencies]")
+        .skip(1)
+        .take_while(|l| !l.starts_with('['))
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    assert_eq!(vdeps.len(), 2, "{vdeps:?}");
+    assert!(vdeps[0].starts_with("serde = ") && vdeps[1].starts_with("serde_json "), "{vdeps:?}");
     assert!(!manifest.contains("[dev-dependencies]"));
     assert!(!manifest.contains("[build-dependencies]"));
 }

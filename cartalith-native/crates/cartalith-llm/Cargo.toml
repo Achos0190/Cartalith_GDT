@@ -10,3 +10,4 @@ description = "Protocol crate for the optional LLM assistant (LLM_ASSISTANT_SCOP
 # appears, because this crate must not be able to open a socket (scope s.2, s.4).
 [dependencies]
 serde_json = "1.0.151"
+cartalith-vault = { path = "../cartalith-vault" }

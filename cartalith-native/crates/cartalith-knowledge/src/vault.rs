@@ -20,10 +20,10 @@
 //!
 //! # Exclusion (K3, s.6.3): a private or DM note produces nothing
 //!
-//! A note is excluded when ANY of: frontmatter `dm` or `private` is true/yes/1; a frontmatter tag
-//! or an inline `#hashtag` is `dm-only` or `secret` (or nested under them); or a directory
-//! component of its path is `DM`, `Private` or `Secrets` (any depth, case-insensitive: a superset of
-//! "path under a listed folder", chosen because over-excluding is the safe direction). An excluded
+//! Whether a note is excluded is decided by the ONE shared rule
+//! [`cartalith_vault::private::private_marker`] (Ruling DP: the union of this feature's K3 list and the
+//! grounded place prose's list; the clauses are in that module's docs and
+//! `MARKDOWN_VAULT_SCOPE.md`). It fails closed on malformed frontmatter. An excluded
 //! note yields **zero chunks, zero gazetteer entries, zero edges and is not counted** in the
 //! notes-searched figure; links to it are dropped from every other note's header and edge list.
 //!
@@ -53,14 +53,6 @@ use crate::tokenize::content_tokens;
 /// The longest a chunk body may be, in characters (RK-2 bar; s.4.2: "at most about 1 600
 /// characters, roughly 400 tokens" [judgement, the "few hundred tokens" range Anthropic gives]).
 pub const MAX_CHUNK_CHARS: usize = 1600;
-
-/// Folder names that mark a whole directory private (K3 default list). Matched against every
-/// directory component of a note's path, case-insensitively.
-pub const PRIVATE_FOLDERS: [&str; 3] = ["dm", "private", "secrets"];
-
-/// Tags that mark a note private (K3). Matched case-insensitively, `#` stripped, nested tags
-/// (`dm-only/plot`) included.
-pub const PRIVATE_TAGS: [&str; 2] = ["dm-only", "secret"];
 
 /// The most vault notes one refresh reads (K9): `cartalith_vault::LIST_CAP`, so the browser, the
 /// backlink index, the substring search and this index share ONE number. The owner's vault is
@@ -196,46 +188,6 @@ fn fm_scalar(text: &str, key: &str) -> Option<String> {
     None
 }
 
-fn truthy(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "yes" | "y" | "1" | "on")
-}
-
-fn is_private_tag(tag: &str) -> bool {
-    let t = tag.trim_start_matches('#').to_ascii_lowercase();
-    PRIVATE_TAGS.iter().any(|p| t == *p || t.strip_prefix(p).is_some_and(|r| r.starts_with('/')))
-}
-
-/// Whether the body contains an inline `#dm-only` / `#secret` hashtag. A `#` counts only at the
-/// start of a line or after whitespace and followed directly by the tag, so a heading (`# secret`,
-/// with a space) and a URL fragment do not. Code fences are not skipped: a false positive only
-/// excludes more, the safe direction.
-fn has_private_hashtag(text: &str) -> bool {
-    let b = text.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'#' && (i == 0 || b[i - 1].is_ascii_whitespace()) {
-            let mut j = i + 1;
-            while j < b.len() && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'-' | b'_' | b'/')) {
-                j += 1;
-            }
-            if j > i + 1 && is_private_tag(&text[i + 1..j]) {
-                return true;
-            }
-            i = j.max(i + 1);
-        } else {
-            i += 1;
-        }
-    }
-    false
-}
-
-/// Whether a directory component of `path` is a private folder (module doc).
-pub fn in_private_folder(path: &str) -> bool {
-    let mut parts: Vec<&str> = path.split('/').collect();
-    parts.pop(); // the file name is not a directory
-    parts.iter().any(|p| PRIVATE_FOLDERS.iter().any(|f| p.eq_ignore_ascii_case(f)))
-}
-
 /// Parses everything the index needs to know about one note, including whether it is excluded.
 pub fn parse_note_meta(path: &str, text: &str) -> NoteMeta {
     let mut links: Vec<String> = Vec::new();
@@ -246,12 +198,8 @@ pub fn parse_note_meta(path: &str, text: &str) -> NoteMeta {
     }
     let tags = fm_values(text, "tags", true).into_iter().chain(fm_values(text, "tag", true)).collect::<Vec<_>>();
     let aliases = fm_values(text, "aliases", false).into_iter().chain(fm_values(text, "alias", false)).collect::<Vec<_>>();
-    let flag = |k: &str| fm_scalar(text, k).is_some_and(|v| truthy(&v));
-    let excluded = in_private_folder(path)
-        || flag("dm")
-        || flag("private")
-        || tags.iter().any(|t| is_private_tag(t))
-        || has_private_hashtag(&text[frontmatter_end(text)..]);
+    // Ruling DP: one rule shared with the grounded place prose; the old K3-only checks are gone.
+    let excluded = cartalith_vault::private::is_private(path, text);
     NoteMeta {
         title: fm_scalar(text, "title").unwrap_or_else(|| stem(path).to_string()),
         aliases,
@@ -754,9 +702,11 @@ mod tests {
         assert_eq!(h, "Vault | Settlements/Kelvhold.md | Kelvhold > The Old Quarter | type: settlement | tags: harbour, walled | aliases: The Grey Port, Kelv | links: Ashfall, Rhenmark");
     }
 
-    /// Protects each exclusion rule independently by literal inputs (K3), and that an ordinary note
-    /// is NOT excluded (the control). MUTATION: remove any one arm in `parse_note_meta` and its row
-    /// goes red.
+    /// Protects that `parse_note_meta` excludes through the shared rule (Ruling DP): the K3 rows, plus
+    /// two markers that only the grounded place prose withheld before (`ai: false`, `#no-ai`), and
+    /// that an ordinary note is NOT excluded (the control). The full table is in
+    /// `cartalith_vault::private`'s tests. MUTATION: make `parse_note_meta` ignore the shared rule
+    /// (`excluded = false`) and every positive row goes red.
     #[test]
     fn each_private_marker_excludes_and_an_ordinary_note_does_not() {
         let ex = |path: &str, text: &str| parse_note_meta(path, text).excluded;
@@ -770,6 +720,14 @@ mod tests {
         assert!(ex("DM/plot.md", "x"));
         assert!(ex("World/Private/n.md", "x"));
         assert!(ex("secrets/n.md", "x"));
+        assert!(ex("a.md", "---
+ai: false
+---
+x"), "LLM-11's opt-out is in the union");
+        assert!(ex("a.md", "quiet #no-ai"), "LLM-11's inline tag is in the union");
+        assert!(ex("a.md", "---
+title: never closed
+"), "malformed frontmatter fails closed");
         // Controls: none of these is a marker.
         assert!(!ex("a.md", "---\ndm: false\n---\nx"));
         assert!(!ex("a.md", "# secret\nthe heading word secret is not a tag"));

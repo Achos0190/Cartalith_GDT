@@ -17,11 +17,11 @@
 //!   neighbour, a shared tag, the same folder, a note titled like a related name, and last a note
 //!   that merely mentions the place's name. Equal ranks sort by path, so the order is the same on
 //!   every run.
-//! * **Private notes are withheld.** The Vault has no DM-only or exclude mark of its own
-//!   (`LLM_ASSISTANT_SCOPE.md` s.4 rule 5: "nothing can be marked DM-only yet"). This feature adds a
-//!   default-closed convention instead: a note whose frontmatter says `private: true`, `dm: true`,
-//!   `dm-only`, `secret: true`, `ai: false` or `llm: false`, or whose tags include `private`,
-//!   `dm`, `dm-only`, `gm-only`, `secret` or `no-ai`, is never sent and only counted.
+//! * **Private notes are withheld.** Which notes are private is decided by the ONE rule
+//!   [`cartalith_vault::private::private_marker`] (Ruling DP), shared with the knowledge base: the
+//!   union of the markers this feature used and the knowledge base's folders, flags and tags, failing
+//!   closed on malformed frontmatter. A private note is never sent and only counted; the audit names
+//!   the marker kinds (a fixed vocabulary, never note text) but not the notes.
 //! * **Model text is not canon.** A block this app wrote and marked model-generated is removed
 //!   from the note text before it is sent or used for grounding, so the assistant never treats its
 //!   own earlier output as the user's canon.
@@ -221,63 +221,6 @@ pub fn plan(input: &Value) -> Vec<Candidate> {
     cands
 }
 
-/// `Some(reason)` when the note carries a private mark (see the module docs).
-pub fn private_reason(text: &str) -> Option<String> {
-    let t = text.trim_start_matches('\u{feff}');
-    let mut fm_lines: Vec<&str> = Vec::new();
-    if t.starts_with("---") {
-        let mut it = t.lines();
-        it.next();
-        for l in it {
-            if l.trim() == "---" || l.trim() == "..." {
-                break;
-            }
-            fm_lines.push(l);
-        }
-    }
-    const PRIVATE_TAGS: &[&str] = &["private", "dm", "dm-only", "gm-only", "secret", "no-ai"];
-    let is_tag = |s: &str| PRIVATE_TAGS.contains(&s.trim().trim_start_matches('#').to_lowercase().as_str());
-    let mut in_tags = false;
-    for l in &fm_lines {
-        let lower = l.trim().to_lowercase();
-        if let Some((k, v)) = lower.split_once(':') {
-            let (k, v) = (k.trim(), v.trim().trim_matches(|c| c == '"' || c == '\''));
-            in_tags = k == "tags" || k == "tag";
-            match k {
-                "private" | "dm" | "dm-only" | "gm-only" | "secret" if matches!(v, "true" | "yes" | "1") => {
-                    return Some(format!("frontmatter {k}: {v}"));
-                }
-                "ai" | "llm" | "cartalith-llm" if matches!(v, "false" | "no" | "0" | "exclude" | "off") => {
-                    return Some(format!("frontmatter {k}: {v}"));
-                }
-                "tags" | "tag" => {
-                    let inner = v.trim_start_matches('[').trim_end_matches(']');
-                    if inner.split(',').any(is_tag) {
-                        return Some("a private tag in the frontmatter".to_owned());
-                    }
-                }
-                _ => {}
-            }
-        } else if in_tags {
-            let item = lower.trim_start_matches('-').trim();
-            if !item.is_empty() && is_tag(item) {
-                return Some("a private tag in the frontmatter".to_owned());
-            }
-        }
-    }
-    // Inline #tags in the body.
-    let body_start = if fm_lines.is_empty() { 0 } else { t.find("\n---").map_or(0, |i| i + 4) };
-    for word in t[body_start..].split(|c: char| c.is_whitespace() || c == ',' || c == ';') {
-        if let Some(tag) = word.strip_prefix('#') {
-            let tag = tag.trim_end_matches(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'));
-            if !tag.is_empty() && PRIVATE_TAGS.contains(&tag.to_lowercase().as_str()) {
-                return Some(format!("the inline tag #{tag}"));
-            }
-        }
-    }
-    None
-}
-
 /// Remove model-generated blocks (the marker pair `note.rs` writes) from a note's text; returns
 /// the text and how many blocks were removed.
 pub fn strip_model_blocks(text: &str) -> (String, usize) {
@@ -349,6 +292,9 @@ pub struct VaultNotes {
     pub text: String,
     /// Notes withheld by a private mark (count only).
     pub withheld: usize,
+    /// The distinct markers that withheld them, as fixed-vocabulary labels (never a path or text), for
+    /// the audit line and the consent text (Ruling DP).
+    pub withheld_markers: Vec<String>,
     /// Candidates not sent because of the caps, as `rel`.
     pub omitted: Vec<String>,
     /// Sentences about every cut.
@@ -373,8 +319,12 @@ pub fn select(read: &Value) -> VaultNotes {
         if rel.is_empty() {
             continue;
         }
-        if private_reason(text).is_some() {
+        if let Some(m) = cartalith_vault::private::private_marker(rel, text) {
             v.withheld += 1;
+            let label = m.label();
+            if !v.withheld_markers.contains(&label) {
+                v.withheld_markers.push(label);
+            }
             continue;
         }
         if v.sent.len() >= MAX_NOTES || total >= MAX_TOTAL_CHARS {
@@ -409,7 +359,7 @@ pub fn select(read: &Value) -> VaultNotes {
         v.sent.push(NoteSent { rel: rel.to_owned(), title, why: why_text, chars: take, total_chars: have });
     }
     if v.withheld > 0 {
-        v.truncated.push(format!("{} Vault note(s) withheld because they carry a private mark", v.withheld));
+        v.truncated.push(format!("{} Vault note(s) withheld because they carry a private mark ({})", v.withheld, v.withheld_markers.join("; ")));
     }
     if !v.omitted.is_empty() {
         v.truncated.push(format!("{} further related Vault note(s) not sent (limit {MAX_NOTES} notes, {MAX_TOTAL_CHARS} characters): {}", v.omitted.len(), v.omitted.join(", ")));
@@ -483,33 +433,30 @@ mod tests {
         assert_eq!(c[0].rel, "Places/n39.md");
     }
 
-    /// Protects: private marks, as literals. Each is withheld; ordinary text and an unrelated hash
-    /// are not.
-    /// MUTATION: delete one of the tag names or one frontmatter key.
+    /// Protects: `select` withholds through the shared rule for markers from BOTH original lists
+    /// (the full table is `cartalith_vault::private`'s tests): a LLM-11 key, a K3 folder, and a
+    /// note that is public in both. MUTATION: skip the `private_marker` call.
     #[test]
-    fn private_marks() {
-        for (t, ok) in [
-            ("---\nprivate: true\n---\nbody", true),
-            ("---\ndm-only: yes\n---\nbody", true),
-            ("---\nsecret: true\n---\nx", true),
-            ("---\nai: false\n---\nx", true),
-            ("---\nllm: exclude\n---\nx", true),
-            ("---\ntags: [lore, DM-only]\n---\nx", true),
-            ("---\ntags:\n  - lore\n  - private\n---\nx", true),
-            ("# T\nA secret hand. #dm and more", true),
-            ("# T\nQuiet text. #secret", true),
-            ("---\ntags: [secret]\n---\nx", true),
-            ("# T\nSee #lore-heavy and issue #12.", false),
-            ("---\nprivate: false\n---\nx", false),
-            ("---\ntags: [lore]\n---\nsecret garden", false),
-        ] {
-            assert_eq!(private_reason(t).is_some(), ok, "{t:?}");
-        }
+    fn both_lists_withhold_here() {
+        let read = json!([
+            {"rel": "Lore/a.md", "why": "w", "text": "---
+ai: false
+---
+x"},
+            {"rel": "Secrets/b.md", "why": "w", "text": "# B
+open text"},
+            {"rel": "Lore/c.md", "why": "w", "text": "# C
+open text"},
+        ]);
+        let v = select(&read);
+        assert_eq!(v.sent.len(), 1);
+        assert_eq!(v.withheld, 2);
+        assert_eq!(v.withheld_markers, ["frontmatter ai: false", "a folder named secrets"]);
     }
 
     /// Protects the owner's bar: a private-marked note is excluded and counted; the rest are kept
     /// in plan order.
-    /// MUTATION: skip the `private_reason` call and the literal count goes red.
+    /// MUTATION: skip the shared `private_marker` call and the literal count goes red.
     #[test]
     fn private_notes_are_withheld() {
         let read = json!([

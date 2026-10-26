@@ -10,7 +10,7 @@
 //! document, and a write that changes one section must leave every other byte
 //! alone.*
 //!
-//! ## The six modules
+//! ## The modules
 //!
 //! | Module | Owns |
 //! |---|---|
@@ -18,6 +18,7 @@
 //! | [`block`] | The machine-owned `CARTALITH:BEGIN/END` block (§23, §24) |
 //! | [`chronos`] | Authored dated events from a note's ` ```chronos ` blocks (SP-3, Ruling AM) |
 //! | [`links`] | [`links::KnowledgeLink`], [`links::LinkStore`], the six status states (§11, §26, §27) |
+//! | [`private`] | The ONE "is this note private?" rule both LLM features share (Ruling DP) |
 //! | [`provider`] | The desktop filesystem vault (§6), path containment, atomic writes |
 //! | [`export`] | The exportable-field registry and the block renderer (§19, §20) |
 //!
@@ -47,6 +48,7 @@ pub mod chronos;
 pub mod export;
 pub mod links;
 pub mod markdown;
+pub mod private;
 pub mod provider;
 pub mod template;
 
