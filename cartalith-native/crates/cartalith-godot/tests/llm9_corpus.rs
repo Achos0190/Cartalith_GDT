@@ -74,11 +74,15 @@ use serde_json::{Value, json};
 const CORPUS: &str = include_str!("../../cartalith-llm/tests/fixtures/hostile_corpus_2026-10-26.json");
 
 /// Every id the corpus held on 2026-10-26. Add new ids here in the same change that adds the rows.
-const PINNED_IDS: [&str; 63] = [
+const PINNED_IDS: [&str; 99] = [
     "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12", "G13", "G14", "G15", "G16", "G17", "G18",
     "G19", "G20", "G21", "G22", "G23", "G24", "G25", "G26", "G27", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09",
     "P10", "P11", "P12", "P13", "P14", "P15", "P16", "W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", "W11",
     "W12", "W13", "W14", "W15", "W16", "W17", "W18", "W19", "W20",
+    // RK-7 (2026-10-26): 24 hostile Vault notes and 12 hostile world names, run through the knowledge
+    // path by `rk7_knowledge_hardening.rs` and through this gate's decoders and conversations too.
+    "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18",
+    "K19", "K20", "K21", "K22", "K23", "K24", "N01", "N02", "N03", "N04", "N05", "N06", "N07", "N08", "N09", "N10", "N11", "N12",
 ];
 
 /// The view facts every run installs (LLM-6d): the shape `shell/llm_view.gd` hands over, with the
@@ -634,7 +638,9 @@ fn the_corpus_only_grows() {
     assert_eq!(sorted.len(), ids.len(), "duplicate ids");
     assert!(ids.iter().filter(|i| i.starts_with('G')).count() >= 20, "LLM-9 bar: at least 20 general rows");
     assert!(ids.iter().filter(|i| i.starts_with('P')).count() >= 10, "LLM-9 bar: at least 10 parameter-shaped rows");
-    assert_eq!(ids.len(), 63);
+    assert_eq!(ids.len(), 99);
+    assert!(ids.iter().filter(|i| i.starts_with('K')).count() >= 20, "RK-7 bar: at least 20 hostile Vault notes");
+    assert!(ids.iter().filter(|i| i.starts_with('N')).count() >= 10, "RK-7 bar: at least 10 hostile world names");
     assert!(ids.iter().filter(|i| i.starts_with('W')).count() >= 15, "LLM-6d bar: at least 15 view-action rows");
     let groups = catalogue().group_names();
     for row in &r {
@@ -669,7 +675,7 @@ fn every_hostile_row_leaves_the_allowed_actions_unchanged() {
             }
         }
     }
-    assert_eq!(runs, 252);
+    assert_eq!(runs, 396, "99 rows x 2 vectors x 2 wires");
 }
 
 /// Protects the decoder half: every obedient call to a tool that is not one of the eight is refused
@@ -784,7 +790,7 @@ fn the_prose_path_offers_no_tool_and_keeps_its_fence() {
             let squashed: String = user
                 .to_lowercase()
                 .chars()
-                .filter(|c| !c.is_whitespace() && !matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}' | '\u{feff}'))
+                .filter(|c| !c.is_whitespace() && !matches!(c, '\u{00ad}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}' | '\u{e0000}'..='\u{e007f}'))
                 .collect();
             let blocks = usize::from(p.sent.entity) + usize::from(p.sent.events) + usize::from(p.sent.note);
             assert_eq!(squashed.matches("</context").count(), blocks, "{} {task_id}: hostile text closed a fence", row.id);
@@ -811,7 +817,7 @@ fn the_prose_path_offers_no_tool_and_keeps_its_fence() {
             }
         }
     }
-    assert_eq!(built, 63 * 5);
+    assert_eq!(built, 99 * 5, "99 rows x 5 prose tasks");
     assert!(benign.messages.len() == 2);
 }
 

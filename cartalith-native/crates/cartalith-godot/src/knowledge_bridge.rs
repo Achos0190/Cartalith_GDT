@@ -499,6 +499,52 @@ impl WorldGen {
         vdict! { "ok" => true, "count" => docs.len() as i64, "bytes" => bytes as i64, "elapsed_ms" => t0.elapsed().as_millis() as i64, "documents" => &rows }
     }
 
+    /// RK-5: executes ONE knowledge call for the assistant and returns the RAW result as JSON text
+    /// (`cartalith_llm::knowledge_tools::sanitize` rebuilds it before a model sees any of it).
+    /// `call_json` is the validated call Rust named in `LlmStream.pending_needs()`; it is validated
+    /// AGAIN here (`parse`) against `sources` (`{world: bool, vault: bool}`, from
+    /// `LlmStream.knowledge_plan`), so a forged call or a source that is not ticked is refused in
+    /// words. Read-only; the shell calls it only while no generation holds the engine. Builds or
+    /// refreshes the in-memory index first (module `knowledge_service`); nothing is persisted.
+    #[func]
+    fn knowledge_call(&mut self, call_json: GString, sources: VarDictionary) -> GString {
+        let s = Self::knowledge_sources_of(&sources);
+        let out = match serde_json::from_str::<serde_json::Value>(&call_json.to_string()) {
+            Ok(serde_json::Value::Object(mut m)) => {
+                let tool = m.remove("tool").and_then(|t| t.as_str().map(str::to_owned)).unwrap_or_default();
+                match cartalith_llm::knowledge_tools::parse(&tool, &serde_json::Value::Object(m), s) {
+                    Ok(call) => self.knowledge_run(&call, s),
+                    Err(why) => serde_json::json!({"available": false, "reason": why}).to_string(),
+                }
+            }
+            _ => serde_json::json!({"available": false, "reason": "the knowledge call was not readable"}).to_string(),
+        };
+        GString::from(out.as_str())
+    }
+
+    /// RK-6: the pre-retrieval search. Searches `query` (cut to the 200-character limit) over the
+    /// ticked `sources` for the top `knowledge_limits().pack_hits` and returns the raw result JSON
+    /// (rebuilt in Rust by `build_pack`). Same rules as [`WorldGen::knowledge_call`].
+    #[func]
+    fn knowledge_search_json(&mut self, query: GString, sources: VarDictionary) -> GString {
+        let s = Self::knowledge_sources_of(&sources);
+        if !s.any() {
+            return GString::from(r#"{"available": false, "reason": "no knowledge source is turned on"}"#);
+        }
+        let q: String = query.to_string().chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().chars().take(cartalith_llm::knowledge_tools::MAX_QUERY_CHARS).collect();
+        let call = cartalith_llm::knowledge_tools::KnowledgeCall::Search { query: q, scope: s.scopes()[0].to_owned(), limit: cartalith_llm::knowledge_tools::PACK_MAX_HITS };
+        if matches!(&call, cartalith_llm::knowledge_tools::KnowledgeCall::Search { query, .. } if query.trim().is_empty()) {
+            return GString::from(r#"{"available": false, "reason": "the request has no words to search for"}"#);
+        }
+        GString::from(self.knowledge_run(&call, s).as_str())
+    }
+
+    /// RK-5: forgets the knowledge index and every Vault text it held (the "feature off" state).
+    #[func]
+    fn knowledge_clear(&mut self) {
+        self.knowledge.clear();
+    }
+
     /// The collected [`WorldInput`] as JSON (what the evaluation fixtures commit), or `""` when
     /// there is no generated world. Read-only.
     #[func]
@@ -511,6 +557,26 @@ impl WorldGen {
 }
 
 impl WorldGen {
+    /// The two source flags of a shell dictionary; anything missing or not a bool reads as OFF.
+    fn knowledge_sources_of(d: &VarDictionary) -> cartalith_llm::knowledge_tools::KnowledgeSources {
+        cartalith_llm::knowledge_tools::KnowledgeSources { world: crate::llm_bridge::flag(d, "world"), vault: crate::llm_bridge::flag(d, "vault") }
+    }
+
+    /// Brings the index up to date for `s` and executes `call`; the raw result as JSON text.
+    /// Only a TICKED source is read: the world input is collected only when `s.world`, the Vault is
+    /// listed only when `s.vault` and a vault is bound.
+    fn knowledge_run(&mut self, call: &cartalith_llm::knowledge_tools::KnowledgeCall, s: cartalith_llm::knowledge_tools::KnowledgeSources) -> String {
+        let world = if s.world { self.knowledge_input() } else { None };
+        let provider = if s.vault && self.vault.is_bound() { self.vault.vault() } else { None };
+        if let Err(why) = self.knowledge.ensure(world.as_ref(), provider, s) {
+            return serde_json::json!({"available": false, "reason": why}).to_string();
+        }
+        match self.knowledge.index() {
+            Some(idx) => crate::knowledge_service::execute(idx, call).to_string(),
+            None => serde_json::json!({"available": false, "reason": "the knowledge base is not built"}).to_string(),
+        }
+    }
+
     /// Collects the world's [`WorldInput`] from this `WorldGen`, or `None` without a generated
     /// world and its civilisation layer.
     fn knowledge_input(&self) -> Option<WorldInput> {

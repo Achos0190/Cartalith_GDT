@@ -80,7 +80,7 @@ const _SWITCHES := [
 	{"key": "prose", "label": "Prose and Vault assist",
 		"note": "Prose for a place, its story, or a Vault note, from Story ▸ Notes ▸ Assistant panel. Notes are written only on your click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
-		"note": "Generation-setting proposals (LLM-6): the model proposes, you review the card and press Apply; one Apply is one undo step and never regenerates. View and layer commands are not built yet."},
+		"note": "Generation-setting proposals and view or layer commands (LLM-6): the model proposes, you review the card and press Apply; one Apply is one undo step and never regenerates. Also carries questions about the world and your notes."},
 	{"key": "edit", "label": "Edit actions: sculpt, paint",
 		"unavailable": "Not available in this build yet: it needs grouped undo and its own approval step."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "This computer and your local network."},
@@ -95,6 +95,17 @@ const _CONTEXT := [
 	## proposal shows the model each offered setting's current value, so it needs this.
 	{"key": "ctx_params", "label": "Send: generation parameters and summary statistics",
 		"note": "Needed for setting proposals and for questions: the model is shown the current value of each setting it asks about, and can read whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing."},
+	## RK-5 (Rulings DM and DN K1): the knowledge base's two sources, each its own box, both off.
+	{"key": "ctx_rag_vault", "label": "Send: Vault notes found by search",
+		"note": "Excerpts of the notes that match your request, never a whole note unasked and never a note you marked private (dm or private in its properties, the tag dm-only or secret, or a DM, Private or Secrets folder)."},
+	{"key": "ctx_rag_world", "label": "Send: world data found by search",
+		"note": "The facts the app holds about this world that match your request: names, populations, who owns what, trade partners, faiths, history. World data has no private marker: everything in it is sent as found."},
+]
+## RK-5/RK-6 (K6): how the knowledge base reaches the model. Shown under the context sources.
+const _RAG_PRE := [
+	["auto", "Search before asking (automatic: on for a local model)"],
+	["on", "Search before asking (always)"],
+	["off", "Do not search before asking"],
 ]
 ## The three GPU override values, in the picker's order (ids match `GpuOverride::id`).
 const _GPU_OVERRIDES := [
@@ -304,6 +315,29 @@ func _rebuild() -> void:
 	_note(_body, "Nothing is sent unless ticked, per source. Whole notes, the whole Vault, the save file, file paths and the machine name are never sent unasked.")
 	for sw in _CONTEXT:
 		_switch_row(sw)
+	_note(_body, "Search is used only when a box above is ticked. The app can search your request first and hand the model the best five excerpts (needed by models that never call a tool), and/or let the model search and read sources itself.", "text_secondary")
+	var pre_idx := 0
+	for i in _RAG_PRE.size():
+		if _RAG_PRE[i][0] == String(DccSettings.llm_value("rag_pre")):
+			pre_idx = i
+	var pre_names: Array = []
+	for o in _RAG_PRE:
+		pre_names.append(String(o[1]))
+	var pre := DccWidgets.choice(_body, "Search first", pre_names, pre_idx, _on_rag_pre_picked,
+		"Automatic searches your request before the model sees it when the model is on this computer or your network, and not for a hosted model unless you allow it below.")
+	_floor(pre)
+	_shrinkable(pre)
+	controls["rag_pre"] = pre
+	_dependent.append(pre)
+	_switch_row({"key": "rag_tools", "label": "Let the model search and read sources",
+		"note": "Offers the model three read-only tools (search, read one source, list what is connected to it). At most 12 lookups per question; each result is at most 12 000 bytes."})
+	var hosted_cb := DccWidgets.toggle(_body, "Allow knowledge search on this hosted endpoint", DccSettings.llm_rag_hosted_origins().has(String(_endpoint().get("origin", "-"))),
+		func(on: bool): _on_rag_hosted(on), "A hosted model is run by a third party. Excerpts of your notes and your world's data are sent to it only if you allow it here, per endpoint.")
+	_floor(hosted_cb, true)
+	_give_label_the_slack(hosted_cb)
+	controls["rag_hosted"] = hosted_cb
+	controls["rag_hosted_note"] = _note(_body, "")
+	_dependent.append(hosted_cb)
 
 	# -- Provider -------------------------------------------------------------
 	_heading("PROVIDER")
@@ -538,6 +572,14 @@ func _refresh_dynamic() -> void:
 		if k == "enabled" or not controls.has(k + "_note") or String(sw.get("unavailable", "")) != "":
 			continue
 		(controls[k + "_note"] as Label).text = String(sw.get("note", "")) + ("" if enabled else " Needs the master switch.")
+	## The hosted opt-in applies to a hosted endpoint only (K2); a local one never needs it.
+	if controls.has("rag_hosted"):
+		var hep := _endpoint()
+		var hosted := bool(hep.get("ok", false)) and not bool(hep.get("is_local", true))
+		var cb := controls["rag_hosted"] as BaseButton
+		cb.disabled = not enabled or not hosted
+		cb.set_pressed_no_signal(hosted and DccSettings.llm_rag_hosted_origins().has(String(hep.get("origin", "-"))))
+		(controls["rag_hosted_note"] as Label).text = "" if hosted else "Not needed: this endpoint is on this computer or your network."
 	# Key-entry controls follow the master switch, but also the store/provider conditions.
 	if controls.has("key_save"):
 		var can := enabled and _store_available() and String(DccSettings.llm_value("preset_id")) != ""
@@ -630,6 +672,23 @@ func _on_switch(key: String, on: bool) -> void:
 	_store(key, on)
 	if key == "enabled":
 		_rebuild_deferred()
+	_after_change()
+
+
+## The "Search first" picker (RK-6, K6).
+func _on_rag_pre_picked(idx: int) -> void:
+	if idx >= 0 and idx < _RAG_PRE.size():
+		_store("rag_pre", String(_RAG_PRE[idx][0]))
+		_after_change()
+
+
+## The per-endpoint hosted opt-in (K2). A local endpoint needs none, so the toggle is disabled there.
+func _on_rag_hosted(on: bool) -> void:
+	if _building:
+		return
+	var ep := _endpoint()
+	if bool(ep.get("ok", false)) and not bool(ep.get("is_local", true)):
+		DccSettings.llm_set_rag_hosted(String(ep["origin"]), on)
 	_after_change()
 
 

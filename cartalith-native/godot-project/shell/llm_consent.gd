@@ -65,10 +65,21 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 		_line(sent, "for a view proposal: which map layers are on, the style preset names, the landmark types this world has, the grid size and zoom range, and the names of the windows it may open (a fixed list of read-only ones); a proposal changes nothing until you press Apply")
 		if bool(DccSettings.llm_value("ctx_params")):
 			_line(sent, "for a setting proposal: the names, ranges, descriptions and current values of the setting groups the model asks for")
-			_line(sent, "for a question: any setting's value and default, whole-world summary figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells (elevation, slope, climate, biome); never a map image, a name or a note")
+			_line(sent, "for a question: any setting's value and default, whole-world summary figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells (elevation, slope, climate, biome); never a map image")
+	if bool(DccSettings.llm_value("ctx_rag_vault")) or bool(DccSettings.llm_value("ctx_rag_world")):
+		## What a knowledge lookup sends, in the caps the code enforces (`LlmStream.knowledge_limits`).
+		var lim: Dictionary = _knowledge_limits()
+		var what: PackedStringArray = PackedStringArray()
+		if bool(DccSettings.llm_value("ctx_rag_vault")):
+			what.append("Vault notes")
+		if bool(DccSettings.llm_value("ctx_rag_world")):
+			what.append("world data")
+		_line(sent, "for a lookup in %s: the words searched and the excerpts found, which may include names and notes you typed. Before the model answers, the app may send the best %d (up to %d characters in all); the model may ask for up to %d more lookups of at most %d bytes each. Every answer lists the sources sent." % [
+			" and ".join(what), int(lim.get("pack_hits", 5)), int(lim.get("pack_chars", 3000)), int(lim.get("calls_per_request", 12)), int(lim.get("result_bytes", 12000))])
+		_line(sent, "private notes are never searched. World data has no private marker: it is sent as found, so do not tick world data if a name or a fact in this world must stay secret from the provider")
 
 	var never := DccTheme.label(
-		"Never sent: your whole Vault, the save file, file paths, the machine name. Your key goes only in the provider request header.",
+		"Never sent: your whole Vault (only excerpts of notes that match a search you allowed), the save file, file paths, the machine name. Your key goes only in the provider request header.",
 		"text_secondary", DccTheme.FS_SMALL)
 	body.add_child(_wrap(never, 0))
 
@@ -153,4 +164,17 @@ static func _context_sources() -> String:
 		on.append("named Vault notes")
 	if bool(DccSettings.llm_value("ctx_params")):
 		on.append("generation parameters and summary statistics")
+	if bool(DccSettings.llm_value("ctx_rag_vault")):
+		on.append("Vault notes found by search")
+	if bool(DccSettings.llm_value("ctx_rag_world")):
+		on.append("world data found by search")
 	return ", ".join(on) if not on.is_empty() else "none"
+
+
+## The knowledge caps from the Rust constants (so the card quotes what the code enforces); `{}` in a
+## build without the library, where the card then uses its own copies of the same numbers.
+static func _knowledge_limits() -> Dictionary:
+	if not ClassDB.class_exists("LlmStream"):
+		return {}
+	var s: Object = ClassDB.instantiate("LlmStream")
+	return s.knowledge_limits() if s != null and s.has_method("knowledge_limits") else {}

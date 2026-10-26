@@ -35,6 +35,7 @@
 //! | [`catalogue`] | the generation-parameter catalogue, its tool schema and the proposal validator V1-V13 (LLM-6a/6b) |
 //! | [`params_flow`] | the two-step parameter conversation: schema, proposal, one retry (LLM-6a/6b) |
 //! | [`query`] | the six read-only query tools for questions and their bounds (LLM-8) |
+//! | [`knowledge_tools`] | the three knowledge tools, the pre-retrieval pack, result hardening and the citation check (RK-5 to RK-7) |
 //!
 //! Generation stays model-free: nothing in this crate is reachable from the
 //! seed-deterministic path, and nothing here depends on any other workspace
@@ -49,6 +50,7 @@ pub mod gpu;
 pub mod host;
 pub mod keystore;
 pub mod grounding;
+pub mod knowledge_tools;
 pub mod note;
 pub mod openai;
 pub mod params_flow;

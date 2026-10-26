@@ -56,6 +56,7 @@ mod info_tile;
 mod infra_tools_bridge;
 mod journey_bridge;
 mod knowledge_bridge;
+mod knowledge_service;
 mod label_bridge;
 mod legacy_import;
 mod landmark_bridge;
@@ -6838,6 +6839,10 @@ struct WorldGen {
     /// point at, which is why every link also stores the entity's name — see
     /// `cartalith_vault::links`' own module doc on identity stability.
     vault: cartalith_vault::VaultSession,
+    /// RK-5/RK-6: the knowledge base the assistant's knowledge tools and pre-retrieval read
+    /// (`knowledge_service.rs`). In memory only, rebuilt when the world or a note changes, and
+    /// emptied when its source is unticked.
+    knowledge: crate::knowledge_service::KnowledgeState,
     /// The Journey Planner's wildlife forage lookup (`PARITY_AUDIT.md` §23
     /// **F12**) — see [`sample_bridge::WildlifeCache`] for the measured
     /// numbers that make it necessary and for what it retains.
@@ -7263,6 +7268,7 @@ impl IRefCounted for WorldGen {
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
             vault: cartalith_vault::VaultSession::new(),
+            knowledge: crate::knowledge_service::KnowledgeState::new(),
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
             conflicts: cartalith_civ::conflict::ConflictStore::new(),

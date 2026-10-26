@@ -68,6 +68,10 @@ signal proposal(info: Dictionary)
 signal view_proposal(info: Dictionary)
 ## The model answered a setting request in words, without proposing (`text`).
 signal answered(text: String)
+## The sources a knowledge-assisted reply drew on and the citations in it, checked by Rust against what
+## the app actually retrieved (RK-6, K8): `info.sources` (`{id, source, label, kind, title, locator}`)
+## and `info.citations` (`{id, verified, label?, title?}`). Emitted just BEFORE `finished` / `answered`.
+signal sources_shown(info: Dictionary)
 ## A tool call the decoder accepted (`name`, `arguments` as JSON TEXT), for transcripts only
 ## (the stage-2 driver `_llmparams_cli.gd`). Nothing acts on it: the card comes from `proposal`.
 signal tool_called(info: Dictionary)
@@ -106,6 +110,10 @@ var view_source: Callable
 ## `LlmStream.pending_needs()`; returns the Dictionary Rust reads as `args.facts` (`LlmFacts.read`).
 ## When invalid nothing is read and every world lookup answers "not available".
 var facts_source: Callable
+## Executes the model's waiting knowledge lookups (RK-5). Called with `LlmStream.pending_needs()`;
+## returns `{tool-call id: raw JSON text}` (`LlmKnowledge.run`), which Rust rebuilds before the model
+## sees it. When invalid nothing is searched and every lookup answers "not available".
+var knowledge_source: Callable
 
 ## Pause before the one automatic retry. Labelled judgement: long enough for a
 ## momentary 529 or 429 to clear, short enough to feel like part of the same request.
@@ -248,6 +256,8 @@ func _dispatch(events: Array) -> void:
 				last_usage.erase("type")
 				usage.emit(last_usage)
 			"done":
+				if ev.has("sources"):
+					sources_shown.emit(ev.duplicate())
 				_terminal(func(): finished.emit(_without_type(ev)))
 			"tool_call":
 				tool_called.emit(_without_type(ev))
@@ -266,6 +276,8 @@ func _dispatch(events: Array) -> void:
 				_terminal(func(): view_proposal.emit(vinfo); finished.emit({}))
 			"params_answer":
 				var said := String(ev.get("text", ""))
+				if ev.has("sources"):
+					sources_shown.emit(ev.duplicate())
 				_terminal(func(): answered.emit(said); finished.emit({}))
 			"params_failed":
 				_terminal(func(): failed.emit(String(ev.get("reason", "The setting request failed."))))
@@ -312,6 +324,8 @@ func _continue_after_join() -> void:
 	var needs: Dictionary = stream.pending_needs()
 	if facts_source.is_valid():
 		args["facts"] = facts_source.call(needs)
+	if knowledge_source.is_valid():
+		args["knowledge"] = knowledge_source.call(needs)
 	var prep: Dictionary = stream.prepare_continue(_last["settings"], _last["consented"], args)
 	if not bool(prep.get("ok", false)):
 		_active = false

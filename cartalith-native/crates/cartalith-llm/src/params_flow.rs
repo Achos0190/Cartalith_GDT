@@ -38,9 +38,12 @@ use serde_json::{Value, json};
 use crate::catalogue::{Catalogue, GET_SCHEMA_TOOL, SET_PARAMS_TOOL, Verdict};
 use crate::openai::{ChatRequest, MaxTokensField, Message, Role, Thinking, ToolCallRecord, ToolSpec, ToolTurn};
 use crate::prompt::MAX_REQUEST_CHARS;
+use crate::knowledge_tools::{
+    self, KnowledgeCall, KnowledgeSources, Pack, Retrieved, is_knowledge_tool, knowledge_only_prompt, sanitize as sanitize_knowledge,
+};
 use crate::view_actions::{VIEW_TOOL, ViewCatalogue, ViewVerdict};
 use crate::query::{
-    MAX_QUERY_CALLS_PER_REPLY, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
+    MAX_QUERY_CALLS_PER_REPLY, MAX_QUERY_CALLS_PER_REQUEST, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
     tool_specs as query_tool_specs,
 };
 
@@ -49,6 +52,9 @@ use crate::query::{
 /// the bound the measured runs used: schema, proposal, one retry, and slack for a
 /// model that asks for a wrong group first.
 pub const MAX_TURNS: usize = 5;
+
+/// What a knowledge call for an id the request never returned is told (RK-5, live observation 2026-10-26).
+const KNOWN_ID_RULE: &str = "that id was not returned by a search, a pack or a related lookup in this request. This is for you, the assistant, not the user: call search_knowledge yourself now with the name, then use an id from its result, copied exactly";
 
 /// The most settings one request may have opened across all its schema calls
 /// (the union of the groups shown, scope s.5b.1/5b.8). [judgement, 2026-10-26]:
@@ -122,6 +128,24 @@ pub struct ParamsConversation {
     /// LLM-6d: the view verdict that rode along a terminal or retried [`Step::Proposal`] /
     /// [`Step::Retry`] when one reply carried both tools. Read with [`ParamsConversation::take_view_verdict`].
     view_out: Option<ViewVerdict>,
+    /// RK-5: which knowledge sources are on this request (both off means no knowledge tool, no
+    /// pack, and no sentence about sources in the prompt).
+    knowledge: KnowledgeSources,
+    /// RK-5: whether the three knowledge tools are in the request (the sources are on AND the
+    /// user left model-driven lookup enabled; with it off only the pre-retrieval pack is used).
+    knowledge_tools_on: bool,
+    /// RK-5: a questions-only conversation. A knowledge source is on and the generation-parameter
+    /// source is not, so NO setting tool, query tool or view tool exists in this request and the
+    /// system prompt names none of them.
+    knowledge_only: bool,
+    /// RK-6: whether a pre-retrieval pack rode with the request (changes one prompt sentence).
+    pack_present: bool,
+    /// RK-5/6: every unit retrieved for the model this request (pack and tool results): the ledger
+    /// the citation check and the panel's sources list read.
+    retrieved: Vec<Retrieved>,
+    /// RK-6: world ids the retrieved text NAMES that the index holds but that were not retrieved
+    /// themselves (a citation of one is "named, not read").
+    mentioned: Vec<String>,
 }
 
 /// What a batch of waiting query calls needs read from the world.
@@ -133,6 +157,9 @@ pub struct WorldNeeds {
     pub summary: bool,
     /// The `sample_point` cells to read (already inside the request's remaining allowance).
     pub samples: Vec<(i64, i64)>,
+    /// RK-5: the knowledge calls to execute against the index (already inside the request's
+    /// remaining call allowance).
+    pub knowledge: Vec<KnowledgeNeed>,
 }
 
 /// One query call waiting for its answer: its id (to pair the result) and the validated call, or
@@ -141,7 +168,24 @@ pub struct WorldNeeds {
 struct PendingQuery {
     id: String,
     name: String,
-    call: Result<QueryCall, String>,
+    call: PendingCall,
+}
+
+/// The validated call behind a waiting lookup: a read-only world/settings query (LLM-8) or a
+/// knowledge call (RK-5). Either carries the refusal text when its arguments were refused.
+#[derive(Debug, Clone)]
+enum PendingCall {
+    Query(Result<QueryCall, String>),
+    Knowledge(Result<KnowledgeCall, String>),
+}
+
+/// A knowledge call the shell must execute, paired with the model's tool-call id (RK-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnowledgeNeed {
+    /// The id the result must be returned under.
+    pub id: String,
+    /// The validated call.
+    pub call: KnowledgeCall,
 }
 
 impl ParamsConversation {
@@ -168,7 +212,114 @@ impl ParamsConversation {
             budget: QueryBudget::default(),
             view: None,
             view_out: None,
+            knowledge: KnowledgeSources::default(),
+            knowledge_tools_on: false,
+            knowledge_only: false,
+            pack_present: false,
+            retrieved: Vec::new(),
+            mentioned: Vec::new(),
         })
+    }
+
+    /// Rewrites the system prompt from the request's current features, so the prompt names a tool
+    /// or a source exactly when the same request carries it. Every `with_*` calls this; call order
+    /// therefore does not matter.
+    fn rebuild_prompt(&mut self, cat: &Catalogue) {
+        let view_on = self.view.as_ref().is_some_and(ViewCatalogue::is_offered);
+        let mut p = if self.knowledge_only {
+            knowledge_only_prompt(self.knowledge_tools_on, self.pack_present)
+        } else {
+            let mut p = cat.system_prompt_full(self.queries, view_on);
+            if self.knowledge.any() {
+                p.push_str("\n\n");
+                p.push_str(knowledge_tools::SOURCES_PARAGRAPH);
+                if self.knowledge_tools_on {
+                    p.push('\n');
+                    p.push_str(knowledge_tools::TOOLS_PARAGRAPH);
+                }
+            }
+            p
+        };
+        if self.pack_present && !self.knowledge_only {
+            p.push_str("\n\nSources for this request are in the <context> block of the user's message.");
+        }
+        if let Some(m) = self.messages.first_mut() {
+            m.content = std::mem::take(&mut p);
+        }
+    }
+
+    /// RK-5: turn the knowledge sources on for this request. `tools_on` offers the three tools
+    /// (K6: both modes user-toggleable); `only` makes this a questions-only conversation with no
+    /// setting, query or view tool (used when the generation-parameter source is off). Call after
+    /// [`ParamsConversation::new`]. With no source on this changes nothing.
+    pub fn with_knowledge(mut self, cat: &Catalogue, sources: KnowledgeSources, tools_on: bool, only: bool) -> Self {
+        self.knowledge = sources;
+        self.knowledge_tools_on = sources.any() && tools_on;
+        self.knowledge_only = sources.any() && only;
+        if self.knowledge_only {
+            self.queries = false;
+            self.view = None;
+        }
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// RK-6: attach the pre-retrieval pack to the user's message (the fenced block first, then the
+    /// request) and put its units in the ledger. Call once, before the first request.
+    pub fn with_pack(mut self, cat: &Catalogue, pack: &Pack) -> Self {
+        if let Some(m) = self.messages.get_mut(1) {
+            m.content = format!("{}\n{}", pack.text, m.content);
+        }
+        self.pack_present = true;
+        self.note_retrieved(&pack.retrieved);
+        self.note_mentioned(&pack.mentioned);
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// Adds units to the ledger, once each, in order.
+    fn note_retrieved(&mut self, units: &[Retrieved]) {
+        for u in units {
+            if !self.retrieved.iter().any(|r| r.id == u.id) {
+                self.retrieved.push(u.clone());
+            }
+        }
+    }
+
+    /// Whether `call` may run: a search always may; `read_source` and `related_sources` only for an id
+    /// this request already gave the model (a retrieved unit, the note of a retrieved Vault chunk, or a
+    /// world id a retrieved source names), so a guessed id never reaches the index.
+    fn knowledge_id_known(&self, call: &KnowledgeCall) -> bool {
+        match call {
+            KnowledgeCall::Search { .. } => true,
+            KnowledgeCall::Read { id } | KnowledgeCall::Related { id, .. } => {
+                self.retrieved.iter().any(|r| r.answers(id)) || self.mentioned.iter().any(|m| m == id)
+            }
+        }
+    }
+
+    /// Adds mentioned ids to the ledger, once each, skipping any that were retrieved.
+    fn note_mentioned(&mut self, ids: &[String]) {
+        for i in ids {
+            if !self.mentioned.contains(i) && !self.retrieved.iter().any(|r| &r.id == i) {
+                self.mentioned.push(i.clone());
+            }
+        }
+    }
+
+    /// RK-6: the world ids the retrieved text names without their having been retrieved.
+    pub fn mentioned(&self) -> &[String] {
+        &self.mentioned
+    }
+
+    /// RK-6: every unit retrieved for the model this request, in order of retrieval.
+    pub fn retrieved(&self) -> &[Retrieved] {
+        &self.retrieved
+    }
+
+    /// RK-5: the knowledge sources on this request.
+    pub fn knowledge_sources(&self) -> KnowledgeSources {
+        self.knowledge
     }
 
     /// LLM-6d: offer (or stop offering) the view and layer action tool for this request. Call it
@@ -178,10 +329,9 @@ impl ParamsConversation {
     /// for no tool and no prompt text.
     pub fn with_view(mut self, cat: &Catalogue, view: Option<ViewCatalogue>) -> Self {
         let on = view.as_ref().is_some_and(ViewCatalogue::is_offered);
-        self.view = view;
-        if let Some(m) = self.messages.first_mut() {
-            m.content = cat.system_prompt_full(self.queries, on);
-        }
+        let _ = on;
+        self.view = if self.knowledge_only { None } else { view };
+        self.rebuild_prompt(cat);
         self
     }
 
@@ -207,6 +357,9 @@ impl ParamsConversation {
         if self.turns > 0 || !self.shown_groups.is_empty() {
             return Err("groups can only be chosen before the first model reply".into());
         }
+        if self.knowledge_only {
+            return Err("setting groups are not part of a questions-only request".into());
+        }
         let arg = json!(groups);
         let (chosen, value, keys) = cat.schema_for(Some(&arg))?;
         let id = format!("call_cartalith_{}", self.next_id);
@@ -226,10 +379,8 @@ impl ParamsConversation {
     /// right after [`ParamsConversation::new`], before the first request: it rewrites the system
     /// prompt so the prompt names the tools exactly when they are offered.
     pub fn with_queries(mut self, cat: &Catalogue, on: bool) -> Self {
-        self.queries = on;
-        if let Some(m) = self.messages.first_mut() {
-            m.content = cat.system_prompt_for(on);
-        }
+        self.queries = on && !self.knowledge_only;
+        self.rebuild_prompt(cat);
         self
     }
 
@@ -258,13 +409,18 @@ impl ParamsConversation {
     pub fn pending_needs(&self) -> WorldNeeds {
         let mut n = WorldNeeds::default();
         let mut room = MAX_SAMPLES_PER_REQUEST.saturating_sub(self.budget.samples);
+        let mut k_room = MAX_QUERY_CALLS_PER_REQUEST.saturating_sub(self.budget.calls);
         for p in &self.pending {
             match &p.call {
-                Ok(QueryCall::Ecology) => n.ecology = true,
-                Ok(QueryCall::WorldSummary) => n.summary = true,
-                Ok(QueryCall::Sample { x, y }) if room > 0 => {
+                PendingCall::Query(Ok(QueryCall::Ecology)) => n.ecology = true,
+                PendingCall::Query(Ok(QueryCall::WorldSummary)) => n.summary = true,
+                PendingCall::Query(Ok(QueryCall::Sample { x, y })) if room > 0 => {
                     room -= 1;
                     n.samples.push((*x, *y));
+                }
+                PendingCall::Knowledge(Ok(call)) if k_room > 0 && self.knowledge_id_known(call) => {
+                    k_room -= 1;
+                    n.knowledge.push(KnowledgeNeed { id: p.id.clone(), call: call.clone() });
                 }
                 _ => {}
             }
@@ -277,11 +433,45 @@ impl ParamsConversation {
     /// never touches `shown_groups` or `shown_keys`, so a query cannot widen what a proposal may
     /// name (V6). Idempotent when nothing is pending.
     pub fn answer_pending(&mut self, cat: &Catalogue, facts: &dyn WorldFacts) {
+        self.answer_pending_with(cat, facts, &std::collections::BTreeMap::new());
+    }
+
+    /// [`ParamsConversation::answer_pending`] plus the knowledge results the shell executed
+    /// (RK-5): `knowledge` maps a tool-call id to the raw JSON text the boundary crate returned.
+    /// Each is REBUILT by [`sanitize_knowledge`] (a field it does not name is dropped, a source
+    /// that is off is dropped, text is hardened); a knowledge call with no entry here is answered
+    /// "not available", never with a guess. Units returned join the ledger.
+    pub fn answer_pending_with(
+        &mut self,
+        cat: &Catalogue,
+        facts: &dyn WorldFacts,
+        knowledge: &std::collections::BTreeMap<String, String>,
+    ) {
         let pending = std::mem::take(&mut self.pending);
         for p in pending {
             let body = match &p.call {
-                Ok(call) => answer_query(call, cat, facts, &mut self.budget),
-                Err(why) => json!({"error": why}),
+                PendingCall::Query(Ok(call)) => answer_query(call, cat, facts, &mut self.budget),
+                PendingCall::Query(Err(why)) | PendingCall::Knowledge(Err(why)) => json!({"error": why}),
+                PendingCall::Knowledge(Ok(call)) if !self.knowledge_id_known(call) => {
+                    // The id was never returned to the model in this request: a guessed id is refused
+                    // and NOT executed (live observation, 2026-10-26: a 14B model asked about a
+                    // settlement id it had made up and answered confidently about the wrong place).
+                    json!({"available": false, "reason": KNOWN_ID_RULE})
+                }
+                PendingCall::Knowledge(Ok(call)) => {
+                    if self.budget.calls >= MAX_QUERY_CALLS_PER_REQUEST {
+                        json!({"error": format!("that is the {MAX_QUERY_CALLS_PER_REQUEST} lookups this request may use; answer from what you have")})
+                    } else {
+                        self.budget.calls += 1;
+                        let raw = knowledge.get(&p.id).map(String::as_str).unwrap_or(
+                            r#"{"available": false, "reason": "the app did not search the knowledge base for this lookup"}"#,
+                        );
+                        let s = sanitize_knowledge(call, raw, self.knowledge);
+                        self.note_retrieved(&s.retrieved);
+                        self.note_mentioned(&s.mentioned);
+                        s.body
+                    }
+                }
             };
             self.messages.push(Message { role: Role::User, content: body.to_string(), tool: Some(ToolTurn::Result { call_id: p.id }) });
         }
@@ -310,15 +500,21 @@ impl ParamsConversation {
     /// The tools the NEXT request offers: the schema tool always, the proposal
     /// tool only once a schema was shown, with its enum of the shown keys.
     pub fn tools(&self, cat: &Catalogue) -> Vec<ToolSpec> {
-        let mut t = vec![cat.tool_get_schema()];
-        if !self.shown_keys.is_empty() {
-            t.push(Catalogue::tool_set_params(&self.shown_keys));
+        let mut t = Vec::new();
+        if !self.knowledge_only {
+            t.push(cat.tool_get_schema());
+            if !self.shown_keys.is_empty() {
+                t.push(Catalogue::tool_set_params(&self.shown_keys));
+            }
+            if self.queries {
+                t.extend(query_tool_specs(cat));
+            }
+            if let Some(v) = self.view.as_ref().filter(|v| v.is_offered()) {
+                t.push(v.tool_spec());
+            }
         }
-        if self.queries {
-            t.extend(query_tool_specs(cat));
-        }
-        if let Some(v) = self.view.as_ref().filter(|v| v.is_offered()) {
-            t.push(v.tool_spec());
+        if self.knowledge_tools_on {
+            t.extend(knowledge_tools::tool_specs(self.knowledge));
         }
         t
     }
@@ -384,7 +580,7 @@ impl ParamsConversation {
         // so a usable half is never thrown away because the other half was bad. With only
         // `set_generation_params` present this is the LLM-6b rule unchanged.
         let view_on = self.view.as_ref().is_some_and(ViewCatalogue::is_offered);
-        let params_rec = records.iter().find(|r| r.name == SET_PARAMS_TOOL);
+        let params_rec = if self.knowledge_only { None } else { records.iter().find(|r| r.name == SET_PARAMS_TOOL) };
         let view_rec = if view_on { records.iter().find(|r| r.name == VIEW_TOOL) } else { None };
         if params_rec.is_some() || view_rec.is_some() {
             let pv = params_rec.map(|p| cat.validate(&p.arguments, &self.shown_groups));
@@ -436,10 +632,20 @@ impl ParamsConversation {
                 } else {
                     parse_query(&r.name, &r.arguments, cat)
                 };
-                self.pending.push(PendingQuery { id: r.id.clone(), name: r.name.clone(), call });
+                self.pending.push(PendingQuery { id: r.id.clone(), name: r.name.clone(), call: PendingCall::Query(call) });
                 continue;
             }
-            let body = if r.name == GET_SCHEMA_TOOL {
+            if self.knowledge_tools_on && is_knowledge_tool(&r.name) {
+                query_calls_this_reply += 1;
+                let call = if query_calls_this_reply > MAX_QUERY_CALLS_PER_REPLY {
+                    Err(format!("at most {MAX_QUERY_CALLS_PER_REPLY} lookups are answered per reply"))
+                } else {
+                    knowledge_tools::parse(&r.name, &r.arguments, self.knowledge)
+                };
+                self.pending.push(PendingQuery { id: r.id.clone(), name: r.name.clone(), call: PendingCall::Knowledge(call) });
+                continue;
+            }
+            let body = if r.name == GET_SCHEMA_TOOL && !self.knowledge_only {
                 match cat.schema_for(r.arguments.get("groups")) {
                     Ok((groups, value, keys)) => {
                         // UNION, never replace: the live comparison of 2026-10-26 showed a
@@ -973,5 +1179,189 @@ mod tests {
         let mut late = ParamsConversation::new(&cat, "x").unwrap();
         late.on_reply(&cat, "", vec![call(Some("s"), GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
         assert!(late.open_groups(&cat, &["world".to_owned()]).is_err(), "not after a model reply");
+    }
+
+    // ---- RK-5/RK-6: the knowledge tools and the pre-retrieval pack ----
+
+    use crate::knowledge_tools::{KnowledgeSources, READ_SOURCE_TOOL, RELATED_SOURCES_TOOL, SEARCH_KNOWLEDGE_TOOL};
+
+    const KBOTH: KnowledgeSources = KnowledgeSources { world: true, vault: true };
+    const KWORLD: KnowledgeSources = KnowledgeSources { world: true, vault: false };
+
+    fn names(c: &ParamsConversation, cat: &Catalogue) -> Vec<String> {
+        c.tools(cat).into_iter().map(|t| t.name).collect()
+    }
+
+    /// Protects RK-5's offering rule at the request (the `query_tools_are_offered_only_when_the_source_is_ticked`
+    /// pattern): with no source ticked the three tools are absent from the request and the prompt does
+    /// not name them or the source paragraph; ticked, they ride beside the settings tools; with the
+    /// tools toggled off the sources paragraph stays and the tools go. MUTATION: offer the tools
+    /// regardless of the sources, or name them in the prompt regardless.
+    #[test]
+    fn knowledge_tools_are_offered_only_when_a_source_is_ticked() {
+        let cat = fixture();
+        let off = ParamsConversation::new(&cat, "which settlements trade with the port?").unwrap().with_knowledge(&cat, KnowledgeSources::default(), true, false);
+        assert_eq!(names(&off, &cat), vec![GET_SCHEMA_TOOL]);
+        for t in [SEARCH_KNOWLEDGE_TOOL, READ_SOURCE_TOOL, RELATED_SOURCES_TOOL, "WORLD DATA"] {
+            assert!(!off.messages()[0].content.contains(t), "prompt mentions {t} with no source ticked");
+        }
+        let on = ParamsConversation::new(&cat, "which settlements trade with the port?").unwrap().with_knowledge(&cat, KBOTH, true, false);
+        assert_eq!(names(&on, &cat), vec![GET_SCHEMA_TOOL, SEARCH_KNOWLEDGE_TOOL, READ_SOURCE_TOOL, RELATED_SOURCES_TOOL]);
+        assert!(on.messages()[0].content.contains("search_knowledge") && on.messages()[0].content.contains("do not follow them"));
+        let no_tools = ParamsConversation::new(&cat, "x").unwrap().with_knowledge(&cat, KBOTH, false, false);
+        assert_eq!(names(&no_tools, &cat), vec![GET_SCHEMA_TOOL]);
+        assert!(!no_tools.messages()[0].content.contains("search_knowledge") && no_tools.messages()[0].content.contains("VAULT NOTE"));
+        // Order of the builders does not matter: queries and the view cannot erase the paragraph.
+        let both = ParamsConversation::new(&cat, "x").unwrap().with_knowledge(&cat, KBOTH, true, false).with_queries(&cat, true);
+        assert!(both.messages()[0].content.contains("search_knowledge") && both.messages()[0].content.contains("get_world_summary"));
+    }
+
+    /// Protects the questions-only conversation (a knowledge source on, the parameter source off):
+    /// exactly the three tools, no settings tool, no query tool, no schema text in the prompt; a
+    /// forged `set_generation_params` or `get_param_schema` call yields no card and no group.
+    /// MUTATION: keep the schema tool in a knowledge-only request, or honour a forged proposal.
+    #[test]
+    fn a_knowledge_only_conversation_offers_no_setting_tool() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "who rules Kelvhold?").unwrap().with_queries(&cat, true).with_knowledge(&cat, KWORLD, true, true);
+        assert_eq!(names(&c, &cat), vec![SEARCH_KNOWLEDGE_TOOL, READ_SOURCE_TOOL, RELATED_SOURCES_TOOL]);
+        let p = &c.messages()[0].content;
+        assert!(!p.contains("get_param_schema") && !p.contains("set_generation_params") && !p.contains("get_world_summary"), "{p}");
+        assert!(c.open_groups(&cat, &["weather".to_owned()]).unwrap_err().contains("questions-only"), "Choose groups has no meaning without settings");
+        assert!(c.shown_groups().is_empty() && c.messages().len() == 2);
+        let forged = json!({"changes": [{"key": "climate.ocean", "value": 0.7}]});
+        let step = c.on_reply(&cat, "", vec![call(Some("f1"), SET_PARAMS_TOOL, forged), call(Some("f2"), GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        assert_eq!(step, Step::Continue, "a forged proposal is not a proposal here");
+        assert!(c.shown_groups().is_empty() && !c.has_pending());
+        let results: Vec<&str> = c.messages().iter().filter(|m| matches!(m.tool, Some(ToolTurn::Result { .. }))).map(|m| m.content.as_str()).collect();
+        assert!(results.iter().all(|r| r.contains("unknown tool")), "{results:?}");
+    }
+
+    fn raw_search(ids: &[(&str, &str)]) -> String {
+        let hits: Vec<Value> = ids
+            .iter()
+            .map(|(id, t)| json!({"id": id, "kind": "settlement", "title": t, "locator": t, "excerpt": "population: 6115", "related": []}))
+            .collect();
+        json!({"available": true, "hits": hits}).to_string()
+    }
+
+    /// Protects the flow end to end: a call is held pending with its validated arguments in
+    /// `pending_needs` (the shell executes exactly that), its result is sanitised at the next
+    /// request and paired to the call id, the ledger gains the retrieved ids, a vault hit from an
+    /// unticked source never enters the conversation, and a call the shell did not execute is
+    /// "not available". MUTATION: answer from raw text, skip the ledger, or guess when no result came.
+    #[test]
+    fn a_knowledge_call_is_executed_by_the_shell_and_its_result_is_rebuilt() {
+        let cat = fixture();
+        let pack = crate::knowledge_tools::build_pack(&raw_search(&[("W:settlement:4", "Kelvhold")]), KWORLD).unwrap().unwrap();
+        let mut c = ParamsConversation::new(&cat, "which settlements trade with the port?").unwrap().with_knowledge(&cat, KWORLD, true, true).with_pack(&cat, &pack);
+        let s = c.on_reply(&cat, "", vec![
+            call(Some("k1"), SEARCH_KNOWLEDGE_TOOL, json!({"query": "port trade", "limit": 3})),
+            call(Some("k2"), RELATED_SOURCES_TOOL, json!({"id": "W:settlement:4", "relation": "trades_with"})),
+            call(Some("k3"), READ_SOURCE_TOOL, json!({"id": "V:a.md"})),
+            call(Some("k4"), SEARCH_KNOWLEDGE_TOOL, json!({"query": "x", "limit": 2.5})),
+        ]);
+        assert_eq!(s, Step::Continue);
+        assert!(c.has_pending());
+        let n = c.pending_needs();
+        let ids: Vec<&str> = n.knowledge.iter().map(|k| k.id.as_str()).collect();
+        assert_eq!(ids, ["k1", "k2"], "k3 (a vault id with the vault off) and k4 (fractional) were refused at parse");
+        assert_eq!(n.knowledge[0].call.to_json(), json!({"tool": "search_knowledge", "query": "port trade", "scope": "world", "limit": 3}));
+        let mut got = std::collections::BTreeMap::new();
+        got.insert("k1".to_string(), raw_search(&[("W:settlement:4", "Kelvhold"), ("V:Notes/Kelvhold.md", "Kelvhold")]));
+        let before = (c.shown_groups().to_vec(), c.messages().len());
+        c.answer_pending_with(&cat, &NoWorld("n/a".into()), &got);
+        let msgs = &c.messages()[before.1..];
+        assert_eq!(msgs.len(), 4);
+        let body = |i: usize| -> Value { serde_json::from_str(&msgs[i].content).unwrap() };
+        assert!(matches!(&msgs[0].tool, Some(ToolTurn::Result { call_id }) if call_id == "k1"));
+        assert_eq!(body(0)["hits"].as_array().unwrap().len(), 1, "the vault hit is gone");
+        assert_eq!(body(0)["hits"][0]["label"], "WORLD DATA");
+        assert_eq!(body(1)["available"], false, "k2 was not executed by the shell");
+        assert!(body(1)["reason"].as_str().unwrap().contains("did not search"));
+        assert!(body(2)["error"].as_str().unwrap().contains("not turned on"));
+        assert!(body(3)["error"].as_str().unwrap().contains("whole number"));
+        assert_eq!(c.retrieved().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["W:settlement:4"]);
+        assert_eq!(before.0, c.shown_groups().to_vec(), "a knowledge call never opens a settings group");
+        assert!(!c.has_pending());
+    }
+
+    /// Protects the shared budget: the 13th lookup of a request is answered with the cap message,
+    /// not executed, and `pending_needs` stops naming calls beyond the allowance. MUTATION: drop the check.
+    #[test]
+    fn knowledge_calls_share_the_twelve_call_budget() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap().with_knowledge(&cat, KBOTH, true, true);
+        for round in 0..3 {
+            let calls: Vec<IncomingCall> = (0..6).map(|i| call(Some(&format!("r{round}c{i}")), SEARCH_KNOWLEDGE_TOOL, json!({"query": "kelvhold"}))).collect();
+            let s = c.on_reply(&cat, "", calls);
+            if round < 2 {
+                assert_eq!(s, Step::Continue);
+                assert_eq!(c.pending_needs().knowledge.len(), 6);
+                c.answer_pending_with(&cat, &NoWorld("n/a".into()), &Default::default());
+            } else {
+                assert_eq!(c.pending_needs().knowledge.len(), 0, "the allowance of 12 is spent");
+                c.answer_pending_with(&cat, &NoWorld("n/a".into()), &Default::default());
+                assert!(c.messages().last().unwrap().content.contains("12 lookups"));
+            }
+        }
+    }
+
+    /// Protects the pre-retrieval pack (RK-6): the fenced block precedes the request in the user's
+    /// message, the ledger holds its ids, the prompt gains the one sentence, and a pack in a request
+    /// whose tools are off still works. MUTATION: put the request first, or skip the ledger.
+    #[test]
+    fn a_pack_rides_the_user_message_and_fills_the_ledger() {
+        let cat = fixture();
+        let pack = crate::knowledge_tools::build_pack(&raw_search(&[("W:settlement:4", "Kelvhold")]), KBOTH).unwrap().unwrap();
+        let c = ParamsConversation::new(&cat, "How many people live in Kelvhold?").unwrap().with_knowledge(&cat, KBOTH, false, true).with_pack(&cat, &pack);
+        let user = &c.messages()[1].content;
+        assert!(user.starts_with("<context kind=\"knowledge\""), "{user}");
+        assert!(user.trim_end().ends_with("How many people live in Kelvhold?"));
+        assert!(user.contains("[W:settlement:4] WORLD DATA"));
+        assert_eq!(c.retrieved().len(), 1);
+        assert!(c.messages()[0].content.contains("<context> block"));
+        assert!(names(&c, &cat).is_empty(), "no tool at all: this is the pre-retrieval-only mode and the model still gets its sources");
+    }
+
+    /// Protects the known-id rule (live observation, 2026-10-26: a 14B model called `related_sources` with a
+    /// settlement id it had made up and answered about the wrong place): `read_source` and
+    /// `related_sources` run only for an id this request already returned (a retrieved unit, the NOTE of a
+    /// retrieved Vault chunk, or a world id a retrieved source names); a guessed id is refused, not
+    /// executed, and is not offered to the shell. MUTATION: drop the check, or accept any W: id.
+    #[test]
+    fn a_guessed_id_is_refused_and_never_executed() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "which settlements trade with the port?").unwrap().with_knowledge(&cat, KBOTH, true, true);
+        let s = c.on_reply(&cat, "", vec![
+            call(Some("g1"), RELATED_SOURCES_TOOL, json!({"id": "W:settlement:77"})),
+            call(Some("g2"), READ_SOURCE_TOOL, json!({"id": "V:Notes/a.md"})),
+            call(Some("g3"), SEARCH_KNOWLEDGE_TOOL, json!({"query": "port"})),
+        ]);
+        assert_eq!(s, Step::Continue);
+        let n = c.pending_needs();
+        assert_eq!(n.knowledge.iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["g3"], "only the search is offered to the shell");
+        let mut got = std::collections::BTreeMap::new();
+        let raw = json!({"available": true, "hits": [
+            {"id": "V:Notes/a.md#Intro", "kind": "note", "title": "A", "locator": "Notes/a.md#Intro", "excerpt": "x", "related": [], "mentions": ["W:settlement:12", "V:evil", "W:" ]},
+            {"id": "W:settlement:4", "kind": "settlement", "title": "Port", "locator": "Port", "excerpt": "partners (W:settlement:12)", "related": [], "mentions": ["W:settlement:12"]}]})
+        .to_string();
+        got.insert("g3".to_string(), raw);
+        c.answer_pending_with(&cat, &NoWorld("n/a".into()), &got);
+        let results: Vec<Value> = c.messages().iter().rev().take(3).map(|m| serde_json::from_str(&m.content).unwrap()).collect();
+        let by_id = |id: &str| c.messages().iter().find(|m| matches!(&m.tool, Some(ToolTurn::Result { call_id }) if call_id == id)).map(|m| serde_json::from_str::<Value>(&m.content).unwrap()).unwrap();
+        assert!(by_id("g1")["reason"].as_str().unwrap().contains("not returned"), "{results:?}");
+        assert!(by_id("g2")["reason"].as_str().unwrap().contains("not returned"));
+        assert_eq!(by_id("g3")["available"], true);
+        assert_eq!(c.mentioned(), ["W:settlement:12"], "only well-formed W: ids of an allowed source are kept, once");
+        // Now the ids ARE known: a retrieved unit, the note of a retrieved chunk, and a named world id.
+        let s2 = c.on_reply(&cat, "", vec![
+            call(Some("g4"), RELATED_SOURCES_TOOL, json!({"id": "W:settlement:4"})),
+            call(Some("g5"), READ_SOURCE_TOOL, json!({"id": "V:Notes/a.md"})),
+            call(Some("g6"), READ_SOURCE_TOOL, json!({"id": "W:settlement:12"})),
+            call(Some("g7"), READ_SOURCE_TOOL, json!({"id": "V:Notes/other.md"})),
+        ]);
+        assert_eq!(s2, Step::Continue);
+        assert_eq!(c.pending_needs().knowledge.iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["g4", "g5", "g6"], "g7 is a note nothing returned");
     }
 }

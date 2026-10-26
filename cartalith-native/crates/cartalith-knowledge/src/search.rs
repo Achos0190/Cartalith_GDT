@@ -439,6 +439,16 @@ impl KnowledgeIndex {
         self.notes_searched
     }
 
+    /// Whether the world side was built into this index (a closed or unticked source is not).
+    pub fn has_world(&self) -> bool {
+        self.has_world
+    }
+
+    /// Whether the Vault side was built into this index.
+    pub fn has_vault(&self) -> bool {
+        self.has_vault
+    }
+
     /// The document with `id`, if any.
     pub fn get(&self, id: &str) -> Option<&Document> {
         self.by_id.get(id).map(|&i| &self.docs[i])
@@ -599,11 +609,17 @@ impl KnowledgeIndex {
     }
 }
 
+/// The line that ends a list [`excerpt`] cut short: how many items were left out. Written so a model
+/// (and a reader) cannot take the shown items for the whole list.
+pub fn more_marker(n: usize) -> String {
+    format!("- ... and {n} more not shown")
+}
+
 /// The parts of `text` most relevant to `terms`, in document order, within `max_chars` (module
 /// doc). A **unit** is a line plus the `- ` item lines that follow it, so a list heading such as
 /// `trade partners (3):` brings its items along. The first unit (the title line) is always
-/// included. When a unit does not fit whole, its head line and as many items as fit are kept. A
-/// cut line ends with `...`.
+/// included. When a unit does not fit whole, its head line and as many items as fit are kept, then a
+/// [`more_marker`] line says how many were left out. A cut line ends with `...`.
 pub fn excerpt(text: &str, terms: &[String], max_chars: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     if lines.is_empty() {
@@ -652,6 +668,8 @@ pub fn excerpt(text: &str, terms: &[String], max_chars: usize) -> String {
         n0 += 1;
     }
     keep.insert(0, n0);
+    // For each list that is cut short: how many of its items are not shown (see `more_marker`).
+    let mut dropped: BTreeMap<usize, usize> = BTreeMap::new();
     for u in order {
         let (s, e) = units[u];
         let mut take = 0;
@@ -663,15 +681,29 @@ pub fn excerpt(text: &str, terms: &[String], max_chars: usize) -> String {
             add += line_cost(l);
             take += 1;
         }
+        // A list cut short SAYS so (live observation, 2026-10-26: a model shown 5 of 11 trade partners
+        // listed the five as if they were all). The marker's own room is taken from the items.
+        let mut marker_cost = 0;
+        if take > 0 && take < e - s && e - s > 1 {
+            while take > 1 && used + add + more_marker(e - s - take).chars().count() + 1 > max_chars {
+                take -= 1;
+                add -= line_cost(lines[s + take]);
+            }
+            marker_cost = more_marker(e - s - take).chars().count() + 1;
+            dropped.insert(u, e - s - take);
+        }
         if take > 0 {
-            used += add;
+            used += add + marker_cost;
             keep.insert(u, take);
         }
     }
-    let mut out: Vec<&str> = Vec::new();
+    let mut out: Vec<String> = Vec::new();
     for (u, n) in keep {
         let (s, _) = units[u];
-        out.extend_from_slice(&lines[s..s + n]);
+        out.extend(lines[s..s + n].iter().map(|l| l.to_string()));
+        if let Some(d) = dropped.get(&u) {
+            out.push(more_marker(*d));
+        }
     }
     let mut out = out.join("
 ");
@@ -706,6 +738,25 @@ mod tests {
 
     fn index() -> KnowledgeIndex {
         KnowledgeIndex::build(Some(&WorldSide::from_input(&world())), None)
+    }
+
+    /// Protects the cut-list marker (live observation, 2026-10-26: a model shown 5 of 11 trade partners
+    /// listed the five as the whole list): a list that does not fit says exactly how many items were left
+    /// out, the excerpt stays within its budget, and a list that fits has no marker. MUTATION: drop the
+    /// marker, miscount it, or let it overflow the budget.
+    #[test]
+    fn a_cut_list_says_how_many_items_are_not_shown() {
+        let items: Vec<String> = (1..=11).map(|i| format!("- Partner{i} (W:settlement:{i}) [volume {i}0.0]")).collect();
+        let text = format!("Settlement: Port\nid: W:settlement:9\ntrade partners (11):\n{}", items.join("\n"));
+        let terms = content_tokens("trade partners");
+        let short = excerpt(&text, &terms, 260);
+        assert!(short.chars().count() <= 260, "{short}");
+        let shown = short.lines().filter(|l| l.starts_with("- Partner")).count();
+        assert!(shown >= 3 && shown < 11, "{short}");
+        assert_eq!(short.lines().last().unwrap(), format!("- ... and {} more not shown", 11 - shown), "{short}");
+        assert_eq!(more_marker(6), "- ... and 6 more not shown");
+        let whole = excerpt(&text, &terms, 2000);
+        assert!(!whole.contains("more not shown") && whole.lines().filter(|l| l.starts_with("- Partner")).count() == 11);
     }
 
     /// Protects the literal bounds of s.5.2 (each pinned, then mutated): result 12 000 bytes, excerpt

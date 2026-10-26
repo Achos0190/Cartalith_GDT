@@ -184,6 +184,7 @@ func setup(a, b: EngineBridge) -> void:
 	run.proposal.connect(_on_proposal)
 	run.answered.connect(_on_answered)
 	run.view_proposal.connect(_on_view_proposal)
+	run.sources_shown.connect(_on_sources)
 	## The view and layer facts are read from the live app every turn (LLM-6d).
 	run.view_source = func() -> String: return _VIEW.facts_json(app, bridge)
 	## The next turn of a setting request reads the settings as they are THEN.
@@ -191,6 +192,9 @@ func setup(a, b: EngineBridge) -> void:
 	## The model's read-only lookups (LLM-8) are answered from the engine's own getters, read by
 	## `LlmFacts` and only when no generation is running.
 	run.facts_source = func(needs: Dictionary) -> Dictionary: return LlmFacts.read(bridge, needs)
+	## The model's knowledge lookups (RK-5) are executed against the in-memory index by `LlmKnowledge`,
+	## under a plan Rust re-decides for EVERY turn (the checkboxes and the hosted opt-in may have changed).
+	run.knowledge_source = func(needs: Dictionary) -> Dictionary: return LlmKnowledge.run(bridge, LlmKnowledge.plan(run.stream, "commands"), needs)
 	var host := VBoxContainer.new()
 	host.add_theme_constant_override("separation", 0)
 	add_child(host)
@@ -221,6 +225,7 @@ func open() -> void:
 		size = Vector2i(560, int(minf(800.0, vp.y - 60.0)))
 		popup_centered()
 		_refit.call_deferred()
+	_relayout_phone.call_deferred()
 
 
 ## **Re-fit one frame after opening.** A dialog sizes its child from the content's minimum on the
@@ -303,6 +308,7 @@ func _rebuild() -> void:
 		if card["state"] == "new" and card["apply"] != null:
 			dropped += 1
 	cards.clear()
+	source_cards.clear()
 	_clear(_body)
 	controls.clear()
 	_chips.clear()
@@ -343,7 +349,7 @@ func _rebuild() -> void:
 	cmd.tooltip_text = "Ask for generation-setting changes, or a question about the settings or the world. The model proposes; nothing changes until you press Apply on its card."
 	_chips["commands"] = cmd
 	controls["task_commands"] = cmd
-	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes and view changes (layers, style preset, landmark types, centring and zooming, opening a window) for you to review, and answers questions from read-only lookups; nothing changes until you press Apply. It never generates, saves, closes, exports or deletes. Edit actions arrive in a later release.")
+	var cmd_note := _note_label(_body, "Commands proposes generation-setting changes and view changes (layers, style preset, landmark types, centring and zooming, opening a window) for you to review, and answers questions from read-only lookups (and from your notes and world data when ticked in Settings); nothing changes until you press Apply. It never generates, saves, closes, exports or deletes. Edit actions arrive in a later release.")
 	controls["commands_note"] = cmd_note
 	## "Choose groups" (scope s.5b.1): the fallback for a small model that cannot pick setting groups.
 	var grow := HFlowContainer.new()
@@ -665,8 +671,11 @@ func _refresh() -> void:
 	## "this will send" line room on a tablet or phone sheet (measured: with it, the Save row was clipped).
 	(controls["commands_note"] as Control).visible = _task == "commands"
 	(controls["note_row"] as Control).visible = _task != "commands"
-	(controls["groups_row"] as Control).visible = _task == "commands"
-	_groups_flow.visible = _task == "commands" and _groups_flow.visible
+	## "Choose groups" opens SETTING groups, which a questions-only request (the parameter source unticked, a
+	## knowledge box ticked) does not have; hiding it also gives the phone sheet its row back.
+	var groups_ok: bool = _task == "commands" and bool(DccSettings.llm_value("ctx_params"))
+	(controls["groups_row"] as Control).visible = groups_ok
+	_groups_flow.visible = groups_ok and _groups_flow.visible
 	for gn in _group_chips:
 		var gbtn: Button = _group_chips[gn]
 		var on: bool = _chosen_groups.has(gn)
@@ -699,13 +708,16 @@ func _refresh() -> void:
 		reason = String(g.get("reason", "Unavailable."))
 	elif not bool(cap_check.get("ok", true)):
 		reason = String(cap_check.get("reason", "The token cap is reached."))
-	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")):
-		reason = "Tick \"Send: generation parameters and summary statistics\" in Settings first: a proposal or a question shows the model the current settings and figures."
+	elif _task == "commands" and not bool(DccSettings.llm_value("ctx_params")) and not _knowledge_ticked():
+		reason = "Tick \"Send: generation parameters and summary statistics\" in Settings first (a proposal or a question shows the model the current settings and figures), or tick \"Send: Vault notes found by search\" or \"Send: world data found by search\" to ask about your notes and world."
 	elif request == "":
 		reason = "Type a request first."
 	elif _task == "commands":
 		var pp: Dictionary = run.stream.params_preview(_params_args(request)) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
-		if bool(pp.get("ok", false)):
+		if bool(pp.get("ok", false)) and not bool(DccSettings.llm_value("ctx_params")):
+			## Questions about the notes and the world only: no setting, figure or view is sent.
+			sent_text = "This will send: your request (%d characters)." % int(pp["request_chars"])
+		elif bool(pp.get("ok", false)):
 			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value. %s If you ask a question, it can also read any setting's value, whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing." % [int(pp["request_chars"]), int(pp["groups"]), _view_sent_text()]
 			if not _chosen_groups.is_empty():
 				sent_text += " You chose the %s group%s, so those settings are sent with the first request." % [", ".join(PackedStringArray(_chosen_groups)), "" if _chosen_groups.size() == 1 else "s"]
@@ -717,6 +729,8 @@ func _refresh() -> void:
 			sent_text = _sent_text(pv["sent"])
 		else:
 			reason = String(pv.get("reason", "Unavailable."))
+	if reason == "" and sent_text != "":
+		sent_text += _knowledge_sent_text()
 	if reason == "" and sent_text == "":
 		sent_text = "This will send: nothing yet."
 	_sent_label.text = sent_text
@@ -951,6 +965,24 @@ func _pick_task(id: String) -> void:
 		return
 	_task = id
 	_refresh()
+	_relayout_phone.call_deferred()
+
+
+## **Phone only: re-lay the sheet's content out after a task change.** The sheet's child (`wrap_controls` is off)
+## keeps the size it got at the LAST window layout, and the first layout happens in the default Prose task, whose
+## minimum height can exceed the sheet (measured 2026-10-26: 887 px in a 832 px window once the knowledge line was
+## in the prose "This will send" text). Switching to Commands then left the content 55 px taller than the sheet and
+## Send under the dialog's Close row, where a tap never reaches it. Nudging the window size makes the dialog
+## recompute its child's rect from the window and the new, smaller minimum. A no-op off a phone.
+func _relayout_phone() -> void:
+	if not _phone or not visible:
+		return
+	await get_tree().process_frame
+	if not is_instance_valid(self) or not visible:
+		return
+	var s := size
+	size = s + Vector2i(0, 1)
+	size = s
 
 
 func _on_note_picked(index: int) -> void:
@@ -982,6 +1014,95 @@ func _reload_note() -> void:
 	_refresh()
 
 
+## True when either knowledge box (Vault notes, world data) is ticked.
+func _knowledge_ticked() -> bool:
+	return bool(DccSettings.llm_value("ctx_rag_vault")) or bool(DccSettings.llm_value("ctx_rag_world"))
+
+
+## The sentence the "This will send" line adds for the knowledge base ("" when no box is ticked),
+## quoting the caps from Rust (`knowledge_limits`) so the line equals what the code enforces.
+func _knowledge_sent_text() -> String:
+	if not _knowledge_ticked() or not run.available():
+		return ""
+	var p: Dictionary = LlmKnowledge.plan(run.stream, _capability())
+	if not bool(p.get("ok", false)):
+		return ""
+	if not LlmKnowledge.any(p):
+		var why := String(p.get("note", ""))
+		return " Knowledge search is not used for this request." + ("" if why == "" else " " + why)
+	var lim: Dictionary = run.stream.knowledge_limits()
+	var what := PackedStringArray()
+	if bool(p.get("vault", false)):
+		what.append("Vault notes")
+	if bool(p.get("world", false)):
+		what.append("world data")
+	var parts := PackedStringArray()
+	if bool(p.get("pre", false)):
+		parts.append("the best %d excerpts (up to %d characters) go first" % [int(lim["pack_hits"]), int(lim["pack_chars"])])
+	if bool(p.get("tools", false)) and _task == "commands":
+		parts.append("the model may look up to %d times (each result at most %d bytes)" % [int(lim["calls_per_request"]), int(lim["result_bytes"])])
+	## Kept short: on a phone every extra line pushes Send off the sheet (measured 2026-10-26). The consent card
+	## carries the full statement.
+	return " Search in %s: %s. Never private notes; world data has no private marker." % [
+		" and ".join(what), "; ".join(parts) if not parts.is_empty() else "off for this kind of request"]
+
+
+## True once the last reply drew a sources card (so the empty-proposal note is not shown for a plain answer).
+var _sources_seen := false
+## The sources cards drawn, for probes: each `{info, box}`.
+var source_cards: Array = []
+
+
+## Draws the sources a reply drew on and the citations in it (RK-6, K8): a WORLD DATA / VAULT NOTE chip per
+## source sent, then each citation, and a citation to something the app never retrieved as UNVERIFIED (never a
+## link). Widgets only: nothing here acts, and nothing is written.
+func _on_sources(info: Dictionary) -> void:
+	_sources_seen = true
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", DccWidgets.box("border", "sunken", 8, 6))
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 3)
+	box.add_child(col)
+	var srcs: Array = info.get("sources", [])
+	var cits: Array = info.get("citations", [])
+	col.add_child(DccTheme.label("SOURCES SENT TO THE MODEL (%d)" % srcs.size(), "text_dim", DccTheme.FS_MICRO))
+	if srcs.is_empty():
+		_card_text(col, "No source matched this request, so none was sent. If the answer states facts, they did not come from your notes or world.", "text_ghost")
+	for s in srcs:
+		var sd: Dictionary = s
+		## The chip keeps its own width and the text takes the rest of the row (an HFlow gave the wrapped
+		## text only its minimum width, a column of three-word lines, seen in the desktop shot of 2026-10-26).
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var chip := DccTheme.label(String(sd.get("label", "SOURCE")), "accent" if String(sd.get("source", "")) == "world" else "warn", DccTheme.FS_MICRO)
+		chip.custom_minimum_size.x = 76
+		chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		chip.tooltip_text = "Id: %s" % String(sd.get("id", ""))
+		row.add_child(chip)
+		var t := DccTheme.label("%s  ·  %s" % [String(sd.get("title", "")), String(sd.get("locator", ""))], "text_secondary", DccTheme.FS_SMALL)
+		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.custom_minimum_size.x = WRAP_MIN_W - 76
+		t.tooltip_text = "Id: %s" % String(sd.get("id", ""))
+		row.add_child(t)
+		col.add_child(row)
+	if not cits.is_empty():
+		col.add_child(DccTheme.label("CITATIONS IN THE ANSWER", "text_dim", DccTheme.FS_MICRO))
+	for c in cits:
+		var cd: Dictionary = c
+		if bool(cd.get("verified", false)):
+			_card_text(col, "[%s]  %s" % [String(cd.get("label", "")), String(cd.get("title", cd.get("id", "")))], "text")
+		elif bool(cd.get("mentioned", false)):
+			## Not retrieved itself, but a source that WAS sent names it and the app knows it exists.
+			_card_text(col, "NAMED, NOT READ  %s  (a source that was sent names it; its own text was not sent, so this is not verified)" % String(cd.get("id", "")), "text_secondary")
+		else:
+			_card_text(col, "UNVERIFIED CITATION  %s  (the app never retrieved this id; do not rely on it)" % String(cd.get("id", "")), "warn")
+	_msgs.add_child(box)
+	source_cards.append({"info": info, "box": box})
+	_scroll_to_end()
+
+
 ## Send: the gate, then the stream. A `consent_needed` gate turns the button into the consent card.
 func _on_send() -> void:
 	var g := _gate()
@@ -1005,6 +1126,17 @@ func _on_send() -> void:
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
 	var args := _params_args(request) if _task == "commands" else _args(request)
+	_sources_seen = false
+	## RK-6: the pre-retrieval search, run HERE (the shell holds the engine) only when Rust's plan for
+	## this endpoint and these settings asks for it. For a place the place's name is added to the
+	## words, so the place's own document is found (the place-facts context draws on the same base).
+	var kplan: Dictionary = LlmKnowledge.plan(run.stream, _capability()) if run.available() else {}
+	var kquery := request
+	if _task == "prose" and bool(DccSettings.llm_value("ctx_entity")) and not _place.is_empty():
+		kquery = "%s %s" % [String(_place["name"]), request]
+	var kraw := LlmKnowledge.search_pack(bridge, kplan, kquery) if run.available() else ""
+	if kraw != "":
+		args["knowledge_pack"] = kraw
 	if _task == "commands":
 		## LLM-6d: the live view facts (JSON text) and the groups the user ticked, if any.
 		args["view"] = _VIEW.facts_json(app, bridge)
@@ -1016,6 +1148,14 @@ func _on_send() -> void:
 		_reply_label = null
 		_add_msg("", String(r.get("reason", "The request could not be started.")), "block")
 	else:
+		## K8: say what the app sent ahead of the model, in plain words.
+		if r.has("pack_hits"):
+			if String(r.get("pack_note", "")) != "":
+				_add_msg("", "Searching your sources first: %s" % String(r["pack_note"]), "text_ghost")
+			else:
+				_add_msg("", "Searched your sources first and sent %d excerpt%s (about %d tokens). Sources are listed under the answer." % [int(r["pack_hits"]), "" if int(r["pack_hits"]) == 1 else "s", int(r["pack_tokens"])], "text_ghost")
+		if String(r.get("knowledge_note", "")) != "":
+			_add_msg("", String(r["knowledge_note"]), "warn")
 		_input.text = ""
 		_groups_were_chosen = not _chosen_groups.is_empty()
 		_chosen_groups.clear()
@@ -1137,6 +1277,10 @@ func _on_params_step(info: Dictionary) -> void:
 ## The model answered in words without proposing (an impossible request, a question).
 func _on_answered(_text: String) -> void:
 	_drop_empty_reply()
+	if _sources_seen:
+		## A knowledge answer: the text above is the answer and the sources card follows it.
+		_refresh()
+		return
 	var hint := "" if _groups_were_chosen else " If the model could not pick setting groups, press Choose groups, tick up to %d and send again." % MAX_CHOSEN_GROUPS
 	_add_msg("", "Nothing was proposed.%s" % hint, "text_ghost")
 	_refresh()

@@ -95,7 +95,8 @@ use cartalith_llm::prepare::{PrepareError, prepare_authorized_chat};
 use cartalith_llm::presets::request_hints;
 use cartalith_llm::retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
 use cartalith_llm::prompt::{Context, PlaceContext, PromptError, Task, build_messages};
-use cartalith_llm::settings::Capability;
+use cartalith_llm::knowledge_tools::{self as kt, KnowledgeSources, Retrieved, build_pack, extract_citations};
+use cartalith_llm::settings::{Authorized, Capability};
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
 use cartalith_llm::view_actions::{ViewCatalogue, ViewVerdict};
@@ -140,6 +141,83 @@ struct Inner {
     retry_pending: bool,
     /// The parameter conversation of the current request (LLM-6a/6b); `None` for prose.
     params: Option<ParamsState>,
+    /// RK-6: a prose request that carried a pre-retrieval pack: the units it carried and the text
+    /// streamed so far, so the end of the reply can be checked for citations.
+    prose: Option<ProseKnowledge>,
+}
+
+/// A prose reply that carried a pre-retrieval pack (RK-6).
+struct ProseKnowledge {
+    ledger: Vec<Retrieved>,
+    mentioned: Vec<String>,
+    text: String,
+}
+
+/// How the knowledge base is used for ONE request (RK-5/RK-6, Ruling DN K1/K2/K6): decided in Rust
+/// from the settings and the endpoint, so the shell cannot ask for more than the settings allow.
+struct KnowledgeMode {
+    /// The sources that may be searched this request; both off when nothing is ticked, when the
+    /// endpoint is hosted and not opted in (K2), or when both modes are switched off.
+    sources: KnowledgeSources,
+    /// Run the app-side search before the model call (K6: default on for a local endpoint).
+    pre: bool,
+    /// Offer the three tools to the model.
+    tools: bool,
+    /// Why a ticked source is not in use (the hosted rule), for the panel; empty otherwise.
+    blocked: String,
+}
+
+/// The mode for `settings` against the authorised endpoint. Keys: `ctx_rag_world`, `ctx_rag_vault`
+/// (the two checkboxes, off by default), `rag_pre` (`auto`/`on`/`off`; `auto` = on for a local
+/// endpoint), `rag_tools` (bool) and `rag_hosted_origins` (the endpoints the user opted in).
+fn knowledge_mode(settings: &VarDictionary, auth: &Authorized) -> KnowledgeMode {
+    let ticked = KnowledgeSources { world: flag(settings, "ctx_rag_world"), vault: flag(settings, "ctx_rag_vault") };
+    let off = |blocked: &str| KnowledgeMode { sources: KnowledgeSources::default(), pre: false, tools: false, blocked: blocked.to_owned() };
+    if !ticked.any() {
+        return off("");
+    }
+    let opted = settings
+        .get("rag_hosted_origins")
+        .and_then(|v| v.try_to::<PackedStringArray>().ok())
+        .is_some_and(|l| l.as_slice().iter().any(|o| o.to_string() == auth.origin));
+    if !auth.local && !opted {
+        return off("Knowledge search is not used with a hosted endpoint until you allow it for that endpoint in Assistant settings.");
+    }
+    let pre = match text(settings, "rag_pre").as_str() {
+        "on" => true,
+        "off" => false,
+        _ => auth.local,
+    };
+    let tools = flag(settings, "rag_tools");
+    if !pre && !tools {
+        return off("Both ways of using the knowledge base are switched off.");
+    }
+    KnowledgeMode { sources: ticked, pre, tools, blocked: String::new() }
+}
+
+/// The units a pack or a reply drew on, as dictionaries (`id`, `label`, `kind`, `title`, `locator`):
+/// the panel's sources list (K8: on every answer).
+fn sources_array(ledger: &[Retrieved]) -> Array<VarDictionary> {
+    ledger
+        .iter()
+        .map(|r| vdict! { "id" => r.id.as_str(), "source" => r.source, "label" => r.label, "kind" => r.kind.as_str(), "title" => r.title.as_str(), "locator" => r.locator.as_str() })
+        .collect()
+}
+
+/// The citations in `text` checked against `ledger`, as dictionaries (`id`, `verified`, and for a
+/// verified one its `label` and `title`).
+fn citations_array(text: &str, ledger: &[Retrieved], mentioned: &[String]) -> Array<VarDictionary> {
+    extract_citations(text, ledger, mentioned)
+        .iter()
+        .map(|c| {
+            let mut d = vdict! { "id" => c.id.as_str(), "verified" => c.verified, "mentioned" => c.mentioned };
+            if let Some(r) = ledger.iter().find(|r| r.answers(&c.id)) {
+                d.set("label", r.label);
+                d.set("title", r.title.as_str());
+            }
+            d
+        })
+        .collect()
 }
 
 /// One parameter request in flight: the conversation, the catalogue the current
@@ -490,7 +568,17 @@ fn params_step(p: &mut ParamsState) -> VarDictionary {
             d.set("view", &view_verdict_dict(&v));
             d
         }
-        Step::Answer(t) => vdict! { "type" => "params_answer", "text" => t.as_str(), "turns" => turns },
+        Step::Answer(t) => {
+            let mut d = vdict! { "type" => "params_answer", "text" => t.as_str(), "turns" => turns };
+            // K8 and RK-6: the sources list on every answer, and every citation checked against the
+            // ledger of what the app actually retrieved (an unretrieved id is "unverified").
+            let ledger = p.conv.retrieved();
+            if p.conv.knowledge_sources().any() {
+                d.set("sources", &sources_array(ledger));
+                d.set("citations", &citations_array(&t, ledger, p.conv.mentioned()));
+            }
+            d
+        }
         Step::Failed(r) => vdict! { "type" => "params_failed", "reason" => r.as_str(), "turns" => turns },
     }
 }
@@ -518,7 +606,7 @@ struct LlmStream {
 impl IRefCounted for LlmStream {
     /// Constructs an idle stream with no reply.
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, inner: Mutex::new(Inner { session: None, budget: RetryBudget::new(), retry_pending: false, params: None }) }
+        Self { base, inner: Mutex::new(Inner { session: None, budget: RetryBudget::new(), retry_pending: false, params: None, prose: None }) }
     }
 }
 
@@ -528,7 +616,7 @@ impl IRefCounted for LlmStream {
 const PARAMS_MAX_TOKENS: i64 = 1024;
 
 /// The reason shown when the parameter context source is off (Ruling DI P3).
-const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters and summary statistics\" in Assistant settings first: a setting proposal or a question shows the model the world's current generation settings and figures.";
+const PARAMS_CONTEXT_OFF: &str = "Tick \"Send: generation parameters and summary statistics\" in Assistant settings first (a setting proposal or a question shows the model the world's current generation settings and figures), or tick \"Send: Vault notes found by search\" or \"Send: world data found by search\" to ask questions about the world's own data.";
 
 impl LlmStream {
     /// Lock, recovering from a poisoned mutex (a panic elsewhere must not become a
@@ -548,17 +636,25 @@ impl LlmStream {
         let (key_state, key) =
             resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
         // The gate's reason first, as on the prose path (a switched-off feature says so).
-        if let Err(r) = cartalith_llm::settings::authorize(&s, Some(Capability::Commands), &key_state, consented) {
-            let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
-            if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
-                d.set("origin", o.as_str());
+        let auth = match cartalith_llm::settings::authorize(&s, Some(Capability::Commands), &key_state, consented) {
+            Ok(a) => a,
+            Err(r) => {
+                let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
+                if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
+                    d.set("origin", o.as_str());
+                }
+                return d;
             }
-            return d;
+        };
+        let km = knowledge_mode(settings, &auth);
+        // RK-5: with the parameter source off a knowledge source alone is enough: the conversation
+        // is then questions-only (no setting, query or view tool exists in it).
+        let params_on = flag(settings, "ctx_params");
+        if !params_on && !km.sources.any() {
+            return refuse("params_context_off", &if km.blocked.is_empty() { PARAMS_CONTEXT_OFF.to_owned() } else { format!("{PARAMS_CONTEXT_OFF} {}", km.blocked) });
         }
-        if !flag(settings, "ctx_params") {
-            return refuse("params_context_off", PARAMS_CONTEXT_OFF);
-        }
-        let Some(current) = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok()) else {
+        let current = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok());
+        let Some(current) = current.or_else(|| (!params_on).then(VarDictionary::new)) else {
             return refuse("no_params", "No generation settings were readable, so there is nothing to propose changes to.");
         };
         let cat = catalogue_from(&current);
@@ -569,6 +665,7 @@ impl LlmStream {
         // LLM-6d: the view and layer facts the shell read from the live app THIS turn (JSON text).
         // Absent, unreadable or with nothing offered, the tool is simply not in the request.
         let view = opt_text(args, "view").and_then(|t| ViewCatalogue::from_json_text(&t).ok()).filter(ViewCatalogue::is_offered);
+        let mut pack_info: Option<(i64, i64, String)> = None;
         let mut inner = self.lock();
         let (mut conv, max_tokens, include_usage) = if resume {
             match inner.params.take() {
@@ -578,9 +675,18 @@ impl LlmStream {
                     // `facts` at all means the shell read nothing, which every world tool reports
                     // as "not available" (never a guess).
                     if conv.has_pending() {
+                        // RK-5: the knowledge results the shell executed, `{tool-call id: raw JSON text}`.
+                        let mut know = std::collections::BTreeMap::new();
+                        if let Some(d) = args.get("knowledge").and_then(|v| v.try_to::<VarDictionary>().ok()) {
+                            for (k, v) in d.iter_shared() {
+                                if let (Ok(k), Ok(v)) = (k.try_to::<GString>(), v.try_to::<GString>()) {
+                                    know.insert(k.to_string(), v.to_string());
+                                }
+                            }
+                        }
                         match args.get("facts").and_then(|v| v.try_to::<VarDictionary>().ok()) {
-                            Some(facts) => conv.answer_pending(&cat, &DictFacts { facts }),
-                            None => conv.answer_pending(&cat, &NoWorld("The app did not read the world for this lookup.".into())),
+                            Some(facts) => conv.answer_pending_with(&cat, &DictFacts { facts }, &know),
+                            None => conv.answer_pending_with(&cat, &NoWorld("The app did not read the world for this lookup.".into()), &know),
                         }
                     }
                     (conv, p.max_tokens, p.include_usage)
@@ -593,10 +699,24 @@ impl LlmStream {
             // always true; reading the flag here (not writing `true`) keeps the tools tied to the
             // checkbox if the refusal above is ever relaxed for settings-only proposals.
             let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
-                Ok(c) => c.with_queries(&cat, flag(settings, "ctx_params")).with_view(&cat, view.clone()),
+                Ok(c) => c.with_queries(&cat, params_on).with_view(&cat, if params_on { view.clone() } else { None }),
                 Err(why) => return refuse("empty_request", why),
             };
-            let mut conv = conv;
+            let mut conv = conv.with_knowledge(&cat, km.sources, km.tools, !params_on);
+            // RK-6: the pre-retrieval pack the shell searched for (raw JSON, rebuilt here; ignored
+            // unless the mode says the app-side search is on).
+            if km.pre {
+                if let Some(raw) = opt_text(args, "knowledge_pack") {
+                    match build_pack(&raw, km.sources) {
+                        Ok(Some(pack)) => {
+                            pack_info = Some((pack.retrieved.len() as i64, pack.approx_tokens as i64, String::new()));
+                            conv = conv.with_pack(&cat, &pack);
+                        }
+                        Ok(None) => {}
+                        Err(why) => pack_info = Some((0, 0, why)),
+                    }
+                }
+            }
             // "Choose groups" (scope s.5b.1 fallback): the USER ticked groups, so the app does
             // step one itself. The same validation as a model's call; a bad list is refused
             // with the reason and nothing is sent.
@@ -655,6 +775,19 @@ impl LlmStream {
         d.set("tools", &tools);
         d.set("headers", &headers);
         d.set("body", &PackedByteArray::from(prepared.http.body.as_slice()));
+        // RK-6: what the pre-retrieval pack added (hits, an estimate of tokens) or why it could not.
+        if let Some((hits, tokens, why)) = pack_info {
+            d.set("pack_hits", hits);
+            d.set("pack_tokens", tokens);
+            if !why.is_empty() {
+                d.set("pack_note", why.as_str());
+            }
+        }
+        if !km.blocked.is_empty() {
+            d.set("knowledge_note", km.blocked.as_str());
+        }
+        d.set("knowledge_world", km.sources.world);
+        d.set("knowledge_vault", km.sources.vault);
         d
     }
 }
@@ -713,6 +846,9 @@ fn sent_dict(s: &cartalith_llm::prompt::SentSummary) -> VarDictionary {
         "events_chars" => s.events_chars as i64,
         "note" => s.note,
         "note_chars" => s.note_chars as i64,
+        "knowledge" => s.knowledge,
+        "knowledge_chars" => s.knowledge_chars as i64,
+        "knowledge_hits" => s.knowledge_hits as i64,
         "truncated" => s.truncated,
         // LLM-11: the grounded place facts and Vault notes, itemised so the panel's "this will
         // send" line can name exactly what leaves the machine.
@@ -777,6 +913,9 @@ fn process(inner: &mut Inner, events: Vec<Event>, allow_retry: bool) -> Array<Va
                 if let Some(p) = inner.params.as_mut() {
                     p.text.push_str(t);
                 }
+                if let Some(k) = inner.prose.as_mut() {
+                    k.text.push_str(t);
+                }
             }
             Event::ToolCall { id, name, arguments } => {
                 if let Some(p) = inner.params.as_mut() {
@@ -788,6 +927,11 @@ fn process(inner: &mut Inner, events: Vec<Event>, allow_retry: bool) -> Array<Va
             Event::Done { .. } => {
                 if let Some(p) = inner.params.as_mut() {
                     d = params_step(p);
+                }
+                // RK-6/K8: a prose reply that carried a pack ends with its sources and its checked citations.
+                if let Some(k) = inner.prose.as_ref() {
+                    d.set("sources", &sources_array(&k.ledger));
+                    d.set("citations", &citations_array(&k.text, &k.ledger, &k.mentioned));
                 }
             }
             _ => {}
@@ -847,14 +991,6 @@ impl LlmStream {
             Ok(p) => p,
             Err(r) => return r,
         };
-        let ctx = Context {
-            entity_label: entity_label.as_deref(),
-            entity_fields: entity_fields.as_deref(),
-            events: events.as_deref(),
-            note_path: note_path.as_deref(),
-            note_text: note_text.as_deref(),
-            place: place.as_ref(),
-        };
         // The gate is asked FIRST, for its reason only: a request that is refused for being
         // switched off must say so, not complain that a source is missing (a forced Send with
         // the feature off showed "Prose needs the current place's fields" before this). The
@@ -867,13 +1003,43 @@ impl LlmStream {
             &|n| std::env::var(n).ok(),
             &OsKeyStore,
         );
-        if let Err(r) = cartalith_llm::settings::authorize(&s, Some(cap), &key_state, &consented) {
-            let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
-            if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
-                d.set("origin", o.as_str());
+        let auth = match cartalith_llm::settings::authorize(&s, Some(cap), &key_state, &consented) {
+            Ok(a) => a,
+            Err(r) => {
+                let mut d = vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str() };
+                if let cartalith_llm::Refusal::ConsentNeeded(o) = &r {
+                    d.set("origin", o.as_str());
+                }
+                return d;
             }
-            return d;
+        };
+        // RK-6: the pre-retrieval pack, only when the mode says the app-side search is on. It is
+        // rebuilt from the raw search result here (hardened, fenced, cut), never forwarded.
+        let km = knowledge_mode(&settings, &auth);
+        let mut pack_info: Option<(i64, i64, String)> = None;
+        let pack = if km.pre {
+            opt_text(&args, "knowledge_pack").and_then(|raw| match build_pack(&raw, km.sources) {
+                Ok(p) => p,
+                Err(why) => {
+                    pack_info = Some((0, 0, why));
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        if let Some(p) = &pack {
+            pack_info = Some((p.retrieved.len() as i64, p.approx_tokens as i64, String::new()));
         }
+        let ctx = Context {
+            entity_label: entity_label.as_deref(),
+            entity_fields: entity_fields.as_deref(),
+            events: events.as_deref(),
+            note_path: note_path.as_deref(),
+            note_text: note_text.as_deref(),
+            place: place.as_ref(),
+            knowledge: pack.as_ref(),
+        };
         let prompt = match build_messages(task, &text(&args, "request"), &ctx) {
             Ok(p) => p,
             Err(e) => {
@@ -928,6 +1094,7 @@ impl LlmStream {
             }
             inner.session = Some(StreamSession::for_style(prepared.authorized.style, &[], key.as_ref()));
             inner.params = None;
+            inner.prose = pack.as_ref().map(|p| ProseKnowledge { ledger: p.retrieved.clone(), mentioned: p.mentioned.clone(), text: String::new() });
         }
         let headers: PackedStringArray = prepared.http.header_lines().iter().map(|l| GString::from(l.as_str())).collect();
         let sent = &prompt.sent;
@@ -945,6 +1112,16 @@ impl LlmStream {
         d.set("headers", &headers);
         d.set("body", &PackedByteArray::from(prepared.http.body.as_slice()));
         d.set("sent", &sent_dict(sent));
+        if let Some((hits, tokens, why)) = pack_info {
+            d.set("pack_hits", hits);
+            d.set("pack_tokens", tokens);
+            if !why.is_empty() {
+                d.set("pack_note", why.as_str());
+            }
+        }
+        if !km.blocked.is_empty() {
+            d.set("knowledge_note", km.blocked.as_str());
+        }
         d
     }
 
@@ -972,6 +1149,7 @@ impl LlmStream {
             note_path: note_path.as_deref(),
             note_text: note_text.as_deref(),
             place: place.as_ref(),
+            knowledge: None,
         };
         match build_messages(task, &text(&args, "request"), &ctx) {
             Ok(p) => {
@@ -1015,7 +1193,53 @@ impl LlmStream {
         }
         let mut d = vdict! { "ecology" => n.ecology, "summary" => n.summary };
         d.set("samples", &samples);
+        // RK-5: the knowledge calls to execute, `{id, call}` with `call` the validated call as JSON
+        // text. The shell runs each against the index and returns the raw text under the same id.
+        let mut know: Array<VarDictionary> = Array::new();
+        for k in &n.knowledge {
+            know.push(&vdict! { "id" => k.id.as_str(), "call" => k.call.to_json().to_string().as_str() });
+        }
+        d.set("knowledge", &know);
         d
+    }
+
+    /// How the knowledge base is used for the next request, decided from the settings and the
+    /// endpoint (Ruling DN K1, K2, K6): `{ok, world, vault, pre, tools, note}`; `ok` is false (with
+    /// `code` and `reason`) when the gate refuses. Neither source is reported on when it is not
+    /// ticked, when the endpoint is hosted and not opted in, or when both ways of using the
+    /// knowledge base are switched off. The shell asks this BEFORE it searches, so it never reads a
+    /// note or the world for a request that will not send them.
+    #[func]
+    fn knowledge_plan(&self, settings: VarDictionary, capability: GString, consented: PackedStringArray) -> VarDictionary {
+        let cap = match capability.to_string().as_str() {
+            "commands" => Capability::Commands,
+            _ => Capability::Prose,
+        };
+        let s = settings_from(&settings);
+        let consented: Vec<String> = consented.as_slice().iter().map(GString::to_string).collect();
+        let (key_state, _) = resolve_key(s.key_source, &s.env_var, &account_for(&s.preset_id), &|n| std::env::var(n).ok(), &OsKeyStore);
+        match cartalith_llm::settings::authorize(&s, Some(cap), &key_state, &consented) {
+            Err(r) => vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str(), "world" => false, "vault" => false, "pre" => false, "tools" => false },
+            Ok(a) => {
+                let km = knowledge_mode(&settings, &a);
+                vdict! { "ok" => true, "world" => km.sources.world, "vault" => km.sources.vault, "pre" => km.pre, "tools" => km.tools, "note" => km.blocked.as_str(), "hosted" => !a.local }
+            }
+        }
+    }
+
+    /// The knowledge caps, from the Rust constants, so the consent text and the panel quote what the
+    /// code enforces (`{pack_hits, pack_chars, search_limit, result_bytes, calls_per_request,
+    /// excerpt_chars}`).
+    #[func]
+    fn knowledge_limits(&self) -> VarDictionary {
+        vdict! {
+            "pack_hits" => kt::PACK_MAX_HITS as i64,
+            "pack_chars" => kt::PACK_MAX_CHARS as i64,
+            "search_limit" => kt::MAX_LIMIT as i64,
+            "result_bytes" => kt::MAX_RESULT_BYTES as i64,
+            "calls_per_request" => cartalith_llm::query::MAX_QUERY_CALLS_PER_REQUEST as i64,
+            "excerpt_chars" => kt::MAX_EXCERPT_CHARS as i64,
+        }
     }
 
     #[func]
@@ -1134,6 +1358,7 @@ impl LlmStream {
         inner.session = None;
         inner.retry_pending = false;
         inner.params = None;
+        inner.prose = None;
     }
 
     /// The running token counter: `{calls, calls_reported}` always, `prompt` and

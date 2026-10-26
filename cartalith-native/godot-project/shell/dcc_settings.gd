@@ -961,6 +961,13 @@ const LLM_DEFAULTS := {
 	"ctx_selection": false,    ## context source: selection
 	"ctx_notes": false,        ## context source: named Vault notes
 	"ctx_params": false,       ## context source: generation parameters (LLM-6a/6b; Ruling DI P3: its own box, off until ticked)
+	## RK-5/RK-6 (Rulings DM and DN): the knowledge base is two SEPARATE context sources, both off until
+	## ticked (K1), and each is searched only for the words of a request. A hosted endpoint additionally
+	## needs the per-endpoint opt-in below (K2).
+	"ctx_rag_world": false,    ## context source: world data found by search
+	"ctx_rag_vault": false,    ## context source: Vault notes found by search
+	"rag_pre": "auto",         ## search before the model call: "auto" (on for a local endpoint), "on" or "off" (K6)
+	"rag_tools": true,         ## offer the model the three search tools (K6); only matters when a source is ticked
 }
 
 ## The conditional Assistant chip's change notice (`CUSTOM_QUICK_BAR_SCOPE.md` s.5, milestone CQ-7,
@@ -1010,9 +1017,38 @@ static func set_llm_value(key: String, value) -> bool:
 static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
-			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params"]:
+			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params",
+			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools"]:
 		d[k] = llm_value(k)
+	## The hosted endpoints the user allowed knowledge search for (K2); Rust compares the endpoint's
+	## origin with this list and uses no source for a hosted endpoint that is not in it.
+	d["rag_hosted_origins"] = llm_rag_hosted_origins()
 	return d
+
+## The hosted origins the user opted in to knowledge search for (K2). Not secret.
+static func llm_rag_hosted_origins() -> PackedStringArray:
+	_ensure_loaded()
+	return _string_list(_cfg.get_value(_SEC_LLM, "rag_hosted_origins", PackedStringArray()))
+
+## Allows or forbids knowledge search for `origin` (a hosted endpoint). An empty origin is ignored.
+static func llm_set_rag_hosted(origin: String, allowed: bool) -> void:
+	if origin == "":
+		return
+	var list := llm_rag_hosted_origins()
+	if allowed and not list.has(origin):
+		list.append(origin)
+	elif not allowed and list.has(origin):
+		list.remove_at(list.find(origin))
+	else:
+		return
+	_ensure_loaded()
+	if list.is_empty():
+		if _cfg.has_section_key(_SEC_LLM, "rag_hosted_origins"):
+			_cfg.erase_section_key(_SEC_LLM, "rag_hosted_origins")
+	else:
+		_cfg.set_value(_SEC_LLM, "rag_hosted_origins", list)
+	_save()
+	notify_assistant_state()
 
 ## The origins the user has consented to (`scheme://host[:port]`, from
 ## `WorldGen.llm_endpoint_info`). Consent is per endpoint (scope LLM-2: "appears before
@@ -1039,6 +1075,13 @@ static func llm_add_consent(origin: String) -> void:
 ## next request to a withdrawn endpoint asks again.
 static func llm_withdraw_consent(origin: String = "") -> void:
 	_ensure_loaded()
+	## Withdrawing consent for an endpoint also withdraws its knowledge-search opt-in (K2): the card
+	## that named what is sent is no longer agreed to.
+	if origin == "":
+		for o in llm_rag_hosted_origins():
+			llm_set_rag_hosted(o, false)
+	else:
+		llm_set_rag_hosted(origin, false)
 	var list := llm_consented_origins()
 	if origin == "":
 		list = PackedStringArray()
