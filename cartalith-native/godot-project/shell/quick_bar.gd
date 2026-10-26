@@ -38,8 +38,8 @@ class_name DccQuickBar
 ## ## What is not here (the milestones after it)
 ##
 ## The ring dock and the shared sub-rings are `quick_bar_ring.gd`'s (CQ-4); it reuses `run_pin_on`,
-## `accelerator_text` and `label_for` from here. No phone chip row (CQ-6: the phone has no palette
-## bar). Tools and check/radio rows are not pinnable in v1 (Ruling DH Q8, Q10); `CommandIndex` says
+## `accelerator_text` and `label_for` from here. The phone has no palette bar and so no cluster: its
+## chip row and Quick section are `quick_bar_phone.gd`'s (CQ-6), reading the same store. Tools and check/radio rows are not pinnable in v1 (Ruling DH Q8, Q10); `CommandIndex` says
 ## why per row.
 ##
 ## ## The Assistant chip (CQ-7, Ruling DH Q6)

@@ -52,12 +52,27 @@ class_name QuickBarWindow
 ##    instead of guessing). A diagonal that is a single tool (CARTO Label, CIVIL Route) is listed
 ##    disabled with the reason it cannot share.
 ##
-## The phone gets no row for this window (`menus.gd`) until CQ-6 gives it a cluster to edit, and the
-## phone has no cartwheel.
+## ## The phone layout (CQ-6)
+##
+## On a phone the window fills the screen (`DccWidgets.phone_window` / `phone_present`) and lays out in dp. The
+## phone has no cartwheel, so the Ring dock and Ring slots tabs would edit lists nothing there draws: the tab
+## strip and its note are hidden and only the Bar list is editable. The two columns do not fit 412 dp side by
+## side, so the left (catalogue) and right (pins) columns are stacked under a two-segment strip, `Commands` and
+## `Pinned`, one visible at a time. Every button, check box and field is floored to 44 dp on both axes and the
+## list rows are given the separation that makes a row 44 dp tall (measured by `_quickbar_phone_probe.gd` by
+## sampling `ItemList.get_item_at_position`, not read from a constant). All of it is built on the **first
+## `open()`**, never in `setup()`: creating controls in a never-shown window at boot moved 26 014 pixels of the
+## phone's Cartography sheet in CQ-4 and CQ-7, and the phone is exactly where this window is not yet open.
 
 ## A pin was added, removed, moved or the list was reset.
 signal pins_changed
 
+## The phone's tap floor in dp (`DccTheme.PHONE_TAP_MIN`, DESIGN_HANDOFF.md: 44, no exceptions). The window lays out in
+## dp because `phone_present` sets its content scale factor to `phone_scale()`.
+const PHONE_FLOOR_DP := 44.0
+## The `v_separation` that, added to a one-line row of the small mono face, reaches 44 dp. A labelled starting
+## value: the probe measures the real hit height and fails if it is under the floor, so a font change shows up.
+const PHONE_LIST_SEPARATION := 30
 ## Longest reason shown inline before it is cut (the full text is the row's tooltip).
 const MAX_REASON_CHARS := 90
 
@@ -93,6 +108,14 @@ var _foot: Label
 var _msg: Label
 var _detail: Label
 var _reset_dlg: ConfirmationDialog
+## The two columns and the box that holds them, kept so the phone layout can restack them (CQ-6).
+var _cols: Control
+var _left: VBoxContainer
+var _right: VBoxContainer
+## The phone's `Commands` / `Pinned` strip, built on the first phone open; null elsewhere.
+var _pages: TabBar
+## Whether the phone layout has been applied (once per window).
+var _phone_ready := false
 ## The user's switch for the conditional Assistant chip (CQ-7, Ruling DH Q6) and the line saying what
 ## the chip is doing right now and why.
 var _assistant_chk: CheckBox
@@ -208,6 +231,7 @@ func setup(a) -> void:
 	cols.add_theme_constant_override("separation", 14)
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(cols)
+	_cols = cols
 
 	var left := VBoxContainer.new()
 	left.add_theme_constant_override("separation", 6)
@@ -215,6 +239,7 @@ func setup(a) -> void:
 	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.size_flags_stretch_ratio = 1.25
 	cols.add_child(left)
+	_left = left
 	left.add_child(DccTheme.mono_label("COMMANDS", "text_dim", DccTheme.FS_HEADER, 1))
 	_search = LineEdit.new()
 	_search.name = "Search"
@@ -251,6 +276,7 @@ func setup(a) -> void:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cols.add_child(right)
+	_right = right
 	_diag = OptionButton.new()
 	_diag.name = "Diagonal"
 	_diag.focus_mode = Control.FOCUS_ALL
@@ -383,8 +409,11 @@ func open() -> void:
 		DccSettings.assistant_hub.changed.connect(_sync_assistant_switch)
 	_ensure_assistant_switch()
 	_sync_assistant_switch()
+	_ensure_phone_layout()
 	_rebuild_all()
-	popup_centered()
+	## A phone fills the screen (`phone_present` opens the window itself); desktop and tablet centre it.
+	if not DccWidgets.phone_present(self, app):
+		popup_centered()
 	_search.grab_focus.call_deferred()
 	## Follow the user's own resizes of the dialog from now on. Connected here, not in `setup()`:
 	## connected at boot it changed the PHONE's CARTO layout (the `_quickbar_ringid_probe.gd` phone run
@@ -421,6 +450,78 @@ func _ensure_assistant_switch() -> void:
 	_root_box.move_child(_assistant_chk, 1)
 	_root_box.move_child(_assistant_note, 2)
 
+## Applies the phone layout once, on the first `open()` on a phone (module header, "The phone layout"):
+## restacks the two columns under a `Commands` / `Pinned` strip, hides the ring tabs the phone cannot use,
+## and floors every control to 44 dp. A no-op off the phone and after the first call.
+func _ensure_phone_layout() -> void:
+	if _phone_ready or app == null or not app.has_method("is_phone") or not app.is_phone():
+		return
+	_phone_ready = true
+	## The lead paragraph names where the pins appear; on a phone that is not "beside the tool palette".
+	(_root_box.get_child(0) as Label).text = "Pin commands to the chip row in the MAP sheet and the Quick section in MORE. Pins belong to this device and are never saved in a world, an export or a project file."
+	_tabs.visible = false
+	_tab_note.visible = false
+	## A `HBoxContainer` cannot change orientation (`BoxContainer.is_fixed`), so the columns move into a
+	## `VBoxContainer` that takes the old box's place.
+	var stack := VBoxContainer.new()
+	stack.name = "PhoneColumns"
+	stack.add_theme_constant_override("separation", 8)
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var at := _cols.get_index()
+	_root_box.add_child(stack)
+	_root_box.move_child(stack, at)
+	_left.reparent(stack, false)
+	_right.reparent(stack, false)
+	_left.size_flags_stretch_ratio = 1.0
+	_cols.queue_free()
+	_cols = stack
+	## The stacked layout is taller than a landscape phone (373 dp: measured, Add and the pinned list fell
+	## below the window's edge), so the whole column scrolls vertically. Horizontal stays DISABLED, which folds
+	## the column's minimum WIDTH into the scroller's (the trap in MISTAKES.md): every label in the column is
+	## width-bounded, and `_quickbar_phone_probe.gd` walks the window for a minimum wider than the window.
+	## The column keeps `EXPAND_FILL`, so in portrait, where it fits, the lists still take the spare height.
+	var scroll := ScrollContainer.new()
+	scroll.name = "PhoneScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_content.add_child(scroll)
+	_root_box.reparent(scroll, false)
+	_root_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_root_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_pages = TabBar.new()
+	_pages.name = "PhonePages"
+	_pages.add_tab("Commands")
+	_pages.add_tab("Pinned")
+	_pages.focus_mode = Control.FOCUS_ALL
+	_pages.custom_minimum_size.y = PHONE_FLOOR_DP
+	_pages.tab_changed.connect(func(_i: int): _show_phone_page())
+	_root_box.add_child(_pages)
+	_root_box.move_child(_pages, stack.get_index())
+	_show_phone_page()
+	## Floors on both axes. A check box's long label would otherwise be the window's minimum width (the
+	## overflow family in MISTAKES.md), so those wrap.
+	for n in find_children("*", "BaseButton", true, false):
+		var b := n as BaseButton
+		b.custom_minimum_size = Vector2(maxf(b.custom_minimum_size.x, PHONE_FLOOR_DP), maxf(b.custom_minimum_size.y, PHONE_FLOOR_DP))
+		if b is Button and (b as Button).text.length() > 24:
+			(b as Button).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			b.custom_minimum_size.x = PHONE_FLOOR_DP
+	_search.custom_minimum_size.y = PHONE_FLOOR_DP
+	_diag.custom_minimum_size.y = PHONE_FLOOR_DP
+	## A list row is its text plus `v_separation`, and a tap is hit-tested over the row PLUS the separation, so
+	## the separation is what makes the row tall enough to touch.
+	for l in [_catalogue, _pins_list]:
+		(l as ItemList).add_theme_constant_override("v_separation", PHONE_LIST_SEPARATION)
+
+## Shows the `Commands` or the `Pinned` column on the phone, by the strip's current segment.
+func _show_phone_page() -> void:
+	if _pages == null:
+		return
+	_left.visible = _pages.current_tab == 0
+	_right.visible = _pages.current_tab == 1
+
 ## Brings the Assistant chip's checkbox and its note up to date with the store. The note names the
 ## chip's actual state in words, with the gate's own reason when it is greyed, so a user who sees no
 ## chip can read why (switch off, assistant off, no provider or model).
@@ -448,8 +549,11 @@ func _fit_content() -> void:
 	if _content == null or not visible:
 		return
 	var row: Control = get_ok_button().get_parent() as Control
-	var bottom := row.position.y if row != null else float(size.y)
-	_content.size = Vector2(float(size.x) - _content.position.x * 2.0, bottom - _content.position.y)
+	## The window's `size` is in physical pixels; its children lay out in logical units, which differ by
+	## `content_scale_factor` (1.0 on desktop and tablet, `phone_scale()` on a phone, set by `phone_present`).
+	var logical := Vector2(size) / maxf(content_scale_factor, 0.01)
+	var bottom := row.position.y if row != null else logical.y
+	_content.size = Vector2(logical.x - _content.position.x * 2.0, bottom - _content.position.y)
 
 ## Rebuilds the index and both lists. The index is rebuilt (not cached) so a pin's "not in this
 ## build" state and every row's availability are those of the moment, not of the last open.
@@ -510,7 +614,7 @@ func _apply_target_chrome() -> void:
 			_tab_note.text = "Up to %d chips under the cartwheel, beside its eight slots (never replacing one). A quick flick never selects them." % DccSettings.QUICK_BAR_MAX_DOCK
 		"share":
 			_tab_note.text = "Pins go after a diagonal's built-in items (a sub-ring places at most %d). Single-tool diagonals cannot share." % DccSettings.QUICK_BAR_MAX_SHARE
-	_tab_note.visible = true
+	_tab_note.visible = not _phone_ready
 
 ## Fills the diagonal chooser from the live rings: one entry per domain and diagonal, a single-tool
 ## diagonal or one that cannot be read yet disabled with the reason in its own text. Keeps the

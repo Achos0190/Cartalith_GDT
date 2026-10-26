@@ -35,7 +35,7 @@ extends Node
 ##      Delete removes -- all as real key events, no pointer;
 ##   7. CLUSTER FOLLOWS: every change reaches the cluster in the same call (chip count and order
 ##      equal the stored list);
-##   8. PHONE: no Preferences row, no cluster (CQ-6 owns the phone);
+##   8. PHONE: the Preferences row exists (CQ-6), there is still no desktop cluster;
 ##   9. Q11 (the menu-row right-click, WINDOWED): with the real cursor over a row of a real menu
 ##      popup, a right-click reaches `window_input`, names that row via `get_focused_item()`,
 ##      emits NO `id_pressed` (nothing runs) and leaves the menu open; the gesture then offers
@@ -724,13 +724,13 @@ func _menu_row_gesture() -> void:
 # -- 8 ------------------------------------------------------------------------------------
 
 func _phone() -> void:
-	print("== 8. phone: no Preferences row, no cluster ==")
+	print("== 8. phone: the Preferences row exists (CQ-6 gave the phone its consumers), still no desktop cluster ==")
 	var idx := _idx()
 	var found := false
 	for r in idx.all():
-		if String(r["title"]) == "Quick bar":
+		if String(r["title"]) == "Quick bar" and bool(r.get("pinnable", false)):
 			found = true
-	_ok(not found, "no 'Quick bar' row on the phone (CQ-6 owns its pins)")
-	_ok(_app._quick_bar == null, "and no cluster")
+	_ok(found, "a pinnable 'Quick bar' row on the phone: the way to a first pin when nothing is pinned (the phone's own window checks are in _quickbar_phone_probe.gd)")
+	_ok(_app._quick_bar == null, "and still no desktop cluster")
 	await _shot("08_phone")
 	_finish()

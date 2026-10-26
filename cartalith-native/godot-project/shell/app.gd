@@ -30,6 +30,9 @@ var assistant_settings_window: LlmSettingsWindow
 ## `Preferences ▸ Quick bar…` (CQ-3) and the menu-row right-click pin gesture.
 var quick_bar_window: QuickBarWindow
 var quick_bar_menu_pin: QuickBarMenuPin
+## The phone's quick bar (CQ-6): its MAP-sheet chip row, MORE section source and `All...` list. A plain
+## controller that creates nothing until a pin or the Assistant chip is wanted (`quick_bar_phone.gd`).
+var phone_quick: QuickBarPhone
 ## LLM-3: the prose and Vault assistant panel (`Story ▸ NOTES ▸ Assistant panel…`).
 var assistant_window: LlmAssistantWindow
 ## The journey planner view (`JourneyPlannerView`).
@@ -1009,13 +1012,24 @@ func _ready() -> void:
 	quick_bar_window.setup(self)
 	quick_bar_window.pins_changed.connect(func():
 		if _quick_bar != null:
-			_quick_bar.refresh())
+			_quick_bar.refresh()
+		if phone_quick != null:
+			phone_quick.refresh())
 	quick_bar_menu_pin = QuickBarMenuPin.new()
 	add_child(quick_bar_menu_pin)
 	quick_bar_menu_pin.setup(self)
 	assistant_window = LlmAssistantWindow.new()
 	add_child(assistant_window)
 	assistant_window.setup(self, bridge)
+	## CQ-6: the phone's quick bar. After the assistant panel exists, because the Assistant chip's rule asks
+	## for it. Re-derived after a world load or a generate for the reason `_quick_bar` is (a pin's live or
+	## greyed state is read from the menus' built state), deferred so no listener sees a half-updated row. On
+	## a desktop or tablet `refresh()` returns at once; with nothing pinned it creates nothing on a phone.
+	phone_quick = QuickBarPhone.new()
+	phone_quick.setup(self)
+	bridge.world_loaded.connect(func(): phone_quick.refresh.call_deferred())
+	bridge.generation_finished.connect(func(_ok: bool): phone_quick.refresh.call_deferred())
+	phone_quick.refresh.call_deferred()
 	## A setting changed in the settings window must reach the open panel's status and reasons.
 	assistant_settings_window.settings_changed.connect(func(): assistant_window._refresh())
 	## Ruling DF at boot: if a local provider was left active, point the compute path at the

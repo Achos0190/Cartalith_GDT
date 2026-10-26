@@ -580,6 +580,11 @@ var _phone_tool_sheet: PanelContainer
 ## scroller is the desktop bar (§13); the GENERATE column is the canvas's
 ## `tabIsGen` sheet. Exactly one is visible -- see `_refresh_phone_gen_panel()`.
 var _phone_tool_scroll: ScrollContainer
+## The phone tool sheet's content column, kept so the quick row (CQ-6) can be mounted into it.
+var _phone_sheet_col: VBoxContainer
+## The chip row of pinned commands (`QuickBarPhoneRow`, CQ-6), or null while nothing is pinned. Mounted
+## between the sheet's header and its scroller by `set_phone_quick_row()`, shown from the half detent up.
+var _phone_quick_row: Control
 ## Scroller holding the GENERATE column inside the phone tool sheet; vertical only.
 var _phone_gen_scroll: ScrollContainer
 ## The GENERATE column inside `_phone_gen_scroll`.
@@ -6743,6 +6748,7 @@ func _pick_phone_tab(id: String) -> void:
 			_set_phone_detent("peek")
 		elif _phone_detent == "peek":
 			_set_phone_detent("half")
+	_sync_phone_quick_row()
 	_refresh_phone_tabs()
 	_refresh_phone_sheet_header()
 	## After the detent, not before: `_refresh_phone_gen_panel()` fills a
@@ -7068,6 +7074,7 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	sheet.add_child(col)
+	_phone_sheet_col = col
 
 	## The grab handle -- as of the detents, the drag target for them, and as
 	## of 2026-09-13 the WHOLE header block (pill, title/subtitle, close),
@@ -7427,6 +7434,11 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	_phone_gen_col.add_theme_constant_override("separation", _pscale(12))
 	gen_pad.add_child(_phone_gen_col)
 	col.add_child(_phone_gen_scroll)
+	## CQ-6: a quick row handed over BEFORE this sheet existed (pins stored on disk and refreshed at boot) is
+	## mounted now, directly under the header. `set_phone_quick_row` does the same when the sheet is already built.
+	if _phone_quick_row != null and is_instance_valid(_phone_quick_row) and _phone_quick_row.get_parent() == null:
+		col.add_child(_phone_quick_row)
+		col.move_child(_phone_quick_row, 1)
 	return sheet
 
 ## Show the GENERATE column instead of the tool-options row, or the other way
@@ -7487,6 +7499,66 @@ func _phone_sheet_box(docked: bool) -> StyleBoxFlat:
 ## gesture inset, the bottom bar, and (this shell's own addition, which the
 ## prototype has no row for) the timeline when it is up. The prototype folds the
 ## first two into one `navH = 84` literal.
+## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2): mounts `row` (a `QuickBarPhoneRow`) between the MAP sheet's header
+## and its scroller, or removes the mounted one when `row` is null. The row is hidden until
+## `_sync_phone_quick_row()` says it should show. Safe to call before the sheet exists (it does nothing then).
+func set_phone_quick_row(row: Control) -> void:
+	if _phone_quick_row != null and is_instance_valid(_phone_quick_row) and _phone_quick_row != row:
+		if _phone_quick_row.get_parent() != null:
+			_phone_quick_row.get_parent().remove_child(_phone_quick_row)
+	_phone_quick_row = row
+	if row == null or _phone_sheet_col == null:
+		refresh_phone_quick()
+		return
+	if row.get_parent() != _phone_sheet_col:
+		_phone_sheet_col.add_child(row)
+		## Child 0 is the grab header; the row sits directly under it, above the tool options.
+		_phone_sheet_col.move_child(row, 1)
+	refresh_phone_quick()
+
+## The mounted quick row, or null (for `QuickBarPhone` and the probes).
+func phone_quick_row() -> Control:
+	return _phone_quick_row if _phone_quick_row != null and is_instance_valid(_phone_quick_row) else null
+
+## True when the quick row should be on screen: the MAP tab is lit and the sheet is above the 66 dp peek
+## (the peek keeps carrying only what it carried before -- scope s.3.2), or the phone is in landscape,
+## where the sheet is a docked drawer with no detents.
+func _phone_quick_wanted() -> bool:
+	return _phone and _phone_tab == "map" and (_landscape or _phone_detent != "peek")
+
+## Shows or hides the quick row by [`_phone_quick_wanted`]. Does not move the sheet.
+func _sync_phone_quick_row() -> void:
+	if _phone_quick_row == null or not is_instance_valid(_phone_quick_row):
+		return
+	var want := _phone_quick_wanted()
+	if _phone_quick_row.visible != want:
+		_phone_quick_row.visible = want
+
+## Re-decides the quick row's visibility and, because the row's height is part of the half detent's content
+## height, re-snaps the sheet when the row exists on a lit MAP tab above the peek. Called by `QuickBarPhone`
+## after it mounts, unmounts or redraws the row.
+func refresh_phone_quick() -> void:
+	_sync_phone_quick_row()
+	if _phone and _phone_tab == "map" and _phone_detent != "peek":
+		_snap_phone_sheet(false)
+
+## Public phone-geometry accessors for the quick bar's own nodes (`QuickBarPhoneRow`), which are not
+## part of this file but must size in the same units: `phone_px` is `_pscale`, `phone_tap` is `_ptap`
+## (raised to the 44 dp floor), `phone_font` is `_pfont`. They exist so nothing computes its own scale
+## (see `phone_scale()`'s comment).
+func phone_px(dp: float) -> int:
+	return _pscale(dp)
+
+func phone_tap(dp: float) -> int:
+	return _ptap(dp)
+
+func phone_font(dp: float) -> int:
+	return _pfont(dp)
+
+## A short self-dismissing sentence over `near` (the shell's phone toast); nothing off the phone.
+func phone_toast(text: String, near: Control = null) -> void:
+	_show_phone_toast(text, near)
+
 func _phone_nav_reserve() -> float:
 	var r := float(_safe_bottom())
 	if _phone_menu_bar != null and _phone_menu_bar.visible:
@@ -7562,7 +7634,13 @@ func _phone_map_sheet_content_height() -> float:
 		row_h = tool_options_row.get_combined_minimum_size().y
 	var sheet_style := _phone_sheet_box(false)
 	var vpad := sheet_style.get_margin(SIDE_TOP) + sheet_style.get_margin(SIDE_BOTTOM)
-	return header_h + row_h + float(_pscale(10)) + vpad
+	## CQ-6: the pinned-chip row is part of what the half detent has to hold, so it is counted whether or not
+	## it is shown yet (at peek it is hidden, and half is computed while it still is). Absent -> 0, which is
+	## what keeps the empty-bar sheet exactly as tall as before.
+	var quick_h := 0.0
+	if _phone_quick_row != null and is_instance_valid(_phone_quick_row):
+		quick_h = _phone_quick_row.get_combined_minimum_size().y
+	return header_h + quick_h + row_h + float(_pscale(10)) + vpad
 
 ## The phone tool sheet's current detent, and the way back to one.
 ##
@@ -7653,6 +7731,9 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 ## delta, which is why `phone_insets_changed` only has to reach
 ## `ViewportHost`'s floating chrome and not the chrome column.
 func _snap_phone_sheet(animate: bool) -> void:
+	## CQ-6: the quick row's visibility follows the detent, and the detent's height counts it, so decide
+	## it BEFORE the height is read -- including in landscape, which returns just below.
+	_sync_phone_quick_row()
 	if _phone_tool_sheet == null or _landscape:
 		return
 	var target := _phone_detent_height(_phone_detent)
@@ -8408,13 +8489,77 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 			(cmd as Button).disabled = true
 			(cmd as Button).accessibility_description = \
 				"%s. Lives under the %s menu." % [line2, String(d.get("group", ""))]
-			container.add_child(cmd)
+			## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2): a pinnable command gets a star beside its row, the phone's
+			## equivalent of Blender's right-click ▸ Add to Quick Favorites. The row itself stays the disabled
+			## readout it was (a search hit still runs nothing); only a star is new, and only on a row the
+			## index calls pinnable, so a reason-bearing row keeps its reason and gains no control.
+			if String(d.get("pin_key", "")) != "" and bool(d.get("pinnable", false)):
+				cmd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				var line := HBoxContainer.new()
+				line.add_theme_constant_override("separation", 0)
+				## The results column sits in a scroller with no expand flag, so it is only as wide as its widest
+				## child (every row is a Button whose drawn text is a child label, so the narrowness was never
+				## visible). A star beside such a row would land right after the text; this width, the screen's
+				## less a scrollbar's allowance, puts it at the right edge and lets the row fill the rest.
+				line.custom_minimum_size.x = get_viewport_rect().size.x - float(_pscale(20))
+				line.add_child(cmd)
+				line.add_child(_command_star(d))
+				container.add_child(line)
+			else:
+				container.add_child(cmd)
 			continue
 		var kind := String(d.get("kind", ""))
 		var sub := String(d.get("subtitle", ""))
 		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
 		container.add_child(_phone_list_row(String(d.get("name", "")), line2,
 			_select_search_hit.bind(d, close_fn)))
+
+## The pin / unpin star beside a pinnable command in the phone's `.` search results (CQ-6). 48 dp square (the
+## quick bar's chip size, floor 44), `★` when the command is pinned and `☆` when not; a tap toggles it through
+## the store's own `quick_bar_add` / `quick_bar_remove` (so the cap and the refusal sentence exist once, in
+## `DccSettings`), toasts a refusal, and refreshes the phone's chip row.
+func _command_star(row: Dictionary) -> Button:
+	var key := String(row["pin_key"])
+	var star := Button.new()
+	star.name = "PinStar"
+	star.flat = true
+	star.focus_mode = Control.FOCUS_NONE
+	star.custom_minimum_size = Vector2(_ptap(QuickBarPhone.CHIP_DP), _ptap(QuickBarPhone.CHIP_DP))
+	star.add_theme_font_size_override("font_size", _pfont(16))
+	star.add_theme_color_override("font_color", DccTheme.c("accent"))
+	star.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	star.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	_paint_star(star, key)
+	star.pressed.connect(_toggle_star.bind(star, row))
+	return star
+
+## Sets the star's glyph, tooltip and accessibility name from the store: `★ Unpin` when `key` is pinned.
+func _paint_star(star: Button, key: String) -> void:
+	var pinned := false
+	for p in DccSettings.quick_bar_value("bar"):
+		if String(p["k"]) == key:
+			pinned = true
+	star.text = "★" if pinned else "☆"
+	star.tooltip_text = "Remove from the quick bar" if pinned else "Pin to the quick bar"
+	star.accessibility_name = star.tooltip_text
+
+## A tap on a command's star: pin it, or unpin it when it already is.
+func _toggle_star(star: Button, row: Dictionary) -> void:
+	var key := String(row["pin_key"])
+	var pinned := false
+	for p in DccSettings.quick_bar_value("bar"):
+		if String(p["k"]) == key:
+			pinned = true
+	if pinned:
+		DccSettings.quick_bar_remove("bar", key)
+	else:
+		var why := DccSettings.quick_bar_add("bar", key, String(row.get("title", "")))
+		if why != "":
+			_show_phone_toast(why, star)
+	_paint_star(star, key)
+	var q = get("phone_quick")
+	if q != null:
+		q.refresh()
 
 ## One band header inside the result list. Tracked mono caps in `text_faint`,
 ## the same vocabulary `DccWidgets.section()` uses for a dock section and the

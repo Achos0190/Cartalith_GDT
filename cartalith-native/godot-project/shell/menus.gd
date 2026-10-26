@@ -4115,11 +4115,12 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## the dialog it opens is `LlmSettingsWindow`. It reaches the phone's Preferences screen
 	## the way every row does -- by being in this popup.
 	_live(p, "Assistant…", ID_PREF_ASSISTANT)
-	## CQ-3: the Customise window for the user's pinned quick-bar commands. Not on the phone: the
-	## phone has no palette bar to draw them in until CQ-6 gives it a chip row, and a window that
-	## edits an invisible list is a dead control (`quick_bar_window.gd`'s header).
-	if not _host.is_phone():
-		_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
+	## CQ-3: the Customise window for the user's pinned quick-bar commands. CQ-3 withheld it from the phone
+	## (a window editing an invisible list is a dead control); CQ-6 gives the phone its two consumers -- the
+	## MAP sheet's chip row and MORE's Quick section -- so the row is on every form now. On the phone it is
+	## also the ONLY way to a first pin when nothing is pinned, because an empty bar draws no row and no
+	## section (`quick_bar_phone.gd`'s header: the pixel-identity bar).
+	_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
 	## PW-1: the pop-out switch (Ruling DK Q1: off by default). Desktop only -- the phone and the
 	## tablet keep every window embedded (`PopoutHost.supported()`); the tablet's disabled-with-
 	## reason row is PW-5's. The tooltip says what the switch does TODAY: no window is allowed to

@@ -808,13 +808,17 @@ func _shared() -> void:
 # -- phone --------------------------------------------------------------------------------
 
 func _phone() -> void:
-	print("== phone: no cartwheel, so no dock and no window row ==")
+	print("== phone: no cartwheel, so no dock (the Quick bar row exists since CQ-6, its window offers no ring tab) ==")
 	var idx := _idx()
 	var row := {}
 	for r in idx.all():
 		if String(r["title"]) == "Quick bar":
 			row = r
-	_ok(row.is_empty(), "the phone has no `Quick bar` menu row, so no Ring dock tab can be reached (CQ-6 owns the phone)")
+	_ok(not row.is_empty(), "the phone has the `Quick bar` menu row since CQ-6 (the way to a first pin)")
+	_app.open_quick_bar_window()
+	await _settle(6)
+	_ok(_app.quick_bar_window.visible and not _app.quick_bar_window._tabs.visible, "and its window offers no Ring dock or Ring slots tab: the phone has no cartwheel")
+	_app.quick_bar_window.hide()
 	_ok(DccSettings.quick_bar_value("dock") == [] and DccSettings.quick_bar_value("share") == {}, "the dock and share stores stay empty")
 	_ok(QuickBarRing.dock_items(_app).is_empty(), "no dock items are resolved for an empty store")
 	_finish()

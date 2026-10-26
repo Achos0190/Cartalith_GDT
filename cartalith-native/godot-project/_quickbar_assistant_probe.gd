@@ -770,7 +770,7 @@ func _rmb_to_chip(chip_index: int, slow: bool = true) -> Dictionary:
 # -- phone --------------------------------------------------------------------------------
 
 func _phone() -> void:
-	print("== phone: no cluster and no cartwheel, so no chip to draw (CQ-6 owns the phone) ==")
+	print("== phone: no desktop cluster and no cartwheel; the phone's chip row and MORE section are checked in _quickbar_phone_probe.gd (CQ-6) ==")
 	_ok(_bar == null, "the phone has no quick cluster")
 	await _reset_llm()
 	_configure_all()

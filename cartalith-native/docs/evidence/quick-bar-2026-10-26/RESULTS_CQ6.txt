@@ -1,0 +1,170 @@
+CQ-6 results, 2026-10-26, produced windowed from the scratch worktree C:/cw/cq7 (own config/name, wiped user dir), tree = origin/main 31a5f6e9 + the CQ-6 change.
+Baselines (pixel identity) were captured twice each by the SAME probe files on the pristine tree 31a5f6e9 in a second worktree.
+
+### id393
+== phone, viewport (393.0, 852.0) ==
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: peek vs half moves 37485 px
+ID same   map_peek     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   map_half     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   map_full     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   gen_half     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   gen_full     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   more_root    0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID DIFFER more_prefs   32 differing px outside the dynamic mask (0 masked), bbox [P: (385, 231), S: (8, 7)]  [expected to differ: reported, not counted]
+RESULT: IDENTICAL 6/6 screens (0 differing pixels required)
+
+### id412
+== phone, viewport (412.0, 915.0) ==
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: peek vs half moves 38776 px
+ID same   map_peek     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   map_half     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   map_full     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   gen_half     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   gen_full     0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID same   more_root    0 differing px outside the dynamic mask (0 masked), bbox [P: (0, 0), S: (0, 0)]
+ID DIFFER more_prefs   40 differing px outside the dynamic mask (0 masked), bbox [P: (404, 266), S: (8, 8)]  [expected to differ: reported, not counted]
+RESULT: IDENTICAL 6/6 screens (0 differing pixels required)
+
+### ring393
+== mode phone, viewport (393.0, 852.0) ==
+ID determinism: the same state captured twice differs by 0 px
+ID sensitivity: hovering W instead of E moves 14605 px
+ID edge world bottom centre=(196.4999, 688.0)
+ID edge world top centre=(196.4999, 164.0)
+ID edge civilization bottom centre=(196.4999, 688.0)
+ID edge civilization top centre=(196.4999, 164.0)
+ID edge cartography bottom centre=(196.4999, 688.0)
+ID edge cartography top centre=(196.4999, 164.0)
+ID same   world/open                   ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_E                ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/hover_W                ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/sub_NE                 ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_bottom            ring region [P: (-41, 450), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   world/edge_top               ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/open            ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/hover_E         ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/sub_NE          ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_bottom     ring region [P: (-41, 450), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   civilization/edge_top        ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 9, bbox [P: (73, 655), S: (248, 72)] | dynamic mask 12046 px
+ID same   cartography/open             ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/hover_E          ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/sub_NE           ring region [P: (-41, 187), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_bottom      ring region [P: (-41, 450), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+ID same   cartography/edge_top         ring region [P: (-41, -74), S: (476, 536)]: 0 differing px | whole window outside the mask: 0, bbox [P: (0, 0), S: (0, 0)] | dynamic mask 0 px
+RESULT: IDENTICAL 16/16 states (0 differing pixels required; this mode: phone)
+
+### phone393 (_quickbar_phone_probe.gd)
+== 1. the empty bar ==
+== phone portrait, viewport (393.0, 852.0), phone_scale 1.0000 ==
+  info  empty-bar sheet heights px: peek 66.0 half 92.0 full 644.0  (66.0 / 92.0 / 644.0 dp)
+== 2. the first pin, by hand ==
+  info  Quick bar row rect [P: (0.0, 687.0), S: (385.0, 52.0)] (screen (393.0, 852.0))
+== 3. the MAP-sheet chip row ==
+  info  half with the row: 154.0 px (154.0 dp), without 92.0 px, cap 340.0 px, row 62.0 px
+== 4. 24 pins ==
+== 5. MORE > Quick ==
+== 6. the Assistant chip on the phone ==
+== 7. the search-result star ==
+== 8. empty again ==
+== 9. a second launch with pins stored ==
+RESULT: PASS (0 failed, 123 checks)
+
+### phone412 (_quickbar_phone_probe.gd)
+== 1. the empty bar ==
+== phone portrait, viewport (412.0, 915.0), phone_scale 1.0000 ==
+  info  empty-bar sheet heights px: peek 66.0 half 92.0 full 707.0  (66.0 / 92.0 / 707.0 dp)
+== 2. the first pin, by hand ==
+  info  Quick bar row rect [P: (0.0, 750.0), S: (404.0, 52.0)] (screen (412.0, 915.0))
+== 3. the MAP-sheet chip row ==
+  info  half with the row: 154.0 px (154.0 dp), without 92.0 px, cap 369.0 px, row 62.0 px
+== 4. 24 pins ==
+== 5. MORE > Quick ==
+== 6. the Assistant chip on the phone ==
+== 7. the search-result star ==
+== 8. empty again ==
+== 9. a second launch with pins stored ==
+RESULT: PASS (0 failed, 123 checks)
+
+### phone480 (_quickbar_phone_probe.gd)
+== 1. the empty bar ==
+== phone portrait, viewport (480.0, 1031.0), phone_scale 1.1650 ==
+  info  empty-bar sheet heights px: peek 77.0 half 108.0 full 796.0  (66.1 / 92.7 / 683.2 dp)
+== 2. the first pin, by hand ==
+  info  Quick bar row rect [P: (0.0, 846.0), S: (472.0, 61.0)] (screen (480.0, 1031.0))
+== 3. the MAP-sheet chip row ==
+  info  half with the row: 180.0 px (154.5 dp), without 108.0 px, cap 418.0 px, row 72.0 px
+== 4. 24 pins ==
+== 5. MORE > Quick ==
+== 6. the Assistant chip on the phone ==
+== 7. the search-result star ==
+== 8. empty again ==
+== 9. a second launch with pins stored ==
+RESULT: PASS (0 failed, 123 checks)
+
+### phoneland (_quickbar_phone_probe.gd)
+== 1. the empty bar ==
+== phone landscape, viewport (852.0, 393.0), phone_scale 1.0000 ==
+  info  empty-bar sheet heights px: peek 345.0 half 345.0 full 345.0  (345.0 / 345.0 / 345.0 dp)
+== 2. the first pin, by hand ==
+  info  Quick bar row rect [P: (100.0, 293.0), S: (744.0, 52.0)] (screen (852.0, 393.0))
+== 3. the MAP-sheet chip row ==
+== 4. 24 pins ==
+== 5. MORE > Quick ==
+== 6. the Assistant chip on the phone ==
+== 7. the search-result star ==
+== 8. empty again ==
+== 9. a second launch with pins stored ==
+RESULT: PASS (0 failed, 115 checks)
+
+### phone1080
+ABORT: this probe is for the phone form (--resolution 393x852 -- --force-touch)
+EXIT 2
+
+### mutation (shell/ files restored after each, sha256 checked)
+MUTANT row_visible_at_peek          KILLED       (FAIL exit=1) ['FAIL  hidden at the peek detent', 'FAIL  the peek is ex
+MUTANT row_on_every_tab             KILLED       (FAIL exit=1) ['FAIL  the row is hidden on the GENERATE tab']
+MUTANT chip_30dp                    KILLED       (FAIL exit=1) ['FAIL  MAP row: chips are 48 dp tall (44.0)', 'FAIL  chi
+MUTANT mount_when_empty             KILLED       (FAIL exit=1) ['FAIL  nothing is mounted with an empty bar and the assi
+MUTANT ghost_looks_live             KILLED       (FAIL exit=1) ['FAIL  its chip is kept and marked not live']
+MUTANT more_section_missing         KILLED       (FAIL exit=1) ["FAIL  the QUICK band is the first thing in MORE's root 
+MUTANT more_section_when_empty      KILLED       (FAIL exit=1) ['FAIL  MORE has no QUICK band with an empty bar', 'FAIL 
+MUTANT window_floor_20              KILLED       (FAIL exit=1) ['FAIL  Customise, Commands page: 5 tappable controls, ev
+MUTANT list_separation_4            KILLED       (FAIL exit=1) ['FAIL  a catalogue row is hit-tested over 24.0 dp (floor
+MUTANT star_unpin_writes_nothing    KILLED       (FAIL exit=1) ['FAIL  a tap toggles one pin through the store (2 -> 2)'
+MUTANT assistant_always_shown       KILLED       (FAIL exit=1) ['FAIL  nothing is mounted with an empty bar and the assi
+MUTANT empty_does_not_unmount       SURVIVED     (PASS exit=0) []
+MUTANT all_chip_inert               KILLED       (FAIL exit=1) ["FAIL  a real click on 'All…' opens the list sheet"]
+MUTANT ring_tabs_kept               SURVIVED     (PASS exit=0) []
+MUTANT first_pin_row_regated        KILLED       (FAIL exit=1) ["FAIL  Preferences lists the 'Quick bar…' row on the pho
+MUTANT hub_not_followed             KILLED       (FAIL exit=1) ['FAIL  the row follows the write inside the same call (3
+MUTANT empty_does_not_unmount       KILLED       (FAIL exit=1) ['FAIL  removing the last pin at half re-snaps the sheet 
+MUTANT ring_tabs_kept               KILLED       (FAIL exit=1) ['FAIL  the ring tabs (Ring dock, Ring slots) are not off
+MUTANT cap_25                       KILLED       (FAIL exit=1) ['FAIL  a 25th is refused by the store', "FAIL  the row h
+MUTANT half_ignores_row_height      KILLED       (FAIL exit=1) ["FAIL  half grew by the row's height (92.0 -> 128.0 px, 
+MUTANT id_row_mounted_when_empty    KILLED       (DIFFERS exit=1) ['ID DIFFER map_half     47400 differing px outside th
+MUTANT id_more_band_when_empty      KILLED       (DIFFERS exit=1) ['ID DIFFER more_root    6741 differing px outside the
+MUTANT persist_remove_not_saved     KILLED       (FAIL exit=1) ['FAIL  Remove on the third stores [planner, vault]', 'FA
+MUTANT persist_title_dropped        KILLED       (FAIL exit=1) ['FAIL  its chip is kept and marked not live', "FAIL  wit
+
+### regression (sequential, windowed unless noted)
+align_desktop.log: RESULT: PASS (0 failed, 81 checks)  SCRIPT_ERROR_lines=0
+align_phone.log: RESULT: PASS (0 failed, 60 checks)  SCRIPT_ERROR_lines=2
+align_tablet.log: RESULT: PASS (0 failed, 72 checks)  SCRIPT_ERROR_lines=0
+asst_desktop.log: RESULT: PASS (0 failed, 107 checks)  SCRIPT_ERROR_lines=0
+asst_phone.log: RESULT: PASS (0 failed, 24 checks)  SCRIPT_ERROR_lines=0
+asst_tablet.log: RESULT: PASS (0 failed, 108 checks)  SCRIPT_ERROR_lines=0
+cmdindex.log: _cmdindex_probe: PASS  SCRIPT_ERROR_lines=0
+gsw.log: [gsw] RESULT gsw checks=339 fail=0 engine-panic-hits(total)=0  SCRIPT_ERROR_lines=0
+qb_desktop.log: RESULT: PASS (0 failed, 200 checks)  SCRIPT_ERROR_lines=0
+qb_phone.log: RESULT: PASS (0 failed, 6 checks)  SCRIPT_ERROR_lines=0
+qb_tablet.log: RESULT: PASS (0 failed, 200 checks)  SCRIPT_ERROR_lines=0
+ring_desktop.log: RESULT: PASS (0 failed, 164 checks)  SCRIPT_ERROR_lines=0
+ring_phone.log: RESULT: PASS (0 failed, 5 checks)  SCRIPT_ERROR_lines=0
+ring_tablet.log: RESULT: PASS (0 failed, 165 checks)  SCRIPT_ERROR_lines=0
+store.log: RESULT: PASS (0 failed, 114 checks)  SCRIPT_ERROR_lines=0
+toolstrip.log: TSP DONE fails=0  SCRIPT_ERROR_lines=0
+win_desktop.log: RESULT: PASS (0 failed, 108 checks)  SCRIPT_ERROR_lines=0
+win_phone.log: RESULT: PASS (0 failed, 3 checks)  SCRIPT_ERROR_lines=0
+win_tablet.log: RESULT: PASS (0 failed, 108 checks)  SCRIPT_ERROR_lines=0

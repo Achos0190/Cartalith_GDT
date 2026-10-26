@@ -1621,6 +1621,7 @@ func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 
 ## §6.6 `root`: eight nav rows, then `STATUS`, then the readouts.
 func _fill_root(body: VBoxContainer) -> void:
+	_fill_quick(body)
 	for spec in ROOT_ROWS:
 		var label := String(spec.label)
 		var sub := String(spec.sub)
@@ -1701,6 +1702,51 @@ func _fill_root(body: VBoxContainer) -> void:
 		_head(body, "Not on the MORE list")
 		for mb in rest:
 			_add(body, _menu_row(mb))
+
+## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2, Ruling DH Q9): the MORE root's `Quick` section, FIRST in the list
+## so a pinned command is two taps from anywhere with the sheet closed. One row per entry of
+## `QuickBarPhone.entries` -- the Assistant row first when its rule shows it, then the pins in order -- and a
+## `Customise...` row last. A row that cannot run is dim and says WHY on its second line (a tooltip is
+## invisible on a phone); tapping it toasts the same reason. A live row closes this overlay and then runs, so
+## the command's own window is not left under MORE.
+##
+## **Draws NOTHING when the bar is empty and the assistant is off** -- no band, no row, no gap -- which is
+## what keeps MORE's root pixel-identical to the tree before this milestone (`_quickbar_phoneid_probe.gd`).
+## The way to a first pin is then `Preferences > Quick bar...`, a row of the Preferences popup the phone
+## already lists. Rows are `_row()`'s 52 dp (the phone spec's list-row height), above the scope's 46 dp.
+func _fill_quick(body: VBoxContainer) -> void:
+	var es := QuickBarPhone.entries(_shell)
+	if es.is_empty():
+		return
+	_head(body, "Quick")
+	for e in es:
+		var entry: Dictionary = e
+		var live := bool(entry["live"])
+		var sub := ""
+		if not live:
+			sub = String(entry["reason"])
+		elif String(entry["kind"]) == "assistant":
+			sub = "Open the assistant panel"
+		elif String(entry["group"]) != "":
+			sub = "%s menu" % String(entry["group"])
+		var row := _row(String(entry["title"]), sub, null, null, _press_quick.bind(entry), not live)
+		var key := String(entry["key"]).replace(":", "_").replace("/", "_")
+		row.name = "QuickRow_" + (key if String(entry["kind"]) == "pin" else "assistant")
+		_add(body, row)
+	_add(body, _row("Customise…", "Pin, unpin and reorder commands", null, _chevron(), _quick_customise, false))
+
+## A tap on a MORE ▸ Quick row. Close first, then run, so a command that opens a window does not open it under
+## this overlay; a row that cannot run stays open and toasts its reason (`QuickBarPhone.press`).
+func _press_quick(entry: Dictionary) -> void:
+	if bool(entry["live"]):
+		close()
+	QuickBarPhone.press(_shell, entry, null)
+
+## `MORE ▸ Quick ▸ Customise…`: the Customise window, in its phone layout.
+func _quick_customise() -> void:
+	close()
+	if _shell.has_method("open_quick_bar_window"):
+		_shell.open_quick_bar_window()
 
 ## SM-2 (`STORY_MENUS_PROPOSAL.md` §6, mockup A8): the MORE root's STORY
 ## section, one row per band of the desktop `Story` menu (`menus.gd::_story()`).
