@@ -436,10 +436,14 @@ func _rebuild() -> void:
 	_floor(model_pick)
 	_shrinkable(model_pick)
 	controls["model_pick"] = model_pick
-	var refresh := _button(model_pick.get_parent(), "Refresh", func(): _models_refresh(), false)
+	var refresh := _button(model_pick.get_parent(), "Refresh", func(): _models_refresh(true), false)
 	refresh.tooltip_text = "Ask the server for its models again."
 	controls["model_refresh"] = refresh
 	controls["model_status"] = _note(_body, "", "text_secondary")
+	## Shown only while the list was refused because the master switch is off: one press turns it on.
+	var enable_btn := _button(_body, "Turn on Assistant enabled", func(): _enable_assistant(), true)
+	enable_btn.visible = false
+	controls["model_enable"] = enable_btn
 	## Android only (`LlmNetHint`): the way to the system page where LineageOS can block the app's network.
 	if LlmNetHint.is_android():
 		controls["net_settings"] = LlmNetHint.make_button(_body, DccTheme.PHONE_TAP_MIN if _phone else 0.0)
@@ -981,6 +985,7 @@ func _on_switch(key: String, on: bool) -> void:
 			_ask_consent(ep, func():
 				_store("enabled", true)
 				_after_change()
+				_rebuild_deferred()
 				_models_refresh(),
 				func():
 					_store("enabled", false)
@@ -1013,6 +1018,15 @@ func _on_rag_hosted(on: bool) -> void:
 
 
 ## Asks for consent for `ep`'s endpoint through the shared card.
+var _consent_open := false
+
+## Turns the master switch on from the model list's own button (through the same path as the switch,
+## so a missing consent still asks first), then redraws the switch row.
+func _enable_assistant() -> void:
+	_on_switch("enabled", true)
+	_rebuild_deferred()
+
+
 func _ask_consent(ep: Dictionary, on_agree: Callable, on_decline: Callable = Callable()) -> void:
 	last_consent = LlmConsent.present(app, ep, _preset_row(), on_agree, on_decline)
 
@@ -1045,7 +1059,7 @@ func _on_url_commit(text: String) -> void:
 		return
 	_store("base_url", text)
 	_after_change()
-	_models_refresh()
+	_models_refresh(true)
 
 
 ## The model name committed (typed by hand).
@@ -1068,10 +1082,25 @@ const _TYPE_A_NAME := "\u0001type-a-name"
 ## Asks the configured server for its models. Called when the window opens, when the address, the
 ## key, the provider or a gate switch changes, and by the Refresh button; never on a timer. The gate
 ## decides first (`LlmModels.begin`): a refusal is drawn as its reason and nothing is dialled.
-func _models_refresh() -> void:
+func _models_refresh(ask: bool = false) -> void:
 	if _ml == null:
 		return
 	var r := _ml.refresh(DccSettings.llm_gate_dict(), DccSettings.llm_consented_origins())
+	## The only refusal that opens the consent card is "this address has no consent yet", and only when
+	## the user asked for the list (Refresh, or an address they just entered). The master switch being
+	## off is a different refusal: no card, and the status line offers the switch instead. A decline
+	## leaves the refusal on screen and asks nothing more until the user presses Refresh again.
+	if ask and not bool(r.get("ok", false)) and String(r.get("code", "")) == "consent_needed" and not _consent_open:
+		var ep := _endpoint()
+		if bool(ep.get("ok", false)):
+			_consent_open = true
+			_ask_consent(ep, func():
+				_consent_open = false
+				_refresh_dynamic()
+				settings_changed.emit()
+				_models_refresh(false),
+				func():
+					_consent_open = false)
 	if bool(r.get("ok", false)):
 		_ml_state = "loading"
 		_ml_msg = ""
@@ -1178,7 +1207,7 @@ func _models_render_status() -> void:
 		"loading":
 			txt = "Listing models…" + ((" Showing " + stale + " meanwhile.") if stale != "" else "")
 		"refused":
-			txt = "Not listed. " + _ml_msg
+			txt = "Turn on Assistant enabled first. Nothing is sent while it is off." if _ml_code == "feature_off" else "Not listed. " + _ml_msg
 		"failed":
 			txt = "Could not list: " + LlmNetHint.with_hint(_ml_msg, LlmNetHint.applies(_ml_code)) + ((" Showing " + stale + ".") if stale != "" else " You can type a name below.")
 		"ok":
@@ -1193,6 +1222,9 @@ func _models_render_status() -> void:
 		_:
 			txt = "" if cached.is_empty() else "%d models, listed %s." % [n, _age_text(float(cached["age_s"]))]
 	(controls["model_status"] as Label).text = txt
+	var eb := controls.get("model_enable") as Button
+	if eb != null and is_instance_valid(eb):
+		eb.visible = _ml_state == "refused" and _ml_code == "feature_off"
 	var rb := controls.get("model_refresh") as Button
 	if rb != null and is_instance_valid(rb):
 		rb.text = "Listing…" if _ml_state == "loading" else "Refresh"

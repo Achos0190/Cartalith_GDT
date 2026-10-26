@@ -216,7 +216,7 @@ func _ready() -> void:
 	# ---------------------------------------------------------------- 1. gate off = zero connections
 	print("== 1. the gate refuses: nothing is dialled ==")
 	var refusals := [
-		["feature off", {"enabled": false}, "assistant is off"],
+		["feature off", {"enabled": false}, "Turn on Assistant enabled first"],
 		["local providers off", {"local_allowed": false}, "Local providers allowed"],
 		["no provider", {"preset_id": "", "base_url": ""}, "No provider"],
 	]
@@ -243,6 +243,75 @@ func _ready() -> void:
 	_ok(_status().contains("Consent needed") and LlmWire.connect_attempts == a1 and _mock.requests.is_empty(),
 		"no consent for the origin: refused with 'Consent needed', nothing dialled (%s)" % _status().left(80))
 	await _shot("refused")
+
+	# ---------------------------------------------------------------- 1b. no consent + Refresh = the card, Allow continues
+	print("== 1b. consent card on Refresh ==")
+	_mock.routes = {"/api/v0/models": {"status": 200, "body": _lm_v0()}, "/v1/models": {"status": 200, "body": _openai_list(["a", "b"])}}
+	_mock.requests.clear()
+	_configure("lm_studio")
+	DccSettings.llm_withdraw_consent()
+	_win.open()
+	await _settle(8)
+	_win.last_consent = {}
+	(_c("model_refresh") as Button).pressed.emit()
+	await _settle(8)
+	var cc: Dictionary = _win.last_consent
+	_ok(not cc.is_empty() and is_instance_valid(cc["card"]["dialog"]) and cc["card"]["dialog"].visible, "Refresh with no consent opens the consent card at once")
+	_ok(_mock.requests.is_empty(), "...and nothing is sent while the card is open")
+	var allow_b: Button = cc["choices"].get("safe") if not cc.is_empty() else null
+	var no_b: Button = cc["choices"].get("cancel") if not cc.is_empty() else null
+	_ok(allow_b != null and allow_b.text == "Allow" and no_b != null and no_b.text == "Not now", "the card offers 'Allow' and 'Not now'")
+	var min_h := 44.0 if DccTheme.is_phone() else 20.0
+	_ok(allow_b != null and allow_b.get_global_rect().size.y >= min_h and allow_b.get_global_rect().end.y <= get_viewport().get_visible_rect().size.y,
+		"Allow is tall enough and on screen: %s" % (allow_b.get_global_rect() if allow_b else "-"))
+	await _shot("consent_card")
+	no_b.pressed.emit()
+	await _settle(8)
+	_ok(DccSettings.llm_consented_origins().is_empty() and _mock.requests.is_empty(), "'Not now' records nothing and sends nothing")
+	_ok(_status().contains("Consent needed"), "...the status still says why: %s" % _status().left(60))
+	_win.last_consent = {}
+	await _settle(10)
+	_ok(_win.last_consent.is_empty(), "declining does not loop: no second card without a new Refresh")
+	(_c("model_refresh") as Button).pressed.emit()
+	await _settle(8)
+	_ok(not _win.last_consent.is_empty(), "a new Refresh asks again")
+	_win.last_consent["choices"]["safe"].pressed.emit()
+	await _wait_done()
+	_ok(DccSettings.llm_consented_origins().has("http://127.0.0.1:%d" % _mock.port), "Allow records this endpoint")
+	_ok(_mock.requests.size() >= 1 and _model_rows().size() == 2, "Allow carries on: the models are listed (%s)" % str(_model_rows()))
+	# Master switch off: no card, nothing sent, the plain message and a button that turns it on.
+	_configure("lm_studio", {"enabled": false})
+	DccSettings.llm_withdraw_consent()
+	_mock.requests.clear()
+	_win.open()
+	await _settle(8)
+	_win.last_consent = {}
+	(_c("model_refresh") as Button).pressed.emit()
+	await _settle(8)
+	_ok(_win.last_consent.is_empty() and _mock.requests.is_empty(), "master off: no card and nothing sent")
+	_ok(_status().contains("Turn on Assistant enabled first"), "master off: the plain message: %s" % _status().left(70))
+	var eb := _c("model_enable") as Button
+	_ok(eb != null and eb.is_visible_in_tree() and eb.get_global_rect().size.y >= min_h, "master off: a 'Turn on' button is shown")
+	eb.pressed.emit()
+	await _settle(8)
+	_ok(not _win.last_consent.is_empty(), "turning it on asks consent for the unconsented endpoint")
+	_win.last_consent["choices"]["safe"].pressed.emit()
+	await _wait_done()
+	_ok(bool(DccSettings.llm_value("enabled")) and _model_rows().size() == 2, "Allow turns it on and lists the models")
+	# Remote endpoint class with no consent: the same card (a key is set, since the key check comes first).
+	OS.set_environment(ENV_VAR, "sk-testkey0123456789abcdef")
+	_configure("lm_studio", {"local_allowed": false, "remote_allowed": true, "base_url": "https://example.invalid/v1", "preset_id": "custom_openai", "key_source": "env"})
+	DccSettings.llm_withdraw_consent()
+	_win.open()
+	await _settle(8)
+	_win.last_consent = {}
+	(_c("model_refresh") as Button).pressed.emit()
+	await _settle(8)
+	var rc := String(_win._ml_code)
+	_ok(rc != "consent_needed" or not _win.last_consent.is_empty(), "remote: a missing-consent refusal opens the card (code %s)" % rc)
+	OS.unset_environment(ENV_VAR)
+	_configure("lm_studio")
+	_mock.requests.clear()
 
 	# ---------------------------------------------------------------- 2. LM Studio native list
 	print("== 2. LM Studio native list ==")

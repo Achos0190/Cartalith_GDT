@@ -324,27 +324,34 @@ func _ready() -> void:
 	_ok(wr.position.x >= -0.5 and wr.position.y >= -0.5 and wr.end.x <= vp.x + 0.5 and wr.end.y <= vp.y + 0.5, "the window %s is inside the viewport %s" % [wr, vp])
 	_ok((_c("status") as Label).text.begins_with("The assistant is off"), "status: '%s'" % (_c("status") as Label).text.left(90))
 	await _type("Describe the port.")
-	_ok((_c("send") as Button).disabled, "Send is disabled while the feature is off")
-	_ok((_c("reason") as Label).visible and (_c("reason") as Label).text.begins_with("The assistant is off"), "...with its reason beside it: '%s'" % (_c("reason") as Label).text.left(60))
+	_ok(not (_c("send") as Button).disabled and (_c("send") as Button).text == "Turn on Assistant enabled", "while the feature is off the main button offers to turn it on, and sends nothing")
+	_ok((_c("reason") as Label).visible and (_c("reason") as Label).text.begins_with("Turn on Assistant enabled first"), "...with its reason beside it: '%s'" % (_c("reason") as Label).text.left(60))
 	_ok(String((_c("send") as Button).tooltip_text) != "", "...and as its tooltip")
 	_ok((_c("save") as Button).disabled and (_c("save_reason") as Label).text == "No reply to save yet.", "Save is disabled: '%s'" % (_c("save_reason") as Label).text)
 	_ok(not (_c("stop") as Button).visible, "Stop is hidden when idle")
 	## LLM-6b enabled the chip (setting proposals); its own probe is `_llmparams_probe.gd`.
 	_ok(not (_c("task_commands") as Button).disabled and (_c("task_commands") as Button).tooltip_text.contains("Apply"), "Commands is enabled and says nothing changes until Apply")
 	var att0 := LlmWire.connect_attempts
-	_win._on_send()   # a forced Send, bypassing the disabled button
-	await _settle(8)
-	var last_msg: Node = _win._msgs.get_child(_win._msgs.get_child_count() - 1)
-	var last_txt: Array = []
-	_all_text(last_msg, last_txt)
-	last_txt = last_txt.filter(func(t): return String(t) != "")
-	_ok("
-".join(last_txt).begins_with("The assistant is off"), "a forced Send is refused with the GATE's reason, not a source complaint: '%s'" % "
-".join(last_txt).left(60))
-	_ok(LlmWire.connect_attempts == att0 and _server.accepted == 0, "a forced Send opened no connection (attempts %d, accepted %d)" % [LlmWire.connect_attempts, _server.accepted])
+	## (No forced Send here: with the feature off the button turns the master switch on, which would end this leg.)
+	await _settle(2)
+	_ok(LlmWire.connect_attempts == att0 and _server.accepted == 0, "no connection was opened (attempts %d, accepted %d)" % [LlmWire.connect_attempts, _server.accepted])
 	_ok(_win.run.stream != null and not _win.run.busy() and LlmWire.live_threads == 0, "...and started no thread")
 	_ok(_netstat_other(pid) == 0, "netstat: 0 non-listening TCP rows for this process with the feature off")
 	await _shot("1_off")
+	## The main button turns the master switch on (asking consent first if this endpoint has none) and
+	## sends nothing by itself.
+	var att1 := LlmWire.connect_attempts
+	_win.last_consent = {}
+	await _click(_c("send"))
+	await _settle(6)
+	if not _win.last_consent.is_empty() and _win.last_consent["card"]["dialog"].visible:
+		_win.last_consent["choices"]["safe"].pressed.emit()
+		await _settle(6)
+	_ok(bool(DccSettings.llm_value("enabled")) and LlmWire.connect_attempts == att1 and _server.accepted == 0,
+		"'Turn on Assistant enabled' turns it on and sends nothing")
+	DccSettings.set_llm_value("enabled", false)
+	_win._refresh()
+	await _settle(3)
 
 	# ------------------------------------------------------------------ 2. sources
 	print("== 2. sources ==")
@@ -474,6 +481,37 @@ func _ready() -> void:
 	_ok(not (_c("send") as Button).disabled or (_c("reason") as Label).text != "", "the panel is usable again")
 	await _shot("7_stopped")
 
+	# ------------------------------------------------------------------ 5b. no consent: Send shows the card and carries on
+	print("== 5b. consent on Send ==")
+	_server.scenario = "stream"
+	_server.tokens = ["Ok."]
+	_server.token_delay_ms = 5
+	_win._pick_task("story")
+	await _type("Narrate this place.")
+	DccSettings.llm_withdraw_consent()
+	_win._refresh()
+	await _settle(3)
+	var c0 := _server.requests.size()
+	_ok((_c("send") as Button).text == "Send" and not (_c("send") as Button).disabled, "no consent: the button still says Send (no hunt for a review button)")
+	_win.last_consent = {}
+	await _click(_c("send"))
+	await _settle(6)
+	_ok(not _win.last_consent.is_empty() and _win.last_consent["card"]["dialog"].visible, "Send with no consent opens the consent card at once")
+	_ok(_server.requests.size() == c0, "...and sent nothing")
+	_win.last_consent["choices"]["cancel"].pressed.emit()
+	await _settle(8)
+	_ok(_server.requests.size() == c0 and DccSettings.llm_consented_origins().is_empty(), "Not now: nothing sent, nothing recorded")
+	_win.last_consent = {}
+	await _settle(8)
+	_ok(_win.last_consent.is_empty(), "declining does not loop")
+	await _click(_c("send"))
+	await _settle(6)
+	_win.last_consent["choices"]["safe"].pressed.emit()
+	await _until(func(): return _server.requests.size() > c0 and not _win.run.busy(), 8000)
+	_ok(_server.requests.size() == c0 + 1, "Allow carries on: the request the user started is sent (%d new)" % (_server.requests.size() - c0))
+	_configure({"ctx_entity": true})
+	_win._refresh()
+	await _settle(3)
 	# ------------------------------------------------------------------ 6. tasks
 	print("== 6. story and note ==")
 	_server.scenario = "stream"

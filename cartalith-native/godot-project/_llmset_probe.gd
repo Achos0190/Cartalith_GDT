@@ -29,7 +29,7 @@ extends Node
 ##      consent needed, ready), and each is DISTINCT text;
 ##   5. the consent card: names the endpoint, says "No spend limit is enforced", has no terms link
 ##      for a local server and the right one for OpenAI; Esc, the close box and "Not now" record
-##      nothing; only "I understand, enable" records; enabling the master switch asks first and a
+##      nothing; only "Allow" records; enabling the master switch asks first and a
 ##      decline leaves it off; withdrawing makes it ask again;
 ##   6. the GPU rule: warning with a "Detected as" line for every class, the three override values
 ##      against this machine's real adapters, the engine switched and RESTORED, never persisted;
@@ -191,6 +191,10 @@ func _type(name: String, text: String) -> void:
 	le.text = text
 	le.text_submitted.emit(text)
 	await _settle(4)
+	## A committed address with the switch on and no consent now opens the consent card (the model list
+	## asks at once). That is not what this helper tests, so decline it the way a user would.
+	if name == "base_url" and _card_open():
+		await _decline_card()
 
 
 ## The consent card currently open, as `LlmConsent.present` returned it, or `{}`.
@@ -523,7 +527,7 @@ func _ready() -> void:
 	await _settle(6)
 	await _agree_card()
 	_ok(not _card_open() and DccSettings.llm_consented_origins() == PackedStringArray(["http://localhost:11434"]),
-		"'I understand, enable' records exactly the endpoint: %s" % DccSettings.llm_consented_origins())
+		"'Allow' records exactly the endpoint: %s" % DccSettings.llm_consented_origins())
 	_ok(_text_of("status").begins_with("Ready: requests go to http://localhost:11434"), "status: '%s'" % _text_of("status"))
 	_ok(_text_of("consent_state").begins_with("Consent given for http://localhost:11434"), "consent line: '%s'" % _text_of("consent_state"))
 	# The gate's own answer for each capability, through the Rust function.
@@ -769,6 +773,10 @@ func _ready() -> void:
 	var edge_hits := 0
 	var counter_hits := 0
 	for fx in [0.04, 0.96]:
+		## An address committed earlier with the switch on and no consent now opens the consent card
+		## (the model list asks at once); close it the way a user declines before pressing the switch.
+		if _card_open():
+			await _decline_card()
 		_reset_llm()
 		await _reopen()
 		var master := _c("enabled") as CheckBox

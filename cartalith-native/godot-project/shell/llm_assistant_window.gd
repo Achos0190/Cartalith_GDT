@@ -702,6 +702,12 @@ func _capability() -> String:
 	return "commands" if _task == "commands" else "prose"
 
 
+## The gate's refusal code now, or "" when the request may go.
+func _gate_code_now() -> String:
+	var g := _gate()
+	return "" if bool(g.get("ok", false)) else String(g.get("code", "x"))
+
+
 ## The gate's answer for this capability: `{ok, ...}` or `{ok: false, code, reason}`.
 func _gate() -> Dictionary:
 	return bridge.llm_authorize(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins())
@@ -839,7 +845,14 @@ func _refresh() -> void:
 	_reason_label.text = reason
 	_reason_label.visible = reason != ""
 	_send.disabled = busy or (reason != "" and String(g.get("code", "")) != "consent_needed")
-	_send.text = "Review consent…" if String(g.get("code", "")) == "consent_needed" else "Send"
+	## Send never turns into a "review" button: with no consent it opens the card and carries on after
+	## Allow; with the master switch off it turns the switch on (nothing is sent while it is off).
+	var gcode := String(g.get("code", ""))
+	_send.text = "Turn on Assistant enabled" if gcode == "feature_off" else "Send"
+	if gcode == "feature_off":
+		_reason_label.text = "Turn on Assistant enabled first. Nothing is sent while it is off."
+		_reason_label.visible = true
+		_send.disabled = busy
 	_send.tooltip_text = reason
 	_input.editable = not busy
 	_tok_label.visible = bool(DccSettings.llm_value("token_counter"))
@@ -1206,13 +1219,27 @@ func _on_sources(info: Dictionary) -> void:
 ## Send: the gate, then the stream. A `consent_needed` gate turns the button into the consent card.
 func _on_send() -> void:
 	var g := _gate()
-	if String(g.get("code", "")) == "consent_needed":
+	var code := String(g.get("code", ""))
+	if code == "feature_off" or code == "consent_needed":
 		var ep: Dictionary = bridge.llm_endpoint_info(String(DccSettings.llm_value("preset_id")), String(DccSettings.llm_value("base_url")))
 		var preset := {}
 		for p in bridge.llm_presets():
 			if String(p["id"]) == String(DccSettings.llm_value("preset_id")):
 				preset = p
-		last_consent = LlmConsent.present(app, ep, preset, func(): _refresh(), func(): _refresh())
+		var enabling := code == "feature_off"
+		## After Allow, the request the user started goes on (once: the origin is now recorded, so the
+		## gate cannot ask again). Not now, Esc and the close box record nothing and send nothing.
+		var go := func() -> void:
+			if enabling:
+				DccSettings.set_llm_value("enabled", true)
+			_refresh()
+			## Turning the switch on is all that press does; the user presses Send again to send.
+			if not enabling and _gate_code_now() == "" and _input.text.strip_edges() != "" and not run.busy():
+				_on_send()
+		if bool(ep.get("ok", false)) and not DccSettings.llm_consented_origins().has(String(ep.get("origin", ""))):
+			last_consent = LlmConsent.present(app, ep, preset, go, func(): _refresh())
+		elif enabling:
+			go.call()
 		return
 	var request := _input.text.strip_edges()
 	if _task == "prose" and not _place.is_empty():

@@ -14,7 +14,7 @@ class_name LlmConsent
 ##
 ## Two things, both enforced rather than promised:
 ##
-## * The only way to record consent is the card's "I understand, enable" button
+## * The only way to record consent is the card's "Allow" button
 ##   (`on_agree`). Esc, the close box, and "Not now" all take the decline path and record
 ##   nothing -- `DccWidgets.modal_choices` routes `canceled`, `close_requested` and the
 ##   header close box to the same dismissal.
@@ -48,7 +48,7 @@ const _INSET_PAD := 22
 ## Opens the consent card for `info` (an `llm_endpoint_info` dictionary with `ok` true)
 ## and returns `{"card", "choices", "terms"}` so a probe can reach the buttons.
 ## `preset` is the picker row (for the terms link) or `{}`. `on_agree` runs only after
-## the user presses "I understand, enable"; `on_decline` runs on every other way out.
+## the user presses "Allow"; `on_decline` runs on every other way out.
 static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callable,
 		on_decline: Callable = Callable()) -> Dictionary:
 	var origin := String(info.get("origin", ""))
@@ -121,7 +121,7 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 			on_decline.call()
 	var choices := DccWidgets.modal_choices(card, {
 		"cancel": "Not now",
-		"safe": {"text": "I understand, enable", "on": agree},
+		"safe": {"text": "Allow", "on": agree},
 		"on_cancel": decline,
 	})
 	DccWidgets.modal_present(card, host)
