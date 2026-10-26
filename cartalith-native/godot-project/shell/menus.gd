@@ -4125,13 +4125,14 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## tablet keep every window embedded (`PopoutHost.supported()`); the tablet's disabled-with-
 	## reason row is PW-5's. The tooltip says what the switch does TODAY: only the windows in
 	## `PopoutHost.LIVE_KEYS` leave the main window (the faction roster since PW-2, which closed the
-	## busy-overlay and shortcut holes PW-0 measured); every other panel stays docked until PW-3.
+	## busy-overlay and shortcut holes PW-0 measured; the other six v1 windows since PW-3); Data
+	## Manager, Asset Library and the file dialogs stay docked by decision (scope Q4).
 	if PopoutHost.supported():
 		p.add_check_item("Open panels in their own window", ID_PREF_POPOUT)
 		var popout_idx := p.item_count - 1
 		p.set_item_checked(popout_idx, DccSettings.popout_enabled())
 		p.set_item_tooltip(popout_idx,
-			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to a panel once it supports it: today only the faction roster does (the other panels follow in milestone PW-3), and its own Pop out button works with this off. Stored per device, never in a world.")
+			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to the Factions, Settlement types, Place editor, Generation rules, City viewer, Vault and Assistant panels (the Data Manager, the Asset Library and file dialogs stay inside this window), and each one's own Pop out button works with this off. Stored per device, never in a world.")
 		_popout_pref_row = popout_idx
 
 	if full or include_theme:

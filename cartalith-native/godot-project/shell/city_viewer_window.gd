@@ -161,6 +161,10 @@ func setup(b: EngineBridge, host = null) -> void:
 	## Also turns `wrap_controls` off -- on with a canvas child that has no
 	## natural size, which is the worst possible combination of the two.
 	_phone = DccWidgets.phone_window(self, host)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
+	## form only. A move re-shows this node and never calls `open()`, so the chosen place and the canvas
+	## stay as they were.
+	PopoutHost.add_toggle_button(self)
 
 	var outer: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -291,6 +295,8 @@ func open(index: int) -> void:
 	_refill_picker()
 	_reload()
 	if not DccWidgets.phone_present(self, get_parent()):
+		## PW-3: re-decides native versus docked for this open.
+		PopoutHost.prepare(self)
 		popup_centered()
 
 

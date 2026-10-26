@@ -30,8 +30,8 @@ extends Node
 ##      `PopoutHost.wants_native()` (every term of the conjunction flipped alone).
 ##   3. THE SESSION: boot, generate, open every listed window, hide it, save, export -- and at
 ##      EVERY step `DisplayServer.get_window_list().size() == 1` and no shell window has
-##      `force_native` (with the setting off AND with it on; since PW-2 `LIVE_KEYS` holds the roster, so with the setting on the
-##      desktop roster is the one native window and the count is 2 exactly while it is open; tablet and phone never pop out)
+##      `force_native` (with the setting off AND with it on; since PW-3 `LIVE_KEYS` holds the seven v1 windows, so with the setting on each
+##      of them is native while open and the count is 2 exactly then, the six other windows never; tablet and phone never pop out)
 ##   4. (desktop) THE NATIVE BRANCH on a scratch dialog the probe allows through `live`: setting
 ##      off keeps it embedded and stores nothing; setting on makes it native, transient,
 ##      non-exclusive, the window count 2; its rectangle and screen are stored on hide and put
@@ -384,7 +384,7 @@ func _tables() -> void:
 	for r in rows:
 		_ok(PopoutHost.wants_native(r[0], r[1], r[2], live) == r[3], "wants_native(setting=%s, platform=%s, key='%s') == %s" % [r[0], r[1], r[2], r[3]])
 	_ok(PopoutHost.wants_native(true, true, "a", PackedStringArray()) == false, "an empty live list lets nothing out")
-	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window"]), "PW-2 puts exactly the roster in LIVE_KEYS (PW-1 shipped it empty)")
+	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window", "settlement_types_window", "place_editor_window", "generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window"]), "PW-3 puts exactly the seven v1 windows in LIVE_KEYS, in the scope's order (PW-1 shipped it empty, PW-2 the roster alone)")
 
 
 # -- 3 ------------------------------------------------------------------------------------
@@ -455,8 +455,8 @@ func _session() -> void:
 			_: w.open()
 		await _settle(5)
 		_ok(w.visible, "%s opened" % name)
-		var expect_native: bool = _form == "desktop" and _setting and name == "faction_roster_window"  # PW-2: the roster is the one live window
-		_ok(w.is_embedded() != expect_native, "%s is %s" % [name, "a native window (PW-2: setting on, desktop)" if expect_native else "an embedded window (not native)"])
+		var expect_native: bool = _form == "desktop" and _setting  # PW-3: all seven listed windows are live; the six in `also` are not
+		_ok(w.is_embedded() != expect_native, "%s is %s" % [name, "a native window (PW-3: setting on, desktop)" if expect_native else "an embedded window (not native)"])
 		_step("open " + name, 2 if expect_native else 1)
 		w.hide()
 		await _settle(2)
@@ -467,8 +467,8 @@ func _session() -> void:
 		_step("open " + name)
 		w.hide()
 		await _settle(2)
-	var want_native := 1 if (_form == "desktop" and _setting) else 0
-	_ok(_native_shell_windows().size() == want_native, "exactly %d shell window(s) have force_native set (PW-2: the roster, only on the desktop with the setting on): %s" % [want_native, str(_native_shell_windows())])
+	var want_native := 7 if (_form == "desktop" and _setting) else 0
+	_ok(_native_shell_windows().size() == want_native, "exactly %d shell window(s) have force_native set (PW-3: the seven v1 windows, only on the desktop with the setting on; the six others never): %s" % [want_native, str(_native_shell_windows())])
 
 	var sdir := ProjectSettings.globalize_path("user://_popout_settings_probe")
 	DirAccess.make_dir_recursive_absolute(sdir)
@@ -486,7 +486,7 @@ func _session() -> void:
 	await _settle(3)
 	_step("export")
 	var bad := _steps.filter(func(s): return int(s[1]) != int(s[2]))
-	_ok(bad.is_empty(), "the OS window count is the expected one (1; 2 only while the PW-2 roster is native) at all %d steps%s" % [_steps.size(), "" if bad.is_empty() else ": " + str(bad)])
+	_ok(bad.is_empty(), "the OS window count is the expected one (1; 2 only while a PW-3 live window is native) at all %d steps%s" % [_steps.size(), "" if bad.is_empty() else ": " + str(bad)])
 	_ok(_native_shell_windows().size() == want_native, "still %d force_native shell window(s) after the session: %s" % [want_native, str(_native_shell_windows())])
 
 
@@ -598,7 +598,7 @@ func _row() -> void:
 	_ok(DccSettings.popout_enabled() == false and not popup.is_item_checked(at), "choosing it again turns it OFF and unticks the row")
 	_reload()
 	_ok(DccSettings.popout_enabled() == false, "OFF survives a reload")
-	_ok(popup.get_item_tooltip(at).contains("none does") or popup.get_item_tooltip(at).contains("today"), "the tooltip states honestly that no window honours it yet")
+	_ok(popup.get_item_tooltip(at).contains("Vault") and popup.get_item_tooltip(at).contains("Assistant") and popup.get_item_tooltip(at).contains("stay inside this window") and not popup.get_item_tooltip(at).contains("today only"), "the tooltip names the seven panels that honour it and the ones that stay docked (PW-3; the PW-2 'today only the faction roster' wording is gone)")
 	if _shots != "":
 		DccSettings.set_popout_enabled(true)
 		popup.set_item_checked(at, true)

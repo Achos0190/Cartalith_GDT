@@ -171,7 +171,7 @@ func _gen(seed: int, grid: Vector2i, poll: Callable = Callable()) -> void:
 
 func _tables() -> void:
 	print("== 1. tables ==")
-	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window"]), "LIVE_KEYS is exactly the roster (literal)")
+	_ok(PopoutHost.LIVE_KEYS.size() == 7 and PopoutHost.LIVE_KEYS[0] == "faction_roster_window" and PopoutHost.LIVE_KEYS.has("vault_window"), "LIVE_KEYS still starts with the roster (PW-3 added six more after it; `_popout_windows_probe.gd` pins the whole literal)")
 	_ok(PopoutHost.key_for(_w) == KEY, "the roster's window key is '%s'" % KEY)
 	var live := PackedStringArray([KEY])
 	for r in [[true, true, KEY, true], [false, true, KEY, false], [true, false, KEY, false], [true, true, "other", false]]:

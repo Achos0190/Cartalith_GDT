@@ -1,0 +1,520 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+== 0. clean user dir ==
+  ok    no cartalith_settings.cfg at start (the user dir was wiped)
+Cartalith shell build 66ec36e86645
+ERROR: Couldn't open directory at path "C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/PW3 Probe Scratch/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:876)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:906)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:973)
+       [3] _refresh (res://shell/open_project_dialog.gd:932)
+       [4] open_welcome (res://shell/open_project_dialog.gd:313)
+       [5] open_welcome (res://shell/app.gd:3415)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:1280)
+  ok    the shell booted into the desktop form (got desktop)
+== 1. tables ==
+  ok    LIVE_KEYS is exactly the seven v1 windows in the scope's order (literal)
+  ok    settlement types: the window's key is 'settlement_types_window'
+  ok    settlement types: wants_native(setting on, platform ok) is true
+  ok    settlement types: wants_native with the setting off is false
+  ok    place editor: the window's key is 'place_editor_window'
+  ok    place editor: wants_native(setting on, platform ok) is true
+  ok    place editor: wants_native with the setting off is false
+  ok    generation rules: the window's key is 'generation_rules_window'
+  ok    generation rules: wants_native(setting on, platform ok) is true
+  ok    generation rules: wants_native with the setting off is false
+  ok    city viewer: the window's key is 'city_viewer_window'
+  ok    city viewer: wants_native(setting on, platform ok) is true
+  ok    city viewer: wants_native with the setting off is false
+  ok    vault: the window's key is 'vault_window'
+  ok    vault: wants_native(setting on, platform ok) is true
+  ok    vault: wants_native with the setting off is false
+  ok    assistant: the window's key is 'llm_assistant_window'
+  ok    assistant: wants_native(setting on, platform ok) is true
+  ok    assistant: wants_native with the setting off is false
+  ok    Data manager ('data_manager_window') is NOT live: it stays embedded (scope Q4)
+  ok    Asset library ('asset_library_window') is NOT live: it stays embedded (scope Q4)
+  ok    Travel library ('travel_library_window') is NOT live: it stays embedded (scope Q4)
+  ok    World data ('world_data_window') is NOT live: it stays embedded (scope Q4)
+  ok    Assistant settings ('llm_settings_window') is NOT live: it stays embedded (scope Q4)
+  ok    Quick bar ('quick_bar_window') is NOT live: it stays embedded (scope Q4)
+  ok    opener_rule(placed=false, stored_screen=-1, opener=-1, current=0) == 'engine' (got 'engine')
+  ok    opener_rule(placed=true, stored_screen=0, opener=-1, current=0) == 'stored' (got 'stored')
+  ok    opener_rule(placed=true, stored_screen=1, opener=-1, current=0) == 'stored' (got 'stored')
+  ok    opener_rule(placed=false, stored_screen=-1, opener=1, current=0) == 'opener' (got 'opener')
+  ok    opener_rule(placed=false, stored_screen=-1, opener=1, current=1) == 'engine' (got 'engine')
+  ok    opener_rule(placed=true, stored_screen=1, opener=1, current=0) == 'stored' (got 'stored')
+  ok    opener_rule(placed=true, stored_screen=0, opener=1, current=0) == 'opener' (got 'opener')
+  ok    opener_rule(placed=true, stored_screen=0, opener=1, current=1) == 'opener' (got 'opener')
+  ok    opener_rule(placed=false, stored_screen=-1, opener=0, current=0) == 'engine' (got 'engine')
+  ok    opener_rule(placed=true, stored_screen=0, opener=0, current=1) == 'stored' (got 'stored')
+  ok    centred_in([P: (1920, 0), S: (1920, 1040)], (880, 620)) == [P: (2440, 226), S: (880, 620)] (got [P: (2440, 226), S: (880, 620)])
+  ok    centred_in([P: (0, 0), S: (800, 600)], (2000, 2000)) == [P: (0, 32), S: (800, 568)] (got [P: (0, 32), S: (800, 568)])
+  ok    centred_in([P: (-1280, 100), S: (1280, 1024)], (500, 400)) == [P: (-890, 428), S: (500, 400)] (got [P: (-890, 428), S: (500, 400)])
+  ok    centred_in([P: (0, 0), S: (1680, 1002)], (560, 800)) == [P: (560, 117), S: (560, 800)] (got [P: (560, 117), S: (560, 800)])
+  ok    no native window at boot
+  ok    is_moving() is false at boot
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2801300a860, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2801300a860, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2801300a860, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  ok    META_MOVING is true inside the hide a move makes (saw [true])
+  ok    and false inside a plain hide (saw [false])
+  ok    and erased once the move is over
+  ok    a probe Vault is connected: 
+== 2. the windows the scope keeps embedded stay embedded with the setting ON ==
+  ok    data manager: opens embedded, force_native false, OS window count 1
+  ok    data manager: carries no Pop out button
+  ok    asset library: opens embedded, force_native false, OS window count 1
+  ok    asset library: carries no Pop out button
+  ok    travel library: opens embedded, force_native false, OS window count 1
+  ok    travel library: carries no Pop out button
+  ok    world data: opens embedded, force_native false, OS window count 1
+  ok    world data: carries no Pop out button
+  ok    assistant settings: opens embedded, force_native false, OS window count 1
+  ok    assistant settings: carries no Pop out button
+  ok    quick bar customise: opens embedded, force_native false, OS window count 1
+  ok    quick bar customise: carries no Pop out button
+== 3. state across a move (g), per window ==
+  ok    settlement types, setting OFF: opens embedded, count 1
+  ok    settlement types: a 'Pop out' button exists beside Close
+  ok    settlement types: the balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    settlement types: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  settlement types: generic change { "scrolled": false, "typed": true }, snapshot scrolls=5 texts=5 options=4
+  ok    settlement types: a half-typed field was set up
+  ok    settlement types: the button popped it out: native, window count 2
+  ok    settlement types: transient and non-exclusive
+  ok    settlement types: the button now reads 'Dock'
+  ok    settlement types: native, with its key forwarder child
+  ok    settlement types: native_windows() lists exactly this window
+  ok    settlement types: selection, tab, scrolls, options and typed text survived the move
+  ok    settlement types: the button docked it back: embedded, count 1
+  ok    settlement types: the button reads 'Pop out' again
+  ok    settlement types: state survived the move back
+  ok    settlement types: pressing the real button pops it out (count 2)
+  ok    settlement types: pressing it again docks it (count 1)
+  ok    settlement types: state survived the real-button round trip
+  ok    settlement types, setting ON: open pops it out (count 2)
+  ok    settlement types: ...and the button reads 'Dock'
+  ok    settlement types: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    settlement types: Dock with the setting ON: embedded
+  ok    settlement types: state survived Dock with the setting ON
+  ok    settlement types: reopened: the manual Dock holds for the session with the setting ON
+  ok    settlement types: once choices are forgotten it follows the setting again (native)
+  ok    settlement types: hiding it leaves no OS window (count 1)
+  ok    settlement types: setting off again, no choice: embedded, count 1
+  ok    place editor, setting OFF: opens embedded, count 1
+  ok    place editor: a 'Pop out' button exists beside Close
+  ok    place editor: the balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    place editor: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  place editor: generic change { "scrolled": true, "typed": true }, snapshot scrolls=6 texts=8 options=5
+  ok    place editor: a half-typed field was set up
+  ok    place editor: the button popped it out: native, window count 2
+  ok    place editor: transient and non-exclusive
+  ok    place editor: the button now reads 'Dock'
+  ok    place editor: native, with its key forwarder child
+  ok    place editor: native_windows() lists exactly this window
+  ok    place editor: selection, tab, scrolls, options and typed text survived the move
+  ok    place editor: the button docked it back: embedded, count 1
+  ok    place editor: the button reads 'Pop out' again
+  ok    place editor: state survived the move back
+  ok    place editor: pressing the real button pops it out (count 2)
+  ok    place editor: pressing it again docks it (count 1)
+  ok    place editor: state survived the real-button round trip
+  ok    place editor: the Economy tab is still the active tab after Pop out
+  ok    place editor: and after Dock
+  ok    place editor, setting ON: open pops it out (count 2)
+  ok    place editor: ...and the button reads 'Dock'
+  ok    place editor: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    place editor: Dock with the setting ON: embedded
+  ok    place editor: state survived Dock with the setting ON
+  ok    place editor: reopened: the manual Dock holds for the session with the setting ON
+  ok    place editor: once choices are forgotten it follows the setting again (native)
+  ok    place editor: hiding it leaves no OS window (count 1)
+  ok    place editor: setting off again, no choice: embedded, count 1
+  ok    generation rules, setting OFF: opens embedded, count 1
+  ok    generation rules: a 'Pop out' button exists beside Close
+  ok    generation rules: the button is in the window's own header and there is no balance control
+  ok    generation rules: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  generation rules: generic change { "scrolled": true, "typed": false }, snapshot scrolls=1 texts=0 options=0
+  ok    generation rules: the button popped it out: native, window count 2
+  ok    generation rules: transient and non-exclusive
+  ok    generation rules: the button now reads 'Dock'
+  ok    generation rules: native, with its key forwarder child
+  ok    generation rules: native_windows() lists exactly this window
+  ok    generation rules: selection, tab, scrolls, options and typed text survived the move
+  ok    generation rules: the button docked it back: embedded, count 1
+  ok    generation rules: the button reads 'Pop out' again
+  ok    generation rules: state survived the move back
+  ok    generation rules: pressing the real button pops it out (count 2)
+  ok    generation rules: pressing it again docks it (count 1)
+  ok    generation rules: state survived the real-button round trip
+  ok    generation rules, setting ON: open pops it out (count 2)
+  ok    generation rules: ...and the button reads 'Dock'
+  ok    generation rules: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    generation rules: Dock with the setting ON: embedded
+  ok    generation rules: state survived Dock with the setting ON
+  ok    generation rules: reopened: the manual Dock holds for the session with the setting ON
+  ok    generation rules: once choices are forgotten it follows the setting again (native)
+  ok    generation rules: hiding it leaves no OS window (count 1)
+  ok    generation rules: setting off again, no choice: embedded, count 1
+  ok    city viewer, setting OFF: opens embedded, count 1
+  ok    city viewer: a 'Pop out' button exists beside Close
+  ok    city viewer: the balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    city viewer: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  city viewer: generic change { "scrolled": true, "typed": false }, snapshot scrolls=5 texts=4 options=4
+  ok    city viewer: the button popped it out: native, window count 2
+  ok    city viewer: transient and non-exclusive
+  ok    city viewer: the button now reads 'Dock'
+  ok    city viewer: native, with its key forwarder child
+  ok    city viewer: native_windows() lists exactly this window
+  ok    city viewer: selection, tab, scrolls, options and typed text survived the move
+  ok    city viewer: the button docked it back: embedded, count 1
+  ok    city viewer: the button reads 'Pop out' again
+  ok    city viewer: state survived the move back
+  ok    city viewer: pressing the real button pops it out (count 2)
+  ok    city viewer: pressing it again docks it (count 1)
+  ok    city viewer: state survived the real-button round trip
+  ok    city viewer, setting ON: open pops it out (count 2)
+  ok    city viewer: ...and the button reads 'Dock'
+  ok    city viewer: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    city viewer: Dock with the setting ON: embedded
+  ok    city viewer: state survived Dock with the setting ON
+  ok    city viewer: reopened: the manual Dock holds for the session with the setting ON
+  ok    city viewer: once choices are forgotten it follows the setting again (native)
+  ok    city viewer: hiding it leaves no OS window (count 1)
+  ok    city viewer: setting off again, no choice: embedded, count 1
+  ok    vault, setting OFF: opens embedded, count 1
+  ok    vault: a 'Pop out' button exists beside Close
+  ok    vault: the balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    vault: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  vault: generic change { "scrolled": false, "typed": true }, snapshot scrolls=2 texts=3 options=0
+  ok    vault: a half-typed field was set up
+  ok    vault: the button popped it out: native, window count 2
+  ok    vault: transient and non-exclusive
+  ok    vault: the button now reads 'Dock'
+  ok    vault: native, with its key forwarder child
+  ok    vault: native_windows() lists exactly this window
+  ok    vault: selection, tab, scrolls, options and typed text survived the move
+  ok    vault: the button docked it back: embedded, count 1
+  ok    vault: the button reads 'Pop out' again
+  ok    vault: state survived the move back
+  ok    vault: pressing the real button pops it out (count 2)
+  ok    vault: pressing it again docks it (count 1)
+  ok    vault: state survived the real-button round trip
+  ok    vault: set up an unsaved edit (dirty)
+  ok    vault: popped out with an unsaved edit
+  ok    vault: the move neither asked nor lost the unsaved edit (confirm dialogs 0 -> 0, text 'b')
+  ok    vault: docked again, still dirty
+  ok    vault: control: a real CLOSE with the edit still asks (confirm dialogs 1, window came back: true)
+  ok    vault, setting ON: open pops it out (count 2)
+  ok    vault: ...and the button reads 'Dock'
+  ok    vault: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    vault: Dock with the setting ON: embedded
+  ok    vault: state survived Dock with the setting ON
+  ok    vault: reopened: the manual Dock holds for the session with the setting ON
+  ok    vault: once choices are forgotten it follows the setting again (native)
+  ok    vault: hiding it leaves no OS window (count 1)
+  ok    vault: setting off again, no choice: embedded, count 1
+  ok    assistant, setting OFF: opens embedded, count 1
+  ok    assistant: a 'Pop out' button exists beside Close
+  ok    assistant: the balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    assistant: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  assistant: generic change { "scrolled": false, "typed": true }, snapshot scrolls=4 texts=3 options=2
+  ok    assistant: a half-typed field was set up
+  ok    assistant: the button popped it out: native, window count 2
+  ok    assistant: transient and non-exclusive
+  ok    assistant: the button now reads 'Dock'
+  ok    assistant: native, with its key forwarder child
+  ok    assistant: native_windows() lists exactly this window
+  ok    assistant: selection, tab, scrolls, options and typed text survived the move
+  ok    assistant: the button docked it back: embedded, count 1
+  ok    assistant: the button reads 'Pop out' again
+  ok    assistant: state survived the move back
+  ok    assistant: pressing the real button pops it out (count 2)
+  ok    assistant: pressing it again docks it (count 1)
+  ok    assistant: state survived the real-button round trip
+  ok    assistant, setting ON: open pops it out (count 2)
+  ok    assistant: ...and the button reads 'Dock'
+  ok    assistant: control: the scripted change moved the snapshot, so equal snapshots after a move compare something
+  ok    assistant: Dock with the setting ON: embedded
+  ok    assistant: state survived Dock with the setting ON
+  ok    assistant: reopened: the manual Dock holds for the session with the setting ON
+  ok    assistant: once choices are forgotten it follows the setting again (native)
+  ok    assistant: hiding it leaves no OS window (count 1)
+  ok    assistant: setting off again, no choice: embedded, count 1
+== 4. keys typed in each native window (b) ==
+  ok    control: the main window starts at 3 undoable steps
+  ok    control: the main window's sequence moves the history (undo, then redo)
+  ok    settlement types: native
+  ok    settlement types: the pop-out's history after each of 5 keys equals the main window's
+  ok    settlement types: the forwarder refuses Ctrl+Z while a text field has focus (history [true, false, 3] unchanged)
+  ok    settlement types: control: the same call with nothing focused undoes a step
+  ok    settlement types: Ctrl+S in the pop-out wrote a project (644229 bytes)
+  ok    place editor: native
+  ok    place editor: the pop-out's history after each of 5 keys equals the main window's
+  ok    place editor: the forwarder refuses Ctrl+Z while a text field has focus (history [true, false, 3] unchanged)
+  ok    place editor: control: the same call with nothing focused undoes a step
+  ok    place editor: Ctrl+S in the pop-out wrote a project (644229 bytes)
+  ok    generation rules: native
+  ok    generation rules: the pop-out's history after each of 5 keys equals the main window's
+  generation rules: no text field to focus (the typing guard is pinned by the windows that have one)
+  ok    generation rules: Ctrl+S in the pop-out wrote a project (644229 bytes)
+  ok    city viewer: native
+  ok    city viewer: the pop-out's history after each of 5 keys equals the main window's
+  city viewer: no text field to focus (the typing guard is pinned by the windows that have one)
+  ok    city viewer: Ctrl+S in the pop-out wrote a project (644229 bytes)
+  ok    vault: native
+  ok    vault: the pop-out's history after each of 5 keys equals the main window's
+  ok    vault: the forwarder refuses Ctrl+Z while a text field has focus (history [true, false, 3] unchanged)
+  ok    vault: control: the same call with nothing focused undoes a step
+  ok    vault: Ctrl+S in the pop-out wrote a project (644816 bytes)
+  ok    assistant: native
+  ok    assistant: the pop-out's history after each of 5 keys equals the main window's
+  ok    assistant: the forwarder refuses Ctrl+Z while a text field has focus (history [true, false, 3] unchanged)
+  ok    assistant: control: the same call with nothing focused undoes a step
+  ok    assistant: Ctrl+S in the pop-out wrote a project (644816 bytes)
+== 5. popups of a native window embed in it (e) ==
+  settlement types: dropdown popup rect [P: (423.0, 112.0), S: (477.0, 246.0)] in window (900, 560) (embedded true)
+  ok    settlement types: the dropdown opens visible and embedded in the native window
+  place editor: dropdown popup rect [P: (142.0, 139.0), S: (250.0, 246.0)] in window (400, 640) (embedded true)
+  ok    place editor: the dropdown opens visible and embedded in the native window
+  city viewer: dropdown popup rect [P: (364.0, -20.0), S: (302.0, 728.0)] in window (940, 660) (embedded true)
+  ok    city viewer: the dropdown opens visible and embedded in the native window
+  assistant: dropdown popup rect [P: (76.0, 134.0), S: (391.0, 71.0)] in window (560, 800) (embedded true)
+  ok    assistant: the dropdown opens visible and embedded in the native window
+  ok    at least three windows had a dropdown to test (4)
+== 6. the busy overlay and every native window at once (a) ==
+  ok    roster: native
+  ok    settlement types: native
+  ok    place editor: native
+  ok    generation rules: native
+  ok    city viewer: native
+  ok    vault: native
+  ok    assistant: native
+  ok    eight OS windows (main + 7): 8
+  ok    roster: control: with no run, a click lands in the native window (1 hit)
+  ok    settlement types: control: with no run, a click lands in the native window (1 hit)
+  ok    place editor: control: with no run, a click lands in the native window (1 hit)
+  ok    generation rules: control: with no run, a click lands in the native window (1 hit)
+  ok    city viewer: control: with no run, a click lands in the native window (1 hit)
+  ok    vault: control: with no run, a click lands in the native window (1 hit)
+  ok    assistant: control: with no run, a click lands in the native window (1 hit)
+  ok    the in-run checks ran (the generate lasted long enough)
+  ok    the overlay was blocking and the engine generating at the check
+  ok    the overlay carries a card mirror into every window (mirror_count 7)
+  ok    roster: gui_disable_input was true during the run
+  ok    roster: a click during the run reached 0 controls (control above: 1)
+  ok    roster: the card mirror changes 32697 sampled pixels of its own texture (flip-the-flag)
+  ok    settlement types: gui_disable_input was true during the run
+  ok    settlement types: a click during the run reached 0 controls (control above: 1)
+  ok    settlement types: the card mirror changes 28564 sampled pixels of its own texture (flip-the-flag)
+  ok    place editor: gui_disable_input was true during the run
+  ok    place editor: a click during the run reached 0 controls (control above: 1)
+  ok    place editor: the card mirror changes 17904 sampled pixels of its own texture (flip-the-flag)
+  ok    generation rules: gui_disable_input was true during the run
+  ok    generation rules: a click during the run reached 0 controls (control above: 1)
+  ok    generation rules: the card mirror changes 45572 sampled pixels of its own texture (flip-the-flag)
+  ok    city viewer: gui_disable_input was true during the run
+  ok    city viewer: a click during the run reached 0 controls (control above: 1)
+  ok    city viewer: the card mirror changes 54772 sampled pixels of its own texture (flip-the-flag)
+  ok    vault: gui_disable_input was true during the run
+  ok    vault: a click during the run reached 0 controls (control above: 1)
+  ok    vault: the card mirror changes 47882 sampled pixels of its own texture (flip-the-flag)
+  ok    assistant: gui_disable_input was true during the run
+  ok    assistant: a click during the run reached 0 controls (control above: 1)
+  ok    assistant: the card mirror changes 41643 sampled pixels of its own texture (flip-the-flag)
+  ok    roster: after the run the window takes input again
+  ok    roster: after the run a click lands again (1 hit)
+  ok    settlement types: after the run the window takes input again
+  ok    settlement types: after the run a click lands again (1 hit)
+  ok    place editor: after the run the window takes input again
+  ok    place editor: after the run a click lands again (1 hit)
+  ok    generation rules: after the run the window takes input again
+  ok    generation rules: after the run a click lands again (1 hit)
+  ok    city viewer: after the run the window takes input again
+  ok    city viewer: after the run a click lands again (1 hit)
+  ok    vault: after the run the window takes input again
+  ok    vault: after the run a click lands again (1 hit)
+  ok    assistant: after the run the window takes input again
+  ok    assistant: after the run a click lands again (1 hit)
+  ok    and no mirror is left (0)
+  ok    the second run's in-run moves happened
+  ok    roster: docked DURING the run it is still muted
+  ok    roster: popped out again DURING the run it is still muted
+  ok    roster: and a click after the re-pop reached 0 controls
+  ok    settlement types: docked DURING the run it is still muted
+  ok    settlement types: popped out again DURING the run it is still muted
+  ok    settlement types: and a click after the re-pop reached 0 controls
+  ok    place editor: docked DURING the run it is still muted
+  ok    place editor: popped out again DURING the run it is still muted
+  ok    place editor: and a click after the re-pop reached 0 controls
+  ok    generation rules: docked DURING the run it is still muted
+  ok    generation rules: popped out again DURING the run it is still muted
+  ok    generation rules: and a click after the re-pop reached 0 controls
+  ok    city viewer: docked DURING the run it is still muted
+  ok    city viewer: popped out again DURING the run it is still muted
+  ok    city viewer: and a click after the re-pop reached 0 controls
+  ok    vault: docked DURING the run it is still muted
+  ok    vault: popped out again DURING the run it is still muted
+  ok    vault: and a click after the re-pop reached 0 controls
+  ok    assistant: docked DURING the run it is still muted
+  ok    assistant: popped out again DURING the run it is still muted
+  ok    assistant: and a click after the re-pop reached 0 controls
+  ok    roster: after the second run input returns
+  ok    settlement types: after the second run input returns
+  ok    place editor: after the second run input returns
+  ok    generation rules: after the second run input returns
+  ok    city viewer: after the second run input returns
+  ok    vault: after the second run input returns
+  ok    assistant: after the second run input returns
+== 7. the Preferences row and the buttons agree ==
+  ok    the Preferences row exists
+  ok    the row's tooltip names the panels that honour it
+  ok    the row turned the setting ON
+  ok    settlement types: flipping the setting cleared its manual choice
+  ok    settlement types: after the flip it follows the setting (native)
+  ok    place editor: flipping the setting cleared its manual choice
+  ok    place editor: after the flip it follows the setting (native)
+  ok    generation rules: flipping the setting cleared its manual choice
+  ok    generation rules: after the flip it follows the setting (native)
+  ok    city viewer: flipping the setting cleared its manual choice
+  ok    city viewer: after the flip it follows the setting (native)
+  ok    vault: flipping the setting cleared its manual choice
+  ok    vault: after the flip it follows the setting (native)
+  ok    assistant: flipping the setting cleared its manual choice
+  ok    assistant: after the flip it follows the setting (native)
+  ok    the row turned the setting OFF
+  ok    settlement types: setting off, no choice: embedded again, count 1
+  ok    place editor: setting off, no choice: embedded again, count 1
+  ok    generation rules: setting off, no choice: embedded again, count 1
+  ok    city viewer: setting off, no choice: embedded again, count 1
+  ok    vault: setting off, no choice: embedded again, count 1
+  ok    assistant: setting off, no choice: embedded again, count 1
+== 8. engine state, docked versus native (c) ==
+  ok    seed 483920 settlement types docked: window is docked
+  ok    seed 483920 settlement types docked: control: the scripted edit changed the state (d9219ecd1973bcef -> c7b52979748f8de3)
+  ok    seed 483920 settlement types native: window is native
+  ok    seed 483920 settlement types native: control: the scripted edit changed the state (d9219ecd1973bcef -> c7b52979748f8de3)
+  ok    seed 483920 settlement types: the state hash after the edit is equal docked and native (c7b52979748f8de3)
+  ok    seed 483920 settlement types: the world hash is equal (f41936c08917f4f7:79292)
+  ok    seed 483920 place editor docked: window is docked
+  ok    seed 483920 place editor docked: control: the scripted edit changed the state (d9219ecd1973bcef -> b4856f7847dbd56d)
+  ok    seed 483920 place editor native: window is native
+  ok    seed 483920 place editor native: control: the scripted edit changed the state (d9219ecd1973bcef -> b4856f7847dbd56d)
+  ok    seed 483920 place editor: the state hash after the edit is equal docked and native (b4856f7847dbd56d)
+  ok    seed 483920 place editor: the world hash is equal (f41936c08917f4f7:79292)
+  ok    seed 483920 generation rules docked: window is docked
+  ok    seed 483920 generation rules docked: control: the scripted edit changed the state (d9219ecd1973bcef -> 7aac429abcf6fd69)
+  ok    seed 483920 generation rules native: window is native
+  ok    seed 483920 generation rules native: control: the scripted edit changed the state (d9219ecd1973bcef -> 7aac429abcf6fd69)
+  ok    seed 483920 generation rules: the state hash after the edit is equal docked and native (7aac429abcf6fd69)
+  ok    seed 483920 generation rules: the world hash is equal (f41936c08917f4f7:79292)
+  ok    seed 24601 settlement types docked: window is docked
+  ok    seed 24601 settlement types docked: control: the scripted edit changed the state (ea0fa3223b659f8a -> dd89c2183bd869cf)
+  ok    seed 24601 settlement types native: window is native
+  ok    seed 24601 settlement types native: control: the scripted edit changed the state (ea0fa3223b659f8a -> dd89c2183bd869cf)
+  ok    seed 24601 settlement types: the state hash after the edit is equal docked and native (dd89c2183bd869cf)
+  ok    seed 24601 settlement types: the world hash is equal (d7626d79e20fe874:78021)
+  ok    seed 24601 place editor docked: window is docked
+  ok    seed 24601 place editor docked: control: the scripted edit changed the state (ea0fa3223b659f8a -> 90a6200f5a675c6b)
+  ok    seed 24601 place editor native: window is native
+  ok    seed 24601 place editor native: control: the scripted edit changed the state (ea0fa3223b659f8a -> 90a6200f5a675c6b)
+  ok    seed 24601 place editor: the state hash after the edit is equal docked and native (90a6200f5a675c6b)
+  ok    seed 24601 place editor: the world hash is equal (d7626d79e20fe874:78021)
+  ok    seed 24601 generation rules docked: window is docked
+  ok    seed 24601 generation rules docked: control: the scripted edit changed the state (ea0fa3223b659f8a -> 3b2580413b3a6f53)
+  ok    seed 24601 generation rules native: window is native
+  ok    seed 24601 generation rules native: control: the scripted edit changed the state (ea0fa3223b659f8a -> 3b2580413b3a6f53)
+  ok    seed 24601 generation rules: the state hash after the edit is equal docked and native (3b2580413b3a6f53)
+  ok    seed 24601 generation rules: the world hash is equal (d7626d79e20fe874:78021)
+  ok    seed 71077345 settlement types docked: window is docked
+  ok    seed 71077345 settlement types docked: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> d475677671f8fbc5)
+  ok    seed 71077345 settlement types native: window is native
+  ok    seed 71077345 settlement types native: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> d475677671f8fbc5)
+  ok    seed 71077345 settlement types: the state hash after the edit is equal docked and native (d475677671f8fbc5)
+  ok    seed 71077345 settlement types: the world hash is equal (f58e2219d820976e:78044)
+  ok    seed 71077345 place editor docked: window is docked
+  ok    seed 71077345 place editor docked: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> ca95640d74e7e70a)
+  ok    seed 71077345 place editor native: window is native
+  ok    seed 71077345 place editor native: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> ca95640d74e7e70a)
+  ok    seed 71077345 place editor: the state hash after the edit is equal docked and native (ca95640d74e7e70a)
+  ok    seed 71077345 place editor: the world hash is equal (f58e2219d820976e:78044)
+  ok    seed 71077345 generation rules docked: window is docked
+  ok    seed 71077345 generation rules docked: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> c9fd88ab0c3a8774)
+  ok    seed 71077345 generation rules native: window is native
+  ok    seed 71077345 generation rules native: control: the scripted edit changed the state (8b6b6f992f5d5ac4 -> c9fd88ab0c3a8774)
+  ok    seed 71077345 generation rules: the state hash after the edit is equal docked and native (c9fd88ab0c3a8774)
+  ok    seed 71077345 generation rules: the world hash is equal (f58e2219d820976e:78044)
+  ok    a world generated with all seven windows native equals one generated docked (f41936c08917f4f7:79292)
+  ok    control: the fingerprint covered real cells (f41936c08917f4f7:79292)
+== 9. a window opened from another window ==
+  ok    the roster is native
+  roster.has_focus() after grab_focus: true
+  ok    the place editor opened from the roster is native (setting on)
+  ok    it is on the roster's screen (0 == 0; one monitor, so this half is trivial and the two-screen half is owner-run)
+  ok    and inside that screen's usable area ([P: (640, 181), S: (400, 640)] in [P: (0, 0), S: (1680, 1002)])
+  ok    opener_screen() reports the focused roster's screen for a window about to open from it
+== 10. the Assistant as a native window (real LM Studio, qwen3-14b) ==
+  ok    the assistant opens docked (setting off)
+  ok    popped out with a half-typed prompt
+  ok    the half-typed prompt survived the move
+  ok    Send is enabled in the native window (gate open: '')
+-- 10a. Send and stream in the native window --
+  ok    a PARTIAL reply was visible in the native window while the model was still generating
+  ok    Stop was visible while the reply ran
+  ok    a finished reply of 1687 characters arrived
+  ok    the worker is joined (live threads 0)
+  ok    the reply carries the MODEL-GENERATED chip
+-- 10b. a MOVE mid-stream does not end the reply --
+  ok    tokens are arriving in the native window
+  ok    docked mid-stream: the run is still busy (not cancelled by the move)
+  ok    and tokens keep arriving after the dock (32 -> 55 chars)
+  ok    popped out again mid-stream: still busy
+  ok    and tokens keep arriving after the re-pop (55 -> 76 chars)
+-- 10c. Stop in the native window --
+  ok    positive control: the reply is still running with one worker thread (1)
+  ok    Stop is visible and enabled in the native window
+  ok    a real click on Stop in the native window: the panel says 'Stopped.'
+  ok    no token was added after Stop
+  ok    the worker is joined (live threads 0)
+  ok    the window is still native
+-- 10d. Close mid-stream in the native window --
+  ok    tokens are arriving
+  ok    positive control: a worker thread exists mid-stream
+  ok    closing the native window mid-stream cancelled and joined the worker (live threads 0)
+-- 10e. the off-gate and a forced Send --
+  ok    feature off: Send is disabled with its reason in the native window ('The assistant is off. Turn on "Assistant enabled" ')
+  ok    a forced Send in the native window opened no connection (attempts 0)
+-- 10f. a Commands card from the real model: Apply and one undo, in the native window --
+  ok    the card carries the MODEL PROPOSAL chip
+  ok    NOTHING was written before the click (world digest unchanged)
+  ok    'Apply 1 change' is enabled
+  ok    a real click on Apply in the native window applied the card (Applied as one undo step (Edit ▸ Undo reverts all of it). Regenerate or Recompute to see it.)
+  ok    positive control: the digest moved
+  ok    Edit > Undo names the group: 'Assistant: The peak height has been adjusted to 2800 metres.'
+  ok    ONE Ctrl+Z typed in the native assistant (the forwarder) returns the whole world digest to before the Apply
+-- 10g. the busy overlay mutes the native assistant while a world generates --
+  ok    while generating, the native assistant window is muted by the busy overlay
+  ok    and takes input again afterwards
+  ok    the assistant is still native after all of that
+== 11. closing the main window closes every pop-out (d) ==
+  ok    a child process started (pid 13908)
+  ok    the child process has exited (7.5 s): no orphan window or process
+  ok    control: the child had really reached 7 OS windows (main + six) before it quit ('native windows=7')
+RESULT: PASS (0 failed, 457 checks) form=desktop
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

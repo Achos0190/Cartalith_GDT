@@ -304,6 +304,12 @@ func setup(a, b: EngineBridge) -> void:
 	## dismiss (`city_viewer_window.gd`, `world_data_window.gd`, ...) say Close.
 	ok_button_text = "Close"
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
+	## form only. A move hides and re-shows THIS node under `PopoutHost.META_MOVING`; the unsaved-edit guard
+	## (`_on_visibility_changed`) defers to the end of the frame and finds the window visible again, so a
+	## move with unsaved edits neither asks nor loses them. Never calls `open_*`, so the note, its
+	## unsaved text and the scroll are the ones the user left.
+	PopoutHost.add_toggle_button(self)
 
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 0)
@@ -361,6 +367,8 @@ func open_for(kind: String, entity_id: int, label: String) -> void:
 	if not DccWidgets.phone_present(self, app):
 		if kind != "" and bool(bridge.vault_info().get("bound", false)):
 			_size_as_browser()
+		## PW-3: re-decides native versus docked for this open (see `setup`'s note).
+		PopoutHost.prepare(self)
 		popup_centered()
 
 
@@ -455,6 +463,8 @@ func open_browse() -> void:
 		_size_as_browser()
 	_rebuild()
 	if as_window:
+		## PW-3: re-decides native versus docked for this open (see `setup`'s note).
+		PopoutHost.prepare(self)
 		popup_centered()
 
 

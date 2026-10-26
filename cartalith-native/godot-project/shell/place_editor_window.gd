@@ -291,6 +291,10 @@ func setup(a, b: EngineBridge) -> void:
 	## Also turns `wrap_controls` off -- which this window shipped with on,
 	## the third instance of that bug class in this shell.
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
+	## form only. `PopoutHost.toggle()` hides, flips and re-shows THIS node (never `open_for`), so the
+	## place, the active tab and a half-typed field survive the move.
+	PopoutHost.add_toggle_button(self)
 
 	## One column rather than the scroll directly, so the phone header has
 	## somewhere to sit. An `AcceptDialog` gives its *first* content child the
@@ -374,6 +378,10 @@ func open_for(index: int) -> void:
 	if _index < 0:
 		return
 	if not DccWidgets.phone_present(self, app):
+		## PW-3: re-decides native versus docked for this open (a window already showing is left as it
+		## is, so re-opening onto another place does not move it). Opened from a pop-out (the roster's
+		## place list), a native editor lands on the opener's screen (`PopoutHost._restore`).
+		PopoutHost.prepare(self)
 		popup_centered()
 	## §4.5.3 asks for the editor to open "focused on the name field", and on a
 	## pointer that costs nothing. On a phone a focused `LineEdit` raises the

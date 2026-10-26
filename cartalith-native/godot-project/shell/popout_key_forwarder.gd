@@ -29,8 +29,15 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var act := PopoutHost.forward_action(k.keycode, k.is_command_or_control_pressed(), k.shift_pressed, k.alt_pressed, typing)
 	if act == "":
 		return
+	## The app is the window's `app` property when it has one; `CityViewerWindow` keeps only the bridge
+	## and was handed its host as a `setup()` argument, so the window's parent -- the `DccApp` every tool
+	## window is added to -- is the fallback (PW-3: without it Ctrl+Z, Ctrl+Y and Ctrl+S would be dead in
+	## the City viewer pop-out; `_popout_windows_probe.gd` sends them to every window). A window with
+	## neither does nothing, as before.
 	var app = host.get("app")
 	if app == null:
+		app = host.get_parent()
+	if app == null or not app.has_method("undo_last"):
 		return
 	match act:
 		"undo":

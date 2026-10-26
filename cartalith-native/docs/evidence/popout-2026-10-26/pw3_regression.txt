@@ -1,0 +1,52 @@
+== roster_desk: exit=0 script_errors=0 RESULT: PASS (0 failed, 146 checks) form=desktop | 
+== roster_tab: exit=0 script_errors=0 RESULT: PASS (0 failed, 6 checks) form=tablet | 
+== roster_pho: exit=0 script_errors=0 RESULT: PASS (0 failed, 6 checks) form=phone | 
+== s_desk_off: exit=0 script_errors=0 RESULT: PASS (0 failed, 183 checks) form=desktop setting=off | 
+== s_desk_on: exit=0 script_errors=0 RESULT: PASS (0 failed, 70 checks) form=desktop setting=on | 
+== s_tab_off: exit=0 script_errors=0 RESULT: PASS (0 failed, 40 checks) form=tablet setting=off | 
+== s_tab_on: exit=0 script_errors=0 RESULT: PASS (0 failed, 41 checks) form=tablet setting=on | 
+== s_pho_off: exit=0 script_errors=0 RESULT: PASS (0 failed, 40 checks) form=phone setting=off | 
+== s_pho_on: exit=0 script_errors=0 RESULT: PASS (0 failed, 41 checks) form=phone setting=on | 
+== pw0: exit=0 script_errors=0  | [VERDICT] CONTROLS OK
+== gsw: exit=0 script_errors=0  | [gsw] RESULT gsw checks=339 fail=0 engine-panic-hits(total)=0
+== fh_desk: exit=1 script_errors=0  | FACTIONHUB RESULT FAIL  checks=538 fails=3
+== fh_phone: exit=1 script_errors=0  | FACTIONHUB RESULT FAIL  checks=580 fails=3
+== qb_desk: exit=0 script_errors=0 RESULT: PASS (0 failed, 200 checks) | 
+== qbw_desk: exit=1 script_errors=0  | 
+== qbr_desk: exit=1 script_errors=0  | 
+== qba_desk: exit=1 script_errors=0  | 
+== llmpanel_desk: exit=1 script_errors=0  | 
+== llmset_desk: exit=1 script_errors=0  | 
+== qb_tab: exit=0 script_errors=0 RESULT: PASS (0 failed, 200 checks) | 
+== qbw_tab: exit=1 script_errors=0  | 
+== qbr_tab: exit=1 script_errors=0  | 
+== qba_tab: exit=1 script_errors=0  | 
+== llmpanel_tab: exit=1 script_errors=0  | 
+== llmset_tab: exit=1 script_errors=0  | 
+== qb_pho: exit=0 script_errors=0 RESULT: PASS (0 failed, 6 checks) | 
+== qbw_pho: exit=1 script_errors=0  | 
+== qbr_pho: exit=1 script_errors=0  | 
+== qba_pho: exit=1 script_errors=0  | 
+== llmpanel_pho: exit=1 script_errors=0  | 
+== llmset_pho: exit=1 script_errors=0  | 
+== qbs: exit=0 script_errors=0 RESULT: PASS (0 failed, 114 checks) | 
+== qbph: exit=0 script_errors=0 RESULT: PASS (0 failed, 123 checks) | 
+DONE
+== qbw_desk: exit=1 script_errors=0 RESULT: FAIL (7 failed, 107 checks) | 
+== qbr_desk: exit=0 script_errors=0 RESULT: PASS (0 failed, 164 checks) | 
+== qba_desk: exit=0 script_errors=0 RESULT: PASS (0 failed, 107 checks) | 
+== llmpanel_desk: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== llmset_desk: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== qbw_tab: exit=0 script_errors=0 RESULT: PASS (0 failed, 108 checks) | 
+== qbr_tab: exit=0 script_errors=0 RESULT: PASS (0 failed, 165 checks) | 
+== qba_tab: exit=0 script_errors=0 RESULT: PASS (0 failed, 108 checks) | 
+== llmpanel_tab: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== llmset_tab: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== qbw_pho: exit=0 script_errors=0 RESULT: PASS (0 failed, 3 checks) | 
+== qbr_pho: exit=0 script_errors=0 RESULT: PASS (0 failed, 5 checks) | 
+== qba_pho: exit=0 script_errors=0 RESULT: PASS (0 failed, 24 checks) | 
+== llmpanel_pho: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== llmset_pho: exit=0 script_errors=0 RESULT: PASS (0 failed) | 
+== qbph: exit=0 script_errors=0 RESULT: PASS (0 failed, 123 checks) | 
+DONE
+qbw_desk re-runs: mine 107/7fail, mine 108 pass; pristine 108 pass, 107/7fail, 108 pass (real-cursor sweep flake, both trees)

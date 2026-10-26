@@ -1,0 +1,26 @@
+M01 vault_window leaves LIVE_KEYS [tables]: KILLED (2 failed): FAIL  LIVE_KEYS is exactly the seven v1 windows in the scope's order (literal)
+M02 opener_rule stored branch inverted [tables]: KILLED (4 failed): FAIL  opener_rule(placed=true, stored_screen=1, opener=1, current=0) == 'stored' (got 'opener')
+M03 opener_rule no-opener restore dropped [tables]: KILLED (2 failed): FAIL  opener_rule(placed=true, stored_screen=0, opener=-1, current=0) == 'stored' (got 'engine')
+M04 opener_rule current-screen term [tables]: KILLED (2 failed): FAIL  opener_rule(placed=false, stored_screen=-1, opener=1, current=0) == 'opener' (got 'engine')
+M05 centred_in loses the title row [tables]: KILLED (4 failed): FAIL  centred_in([P: (1920, 0), S: (1920, 1040)], (880, 620)) == [P: (2440, 226), S: (880, 620)] (got [P: (244
+M06 toggle never marks the move [tables]: KILLED (1 failed): FAIL  META_MOVING is true inside the hide a move makes (saw [false])
+M07 move flag never erased: NOT APPLIED (occurs 0 times)
+M08 forwarder has no parent fallback [keys]: KILLED (2 failed): FAIL  city viewer: the pop-out's history after each of 5 keys equals the main window's -- [[true, false, 3], [
+M09 vault has no button: NOT APPLIED (occurs 0 times)
+M10 city viewer open does not re-decide: NOT APPLIED (occurs 0 times)
+M11 place editor open does not re-decide: NOT APPLIED (occurs 0 times)
+M12 rules header button missing: NOT APPLIED (occurs 0 times)
+M13 settlement types open does not re-decide: NOT APPLIED (occurs 0 times)
+M14 only the roster joins the busy group [busy]: KILLED (19 failed): FAIL  the overlay carries a card mirror into every window (mirror_count 1)
+M15 assistant ignores the move flag [assistant]: KILLED (6 failed): FAIL  docked mid-stream: the run is still busy (not cancelled by the move)
+M16 vault open_browse does not re-decide: NOT APPLIED (occurs 0 times)
+DONE
+--- rerun of the CRLF-not-applied rows ---
+M07 move flag never erased [tables]: KILLED (2 failed): FAIL  and false inside a plain hide (saw [true])
+M09 vault has no button [state]: KILLED (2 failed): FAIL  vault: a 'Pop out' button exists beside Close
+M10 city viewer open does not re-decide [state]: KILLED (5 failed): FAIL  city viewer, setting ON: open pops it out (count 1)
+M11 place editor open does not re-decide [state]: KILLED (5 failed): FAIL  place editor, setting ON: open pops it out (count 1)
+M12 rules header button missing [state]: KILLED (2 failed): FAIL  generation rules: a 'Pop out' button exists beside Close
+M13 settlement types open does not re-decide [state]: KILLED (5 failed): FAIL  settlement types, setting ON: open pops it out (count 1)
+M16 vault open_browse does not re-decide [state]: KILLED (5 failed): FAIL  vault, setting ON: open pops it out (count 1)
+DONE

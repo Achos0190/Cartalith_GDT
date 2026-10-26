@@ -77,6 +77,10 @@ func setup(a, b: EngineBridge) -> void:
 	## `phone_window()` below turns off at the cause; all the cap still did was
 	## stop a user from making the window bigger.
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
+	## form only (`null` and nothing added on a phone or a tablet). `PopoutHost.toggle()` hides, flips and
+	## re-shows THIS node, so the library selection and the scroll position below survive the move.
+	PopoutHost.add_toggle_button(self)
 
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 0)
@@ -120,6 +124,9 @@ func open() -> void:
 		_selected_id = String((types[0] as Dictionary).get("id", "")) if not types.is_empty() else ""
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
+		## PW-3: re-decides native versus docked now, so a setting changed since `setup()` (or the user's
+		## last button press) applies to this open; with the setting off it changes nothing.
+		PopoutHost.prepare(self)
 		popup_centered()
 
 

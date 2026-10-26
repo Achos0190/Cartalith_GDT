@@ -20,13 +20,21 @@ class_name PopoutHost
 ## (`native_windows()` is what `BusyOverlay` mutes, scope s.3).
 
 ## The window keys (`key_for()`) that actually pop out when the setting is on, or when the user
-## presses the window's own "Pop out" button. **PW-2 adds the faction roster**, the pilot: the two
+## presses the window's own "Pop out" button. **PW-2 added the faction roster**, the pilot: the two
 ## holes PW-0 measured are closed for it -- `BusyOverlay` mutes and mirrors a native window
 ## (`native_windows()`), and `PopoutKeyForwarder` carries Ctrl+Z, Ctrl+Y and Ctrl+S out of it
-## (`forward_action()`). PW-3 adds the rest, in the scope's order: settlement_types_window,
-## place_editor_window, generation_rules_window, city_viewer_window, vault_window,
-## llm_assistant_window. A key joins this list only together with its button (`add_toggle_button`).
-const LIVE_KEYS: PackedStringArray = ["faction_roster_window"]
+## (`forward_action()`). **PW-3 adds the other six v1 windows** (`POPOUT_WINDOWS_SCOPE.md` s.4 and Q4,
+## Ruling DK): settlement types, place editor, generation rules, city viewer, vault and assistant.
+## Both holes are closed generically (the overlay walks the `GROUP`, the forwarder is a child of every
+## native window), so adding a key needs only the window's own two lines: `add_toggle_button(self)`
+## in `setup()` and `prepare(self)` before each `popup_centered()`. A key joins this list only together
+## with its button (`add_toggle_button`). Data Manager, Asset Library, Travel library, the assistant's
+## settings, the quick-bar customiser and every file dialog are deliberately NOT here: they stay
+## embedded (scope Q4), and a probe pins that.
+const LIVE_KEYS: PackedStringArray = [
+	"faction_roster_window", "settlement_types_window", "place_editor_window",
+	"generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window",
+]
 
 ## The scene-tree group every window whose key is live joins (docked or not), so `BusyOverlay` can
 ## find the native ones without knowing which windows exist (`native_windows()`).
@@ -35,6 +43,11 @@ const GROUP := "popout_managed"
 ## hand" (`true` = native). ABSENT means "follow the global setting". Absence is the no-choice value,
 ## never `false`, because `false` is a real choice (Dock while the setting is on).
 const META_CHOICE := "_popout_choice"
+## Present (and `true`) only while `toggle()` is between hiding a window and showing it again. A hide
+## made by a MOVE is not a close: the assistant's `visibility_changed` handler ends a running reply
+## on a hide (LLM-3, "no thread outlives the window"), and that must not fire for a move
+## (`is_moving()`). Absent is the normal value; it is erased synchronously before `toggle()` yields.
+const META_MOVING := "_popout_moving"
 ## Name of the per-window button (`add_toggle_button`), so a probe can find it by name.
 const BUTTON_NAME := "PopoutButton"
 ## Name of the key-forwarding child (`PopoutKeyForwarder`).
@@ -135,14 +148,69 @@ static func _on_focus(dlg: Window) -> void:
 static func _restore(dlg: Window) -> bool:
 	if not is_instance_valid(dlg) or dlg.is_embedded():
 		return false
+	var screens := PopoutGeometry.screens_now()
 	var r := PopoutGeometry.resolve(DccSettings.popout_geometry(key_for(dlg)),
-		PopoutGeometry.screens_now(), DisplayServer.get_primary_screen())
-	if not bool(r.get("placed", false)):
+		screens, DisplayServer.get_primary_screen())
+	var placed := bool(r.get("placed", false))
+	## PW-3: a window opened FROM another pop-out opens on the opener's screen (scope PW-3 bar). The
+	## opener is the pop-out that has the keyboard focus right now (`opener_screen()`); a window opened
+	## from the main window or a menu has no opener and keeps the PW-1 rules unchanged.
+	var op := opener_screen(dlg)
+	var rule := opener_rule(placed, int(r.get("screen", -1)), op, dlg.current_screen)
+	var rect := Rect2i()
+	if rule == "opener":
+		rect = centred_in(screens[op]["usable"], dlg.size)
+	elif rule == "stored":
+		rect = r["rect"]
+	else:
 		return false
-	var rect: Rect2i = r["rect"]
 	dlg.size = rect.size
 	dlg.position = rect.position
 	return true
+
+## Which rule places a window that is being shown, as a pure function so a table of literals can pin
+## each term (PW-3, the "opened from another window" bar). `placed`/`stored_screen` are `resolve()`'s
+## answer for the stored geometry, `opener` the screen of the pop-out that opened this window (-1 when
+## there is none) and `current` the screen the engine just put it on. Returns:
+## - `"opener"`: there IS an opener, and leaving the window where it would otherwise go would put it on
+##   another screen (the stored rectangle is elsewhere, or nothing is stored and the engine chose
+##   another screen), so it is centred on the opener's screen;
+## - `"stored"`: the PW-1 restore applies (a rectangle is stored and it is on the opener's screen, or
+##   there is no opener);
+## - `"engine"`: nothing stored and nothing to override: the engine's own placement stands, which is
+##   exactly today's behaviour and the only branch a one-monitor machine ever takes.
+static func opener_rule(placed: bool, stored_screen: int, opener: int, current: int) -> String:
+	if opener >= 0:
+		if placed and stored_screen == opener:
+			return "stored"
+		if placed or current != opener:
+			return "opener"
+		return "engine"
+	return "stored" if placed else "engine"
+
+## The screen index of the pop-out that opened `dlg`: a visible NATIVE window of the live list, other
+## than `dlg`, that has the keyboard focus (a menu or a map click lives in the main window, so the
+## main window has the focus then and there is no opener). -1 when there is none -- never 0, which
+## is a real screen.
+static func opener_screen(dlg: Window) -> int:
+	if dlg == null or not dlg.is_inside_tree():
+		return -1
+	for w in native_windows(dlg.get_tree()):
+		if w != dlg and (w as Window).has_focus():
+			return (w as Window).current_screen
+	return -1
+
+## `size` centred in `usable`, shrunk to fit it and never above its top edge. Pure. The title-row
+## allowance is `PopoutGeometry.TITLE_ROW`, as in `resolve()`'s centred fallback.
+static func centred_in(usable: Rect2i, size: Vector2i) -> Rect2i:
+	var w := clampi(size.x, 1, maxi(usable.size.x, 1))
+	var h := clampi(size.y, 1, maxi(usable.size.y - PopoutGeometry.TITLE_ROW, 1))
+	return Rect2i(usable.position.x + (usable.size.x - w) / 2,
+		usable.position.y + PopoutGeometry.TITLE_ROW + (usable.size.y - PopoutGeometry.TITLE_ROW - h) / 2, w, h)
+
+## Whether `dlg` is between the hide and the show of a `toggle()`. See `META_MOVING`.
+static func is_moving(dlg: Object) -> bool:
+	return dlg != null and bool(dlg.get_meta(META_MOVING, false))
 
 ## Stores a native window's rectangle and screen when it is hidden (not on every drag step: the
 ## same cadence as `DccWidgets._desktop_window_size`). An embedded window stores nothing.
@@ -246,12 +314,29 @@ static func forward_action(keycode: int, cmd_or_ctrl: bool, shift: bool, alt: bo
 ## not in `LIVE_KEYS`. The button is the only visible difference between a roster with the setting
 ## off and today's, and it is what makes a manual pop-out possible with the setting off (Ruling DK
 ## Q2: both ship). Idempotent: a second call returns the existing button.
-static func add_toggle_button(dlg: AcceptDialog) -> Button:
+##
+## `header_row` (PW-3, one window): a window that HIDES its dialog button row's Close (the Generation
+## rules window draws its own Close in its header and calls `get_ok_button().hide()`) cannot take the
+## button there -- with Close hidden the row is only the resize grip, and a button in it made the row taller
+## and shrank the content above it by 10 px (`_popout_windows_id_probe.gd`: 11 601 differing pixels outside
+## the button). Such a window passes the box that already holds its own Close; the button goes immediately
+## before that Close, the box's spacer absorbs its width, and no other pixel moves (no balance control is
+## needed: nothing is centred in that box).
+static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null) -> Button:
 	if not supported() or not LIVE_KEYS.has(key_for(dlg)):
 		return null
 	var existing := dlg.find_child(BUTTON_NAME, true, false) as Button
 	if existing != null:
 		return existing
+	if header_row != null:
+		var hb := DccWidgets.action(header_row, "Pop out", func() -> void: toggle(dlg))
+		header_row.move_child(hb, maxi(header_row.get_child_count() - 2, 0))
+		hb.custom_minimum_size.x = BUTTON_MIN_W
+		hb.name = BUTTON_NAME
+		hb.tooltip_text = "Moves this panel into its own operating-system window, for a second monitor. Press again to dock it back. Your place in it (tab, selection, scroll) is kept."
+		dlg.visibility_changed.connect(func() -> void: sync_button(dlg))
+		sync_button(dlg)
+		return hb
 	## Built into the dialog's own button row, which is `[spacer][Close][spacer]`. `AcceptDialog.add_button`
 	## was tried first and moved Close (measured by `_popout_roster_id_probe.gd`: it inserts ANOTHER spacer, so
 	## the three spacers share the width and Close left the centre). The row is therefore made symmetric
@@ -326,15 +411,21 @@ static func toggle(dlg: Window) -> void:
 	## Where the window is on the desktop now, so a first pop-out appears over its docked self.
 	var screen_pos := Vector2i(dlg.get_tree().root.position) + dlg.position
 	dlg.set_meta(META_CHOICE, go_native)
+	## Marked for exactly the span in which this move hides the window, so a handler that treats a hide
+	## as "closed" (the assistant ends a running reply on one) can tell a move from a close. Erased
+	## before the first yield, on every branch.
+	dlg.set_meta(META_MOVING, true)
 	if was_visible:
 		dlg.hide()
 	prepare(dlg)
 	if not was_visible:
+		dlg.remove_meta(META_MOVING)
 		return
 	if go_native:
 		dlg.popup(Rect2i(screen_pos, size_before))
 	else:
 		dlg.popup_centered(size_before)
+	dlg.remove_meta(META_MOVING)
 	sync_button(dlg)
 	for _i in TOGGLE_SETTLE_FRAMES:
 		await dlg.get_tree().process_frame

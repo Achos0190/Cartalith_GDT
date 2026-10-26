@@ -171,6 +171,11 @@ func setup(a, b: EngineBridge) -> void:
 	min_size = Vector2i(440, 520)
 	get_ok_button().text = "Close"
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
+	## form only. A move re-shows THIS node and never calls `open()`, so the prompt, the reply, the cards
+	## and a reply still streaming are the ones the user left (the close handler below ignores the hide a
+	## move makes, `PopoutHost.is_moving()`).
+	PopoutHost.add_toggle_button(self)
 	run = LlmRun.new()
 	add_child(run)
 	run.token.connect(_on_token)
@@ -211,8 +216,13 @@ func setup(a, b: EngineBridge) -> void:
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
 	## Closing cancels a running reply and joins the worker: no thread outlives the window.
+	## **A move is not a close** (PW-3): `PopoutHost.toggle()` hides the window for the length of one
+	## call to put it in, or take it out of, its own operating-system window, and that must not end a
+	## reply that is streaming -- the whole point of a second monitor is to watch it run. `is_moving()` is
+	## true only inside that call. Any other hide (Close, Escape, the title bar's X, a native window's X)
+	## still cancels and joins exactly as before (the LLM-3 cancel bar, re-run with the window native).
 	visibility_changed.connect(func():
-		if not visible and run != null:
+		if not visible and run != null and not PopoutHost.is_moving(self):
 			run.shutdown())
 
 
@@ -223,6 +233,8 @@ func open() -> void:
 	if not DccWidgets.phone_present(self, app):
 		var vp := get_tree().root.get_visible_rect().size
 		size = Vector2i(560, int(minf(800.0, vp.y - 60.0)))
+		## PW-3: re-decides native versus docked for this open.
+		PopoutHost.prepare(self)
 		popup_centered()
 		_refit.call_deferred()
 	_relayout_phone.call_deferred()

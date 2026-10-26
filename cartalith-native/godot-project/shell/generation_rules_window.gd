@@ -169,6 +169,10 @@ func setup(a, b: EngineBridge) -> void:
 	## `phone_window()` below turns off at the cause; all the cap still did was
 	## stop a user from making the window bigger.
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button is added by `_build()`, in
+	## this window's own header beside its own Close (the dialog's button row is empty: the OK button is hidden
+	## above). Desktop form only. A move re-shows this node and never calls `open()`, so the sliders, the
+	## preset and the scroll are the ones the user left.
 	_build()
 	if _phone:
 		app.phone_fit(self, 1.0)
@@ -179,6 +183,8 @@ func setup(a, b: EngineBridge) -> void:
 ## plan, a loaded project) since the last open.
 func open() -> void:
 	if not DccWidgets.phone_present(self, app):
+		## PW-3: re-decides native versus docked for this open.
+		PopoutHost.prepare(self)
 		popup_centered()
 	_rebuild()
 
@@ -235,6 +241,9 @@ func _build() -> void:
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.pressed.connect(func(): hide())
 	head_row.add_child(close_btn)
+	## PW-3: the "Pop out / Dock" button sits in this header, immediately before this window's own Close
+	## (`PopoutHost.add_toggle_button`'s `header_row` note: the dialog's own button row is empty here).
+	PopoutHost.add_toggle_button(self, head_row)
 	outer.add_child(DccTheme.rule())
 
 	DccWidgets.note(outer, "World-level: one active rule set feeds every settlement's layout, "
