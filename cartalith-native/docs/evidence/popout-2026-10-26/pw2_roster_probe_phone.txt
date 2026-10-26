@@ -1,0 +1,56 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+== 0. clean user dir ==
+  ok    no cartalith_settings.cfg at start (the user dir was wiped)
+Cartalith shell build 6e5232eefbd2
+  ok    the shell booted into the phone form (got phone)
+== 2'. phone: no pop-out surface at all ==
+  ok    PopoutHost.supported() is false on the phone
+  ok    the roster has no PopoutButton on the phone
+  ok    add_toggle_button() adds nothing
+ERROR: Attempting to make child window exclusive, but the parent window already has another exclusive child. This window: /root/PopoutRosterProbe/App/@AcceptDialog@1120, parent window: /root, current exclusive child window: /root/PopoutRosterProbe/App/PhoneProjectPicker
+   at: _set_transient_exclusive_child (scene/main/window.cpp:1160)
+   GDScript backtrace (most recent call first):
+       [0] phone_present (res://shell/dcc_widgets.gd:3100)
+       [1] open (res://shell/faction_roster_window.gd:704)
+       [2] _forms_other (res://_popout_roster_probe.gd:212)
+       [3] _ready (res://_popout_roster_probe.gd:114)
+       [4] _boot (res://_popout_roster_probe.gd:154)
+       [5] _settle (res://_popout_roster_probe.gd:68)
+  ok    with the setting ON the roster still opens embedded (window count 1)
+RESULT: PASS (0 failed, 6 checks) form=phone
+ERROR: 11 RID allocations of type 'N5GLES37TextureE' were leaked at exit.
+ERROR: 2 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' were leaked at exit.
+ERROR: 3 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.
+ERROR: 2 RID allocations of type 'PN18TextServerAdvanced27FontAdvancedLinkedVariationE' were leaked at exit.
+WARNING: 1 RID of type "CanvasItem" was leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2733)
+ERROR: Texture with GL ID of 782: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 785: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 788: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 789: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1300: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1301: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1302: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1303: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1304: leaked 174762 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1282: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 1285: leaked 131072 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+WARNING: 47 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 3 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+EXIT 0

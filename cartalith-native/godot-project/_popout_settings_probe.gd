@@ -30,8 +30,8 @@ extends Node
 ##      `PopoutHost.wants_native()` (every term of the conjunction flipped alone).
 ##   3. THE SESSION: boot, generate, open every listed window, hide it, save, export -- and at
 ##      EVERY step `DisplayServer.get_window_list().size() == 1` and no shell window has
-##      `force_native` (with the setting off AND with it on, because `LIVE_KEYS` is empty in PW-1
-##      and tablet/phone never pop out).
+##      `force_native` (with the setting off AND with it on; since PW-2 `LIVE_KEYS` holds the roster, so with the setting on the
+##      desktop roster is the one native window and the count is 2 exactly while it is open; tablet and phone never pop out)
 ##   4. (desktop) THE NATIVE BRANCH on a scratch dialog the probe allows through `live`: setting
 ##      off keeps it embedded and stores nothing; setting on makes it native, transient,
 ##      non-exclusive, the window count 2; its rectangle and screen are stored on hide and put
@@ -384,16 +384,16 @@ func _tables() -> void:
 	for r in rows:
 		_ok(PopoutHost.wants_native(r[0], r[1], r[2], live) == r[3], "wants_native(setting=%s, platform=%s, key='%s') == %s" % [r[0], r[1], r[2], r[3]])
 	_ok(PopoutHost.wants_native(true, true, "a", PackedStringArray()) == false, "an empty live list lets nothing out")
-	_ok(PopoutHost.LIVE_KEYS.is_empty(), "PW-1 ships LIVE_KEYS empty (PW-2 adds the roster)")
+	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window"]), "PW-2 puts exactly the roster in LIVE_KEYS (PW-1 shipped it empty)")
 
 
 # -- 3 ------------------------------------------------------------------------------------
 
-func _step(label: String) -> void:
+func _step(label: String, want: int = 1) -> void:
 	var n := DisplayServer.get_window_list().size()
-	_steps.append([label, n])
-	if n != 1:
-		print("  step '%s': window count %d" % [label, n])
+	_steps.append([label, n, want])
+	if n != want:
+		print("  step '%s': window count %d (wanted %d)" % [label, n, want])
 
 
 func _native_shell_windows() -> Array:
@@ -455,8 +455,9 @@ func _session() -> void:
 			_: w.open()
 		await _settle(5)
 		_ok(w.visible, "%s opened" % name)
-		_ok(w.is_embedded(), "%s is an embedded window (not native)" % name)
-		_step("open " + name)
+		var expect_native: bool = _form == "desktop" and _setting and name == "faction_roster_window"  # PW-2: the roster is the one live window
+		_ok(w.is_embedded() != expect_native, "%s is %s" % [name, "a native window (PW-2: setting on, desktop)" if expect_native else "an embedded window (not native)"])
+		_step("open " + name, 2 if expect_native else 1)
 		w.hide()
 		await _settle(2)
 	for name in also:
@@ -466,7 +467,8 @@ func _session() -> void:
 		_step("open " + name)
 		w.hide()
 		await _settle(2)
-	_ok(_native_shell_windows().is_empty(), "no shell window has force_native set: %s" % str(_native_shell_windows()))
+	var want_native := 1 if (_form == "desktop" and _setting) else 0
+	_ok(_native_shell_windows().size() == want_native, "exactly %d shell window(s) have force_native set (PW-2: the roster, only on the desktop with the setting on): %s" % [want_native, str(_native_shell_windows())])
 
 	var sdir := ProjectSettings.globalize_path("user://_popout_settings_probe")
 	DirAccess.make_dir_recursive_absolute(sdir)
@@ -483,9 +485,9 @@ func _session() -> void:
 	dlg.hide()
 	await _settle(3)
 	_step("export")
-	var bad := _steps.filter(func(s): return int(s[1]) != 1)
-	_ok(bad.is_empty(), "DisplayServer.get_window_list().size() == 1 at all %d steps%s" % [_steps.size(), "" if bad.is_empty() else ": " + str(bad)])
-	_ok(_native_shell_windows().is_empty(), "still no force_native shell window after the session: %s" % str(_native_shell_windows()))
+	var bad := _steps.filter(func(s): return int(s[1]) != int(s[2]))
+	_ok(bad.is_empty(), "the OS window count is the expected one (1; 2 only while the PW-2 roster is native) at all %d steps%s" % [_steps.size(), "" if bad.is_empty() else ": " + str(bad)])
+	_ok(_native_shell_windows().size() == want_native, "still %d force_native shell window(s) after the session: %s" % [want_native, str(_native_shell_windows())])
 
 
 # -- 4 ------------------------------------------------------------------------------------

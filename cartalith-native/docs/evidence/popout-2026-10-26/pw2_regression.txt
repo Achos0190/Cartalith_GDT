@@ -1,0 +1,45 @@
+== s_desk_off: RESULT: PASS (0 failed, 183 checks) form=desktop setting=off | SCRIPT ERROR lines: 0
+== s_desk_on: RESULT: PASS (0 failed, 70 checks) form=desktop setting=on | SCRIPT ERROR lines: 0
+== s_tab_off: RESULT: PASS (0 failed, 40 checks) form=tablet setting=off | SCRIPT ERROR lines: 0
+== s_tab_on: RESULT: PASS (0 failed, 41 checks) form=tablet setting=on | SCRIPT ERROR lines: 0
+== s_pho_off: RESULT: PASS (0 failed, 40 checks) form=phone setting=off | SCRIPT ERROR lines: 0
+== s_pho_on: RESULT: PASS (0 failed, 41 checks) form=phone setting=on | SCRIPT ERROR lines: 0
+== gsw: [gsw] RESULT gsw checks=339 fail=0 engine-panic-hits(total)=0 | SCRIPT ERROR lines: 0
+== fh_desk: FACTIONHUB RESULT FAIL  checks=538 fails=3 | SCRIPT ERROR lines: 0
+== fh_phone: FACTIONHUB RESULT FAIL  checks=580 fails=3 | SCRIPT ERROR lines: 0
+== qb_d: RESULT: PASS (0 failed, 200 checks) | SCRIPT ERROR lines: 0
+== qb_t: RESULT: PASS (0 failed, 200 checks) | SCRIPT ERROR lines: 0
+== qb_p: RESULT: PASS (0 failed, 6 checks) | SCRIPT ERROR lines: 0
+== qbs: RESULT: PASS (0 failed, 114 checks) | SCRIPT ERROR lines: 0
+== qbw_d: RESULT: PASS (0 failed, 108 checks) | SCRIPT ERROR lines: 0
+== qbw_t: RESULT: PASS (0 failed, 108 checks) | SCRIPT ERROR lines: 0
+== qbw_p: RESULT: PASS (0 failed, 3 checks) | SCRIPT ERROR lines: 0
+== qbr_d: RESULT: PASS (0 failed, 164 checks) | SCRIPT ERROR lines: 0
+== qbr_t: RESULT: PASS (0 failed, 165 checks) | SCRIPT ERROR lines: 0
+== qbr_p: RESULT: PASS (0 failed, 5 checks) | SCRIPT ERROR lines: 0
+== qbph: RESULT: PASS (0 failed, 123 checks) | SCRIPT ERROR lines: 0
+== qba_d: RESULT: PASS (0 failed, 107 checks) | SCRIPT ERROR lines: 0
+== qba_t: RESULT: PASS (0 failed, 108 checks) | SCRIPT ERROR lines: 0
+== qba_p: RESULT: PASS (0 failed, 24 checks) | SCRIPT ERROR lines: 0
+== pw0: [VERDICT] CONTROLS OK | SCRIPT ERROR lines: 0
+--- roster-touching probes, mine vs pristine (identical failures)
+_deadwire mine: DEADWIRE  DONE fail=2|  pristine: DEADWIRE  DONE fail=2|
+_entwin mine: EWN FAIL  CV6: the stages list still draws under it  -- 13 stage lines|  pristine: EWN FAIL  CV6: the stages list still draws under it  -- 13 stage lines|
+_vfy_cap mine: VFY FAIL  GI-D: pressing it still copies the dump  -- 3059 chars on the clipboard|  pristine: VFY FAIL  GI-D: pressing it still copies the dump  -- 3059 chars on the clipboard|
+_wiredfix mine: WIREDFIX  FAIL  no Assets & landmarks category|WIREDFIX  DONE fail=2|  pristine: WIREDFIX  FAIL  no Assets & landmarks category|WIREDFIX  DONE fail=2|
+_claimsabsent: EXIT EXIT 0 CLAIMSABSENT RESULT PASS  checks=54 fails=0
+_currency: EXIT EXIT 0 
+_exitbuttons: EXIT EXIT 0 EXIT     ALL CHECKS PASSED
+_focusbug: EXIT EXIT 0 FOCUSBUG  DONE fail=0
+_gap37: EXIT EXIT 0 
+_gov: EXIT EXIT 0 GOV RESULT PASS  checks=21 fails=0
+_grphdr: EXIT EXIT 0 
+_lanedfoodshed: EXIT EXIT 0 
+_peptraj: EXIT EXIT 0 PEPTRAJ  DONE fail=0
+_polity: EXIT EXIT 0 ### POLITY RESULT GREEN  39/39 checks passed (form desktop) ###
+_pressall: EXIT EXIT 0 PRESSALL  DONE fail=0
+_tariff: EXIT EXIT 0 
+_wincap: EXIT EXIT 0 
+_wingrip: EXIT EXIT 0 
+_winstale: EXIT EXIT 0 WINSTALE  DONE fail=0
+_winsweep: EXIT EXIT 0 WINSWEEP  DONE fail=0

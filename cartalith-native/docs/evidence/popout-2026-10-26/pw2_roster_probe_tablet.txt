@@ -1,0 +1,31 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+== 0. clean user dir ==
+  ok    no cartalith_settings.cfg at start (the user dir was wiped)
+Cartalith shell build 6e5232eefbd2
+ERROR: Couldn't open directory at path "C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/cartalith_pw2_wt/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:876)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:906)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:973)
+       [3] _refresh (res://shell/open_project_dialog.gd:932)
+       [4] open_welcome (res://shell/open_project_dialog.gd:313)
+       [5] open_welcome (res://shell/app.gd:3415)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:1280)
+  ok    the shell booted into the tablet form (got tablet)
+== 2'. tablet: no pop-out surface at all ==
+  ok    PopoutHost.supported() is false on the tablet
+  ok    the roster has no PopoutButton on the tablet
+  ok    add_toggle_button() adds nothing
+  ok    with the setting ON the roster still opens embedded (window count 1)
+RESULT: PASS (0 failed, 6 checks) form=tablet
+WARNING: 213 RIDs of type "CanvasItem" were leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2735)
+WARNING: 432 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 3 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+EXIT 0

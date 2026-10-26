@@ -4123,14 +4123,15 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
 	## PW-1: the pop-out switch (Ruling DK Q1: off by default). Desktop only -- the phone and the
 	## tablet keep every window embedded (`PopoutHost.supported()`); the tablet's disabled-with-
-	## reason row is PW-5's. The tooltip says what the switch does TODAY: no window is allowed to
-	## leave the main window until PW-2 closes the busy-overlay and shortcut holes PW-0 measured.
+	## reason row is PW-5's. The tooltip says what the switch does TODAY: only the windows in
+	## `PopoutHost.LIVE_KEYS` leave the main window (the faction roster since PW-2, which closed the
+	## busy-overlay and shortcut holes PW-0 measured); every other panel stays docked until PW-3.
 	if PopoutHost.supported():
 		p.add_check_item("Open panels in their own window", ID_PREF_POPOUT)
 		var popout_idx := p.item_count - 1
 		p.set_item_checked(popout_idx, DccSettings.popout_enabled())
 		p.set_item_tooltip(popout_idx,
-			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to a panel once it supports it: today none does (the faction roster is the first, milestone PW-2), so turning this on changes nothing yet. Stored per device, never in a world.")
+			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to a panel once it supports it: today only the faction roster does (the other panels follow in milestone PW-3), and its own Pop out button works with this off. Stored per device, never in a world.")
 		_popout_pref_row = popout_idx
 
 	if full or include_theme:
@@ -5686,6 +5687,9 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_POPOUT:
 		var on := not DccSettings.popout_enabled()
 		DccSettings.set_popout_enabled(on)
+		## PW-2: the per-window buttons are session overrides of this setting; flipping the setting
+		## makes every window follow it again, so the row and the buttons never disagree.
+		PopoutHost.forget_choices(_host.get_tree())
 		if _popout_pref_row >= 0 and _popout_pref_row < p.item_count:
 			p.set_item_checked(_popout_pref_row, on)
 		return

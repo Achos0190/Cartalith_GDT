@@ -1,0 +1,204 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+== 0. clean user dir ==
+  ok    no cartalith_settings.cfg at start (the user dir was wiped)
+Cartalith shell build 6e5232eefbd2
+ERROR: Couldn't open directory at path "C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/cartalith_pw2_wt/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:876)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:906)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:973)
+       [3] _refresh (res://shell/open_project_dialog.gd:932)
+       [4] open_welcome (res://shell/open_project_dialog.gd:313)
+       [5] open_welcome (res://shell/app.gd:3415)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:1280)
+  ok    the shell booted into the desktop form (got desktop)
+== 1. tables ==
+  ok    LIVE_KEYS is exactly the roster (literal)
+  ok    the roster's window key is 'faction_roster_window'
+  ok    wants_native(true, true, faction_roster_window) == true
+  ok    wants_native(false, true, faction_roster_window) == false
+  ok    wants_native(true, false, faction_roster_window) == false
+  ok    wants_native(true, true, other) == false
+  ok    effective_wish(setting=false, has_choice=false, choice=false) == false
+  ok    effective_wish(setting=true, has_choice=false, choice=false) == true
+  ok    effective_wish(setting=false, has_choice=true, choice=true) == true
+  ok    effective_wish(setting=true, has_choice=true, choice=false) == false
+  ok    effective_wish(setting=false, has_choice=true, choice=false) == false
+  ok    effective_wish(setting=true, has_choice=true, choice=true) == true
+  ok    forward_action(Z, ctrl=true, shift=false, alt=false, typing=false) == 'undo'
+  ok    forward_action(Z, ctrl=true, shift=true, alt=false, typing=false) == 'redo'
+  ok    forward_action(Y, ctrl=true, shift=false, alt=false, typing=false) == 'redo'
+  ok    forward_action(Y, ctrl=true, shift=true, alt=false, typing=false) == ''
+  ok    forward_action(S, ctrl=true, shift=false, alt=false, typing=false) == 'save'
+  ok    forward_action(S, ctrl=true, shift=true, alt=false, typing=false) == ''
+  ok    forward_action(Z, ctrl=false, shift=false, alt=false, typing=false) == ''
+  ok    forward_action(Z, ctrl=true, shift=false, alt=true, typing=false) == ''
+  ok    forward_action(Z, ctrl=true, shift=false, alt=false, typing=true) == ''
+  ok    forward_action(Y, ctrl=true, shift=false, alt=false, typing=true) == ''
+  ok    forward_action(S, ctrl=true, shift=false, alt=false, typing=true) == ''
+  ok    forward_action(X, ctrl=true, shift=false, alt=false, typing=false) == ''
+  ok    forward_action(Q, ctrl=true, shift=false, alt=false, typing=false) == ''
+  ok    forward_action(Y, ctrl=false, shift=false, alt=false, typing=false) == ''
+  ok    forward_action(S, ctrl=false, shift=false, alt=false, typing=false) == ''
+  ok    forward_action(Z, ctrl=true, shift=true, alt=true, typing=false) == ''
+  ok    scale_for_screen(1.0, 1.0, 1.0) == 1.0
+  ok    scale_for_screen(1.0, 1.0, 1.5) == 1.5
+  ok    scale_for_screen(1.0, 2.0, 1.0) == 0.5
+  ok    scale_for_screen(1.25, 1.0, 2.0) == 2.5
+  ok    scale_for_screen(1.0, 0.0, 1.0) == -1.0
+  ok    scale_for_screen(1.0, 1.0, 0.0) == -1.0
+  ok    scale_for_screen(0.0, 1.0, 1.0) == -1.0
+  ok    scale_for_screen(1.0, -1.0, 1.0) == -1.0
+  ok    scale_for_screen(1.0, 1.0, -1.0) == -1.0
+  ok    scaled_size 880x620 from 1 to 1.5 is 1320x930
+  ok    scaled_size 880x620 from 1.5 to 1 is 587x413 (rounded)
+  ok    a zero source factor leaves the size alone
+  ok    no native window at boot
+  ok    a fresh AcceptDialog is already transient (so PopoutHost.prepare() setting transient = true is redundant for dialogs and a mutant that clears it is equivalent)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x129969d7e60, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x129969d7e60, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x129969d7e60, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+== 2. the button ==
+  ok    setting off: the roster opens embedded, window count 1
+  ok    a 'Pop out' button exists beside Close
+  ok    the invisible balance is as wide as the button's laid-out width (81.0 vs 81.0)
+  ok    the button is 81 px wide (a literal band, not the constant)
+  ok    Close is where the pristine tree puts it, centre x 431 (got 431.0)
+== 3. state across a move, setting OFF (manual pop-out) ==
+  ok    set up: faction 3, tab economy, inspector scroll 70 ({ "sel": 3, "tab": "economy", "iv": 70, "lv": 0 })
+  ok    the button popped it out: native, window count 2
+  ok    transient and non-exclusive
+  ok    the button now reads 'Dock'
+  ok    selected faction, tab and both scroll positions survived the move: { "sel": 3, "tab": "economy", "iv": 70, "lv": 0 }
+  ok    a half-typed field kept its text
+  ok    native_windows() lists exactly the roster
+  ok    the button docked it back: embedded, window count 1
+  ok    the button reads 'Pop out' again
+  ok    state survived the move back: { "sel": 3, "tab": "economy", "iv": 70, "lv": 0 }
+  ok    docked: native_windows() is empty
+  ok    pressing the real button pops it out (count 2)
+  ok    pressing it again docks it (count 1)
+== 4. keys typed in the native window ==
+  ok    native, with its PopoutKeyForwarder child
+  main window: [[true, false, 3], [true, true, 2], [true, true, 1], [true, true, 2], [true, false, 3], [true, true, 2]]
+  pop-out:     [[true, false, 3], [true, true, 2], [true, true, 1], [true, true, 2], [true, false, 3], [true, true, 2]]
+  ok    control: the main window starts at 3 undoable steps
+  ok    control: the main window's sequence moves the history (undo, then redo)
+  ok    the pop-out's history after each of 5 keys equals the main window's
+  ok    Ctrl+Z with a LineEdit focused is not forwarded (history [true, false, 3] unchanged)
+  ok    the forwarder itself refuses Ctrl+Z while a LineEdit has focus (history [true, false, 3] unchanged)
+  ok    control: the same call with nothing focused undoes a step ([true, false, 3] -> [true, true, 2])
+  ok    control: Ctrl+S in the main window wrote a project (643437 bytes)
+  ok    Ctrl+S in the pop-out wrote a project (643437 bytes)
+  ok    docked again
+== 5. popups open at their button, docked and native ==
+  ok    docked: the roster is docked
+  docked: real click on the Relations tab -> tab=relations (window embedded=true)
+  ok    docked: a colour picker button exists
+  docked colour after click 1: visible=true pressed=true pos=(661, 264) rect=[P: (518.0, 104.0), S: (64.0, 20.0)]
+  ok    docked: the colour popup is visible after a real click
+  docked colour: popup.position=(661, 264) popup.size=(298, 624) embedded=true force_native=false | control window=@AcceptDialog@994 pos=(260, 140) embedded=true | root.position=(140, 51) | control.global=(518.0, 104.0) screen_position=(778.0, 244.0)
+  docked colour: popup minus button in its frame = (-117.0, 20.0)
+  ok    docked: the colour popup opens where the engine's rule puts it for its button within 2 px (popup (661, 264), expected (661, 264), frame (1400.0, 900.0))
+  ok    docked: a Transfer button exists on the Settlements tab
+  ok    docked: the Transfer menu is visible
+  docked transfer: windows 1->1  popup.position=(590, 265) popup.size=(213, 218) embedded=true force_native=false | control window=@AcceptDialog@994 pos=(260, 140) embedded=true | root.position=(140, 51) | control.global=(364.0, 115.0) screen_position=(624.0, 255.0)
+  ok    docked: the Transfer menu's panel opens under its button within 2 px (popup (590, 265), expected (590.0, 265.0))
+  ok    native: the roster is native
+  native: real click on the Relations tab -> tab=relations (window embedded=false)
+  ok    native: a colour picker button exists
+  native colour after click 1: visible=true pressed=true pos=(401, 0) rect=[P: (518.0, 174.0), S: (64.0, 20.0)]
+  ok    native: the colour popup is visible after a real click
+  native colour: popup.position=(401, 0) popup.size=(298, 624) embedded=true force_native=false | control window=@AcceptDialog@994 pos=(400, 191) embedded=false | root.position=(140, 51) | control.global=(518.0, 174.0) screen_position=(518.0, 174.0)
+  native colour: popup minus button in its frame = (-117.0, -174.0)
+  ok    native: the colour popup opens where the engine's rule puts it for its button within 2 px (popup (401, 0), expected (401, 0), frame (880.0, 620.0))
+  ok    native: a Transfer button exists on the Settlements tab
+  ok    native: the Transfer menu is visible
+  native transfer: windows 2->2  popup.position=(330, 125) popup.size=(213, 218) embedded=true force_native=false | control window=@AcceptDialog@994 pos=(400, 191) embedded=false | root.position=(140, 51) | control.global=(364.0, 115.0) screen_position=(364.0, 115.0)
+  ok    native: the Transfer menu's panel opens under its button within 2 px (popup (330, 125), expected (330.0, 125.0))
+== 6. per-screen scale (a simulated second monitor of scale 1.5) ==
+  ok    on this one monitor the native window keeps factor 1.0
+  ok    equal screen scales change nothing (size (880, 620))
+  ok    scale 1.5 on the window's screen gives factor 1.5 (1.5)
+  ok    the window grew with the factor: (1320, 930) from (880, 620)
+  ok    the logical visible rect is the authored (880, 620) (got (880.0, 620.0)), so nothing is cropped
+  ok    Close lies inside the visible rect ([P: (405.0, 591.0), S: (52.0, 29.0)] in (880.0, 620.0))
+  ok    the Pop out / Dock button lies inside it too
+  ok    back to equal scales: factor 1.0, size (880, 620)
+  ok    a screen that reports no scale answers -1, not a plausible 1.0
+== 7. the busy overlay and a native window ==
+  ok    native
+  ok    control: with no run, a click lands in the native window (1 hit)
+  ok    the in-run checks ran (the generate lasted long enough)
+  ok    the overlay was blocking and the engine generating at the check
+  ok    the native window's gui_disable_input was true during the run
+  ok    the overlay carries a card mirror into it (mirror_count 1)
+  ok    a click during the run reached 0 controls in the native window (control above: 1)
+  ok    the card mirror changes 306513 pixels of the native window's own texture (flip-the-flag)
+  ok    popped back in DURING the run, the window is still muted
+  ok    popped out again DURING the run, it is still muted
+  ok    after the run the window takes input again
+  ok    and no mirror is left (0)
+  ok    after the run a click lands again (1 hit)
+  ok    after a dock and re-pop the native window is muted again during a run (hits 0)
+== 3b. state across a move, setting ON (pops out at open) ==
+  ok    the Preferences row exists
+  ok    the Preferences row turned the setting ON
+  ok    setting on: open() pops the roster out (count 2)
+  ok    and the button reads 'Dock'
+  ok    it opened on faction 2, tab military
+  ok    Dock with the setting ON: embedded, same faction and tab
+  ok    reopened: the manual Dock choice holds for the session even with the setting on
+  ok    the row turned the setting OFF
+  ok    and ON again
+  ok    flipping the setting cleared the window's manual choice
+  ok    after the flip the window follows the setting again (native)
+  ok    hiding it leaves no OS window (count 1)
+  ok    the setting is OFF for the rest of the run
+  ok    setting off, no choice: embedded again, count 1
+== 8. civ state and generated world, docked versus native ==
+  ok    seed 483920 docked: roster is docked
+  ok    control: the ten steps changed the civ state (48bf09b0b68812e0 -> 6be5a97e76a0253c), so equal hashes compare something
+  ok    seed 483920 native: roster is native
+  ok    control: the ten steps changed the civ state (48bf09b0b68812e0 -> 6be5a97e76a0253c), so equal hashes compare something
+  seed 483920: docked ["6be5a97e76a0253c", "4727306049ebff77:79558"] native ["6be5a97e76a0253c", "4727306049ebff77:79558"]
+  ok    seed 483920: the civ-state hash after ten edits is equal docked and native (6be5a97e76a0253c)
+  ok    seed 483920: the world hash is equal (4727306049ebff77:79558)
+  ok    seed 24601 docked: roster is docked
+  ok    control: the ten steps changed the civ state (e6850d093abe3bfd -> 7f0a777d380e1394), so equal hashes compare something
+  ok    seed 24601 native: roster is native
+  ok    control: the ten steps changed the civ state (e6850d093abe3bfd -> 7f0a777d380e1394), so equal hashes compare something
+  seed 24601: docked ["7f0a777d380e1394", "bafee84c9755f77b:78287"] native ["7f0a777d380e1394", "bafee84c9755f77b:78287"]
+  ok    seed 24601: the civ-state hash after ten edits is equal docked and native (7f0a777d380e1394)
+  ok    seed 24601: the world hash is equal (bafee84c9755f77b:78287)
+  ok    seed 71077345 docked: roster is docked
+  ok    control: the ten steps changed the civ state (102afb7e6e8e0e27 -> 91658e39a32b10a9), so equal hashes compare something
+  ok    seed 71077345 native: roster is native
+  ok    control: the ten steps changed the civ state (102afb7e6e8e0e27 -> 91658e39a32b10a9), so equal hashes compare something
+  seed 71077345: docked ["91658e39a32b10a9", "58808ab0826f792e:78310"] native ["91658e39a32b10a9", "58808ab0826f792e:78310"]
+  ok    seed 71077345: the civ-state hash after ten edits is equal docked and native (91658e39a32b10a9)
+  ok    seed 71077345: the world hash is equal (58808ab0826f792e:78310)
+  ok    a world generated with the roster native equals one generated docked (f41936c08917f4f7:79292)
+  ok    control: the fingerprint covered real cells (f41936c08917f4f7:79292)
+== 9. closing the main window closes the pop-out ==
+  ok    a child process started (pid 4276)
+  ok    the child process has exited (7.0 s): no orphan window or process
+  ok    control: the child had really reached 2 OS windows before it quit ('native windows=2 embedded=false')
+RESULT: PASS (0 failed, 146 checks) form=desktop
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+EXIT 0

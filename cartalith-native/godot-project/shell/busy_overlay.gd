@@ -470,7 +470,12 @@ func _mute_subwindows() -> void:
 	var vp := get_viewport()
 	if vp == null:
 		return
-	for w in vp.get_embedded_subwindows():
+	## `get_embedded_subwindows()` never lists a NATIVE window (PW-0 measured a click landing in one
+	## during a generate), so the pop-outs are added from `PopoutHost.native_windows()`. They are muted
+	## and mirrored exactly like an embedded dialog; with none open (the default) this adds nothing.
+	var targets: Array = vp.get_embedded_subwindows().duplicate()
+	targets.append_array(PopoutHost.native_windows(get_tree()))
+	for w in targets:
 		if w is Window and not (w as Window).gui_disable_input:
 			(w as Window).gui_disable_input = true
 			_muted_windows.append(w)

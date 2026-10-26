@@ -347,6 +347,13 @@ func setup(a, b: EngineBridge) -> void:
 	## `phone_window()` below turns off at the cause; all the cap still did was
 	## stop a user from making the window bigger.
 	_phone = DccWidgets.phone_window(self, a)
+	## PW-2 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the per-window "Pop out / Dock" button, in the
+	## dialog's own button row beside Close. It exists on the desktop form only (`PopoutHost.supported()`;
+	## `null` on a phone or a tablet, which add nothing here) and is what lets a user pop this window out
+	## with the global setting off. It never changes the window's contents: `PopoutHost.toggle()` hides,
+	## flips and re-shows this same node, so the selected faction, the tab and the scroll positions below
+	## survive the move.
+	PopoutHost.add_toggle_button(self)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 6)
@@ -695,6 +702,11 @@ func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> vo
 	## the phone shows its inspector.
 	_set_phone_list_open(not landed)
 	if not DccWidgets.phone_present(self, app):
+		## PW-2: re-decides native versus docked now, so the global setting changed since `setup()`
+		## (or the user's last button press) applies to this open. With the setting off and no manual
+		## choice this leaves `force_native` false and changes nothing; a window already showing (a
+		## re-open onto another faction) is left as it is.
+		PopoutHost.prepare(self)
 		popup_centered()
 		## `AcceptDialog` sizes its content child once, at popup, from the
 		## child's minimum -- and at that moment `_overview` (autowrap) has no

@@ -1,0 +1,41 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 6e5232eefbd2
+ERROR: Couldn't open directory at path "C:/Users/Vincent/AppData/Roaming/Godot/app_userdata/cartalith_pw2_wt/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:876)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:906)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:973)
+       [3] _refresh (res://shell/open_project_dialog.gd:932)
+       [4] open_welcome (res://shell/open_project_dialog.gd:313)
+       [5] open_welcome (res://shell/app.gd:3415)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:1280)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ff6bb0a1b0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ff6bb0a1b0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ff6bb0a1b0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+CONTROL determinism: 0 differing (want 0)
+CONTROL sensitivity: 58165 differing between faction 2 and faction 1 (want > 500)
+ID t_identity         whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+ID t_territory        whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+ID t_settlements      whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+ID t_economy          whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+ID t_relations        whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+ID t_military         whole=2309 bb=[P: (0, 591), S: (81, 29)] outside_button=0 outside_bb=[P: (0, 0), S: (0, 0)] hidden=0 dyn=0 ok={ "x": 665, "y": 731, "w": 52, "h": 29 } btn={ "x": 260, "y": 731, "w": 81, "h": 29 }
+TOTAL outside the button: 0, with the button hidden: 0, dynamic pixels excluded: 0, OK buttons moved: 0
+RESULT: IDENTICAL
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+EXIT 0

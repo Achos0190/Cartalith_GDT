@@ -141,6 +141,7 @@ func _wins() -> Array:
 func _open_win(i: int, native: bool) -> void:
 	var w: Window = _wins()[i]
 	w.force_native = native
+	w.set_meta(PopoutHost.META_CHOICE, native)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	w.transient = true
 	w.exclusive = false
 	if i == 0:
@@ -229,6 +230,7 @@ func _latency(tag: String, native: bool) -> void:
 	await _close_all()
 	var w: Window = app.faction_roster_window
 	w.force_native = native
+	w.set_meta(PopoutHost.META_CHOICE, native)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	w.transient = true
 	w.exclusive = false
 	OS.low_processor_usage_mode = false
@@ -274,6 +276,7 @@ func _theme_and_scale() -> void:
 	var root_img_path := _shots + "/embedded_main.png"
 	## --- embedded reference ---
 	w.force_native = false
+	w.set_meta(PopoutHost.META_CHOICE, false)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	app.faction_roster_window.open()
 	await _frames(6)
 	var ok: Button = w.get_ok_button()
@@ -298,6 +301,7 @@ func _theme_and_scale() -> void:
 	await _close_all()
 	## --- native ---
 	w.force_native = true
+	w.set_meta(PopoutHost.META_CHOICE, true)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	w.transient = true
 	w.exclusive = false
 	app.faction_roster_window.open()
@@ -414,9 +418,11 @@ func _busy_test() -> void:
 	var emb: Window = app.settlement_types_window
 	await _close_all()
 	nat.force_native = true
+	nat.set_meta(PopoutHost.META_CHOICE, true)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	nat.transient = true
 	nat.exclusive = false
 	emb.force_native = false
+	emb.set_meta(PopoutHost.META_CHOICE, false)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	app.faction_roster_window.open()
 	app.settlement_types_window.open()
 	await _frames(6)
@@ -493,6 +499,7 @@ func _screens() -> void:
 			DisplayServer.screen_get_scale(i), DisplayServer.screen_get_refresh_rate(i)])
 	var w: Window = app.faction_roster_window
 	w.force_native = true
+	w.set_meta(PopoutHost.META_CHOICE, true)  # PW-2: the roster's open() re-decides via PopoutHost.prepare(), so the probe states its choice there too
 	w.transient = true
 	w.exclusive = false
 	app.faction_roster_window.open()
