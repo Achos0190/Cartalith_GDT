@@ -95,6 +95,22 @@ func _shot(tag: String) -> void:
 	print("SHOT %s" % path)
 
 
+## Click `c` until `done` holds, at most `tries` times (Ruling DP follow-up, 2026-10-26). WHY: a real
+## synthetic click is occasionally swallowed when another process takes window focus between the press
+## and the release (Godot cancels the press on focus-out); measured as 3 different checks failing on
+## 2 consecutive tablet runs with NO product change between them (`Send` reaching 0 requests; an
+## Apply that left the card `new`), while four desktop runs passed. A click that did not register
+## changed nothing, so repeating it is safe; each retry is printed with the window's focus state so the
+## cause stays visible. A check that still fails after the retries is a real failure.
+func _click_until(c: Control, done: Callable, tries: int = 3) -> void:
+	for i in tries:
+		await _click(c)
+		await _settle(8)
+		if done.call():
+			return
+		print("  (click %d of %d on '%s' did not register; window focused=%s)" % [i + 1, tries, c.name, str(get_window().has_focus())])
+
+
 ## A REAL mouse press and release at the centre of `c` (the `_llmpanel_probe` helper).
 func _click(c: Control) -> void:
 	## A card button can sit below the fold of the messages scroller (the tablet layout): scroll it into
@@ -220,7 +236,7 @@ func _ask(scenario: String, script: Array, request: String) -> int:
 	var send := _c("send") as Button
 	if send.disabled:
 		print("  (Send disabled: %s)" % (_c("reason") as Label).text)
-	await _click(send)
+	await _click_until(send, func(): return _server.requests.size() > n0 or _win.run.busy())
 	await _until(func(): return not _win.run.busy() and _server.requests.size() > n0, 15000)
 	await _until(func(): return not _win.run.busy(), 15000)
 	await _settle(6)
@@ -479,7 +495,7 @@ func _ready() -> void:
 
 		print("== 3. %s: Apply, then ONE undo ==" % wire)
 		var look0: String = snap0["look"]
-		await _click(card["apply"])
+		await _click_until(card["apply"], func(): return card["state"] != "new")
 		await _settle(8)
 		_ok(card["state"] == "applied", "%s: the click applied the card: %s" % [wire, (card["reason"] as Label).text])
 		_ok(bool(_app.viewport.layer_visible("roads")) == (not layer_now), "%s: the roads layer flipped" % wire)
@@ -533,7 +549,7 @@ func _ready() -> void:
 		_finish()
 		return
 	_ok(_text_of(c3b["box"]).contains("re-fits the view"), "3b: a style-only card tells the user the view is re-fitted")
-	await _click(c3b["apply"])
+	await _click_until(c3b["apply"], func(): return c3b["state"] != "new")
 	await _settle(6)
 	var z_after := float(_app.viewport.zoom())
 	_app.undo_last()
@@ -556,7 +572,7 @@ func _ready() -> void:
 		return
 	_ok(not _text_of(c4["box"]).contains("one undo step") and not _text_of(c4["box"]).contains("Edit > Undo reverts"), "4: the card promises no undo step")
 	_ok(_text_of(c4["box"]).contains("take effect at once and are not on the undo stack"), "4: ...and says plainly the changes are instant and not on the stack")
-	await _click(c4["apply"])
+	await _click_until(c4["apply"], func(): return c4["state"] != "new")
 	await _settle(4)
 	_ok(c4["state"] == "applied" and _app.undo_groups.cursor == int(s4["cursor"]) and _app.undo_groups.groups.size() == int(s4["groups"]) and String(_app.undo_groups.undo_label()) == String(s4["undo"]), "4: applied, and the undo stack is untouched ('%s')" % _app.undo_groups.undo_label())
 	_ok(bool(_app.viewport.layer_visible("sea_routes")) == (not vis_now), "4: the layer flipped")
@@ -572,7 +588,7 @@ func _ready() -> void:
 		_ok(false, "4b: no landmarks card with Apply; stopping")
 		_finish()
 		return
-	await _click(c4b["apply"])
+	await _click_until(c4b["apply"], func(): return c4b["state"] != "new")
 	await _settle(4)
 	_ok(bool(_app.viewport.layer_visible("landmarks")) == (not lm_was) and DccSettings.landmarks_visible() == (not lm_was), "4b: the Landmarks master switch flipped AND its stored setting followed (%s -> %s, stored %s -> %s)" % [str(lm_was), str(_app.viewport.layer_visible("landmarks")), str(persisted_was), str(DccSettings.landmarks_visible())])
 	_app.viewport.set_landmarks_shown_by_user(lm_was)
@@ -623,10 +639,10 @@ func _ready() -> void:
 		_finish()
 		return
 	_ok(_digest() == d6 and bool(_app.viewport.layer_visible("roads")) == vis6, "6: nothing was written before a click")
-	await _click(pc["apply"])
+	await _click_until(pc["apply"], func(): return pc["state"] != "new")
 	await _settle(4)
 	_ok(pc["state"] == "applied" and _app.undo_groups.cursor == g6 + 1, "6: the parameter card applied as one group")
-	await _click(vc6["apply"])
+	await _click_until(vc6["apply"], func(): return vc6["state"] != "new")
 	await _settle(4)
 	_ok(vc6["state"] == "applied" and _app.undo_groups.cursor == g6 + 1, "6: the layer-only view card added no group (cursor %d, was %d)" % [_app.undo_groups.cursor, g6])
 	_app.undo_last()
@@ -752,7 +768,7 @@ func _ready() -> void:
 		_ok(nk == 1 and not ck.is_empty() and ck.get("apply") != null, "8b: a landmark filter card with Apply")
 		var bk := _body(_server.requests.size() - 1)
 		_ok(_action_enum(bk, false).has("set_landmark_filter"), "8b: the action is now in the enum")
-		await _click(ck["apply"])
+		await _click_until(ck["apply"], func(): return ck["state"] != "new")
 		await _settle(3)
 		_ok(ck["state"] == "applied" and bool(_app.viewport.landmark_kind_visible(kid)) == (not kon), "8b: the type '%s' is now %s" % [kid, "shown" if not kon else "hidden"])
 		_app.viewport.set_landmark_kind_visible(kid, kon)
