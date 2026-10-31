@@ -72,7 +72,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **Phone Close button is 29 px, under the 44 px floor.**
 - **Search field lag of 10 to 40 s on the 24601 world over adb** (unexplained).
 - **DS-13** the phone viewport control column redesign (`GUI_GAP_REGISTER.md` s.57).
-- **Mobile shell refactor (proposal of 2026-10-31; Q1-Q4 answered by Ruling DT, Q5-Q9 open):** phone and tablet re-laid out in dp, every menu
+- **Mobile shell refactor (proposal of 2026-10-31; all nine owner questions answered by Rulings DT and DU):** phone and tablet re-laid out in dp, every menu
   and dock category reachable (today CARTO and most of WORLD's dock have one door, MORE ▸ Window ▸ Left dock), a domain
   tab that switches WORLD · CIVIL · CARTO on hold or swipe, MENU mirroring the desktop menus, tablet docks that float
   rather than squeeze the map below 520 dp, sizes up to 4K, New World kept with an auto-populate block. Owner:

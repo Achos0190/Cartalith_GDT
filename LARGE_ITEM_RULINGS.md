@@ -2617,3 +2617,15 @@ Owner, on `MOBILE_SHELL_PROPOSAL.md` section 7, Q1 to Q4, verbatim: *"Yes to all
 4. **Q4. New World's AUTO-POPULATE block is on by default, with all four switches on**: settlements (factions and territories), routes, names and labels, and landmarks and points of interest. Each runs the shell's existing pass after the terrain is generated; routes are greyed, with their reason, while settlements are off.
 
 Q5 to Q9 stay open with their stated defaults. This answers questions; it schedules nothing. When the milestones that build these land (MS-2, MS-4, MS-6 and MS-8), the documents that name today's phone tabs `MAP · GENERATE · PLAN · MORE` are corrected in the same change: `ANDROID_UI_SPEC.md` section 0.3 and `DESIGN_HANDOFF.md`. `design/dcc-environment-2026-08-31/spec/06-phone.md` is an imported design spec and stays verbatim.
+
+## Ruling DU: the mobile shell's remaining defaults, Q5 to Q9, all taken (owner, 2026-10-31)
+
+Owner, on `MOBILE_SHELL_PROPOSAL.md` section 7, Q5 to Q9, verbatim: *"Yes to Q5 through Q9 too"*. With Ruling DT this answers every question the proposal asked. Recorded as answered:
+
+1. **Q5. Two-finger tap undoes and three-finger tap redoes, on by default**, with a switch to turn them off in Touch & gestures (for a stylus that triggers them by accident).
+2. **Q6. The phone app bar's `⋮` overflow goes.** Its three rows already live elsewhere: Save project and Close project in MENU ▸ File, Theme in MENU ▸ Preferences. The app bar is the world pill (which opens MENU ▸ File), Undo (hold for history) and Search.
+3. **Q7. Below 1 180 dp the tablet keeps the shipped bar `☰ · File · World · Story`**, with ☰ holding the other menus as today. From 1 180 dp the tablet shows the eight menus whole.
+4. **Q8. A floating dock closes when the map is touched, unless it is pinned.** A docked one is not affected.
+5. **Q9. The sheet's peek detent is 76 dp instead of 66**, so the header holds the armed tool's line.
+
+This answers questions; it schedules nothing. Q9 and Q6 change shipped values (`DccShell.PHONE_DETENT_PEEK` 66, the `⋮` built by `_build_phone_app_bar`). When the milestone that builds them lands, `ANDROID_UI_SPEC.md`'s descriptions of the detents (section 0.2) and of the app bar are corrected in the same change. Dated records that quote 66 dp or the `⋮` (`STATUS.md` entries, `GUI_GAP_REGISTER.md`, closed `OUTSTANDING_WORK.md` rows) stay as written.

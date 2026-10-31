@@ -234,7 +234,7 @@ Each closes with `cargo test --workspace` unaffected and the touched `.gd` files
 
 ## 7. Owner questions, with defaults
 
-Q1 to Q4 were answered by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*, `LARGE_ITEM_RULINGS.md`). Q5 to Q9 are open.
+Every question is answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case.
 
 | # | Question | Default | Answer |
 |---|---|---|---|
@@ -242,11 +242,11 @@ Q1 to Q4 were answered by **Ruling DT** (owner, 2026-10-31: *"Yes to all four de
 | Q2 | Replace MORE with MENU, the eight desktop menus row for row? | Yes | **Yes** (Ruling DT) |
 | Q3 | The WORLD domain tab's caption: GENERATE (today's word) or WORLD (the rail's)? | GENERATE | **GENERATE** (Ruling DT) |
 | Q4 | Auto-populate on by default in New World? | Yes, all four | **Yes, all four** (Ruling DT) |
-| Q5 | Two- and three-finger tap for undo and redo on by default? | Yes, with a switch | open |
-| Q6 | Drop the app bar's `⋮` (Save · Theme · Close world now live in MENU ▸ File and Preferences)? | Yes | open |
-| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | open |
-| Q8 | Floating docks close when the map is touched? | Yes, unless pinned | open |
-| Q9 | Peek detent 76 dp instead of 66? | Yes | open |
+| Q5 | Two- and three-finger tap for undo and redo on by default? | Yes, with a switch | **Yes, with a switch** (Ruling DU) |
+| Q6 | Drop the app bar's `⋮` (Save · Theme · Close world now live in MENU ▸ File and Preferences)? | Yes | **Yes** (Ruling DU) |
+| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | **Yes** (Ruling DU) |
+| Q8 | Floating docks close when the map is touched? | Yes, unless pinned | **Yes, unless pinned** (Ruling DU) |
+| Q9 | Peek detent 76 dp instead of 66? | Yes | **Yes** (Ruling DU) |
 
 ## 8. What the mockup does not settle
 
