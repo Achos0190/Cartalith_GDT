@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cartalith mobile shell — device lab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0a0b0c}
+.lab-chip{appearance:none;border:1px solid rgba(255,255,255,.16);background:transparent;color:#a9adb0;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;padding:0 14px;height:36px;border-radius:18px;cursor:pointer;white-space:nowrap}
+.lab-chip:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}
+</style>
+</helmet>
+<div style="width:1480px;height:1200px;box-sizing:border-box;padding:18px 20px 16px;display:flex;flex-direction:column;align-items:center;gap:10px;background:#0a0b0c;font:12px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296;overflow:hidden">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;justify-content:center">
+    <span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:#e8ebec">CARTALITH · MOBILE SHELL</span>
+    <span style="font:10.5px 'IBM Plex Mono',monospace;color:#8d9296">one shell, laid out from the window size in dp · phone · phone landscape · fold · tablet</span>
+  </div>
+  <div role="toolbar" aria-label="device" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center">
+    <sc-for list="{{ devices }}" as="d" hint-placeholder-count="8">
+      <button class="lab-chip" onClick="{{ d.pick }}" aria-pressed="{{ d.on }}" style="border-color:{{ d.bord }};color:{{ d.col }};background:{{ d.bg }}">{{ d.label }}</button>
+    </sc-for>
+    <span style="width:1px;height:22px;background:rgba(255,255,255,.14)"></span>
+    <button class="lab-chip" onClick="{{ hOrient }}" style="color:#c8cbcd">{{ orientLabel }}</button>
+    <button class="lab-chip" onClick="{{ hTheme }}" style="color:#c8cbcd">{{ themeLabel }}</button>
+    <button class="lab-chip" onClick="{{ hBack }}" aria-label="Android system back" style="color:#e0a34a;border-color:rgba(224,163,74,.5)">◁ SYSTEM BACK</button>
+  </div>
+  <div style="font:10px 'IBM Plex Mono',monospace;color:#a9adb0;text-align:center">{{ readout }}</div>
+  <div style="flex:1;min-height:0;width:100%;display:flex;align-items:flex-start;justify-content:center">
+    <div style="position:relative;width:{{ boxW }}px;height:{{ boxH }}px;flex:none">
+      <div style="position:absolute;left:0;top:0;width:{{ fw }}px;height:{{ fh }}px;transform:scale({{ k }});transform-origin:0 0;border-radius:{{ radius }}px;border:1px solid rgba(255,255,255,.16);overflow:hidden;background:#101112;box-shadow:0 30px 80px rgba(0,0,0,.5)">
+        <dc-import name="Shell" w="{{ fw }}" h="{{ fh }}" light="{{ light }}" back-tick="{{ backTick }}" coach="{{ true }}" hint-size="{{ hint }}"></dc-import>
+      </div>
+      <div ref="{{ gripRef }}" title="drag to resize the window" aria-label="drag to resize the window" style="position:absolute;right:-22px;bottom:-22px;width:30px;height:30px;cursor:nwse-resize;touch-action:none;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(224,163,74,.16);border:1px solid rgba(224,163,74,.6)">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14L14 4M8 14l6-6M12 14l2-2" stroke="#e0a34a" stroke-width="1.5" stroke-linecap="round"></path></svg>
+      </div>
+    </div>
+  </div>
+  <div style="font:10px/1.6 'IBM Plex Mono',monospace;color:#8d9296;text-align:center;max-width:1240px">{{ rules }}</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"device":{"editor":"enum","options":["s360","p393","p412","p480","fold","t800","t1194","t1366","t1600","k4x2","k4x15","k4x1"],"default":"p412","section":"Device"},"landscape":{"editor":"boolean","default":false,"section":"Device"},"light":{"editor":"boolean","default":false,"section":"Device"},"$preview":{"width":1480,"height":1200}}'>
+/* Device lab: the same Shell at any window size. Presets are in dp with the device's pixels for reference;
+   the corner grip resizes the window freely so the size-class rules can be watched as they switch. */
+const DEVICES = [
+  ['s360', 'PHONE 360', 360, 780, '720 × 1560 px @ 2'],
+  ['p393', 'PHONE 393', 393, 852, '1080 × 2340 px @ 2.75'],
+  ['p412', 'ONEPLUS 6T', 412, 892, '1080 × 2340 px @ 2.625 · the owner’s phone'],
+  ['p480', 'PHONE 480', 480, 1040, '1440 × 3120 px @ 3'],
+  ['fold', 'FOLD 673', 673, 841, 'foldable, inner screen'],
+  ['t800', 'TABLET 800', 800, 1280, '1600 × 2560 px @ 2'],
+  ['t1194', 'TABLET 1194', 1194, 834, '2388 × 1668 px @ 2'],
+  ['t1366', 'TABLET 1366', 1366, 1024, '2732 × 2048 px @ 2'],
+  ['t1600', 'TABLET 1600', 1600, 1000, '2560 × 1600 px @ 1.6 · the DCC tablet canvas’s 13″ frame'],
+  ['k4x2', '4K ×2', 1920, 1080, '3840 × 2160 px @ 2 · 4K tablet'],
+  ['k4x15', '4K ×1.5', 2560, 1440, '3840 × 2160 px @ 1.5 · 4K large tablet'],
+  ['k4x1', '4K ×1', 3840, 2160, '3840 × 2160 px @ 1 · 4K wall or desk display']
+];
+function classOf(w, h) {
+  if (h < 500 && w > h) return 'phone landscape: rail on the left, the panel docks right';
+  if (w < 600) return 'phone: bottom bar, bottom sheet with peek / half / full';
+  const avail = w - 64, ld = w >= 1920 ? 400 : (w >= 1400 ? 360 : 340), rd = w >= 1920 ? 380 : (w >= 1400 ? 340 : 312);
+  const docks = avail - ld - rd >= 520 ? 'both docks docked' : (avail - ld - 44 >= 520 ? 'left dock docked, inspector floats' : 'both docks float over the map');
+  return 'tablet (desktop parity): menu bar ' + (w >= 1180 ? 'with all 8 menus' : '☰ · File · World · Story') + ', ' + docks;
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { dev: props.device || 'p412', land: !!props.landscape, light: !!props.light, custom: null, backTick: 0 };
+    this.gripRef = React.createRef();
+  }
+  componentDidMount() { this._bindGrip(); }
+  componentDidUpdate() { this._bindGrip(); }
+  _dims() { const s = this.state; if (s.custom) return s.custom; const d = DEVICES.find((x) => x[0] === s.dev) || DEVICES[2]; const w = d[2], h = d[3]; const portrait = w < h; return (s.land === portrait) ? { w: h, h: w } : { w, h }; }
+  _bindGrip() {
+    const g = this.gripRef.current; if (!g || g === this._g) return; this._g = g;
+    g.addEventListener('pointerdown', (e) => { e.preventDefault(); try { g.setPointerCapture(e.pointerId); } catch (_) { } const d = this._dims(); this._drag = { x0: e.clientX, y0: e.clientY, w0: d.w, h0: d.h, k: this._k(d) }; });
+    g.addEventListener('pointermove', (e) => { const D = this._drag; if (!D) return; const w = Math.round(Math.max(320, Math.min(3840, D.w0 + (e.clientX - D.x0) / D.k))); const h = Math.round(Math.max(320, Math.min(2400, D.h0 + (e.clientY - D.y0) / D.k))); this.setState({ custom: { w, h } }); });
+    const end = () => { this._drag = null; }; g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+  }
+  _k(d) { return Math.min(1, 1400 / d.w, 1000 / d.h); }
+  renderVals() {
+    const s = this.state, d = this._dims(), k = this._drag ? this._drag.k : this._k(d);
+    const dev = DEVICES.find((x) => x[0] === s.dev);
+    return {
+      devices: DEVICES.map((x) => ({ label: x[1], on: !s.custom && s.dev === x[0], bord: !s.custom && s.dev === x[0] ? '#e0a34a' : 'rgba(255,255,255,.16)', col: !s.custom && s.dev === x[0] ? '#e0a34a' : '#a9adb0', bg: !s.custom && s.dev === x[0] ? 'rgba(224,163,74,.12)' : 'transparent', pick: () => this.setState({ dev: x[0], custom: null, land: x[2] > x[3] }) })),
+      orientLabel: (d.w > d.h ? 'LANDSCAPE' : 'PORTRAIT') + ' ⤾', themeLabel: s.light ? 'THEME · LIGHT' : 'THEME · DARK',
+      hOrient: () => this.setState(s.custom ? { custom: { w: d.h, h: d.w } } : { land: !s.land }), hTheme: () => this.setState({ light: !s.light }), hBack: () => this.setState({ backTick: s.backTick + 1 }),
+      readout: d.w + ' × ' + d.h + ' dp' + (s.custom ? ' · custom (drag the corner grip)' : (dev ? ' · ' + dev[4] : '')) + (k < 1 ? ' · shown at ' + Math.round(k * 100) + ' %' : ' · shown at 100 %') + ' · ' + classOf(d.w, d.h),
+      fw: d.w, fh: d.h, k, boxW: Math.round(d.w * k), boxH: Math.round(d.h * k), radius: d.w < 600 || d.h < 500 ? 34 : 20, light: s.light, backTick: s.backTick, hint: d.w + 'px,' + d.h + 'px', gripRef: this.gripRef,
+      rules: 'Presets name dp; the pixels are dp × density, so a 4K panel is 1920, 2560 or 3840 dp wide depending on its density. Width under 600 dp → phone. Landscape under 500 dp tall → phone landscape. Anything else → the desktop shell with touch sizing: a dock stays docked only while the map keeps at least 520 dp; otherwise it floats over the map and can be pinned. Every tap target is 44 dp or more; most are 48. Nothing is placed in pixels.'
+    };
+  }
+}
+</script>
+</body>
+</html>

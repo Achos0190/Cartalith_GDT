@@ -47,6 +47,10 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Mobile shell proposal and mockup (2026-10-31)
+
+Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHELL_PROPOSAL.md` and the interactive mockup `design/mobile-shell-2026-10-31/` (live as a claude.ai Design canvas) propose the phone and tablet shells re-laid out in dp, from 360 dp to 4K. The owner asked for it on 2026-10-31. Code read for it (two inventories, committed as evidence in `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`): on the phone, CARTO's categories and most of WORLD's dock are reachable only through MORE ▸ Window ▸ Left dock, and CIVIL has no tab; `_compute_layout_mode` decides phone or tablet once at boot from aspect ratio and scales the phone UI by short side ÷ 412. The mockup was measured in Chromium only: every tap target is 44 × 44 dp or more at 360 × 780, 412 × 892, 780 × 360 and 1 194 × 834. Owner questions Q1…Q9 are open; milestones MS-1…MS-10 are unscheduled.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.

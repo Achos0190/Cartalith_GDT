@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cartalith mobile shell — this device</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#0a0b0c;overscroll-behavior:none}</style>
+</helmet>
+<div ref="{{ hostRef }}" style="position:relative;width:100%;height:100vh;overflow:hidden;background:#101112">
+<dc-import name="Shell" w="{{ w }}" h="{{ h }}" coach="{{ true }}" hint-size="100%,100vh"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":412,"height":892}}'>
+/* This device: the shell at the size of whatever window opens it. Open it full-window on a phone, a foldable or a
+   tablet (or resize a desktop browser window) and the layout follows the same dp rules as the device lab. */
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { w: 412, h: 892 }; this.hostRef = React.createRef(); }
+  componentDidMount() {
+    const el = this.hostRef.current; if (!el) return;
+    const fit = () => { const w = Math.round(el.clientWidth), h = Math.round(el.clientHeight); if (w && h && (w !== this.state.w || h !== this.state.h)) this.setState({ w, h }); };
+    this._ro = new ResizeObserver(fit); this._ro.observe(el); fit();
+  }
+  componentWillUnmount() { if (this._ro) this._ro.disconnect(); }
+  renderVals() { return { w: this.state.w, h: this.state.h, hostRef: this.hostRef }; }
+}
+</script>
+</body>
+</html>
