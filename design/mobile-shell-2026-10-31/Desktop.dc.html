@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cartalith desktop shell</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0a0b0c}
+.dk-chip{appearance:none;border:1px solid rgba(255,255,255,.16);background:transparent;color:#a9adb0;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;padding:0 12px;height:28px;border-radius:14px;cursor:pointer;white-space:nowrap}
+.dk-chip:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}
+</style>
+</helmet>
+<div style="width:1600px;height:1000px;box-sizing:border-box;padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px;background:#0a0b0c;font:12px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296;overflow:hidden">
+  <div role="toolbar" aria-label="window size" style="flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:#e8ebec;padding-right:8px">CARTALITH · DESKTOP</span>
+    <sc-for list="{{ sizes }}" as="d" hint-placeholder-count="4">
+      <button class="dk-chip" onClick="{{ d.pick }}" aria-pressed="{{ d.on }}" style="border-color:{{ d.bord }};color:{{ d.col }}">{{ d.label }}</button>
+    </sc-for>
+    <span style="width:1px;height:18px;background:rgba(255,255,255,.14)"></span>
+    <button class="dk-chip" onClick="{{ hTheme }}" style="color:#c8cbcd">{{ themeLabel }}</button>
+    <span style="flex:1"></span>
+    <span style="font:10px 'IBM Plex Mono',monospace;color:#a9adb0">{{ readout }}</span>
+  </div>
+  <div style="flex:1;min-height:0;display:flex;align-items:flex-start;justify-content:center">
+    <div style="position:relative;width:{{ boxW }}px;height:{{ boxH }}px;flex:none">
+      <div style="position:absolute;left:0;top:0;width:{{ fw }}px;height:{{ fh }}px;transform:scale({{ k }});transform-origin:0 0;border-radius:8px;border:1px solid rgba(255,255,255,.16);overflow:hidden;background:#101112;box-shadow:0 24px 70px rgba(0,0,0,.6)">
+        <dc-import name="Shell" w="{{ fw }}" h="{{ fh }}" light="{{ light }}" pointer="{{ true }}" assistant-on="{{ assistantOn }}" coach="{{ false }}" hint-size="{{ hint }}"></dc-import>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"enum","options":["1366","1600","1920","2560"],"default":"1600","section":"Window"},"light":{"editor":"boolean","default":false,"section":"Window"},"assistantOn":{"editor":"boolean","default":true,"section":"Assistant"},"$preview":{"width":1600,"height":1000}}'>
+/* The desktop shell: the same Shell component at mouse density (pointer=true). Sizes are window sizes in
+   logical pixels; a frame larger than this board is shown scaled, with every number in the shell unchanged.
+   The assistant starts on here so Ask can be tried; the product ships it off (Ruling DC). */
+const SIZES = [['1366', 1366, 768, 'laptop'], ['1600', 1600, 900, 'small desktop'], ['1920', 1920, 1080, 'full HD'], ['2560', 2560, 1440, 'QHD']];
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { size: props.size || '1600', light: !!props.light }; }
+  renderVals() {
+    const s = this.state; const d = SIZES.find((x) => x[0] === s.size) || SIZES[1];
+    const fw = d[1], fh = d[2]; const k = Math.min(1, 1576 / fw, 940 / fh);
+    return {
+      sizes: SIZES.map((x) => ({ label: x[1] + ' × ' + x[2], on: x[0] === s.size, bord: x[0] === s.size ? '#e0a34a' : 'rgba(255,255,255,.16)', col: x[0] === s.size ? '#e0a34a' : '#a9adb0', pick: () => this.setState({ size: x[0] }) })),
+      themeLabel: s.light ? 'THEME · LIGHT' : 'THEME · DARK', hTheme: () => this.setState({ light: !s.light }),
+      readout: fw + ' × ' + fh + ' · ' + d[3] + (k < 1 ? ' · shown at ' + Math.round(k * 100) + ' %' : ' · shown at 100 %') + ' · mouse and keyboard',
+      fw, fh, k, boxW: Math.round(fw * k), boxH: Math.round(fh * k), light: s.light, assistantOn: this.props.assistantOn !== false, hint: fw + 'px,' + fh + 'px'
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -16,12 +16,12 @@ body{margin:0}
 .clr-btn{appearance:none;border:0;margin:0;font:inherit;color:inherit;background:none;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .clr-btn:active{filter:brightness(1.25)}
 .clr-btn:focus-visible,.clr-tap:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}
-.clr-rng{-webkit-appearance:none;appearance:none;height:44px;background:transparent;margin:0;flex:1;min-width:0}
+.clr-rng{-webkit-appearance:none;appearance:none;height:var(--c44,44px);background:transparent;margin:0;flex:1;min-width:0}
 .clr-rng::-webkit-slider-runnable-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
 .clr-rng::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:11px;background:var(--acc,#e0a34a);margin-top:-9px;border:2px solid var(--pan,#15171a)}
 .clr-rng::-moz-range-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
 .clr-rng::-moz-range-thumb{width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);border:2px solid var(--pan,#15171a)}
-.clr-in{appearance:none;width:100%;box-sizing:border-box;min-height:44px;border-radius:12px;border:1px solid var(--hair);background:var(--chip);color:var(--ink);font:12px 'IBM Plex Mono',monospace;padding:0 12px;outline:none}
+.clr-in{appearance:none;width:100%;box-sizing:border-box;min-height:var(--c44,44px);border-radius:12px;border:1px solid var(--hair);background:var(--chip);color:var(--ink);font:12px 'IBM Plex Mono',monospace;padding:0 12px;outline:none}
 .clr-in:focus{border-color:var(--acc)}
 </style>
 </helmet>
@@ -36,7 +36,7 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isAcc }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" aria-expanded="{{ r.open }}" style="display:flex;align-items:center;gap:10px;min-height:52px;padding:0 12px;margin-top:6px;border-radius:14px;border:1px solid var(--hair2);background:{{ r.bg }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-expanded="{{ r.open }}" style="display:flex;align-items:center;gap:10px;min-height:var(--c52,52px);padding:0 12px;margin-top:6px;border-radius:14px;border:1px solid var(--hair2);background:{{ r.bg }}">
 <span style="width:22px;font:10px 'IBM Plex Mono',monospace;color:{{ r.numCol }}">{{ r.num }}</span>
 <span style="flex:1;min-width:0;font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:{{ r.titleCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:{{ r.stateCol }};white-space:nowrap">{{ r.state }}</span>
@@ -45,13 +45,13 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isNav }}" hint-placeholder-val="{{ true }}">
-<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="{{ r.dis }}" style="display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 12px 6px {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
-<span style="width:32px;height:32px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--chip)">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="{{ r.dis }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
+<span style="width:var(--i32,32px);height:var(--i32,32px);flex:none;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--chip)">
 <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ r.d }}" fill="none" stroke="{{ r.iconCol }}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 </span>
 <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <span style="font-size:13px;color:{{ r.labelCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
-<span style="font:10px 'IBM Plex Mono',monospace;color:{{ r.subCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
+<span style="display:{{ r.subDisp }};font:10px 'IBM Plex Mono',monospace;color:{{ r.subCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
 </span>
 <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.08em;color:{{ r.badgeCol }};white-space:nowrap">{{ r.badge }}</span>
 <span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ r.accel }}</span>
@@ -60,7 +60,7 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isChk }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" role="{{ r.role }}" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:{{ r.h }}px;padding:0 12px 0 {{ r.padL }}px;border-radius:12px;background:{{ r.bg }}">
+<button class="clr-btn" onClick="{{ r.tap }}" role="{{ r.role }}" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c48,48px);padding:0 12px 0 {{ r.padL }}px;border-radius:12px;background:{{ r.bg }}">
 <span style="width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:{{ r.markR }};border:1.5px solid {{ r.markBord }};background:{{ r.markBg }}">
 <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="opacity:{{ r.markOp }}"><path d="M0 0{{ r.markD }}" fill="{{ r.markFill }}" stroke="var(--accInk)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 </span>
@@ -70,7 +70,7 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isTodo }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="true" style="display:flex;flex-direction:column;gap:3px;justify-content:center;min-height:52px;padding:6px 12px 6px {{ r.padL }}px;border-radius:12px">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="true" style="display:flex;flex-direction:column;gap:3px;justify-content:center;min-height:var(--c52,52px);padding:6px 12px 6px {{ r.padL }}px;border-radius:12px">
 <span style="display:flex;align-items:center;gap:10px;width:100%">
 <span style="flex:1;min-width:0;font-size:13px;color:var(--dim)">{{ r.label }}</span>
 <span style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--warn);border:1px solid var(--warnBord);border-radius:9px;padding:2px 7px;white-space:nowrap">{{ r.tag }}</span>
@@ -80,7 +80,7 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isAct }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;margin:5px 0;padding:0 18px;border-radius:24px;border:1px solid {{ r.bord }};background:{{ r.bg }};color:{{ r.col }};font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;text-align:center">
+<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;justify-content:center;gap:8px;min-height:var(--c48,48px);margin:5px 0;padding:0 18px;border-radius:var(--r24,24px);border:1px solid {{ r.bord }};background:{{ r.bg }};color:{{ r.col }};font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;text-align:center">
 <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ r.iconDisp }}"><path d="M0 0{{ r.d }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 <span>{{ r.label }}</span>
 </button>
@@ -89,7 +89,7 @@ body{margin:0}
 <sc-if value="{{ r.isActs }}" hint-placeholder-val="{{ false }}">
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:5px 0">
 <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="2">
-<button class="clr-btn" onClick="{{ o.tap }}" style="flex:{{ o.flex }};display:flex;align-items:center;justify-content:center;gap:7px;min-height:48px;padding:0 14px;border-radius:24px;border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap">
+<button class="clr-btn" onClick="{{ o.tap }}" style="flex:{{ o.flex }};display:flex;align-items:center;justify-content:center;gap:7px;min-height:var(--c48,48px);padding:0 14px;border-radius:var(--r24,24px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap">
 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ o.iconDisp }}"><path d="M0 0{{ o.d }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 <span>{{ o.label }}</span>
 </button>
@@ -98,12 +98,12 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isTog }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 12px 6px {{ r.padL }}px;border-radius:14px">
+<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px">
 <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <span style="font-size:13px;color:{{ r.labelCol }}">{{ r.label }}</span>
 <span style="font:10px/1.5 'IBM Plex Mono',monospace;color:{{ r.subCol }}">{{ r.sub }}</span>
 </span>
-<span style="position:relative;width:44px;height:24px;flex:none;border-radius:12px;background:{{ r.track }};transition:background .15s">
+<span style="position:relative;width:var(--c44,44px);height:24px;flex:none;border-radius:12px;background:{{ r.track }};transition:background .15s">
 <span style="position:absolute;top:2px;left:{{ r.knobX }}px;width:20px;height:20px;border-radius:10px;background:{{ r.knob }};transition:left .15s"></span>
 </span>
 </button>
@@ -114,7 +114,7 @@ body{margin:0}
 <span style="display:{{ r.labelDisp }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--sec)">{{ r.label }}</span>
 <div role="radiogroup" aria-label="{{ r.label }}" style="display:flex;gap:6px;flex-wrap:wrap">
 <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="3">
-<button class="clr-btn" onClick="{{ o.tap }}" role="radio" aria-checked="{{ o.on }}" style="display:flex;align-items:center;gap:7px;min-height:44px;padding:0 14px;border-radius:22px;border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;white-space:nowrap">
+<button class="clr-btn" onClick="{{ o.tap }}" role="radio" aria-checked="{{ o.on }}" style="display:flex;align-items:center;gap:7px;min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;white-space:nowrap">
 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ o.iconDisp }}"><path d="M0 0{{ o.d }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 <span>{{ o.label }}</span>
 </button>
@@ -131,18 +131,28 @@ body{margin:0}
 <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);white-space:nowrap">{{ r.disp }}</span>
 </div>
 <div style="display:flex;align-items:center;gap:8px">
-<button class="clr-btn" onClick="{{ r.dec }}" aria-label="decrease {{ r.label }}" style="width:44px;height:44px;flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+<button class="clr-btn" onClick="{{ r.dec }}" aria-label="decrease {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
 <input class="clr-rng" type="range" min="{{ r.min }}" max="{{ r.max }}" step="{{ r.step }}" value="{{ r.val }}" onInput="{{ r.onIn }}" aria-label="{{ r.label }}">
-<button class="clr-btn" onClick="{{ r.inc }}" aria-label="increase {{ r.label }}" style="width:44px;height:44px;flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+<button class="clr-btn" onClick="{{ r.inc }}" aria-label="increase {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
 </div>
 <span style="display:{{ r.subDisp }};font:10px/1.5 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.sub }}</span>
 </div>
 </sc-if>
 
 <sc-if value="{{ r.isRead }}" hint-placeholder-val="{{ false }}">
-<div style="display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px 0 {{ r.padL }}px;border-bottom:1px solid var(--hair2)">
+<div style="display:flex;align-items:center;gap:12px;min-height:var(--c44,44px);padding:0 12px 0 {{ r.padL }}px;border-bottom:1px solid var(--hair2)">
 <span style="flex:none;max-width:48%;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">{{ r.label }}</span>
 <span style="flex:1;min-width:0;text-align:right;font:11px 'IBM Plex Mono',monospace;color:{{ r.vCol }}">{{ r.v }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ r.isLnk }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px;min-height:var(--c44,44px);padding:0 4px 0 {{ r.padL }}px;border-bottom:1px solid var(--hair2)">
+<span style="flex:none;max-width:40%;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">{{ r.label }}</span>
+<span style="flex:1;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 4px">
+<sc-for list="{{ r.links }}" as="l" hint-placeholder-count="1"><button class="clr-btn" onClick="{{ l.tap }}" title="{{ l.title }}" style="max-width:100%;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 6px;border-radius:8px;display:flex;align-items:center;justify-content:flex-end;gap:6px;font:11px 'IBM Plex Mono',monospace;color:{{ l.col }}"><span style="display:{{ l.dotDisp }};width:8px;height:8px;flex:none;border-radius:50%;background:{{ l.dot }}"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:underline;text-decoration-color:rgba(224,163,74,.45);text-underline-offset:3px">{{ l.label }}</span></button></sc-for>
+<span style="display:{{ r.emptyDisp }};font:11px 'IBM Plex Mono',monospace;color:var(--dim)">—</span>
+<span style="display:{{ r.tailDisp }};font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;padding-right:6px">{{ r.tail }}</span>
+</span>
 </div>
 </sc-if>
 
@@ -163,11 +173,11 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isLayer }}" hint-placeholder-val="{{ false }}">
-<div style="display:flex;align-items:center;gap:8px;min-height:52px;padding:0 8px 0 {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
-<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" aria-label="show {{ r.label }}" style="width:44px;height:44px;flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;color:{{ r.eyeCol }}">
+<div style="display:flex;align-items:center;gap:8px;min-height:var(--c52,52px);padding:0 8px 0 {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
+<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" aria-label="show {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;color:{{ r.eyeCol }}">
 <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ r.eyeD }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 </button>
-<button class="clr-btn" onClick="{{ r.tap2 }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;min-height:44px;justify-content:center">
+<button class="clr-btn" onClick="{{ r.tap2 }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;min-height:var(--c44,44px);justify-content:center">
 <span style="font-size:13px;color:{{ r.labelCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
 </button>
@@ -176,14 +186,14 @@ body{margin:0}
 </sc-if>
 
 <sc-if value="{{ r.isRamp }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" aria-pressed="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:14px;border:1px solid {{ r.bord }};background:{{ r.bg }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-pressed="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c48,48px);padding:0 12px;border-radius:14px;border:1px solid {{ r.bord }};background:{{ r.bg }}">
 <span style="flex:1;height:14px;border-radius:7px;background:{{ r.grad }}"></span>
 <span style="width:84px;font:10px 'IBM Plex Mono',monospace;color:{{ r.labelCol }}">{{ r.label }}</span>
 </button>
 </sc-if>
 
 <sc-if value="{{ r.isItem }}" hint-placeholder-val="{{ false }}">
-<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 12px 6px {{ r.padL }}px;border-radius:14px;background:{{ r.bg }};border:1px solid {{ r.bord }}">
+<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px;background:{{ r.bg }};border:1px solid {{ r.bord }}">
 <span style="width:12px;height:12px;flex:none;border-radius:{{ r.dotR }};background:{{ r.dot }};border:1px solid var(--bord)"></span>
 <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <span style="font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
@@ -209,7 +219,7 @@ body{margin:0}
 </div>
 <span style="height:5px;border-radius:3px;background:var(--chip);overflow:hidden"><span style="display:block;height:5px;width:{{ r.pct }}%;background:var(--acc);transition:width .25s"></span></span>
 <sc-for list="{{ r.lines }}" as="ln" hint-placeholder-count="2"><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ ln.t }}</span></sc-for>
-<button class="clr-btn" onClick="{{ r.tap }}" style="align-self:flex-end;min-height:44px;padding:0 16px;border-radius:22px;background:var(--chip);color:var(--sec);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">CANCEL</button>
+<button class="clr-btn" onClick="{{ r.tap }}" style="align-self:flex-end;min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:var(--chip);color:var(--sec);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">CANCEL</button>
 </div>
 </sc-if>
 
@@ -225,7 +235,7 @@ body{margin:0}
 <span style="display:{{ r.noteDisp }};font:10px/1.6 'IBM Plex Mono',monospace;color:var(--warnText)">{{ r.note }}</span>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="2">
-<button class="clr-btn" onClick="{{ o.tap }}" style="min-height:44px;padding:0 14px;border-radius:22px;border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.1em;white-space:nowrap">{{ o.label }}</button>
+<button class="clr-btn" onClick="{{ o.tap }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.1em;white-space:nowrap">{{ o.label }}</button>
 </sc-for>
 </div>
 </div>
@@ -243,7 +253,7 @@ body{margin:0}
 <sc-if value="{{ r.isThumbs }}" hint-placeholder-val="{{ false }}">
 <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:4px 0 8px">
 <sc-for list="{{ r.items }}" as="t" hint-placeholder-count="4">
-<button class="clr-btn" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" style="display:flex;flex-direction:column;gap:4px;min-height:44px;padding:4px;border-radius:10px;border:1px solid {{ t.bord }};background:var(--pan2)">
+<button class="clr-btn" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" style="display:flex;flex-direction:column;gap:4px;min-height:var(--c44,44px);padding:4px;border-radius:10px;border:1px solid {{ t.bord }};background:var(--pan2)">
 <img src="{{ t.src }}" alt="" style="width:100%;height:auto;display:block;image-rendering:pixelated;border-radius:3px;background:var(--chip);min-height:24px">
 <span style="font:9px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.label }}</span>
 </button>
@@ -263,7 +273,7 @@ body{margin:0}
    A row is plain data ({k:'nav'|'tog'|...}); this file turns it into DCC-styled,
    touch-sized controls (every tap target >= 44 px, most 48-56). Standalone, it
    draws one of every kind so the vocabulary can be reviewed on the canvas. */
-const KINDS = ['hd','acc','nav','chk','todo','act','acts','tog','seg','rng','read','info','tools','layer','ramp','item','field','prog','card','img','thumbs','sep'];
+const KINDS = ['hd','acc','nav','chk','todo','act','acts','tog','seg','rng','read','lnk','info','tools','layer','ramp','item','field','prog','card','img','thumbs','sep'];
 function decorateRows(rows) {
   return (rows || []).map((r0) => {
     const r = Object.assign({}, r0);
@@ -271,7 +281,7 @@ function decorateRows(rows) {
     const ind = r.indent || 0;
     r.padL = 12 + ind * 18; r.padL4 = 4 + ind * 18;
     r.pad = r.pad || '16px 4px 6px';
-    r.sub = r.sub == null ? '' : r.sub;
+    r.sub = r.sub == null ? '' : r.sub; r.subDisp = r.sub ? 'block' : 'none';
     r.right = r.right == null ? '' : r.right;
     r.badge = r.badge == null ? '' : r.badge; r.accel = r.accel || '';
     r.d = r.d || '';
@@ -297,6 +307,8 @@ function decorateRows(rows) {
       r.labelCol = 'var(--ink)'; r.bg = 'transparent';
     }
     if (r.k === 'todo') { r.tag = r.tag || 'NOT BUILT'; r.reason = r.reason || ''; }
+    // a readout whose value is one or more links: a name selects that thing, a year moves the timeline
+    if (r.k === 'lnk') { r.links = (r.links || []).map((l0) => { const l = Object.assign({}, l0); l.col = l.col || 'var(--acc)'; l.dotDisp = l.dot ? 'inline-block' : 'none'; l.dot = l.dot || 'transparent'; l.title = l.title || ''; return l; }); r.tail = r.tail || ''; r.tailDisp = r.tail ? 'inline' : 'none'; r.emptyDisp = r.links.length ? 'none' : 'inline'; }
     if (r.k === 'act') {
       const v = r.variant || 'secondary';
       r.bg = v === 'primary' ? 'var(--acc)' : (v === 'danger' ? 'transparent' : 'var(--chip)');
@@ -392,6 +404,7 @@ class Component extends DCLogic {
       { k: 'seg', label: 'Segmented choice', opts: ['512', '1024', '2048', '4096'].map((x, i) => ({ label: x, on: s.demoSeg === i, tap: () => set({ demoSeg: i }) })) },
       { k: 'rng', label: 'Range with steppers', min: 0, max: 1, step: 0.01, val: s.demoVal, disp: s.demoVal.toFixed(2), onIn: (e) => set({ demoVal: +e.target.value }), dec: () => set({ demoVal: Math.max(0, +(s.demoVal - 0.01).toFixed(2)) }), inc: () => set({ demoVal: Math.min(1, +(s.demoVal + 0.01).toFixed(2)) }) },
       { k: 'read', label: 'Readout', v: '1 204 m' },
+      { k: 'lnk', label: 'Link readout', links: [{ label: 'Sevjuni League', dot: '#6a9bc4', title: 'selects it' }, { label: 'year 398', title: 'moves the timeline' }], tail: '◂ now' },
       { k: 'tools', label: 'tools', tools: [{ d: 'M3 3l4 10 1.5-4.5L13 7Z', label: 'Inspect', key: 'V', on: true }, { d: 'M2 13h12M4 13V7l4-3 4 3v6', label: 'Settle', key: 'S' }, { d: 'M8 2v12M2 8h12', label: 'POI', key: 'P' }, { d: 'M2 12c3-6 5 2 8-4 1.5-3 3-3 4-2', label: 'Way', key: 'W' }] },
       { k: 'layer', label: 'Layer visibility', sub: 'opacity 78 %', on: true, pct: 78 },
       { k: 'ramp', label: 'Earth', grad: 'linear-gradient(90deg,#2c4a5e,#4a7a52,#8aa05a,#c9b57a,#e8e0c8)', on: true },
