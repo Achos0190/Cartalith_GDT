@@ -12,14 +12,15 @@ this? Analyse and read into the current implementation first."*
 **The short answer: yes.**
 
 The proper way is **progressive disclosure over one action catalogue**. The model always sees a small, fixed set
-of tools and a short map of what exists. It searches the catalogue for what the user asked, asks for the full
-description of the one or two actions it needs, and proposes them by id. The app checks every id against what it
+of tools and a short map of what exists. It asks the program what is available: by type, from the categories down to
+a list of commands, or by search. Then it asks for the full description of only the few actions it needs, and
+proposes them by id. The app checks every id against what it
 handed out in that same request, validates the arguments, and shows a card that changes nothing until Apply.
 
 This works the same on every provider, local or hosted. It is the pattern this code already uses for generation
 parameters, where `get_param_schema` comes before `set_generation_params`, and Ruling DI P4 already rules it the
 only one: *"Two-step catalogue only: no one-step 'send the whole catalogue', even for a large-context hosted model,
-so there is one behaviour to test."* What is missing is the catalogue itself, and three tools over it.
+so there is one behaviour to test."* What is missing is the catalogue itself, and four tools over it.
 
 **How this was read.** A read-only analysis (an agent, 2026-10-31) walked `cartalith-llm`, `cartalith-godot`'s LLM
 modules and the shell's `llm_*.gd`, `command_index.gd` and `quick_bar.gd`. The facts this proposal rests on were
@@ -150,13 +151,38 @@ Its sources:
 forbidden stems (`view_actions.rs`). The bridge's `#[func]`s are never in the catalogue. File actions (Save, Close,
 New world, Open, Export) are out of v1 (AQ1).
 
-### 3.2 Three new tools, always offered
+### 3.2 Four new tools, always offered
+
+The model can find an action two ways. It can **browse by type**, from the categories down to a list of commands,
+as a person reads a menu. Or it can **search** when the request already names the thing. Either way it then asks
+for the full description of only the few actions it means to use. This is how the settings work today:
+- `get_parameters` with no argument returns *"the groups with how many settings and how many changed"*, and with a
+  group, that group's settings (`query.rs`);
+- `get_param_schema` opens at most three groups (`catalogue.rs::MAX_SCHEMA_GROUPS` = 3);
+- the setter accepts only keys from groups opened in that request.
+
+The four tools give every action the same two-step discipline (Ruling DI P4).
 
 | Tool | What it returns | Target size |
 |---|---|---|
+| `list_actions(path?, kind?)` | **Browse.** With no path: the top categories (domains and menus) with counts. With a path such as `civil/settlements`: its sub-categories with counts, or, at a leaf, its actions one line each (`{id, title, available}`, no schemas). `kind` filters by type of function (`query`, `view`, `select`, `setting`, `edit`, `window`), so "list the view commands for CARTO" is one call. At most 25 entries per call; a longer list pages | about 12 tokens an entry, 300 a call |
 | `search_actions(query, group?)` | up to 8 matches: `{id, title, desc, kind, available}`, ranked by BM25 over title, description and aliases, the ranker `search_knowledge` already uses (`cartalith-knowledge/src/search.rs`) | about 40 tokens a match |
-| `describe_action(id)` | one action's `args` schema, effect and one example | 150–300 tokens |
-| `propose_actions([{id, args}])` | nothing to the model; the shell gets cards. Each id must have come back from `search_actions` or `describe_action` **in this request**, which is Ruling DO's rule for knowledge ids; the arguments are validated against the schema, rejected not clamped | — |
+| `describe_action(ids)` | up to three actions' `args` schemas, effects and one example each, as `get_param_schema` opens up to three groups | 150–300 tokens an action |
+| `propose_actions([{id, args}])` | nothing to the model; the shell gets cards. Each id must have come back from `list_actions`, `search_actions` or `describe_action` **in this request**, which is Ruling DO's rule for knowledge ids; the arguments are validated against the schema, rejected not clamped | — |
+
+**How a model refines.** A typical path:
+1. The user asks *"make the map look old and show who held what in 400"*.
+2. The model reads the capability map (§3.3).
+3. It browses with `list_actions("carto", kind: "view")` and `list_actions("story/time")`, two calls that can go in one
+   reply.
+4. It calls `describe_action` on the style preset, the Political layer and `timeline.set_year`.
+5. It proposes one card.
+
+That is three model turns, within today's `MAX_TURNS` of 5. Calls in one reply run together, within the existing
+lookup caps (`query.rs::MAX_QUERY_CALLS_PER_REPLY` = 6, `MAX_QUERY_CALLS_PER_REQUEST` = 12).
+
+**What keeps it safe.** The tree, the lists and the descriptions are built by the app from the catalogue, never from
+text the model has read. So browsing can only reveal actions the app offers, and it cannot widen the set (scope V6).
 
 **Additive first.** The thirteen existing tools and their scoped buttons stay as they are: they work and have their
 corpora. The catalogue path is how the assistant reaches everything else. Folding the specialised tools into the
@@ -164,8 +190,9 @@ catalogue is a later, separate step (AC-6), done only once the measurements in A
 
 ### 3.3 A map instead of a manual
 
-The system prompt gains a **capability map** of about 200 tokens. It is generated from the catalogue's groups, with
-counts, for example:
+The system prompt gains a **capability map** of about 200 tokens. It is the first level of `list_actions`' tree,
+sent up front so the model can skip the first browse call. It is generated from the catalogue's groups, with counts,
+for example:
 
 > world: generation (114 settings), sculpt (13 tools), erosion; civil: settlements, factions, routes, journeys, landmarks; carto: layers, style, labels, export; story: time, conflicts, notes; windows; selection and year.
 
@@ -205,8 +232,8 @@ These are the design targets; AC-0 measures them with real tokenizers:
 
 | Part | Target |
 |---|---|
-| Fixed per request: system prompt, capability map, the three catalogue tools, the knowledge tools | ≤ 1.5k tokens |
-| Each search | ≤ 400 tokens |
+| Fixed per request: system prompt, capability map, the four catalogue tools, the knowledge tools | ≤ 1.6k tokens |
+| Each list or search | ≤ 400 tokens |
 | Each description | ≤ 300 tokens |
 | A typical three-turn request ("show the political layer and go to year 398") | ≤ 3.5k tokens |
 
@@ -228,7 +255,7 @@ so. It never truncates silently.
 |---|---|---|
 | AC-0 | Measure first | Token counts of today's requests and of AC-2's, with each local tokenizer and Anthropic's token count. A 30-task script on three local models and the External model: correct action chosen, with and without pre-retrieval |
 | AC-1 | The catalogue generator | Every runnable `CommandIndex` row, parameter, view verb, window, context action and map tool has an entry with a stable id, a description of at most 120 characters and an effect. Availability is evaluated per request. The ids are identical across two builds |
-| AC-2 | The three tools in `cartalith-llm`, and the request-size guard | Each tool's wire size within §3.6's targets. An id not returned in the request is rejected. The guard refuses an oversized request with a message |
+| AC-2 | The four tools in `cartalith-llm`, and the request-size guard | Each tool's wire size within §3.6's targets. The tree is at most three levels deep, with at most 25 entries a call. An id not returned in the request is rejected. The guard refuses an oversized request with a message. AC-0's script runs both ways, by browsing and by search, and reports each |
 | AC-3 | Execution through the click paths | Every `kind` applies through its existing path in one undo group. Session mode refuses on the card. A destructive action cannot share a card |
 | AC-4 | Action packs and pre-retrieval | Each scoped button preloads its pack. Pre-retrieval of actions raises AC-0's local score, or stays off |
 | AC-5 | Descriptions and the corpus | Every entry has a description, and none is a placeholder. The hostile-string corpus is extended to the catalogue (scope §4 bar 3) and runs green |
