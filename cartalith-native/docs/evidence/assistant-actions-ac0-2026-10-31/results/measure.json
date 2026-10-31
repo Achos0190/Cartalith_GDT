@@ -1,0 +1,518 @@
+{
+ "tokenizers": [
+  "chars/4",
+  "qwen3",
+  "gpt-oss",
+  "ministral-3"
+ ],
+ "shapes": [
+  {
+   "shape": "today: Commands, first turn",
+   "chars": 7833,
+   "chars/4": 1958,
+   "qwen3": 1963,
+   "gpt-oss": 1914,
+   "ministral-3": 2038
+  },
+  {
+   "shape": "today: Commands + knowledge, first turn",
+   "chars": 11045,
+   "chars/4": 2761,
+   "qwen3": 2746,
+   "gpt-oss": 2683,
+   "ministral-3": 2848
+  },
+  {
+   "shape": "today: Commands, after opening the 3 largest groups",
+   "chars": 24651,
+   "chars/4": 6163,
+   "qwen3": 6787,
+   "gpt-oss": 6617,
+   "ministral-3": 7097
+  },
+  {
+   "shape": "today: Questions only (knowledge)",
+   "chars": 3391,
+   "chars/4": 848,
+   "qwen3": 822,
+   "gpt-oss": 807,
+   "ministral-3": 849
+  },
+  {
+   "shape": "today: Edit (region block not counted)",
+   "chars": 2854,
+   "chars/4": 714,
+   "qwen3": 732,
+   "gpt-oss": 704,
+   "ministral-3": 758
+  },
+  {
+   "shape": "new: fixed request (system prompt with the map, 4 catalogue tools)",
+   "chars": 2785,
+   "chars/4": 696,
+   "qwen3": 694,
+   "gpt-oss": 682,
+   "ministral-3": 716
+  },
+  {
+   "shape": "new: fixed request + knowledge tools",
+   "chars": 5997,
+   "chars/4": 1499,
+   "qwen3": 1477,
+   "gpt-oss": 1451,
+   "ministral-3": 1526
+  },
+  {
+   "shape": "new: capability map alone",
+   "chars": 327,
+   "chars/4": 82,
+   "qwen3": 136,
+   "gpt-oss": 120,
+   "ministral-3": 136
+  },
+  {
+   "shape": "new: list_actions() (top)",
+   "chars": 443,
+   "chars/4": 111,
+   "qwen3": 115,
+   "gpt-oss": 108,
+   "ministral-3": 130
+  },
+  {
+   "shape": "new: list_actions('carto/layers')",
+   "chars": 973,
+   "chars/4": 243,
+   "qwen3": 242,
+   "gpt-oss": 242,
+   "ministral-3": 259
+  },
+  {
+   "shape": "new: list_actions('world/generation')",
+   "chars": 468,
+   "chars/4": 117,
+   "qwen3": 113,
+   "gpt-oss": 109,
+   "ministral-3": 126
+  },
+  {
+   "shape": "new: list_actions('world/generation/climate'), page 0",
+   "chars": 957,
+   "chars/4": 239,
+   "qwen3": 262,
+   "gpt-oss": 275,
+   "ministral-3": 280
+  },
+  {
+   "shape": "new: search_actions('raise the sea level'), 8 matches",
+   "chars": 1620,
+   "chars/4": 405,
+   "qwen3": 401,
+   "gpt-oss": 405,
+   "ministral-3": 432
+  },
+  {
+   "shape": "new: describe_action(3 ids)",
+   "chars": 912,
+   "chars/4": 228,
+   "qwen3": 226,
+   "gpt-oss": 226,
+   "ministral-3": 243
+  },
+  {
+   "shape": "new: t27 by browsing, request of turn 1",
+   "chars": 2833,
+   "chars/4": 708,
+   "qwen3": 708,
+   "gpt-oss": 694,
+   "ministral-3": 730
+  },
+  {
+   "shape": "new: t27 by browsing, request of turn 2",
+   "chars": 4222,
+   "chars/4": 1056,
+   "qwen3": 1050,
+   "gpt-oss": 1038,
+   "ministral-3": 1099
+  },
+  {
+   "shape": "new: t27 by browsing, request of turn 3",
+   "chars": 4885,
+   "chars/4": 1221,
+   "qwen3": 1207,
+   "gpt-oss": 1196,
+   "ministral-3": 1273
+  },
+  {
+   "shape": "new: t27 by browsing, the model's last reply (the proposal)",
+   "chars": 214,
+   "chars/4": 54,
+   "qwen3": 57,
+   "gpt-oss": 55,
+   "ministral-3": 63
+  }
+ ],
+ "t27_total_processed": {
+  "chars/4": 2985,
+  "qwen3": 2965,
+  "gpt-oss": 2928,
+  "ministral-3": 3102
+ },
+ "reach": [
+  {
+   "task": "t01",
+   "kind": "setting",
+   "prompt": "Raise the sea level a bit",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 14
+  },
+  {
+   "task": "t02",
+   "kind": "setting",
+   "prompt": "I want more volcanoes",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 27
+  },
+  {
+   "task": "t03",
+   "kind": "setting",
+   "prompt": "Make the mountains higher",
+   "search8": true,
+   "search5": false,
+   "rank": 7,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 14
+  },
+  {
+   "task": "t04",
+   "kind": "setting",
+   "prompt": "Make the world colder",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 17
+  },
+  {
+   "task": "t05",
+   "kind": "setting",
+   "prompt": "More rivers please",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 14
+  },
+  {
+   "task": "t06",
+   "kind": "setting",
+   "prompt": "Use fewer tectonic plates",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 4,
+   "browse_calls_with_map": 2,
+   "entries_read": 24
+  },
+  {
+   "task": "t07",
+   "kind": "setting",
+   "prompt": "Generate fewer factions",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 14
+  },
+  {
+   "task": "t08",
+   "kind": "view",
+   "prompt": "Show who controls which territory",
+   "search8": true,
+   "search5": true,
+   "rank": 3,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 10
+  },
+  {
+   "task": "t09",
+   "kind": "view",
+   "prompt": "Hide the rivers",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 10
+  },
+  {
+   "task": "t10",
+   "kind": "view",
+   "prompt": "Make the map look like an old antique map",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 1
+  },
+  {
+   "task": "t11",
+   "kind": "view",
+   "prompt": "Show the sea routes",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 10
+  },
+  {
+   "task": "t12",
+   "kind": "view",
+   "prompt": "Zoom in on the middle of the map",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 1
+  },
+  {
+   "task": "t13",
+   "kind": "view",
+   "prompt": "Show the conflicts on the map",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 10
+  },
+  {
+   "task": "t14",
+   "kind": "select",
+   "prompt": "Go to the year 398",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t15",
+   "kind": "select",
+   "prompt": "Select Vhal Serai",
+   "search8": true,
+   "search5": true,
+   "rank": 2,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t16",
+   "kind": "select",
+   "prompt": "Go back to what I had selected before",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t17",
+   "kind": "select",
+   "prompt": "Play the timeline, fast",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t18",
+   "kind": "select",
+   "prompt": "Keep this year as a snapshot of who holds what",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t19",
+   "kind": "window",
+   "prompt": "Open the factions window",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 8
+  },
+  {
+   "task": "t20",
+   "kind": "window",
+   "prompt": "Open the journey planner",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 12
+  },
+  {
+   "task": "t21",
+   "kind": "window",
+   "prompt": "I want to see the world data tables",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 8
+  },
+  {
+   "task": "t22",
+   "kind": "window",
+   "prompt": "Open my notes vault",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 8
+  },
+  {
+   "task": "t23",
+   "kind": "window",
+   "prompt": "Show me the keyboard shortcuts",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 6
+  },
+  {
+   "task": "t24",
+   "kind": "edit",
+   "prompt": "Undo that",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 2,
+   "browse_calls_with_map": 1,
+   "entries_read": 11
+  },
+  {
+   "task": "t25",
+   "kind": "edit",
+   "prompt": "Let me draw a new road",
+   "search8": false,
+   "search5": false,
+   "rank": 99,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 12
+  },
+  {
+   "task": "t26",
+   "kind": "edit",
+   "prompt": "I want to measure a distance",
+   "search8": true,
+   "search5": true,
+   "rank": 1,
+   "browse_calls_no_map": 3,
+   "browse_calls_with_map": 1,
+   "entries_read": 3
+  },
+  {
+   "task": "t27",
+   "kind": "multi",
+   "prompt": "Show the political map as it was in the year 300",
+   "search8": true,
+   "search5": true,
+   "rank": 3,
+   "browse_calls_no_map": 6,
+   "browse_calls_with_map": 2,
+   "entries_read": 13
+  },
+  {
+   "task": "t28",
+   "kind": "multi",
+   "prompt": "Make it look like a nautical chart and hide the settlements",
+   "search8": true,
+   "search5": true,
+   "rank": 2,
+   "browse_calls_no_map": 6,
+   "browse_calls_with_map": 2,
+   "entries_read": 11
+  },
+  {
+   "task": "t29",
+   "kind": "none",
+   "prompt": "Save the project",
+   "search8": null,
+   "search5": null,
+   "rank": null,
+   "browse_calls_no_map": null,
+   "browse_calls_with_map": null,
+   "entries_read": null
+  },
+  {
+   "task": "t30",
+   "kind": "none",
+   "prompt": "Delete the Pacific Ocean",
+   "search8": null,
+   "search5": null,
+   "rank": null,
+   "browse_calls_no_map": null,
+   "browse_calls_with_map": null,
+   "entries_read": null
+  }
+ ],
+ "catalogue": {
+  "entries": 260,
+  "with_desc": 133,
+  "by_kind": {
+   "edit": 42,
+   "select": 14,
+   "setting": 138,
+   "view": 22,
+   "window": 44
+  },
+  "top": {
+   "world": 117,
+   "civil": 31,
+   "edit": 11,
+   "assets": 10,
+   "records": 8,
+   "story": 14,
+   "preferences": 22,
+   "window": 14,
+   "help": 6,
+   "map": 6,
+   "carto": 18,
+   "selection": 3
+  },
+  "map_chars": 327
+ }
+}

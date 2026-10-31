@@ -2639,3 +2639,25 @@ Owner, on `MOBILE_SHELL_PROPOSAL.md` section 6, verbatim: *"Start the refactor w
 3. **A standing answer this file did not carry, cited so it can be found from here.** `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` section 2.3 (owner, 2026-08-31, imported verbatim in commit `660cbef`): *"Tablet threshold — shortest-width ≥ 900 dp gets the desktop-parity shell. Below 900 dp: the phone shell with touch density. Not Android's 600 dp, because the desktop shell has a hard floor: 48 rail + 400 dock = 448 dp of chrome before any map."* The proposal's section 3 moved this line to 600 dp of width without asking, and none of Q1 to Q9 covered it, so Rulings DT and DU do not change it and the 900 dp answer stands. `MOBILE_SHELL_MS1_SPEC.md` section 2.2 records that the shipped code applies it only below aspect 0.6; its MQ-1 asks where the line should end up.
 
 This schedules MS-1's specification. It answers none of the specification's questions MQ-1 to MQ-5.
+
+## Ruling DW: the assistant's action catalogue approved, AQ1 to AQ6 at their defaults, AC-0 first (owner, 2026-10-31)
+
+Owner, on `ASSISTANT_ACTIONS_PROPOSAL.md`, verbatim, in two messages: *"Yes to all AQ defaults, start with AC-0"* and *"And I approve the design"*. The second came directly after the first, in the exchange about that proposal (including its `list_actions` browse-by-type addition), so it is recorded as approving that document's design. Recorded:
+
+1. **The design is approved:**
+   - progressive disclosure over one generated action catalogue;
+   - four always-on tools (`list_actions` to browse by type, `search_actions`, `describe_action` for up to three actions, `propose_actions` by id) and a ~200-token capability map;
+   - the scoped buttons as action packs, and pre-retrieval of actions;
+   - execution only through the click paths, in one undo group, with Session mode checked;
+   - a request-size guard.
+2. **AQ1 to AQ6 take their defaults:**
+   - AQ1: v1 kinds are query, view, select, setting, edit and window (open only). File actions (Save, Close, New world, Open, Export) are left out.
+   - AQ2: actions that open a window open it and stop.
+   - AQ3: a card may hold up to five actions applied as one undo step, never a destructive one among them.
+   - AQ4: pre-retrieval of actions is on for local profiles if AC-0 shows a gain.
+   - AQ5: Ruling DI P4 is not reopened: no native deferred loading; one behaviour everywhere.
+   - AQ6: the design aims at the Local reference's 8 192 window, with the guard refusing below it and a warning for a 4k profile.
+3. **AC-0 is the first milestone**: measure before building. AC-1 to AC-7 stay unscheduled.
+
+This does not answer `PC_SHELL_PROPOSAL.md`'s PQ1 to PQ9.
+

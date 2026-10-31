@@ -264,7 +264,9 @@ so. It never truncates silently.
 
 ## 5. Owner questions
 
-Each has a default.
+**Answered: the design is approved and every default below is taken (Ruling DW, 2026-10-31), with AC-0 first.**
+
+Each had a default.
 
 - **AQ1.** Which kinds are in v1? *Default: query, view, select, setting, edit and window (open only). File actions
   (Save, Close, New world, Open, Export) are left out.*
