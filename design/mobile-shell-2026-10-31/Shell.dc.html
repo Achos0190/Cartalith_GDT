@@ -98,6 +98,17 @@ body{margin:0;background:#0a0b0c}
 <span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0;box-shadow:0 1px 2px rgba(0,0,0,.6)"></span>
 </div>
 
+<!-- quick drawer: the pinned commands, on a grip at the side away from the dominant hand -->
+<sc-if value="{{ qd.show }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ qd.open }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ qd.hScrim }}" aria-hidden="true" style="position:absolute;left:{{ qd.scrimL }};right:{{ qd.scrimR }};top:{{ qd.top }}px;height:{{ qd.h }}px;background:rgba(0,0,0,{{ qd.scrimA }})"></div>
+<div role="dialog" aria-label="quick drawer: pinned commands" style="position:absolute;left:{{ qd.drawL }};right:{{ qd.drawR }};top:{{ qd.top }}px;width:{{ qd.w }}px;height:{{ qd.h }}px;display:flex;flex-direction:column;background:var(--pan);border:1px solid var(--hair);box-shadow:0 18px 50px rgba(0,0,0,.5);border-radius:{{ qd.drawRadius }};overflow:hidden">
+<div class="clr-scroll" style="flex:1;min-height:0;padding:6px 8px 10px"><dc-import name="Rows" rows="{{ qd.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+<button class="clr-btn" aria-label="{{ qd.gripAria }}" onPointerDown="{{ qd.hGripDown }}" onPointerMove="{{ qd.hGripMove }}" onPointerUp="{{ qd.hGripUp }}" onPointerCancel="{{ qd.hGripUp }}" style="position:absolute;left:{{ qd.gripL }};right:{{ qd.gripR }};top:{{ qd.gripTop }}px;width:44px;height:{{ qd.gripH }}px;display:flex;align-items:center;justify-content:{{ qd.gripJustify }};touch-action:none;background:transparent"><span style="width:22px;height:72px;border-radius:{{ qd.gripRadius }};background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center"><span style="width:4px;height:34px;border-radius:2px;background:var(--acc);opacity:.8"></span></span></button>
+</sc-if>
+
 <!-- tool strip: what the armed tool needs, above the sheet (the phone's tool-options bar) -->
 <sc-if value="{{ strip.show }}" hint-placeholder-val="{{ false }}">
 <div style="position:absolute;left:{{ L.stripL }}px;right:{{ L.stripR }}px;bottom:{{ strip.bottom }}px;transition:bottom .28s cubic-bezier(.3,.9,.3,1);animation:clIn .2s ease">
@@ -222,6 +233,10 @@ body{margin:0;background:#0a0b0c}
 </div>
 <sc-for list="{{ T.toolActs }}" as="a" hint-placeholder-count="1">
 <button class="clr-btn" onClick="{{ a.tap }}" style="flex:none;height:44px;padding:0 16px;border-radius:22px;background:{{ a.bg }};color:{{ a.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">{{ a.label }}</button>
+</sc-for>
+<span aria-hidden="true" style="flex:none;width:1px;height:24px;background:var(--hair);margin:0 2px"></span>
+<sc-for list="{{ T.quick }}" as="q" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ q.tap }}" aria-label="{{ q.aria }}" style="flex:none;height:44px;min-width:44px;padding:0 12px;border-radius:22px;border:1px solid var(--hair);background:var(--chip);color:var(--body);display:flex;align-items:center;justify-content:center;gap:6px;font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ q.iconDisp }}"><path d="{{ q.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>{{ q.label }}</span></button>
 </sc-for>
 </div>
 
@@ -355,6 +370,25 @@ body{margin:0;background:#0a0b0c}
 <div style="position:absolute;left:{{ T.ctx.x }}px;top:{{ T.ctx.y }}px;width:320px;max-height:{{ T.ctx.maxH }}px;display:flex;flex-direction:column;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:22;animation:clPop .18s ease">
 <div style="flex:none;display:flex;align-items:center;padding:12px 8px 4px 16px"><span style="flex:1;display:flex;flex-direction:column"><span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">{{ T.ctx.title }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ T.ctx.sub }}</span></span><button class="clr-btn" onClick="{{ hCtxClose }}" aria-label="close card" style="width:44px;height:44px;border-radius:20px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
 <div class="clr-scroll" style="flex:1;min-height:0;padding:0 10px 12px"><dc-import name="Rows" rows="{{ T.ctx.rows }}" hint-size="100%,260px"></dc-import></div>
+</div>
+</sc-if>
+
+<!-- the cartwheel: a 500 ms hold opens it with the card; slide to a slot and lift, or tap a slot -->
+<sc-if value="{{ T.ring.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:{{ T.ring.left }}px;top:{{ T.ring.top }}px;width:{{ T.ring.size }}px;height:{{ T.ring.size }}px;z-index:12;pointer-events:none">
+<div aria-hidden="true" style="position:absolute;inset:0;border-radius:50%;background:var(--pan);opacity:.95;border:1px solid var(--hair);box-shadow:0 24px 60px rgba(0,0,0,.5);pointer-events:auto"></div>
+<sc-for list="{{ T.ring.items }}" as="it" hint-placeholder-count="8">
+<button class="clr-btn" onClick="{{ it.tap }}" aria-label="{{ it.aria }}" style="pointer-events:auto;position:absolute;left:{{ it.left }}px;top:{{ it.top }}px;width:{{ it.size }}px;height:{{ it.size }}px;border-radius:50%;border:1px solid {{ it.bord }};background:{{ it.bg }};color:{{ it.col }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px;box-sizing:border-box"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ it.iconDisp }}"><path d="{{ it.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font:500 9.5px/1.2 'IBM Plex Mono',monospace;letter-spacing:.03em;text-align:center">{{ it.label }}</span></button>
+</sc-for>
+<button class="clr-btn" onClick="{{ T.ring.hCentre }}" aria-label="{{ T.ring.centreAria }}" style="pointer-events:auto;position:absolute;left:{{ T.ring.centreOff }}px;top:{{ T.ring.centreOff }}px;width:{{ T.ring.centreSize }}px;height:{{ T.ring.centreSize }}px;border-radius:50%;border:1px solid var(--hair);background:var(--pill);color:var(--sec);font:500 18px 'IBM Plex Mono',monospace">{{ T.ring.centreLabel }}</button>
+<div style="position:absolute;left:-60px;right:-60px;top:{{ T.ring.captionTop }}px;display:flex;justify-content:center"><span style="padding:7px 14px;border-radius:14px;background:var(--pill);border:1px solid var(--hair);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);white-space:nowrap">{{ T.ring.caption }}</span></div>
+<sc-if value="{{ T.ring.dockShow }}" hint-placeholder-val="{{ false }}">
+<div role="toolbar" aria-label="ring dock: pinned commands" style="position:absolute;left:-60px;right:-60px;top:{{ T.ring.dockTop }}px;display:flex;justify-content:center;gap:{{ T.ring.dockGap }}px">
+<sc-for list="{{ T.ring.dock }}" as="dk" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ dk.tap }}" aria-label="{{ dk.aria }}" style="pointer-events:auto;width:{{ T.ring.dockW }}px;height:{{ T.ring.dockH }}px;border-radius:14px;border:1px solid var(--hair);background:var(--pill);color:var(--body);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="{{ dk.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font:9.5px 'IBM Plex Mono',monospace">{{ dk.label }}</span></button>
+</sc-for>
+</div>
+</sc-if>
 </div>
 </sc-if>
 
@@ -1465,12 +1499,11 @@ function commitStamps(c, kind) {
    the armed tool's options, the desktop windows, and search.
    ====================================================================================================== */
 function quickRow(c) {
-  const Q = { save: ['Save', IC.save, () => doAct(c, { act: 'save' })], 'export.player': ['Player map', IC.export, () => c._openWin('export:player')], 'story.journeys': ['Planner', IC.journey, () => doAct(c, { act: 'story', arg: 'journeys' })], 'world.vault': ['Vault', IC.vault, () => c._openWin('vault')], assistant: ['Assistant', IC.assistant, () => c._openWin('assistant')] };
-  return { k: 'acts', opts: c.state.quick.filter((q) => Q[q]).map((q) => ({ label: Q[q][0], d: Q[q][1], tap: Q[q][2], flex: '0 0 auto' })).concat([{ label: 'Edit', d: IC.star, tap: () => c._openWin('quickbar'), flex: '0 0 auto' }]) };
+  return { k: 'acts', opts: quickItems(c).map((q) => ({ label: q.label, d: q.d, tap: q.run, flex: '0 0 auto' })).concat([{ label: 'Edit', d: IC.star, tap: () => c._openWin('quickbar'), flex: '0 0 auto' }]) };
 }
 function rowsMap(c) {
   const s = c.state; const fid = s.field || 'off';
-  const rows = [H('QUICK', 'pinned commands'), quickRow(c), H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }, T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)];
+  const rows = [H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }, T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)];
   rows.push(H('VIEW FIELD', 'what the map shows · keys 1–8'));
   ANALYSIS.forEach(([grp, list]) => rows.push({ k: 'seg', label: grp, opts: list.map(([id, l]) => ({ label: l, on: fid === id, tap: () => pickField(c, id, l) })) }));
   if (s.overlay) rows.push({ k: 'rng', label: 'Field opacity', min: 0.1, max: 1, step: 0.05, val: s.ovA, disp: Math.round(s.ovA * 100) + ' %', onIn: (e) => { c.setState({ ovA: +e.target.value }); c._dirty = true; }, dec: () => c.setState({ ovA: Math.max(0.1, +(s.ovA - 0.05).toFixed(2)) }), inc: () => c.setState({ ovA: Math.min(1, +(s.ovA + 0.05).toFixed(2)) }) });
@@ -1628,7 +1661,7 @@ function winRows(c, id) {
     case 'assistant': return { title: 'ASSISTANT', sub: s.prefs.assistant ? 'your model · ready' : 'off · turn it on first', rows: [s.prefs.assistant ? info('Ready: requests go to the local network.') : { k: 'acts', opts: [{ label: 'Turn on Assistant enabled first', variant: 'primary', tap: () => setK(c, 'prefs.assistant', true) }] }, S(c, 'as.mode', '', ['Describe place', 'Story', 'Note', 'Commands'], 'Describe place'), read('Place', hasSel(c) ? selName(c) : 'none selected · tap a settlement'), { k: 'field', label: 'Request', val: V(c, 'as.req', ''), ph: 'Ask for prose about the selected place…', onIn: (e) => setV(c, 'as.req', e.target.value) }, BB({ label: 'Reset', tap: () => setV(c, 'as.req', '') }, { label: 'Send', variant: 'primary', tap: () => c._toast(s.prefs.assistant ? 'Sent · streaming the reply' : 'Turn on Assistant enabled first') }), info('Saved text is appended to the note, marked model-generated. Your own text is never changed.')] };
     case 'quickbar': return { title: 'QUICK BAR', sub: 'pin commands · ' + s.quick.length + ' of 24', rows: [H('PINNED')].concat(s.quick.map((q, i) => ({ k: 'item', label: q, sub: 'pinned · tap to unpin', right: '#' + (i + 1), dot: 'var(--acc)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.filter((x) => x !== q) }) })), [H('COMMANDS'), ...['save', 'export.player', 'story.journeys', 'world.vault', 'assistant'].filter((q) => !s.quick.includes(q)).map((q) => ({ k: 'item', label: q, sub: 'tap to pin', dot: 'var(--sec)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.concat([q]) }) })), info('Long-press any menu row to pin it. Check, radio and generated rows cannot be pinned.')]) };
     case 'shortcuts': return { title: 'KEYBOARD SHORTCUTS', sub: 'for a tablet with a keyboard · rebind on desktop', rows: [['New world…', 'Ctrl+N'], ['Open project…', 'Ctrl+O'], ['Save project', 'Ctrl+S'], ['Save as…', 'Ctrl+Shift+S'], ['Close project', 'Ctrl+W'], ['Player map…', 'Ctrl+Shift+E'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z · Ctrl+Y'], ['Cut · Copy · Paste', 'Ctrl+X · C · V'], ['Delete', 'Delete'], ['Select all', 'Ctrl+A'], ['Deselect', 'Ctrl+D'], ['Find on map…', 'Ctrl+F'], ['Asset library', 'Shift+A'], ['Export pack .zip…', 'Ctrl+Shift+P'], ['Timeline', 'Ctrl+Shift+T'], ['Travel library…', 'Shift+L'], ['Notes for this place', 'Ctrl+Shift+N'], ['Session mode', 'Ctrl+Shift+M'], ['Diagnostics overlay', 'Shift+D'], ['Run pipeline (tablet)', 'Ctrl+R'], ['Journey planner', 'Shift+J'], ['Tools', 'V M R · S T W · I L · B F'], ['Ring', 'Q (hold)'], ['Context card', 'Menu · Shift+F10'], ['Layer views', '1–8'], ['Pan', 'Space (hold)']].map((x) => read(x[0], x[1])) };
-    case 'touch': return { title: 'TOUCH & GESTURES', sub: 'the whole touch vocabulary', rows: [H('MAP'), read('Drag', 'pan'), read('Pinch', 'zoom'), read('Two fingers turn', 'rotate'), read('Double-tap', 'zoom in ×1.7'), read('Press and hold', 'sample + context card'), read('Two-finger tap', 'undo'), read('Three-finger tap', 'redo'), read('Swipe in from right edge', 'inspector'), H('BARS AND SHEETS'), read('Hold the domain tab', 'switch WORLD · CIVIL · CARTO'), read('Swipe the domain tab', 'next / previous domain'), read('Swipe up on a tab', 'open its sheet full'), read('Tab re-tap', 'close the sheet'), read('Sheet handle', 'drag peek · half · full; tap toggles'), read('Hold the tool chip', 'tool fan'), read('Hold undo', 'edit history'), read('System back', 'closes the top layer'), H('SETTINGS'), prefTog(c, 'twoFingerUndo', 'Two- and three-finger tap undo / redo', 'off if it fights your stylus'), prefTog(c, 'edgeSwipe', 'Edge swipe opens the inspector'), prefTog(c, 'haptics', 'Haptic tick on holds and snaps'), prefTog(c, 'penOnly', 'Pen draws, finger pans', 'tablets with a stylus'), prefSeg(c, 'longPressMs', 'Press-and-hold delay', [[350, 'Short'], [480, 'Normal'], [700, 'Long']]), prefSeg(c, 'hand', 'Handedness', [['left', 'Left'], ['right', 'Right']], 'cards open away from the palm'), prefSeg(c, 'density', 'Density', [['auto', 'Auto'], ['comfortable', 'Comfortable'], ['compact', 'Compact']], 'auto = 48 dp targets on touch, 40 with a mouse'), H('DISPLAY'), prefSeg(c, 'uiScale', 'UI scale', [[1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], 'multiplies every dp on top of the OS density · for 4K panels at 1× and for reading comfort'), read('Window', Math.round(c._W()) + ' × ' + Math.round(c._H()) + ' dp at this scale')] };
+    case 'touch': return { title: 'TOUCH & GESTURES', sub: 'the whole touch vocabulary', rows: [H('MAP'), read('Drag', 'pan'), read('Pinch', 'zoom'), read('Two fingers turn', 'rotate'), read('Double-tap', 'zoom in ×1.7'), read('Press and hold', 'phone: sample pin + context card · tablet: the cartwheel and the card'), read('Hold, slide, lift', 'tablet: picks a cartwheel slot without reading it'), read('Two-finger tap', 'undo'), read('Three-finger tap', 'redo'), read('Swipe in from right edge', 'inspector, where the system leaves the edge to the app'), read('Tap or drag the QUICK grip', 'phone: the quick drawer of pinned commands'), H('BARS AND SHEETS'), read('Hold the domain tab', 'switch WORLD · CIVIL · CARTO'), read('Swipe the domain tab', 'next / previous domain'), read('Swipe up on a tab', 'open its sheet full'), read('Tab re-tap', 'close the sheet'), read('Sheet handle', 'drag peek · half · full; tap toggles'), read('Hold the tool chip', 'tool fan'), read('Hold undo', 'edit history'), read('System back', 'closes the top layer'), H('SETTINGS'), prefTog(c, 'twoFingerUndo', 'Two- and three-finger tap undo / redo', 'off if it fights your stylus'), prefTog(c, 'edgeSwipe', 'Edge swipe opens the inspector'), prefTog(c, 'haptics', 'Haptic tick on holds and snaps'), prefTog(c, 'penOnly', 'Pen draws, finger pans', 'tablets with a stylus'), prefSeg(c, 'longPressMs', 'Press-and-hold delay', [[350, 'Short'], [0, 'Normal'], [700, 'Long']], 'Normal is the shipped hold: 480 ms on a phone, 500 ms on a tablet'), prefSeg(c, 'hand', 'Handedness', [['left', 'Left'], ['right', 'Right']], 'the card and the quick drawer sit away from the dominant hand'), prefSeg(c, 'density', 'Density', [['auto', 'Auto'], ['comfortable', 'Comfortable'], ['compact', 'Compact']], 'auto = 48 dp targets on touch, 40 with a mouse'), H('DISPLAY'), prefSeg(c, 'uiScale', 'UI scale', [[1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], 'multiplies every dp on top of the OS density · for 4K panels at 1× and for reading comfort'), read('Window', Math.round(c._W()) + ' × ' + Math.round(c._H()) + ' dp at this scale')] };
     case 'credits': return { title: 'CREDITS & ACADEMIC PRINCIPLES', sub: 'sources and methods', rows: [read('Priority-Flood', 'Barnes et al. 2014'), read('Stream-power erosion', 'Braun & Willett 2013'), read('Hillshade', 'Imhof 1965'), read('Clipmaps / CDLOD', 'Losasso & Hoppe 2004 · Strugar 2009'), info('The full text is in Help ▸ Credits on every form factor.')] };
     case 'geninfo': return { title: 'GENERATION INFO', sub: PARAMS.length + ' parameters as text', rows: STAGE_NAMES.flatMap((n, i) => [H(String(i + 1).padStart(2, '0') + ' ' + n)].concat(PARAMS.filter((p) => p.stage === i + 1).map((p) => read(p.label, fmtVal(c._val(p.key, p.def), p))))) };
     case 'about': return { title: 'ABOUT', sub: 'Cartalith', rows: [read('Version', 'Cartalith 2.11 · native'), read('Runtime', 'Godot 4.7 · Android 13'), read('Engine', 'shared with desktop · Vulkan'), info('The phone reorganises rather than truncates: every desktop function is reachable through MAP · DOMAIN · STORY · MENU.')] };
@@ -1706,6 +1739,146 @@ function newWorldWin(c) {
     BB({ label: 'Cancel', tap: () => c.setState({ win: null }) }, { label: phone ? 'Create' : 'Generate world', variant: 'primary', tap: () => { const pop = V(c, 'nw.pop', true), st = pop && V(c, 'nw.pop.settle', true), rt = st && V(c, 'nw.pop.routes', true), nm = pop && V(c, 'nw.pop.names', true), poi = pop && V(c, 'nw.pop.poi', true); c.setState({ win: null, picker: false, worldName: 'UNTITLED', seed, sel: null, sample: null, stale: 0, tab: null, layers: Object.assign({}, s.layers, { settlements: st, political: false, ways: rt, labels: nm, landmarks: poi }) }, () => c._makeWorld(seed, true)); c._toast('New world · seed ' + seed + ' · ' + (pop ? [st && 'settlements', rt && 'routes', nm && 'names', poi && 'landmarks'].filter(Boolean).join(', ') : 'bare terrain')); } })
   ]);
   return { title: 'NEW WORLD', sub: 'seed preview · extent · size · archetype', left, rows: right, wide: true };
+}
+
+/* ======================================================================================================
+   The cartwheel (tablet) and the adaptable quick bar (tablet cluster, ring dock, phone side drawer).
+
+   The ring is the shipped CM-3/CM-4 compass at its touch scale (`radial_ring.gd::_apply_touch_scale()`:
+   ring radius max(96, 92 × 1.53) ≈ 141, slot 60 × 1.53 ≈ 92, dead zone ≈ 34, disc ≈ 205 dp). Its four
+   cardinals are global and its four diagonals belong to the domain (`MAP_CONTEXT_SCOPE.md` §5.1).
+   The quick pins are `CUSTOM_QUICK_BAR_SCOPE.md`'s one list drawn in several places: the tool bar's
+   cluster (CQ-2), the ring dock (CQ-4), MENU's Quick section, and, new here, the phone's side drawer.
+   ====================================================================================================== */
+const RING = { r: 141, slot: 92, dead: 34, disc: 205, subR: 129, subSlot: 86, centre: 70, dockW: 86, dockH: 61, dockGap: 9 };
+const RING_POS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const IC_UNDO = 'M5.5 3.5L2.5 6.5l3 3M3 6.5h6.5a3.5 3.5 0 0 1 0 7H7';
+const QD_W = 248;                 // the phone quick drawer's width, capped at 78 % of the window
+
+function quickDefs(c) {
+  return {
+    save: ['Save', IC.save, () => doAct(c, { act: 'save' })],
+    'export.player': ['Player map', IC.export, () => c._openWin('export:player')],
+    'story.journeys': ['Planner', IC.journey, () => doAct(c, { act: 'story', arg: 'journeys' })],
+    'world.vault': ['Vault', IC.vault, () => c._openWin('vault')],
+    assistant: ['Assistant', IC.assistant, () => c._openWin('assistant')]
+  };
+}
+/* The pins in drawing order. The Assistant chip comes first, and only while the assistant is on (CQ-7). */
+function quickItems(c) {
+  const s = c.state, Q = quickDefs(c);
+  const ids = (s.prefs.assistant ? ['assistant'] : []).concat(s.quick.filter((q) => q !== 'assistant'));
+  return ids.filter((q) => Q[q]).map((q) => ({ id: q, label: Q[q][0], d: Q[q][1], run: Q[q][2] }));
+}
+/* Arms a tool without the toggle `_arm` applies when the same tool is already armed. */
+function armOnly(c, t) { if (c.state.tool !== t) c._arm(t); }
+function ringViews() { return ANALYSIS.flatMap((g) => g[1]).filter((f) => f[0] !== 'off').slice(0, 8); }
+
+/* The eight slots for the current domain: N Inspect, E Measure ▸, S Undo, W Region everywhere; the
+   diagonals are the domain's four tool families. A slot with `sub` opens its sub-ring. */
+function ringSlots(c) {
+  const s = c.state;
+  const sub = (list, fn) => list.map((x) => ({ label: Array.isArray(x) ? x[1] : x, run: () => fn(Array.isArray(x) ? x[0] : x) }));
+  const card = {
+    N: { label: 'Inspect', key: 'V', d: IC.inspect, run: () => armOnly(c, 'inspect') },
+    E: { label: 'Measure', key: 'M', d: IC.measure, sub: sub(MEASURE_MODES, (m) => { setV(c, 'ms.mode', m); armOnly(c, 'measure'); }) },
+    S: { label: 'Undo', key: 'Ctrl+Z', d: IC_UNDO, run: () => c._undo() },
+    W: { label: 'Region', key: 'R', d: IC.region, run: () => armOnly(c, 'region') }
+  };
+  const diag = {
+    world: {
+      NW: { label: 'Uplift', d: IC.uplift, sub: sub(SCULPT_FEATURES.uplift, (f) => { c.setState({ feature: f }); armOnly(c, 'uplift'); }) },
+      NE: { label: 'Carve & water', d: IC.carve, sub: sub(SCULPT_FEATURES.carve, (f) => { c.setState({ feature: f }); armOnly(c, 'carve'); }) },
+      SE: { label: 'Freehand', d: IC.freehand, sub: sub(SCULPT_FEATURES.freehand, (f) => { setV(c, 'fh.mode', f); armOnly(c, 'freehand'); }) },
+      SW: { label: 'Biome paint', d: IC.paint, sub: sub(['Biome', 'Terrain', 'Splat'], (x) => { setV(c, 'pt.target', x); armOnly(c, 'paint'); }) }
+    },
+    civil: {
+      NW: { label: 'Settlement', d: IC.settle, sub: sub(['metropolis', 'city', 'town', 'village', 'hamlet'], (x) => { c.setState({ settleTier: x }); armOnly(c, 'settle'); }) },
+      NE: { label: 'Territory', d: IC.territory, sub: sub([['add', 'Add'], ['subtract', 'Subtract']], (x) => { setV(c, 'tr.op', x); armOnly(c, 'territory'); }) },
+      SE: { label: 'Way', d: IC.way, sub: sub(['road', 'track', 'sea lane', 'ancient'], (x) => { c.setState({ wayKind: x }); armOnly(c, 'way'); }) },
+      SW: { label: 'Route', d: IC.route, run: () => armOnly(c, 'route') }
+    },
+    carto: {
+      NW: { label: 'Label', d: IC.label, run: () => armOnly(c, 'label') },
+      NE: { label: 'Icon', d: IC.icon, sub: sub(['Settlement', 'Feature', 'POI', 'Custom'], (x) => { setV(c, 'icon.fam', x); armOnly(c, 'icon'); }) },
+      SE: { label: 'View field', d: IC.layers, sub: sub(ringViews(), (f) => { c.setState({ field: f }); c._dirty = true; }) },
+      SW: { label: 'Style preset', d: IC.style, sub: sub(['Natural Vibrant', 'Default', 'Antique', 'Ink', 'Watercolor', 'Print'], (p) => applyPreset(c, p)) }
+    }
+  }[s.dom];
+  return RING_POS.map((pos) => Object.assign({ pos }, card[pos] || diag[pos]));
+}
+/* The slot under a point, from its angle round the centre: nothing inside the dead zone. */
+function ringSlotAt(dx, dy) {
+  if (Math.hypot(dx, dy) < RING.dead) return null;
+  const a = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+  return RING_POS[Math.round(a / 45) % 8];
+}
+/* Where the ring draws: centred on the finger, slid inward near an edge rather than clipped. */
+function ringCentre(c, R) {
+  const WW = c._W(), HH = c._H(), G = c._tabletGeom(), L = c._L(), half = RING.disc;
+  const x0 = L.mapL + half, x1 = WW - L.mapR - half, y0 = G.bodyT + half, y1 = HH - G.bodyB - half - 96;
+  return { x: x1 < x0 ? (L.mapL + WW - L.mapR) / 2 : Math.max(x0, Math.min(x1, R.x)), y: y1 < y0 ? (G.bodyT + HH - G.bodyB) / 2 : Math.max(y0, Math.min(y1, R.y)) };
+}
+function ringVals(c) {
+  const s = c.state, R = s.ring; if (!R) return { show: false, items: [], dock: [] };
+  const half = RING.disc, ctr = ringCentre(c, R), slots = ringSlots(c);
+  const parent = R.sub ? slots.find((x) => x.pos === R.sub) : null;
+  const place = (x, y, size) => ({ left: Math.round(half + x - size / 2), top: Math.round(half + y - size / 2), size });
+  let items;
+  if (parent) {
+    const n = parent.sub.length;
+    items = parent.sub.map((it, i) => { const a = i * 2 * Math.PI / n; return Object.assign(place(RING.subR * Math.sin(a), -RING.subR * Math.cos(a), RING.subSlot), { label: it.label, d: '', key: '', on: false, aria: parent.label + ' ▸ ' + it.label, tap: () => c._ringRun(it.run) }); });
+  } else {
+    items = slots.map((sl, i) => { const a = i * Math.PI / 4; return Object.assign(place(RING.r * Math.sin(a), -RING.r * Math.cos(a), RING.slot), { label: sl.label + (sl.sub ? ' ▸' : ''), d: sl.d, key: sl.key || '', on: R.hover === sl.pos, aria: sl.label + (sl.sub ? ', opens a sub-ring' : '') + (sl.key ? ' (' + sl.key + ')' : ''), tap: () => c._ringPick(sl.pos) }); });
+  }
+  items = items.map((it) => Object.assign(it, { bg: it.on ? 'var(--wash)' : 'var(--chip)', bord: it.on ? 'var(--acc)' : 'var(--hair)', col: it.on ? 'var(--acc)' : 'var(--body)', iconDisp: it.d ? 'block' : 'none' }));
+  const hov = R.hover ? slots.find((x) => x.pos === R.hover) : null;
+  const caption = parent ? parent.label.toUpperCase() + ' ▸ tap one' : (hov ? (hov.label + (hov.sub ? ' ▸' : '') + (hov.key ? ' · ' + hov.key : '')).toUpperCase() : (R.live ? 'SLIDE TO A SLOT · LIFT TO CHOOSE' : 'TAP A SLOT'));
+  const dock = quickItems(c).slice(0, 4).map((q) => ({ label: q.label, d: q.d, aria: q.label + ' (pinned under the ring)', tap: () => { c._ringClose(); q.run(); } }));
+  return {
+    show: true, left: Math.round(ctr.x - half), top: Math.round(ctr.y - half), size: 2 * half, items, caption,
+    centreSize: RING.centre, centreOff: Math.round(half - RING.centre / 2), centreLabel: parent ? '‹' : '✕', centreAria: parent ? 'back to the ring' : 'close the ring',
+    hCentre: () => (parent ? c.setState({ ring: Object.assign({}, R, { sub: null }) }) : c._ringClose()),
+    captionTop: 2 * half + 6, dock, dockShow: dock.length > 0, dockTop: 2 * half + 44, dockW: RING.dockW, dockH: RING.dockH, dockGap: RING.dockGap
+  };
+}
+
+/* The tablet tool bar's quick cluster (CQ-2): the pins that fit, `⋯ n` for the rest, and `＋`. A wider
+   window keeps more pins on the bar before the overflow takes them. */
+function quickCluster(c, W) {
+  const items = quickItems(c), cap = W >= 1600 ? 6 : (W >= 1180 ? 4 : 2);
+  const shown = items.slice(0, cap), more = items.length - shown.length;
+  const chips = shown.map((q) => ({ label: q.label, d: q.d, iconDisp: 'block', tap: q.run, aria: q.label + ' (pinned)' }));
+  if (more > 0) chips.push({ label: '⋯ ' + more, d: '', iconDisp: 'none', tap: () => c._openWin('quickbar'), aria: more + ' more pinned commands' });
+  chips.push({ label: '＋', d: '', iconDisp: 'none', tap: () => c._openWin('quickbar'), aria: 'pin a command to the quick bar' });
+  return chips;
+}
+
+/* The phone's quick drawer: a grip on the side away from the dominant hand (the holding hand's thumb),
+   tap or drag it to open; tap the scrim, drag the grip back, or press system back to close. It draws
+   nothing while nothing is pinned and the assistant is off (CQ-6: an empty bar draws nothing). */
+function quickDrawerVals(c, land, sh, stripH) {
+  const s = c.state, WW = c._W(), HH = c._H(), items = quickItems(c);
+  const side = s.prefs.hand === 'left' ? 'right' : 'left';
+  const top = land ? 72 : INSET_T + 60, bottom = land ? HH - 8 : HH - NAV_H - sh - stripH - 8;
+  const edge = land ? (side === 'left' ? RAIL_W : (s.tab ? c._sheetW() : 0)) : 0;
+  const room = bottom - top;
+  const show = items.length > 0 && room >= 180 && !s.win;
+  const w = Math.min(QD_W, Math.round(WW * 0.78)), gripH = 88;
+  const travel = s.qd ? w : (s.qdDrag != null ? Math.max(0, Math.min(w, s.qdDrag)) : 0);
+  const gripTop = Math.round((top + bottom) / 2 - gripH / 2);
+  const px = (n) => n + 'px';
+  const rows = [H('QUICK', items.length + ' pinned')]
+    .concat(items.map((q) => ({ k: 'nav', d: q.d, label: q.label, sub: q.id === 'assistant' ? 'shown while the assistant is on' : 'pinned command', tap: () => { c.setState({ qd: false, qdDrag: null }); q.run(); } })))
+    .concat([{ k: 'nav', d: IC.star, label: 'Pin a command…', sub: 'Quick bar…', tap: () => { c.setState({ qd: false, qdDrag: null }); c._openWin('quickbar'); } }]);
+  return {
+    show, open: travel > 0, side, top, h: room, w, rows, gripTop, gripH,
+    gripL: side === 'left' ? px(edge + travel) : 'auto', gripR: side === 'right' ? px(edge + travel) : 'auto',
+    drawL: side === 'left' ? px(edge - w + travel) : 'auto', drawR: side === 'right' ? px(edge - w + travel) : 'auto',
+    gripRadius: side === 'left' ? '0 14px 14px 0' : '14px 0 0 14px', gripJustify: side === 'left' ? 'flex-start' : 'flex-end', drawRadius: side === 'left' ? '0 18px 18px 0' : '18px 0 0 18px', gripAria: s.qd ? 'close the quick drawer' : 'open the quick drawer: pinned commands',
+    scrimL: px(land ? RAIL_W : 0), scrimR: px(land ? (s.tab ? c._sheetW() : 0) : 0), scrimA: (travel / w * 0.35).toFixed(3),
+    hGripDown: (e) => c._qdDown(e), hGripMove: (e) => c._qdMove(e), hGripUp: (e) => c._qdUp(e), hScrim: () => c.setState({ qd: false, qdDrag: null })
+  };
 }
 
 /* ======================================================================================================
@@ -1828,6 +2001,7 @@ function buildVals(c) {
     const stripH = showStrip ? 66 : 0;
     const free = land ? H : H - NAV_H - sh - (INSET_T + 60) - stripH;
     v.fab = { bottom: land ? 16 + stripH : NAV_H + sh + 12 + stripH, scaleBottom: land ? 18 + stripH : NAV_H + sh + 14 + stripH, disp: free >= 120 ? 'flex' : 'none', more: free >= 250, dimLabel: s.dim3 ? '2D' : '3D', dimAria: s.dim3 ? 'switch to 2D' : 'switch to 3D' };
+    v.qd = quickDrawerVals(c, land, sh, stripH);
     v.strip = Object.assign({ show: showStrip, bottom: land ? 12 : NAV_H + sh + 10, toolD: tb.d, toolShort: tb.short, toolLabel: tb.label, main: tb.main, hint: tb.hint, field: tb.field, acts: tb.acts }, {});
     let title = '', sub = '', chips = [], rows = [], back = false, caret = false, titleTap = () => {}, titleAria = '';
     if (s.tab === 'map') { title = 'MAP'; sub = 'view · fields · layers · measure'; rows = rowsMap(c); }
@@ -1868,7 +2042,7 @@ function buildVals(c) {
     if (s.stamps.length && s.dom === 'world') inspRows.push(H('STAMP STACK', s.stamps.length + ''), ...s.stamps.slice(-5).map((st, i) => read((i + 1) + ' · ' + st.feature, st.lower ? 'lower' : 'raise')), BB({ label: 'Discard draft', tap: () => discardStamps(c) }, { label: 'Commit to map', variant: 'primary', tap: () => commitStamps(c) }));
     if (s.tool === 'way' || s.tool === 'route') inspRows.push(H('WAY DRAFT', s.wayDraft.length + ' points'));
     let tctx = { show: false, rows: [] };
-    if (s.tctx) { const cw = 320; const maxH = Math.min(560, H - G.bodyT - G.bodyB - 16); let x = s.prefs.hand === 'left' ? s.tctx.x + 20 : s.tctx.x - cw - 20; if (x < mapL + 8) x = s.tctx.x + 20; x = Math.max(8, Math.min(W - cw - 8, x)); const y = Math.max(G.bodyT + 8, Math.min(H - G.bodyB - maxH - 8, s.tctx.y - 60)); const a = sampleAt(c, s.sample); tctx = { show: true, x, y, maxH, title: 'SAMPLE · ' + (a ? a.elev + ' m' : ''), sub: s.sample ? Math.round(s.sample.x) + ' km E · ' + Math.round(s.sample.y) + ' km S' : '', rows: rowsSample(c) }; }
+    if (s.tctx) { const cw = 320; const maxH = Math.min(560, H - G.bodyT - G.bodyB - 16); const rc = s.ring ? ringCentre(c, s.ring) : null; const gap = rc ? RING.disc + 16 : 20; const ax = rc ? rc.x : s.tctx.x; let x = s.prefs.hand === 'left' ? ax + gap : ax - cw - gap; if (s.prefs.hand !== 'left' && x < mapL + 8) x = ax + gap; if (s.prefs.hand === 'left' && x + cw > W - 8) x = ax - cw - gap; x = Math.max(8, Math.min(W - cw - 8, x)); const y = Math.max(G.bodyT + 8, Math.min(H - G.bodyB - maxH - 8, s.tctx.y - 60)); const a = sampleAt(c, s.sample); tctx = { show: true, x, y, maxH, title: 'SAMPLE · ' + (a ? a.elev + ' m' : ''), sub: s.sample ? Math.round(s.sample.x) + ' km E · ' + Math.round(s.sample.y) + ' km S' : '', rows: rowsSample(c) }; }
     v.T = {
       menuH: G.menuH, toolH: G.toolH, railW: G.railW, statusH: G.statusH, tlH: G.tlH, tlBarH: 44, bodyT: G.bodyT, bodyB: G.bodyB, mapL,
       ham: !wide, hamOpen: !!(s.dd && s.dd.menu === 'ham'), hamBg: s.dd && s.dd.menu === 'ham' ? 'var(--wash)' : 'transparent', menus: menuBtns,
@@ -1880,8 +2054,10 @@ function buildVals(c) {
       rtab: !s.rdockOpen || rdOverlay, rtabW: G.rtabW, rtabCol: s.sel || s.sample ? 'var(--acc)' : 'var(--dim)',
       furnT: G.bodyT + 12, furnR: mapR + 12, furnB: G.bodyB + 14, scaleL: mapL + 14, scaleB: G.bodyB + 16, layersT: G.bodyT + 62, popMaxH: H - G.bodyT - G.bodyB - 80,
       layersOpen: s.layersPop, layerRows: rowsMap(c), baseLabel: ((ANALYSIS.flatMap((g) => g[1]).find((f) => f[0] === (s.field || 'off')) || ['', 'Relief'])[1]).toUpperCase().replace('NO OVERLAY (BASE MAP)', 'BASE MAP'),
-      dd, ctx: tctx, tlOpen: s.tlOpen, tlRot: s.tlOpen ? 180 : 0
+      dd, ctx: tctx, tlOpen: s.tlOpen, tlRot: s.tlOpen ? 180 : 0,
+      quick: quickCluster(c, W), ring: ringVals(c)
     };
+    v.qd = { show: false, rows: [] };
     v.toastB = G.bodyB + 20; v.toastT = null;
     v.status = { left: s.running ? 'generating · stage ' + String(s.running.i + 1).padStart(2, '0') : (s.stale ? 'stale from stage ' + String(s.stale).padStart(2, '0') : 'stages 01–10 resolved'), mid: s.worldName.toLowerCase() + ' · seed ' + s.seed + ' · ' + (s.tool !== 'inspect' ? 'tool ' + TOOLS[s.tool].label.toLowerCase() : 'inspect') + ' · autosave ' + s.savedAt, right: W + '×' + H + ' dp · ' + sizeClass(c) + ' · docks ' + (G.rightDocks ? 'both' : (G.leftDocks ? 'left' : 'overlay')) };
   } else { v.T = { menus: [], rail: [], ldock: { show: false, chips: [], rows: [] }, rdock: { show: false, rows: [] }, dd: { show: false, rows: [] }, ctx: { show: false, rows: [] }, toolChips: [], toolActs: [], layerRows: [], rtab: false }; v.status = { left: '', mid: '', right: '' }; }
@@ -1928,7 +2104,7 @@ const NAV_H = 80;             // phone bottom bar: 64 dp of targets + 16 dp gest
 const RAIL_W = 80;            // phone landscape rail
 const INSET_T = 28;           // status-bar inset: left unpainted, the OS draws there
 const PEEK = 76;              // sheet peek: handle + header only
-const LONG_MS = 480, NAV_HOLD_MS = 380, DOUBLE_MS = 300, TAP_MS = 280;
+const LONG_MS = 480, LONG_MS_TABLET = 500, NAV_HOLD_MS = 380, DOUBLE_MS = 300, TAP_MS = 280;
 const SMAX = 14;
 const DOMS = ['world', 'civil', 'carto'];
 
@@ -1957,11 +2133,11 @@ class Component extends DCLogic {
       year: 412, playing: false, speed: 1,
       seed: 483920, running: null, stale: 0, lastRun: '14:02',
       vals: {}, brush: { size: 64, hard: 0.35, inten: 1.0, mode: 'raise' }, feature: 'Mountains', settleTier: 'town', wayKind: 'road', iconKind: 'diamond', lmKind: 'Peak',
-      dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: false, layersPop: false, tlOpen: false, tctx: null,
+      dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: false, layersPop: false, tlOpen: false, tctx: null, ring: null, qd: false, qdDrag: null,
       coach: !!props.coach && !coachDone, coachStep: 0,
       savedAt: '14:02', worldName: 'ELDRA',
       quick: ['save', 'export.player', 'story.journeys', 'world.vault'],
-      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: false, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 480, density: 'auto', textScale: 1, uiScale: 1 }
+      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: false, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 0, density: 'auto', textScale: 1, uiScale: 1 }
     };
   }
 
@@ -2077,7 +2253,7 @@ class Component extends DCLogic {
     const n = this.ptrs.size;
     if (n === 1) {
       this.g = { mode: 'one', t0: performance.now(), x0: p.x, y0: p.y, moved: false, v0: Object.assign({}, this.view), edge: p.x > host.clientWidth - 28, pen: e.pointerType === 'pen' };
-      clearTimeout(this._lpT); this._lpT = setTimeout(() => this._longPress(p.x, p.y), this.state.prefs.longPressMs || LONG_MS);
+      clearTimeout(this._lpT); this._lpT = setTimeout(() => this._longPress(p.x, p.y), this.state.prefs.longPressMs || (this._mode() === 'tablet' ? LONG_MS_TABLET : LONG_MS));
       if (this._mode() !== 'phone' || this.state.tool === 'inspect') this.setState({ press: { x: p.x, y: p.y } });
       this._closeTransient();
     } else if (n === 2) {
@@ -2089,6 +2265,7 @@ class Component extends DCLogic {
   _pm(e) {
     const q = this.ptrs.get(e.pointerId); if (!q) return; const p = this._loc(e); q.x = p.x; q.y = p.y; const g = this.g; if (!g) return;
     if (g.mode === 'one') {
+      if (g.long && this.state.ring && this.state.ring.live) { this._ringHover(p); return; }
       const dx = p.x - g.x0, dy = p.y - g.y0;
       if (!g.moved && Math.hypot(dx, dy) > 10) {
         g.moved = true; clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
@@ -2114,6 +2291,7 @@ class Component extends DCLogic {
     const q = this.ptrs.get(e.pointerId); this.ptrs.delete(e.pointerId); const g = this.g; if (!g) return;
     if (g.mode === 'one') {
       clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
+      if (g.long && this.state.ring && this.state.ring.live) { const R = this.state.ring; if (R.hover) this._ringPick(R.hover); else this.setState({ ring: Object.assign({}, R, { live: false }) }); this.g = null; return; }
       if (g.stroke) this._strokeEnd();
       else if (!cancel && !g.moved && !g.long && !g.done && performance.now() - g.t0 < TAP_MS && q) this._tapCandidate(q);
       if (g.moved) this._viewChanged();
@@ -2133,14 +2311,43 @@ class Component extends DCLogic {
     const wp = this._s2w(x, y); if (!this._inWorld(wp)) return;
     this._haptic();
     const m = this._mode(); const patch = { sample: { x: wp.x, y: wp.y }, press: null };
-    if (m === 'tablet') { const L = this._L(); patch.tctx = { x: x + L.mapL, y: y + L.mapT }; }
+    if (m === 'tablet') { const L = this._L(); patch.tctx = { x: x + L.mapL, y: y + L.mapT }; patch.ring = { x: x + L.mapL, y: y + L.mapT, live: !mouse, hover: null, sub: null }; }
     else { patch.tab = 'ctx'; patch.det = 'half'; }
     if (this.state.coach && this.state.coachStep === 1) this._coachDone();
     this.setState(patch); this._dirty = true;
   }
   _inWorld(p) { return p.x >= 0 && p.y >= 0 && p.x <= 2048 && p.y <= 2048; }
   _haptic() { try { if (this.state.prefs.haptics && navigator.vibrate) navigator.vibrate(12); } catch (e) { } }
-  _closeTransient() { const s = this.state; const p = {}; if (this._mode() === 'tablet') { const G = this._tabletGeom(); if (s.ldockOpen && !G.leftDocks) p.ldockOpen = false; if (s.rdockOpen && !G.rightDocks && !s.sel) p.rdockOpen = false; } if (s.layersPop) p.layersPop = false; if (s.dd) p.dd = null; if (s.hamOpen) p.hamOpen = false; if (s.tctx) p.tctx = null; if (Object.keys(p).length) this.setState(p); }
+  _closeTransient() { const s = this.state; const p = {}; if (this._mode() === 'tablet') { const G = this._tabletGeom(); if (s.ldockOpen && !G.leftDocks) p.ldockOpen = false; if (s.rdockOpen && !G.rightDocks && !s.sel) p.rdockOpen = false; } if (s.layersPop) p.layersPop = false; if (s.dd) p.dd = null; if (s.hamOpen) p.hamOpen = false; if (s.tctx) p.tctx = null; if (s.ring) p.ring = null; if (s.qd) { p.qd = false; p.qdDrag = null; } if (Object.keys(p).length) this.setState(p); }
+
+  /* ---------------- the cartwheel (tablet) ---------------- */
+  _ringHover(p) {
+    const R = this.state.ring; if (!R || R.sub) return; const L = this._L(); const ctr = ringCentre(this, R);
+    const h = ringSlotAt(p.x + L.mapL - ctr.x, p.y + L.mapT - ctr.y);
+    if (h !== R.hover) { if (h) this._haptic(); this.setState({ ring: Object.assign({}, R, { hover: h }) }); }
+  }
+  _ringPick(pos) {
+    const R = this.state.ring; const sl = ringSlots(this).find((x) => x.pos === pos); if (!R || !sl) return;
+    if (sl.sub) { this.setState({ ring: Object.assign({}, R, { sub: pos, hover: null, live: false }) }); return; }
+    this._ringRun(sl.run);
+  }
+  _ringRun(fn) { this._ringClose(); fn(); this._dirty = true; }
+  _ringClose() { this.setState({ ring: null, tctx: null }); }
+  /* ---------------- the phone's quick drawer ---------------- */
+  _qdDown(e) { const el = e.currentTarget; try { el.setPointerCapture(e.pointerId); } catch (_) { } const r = el.getBoundingClientRect(); this._qd = { x0: e.clientX, k: (el.offsetWidth || 1) / (r.width || 1), open: this.state.qd, moved: false }; }
+  _qdMove(e) {
+    const q = this._qd; if (!q) return; let dx = (e.clientX - q.x0) * q.k;
+    if (this.state.prefs.hand === 'left') dx = -dx;
+    if (Math.abs(dx) > 6) q.moved = true; if (!q.moved) return;
+    const w = Math.min(QD_W, Math.round(this._W() * 0.78));
+    this.setState({ qd: false, qdDrag: Math.max(0, Math.min(w, (q.open ? w : 0) + dx)) });
+  }
+  _qdUp(e) {
+    const q = this._qd; this._qd = null; if (!q) return; const s = this.state;
+    if (!q.moved) { this.setState({ qd: !q.open, qdDrag: null }); if (!q.open) this._haptic(); return; }
+    const w = Math.min(QD_W, Math.round(this._W() * 0.78));
+    this.setState({ qd: (s.qdDrag || 0) > w * 0.4, qdDrag: null });
+  }
 
   /* ---------------- taps and tools on the map ---------------- */
   _hit(px, py) {
@@ -2217,6 +2424,8 @@ class Component extends DCLogic {
     const s = this.state;
     if (s.modal) return this.setState({ modal: null });
     if (s.fan) return this.setState({ fan: null });
+    if (s.qd) return this.setState({ qd: false, qdDrag: null });
+    if (s.ring) return this.setState({ ring: null, tctx: null });
     if (s.hist) return this.setState({ hist: false });
     if (s.srch) return this.setState({ srch: false });
     if (s.win) return s.win.stack.length > 1 ? this.setState({ win: { stack: s.win.stack.slice(0, -1) } }) : this.setState({ win: null });

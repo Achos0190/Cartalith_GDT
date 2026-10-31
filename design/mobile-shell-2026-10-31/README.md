@@ -38,6 +38,15 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   parameter, for example `vault`, `sea level` or `. export`.
 - **File ▸ New world…** keeps the shipped window: the seed preview, Roll and Lock, a four-seed
   history and the AUTO-POPULATE options (new).
+- **On a tablet, hold the map for 500 ms.** The cartwheel and the context card open together, as
+  shipped (`MAP_CONTEXT_SCOPE.md` §7.1). Slide to a slot and lift, or lift in place and tap. A `▸` slot
+  opens its sub-ring. The four cardinals are the same in every domain; the diagonals are the domain's.
+- **The adaptable quick bar** (`CUSTOM_QUICK_BAR_SCOPE.md`) keeps every home it has today. On a tablet
+  the pins sit at the end of the tool bar (more of them on a wider window, the rest under `⋯`), and up to
+  four sit under the cartwheel. The mockup approximates the fit with width tiers; the shipped cluster
+  fits by measured width (`DccQuickBar._layout()`). MENU starts with a Quick section. On the phone, tap or drag the grip on
+  the map's left edge (the right edge when Handedness is Left) for the quick drawer. The Assistant chip
+  comes first while Preferences ▸ Assistant is on.
 - In the lab: rotate the 6T to landscape, pick TABLET 800 (the panels float), 4K ×1, or drag the grip.
 
 ## Honest limits

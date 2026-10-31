@@ -80,7 +80,8 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   **MS-1** (size classes in dp, live re-classification, UI scale) is routed to its build specification,
   `MOBILE_SHELL_MS1_SPEC.md`: stages S0…S5, starting with S0's measurements on the 6T, and owner questions MQ-1…MQ-5
   with defaults. None of those questions blocks S0…S3, and MQ-1 (where the 900 dp line of `BUILD_ANSWERS.md` §2.3 ends
-  up) is needed before MS-7. It overlaps DS-13 and the central touch-scroll fix above; settle those with it, not
+  up) is needed before MS-7. GDScript drafts for MS-1 S1…S3, MS-2, MS-4, MS-6, MS-7's menu bar and MS-11 (the phone's quick drawer,
+  proposal §2.4; Q10…Q12 open) are in `cartalith-native/drafts/mobile-shell/`; its README orders them. It overlaps DS-13 and the central touch-scroll fix above; settle those with it, not
   separately.
 - **EF-9 timing on the 6T** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`).
 

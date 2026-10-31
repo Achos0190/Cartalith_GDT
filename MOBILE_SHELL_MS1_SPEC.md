@@ -439,9 +439,9 @@ The bars:
   `root.size_changed` and on `node_added` return to their values before the first swap. Captured stderr holds no
   `SCRIPT ERROR`.
 
-  Hysteresis: a 900 × 1 600 dp window shrunk to 890 × 1 582 stays a tablet. At 880 × 1 564 it becomes a phone. Back at
-  890 × 1 582 it stays a phone, and at 900 × 1 600 it is a tablet again. One second of oscillation between 896 and
-  904 dp causes at most one swap.
+  Hysteresis, with the band applied on both sides of the line as §3.1 states it: a 900 × 1 600 dp window shrunk to
+  890 × 1 582 stays a tablet. At 880 × 1 564 it becomes a phone. Back at 900 × 1 600 it is still a phone, and at
+  920 × 1 636 it is a tablet again. One second of oscillation between 896 and 904 dp causes at most one swap.
 
   Timing: a swap costs less than a cold boot at the same size, both measured as the median (min..max) of five serial
   runs, run alone. If it does not, a restart would be the better design, and this file says so.
@@ -468,7 +468,8 @@ The bars:
 
 ## 6. Files, symbols and counts
 
-Expected to change. The build may find more, and names them in its report.
+Expected to change. The build may find more, and names them in its report. Stages S1 to S3 are drafted as
+GDScript in `cartalith-native/drafts/mobile-shell/` (drafts 01 and 02, not parse-checked; its README says how to apply them).
 
 | File | Symbols | Stage |
 |---|---|---|

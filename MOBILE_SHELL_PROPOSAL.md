@@ -119,8 +119,13 @@ and the status bar keep their desktop order.
 
 **The docking rule (the fix for the 800 dp strip):** a dock stays docked only while the map keeps at least
 **520 dp**. Otherwise it floats over the map as a drawer with a shadow and a pin. A floating dock starts closed, and
-closes when the map is pressed. The inspector collapses to a 44 dp edge tab. Press and hold on the map opens the
-context card beside the finger, on the side away from the palm (Preferences ▸ Handedness).
+closes when the map is pressed. The inspector collapses to a 44 dp edge tab.
+
+**The cartwheel stays.** Press and hold on the map for 500 ms opens the cartwheel and the context card together, as
+shipped (CM-3/CM-4, `MAP_CONTEXT_SCOPE.md` §7.1). Slide to a slot and lift, or lift in place and tap. The card sits
+beside the ring, on the side away from the dominant hand (Preferences ▸ Handedness). §2.4 has the rest, with the quick
+bar. *(Corrected 2026-10-31: this paragraph first said the hold opened only the card, which would have dropped the
+shipped tablet ring.)*
 
 ### 2.3 New World, kept as shipped, plus auto-populate
 
@@ -142,6 +147,31 @@ the shell already has, in order, after the terrain is generated:
 | Routes | CIVIL ▸ Routes & ways ▸ Generate roads | needs settlements; greyed with that reason when they are off |
 | Names & labels | CARTO ▸ Labels ▸ Generate labels | place, region, water and landmark names |
 | Landmarks & points of interest | CIVIL ▸ Landmarks ▸ Run landmark pass | 49 types in 6 families; caps as set in Landmarks |
+
+### 2.4 The adaptable quick bar and the cartwheel
+
+Both are shipped, and the refactor keeps both. The quick bar (`CUSTOM_QUICK_BAR_SCOPE.md`, CQ-0 to CQ-4, CQ-6 and
+CQ-7 built) is one list of pinned commands drawn in several places, stored per device in
+`user://cartalith_settings.cfg` and never in a world. A pin runs the very handler its menu row runs. The cartwheel is
+the eight-slot radial ring (`radial_ring.gd`, CM-3 and CM-4 built): its four cardinals are the same in every domain
+(Inspect, Measure ▸, Undo, Region) and its four diagonals are the domain's tool families (`MAP_CONTEXT_SCOPE.md`
+§5.1). The phone has no cartwheel; it has the thumb fan.
+
+| | Tablet | Phone |
+|---|---|---|
+| **Quick cluster** | the end of the tool bar, after a rule, as shipped (CQ-2). `DccQuickBar._layout()` already keeps every pin that fits the bar's measured width and moves the rest under `⋯`, so a wider tablet shows more pins with no change; `＋` opens the Quick bar window | **a side drawer** (new): a 44 × 88 dp grip at the middle of the map's edge, on the side away from the dominant hand (left by default), opens a drawer of the pins. Tap the grip or drag it inward to open; tap the scrim, drag the grip back or press system back to close |
+| **Under the cartwheel** | the ring dock: up to four chips beneath the ring's caption, as shipped (CQ-4) | no cartwheel; the thumb fan is unchanged |
+| **In MENU** | — (the PC menu bar is unchanged) | a Quick section first in MENU, as shipped in MORE (CQ-6, renamed by Ruling DT) |
+| **Assistant chip** | first in the cluster and in the dock, only while the assistant is on and a provider is configured (CQ-7) | first in the drawer and in MENU's Quick section, under the same rule |
+| **Empty bar** | the `＋` chip alone, as shipped | nothing is drawn, as shipped: no grip until something is pinned or the Assistant chip is live |
+
+The drawer replaces CQ-6's chip row in the MAP sheet: the new MAP sheet is view, fields and layers only. The grip is a
+visible tab, not an edge swipe, because Android's gesture navigation takes swipes that start at a screen edge as
+Back. A tap on the grip is never taken. In phone landscape the grip sits beside the 80 dp rail.
+
+The cartwheel's touch geometry is the shipped one (`radial_ring.gd::_apply_touch_scale()`): ring radius about 141 dp,
+slots about 92 dp, a dead zone of about 34 dp and a disc of about 205 dp radius, which slides inward near a screen edge
+rather than clipping. The dock's chips are about 86 × 61 dp. The mockup draws all of this at those figures.
 
 ---
 
@@ -191,10 +221,12 @@ line in `#ebc080`, never only greyed.
 | Input | Does | Where |
 |---|---|---|
 | Tap | select (Inspect), or the armed tool's action | map |
-| Press and hold, 480 ms (350 / 480 / 700 in Touch & gestures) | sample pin and context card | map |
+| Press and hold: 480 ms on a phone and 500 ms on a tablet, the shipped `_PHONE_TOUCH_HOLD_MS` and `_TOUCH_HOLD_MS` (`map_overlay.gd`); Touch & gestures offers Short (350) and Long (700) beside them | phone: sample pin and context card · tablet: the cartwheel and the card together | map |
+| Hold, slide to a slot, lift | tablet: picks a cartwheel slot; lifting on a `▸` slot opens its sub-ring | map |
+| Tap or drag the quick grip | phone: the quick drawer of pinned commands | map edge |
 | Drag; pinch; two-finger turn; double-tap | pan; zoom; rotate (a compass appears, tap for north up); zoom ×1.7 | map |
 | Two-finger tap / three-finger tap | undo / redo (switchable) | map |
-| Swipe in from the right edge (28 dp, 60 dp travel) | inspector | map |
+| Swipe in from the right edge (28 dp, 60 dp travel) | inspector, where the platform leaves the edge to the app (with Android's gesture navigation it is Back) | map |
 | Hold the domain tab, slide, lift | switch WORLD · CIVIL · CARTO | bottom bar or rail |
 | Swipe the domain tab sideways | next / previous domain | bottom bar or rail |
 | Swipe up on a tab | open its sheet full | bottom bar |
@@ -202,7 +234,7 @@ line in `#ebc080`, never only greyed.
 | Drag the sheet handle; tap it | peek · half · full; toggle half and full | sheet |
 | Hold the tool chip | tool fan for the node's tools | tool strip |
 | Hold Undo, 520 ms | edit history, roll back to any step, Redo | app bar |
-| System back | closes, in order: window, fan, history, search, menu, card, layers, armed tool, sheet level, sheet | Android |
+| System back | closes, in order: window, fan, quick drawer, cartwheel, history, search, menu, card, layers, armed tool, sheet level, sheet | Android |
 | Pen | draws and sculpts; with *Pen draws, finger pans* the finger only pans | tablet |
 | Keyboard | every desktop accelerator, plus the tablet's Ctrl+R Run pipeline (Help ▸ Keyboard shortcuts…) | tablet |
 | Haptic tick | on holds, fans and snaps (switchable) | all |
@@ -219,6 +251,8 @@ line in `#ebc080`, never only greyed.
 | `phone_menu.gd` bespoke root plus "Not on the MORE list" | the root lists the eight menus; `_fill_popup` (which already re-presents the hidden `PopupMenu`s) draws every level |
 | `tool_fan.gd` pill plus the per-tool phone bars | one tool strip (name, hint, chips, Commit / Discard) and a tool fan on hold |
 | `PhoneMenu.peek_card` dropping `children` / `param` rows | the card keeps every row; a submenu row becomes a jump |
+| `QuickBarPhoneRow` mounted in the tool sheet by `set_phone_quick_row()` (CQ-6) | a side drawer on a grip (§2.4), fed by the same pin store and `QuickBarPhone`; MENU's Quick section stays |
+| `radial_ring.gd`, `context_broker.gd`, `quick_bar_ring.gd` (the tablet cartwheel and its dock), and the CQ-2 cluster on the tablet tool bar | unchanged (§2.4) |
 | desktop docks at a fixed width on tablet | the 520 dp docking rule, floating docks with pin, a 44 dp inspector tab |
 | `PHONE_DETENT_PEEK` 66, `PHONE_DETENT_HALF_FRAC` 0.46, `PHONE_DETENT_FULL_GAP` 96 | 76 (the header fits a tool line), 0.50, to just under the app bar |
 | `new_world_dialog.gd` | kept; AUTO-POPULATE rows added under Archetype |
@@ -234,10 +268,11 @@ line in `#ebc080`, never only greyed.
 | MS-4 | MENU mirrors the eight menus | every one of the 360 rows reachable in at most three taps from MENU |
 | MS-5 | Tool strip, tool fan, context card with domain verbs | every tool armed, used and disarmed from the strip |
 | MS-6 | STORY tab | the planner, timeline, conflicts and notes reachable without MENU |
-| MS-7 | Tablet docking rule, ☰ collapse at 1 180, 44 dp inspector tab, ≥ 1 920 readouts | the map never under 520 dp with a docked panel at 600–3 840 dp |
+| MS-7 | Tablet docking rule, ☰ collapse at 1 180, 44 dp inspector tab, ≥ 1 920 readouts | the map never under 520 dp with a docked panel at 600–3 840 dp; the cartwheel, its dock and the cluster still work at every tablet size |
 | MS-8 | New World AUTO-POPULATE | a new world with all four on equals Generate plus the four passes run by hand |
 | MS-9 | Search runs every command | a check, radio or parameter result does what its row does |
 | MS-10 | Device passes: the OnePlus 6T, a tablet, a 4K window | the touch floor and the docking rule hold on glass |
+| MS-11 | The phone's quick drawer (§2.4), fed by the CQ pin store; CQ-6's sheet row retired | every pin runs from the drawer; the grip is at least 44 × 88 dp and draws nothing while the bar is empty; tap and drag open it; scrim, drag and system back close it |
 
 Each closes with `cargo test --workspace` unaffected and the touched `.gd` files parse-checked (`MISTAKES.md`).
 
@@ -246,7 +281,7 @@ stages, numeric bars and its own owner questions, is `MOBILE_SHELL_MS1_SPEC.md`.
 
 ## 7. Owner questions, with defaults
 
-Every question is answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case.
+Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case. **Q10 to Q12 are open.** They were added the same day, after the owner asked whether the adaptable quick bar and the cartwheel were accounted for (§2.4).
 
 | # | Question | Default | Answer |
 |---|---|---|---|
@@ -259,6 +294,9 @@ Every question is answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes 
 | Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | **Yes** (Ruling DU) |
 | Q8 | Floating docks close when the map is touched? | Yes, unless pinned | **Yes, unless pinned** (Ruling DU) |
 | Q9 | Peek detent 76 dp instead of 66? | Yes | **Yes** (Ruling DU) |
+| Q10 | On the phone, move the quick pins from the MAP sheet's row (CQ-6) to a side drawer on a grip, keeping MENU's Quick section? | Yes | open |
+| Q11 | Put the drawer's grip on the side away from the dominant hand, so the holding hand's thumb reaches it (left by default, following Preferences ▸ Handedness)? | Yes | open |
+| Q12 | On a tablet, keep the quick bar and the cartwheel exactly as shipped: the tool bar's cluster (as many pins as fit, the rest under `⋯`, so a wider tablet shows more), the cartwheel on a 500 ms hold, and its dock of four? | Yes | open |
 
 ## 8. What the mockup does not settle
 
@@ -266,4 +304,6 @@ Every question is answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes 
   engine, and its New World preview stands in for `WorldGen.preview_land_mask`.
 - Windows show their frame and main sections, not every control inside them.
 - 3D is a toggle label.
+- The Assistant chip appears while Preferences ▸ Assistant is on. The shipped chip also needs a configured provider
+  (CQ-7).
 - Measured in Chromium only (Playwright), at the sizes listed in §3. Glass is MS-10.
