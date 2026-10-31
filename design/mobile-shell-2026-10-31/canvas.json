@@ -1,125 +1,126 @@
 {
- "v": 3,
- "attachments": {},
- "boards": {
-  "Live.dc.html": {
-   "expand": "fill",
-   "h": 892,
-   "is_interactive": true,
-   "title": "This device · opens at the window's own size",
-   "w": 412,
-   "x": 3326,
-   "y": 0
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Live.dc.html": {
+      "expand": "fill",
+      "h": 892,
+      "is_interactive": true,
+      "title": "This device · opens at the window's own size",
+      "w": 412,
+      "x": 3326,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "h": 1200,
+      "is_interactive": true,
+      "title": "Device lab · every size from 360 dp to 4K",
+      "w": 1480,
+      "x": 0,
+      "y": 0
+    },
+    "Rows.dc.html": {
+      "h": 1400,
+      "is_interactive": true,
+      "title": "Row vocabulary · every list is drawn from these",
+      "w": 412,
+      "x": 3818,
+      "y": 0
+    },
+    "Shell.dc.html": {
+      "h": 892,
+      "is_interactive": true,
+      "title": "Phone · OnePlus 6T · 412 × 892 dp",
+      "w": 412,
+      "x": 1560,
+      "y": 0
+    },
+    "Tablet.dc.html": {
+      "h": 834,
+      "is_interactive": true,
+      "title": "Tablet · 1194 × 834 dp",
+      "w": 1194,
+      "x": 2052,
+      "y": 0
+    },
+    "Desktop.dc.html": {
+      "h": 1000,
+      "is_interactive": true,
+      "title": "Desktop · PC shell at mouse density · 1366 to 2560",
+      "w": 1600,
+      "x": 0,
+      "y": -1120
+    }
   },
-  "Main.dc.html": {
-   "h": 1200,
-   "is_interactive": true,
-   "title": "Device lab · every size from 360 dp to 4K",
-   "w": 1480,
-   "x": 0,
-   "y": 0
+  "createdOnFiles": {
+    "at": "2026-10-31T19:14:29Z",
+    "v": 1
   },
-  "Rows.dc.html": {
-   "h": 1400,
-   "is_interactive": true,
-   "title": "Row vocabulary · every list is drawn from these",
-   "w": 412,
-   "x": 3818,
-   "y": 0
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
   },
-  "Shell.dc.html": {
-   "h": 892,
-   "is_interactive": true,
-   "title": "Phone · OnePlus 6T · 412 × 892 dp",
-   "w": 412,
-   "x": 1560,
-   "y": 0
+  "noteOrder": [
+    "title",
+    "desktop",
+    "try",
+    "changed",
+    "scale",
+    "newworld"
+  ],
+  "notes": {
+    "changed": {
+      "fill": "blue",
+      "text": "What changes against today's phone\n\n· CIVIL had no tab and CARTO lived behind MORE ▸ Window ▸ Left dock. Now one tab holds all three domains, with every dock section in its sheet.\n· PLAN becomes STORY (Time · Journeys · Conflicts · Notes), the desktop Story menu. MORE becomes MENU, the desktop menus unchanged.\n· The armed tool lives in one strip above the sheet: name, options, Commit / Discard. Tapping it opens the full options.\n· Every control is at least 44 dp on both axes, measured. No painted status bar or gesture handle.\n· The PC menu bar is untouched. Tablets show it whole from 1180 dp and as ☰ · File · World · Story below that, as shipped.\n· The adaptable quick bar keeps every home it has today: the tablet tool bar's cluster and the ring dock under the cartwheel, and MENU's Quick section. On the phone a side drawer replaces the row in the MAP sheet.",
+      "w": 700,
+      "x": 760,
+      "y": 1300
+    },
+    "newworld": {
+      "fill": "purple",
+      "text": "New world, kept as shipped\n\nFile ▸ New world… keeps the shipped window (NWP-3, Ruling CE): the grey-on-blue land and ocean preview with its disclaimer, the seed row with Roll and Lock, a four-seed history, Extent, map width with plates scaled from it, resolution, the derived grid, archetype and More options. Two columns on a tablet; stacked on a phone.\n\nNew here, at the owner's suggestion: AUTO-POPULATE. One switch, then settlements (factions, territories), routes, names and labels, and landmarks and points of interest. Each runs an existing pass after the terrain is generated.",
+      "w": 640,
+      "x": 2280,
+      "y": 1300
+    },
+    "scale": {
+      "fill": "green",
+      "text": "Scaling rules (all in dp, never pixels)\n\n· Width under 600 → phone: bottom bar and a bottom sheet with peek, half and full detents.\n· Landscape under 500 tall → phone landscape: the bar becomes a left rail and the sheet docks right, narrow or wide.\n· Otherwise → the desktop shell with touch sizing. A dock stays docked only while the map keeps at least 520 dp; otherwise it floats over the map and can be pinned. Floating docks close when the map is touched.\n· From 1920 dp the docks widen and the menu bar adds the desktop readouts. 4K runs at ×2, ×1.5 or ×1.\n· UI scale (Touch & gestures) multiplies every dp on top of the OS density.",
+      "w": 700,
+      "x": 1520,
+      "y": 1300
+    },
+    "title": {
+      "kind": "title1",
+      "maxW": 4230,
+      "text": "Cartalith shell · phone, tablet and desktop, every menu, any size",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "try": {
+      "fill": "orange",
+      "text": "How to try\n\n· Hold GENERATE in the bottom bar: a fan offers WORLD, CIVIL and CARTO. Slide and release, or tap. Swiping the tab sideways cycles them; the sheet title (with ▾) opens the same fan.\n· Each domain sheet has its nodes as chips, the node's tools, then every dock section as an accordion.\n· MENU is the desktop menu bar: File, Edit, Assets, World, Story, Preferences, Window, Help, row for row.\n· Long-press the map: sample pin and a card of actions for the current domain. Two-finger tap undoes, three-finger tap redoes.\n· ⌕ finds places, factions, routes and runs any menu row, dock section or generation parameter.\n· In the device lab: pick a size, rotate, press ◁ SYSTEM BACK, or drag the corner grip to any size up to 3840 dp.\n· Tablet: hold the map for 500 ms. The cartwheel and the card open together: slide to a slot and lift, or lift in place and tap. Your pinned commands sit at the end of the tool bar and under the ring.\n· Phone: tap or drag the grip on the map's left edge (the right edge when left-handed) for the quick drawer of pinned commands.\n· Notes: MENU ▸ World ▸ Markdown vault…, the Vault pin, or ⌕ with n. A note opens in Preview: tap a link to follow it, hold it to peek, tick tasks, tap a chronos row to move the timeline. Write shows the coloured source with a keyboard row; type [[ to link notes and places on the map.",
+      "w": 700,
+      "x": 0,
+      "y": 1300
+    },
+    "desktop": {
+      "fill": "yellow",
+      "w": 700,
+      "x": 1640,
+      "y": -1120,
+      "text": "Desktop: try this (PC_SHELL_PROPOSAL.md)\n\n· Click a settlement, or find one with Ctrl+F. Inspect, Note and Ask on the right all follow it, and so does any window set to FOLLOW.\n· Every name in Inspect is a link: a faction, a capital, a neighbour, a conflict. Alt+← and Alt+→ walk back and forward through what you selected.\n· Drag the timeline. The map recolours by who held each place that year and draws outlines for places not yet founded; Inspect says who held it; the note's chronos row for that year lights up. Open the strip for the recorded years, + RECORD, the filters and the speeds, in every domain.\n· Note (Ctrl+2) reads or writes the selection's own note in place. A [[link]] selects what it names.\n· Ask (Ctrl+3 or Ctrl+J) is the assistant, docked. The chips are what goes with your message and follow the panel. Citations select, years move the timeline, and nothing changes until Apply (one undo step).\n· Pin the panel to keep it on one thing while you click others: the banner offers PIN TO IT or FOLLOW.\n· Windows no longer block the map: World ▸ Factions… (Ctrl+Shift+F) follows the selection until you pin it. Story ▸ Conflicts… picks a conflict and moves the year to it.\n· Menus open as side-by-side columns; World ▸ Generate world is Ctrl+R, and the loading screen (the busy overlay) holds the window while it runs, on every form factor.\n· The assistant is scripted here: no model is called."
+    }
   },
-  "Tablet.dc.html": {
-   "h": 834,
-   "is_interactive": true,
-   "title": "Tablet · 1194 × 834 dp",
-   "w": 1194,
-   "x": 2052,
-   "y": 0
-  },
-  "Desktop.dc.html": {
-   "h": 1000,
-   "is_interactive": true,
-   "title": "Desktop · PC shell at mouse density · 1366 to 2560",
-   "w": 1600,
-   "x": 0,
-   "y": -1120
-  }
- },
- "createdOnFiles": {
-  "at": "2026-10-31T19:14:29Z",
-  "v": 1
- },
- "designSystems": [],
- "launch": {
-  "view": "canvas"
- },
- "noteOrder": [
-  "title",
-  "desktop",
-  "try",
-  "changed",
-  "scale",
-  "newworld"
- ],
- "notes": {
-  "changed": {
-   "fill": "blue",
-   "text": "What changes against today's phone\n\n· CIVIL had no tab and CARTO lived behind MORE ▸ Window ▸ Left dock. Now one tab holds all three domains, with every dock section in its sheet.\n· PLAN becomes STORY (Time · Journeys · Conflicts · Notes), the desktop Story menu. MORE becomes MENU, the desktop menus unchanged.\n· The armed tool lives in one strip above the sheet: name, options, Commit / Discard. Tapping it opens the full options.\n· Every control is at least 44 dp on both axes, measured. No painted status bar or gesture handle.\n· The PC menu bar is untouched. Tablets show it whole from 1180 dp and as ☰ · File · World · Story below that, as shipped.\n· The adaptable quick bar keeps every home it has today: the tablet tool bar's cluster and the ring dock under the cartwheel, and MENU's Quick section. On the phone a side drawer replaces the row in the MAP sheet.",
-   "w": 700,
-   "x": 760,
-   "y": 1300
-  },
-  "newworld": {
-   "fill": "purple",
-   "text": "New world, kept as shipped\n\nFile ▸ New world… keeps the shipped window (NWP-3, Ruling CE): the grey-on-blue land and ocean preview with its disclaimer, the seed row with Roll and Lock, a four-seed history, Extent, map width with plates scaled from it, resolution, the derived grid, archetype and More options. Two columns on a tablet; stacked on a phone.\n\nNew here, at the owner's suggestion: AUTO-POPULATE. One switch, then settlements (factions, territories), routes, names and labels, and landmarks and points of interest. Each runs an existing pass after the terrain is generated.",
-   "w": 640,
-   "x": 2280,
-   "y": 1300
-  },
-  "scale": {
-   "fill": "green",
-   "text": "Scaling rules (all in dp, never pixels)\n\n· Width under 600 → phone: bottom bar and a bottom sheet with peek, half and full detents.\n· Landscape under 500 tall → phone landscape: the bar becomes a left rail and the sheet docks right, narrow or wide.\n· Otherwise → the desktop shell with touch sizing. A dock stays docked only while the map keeps at least 520 dp; otherwise it floats over the map and can be pinned. Floating docks close when the map is touched.\n· From 1920 dp the docks widen and the menu bar adds the desktop readouts. 4K runs at ×2, ×1.5 or ×1.\n· UI scale (Touch & gestures) multiplies every dp on top of the OS density.",
-   "w": 700,
-   "x": 1520,
-   "y": 1300
-  },
-  "title": {
-   "kind": "title1",
-   "maxW": 4230,
-   "text": "Cartalith mobile shell · phone and tablet, every menu, any size",
-   "w": 240,
-   "x": 0,
-   "y": -300
-  },
-  "try": {
-   "fill": "orange",
-   "text": "How to try\n\n· Hold GENERATE in the bottom bar: a fan offers WORLD, CIVIL and CARTO. Slide and release, or tap. Swiping the tab sideways cycles them; the sheet title (with ▾) opens the same fan.\n· Each domain sheet has its nodes as chips, the node's tools, then every dock section as an accordion.\n· MENU is the desktop menu bar: File, Edit, Assets, World, Story, Preferences, Window, Help, row for row.\n· Long-press the map: sample pin and a card of actions for the current domain. Two-finger tap undoes, three-finger tap redoes.\n· ⌕ finds places, factions, routes and runs any menu row, dock section or generation parameter.\n· In the device lab: pick a size, rotate, press ◁ SYSTEM BACK, or drag the corner grip to any size up to 3840 dp.\n· Tablet: hold the map for 500 ms. The cartwheel and the card open together: slide to a slot and lift, or lift in place and tap. Your pinned commands sit at the end of the tool bar and under the ring.\n· Phone: tap or drag the grip on the map's left edge (the right edge when left-handed) for the quick drawer of pinned commands.\n· Notes: MENU ▸ World ▸ Markdown vault…, the Vault pin, or ⌕ with n. A note opens in Preview: tap a link to follow it, hold it to peek, tick tasks, tap a chronos row to move the timeline. Write shows the coloured source with a keyboard row; type [[ to link notes and places on the map.",
-   "w": 700,
-   "x": 0,
-   "y": 1300
-  },
-  "desktop": {
-   "fill": "yellow",
-   "w": 700,
-   "x": 1640,
-   "y": -1120,
-   "text": "Desktop: try this (PC_SHELL_PROPOSAL.md)\n\n· Click a settlement, or find one with Ctrl+F. Inspect, Note and Ask on the right all follow it, and so does any window set to FOLLOW.\n· Every name in Inspect is a link: a faction, a capital, a neighbour, a conflict. Alt+← and Alt+→ walk back and forward through what you selected.\n· Drag the timeline. The map recolours by who held each place that year and draws outlines for places not yet founded; Inspect says who held it; the note's chronos row for that year lights up. Open the strip for the recorded years, + RECORD, the filters and the speeds, in every domain.\n· Note (Ctrl+2) reads or writes the selection's own note in place. A [[link]] selects what it names.\n· Ask (Ctrl+3 or Ctrl+J) is the assistant, docked. The chips are what goes with your message and follow the panel. Citations select, years move the timeline, and nothing changes until Apply (one undo step).\n· Pin the panel to keep it on one thing while you click others: the banner offers PIN TO IT or FOLLOW.\n· Windows no longer block the map: World ▸ Factions… (Ctrl+Shift+F) follows the selection until you pin it. Story ▸ Conflicts… picks a conflict and moves the year to it.\n· Menus open as side-by-side columns; World ▸ Generate world is Ctrl+R, and the loading screen (the busy overlay) holds the window while it runs, on every form factor.\n· The assistant is scripted here: no model is called."
-  }
- },
- "order": [
-  "Main.dc.html",
-  "Shell.dc.html",
-  "Tablet.dc.html",
-  "Live.dc.html",
-  "Rows.dc.html"
- ],
- "pages": [],
- "title": "Cartalith Mobile Shell"
+  "order": [
+    "Main.dc.html",
+    "Shell.dc.html",
+    "Tablet.dc.html",
+    "Live.dc.html",
+    "Rows.dc.html",
+    "Desktop.dc.html"
+  ],
+  "pages": [],
+  "title": "Cartalith Shell"
 }
