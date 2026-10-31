@@ -475,9 +475,18 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ yearEvent }}</span>
 </div>
 <sc-if value="{{ T.tlOpen }}" hint-placeholder-val="{{ false }}">
-<div class="clr-hscroll" style="flex:1;display:flex;gap:8px;align-items:center;padding:0 14px 10px">
+<div class="clr-hscroll" role="toolbar" aria-label="timeline controls" style="flex:none;display:flex;gap:6px;align-items:center;padding:0 14px 6px">
+<span style="flex:none;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--dim)">RECORDED</span>
+<sc-for list="{{ tlc.rec }}" as="ry" hint-placeholder-count="4"><button class="clr-btn" onClick="{{ ry.tap }}" aria-label="{{ ry.aria }}" style="flex:none;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 10px;border-radius:var(--r22,22px);border:1px solid {{ ry.bord }};background:{{ ry.bg }};color:{{ ry.col }};font:10.5px 'IBM Plex Mono',monospace">{{ ry.label }}</button></sc-for>
+<button class="clr-btn" onClick="{{ tlc.addTap }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);background:{{ tlc.addBg }};color:{{ tlc.addCol }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.08em">{{ tlc.addLabel }}</button>
+<span aria-hidden="true" style="flex:none;width:1px;height:20px;background:var(--hair);margin:0 4px"></span>
+<sc-for list="{{ tlc.filt }}" as="tf" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ tf.tap }}" aria-pressed="{{ tf.on }}" title="{{ tf.title }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);border:1px solid {{ tf.bord }};background:{{ tf.bg }};color:{{ tf.col }};font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ tf.label }}</button></sc-for>
+<span aria-hidden="true" style="flex:none;width:1px;height:20px;background:var(--hair);margin:0 4px"></span>
+<sc-for list="{{ tlc.sp }}" as="sp" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ sp.tap }}" aria-pressed="{{ sp.on }}" style="flex:none;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 8px;border-radius:var(--r22,22px);border:1px solid {{ sp.bord }};background:{{ sp.bg }};color:{{ sp.col }};font:10.5px 'IBM Plex Mono',monospace">{{ sp.label }}</button></sc-for>
+</div>
+<div class="clr-hscroll" style="flex:1;display:flex;gap:8px;align-items:center;padding:0 14px 8px">
 <sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
-<button class="clr-btn" onClick="{{ ev.tap }}" style="flex:none;min-height:56px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 14px;border-radius:14px;border:1px solid {{ ev.bord }};background:{{ ev.bg }}"><span style="font:10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ ev.y }}</span><span style="font-size:12px;color:var(--ink);white-space:nowrap">{{ ev.t }}</span></button>
+<button class="clr-btn" onClick="{{ ev.tap }}" style="flex:none;min-height:var(--c52,52px);display:flex;flex-direction:column;justify-content:center;gap:1px;padding:0 14px;border-radius:14px;border:1px solid {{ ev.bord }};background:{{ ev.bg }}"><span style="font:10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ ev.y }}</span><span style="font-size:12px;color:var(--ink);white-space:nowrap">{{ ev.t }}</span></button>
 </sc-for>
 </div>
 </sc-if>
@@ -1402,6 +1411,7 @@ function drawMap(c, ctx, W, H) {
       // the shared year: who held the place then, and whether it existed yet (PC_SHELL_PROPOSAL.md §3.2)
       const own = ownerAt(c, pl, s.year); const unborn = own === null;
       const fc = own != null && own >= 0 && FACTIONS[own] ? FACTIONS[own].col : '#e8ebec';
+      if (unborn && s.tlFilt && s.tlFilt.exist) continue;   // Exist only: a place not founded yet is not handed to the map
       if (unborn) { ctx.save(); ctx.setLineDash([2.5, 2.5]); ctx.beginPath(); ctx.arc(p.x, p.y, r + 0.5, 0, 7); ctx.strokeStyle = ink ? 'rgba(45,42,38,.6)' : 'rgba(246,242,234,.6)'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.restore(); }
       else { ctx.beginPath(); ctx.arc(p.x, p.y, r + 1.5, 0, 7); ctx.fillStyle = ink ? '#2d2a26' : 'rgba(10,10,10,.85)'; ctx.fill();
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fillStyle = s.base === 'political' || L.political ? fc : (pl.user ? '#e0a34a' : '#f6f2ea'); ctx.fill(); }
@@ -2732,7 +2742,8 @@ function plannerSelRows(c) {
 
 /* ---------------- the timeline: one range, events from the world and from notes ---------------- */
 function worldEvents(c) {
-  const vs = (c.places || [])[0]; const ev = [{ y: vs ? vs.founded : -120, t: 'Founding of ' + (vs ? vs.name : 'Vhal Serai'), src: 'world', sel: vs ? { kind: 'place', id: vs.id } : null }, { y: 0, t: 'Year zero', src: 'world' }];
+  // the seeded story's first place, by name: the first in the list is not it
+  const vs = (c.places || []).find((p) => p.name === PLACE_NAMES[0]) || (c.places || [])[0]; const ev = [{ y: vs ? vs.founded : -120, t: 'Founding of ' + (vs ? vs.name : 'Vhal Serai'), src: 'world', sel: vs ? { kind: 'place', id: vs.id } : null }, { y: 0, t: 'Year zero', src: 'world' }];
   conflictsOf(c).forEach((k) => ev.push({ y: k.from, y1: k.to, t: k.name, src: 'conflict', col: k.col, sel: { kind: 'conflict', id: k.id } }));
   ev.push({ y: 412, t: 'Now', src: 'world' });
   return ev;
@@ -2746,6 +2757,16 @@ function noteEvents(c, n) {
 function tlEvents(c) {
   const e = entOf(c, subjectOf(c)); const n = e ? noteOfSubject(c, e) : null;
   return worldEvents(c).concat(noteEvents(c, n)).sort((a, b) => a.y - b.y);
+}
+/* The strip's expanded row: what CIVIL ▸ Timeline holds today (recorded years, Add year, the three filters) at
+   program scope, so the year has one home in every domain (GUI_GAP_REGISTER.md CV-24's design question). */
+function tlControls(c) {
+  const s = c.state; const F = s.tlFilt || {}; const ch = (on) => (on ? { bg: 'var(--wash)', bord: 'var(--acc)', col: 'var(--acc)' } : { bg: 'var(--chip)', bord: 'var(--hair)', col: 'var(--body)' });
+  const rec = (s.recYears || []).map((y) => Object.assign({ label: String(y), tap: () => c._setYear(y), aria: 'go to recorded year ' + y }, ch(s.year === y)));
+  const filt = [['exist', 'Exist only', 'hide places not founded yet, instead of drawing their outlines'], ['ghost', 'Ghost removed', 'draw places lost by this year at half strength'], ['halo', 'Highlight new', 'ring places founded since the previous recorded year']].map(([k, l, why]) => Object.assign({ label: l, title: why, on: !!F[k], tap: () => c.setState({ tlFilt: Object.assign({}, F, { [k]: !F[k] }) }) }, ch(!!F[k])));
+  const sp = [1, 10, 100].map((v) => Object.assign({ label: '×' + v, on: s.speed === v, tap: () => c.setState({ speed: v }) }, ch(s.speed === v)));
+  const has = (s.recYears || []).includes(s.year);
+  return { rec, filt, sp, addLabel: has ? 'RECORDED' : '+ RECORD ' + s.year, addTap: () => { if (has) return; const y = s.year; const before = (s.recYears || []).slice(); const after = before.concat([y]).sort((a, b) => a - b); c.setState({ recYears: after }); c._push('record year ' + y, () => c.setState({ recYears: before }), () => c.setState({ recYears: after })); c._toast('Recorded year ' + y + ': who holds what is kept as a snapshot'); }, addBg: has ? 'var(--chip)' : 'var(--acc)', addCol: has ? 'var(--dim)' : 'var(--accInk)' };
 }
 function tlTicks(c) {
   const span = YEAR_MAX - YEAR_MIN; const pos = (y) => Math.max(0, Math.min(100, (y - YEAR_MIN) / span * 100));
@@ -2871,6 +2892,8 @@ function askVals(c) {
 }
 
 /* ---------------- the Context panel's header, tabs and Note tab ---------------- */
+/* Inspect's rows end with the armed tool's draft section: the selection wins and the tool appends below it
+   (LARGE_ITEM_RULINGS.md, the rdExtraMode row). */
 function ctxDockVals(c, G, rdOverlay, toolRows) {
   const s = c.state; const subj = subjectOf(c); const e = entOf(c, subj); const tab = s.ctxTab || 'inspect';
   const pinned = !!s.ctxPin; const selE = s.sel ? entOf(c, s.sel) : null; const diverged = pinned && !!s.sel && selKey(s.sel) !== selKey(s.ctxPin);
@@ -2887,7 +2910,7 @@ function ctxDockVals(c, G, rdOverlay, toolRows) {
     pinned, pinCol: pinned ? 'var(--acc)' : 'var(--sec)', pinBg: pinned ? 'var(--wash)' : 'transparent', pinAria: pinned ? 'unpin: follow the selection again' : 'pin: keep this panel on ' + (e ? e.name : 'this'), pinTitle: pinned ? 'Pinned · click to follow the selection again' : 'Follows the selection · click to pin',
     follow: pinned ? 'PINNED' : 'FOLLOWING', followCol: pinned ? 'var(--acc)' : 'var(--dim)', canPin: !!e,
     diverged, divName: selE ? selE.name : '', divShow: () => c.setState({ ctxPin: s.sel }), divFollow: () => c.setState({ ctxPin: null }),
-    tabs, isInspect: tab === 'inspect', isNote: tab === 'note', isAsk: tab === 'ask', rows: tab === 'inspect' ? (toolRows || []).concat(ctxInspectRows(c, e)) : [], note, ask: tab === 'ask' ? askVals(c) : { msgs: [], chips: [], prompts: [] }, ptr
+    tabs, isInspect: tab === 'inspect', isNote: tab === 'note', isAsk: tab === 'ask', rows: tab === 'inspect' ? ctxInspectRows(c, e).concat(toolRows || []) : [], note, ask: tab === 'ask' ? askVals(c) : { msgs: [], chips: [], prompts: [] }, ptr
   };
 }
 
@@ -3157,7 +3180,7 @@ function buildVals(c) {
   /* ---- shared overlays ---- */
   const evs = tlEvents(c).map((e) => [e.y, e.t + (e.src === 'note' ? ' · ' + e.note + '.md' : ''), e]);
   v.events = evs.map(([y, t, e]) => { const on = s.year === y || (e.y1 != null && s.year >= y && s.year <= e.y1); return { y: 'YEAR ' + y + (e.y1 != null ? '–' + e.y1 : ''), t, bg: on ? 'var(--wash)' : 'var(--chip)', bord: on ? 'var(--acc)' : (e.src === 'note' ? 'rgba(224,163,74,.35)' : 'transparent'), tap: () => { if (e.sel && c._mode() === 'tablet') c._select(e.sel, { frame: true, year: y }); else c._setYear(y); } }; });
-  v.ticks = tlTicks(c); v.yrMin = YEAR_MIN; v.yrMax = YEAR_MAX;
+  v.ticks = tlTicks(c); v.yrMin = YEAR_MIN; v.yrMax = YEAR_MAX; v.tlc = tlControls(c);
   const ev = evs.filter((e) => e[0] <= s.year).pop(); v.yearEvent = ev ? ev[1] : '';
   if (s.fan) {
     const isDom = s.fan.kind === 'dom'; const fw = Math.min(330, W - 24); const n = s.fan.items.length; const fh = n * 72 + 64;
@@ -3247,6 +3270,7 @@ class Component extends DCLogic {
       year: 412, playing: false, speed: 1,
       seed: 483920, running: null, stale: 0, lastRun: '14:02',
       vals: {}, brush: { size: 64, hard: 0.35, inten: 1.0, mode: 'raise' }, feature: 'Mountains', settleTier: 'town', wayKind: 'road', iconKind: 'diamond', lmKind: 'Peak',
+      recYears: [-120, 0, 210, 398, 412], tlFilt: { exist: false, ghost: false, halo: false },
       selBack: [], selFwd: [], ctxTab: 'inspect', ctxPin: null, ctxEdit: false, ctxDraft: null, dn: null, ask: { msgs: [], draft: '', off: {} }, winPos: null,
       dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: !!props.pointer, layersPop: false, tlOpen: false, tctx: null, ring: null, qd: false, qdDrag: null, vt: null, ac: null, peek: null, neDlg: null, neSaved: 0, notes: null,
       coach: !!props.coach && !coachDone, coachStep: 0,
@@ -3299,7 +3323,7 @@ class Component extends DCLogic {
   _ptr() { return !!this.props.pointer && this._mode() === 'tablet'; }
   _tabletGeom() {
     const W = this._W(), H = this._H(), s = this.state, ptr = this._ptr();
-    const menuH = ptr ? 34 : 48, toolH = ptr ? 40 : 52, railW = ptr ? 48 : 64, statusH = ptr ? 24 : 30, tlH = s.tlOpen ? (ptr ? 118 : 128) : (ptr ? 34 : 44);
+    const menuH = ptr ? 34 : 48, toolH = ptr ? 40 : 52, railW = ptr ? 48 : 64, statusH = ptr ? 24 : 30, tlH = s.tlOpen ? (ptr ? 128 : 156) : (ptr ? 34 : 44);
     const ldW = ptr ? (W >= 1920 ? 340 : (W >= 1600 ? 320 : 300)) : (W >= 1920 ? 400 : (W >= 1400 ? 360 : 340));
     const rdW = ptr ? (W >= 2400 ? 460 : (W >= 1920 ? 420 : (W >= 1600 ? 380 : 352))) : (W >= 1920 ? 380 : (W >= 1400 ? 340 : 312)), rtabW = ptr ? 26 : 44;
     const minMap = ptr ? 560 : MAP_MIN; const avail = W - railW;
@@ -3379,7 +3403,7 @@ class Component extends DCLogic {
     const n = this.ptrs.size;
     if (n === 1) {
       this.g = { mode: 'one', t0: performance.now(), x0: p.x, y0: p.y, moved: false, v0: Object.assign({}, this.view), edge: p.x > host.clientWidth - 28, pen: e.pointerType === 'pen' };
-      const mouseDesk = e.pointerType === 'mouse' && this._ptr();
+      const mouseDesk = e.pointerType === 'mouse' && this._ptr();   // a held left button pans; right-click and Q open the card and ring
       clearTimeout(this._lpT); if (!mouseDesk && e.button === 0) this._lpT = setTimeout(() => this._longPress(p.x, p.y), this.state.prefs.longPressMs || (this._mode() === 'tablet' ? LONG_MS_TABLET : LONG_MS));
       if (!mouseDesk && e.button === 0 && (this._mode() !== 'phone' || this.state.tool === 'inspect')) this.setState({ press: { x: p.x, y: p.y } });
       this._closeTransient();

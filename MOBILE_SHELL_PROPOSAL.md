@@ -117,6 +117,11 @@ Dropdowns drill in rather than cascade, with 48 dp rows and accelerators shown f
 the domain rail (with the active domain's nodes as 48 dp buttons), the left dock, the map, the inspector, the timeline
 and the status bar keep their desktop order.
 
+**The right dock and the strip, proposed later the same day.** `PC_SHELL_PROPOSAL.md` proposes the desktop's right dock
+as a **Context panel** (Inspect · Note · Ask, following the selection or pinned), and the timeline strip in every domain
+with CIVIL ▸ Timeline's controls in its expanded row. Because the tablet is the desktop shell, both reach the tablet at
+touch size; that is its PQ1 and PQ2, open. The mockup's tablet frame draws them. The tablet's windows stay modal sheets.
+
 **The docking rule (the fix for the 800 dp strip):** a dock stays docked only while the map keeps at least
 **520 dp**. Otherwise it floats over the map as a drawer with a shadow and a pin. A floating dock starts closed, and
 closes when the map is pressed. The inspector collapses to a 44 dp edge tab.

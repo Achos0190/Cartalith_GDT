@@ -78,7 +78,8 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   and forward through what you have selected.
 - **Drag the timeline.** The map recolours each settlement by who held it that year and draws places not yet founded
   as outlines. Inspect says who held the place, and the chronos row of the note for that year lights up. The ticks
-  under the slider are the world's events, its conflicts and the selection's own chronos entries.
+  under the slider are the world's events, its conflicts and the selection's own chronos entries. Open the strip (**TIMELINE**) for the controls CIVIL ▸ Timeline has today, now in every domain: the
+  recorded years, **+ RECORD** for the shown year, the three filters and the speeds, then the event list.
 - **Note** (Ctrl+2) reads or writes the selection's note in place; a link selects what it names. ⧉ opens the full
   vault window.
 - **Ask** (Ctrl+3, or Ctrl+J from anywhere) is the assistant, docked. The chips are what goes with your message:

@@ -57,6 +57,23 @@ Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHE
 
 **The vault's editor and linking: a proposal and the mockup, nothing built in the shell (2026-10-31).** The owner asked for Markdown linking and editing that comes close to any regular Markdown editor. `VAULT_EDITOR_PROPOSAL.md` records what ships, read at the symbols by an inventory agent; the editor's own header and `chronos`'s were opened by the author. Against a regular editor it lacks most of the linking: no rendered link can be followed (no `meta_clicked` handler anywhere), the `[[ ]]` picker is an unfiltered list, there is no rename, unresolved links are refused, and there is no autosave. The phone toolbar is not docked to the keyboard as Ruling BE asks. The proposal sets the baseline from nine editors' documentation and lays out the design, milestones VE-0…VE-9 and questions VQ1…VQ7. The mobile mockup now has a working vault (list, Preview with link following, peek, task ticking and a chronos timeline, coloured Write with `[[` suggestions, Split, backlinks, rename, conflict banner), driven in Chromium on 412 × 892 and 1194 × 834 with no page errors. Two `cartalith-vault` tests fail on Linux on `main` (`provider::tests::is_safe_relative_path_matches_resolves_own_boundary`, `resolve_refuses_every_way_out_of_the_vault`: "C:/Windows/x.md must be unsafe"), seen with `cargo test -p cartalith-vault` here: 133 passed, 2 failed. A drive-letter path is only absolute on Windows, so on Android it is accepted.
 
+**The PC shell: a proposal and a desktop mockup, nothing built (2026-10-31).** The owner asked for the PC GUI to be refactored so that "the context windows are all properly locked together", with the assistant. `PC_SHELL_PROPOSAL.md` and the `Desktop.dc.html` frame of `design/mobile-shell-2026-10-31/` propose:
+- one selection, one year and one note focus, each with one writer;
+- the right dock as a Context panel (Inspect · Note · Ask), with the assistant docked as Ask;
+- context windows that do not block the map and follow the selection until pinned;
+- the planner beside the map;
+- the year strip in every domain, as `GUI_GAP_REGISTER.md` CV-24's design;
+- menu and key changes.
+
+No shell code changed. Owner questions PQ1…PQ9 are open. Read at the symbols and re-run in `shell/` this session:
+- 23 windows extend the exclusive `AcceptDialog`.
+- No window, dialog, assistant file, planner or right dock connects `timeline_changed`.
+- `civilization_workspace.gd::_tl_goto_year` moves the year without emitting it.
+- The right dock is pinned from 8 call sites outside any selection model.
+- `LlmAssistantWindow.open()` calls `_rebuild()`, which starts a new conversation.
+
+**The loading screen is kept everywhere.** `app.gd::_mount_busy_overlay` mounts `busy_overlay.gd` once for the desktop, the tablet and the phone. The mockups had drawn generation as progress rows only, and now draw the overlay on all three; `MISTAKES.md`'s mockup row records the omission. Mockup checks (Chromium): the desktop flows pass without page errors, every tablet and phone target stays at least 44 dp, and the vault and quick-bar flows still pass.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.
