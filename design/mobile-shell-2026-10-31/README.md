@@ -49,5 +49,8 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   sections, not their whole contents. They keep their implementations; only the frame they open in
   changes.
 - 3D is a toggle label; the stand-in map stays 2D.
+- The lab's readout applies the proposal's phone line, under 600 dp wide. The owner's standing answer is 900 dp of
+  shortest width (`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3), and where the line ends up is MQ-1 of
+  `MOBILE_SHELL_MS1_SPEC.md`. The mockup shows the proposal's design, not a decision.
 - Measured in Chromium (Playwright) at 360 × 780, 412 × 892, 780 × 360, 1194 × 834 and the lab presets.
   Not run on a device.

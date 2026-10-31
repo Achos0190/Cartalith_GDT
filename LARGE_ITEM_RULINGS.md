@@ -2629,3 +2629,13 @@ Owner, on `MOBILE_SHELL_PROPOSAL.md` section 7, Q5 to Q9, verbatim: *"Yes to Q5 
 5. **Q9. The sheet's peek detent is 76 dp instead of 66**, so the header holds the armed tool's line.
 
 This answers questions; it schedules nothing. Q9 and Q6 change shipped values (`DccShell.PHONE_DETENT_PEEK` 66, the `⋮` built by `_build_phone_app_bar`). When the milestone that builds them lands, `ANDROID_UI_SPEC.md`'s descriptions of the detents (section 0.2) and of the app bar are corrected in the same change. Dated records that quote 66 dp or the `⋮` (`STATUS.md` entries, `GUI_GAP_REGISTER.md`, closed `OUTSTANDING_WORK.md` rows) stay as written.
+
+## Ruling DV: the mobile shell refactor starts with MS-1, and this pass is its documentation (owner, 2026-10-31)
+
+Owner, on `MOBILE_SHELL_PROPOSAL.md` section 6, verbatim: *"Start the refactor with MS-1, mind this is documentation only."* Recorded:
+
+1. **MS-1 is the refactor's first milestone**: size classes in dp, re-evaluated on every resize, and a UI scale. MS-2 to MS-10 stay unscheduled.
+2. **This pass is documentation only.** Its output is the build specification `MOBILE_SHELL_MS1_SPEC.md`. No file under `cartalith-native/` changes; building MS-1 waits for a later instruction.
+3. **A standing answer this file did not carry, cited so it can be found from here.** `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` section 2.3 (owner, 2026-08-31, imported verbatim in commit `660cbef`): *"Tablet threshold — shortest-width ≥ 900 dp gets the desktop-parity shell. Below 900 dp: the phone shell with touch density. Not Android's 600 dp, because the desktop shell has a hard floor: 48 rail + 400 dock = 448 dp of chrome before any map."* The proposal's section 3 moved this line to 600 dp of width without asking, and none of Q1 to Q9 covered it, so Rulings DT and DU do not change it and the 900 dp answer stands. `MOBILE_SHELL_MS1_SPEC.md` section 2.2 records that the shipped code applies it only below aspect 0.6; its MQ-1 asks where the line should end up.
+
+This schedules MS-1's specification. It answers none of the specification's questions MQ-1 to MQ-5.

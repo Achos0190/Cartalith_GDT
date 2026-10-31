@@ -151,6 +151,15 @@ Every number is in dp and is re-evaluated on every resize: a foldable that unfol
 window gets the right layout without a restart. Nothing is placed in pixels, and nothing is scaled by the ratio of
 the screen to a reference phone.
 
+> **Correction, 2026-10-31, found while writing `MOBILE_SHELL_MS1_SPEC.md`.** The table's first row puts the phone line
+> at 600 dp of width. That overturns an owner answer this proposal did not cite:
+> `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3 (2026-08-31) puts the line at **900 dp of shortest
+> width**, because at 800 dp the desktop-parity shell's 48 dp rail and 400 dp dock leave a 352 dp map, narrower than
+> the dock beside it.
+> None of Q1 to Q9 asked to move it, so Rulings DT and DU do not cover it, and the 900 dp answer stands. The table is
+> this proposal's design, not a decision. Where the line goes is MQ-1 of `MOBILE_SHELL_MS1_SPEC.md`, whose §2.2 also
+> records that the shipped code applies §2.3 only to screens below aspect 0.6.
+
 | Window | Layout | Key measures |
 |---|---|---|
 | width < 600 | **phone** | bottom bar 80 (64 + 16 inset); app bar 52 under a 28 status inset; sheet peek 76, half 50 % of the space above the bar, full to just under the app bar; floating controls follow the sheet edge and thin out below 250 / 120 dp of free map |
@@ -231,6 +240,9 @@ line in `#ebc080`, never only greyed.
 | MS-10 | Device passes: the OnePlus 6T, a tablet, a 4K window | the touch floor and the docking rule hold on glass |
 
 Each closes with `cargo test --workspace` unaffected and the touched `.gd` files parse-checked (`MISTAKES.md`).
+
+The owner scheduled MS-1 first on 2026-10-31, as documentation for now (Ruling DV). Its build specification, with
+stages, numeric bars and its own owner questions, is `MOBILE_SHELL_MS1_SPEC.md`.
 
 ## 7. Owner questions, with defaults
 

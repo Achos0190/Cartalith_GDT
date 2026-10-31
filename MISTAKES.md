@@ -197,7 +197,7 @@ its rule before you start.
 | **Fix a stale cache or an invalidation bug** | **Enumerate every path that writes the thing the cache depends on before fixing one.** 2026-09-13: a tile-cache fix covered one of three sculpt-commit buttons and none of undo, redo, revert, erode or the paint commits — the row named one path and the brief did not ask for the rest | grep every writer (here: every `map_view.texture =`) and probe each |
 | **Brief a layout change from a spec document’s summary** | **Open the canvas markup the summary cites and name the element.** wf49 briefed *"lay the sliders out as the canvas’s 2-column grid"* from `TABLET_UI_SPEC.md` §2.4; the canvas’s grid (`st.grid`) holds toggle/segment cells and its sliders are full-width two-line cells (`st.sliders`). The lane hit the gate the misreading created and built past it | Quote the canvas lines in the brief, not the spec’s paraphrase |
 | **Print from a Windows Python script** | **Print ASCII-safe, or set `PYTHONIOENCODING=utf-8`.** A filing script saved its first file and then crashed printing `▸` to the cp1252 console, leaving three files unwritten behind a "refuses to run twice" guard. **Put every print after every save, or make prints unable to fail** |
-| **Put a question, or a factual premise, to the owner** | **Verify the premise at the symbol first — the owner rules on the premise you hand them. And search `LARGE_ITEM_RULINGS.md` for the question itself: a scope document's "open questions" list is not evidence that the question is open.** ×2. A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling. **2026-09-23:** Ruling AP re-asked landmark questions that `LANDMARK_GENERATION_SCOPE.md` §4 still listed as open. They had been ruled on 2026-09-06 (rulings 10, 12, 13, 16) or earlier the same day (the crate home). The ruling's text also calls work new that was built weeks earlier | Grep `LARGE_ITEM_RULINGS.md` for the question's subject, then open the symbol the answer would have built. Quote both in the question, or state that neither exists |
+| **Put a question, or a factual premise, to the owner** | **Verify the premise at the symbol first — the owner rules on the premise you hand them. And search `LARGE_ITEM_RULINGS.md` for the question itself: a scope document's "open questions" list is not evidence that the question is open. And a proposal that changes a value the owner already answered asks it by name, as its own question: approving the proposal's other questions does not cover it.** ×3. A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling. **2026-09-23:** Ruling AP re-asked landmark questions that `LANDMARK_GENERATION_SCOPE.md` §4 still listed as open. They had been ruled on 2026-09-06 (rulings 10, 12, 13, 16) or earlier the same day (the crate home). The ruling's text also calls work new that was built weeks earlier. **2026-10-31:** `MOBILE_SHELL_PROPOSAL.md` §3 moved the phone/tablet line to 600 dp of width and asked nine questions, none about it. The owner's 900 dp answer lived in `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3, in a constant's comment and in a status row, never in `LARGE_ITEM_RULINGS.md`, so this row's own search could not have found it | Grep `LARGE_ITEM_RULINGS.md` for the question's subject, then open the symbol the answer would have built. Quote both in the question, or state that neither exists. **Owner answers also live in `design/**/BUILD_ANSWERS.md` and in constants whose comment says *owner ruling*:** before a proposal changes a shipped value, grep those for it too |
 | **Say something is OCCLUDING something else** | **Check whether the two edges merely COINCIDE.** A sheet’s clip boundary and the nav bar’s top edge both derived from `_phone_nav_reserve()` and landed on the same y — which reads as the bar covering the chip when the bar draws nothing there. **Sample a pixel at the covering element before and after; if it does not change, it is not on top** |
 | **Assume a device-only defect needs the device** | **Try the desktop composition first.** The same bug reproduced windowed at 1080×2340 `--force-touch` within **3 px** of the device measurement — and that agreement is also the evidence that the phone probes model the device at all |
 | **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
@@ -1265,7 +1265,7 @@ cannot be trusted; that is right about REACHABILITY — a probe calling a handle
 proves nothing about a finger — and this is evidence it is **not** right about
 geometry. **Distinguish the two before dismissing a desktop measurement.**
 
-### [2026-09-12] I handed the owner a false premise, and they ruled on it ×2
+### [2026-09-12] I handed the owner a false premise, and they ruled on it ×3
 
 Comparing the owner’s town plan against the urban generator, I wrote that star
 forts never appear because this port’s settlements carry no `fortified` trait. I
@@ -1321,6 +1321,26 @@ contradictory second ruling.
 list is a claim about the day it was written, and scope documents do not track
 (`CLAUDE.md`). Also open the symbol the answer would have built, because a
 ruling that was given is usually a ruling that was built on.
+
+**×3, 2026-10-31: a proposal changed an answered value without asking.**
+`MOBILE_SHELL_PROPOSAL.md` §3 drew the phone/tablet line at 600 dp of width,
+and its §1.1 and §5 even named `_TABLET_MIN_DP` (900) as today's value. The
+owner was asked nine questions, none about the line, and took every default
+(Rulings DT and DU). But 900 was not a value, it was an answer:
+`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3 (2026-08-31) gives it,
+with its reason: at 800 dp a 48 dp rail and a 400 dp dock leave a 352 dp map,
+narrower than the dock beside it. It was recorded there, in the constant's own comment
+(*"Owner ruling, 2026-08-31"*) and in `STATUS.md` row GGR-58, and never in
+`LARGE_ITEM_RULINGS.md`, so the rule above (search that file) could not have
+found it. Caught while writing the MS-1 build specification, before any code
+moved. The proposal now carries a correction, Ruling DV cites §2.3 so the
+rulings file leads to it, and the question is `MOBILE_SHELL_MS1_SPEC.md`'s MQ-1.
+
+**The rule this adds:** a constant whose comment says *owner ruling* is an
+answer, not a value. A proposal that changes one puts it to the owner as its
+own question, quoting the answer; approving the proposal's other questions does
+not cover it. Owner answers live in `LARGE_ITEM_RULINGS.md`, in imported design
+answers (`design/**/BUILD_ANSWERS.md`) and in such comments: search all three.
 
 ### [2026-09-12] The second lane in five days to argue past a gate its brief named
 
