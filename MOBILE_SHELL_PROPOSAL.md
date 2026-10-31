@@ -80,7 +80,7 @@ landscape.
 | Destination | What it holds | Replaces |
 |---|---|---|
 | **MAP** | Quick pins; view (2D/3D, North up, Fit world, grid, scale bar); the view field, all 43 analysis fields in their six groups, with opacity; quick visibility for settlements, ways, landmarks, rivers, labels, political, hillshade; the six Measure modes | today's MAP (tool-options row only) and the Layers popover |
-| **Domain tab** — reads **GENERATE**, **CIVIL** or **CARTO** | **Tap** opens the domain sheet. **Hold** (380 ms) opens a fan of the three domains: slide and lift, or tap. **Swipe** the tab sideways to cycle. The sheet title carries a ▾ that opens the same fan, so the hold is never the only way. Three dots above the icon show which domain is current | GENERATE, MORE ▸ Civilization, and the Window ▸ Left dock door |
+| **Domain tab** — reads **GENERATE**, **CIVIL** or **CARTO** | **Tap** opens the domain sheet. **Hold** (380 ms) opens a fan of the three domains: slide and lift, or tap. **Swipe** the tab sideways to cycle. The sheet title carries a ▾ that opens the same fan, so the hold is never the only way. Three dots above the icon show which domain is current. Session mode hides WORLD, as it hides GENERATE today, so the fan and the swipe then offer CIVIL and CARTO only | GENERATE, MORE ▸ Civilization, and the Window ▸ Left dock door |
 | **STORY** | Segments TIME · JOURNEYS · CONFLICTS · NOTES, the desktop Story menu's bands. JOURNEYS is the planner (verdict card, stages, stage detail, Party, Season, Carriage, Route conditions, Results). TIME is the timeline: transport, year and day, the six simulation layers, recorded years, filters, collapse / recovery | PLAN, MORE ▸ Story, MORE ▸ Simulation |
 | **MENU** | The eight desktop menus, **row for row** in the same order and under the same names (File · Edit · Assets · World · Story · Preferences · Window · Help), plus Quick and Status. A submenu of only radio rows is drawn inline as chips, as today's phone does | MORE's bespoke root and its "Not on the MORE list" band |
 
@@ -234,17 +234,19 @@ Each closes with `cargo test --workspace` unaffected and the touched `.gd` files
 
 ## 7. Owner questions, with defaults
 
-| # | Question | Default |
-|---|---|---|
-| Q1 | Rename PLAN to STORY, holding Time · Journeys · Conflicts · Notes? | Yes |
-| Q2 | Replace MORE with MENU, the eight desktop menus row for row? | Yes |
-| Q3 | The WORLD domain tab's caption: GENERATE (today's word) or WORLD (the rail's)? | GENERATE |
-| Q4 | Auto-populate on by default in New World? | Yes, all four |
-| Q5 | Two- and three-finger tap for undo and redo on by default? | Yes, with a switch |
-| Q6 | Drop the app bar's `⋮` (Save · Theme · Close world now live in MENU ▸ File and Preferences)? | Yes |
-| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes |
-| Q8 | Floating docks close when the map is touched? | Yes, unless pinned |
-| Q9 | Peek detent 76 dp instead of 66? | Yes |
+Q1 to Q4 were answered by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*, `LARGE_ITEM_RULINGS.md`). Q5 to Q9 are open.
+
+| # | Question | Default | Answer |
+|---|---|---|---|
+| Q1 | Rename PLAN to STORY, holding Time · Journeys · Conflicts · Notes? | Yes | **Yes** (Ruling DT) |
+| Q2 | Replace MORE with MENU, the eight desktop menus row for row? | Yes | **Yes** (Ruling DT) |
+| Q3 | The WORLD domain tab's caption: GENERATE (today's word) or WORLD (the rail's)? | GENERATE | **GENERATE** (Ruling DT) |
+| Q4 | Auto-populate on by default in New World? | Yes, all four | **Yes, all four** (Ruling DT) |
+| Q5 | Two- and three-finger tap for undo and redo on by default? | Yes, with a switch | open |
+| Q6 | Drop the app bar's `⋮` (Save · Theme · Close world now live in MENU ▸ File and Preferences)? | Yes | open |
+| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | open |
+| Q8 | Floating docks close when the map is touched? | Yes, unless pinned | open |
+| Q9 | Peek detent 76 dp instead of 66? | Yes | open |
 
 ## 8. What the mockup does not settle
 
