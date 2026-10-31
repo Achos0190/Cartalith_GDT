@@ -41,6 +41,14 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
 - **On a tablet, hold the map for 500 ms.** The cartwheel and the context card open together, as
   shipped (`MAP_CONTEXT_SCOPE.md` §7.1). Slide to a slot and lift, or lift in place and tap. A `▸` slot
   opens its sub-ring. The four cardinals are the same in every domain; the diagonals are the domain's.
+- **Notes:** MENU ▸ World ▸ Markdown vault…, the Vault pin, or ⌕ with `n`. A note opens in Preview:
+  - Tap a link to follow it, and hold it to peek. Tick tasks in place.
+  - A ` ```chronos ` block draws as a small timeline; tap a row to move the map's timeline to that year.
+  - Write shows the coloured source with a keyboard row above where the phone's keyboard sits. Type `[[` for
+    suggestions from notes, headings, and places on the map that have no note yet.
+  - The tablet adds Split, and a Links · Outline · Properties panel on wide windows.
+  - Following a place without a note offers its template. Rename updates the links. "Simulate an edit made
+    outside Cartalith" shows the conflict banner.
 - **The adaptable quick bar** (`CUSTOM_QUICK_BAR_SCOPE.md`) keeps every home it has today. On a tablet
   the pins sit at the end of the tool bar (more of them on a wider window, the rest under `⋯`), and up to
   four sit under the cartwheel. The mockup approximates the fit with width tiers; the shipped cluster

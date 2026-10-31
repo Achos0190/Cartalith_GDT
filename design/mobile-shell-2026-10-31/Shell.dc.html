@@ -26,6 +26,42 @@ body{margin:0;background:#0a0b0c}
 .clr-scroll::-webkit-scrollbar{width:6px;height:6px}.clr-scroll::-webkit-scrollbar-thumb{background:rgba(140,145,150,.35);border-radius:3px}
 .clr-hscroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .clr-hscroll::-webkit-scrollbar{display:none}
+.md{font:14.5px/1.62 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);overflow-wrap:anywhere}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:600;color:var(--ink);scroll-margin-top:12px}
+.md h1{font-size:22px;line-height:1.3;margin:16px 0 8px}.md h2{font-size:18.5px;line-height:1.35;margin:18px 0 6px}.md h3{font-size:15.5px;margin:16px 0 4px}.md h4,.md h5,.md h6{font-size:14px;color:var(--sec);margin:14px 0 4px}
+.md>*:first-child{margin-top:0}
+.md p{margin:0 0 10px}.md ul,.md ol{margin:0 0 10px;padding-left:22px}.md li{margin:3px 0}
+.md li.md-task{list-style:none;margin-left:-22px;display:flex;gap:12px;align-items:flex-start;min-height:28px}
+.md .md-box{flex:none;position:relative;width:20px;height:20px;margin-top:1px;border-radius:6px;border:1.5px solid var(--bord);display:inline-flex;align-items:center;justify-content:center;font:600 12px 'IBM Plex Mono',monospace;color:var(--accInk);cursor:pointer}
+.md .md-box::after{content:'';position:absolute;inset:-12px}
+.md .md-box.on{background:var(--acc);border-color:var(--acc)}
+.md .md-done{color:var(--dim);text-decoration:line-through}
+.md a.md-link{color:var(--acc);text-decoration:none;border-bottom:1px solid var(--warnBord);cursor:pointer;padding:3px 0}
+.md a.md-ent{border-bottom-style:dotted}.md a.md-ent::before{content:'⌖ ';font-size:.85em}
+.md a.md-unres{color:var(--dim);border-bottom:1px dashed var(--dim)}
+.md a.md-ext{color:var(--water);cursor:pointer;text-decoration:none}
+.md .md-tag{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--wash);color:var(--acc);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+.md mark{background:rgba(224,163,74,.28);color:inherit;padding:0 2px;border-radius:3px}
+.md code{font:12.5px 'IBM Plex Mono',monospace;background:var(--chip);padding:1px 5px;border-radius:5px}
+.md pre{background:var(--chip);padding:10px 12px;border-radius:10px;overflow-x:auto;margin:0 0 10px}.md pre code{background:none;padding:0}
+.md blockquote{margin:0 0 10px;padding:4px 0 4px 12px;border-left:3px solid var(--hair);color:var(--sec)}
+.md .md-callout{margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--wash);border-left:3px solid var(--acc)}
+.md .md-co-t{font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);margin-bottom:4px}
+.md .md-embed{display:block;margin:6px 0 10px;padding:12px;border-radius:10px;border:1px dashed var(--bord);color:var(--sec);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+.md .md-tablewrap{overflow-x:auto;margin:0 0 12px}.md table{border-collapse:collapse;font-size:13px;min-width:100%}
+.md th,.md td{border:1px solid var(--hair);padding:7px 10px;text-align:left;vertical-align:top}.md th{background:var(--chip);color:var(--ink);font-weight:600}
+.md hr{border:0;border-top:1px solid var(--hair);margin:14px 0}
+.md .md-fm{font:12px 'IBM Plex Mono',monospace;color:var(--dim);background:var(--chip);border-radius:10px;padding:8px 10px;margin-bottom:12px}
+.md-src{position:relative;font:13.5px/1.62 'IBM Plex Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;tab-size:2;color:var(--body)}
+.md-src .hl-h{color:var(--ink);font-weight:500}.md-src .hl-mark{color:var(--dim)}.md-src .hl-link{color:var(--acc)}.md-src .hl-tag{color:var(--water)}.md-src .hl-code{color:var(--good)}.md-src b{font-weight:500;color:var(--ink)}
+.md .md-chronos{margin:0 0 12px;padding:10px 12px 6px;border-radius:12px;background:var(--chip);border:1px solid var(--hair)}
+.md .md-chr-axis{position:relative;height:18px;margin:6px 6px 8px;border-bottom:1px solid var(--bord)}
+.md .md-chr-dot{position:absolute;bottom:-5px;width:9px;height:9px;margin-left:-4.5px;border-radius:5px;background:var(--acc)}.md .md-chr-dot.marker{background:var(--water);height:16px;width:2px;margin-left:-1px;border-radius:1px}.md .md-chr-dot.point{background:var(--good)}
+.md .md-chr-per{position:absolute;bottom:-3px;height:6px;border-radius:3px;background:var(--water);opacity:.7}
+.md .md-chr-row{appearance:none;border:0;background:none;width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:4px 2px;border-top:1px solid var(--hair2);text-align:left;cursor:pointer;color:inherit;font:inherit}
+.md .md-chr-y{flex:none;min-width:74px;font:12px 'IBM Plex Mono',monospace;color:var(--acc)}.md .md-chr-n{flex:1;min-width:0;font-size:13.5px;color:var(--ink)}.md .md-chr-d{color:var(--sec)}.md .md-chr-k{flex:none;font:10px 'IBM Plex Mono',monospace;color:var(--dim)}
+textarea.md-ta{position:absolute;left:0;top:0;width:100%;height:100%;box-sizing:border-box;resize:none;border:0;outline:none;margin:0;overflow:hidden;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--acc);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;tab-size:2;padding:inherit}
+textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 @keyframes clIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes clPop{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
 @keyframes clFade{from{opacity:0}to{opacity:1}}
@@ -470,6 +506,107 @@ body{margin:0;background:#0a0b0c}
 <div style="flex:1;min-width:0"><dc-import name="Rows" rows="{{ win.rows }}" hint-size="100%,400px"></dc-import></div>
 </div></div>
 </div>
+</sc-if>
+
+
+<!-- ===================== VAULT: the notes, their editor and their links ===================== -->
+<sc-if value="{{ vt.show }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ vt.scrim }}" hint-placeholder-val="{{ false }}"><div onClick="{{ hVaultClose }}" style="position:absolute;inset:0;z-index:48;background:var(--scrim);animation:clFade .12s ease"></div></sc-if>
+<div role="dialog" aria-label="vault" style="position:absolute;z-index:48;left:{{ vt.frame.x }}px;top:{{ vt.frame.y }}px;width:{{ vt.frame.w }}px;height:{{ vt.frame.h }}px;border-radius:{{ vt.frame.r }}px;background:var(--pan);border:1px solid var(--hair);overflow:hidden;display:flex;box-shadow:0 30px 80px rgba(0,0,0,.5)">
+<sc-if value="{{ vt.sideOn }}" hint-placeholder-val="{{ true }}">
+<div style="width:{{ vt.sideW }}px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--hair);background:var(--pan2);padding-top:{{ vt.padT }}px">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 4px 6px">
+<button class="clr-btn" onClick="{{ hVaultClose }}" aria-label="close the vault" style="width:44px;height:44px;flex:none;border-radius:22px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:var(--ink)">VAULT</span><span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim)">~/Cartalith/Vault · {{ vt.count }}</span></span>
+<button class="clr-btn" onClick="{{ hNoteNew }}" aria-label="new note" style="height:44px;padding:0 14px;flex:none;border-radius:22px;background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">＋ NEW</button>
+</div>
+<div style="flex:none;padding:4px 10px 6px"><input class="clr-in" type="search" value="{{ vt.q }}" onInput="{{ hVaultQ }}" placeholder="search names, text, #tags…" aria-label="search the vault"></div>
+<div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:2px 10px 8px">
+<sc-for list="{{ vt.filters }}" as="f" hint-placeholder-count="4"><button class="clr-btn" onClick="{{ f.tap }}" style="flex:none;height:36px;padding:0 12px;border-radius:18px;border:1px solid {{ f.bord }};background:{{ f.bg }};color:{{ f.col }};font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap;position:relative"><span style="position:absolute;inset:-4px 0"></span>{{ f.label }}</button></sc-for>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 8px 16px">
+<sc-for list="{{ vt.groups }}" as="g" hint-placeholder-count="3">
+<div style="display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);padding:12px 6px 6px"><span>{{ g.label }}</span><span>{{ g.n }}</span></div>
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ r.tap }}" aria-current="{{ r.on }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:12px;padding:6px 12px;border-radius:12px;background:{{ r.bg }};color:var(--body)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ r.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font:14px/1.3 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span><span style="font:10.5px/1.35 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span></span><sc-if value="{{ r.lock }}" hint-placeholder-val="{{ false }}"><span aria-label="private" style="font:11px 'IBM Plex Mono',monospace;color:var(--warnText)">PRIVATE</span></sc-if><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc)">{{ r.right }}</span></button></sc-for>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.noteShow }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative;padding-top:{{ vt.padT }}px">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 2px 6px">
+<sc-if value="{{ vt.canBack }}" hint-placeholder-val="{{ true }}"><button class="clr-btn" onClick="{{ vt.back }}" aria-label="back" style="width:44px;height:44px;flex:none;border-radius:22px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;padding-left:6px"><span style="font:600 16px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ vt.n.title }}</span><span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ vt.n.path }}</span></span>
+<div role="group" aria-label="view" style="flex:none;display:flex;gap:4px">
+<sc-for list="{{ vt.n.modes }}" as="mo" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ mo.tap }}" aria-label="{{ mo.aria }}" style="height:44px;padding:0 12px;border-radius:22px;border:1px solid {{ mo.bord }};background:{{ mo.bg }};color:{{ mo.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em">{{ mo.label }}</button></sc-for>
+</div>
+<button class="clr-btn" onClick="{{ hNotePanel }}" aria-label="{{ vt.panelAria }}" style="width:44px;height:44px;flex:none;border-radius:22px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M3 3h10v10H3ZM10 3v10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:6px 12px 8px">
+<sc-for list="{{ vt.n.chips }}" as="ch" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ ch.tap }}" style="flex:none;height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--hair);background:var(--chip);font:11px 'IBM Plex Mono',monospace;color:var(--acc);white-space:nowrap;cursor:{{ ch.cur }};position:relative"><span style="position:absolute;inset:-6px 0"></span><span style="color:var(--dim)">{{ ch.key }}</span> {{ ch.label }}</button></sc-for>
+</div>
+<sc-if value="{{ vt.n.conflict }}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="flex:none;margin:0 12px 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--warnBord);background:rgba(224,168,64,.10);display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="flex:1 1 200px;font:12.5px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--warnText)">This note changed outside Cartalith while it was open. Nothing has been overwritten.</span>
+<button class="clr-btn" onClick="{{ hConflictReload }}" style="height:40px;padding:0 12px;border-radius:20px;background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;color:var(--body)">RELOAD</button><button class="clr-btn" onClick="{{ hConflictKeep }}" style="height:40px;padding:0 12px;border-radius:20px;background:var(--wash);font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">KEEP MINE</button></div>
+</sc-if>
+<sc-if value="{{ vt.toolsTop }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:2px 8px 6px;border-bottom:1px solid var(--hair2)"><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:44px;height:44px;padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for></div></sc-if>
+<sc-if value="{{ vt.acTop }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="position:absolute;z-index:3;left:16px;top:{{ vt.acTopY }}px;width:min(420px,calc(100% - 32px));max-height:300px;overflow:auto;padding:6px;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 40px rgba(0,0,0,.45)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
+<div style="flex:1;min-height:0;display:flex">
+<sc-if value="{{ vt.n.write }}" hint-placeholder-val="{{ false }}">
+<div ref="{{ noteWriteScrollRef }}" class="clr-scroll" style="flex:1;min-width:0;border-right:1px solid {{ vt.splitLine }}">
+<div class="md-src" style="padding:14px 18px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ noteMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ noteTaRef }}" class="md-ta" value="{{ vt.n.text }}" onInput="{{ hNeInput }}" onSelect="{{ hNeSel }}" onKeyDown="{{ hNeKey }}" onClick="{{ hNeSel }}" spellcheck="false" aria-label="note text, Markdown"></textarea></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.n.read }}" hint-placeholder-val="{{ true }}">
+<div ref="{{ noteReadScrollRef }}" class="clr-scroll" style="flex:1;min-width:0">
+<div ref="{{ noteReadRef }}" class="md" style="padding:14px 20px 18px"></div>
+<sc-if value="{{ vt.linksBelow }}" hint-placeholder-val="{{ false }}"><div style="margin:4px 14px 28px;padding-top:12px;border-top:1px solid var(--hair)"><sc-if value="{{ vt.true }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:44px;border-radius:22px;background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.false }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:44px;display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.false }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:40px;padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div></sc-if>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ vt.acBottom }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="flex:none;max-height:240px;overflow:auto;padding:6px 8px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
+<sc-if value="{{ vt.toolsBottom }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:4px 6px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:44px;height:44px;padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for><button class="clr-btn" onClick="{{ hNeDone }}" aria-label="done: preview the note" style="flex:none;height:44px;padding:0 14px;margin-left:4px;border-radius:22px;background:var(--acc);color:var(--accInk);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">DONE</button></div></sc-if>
+<div style="flex:none;display:flex;justify-content:space-between;gap:8px;padding:6px 14px calc(6px + {{ vt.padB }}px);font:10px 'IBM Plex Mono',monospace;color:var(--dim);border-top:1px solid var(--hair2)"><span>{{ vt.n.words }} · {{ vt.n.outgoingLabel }}</span><span>{{ vt.n.saved }}</span></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.empty }}" hint-placeholder-val="{{ false }}"><div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim);text-align:center">Pick a note, or search the vault. Notes link with [[double brackets]] to other notes and to places on the map.</div></sc-if>
+<sc-if value="{{ vt.panelOn }}" hint-placeholder-val="{{ false }}">
+<div style="width:{{ vt.panelW }}px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--hair);background:var(--pan2)">
+<div style="flex:none;display:flex;gap:6px;padding:10px 10px 8px"><sc-for list="{{ vt.n.panelTabs }}" as="pt" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ pt.tap }}" style="flex:1;height:40px;padding:0 6px;border-radius:20px;border:1px solid {{ pt.bord }};background:{{ pt.bg }};color:{{ pt.col }};font:10px 'IBM Plex Mono',monospace;text-align:center;white-space:nowrap;position:relative"><span style="position:absolute;inset:-2px 0"></span>{{ pt.label }}</button></sc-for></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:4px 10px 16px"><sc-if value="{{ vt.panelIs.links }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:44px;border-radius:22px;background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.panelIs.outline }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:44px;display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.panelIs.props }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:40px;padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ vt.sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hNoteSheetClose }}" style="position:absolute;inset:0;z-index:49;background:rgba(0,0,0,.45)"></div>
+<div role="dialog" aria-label="links, outline and properties" style="position:absolute;z-index:49;left:0;right:0;bottom:0;max-height:72%;display:flex;flex-direction:column;border-radius:22px 22px 0 0;background:var(--pan);border-top:1px solid var(--hair);animation:clIn .18s ease;padding-bottom:{{ vt.padB }}px">
+<div style="flex:none;display:flex;gap:6px;padding:12px 12px 8px"><sc-for list="{{ vt.n.panelTabs }}" as="pt" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ pt.tap }}" style="flex:1;height:44px;border-radius:22px;border:1px solid {{ pt.bord }};background:{{ pt.bg }};color:{{ pt.col }};font:10.5px 'IBM Plex Mono',monospace;text-align:center;white-space:nowrap">{{ pt.label }}</button></sc-for></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:4px 12px 16px"><sc-if value="{{ vt.sheetIs.links }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:44px;border-radius:22px;background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.sheetIs.outline }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:44px;display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.sheetIs.props }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:40px;padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:48px;padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.dlg.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hNoteDlgClose }}" style="position:absolute;inset:0;z-index:49;background:rgba(0,0,0,.5)"></div>
+<div role="dialog" aria-label="{{ vt.dlg.title }}" style="position:absolute;z-index:49;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 32px));padding:16px;border-radius:20px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 30px 80px rgba(0,0,0,.55);animation:clPop .16s ease">
+<div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);margin-bottom:8px">{{ vt.dlg.title }}</div>
+<div style="font:13.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:12px">{{ vt.dlg.text }}</div>
+<sc-if value="{{ vt.dlg.isRename }}" hint-placeholder-val="{{ false }}"><input class="clr-in" type="text" value="{{ vt.dlg.value }}" onInput="{{ hNoteRenameInput }}" aria-label="new note name" style="margin-bottom:12px"></sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><sc-for list="{{ vt.dlg.opts }}" as="o" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ o.tap }}" style="height:44px;padding:0 14px;border-radius:22px;border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:11px 'IBM Plex Mono',monospace">{{ o.label }}</button></sc-for></div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<sc-if value="{{ vt.dlg.hasMap }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ vt.dlg.map }}" style="height:44px;padding:0 14px;border-radius:22px;background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--body)">CENTRE ON MAP</button></sc-if>
+<sc-if value="{{ vt.dlg.isRename }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hNoteRenameDo }}" style="height:44px;padding:0 16px;border-radius:22px;background:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--accInk)">RENAME</button></sc-if>
+<button class="clr-btn" onClick="{{ hNoteDlgClose }}" style="height:44px;padding:0 14px;border-radius:22px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">CANCEL</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.peek.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hPeekClose }}" style="position:absolute;inset:0;z-index:49"></div>
+<div role="dialog" aria-label="link preview" style="position:absolute;z-index:49;left:{{ vt.peek.x }}px;top:{{ vt.peek.y }}px;width:300px;padding:14px;border-radius:16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 20px 50px rgba(0,0,0,.55);animation:clPop .14s ease">
+<div style="font:600 14px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ vt.peek.title }}</div>
+<div style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);margin:2px 0 8px">{{ vt.peek.kind }}</div>
+<div style="font:12.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:10px">{{ vt.peek.body }}</div>
+<div style="display:flex;gap:6px;justify-content:flex-end"><sc-if value="{{ vt.peek.hasMap }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ vt.peek.map }}" style="height:40px;padding:0 12px;border-radius:20px;background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;color:var(--body)">CENTRE ON MAP</button></sc-if><button class="clr-btn" onClick="{{ vt.peek.open }}" style="height:40px;padding:0 14px;border-radius:20px;background:var(--acc);font:500 10px 'IBM Plex Mono',monospace;color:var(--accInk)">{{ vt.peek.openLabel }}</button></div>
+</div>
+</sc-if>
 </sc-if>
 
 <!-- picker: worlds on this device -->
@@ -1573,11 +1710,11 @@ function rowsSample(c) {
 function rowsSel(c) {
   const s = c.state; const o = selObj(c); if (!o) return rowsSample(c);
   if (s.sel.kind === 'landmark') return [read('Kind', o.kind), read('Family', o.fam), read('Elevation', o.z ? o.z + ' m' : '—'), read('Position', Math.round(o.x) + ' km E · ' + Math.round(o.y) + ' km S'), H('WHY HERE?'), info(o.kind === 'Peak' ? 'Highest ground within 32 km, prominence over 600 m and visible from three settlements.' : 'Scored on the site rules for ' + o.kind.toLowerCase() + ', then spaced by class.'), BB({ label: 'Inspect ' + o.kind, tap: () => c._toast(o.kind + ' · full card on desktop') }, { label: 'Hide type', tap: () => c._toast(o.kind + ' hidden · CARTO ▸ Layers ▸ Landmarks by type') })];
-  const fac = o.fac >= 0 ? FACTIONS[o.fac] : null; const verbs = [{ label: 'Edit ' + o.name, variant: 'primary', tap: () => c._openWin('place') }, { label: 'City viewer…', tap: () => c._openWin('city') }, { label: hasNote(o) ? 'Open note' : 'Attach note…', tap: () => c._openWin('vault:place') }, { label: 'Journey from here', tap: () => doAct(c, { act: 'story', arg: 'journeys' }) }];
+  const fac = o.fac >= 0 ? FACTIONS[o.fac] : null; const verbs = [{ label: 'Edit ' + o.name, variant: 'primary', tap: () => c._openWin('place') }, { label: 'City viewer…', tap: () => c._openWin('city') }, { label: hasNote(o, c) ? 'Open note' : 'Attach note…', tap: () => c._openWin('vault:place') }, { label: 'Journey from here', tap: () => doAct(c, { act: 'story', arg: 'journeys' }) }];
   if (o.user) verbs.push({ label: 'Delete', variant: 'danger', tap: () => doAct(c, { act: 'delete' }) });
   return [{ k: 'acts', opts: verbs.map((v) => Object.assign({ flex: '1 1 40%' }, v)) }, H('SETTLEMENT'), read('Class', o.tier + (o.capital ? ' · capital' : '')), read('Population', o.pop ? o.pop.toLocaleString('en-US') : 'new · grows on recompute'), read('Faction', fac ? fac.name : 'unclaimed', fac ? fac.col : ''), read('Government', fac ? fac.gov : '—'), read('Faith', fac ? fac.rel : '—'), read('Founded', 'year ' + o.founded), read('Elevation', (o.elev || 0) + ' m'), read('Biome', o.biome || '—'), H('ECONOMY · POLITICS · LOGISTICS'), read('Trade', 'grain · salt'), read('Garrison', o.capital ? '1 200' : '80'), read('Roads', c.ways.filter((w) => w.a === o || w.b === o).length + ' ways'), J(c, 'Political history…', 'win:place:history'), J(c, 'Faction: ' + (fac ? fac.name : '—'), 'win:factions')];
 }
-function hasNote(o) { return o && (o.name || '').length % 3 === 0; }
+function hasNote(o, c) { return !!(o && c && noteByName(c, o.name)); }
 
 /* ---------- the armed tool: one description for the phone strip and the tablet tool-options bar ---------- */
 function toolBar(c) {
@@ -1652,7 +1789,7 @@ function winRows(c, id) {
       if (f) return { title: f.name.toUpperCase(), sub: f.gov + ' · ' + f.rel, rows: [S(c, 'fx.tab.' + f.id, '', ['Identity', 'Territory', 'Settlements', 'Economy', 'Military', 'History'], 'Identity'), read('Capital', f.capital), read('Places', f.places), read('Population', f.pop.toLocaleString('en-US')), read('Colour', f.col, f.col), S(c, 'fx.gov.' + f.id, 'Government', ['Monarchy', 'Merchant republic', 'Tribal confederacy', 'Theocracy', 'Oligarchy', 'Commune'], f.gov), S(c, 'fx.rel.' + f.id, 'Religion', ['The Old Rite', 'Lantern faith', 'Ancestor cult'], f.rel), read('Standing army', (f.places * 1.8).toFixed(1) + ' k'), read('Field army', (f.places * 4.1).toFixed(1) + ' k')].concat([H('SETTLEMENTS')], placeItems(c, c.places.filter((p) => p.fac === +f.id.slice(1)).slice(0, 6))) };
       return { title: arg === 'history' ? 'FACTIONS · HISTORY' : arg === 'types' ? 'SETTLEMENT TYPES' : 'FACTIONS', sub: c.factions.length + ' factions · identity · territory · economy · military', rows: arg === 'types' ? ['Metropolis', 'Capital', 'City', 'Town', 'Village', 'Hamlet'].map((x, i) => read(x, ['> 60 000', 'seat of a faction', '> 12 000', '> 2 000', '> 300', '< 300'][i])) : (arg === 'history' ? [read('Year 210', 'Korrath splits from Orentamwash'), read('Year 398', 'Sevjuni campaign begins'), read('Year 405', 'Korrath raids the Mirzafir fords')] : []).concat([H('ROSTER')], factionItems(c)) };
     }
-    case 'vault': return { title: arg === 'without' ? 'PLACES WITHOUT NOTES' : arg === 'place' ? 'NOTE · ' + (selName(c) || 'PLACE').toUpperCase() : 'MARKDOWN VAULT', sub: arg === 'browse' ? 'browse & edit a note' : 'link and attach notes', rows: arg === 'without' ? [read('Settlements', (c.places.length - 3) + ' of ' + c.places.length + ' have no note'), S(c, 'vt.kind', 'Kind', ['Settlements', 'Provinces', 'Continents', 'Factions'], 'Settlements')].concat(placeItems(c, c.places.slice(3, 9), () => 'attach')) : arg === 'place' ? [read('Vault', '~/Cartalith/Vault'), read('Note', hasNote(selObj(c)) ? selName(c) + '.md' : 'none yet'), info('# ' + (selName(c) || 'Place') + '\nFounded on the old ford. Salt and grain…'), BB({ label: 'Open in editor', tap: () => c._toast('Opens the note (raw text, edit, save)') }, { label: hasNote(selObj(c)) ? 'Detach' : 'Attach note…', variant: 'primary', tap: () => c._toast('Note attached') })] : [H('INDEX'), read('Notes', '41'), read('Linked', '29'), read('Missing', '3', 'var(--warn)'), read('Orphan', '2'), H('RECENT')].concat(['Vhal Serai.md', 'Sevjuni League.md', 'The Old Rite.md', 'Kess Ford crossing.md'].map((n) => ({ k: 'item', label: n, sub: 'edited 2 d ago', dot: 'var(--sec)', square: true, tap: () => c._toast('Opens ' + n) }))) };
+    case 'vault': return { title: arg === 'without' ? 'PLACES WITHOUT NOTES' : arg === 'place' ? 'NOTE · ' + (selName(c) || 'PLACE').toUpperCase() : 'MARKDOWN VAULT', sub: arg === 'browse' ? 'browse & edit a note' : 'link and attach notes', rows: arg === 'without' ? [read('Settlements', (c.places.length - 3) + ' of ' + c.places.length + ' have no note'), S(c, 'vt.kind', 'Kind', ['Settlements', 'Provinces', 'Continents', 'Factions'], 'Settlements')].concat(placeItems(c, c.places.slice(3, 9), () => 'attach')) : arg === 'place' ? [read('Vault', '~/Cartalith/Vault'), read('Note', hasNote(selObj(c), c) ? selName(c) + '.md' : 'none yet'), info('# ' + (selName(c) || 'Place') + '\nFounded on the old ford. Salt and grain…'), BB({ label: 'Open in editor', tap: () => c._toast('Opens the note (raw text, edit, save)') }, { label: hasNote(selObj(c), c) ? 'Detach' : 'Attach note…', variant: 'primary', tap: () => c._toast('Note attached') })] : [H('INDEX'), read('Notes', '41'), read('Linked', '29'), read('Missing', '3', 'var(--warn)'), read('Orphan', '2'), H('RECENT')].concat(['Vhal Serai.md', 'Sevjuni League.md', 'The Old Rite.md', 'Kess Ford crossing.md'].map((n) => ({ k: 'item', label: n, sub: 'edited 2 d ago', dot: 'var(--sec)', square: true, tap: () => c._toast('Opens ' + n) }))) };
     case 'worlddata': return { title: 'WORLD DATA TABLES', sub: 'every field the world holds', rows: [S(c, 'wd.t', 'Table', ['Settlements', 'Factions', 'Rivers', 'Landmarks', 'Fields'], 'Settlements')].concat(V(c, 'wd.t', 'Settlements') === 'Settlements' ? placeItems(c, c.places) : V(c, 'wd.t') === 'Factions' ? factionItems(c) : V(c, 'wd.t') === 'Landmarks' ? c.landmarks.map((l) => read(l.name, l.kind)) : [read('Rivers', c.rivers[2].length / 4 + ' trunk segments'), read('Fields', '43 analysis fields')]) };
     case 'journeys': return { title: 'SAVED JOURNEYS', sub: '2 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }] };
     case 'travel': { const kind = V(c, 'tv.kind', 'Animals & mounts'); const L = { 'Animals & mounts': ['Mule', 'Horse', 'Camel', 'Ox', 'Pack goat'], Vehicles: ['Cart', 'Wagon', 'Sledge'], Vessels: ['River boat', 'Cog', 'Galley', 'Ferry'], 'Party set-ups': ['Trader caravan', 'Pilgrims', 'Courier', 'Warband'] }[kind]; return { title: 'TRAVEL LIBRARY', sub: 'classifications & constraints — feeds the planner', rows: [S(c, 'tv.kind', 'Type', ['Animals & mounts', 'Vehicles', 'Vessels', 'Party set-ups'], 'Animals & mounts')].concat(L.map((x, i) => ({ k: 'item', label: x, sub: ['carries 90 kg · 30 km/d', 'carries 140 kg · 40 km/d', 'needs water every 3 d', 'slow · strong'][i % 4], right: i === 1 ? 'CUSTOM' : '', dot: 'var(--sec)', tap: () => c._toast(x + ' · class, constraints, source, used by') })), [info('Edit entries on the desktop or here; the planner reads them live.'), kind === 'Party set-ups' ? B('Load into planner', () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); }, 'primary') : sep()]) }; }
@@ -1882,6 +2019,372 @@ function quickDrawerVals(c, land, sh, stripH) {
 }
 
 /* ======================================================================================================
+   The vault's notes: a Markdown editor and its links, as close to a regular Markdown editor as the shell
+   allows. The syntax is Obsidian's (Ruling BF): **bold**, *italic*, ~~strike~~, ==highlight==, <u>underline</u>,
+   [[note]], [[note|shown text]], [[note#heading]], ![[embed]], #tags, - [ ] tasks, > [!note] callouts, tables,
+   code. Notes live as plain .md files; a note is bound to a world entity by the vault's link record
+   (`KnowledgeLink`), not by anything written into the file, so the owner's templates stay front-matter free.
+
+   A link resolves to a note by name first, then to a world entity by name (a settlement, faction, landmark or
+   region with no note yet), else it is unresolved. Following an entity link with no note offers to create
+   the note from the matching template; following an unresolved link offers to create it.
+   ====================================================================================================== */
+const NOTE_KINDS = { settlement: ['Settlement', IC.settle], province: ['Province', IC.region], continent: ['Continent', IC.region], faction: ['Faction', IC.faction], culture: ['Culture', IC.faction], landmark: ['Landmark', IC.landmark], note: ['Note', IC.notes] };
+
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+/* ---------------- the sample vault, written from the generated world ---------------- */
+function seedNotes(c) {
+  const P = c.places || [], fac = (i) => FACTIONS[i] ? FACTIONS[i].name : 'Orentamwash';
+  const byName = (n) => P.find((p) => p.name === n);
+  const cap = (f) => { const p = P.find((q) => q.capital && q.fac === f); return p ? p.name : (P[0] ? P[0].name : 'Vhal Serai'); };
+  const vs = byName('Vhal Serai') || P[0] || { name: 'Vhal Serai', tier: 'city', fac: 0, pop: 21000 };
+  const kf = byName('Kess Ford') || P[1] || { name: 'Kess Ford', tier: 'town', fac: 0 };
+  const gv = byName('Grey Vale') || P[4] || { name: 'Grey Vale', tier: 'town', fac: 1 };
+  const lm = (c.landmarks || []); const peak = (lm.find((l) => l.kind === 'Peak') || { name: 'Mount Asker' }).name;
+  const shrine = (lm.find((l) => l.kind === 'Shrine') || { name: 'Shrine of Thornwood' }).name;
+  const ford = (lm.find((l) => l.kind === 'Ford') || { name: 'Ford on the Kess Ford road' }).name;
+  const ent = (kind, o) => (o && o.id ? { kind, id: o.id, name: o.name } : null);
+  const N = (name, kind, entity, text, extra) => Object.assign({ id: 'n' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, kind, entity, text, edited: Date.now() - Math.round(Math.random() * 5) * 86400000, private: false }, extra || {});
+  return [
+    N(vs.name, 'settlement', ent('settlement', vs),
+      '## Settlement Profile: ' + vs.name + '\n\n**Type:** ' + (vs.tier || 'town').charAt(0).toUpperCase() + (vs.tier || 'town').slice(1) + '  \n**Location:** west coast, where the [[' + kf.name + ']] road meets the sea\n\n### General Info\n\n- **Size / Population:** about ' + (vs.pop || 21000).toLocaleString('en-GB') + '\n- **Ruling authority:** [[' + fac(vs.fac) + ']]\n\n### Current Status\n\nActive. Salt and grain leave by ship; ==the harbour silts a little more each spring==.\n\n### Culture & Identity\n\nMost households keep [[The Old Rite]]; the lighthouse is its oldest shrine. #coast #trade\n\n> [!note] Open question\n> Who holds the harbour charter since the last council fell?\n\n### Known Issues / Threats\n\n- [ ] Map the harbour districts\n- [x] Name the lighthouse keeper\n- [ ] Decide what happened at [[' + kf.name + ' crossing]]\n\n### History\n\n```chronos\n* [-112] Founded on the old ford | salt traders from the north\n@ [211~260] #blue {Building} The harbour wall\n- [380] Council of the Ford | the first elected council\n- [401] Raid at ' + kf.name + ' | see the crossing note\n= [412] Today\n```\n'),
+    N(fac(0), 'faction', { kind: 'faction', id: 'f0', name: fac(0) },
+      '# ' + fac(0) + '\n\n**Government:** Monarchy  \n**Faith:** [[The Old Rite]]  \n**Seat:** [[' + cap(0) + ']]\n\n## Relations\n\n| With | Stance | Since |\n|---|---|---|\n| [[' + fac(1) + ']] | trade, wary | year 380 |\n| [[' + fac(3) + ']] | shared faith | always |\n| [[' + fac(2) + ']] | border raids | year 401 |\n\n## Notes\n\nThe crown taxes the salt road at [[' + kf.name + ']]. #politics\n'),
+    N('The Old Rite', 'culture', { kind: 'culture', id: 'c0', name: 'The Old Rite' },
+      '# The Old Rite\n\nThe faith of [[' + fac(0) + ']] and [[' + fac(3) + ']]. Pilgrims walk from [[' + vs.name + ']] to [[' + shrine + ']] each midwinter.\n\n## Practices\n\n1. Salt on the threshold at the year\'s turn\n2. No fire lit on the longest night\n3. Vows spoken at running water, often at [[' + ford + ']]\n\n> [!quote] From a pilgrim\'s song\n> *Salt for the door, water for the word.*\n\nSee also [[' + peak + '#Cultural Significance|the mountain\'s place in the rite]]. #faith #lore\n'),
+    N(kf.name + ' crossing', 'note', null,
+      '# ' + kf.name + ' crossing\n\nYear 401. A [[' + fac(2) + ']] raiding party crossed at [[' + ford + ']] and burned the toll house.\n\n- Who paid for the new bridge?\n- Does [[' + kf.name + ']] still owe the crown?\n\n![[' + kf.name + ' toll ledger]]\n\n#event #year-401\n'),
+    N(peak, 'landmark', ent('landmark', lm.find((l) => l.name === peak)),
+      '# Landmark: ' + peak + '\n\n## Type\n- Natural wonder\n\n## Description\n- Physical appearance: a bare grey summit above the [[' + gv.name + ']] valley\n- Unique features: snow until midsummer\n\n## Cultural Significance\n- Associated myths or legends: the first salt was carried down from here, by [[The Old Rite]]\'s telling\n\n## History\n- When it was built/discovered: always known\n'),
+    N(gv.name, 'settlement', ent('settlement', gv),
+      '## Settlement Profile: ' + gv.name + '\n\n**Type:** Town  \n**Location:** under [[' + peak + ']]\n\n### Economic Activity\n\nWool, and the mill at [[' + gv.name + ' Mill]].\n'),
+    N(fac(1), 'faction', { kind: 'faction', id: 'f1', name: fac(1) },
+      '# ' + fac(1) + '\n\n**Government:** Merchant republic  \n**Faith:** Lantern faith\n\nTheir factors sit in [[' + vs.name + ']] and in Port Amre. #politics #trade\n'),
+    N('Campaign log', 'note', null,
+      '# Campaign log\n\n## Session 12\n\n- [x] The party reached [[' + vs.name + ']]\n- [ ] Meet the harbour council\n- [ ] Follow the ledger from [[' + kf.name + ' crossing]]\n\n## Hooks\n\n- The lighthouse keeper knows who burned the toll house\n', { private: true })
+  ];
+}
+function notesOf(c) { if (!c.state.notes) { const seeded = seedNotes(c); c.state.notes = seeded; } return c.state.notes; }
+function noteByName(c, name) { const k = String(name || '').trim().toLowerCase(); return notesOf(c).find((n) => n.name.toLowerCase() === k) || null; }
+function noteById(c, id) { return notesOf(c).find((n) => n.id === id) || null; }
+
+/* World entities a link can name: settlements, factions, landmarks. Regions share their faction's name. */
+function linkEntities(c) {
+  const out = [];
+  (c.places || []).forEach((p) => out.push({ kind: 'settlement', id: p.id, name: p.name, sub: p.tier + (FACTIONS[p.fac] ? ' · ' + FACTIONS[p.fac].name : '') }));
+  FACTIONS.forEach((f, i) => out.push({ kind: 'faction', id: 'f' + i, name: f.name, sub: f.gov + ' · ' + f.rel }));
+  (c.landmarks || []).forEach((l) => out.push({ kind: 'landmark', id: l.id, name: l.name, sub: l.kind + ' · ' + l.fam }));
+  const faiths = []; FACTIONS.forEach((f) => { if (!faiths.includes(f.rel)) faiths.push(f.rel); }); faiths.forEach((r, i) => out.push({ kind: 'culture', id: 'c' + i, name: r, sub: 'culture · faith of ' + FACTIONS.filter((f) => f.rel === r).map((f) => f.name).join(', ') }));
+  return out;
+}
+function entityByName(c, name) { const k = String(name || '').trim().toLowerCase(); return linkEntities(c).find((e) => e.name.toLowerCase() === k) || null; }
+
+/* A link target's resolution: the note first, then a world entity with no note, else unresolved. */
+function resolveLink(c, name) {
+  const n = noteByName(c, name); if (n) return { kind: 'note', note: n, entity: n.entity || entityByName(c, n.name) };
+  const e = entityByName(c, name); if (e) return { kind: 'entity', entity: e };
+  return { kind: 'none', name: String(name || '').trim() };
+}
+
+/* ---------------- reading: Markdown to HTML (escaped; links carry data attributes) ---------------- */
+function mdInline(src, c) {
+  const stash = []; const keep = (h) => '\u0001' + (stash.push(h) - 1) + '\u0002';
+  let s = String(src);
+  s = s.replace(/`([^`]+)`/g, (m, a) => keep('<code>' + esc(a) + '</code>'));
+  s = s.replace(/!\[\[([^\]]+)\]\]/g, (m, a) => { const r = resolveLink(c, a.split('|')[0].split('#')[0]); return keep('<span class="md-embed ' + (r.kind === 'none' ? 'md-unres' : '') + '" data-link="' + esc(a.split('|')[0].split('#')[0].trim()) + '">▣ embedded: ' + esc(a) + '</span>'); });
+  s = s.replace(/\[\[([^\]|#]+)(#[^\]|]+)?(\|[^\]]+)?\]\]/g, (m, n, h, al) => {
+    const name = n.trim(), r = resolveLink(c, name);
+    const shown = al ? al.slice(1) : name + (h ? ' > ' + h.slice(1) : '');
+    const cls = r.kind === 'note' ? 'md-link' : (r.kind === 'entity' ? 'md-link md-ent' : 'md-link md-unres');
+    return keep('<a class="' + cls + '" data-link="' + esc(name) + '"' + (h ? ' data-head="' + esc(h.slice(1)) + '"' : '') + '>' + esc(shown) + '</a>');
+  });
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => keep('<a class="md-ext" data-ext="' + esc(u) + '">' + esc(t) + ' ↗</a>'));
+  s = s.replace(/<u>(.*?)<\/u>/g, (m, a) => keep('<u>' + esc(a) + '</u>'));
+  s = esc(s);
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?![*\w])/g, '$1<i>$2</i>').replace(/(^|[^\w])_([^_\s][^_]*?)_(?![\w])/g, '$1<i>$2</i>');
+  s = s.replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/==([^=]+)==/g, '<mark>$1</mark>');
+  s = s.replace(/(^|\s)#([A-Za-z][\w/-]*)/g, '$1<span class="md-tag" data-tag="$2">#$2</span>');
+  return s.replace(/\u0001(\d+)\u0002/g, (m, i) => stash[+i]);
+}
+function mdRender(text, c) {
+  const L = String(text).split('\n'); const out = []; const heads = []; let i = 0;
+  let para = [];
+  const flush = () => { if (para.length) { out.push('<p>' + para.map((x) => mdInline(x, c)).join('<br>') + '</p>'); para = []; } };
+  if (L[0] === '---') { const end = L.indexOf('---', 1); if (end > 0) { out.push('<div class="md-fm">' + L.slice(1, end).map((x) => esc(x)).join('<br>') + '</div>'); i = end + 1; } }
+  for (; i < L.length; i++) {
+    const ln = L[i];
+    if (/^```/.test(ln)) { flush(); const lang = ln.slice(3).trim().toLowerCase(); const buf = []; i++; while (i < L.length && !/^```/.test(L[i])) buf.push(L[i++]); out.push(lang === 'chronos' ? chronosHtml(buf, c) : '<pre><code>' + esc(buf.join('\n')) + '</code></pre>'); continue; }
+    const h = /^(#{1,6})\s+(.*)$/.exec(ln);
+    if (h) { flush(); const id = 'h' + heads.length; heads.push({ level: h[1].length, text: h[2].replace(/[*=~_`]/g, ''), line: i, id }); out.push('<h' + h[1].length + ' id="' + id + '" data-line="' + i + '">' + mdInline(h[2], c) + '</h' + h[1].length + '>'); continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(ln)) { flush(); out.push('<hr>'); continue; }
+    if (/^>\s?/.test(ln)) {
+      flush(); const buf = []; while (i < L.length && /^>\s?/.test(L[i])) buf.push(L[i++].replace(/^>\s?/, '')); i--;
+      const co = /^\[!(\w+)\]\s*(.*)$/.exec(buf[0] || '');
+      if (co) out.push('<div class="md-callout"><div class="md-co-t">' + esc(co[1].toUpperCase()) + (co[2] ? ' · ' + mdInline(co[2], c) : '') + '</div>' + buf.slice(1).map((x) => mdInline(x, c)).join('<br>') + '</div>');
+      else out.push('<blockquote>' + buf.map((x) => mdInline(x, c)).join('<br>') + '</blockquote>');
+      continue;
+    }
+    if (/\|/.test(ln) && i + 1 < L.length && /^\s*\|?\s*:?-{3,}/.test(L[i + 1])) {
+      flush(); const row = (r) => r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((x) => x.trim());
+      const head = row(ln); i += 2; const body = []; while (i < L.length && /\|/.test(L[i])) body.push(row(L[i++])); i--;
+      out.push('<div class="md-tablewrap"><table><thead><tr>' + head.map((x) => '<th>' + mdInline(x, c) + '</th>').join('') + '</tr></thead><tbody>' + body.map((r) => '<tr>' + r.map((x) => '<td>' + mdInline(x, c) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+      continue;
+    }
+    const li = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(ln);
+    if (li) {
+      flush(); const ordered = /\d/.test(li[2]); const items = [];
+      while (i < L.length) { const m = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(L[i]); if (!m) break; items.push({ ind: Math.floor(m[1].length / 2), body: m[3], line: i }); i++; } i--;
+      out.push((ordered ? '<ol>' : '<ul>') + items.map((it) => { const t = /^\[([ xX])\]\s+(.*)$/.exec(it.body); const pad = it.ind ? ' style="margin-left:' + (it.ind * 18) + 'px"' : ''; return t ? '<li class="md-task"' + pad + '><span class="md-box' + (t[1] !== ' ' ? ' on' : '') + '" data-task="' + it.line + '" role="checkbox" aria-checked="' + (t[1] !== ' ') + '">' + (t[1] !== ' ' ? '✓' : '') + '</span><span class="' + (t[1] !== ' ' ? 'md-done' : '') + '">' + mdInline(t[2], c) + '</span></li>' : '<li' + pad + '>' + mdInline(it.body, c) + '</li>'; }).join('') + (ordered ? '</ol>' : '</ul>'));
+      continue;
+    }
+    if (!ln.trim()) { flush(); continue; }
+    para.push(ln.replace(/\s{2,}$/, ''));
+  }
+  flush();
+  return { html: out.join(''), heads };
+}
+
+/* ---------------- writing: the source, syntax-coloured behind a transparent textarea ----------------
+   Same characters, same monospace metrics: only spans are added, so the caret lines up with the colours. */
+function mdHighlight(text) {
+  let inFence = false;
+  return String(text).split('\n').map((ln) => {
+    if (/^```/.test(ln)) { inFence = !inFence; return '<span class="hl-code">' + esc(ln) + '</span>'; }
+    if (inFence) return '<span class="hl-code">' + esc(ln) + '</span>';
+    if (/^#{1,6}\s/.test(ln)) return '<span class="hl-h">' + esc(ln) + '</span>';
+    let s = esc(ln);
+    s = s.replace(/^(\s*)([-*+]|\d+\.)(\s)(\[[ xX]\])?/, (m, a, b, sp, t) => a + '<span class="hl-mark">' + b + '</span>' + sp + (t ? '<span class="hl-mark">' + t + '</span>' : ''));
+    s = s.replace(/^(&gt;\s?)(\[![a-z]+\])?/i, (m, a, b) => '<span class="hl-mark">' + a + '</span>' + (b ? '<span class="hl-mark">' + b + '</span>' : ''));
+    s = s.replace(/(!?\[\[)([^\]]*)(\]\])/g, '<span class="hl-mark">$1</span><span class="hl-link">$2</span><span class="hl-mark">$3</span>');
+    s = s.replace(/(\*\*|~~|==)(?=\S)([^*~=]+?)(\1)/g, '<span class="hl-mark">$1</span><b>$2</b><span class="hl-mark">$3</span>');
+    s = s.replace(/(^|\s)(#[A-Za-z][\w/-]*)/g, '$1<span class="hl-tag">$2</span>');
+    s = s.replace(/(`[^`]+`)/g, '<span class="hl-code">$1</span>');
+    return s;
+  }).join('\n') + '\n';
+}
+
+/* ---------------- [[ autocomplete ---------------- */
+function linkQueryAt(text, caret) {
+  const line0 = text.lastIndexOf('\n', caret - 1) + 1; const before = text.slice(line0, caret);
+  const open = before.lastIndexOf('[['); if (open < 0) return null;
+  const q = before.slice(open + 2); if (/\]\]|\|/.test(q)) return null;
+  const hash = q.indexOf('#');
+  return { from: line0 + open, to: caret, query: hash >= 0 ? q.slice(0, hash) : q, heading: hash >= 0 ? q.slice(hash + 1) : null };
+}
+function fuzzyScore(name, q) {
+  const n = name.toLowerCase(), k = q.toLowerCase().trim(); if (!k) return 1;
+  if (n === k) return 100; if (n.startsWith(k)) return 80; if (n.split(/[\s-]+/).some((w) => w.startsWith(k))) return 60; if (n.includes(k)) return 40;
+  let j = 0; for (const ch of n) { if (ch === k[j]) j++; if (j === k.length) return 10; } return 0;
+}
+function linkSuggestions(c, lq) {
+  if (lq.heading !== null) {
+    const r = resolveLink(c, lq.query); if (r.kind !== 'note') return [];
+    return mdRender(r.note.text, c).heads.filter((h) => fuzzyScore(h.text, lq.heading) > 0).slice(0, 8).map((h) => ({ kind: 'heading', label: h.text, sub: '#'.repeat(h.level) + ' in ' + r.note.name, target: r.note.name + '#' + h.text, insert: '[[' + r.note.name + '#' + h.text + ']]' }));
+  }
+  const seen = new Set(); const items = [];
+  notesOf(c).forEach((n) => { const s = fuzzyScore(n.name, lq.query); if (s) { seen.add(n.name.toLowerCase()); items.push({ s: s + 5, kind: n.kind, label: n.name, sub: (NOTE_KINDS[n.kind] || NOTE_KINDS.note)[0] + ' note' + (n.private ? ' · private' : '') + (n.entity ? ' · on the map' : ''), target: n.name, insert: '[[' + n.name + ']]' }); } });
+  linkEntities(c).forEach((e) => { if (seen.has(e.name.toLowerCase())) return; const s = fuzzyScore(e.name, lq.query); if (s) items.push({ s, kind: e.kind, label: e.name, sub: e.sub + ' · no note yet', target: e.name, insert: '[[' + e.name + ']]' }); });
+  items.sort((a, b) => b.s - a.s || a.label.localeCompare(b.label));
+  const out = items.slice(0, 8);
+  const q = lq.query.trim(); if (q && !items.some((x) => x.label.toLowerCase() === q.toLowerCase())) out.push({ kind: 'create', label: 'Link to new note “' + q + '”', sub: 'created when you follow it', target: q, insert: '[[' + q + ']]' });
+  return out;
+}
+
+/* ---------------- backlinks and unlinked mentions ---------------- */
+function backlinksOf(c, note) {
+  const k = note.name.toLowerCase(); const linked = [], unlinked = [];
+  const re = /\[\[([^\]|#]+)/g;
+  notesOf(c).forEach((n) => {
+    if (n.id === note.id) return;
+    n.text.split('\n').forEach((ln, i) => {
+      let m, hit = false; re.lastIndex = 0; while ((m = re.exec(ln))) if (m[1].trim().toLowerCase() === k) hit = true;
+      if (hit) { linked.push({ from: n, line: i, snippet: ln.replace(/^[#>\-\s*]+/, '').slice(0, 120) }); return; }
+      const bare = ln.replace(/\[\[[^\]]*\]\]/g, '');
+      const at = bare.toLowerCase().indexOf(k);
+      if (at >= 0 && !/\w/.test(bare.charAt(at - 1) || ' ') && !/\w/.test(bare.charAt(at + k.length) || ' ')) unlinked.push({ from: n, line: i, snippet: ln.replace(/^[#>\-\s*]+/, '').slice(0, 120) });
+    });
+  });
+  return { linked, unlinked };
+}
+function linkUnlinkedMention(c, note, hit) {
+  const L = hit.from.text.split('\n'); const ln = L[hit.line];
+  const re = new RegExp('(^|[^\\w\\[])(' + note.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![\\w\\]])', 'i');
+  L[hit.line] = ln.replace(re, (m, a, b) => a + '[[' + note.name + (b !== note.name ? '|' + b : '') + ']]');
+  saveNote(c, hit.from.id, L.join('\n'), 'linked a mention of ' + note.name);
+}
+
+/* ---------------- edits ---------------- */
+function saveNote(c, id, text, why) {
+  const notes = notesOf(c).map((n) => (n.id === id ? Object.assign({}, n, { text, edited: Date.now() }) : n));
+  c.setState({ notes, neSaved: Date.now() }); if (why) c._toast(why);
+}
+function createNote(c, name, kind, entity) {
+  const exist = noteByName(c, name); if (exist) return exist;
+  const t = { settlement: '## Settlement Profile: ' + name + '\n\n**Type:** \n**Location:** \n\n### General Info\n\n- **Size / Population:**\n- **Ruling authority:**\n\n### Current Status\n\n', landmark: '# Landmark: ' + name + '\n\n## Type\n- \n\n## Description\n- Physical appearance:\n', faction: '# ' + name + '\n\n**Government:** \n**Faith:** \n\n## Relations\n\n' }[kind] || '# ' + name + '\n\n';
+  const n = { id: 'n' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).slice(2, 5), name, kind: kind || 'note', entity: entity || null, text: t, edited: Date.now(), private: false };
+  c.setState({ notes: notesOf(c).concat([n]) });
+  return n;
+}
+/* Toolbar transforms: each takes the text and a selection and returns the new text and selection, like the
+   shipped editor's static transforms (`markdown_editor.gd`), so each is one undoable edit. */
+const MD_TX = {
+  wrap(t, a, b, open, close) { close = close == null ? open : close; const sel = t.slice(a, b); if (sel.startsWith(open) && sel.endsWith(close) && sel.length >= open.length + close.length) return { text: t.slice(0, a) + sel.slice(open.length, sel.length - close.length) + t.slice(b), a, b: b - open.length - close.length }; if (t.slice(a - open.length, a) === open && t.slice(b, b + close.length) === close) return { text: t.slice(0, a - open.length) + sel + t.slice(b + close.length), a: a - open.length, b: b - open.length }; const word = sel || 'text'; return { text: t.slice(0, a) + open + word + close + t.slice(b), a: a + open.length, b: a + open.length + word.length }; },
+  linePrefix(t, a, b, pfx, cycle) {
+    const s = t.lastIndexOf('\n', a - 1) + 1; let e = t.indexOf('\n', b); if (e < 0) e = t.length;
+    const lines = t.slice(s, e).split('\n'); let d = 0;
+    const out = lines.map((ln) => { if (cycle) { const m = /^(#{1,6})\s/.exec(ln); const lv = m ? m[1].length : 0; const nx = lv >= 3 ? 0 : lv + 1; const body = ln.replace(/^#{1,6}\s/, ''); const r = (nx ? '#'.repeat(nx) + ' ' : '') + body; d += r.length - ln.length; return r; } if (ln.startsWith(pfx)) { d -= pfx.length; return ln.slice(pfx.length); } const stripped = ln.replace(/^(- \[[ xX]\] |- |\d+\. |> )/, ''); const r = pfx + stripped; d += r.length - ln.length; return r; });
+    return { text: t.slice(0, s) + out.join('\n') + t.slice(e), a: Math.max(s, a + (lines.length === 1 ? d : 0)), b: b + d };
+  },
+  insert(t, a, b, str, caretOff) { return { text: t.slice(0, a) + str + t.slice(b), a: a + (caretOff == null ? str.length : caretOff), b: a + (caretOff == null ? str.length : caretOff) }; }
+};
+function toggleTaskLine(c, note, line) {
+  const L = note.text.split('\n'); const m = /^(\s*[-*+]\s+)\[([ xX])\]/.exec(L[line] || ''); if (!m) return;
+  L[line] = L[line].replace(/^(\s*[-*+]\s+)\[([ xX])\]/, m[1] + (m[2] === ' ' ? '[x]' : '[ ]')); saveNote(c, note.id, L.join('\n'));
+}
+function wordCount(t) { const w = String(t).replace(/[#>*_=~`\[\]|-]/g, ' ').split(/\s+/).filter(Boolean); return w.length; }
+
+/* A ```chronos block (the Chronos Timeline plugin's syntax, `cartalith_vault::chronos`, Ruling AM) drawn as a
+   small timeline. Each row moves Cartalith's own timeline to its year, which is how a note's history and the
+   map's timeline stay one thing. */
+function chronosParse(lines) {
+  const out = [];
+  lines.forEach((ln) => {
+    const m = /^\s*([-@*=])\s*\[([^\]~]+)(?:~([^\]]+))?\]\s*(?:#(\w+)\s*)?(?:\{([^}]*)\}\s*)?([^|]*)(?:\|\s*(.*))?$/.exec(ln);
+    if (!m) return; const y0 = parseInt(m[2], 10), y1 = m[3] ? parseInt(m[3], 10) : null; if (isNaN(y0)) return;
+    out.push({ kind: { '-': 'event', '@': 'period', '*': 'point', '=': 'marker' }[m[1]], y0, y1, color: m[4] || '', group: m[5] || '', name: m[6].trim(), desc: (m[7] || '').trim() });
+  });
+  return out;
+}
+function chronosHtml(lines, c) {
+  const ev = chronosParse(lines); if (!ev.length) return '<pre><code>' + esc(lines.join('\n')) + '</code></pre>';
+  const lo = Math.min(...ev.map((e) => e.y0)), hi = Math.max(...ev.map((e) => e.y1 != null ? e.y1 : e.y0)), span = Math.max(1, hi - lo);
+  const pos = (y) => ((y - lo) / span * 100).toFixed(2) + '%';
+  const bar = '<div class="md-chr-axis">' + ev.map((e) => e.kind === 'period' && e.y1 != null ? '<span class="md-chr-per" style="left:' + pos(e.y0) + ';width:calc(' + pos(e.y1) + ' - ' + pos(e.y0) + ')"></span>' : '<span class="md-chr-dot ' + e.kind + '" style="left:' + pos(e.y0) + '"></span>').join('') + '</div>';
+  const rows = ev.map((e) => '<button class="md-chr-row" data-year="' + e.y0 + '"><span class="md-chr-y">' + esc(e.y0 + (e.y1 != null ? '–' + e.y1 : '')) + '</span><span class="md-chr-n">' + mdInline(e.name, c) + (e.desc ? '<span class="md-chr-d"> · ' + mdInline(e.desc, c) + '</span>' : '') + '</span><span class="md-chr-k">' + esc(e.kind) + '</span></button>').join('');
+  return '<div class="md-chronos"><div class="md-co-t">CHRONOS · ' + ev.length + ' entries · tap one to move the map’s timeline</div>' + bar + rows + '</div>';
+}
+
+/* ======================================================================================================
+   The vault and its note editor, on the phone and the tablet. Values only; the gestures are in c_class.js.
+   Phone: a list (search, filters, kinds), then a note screen: Preview by default, Write with the keyboard
+   row, links and outline in a sheet. Tablet: one window with the tree on the left, the note in the middle
+   (Preview, Write or Split) and Links · Outline · Properties on the right.
+   ====================================================================================================== */
+const VT_FILTERS = [['all', 'All'], ['linked', 'On the map'], ['free', 'Free notes'], ['private', 'Private'], ['without', 'Without notes']];
+const VT_GROUPS = [['settlement', 'Settlements'], ['province', 'Provinces'], ['faction', 'Factions'], ['culture', 'Cultures & faiths'], ['landmark', 'Landmarks'], ['note', 'Notes']];
+/* The toolbar, in the shipped editor's order (`markdown_editor.gd`: bold, italic, underline, strike, highlight,
+   heading, link, tag, task, callout, template) and then what a regular editor adds. */
+const NE_TOOLS = [
+  ['heading', 'H', 'Heading: cycles Normal, H1, H2, H3', ''], ['bold', 'B', 'Bold', 'Ctrl+B'], ['italic', 'I', 'Italic', 'Ctrl+I'], ['underline', 'U', 'Underline (written as <u>)', 'Ctrl+U'],
+  ['strike', 'S', 'Strikethrough', ''], ['highlight', '==', 'Highlight', ''], ['link', '[[', 'Link a note or a place', 'Ctrl+K'], ['tag', '#', 'Tag', ''],
+  ['bullet', '•', 'Bulleted list', ''], ['number', '1.', 'Numbered list', ''], ['task', '☐', 'Task', 'Ctrl+L'], ['quote', '❝', 'Quote', ''],
+  ['callout', '[!]', 'Callout', ''], ['code', '</>', 'Code', ''], ['table', '⊞', 'Table', ''], ['rule', '—', 'Divider', ''],
+  ['template', '⎘', 'Insert template', ''], ['undo', '↶', 'Undo', 'Ctrl+Z'], ['redo', '↷', 'Redo', 'Ctrl+Shift+Z']
+];
+function vtAgo(ts) { const d = Math.max(0, Date.now() - ts); if (d < 60000) return 'just now'; if (d < 3600000) return Math.round(d / 60000) + ' min ago'; if (d < 86400000) return Math.round(d / 3600000) + ' h ago'; return Math.round(d / 86400000) + ' d ago'; }
+function vtPath(n) { const g = { settlement: 'Settlements', province: 'Provinces', faction: 'Factions', culture: 'Cultures', landmark: 'Landmarks' }[n.kind] || 'Notes'; return 'Vault/' + g + '/' + n.name + '.md'; }
+function vtTags(t) { const out = []; String(t).replace(/(^|\s)#([A-Za-z][\w/-]*)/g, (m, a, b) => { if (!out.includes(b)) out.push(b); return m; }); return out; }
+
+/* The list: notes filtered by the search (name and full text) and the filter chip, grouped by kind. "Without
+   notes" lists world entities that have no note; tapping one creates its note from the matching template. */
+function vtList(c) {
+  const s = c.state, V = s.vt, q = (V.q || '').trim().toLowerCase();
+  if (V.filter === 'without') {
+    const have = new Set(notesOf(c).map((n) => n.name.toLowerCase()));
+    const ents = linkEntities(c).filter((e) => !have.has(e.name.toLowerCase()) && (!q || e.name.toLowerCase().includes(q)));
+    return VT_GROUPS.map(([k, label]) => ({ label: label.toUpperCase(), n: ents.filter((e) => e.kind === k).length, rows: ents.filter((e) => e.kind === k).slice(0, 12).map((e) => ({ label: e.name, sub: e.sub, d: (NOTE_KINDS[e.kind] || NOTE_KINDS.note)[1], right: 'CREATE', on: false, bg: 'transparent', lock: false, tap: () => c._noteCreate(e.name, e.kind, e) })) })).filter((g) => g.n);
+  }
+  const hit = (n) => !q || n.name.toLowerCase().includes(q) || n.text.toLowerCase().includes(q) || vtTags(n.text).some((t) => ('#' + t).includes(q.replace(/^#?/, '#')));
+  const pass = (n) => V.filter === 'all' || (V.filter === 'linked' && n.entity) || (V.filter === 'free' && !n.entity) || (V.filter === 'private' && n.private);
+  const notes = notesOf(c).filter((n) => hit(n) && pass(n));
+  return VT_GROUPS.map(([k, label]) => {
+    const rows = notes.filter((n) => (n.kind || 'note') === k).sort((a, b) => a.name.localeCompare(b.name)).map((n) => {
+      let sub = (n.entity ? '⌖ on the map · ' : '') + 'edited ' + vtAgo(n.edited);
+      if (q && !n.name.toLowerCase().includes(q)) { const ln = n.text.split('\n').find((x) => x.toLowerCase().includes(q)) || ''; sub = '… ' + ln.replace(/[#>*=\[\]-]/g, '').trim().slice(0, 60); }
+      return { label: n.name, sub, d: (NOTE_KINDS[n.kind] || NOTE_KINDS.note)[1], right: '', on: V.noteId === n.id, bg: V.noteId === n.id ? 'var(--wash)' : 'transparent', lock: !!n.private, tap: () => c._noteOpen(n.id) };
+    });
+    return { label: label.toUpperCase(), n: rows.length, rows };
+  }).filter((g) => g.n);
+}
+
+function vtNote(c) { const V = c.state.vt; return V.noteId ? noteById(c, V.noteId) : null; }
+
+function vaultVals(c) {
+  const s = c.state, V = s.vt; const m = c._mode(), W = c._W(), H = c._H();
+  if (!V || !V.open) return { show: false, groups: [], filters: [], tools: [], ac: { show: false, items: [] }, links: [], unlinked: [], heads: [], props: [], chips: [], dlg: { show: false, opts: [] } };
+  const phone = m !== 'tablet', note = vtNote(c);
+  const groups = vtList(c);
+  const filters = VT_FILTERS.map(([id, label]) => Object.assign({ label, tap: () => c.setState({ vt: Object.assign({}, V, { filter: id }) }) }, chipStyle(V.filter === id)));
+  /* geometry */
+  const frame = phone ? { x: 0, y: 0, w: W, h: H, r: 0 } : { x: 20, y: 20, w: W - 40, h: H - 40, r: 20 };
+  const sideW = phone ? W : (frame.w >= 1100 ? 270 : 240);
+  const panelOn = !phone && V.panel !== 'none' && frame.w - sideW >= 900;
+  const panelW = panelOn ? 290 : 0;
+  const sideOn = phone ? V.view === 'list' : V.side !== false;
+  const noteW = phone ? W : frame.w - (sideOn ? sideW : 0) - panelW;
+  const splitOk = noteW >= 760;
+  const mode = V.mode === 'split' && !splitOk ? 'write' : V.mode;
+  /* the note */
+  let n = { show: false };
+  if (note) {
+    const text = V.buf != null ? V.buf : note.text;
+    const r = mdRender(text, c); const bl = backlinksOf(c, note); const tags = vtTags(text);
+    const ent = note.entity || null;
+    const chips = [{ label: (NOTE_KINDS[note.kind] || NOTE_KINDS.note)[0].toLowerCase(), key: 'type' }].concat(ent ? [{ label: ent.name, key: 'on the map', tap: () => c._noteShowOnMap(note) }] : []).concat(tags.slice(0, 4).map((t) => ({ label: '#' + t, key: 'tag', tap: () => c.setState({ vt: Object.assign({}, V, { view: 'list', q: '#' + t, filter: 'all' }) }) }))).concat(note.private ? [{ label: 'private', key: 'lock' }] : []);
+    n = {
+      show: true, id: note.id, title: note.name, path: vtPath(note), mode, splitOk,
+      read: mode === 'read' || mode === 'split', write: mode === 'write' || mode === 'split',
+      text, words: wordCount(text) + ' words', saved: V.dirty ? 'editing…' : (s.neSaved && Date.now() - s.neSaved < 4000 ? 'saved' : 'saved · ' + vtAgo(note.edited)),
+      chips: chips.map((x) => Object.assign({ tap: () => {} }, x, { cur: x.tap ? 'pointer' : 'default' })),
+      modes: [['read', 'Preview'], ['write', 'Write']].concat(splitOk ? [['split', 'Split']] : []).map(([id, label]) => Object.assign({ label, tap: () => c._noteMode(id), aria: label + ' view' }, chipStyle(mode === id))),
+      heads: r.heads.map((h) => ({ label: h.text, pad: (h.level - 1) * 14 + 'px', tap: () => c._noteJump(h) })),
+      links: bl.linked.map((h) => ({ label: h.from.name, sub: h.snippet, tap: () => c._noteOpen(h.from.id) })),
+      unlinked: bl.unlinked.map((h) => ({ label: h.from.name, sub: h.snippet, tap: () => c._noteOpen(h.from.id), link: () => { linkUnlinkedMention(c, note, h); } })),
+      nLinks: bl.linked.length, nUnlinked: bl.unlinked.length,
+      outgoing: (text.match(/\[\[[^\]]+\]\]/g) || []).length,
+      ent: ent ? { name: ent.name, sub: ({ settlement: 'settlement', faction: 'faction · its territory', landmark: 'landmark' }[ent.kind] || ent.kind), map: () => c._noteShowOnMap(note) } : null,
+      conflict: !!V.conflict,
+      phoneLinksOpen: !!V.sheet,
+      panel: V.panel || 'links'
+    };
+    n.hasEnt = !!n.ent; n.entName = ent ? ent.name : ''; n.entSub = n.ent ? n.ent.sub : '';
+    n.panelTabs = [['links', 'Links ' + (bl.linked.length + bl.unlinked.length)], ['outline', 'Outline'], ['props', 'Properties']].map(([id, label]) => Object.assign({ label, tap: () => c.setState({ vt: Object.assign({}, V, { panel: id, sheet: phone ? id : V.sheet }) }) }, chipStyle((phone ? V.sheet : (V.panel || 'links')) === id)));
+    n.props = [['File', vtPath(note)], ['Kind', (NOTE_KINDS[note.kind] || NOTE_KINDS.note)[0]], ['On the map', ent ? ent.name + ' (' + ent.kind + ')' : 'not linked'], ['Link status', ent ? (V.conflict ? 'stale: changed outside' : (V.dirty ? 'local changes' : 'connected')) : 'unbound'], ['Tags', tags.length ? tags.map((t) => '#' + t).join(' ') : 'none'], ['Links out', String(n.outgoing)], ['Edited', vtAgo(note.edited)]].map(([k, v]) => ({ k, v }));
+    n.privTog = { on: !!note.private, tap: () => c._notePrivate(note.id) }; n.privLabel = note.private ? 'ON' : 'OFF'; n.outgoingLabel = n.outgoing + ' link' + (n.outgoing === 1 ? '' : 's') + ' out';
+    if (!n.ent) n.ent = { name: '', sub: '', map: () => {} };
+  }
+  /* [[ suggestions */
+  const ac = s.ac && s.ac.items && s.ac.items.length ? { show: true, items: s.ac.items.map((it, i) => ({ label: it.label, sub: it.sub, d: it.kind === 'create' ? IC.star : it.kind === 'heading' ? IC.notes : (NOTE_KINDS[it.kind] || NOTE_KINDS.note)[1], on: i === s.ac.sel, bg: i === s.ac.sel ? 'var(--wash)' : 'transparent', keep: (e) => e.preventDefault(), tap: () => c._neAcPick(i) })) } : { show: false, items: [] };
+  /* toolbar */
+  const tools = NE_TOOLS.map(([id, glyph, label, key]) => ({ id, glyph, aria: label + (key ? ' (' + key + ')' : ''), keep: (e) => e.preventDefault(), tap: () => c._neTx(id) }));
+  /* dialogs: create from template, rename */
+  const D = s.neDlg; let dlg = { show: false, opts: [] };
+  if (D && D.kind === 'create') dlg = { show: true, title: 'NEW NOTE · ' + D.name.toUpperCase(), text: D.entity ? D.entity.name + ' is on the map (' + D.entity.sub + ') and has no note yet.' : 'No note is called “' + D.name + '” yet.', opts: [['Settlement', 'settlement'], ['Landmark', 'landmark'], ['Faction', 'faction'], ['Region overview', 'region'], ['Blank', 'note']].map(([label, k]) => Object.assign({ label, tap: () => c._noteCreateDo(D.name, k, D.entity) }, chipStyle(k === (D.entityKind || 'note')))), map: D.entity ? () => { c.setState({ neDlg: null }); c._noteShowOnMap({ entity: D.entity, name: D.entity.name }); } : null };
+  if (D && D.kind === 'template') dlg = { show: true, title: 'INSERT TEMPLATE', text: 'Inserted at the cursor. The vault’s own templates (the ones in its templates folder) are listed first in the real app.', opts: [['Settlement · general info', 'settlement'], ['Landmark · significance', 'landmark'], ['Faction · relations table', 'faction'], ['Chronos timeline block', 'chronos']].map(([label, k]) => Object.assign({ label, tap: () => c._neTemplate(k) }, chipStyle(false))) };
+  if (D && D.kind === 'rename') dlg = { show: true, title: 'RENAME NOTE', text: D.count ? 'Updates ' + D.count + ' link' + (D.count === 1 ? '' : 's') + ' in other notes, as most editors do.' : 'No other note links here.', opts: [], rename: true, value: D.value };
+  dlg.hasMap = !!dlg.map; dlg.isRename = !!dlg.rename;
+  /* peek card */
+  const P = s.peek; let peek = { show: false };
+  if (P) { const r = resolveLink(c, P.name); const body = r.kind === 'note' ? r.note.text.split('\n').filter((x) => x.trim() && !/^#/.test(x)).slice(0, 3).join(' ').replace(/[*=~#>\[\]_`|]/g, '').slice(0, 180) : r.kind === 'entity' ? 'On the map, no note yet.' : 'No note or place has this name yet.'; peek = { show: true, x: Math.max(8, Math.min(W - 308, P.x - 150)), y: Math.max(8, Math.min(H - 190, P.y + 16)), title: P.name, kind: r.kind === 'note' ? (NOTE_KINDS[r.note.kind] || NOTE_KINDS.note)[0] + ' note' : r.kind === 'entity' ? r.entity.sub : 'unresolved link', body, openLabel: r.kind === 'note' ? 'Open' : 'Create note', open: () => { c.setState({ peek: null }); c._noteFollow(P.name, P.head); }, hasMap: r.kind !== 'none' && !!(r.entity || (r.note && r.note.entity)), map: () => { c.setState({ peek: null }); c._noteShowOnMap(r.note || { entity: r.entity, name: r.entity.name }); } }; }
+  const land = m === 'phoneLand';
+  const acOn = ac.show && !!note && (mode === 'write' || mode === 'split');
+  return {
+    true: true, false: false, scrim: !phone, padT: phone ? (land ? 8 : INSET_T) : 0, padB: phone ? 16 : 0,
+    panelAria: phone ? 'links, outline and properties' : (panelOn ? 'hide the side panel' : 'show links, outline and properties'),
+    splitLine: mode === 'split' ? 'var(--hair)' : 'transparent', linksBelow: !!note && (phone || !panelOn) && mode === 'read',
+    acTop: acOn && !phone, acTopY: 158, acBottom: acOn && phone,
+    show: true, phone, frame, sideW, sideOn, panelOn, panelW, noteW, noteX: phone ? 0 : (sideOn ? sideW : 0),
+    list: phone ? V.view === 'list' : true, noteShow: !!note && (phone ? V.view === 'note' : true), empty: !note && !phone,
+    q: V.q || '', count: notesOf(c).length + ' notes', filters, groups, n, ac, tools, dlg, peek,
+    sheetOpen: phone && !!V.sheet && !!note, sheetIs: { links: V.sheet === 'links', outline: V.sheet === 'outline', props: V.sheet === 'props' },
+    panelIs: { links: (V.panel || 'links') === 'links', outline: V.panel === 'outline', props: V.panel === 'props' },
+    canBack: phone ? true : (V.back || []).length > 0, back: () => c._noteBack(),
+    toolsBottom: phone && !!note && V.view === 'note' && (n.write), toolsTop: !phone && !!note && n.write
+  };
+}
+
+/* ======================================================================================================
    renderVals: state + frame → everything the template reads. All geometry is derived from the frame's
    dp size here, in one place, which is the part a refactor of the Godot shells should copy.
    ====================================================================================================== */
@@ -1949,12 +2452,13 @@ function runCommand(c, r) {
 }
 function searchResults(c) {
   const s = c.state; let q = (s.q || '').trim().toLowerCase(); let scope = s.scope;
-  const m = q.match(/^(s|f|lb|r|\.|l)\s+(.*)$/); if (m) { scope = { s: 'places', f: 'factions', lb: 'labels', r: 'routes', '.': 'commands', l: 'landmarks' }[m[1]]; q = m[2]; }
+  const m = q.match(/^(s|f|lb|r|\.|l|n)\s+(.*)$/); if (m) { scope = { s: 'places', f: 'factions', lb: 'labels', r: 'routes', '.': 'commands', l: 'landmarks', n: 'notes' }[m[1]]; q = m[2]; }
   const hit = (t) => !q || t.toLowerCase().includes(q); const out = [];
   if (scope === 'all' || scope === 'places') c.places.concat(s.userPlaces).filter((p) => hit(p.name)).forEach((p) => out.push({ kind: p.tier, label: p.name, sub: (p.fac >= 0 ? FACTIONS[p.fac].name : 'unclaimed') + ' · pop ' + (p.pop || 0).toLocaleString('en-US'), d: IC.settle, tap: () => { c.setState({ srch: false }); selectPlace(c, p); } }));
   if (scope === 'all' || scope === 'factions') c.factions.filter((f) => hit(f.name)).forEach((f) => out.push({ kind: 'faction', label: f.name, sub: f.gov + ' · ' + f.places + ' places', d: IC.faction, tap: () => c._openWin('factions:' + f.id) }));
   if (scope === 'all' || scope === 'labels') (c.regions || []).map((r) => ({ text: r.name, x: r.x, y: r.y })).concat(s.userLabels).filter((l) => hit(l.text)).forEach((l) => out.push({ kind: 'label', label: l.text, sub: 'label', d: IC.label, tap: () => { c.setState({ srch: false }); c.view = Object.assign({}, c.view, { cx: l.x, cy: l.y }); c._dirty = true; } }));
   if (scope === 'all' || scope === 'routes') c.ways.filter((w) => hit(w.a.name + ' ' + w.b.name)).slice(0, 12).forEach((w) => out.push({ kind: w.kind, label: w.a.name + ' → ' + w.b.name, sub: fmtDist(w.km, s.prefs.units), d: IC.way, tap: () => { c.setState({ srch: false }); c.view = Object.assign({}, c.view, { cx: (w.a.x + w.b.x) / 2, cy: (w.a.y + w.b.y) / 2 }); c._dirty = true; } }));
+  if ((scope === 'all' && q) || scope === 'notes') notesOf(c).filter((n) => hit(n.name) || (q.length > 2 && hit(n.text))).slice(0, 12).forEach((n) => { const ln = hit(n.name) ? '' : (n.text.split('\n').find((x) => x.toLowerCase().includes(q)) || '').replace(/[#>*=\[\]-]/g, '').trim().slice(0, 60); out.push({ kind: 'note', label: n.name, sub: ln ? '… ' + ln : (NOTE_KINDS[n.kind] || NOTE_KINDS.note)[0] + ' note' + (n.entity ? ' · on the map' : ''), d: IC.notes, tap: () => { c.setState({ srch: false }); c._openVault(''); setTimeout(() => c._noteOpen(n.id, 'read'), 0); } }); });
   if (scope === 'landmarks') c.landmarks.filter((l) => hit(l.name + ' ' + l.kind)).forEach((l) => out.push({ kind: l.kind, label: l.name, sub: l.fam, d: IC.landmark, tap: () => { c.setState({ srch: false, sel: { kind: 'landmark', id: l.id } }); c.view = Object.assign({}, c.view, { cx: l.x, cy: l.y, s: Math.max(c.view.s, 0.6) }); c._dirty = true; } }));
   if ((scope === 'all' && q) || scope === 'commands') commandIndex(c).filter((r) => hit(r.label) || (q.length > 2 && hit(r.sub || ''))).slice(0, scope === 'commands' ? 60 : 24).forEach((r) => out.push({ kind: r.kind, label: r.label, sub: r.sub, d: r.kind === 'param' ? IC.gen : (r.kind === 'tool' ? IC.inspect : (r.kind === 'node' || r.kind === 'section' ? IC.layers : IC.menu)), tap: () => runCommand(c, r) }));
   return out.slice(0, 80);
@@ -1964,7 +2468,7 @@ function buildVals(c) {
   const s = c.state, W = c._W(), H = c._H(), m = c._mode(), L = c._L(), isPhone = m !== 'tablet', land = m === 'phoneLand';
   const v = {
     W, H, L, isPhone, isTablet: !isPhone, themeVars: themeVars(s.light), loading: s.loading, uiScale: c._scale(),
-    rootRef: c.rootRef, mapRef: c.mapRef, cvRef: c.cvRef, sheetRef: c.sheetRef, grabRef: c.grabRef, bodyRef: c.bodyRef, searchRef: c.searchRef,
+    rootRef: c.rootRef, mapRef: c.mapRef, cvRef: c.cvRef, sheetRef: c.sheetRef, grabRef: c.grabRef, bodyRef: c.bodyRef, searchRef: c.searchRef, noteTaRef: c.noteTaRef, noteMirrorRef: c.noteMirrorRef, noteReadRef: c.noteReadRef, noteReadScrollRef: c.noteReadScrollRef, noteWriteScrollRef: c.noteWriteScrollRef,
     mapCursor: s.tool === 'inspect' ? 'grab' : 'crosshair', noCtx: (e) => e.preventDefault(),
     press: s.press ? { show: true, x: s.press.x, y: s.press.y } : { show: false, x: 0, y: 0 },
     world: { name: s.worldName, seed: s.seed, saved: 'autosaved ' + s.savedAt, sub: s.seed + ' · ' + (s.running ? 'generating…' : (s.stale ? 'stale from ' + String(s.stale).padStart(2, '0') : 'resolved')) + ' · ' + domainDef(s.dom).label.toLowerCase() },
@@ -2074,8 +2578,8 @@ function buildVals(c) {
   v.hist = s.hist ? { show: true, r: isPhone ? 10 : 120, t: isPhone ? (land ? 64 : INSET_T + 60) : 50, rows: s.undo.slice().reverse().slice(0, 8).map((u, i) => ({ n: String(s.undo.length - i), label: u, kind: i === 0 ? 'latest' : '', col: i === 0 ? 'var(--ink)' : 'var(--body)', tap: () => c._rollTo(s.undo.length - i - 1) })).concat(s.undo.length ? [] : [{ n: '', label: 'nothing to undo yet', kind: '', col: 'var(--dim)', tap: () => c.setState({ hist: false }) }]) } : { show: false, rows: [] };
   if (s.srch) {
     const res = searchResults(c); const sw2 = isPhone ? W - (land ? RAIL_W + 16 : 16) : Math.min(640, W - 80);
-    const scopes = [['all', 'all'], ['places', 's settlements'], ['factions', 'f factions'], ['labels', 'lb labels'], ['routes', 'r routes'], ['commands', '. commands'], ['landmarks', 'l landmarks']];
-    v.srch = { show: true, x: isPhone ? (land ? RAIL_W + 8 : 8) : (W - sw2) / 2, y: isPhone ? (land ? 8 : INSET_T + 4) : 60, w: sw2, maxH: isPhone ? H - (land ? 16 : INSET_T + 16) : Math.min(720, H - 120), scopes: scopes.map(([id, l]) => Object.assign({ label: l, n: '', on: s.scope === id, tap: () => c.setState({ scope: id }) }, chipStyle(s.scope === id))), results: res, empty: !res.length, emptyText: s.q ? 'No match for “' + s.q + '”. Try a prefix: s, f, lb, r, . or l.' : 'Type a place, faction, route, setting or command. Every menu row, dock section and generation parameter is findable here, and runs from here.' };
+    const scopes = [['all', 'all'], ['places', 's settlements'], ['factions', 'f factions'], ['labels', 'lb labels'], ['routes', 'r routes'], ['commands', '. commands'], ['landmarks', 'l landmarks'], ['notes', 'n notes']];
+    v.srch = { show: true, x: isPhone ? (land ? RAIL_W + 8 : 8) : (W - sw2) / 2, y: isPhone ? (land ? 8 : INSET_T + 4) : 60, w: sw2, maxH: isPhone ? H - (land ? 16 : INSET_T + 16) : Math.min(720, H - 120), scopes: scopes.map(([id, l]) => Object.assign({ label: l, n: '', on: s.scope === id, tap: () => c.setState({ scope: id }) }, chipStyle(s.scope === id))), results: res, empty: !res.length, emptyText: s.q ? 'No match for “' + s.q + '”. Try a prefix: s, f, lb, r, ., l or n.' : 'Type a place, faction, route, setting or command. Every menu row, dock section and generation parameter is findable here, and runs from here.' };
   } else v.srch = { show: false, scopes: [], results: [] };
   if (s.win) {
     const id = s.win.stack[s.win.stack.length - 1]; const wr = winRows(c, id);
@@ -2086,6 +2590,19 @@ function buildVals(c) {
   const grads = ['linear-gradient(135deg,#2c4a5e,#4a7a52 55%,#c9b57a)', 'linear-gradient(135deg,#33415c,#5c677d 60%,#d9dcd6)', 'linear-gradient(135deg,#5a3a32,#7d5a4a 50%,#c9a27a)', 'linear-gradient(135deg,#1b3a2c,#3c6e51 60%,#a9c48a)', 'linear-gradient(135deg,#3b3f52,#6a6f8a 60%,#c8c3b8)'];
   v.picker = s.picker ? { show: true, pad: isPhone ? (land ? '16px 16px 16px ' + (RAIL_W + 0) + 'px' : (INSET_T + 16) + 'px 16px 24px') : '40px', maxW: 1100, cols: isPhone ? (land ? 2 : 1) : (W >= 1100 ? 3 : 2), worlds: [[s.worldName, s.seed, 'OPEN NOW', 'var(--acc)'], ['VHAREN REACH', 129384, 'IN PROGRESS', 'var(--sec)'], ['KESSA', 774201, 'DRAFT', 'var(--sec)'], ['THORNWOOD', 908133, 'ARCHIVE', 'var(--dim)'], ['HIGH SADDLE', 441907, 'STALE FROM 07', 'var(--warn)']].map((x, i) => ({ name: x[0], sub: x[1] + ' · 2 048² · edited ' + ['now', '5 d ago', '3 w ago', '2 mo ago', '5 d ago'][i], badge: x[2], badgeCol: x[3], grad: grads[i], tap: () => (i === 0 ? c.setState({ picker: false }) : doAct(c, { act: 'openWorld', arg: x[0] })) })) } : { show: false, worlds: [] };
   v.toasts = s.toasts; v.toastPos = v.toastT != null ? 'top:' + v.toastT + 'px' : 'bottom:' + v.toastB + 'px';
+  v.vt = vaultVals(c);
+  Object.assign(v, {
+    hVaultClose: () => c._vaultClose(), hVaultQ: (e) => c._vtSet({ q: e.target.value }), hNoteNew: () => c._noteCreate('Untitled', 'note', null),
+    hNotePanel: () => { const V = c.state.vt; if (c._mode() !== 'tablet') c._vtSet({ sheet: V.sheet ? null : 'links' }); else c._vtSet({ panel: V.panel === 'none' ? 'links' : 'none' }); },
+    hNeInput: (e) => c._neInput(e), hNeSel: (e) => c._neAc(e.target), hNeKey: (e) => c._neKey(e), hNeDone: () => c._noteMode('read'),
+    hNoteSheetClose: () => c._vtSet({ sheet: null }), hNoteDlgClose: () => c.setState({ neDlg: null }), hPeekClose: () => c.setState({ peek: null }),
+    hNoteRename: () => { const n = vtNote(c); if (!n) return; const k = n.name.toLowerCase(); const cnt = notesOf(c).filter((x) => x.id !== n.id).reduce((acc, x) => acc + (x.text.match(/\[\[([^\]|#]+)/g) || []).filter((m) => m.slice(2).trim().toLowerCase() === k).length, 0); c.setState({ neDlg: { kind: 'rename', value: n.name, count: cnt } }); },
+    hNoteRenameInput: (e) => c.setState({ neDlg: Object.assign({}, c.state.neDlg, { value: e.target.value }) }),
+    hNoteRenameDo: () => { const n = vtNote(c), D = c.state.neDlg; if (!n || !D || !D.value.trim()) return; const to = D.value.trim(), from = n.name; const re = new RegExp('\\[\\[' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\]|#])', 'gi'); c._neFlush(); const notes = notesOf(c).map((x) => (x.id === n.id ? Object.assign({}, x, { name: to, text: x.text }) : Object.assign({}, x, { text: x.text.replace(re, '[[' + to) }))); c.setState({ notes, neDlg: null }); c._toast('Renamed to ' + to + (D.count ? ' · ' + D.count + ' link' + (D.count === 1 ? '' : 's') + ' updated' : '')); },
+    hNoteConflict: () => { const V = c.state.vt; const n = vtNote(c); if (!n) return; const notes = notesOf(c).map((x) => (x.id === n.id ? Object.assign({}, x, { text: x.text + '\n\nAdded in Obsidian on another device.\n' }) : x)); c.setState({ notes, vt: Object.assign({}, V, { conflict: true, buf: V.buf != null ? V.buf : n.text, sheet: null }) }); },
+    hConflictReload: () => c.setState({ vt: Object.assign({}, c.state.vt, { conflict: false, buf: null, dirty: false }) }),
+    hConflictKeep: () => { const V = c.state.vt; c.state.vt = Object.assign({}, V, { conflict: false, dirty: true }); c._neFlush(); c._toast('Kept your version; the outside edit was overwritten'); }
+  });
   return v;
 }
 
@@ -2111,7 +2628,7 @@ const DOMS = ['world', 'civil', 'carto'];
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.rootRef = React.createRef(); this.mapRef = React.createRef(); this.cvRef = React.createRef();
+    this.rootRef = React.createRef(); this.mapRef = React.createRef(); this.cvRef = React.createRef(); this.noteTaRef = React.createRef(); this.noteMirrorRef = React.createRef(); this.noteReadRef = React.createRef(); this.noteReadScrollRef = React.createRef(); this.noteWriteScrollRef = React.createRef(); this._neHist = {};
     this.sheetRef = React.createRef(); this.grabRef = React.createRef(); this.bodyRef = React.createRef(); this.searchRef = React.createRef();
     this.view = { cx: 1024, cy: 1024, s: 0.2, r: 0 };
     this.ptrs = new Map(); this.g = null; this._dirty = true; this._undoFns = []; this._redoFns = [];
@@ -2133,7 +2650,7 @@ class Component extends DCLogic {
       year: 412, playing: false, speed: 1,
       seed: 483920, running: null, stale: 0, lastRun: '14:02',
       vals: {}, brush: { size: 64, hard: 0.35, inten: 1.0, mode: 'raise' }, feature: 'Mountains', settleTier: 'town', wayKind: 'road', iconKind: 'diamond', lmKind: 'Peak',
-      dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: false, layersPop: false, tlOpen: false, tctx: null, ring: null, qd: false, qdDrag: null,
+      dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: false, layersPop: false, tlOpen: false, tctx: null, ring: null, qd: false, qdDrag: null, vt: null, ac: null, peek: null, neDlg: null, neSaved: 0, notes: null,
       coach: !!props.coach && !coachDone, coachStep: 0,
       savedAt: '14:02', worldName: 'ELDRA',
       quick: ['save', 'export.player', 'story.journeys', 'world.vault'],
@@ -2157,6 +2674,7 @@ class Component extends DCLogic {
     const key = [s.tab, s.menuPath.join('/'), s.storySeg, s.planStage, s.dom, s.node[s.dom]].join('|');
     if (this._screenKey !== key) { this._screenKey = key; if (this.bodyRef.current) this.bodyRef.current.scrollTop = 0; }
     if ((pp && (pp.w !== this.props.w || pp.h !== this.props.h)) || (ps && ps.prefs && ps.prefs.uiScale !== this.state.prefs.uiScale)) { this._fitSoon(); if (this._mode() === 'tablet') { const docks = this._tabletGeom().leftDocks; if (docks !== this._lastDocks) { this._lastDocks = docks; this.setState({ ldockOpen: docks }); } } }
+    this._vaultDidUpdate();
     if (pp && pp.backTick !== this.props.backTick && this.props.backTick) this._system();
     if (pp && pp.light !== this.props.light) this.setState({ light: !!this.props.light, prefs: Object.assign({}, this.state.prefs, { theme: this.props.light ? 'light' : 'dark' }) });
   }
@@ -2320,6 +2838,160 @@ class Component extends DCLogic {
   _haptic() { try { if (this.state.prefs.haptics && navigator.vibrate) navigator.vibrate(12); } catch (e) { } }
   _closeTransient() { const s = this.state; const p = {}; if (this._mode() === 'tablet') { const G = this._tabletGeom(); if (s.ldockOpen && !G.leftDocks) p.ldockOpen = false; if (s.rdockOpen && !G.rightDocks && !s.sel) p.rdockOpen = false; } if (s.layersPop) p.layersPop = false; if (s.dd) p.dd = null; if (s.hamOpen) p.hamOpen = false; if (s.tctx) p.tctx = null; if (s.ring) p.ring = null; if (s.qd) { p.qd = false; p.qdDrag = null; } if (Object.keys(p).length) this.setState(p); }
 
+  /* ---------------- the vault and its note editor ---------------- */
+  _vtSet(p) { this.setState({ vt: Object.assign({}, this.state.vt, p) }); }
+  _openVault(arg) {
+    const s = this.state; notesOf(this);
+    const base = { open: true, view: 'list', q: '', filter: 'all', noteId: null, mode: 'read', panel: 'links', back: [], buf: null, dirty: false, sheet: null, conflict: false, side: true };
+    const V = Object.assign(base, s.vt || {}, { open: true, sheet: null });
+    if (arg === 'without') { V.filter = 'without'; V.view = 'list'; V.q = ''; }
+    if (arg === 'browse' || arg === '') { if (!V.noteId) V.view = 'list'; }
+    if (arg === 'place') {
+      const o = selObj(this);
+      if (o) { const n = noteByName(this, o.name); if (n) { V.noteId = n.id; V.view = 'note'; V.mode = 'read'; } else { this.setState({ vt: V, win: null, dd: null, hamOpen: false, srch: false, qd: false }); this._noteCreate(o.name, o.tier ? 'settlement' : 'landmark', { kind: o.tier ? 'settlement' : 'landmark', id: o.id, name: o.name, sub: o.tier || o.kind || '' }); return; } }
+    }
+    this.setState({ vt: V, win: null, dd: null, hamOpen: false, srch: false, qd: false, ac: null, peek: null });
+  }
+  _vaultClose() { this._neFlush(); this.setState({ vt: Object.assign({}, this.state.vt, { open: false, sheet: null }), ac: null, peek: null, neDlg: null }); }
+  _noteOpen(id, mode) {
+    this._neFlush(); const V = this.state.vt || {}; const n = noteById(this, id) || (this._justMade && this._justMade.id === id ? this._justMade : null); if (!n) return;
+    const back = V.noteId && V.noteId !== id ? (V.back || []).concat([V.noteId]).slice(-20) : (V.back || []);
+    this.setState({ vt: Object.assign({}, V, { open: true, noteId: id, view: 'note', mode: mode || (V.mode === 'split' ? 'split' : 'read'), back, buf: null, dirty: false, sheet: null, conflict: false }), ac: null, peek: null });
+    if (mode === 'write' || mode === 'split') this._neFocusSoon = true;
+  }
+  _noteBack() {
+    const V = this.state.vt; this._neFlush();
+    if (V.back && V.back.length) { const id = V.back[V.back.length - 1]; this.setState({ vt: Object.assign({}, V, { noteId: id, back: V.back.slice(0, -1), buf: null, dirty: false, view: 'note', sheet: null, conflict: false }), ac: null }); return; }
+    if (this._mode() !== 'tablet') this._vtSet({ view: 'list', noteId: null, buf: null, dirty: false, sheet: null }); else this._vtSet({ noteId: null, buf: null, dirty: false });
+  }
+  _noteMode(m) { this._neFlush(); this.setState({ vt: Object.assign({}, this.state.vt, { mode: m }), ac: null }); if (m !== 'read') this._neFocusSoon = true; }
+  _noteFollow(name, head) {
+    const r = resolveLink(this, name);
+    if (r.kind === 'note') { this._noteOpen(r.note.id, this.state.vt && this.state.vt.mode === 'split' ? 'split' : 'read'); if (head) this._neJumpHead = head; return; }
+    if (r.kind === 'entity') { this.setState({ neDlg: { kind: 'create', name: r.entity.name, entityKind: r.entity.kind, entity: r.entity } }); return; }
+    this.setState({ neDlg: { kind: 'create', name: r.name || String(name), entityKind: 'note', entity: null } });
+  }
+  _noteCreate(name, kind, entity) { this.setState({ neDlg: { kind: 'create', name, entityKind: kind || 'note', entity: entity || null } }); }
+  _noteCreateDo(name, kind, entity) {
+    const n = createNote(this, name, kind, entity && entity.id ? { kind: entity.kind, id: entity.id, name: entity.name } : null); this._justMade = n;
+    this.setState({ neDlg: null }); this._toast('Created ' + name + '.md' + (kind !== 'note' ? ' from the ' + kind + ' template' : '') + (entity ? ', linked to the map' : ''));
+    setTimeout(() => this._noteOpen(n.id, 'write'), 0);
+  }
+  _noteShowOnMap(note) {
+    const e = note && (note.entity || entityByName(this, note.name)); if (!e) { this._toast('This note is not linked to anything on the map'); return; }
+    this._neFlush();
+    const p = (this.places || []).find((q) => q.id === e.id || q.name === e.name);
+    if (this._mode() !== 'tablet') this.setState({ vt: Object.assign({}, this.state.vt, { open: false }) }); else this.setState({ vt: Object.assign({}, this.state.vt, { open: false }) });
+    if (p) { selectPlace(this, p); return; }
+    const lm = (this.landmarks || []).find((q) => q.id === e.id || q.name === e.name);
+    if (lm) { this.view = Object.assign({}, this.view, { cx: lm.x, cy: lm.y, s: Math.max(this.view.s, 0.6) }); this._dirty = true; this._toast('Centred on ' + lm.name); return; }
+    const fi = FACTIONS.findIndex((f) => f.name === e.name); if (fi >= 0) { this._openWin('factions:' + fi); return; }
+    this._toast(e.name + ' is a culture: it has no single place on the map');
+  }
+  _notePrivate(id) { const notes = notesOf(this).map((n) => (n.id === id ? Object.assign({}, n, { private: !n.private }) : n)); this.setState({ notes }); }
+  _noteJump(h) {
+    const V = this.state.vt; if (this._mode() !== 'tablet') this._vtSet({ sheet: null });
+    if (V.mode === 'read' || V.mode === 'split') { const el = this.noteReadRef.current && this.noteReadRef.current.querySelector('#' + h.id); const sc = this.noteReadScrollRef.current; if (el && sc) sc.scrollTop = el.offsetTop - 8; }
+    if (V.mode !== 'read') { const t = this._neText(); const L = t.split('\n'); let off = 0; for (let i = 0; i < h.line && i < L.length; i++) off += L[i].length + 1; this._neSelPending = { a: off, b: off }; const sc = this.noteWriteScrollRef.current; if (sc) sc.scrollTop = Math.max(0, h.line * 21.9 - 40); this.forceUpdate(); }
+  }
+  _neText() { const V = this.state.vt; if (!V || !V.noteId) return ''; if (V.buf != null) return V.buf; const n = noteById(this, V.noteId); return n ? n.text : ''; }
+  _neSet(t, sel, snapNow) { this.setState({ vt: Object.assign({}, this.state.vt, { buf: t, dirty: true }) }); if (sel) this._neSelPending = sel; this._neSnap(t, snapNow); clearTimeout(this._neSaveT); this._neSaveT = setTimeout(() => this._neFlush(), 1100); }
+  _neFlush() { clearTimeout(this._neSaveT); const V = this.state.vt; if (!V || !V.dirty || V.buf == null || !V.noteId || V.conflict) return; saveNote(this, V.noteId, V.buf); this.state.vt = Object.assign({}, this.state.vt, { dirty: false }); this.setState({ vt: Object.assign({}, this.state.vt, { dirty: false }) }); }
+  _neSnap(t, force) { const id = this.state.vt.noteId; const H = this._neHist[id] || (this._neHist[id] = { stack: [(noteById(this, id) || {}).text || ''], idx: 0, at: 0 }); const now = performance.now(); if (H.stack[H.idx] === t) return; if (!force && now - H.at < 700 && H.idx > 0) { H.stack[H.idx] = t; } else { H.stack = H.stack.slice(0, H.idx + 1).concat([t]).slice(-60); H.idx = H.stack.length - 1; } H.at = now; }
+  _neUndo(redo) { const id = this.state.vt.noteId; const H = this._neHist[id]; if (!H) return; const j = H.idx + (redo ? 1 : -1); if (j < 0 || j >= H.stack.length) { this._toast(redo ? 'Nothing to redo' : 'Nothing to undo'); return; } H.idx = j; H.at = 0; const t = H.stack[j]; this.setState({ vt: Object.assign({}, this.state.vt, { buf: t, dirty: true }) }); clearTimeout(this._neSaveT); this._neSaveT = setTimeout(() => this._neFlush(), 1100); }
+  _neInput(e) { const ta = e.target; this._neSet(ta.value, null, false); this._neAc(ta); }
+  _neAc(ta) {
+    if (!ta) return; const t = ta.value; if (ta.selectionStart !== ta.selectionEnd) { if (this.state.ac) this.setState({ ac: null }); return; }
+    const lq = linkQueryAt(t, ta.selectionStart); if (!lq) { if (this.state.ac) this.setState({ ac: null }); return; }
+    this.setState({ ac: { from: lq.from, to: lq.to, items: linkSuggestions(this, lq), sel: 0 } });
+  }
+  _neAcPick(i) {
+    const ac = this.state.ac; if (!ac) return; const it = ac.items[i]; if (!it) return;
+    const t = this._neText(); const rest = t.slice(ac.to); const close = /^[^\]\n]*\]\]/.exec(rest);
+    let nt, caret;
+    if (close) { const tail = rest.slice(close[0].indexOf('|') >= 0 ? close[0].indexOf('|') : close[0].length - 2); nt = t.slice(0, ac.from) + '[[' + it.target + tail; caret = ac.from + 2 + it.target.length + (tail.indexOf(']]') + 2); }
+    else { nt = t.slice(0, ac.from) + '[[' + it.target + ']]' + rest; caret = ac.from + it.target.length + 4; }
+    this.setState({ ac: null }); this._neSet(nt, { a: caret, b: caret }, true);
+  }
+  _neKey(e) {
+    const ac = this.state.ac;
+    if (ac && ac.items.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = ac.items.length; this.setState({ ac: Object.assign({}, ac, { sel: (ac.sel + (e.key === 'ArrowDown' ? 1 : n - 1)) % n }) }); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); this._neAcPick(ac.sel); return; }
+      if (e.key === 'Escape') { e.preventDefault(); this.setState({ ac: null }); return; }
+    }
+    const ta = e.target, t = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase(); const map = { b: 'bold', i: 'italic', u: 'underline', k: 'link', l: 'task', z: e.shiftKey ? 'redo' : 'undo', y: 'redo' };
+      if (k === 'e') { e.preventDefault(); this._noteMode(this.state.vt.mode === 'read' ? 'write' : 'read'); return; }
+      if (k === 's') { e.preventDefault(); this._neFlush(); this._toast('Saved'); return; }
+      if (map[k]) { e.preventDefault(); this._neTx(map[k]); return; }
+    }
+    if (e.key === '[' && a === b && t.charAt(a - 1) === '[') { e.preventDefault(); this._neSet(t.slice(0, a) + '[]]' + t.slice(b), { a: a + 1, b: a + 1 }, true); this._neAcAfter = true; return; }
+    if (e.key === 'Enter' && !e.shiftKey && a === b) {
+      const ls = t.lastIndexOf('\n', a - 1) + 1; const line = t.slice(ls, a);
+      const m = /^(\s*)([-*+] \[[ xX]\] |[-*+] |(\d+)\. |> )(.*)$/.exec(line);
+      if (m) {
+        e.preventDefault();
+        if (!m[4].trim()) { this._neSet(t.slice(0, ls) + t.slice(a), { a: ls, b: ls }, true); return; }
+        const mk = m[3] ? (+m[3] + 1) + '. ' : (/\[[ xX]\]/.test(m[2]) ? m[2].replace(/\[[xX]\]/, '[ ]') : m[2]);
+        const ins = '\n' + m[1] + mk; this._neSet(t.slice(0, a) + ins + t.slice(b), { a: a + ins.length, b: a + ins.length }, true); return;
+      }
+    }
+  }
+  _neTx(id) {
+    const V = this.state.vt; if (!V || !V.noteId) return;
+    if (id === 'undo' || id === 'redo') { this._neUndo(id === 'redo'); return; }
+    if (V.mode === 'read') { this._noteMode('write'); return; }
+    if (id === 'template') { this.setState({ neDlg: { kind: 'template' } }); return; }
+    const ta = this.noteTaRef.current; const t = this._neText(); const a = ta ? ta.selectionStart : t.length, b = ta ? ta.selectionEnd : t.length;
+    const line0 = t.lastIndexOf('\n', a - 1) + 1; const nl = a === line0 ? '' : '\n';
+    let r = null;
+    switch (id) {
+      case 'bold': r = MD_TX.wrap(t, a, b, '**'); break; case 'italic': r = MD_TX.wrap(t, a, b, '*'); break; case 'underline': r = MD_TX.wrap(t, a, b, '<u>', '</u>'); break;
+      case 'strike': r = MD_TX.wrap(t, a, b, '~~'); break; case 'highlight': r = MD_TX.wrap(t, a, b, '=='); break; case 'code': r = MD_TX.wrap(t, a, b, '`'); break;
+      case 'heading': r = MD_TX.linePrefix(t, a, b, '', true); break; case 'bullet': r = MD_TX.linePrefix(t, a, b, '- '); break; case 'number': r = MD_TX.linePrefix(t, a, b, '1. '); break;
+      case 'task': r = MD_TX.linePrefix(t, a, b, '- [ ] '); break; case 'quote': r = MD_TX.linePrefix(t, a, b, '> '); break;
+      case 'link': { const sel = t.slice(a, b); r = sel ? MD_TX.insert(t, a, b, '[[|' + sel + ']]', 2) : MD_TX.insert(t, a, b, '[[]]', 2); this._neAcAfter = true; break; }
+      case 'tag': { const sel = t.slice(a, b).trim().replace(/\s+/g, '-'); r = MD_TX.insert(t, a, b, '#' + sel); break; }
+      case 'callout': r = MD_TX.insert(t, a, b, nl + '> [!note] Title\n> ', (nl + '> [!note] Title\n> ').length); break;
+      case 'table': r = MD_TX.insert(t, a, b, nl + '| Column | Column |\n|---|---|\n|  |  |\n'); break;
+      case 'rule': r = MD_TX.insert(t, a, b, nl + '---\n'); break;
+    }
+    if (r) this._neSet(r.text, { a: r.a, b: r.b }, true);
+  }
+  _neTemplate(kind) {
+    const T = { settlement: '### General Info\n\n- **Size / Population:**\n- **Founding date / myth:**\n- **Ruling authority:**\n', landmark: '## Cultural Significance\n- Associated myths or legends:\n- Ritual use or forbidden status:\n', chronos: '```chronos\n- [400] Event | what happened\n= [412] Today\n```\n', faction: '## Relations\n\n| With | Stance | Since |\n|---|---|---|\n|  |  |  |\n' }[kind] || '';
+    const ta = this.noteTaRef.current; const t = this._neText(); const a = ta ? ta.selectionStart : t.length;
+    this.setState({ neDlg: null }); this._neSet(t.slice(0, a) + T + t.slice(a), { a: a + T.length, b: a + T.length }, true); this._toast('Inserted the ' + kind + ' template');
+  }
+  _vaultDidUpdate() {
+    const s = this.state, V = s.vt; if (!V || !V.open || !V.noteId) return;
+    const text = this._neText();
+    const rr = this.noteReadRef.current;
+    if (rr) { const key = text + '§' + notesOf(this).length + '§' + notesOf(this).map((n) => n.name).join('|'); if (rr !== this._neReadEl || key !== this._neReadKey) { rr.innerHTML = mdRender(text, this).html; this._neReadKey = key; this._neReadEl = rr; this._bindNoteRead(rr); } if (this._neJumpHead) { const h = this._neJumpHead; this._neJumpHead = null; const el = [...rr.querySelectorAll('h1,h2,h3,h4,h5,h6')].find((x) => x.textContent.trim() === h); const sc = this.noteReadScrollRef.current; if (el && sc) sc.scrollTop = el.offsetTop - 8; } }
+    const mr = this.noteMirrorRef.current; if (mr && (mr !== this._neMirEl || this._neMirText !== text)) { mr.innerHTML = mdHighlight(text); this._neMirEl = mr; this._neMirText = text; }
+    const ta = this.noteTaRef.current;
+    if (ta && this._neSelPending) { const p = this._neSelPending; this._neSelPending = null; try { ta.focus({ preventScroll: true }); ta.setSelectionRange(p.a, p.b); } catch (e) { } if (this._neAcAfter) { this._neAcAfter = false; this._neAc(ta); } }
+    if (ta && this._neFocusSoon) { this._neFocusSoon = false; setTimeout(() => { try { ta.focus({ preventScroll: true }); } catch (e) { } }, 40); }
+  }
+  _bindNoteRead(el) {
+    if (el._nb) return; el._nb = true; let lp = null, fired = false;
+    const toShell = (e) => { const root = this.rootRef.current; const r = root ? root.getBoundingClientRect() : { left: 0, top: 0, width: this._W() }; const k = this._W() / (r.width || 1); return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k }; };
+    el.addEventListener('pointerdown', (e) => { fired = false; const a = e.target.closest('[data-link]'); clearTimeout(lp); if (!a) return; const q = toShell(e); lp = setTimeout(() => { fired = true; this._haptic(); this.setState({ peek: { name: a.dataset.link, head: a.dataset.head || null, x: q.x, y: q.y } }); }, 480); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => el.addEventListener(ev, () => clearTimeout(lp)));
+    let hov = null; el.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const a = e.target.closest('[data-link]'); clearTimeout(hov); if (!a) return; const q = toShell(e); hov = setTimeout(() => this.setState({ peek: { name: a.dataset.link, head: a.dataset.head || null, x: q.x, y: q.y } }), 650); });
+    el.addEventListener('pointerout', () => clearTimeout(hov));
+    el.addEventListener('click', (e) => {
+      if (fired) { fired = false; e.preventDefault(); return; }
+      const a = e.target.closest('[data-link]'); if (a) { clearTimeout(hov); this._noteFollow(a.dataset.link, a.dataset.head || null); return; }
+      const tk = e.target.closest('[data-task]'); if (tk) { const L = this._neText().split('\n'); const i = +tk.dataset.task; const m = /^(\s*[-*+]\s+)\[([ xX])\]/.exec(L[i] || ''); if (m) { L[i] = L[i].replace(/^(\s*[-*+]\s+)\[([ xX])\]/, m[1] + (m[2] === ' ' ? '[x]' : '[ ]')); this._neSet(L.join('\n'), null, true); this._haptic(); } return; }
+      const g = e.target.closest('[data-tag]'); if (g) { this._vtSet({ view: 'list', q: '#' + g.dataset.tag, filter: 'all', side: true }); return; }
+      const y = e.target.closest('[data-year]'); if (y) { const yr = +y.dataset.year; this.setState({ year: yr, tlOpen: true }); this._toast('Timeline moved to year ' + yr); return; }
+      const x = e.target.closest('[data-ext]'); if (x) this._toast('Opens ' + x.dataset.ext + ' in your browser');
+    });
+  }
+
   /* ---------------- the cartwheel (tablet) ---------------- */
   _ringHover(p) {
     const R = this.state.ring; if (!R || R.sub) return; const L = this._L(); const ctr = ringCentre(this, R);
@@ -2425,6 +3097,10 @@ class Component extends DCLogic {
     if (s.modal) return this.setState({ modal: null });
     if (s.fan) return this.setState({ fan: null });
     if (s.qd) return this.setState({ qd: false, qdDrag: null });
+    if (s.peek) return this.setState({ peek: null });
+    if (s.neDlg) return this.setState({ neDlg: null });
+    if (s.ac) return this.setState({ ac: null });
+    if (s.vt && s.vt.open) { if (s.vt.sheet) return this._vtSet({ sheet: null }); if (this._mode() !== 'tablet' && s.vt.view === 'note') return this._noteBack(); return this._vaultClose(); }
     if (s.ring) return this.setState({ ring: null, tctx: null });
     if (s.hist) return this.setState({ hist: false });
     if (s.srch) return this.setState({ srch: false });
@@ -2436,7 +3112,7 @@ class Component extends DCLogic {
     if (s.tab) return this._back();
     this._toast('Back again leaves Cartalith (Android system back)');
   }
-  _openWin(id) { const s = this.state; const stack = s.win ? s.win.stack.concat([id]) : [id]; this.setState({ win: { stack }, dd: null, hamOpen: false, srch: false }); }
+  _openWin(id) { if (/^vault/.test(id)) return this._openVault(id.split(':')[1] || ''); const s = this.state; const stack = s.win ? s.win.stack.concat([id]) : [id]; this.setState({ win: { stack }, dd: null, hamOpen: false, srch: false }); }
   _openInspector() { if (this._mode() === 'tablet') this.setState({ rdockOpen: true }); else { const s = this.state; this.setState({ tab: s.sel ? 'sel' : 'ctx', det: 'half', sample: s.sample || this._s2w(this._hostWH().W / 2, this._hostWH().H / 2) }); } this._dirty = true; }
   _coachDone() { try { localStorage.setItem('cartalith.mobile.coach', 'done'); } catch (e) { } this.setState({ coach: false }); }
 
