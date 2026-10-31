@@ -74,6 +74,15 @@ No shell code changed. Owner questions PQ1…PQ9 are open. Read at the symbols a
 
 **The loading screen is kept everywhere.** `app.gd::_mount_busy_overlay` mounts `busy_overlay.gd` once for the desktop, the tablet and the phone. The mockups had drawn generation as progress rows only, and now draw the overlay on all three; `MISTAKES.md`'s mockup row records the omission. Mockup checks (Chromium): the desktop flows pass without page errors, every tablet and phone target stays at least 44 dp, and the vault and quick-bar flows still pass.
 
+**The assistant's action catalogue: a proposal, nothing built (2026-10-31).** The owner asked how to make every Cartalith action available to the assistant without burying the model in tokens. `ASSISTANT_ACTIONS_PROPOSAL.md` answers it. Re-checked at the symbols:
+- 13 tools are declared in `cartalith-llm`;
+- `params_flow.rs::MAX_TURNS` = 5;
+- `llm_stream.rs::MAX_TOKENS_RANGE` = (16, 8192);
+- `anthropic.rs` drops server tool blocks;
+- no `is_session_mode()` call is in `llm_assistant_window.gd` or `world_workspace.gd`'s regenerate path.
+
+Owner questions AQ1…AQ6 are open.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.
