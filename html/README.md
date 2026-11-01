@@ -1,41 +1,51 @@
 # `html/` — a working copy of the DCC-line HTML, for the owner to move into Cartalith_RC
 
-This folder is **not** part of the native port. It holds the next DCC-line version of the single-file HTML app
-(`Cartalith v2.72 DCC test.html`), built here at the owner's request — *"Can we upgrade the layout in the html
-with the new design?"*, then *"A working copy in this repo"* and *"Everything, staged"* — so that the owner can
-move it into its home repository, **Cartalith_RC**, by hand. Nothing here is read by the Rust workspace or the
-Godot project, and Cartalith_RC's own root `CLAUDE.md` governs the file once it lands there.
+This folder is **not** part of the native port. It holds the next DCC-line versions of the single-file HTML app,
+built here at the owner's request — *"Can we upgrade the layout in the html with the new design?"*, then *"A working
+copy in this repo"* and *"Everything, staged"* — so that the owner can move each into its home repository,
+**Cartalith_RC**, by hand. Nothing here is read by the Rust workspace or the Godot project, and Cartalith_RC's own root
+`CLAUDE.md` governs a file once it lands there.
 
-The file started as a byte copy of Cartalith_RC's `Cartalith v2.71 DCC test.html` (commit `aca222c` here; the
-same bytes are frozen in `reference/`), so `git diff aca222c -- html/` shows exactly what v2.72 changed.
+`Cartalith v2.72 DCC test.html` started as a byte copy of Cartalith_RC's `Cartalith v2.71 DCC test.html` (commit
+`aca222c` here; the same bytes are frozen in `reference/`), so `git diff aca222c -- html/` shows what v2.72 changed.
+`Cartalith v2.73 DCC test.html` started as a byte copy of v2.72 (commit `61ccab5`), so `git diff 61ccab5 -- html/`
+shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 
 ## What is here
 
 | Path | What it is | Where it goes in Cartalith_RC |
 |---|---|---|
-| `Cartalith v2.72 DCC test.html` | the app, v2.72 (DCC line) — stage 1 of the shell upgrade: the desktop shell | the repository root, beside `Cartalith v2.71 DCC test.html` (keep v2.71: old versions are never edited or removed) |
-| `tests/perf/probe_desktopshell.js` | the Playwright probe for this version (usage in its header) | `tests/perf/probe_desktopshell.js` |
-| `CHANGELOG_v2.72.md` | the `## v2.72 (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, above `## v2.71 (DCC line) — …` |
-| `CLAUDE_v2.72.md` | two pastes for the root `CLAUDE.md`: the new file-table row (and the one phrase to change in v2.71's row), and the `### … (v2.72, DCC-line file only)` section | as that file says: the row above v2.71's, the section above v2.71's section |
-| `evidence/v2.72/*.png` | screenshots: v2.72 at 1366×768, 1600×900, 1920×1080 and 2560×1440 (dark), 1600×900 (light), File ▸ Export and the sculpt bar at 1600×900, the phone at 412×915, v2.71 at 1600×900, and the design board's 1600×900 frame (shot in a 1600×1000 window, since the board draws its own toolbar above the frame) | review only; Cartalith_RC needs none of them |
+| `Cartalith v2.73 DCC test.html` | the app, v2.73 (DCC line) — stage 2 of the shell upgrade: the phone and tablet shells | the repository root, beside v2.72 |
+| `Cartalith v2.72 DCC test.html` | the app, v2.72 (DCC line) — stage 1: the desktop shell | the repository root, beside `Cartalith v2.71 DCC test.html` (keep v2.71) |
+| `tests/perf/probe_mobileshell.js` | v2.73's Playwright probe: the three classes, the phone shell, DS-13, the gestures, the tablet, the docking rule (usage in its header) | `tests/perf/probe_mobileshell.js` |
+| `tests/perf/probe_desktopshell.js` | v2.72's Playwright probe (usage in its header) | `tests/perf/probe_desktopshell.js` |
+| `CHANGELOG_v2.73.md`, `CHANGELOG_v2.72.md` | each version's `## v2.7x (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, v2.72's first, then v2.73's above it |
+| `CLAUDE_v2.73.md`, `CLAUDE_v2.72.md` | each version's two pastes for the root `CLAUDE.md`: the file-table row (and the phrase to change in the previous row) and the `### … (v2.7x, DCC-line file only)` section | as each file says, v2.72's first |
+| `evidence/v2.73/*.png` | 14 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer, the domain sheet, the domain fan, MENU, the sculpt strip with ✋, the long-press card, left-handed), STORY › Time at 360×780, the landscape phone at 844×390, the tablet at 1194×834 (the Context panel floating, open) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 700×900 (the narrow bar, the left dock floating, open) and 1366×768 | review only; Cartalith_RC needs none of them |
+| `evidence/v2.72/*.png` | v2.72's screenshots (the desktop at four sizes, light and dark, File ▸ Export, the sculpt bar; the phone at 412×915; v2.71; the design board) | review only |
 
 ## The stage plan
 
-1. **Stage 1 — this version: the desktop shell** (windows wider than 860px). The menu bar with the eight menus,
-   the tool-options bar holding the armed tool's settings only (Ruling DZ), Run in the WORLD dock, the rail on
-   the left, the Context panel (Inspect), the timeline strip in every domain, the restyled status bar and map
-   controls. A phone (860px and narrower) keeps v2.71's layout exactly.
-2. **Stage 2 — the phone and tablet shells**, from `MOBILE_SHELL_PROPOSAL.md` and `MOBILE_SHELL_MS1_SPEC.md`.
-   The `_DSK_SLOTS` table is where a control's phone home is decided, so stage 2 starts there.
+1. **Stage 1 — v2.72: the desktop shell** (then: windows wider than 860px). The menu bar with the eight menus, the
+   tool-options bar holding the armed tool's settings only (Ruling DZ), Run in the WORLD dock, the rail on the left,
+   the Context panel (Inspect), the timeline strip in every domain, the restyled status bar and map controls.
+2. **Stage 2 — v2.73: the phone and tablet shells**, from `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5, §3, §4 and Rulings DT,
+   DU, DX, DY, EB. One decider for the class (phone under 600px wide or under 500px tall in landscape; tablet for any
+   other coarse primary pointer; desktop for a fine one), CSS keyed on `html[data-shell]`, the slot table generalised
+   to every shell; the phone's bottom bar, app bar, sheet, MENU, STORY, tool strip, quick drawer on a grip (the
+   owner's "pull-out tab") and long-press card; DS-13 and Handedness; the touch gestures; the tablet's touch sizing,
+   drill-in menus and narrow bar; the docking rule on the desktop and the tablet.
 3. **Stage 3 — the Context panel's modules and the journey planner in its own window** (`PC_SHELL_PROPOSAL.md`
-   §3.3, §3.7), with the selection history (back, forward, pin) and Explore's journeys rehomed.
+   §3.3, §3.7), with the selection history (back, forward, pin) and Explore's journeys rehomed — after which EXPLORE
+   stops being a domain (the phone's domain tab and fan list it until then).
 
 ## Moving it
 
-1. Copy `Cartalith v2.72 DCC test.html` to Cartalith_RC's root and `tests/perf/probe_desktopshell.js` to its
-   `tests/perf/`.
-2. Paste `CHANGELOG_v2.72.md` (from its `## v2.72` heading down) at the top of `CHANGELOG.md`.
-3. Make the two `CLAUDE.md` edits `CLAUDE_v2.72.md` describes.
+1. Copy `Cartalith v2.72 DCC test.html` and `Cartalith v2.73 DCC test.html` to Cartalith_RC's root, and
+   `tests/perf/probe_desktopshell.js` and `tests/perf/probe_mobileshell.js` to its `tests/perf/`.
+2. Paste `CHANGELOG_v2.72.md`, then `CHANGELOG_v2.73.md` (each from its `## v2.7x` heading down) at the top of
+   `CHANGELOG.md`, so v2.73's entry ends up first.
+3. Make the `CLAUDE.md` edits `CLAUDE_v2.72.md` describes, then those `CLAUDE_v2.73.md` describes.
 4. Run the checks below from Cartalith_RC's root.
 
 ## Verifying it (from Cartalith_RC's root, after moving)
@@ -43,45 +53,48 @@ same bytes are frozen in `reference/`), so `git diff aca222c -- html/` shows exa
 The headless suites and the render A/B (none of them can see the shell; they prove the engine did not move):
 
 ```bash
-tests/run.sh "Cartalith v2.72 DCC test.html"        # expect 1280 passed, 0 failed (the same as v2.71)
-tests/run_um.sh "Cartalith v2.72 DCC test.html"     # expect 882 passed, 0 failed
-node tests/perf/hash_gen1.js "Cartalith v2.71 DCC test.html" "Cartalith v2.72 DCC test.html"   # expect ALL IDENTICAL
+tests/run.sh "Cartalith v2.73 DCC test.html"        # expect 1280 passed, 0 failed (the same as v2.71 and v2.72)
+tests/run_um.sh "Cartalith v2.73 DCC test.html"     # expect 882 passed, 0 failed
+node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DCC test.html"   # expect ALL IDENTICAL
 ```
 
-The shell itself, by real clicks and measured geometry (the second file makes the phone half compare against
-v2.71's own geometry):
+The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 
 ```bash
-node tests/perf/probe_desktopshell.js "Cartalith v2.72 DCC test.html" "Cartalith v2.71 DCC test.html"
+node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 159 passed, 0 failed
+node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 88 fail, by design
+node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
+
+`probe_desktopshell.js` on v2.73 fails four, all by design (CHANGELOG v2.73 classifies them): the two version checks
+(v2.72 → v2.73) and its two phone sections, which pin v2.71's phone (the ☰ drawer, the document bar) that stage 2
+replaced. Every desktop assertion passes unchanged.
 
 Every Playwright script reads `PLAYWRIGHT_DIR` and `CHROME_BIN` as the other probes in that folder do; unset
 `CHROME_BIN` if its default path does not exist on the machine.
 
-RC's own probes that query a header, tool-options, rail, dock, timeline, status or modal id were run on v2.71
-and v2.72 before this was handed over; the CHANGELOG entry and the lane report classify every difference. To
-repeat them:
+RC's own shell probes were run on v2.72 and v2.73; the CHANGELOG v2.73 entry classifies every difference. To repeat
+them:
 
 ```bash
-for p in shellui domainrail cogmodal assetsbtn geninfo worldreset settleparams typepreview savetree civbusy \
-         manpower trade landmass landsurface roadconnect foodshed placement water_gap; do
-  NODE_OPTIONS=--max-old-space-size=8192 node tests/perf/probe_$p.js "Cartalith v2.72 DCC test.html"
+for p in shellui domainrail cogmodal assetsbtn settleparams geninfo worldreset typepreview; do
+  NODE_OPTIONS=--max-old-space-size=8192 node tests/perf/probe_$p.js "Cartalith v2.73 DCC test.html"
 done
 ```
 
-Expected on v2.72: four assertions differ from v2.71, all intended (the CHANGELOG entry names each);
-`probe_savetree` needs the larger heap on v2.71 too (it ran out at node's default 2 GB here on both files);
-`probe_civbusy` opens its file under `/home/user/Cartalith_RC/`, so run it from a clone at that path.
+## What still needs a person at a real device
 
-## What still needs a person at a real browser
-
-- **Ctrl+R, Ctrl+S, Ctrl+O** (Cmd on macOS): the page calls `preventDefault`, and headless Chromium has no
-  reload or save accelerator to prove it wins against. Press each once in Chrome, Firefox and Safari with a
-  world open: Ctrl+R must generate and must not reload, Ctrl+S must download the project .zip, Ctrl+O must open
-  the file picker.
-- **The 3D view from Window ▸ 3D view** with real WebGL (headless runs the software path).
-- **A touch screen wider than 860px**: ✋ shows in the map's bottom-right column only for a coarse pointer, and
-  the pan joystick sits just above that column.
-- **A screen reader over the menu bar** (menu buttons carry `aria-haspopup`/`aria-expanded`; rows are buttons).
-- **Resizing a window across 860px** by hand: the probe crosses it headless, and a real browser's resize is
-  worth one look.
+- **Touch on glass** (MS-10): the hold (480ms phone, 500ms tablet), the tap's 240ms wait for a double-tap, the
+  double-tap's ×1.7, thumb zoom's 120px per doubling, the domain tab's 380ms hold and its swipe, the grip's drag, and
+  the sheet's drag between detents — on the OnePlus 6T and a tablet, in both hands.
+- **The safe-area insets**: a phone with a notch and a gesture bar (headless reads every `env(safe-area-inset-*)` as 0).
+- **An on-screen keyboard on a landscape tablet**: typing in Find must not flip the tablet into the phone shell (the
+  decider's keyboard guard).
+- **Android's own long-press menu, and the click after a fling**: both are handled in code and only provable on a
+  device.
+- **Rotating a real phone** between portrait and landscape with the sheet open.
+- **Ctrl+R, Ctrl+S, Ctrl+O** on the desktop (v2.72's list), **the 3D view** with real WebGL, and **a screen reader**
+  over the menu bar, the phone's bar, sheet and fan.
+- **The pending owner questions** — DS13-Q1, DS13-Q2 and thumb zoom with a drawing or placing tool — are built at
+  their stated defaults and labelled pending; the owner's answers may change three functions (`_ds13DrawKey`,
+  `_tchDown`'s tap branch, `_tchThumbOn`).
