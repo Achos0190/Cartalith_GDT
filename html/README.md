@@ -53,7 +53,7 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 The headless suites and the render A/B (none of them can see the shell; they prove the engine did not move):
 
 ```bash
-tests/run.sh "Cartalith v2.73 DCC test.html"        # expect 1280 passed, 0 failed (the same as v2.71 and v2.72)
+tests/run.sh "Cartalith v2.73 DCC test.html"        # expect 1280 passed, 0 failed (re-run once if the bathymetry-variance check flakes — CHANGELOG v2.73)
 tests/run_um.sh "Cartalith v2.73 DCC test.html"     # expect 882 passed, 0 failed
 node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DCC test.html"   # expect ALL IDENTICAL
 ```

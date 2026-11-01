@@ -14,6 +14,12 @@ menu bar at 1194 and 1366, ± stepping 1.35 and ⌖ fitting, a tap selecting, a 
 tool armed, the bar not overlapping at 600 and 768, the desktop's docks and zoom column at 1366, a mouse drag not
 panning, and no page errors).
 
+- **A flaky suite assertion, disclosed not fixed.** One `tests/run.sh` run of the final bytes failed *"smoothed
+  bathymetry variance <= raw seabed variance (9.0e-3 <= 8.9e-3)"*; the next three runs of the same bytes passed
+  1280/0. That test builds its world on an unpinned seed — its two variances moved between 4.1e-3 and 1.2e-2 across
+  runs of both v2.72 (4.7e-3, 1.2e-2, 4.1e-3) and v2.73 (5.3e-3 to 9.0e-3) — and `test_tail.js`'s own comment there
+  records it failing about one run in three on v1.30–v1.32. No engine line moved (`hash_gen1.js` ALL IDENTICAL). If it
+  goes red, re-run before believing it, as for v2.25's SST assertion.
 - **ONE decider for the layout class (`_shellClassOf`).** MQ-1, answered by Ruling DY item 13: *under 600 wide is
   a phone; under 500 tall in landscape is a phone landscape; everything else is a tablet* — CSS px for dp. This file
   adds the third class the native shell does not need: a window that is not a phone and whose PRIMARY pointer is fine
