@@ -71,7 +71,9 @@ token against Ollama's own `prompt_eval_count`. They are estimates, not measurem
 
 The owner's Local reference setup runs a context of **8 192** (`cartalith-native/docs/evidence/llm-live-2026-10-26/REPORT.md`, "ctx 8192"). `llm_stream.rs`
 caps a reply at `MAX_TOKENS_RANGE` = (16, 8192), and no request-size guard exists. **The present design is already at
-the edge of a local window, with about 120 parameters and a handful of view verbs.**
+the edge of a local window, with about 120 parameters and a handful of view verbs.** *(Measured by AC-0, 2026-10-31,
+with real tokenizers: the worst case above is 6 617 to 7 097 tokens, not 6.3k, and the first turn 1 914 to 2 038. See
+`cartalith-native/docs/evidence/assistant-actions-ac0-2026-10-31/REPORT.md`.)*
 
 **What "every action" means.** These sources would have to be reachable:
 

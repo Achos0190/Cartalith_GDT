@@ -294,7 +294,14 @@ The owner allowed it on 2026-10-31. It is pure functions in `cartalith-vault`, p
 - **The portable drive-letter rule.**
 
 The commit that adds these, and what was tested, is recorded in STATUS.md, not here. The GDScript rewiring is the
-milestones below.
+milestones below. Where to find them:
+- **Modules:** `notelinks.rs` (spans, the `Resolver`, rename planning), `noteedit.rs` (headings, tasks, tags, words,
+  mentions), `frontmatter.rs`, `suggest.rs`, and the private `textscan.rs`.
+- **The bridge:** 17 `vault_*` functions in `vault_bridge.rs`.
+
+One gap the build found and this design must carry: **on Android a rename needs a `move` operation** in the Storage
+Access Framework handler (`vault_saf.rs`). It has none, so until it does, rename refuses there rather than half-moving
+a note.
 
 ## 7. Milestones
 
