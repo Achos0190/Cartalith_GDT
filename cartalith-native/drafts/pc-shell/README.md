@@ -36,7 +36,7 @@ rows in the same change as the move, and Q breaks if 03 and 09 are split.
 |---|---|---|---|---|
 | 0 | `check_symbols.sh` | none | re-checks every draft against the current tree; run it first | |
 | 1 | `01_menus_ids_helpers.gd` | `shell/menus.gd` | adds `ID_EDIT_SELECT_BACK` … `ID_WIN_CTX_FOLLOW` (910-918), `_host_has()`, `_context_tab_ready()`, `_typed_into_field()`, `cartwheel_keycode()` | everything |
-| 2 | `02_menus_world.gd` | `shell/menus.gd` | `build()`'s non-tablet World line; replaces `_data()` and `_on_data()`; adds `_pc_world()`, `_open_factions()`, `RUN_PIPELINE_TIP`; edits `_build_vault_rows()`, `_world()`'s tooltip, `SESSION_MODE_TIP` | |
+| 2 | `02_menus_world.gd` | `shell/menus.gd` | `build()`'s non-tablet World line (not needed when `drafts/mobile-shell/08` replaces `build()`: its whole bar already uses `_pc_world`); replaces `_data()` and `_on_data()`; adds `_pc_world()`, `_open_factions()`, `RUN_PIPELINE_TIP`; edits `_build_vault_rows()`, `_world()`'s tooltip, `SESSION_MODE_TIP` | |
 | 3 | `03_menus_edit.gd` | `shell/menus.gd` | edits `_build_edit_actions()` (Deselect's tooltip; two insertions) and `_edit()`; adds `_build_selection_rows()`, `_build_map_surface_rows()`, `_on_edit_selection()`, `_deselect_tip()` | **08, 09** |
 | 4 | `04_menus_story.gd` | `shell/menus.gd` | replaces `_story()`, `_refresh_story_menu()`, `_on_story()` (each with its doc); adds `_story_forms`, `_story_selection()` and their constants | |
 | 5 | `05_menus_window.gd` | `shell/menus.gd` | edits `_window()`'s region loop, `_layout_readout()`, `_open_windows`' comment; replaces `_refresh_open_windows()`, `_on_open_window()`; adds `_region_label()`, `_build_context_panel_menu()`, `_on_context_panel()`, `_visible_windows()` | |

@@ -13,7 +13,7 @@ How far any milestone has got is `cartalith-native/docs/STATUS.md`'s answer, nev
 
 **Not parse-checked.** The cloud session that wrote these had no Godot binary, and downloading one was not permitted. Every shipped
 symbol the drafts call was checked to exist, and every new name was checked to be free in its target file. `check_symbols.sh` repeats
-both checks: 88 calls, none missing; no collisions. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
+both checks: 93 calls (88 until the 2026-11-01 menu parity fixes to drafts 05 and 08), none missing; no collisions. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
 
 ```
 godot --headless --path cartalith-native/godot-project --check-only --script res://shell/<file>.gd
@@ -29,12 +29,12 @@ Then parse-check `shell/app.gd` as well. Re-run the parse check after every edit
 | 0 | `check_symbols.sh` | — | — | re-checks the drafts against the current tree | nothing; run it first |
 | 1 | `01_dcc_theme_classify.gd` | MS-1 S1 | `shell/dcc_theme.gd` | adds `classify()`, `width_class_of()`, `layout()`; takes over `_PHONE_ASPECT_MAX` and `_TABLET_MIN_DP` from the shell | nothing |
 | 2 | `02_dcc_shell_density_unit.gd` | MS-1 S1, S2, S3 | `shell/dcc_shell.gd` | replaces `_compute_layout_mode()`, `_is_tablet_sized()` and `_on_window_resized()`; adds `_density()`, `--density`, `--ui-scale`, `_apply_unit()` and the resize debounce | S0's measurements before S2 (spec §4.1); MQ-2 and MQ-3 before S2 |
-| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe | drafts 4 and 5 |
+| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe; renames the old tabs in two drawn strings (EDIT H1 in `shell/phone_menu.gd::_fill_help()`, H2 the coach mark, added 2026-11-01) | drafts 4 and 5 |
 | 4 | `04_phone_domain_fan.gd` | MS-2 | new `shell/phone_domain_fan.gd` | the domain fan: WORLD · GENERATE, CIVIL, CARTO | nothing |
-| 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()`; adds the `world` and `story-root` screens and `open_story()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` | nothing |
+| 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()`, `_fill_story_section()` (the Story screen's four band rows, without the old root's "Story" and "World" heads) and `_fill_popup()` (a leading captioned separator is kept as a band); adds the `world` and `story-root` screens and `open_story()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` | nothing |
 | 6 | `06_quick_drawer.gd` | MS-11 | new `shell/quick_drawer.gd` | the phone's side drawer of pinned commands | Q10 and Q11 (proposal §7) |
 | 7 | `07_quick_bar_phone_drawer_patch.gd` | MS-11 | `shell/quick_bar_phone.gd`, `shell/dcc_shell.gd` | replaces `QuickBarPhone.refresh()`; adds `set_phone_quick_drawer()` and the back hook | draft 6 |
-| 8 | `08_menus_tablet_bar.gd` | MS-7 (menu bar) | `shell/menus.gd` | replaces `build()`: eight menus from 1 180 dp | draft 1; MS-1 S4 for a live switch across 1 180 dp |
+| 8 | `08_menus_tablet_bar.gd` | MS-7 (menu bar) | `shell/menus.gd` | replaces `build()`: eight menus from 1 180 dp, World being the PC's (`_pc_world()`) on the desktop, the phone and the wide tablet | draft 1; `drafts/pc-shell/` 01 and 02 (they add `_pc_world()`); MS-1 S4 for a live switch across 1 180 dp |
 
 Drafts 3 to 8 do not depend on MS-1's unit; they size themselves through the shell's existing `_pscale()`, `_pfont()` and
 `phone_scale()`. They can land before S2 if the owner prefers the menus first.
@@ -105,7 +105,8 @@ a usage header that names exactly the arguments it reads. Every new probe must f
   - Tap and drag open the drawer; the scrim, a drag back and system back close it.
   - The drawer sits under the sheet and the bar at every detent.
 - **Draft 8:**
-  - At 1 180 dp and wider, the tablet shows the eight menus.
+  - At 1 180 dp and wider, the tablet shows the eight menus, and World is the PC's: Generate world · Ctrl+R first, no second Reset generation parameters or Reset one stage (they are in Edit).
+  - The desktop's World starts with Generate world (this `build()` replaces the shipped one, so it must carry the PC drafts' World).
   - Below that it shows `☰ · File · World · Story`.
   - Every ☰ row is reachable in the eight-menu form.
   - The PC's framebuffer is unchanged (B9).

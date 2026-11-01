@@ -9,6 +9,21 @@
 ## The documents that name the old tabs `MAP · GENERATE · PLAN · MORE` are corrected in the same change
 ## (Ruling DT: `ANDROID_UI_SPEC.md` §0.3, `DESIGN_HANDOFF.md`).
 ##
+## **So are two strings the app draws** (added 2026-11-01 by the menu parity check,
+## `cartalith-native/docs/evidence/menu-parity-2026-11-01/`; found with
+## `grep -rn "GENERATE · PLAN" --include=*.gd cartalith-native/godot-project`):
+##   EDIT H1  `shell/phone_menu.gd::_fill_help()`, the closing `_info` line (MENU ▸ Help on the phone):
+##              OLD  + "function is reachable through MAP · GENERATE · PLAN · MORE.")
+##              NEW  + "function is reachable through MAP · DOMAIN · STORY · MENU.")
+##            The new words are the mockup's own: `design/mobile-shell-2026-10-31/Shell.dc.html`, `winRows()`,
+##            case `'about'`, whose info row carries this sentence. Whether the line stays in Help or moves into
+##            About, as the mockup draws it, is owner question P1 in that folder's REPORT.md.
+##   H2       `shell/dcc_shell.gd`'s `_COACH_MARKS` row `bottombar_tabs` ("MAP · GENERATE · PLAN switch tasks here
+##            — MORE reaches everything else."). The mockup has no coach marks, so its new wording is MS-2's to
+##            write. `_coachcoldboot_probe.gd` and `_pandraghint_probe.gd` pin the old text (`BOTTOMBAR_TEXT`).
+## The same grep finds the words in five comments (`phone_menu.gd` twice, one of them in the band draft 05
+## retires; `dcc_icons.gd`; `dcc_shell.gd`'s `PHONE_TABS` note; `_phonemore_reach_probe.gd`'s header). Correct those too.
+##
 ## NOT parse-checked (no Godot binary in the session that wrote it). It depends on draft 04
 ## (`shell/phone_domain_fan.gd`) and on draft 05's `PhoneMenu.open_story()`.
 

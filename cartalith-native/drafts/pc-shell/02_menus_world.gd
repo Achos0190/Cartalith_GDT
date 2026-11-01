@@ -21,7 +21,10 @@
 ##                shell.add_menu("World", _data)
 ##            with
 ##                shell.add_menu("World", _pc_world)
-##            (same two tabs of indentation).
+##            (same two tabs of indentation). **If `drafts/mobile-shell/08_menus_tablet_bar.gd` is applied, skip
+##            this**: 08 replaces `build()` whole and its whole bar already uses `_pc_world` (corrected
+##            2026-11-01, when the menu parity check found 08's `build()` brought back `_data` and dropped
+##            Generate world from the desktop).
 ##   ADD      `_pc_world()`, `RUN_PIPELINE_TIP`, `FACTIONS_TIP`, `FACTIONS_CURRENT_TIP`,
 ##            `TIMELINE_MOVED_SIGNPOST` and `_open_factions()` (below), beside `_data()`.
 ##   REPLACE  `_data()`'s FUNCTION (from `func _data(p: PopupMenu) -> void:` down to and including
