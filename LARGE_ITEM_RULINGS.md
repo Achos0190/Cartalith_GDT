@@ -2980,7 +2980,11 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
    - **The measurement behind it,** taken after fix F1 (`RIVER_GATE_MEASUREMENTS.md`):
      - a discharge OR would take navigable cells from 73 737 to 159 641 at 512×328;
      - only 271 cells of high-discharge river are still below order 3;
-     - discharge alone would add 1 200 to 2 000 small fans per world.
+     - discharge alone would add 1 246 to 1 977 small fans per map shape, pooled over that shape's twelve seeds, and 105
+       on the owner's world.
+       - *Corrected the same day:* the question put to the owner said "about 1 200 to 2 000 small fans per world". The
+         figures are per shape, pooled over twelve seeds, not per world.
+       - The answer's direction holds: discharge alone would mostly add fans on small order-1–2 streams.
    - **Rows to close:** the rivers-in-map row and the River Transport row stop reading "awaiting the owner".
    - **Not measured:** `RIVER_GATE_MEASUREMENTS.md`'s "what would move" table misses a third reader of
      `NAVIGABLE_ORDER`, `landmark.rs::pool_portage`. With no change made, nothing moves.
@@ -3011,7 +3015,8 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
 **3D, colour paint and EF-9 (§4 items 8 to 10; they had run on their defaults)**
 12. **3D Q3, shading once terrain shows (3D-4): "Lit, map shading a toggle away".** 3D-4 shows frames of both.
 13. **3D Q5, phones: "Let the speed check decide".**
-    - The capability gate (3D-0) offers 3D on a phone only where the device measures smooth enough.
+    - The capability gate, built in 3D-1 after 3D-0's measurement, offers 3D on a phone only where the device measures
+      smooth enough.
     - It is calibrated on the OnePlus 6T in the owner's device pass. The 6T has not been measured in 3D yet.
 14. **3D, the rest: "Keep all, add the slider row".**
     - **Confirmed at their defaults:**
@@ -3041,7 +3046,8 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
     - **Q6 dropped:** the long-press it waited on was settled by Ruling AX F1 on 2026-09-26.
 16. **EF-9 on the Performance tier: "Keep it off on Performance".**
     - 'Performance' stays the cheap tier for good: `lod_worker.rs::budget_for_tier`, `ef9_refine` false there.
-    - **Premise corrected:** phones do not run Performance.
+    - **Premise corrected:** phones start on Quality, not on Performance. A saved project restores the tier it was saved
+      on (`project_bridge.rs`), so a phone runs Performance only if someone chose it.
       - `WorldGen` starts on Quality on every device (`quality: QualityTier::Quality`), and
         `recommended_quality_tier` is applied nowhere. So the 6T already runs EF-9.
       - The 6T timing in the owner's device pass is pointed at Quality.

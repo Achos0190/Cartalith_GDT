@@ -705,6 +705,11 @@ only what's visible" (2026-08-31, `LARGE_ITEM_RULINGS.md`):
   phone MORE ▸ Window), and rehoused the FAB as a `3D`/`2D` pill at the end of
   the phone navpad row. The pill is phone-only: on a tablet the map sits
   between two docks and a fifth pill pushed the row past the map's edge.)*
+  *(Confirmed by the owner 2026-11-01, Ruling EA item 14: both departures
+  stand. The approved PC menus keep `Window ▸ 3D view` as the menu home. The
+  phone-only pill is interim: the approved mobile shell moves it into the
+  phone's MAP view row (`MOBILE_SHELL_PROPOSAL.md`, the MAP tab's view row,
+  "2D/3D").)*
 - **Rows that become live.** These rows already exist and are disclosed as
   unavailable today:
   - `Preferences ▸ Graphics ▸ 3D viewport defaults` (relief exaggeration,
@@ -843,7 +848,12 @@ the owner may move any of them:
 **The 6T's tier is unknown until 3D-0(c) runs.** Godot's documentation makes
 it a Mobile-class device (§2.3), and in the 2D app it holds 60 fps at the
 Performance tier (`ANDROID_BUILD_SCOPE.md`, "In-app Performance readout").
-Neither is a 3D measurement.
+Neither is a 3D measurement. *(Corrected 2026-11-01, after Ruling EA
+item 16: "In-app Performance readout" there is the app's performance
+readout (frame rate, memory, GPU stages), not the Performance quality tier,
+and it records no tier. Every device starts on the Quality tier: `WorldGen`'s
+`quality` starts as `QualityTier::Quality`, and `recommended_quality_tier` is
+applied nowhere.)*
 
 ---
 
@@ -1038,43 +1048,70 @@ The metrics are LOD-D0's wherever one exists.
 `Adreno` and `Aletsch`. Only the 2026-08-31 rows, Ruling K and Ruling AZ
 touch 3D, and none of them answers Q1 to Q10.
 
+*All ten are now answered, and each answer is marked below: Q10 by Ruling CS
+item 4 and Q4 by Ruling CT (both 2026-10-19), and the other eight by Ruling EA
+items 12 to 14 (2026-11-01), each at its default. The questions are kept as
+they were asked.*
+
 1. **Q1. Which reading of "with vertices"?**
    - **Default: V1.** The display mesh is displaced from the raster's tiles
      and the simulation stays a raster (§1).
    - V3, a vertex world, would overturn the elevation-field architecture and
      the parity contract.
+   - **Answered (Ruling EA item 14, 2026-11-01): V1, the default.** It was
+     already recorded in `DECISIONS.md` §4a.
 2. **Q2. The renderer.**
    - **Default: stay on `gl_compatibility`.** Revisit only if 3D-0(a)
      attributes the device loss and it is fixed. GPU-driven culling stays
      deferred until then.
+   - **Answered (Ruling EA item 14, 2026-11-01): `gl_compatibility`, the
+     default.** It was already recorded in `DECISIONS.md` §4a.
 3. **Q3. Lit or map-shaded by default** (from Standard up).
    - **Default: lit**, with the 2D hillshade suppressed and "Map shading (as
      2D)" one toggle away.
    - Basic is always map-shaded.
+   - **Answered (Ruling EA item 12, 2026-11-01): "Lit, map shading a toggle
+     away", the default.** 3D-4 shows frames of both.
 4. **Q4. Vertical exaggeration.**
    - **Default:** the existing `Preferences ▸ Graphics ▸ relief exaggeration`
      value, with a live slider in 3D. The measure tools always report true
      values.
+   - **Answered (Ruling CT, 2026-10-19): true scale, 1.0×**, not 2D's 3.4×
+     relief default, which draws needles (§8.3). 3D-1 ships
+     `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Ruling CT did not cover the
+     live slider; Ruling EA item 14 (2026-11-01) made it a small backlog row
+     (`OUTSTANDING_WORK.md` §2.5).
 5. **Q5. The phone.**
    - **Default:** the gate decides. Expect Basic until 3D-7 measures.
    - "Off on every phone" is the other legitimate choice.
+   - **Answered (Ruling EA item 13, 2026-11-01): "Let the speed check
+     decide", the default.** The capability gate offers 3D on a phone only
+     where the device measures smooth enough. It is calibrated on the
+     OnePlus 6T in the owner's device pass (3D-7); the 6T has not been
+     measured in 3D yet.
 6. **Q6. Overlays in the first release.**
    - **Default:** settlements, icons and labels in 3D-6. Roads, borders and
      routes come in the same milestone, after them.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 7. **Q7. Editing in 3D.**
    - **Default:** read-only tools only (context card, measure). Brushes and
      selections are disabled with a reason and filed as a later row.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 8. **Q8. Rivers.**
    - **Default:** painted into the drape (Ruling BU). Ribbons only for a
      vector-line look, later.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 9. **Q9. The entry camera.**
    - **Default:** top-down at the current 2D view, then tilt (Ruling K's
      top-down target). Orbit is the default mode after entry.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 10. **Q10. Approving this scope, and `DECISIONS.md` §4.**
     - **Default:** on approval, record a new `DECISIONS.md` entry. It would say
       that §4's timing reason is satisfied, that its cost reason stands, and
       that it is paid by this staged, gated plan. 3D-0 is then scheduled.
     - Until approval, nothing is built and §4 stands.
+    - **Answered (Ruling CS item 4, 2026-10-19): approved**, with
+      `DECISIONS.md` §4a recorded beside §4 and 3D-0 scheduled.
 
 ---
 

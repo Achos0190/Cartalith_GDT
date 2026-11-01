@@ -12,6 +12,8 @@ Religion screen's TYPE column) and R2-2 (S2 coexistence) were built; `STATUS.md`
 was measured against §6's M1/M2 bars, including one bar not met.
 **Later pointer (2026-10-24, Ruling CW: outstanding work at the recommended defaults):** R2-3 was built at Q6's
 default; later milestones and the defaults each applied are in `STATUS.md`'s 2026-10-24 FH-R2 entries.
+**Later pointer (2026-11-01, Ruling EA items 1 to 4):** Q5, Q8, the R2-1 seven's derived type words and M2's cost
+bar are answered; §9 records each answer under its table. The ruling built nothing and does not schedule S3b (R2-5).
 
 Every number below names its source: a symbol opened on 2026-10-12, the research document, or a **labelled
 judgement** (Ruling BK). Every code citation names a symbol; line numbers are given only as a search aid and
@@ -260,7 +262,8 @@ them.
   the candidates (probe list in §4.2).
 - **Determinism of town layouts (D5).** Belief is not persisted and not run at generation; if S3b reads shares,
   the same town could render differently before and after a user runs the simulation. Q5 must be answered
-  before R2-5.
+  before R2-5. *(Answered 2026-11-01, Ruling EA item 1: the simulated state is saved and S3b reads it, falling
+  back to the ruler's faith on a world nobody simulated; §9.)*
 - **Neutral-pair dilution.** 80 of 105 pairs neutral after S1 (research doc's figure): without S2 the new
   religions differ only by exposure, so S1 alone gives the user labels with no behaviour — the UI must say so
   (as R1's "behaves as its base" line does).
@@ -285,6 +288,39 @@ them.
 | **Q7** | Add the per-faction religious-policy axis (S6) as part of FH-R2? [D7] | **Yes, after S2**, with every faction's default policy carrying an exactly neutral modifier (1.0 on retention and conversion), so adding the axis moves nothing until a policy is changed |
 | **Q8** | Fixed archetype list now, world-instanced religions (S7) later? [D3] | **Fixed list now**; S7 its own row |
 | **Q9** | G1 governments and their authored manpower rows, including the stratocracy re-derivation hazard [D6] | **Out of FH-R2**; own row and ruling; if built, also exclude new forms from `civ_default_government` first |
+
+**Answered by Ruling EA (owner, 2026-11-01).** The questions above are kept as they were asked.
+
+- **Q5 (Ruling EA item 1): *"Your saved simulation"*, the default.**
+  - The belief state is saved with the project, as a new optional save slot.
+  - S3b (R2-5) reads it when it is built. A world nobody simulated falls back to the ruler's faith, as towns read
+    it today (`urban_bridge.rs::town_faith`). Fresh worlds do not change.
+  - The ruling checked the premise: belief is not saved today (`project_bridge.rs` restores `belief: Vec::new()`),
+    so a run made in the simulator is lost on reload.
+  - The answer does not schedule S3b. R2-5 still needs the go-ahead that Ruling CY withheld, and its deity siting
+    needs S5.
+- **Q8 (Ruling EA item 2): *"Yes, and add an S7 row"*.**
+  - The built list is confirmed: `roster::CIV_RELIGIONS`, 15 entries, `none` included. A custom religion counts in
+    its base faith's share of the spread.
+  - S7 (world-instanced religions and schisms) is its own unscheduled `OUTSTANDING_WORK.md` row.
+  - Until S7, two custom variants of the same base faith count as one faith in the spread.
+- **The R2-1 seven's derived type words (Ruling EA item 3; asked after R2-1 was built, so not in the table):
+  *"Confirm all"*.**
+  - Organized: The One God, The Revealed Law, The Middle Path and The Divine Throne.
+  - Cult: The Mysteries.
+  - Folk: Spirit Ways.
+  - None, shown as a dash: The Covenant.
+  - They are display only (`religion_profile::RELIGION_PROFILES`, read by `civ_religion_vocabulary`).
+- **M2's cost bar (Ruling EA item 4; §6's *Cost* bar, not in the table): *"Accept; re-measure the bar"*.**
+  - The breach on file is accepted: 2.4x on the 1 024-wide world, 0.75 ms (0.72..0.79) against 0.30 ms
+    (0.30..0.33) for a 100-year run, against the 2x bar (`STATUS.md`'s 2026-10-18 FH-R2 entry).
+  - It is acceptable because the run happens only on demand, never during generation.
+  - That figure predates R2-3 and R2-6, so the cost is re-measured on today's tree. The result is recorded as the
+    new bar, disclosed as set after the result. The precedent is Ruling CA's GF-11 cost bar.
+
+The other questions were answered earlier: Q0 and Q2 by Ruling CG item 3; Q1 and Q4 by Ruling CJ; Q3 by Ruling CY
+item 1, for S3a only; Q6 and Q7 confirmed as built by Ruling CY item 2; Q9 kept outside FH-R2 by Ruling CJ, then
+scoped as G1 and approved by Ruling CZ.
 
 ## 10. What was opened for this plan
 

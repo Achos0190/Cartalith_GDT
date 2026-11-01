@@ -329,7 +329,9 @@ undoable like any stroke. Feasible.
   resizes the brush (not the map) with the ring shown; a long-press samples
   the colour under the finger (an eyedropper, which `spec/06-phone.md`'s
   long-press-pin conflicts with — the owner's MAP_CONTEXT F1 fork decides;
-  until then the eyedropper is a button).
+  until then the eyedropper is a button). *(2026-11-01: F1 had been settled
+  by Ruling AX on 2026-09-26, so a phone long-press drops the sample pin and
+  opens the verbs; Ruling EA item 15 drops §17 Q6.)*
 - **Picker as a bottom sheet** on phone (the existing picker inside the sheet,
   the gamut row under it, the swatch row above).
 - **Reachability**: arming Paint colour selects CARTO, whose phone sheet must
@@ -364,16 +366,40 @@ undoable like any stroke. Feasible.
 
 ## 17. Owner questions, with the defaults this scope builds unless told otherwise
 
+*Answered 2026-11-01 by Ruling EA item 15 ("Confirm as built"), except Q1,
+which Ruling CS answered. Each answer is marked below; the questions are kept
+as they were asked.*
+
 1. **Default mode** — Replace (measured, §3), not the brief's tint. Keep?
    **Answered (Ruling CS, 2026-10-19): Colour, and organise paint into layers** (§21).
+   **The layers reading was confirmed by Ruling EA item 15 (2026-11-01):** the
+   named layers as built (`PaintLayers`, §21: order, visibility, lock, rename,
+   per-layer clear and delete, up to `MAX_LAYERS` 32) satisfy *"use paint
+   layers"*. Lava, Embers and the two glows keep opening on Replace, because
+   on the Colour blend a lava crust would take the ground's lightness.
 2. **Saved looks carry paint?** — No (§7).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Saved looks carry
+   no paint.
 3. **Export default** — with paint (§7).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Exports include
+   paint.
 4. **Paint water by default?** — No: `land_only` on per mark, off by a toggle (§5).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Land-only is per
+   mark.
 5. **Map-width change with marks** — keep kilometres, notify (§5).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Paint keeps its
+   kilometres when the map changes size. The notice half is not built.
 6. **Long-press on phone** — button eyedropper until MAP_CONTEXT F1 is ruled (§14).
+   **Dropped (Ruling EA item 15):** the long-press it waited on was settled
+   by Ruling AX F1 on 2026-09-26, before this scope was written: a phone
+   long-press drops the sample pin and opens the verbs.
 7. **Lava defaults** (§18) — heat 0.75, plates medium (crack density 0.5,
    0.71 km top cell), halo 1.5 km, crust `34,33,38`, cooling along a stroke
-   0.6. Keep?
+   ~~0.6~~ 0.0. Keep?
+   **Answered (Ruling EA item 15): confirmed as shipped.** The premise is
+   corrected: cooling along a stroke ships at 0.0 (`colour_paint_tool.gd`,
+   `heat_along`), not the 0.6 this question first quoted. The 0.6 is the
+   CP-1M cost benchmark's setting (§18, *Cost*), which stays as measured.
 
 ## 18. Emissive materials — lava (CP-1M)
 
@@ -537,7 +563,8 @@ The owner's answer to §17 Q1 was *"1, but use paint layers"*, recorded as
 Ruling CS: the default blend is **Colour**, and paint is organised into
 **named layers** with order, visibility, lock, rename and per-layer clear,
 each holding marks, composited in order before the light. The layers
-interpretation was to be confirmed against this first build.
+interpretation was to be confirmed against this first build. *(Confirmed
+2026-11-01 by Ruling EA item 15; §17 Q1.)*
 
 **Engine** (`cartalith_spatial::colour_paint`): `PaintLayers` (the master
 `visible` plus `layers`, bottom first) of `PaintLayer` (`name`, `visible`,
@@ -615,6 +642,7 @@ pixel wide at x64, no blocks.
 
 **Not done, and why:** drag-to-reorder (the rows use up/down buttons, which
 work on glass without a drag gesture); per-layer opacity or blend (not in the
-ruling); the owner's confirmation of the layers interpretation against this
-build (Ruling CS says it is to be confirmed); phone reachability of CARTO ▸
+ruling); ~~the owner's confirmation of the layers interpretation against this
+build (Ruling CS says it is to be confirmed);~~ *(given 2026-11-01, Ruling EA
+item 15)*; phone reachability of CARTO ▸
 Colours on glass is still CP-4's.

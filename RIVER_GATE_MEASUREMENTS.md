@@ -18,6 +18,9 @@ It records no status; `cartalith-native/docs/STATUS.md` does that.
 | **1. Delta-fan mouths** ("order versus discharge as the gate for rivers in the map") | `cartalith-godot/src/river_delta.rs` `delta_fans`, constants `MIN_ORDER` (3) and `MIN_DISCHARGE_FRAC` (2e-4) | a drawn run whose last piece meets water gets a fan when `own_order >= 3` **and** its discharge `>= 2e-4 x gw x gh` | order, discharge, or both? (`STATUS.md` RIM-4 entry: *"the order >= 3 gate skips 155 mouths that clear the discharge bar, 3 of the top 5 by discharge being order 1"*) |
 | **2. River Transport navigability** | `cartalith-civ/src/river_class.rs` `NAVIGABLE_ORDER` (3); read by the planner's channel test (`lib.rs`, `net.order[j] < river_class::NAVIGABLE_ORDER`) **and** the router's `civ_navigable_river_discount` | a land cell is a navigable river point when the planner network (`fresh_river_channels`) gives it Strahler order `>= 3`. **There is no discharge gate today** | gate on discharge as well as order? (`OUTSTANDING_WORK.md`: *"a 75x-threshold river reads order 1 to 2 on the 256-wide world"*) |
 
+*Both questions were answered on 2026-11-01 by Ruling EA item 9, "Keep both":
+each gate keeps today's rule. See **Owner questions, with defaults**.*
+
 Gate 1 is draw-side only: it reads the drawn network and decides where extra
 fan runs are painted. Gate 2 is the reference's own `order>=3`
 (`_civNavigableRiverDiscount`, v2.11 line 21441), shared by the planner and the
@@ -280,6 +283,15 @@ two documentation rows changed.
 | Gate 2, discharge OR / AND, planner and router | `cartalith-civ/tests/golden_parity_civ_tools.rs` mixed-domain router cases (reference-verified; the router's `civ_navigable_river_discount` reads `NAVIGABLE_ORDER`) | as above, plus `river_class.rs` `navigable_order_is_the_reference_gate` and `channel_terrain`'s `River with Shallows` rule (keyed on `order <= NAVIGABLE_ORDER`) |
 | Gate 2, order >= 2 or >= 4 | as the row above | as the row above |
 
+*Note added 2026-11-01 (Ruling EA item 9): the table misses a third reader of
+`NAVIGABLE_ORDER`.* `landmark.rs::pool_portage`, the Portage landmark, counts
+a land channel cell as navigable at Strahler order `NAVIGABLE_ORDER` or above,
+and places a portage on the carry from a head of navigation to navigable water
+in another basin. So an option that changes the constant (order >= 2 or >= 4)
+would also change where portages can be placed. A discharge clause added in
+the planner and the router alone would leave the Portage landmark on the order
+rule. Ruling EA keeps the gate as it is, so nothing moves.
+
 A change to gate 2 that reaches the router is a divergence from the
 reference's `order>=3` and is a DECISIONS §7p change with a disclosed
 re-baseline; gate 1 has no reference ancestor.
@@ -304,6 +316,22 @@ re-baseline; gate 1 has no reference ancestor.
 6. **If a discharge gate is wanted later, planner only or planner and
    router?** Default: **both**, so one definition of navigable stands (Ruling
    CD), with the router goldens re-baselined and disclosed.
+
+**Answered 2026-11-01 by Ruling EA item 9, "Keep both".** The questions above
+are kept as they were asked.
+- **Question 1: yes, keep.** Delta fans keep `river_delta.rs`'s
+  order-and-discharge rule (`MIN_ORDER` 3 and `MIN_DISCHARGE_FRAC`).
+- **Questions 2 and 3** keep their "not now" defaults, because the rule is
+  kept as it stands.
+- **Question 4: no discharge gate.** A river is navigable from Strahler
+  order 3 (`river_class.rs::NAVIGABLE_ORDER`) alone.
+- **Question 5** was answered as a measurement (**Chain breaks**, below), and
+  its fix shipped as F1.
+- **Question 6** does not arise while there is no discharge gate.
+
+The ruling rests on the figures taken after F1 (**After the fix**, below):
+at 512x328, a discharge OR would take navigable cells from 73 737 to
+159 641, and only 271 cells of high-discharge river are still below order 3.
 
 ## Chain breaks
 
@@ -493,6 +521,10 @@ measured against grows by a quarter to a double.
 11. **Should "to-water" count a river that runs off the map border as
     reaching an outlet?** Default: **yes, in the measurement only**; it does
     not change what the planner does.
+
+**Answered 2026-10-12 by Ruling CF's addendum.** The owner chose F1, the full
+fix (questions 7 and 8), and questions 9 to 11 took their defaults. **After the
+fix**, below, measures the result.
 
 ## After the fix (2026-10-12, Ruling CF addendum, F1 shipped)
 
