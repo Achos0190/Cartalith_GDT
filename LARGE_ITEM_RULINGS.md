@@ -3008,4 +3008,51 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
     - **Not affected:** the planner spawns none.
     - **What it costs:** small. GDScript only, plus a probe.
 
-Items 8 to 10 of §4 (3D, colour paint, EF-9) follow below as they are answered.
+**3D, colour paint and EF-9 (§4 items 8 to 10; they had run on their defaults)**
+12. **3D Q3, shading once terrain shows (3D-4): "Lit, map shading a toggle away".** 3D-4 shows frames of both.
+13. **3D Q5, phones: "Let the speed check decide".**
+    - The capability gate (3D-0) offers 3D on a phone only where the device measures smooth enough.
+    - It is calibrated on the OnePlus 6T in the owner's device pass. The 6T has not been measured in 3D yet.
+14. **3D, the rest: "Keep all, add the slider row".**
+    - **Confirmed at their defaults:**
+      - Q1 (the display mesh from the raster's tiles) and Q2 (`gl_compatibility`), both already in `DECISIONS.md` §4a;
+      - Q6 (overlays in 3D-6);
+      - Q7 (read-only tools in 3D, brushes later);
+      - Q8 (rivers painted into the colour);
+      - Q9 (enter top-down, then tilt).
+    - **3D-1's two departures stand:**
+      - `Window ▸ 3D view` is the menu home; the approved PC menus keep it there.
+      - The 3D/2D pill is on the phone only. That is interim: the approved mobile shell moves it into the phone's MAP
+        view row.
+    - **New row:** a live height-exaggeration slider, which Ruling CT left unbuilt, becomes a small backlog row.
+15. **Colour paint (`COLOUR_PAINT_SCOPE.md` §17): "Confirm as built".**
+    - **Ruling CS item 2's "use paint layers" is satisfied** by the named layers, as built (`PaintLayers`): order,
+      visibility, lock, rename, per-layer clear and delete, up to `MAX_LAYERS` 32.
+    - **Lava, Embers and the two glows keep opening on Replace.** On the Colour blend a lava crust would take the
+      ground's lightness.
+    - **Confirmed as shipped:**
+      - Q2: saved looks carry no paint;
+      - Q3: exports include paint;
+      - Q4: land-only per mark;
+      - Q5: paint keeps its kilometres when the map changes size (the notice half is not built);
+      - Q7: the lava defaults.
+    - **Q7's premise corrected:** cooling along a stroke ships at **0.0** (`colour_paint_tool.gd::heat_along`), not the
+      0.6 that §17 and `OUTSTANDING_WORK.md` quoted. The 0.6 came from the CP-1M cost benchmark.
+    - **Q6 dropped:** the long-press it waited on was settled by Ruling AX F1 on 2026-09-26.
+16. **EF-9 on the Performance tier: "Keep it off on Performance".**
+    - 'Performance' stays the cheap tier for good: `lod_worker.rs::budget_for_tier`, `ef9_refine` false there.
+    - **Premise corrected:** phones do not run Performance.
+      - `WorldGen` starts on Quality on every device (`quality: QualityTier::Quality`), and
+        `recommended_quality_tier` is applied nowhere. So the 6T already runs EF-9.
+      - The 6T timing in the owner's device pass is pointed at Quality.
+      - The recorded cost is desktop-only: +0.9 to +1.2 ms per frame.
+
+**Consequences:**
+- `OUTSTANDING_WORK.md` §4 and §3.1 are refreshed against this ruling.
+- The answered rows close or become build rows: S7, the cost re-measure, GF-9's re-measure, the override fingerprint,
+  the pop-out dialogs and the exaggeration slider.
+- The owning documents mark their questions answered: `FH_R2_PLAN.md`, `GEOLOGY_FIRST_SCOPE.md`,
+  `STORY_MENUS_PROPOSAL.md`, `RIVER_GATE_MEASUREMENTS.md`, `POPOUT_WINDOWS_SCOPE.md`, `3D_VIEWPORT_SCOPE.md` and
+  `COLOUR_PAINT_SCOPE.md`.
+
+Nothing is built by this ruling.
