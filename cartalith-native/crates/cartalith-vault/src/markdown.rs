@@ -283,7 +283,7 @@ pub fn frontmatter_fields(text: &str) -> Vec<(String, String)> {
         }
         let Some((k, v)) = t.split_once(':') else { continue };
         let key = k.trim();
-        let value = unquote(v.trim());
+        let value = unquote(v.trim()).to_string();
         if key.is_empty() || value.is_empty() {
             continue;
         }
@@ -298,13 +298,16 @@ pub fn frontmatter_fields(text: &str) -> Vec<(String, String)> {
 }
 
 /// Strip one matching pair of surrounding quotes, if there is one.
-fn unquote(s: &str) -> String {
+/// `pub(crate)` so [`crate::frontmatter`] unquotes keys and values the same
+/// way this reader does; a slice, so it can also tell whether quotes were
+/// there by comparing lengths.
+pub(crate) fn unquote(s: &str) -> &str {
     for q in ['"', '\''] {
         if s.len() >= 2 && s.starts_with(q) && s.ends_with(q) {
-            return s[1..s.len() - 1].to_string();
+            return &s[1..s.len() - 1];
         }
     }
-    s.to_string()
+    s
 }
 
 /// The author's own `**Name:** value` lines as data — the read half of what
@@ -455,8 +458,10 @@ fn atx_heading(line: &str) -> Option<(u8, String)> {
 }
 
 /// `(fence char, run length)` if `line` (left-trimmed) opens or closes a
-/// fenced code block.
-fn fence_marker(line: &str) -> Option<(char, usize)> {
+/// fenced code block. `pub(crate)` so [`crate::textscan`] finds fences by
+/// this exact rule: a link list and a heading list must never disagree about
+/// where a fence is.
+pub(crate) fn fence_marker(line: &str) -> Option<(char, usize)> {
     for ch in ['`', '~'] {
         let n = line.len() - line.trim_start_matches(ch).len();
         if n >= 3 {
@@ -474,7 +479,7 @@ fn fence_marker(line: &str) -> Option<(char, usize)> {
 /// Byte offset just past the line terminator that follows `end`, or `end`
 /// itself at EOF. Handles both `\n` and `\r\n` so a Windows-authored vault
 /// round-trips without gaining or losing a byte.
-fn line_end_with_newline(text: &str, end: usize) -> usize {
+pub(crate) fn line_end_with_newline(text: &str, end: usize) -> usize {
     let b = text.as_bytes();
     let mut i = end;
     if i < b.len() && b[i] == b'\r' {
@@ -488,7 +493,7 @@ fn line_end_with_newline(text: &str, end: usize) -> usize {
 
 /// Spans of each line's *content* (terminator excluded), covering the whole
 /// string including a final unterminated line.
-fn line_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+pub(crate) fn line_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     let mut pos = 0usize;
     let bytes = text.as_bytes();
     std::iter::from_fn(move || {

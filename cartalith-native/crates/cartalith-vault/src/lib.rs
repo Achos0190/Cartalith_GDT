@@ -19,11 +19,21 @@
 //! | [`chronos`] | Authored dated events from a note's ` ```chronos ` blocks (SP-3, Ruling AM) |
 //! | [`links`] | [`links::KnowledgeLink`], [`links::LinkStore`], the six status states (§11, §26, §27) |
 //! | [`private`] | The ONE "is this note private?" rule both LLM features share (Ruling DP) |
-//! | [`provider`] | The desktop filesystem vault (§6), path containment, atomic writes |
+//! | [`provider`] | The desktop filesystem vault (§6), path containment, atomic writes, moves |
 //! | [`export`] | The exportable-field registry and the block renderer (§19, §20) |
+//! | [`backlinks`] | The persisted backlink index, broken links, orphans and mention candidates (VA-01) |
+//! | [`template`] | Obsidian's template folder and placeholders (Ruling BF) |
+//! | [`notelinks`] | Link syntax, the one link resolver, the shortest link, rename planning |
+//! | [`noteedit`] | The editor's helpers: headings, tasks, tags, word count, unlinked mentions |
+//! | [`frontmatter`] | Aliases, and setting or removing one property without moving another byte |
+//! | [`suggest`] | Ranking `[[` suggestions |
 //!
 //! [`VaultSession`] is the one type that puts them together, and the only one
-//! `cartalith-godot`'s `vault_bridge.rs` needs to hold.
+//! `cartalith-godot`'s `vault_bridge.rs` needs to hold. The last four were
+//! added for the note editor (`VAULT_EDITOR_PROPOSAL.md` §6, allowed by the
+//! owner on 2026-10-31); they are pure functions over a note's text, and the
+//! editor's changed text still goes back to disk only through
+//! [`VaultSession::write_file`]'s hash guard.
 //!
 //! ## The V1 promise, stated once
 //!
@@ -34,23 +44,33 @@
 //! from a preview of the current file — so a source that changed between the
 //! preview and the confirmation cannot be overwritten (§16 step 3).
 //!
-//! ## Not Obsidian
+//! ## Obsidian's syntax, exactly (Ruling BF)
 //!
-//! Per the owner's 2026-08-18 clarification: the target is a generic Markdown
-//! vault. There is no `obsidian://` scheme here, no wikilink *generation*, no
-//! block references, and no vault-config directory is read. Obsidian
-//! constructs a user has written are preserved as opaque bytes, which is §10's
-//! actual requirement.
+//! The owner's 2026-08-18 clarification made the target a generic Markdown
+//! vault, and this section used to say there was no wikilink generation, no
+//! block reference and no vault-config read. Ruling BF (2026-09-27) replaced
+//! that for syntax: *Obsidian's own syntax and structure, exactly, with no
+//! Cartalith variant.* So [`template`] reads `.obsidian/templates.json`, and
+//! the editor's helpers read and write `[[wikilinks]]`, `![[embeds]]`,
+//! `#^block` references, tags, tasks and properties as Obsidian does. Still
+//! not here: an `obsidian://` scheme. An Obsidian construct this crate does
+//! not understand is preserved as opaque bytes, which is §10's actual
+//! requirement.
 
 pub mod backlinks;
 pub mod block;
 pub mod chronos;
 pub mod export;
+pub mod frontmatter;
 pub mod links;
 pub mod markdown;
+pub mod noteedit;
+pub mod notelinks;
 pub mod private;
 pub mod provider;
+pub mod suggest;
 pub mod template;
+mod textscan;
 
 pub use backlinks::{Backlink, BacklinkIndex, LinkForm, RefreshStats, excerpt};
 pub use block::{BlockAction, BlockError};
@@ -81,6 +101,13 @@ pub enum Error {
     /// An authored event that cannot be written as a Chronos line that reads
     /// back identically ([`chronos::to_line`]'s reason).
     InvalidEvent(String),
+    /// A rename refused before anything was planned or written
+    /// ([`notelinks::RenameError`] says which rule).
+    Rename(notelinks::RenameError),
+    /// The vault holds more notes than [`LIST_CAP`], so a rename could not
+    /// see every link to the note and would leave some silently broken; it
+    /// refuses instead. Carries the cap.
+    TooManyNotes(usize),
 }
 
 impl std::fmt::Display for Error {
@@ -100,6 +127,11 @@ impl std::fmt::Display for Error {
             Error::NothingToWrite => write!(f, "nothing has been imported for this link yet"),
             Error::AlreadyExists(p) => write!(f, "\"{p}\" already exists -- attach to it instead of creating it"),
             Error::InvalidEvent(why) => write!(f, "{why}"),
+            Error::Rename(e) => write!(f, "{e}"),
+            Error::TooManyNotes(cap) => write!(
+                f,
+                "this vault holds more than {cap} notes, so Cartalith cannot check every link before a rename; rename it in Obsidian instead"
+            ),
         }
     }
 }
@@ -123,6 +155,12 @@ impl From<BlockError> for Error {
     /// Wraps a `CARTALITH:` block error the same way.
     fn from(e: BlockError) -> Self {
         Error::Block(e)
+    }
+}
+impl From<notelinks::RenameError> for Error {
+    /// Wraps a rename refusal the same way.
+    fn from(e: notelinks::RenameError) -> Self {
+        Error::Rename(e)
     }
 }
 
@@ -268,6 +306,60 @@ impl WritePrefs {
         }
         serde_json::from_str(s)
     }
+}
+
+/// What renaming one note would do, from [`VaultSession::rename_preview`]:
+/// the plan, and the hash that lets [`VaultSession::rename`] refuse when
+/// anything the plan read has changed since.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamePreview {
+    pub plan: notelinks::RenamePlan,
+    /// One hash over the rename and every note it would write (the note
+    /// itself, and each note whose links change), as read for this preview.
+    /// Hand it to [`VaultSession::rename`] unchanged.
+    pub hash: String,
+    /// Notes opened to build the plan: the note itself and each note whose
+    /// indexed links a rename could change.
+    pub read: usize,
+    /// Notes that could not be opened, by the index refresh or by this
+    /// preview, and so were not checked for links. A count to show, never
+    /// assumed to be zero.
+    pub unreadable: usize,
+    /// Entity links ([`KnowledgeLink`]) to the note, which will follow it.
+    pub knowledge_links: usize,
+}
+
+/// What [`VaultSession::rename`] did. The note itself has moved whenever
+/// this is returned.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RenameOutcome {
+    /// The note's new path.
+    pub to: String,
+    /// Each note whose links were rewritten, by its path after the rename,
+    /// with how many links changed in it.
+    pub written: Vec<(String, usize)>,
+    /// Each note whose links could not be rewritten after the move, by its
+    /// path after the rename, with why. Its links still name the old path.
+    pub failed: Vec<(String, String)>,
+    /// Entity links re-pointed at the new path.
+    pub relinked: usize,
+}
+
+/// The hash [`VaultSession::rename`] compares with its preview's: the
+/// rename itself, then the path and content hash of every note it would
+/// write — the note and each note whose links change — as read for the plan
+/// (`files` is in path order, so the hash is too).
+fn rename_guard(old: &str, new: &str, files: &[(String, String)], plan: &notelinks::RenamePlan) -> String {
+    let mut s = format!("{old}\n{new}\n");
+    for (path, text) in files {
+        if path == old || plan.files.iter().any(|f| &f.path == path) {
+            s.push_str(path);
+            s.push('\t');
+            s.push_str(&provider::content_hash(text));
+            s.push('\n');
+        }
+    }
+    provider::content_hash(&s)
 }
 
 /// A project's links plus, when this device has one, the binding that makes
@@ -476,6 +568,138 @@ impl VaultSession {
     /// **Rebuild**.
     pub fn rebuild_backlinks(&mut self) {
         self.backlinks.clear();
+    }
+
+    // ------------------------------------------- links and rename (VE-6)
+
+    /// Which note `target`, written in the note at `source`, names — by
+    /// [`notelinks::Resolver`], the resolver the backlink index uses, over
+    /// the bound vault's notes as listed now. No file is opened.
+    pub fn resolve_link(&self, source: &str, target: &str) -> Result<notelinks::Resolution, Error> {
+        let paths = self.list(LIST_CAP)?;
+        Ok(notelinks::Resolver::new(&paths).resolve(target, source))
+    }
+
+    /// Every note as a `[[` suggestion: its file name without `.md` as the
+    /// name, its path, kind `note`, and its aliases from the backlink index —
+    /// so aliases appear once the index is built, as fresh as its last
+    /// refresh. Lists the vault; no file is opened.
+    pub fn note_candidates(&self) -> Result<Vec<suggest::Candidate>, Error> {
+        Ok(self
+            .list(LIST_CAP)?
+            .into_iter()
+            .map(|path| suggest::Candidate {
+                name: template::title_of(&path).to_string(),
+                aliases: self.backlinks.notes.get(&path).map(|r| r.aliases.clone()).unwrap_or_default(),
+                kind: "note".to_string(),
+                path,
+            })
+            .collect())
+    }
+
+    /// What renaming (or moving) the note `old` to `new` would do, computed
+    /// and written nowhere except the backlink index.
+    ///
+    /// 1. Refuses a vault that cannot move files ([`VaultProvider::can_move`]),
+    ///    so nobody confirms a plan that cannot happen.
+    /// 2. Refreshes the backlink index: a rename must see every link, and the
+    ///    refresh opens only notes whose `(modified, len)` moved (every note,
+    ///    once, in a vault never indexed). A person asked for this rename, so
+    ///    it is not the unasked-for scan the index forbids.
+    /// 3. Refuses a vault of more than [`LIST_CAP`] notes
+    ///    ([`Error::TooManyNotes`]): a listing that stopped early would hide
+    ///    links the rename then leaves broken.
+    /// 4. Opens the note and only the notes whose indexed links the rename
+    ///    could change ([`notelinks::rename_candidates`]), and plans with
+    ///    [`notelinks::rename_plan_in`]. The note itself must be readable;
+    ///    another note that cannot be opened is counted in
+    ///    [`RenamePreview::unreadable`] and left unchecked.
+    pub fn rename_preview(&mut self, old: &str, new: &str) -> Result<RenamePreview, Error> {
+        Ok(self.plan_rename(old, new)?.0)
+    }
+
+    /// [`Self::rename_preview`], also returning the notes it read
+    /// (`(path, text)`, in path order) so [`Self::rename`] can guard each
+    /// write by what was read.
+    fn plan_rename(&mut self, old: &str, new: &str) -> Result<(RenamePreview, Vec<(String, String)>), Error> {
+        {
+            let v = self.bound()?;
+            if !v.can_move() {
+                return Err(Error::Vault(provider::cannot_move(&v.describe())));
+            }
+        }
+        let stats = self.refresh_backlinks(LIST_CAP + 1)?;
+        if stats.seen > LIST_CAP {
+            return Err(Error::TooManyNotes(LIST_CAP));
+        }
+        let v = self.bound()?;
+        let paths = v.list_markdown(LIST_CAP)?;
+        let candidates = notelinks::rename_candidates(
+            old,
+            new,
+            &paths,
+            self.backlinks.notes.iter().map(|(p, r)| (p.as_str(), r.links.iter().map(|l| l.target.as_str()))),
+        )?;
+        let mut files: Vec<(String, String)> = Vec::with_capacity(candidates.len());
+        let mut unreadable = stats.unreadable;
+        for rel in candidates {
+            match v.read(&rel) {
+                Ok(text) => files.push((rel, text)),
+                Err(e) if rel == old => return Err(e.into()),
+                Err(_) => unreadable += 1,
+            }
+        }
+        let plan = notelinks::rename_plan_in(old, new, &paths, &files)?;
+        let hash = rename_guard(old, new, &files, &plan);
+        let knowledge_links = self.store.links.iter().filter(|l| l.relative_path == old).count();
+        Ok((RenamePreview { plan, hash, read: files.len(), unreadable, knowledge_links }, files))
+    }
+
+    /// Renames (or moves) the note `old` to `new` and rewrites every link
+    /// its preview planned — only if nothing the preview read has changed:
+    /// `expect_hash` is [`RenamePreview::hash`], the plan is computed again
+    /// here, and a different hash refuses with [`Error::SourceChanged`],
+    /// writing nothing.
+    ///
+    /// The note moves first, through [`VaultProvider::move_file`], so a
+    /// refused move writes nothing at all. Then each note's new text is
+    /// written through the same re-read-and-compare guard as
+    /// [`Self::write_file`]: a note that changed in the moment since is left
+    /// as it is and listed in [`RenameOutcome::failed`], never overwritten.
+    /// Then every [`KnowledgeLink`] to the old path is re-pointed at the new
+    /// one. Its hashes are left alone: when the note's own text was rewritten,
+    /// [`Self::status`] truthfully reports that the source changed. Last, the
+    /// backlink index is refreshed; if that fails, the next refresh puts it
+    /// right, since it re-stats every note anyway.
+    pub fn rename(&mut self, old: &str, new: &str, expect_hash: &str) -> Result<RenameOutcome, Error> {
+        let (preview, files) = self.plan_rename(old, new)?;
+        if preview.hash != expect_hash {
+            return Err(Error::SourceChanged { expected: expect_hash.to_string(), actual: preview.hash });
+        }
+        let v = self.bound()?;
+        v.move_file(old, new)?;
+        let mut out = RenameOutcome { to: new.to_string(), ..Default::default() };
+        for f in preview.plan.files.iter() {
+            let at = if f.path == old { new } else { f.path.as_str() };
+            let Some((_, original)) = files.iter().find(|(p, _)| *p == f.path) else {
+                out.failed.push((at.to_string(), "it was not read for the plan, so it was left as it was".to_string()));
+                continue;
+            };
+            match v.read(at).map(|now| provider::content_hash(&now) == provider::content_hash(original)) {
+                Ok(true) => match v.write(at, &f.text) {
+                    Ok(()) => out.written.push((at.to_string(), f.links)),
+                    Err(e) => out.failed.push((at.to_string(), e.to_string())),
+                },
+                Ok(false) => out.failed.push((at.to_string(), "it changed during the rename, so its links were left as they were".to_string())),
+                Err(e) => out.failed.push((at.to_string(), e.to_string())),
+            }
+        }
+        for l in self.store.links.iter_mut().filter(|l| l.relative_path == old) {
+            l.relative_path = new.to_string();
+            out.relinked += 1;
+        }
+        let _ = self.refresh_backlinks(LIST_CAP + 1);
+        Ok(out)
     }
 
     /// Every note that references this entity, by either route.
@@ -2163,5 +2387,211 @@ rows
         assert!(s.connect_provider(Box::new(NeverAvailable), None).is_err());
         assert!(!s.is_bound());
         assert!(s.store.vaults.is_empty(), "no vault registered for a binding that was never reachable");
+    }
+
+    // ---- the editor's helpers never panic ----
+
+    /// Protects: the promise every pure helper behind the editor's `#[func]`s
+    /// makes -- never panic on any text, since a panic would cross the gdext
+    /// boundary and take the Godot process down. Each hostile text
+    /// (unterminated fences and frontmatter, lone brackets and backticks, bad
+    /// percent escapes, a BOM, CRLF, `İ` whose lowercase is two characters, a
+    /// combining mark, long bracket and backtick runs) goes through every
+    /// helper, at every caret, every line and every small range. The test
+    /// passes by finishing.
+    #[test]
+    fn the_editor_helpers_never_panic_on_hostile_text() {
+        use frontmatter::FrontmatterValue;
+        let long_open = "[[".repeat(200);
+        let long_ticks = "`".repeat(301);
+        let mut texts: Vec<&str> = vec![
+            "", "\u{feff}", "---", "---\n", "---\r\n---\r\n", "---\nk: v", "---\n- x\n---\n", "```", "```\n[[a]]",
+            "~~~\n```\n", "`", "``", "\\", "\\`", "[[", "]]", "[[|]]", "[[#]]", "[[#^]]", "![[", "![[]]", "[](", "[a](",
+            "[a](<", "[a](<b", "[a](b \"t", "[a](b (t", "%", "[a](%", "[a](%zz)", "[a](%e9)", "[a](%C3)", "é", "🜂",
+            "a\u{301}", "İ", "ẞ", "#", "# ", "#1", "#é", "- [", "- [ ]", "- [x", "1. [ ]", "> - [ ] x",
+            "1234567890. [ ] x", "\r", "\r\n", "\n\n\n", "[[İ|é]] #tag/x `c` [y](./a%20b.md#H) ![[m.png|3]] - [ ] t",
+        ];
+        texts.push(&long_open);
+        texts.push(&long_ticks);
+        for t in texts {
+            let n = t.chars().count();
+            let _ = (notelinks::link_spans(t), notelinks::outgoing_links(t));
+            for off in 0..=n + 1 {
+                let _ = notelinks::link_at(t, off);
+            }
+            let _ = (noteedit::headings(t), noteedit::tags(t), noteedit::word_count(t));
+            for name in ["a", "İ", "é", "[["] {
+                let _ = noteedit::mention_spans(t, name);
+            }
+            for line in 0..=t.lines().count() + 1 {
+                let _ = noteedit::toggle_task(t, line);
+            }
+            let m = n.min(12) + 1;
+            for s in 0..=m {
+                for e in s..=m {
+                    let _ = noteedit::link_mention(t, s, e, "Target");
+                }
+            }
+            let _ = frontmatter::aliases(t);
+            let _ = frontmatter::frontmatter_set(t, "k", &FrontmatterValue::Text(t.to_string()));
+            let _ = frontmatter::frontmatter_set(t, "k", &FrontmatterValue::List(vec!["a".to_string()]));
+            let _ = frontmatter::frontmatter_remove(t, "k");
+            let c = vec![suggest::Candidate { name: t.to_string(), path: format!("{t}.md"), aliases: vec![t.to_string()], ..Default::default() }];
+            let _ = suggest::suggest(t, &c, 5);
+            let files = vec![("A.md".to_string(), t.to_string()), ("C.md".to_string(), t.to_string())];
+            let _ = notelinks::rename_plan("A.md", "B/A.md", &files);
+        }
+    }
+
+    // ---- VE-6: rename with link rewriting ----
+
+    /// Protects: VE-6's bar end to end on a real folder -- the note moves to
+    /// another folder with its text intact; the note that linked it by a path
+    /// that would break is rewritten with its alias and heading kept, and the
+    /// note that linked it by its unique name is not touched; the entity's
+    /// `KnowledgeLink` follows and stays `Connected` (a note moved outside
+    /// Cartalith reads `Missing`); the preview's counts match what happened;
+    /// and the backlink index already knows the new path. Also that
+    /// `resolve_link` and `note_candidates` read the same vault, the latter
+    /// offering an alias from the index.
+    #[test]
+    fn a_rename_moves_the_note_rewrites_its_links_and_the_entity_link_follows() {
+        let root = scratch("rename");
+        let put = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put("Journal/Thaw.md", "To [[Locations/Nareth|the ford]] and [[Locations/Nareth#History]].\n");
+        put("Journal/Spring.md", "Back at [[Nareth]].\n");
+        put("People/Aldis.md", "---\naliases: [The Ferryman]\n---\nNo links.\n");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let link = s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md", Selection::WholeDocument).unwrap();
+        assert_eq!(
+            s.resolve_link("Journal/Spring.md", "Nareth").unwrap(),
+            notelinks::Resolution::Unique("Locations/Nareth.md".to_string())
+        );
+
+        let p = s.rename_preview("Locations/Nareth.md", "Places/Nareth.md").unwrap();
+        assert_eq!((p.read, p.unreadable, p.knowledge_links, p.plan.link_count()), (2, 0, 1, 2));
+        let o = s.rename("Locations/Nareth.md", "Places/Nareth.md", &p.hash).unwrap();
+        assert_eq!(
+            o,
+            RenameOutcome {
+                to: "Places/Nareth.md".to_string(),
+                written: vec![("Journal/Thaw.md".to_string(), 2)],
+                failed: Vec::new(),
+                relinked: 1,
+            }
+        );
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
+        assert_eq!(read("Journal/Thaw.md"), "To [[Nareth|the ford]] and [[Nareth#History]].\n");
+        assert_eq!(read("Journal/Spring.md"), "Back at [[Nareth]].\n");
+        assert_eq!(read("Places/Nareth.md"), HAND);
+        assert!(!root.join("Locations/Nareth.md").exists());
+        assert_eq!(s.store.get(&link).unwrap().relative_path, "Places/Nareth.md");
+        assert_eq!(s.status(&link), LinkStatus::Connected);
+        let back: Vec<String> = s.file_backlinks("Places/Nareth.md").into_iter().map(|(p, _, _)| p).collect();
+        assert_eq!(back, vec!["Journal/Spring.md", "Journal/Thaw.md"]);
+
+        let cands = s.note_candidates().unwrap();
+        let aldis = cands.iter().find(|c| c.path == "People/Aldis.md").unwrap();
+        assert_eq!((aldis.name.as_str(), aldis.kind.as_str()), ("Aldis", "note"));
+        assert_eq!(aldis.aliases, vec!["The Ferryman".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: a stale rename is refused with nothing moved or written -- a
+    /// note that starts linking the old path after the preview joins the
+    /// plan, so the hash differs -- and the next preview sees that link.
+    #[test]
+    fn a_rename_whose_preview_is_stale_moves_nothing() {
+        let root = scratch("rename-stale");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let p = s.rename_preview("Locations/Nareth.md", "Places/Nareth.md").unwrap();
+        assert_eq!(p.plan.link_count(), 0);
+        std::fs::write(root.join("Late.md"), "[[Locations/Nareth]]\n").unwrap();
+        assert!(matches!(
+            s.rename("Locations/Nareth.md", "Places/Nareth.md", &p.hash),
+            Err(Error::SourceChanged { .. })
+        ));
+        assert!(root.join("Locations/Nareth.md").exists(), "nothing moved");
+        assert_eq!(std::fs::read_to_string(root.join("Late.md")).unwrap(), "[[Locations/Nareth]]\n");
+        assert_eq!(s.rename_preview("Locations/Nareth.md", "Places/Nareth.md").unwrap().plan.link_count(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A provider of `.0` empty notes (`N0.md`, `N1.md`, …) that says it can
+    /// move files: the size rule at its boundary without twelve thousand
+    /// real files.
+    #[derive(Debug)]
+    struct Listing(usize);
+
+    impl provider::VaultProvider for Listing {
+        /// Always reachable.
+        fn available(&self) -> bool {
+            true
+        }
+        /// `self.0` names, cut at `limit` like a real listing.
+        fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+            Ok((0..self.0.min(limit)).map(|i| format!("N{i}.md")).collect())
+        }
+        /// Every note is empty.
+        fn read(&self, _: &str) -> Result<String, VaultError> {
+            Ok(String::new())
+        }
+        /// A fixed, non-zero `(modified, len)`.
+        fn meta(&self, _: &str) -> Result<FileMeta, VaultError> {
+            Ok(FileMeta { modified: 1, len: 0 })
+        }
+        /// Every listed name exists.
+        fn exists(&self, _: &str) -> bool {
+            true
+        }
+        /// Accepts and discards a write; no test here writes.
+        fn write(&self, _: &str, _: &str) -> Result<(), VaultError> {
+            Ok(())
+        }
+        /// A recognisable label for a failing assertion.
+        fn describe(&self) -> String {
+            format!("listing://{}-notes", self.0)
+        }
+        /// Claims moves, so only the size rule can refuse.
+        fn can_move(&self) -> bool {
+            true
+        }
+    }
+
+    /// Protects: the two refusals a rename makes before planning -- a
+    /// provider that cannot move files (the trait's default, which the
+    /// Storage-Access-Framework provider has) refuses with `Unsupported`; and
+    /// the size rule at its boundary, independent of the cap's value: a vault
+    /// of exactly the listing cap is planned, one note more is refused with
+    /// `TooManyNotes` naming the largest size that was accepted, rather than
+    /// planned from a listing that stopped early.
+    #[test]
+    fn a_rename_refuses_a_vault_that_cannot_move_or_is_too_large() {
+        let mut s = VaultSession::new();
+        s.connect_provider(Box::new(FakeProvider::seeded(&[("A.md", "a")])), None).unwrap();
+        let err = s.rename_preview("A.md", "B.md").unwrap_err();
+        assert!(matches!(&err, Error::Vault(VaultError::Io(e)) if e.kind() == std::io::ErrorKind::Unsupported), "{err}");
+
+        // The relation under test is "the largest vault planned is the size
+        // the refusal names"; the cap's own value is an owner judgement
+        // (`LIST_CAP`'s doc) and is deliberately not what this pins.
+        let largest = LIST_CAP;
+        let mut at_cap = VaultSession::new();
+        at_cap.connect_provider(Box::new(Listing(largest)), None).unwrap();
+        let p = at_cap.rename_preview("N0.md", "M.md").unwrap();
+        assert_eq!((p.read, p.plan.link_count()), (1, 0));
+
+        let mut over = VaultSession::new();
+        over.connect_provider(Box::new(Listing(largest + 1)), None).unwrap();
+        match over.rename_preview("N0.md", "M.md") {
+            Err(Error::TooManyNotes(n)) => assert_eq!(n, largest, "the refusal names the largest size planned"),
+            other => panic!("expected TooManyNotes, got {other:?}"),
+        }
     }
 }

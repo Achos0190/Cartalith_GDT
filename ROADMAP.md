@@ -281,7 +281,11 @@ scheduled it, it did not promote it. The target is a **generic Markdown
 vault** — Obsidian is one compatible vault and the owner's own, but nothing
 may require it and no Obsidian-specific behaviour belongs in the core. **An
 Obsidian plugin is a wish, deferred outright.** Nothing shipped writes an
-`obsidian://` link, a wikilink or a block reference.
+`obsidian://` link, a wikilink or a block reference. *(2026-10-31: no longer
+true of the last two. Ruling BF (2026-09-27) made the vault's syntax
+Obsidian's exactly, and `cartalith-vault` now writes wikilinks, keeping any
+block reference, when it renames a note or links an unlinked mention
+(`VAULT_EDITOR_PROPOSAL.md` §6). Nothing writes an `obsidian://` link.)*
 
 `DCC_SHELL_SPEC.md` §9's vault block in the Data manager assumes more than
 the V1 design allows (`obsidian://` links, note links in exported GeoJSON,

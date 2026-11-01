@@ -15,10 +15,19 @@
 //!
 //! | | |
 //! |---|---|
-//! | stored | per note, its `(modified, len)`, its outgoing link targets, the entity keys of any Cartalith blocks in it, and a 64-bit word fingerprint. **Never the prose.** |
-//! | built | only when a person asks. The first build reads every note once. |
-//! | invalidated | per file, by `(modified, len)`. [`BacklinkIndex::refresh`] stats every note and re-reads only the ones that moved — ten edits in Obsidian cost ten reads, not the whole vault. |
+//! | stored | per note, its `(modified, len)`, its outgoing note-link targets, its frontmatter aliases (for the `[[` suggester), the entity keys of any Cartalith blocks in it, and a 64-bit word fingerprint. **Never the prose.** |
+//! | built | only when a person asks (Refresh, or a rename, which must see every link). The first build reads every note once. |
+//! | invalidated | per file, by `(modified, len)`. [`BacklinkIndex::refresh`] stats every note and re-reads only the ones that moved — ten edits in Obsidian cost ten reads, not the whole vault. Wholesale, when the stored records were read by an older link reader ([`LINK_READER`]). |
 //! | never | a watcher, a background thread, or a scan nobody asked for. |
+//!
+//! ## One resolver
+//!
+//! Links are read by [`crate::notelinks`] and resolved by its
+//! [`Resolver`] — the one the editor, the rename planner and every reader
+//! here share. Until 2026-10-31 this file carried its own matching, and its
+//! three readers disagreed: `broken_links` matched any target by file name,
+//! `backlinks_to` refused to for a path target, and `orphans` compared names
+//! only, so `[[Wrong/Kelvhold]]` was neither broken nor a backlink.
 //!
 //! ## Unlinked mentions without storing anyone's prose
 //!
@@ -41,7 +50,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::block;
+use crate::frontmatter;
+use crate::notelinks::{outgoing_links, LinkSyntax, Resolution, Resolver};
 use crate::provider::{VaultError, VaultProvider};
+
+/// Which link reader built an index's records. `0` (absent from the JSON)
+/// is this file's own pre-2026-10-31 parser; `1` is [`crate::notelinks`],
+/// whose targets are URL-decoded, skip code and leave out attachments. A
+/// [`BacklinkIndex::refresh`] that finds records from another reader
+/// re-reads every note, because their targets mean something different and
+/// `(modified, len)` alone would keep them for ever.
+pub const LINK_READER: u32 = 1;
 
 /// Bits set per token. Two is the standard low-fill choice; with 64 bits and
 /// the few hundred distinct words a note carries the filter saturates, which
@@ -58,17 +77,19 @@ const MIN_TOKEN_LEN: usize = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LinkForm {
-    /// `[[Target]]`, `[[Target|alias]]`, `[[Target#Heading]]`.
+    /// `[[Target]]`, `[[Target|alias]]`, `[[Target#Heading]]`, and the embed
+    /// `![[Target]]`, which Obsidian also counts as a link.
     Wiki,
-    /// `[text](Some/Path.md)`.
+    /// `[text](Some/Path.md)`, and `![alt](Some/Path.md)`.
     Markdown,
 }
 
 /// One outgoing reference, as written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutLink {
-    /// The target exactly as the author wrote it, minus any alias, heading or
-    /// anchor — `Settlements/Kelvhold.md` or just `Kelvhold`.
+    /// The target as [`crate::notelinks::LinkSpan::target`] reads it: alias,
+    /// heading and block removed, trimmed, and URL-decoded for a Markdown
+    /// link — `Settlements/Kelvhold.md`, `Kelvhold`, `../People/Aldis`.
     pub target: String,
     pub form: LinkForm,
 }
@@ -83,6 +104,11 @@ pub struct NoteRecord {
     /// `entity="settlement:42"` keys of every Cartalith block in this note.
     #[serde(default)]
     pub entities: Vec<String>,
+    /// The note's frontmatter aliases ([`frontmatter::aliases`]), so the
+    /// `[[` suggester can offer `The Grey Port` without opening every note.
+    /// Names the author gave the note, not its prose.
+    #[serde(default)]
+    pub aliases: Vec<String>,
     /// 64-bit Bloom filter over the note's distinct word tokens. See the
     /// module doc — this is a *filter*, not a copy.
     #[serde(default)]
@@ -123,6 +149,10 @@ pub struct BacklinkIndex {
     /// Unix seconds of the last full or partial refresh. `0` = never built.
     #[serde(default)]
     pub refreshed_at: u64,
+    /// Which link reader built `notes` ([`LINK_READER`]); `0` for an index
+    /// saved before the reader was recorded.
+    #[serde(default)]
+    pub reader: u32,
 }
 
 impl BacklinkIndex {
@@ -189,6 +219,11 @@ impl BacklinkIndex {
     /// state in which half an index is presented as a whole one.
     pub fn refresh(&mut self, vault: &dyn VaultProvider, limit: usize) -> Result<RefreshStats, VaultError> {
         let listed = vault.list_markdown(limit)?;
+        if self.reader != LINK_READER {
+            // Records from another link reader: re-read them all (module doc).
+            self.notes.clear();
+            self.reader = LINK_READER;
+        }
         let mut stats = RefreshStats { seen: listed.len(), ..Default::default() };
         let mut keep: std::collections::BTreeSet<&str> = Default::default();
         for rel in listed.iter() {
@@ -241,17 +276,33 @@ impl BacklinkIndex {
         self.refreshed_at = 0;
     }
 
-    /// Every note that links to `rel`, newest reference form kept per source.
+    /// The one resolver ([`Resolver`]) over every note this index knows.
+    pub fn resolver(&self) -> Resolver {
+        Resolver::new(self.notes.keys())
+    }
+
+    /// The notes a link `target` written in `src` names: one, several for an
+    /// ambiguous name, none for a broken link. The single question
+    /// [`backlinks_to`](Self::backlinks_to), [`broken_links`](Self::broken_links)
+    /// and [`orphans`](Self::orphans) all ask, so they cannot disagree.
+    fn named_by(resolver: &Resolver, target: &str, src: &str) -> Vec<String> {
+        match resolver.resolve(target, src) {
+            Resolution::Unique(p) => vec![p],
+            Resolution::Ambiguous(c) => c,
+            Resolution::Unresolved => Vec::new(),
+        }
+    }
+
+    /// Every note that links to `rel`, the first reference's form kept per
+    /// source; a note's links to itself are not backlinks.
     ///
-    /// Resolution follows the convention every Markdown vault tool uses and
-    /// the one an author actually writes: an exact relative path wins, and
-    /// otherwise a bare `[[Kelvhold]]` matches the note whose **file stem** is
-    /// `Kelvhold`, case-insensitively. A target that matches several notes
-    /// resolves to all of them — this port refuses to guess which one the
-    /// author meant, and saying "two notes are called this" is more useful
-    /// than silently picking one.
+    /// A link names `rel` when [`Resolver::resolve`] says so (exact path,
+    /// path without `.md`, bare name; relative to the linking note for `./`
+    /// and `../`). A target that matches several notes counts for all of them
+    /// — this port refuses to guess which one the author meant, and saying
+    /// "two notes are called this" is more useful than silently picking one.
     pub fn backlinks_to(&self, rel: &str) -> Vec<Backlink> {
-        let stem = stem_of(rel).to_ascii_lowercase();
+        let resolver = self.resolver();
         let mut out: Vec<Backlink> = Vec::new();
         for (src, rec) in self.notes.iter() {
             if src == rel {
@@ -260,7 +311,7 @@ impl BacklinkIndex {
             let mut count = 0usize;
             let mut form = LinkForm::Wiki;
             for l in rec.links.iter() {
-                if self.target_matches(&l.target, rel, &stem) {
+                if Self::named_by(&resolver, &l.target, src).iter().any(|p| p == rel) {
                     if count == 0 {
                         form = l.form;
                     }
@@ -272,24 +323,6 @@ impl BacklinkIndex {
             }
         }
         out
-    }
-
-    /// Whether an outgoing `target` (as written by the author) names `rel`,
-    /// tried in the same order Obsidian resolves a link: exact path, path
-    /// without `.md`, then bare-name-to-stem.
-    fn target_matches(&self, target: &str, rel: &str, stem_lower: &str) -> bool {
-        if target.eq_ignore_ascii_case(rel) {
-            return true;
-        }
-        // `Settlements/Kelvhold` with the extension left off, which is how
-        // Obsidian's own path links are written.
-        if let Some(no_ext) = rel.strip_suffix(".md") {
-            if target.eq_ignore_ascii_case(no_ext) {
-                return true;
-            }
-        }
-        // A bare name, which is the common case.
-        !target.contains('/') && stem_of(target).eq_ignore_ascii_case(stem_lower)
     }
 
     /// Every note carrying a Cartalith block for `entity_key`
@@ -331,20 +364,13 @@ impl BacklinkIndex {
 
     /// Links that resolve to no note in this vault — the *"missing"* half of
     /// `Data ▸ Missing & orphan notes report…`. Returns `(source, target)`.
+    /// A link to an attachment is not here: it was never a note link.
     pub fn broken_links(&self) -> Vec<(String, String)> {
-        let stems: std::collections::BTreeSet<String> =
-            self.notes.keys().map(|k| stem_of(k).to_ascii_lowercase()).collect();
+        let resolver = self.resolver();
         let mut out = Vec::new();
         for (src, rec) in self.notes.iter() {
             for l in rec.links.iter() {
-                let t = l.target.trim();
-                if t.is_empty() {
-                    continue;
-                }
-                let direct = self.notes.contains_key(t)
-                    || self.notes.contains_key(&format!("{t}.md"))
-                    || stems.contains(&stem_of(t).to_ascii_lowercase());
-                if !direct {
+                if Self::named_by(&resolver, &l.target, src).is_empty() {
                     out.push((src.clone(), l.target.clone()));
                 }
             }
@@ -352,19 +378,18 @@ impl BacklinkIndex {
         out
     }
 
-    /// Notes nothing links to — the *"orphan"* half of the same report.
+    /// Notes nothing links to — the *"orphan"* half of the same report:
+    /// exactly the notes [`backlinks_to`](Self::backlinks_to) would return
+    /// nothing for, so a link to itself does not stop a note being one.
     pub fn orphans(&self) -> Vec<String> {
+        let resolver = self.resolver();
         let mut linked: std::collections::BTreeSet<String> = Default::default();
-        for rec in self.notes.values() {
+        for (src, rec) in self.notes.iter() {
             for l in rec.links.iter() {
-                linked.insert(stem_of(&l.target).to_ascii_lowercase());
+                linked.extend(Self::named_by(&resolver, &l.target, src).into_iter().filter(|p| p != src));
             }
         }
-        self.notes
-            .keys()
-            .filter(|k| !linked.contains(&stem_of(k).to_ascii_lowercase()))
-            .cloned()
-            .collect()
+        self.notes.keys().filter(|k| !linked.contains(*k)).cloned().collect()
     }
 }
 
@@ -380,90 +405,28 @@ pub fn parse_note(text: &str) -> NoteRecord {
         len: 0,
         links: parse_links(text),
         entities: parse_entities(text),
+        aliases: frontmatter::aliases(text),
         word_bits: fingerprint_text(text),
     }
 }
 
-/// `[[Target]]`, `[[Target|alias]]`, `[[Target#Heading]]` and
-/// `[text](Some/Path.md)`.
-///
-/// Deliberately narrow: an inline `[text](https://…)` is not a note link and
-/// is skipped, and no other Obsidian construct is interpreted. The vault
-/// module's own boundary — *"there is no `obsidian://` scheme here, no
-/// wikilink generation, no block references"* — is about what Cartalith
-/// **writes**; reading the two link forms every Markdown vault uses is what
-/// makes a backlink possible at all.
+/// The note links in `text`, read by [`crate::notelinks::outgoing_links`]:
+/// `[[Target]]` in all its forms, `![[Target]]`, `[text](Some/Path.md)` and
+/// `![alt](Some/Path.md)`, outside code. A URL, an attachment and a link
+/// within the same note are not note links and are left out. Kept as a
+/// function of its own because `cartalith-knowledge` reads a note's links
+/// through it, so the two crates see the same links.
 pub fn parse_links(text: &str) -> Vec<OutLink> {
-    let b = text.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0usize;
-    while i + 1 < b.len() {
-        if b[i] == b'[' && b[i + 1] == b'[' {
-            if let Some(end) = text[i + 2..].find("]]") {
-                let raw = &text[i + 2..i + 2 + end];
-                // A `[[` inside the candidate means the outer one was never
-                // opened as a link — an unterminated `[[` followed by a real
-                // one. Restart at the inner opener, which is what every vault
-                // tool resolves and what an author sees.
-                if let Some(inner) = raw.find("[[") {
-                    i += 2 + inner;
-                    continue;
-                }
-                if let Some(t) = clean_target(raw) {
-                    out.push(OutLink { target: t, form: LinkForm::Wiki });
-                }
-                i += 2 + end + 2;
-                continue;
-            }
-            i += 2;
-            continue;
-        }
-        if b[i] == b'[' {
-            // `[text](target)` — the text may contain no unescaped `]`.
-            if let Some(close) = text[i + 1..].find(']') {
-                let after = i + 1 + close + 1;
-                if after < b.len() && b[after] == b'(' {
-                    if let Some(pclose) = text[after + 1..].find(')') {
-                        let raw = &text[after + 1..after + 1 + pclose];
-                        if is_note_path(raw) {
-                            if let Some(t) = clean_target(raw) {
-                                out.push(OutLink { target: t, form: LinkForm::Markdown });
-                            }
-                        }
-                        i = after + 1 + pclose + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-        i += 1;
-    }
-    out
-}
-
-/// Strip an alias (`|`), a heading (`#`) and surrounding space; `None` for an
-/// empty target.
-fn clean_target(raw: &str) -> Option<String> {
-    let t = raw.split('|').next().unwrap_or(raw);
-    let t = t.split('#').next().unwrap_or(t).trim();
-    if t.is_empty() { None } else { Some(t.to_string()) }
-}
-
-/// A markdown link target that could be a note: not a URL, not a mail or
-/// anchor link, not an image.
-fn is_note_path(raw: &str) -> bool {
-    let t = raw.trim();
-    if t.is_empty() || t.starts_with('#') {
-        return false;
-    }
-    if t.contains("://") || t.starts_with("mailto:") {
-        return false;
-    }
-    // Anything with an extension that is not `.md` is an asset, not a note.
-    match t.rsplit_once('.') {
-        Some((_, ext)) if !ext.eq_ignore_ascii_case("md") => ext.contains('/'),
-        _ => true,
-    }
+    outgoing_links(text)
+        .into_iter()
+        .filter_map(|s| {
+            let form = match s.syntax {
+                LinkSyntax::Wiki | LinkSyntax::Embed => LinkForm::Wiki,
+                LinkSyntax::Markdown | LinkSyntax::MarkdownEmbed => LinkForm::Markdown,
+            };
+            s.target.map(|target| OutLink { target, form })
+        })
+        .collect()
 }
 
 /// `entity="…"` from every Cartalith block. A malformed block (a `BEGIN` with
@@ -519,13 +482,6 @@ fn token_bits(word: &str) -> u64 {
     }
     bits
 }
-
-/// The file stem of a vault-relative path or a bare link target.
-fn stem_of(rel: &str) -> &str {
-    let last = rel.rsplit('/').next().unwrap_or(rel);
-    last.strip_suffix(".md").unwrap_or(last)
-}
-
 
 /// One line of context around a hit, for the mentions list.
 ///

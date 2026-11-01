@@ -217,12 +217,16 @@ pub fn discover(files: &[String], cfg: &Config) -> Vec<Template> {
 }
 
 /// `s` with a trailing `.md`/`.MD`/… stripped (case-insensitively); `s`
-/// itself when it has none.
-fn strip_md(s: &str) -> &str {
-    if s.len() >= 3 && s[s.len() - 3..].eq_ignore_ascii_case(".md") {
-        &s[..s.len() - 3]
-    } else {
-        s
+/// itself when it has none. `pub(crate)`: the one `.md` rule for
+/// [`crate::notelinks`] and [`crate::suggest`] too.
+///
+/// Never slices inside a character: a name that ends in multi-byte text and
+/// has no `.md` (`Notes/éé`) used to panic here, since the cut three bytes
+/// from the end fell inside `é` — and a panic would cross the gdext boundary.
+pub(crate) fn strip_md(s: &str) -> &str {
+    match s.len().checked_sub(3) {
+        Some(cut) if s.is_char_boundary(cut) && s[cut..].eq_ignore_ascii_case(".md") => &s[..cut],
+        _ => s,
     }
 }
 
@@ -1160,5 +1164,18 @@ mod tests {
         assert_eq!(sanitise("Trailing."), "Trailing");
         assert_eq!(sanitise(""), "Untitled");
         assert_ne!(sanitise("A:B"), sanitise("A?"));
+    }
+
+    /// Protects: `strip_md` (and so `title_of`) never slices inside a
+    /// character. `Notes/éé` is four bytes with no `.md`, and the old cut
+    /// three bytes from the end fell inside the first `é` and panicked -- a
+    /// panic that would cross the gdext boundary. `.md` is still stripped in
+    /// any case after multi-byte text, and a bare `.md` strips to nothing.
+    #[test]
+    fn a_name_ending_in_multibyte_text_does_not_panic() {
+        assert_eq!(title_of("Notes/éé"), "éé");
+        assert_eq!(title_of("Notes/Ærenfell.MD"), "Ærenfell");
+        assert_eq!(strip_md("🜂"), "🜂");
+        assert_eq!(strip_md(".md"), "");
     }
 }

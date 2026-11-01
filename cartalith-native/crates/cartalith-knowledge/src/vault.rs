@@ -75,7 +75,9 @@ pub struct NoteMeta {
     pub tags: Vec<String>,
     /// Frontmatter `type`.
     pub note_type: Option<String>,
-    /// Outgoing link targets, as written minus alias and anchor, in order, de-duplicated.
+    /// Outgoing note-link targets as `cartalith_vault::backlinks::parse_links` reads them (alias,
+    /// heading and block removed, a Markdown target URL-decoded; links in code, URLs and
+    /// attachments left out), in order, de-duplicated.
     pub links: Vec<String>,
     /// `entity="settlement:42"` keys of the machine-owned blocks.
     pub entities: Vec<String>,
@@ -370,6 +372,11 @@ pub struct VaultIndex {
 /// file stem matches, case-insensitively, because the vault "refuses to guess which one the author
 /// meant". One addition: a bare name also matches a note's frontmatter alias. An ambiguous name
 /// therefore resolves to several notes.
+///
+/// Since 2026-10-31 `backlinks_to` resolves through `cartalith_vault::notelinks::Resolver`, which
+/// also reads `./` and `../` targets against the linking note, a leading `/` as the vault root, and
+/// prefers the one exact-case match among case-only duplicates. This resolver does none of the three
+/// (it is given no linking note), so the two can disagree on those forms; RK-4's fixture uses none.
 #[derive(Debug, Default)]
 pub struct Resolver {
     /// lower-cased full path and path-without-extension -> the path.

@@ -84,8 +84,24 @@ impl From<std::io::Error> for VaultError {
 }
 
 /// Whether `rel` is safe to treat as a single vault-relative path: not
-/// empty, and every component a plain name — never `..`, a root, or (on
-/// Windows) a drive/UNC prefix.
+/// empty, and every component a plain name — never `..`, a root, a drive
+/// prefix or a UNC prefix.
+///
+/// **The same answer on every platform.** A vault-relative path is portable
+/// project data (§5: [`crate::KnowledgeLink::relative_path`] travels in the
+/// project file), and one vault is opened from a Windows PC and an Android
+/// phone. A path this function accepted on Linux used to escape on Windows:
+/// `C:/Windows/x.md` and `C:x.md` (a drive and a drive-relative path) and
+/// `a\..\..\x.md` (`\` is a separator only there) parse as plain names on
+/// Linux, so the host's own [`Path::components`] cannot be the whole rule.
+/// The two provider tests that pin the drive-letter case failed on Linux
+/// until 2026-10-31 for exactly this reason. So, on every host:
+///
+/// - a leading `/` or `\` is refused (a root, or a Windows UNC prefix);
+/// - a leading ASCII letter and `:` is refused (a Windows drive);
+/// - a `..` segment is refused when segments are split at both `/` and
+///   `\`;
+/// - and the host's own component check still applies on top.
 ///
 /// [`FsVault::resolve`] uses this before joining `rel` onto a real
 /// [`PathBuf`]; a provider with nothing to join it onto — a
@@ -94,15 +110,34 @@ impl From<std::io::Error> for VaultError {
 /// §30's least-privilege rule applies to every provider, not just this
 /// crate's own.
 pub fn is_safe_relative_path(rel: &str) -> bool {
-    !rel.is_empty() && Path::new(rel).components().all(|c| matches!(c, Component::Normal(_)))
+    let b = rel.as_bytes();
+    let drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
+    !rel.is_empty()
+        && !rel.starts_with(['/', '\\'])
+        && !drive
+        && rel.split(['/', '\\']).all(|seg| seg != "..")
+        && Path::new(rel).components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// The refusal of a provider that cannot move files (the default
+/// [`VaultProvider::move_file`]): [`std::io::ErrorKind::Unsupported`],
+/// naming the vault by its display string.
+pub fn cannot_move(describe: &str) -> VaultError {
+    VaultError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!("\"{describe}\" cannot move or rename notes from Cartalith"),
+    ))
 }
 
 /// The platform-neutral operations a Markdown vault provider gives
 /// [`crate::VaultSession`] — `MARKDOWN_VAULT_INTEGRATION.md` §6's
 /// `MarkdownVaultProvider` interface, narrowed to exactly the subset the
-/// session calls. (§6 also lists `watchChanges`/`moveFile`/`deleteFile` as
-/// *optional* capabilities; V1 offers none of the three on either platform,
-/// so they are not here to implement as `unimplemented!()` on one side.)
+/// session calls. §6 also lists `watchChanges`/`moveFile`/`deleteFile` as
+/// *optional* capabilities. `moveFile` arrived on 2026-10-31 as
+/// [`VaultProvider::move_file`], for the note editor's rename, with a
+/// default that **refuses** rather than an `unimplemented!()`: a provider
+/// that cannot move a file says so, and nothing is written. The other two
+/// are still not offered.
 ///
 /// [`FsVault`] is this crate's own implementation. `cartalith-godot`'s
 /// `vault_saf::SafVaultProvider` is the other one this port ships, and lives
@@ -125,6 +160,28 @@ pub trait VaultProvider: std::fmt::Debug {
     fn exists(&self, rel: &str) -> bool;
     /// Writes `text` to `rel`, creating parent directories as needed.
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError>;
+
+    /// Moves the note at `from` to `to` (a rename, or a move between
+    /// folders), creating `to`'s folders. Must refuse, changing nothing,
+    /// when `to` is already another file: a move never overwrites.
+    ///
+    /// The default refuses with [`cannot_move`], and is what a provider gets
+    /// until it can really move a file. `cartalith-godot`'s
+    /// Storage-Access-Framework provider is one: its handler offers no move
+    /// operation, and writing the new file without deleting the old one
+    /// would leave two copies of a note, not a rename.
+    fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        let _ = (from, to);
+        Err(cannot_move(&self.describe()))
+    }
+
+    /// Whether [`Self::move_file`] can succeed here at all, asked before a
+    /// rename is planned so a person is never shown a plan the vault cannot
+    /// carry out. `false` unless a provider overrides it, matching the
+    /// refusing default above.
+    fn can_move(&self) -> bool {
+        false
+    }
 
     /// Where this vault points, for **display only** — never stored in
     /// project data (§5). A filesystem path for [`FsVault`]; a tree URI for
@@ -172,6 +229,14 @@ impl VaultProvider for FsVault {
     /// Delegates to [`FsVault::write`].
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
         FsVault::write(self, rel, text)
+    }
+    /// Delegates to [`FsVault::move_file`].
+    fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        FsVault::move_file(self, from, to)
+    }
+    /// A folder on this device can always be asked to move a file.
+    fn can_move(&self) -> bool {
+        true
     }
     /// The root's own display path -- the one provider whose "display
     /// only" string (§5) is a real filesystem path.
@@ -292,6 +357,56 @@ impl FsVault {
         }
     }
 
+    /// Moves the file at `from` to `to`, creating `to`'s folders; refuses
+    /// with [`std::io::ErrorKind::AlreadyExists`], changing nothing, when
+    /// `to` is already another file. The old folder is left in place, even
+    /// if now empty, as Obsidian leaves it.
+    ///
+    /// **A case-only rename** (`kelvhold.md` to `Kelvhold.md`) goes through a
+    /// sibling temporary name. On Windows and Android storage the two names
+    /// are one file, so `to` "exists" and a plain check would refuse a
+    /// legitimate rename; on Linux they can be two files, and a plain
+    /// `std::fs::rename` would silently replace the other one. Moving aside
+    /// first answers both: if `to` still exists once `from` is out of the
+    /// way, it is a different file, and the move is put back and refused.
+    ///
+    /// A labelled limit: between the existence check and the rename there is
+    /// a window of microseconds in which another app could create `to`, and
+    /// `std::fs::rename` would then replace it. `std` offers no portable
+    /// no-replace rename to close it.
+    pub fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        let src = self.resolve(from)?;
+        let dst = self.resolve(to)?;
+        let taken = || VaultError::Io(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("\"{to}\" already exists")));
+        if !src.is_file() {
+            return Err(VaultError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("\"{from}\" does not exist"))));
+        }
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if from != to && from.to_lowercase() == to.to_lowercase() {
+            let mut aside = src.clone().into_os_string();
+            aside.push(".cartalith-rename");
+            let aside = PathBuf::from(aside);
+            std::fs::rename(&src, &aside)?;
+            if dst.exists() {
+                std::fs::rename(&aside, &src)?;
+                return Err(taken());
+            }
+            return match std::fs::rename(&aside, &dst) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    let _ = std::fs::rename(&aside, &src);
+                    Err(VaultError::Io(e))
+                }
+            };
+        }
+        if dst.exists() {
+            return Err(taken());
+        }
+        Ok(std::fs::rename(&src, &dst)?)
+    }
+
     /// A vault-relative path resolved against the root, refusing anything
     /// that would reach outside it.
     ///
@@ -359,6 +474,62 @@ mod tests {
             assert!(v.resolve(bad).is_err(), "{bad} must be refused");
         }
         assert!(v.resolve("Locations/Nareth.md").is_ok());
+    }
+
+    /// Protects: the containment rule is the same on every host -- the
+    /// Windows-only escape shapes (a backslash climb, a UNC prefix in either
+    /// slash, a drive-relative `C:x.md`, a backslash root) are refused on
+    /// Linux too -- while a colon or a `.` later in a path is not refused,
+    /// since neither leaves the vault.
+    #[test]
+    fn the_containment_rule_is_the_same_on_every_platform() {
+        for bad in ["..\\x.md", "a\\..\\..\\b.md", "\\\\server\\share\\x.md", "//server/share/x.md", "C:x.md", "c:\\x.md", "\\x.md", "a/..", "./x.md"] {
+            assert!(!is_safe_relative_path(bad), "{bad} must be unsafe");
+        }
+        for good in ["Notes/Time 10:30.md", "a/./b.md", "v1.2 notes.md", "Ærenfell.md"] {
+            assert!(is_safe_relative_path(good), "{good} must be safe");
+        }
+    }
+
+    /// Protects: `move_file` moves a note into a folder it creates; refuses
+    /// to overwrite another file or to move a missing one, leaving every
+    /// file as it was; performs a case-only rename; and, where the
+    /// filesystem is case-sensitive (checked at run time, not assumed),
+    /// refuses a case-only rename onto a different existing file, keeping
+    /// both.
+    #[test]
+    fn a_move_creates_folders_and_never_overwrites() {
+        let root = temp_root("move");
+        let v = FsVault::new(&root);
+        v.write("A.md", "a\n").unwrap();
+        v.write("B.md", "b\n").unwrap();
+        v.move_file("A.md", "Archive/Old/A2.md").unwrap();
+        assert!(!v.exists("A.md"));
+        assert_eq!(v.read("Archive/Old/A2.md").unwrap(), "a\n");
+
+        let err = v.move_file("B.md", "Archive/Old/A2.md").unwrap_err();
+        assert!(matches!(&err, VaultError::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists), "{err}");
+        assert_eq!(v.read("B.md").unwrap(), "b\n");
+        assert_eq!(v.read("Archive/Old/A2.md").unwrap(), "a\n");
+        assert!(v.move_file("Nope.md", "X.md").is_err());
+
+        v.move_file("B.md", "b.md").unwrap();
+        assert_eq!(v.list_markdown(10).unwrap(), ["Archive/Old/A2.md", "b.md"]);
+
+        v.write("c.md", "lower\n").unwrap();
+        if !v.exists("C.md") {
+            v.write("C.md", "upper\n").unwrap();
+            let err = v.move_file("c.md", "C.md").unwrap_err();
+            assert!(matches!(&err, VaultError::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists), "{err}");
+            assert_eq!(v.read("c.md").unwrap(), "lower\n");
+            assert_eq!(v.read("C.md").unwrap(), "upper\n");
+        }
+        // Read the folder itself: `list_markdown` shows only `.md` names, so
+        // it could never show a `*.md.cartalith-rename` file left behind.
+        let left: Vec<String> =
+            std::fs::read_dir(&root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(left.iter().all(|f| !f.contains("cartalith-rename")), "an aside file was left: {left:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Protects: `list_markdown`'s filtering (only .md, dot-dirs skipped,
