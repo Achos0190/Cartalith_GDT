@@ -118,23 +118,21 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </button>
 </sc-if>
 
-<!-- floating map controls: follow the sheet edge, thin out as space shrinks -->
-<div style="position:absolute;right:{{ L.fabR }}px;bottom:{{ fab.bottom }}px;display:{{ fab.disp }};flex-direction:column;gap:10px;align-items:flex-end;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
-<sc-if value="{{ fab.more }}" hint-placeholder-val="{{ true }}">
-<button class="clr-btn" onClick="{{ h3D }}" aria-label="{{ fab.dimAria }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:500 12px 'IBM Plex Mono',monospace;color:var(--acc)">{{ fab.dimLabel }}</button>
-<button class="clr-btn" onClick="{{ hFit }}" aria-label="fit the whole world" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)">
-<svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
-</button>
+<!-- DS-13: the map's control row (MOBILE_SHELL_PROPOSAL.md §2.5). Bottom of the map on the dominant-hand side, outer end first: recentre, the zoom rocker, then the pan latch, shown only while a drawing tool is armed. 3D/2D lives in MAP ▸ View. -->
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ mc.left }};right:{{ mc.right }};bottom:{{ mc.bottom }}px;display:{{ mc.disp }};flex-direction:{{ mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ mc.panTap }}" aria-label="{{ mc.panAria }}" aria-pressed="{{ mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ mc.panBg }};border:1px solid {{ mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
 </sc-if>
-<div style="width:var(--c48,48px);display:flex;flex-direction:column;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);overflow:hidden">
-<button class="clr-btn" onClick="{{ hZoomIn }}" aria-label="zoom in" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
-<span style="height:1px;background:var(--hair)"></span>
-<button class="clr-btn" onClick="{{ hZoomOut }}" aria-label="zoom out" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
 </div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
 </div>
 
 <!-- scale bar -->
-<div style="position:absolute;left:{{ L.scaleL }}px;bottom:{{ fab.scaleBottom }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<div style="position:absolute;left:{{ fab.scaleLeft }};right:{{ fab.scaleRight }};bottom:{{ fab.scaleBottom }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
 <span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0;box-shadow:0 1px 2px rgba(0,0,0,.6)"></span>
 </div>
@@ -467,9 +465,25 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </sc-if>
 
 <!-- map furniture on tablet -->
-<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.furnT }}px;display:flex;gap:8px;z-index:4">
+<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.furnT }}px;display:{{ T.v3.furnDisp }};gap:8px;z-index:4">
 <button class="clr-btn" onClick="{{ hLayersPop }}" aria-label="layers" aria-expanded="{{ T.layersOpen }}" style="height:var(--c44,44px);display:flex;align-items:center;gap:8px;padding:0 14px 0 12px;border-radius:var(--r22,22px);background:var(--pill);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 3.5-6 3.5-6-3.5ZM2 8.5L8 12l6-3.5M2 11.5L8 15l6-3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>{{ T.baseLabel }}</button>
 </div>
+<!-- Ruling EA 14 on the desktop and the tablet: the 3D view's live height-exaggeration slider, as a row in the 3D view's own card. The card stands in for view3d.gd::_build_card() as shipped by 3D-1: top-left inside the map at CARD_INSET 12, at most CARD_MAX_W 460 wide, panel with a line border; title, tier disclosure, info line, then Back to 2D, Re-test 3D and Force tier. The new HEIGHT row sits between the info line and the actions. In the build the 3D view covers the 2D map and its furniture, so the layers button is hidden here while 3D is on. 1× is true scale (Ruling CT). On the phone the row is in MAP ▸ View instead (MOBILE_SHELL_PROPOSAL.md §2.5). -->
+<div role="group" aria-label="3D view" data-v3="1" style="position:absolute;left:{{ T.v3.left }}px;top:{{ T.v3.top }}px;width:{{ T.v3.w }}px;display:{{ T.v3.disp }};flex-direction:column;gap:8px;padding:12px;box-sizing:border-box;border-radius:8px;background:var(--pan);border:1px solid var(--hair);z-index:4">
+<span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">3D VIEW</span>
+<span style="font:13px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Basic tier, as measured on this device.</span>
+<span style="font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim)">Terrain is not drawn in 3D yet (mock: the stand-in map stays 2D). When it is, it is drawn at the height below.</span>
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">HEIGHT · 1× IS TRUE SCALE</span><span style="font:500 13px 'IBM Plex Mono',monospace;color:var(--ink)">{{ T.v3.label }}</span></div>
+<input type="range" min="1" max="3" step="0.25" value="{{ T.v3.val }}" onInput="{{ T.v3.onIn }}" aria-label="height exaggeration, 1 to 3 times" style="width:100%;height:var(--c44,44px);accent-color:var(--acc);margin:0">
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<button class="clr-btn" onClick="{{ T.v3.back }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--acc);color:var(--pan);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">BACK TO 2D</button>
+<button class="clr-btn" onClick="{{ T.v3.retest }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">RE-TEST 3D</button>
+<button class="clr-btn" onClick="{{ T.v3.force }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">FORCE TIER…</button>
+</div>
+</div>
+<sc-if value="{{ T.ptrNav }}" hint-placeholder-val="{{ false }}">
 <div style="position:absolute;right:{{ T.furnR }}px;bottom:{{ T.furnB }}px;display:flex;flex-direction:column;gap:10px;z-index:4">
 <button class="clr-btn" onClick="{{ h3D }}" aria-label="{{ fab.dimAria }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);font:500 12px 'IBM Plex Mono',monospace;color:var(--acc)">{{ fab.dimLabel }}</button>
 <button class="clr-btn" onClick="{{ hFit }}" aria-label="fit the whole world" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
@@ -479,7 +493,21 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <button class="clr-btn" onClick="{{ hZoomOut }}" aria-label="zoom out" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
 </div>
 </div>
-<div style="position:absolute;left:{{ T.scaleL }}px;bottom:{{ T.scaleB }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;z-index:4">
+</sc-if>
+<sc-if value="{{ T.touchNav }}" hint-placeholder-val="{{ true }}">
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ T.mc.left }};right:{{ T.mc.right }};bottom:{{ T.mc.bottom }}px;display:{{ T.mc.disp }};flex-direction:{{ T.mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ T.mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ T.mc.panTap }}" aria-label="{{ T.mc.panAria }}" aria-pressed="{{ T.mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ T.mc.panBg }};border:1px solid {{ T.mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ T.mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ T.mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ T.mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ T.mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+</div>
+</sc-if>
+<div style="position:absolute;left:{{ T.scaleLeft }};right:{{ T.scaleRight }};bottom:{{ T.scaleB }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;z-index:4">
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
 <span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0"></span>
 </div>
@@ -1840,7 +1868,8 @@ function catRows(c, cat, tablet) {
         fold(c, 'f-ra5', 'Atmosphere', '3 sliders', () => [R(c, 'ra.haze', 'Atmospheric haze', 0, 0.6, 0.01, 0.1), R(c, 'ra.desat', 'Distance desaturation', 0, 1, 0.01, 0.2), R(c, 'ra.cont', 'Distance contrast loss', 0, 1, 0.01, 0.2)]),
         fold(c, 'f-ra6', 'Multi-scale detail', '3 sliders', () => ['Macro detail', 'Meso detail', 'Micro detail'].map((x) => R(c, 'ra.' + x, x, 0, 1, 0.01, 0.5))),
         [B('Reset to quality tier', () => c._toast('Appearance reset to the balanced tier')), info('Unset tunables follow the quality tier in Preferences ▸ Render quality.')]);
-    case 'Colours': return [H('COLOUR RELIEF'), R(c, 'col.ramp', 'Colour relief', 0, 1, 0.01, 1)]
+    case 'Colours': return (s.paintWidth ? [info('Map width ' + fmtDist(s.paintWidth.from, s.prefs.units) + ' → ' + fmtDist(s.paintWidth.to, s.prefs.units) + ': ' + s.paintWidth.marks + ' paint marks kept their real size and position; ' + s.paintWidth.wet + ' now on water are hidden, not deleted.', true), BB({ label: 'Show marks', tap: () => { c.setState({ paintWidth: null }); c._toast('Marks outlined on the map (mock)'); } }, { label: 'Dismiss', tap: () => c.setState({ paintWidth: null }) })] : [])
+      .concat([H('COLOUR RELIEF'), R(c, 'col.ramp', 'Colour relief', 0, 1, 0.01, 1), H('COLOUR PAINT', 'marks in map kilometres'), { k: 'nav', d: IC.link, label: 'Simulate a regenerate at another width', sub: 'mock: shows the one-line notice (Ruling EA 15)', tap: () => { c.setState({ paintWidth: { from: 800, to: 1200, marks: 17, wet: 3 } }); c._toast('Map width ' + fmtDist(800, s.prefs.units) + ' → ' + fmtDist(1200, s.prefs.units) + ' · paint marks kept their real size'); } }])
       .concat([['earth', 'Earth'], ['elevation', 'Elevation'], ['atlas', 'Atlas'], ['mono', 'Mono'], ['imhof', 'Imhof'], ['ice', 'Ice'], ['darkice', 'Dark ice'], ['desert', 'Desert'], ['darkatlas', 'Dark atlas']].map(([id, l]) => ({ k: 'ramp', label: l, grad: 'linear-gradient(90deg,' + RAMPS[id].join(',') + ')', on: s.ramp === id, tap: () => { c.setState({ ramp: id }); c._dirty = true; } })),
         [read('Also in the engine', 'Blueprint · Ink wash · Night · Vintage atlas · Custom'), S(c, 'col.blend', 'Blend', ['Linear', 'Ease', 'Step'], 'Linear'), BB({ label: 'Add stop', tap: () => c._toast('Stop added at 50 %') }, { label: 'Reverse', tap: () => c._toast('Ramp reversed') }), H('COLOUR GRADE')],
         fold(c, 'f-cg1', 'Rivers', '7 sliders', () => [R(c, 'cg.rw', 'River width', 0.25, 3, 0.05, 1, 'x'), R(c, 'cg.ro', 'River opacity', 0, 1, 0.01, 1), R(c, 'cg.ri', 'River ink', 0, 1, 0.01, 0.5), R(c, 'cg.rr', 'River ink red', 0, 255, 1, 106), R(c, 'cg.rg', 'River ink green', 0, 255, 1, 155), R(c, 'cg.rb', 'River ink blue', 0, 255, 1, 196), R(c, 'cg.ru', 'River under styles', 0, 1, 0.01, 0)]),
@@ -1883,7 +1912,7 @@ function quickRow(c) {
 }
 function rowsMap(c) {
   const s = c.state; const fid = s.field || 'off';
-  const rows = [H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }, T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)];
+  const rows = [H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }].concat(s.dim3 ? [R(c, 'v3.exag', 'Height exaggeration (3D)', 1, 3, 0.25, 1, '×'), info('1× is true scale (Ruling CT). Live: the 3D view redraws as you drag. Mock: the stand-in map stays 2D.')] : []).concat([T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)]);
   rows.push(H('VIEW FIELD', 'what the map shows · keys 1–8'));
   ANALYSIS.forEach(([grp, list]) => rows.push({ k: 'seg', label: grp, opts: list.map(([id, l]) => ({ label: l, on: fid === id, tap: () => pickField(c, id, l) })) }));
   if (s.overlay) rows.push({ k: 'rng', label: 'Field opacity', min: 0.1, max: 1, step: 0.05, val: s.ovA, disp: Math.round(s.ovA * 100) + ' %', onIn: (e) => { c.setState({ ovA: +e.target.value }); c._dirty = true; }, dec: () => c.setState({ ovA: Math.max(0.1, +(s.ovA - 0.05).toFixed(2)) }), inc: () => c.setState({ ovA: Math.min(1, +(s.ovA + 0.05).toFixed(2)) }) });
@@ -1907,7 +1936,9 @@ function routeStages(c) {
 function plannerRows(c, tablet) {
   const s = c.state; const st = routeStages(c); const total = st.reduce((a, x) => a + x.days, 0); const km = st.reduce((a, x) => a + x.km, 0);
   if (s.planStage >= 0 && st[s.planStage]) { const x = st[s.planStage]; return [H('STAGE ' + (s.planStage + 1) + ' OF ' + st.length, x.a.name + ' → ' + x.b.name), read('Terrain', x.terr), read('Biome', x.biome), read('Distance', fmtDist(x.km, s.prefs.units)), read('Ascent', x.asc + ' m'), read('Pace', x.water ? 'boat · 70 km/d' : (x.terr === 'mountain' ? 'pack · 17 km/d' : 'march · 24 km/d')), read('Days', x.days.toFixed(1)), read('Water crossing', x.water ? 'yes · ferry at ' + x.a.name : 'no', x.water ? 'var(--water)' : ''), S(c, 'pl.ov.' + s.planStage, 'Override pace', ['auto', 'forced march', 'slow'], 'auto'), BB({ label: '‹ Route', tap: () => c.setState({ planStage: -1 }) }, { label: 'Next stage ›', variant: 'primary', tap: () => c.setState({ planStage: Math.min(st.length - 1, s.planStage + 1) }) })]; }
-  const feasible = total < 75; const rows = plannerSelRows(c).concat([{ k: 'card', badge: feasible ? 'FEASIBLE · STRAINED' : 'INFEASIBLE', badgeCol: feasible ? 'var(--acc)' : 'var(--block)', right: 'confidence ± 4 d', big: String(Math.round(total + 7)), unit: 'calendar days', sub: total.toFixed(1) + ' travel · 4 rest · 3 layover · ' + fmtDist(km, s.prefs.units), note: 'Supply gap ' + (c.route[2] ? c.route[2].name : '') + ' → ' + (c.route[5] ? c.route[5].name : '') + ' runs 15.4 effective days but only 10 are carried. Add supplies, forage harder, or plan a resupply layover.', opts: [{ label: 'SUPPLIES +6 D', tap: () => setV(c, 'pl.sup', 16) }, { label: 'FORAGING ACTIVE', on: V(c, 'pl.forage', 'Active') === 'Active', tap: () => setV(c, 'pl.forage', 'Active') }] }]);
+  const feasible = total < 75; const stale = (s.staleLegs || []).filter((x) => st[x.i]);
+  const staleRows = stale.length ? [info(stale.length + ' leg change' + (stale.length > 1 ? 's' : '') + ' no longer fit' + (stale.length > 1 ? '' : 's') + ' this world and ' + (stale.length > 1 ? 'were' : 'was') + ' dropped: ' + stale.map((x) => 'stage ' + (x.i + 1) + ', ' + st[x.i].a.name + ' → ' + st[x.i].b.name + ' (' + x.what + ')').join('; ') + '. The legs were rebuilt after the world changed; nothing was applied to a different leg.', true), BB({ label: 'Show stage ' + (stale[0].i + 1), tap: () => c.setState({ planStage: stale[0].i }) }, { label: 'Dismiss', tap: () => c.setState({ staleLegs: null }) })] : [];
+  const rows = staleRows.concat(plannerSelRows(c)).concat([{ k: 'card', badge: feasible ? 'FEASIBLE · STRAINED' : 'INFEASIBLE', badgeCol: feasible ? 'var(--acc)' : 'var(--block)', right: 'confidence ± 4 d', big: String(Math.round(total + 7)), unit: 'calendar days', sub: total.toFixed(1) + ' travel · 4 rest · 3 layover · ' + fmtDist(km, s.prefs.units), note: 'Supply gap ' + (c.route[2] ? c.route[2].name : '') + ' → ' + (c.route[5] ? c.route[5].name : '') + ' runs 15.4 effective days but only 10 are carried. Add supplies, forage harder, or plan a resupply layover.', opts: [{ label: 'SUPPLIES +6 D', tap: () => setV(c, 'pl.sup', 16) }, { label: 'FORAGING ACTIVE', on: V(c, 'pl.forage', 'Active') === 'Active', tap: () => setV(c, 'pl.forage', 'Active') }] }]);
   rows.push(H('ROUTE', (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : '') + ' · ' + st.length + ' stages'));
   st.forEach((x, i) => rows.push({ k: 'item', label: x.a.name + ' → ' + x.b.name, sub: x.terr + ' · ' + fmtDist(x.km, s.prefs.units) + (x.asc ? ' · +' + x.asc + ' m' : ''), right: x.days.toFixed(1) + ' d', dot: x.water ? 'var(--water)' : 'var(--acc)', tap: () => c.setState({ planStage: i }) }));
   rows.push(BB({ label: 'Show on map', d: IC.map, tap: () => { c.setState({ det: 'peek' }); c._fit(true); } }, { label: 'Save journey', variant: 'primary', tap: () => c._toast('Journey saved · ' + (c.route[0] ? c.route[0].name : '')) }));
@@ -1961,6 +1992,31 @@ function rowsSel(c) {
 }
 function hasNote(o, c) { return !!(o && c && noteByName(c, o.name)); }
 
+/* ---------- DS-13: the map's control cluster on touch (phone and tablet), MOBILE_SHELL_PROPOSAL.md §2.5 ----------
+   One row at the bottom of the map on the dominant-hand side (Preferences ▸ Handedness), outer end first: recentre (⌖),
+   the zoom rocker (− | +), and the pan latch (✋) at the inner end, shown only while a drawing tool is armed, so its
+   coming and going moves nothing else. A tap-only tool (Inspect, Measure, Settlement, Label, Icon …) already gives a
+   one-finger drag to the camera, which is what the approved gesture table says; the latch is for the tools that draw.
+   The rocker steps by the shipped ZOOM_BUTTON_STEP, 1.35 (viewport_host.gd, reference 13464), about the map's centre.
+   o: { bottom (px from the map host's bottom), edge (px from the dominant side), show } */
+const MC_ZOOM_STEP = 1.35;
+function mapCtlVals(c, o) {
+  const s = c.state; const left = s.prefs.hand === 'left';
+  const draws = c._strokeTool() && !s.prefs.penOnly;
+  const on = draws && !!s.panLatch;
+  const px = (n) => n + 'px';
+  return {
+    disp: o.show ? 'flex' : 'none', left: left ? px(o.edge) : 'auto', right: left ? 'auto' : px(o.edge), bottom: o.bottom,
+    dir: left ? 'row-reverse' : 'row', side: left ? 'left' : 'right',
+    panShow: draws, panOn: on ? 'true' : 'false',
+    panAria: on ? 'pan latch on: one finger pans; tap to give it back to the tool' : 'pan latch: one finger pans the map while the tool stays armed',
+    panBg: on ? 'linear-gradient(var(--navarm),var(--navarm)),var(--navpill)' : 'var(--navpill)', panBorder: on ? 'var(--navacc)' : 'var(--hair)', panCol: on ? 'var(--navacc)' : 'var(--body)',
+    panTap: () => { const v = !s.panLatch; c.setState({ panLatch: v }); if (v) c._toast('One finger pans — tap ✋ again to give it back to the tool'); },
+    zoomIn: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(MC_ZOOM_STEP, w / 2, h / 2); },
+    zoomOut: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(1 / MC_ZOOM_STEP, w / 2, h / 2); },
+    fit: () => { c.setState({ panLatch: false }); c._fit(true); }
+  };
+}
 /* ---------- the armed tool: one description for the phone strip and the tablet tool-options bar ---------- */
 function toolBar(c) {
   const s = c.state, t = s.tool, T0 = TOOLS[t] || TOOLS.inspect; const acts = []; let main = T0.label, hint = T0.hint || '', chips = [], field = false;
@@ -2041,7 +2097,7 @@ function winRows(c, id) {
     }
     case 'vault': return { title: arg === 'without' ? 'PLACES WITHOUT NOTES' : arg === 'place' ? 'NOTE · ' + (selName(c) || 'PLACE').toUpperCase() : 'MARKDOWN VAULT', sub: arg === 'browse' ? 'browse & edit a note' : 'link and attach notes', rows: arg === 'without' ? [read('Settlements', (c.places.length - 3) + ' of ' + c.places.length + ' have no note'), S(c, 'vt.kind', 'Kind', ['Settlements', 'Provinces', 'Continents', 'Factions'], 'Settlements')].concat(placeItems(c, c.places.slice(3, 9), () => 'attach')) : arg === 'place' ? [read('Vault', '~/Cartalith/Vault'), read('Note', hasNote(selObj(c), c) ? selName(c) + '.md' : 'none yet'), info('# ' + (selName(c) || 'Place') + '\nFounded on the old ford. Salt and grain…'), BB({ label: 'Open in editor', tap: () => c._toast('Opens the note (raw text, edit, save)') }, { label: hasNote(selObj(c), c) ? 'Detach' : 'Attach note…', variant: 'primary', tap: () => c._toast('Note attached') })] : [H('INDEX'), read('Notes', '41'), read('Linked', '29'), read('Missing', '3', 'var(--warn)'), read('Orphan', '2'), H('RECENT')].concat(['Vhal Serai.md', 'Sevjuni League.md', 'The Old Rite.md', 'Kess Ford crossing.md'].map((n) => ({ k: 'item', label: n, sub: 'edited 2 d ago', dot: 'var(--sec)', square: true, tap: () => c._toast('Opens ' + n) }))) };
     case 'worlddata': return { title: 'WORLD DATA TABLES', sub: 'every field the world holds', rows: [S(c, 'wd.t', 'Table', ['Settlements', 'Factions', 'Rivers', 'Landmarks', 'Fields'], 'Settlements')].concat(V(c, 'wd.t', 'Settlements') === 'Settlements' ? placeItems(c, c.places) : V(c, 'wd.t') === 'Factions' ? factionItems(c) : V(c, 'wd.t') === 'Landmarks' ? c.landmarks.map((l) => read(l.name, l.kind)) : [read('Rivers', c.rivers[2].length / 4 + ' trunk segments'), read('Fields', '43 analysis fields')]) };
-    case 'journeys': return { title: 'SAVED JOURNEYS', sub: '2 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }] };
+    case 'journeys': return { title: 'SAVED JOURNEYS', sub: '3 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }, { k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : '') + ' · before the regenerate', sub: 'saved with a pace change on stage 3 · mock of Ruling EA 10', dot: 'var(--warn)', tap: () => { c.setState({ win: null, staleLegs: [{ i: 2, what: 'pace override “forced march”' }] }); c._toast('1 leg change dropped: stage 3 was rebuilt after the regenerate'); doAct(c, { act: 'story', arg: 'journeys' }); } }] };
     case 'travel': { const kind = V(c, 'tv.kind', 'Animals & mounts'); const L = { 'Animals & mounts': ['Mule', 'Horse', 'Camel', 'Ox', 'Pack goat'], Vehicles: ['Cart', 'Wagon', 'Sledge'], Vessels: ['River boat', 'Cog', 'Galley', 'Ferry'], 'Party set-ups': ['Trader caravan', 'Pilgrims', 'Courier', 'Warband'] }[kind]; return { title: 'TRAVEL LIBRARY', sub: 'classifications & constraints — feeds the planner', rows: [S(c, 'tv.kind', 'Type', ['Animals & mounts', 'Vehicles', 'Vessels', 'Party set-ups'], 'Animals & mounts')].concat(L.map((x, i) => ({ k: 'item', label: x, sub: ['carries 90 kg · 30 km/d', 'carries 140 kg · 40 km/d', 'needs water every 3 d', 'slow · strong'][i % 4], right: i === 1 ? 'CUSTOM' : '', dot: 'var(--sec)', tap: () => c._toast(x + ' · class, constraints, source, used by') })), [info('Edit entries on the desktop or here; the planner reads them live.'), kind === 'Party set-ups' ? B('Load into planner', () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); }, 'primary') : sep()]) }; }
     case 'storage': return { title: 'STORAGE LOCATIONS', sub: 'where Cartalith keeps things', rows: [['Projects', '…/Cartalith/Worlds'], ['Tile atlas cache', '…/Cartalith/Atlas'], ['Asset packs', '…/Cartalith/Packs'], ['Exports', '…/Cartalith/Exports']].map((x) => ({ k: 'nav', d: IC.file, label: x[0], sub: x[1], tap: () => c._toast('System folder picker · ' + x[0]) })).concat([info('On Android these are app-scoped folders; Change uses the system picker.')]) };
     case 'assistantSettings': return { title: 'ASSISTANT', sub: 'optional · off by default', rows: [info('Off until you turn it on; with it off nothing is sent anywhere. A world generates the same with or without a model.'), prefTog(c, 'assistant', 'Assistant enabled', 'the master switch · off means nothing is sent'), T(c, 'as.prose', 'Prose and Vault assist', true), T(c, 'as.cmd', 'Commands: view, layer, parameter', true, 'proposals you review and Apply'), { k: 'todo', label: 'Edit actions: sculpt, paint', reason: 'Not built yet (LLM-7).' }, T(c, 'as.local', 'Local providers allowed', true), T(c, 'as.remote', 'Remote providers allowed', false), prefTog(c, 'askSave', 'Save the conversation with the world', 'off by default · kept inside the world file, so it travels with the world when shared'), H('PROVIDER'), S(c, 'as.prov', 'Provider', ['LM Studio (local network)', 'Anthropic', 'OpenAI-compatible'], 'LM Studio (local network)'), { k: 'field', label: 'Address', val: V(c, 'as.addr', 'http://192.168.1.238:1234'), onIn: (e) => setV(c, 'as.addr', e.target.value) }, { k: 'field', label: 'Model', val: V(c, 'as.model', 'qwen3.8-27b'), onIn: (e) => setV(c, 'as.model', e.target.value) }, S(c, 'as.key', 'Key source', ['OS credential store', 'Environment variable', 'None'], 'OS credential store'), H('CONTEXT SENT WITH A REQUEST'), T(c, 'as.s1', 'Send: current entity', true), T(c, 'as.s2', 'Send: selection', false), T(c, 'as.s3', 'Send: named Vault notes', true), BB({ label: 'Review consent', tap: () => c._toast('Consent card · Allow / Not now') }, { label: 'Save', variant: 'primary', tap: () => { c.setState({ win: null }); c._toast('Assistant settings saved'); } })] };
@@ -3303,8 +3359,8 @@ function deskKey(c, e) {
    ====================================================================================================== */
 function themeVars(light) {
   return light
-    ? '--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#5d615c;--acc:#9a5d0c;--accInk:#fbf7ef;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.2);--wash:rgba(164,101,15,.12);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.14);--warn:#8a5a00;--warnText:#7a4f00;--warnBord:rgba(138,90,0,.45);--block:#a8402f;--good:#3d7a4c;--water:#3f6f96;--pill:rgba(251,250,247,.94);--scrim:rgba(244,242,238,.85);--sheetShadow:0 -10px 30px rgba(0,0,0,.18);'
-    : '--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.12);--warn:#e0a840;--warnText:#ebc080;--warnBord:rgba(224,168,64,.45);--block:#e08070;--good:#6fae7d;--water:#6a9bc4;--pill:rgba(18,20,21,.92);--scrim:rgba(10,11,12,.72);--sheetShadow:0 -10px 30px rgba(0,0,0,.35);';
+    ? '--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#5d615c;--acc:#9a5d0c;--accInk:#fbf7ef;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.2);--wash:rgba(164,101,15,.12);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.14);--warn:#8a5a00;--warnText:#7a4f00;--warnBord:rgba(138,90,0,.45);--block:#a8402f;--good:#3d7a4c;--water:#3f6f96;--pill:rgba(251,250,247,.94);--navpill:rgba(251,250,247,.92);--navarm:rgba(164,101,15,.16);--navacc:#a4650f;--scrim:rgba(244,242,238,.85);--sheetShadow:0 -10px 30px rgba(0,0,0,.18);'
+    : '--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.12);--warn:#e0a840;--warnText:#ebc080;--warnBord:rgba(224,168,64,.45);--block:#e08070;--good:#6fae7d;--water:#6a9bc4;--pill:rgba(18,20,21,.92);--navpill:rgba(18,19,20,.92);--navarm:rgba(224,163,74,.16);--navacc:#e0a34a;--scrim:rgba(10,11,12,.72);--sheetShadow:0 -10px 30px rgba(0,0,0,.35);';
 }
 const chipStyle = (on) => ({ bg: on ? 'var(--wash)' : 'var(--chip)', bord: on ? 'var(--acc)' : 'transparent', col: on ? 'var(--acc)' : 'var(--sec)' });
 function paletteFor(c) { const s = c.state; return s.dom === 'world' ? (s.node.world === 'sculpt' ? ['inspect', 'measure', 'region', 'paint'] : ['inspect', 'measure', 'region']) : (s.dom === 'civil' ? ['inspect', 'measure', 'region', 'settle', 'territory', 'lasso', 'way', 'route', 'conflict'] : ['inspect', 'measure', 'region', 'icon', 'label']); }
@@ -3427,6 +3483,10 @@ function buildVals(c) {
     const free = land ? H : H - NAV_H - sh - (INSET_T + 60) - stripH;
     v.fab = { bottom: land ? 16 + stripH : NAV_H + sh + 12 + stripH, scaleBottom: land ? 18 + stripH : NAV_H + sh + 14 + stripH, disp: free >= 120 ? 'flex' : 'none', more: free >= 250, dimLabel: s.dim3 ? '2D' : '3D', dimAria: s.dim3 ? 'switch to 2D' : 'switch to 3D' };
     v.qd = quickDrawerVals(c, land, sh, stripH);
+    // DS-13: the control row on the dominant-hand side; the scale bar takes the other side.
+    const handL = s.prefs.hand === 'left';
+    v.mc = mapCtlVals(c, { show: free >= 120, bottom: v.fab.bottom, edge: land ? (handL ? RAIL_W + 12 : sw + 12) : 12 });
+    v.fab.scaleLeft = handL ? 'auto' : L.scaleL + 'px'; v.fab.scaleRight = handL ? (land ? sw + 14 : 14) + 'px' : 'auto';
     v.strip = Object.assign({ show: showStrip, bottom: land ? 12 : NAV_H + sh + 10, toolD: tb.d, toolShort: tb.short, toolLabel: tb.label, main: tb.main, hint: tb.hint, field: tb.field, acts: tb.acts }, {});
     let title = '', sub = '', chips = [], rows = [], back = false, caret = false, titleTap = () => {}, titleAria = '';
     if (s.tab === 'map') { title = 'MAP'; sub = 'view · fields · layers · measure'; rows = rowsMap(c); }
@@ -3479,13 +3539,17 @@ function buildVals(c) {
       ldock: { show: s.ldockOpen, w: ldW, shadow: ldOverlay ? '16px 0 40px rgba(0,0,0,.45)' : 'none', z: ldOverlay ? 9 : 5, title: D.label + ' › ' + nd.label.toUpperCase(), sub: ldOverlay ? 'overlay · the map keeps ' + (W - G.railW - G.rtabW) + (ptr ? ' px' : ' dp') : 'docked · ' + ldW + (ptr ? ' px' : ' dp'), canPin: ldOverlay || s.ldockPin, pinned: s.ldockPin, pinCol: s.ldockPin ? 'var(--acc)' : 'var(--sec)', pinAria: s.ldockPin ? 'unpin: float over the map' : 'pin: dock beside the map', chips: nodeChips(c).map((x) => Object.assign({}, x)), rows: domainRows(c, true) },
       rdock: ctxDockVals(c, G, rdOverlay, toolRows),
       rtab: !s.rdockOpen || rdOverlay, rtabW: G.rtabW, rtabCol: s.sel || s.sample ? 'var(--acc)' : 'var(--dim)', rtabLabel: 'CONTEXT',
-      furnT: G.bodyT + 12, furnR: mapR + 12, furnB: G.bodyB + 14, scaleL: mapL + 14, scaleB: G.bodyB + 16, layersT: G.bodyT + 62, popMaxH: H - G.bodyT - G.bodyB - 80,
+      furnT: G.bodyT + 12, furnR: mapR + 12, furnB: G.bodyB + 14, scaleL: mapL + 14, scaleB: G.bodyB + 16,
+      touchNav: !ptr, ptrNav: !!ptr,
+      v3: { disp: s.dim3 ? 'flex' : 'none', furnDisp: s.dim3 ? 'none' : 'flex', left: mapL + 12, top: G.bodyT + 12, w: Math.min(460, W - mapL - mapR - 24), val: V(c, 'v3.exag', 1), label: '×' + Number(V(c, 'v3.exag', 1)).toFixed(2), onIn: (e) => setV(c, 'v3.exag', parseFloat(e.target.value)), back: () => setK(c, 'dim3', false), retest: () => c._toast('Testing 3D on this device… about 3 seconds (mock)'), force: () => c._toast('Force tier… · Automatic (as measured) · Off · Basic · Standard · Full (mock)') }, mc: mapCtlVals(c, { show: !ptr, bottom: G.bodyB + 14, edge: s.prefs.hand === 'left' ? mapL + 12 : mapR + 12 }),
+      scaleLeft: !ptr && s.prefs.hand === 'left' ? 'auto' : (mapL + 14) + 'px', scaleRight: !ptr && s.prefs.hand === 'left' ? (mapR + 14) + 'px' : 'auto', layersT: G.bodyT + 62, popMaxH: H - G.bodyT - G.bodyB - 80,
       layersOpen: s.layersPop, layerRows: rowsMap(c), baseLabel: ((ANALYSIS.flatMap((g) => g[1]).find((f) => f[0] === (s.field || 'off')) || ['', 'Relief'])[1]).toUpperCase().replace('NO OVERLAY (BASE MAP)', 'BASE MAP'),
       dd: ptr ? { show: false, rows: [] } : dd, ctx: tctx, tlOpen: s.tlOpen, tlRot: s.tlOpen ? 180 : 0,
       quick: quickCluster(c, W), ring: ringVals(c)
     };
     v.qd = { show: false, rows: [] };
-    v.toastB = G.bodyB + 20; v.toastT = null;
+    // DS-13: on touch the map's control row holds the bottom band (bodyB + 14, 44 tall), so toasts stack 20 above it.
+    v.toastB = G.bodyB + 20 + (ptr ? 0 : 58); v.toastT = null;
     v.status = { left: s.running ? 'generating · stage ' + String(s.running.i + 1).padStart(2, '0') : (s.stale ? 'stale from stage ' + String(s.stale).padStart(2, '0') : 'stages 01–10 resolved'), mid: (subjectOf(c) && entOf(c, subjectOf(c)) ? (s.ctxPin ? 'pinned ' : 'selected ') + entOf(c, subjectOf(c)).name + ' · ' : '') + 'year ' + s.year + ' · ' + s.worldName.toLowerCase() + ' · seed ' + s.seed + ' · ' + (s.tool !== 'inspect' ? 'tool ' + TOOLS[s.tool].label.toLowerCase() : 'inspect') + ' · autosave ' + s.savedAt, right: ptr ? W + ' × ' + H + ' · desktop · docks ' + (G.rightDocks ? 'both' : (G.leftDocks ? 'left' : 'overlay')) : W + '×' + H + ' dp · ' + sizeClass(c) + ' · docks ' + (G.rightDocks ? 'both' : (G.leftDocks ? 'left' : 'overlay')) };
   } else { v.T = { menus: [], rail: [], ldock: { show: false, chips: [], rows: [] }, rdock: Object.assign(ctxDockVals(c, { rdW: 0 }, false, []), { show: false }), ddCols: { show: false, cols: [] }, dd: { show: false, rows: [] }, ctx: { show: false, rows: [] }, toolChips: [], toolActs: [], layerRows: [], rtab: false }; v.status = { left: '', mid: '', right: '' }; }
   /* ---- shared overlays ---- */
@@ -3735,7 +3799,7 @@ class Component extends DCLogic {
       if (!g.moved && Math.hypot(dx, dy) > 10) {
         g.moved = true; clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
         if (g.edge && dx < 0 && Math.abs(dy) < Math.abs(dx) && this.state.prefs.edgeSwipe) g.edgeSwipe = true;
-        else if (this._strokeTool() && !(this.state.prefs.penOnly && !g.pen)) { g.stroke = true; this._strokeStart(this._s2w(g.x0, g.y0)); }
+        else if (this._strokeTool() && !this.state.panLatch && !(this.state.prefs.penOnly && !g.pen)) { g.stroke = true; this._strokeStart(this._s2w(g.x0, g.y0)); }
       }
       if (g.edgeSwipe) { if (dx < -60 && !g.done) { g.done = true; this._openInspector(); } return; }
       if (g.stroke) { this._strokeMove(this._s2w(p.x, p.y)); return; }
@@ -4029,8 +4093,8 @@ class Component extends DCLogic {
   _setNode(n) { const s = this.state; this.setState({ node: Object.assign({}, s.node, { [s.dom]: n }), tool: 'inspect' }); this._dirty = true; }
   _arm(tool) {
     const s = this.state; const T = toolDef(tool);
-    if (s.tool === tool || tool === 'inspect') { this.setState({ tool: 'inspect', measure: [], wayDraft: [], labelAt: null, conflictDraft: [] }); this._dirty = true; return; }
-    const patch = { tool, measure: [], wayDraft: [], labelAt: null, conflictDraft: [] };
+    if (s.tool === tool || tool === 'inspect') { this.setState({ tool: 'inspect', measure: [], wayDraft: [], labelAt: null, conflictDraft: [], panLatch: false }); this._dirty = true; return; }
+    const patch = { tool, measure: [], wayDraft: [], labelAt: null, conflictDraft: [], panLatch: false };
     if (this._mode() !== 'tablet' && s.tab) patch.det = 'peek';
     this.setState(patch); this._haptic(); this._dirty = true;
   }

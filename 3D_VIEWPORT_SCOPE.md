@@ -1081,6 +1081,43 @@ they were asked.*
      `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Ruling CT did not cover the
      live slider; Ruling EA item 14 (2026-11-01) made it a small backlog row
      (`OUTSTANDING_WORK.md` §2.5).
+   - **The slider's design (2026-11-01, for the owner's approval; drawn in the mobile mockup,
+     `design/mobile-shell-2026-10-31/`, and nothing of it built):**
+     - **Range.** 1× to 3× in steps of 0.25, starting at 1×. The 1× floor is
+       Ruling CT's true scale and `View3D.VERTICAL_EXAGGERATION_DEFAULT`. The 3×
+       ceiling is a labelled judgement: it stays under the 3.4× that §8.3
+       measured as "spires everywhere" on the raw tile heights. It is to be
+       re-judged at 3D-3, once the geometry is low-passed (§8.3, candidate a).
+       Below 1× would flatten real relief, so it is not offered.
+     - **Where, on the PC and the tablet:** a HEIGHT row in the 3D view's own
+       card (`view3d.gd::_build_card()`, top-left inside the safe insets). It
+       sits between the info line and the Back to 2D · Re-test 3D · Force tier
+       actions, and reads "HEIGHT · 1× IS TRUE SCALE" with the value as ×1.00.
+       The card is the one 3D surface every form already draws, and it is shown
+       exactly while the slider acts.
+     - **Where, on the phone:** a *Height exaggeration (3D)* row in MAP ▸ View,
+       under the 2D/3D switch, shown only while 3D is on. This is the phone's
+       home for view settings (`MOBILE_SHELL_PROPOSAL.md` §2.1 and §2.5). It
+       keeps the phone's 3D card, which already takes the top of a small screen,
+       from growing.
+     - **Live.** Dragging rescales the displayed mesh as it moves; from 3D-2,
+       the scale is the shader's uniform (§3.1). It never writes into
+       `WorldState`, and the measure tools keep reporting true values.
+     - **What it opens at.** `Preferences ▸ Graphics ▸ 3D viewport defaults ▸
+       relief exaggeration` (`menus.gd`, a disclosed row today) is the value
+       each entry to 3D starts at, 1.0× by Ruling CT, once that row is live. The
+       slider is session state; it is not saved with the world.
+     - **Touch:** the slider is 44 dp tall, as every touch target is. On the PC
+       it takes the card's own density.
+     - **In the mockup:** phone MAP ▸ View ▸ 3D; tablet and desktop Window ▸ 3D
+       view. The test `ea.js` checks the range, the step, the default, the row's
+       place between the info line and the actions, and that Back to 2D ends 3D.
+       Captures: `ea-14-phone-3d-height.png`, `ea-14-tablet-3d-card.png` and
+       `ea-14-desktop-3d-card.png`.
+     - **Owner questions, with defaults:**
+       - Should the live value be remembered as the next default? Default: no;
+         the Preferences row is the default.
+       - Is 3× the right ceiling? Default: yes, re-judged at 3D-3.
 5. **Q5. The phone.**
    - **Default:** the gate decides. Expect Basic until 3D-7 measures.
    - "Off on every phone" is the other legitimate choice.
