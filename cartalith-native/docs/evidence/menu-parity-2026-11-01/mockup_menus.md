@@ -3,6 +3,7 @@
 
 ### File
 New world…  (Ctrl+N)
+Generate world  (Ctrl+R)
 Open project…  (Ctrl+O)
 [submenu] Recent worlds
   VHAREN REACH — 129384 · 5 d ago
@@ -41,7 +42,7 @@ Close project  (Ctrl+W)
 [readout] exports
 Change locations…
 Show project on disk
-[signpost] imports live under World ▸ Import
+[signpost] imports live under Records ▸ Import
 [signpost] asset packs under Assets
 
 ### Edit
@@ -60,6 +61,8 @@ Previous selection  (Alt+←)
 Next selection  (Alt+→)
 ———
 Find on map…  (Ctrl+F)
+Context card  (Shift+F10)
+Cartwheel at the pointer  (Q)
 ———
 Reset generation parameters
 [submenu] Reset one stage
@@ -108,25 +111,25 @@ Compare pack with library…
   [submenu] Physical
     Peak
     Ridge
-    [disabled (not built)] Saddle
+    Saddle   not buildable
     Cliff
     Gorge
     Cave
     Waterfall
     Spring
     Lake
-    [disabled (not built)] Delta
+    Delta   not buildable
     River confluence
     Volcanic feature
     Rock formation
-    [disabled (not built)] Glacial feature
-    [disabled (not built)] Ancient forest
+    Glacial feature   not buildable
+    Ancient forest   not buildable
     ———
     Open Physical in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Transport
     Mountain pass
-    [disabled (not built)] River crossing
+    River crossing   not buildable
     Ford
     Bridge site
     Road junction
@@ -139,7 +142,7 @@ Compare pack with library…
   [submenu] Economic
     Mine
     Quarry
-    [disabled (not built)] Salt works
+    Salt works   not buildable
     Resource extraction site
     Market site
     Trade depot
@@ -157,24 +160,24 @@ Compare pack with library…
     Open Military in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Cultural
-    [disabled (not built)] Shrine
-    [disabled (not built)] Temple
-    [disabled (not built)] Sacred grove
-    [disabled (not built)] Sacred mountain
-    [disabled (not built)] Pilgrimage site
-    [disabled (not built)] Tomb
-    [disabled (not built)] Monument
-    [disabled (not built)] Ceremonial site
+    Shrine   not buildable
+    Temple   not buildable
+    Sacred grove   not buildable
+    Sacred mountain   not buildable
+    Pilgrimage site   not buildable
+    Tomb   not buildable
+    Monument   not buildable
+    Ceremonial site   not buildable
     ———
     Open Cultural in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Historical
-    [disabled (not built)] Ruin
+    Ruin   not buildable
     Abandoned settlement
     Ancient road
-    [disabled (not built)] Historic battlefield
-    [disabled (not built)] Destroyed fortress
-    [disabled (not built)] Historic crossing
+    Historic battlefield   not buildable
+    Destroyed fortress   not buildable
+    Historic crossing   not buildable
     ———
     Open Historical in the dock
     [signpost] Rows here read state; they do not arm a type.
@@ -186,8 +189,7 @@ Compare pack with library…
 Apply library to map
 Clear library…
 
-### World
-Generate world  (Ctrl+R)
+### Records
 ⧉ Data manager
 [caption] RECORDS
 Factions…  (Ctrl+Shift+F)
@@ -230,7 +232,7 @@ Draw a conflict
 [readout] Campaigns this year
 [caption] NOTES
 Note for the selection  (Ctrl+Shift+N)
-[signpost] Places without notes is in World ▸ Records
+[signpost] Places without notes… is in Records
 Ask the assistant about the selection  (Ctrl+J)
 
 ### Preferences
@@ -280,7 +282,7 @@ Try the GPU again
 [signpost] Colour management — CARTO ▸ Colours ▸ Colour management
 [disabled (not built)] 3D viewport defaults
 [submenu] Lighting rig defaults
-  [readout] Source
+  [readout] Following the engine
   [submenu] Azimuth
     [radio] 0 deg
     [radio] 45 deg
@@ -333,7 +335,7 @@ Try the GPU again
   [radio] 1024 px
   ———
   [submenu] LOD levels
-    [radio] LOD 0–0   1 tiles
+    [radio] LOD 0–0   1 tile
     [radio] LOD 0–1   5 tiles
     [radio] LOD 0–2   21 tiles
     [radio] LOD 0–3   85 tiles
@@ -343,7 +345,7 @@ Try the GPU again
     [radio] LOD 0–7   21 845 tiles
     [radio] LOD 0–8   87 381 tiles
 [submenu] Atlas cache
-  [readout] Store
+  [readout] 85 chunks · 1.2 GB · to LOD 3
   [submenu] Size cap · GB
     [radio] No cap
     [radio] 0.5 GB
@@ -405,6 +407,19 @@ Keyboard shortcuts…
   ———
   Pin to the current subject
   Follow the selection
+  [caption] MODULES
+  [check] History
+  [check] Economy
+  [check] Military
+  [check] Faith, culture & relations
+  [check] Territory
+  [check] City layout
+  [check] Here
+  [check] Routes & journeys
+  [check] Links
+  [check] Recent & bookmarks
+  ———
+  Reset panel
 [check] Timeline
 [check] Status bar
 [check] Domain rail
@@ -428,6 +443,7 @@ Keyboard shortcuts…
   [radio] Cartography
 [submenu] Open windows
   [readout] No windows open
+  [check] Context panel
 ———
 Reset layout
 [submenu] Layouts
@@ -452,6 +468,7 @@ About
 
 ### File
 New world…  (Ctrl+N)
+Generate world  (Ctrl+R)
 Open project…  (Ctrl+O)
 [submenu] Recent worlds
   VHAREN REACH — 129384 · 5 d ago
@@ -490,7 +507,7 @@ Close project  (Ctrl+W)
 [readout] exports
 Change locations…
 Show project on disk
-[signpost] imports live under World ▸ Import
+[signpost] imports live under Records ▸ Import
 [signpost] asset packs under Assets
 
 ### Edit
@@ -509,6 +526,8 @@ Previous selection  (Alt+←)
 Next selection  (Alt+→)
 ———
 Find on map…  (Ctrl+F)
+Context card  (Shift+F10)
+Cartwheel at the pointer  (Q)
 ———
 Reset generation parameters
 [submenu] Reset one stage
@@ -557,25 +576,25 @@ Compare pack with library…
   [submenu] Physical
     Peak
     Ridge
-    [disabled (not built)] Saddle
+    Saddle   not buildable
     Cliff
     Gorge
     Cave
     Waterfall
     Spring
     Lake
-    [disabled (not built)] Delta
+    Delta   not buildable
     River confluence
     Volcanic feature
     Rock formation
-    [disabled (not built)] Glacial feature
-    [disabled (not built)] Ancient forest
+    Glacial feature   not buildable
+    Ancient forest   not buildable
     ———
     Open Physical in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Transport
     Mountain pass
-    [disabled (not built)] River crossing
+    River crossing   not buildable
     Ford
     Bridge site
     Road junction
@@ -588,7 +607,7 @@ Compare pack with library…
   [submenu] Economic
     Mine
     Quarry
-    [disabled (not built)] Salt works
+    Salt works   not buildable
     Resource extraction site
     Market site
     Trade depot
@@ -606,24 +625,24 @@ Compare pack with library…
     Open Military in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Cultural
-    [disabled (not built)] Shrine
-    [disabled (not built)] Temple
-    [disabled (not built)] Sacred grove
-    [disabled (not built)] Sacred mountain
-    [disabled (not built)] Pilgrimage site
-    [disabled (not built)] Tomb
-    [disabled (not built)] Monument
-    [disabled (not built)] Ceremonial site
+    Shrine   not buildable
+    Temple   not buildable
+    Sacred grove   not buildable
+    Sacred mountain   not buildable
+    Pilgrimage site   not buildable
+    Tomb   not buildable
+    Monument   not buildable
+    Ceremonial site   not buildable
     ———
     Open Cultural in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Historical
-    [disabled (not built)] Ruin
+    Ruin   not buildable
     Abandoned settlement
     Ancient road
-    [disabled (not built)] Historic battlefield
-    [disabled (not built)] Destroyed fortress
-    [disabled (not built)] Historic crossing
+    Historic battlefield   not buildable
+    Destroyed fortress   not buildable
+    Historic crossing   not buildable
     ———
     Open Historical in the dock
     [signpost] Rows here read state; they do not arm a type.
@@ -635,8 +654,7 @@ Compare pack with library…
 Apply library to map
 Clear library…
 
-### World
-Generate world  (Ctrl+R)
+### Records
 ⧉ Data manager
 [caption] RECORDS
 Factions…  (Ctrl+Shift+F)
@@ -679,7 +697,7 @@ Draw a conflict
 [readout] Campaigns this year
 [caption] NOTES
 Note for the selection  (Ctrl+Shift+N)
-[signpost] Places without notes is in World ▸ Records
+[signpost] Places without notes… is in Records
 Ask the assistant about the selection  (Ctrl+J)
 
 ### Preferences
@@ -729,7 +747,7 @@ Try the GPU again
 [signpost] Colour management — CARTO ▸ Colours ▸ Colour management
 [disabled (not built)] 3D viewport defaults
 [submenu] Lighting rig defaults
-  [readout] Source
+  [readout] Following the engine
   [submenu] Azimuth
     [radio] 0 deg
     [radio] 45 deg
@@ -782,7 +800,7 @@ Try the GPU again
   [radio] 1024 px
   ———
   [submenu] LOD levels
-    [radio] LOD 0–0   1 tiles
+    [radio] LOD 0–0   1 tile
     [radio] LOD 0–1   5 tiles
     [radio] LOD 0–2   21 tiles
     [radio] LOD 0–3   85 tiles
@@ -792,7 +810,7 @@ Try the GPU again
     [radio] LOD 0–7   21 845 tiles
     [radio] LOD 0–8   87 381 tiles
 [submenu] Atlas cache
-  [readout] Store
+  [readout] 85 chunks · 1.2 GB · to LOD 3
   [submenu] Size cap · GB
     [radio] No cap
     [radio] 0.5 GB
@@ -856,6 +874,19 @@ Touch & gestures…
   ———
   Pin to the current subject
   Follow the selection
+  [caption] MODULES
+  [check] History
+  [check] Economy
+  [check] Military
+  [check] Faith, culture & relations
+  [check] Territory
+  [check] City layout
+  [check] Here
+  [check] Routes & journeys
+  [check] Links
+  [check] Recent & bookmarks
+  ———
+  Reset panel
 [check] Timeline
 [check] Status bar
 [check] Domain rail
@@ -879,6 +910,7 @@ Touch & gestures…
   [radio] Cartography
 [submenu] Open windows
   [readout] No windows open
+  [check] Context panel
 ———
 Reset layout
 [submenu] Layouts
@@ -912,25 +944,25 @@ Undo history…
   [submenu] Physical
     Peak
     Ridge
-    [disabled (not built)] Saddle
+    Saddle   not buildable
     Cliff
     Gorge
     Cave
     Waterfall
     Spring
     Lake
-    [disabled (not built)] Delta
+    Delta   not buildable
     River confluence
     Volcanic feature
     Rock formation
-    [disabled (not built)] Glacial feature
-    [disabled (not built)] Ancient forest
+    Glacial feature   not buildable
+    Ancient forest   not buildable
     ———
     Open Physical in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Transport
     Mountain pass
-    [disabled (not built)] River crossing
+    River crossing   not buildable
     Ford
     Bridge site
     Road junction
@@ -943,7 +975,7 @@ Undo history…
   [submenu] Economic
     Mine
     Quarry
-    [disabled (not built)] Salt works
+    Salt works   not buildable
     Resource extraction site
     Market site
     Trade depot
@@ -961,24 +993,24 @@ Undo history…
     Open Military in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Cultural
-    [disabled (not built)] Shrine
-    [disabled (not built)] Temple
-    [disabled (not built)] Sacred grove
-    [disabled (not built)] Sacred mountain
-    [disabled (not built)] Pilgrimage site
-    [disabled (not built)] Tomb
-    [disabled (not built)] Monument
-    [disabled (not built)] Ceremonial site
+    Shrine   not buildable
+    Temple   not buildable
+    Sacred grove   not buildable
+    Sacred mountain   not buildable
+    Pilgrimage site   not buildable
+    Tomb   not buildable
+    Monument   not buildable
+    Ceremonial site   not buildable
     ———
     Open Cultural in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Historical
-    [disabled (not built)] Ruin
+    Ruin   not buildable
     Abandoned settlement
     Ancient road
-    [disabled (not built)] Historic battlefield
-    [disabled (not built)] Destroyed fortress
-    [disabled (not built)] Historic crossing
+    Historic battlefield   not buildable
+    Destroyed fortress   not buildable
+    Historic crossing   not buildable
     ———
     Open Historical in the dock
     [signpost] Rows here read state; they do not arm a type.
@@ -993,14 +1025,10 @@ Toggle theme
   [radio] Miles
   [radio] Nautical miles
 ———
-Keyboard shortcuts…
+Keyboard reference…
 About
 ———
 [submenu] Edit
-  Undo  (Ctrl+Z)
-  Redo  (Ctrl+Shift+Z)
-  Undo history…
-  ———
   Cut  (Ctrl+X)
   Copy  (Ctrl+C)
   Paste  (Ctrl+V)
@@ -1012,21 +1040,9 @@ About
   Next selection  (Alt+→)
   ———
   Find on map…  (Ctrl+F)
-  ———
-  Reset generation parameters
-  [submenu] Reset one stage
-    01 Planet
-    02 Extent & scale
-    03 World structure
-    04 Tectonics
-    05 Volcanism & impacts
-    06 Erosion
-    07 Hydrology
-    08 Climate
-    09 Ecology & biomes
-    10 Resources & soils
+  Context card  (Shift+F10)
+  Cartwheel at the pointer  (Q)
 [submenu] Assets
-  ⧉ Asset library  (Shift+A)
   ⧉ Sprite sheet slicer (▦)
   Import asset pack .zip…
   Open pack in library…
@@ -1055,84 +1071,6 @@ About
     Splat channels   4/4
     Biome textures   9/12
     Terrain textures   6/8
-  [submenu] Landmark types
-    [submenu] Physical
-      Peak
-      Ridge
-      [disabled (not built)] Saddle
-      Cliff
-      Gorge
-      Cave
-      Waterfall
-      Spring
-      Lake
-      [disabled (not built)] Delta
-      River confluence
-      Volcanic feature
-      Rock formation
-      [disabled (not built)] Glacial feature
-      [disabled (not built)] Ancient forest
-      ———
-      Open Physical in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    [submenu] Transport
-      Mountain pass
-      [disabled (not built)] River crossing
-      Ford
-      Bridge site
-      Road junction
-      Caravan station
-      Portage
-      Harbour
-      ———
-      Open Transport in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    [submenu] Economic
-      Mine
-      Quarry
-      [disabled (not built)] Salt works
-      Resource extraction site
-      Market site
-      Trade depot
-      ———
-      Open Economic in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    [submenu] Military
-      Fort
-      Watchtower
-      Fortified pass
-      Fortified crossing
-      Battlefield
-      Border marker
-      ———
-      Open Military in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    [submenu] Cultural
-      [disabled (not built)] Shrine
-      [disabled (not built)] Temple
-      [disabled (not built)] Sacred grove
-      [disabled (not built)] Sacred mountain
-      [disabled (not built)] Pilgrimage site
-      [disabled (not built)] Tomb
-      [disabled (not built)] Monument
-      [disabled (not built)] Ceremonial site
-      ———
-      Open Cultural in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    [submenu] Historical
-      [disabled (not built)] Ruin
-      Abandoned settlement
-      Ancient road
-      [disabled (not built)] Historic battlefield
-      [disabled (not built)] Destroyed fortress
-      [disabled (not built)] Historic crossing
-      ———
-      Open Historical in the dock
-      [signpost] Rows here read state; they do not arm a type.
-    Placed by hand   3
-    ———
-    Landmark icons…
-    Landmark label style…
   ———
   Apply library to map
   Clear library…
@@ -1183,7 +1121,7 @@ About
   [signpost] Colour management — CARTO ▸ Colours ▸ Colour management
   [disabled (not built)] 3D viewport defaults
   [submenu] Lighting rig defaults
-    [readout] Source
+    [readout] Following the engine
     [submenu] Azimuth
       [radio] 0 deg
       [radio] 45 deg
@@ -1236,7 +1174,7 @@ About
     [radio] 1024 px
     ———
     [submenu] LOD levels
-      [radio] LOD 0–0   1 tiles
+      [radio] LOD 0–0   1 tile
       [radio] LOD 0–1   5 tiles
       [radio] LOD 0–2   21 tiles
       [radio] LOD 0–3   85 tiles
@@ -1246,7 +1184,7 @@ About
       [radio] LOD 0–7   21 845 tiles
       [radio] LOD 0–8   87 381 tiles
   [submenu] Atlas cache
-    [readout] Store
+    [readout] 85 chunks · 1.2 GB · to LOD 3
     [submenu] Size cap · GB
       [radio] No cap
       [radio] 0.5 GB
@@ -1289,10 +1227,6 @@ About
     [radio] Dark
     [radio] Light
     [radio] Follow system
-  [submenu] Units
-    [radio] Kilometres
-    [radio] Miles
-    [radio] Nautical miles
   [submenu] Handedness
     [radio] Left
     [radio] Right
@@ -1309,6 +1243,19 @@ About
     ———
     Pin to the current subject
     Follow the selection
+    [caption] MODULES
+    [check] History
+    [check] Economy
+    [check] Military
+    [check] Faith, culture & relations
+    [check] Territory
+    [check] City layout
+    [check] Here
+    [check] Routes & journeys
+    [check] Links
+    [check] Recent & bookmarks
+    ———
+    Reset panel
   [check] Timeline
   [check] Status bar
   [check] Domain rail
@@ -1332,6 +1279,7 @@ About
     [radio] Cartography
   [submenu] Open windows
     [readout] No windows open
+    [check] Context panel
   ———
   Reset layout
   [submenu] Layouts
@@ -1345,12 +1293,10 @@ About
     Forget layout…
 [submenu] Help
   [disabled (not built)] Documentation
-  Keyboard reference…
   Gesture reference…
   Credits & academic principles
   Generation info…
   Save diagnostic report…
-  About
 
 ### File
 New world…  (Ctrl+N)
@@ -1392,11 +1338,11 @@ Close project  (Ctrl+W)
 [readout] exports
 Change locations…
 Show project on disk
-[signpost] imports live under World ▸ Import
+[signpost] imports live under Records ▸ Import
 [signpost] asset packs under Assets
 
 ### World
-Run pipeline  (Ctrl+R)
+Generate world  (Ctrl+R)
 ———
 Reset generation parameters
 [submenu] Reset one stage
@@ -1415,8 +1361,8 @@ Reset generation parameters
 [radio] Sculpt
 ———
 Seed & size…
-———
-Generate world  (Ctrl+R)
+
+### Records
 ⧉ Data manager
 [caption] RECORDS
 Factions…  (Ctrl+Shift+F)
@@ -1459,14 +1405,15 @@ Draw a conflict
 [readout] Campaigns this year
 [caption] NOTES
 Note for the selection  (Ctrl+Shift+N)
-[signpost] Places without notes is in World ▸ Records
+[signpost] Places without notes… is in Records
 Ask the assistant about the selection  (Ctrl+J)
 
 ## phone_MENU
-MENU root: QUICK (pinned commands) · File · Edit · Assets · World · Story · Preferences · Window · Help · STATUS (world, state, last autosave)
+MENU root: QUICK (pinned commands) · File · Edit · Assets · Records · Story · Preferences · Window · Help · STATUS (world, state, last autosave)
 
 ### File
 New world…  (Ctrl+N)
+Generate world  (Ctrl+R)
 Open project…  (Ctrl+O)
 [submenu] Recent worlds
   VHAREN REACH — 129384 · 5 d ago
@@ -1505,7 +1452,7 @@ Close project  (Ctrl+W)
 [readout] exports
 Change locations…
 Show project on disk
-[signpost] imports live under World ▸ Import
+[signpost] imports live under Records ▸ Import
 [signpost] asset packs under Assets
 
 ### Edit
@@ -1572,25 +1519,25 @@ Compare pack with library…
   [submenu] Physical
     Peak
     Ridge
-    [disabled (not built)] Saddle
+    Saddle   not buildable
     Cliff
     Gorge
     Cave
     Waterfall
     Spring
     Lake
-    [disabled (not built)] Delta
+    Delta   not buildable
     River confluence
     Volcanic feature
     Rock formation
-    [disabled (not built)] Glacial feature
-    [disabled (not built)] Ancient forest
+    Glacial feature   not buildable
+    Ancient forest   not buildable
     ———
     Open Physical in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Transport
     Mountain pass
-    [disabled (not built)] River crossing
+    River crossing   not buildable
     Ford
     Bridge site
     Road junction
@@ -1603,7 +1550,7 @@ Compare pack with library…
   [submenu] Economic
     Mine
     Quarry
-    [disabled (not built)] Salt works
+    Salt works   not buildable
     Resource extraction site
     Market site
     Trade depot
@@ -1621,24 +1568,24 @@ Compare pack with library…
     Open Military in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Cultural
-    [disabled (not built)] Shrine
-    [disabled (not built)] Temple
-    [disabled (not built)] Sacred grove
-    [disabled (not built)] Sacred mountain
-    [disabled (not built)] Pilgrimage site
-    [disabled (not built)] Tomb
-    [disabled (not built)] Monument
-    [disabled (not built)] Ceremonial site
+    Shrine   not buildable
+    Temple   not buildable
+    Sacred grove   not buildable
+    Sacred mountain   not buildable
+    Pilgrimage site   not buildable
+    Tomb   not buildable
+    Monument   not buildable
+    Ceremonial site   not buildable
     ———
     Open Cultural in the dock
     [signpost] Rows here read state; they do not arm a type.
   [submenu] Historical
-    [disabled (not built)] Ruin
+    Ruin   not buildable
     Abandoned settlement
     Ancient road
-    [disabled (not built)] Historic battlefield
-    [disabled (not built)] Destroyed fortress
-    [disabled (not built)] Historic crossing
+    Historic battlefield   not buildable
+    Destroyed fortress   not buildable
+    Historic crossing   not buildable
     ———
     Open Historical in the dock
     [signpost] Rows here read state; they do not arm a type.
@@ -1650,8 +1597,7 @@ Compare pack with library…
 Apply library to map
 Clear library…
 
-### World
-Generate world  (Ctrl+R)
+### Records
 ⧉ Data manager
 [caption] RECORDS
 Factions…  (Ctrl+Shift+F)
@@ -1694,7 +1640,7 @@ Draw a conflict
 [readout] Campaigns this year
 [caption] NOTES
 Note for the selection  (Ctrl+Shift+N)
-[signpost] Places without notes is in World ▸ Records
+[signpost] Places without notes… is in Records
 Ask the assistant about the selection  (Ctrl+J)
 
 ### Preferences
@@ -1744,7 +1690,7 @@ Try the GPU again
 [signpost] Colour management — CARTO ▸ Colours ▸ Colour management
 [disabled (not built)] 3D viewport defaults
 [submenu] Lighting rig defaults
-  [readout] Source
+  [readout] Following the engine
   [submenu] Azimuth
     [radio] 0 deg
     [radio] 45 deg
@@ -1797,7 +1743,7 @@ Try the GPU again
   [radio] 1024 px
   ———
   [submenu] LOD levels
-    [radio] LOD 0–0   1 tiles
+    [radio] LOD 0–0   1 tile
     [radio] LOD 0–1   5 tiles
     [radio] LOD 0–2   21 tiles
     [radio] LOD 0–3   85 tiles
@@ -1807,7 +1753,7 @@ Try the GPU again
     [radio] LOD 0–7   21 845 tiles
     [radio] LOD 0–8   87 381 tiles
 [submenu] Atlas cache
-  [readout] Store
+  [readout] 85 chunks · 1.2 GB · to LOD 3
   [submenu] Size cap · GB
     [radio] No cap
     [radio] 0.5 GB
@@ -1845,7 +1791,6 @@ Clear caches…
 Storage locations…
 Assistant…
 Quick bar…
-[disabled (DESKTOP ONLY)] Open panels in their own window
 [submenu] Theme
   [radio] Dark
   [radio] Light
@@ -1894,6 +1839,7 @@ Touch & gestures…
   [radio] Cartography
 [submenu] Open windows
   [readout] No windows open
+  [check] Context panel
 ———
 Reset layout
 [submenu] Layouts

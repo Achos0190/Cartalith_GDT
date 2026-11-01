@@ -348,10 +348,29 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <button class="clr-btn" onClick="{{ T.rdock.divFollow }}" style="height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--acc);background:transparent;font:10px 'IBM Plex Mono',monospace;color:var(--acc)">FOLLOW</button>
 </div>
 </sc-if>
-<div role="tablist" aria-label="context panel" style="flex:none;display:flex;border-bottom:1px solid var(--hair2)">
-<sc-for list="{{ T.rdock.tabs }}" as="t" hint-placeholder-count="3"><button class="clr-btn" role="tab" aria-selected="{{ t.on }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.title }}" style="flex:1;height:var(--c44,44px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:{{ t.col }};border-bottom:2px solid {{ t.edge }}">{{ t.label }}</button></sc-for>
+<!-- the tabs are the person's modules (Ruling DY, PQ1: "Tabs you arrange"): drag to move (pointer), right-click or
+     hold for the tab's menu, + to add. A module that does not fit the subject is hidden, never removed. -->
+<div style="flex:none;display:flex;align-items:flex-start;border-bottom:1px solid var(--hair2)">
+<div role="tablist" aria-label="context panel" style="flex:1;min-width:0;display:flex;flex-wrap:wrap">
+<sc-for list="{{ T.rdock.tabs }}" as="t" hint-placeholder-count="3"><button class="clr-btn" role="tab" aria-selected="{{ t.on }}" onClick="{{ t.tap }}" onPointerDown="{{ t.down }}" onPointerMove="{{ t.move }}" onPointerUp="{{ t.up }}" onPointerCancel="{{ t.cancel }}" onContextMenu="{{ t.menu }}" data-ctxtab="{{ t.id }}" aria-label="{{ t.aria }}" title="{{ t.title }}" style="flex:1 0 auto;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 10px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;white-space:nowrap;color:{{ t.col }};border-bottom:2px solid {{ t.edge }};box-shadow:{{ t.drop }};opacity:{{ t.op }};touch-action:none">{{ t.label }}</button></sc-for>
 </div>
-<sc-if value="{{ T.rdock.isInspect }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" onClick="{{ T.rdock.addTap }}" aria-label="add a module to the panel" aria-expanded="{{ T.rdock.addOpen }}" title="{{ T.rdock.addTitle }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 6px;display:flex;align-items:center;justify-content:center;gap:2px;color:{{ T.rdock.addCol }};background:{{ T.rdock.addBg }};border-left:1px solid var(--hair2)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg><span style="display:{{ T.rdock.hiddenDisp }};font:9px 'IBM Plex Mono',monospace;color:var(--dim)">{{ T.rdock.hiddenN }}</span></button>
+</div>
+<div style="position:relative;flex:none;height:0;z-index:21">
+<sc-if value="{{ T.rdock.add.show }}" hint-placeholder-val="{{ false }}">
+<div role="dialog" aria-label="add a module" style="position:absolute;right:6px;top:4px;width:{{ T.rdock.add.w }}px;max-height:{{ T.rdock.add.maxH }}px;display:flex;flex-direction:column;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);animation:clPop .14s ease">
+<div style="flex:none;display:flex;align-items:center;padding:6px 6px 0 12px"><span style="flex:1;font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">CONTEXT PANEL · MODULES</span><button class="clr-btn" onClick="{{ T.rdock.closePops }}" aria-label="close the module list" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 8px 10px"><dc-import name="Rows" rows="{{ T.rdock.add.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+<sc-if value="{{ T.rdock.tabMenu.show }}" hint-placeholder-val="{{ false }}">
+<div role="menu" aria-label="tab: {{ T.rdock.tabMenu.title }}" style="position:absolute;left:{{ T.rdock.tabMenu.x }}px;top:4px;width:260px;display:flex;flex-direction:column;border-radius:12px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);animation:clPop .12s ease">
+<div style="flex:none;display:flex;align-items:center;padding:4px 4px 0 12px"><span style="flex:1;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.rdock.tabMenu.title }}</span><button class="clr-btn" onClick="{{ T.rdock.closePops }}" aria-label="close the tab menu" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div style="padding:0 6px 8px"><dc-import name="Rows" rows="{{ T.rdock.tabMenu.rows }}" hint-size="100%,160px"></dc-import></div>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ T.rdock.isRows }}" hint-placeholder-val="{{ true }}">
 <div class="clr-scroll" style="flex:1;min-height:0;padding:6px 12px 24px"><dc-import name="Rows" rows="{{ T.rdock.rows }}" hint-size="100%,300px"></dc-import></div>
 </sc-if>
 <sc-if value="{{ T.rdock.isNote }}" hint-placeholder-val="{{ false }}">
@@ -361,10 +380,12 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <button class="clr-btn" onClick="{{ T.rdock.note.modeRead }}" aria-pressed="{{ T.rdock.note.isRead }}" title="Preview · Ctrl+E in the editor" style="height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ T.rdock.note.readCol }};background:{{ T.rdock.note.readBg }}">PREVIEW</button>
 <button class="clr-btn" onClick="{{ T.rdock.note.modeWrite }}" aria-pressed="{{ T.rdock.note.isWrite }}" title="Write the Markdown here · autosaves" style="height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ T.rdock.note.writeCol }};background:{{ T.rdock.note.writeBg }}">WRITE</button>
 <span style="flex:1;min-width:0;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px" title="{{ T.rdock.note.path }}">{{ T.rdock.note.words }} · {{ T.rdock.note.saved }}</span>
+<sc-if value="{{ T.rdock.note.canRevert }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ T.rdock.note.revert }}" title="{{ T.rdock.note.revertTitle }}" aria-label="revert to opened…" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">REVERT…</button></sc-if>
 <button class="clr-btn" onClick="{{ T.rdock.note.openVault }}" aria-label="open this note in the vault window" title="Open in the vault window (split view, outline, backlinks)" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
 </div>
 <sc-if value="{{ T.rdock.note.isRead }}" hint-placeholder-val="{{ true }}"><div class="clr-scroll" style="flex:1;min-height:0"><div ref="{{ dockReadRef }}" class="md" style="padding:10px 16px 36px;font-size:13.5px"></div></div></sc-if>
-<sc-if value="{{ T.rdock.note.isWrite }}" hint-placeholder-val="{{ false }}"><div class="clr-scroll" style="flex:1;min-height:0"><div class="md-src" style="padding:12px 14px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ dockMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ dockTaRef }}" class="md-ta" value="{{ T.rdock.note.text }}" onInput="{{ hDnInput }}" onKeyDown="{{ hDnKey }}" spellcheck="false" aria-label="note text, Markdown (Ctrl+B bold, Ctrl+I italic, Ctrl+K link, Ctrl+E preview)"></textarea></div></div></sc-if>
+<sc-if value="{{ T.rdock.note.isWrite }}" hint-placeholder-val="{{ false }}"><div class="clr-scroll" style="flex:1;min-height:0"><div class="md-src" style="padding:12px 14px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ dockMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ dockTaRef }}" class="md-ta" value="{{ T.rdock.note.text }}" onInput="{{ hDnInput }}" onKeyDown="{{ hDnKey }}" onClick="{{ hDnClick }}" onSelect="{{ hDnSel }}" title="{{ T.rdock.note.taTitle }}" spellcheck="false" aria-label="note text, Markdown (Ctrl+B bold, Ctrl+I italic, Ctrl+K link, Ctrl+E preview)"></textarea></div></div></sc-if>
+<sc-if value="{{ T.rdock.note.chip }}" hint-placeholder-val="{{ false }}"><div style="flex:none;display:flex;justify-content:flex-end;padding:4px 8px;border-top:1px solid var(--hair2)"><button class="clr-btn" onMouseDown="{{ swallow }}" onClick="{{ T.rdock.note.chipTap }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ T.rdock.note.chipLabel }}</button></div></sc-if>
 </sc-if>
 <sc-if value="{{ T.rdock.note.none }}" hint-placeholder-val="{{ false }}">
 <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">
@@ -374,7 +395,7 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </div>
 </sc-if>
 <sc-if value="{{ T.rdock.note.nothing }}" hint-placeholder-val="{{ false }}">
-<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:13px;color:var(--sec)">Select a place, faction, landmark or conflict to read or write its note here. Every note is in World ▸ Markdown vault (Ctrl+Shift+V).</div>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:13px;color:var(--sec)">Select a place, faction, landmark or conflict to read or write its note here. Every note is in Records ▸ Markdown vault (Ctrl+Shift+V).</div>
 </sc-if>
 </div>
 </sc-if>
@@ -390,6 +411,7 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <sc-if value="{{ T.rdock.ask.on }}" hint-placeholder-val="{{ true }}">
 <div style="flex:none;display:flex;align-items:center;gap:6px;padding:6px 8px 4px 12px">
 <span style="flex:1;min-width:0;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Preferences ▸ Assistant">{{ T.rdock.ask.prov }}</span>
+<span title="{{ T.rdock.ask.saveTitle }}" style="flex:none;font:9.5px 'IBM Plex Mono',monospace;color:{{ T.rdock.ask.saveCol }};white-space:nowrap">{{ T.rdock.ask.saveLabel }}</span>
 <button class="clr-btn" onClick="{{ hAskClear }}" title="Start a new conversation" style="height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);font:10px 'IBM Plex Mono',monospace;color:var(--sec)">NEW</button>
 <button class="clr-btn" onClick="{{ hAskSettings }}" aria-label="assistant settings" title="Preferences ▸ Assistant…" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></button>
 </div>
@@ -417,6 +439,14 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </div>
 </sc-for>
 </div>
+<sc-if value="{{ T.rdock.ask.savePrompt }}" hint-placeholder-val="{{ false }}">
+<div role="group" aria-label="save this conversation with the world?" style="flex:none;margin:6px 12px 2px;padding:10px 12px;border-radius:12px;border:1px solid var(--acc);background:var(--wash)">
+<div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">FIRST USE · ONE QUESTION</div>
+<div style="font-size:13px;line-height:1.5;color:var(--ink);margin-top:4px">Save this conversation with the world? It is stored inside the world file and travels with it when you share it.</div>
+<div style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:4px">Off unless you say so. One conversation per session; New clears it. Preferences changes this later.</div>
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="clr-btn" onClick="{{ T.rdock.ask.saveNo }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font:10.5px 'IBM Plex Mono',monospace">Not now</button><button class="clr-btn" onClick="{{ T.rdock.ask.saveYes }}" style="min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r20,20px);background:var(--acc);color:var(--accInk);font:500 10.5px 'IBM Plex Mono',monospace">Save with the world</button></div>
+</div>
+</sc-if>
 <div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:8px 12px 4px;border-top:1px solid var(--hair2)">
 <sc-for list="{{ T.rdock.ask.prompts }}" as="q" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ q.tap }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font-size:12px;white-space:nowrap">{{ q.label }}</button></sc-for>
 </div>
@@ -497,8 +527,8 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 
 <!-- menu dropdown (drill-in submenus; touch-sized rows) -->
 <sc-if value="{{ T.dd.show }}" hint-placeholder-val="{{ false }}">
-<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;z-index:29"></div>
-<div role="menu" aria-label="{{ T.dd.title }}" style="position:absolute;left:{{ T.dd.x }}px;top:{{ T.menuH }}px;width:{{ T.dd.w }}px;max-height:{{ T.dd.maxH }}px;display:flex;flex-direction:column;border-radius:0 0 16px 16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:30;animation:clFade .12s ease">
+<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;z-index:52"></div>
+<div role="menu" aria-label="{{ T.dd.title }}" style="position:absolute;left:{{ T.dd.x }}px;top:{{ T.menuH }}px;width:{{ T.dd.w }}px;max-height:{{ T.dd.maxH }}px;display:flex;flex-direction:column;border-radius:0 0 16px 16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:53;animation:clFade .12s ease">
 <div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 4px 10px">
 <sc-if value="{{ T.dd.back }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hDdBack }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
 <span style="flex:1;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);padding-left:4px">{{ T.dd.title }}</span>
@@ -509,8 +539,8 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 
 <!-- desktop menus: the open menu and each submenu side by side, so a path is visible at once -->
 <sc-if value="{{ T.ddCols.show }}" hint-placeholder-val="{{ false }}">
-<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;top:{{ T.menuH }}px;z-index:29"></div>
-<div role="menubar" style="position:absolute;left:{{ T.ddCols.x }}px;top:{{ T.menuH }}px;display:flex;align-items:flex-start;z-index:30;animation:clFade .1s ease">
+<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;top:{{ T.menuH }}px;z-index:52"></div>
+<div role="menubar" style="position:absolute;left:{{ T.ddCols.x }}px;top:{{ T.menuH }}px;display:flex;align-items:flex-start;z-index:53;animation:clFade .1s ease">
 <sc-for list="{{ T.ddCols.cols }}" as="col" hint-placeholder-count="2">
 <div role="menu" aria-label="{{ col.title }}" style="width:{{ T.ddCols.cw }}px;max-height:{{ T.ddCols.maxH }}px;display:flex;flex-direction:column;margin-right:-1px;border-radius:0 0 10px 10px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 36px rgba(0,0,0,.5)">
 <div style="flex:none;padding:7px 12px 3px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">{{ col.title }}</div>
@@ -619,6 +649,7 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <sc-if value="{{ win.back }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinBack }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
 <span style="flex:1;min-width:0;display:flex;flex-direction:column;padding-left:4px"><span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ win.title }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ win.sub }}</span></span>
 <sc-if value="{{ win.canFollow }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinFollow }}" aria-pressed="{{ win.follow }}" aria-label="{{ win.followAria }}" title="{{ win.followAria }}" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);display:flex;align-items:center;gap:6px;background:{{ win.followBg }};color:{{ win.followCol }};font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6ZM8 8.5V14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>{{ win.followLabel }}</button></sc-if>
+<sc-if value="{{ win.popout }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinPop }}" aria-label="{{ win.popAria }}" title="{{ win.popAria }} (Ruling DK)" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--body)">{{ win.popLabel }}</button></sc-if>
 <button class="clr-btn" onClick="{{ hWinClose }}" aria-label="close window" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
 </div>
 <div class="clr-scroll" style="flex:1;min-height:0;padding:6px 12px 24px"><div style="display:flex;gap:18px;align-items:flex-start">
@@ -628,6 +659,20 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </div>
 </sc-if>
 
+
+<!-- one confirm card for the shell (Ruling DY): Revert to opened… (VQ6) and the create card for a link to nothing (VQ2) -->
+<sc-if value="{{ cfm.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ cfm.cancel }}" style="position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.5);animation:clFade .12s ease"></div>
+<div role="alertdialog" aria-modal="true" aria-label="{{ cfm.title }}" style="position:absolute;z-index:61;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 32px));box-sizing:border-box;padding:16px;border-radius:var(--r20,20px);background:var(--pan);border:1px solid var(--bord);box-shadow:0 30px 80px rgba(0,0,0,.55);animation:clPop .16s ease">
+<div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);margin-bottom:8px">{{ cfm.title }}</div>
+<div style="font:13.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:12px">{{ cfm.text }}</div>
+<sc-if value="{{ cfm.hasOpts }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><sc-for list="{{ cfm.opts }}" as="o" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ o.tap }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid var(--bord);background:var(--chip);color:var(--body);font:11px 'IBM Plex Mono',monospace">{{ o.label }}</button></sc-for></div></sc-if>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="clr-btn" onClick="{{ cfm.cancel }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">CANCEL</button>
+<sc-if value="{{ cfm.hasOk }}" hint-placeholder-val="{{ true }}"><button class="clr-btn" onClick="{{ cfm.run }}" style="min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:{{ cfm.okBg }};color:{{ cfm.okCol }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em">{{ cfm.ok }}</button></sc-if>
+</div>
+</div>
+</sc-if>
 
 <!-- the busy overlay: the shipped loading screen and UI guard, on every form factor (busy_overlay.gd) -->
 <sc-if value="{{ busy.show }}" hint-placeholder-val="{{ false }}">
@@ -682,12 +727,12 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <div role="alert" style="flex:none;margin:0 12px 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--warnBord);background:rgba(224,168,64,.10);display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="flex:1 1 200px;font:12.5px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--warnText)">This note changed outside Cartalith while it was open. Nothing has been overwritten.</span>
 <button class="clr-btn" onClick="{{ hConflictReload }}" style="height:var(--c40,40px);padding:0 12px;border-radius:var(--r20,20px);background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;color:var(--body)">RELOAD</button><button class="clr-btn" onClick="{{ hConflictKeep }}" style="height:var(--c40,40px);padding:0 12px;border-radius:var(--r20,20px);background:var(--wash);font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">KEEP MINE</button></div>
 </sc-if>
-<sc-if value="{{ vt.toolsTop }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:2px 8px 6px;border-bottom:1px solid var(--hair2)"><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for></div></sc-if>
+<sc-if value="{{ vt.toolsTop }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:2px 8px 6px;border-bottom:1px solid var(--hair2)"><sc-if value="{{ vt.chip }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onMouseDown="{{ vt.keep }}" onClick="{{ vt.chipTap }}" aria-label="{{ vt.chipAria }}" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-right:6px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ vt.chipLabel }}</button></sc-if><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for></div></sc-if>
 <sc-if value="{{ vt.acTop }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="position:absolute;z-index:3;left:16px;top:{{ vt.acTopY }}px;width:min(420px,calc(100% - 32px));max-height:300px;overflow:auto;padding:6px;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 40px rgba(0,0,0,.45)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:var(--c48,48px);display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
 <div style="flex:1;min-height:0;display:flex">
 <sc-if value="{{ vt.n.write }}" hint-placeholder-val="{{ false }}">
 <div ref="{{ noteWriteScrollRef }}" class="clr-scroll" style="flex:1;min-width:0;border-right:1px solid {{ vt.splitLine }}">
-<div class="md-src" style="padding:14px 18px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ noteMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ noteTaRef }}" class="md-ta" value="{{ vt.n.text }}" onInput="{{ hNeInput }}" onSelect="{{ hNeSel }}" onKeyDown="{{ hNeKey }}" onClick="{{ hNeSel }}" spellcheck="false" aria-label="note text, Markdown"></textarea></div>
+<div class="md-src" style="padding:14px 18px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ noteMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ noteTaRef }}" class="md-ta" value="{{ vt.n.text }}" onInput="{{ hNeInput }}" onSelect="{{ hNeSel }}" onKeyDown="{{ hNeKey }}" onClick="{{ hNeClick }}" title="{{ vt.taTitle }}" spellcheck="false" aria-label="note text, Markdown"></textarea></div>
 </div>
 </sc-if>
 <sc-if value="{{ vt.n.read }}" hint-placeholder-val="{{ true }}">
@@ -698,7 +743,7 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </sc-if>
 </div>
 <sc-if value="{{ vt.acBottom }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="flex:none;max-height:240px;overflow:auto;padding:6px 8px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:var(--c48,48px);display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
-<sc-if value="{{ vt.toolsBottom }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:4px 6px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for><button class="clr-btn" onClick="{{ hNeDone }}" aria-label="done: preview the note" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-left:4px;border-radius:var(--r22,22px);background:var(--acc);color:var(--accInk);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">DONE</button></div></sc-if>
+<sc-if value="{{ vt.toolsBottom }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:4px 6px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-if value="{{ vt.chip }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onMouseDown="{{ vt.keep }}" onClick="{{ vt.chipTap }}" aria-label="{{ vt.chipAria }}" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-right:6px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ vt.chipLabel }}</button></sc-if><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for><button class="clr-btn" onClick="{{ hNeDone }}" aria-label="done: preview the note" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-left:4px;border-radius:var(--r22,22px);background:var(--acc);color:var(--accInk);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">DONE</button></div></sc-if>
 <div style="flex:none;display:flex;justify-content:space-between;gap:8px;padding:6px 14px calc(6px + {{ vt.padB }}px);font:10px 'IBM Plex Mono',monospace;color:var(--dim);border-top:1px solid var(--hair2)"><span>{{ vt.n.words }} · {{ vt.n.outgoingLabel }}</span><span>{{ vt.n.saved }}</span></div>
 </div>
 </sc-if>
@@ -953,6 +998,7 @@ function menuTree() {
   return [
     { id: 'file', label: 'File', d: IC.file, sub: 'new · open · save · export · storage', items: [
       { t: 'live', label: 'New world…', accel: 'Ctrl+N', act: 'newWorld', sm: true },
+      { t: 'live', label: 'Generate world', accel: 'Ctrl+R', act: 'run', sm: true },
       { t: 'live', label: 'Open project…', accel: 'Ctrl+O', act: 'picker' },
       { t: 'sub', label: 'Recent worlds', items: [{ t: 'live', label: 'VHAREN REACH — 129384 · 5 d ago', act: 'openWorld', arg: 'VHAREN REACH' }, { t: 'live', label: 'KESSA — 774201 · 3 w ago', act: 'openWorld', arg: 'KESSA' }, { t: 'live', label: 'THORNWOOD — 908133 · 2 mo ago', act: 'openWorld', arg: 'THORNWOOD' }] },
       { t: 'live', label: 'New world from selection…', act: 'fromSelection', sm: true },
@@ -985,7 +1031,7 @@ function menuTree() {
       { t: 'readout', label: 'exports', v: '…/Cartalith/Exports' },
       { t: 'live', label: 'Change locations…', act: 'win:storage' },
       { t: 'live', label: 'Show project on disk', act: 'showOnDisk', phone: 'Share project…' },
-      { t: 'sign', label: 'imports live under World ▸ Import' },
+      { t: 'sign', label: 'imports live under Records ▸ Import' },
       { t: 'sign', label: 'asset packs under Assets' }
     ] },
     { id: 'edit', label: 'Edit', d: IC.edit, sub: 'undo · clipboard · find · reset', items: [
@@ -1033,8 +1079,7 @@ function menuTree() {
       { t: 'live', label: 'Apply library to map', act: 'toast', arg: 'Library applied to the map · 72 slots drawn' },
       { t: 'live', label: 'Clear library…', danger: true, act: 'confirm', arg: 'Clear the asset library? The map keeps its pins until you apply.' }
     ] },
-    { id: 'world', label: 'World', d: IC.world, sub: 'data manager · records · technical', items: [
-      { t: 'live', label: 'Generate world', accel: 'Ctrl+R', act: 'run', sm: true },
+    { id: 'records', label: 'Records', d: IC.vault, sub: 'data manager · records · technical', items: [
       { t: 'live', label: '⧉ Data manager', act: 'win:datamanager' },
       { t: 'band', label: 'RECORDS' },
       { t: 'live', label: 'Factions…', accel: 'Ctrl+Shift+F', act: 'factionsHere' },
@@ -1064,7 +1109,7 @@ function menuTree() {
       { t: 'readout', label: 'Campaigns this year', dyn: 'campaigns' },
       { t: 'band', label: 'NOTES' },
       { t: 'live', label: 'Note for the selection', accel: 'Ctrl+Shift+N', act: 'ctx', arg: 'note', needSel: true },
-      { t: 'sign', label: 'Places without notes is in World ▸ Records' },
+      { t: 'sign', label: 'Places without notes… is in Records' },
       { t: 'live', label: 'Ask the assistant about the selection', accel: 'Ctrl+J', act: 'ctx', arg: 'ask' }
     ] },
     { id: 'prefs', label: 'Preferences', d: IC.gear, sub: 'performance · graphics · LOD · memory · app', items: [
@@ -1106,7 +1151,7 @@ function menuTree() {
     ] },
     { id: 'window', label: 'Window', d: IC.window, sub: 'regions · session · 3D · workspace · layouts', items: [
       { t: 'check', label: 'Left dock', key: 'win.left' }, { t: 'check', label: 'Context panel', key: 'win.right' },
-      { t: 'sub', label: 'Context panel', items: [{ t: 'live', label: 'Inspect', accel: 'Ctrl+1', act: 'ctx', arg: 'inspect' }, { t: 'live', label: 'Note', accel: 'Ctrl+2', act: 'ctx', arg: 'note' }, { t: 'live', label: 'Ask (assistant)', accel: 'Ctrl+3', act: 'ctx', arg: 'ask' }, { t: 'sep' }, { t: 'live', label: 'Pin to the current subject', act: 'ctxPin' }, { t: 'live', label: 'Follow the selection', act: 'ctxFollow' }] }, { t: 'check', label: 'Timeline', key: 'win.timeline' }, { t: 'check', label: 'Status bar', key: 'win.status' }, { t: 'check', label: 'Domain rail', key: 'win.rail' },
+      { t: 'sub', label: 'Context panel', items: [{ t: 'live', label: 'Inspect', accel: 'Ctrl+1', act: 'ctx', arg: 'inspect' }, { t: 'live', label: 'Note', accel: 'Ctrl+2', act: 'ctx', arg: 'note' }, { t: 'live', label: 'Ask (assistant)', accel: 'Ctrl+3', act: 'ctx', arg: 'ask' }, { t: 'sep' }, { t: 'live', label: 'Pin to the current subject', act: 'ctxPin' }, { t: 'live', label: 'Follow the selection', act: 'ctxFollow' }].concat(ctxModuleMenuItems()) }, { t: 'check', label: 'Timeline', key: 'win.timeline' }, { t: 'check', label: 'Status bar', key: 'win.status' }, { t: 'check', label: 'Domain rail', key: 'win.rail' },
       { t: 'sep' },
       { t: 'check', label: 'Session mode', accel: 'Ctrl+Shift+M', key: 'prefs.session' },
       { t: 'check', label: 'Diagnostics overlay', accel: 'Shift+D', key: 'prefs.diag' },
@@ -1130,7 +1175,8 @@ function menuTree() {
     ] }
   ];
 }
-/* The tablet keeps its four-menu bar below 1 180 dp (☰ · File · World · Story, as shipped); the ☰ holds the rest. */
+/* Below 1 180 dp a touch tablet's bar is ☰ · File · World · Records · Story (Ruling DY, PQ6 follow-up). World there is
+   the WORLD domain's own rows; Records is the desktop's Records menu; the ☰ holds the rest. */
 /* ☰'s submenus are built with full=false (menus.gd::_overflow): a row ☰ promotes to its own top, and Edit's two Reset
    rows (which the narrow World carries), appear once. Separators left leading, trailing or doubled are dropped too. */
 const PROMOTED = ['Undo', 'Redo', 'Undo history…', '⧉ Asset library', 'Landmark types', 'Units', 'Keyboard reference…', 'About', 'Reset generation parameters', 'Reset one stage'];   // Preferences keeps Theme and its editable Keyboard shortcuts… (_preferences(p, false, true))
@@ -1150,14 +1196,21 @@ function tabletOverflow(menus) {
     { t: 'sep' }, { t: 'sub', label: 'Edit', items: notPromoted(by('edit').items) }, { t: 'sub', label: 'Assets', items: notPromoted(by('assets').items) }, { t: 'sub', label: 'Preferences', items: notPromoted(by('prefs').items) }, { t: 'sub', label: 'Window', items: by('window').items }, { t: 'sub', label: 'Help', items: notPromoted(by('help').items) }
   ] };
 }
+/* The narrow bar's World: only the WORLD domain's own rows, which is what "World" means everywhere else (Ruling DY).
+   "Generate world" is one label on every form factor (Ruling DX, PQ11). */
 function tabletWorldMenu(menus) {
-  const w = menus.find((m) => m.id === 'world');
-  return { id: 'world', label: 'World', sub: w.sub, items: [
-    { t: 'live', label: 'Generate world', accel: 'Ctrl+R', act: 'run', sm: true }, { t: 'sep' },   // one label on every form factor (Ruling DX, PQ11)
+  return { id: 'world', label: 'World', d: IC.world, sub: 'generate · reset · pipeline · sculpt', items: [
+    { t: 'live', label: 'Generate world', accel: 'Ctrl+R', act: 'run', sm: true }, { t: 'sep' },
     { t: 'live', label: 'Reset generation parameters', act: 'resetParams', sm: true }, menus.find((m) => m.id === 'edit').items.find((x) => x.label === 'Reset one stage'), { t: 'sep' },
     { t: 'radio', label: 'Generation pipeline', key: 'worldnode', value: 'pipeline', sm: true }, { t: 'radio', label: 'Sculpt', key: 'worldnode', value: 'sculpt', sm: true }, { t: 'sep' },
-    { t: 'live', label: 'Seed & size…', act: 'newWorld', sm: true }, { t: 'sep' }
-  ].concat(w.items.filter((x) => x.label !== 'Generate world')) };   // the row above is the same command (id 710, Ctrl+R): one row
+    { t: 'live', label: 'Seed & size…', act: 'newWorld', sm: true }
+  ] };
+}
+/* The narrow bar's File: the desktop's File without Generate world, which that bar's World already holds (one row per
+   command on a bar; a labelled judgement of Ruling DY's four-menu answer). */
+function tabletFileMenu(menus) {
+  const f = menus.find((m) => m.id === 'file');
+  return Object.assign({}, f, { items: f.items.filter((x) => !(x && x.label === 'Generate world')) });
 }
 
 /* ======================================================================================================
@@ -1381,7 +1434,7 @@ function drawMap(c, ctx, W, H) {
     }
     ctx.setLineDash([]);
   }
-  const showRoute = (s.tab === 'story' && s.storySeg === 'journeys') || (s.dom === 'civil' && s.node.civil === 'journey' && c._mode() === 'tablet') || (s.win && s.win.stack && s.win.stack[s.win.stack.length - 1] === 'journeys');
+  const showRoute = (s.tab === 'story' && s.storySeg === 'journeys') || (s.dom === 'civil' && s.node.civil === 'journey' && c._mode() === 'tablet') || (s.win && s.win.stack && ['journeys', 'planner'].includes(s.win.stack[s.win.stack.length - 1]));
   if (showRoute && c.route.length > 1) {
     ctx.strokeStyle = 'rgba(13,14,15,.8)'; ctx.lineWidth = 6 * px; ctx.beginPath(); c.route.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
     ctx.strokeStyle = '#e0a34a'; ctx.lineWidth = 3 * px; ctx.stroke();
@@ -1462,10 +1515,12 @@ function getK(c, key) {
   if (key === 'win.left') return c._mode() === 'tablet' ? s.ldockOpen : s.tab === 'dom';
   if (key === 'win.right') return c._mode() === 'tablet' ? s.rdockOpen : (s.tab === 'sel' || s.tab === 'ctx');
   if (key === 'win.timeline') return s.tlOpen; if (key === 'win.status' || key === 'win.rail') return true;
+  if (key.startsWith('ctxmod.')) return ctxModsOf(c).includes(key.slice(7));
   return undefined;
 }
 function setK(c, key, v) {
   const s = c.state;
+  if (key.startsWith('ctxmod.')) { c._ctxModSet(key.slice(7), !!v); return; }
   if (key.startsWith('prefs.')) {
     const k = key.slice(6); const prefs = Object.assign({}, s.prefs, { [k]: v }); const patch = { prefs };
     if (k === 'theme') patch.light = v === 'light'; if (k === 'units') patch.units = v;
@@ -1571,6 +1626,7 @@ function doAct(c, it) {
     case 'ctx': closeMenus(); c._ctxTab(arg || 'inspect', arg === 'ask'); break;
     case 'ctxPin': closeMenus(); { const sj = subjectOf(c); if (sj) c.setState({ ctxPin: Object.assign({}, sj), rdockOpen: true }); else c._toast('Nothing selected to pin to'); } break;
     case 'ctxFollow': closeMenus(); c.setState({ ctxPin: null, rdockOpen: true }); break;
+    case 'ctxReset': closeMenus(); c._ctxReset(); break;
     case 'factionsHere': { closeMenus(); const e = entOf(c, subjectOf(c)); let fi = -1; if (e) fi = e.kind === 'faction' ? e.i : (e.kind === 'place' ? e.o.fac : (e.kind === 'conflict' ? e.o.sides[0] : -1)); if (c._ptr()) { c._openWin('factions' + (arg === 'history' ? ':history' : '')); break; } c._openWin(fi >= 0 ? 'factions:f' + fi : 'factions' + (arg ? ':' + arg : '')); break; }
     case 'search': closeMenus(); c.setState({ srch: true, q: '' }); break;
     case 'resetParams': c.setState({ vals: {} }); c._markStale(1); c._toast('Every generation parameter is back to its default · applies on the next Generate'); break;
@@ -1579,7 +1635,7 @@ function doAct(c, it) {
     case 'confirm': c._openWin('confirm:' + arg); break;
     case 'toast': c._toast(arg); break;
     case 'node': { const [d, n] = arg.split('/'); closeMenus(); c.setState({ dom: d, node: Object.assign({}, s.node, { [d]: n }), win: null }); if (m === 'tablet') c.setState({ ldockOpen: true }); else c.setState({ tab: 'dom', det: 'half' }); break; }
-    case 'story': closeMenus(); if (m === 'tablet') { if (arg === 'time') c.setState({ tlOpen: true }); else if (arg === 'journeys') c.setState({ dom: 'civil', node: Object.assign({}, s.node, { civil: 'journey' }), ldockOpen: true }); else c._openWin('story:' + arg); } else c.setState({ tab: 'story', storySeg: arg, det: 'half', planStage: -1, win: null }); break;
+    case 'story': closeMenus(); if (m === 'tablet') { if (arg === 'time') c.setState({ tlOpen: true }); else if (arg === 'journeys' && c._ptr()) { if (!(s.win && s.win.stack[s.win.stack.length - 1] === 'planner')) c._openWin('planner'); } else if (arg === 'journeys') c.setState({ dom: 'civil', node: Object.assign({}, s.node, { civil: 'journey' }), ldockOpen: true }); else c._openWin('story:' + arg); } else c.setState({ tab: 'story', storySeg: arg, det: 'half', planStage: -1, win: null }); break;
     case 'tool': closeMenus(); c.setState({ dom: 'civil', win: null }); setTimeout(() => c._arm(arg), 0); break;
     case 'placeHistory': c._openWin('place:history'); break;
     case 'notesHere': c._openWin('vault:' + (hasSel(c) ? 'place' : 'browse')); break;
@@ -1700,7 +1756,7 @@ function catRows(c, cat, tablet) {
         rows.push(BB({ label: 'New seed', d: IC.dice, tap: () => { const n = 100000 + Math.floor(Math.random() * 900000); c.setState({ seed: n }); c._markStale(1); c._toast('Seed ' + n + ' · Generate to apply'); } }, { label: 'Center landmasses', tap: () => c._toast('Whole-world mode only · this world is a region') }));
         rows.push(info('last run · ' + s.lastRun + ' · 10 stages · dependency order'));
       }
-      rows.push(H('IMPORT'), BB({ label: 'Load heightmap…', tap: () => c._openWin('datamanager:import-height') }, { label: 'Infer tectonics…', tap: () => c._openWin('datamanager:import-height') }), info('Both open World ▸ Import; a heightmap replaces stages 01–05.'));
+      rows.push(H('IMPORT'), BB({ label: 'Load heightmap…', tap: () => c._openWin('datamanager:import-height') }, { label: 'Infer tectonics…', tap: () => c._openWin('datamanager:import-height') }), info('Both open Records ▸ Import; a heightmap replaces stages 01–05.'));
       rows.push(H('PIPELINE STATUS'));
       STAGE_NAMES.forEach((n, i) => rows.push(read(String(i + 1).padStart(2, '0') + ' ' + n, s.running && s.running.i === i ? 'running…' : (s.running && s.running.i < i ? 'pending' : (s.stale && i + 1 >= s.stale ? 'stale' : 'done ' + (0.3 + ((i * 37) % 19) / 10).toFixed(2) + 's')), s.stale && i + 1 >= s.stale ? 'var(--warn)' : 'var(--ink)')));
       rows.push(H('FINALIZE'), info('Atlas: 85 chunks baked to LOD 0–3 · not finalized'), S(c, 'bake', 'Bake depth', ['0–0', '0–1', '0–2', '0–3', '0–4', '0–5', '0–6', '0–7', '0–8'].map((x) => [x, 'LOD ' + x]), '0–3', 'the same setting as Preferences ▸ Tiles & LOD ▸ LOD levels'), B('Bake ALL levels & finalize', () => c._toast('Baking LOD 0–3 · 85 tiles · finalizing locks the heightfield'), 'primary'), BB({ label: 'Un-finalize', tap: () => c._toast('Un-finalized') }, { label: 'Clear atlas', variant: 'danger', tap: () => c._openWin('confirm:Clear this world’s atlas?') }), H('LOD TERRAIN DATA'), info('Deep-zoom terrain is refined per tile from the baked atlas; nothing to set here.'));
@@ -1765,7 +1821,7 @@ function catRows(c, cat, tablet) {
     case 'Economy': return [H('TRADE BALANCE'), read('World', '+1 240 units/yr'), H('TRADE FLOWS'), B('Match trade flows', () => c._toast('Trade flows matched · 38 flows')), read('By good', 'grain · salt · timber · iron'), read('Busiest partners', 'Vhal Serai ↔ Port Amre'), read('Needs nothing can reach', '2 places'), read('Way load', 'peak 0.82 on the Kess road'), read('Caravans', '14 active'), ...fold(c, 'f-econfac', 'By faction', 'territory, food and resources', () => c.factions.map((f) => read(f.name, (f.places * 11) + ' food · ' + (f.places * 3) + ' ore'))), H('NOT BUILT'), info('Tariffs over time are not simulated.')];
     case 'Timeline': return tablet ? timelineRows(c) : [J(c, 'Timeline lives in STORY ▸ Time', 'story:time', 'years · scrub · playback · collapse / recovery')];
     case 'Routes & ways': return [H('NETWORK'), BB({ label: 'Generate roads', variant: 'primary', tap: () => c._toast('Roads generated · ' + c.ways.length + ' ways') }, { label: 'Clear ways & journeys', variant: 'danger', tap: () => c._openWin('confirm:Clear every way and journey?') }), info(c.ways.length + ' ways — ' + c.ways.filter((w) => w.kind === 'road').length + ' roads, ' + c.ways.filter((w) => w.kind === 'track').length + ' tracks'), H('LONGEST')].concat(c.ways.slice().sort((a, b) => b.km - a.km).slice(0, 6).map((w) => ({ k: 'item', label: w.a.name + ' → ' + w.b.name, sub: w.kind, right: fmtDist(w.km, s.prefs.units), dot: 'var(--sec)', square: true, tap: () => { c.view = Object.assign({}, c.view, { cx: (w.a.x + w.b.x) / 2, cy: (w.a.y + w.b.y) / 2 }); c._dirty = true; c._toast('Route · ' + w.a.name + ' → ' + w.b.name); } })), fold(c, 'f-sealanes', 'Sea lanes', '2 lanes', () => [read('Port Amre → Lakemouth', '46 km'), read('Port Amre → Sevjuni', '210 km')]), [H('HAND-DRAWN', s.userWays.length + ' this session')], s.userWays.map((w, i) => ({ k: 'item', label: 'Way ' + (i + 1), sub: w.kind + ' · ' + w.pts.length + ' points', right: fmtDist(w.km, s.prefs.units), dot: 'var(--acc)', square: true })), [H('WHERE THE STYLE LIVES'), J(c, 'Line width and opacity → Cartography ▸ Feature style ▸ Ways', 'carto/style/Feature style')]);
-    case 'Travel': return tablet ? plannerRows(c, true) : [J(c, 'The planner lives in STORY ▸ Journeys', 'story:journeys', 'party · season · carriage · stages · cost'), J(c, 'Travel library…', 'win:travel', 'animals · vehicles · vessels · parties')];
+    case 'Travel': return tablet ? (c._ptr() ? [info('On the desktop the planner opens in its own window beside the live map, not in this dock (Ruling DY, PQ4). Put it on a second screen with its Pop out button.'), B('Open the journey planner', () => doAct(c, { act: 'story', arg: 'journeys' }), 'primary', IC.journey), J(c, 'Saved journeys…', 'win:journeys'), J(c, 'Travel library…', 'win:travel', 'animals · vehicles · vessels · parties')] : plannerRows(c, true)) : [J(c, 'The planner lives in STORY ▸ Journeys', 'story:journeys', 'party · season · carriage · stages · cost'), J(c, 'Travel library…', 'win:travel', 'animals · vehicles · vessels · parties')];
     /* ---------------- CARTO ---------------- */
     case 'Style': {
       const rows = [H('LOOK', V(c, 'style.preset', 'Default'))];
@@ -1911,8 +1967,10 @@ function toolBar(c) {
   const commitDiscard = (n, commit, discard) => { acts.push({ label: 'DISCARD', tap: discard, bg: 'var(--chip)', col: 'var(--sec)', aria: 'discard' }, { label: 'COMMIT', tap: commit, bg: 'var(--acc)', col: 'var(--accInk)', aria: 'commit' }); };
   if (t === 'inspect') {
     main = { world: 'GENERATE · WORLD', civil: 'CIVIL · INSPECT', carto: 'CARTOGRAPHY · ' + nodeDef('carto', s.node.carto).short }[s.dom];
-    hint = c._ptr() ? { world: 'click selects · right-click opens the card · Q the cartwheel', civil: 'click a settlement, route or landmark · Esc deselects', carto: 'presentation only — nothing here marks a stage stale' }[s.dom] : { world: 'tap selects · long-press samples', civil: 'tap a settlement, route or landmark', carto: 'presentation only — nothing here marks a stage stale' }[s.dom];
-    if (s.dom === 'world') { acts.push({ label: 'GENERATE', tap: () => c._run(s.stale || 1), bg: 'var(--acc)', col: 'var(--accInk)', aria: 'generate world' }); chips = [{ label: 'New seed', tap: () => { const n = 100000 + Math.floor(Math.random() * 900000); c.setState({ seed: n }); c._markStale(1); } }, { label: 'Center landmasses', tap: () => c._toast('Whole-world mode only') }, { label: 'Bake ALL & finalize', tap: () => c._toast('Baking LOD 0–3 · finalizing') }]; }
+    hint = c._ptr() ? { world: 'Click selects · right-click opens the card · Q opens the cartwheel', civil: 'click a settlement, route or landmark · Esc deselects', carto: 'presentation only — nothing here marks a stage stale' }[s.dom] : { world: 'Tap selects · hold opens the cartwheel and the card', civil: 'tap a settlement, route or landmark', carto: 'presentation only — nothing here marks a stage stale' }[s.dom];
+    // Ruling DZ (owner, 2026-11-01): the tool-options bar holds the armed tool's settings only. WORLD's idle row is its
+    // context name and one hint; Generate world, New seed, Center landmasses and Bake ALL & finalize live in the WORLD
+    // dock (and Generate world also in File, Ctrl+R), so the bar carries no actions here.
   } else if (t === 'measure') {
     const mode = V(c, 'ms.mode', 'Distance'); let km = 0; for (let i = 1; i < s.measure.length; i++) km += Math.hypot(s.measure[i].x - s.measure[i - 1].x, s.measure[i].y - s.measure[i - 1].y);
     main = mode.toUpperCase() + ' · ' + (s.measure.length > 1 ? fmtDist(km, s.prefs.units) : '—'); hint = s.measure.length + ' points · tap the map to add';
@@ -1986,8 +2044,8 @@ function winRows(c, id) {
     case 'journeys': return { title: 'SAVED JOURNEYS', sub: '2 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }] };
     case 'travel': { const kind = V(c, 'tv.kind', 'Animals & mounts'); const L = { 'Animals & mounts': ['Mule', 'Horse', 'Camel', 'Ox', 'Pack goat'], Vehicles: ['Cart', 'Wagon', 'Sledge'], Vessels: ['River boat', 'Cog', 'Galley', 'Ferry'], 'Party set-ups': ['Trader caravan', 'Pilgrims', 'Courier', 'Warband'] }[kind]; return { title: 'TRAVEL LIBRARY', sub: 'classifications & constraints — feeds the planner', rows: [S(c, 'tv.kind', 'Type', ['Animals & mounts', 'Vehicles', 'Vessels', 'Party set-ups'], 'Animals & mounts')].concat(L.map((x, i) => ({ k: 'item', label: x, sub: ['carries 90 kg · 30 km/d', 'carries 140 kg · 40 km/d', 'needs water every 3 d', 'slow · strong'][i % 4], right: i === 1 ? 'CUSTOM' : '', dot: 'var(--sec)', tap: () => c._toast(x + ' · class, constraints, source, used by') })), [info('Edit entries on the desktop or here; the planner reads them live.'), kind === 'Party set-ups' ? B('Load into planner', () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); }, 'primary') : sep()]) }; }
     case 'storage': return { title: 'STORAGE LOCATIONS', sub: 'where Cartalith keeps things', rows: [['Projects', '…/Cartalith/Worlds'], ['Tile atlas cache', '…/Cartalith/Atlas'], ['Asset packs', '…/Cartalith/Packs'], ['Exports', '…/Cartalith/Exports']].map((x) => ({ k: 'nav', d: IC.file, label: x[0], sub: x[1], tap: () => c._toast('System folder picker · ' + x[0]) })).concat([info('On Android these are app-scoped folders; Change uses the system picker.')]) };
-    case 'assistantSettings': return { title: 'ASSISTANT', sub: 'optional · off by default', rows: [info('Off until you turn it on; with it off nothing is sent anywhere. A world generates the same with or without a model.'), prefTog(c, 'assistant', 'Assistant enabled', 'the master switch · off means nothing is sent'), T(c, 'as.prose', 'Prose and Vault assist', true), T(c, 'as.cmd', 'Commands: view, layer, parameter', true, 'proposals you review and Apply'), { k: 'todo', label: 'Edit actions: sculpt, paint', reason: 'Not built yet (LLM-7).' }, T(c, 'as.local', 'Local providers allowed', true), T(c, 'as.remote', 'Remote providers allowed', false), H('PROVIDER'), S(c, 'as.prov', 'Provider', ['LM Studio (local network)', 'Anthropic', 'OpenAI-compatible'], 'LM Studio (local network)'), { k: 'field', label: 'Address', val: V(c, 'as.addr', 'http://192.168.1.238:1234'), onIn: (e) => setV(c, 'as.addr', e.target.value) }, { k: 'field', label: 'Model', val: V(c, 'as.model', 'qwen3.8-27b'), onIn: (e) => setV(c, 'as.model', e.target.value) }, S(c, 'as.key', 'Key source', ['OS credential store', 'Environment variable', 'None'], 'OS credential store'), H('CONTEXT SENT WITH A REQUEST'), T(c, 'as.s1', 'Send: current entity', true), T(c, 'as.s2', 'Send: selection', false), T(c, 'as.s3', 'Send: named Vault notes', true), BB({ label: 'Review consent', tap: () => c._toast('Consent card · Allow / Not now') }, { label: 'Save', variant: 'primary', tap: () => { c.setState({ win: null }); c._toast('Assistant settings saved'); } })] };
-    case 'assistant': return { title: 'ASSISTANT', sub: s.prefs.assistant ? 'your model · ready' : 'off · turn it on first', rows: [s.prefs.assistant ? info('Ready: requests go to the local network.') : { k: 'acts', opts: [{ label: 'Turn on Assistant enabled first', variant: 'primary', tap: () => setK(c, 'prefs.assistant', true) }] }, S(c, 'as.mode', '', ['Describe place', 'Story', 'Note', 'Commands'], 'Describe place'), read('Place', hasSel(c) ? selName(c) : 'none selected · tap a settlement'), { k: 'field', label: 'Request', val: V(c, 'as.req', ''), ph: 'Ask for prose about the selected place…', onIn: (e) => setV(c, 'as.req', e.target.value) }, BB({ label: 'Reset', tap: () => setV(c, 'as.req', '') }, { label: 'Send', variant: 'primary', tap: () => c._toast(s.prefs.assistant ? 'Sent · streaming the reply' : 'Turn on Assistant enabled first') }), info('Saved text is appended to the note, marked model-generated. Your own text is never changed.')] };
+    case 'assistantSettings': return { title: 'ASSISTANT', sub: 'optional · off by default', rows: [info('Off until you turn it on; with it off nothing is sent anywhere. A world generates the same with or without a model.'), prefTog(c, 'assistant', 'Assistant enabled', 'the master switch · off means nothing is sent'), T(c, 'as.prose', 'Prose and Vault assist', true), T(c, 'as.cmd', 'Commands: view, layer, parameter', true, 'proposals you review and Apply'), { k: 'todo', label: 'Edit actions: sculpt, paint', reason: 'Not built yet (LLM-7).' }, T(c, 'as.local', 'Local providers allowed', true), T(c, 'as.remote', 'Remote providers allowed', false), prefTog(c, 'askSave', 'Save the conversation with the world', 'off by default · kept inside the world file, so it travels with the world when shared'), H('PROVIDER'), S(c, 'as.prov', 'Provider', ['LM Studio (local network)', 'Anthropic', 'OpenAI-compatible'], 'LM Studio (local network)'), { k: 'field', label: 'Address', val: V(c, 'as.addr', 'http://192.168.1.238:1234'), onIn: (e) => setV(c, 'as.addr', e.target.value) }, { k: 'field', label: 'Model', val: V(c, 'as.model', 'qwen3.8-27b'), onIn: (e) => setV(c, 'as.model', e.target.value) }, S(c, 'as.key', 'Key source', ['OS credential store', 'Environment variable', 'None'], 'OS credential store'), H('CONTEXT SENT WITH A REQUEST'), T(c, 'as.s1', 'Send: current entity', true), T(c, 'as.s2', 'Send: selection', false), T(c, 'as.s3', 'Send: named Vault notes', true), BB({ label: 'Review consent', tap: () => c._toast('Consent card · Allow / Not now') }, { label: 'Save', variant: 'primary', tap: () => { c.setState({ win: null }); c._toast('Assistant settings saved'); } })] };
+    case 'assistant': return { title: 'ASSISTANT', sub: s.prefs.assistant ? 'your model · ready' : 'off · turn it on first', rows: (s.prefs.assistant && s.prefs.askSave == null && s.askSent ? [info('Save this conversation with the world? It is stored inside the world file and travels with it when you share it. Off unless you say so; one conversation per session, and New clears it.', true), BB({ label: 'Not now', tap: () => { setK(c, 'prefs.askSave', false); c._toast('Kept for this session only · Preferences changes it'); } }, { label: 'Save with the world', variant: 'primary', tap: () => { setK(c, 'prefs.askSave', true); c._toast('This conversation is saved with the world · Preferences changes it'); } })] : []).concat([s.prefs.assistant ? info('Ready: requests go to the local network.') : { k: 'acts', opts: [{ label: 'Turn on Assistant enabled first', variant: 'primary', tap: () => setK(c, 'prefs.assistant', true) }] }, S(c, 'as.mode', '', ['Describe place', 'Story', 'Note', 'Commands'], 'Describe place'), read('Place', hasSel(c) ? selName(c) : 'none selected · tap a settlement'), { k: 'field', label: 'Request', val: V(c, 'as.req', ''), ph: 'Ask for prose about the selected place…', onIn: (e) => setV(c, 'as.req', e.target.value) }, BB({ label: 'Reset', tap: () => setV(c, 'as.req', '') }, { label: 'Send', variant: 'primary', tap: () => { c._toast(s.prefs.assistant ? 'Sent · streaming the reply' : 'Turn on Assistant enabled first'); if (s.prefs.assistant) c.setState({ askSent: true }); } }), info('Saved text is appended to the note, marked model-generated. Your own text is never changed.')]) };
     case 'quickbar': return { title: 'QUICK BAR', sub: 'pin commands · ' + s.quick.length + ' of 24', rows: [H('PINNED')].concat(s.quick.map((q, i) => ({ k: 'item', label: q, sub: 'pinned · tap to unpin', right: '#' + (i + 1), dot: 'var(--acc)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.filter((x) => x !== q) }) })), [H('COMMANDS'), ...['save', 'export.player', 'story.journeys', 'world.vault', 'assistant'].filter((q) => !s.quick.includes(q)).map((q) => ({ k: 'item', label: q, sub: 'tap to pin', dot: 'var(--sec)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.concat([q]) }) })), info('Long-press any menu row to pin it. Check, radio and generated rows cannot be pinned.')]) };
     case 'shortcuts': return { title: 'KEYBOARD SHORTCUTS', sub: 'for a tablet with a keyboard · rebind on desktop', rows: [['New world…', 'Ctrl+N'], ['Open project…', 'Ctrl+O'], ['Save project', 'Ctrl+S'], ['Save as…', 'Ctrl+Shift+S'], ['Close project', 'Ctrl+W'], ['Player map…', 'Ctrl+Shift+E'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z · Ctrl+Y'], ['Cut · Copy · Paste', 'Ctrl+X · C · V'], ['Delete', 'Delete'], ['Select all', 'Ctrl+A'], ['Deselect', 'Ctrl+D'], ['Find on map…', 'Ctrl+F'], ['Asset library', 'Shift+A'], ['Export pack .zip…', 'Ctrl+Shift+P'], ['Timeline', 'Ctrl+Shift+T'], ['Travel library…', 'Shift+L'], ['Notes for this place', 'Ctrl+Shift+N'], ['Session mode', 'Ctrl+Shift+M'], ['Diagnostics overlay', 'Shift+D'], ['Run pipeline (tablet)', 'Ctrl+R'], ['Journey planner', 'Shift+J'], ['Tools', 'V M R · S T W · I L · B F'], ['Ring', 'Q (hold)'], ['Context card', 'Menu · Shift+F10'], ['Layer views', '1–8'], ['Pan', 'Space (hold)']].map((x) => read(x[0], x[1])) };
     case 'touch': return { title: 'TOUCH & GESTURES', sub: 'the whole touch vocabulary', rows: [H('MAP'), read('Drag', 'pan'), read('Pinch', 'zoom'), read('Two fingers turn', 'rotate'), read('Double-tap', 'zoom in ×1.7'), read('Press and hold', 'phone: sample pin + context card · tablet: the cartwheel and the card'), read('Hold, slide, lift', 'tablet: picks a cartwheel slot without reading it'), read('Two-finger tap', 'undo'), read('Three-finger tap', 'redo'), read('Swipe in from right edge', 'inspector, where the system leaves the edge to the app'), read('Tap or drag the QUICK grip', 'phone: the quick drawer of pinned commands'), H('BARS AND SHEETS'), read('Hold the domain tab', 'switch WORLD · CIVIL · CARTO'), read('Swipe the domain tab', 'next / previous domain'), read('Swipe up on a tab', 'open its sheet full'), read('Tab re-tap', 'close the sheet'), read('Sheet handle', 'drag peek · half · full; tap toggles'), read('Hold the tool chip', 'tool fan'), read('Hold undo', 'edit history'), read('System back', 'closes the top layer'), H('SETTINGS'), prefTog(c, 'twoFingerUndo', 'Two- and three-finger tap undo / redo', 'off if it fights your stylus'), prefTog(c, 'edgeSwipe', 'Edge swipe opens the inspector'), prefTog(c, 'haptics', 'Haptic tick on holds and snaps'), prefTog(c, 'penOnly', 'Pen draws, finger pans', 'tablets with a stylus'), prefSeg(c, 'longPressMs', 'Press-and-hold delay', [[350, 'Short'], [0, 'Normal'], [700, 'Long']], 'Normal is the shipped hold: 480 ms on a phone, 500 ms on a tablet'), prefSeg(c, 'hand', 'Handedness', [['left', 'Left'], ['right', 'Right']], 'the card and the quick drawer sit away from the dominant hand'), prefSeg(c, 'density', 'Density', [['auto', 'Auto'], ['comfortable', 'Comfortable'], ['compact', 'Compact']], 'auto = 48 dp targets on touch, 40 with a mouse'), H('DISPLAY'), prefSeg(c, 'uiScale', 'UI scale', [[1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], 'multiplies every dp on top of the OS density · for 4K panels at 1× and for reading comfort'), read('Window', Math.round(c._W()) + ' × ' + Math.round(c._H()) + ' dp at this scale')] };
@@ -1998,6 +2056,8 @@ function winRows(c, id) {
     case 'place': return { title: arg === 'history' ? 'POLITICAL HISTORY' : 'PLACE EDITOR', sub: selName(c) || 'no settlement selected', rows: arg === 'history' ? [read('Year 0 – 210', 'Orentamwash'), read('Year 210 – 398', 'Korrath'), read('Year 398 –', 'Sevjuni League'), info('Ownership periods from the timeline snapshots.')] : [{ k: 'field', label: 'Name', val: selName(c), onIn: () => {} }, S(c, 'pe.tab', '', ['General', 'Political history', 'Economy', 'Notes'], 'General'), S(c, 'pe.class', 'Class', ['metropolis', 'capital', 'city', 'town', 'village', 'hamlet'], (selObj(c) || {}).tier || 'town'), T(c, 'pe.fort', 'Fortified', false), T(c, 'pe.ruin', 'Ruins', false), BB({ label: 'Cancel', tap: () => c.setState({ win: null }) }, { label: 'Save', variant: 'primary', tap: () => { c.setState({ win: null }); c._toast('Place saved'); } })] };
     case 'city': return { title: 'CITY VIEWER', sub: selName(c), rows: [read('Layout', 'organic · river town'), read('Districts', '6'), read('Walls', 'partial'), info('The city viewer keeps its own window; on a phone it opens full screen with pan and zoom.'), B('Open full screen', () => c._toast('City viewer · full screen'), 'primary')] };
     case 'conflict': case 'conflicts': case 'story': return { title: w === 'story' ? 'STORY · ' + (arg || '').toUpperCase() : 'CONFLICTS', sub: 'campaigns and fronts', rows: w === 'story' && arg !== 'conflicts' ? rowsStory(c, arg) : [read('Campaigns in year ' + s.year, String(conflictsOf(c).filter((k) => s.year >= k.from && s.year <= k.to).length))].concat(conflictsOf(c).map((k) => ({ k: 'item', label: k.name, sub: 'years ' + k.from + '–' + k.to + ' · ' + k.sub, right: s.year >= k.from && s.year <= k.to ? 'active' : '', dot: k.col, on: !!(s.sel && s.sel.kind === 'conflict' && s.sel.id === k.id), tap: () => { if (!c._ptr()) c.setState({ win: null }); c._select({ kind: 'conflict', id: k.id }, { frame: true, year: k.from }); } }))).concat([info('Picking a conflict selects it and moves the timeline to its first year, so its campaign draws.'), B('Draw a conflict', () => { c.setState({ win: null }); doAct(c, { act: 'tool', arg: 'conflict' }); }, 'primary')]) };
+    case 'planner': { const r = c.route; const out = s.win && s.win.popped === 'planner'; return { title: 'JOURNEY PLANNER', sub: (r[0] ? r[0].name + ' → ' + r[r.length - 1].name + ' · ' : '') + 'the map stays live', popout: true, rows: (out ? [info('Popped out (mockup). On a desktop this is now its own window: drag it to a second screen. The map stays live while it is out (Ruling DK Q5). DOCK brings it back.', true)] : []).concat(plannerRows(c, true)) }; }
+    case 'mod': { const m = modOf(arg); const sj = c._selOverride || subjectOf(c); const e = entOf(c, sj); return { title: (m ? m.name : 'module').toUpperCase(), sub: (e ? e.name : 'nothing selected') + ' · the panel’s module in a window', rows: m ? modRows(c, m.id, e) : [info('No such module.')] }; }
     case 'trace': return { title: 'CALCULATION TRACE', sub: 'how the planner got its numbers', rows: routeStages(c).map((x, i) => read('Stage ' + (i + 1), x.km.toFixed(0) + ' km ÷ ' + (x.km / x.days).toFixed(0) + ' km/d = ' + x.days.toFixed(1) + ' d')) };
   }
   return { title: id.toUpperCase(), sub: '', rows: [info('This window keeps its implementation; the mockup shows its frame only.')] };
@@ -2459,7 +2519,7 @@ function chronosHtml(lines, c) {
 
 /* ======================================================================================================
    The vault and its note editor, on the phone and the tablet. Values only; the gestures are in c_class.js.
-   Phone: a list (search, filters, kinds), then a note screen: Preview by default, Write with the keyboard
+   Phone: a list (search, filters, kinds), then a note screen: Write by default (VQ4, Ruling DY), Preview one tap away, the keyboard
    row, links and outline in a sheet. Tablet: one window with the tree on the left, the note in the middle
    (Preview, Write or Split) and Links · Outline · Properties on the right.
    ====================================================================================================== */
@@ -2472,7 +2532,7 @@ const NE_TOOLS = [
   ['strike', 'S', 'Strikethrough', ''], ['highlight', '==', 'Highlight', ''], ['link', '[[', 'Link a note or a place', 'Ctrl+K'], ['tag', '#', 'Tag', ''],
   ['bullet', '•', 'Bulleted list', ''], ['number', '1.', 'Numbered list', ''], ['task', '☐', 'Task', 'Ctrl+L'], ['quote', '❝', 'Quote', ''],
   ['callout', '[!]', 'Callout', ''], ['code', '</>', 'Code', ''], ['table', '⊞', 'Table', ''], ['rule', '—', 'Divider', ''],
-  ['template', '⎘', 'Insert template', ''], ['undo', '↶', 'Undo', 'Ctrl+Z'], ['redo', '↷', 'Redo', 'Ctrl+Shift+Z']
+  ['template', '⎘', 'Insert template', ''], ['undo', '↶', 'Undo', 'Ctrl+Z'], ['redo', '↷', 'Redo', 'Ctrl+Shift+Z'], ['revert', '⟲', 'Revert to opened…', '']
 ];
 function vtAgo(ts) { const d = Math.max(0, Date.now() - ts); if (d < 60000) return 'just now'; if (d < 3600000) return Math.round(d / 60000) + ' min ago'; if (d < 86400000) return Math.round(d / 3600000) + ' h ago'; return Math.round(d / 86400000) + ' d ago'; }
 function vtPath(n) { const g = { settlement: 'Settlements', province: 'Provinces', faction: 'Factions', culture: 'Cultures', landmark: 'Landmarks' }[n.kind] || 'Notes'; return 'Vault/' + g + '/' + n.name + '.md'; }
@@ -2554,7 +2614,7 @@ function vaultVals(c) {
   const D = s.neDlg; let dlg = { show: false, opts: [] };
   if (D && D.kind === 'create') dlg = { show: true, title: 'NEW NOTE · ' + D.name.toUpperCase(), text: D.entity ? D.entity.name + ' is on the map (' + D.entity.sub + ') and has no note yet.' : 'No note is called “' + D.name + '” yet.', opts: [['Settlement', 'settlement'], ['Landmark', 'landmark'], ['Faction', 'faction'], ['Region overview', 'region'], ['Blank', 'note']].map(([label, k]) => Object.assign({ label, tap: () => c._noteCreateDo(D.name, k, D.entity) }, chipStyle(k === (D.entityKind || 'note')))), map: D.entity ? () => { c.setState({ neDlg: null }); c._noteShowOnMap({ entity: D.entity, name: D.entity.name }); } : null };
   if (D && D.kind === 'template') dlg = { show: true, title: 'INSERT TEMPLATE', text: 'Inserted at the cursor. The vault’s own templates (the ones in its templates folder) are listed first in the real app.', opts: [['Settlement · general info', 'settlement'], ['Landmark · significance', 'landmark'], ['Faction · relations table', 'faction'], ['Chronos timeline block', 'chronos']].map(([label, k]) => Object.assign({ label, tap: () => c._neTemplate(k) }, chipStyle(false))) };
-  if (D && D.kind === 'rename') dlg = { show: true, title: 'RENAME NOTE', text: D.count ? 'Updates ' + D.count + ' link' + (D.count === 1 ? '' : 's') + ' in other notes, as most editors do.' : 'No other note links here.', opts: [], rename: true, value: D.value };
+  if (D && D.kind === 'rename') dlg = { show: true, title: 'RENAME NOTE', text: D.count ? D.count + ' link' + (D.count === 1 ? '' : 's') + ' in ' + D.notes + ' note' + (D.notes === 1 ? '' : 's') + ' will be rewritten to the new name, keeping aliases and heading links.' : 'No other note links here.', opts: [], rename: true, value: D.value };
   dlg.hasMap = !!dlg.map; dlg.isRename = !!dlg.rename;
   /* peek card */
   const P = s.peek; let peek = { show: false };
@@ -2572,7 +2632,9 @@ function vaultVals(c) {
     sheetOpen: phone && !!V.sheet && !!note, sheetIs: { links: V.sheet === 'links', outline: V.sheet === 'outline', props: V.sheet === 'props' },
     panelIs: { links: (V.panel || 'links') === 'links', outline: V.panel === 'outline', props: V.panel === 'props' },
     canBack: phone ? true : (V.back || []).length > 0, back: () => c._noteBack(),
-    toolsBottom: phone && !!note && V.view === 'note' && (n.write), toolsTop: !phone && !!note && n.write
+    toolsBottom: phone && !!note && V.view === 'note' && (n.write), toolsTop: !phone && !!note && n.write,
+    chip: !!note && !!n.write && !c._ptr() && !!(s.caretLink && s.caretLink.where === 'vault'), chipLabel: s.caretLink ? 'Open ' + s.caretLink.name + ' ›' : '', chipAria: s.caretLink ? 'open the link at the caret: ' + s.caretLink.name : '', chipTap: () => s.caretLink && c._followFromWrite(s.caretLink.name, 'vault'), keep: (e) => e.preventDefault(),
+    taTitle: c._ptr() ? 'Markdown · Ctrl+click a link to open it · Ctrl+E preview' : 'Markdown · put the caret in a link to open it'
   };
 }
 
@@ -2695,7 +2757,7 @@ function inspectPlace(c, e) {
   const wars = conflictsOf(c).filter((k) => k.places.includes(o.id));
   if (wars.length) rows.push(LK('Conflicts here', wars.map((k) => selLink(c, k.name, { kind: 'conflict', id: k.id }, { dot: k.col }))));
   rows.push(H('NEIGHBOURS · ROADS'), LK('Nearest', near.map(([p, d]) => selLink(c, p.name, { kind: 'place', id: p.id })), near[0] ? fmtDist(near[0][1], s.prefs.units) : ''), read('Roads', c.ways.filter((w) => w.a === o || w.b === o).length + ' ways'), read('Garrison', o.capital ? '1 200' : '80'));
-  rows.push(H('MORE'), J(c, 'City viewer…', 'win:city', 'its own window, follows the selection'), { k: 'nav', d: IC.journey, label: 'Plan a journey from here', sub: 'the planner opens beside the map with ' + o.name + ' as the start', tap: () => c._planFrom(o) });
+  rows.push(H('MORE'), J(c, 'City viewer…', 'win:city', 'its own window, follows the selection'), { k: 'nav', d: IC.journey, label: 'Plan a journey from here', sub: (c._ptr() ? 'the planner opens in its own window, beside the live map, with ' : 'the planner opens beside the map with ') + o.name + ' as the start', tap: () => c._planFrom(o) });
   if (o.user) rows.push(B('Delete ' + o.name, () => doAct(c, { act: 'delete' }), 'danger'));
   return rows;
 }
@@ -2747,7 +2809,7 @@ function inspectNote(c, e) {
 
 /* ---------------- the journey planner reads the selection (flow F2): select a place, then place it ---------------- */
 function plannerSelRows(c) {
-  const s = c.state; const e = entOf(c, s.sel); if (!e || e.kind !== 'place') return [info('Select a settlement on the map (or anywhere a name is a link) to make it the start, a stop or the end. The map stays visible beside the planner.')];
+  const s = c.state; const e = entOf(c, s.sel); if (!e || e.kind !== 'place') return [info('Select a settlement on the map (or anywhere a name is a link) to make it the start, a stop or the end. ' + (c._ptr() ? 'The map stays live while the planner window is open.' : 'The map stays visible beside the planner.'))];
   const o = e.o; const inRoute = c.route.includes(o);
   const set = (fn, label) => () => { const before = c.route.slice(); fn(); const after = c.route.slice(); c._push('route · ' + label + ' ' + o.name, () => { c.route = before; c._dirty = true; c.forceUpdate(); }, () => { c.route = after; c._dirty = true; c.forceUpdate(); }); c._dirty = true; c.forceUpdate(); };
   return [H('SELECTION · ' + o.name.toUpperCase(), inRoute ? 'already on the route' : 'not on the route'), { k: 'acts', opts: [
@@ -2904,19 +2966,248 @@ function askVals(c) {
       acts: (m.acts || []).map((a, ai) => ({ title: a.title, sub: a.sub, preview: a.preview || '', prevDisp: a.preview ? 'block' : 'none', state: a.state || '', open: !a.state && !m.pending, stateDisp: a.state ? 'block' : 'none', kindLabel: { setting: 'SETTING · PROPOSED', view: 'VIEW', note: 'NOTE · PROPOSED' }[a.kind] || 'ACTION', apply: () => c._askAct(mi, ai, true), discard: () => c._askAct(mi, ai, false) })) };
   });
   const chips = askChips(c).map((x) => ({ label: x.label, d: x.d, title: x.title, off: x.off, deco: x.off ? 'line-through' : 'none', op: x.off ? 0.5 : 1, tap: () => { if (x.fixed) return; const off = Object.assign({}, A.off || {}); off[x.id] = !off[x.id]; c.setState({ ask: Object.assign({}, A, { off }) }); }, aria: (x.off ? 'include ' : 'leave out ') + x.label }));
-  return { on, off: !on, prov: V(c, 'as.prov', 'LM Studio (local network)') + ' · ' + V(c, 'as.model', 'qwen3.8-27b'), chips, msgs, empty: !msgs.length, prompts: askPrompts(c, e).map((p) => ({ label: p, tap: () => c._askSend(p) })), draft: A.draft || '', busy: !!A.busy, sendBg: (A.draft || '').trim() && !A.busy ? 'var(--acc)' : 'var(--chip)', sendCol: (A.draft || '').trim() && !A.busy ? 'var(--accInk)' : 'var(--dim)', followNote: s.ctxPin ? 'pinned to ' + (e ? e.name : '—') : 'follows the selection', hint: 'Enter sends · Shift+Enter new line · nothing is sent until you press it' };
+  const keep = s.prefs.askSave;
+  return { savePrompt: on && keep == null && (A.msgs || []).length > 0, saveLabel: keep ? 'saved with the world' : 'session only', saveCol: keep ? 'var(--acc)' : 'var(--dim)',
+    saveTitle: keep ? 'Kept inside the world file; it travels with the world when you share it · Preferences changes this' : 'One conversation per session: New clears it, quitting ends it · Preferences ▸ Save the assistant conversation with the world',
+    saveYes: () => { setK(c, 'prefs.askSave', true); c._toast('This conversation is saved with the world · Preferences changes it'); }, saveNo: () => { setK(c, 'prefs.askSave', false); c._toast('Kept for this session only · Preferences changes it'); },
+    on, off: !on, prov: V(c, 'as.prov', 'LM Studio (local network)') + ' · ' + V(c, 'as.model', 'qwen3.8-27b'), chips, msgs, empty: !msgs.length, prompts: askPrompts(c, e).map((p) => ({ label: p, tap: () => c._askSend(p) })), draft: A.draft || '', busy: !!A.busy, sendBg: (A.draft || '').trim() && !A.busy ? 'var(--acc)' : 'var(--chip)', sendCol: (A.draft || '').trim() && !A.busy ? 'var(--accInk)' : 'var(--dim)', followNote: s.ctxPin ? 'pinned to ' + (e ? e.name : '—') : 'follows the selection', hint: 'Enter sends · Shift+Enter new line · nothing is sent until you press it' };
+}
+
+/* ---------------- the Context panel's modules (Ruling DY, PQ1: "Tabs you arrange") ----------------
+   The panel is a host and a module is one view of the one subject in the one year. Inspect · Note · Ask are the default
+   tabs; the ten after them are the modules the owner chose to offer (Compare was offered and not taken: pinning the
+   panel and its "selection is now …" banner stay the way to compare two subjects, flow F8).
+   - Each module names the shipped builder it reuses (`from`), so in the build the panel and that window share one
+     implementation. The rows below are the mockup's stand-ins; a figure the stand-in world does not hold is labelled
+     "stand-in", and a module with nothing to show says so instead of showing zeros.
+   - A module that does not fit the subject's kind is hidden from the strip, never removed, and comes back with a
+     fitting subject. `kinds: 'any'` fits everything; 'none' is "nothing selected".
+   - The arrangement is the person's: kept with their settings (here: this browser), never in the world file. */
+const CTX_CORE = ['inspect', 'note', 'ask'];
+const CTX_MODS = [
+  { id: 'inspect', tab: 'INSPECT', name: 'Inspect', kinds: 'any', key: 'Ctrl+1', what: 'facts, every name a link', from: 'right_dock.gd (RightDock) builders' },
+  { id: 'note', tab: 'NOTE', name: 'Note', kinds: 'any', key: 'Ctrl+2', what: 'the subject’s own note, written here', from: 'markdown_editor.gd' },
+  { id: 'ask', tab: 'ASK', name: 'Ask', kinds: 'any', key: 'Ctrl+3', what: 'the assistant, about the subject', from: 'llm_assistant_window.gd' },
+  { id: 'history', tab: 'HISTORY', name: 'History', kinds: ['place', 'faction', 'landmark'], what: 'holders over time, dated events, the note’s chronos', from: 'Place editor ▸ Timeline and Political history; faction window ▸ History' },
+  { id: 'economy', tab: 'ECONOMY', name: 'Economy', kinds: ['place', 'faction'], what: 'production, trade and notables; currency and tariffs', from: 'Place editor ▸ Economy & notables; faction window ▸ Economy' },
+  { id: 'military', tab: 'MILITARY', name: 'Military', kinds: ['faction', 'place'], what: 'armies, garrisons, conflicts', from: 'faction window ▸ Military' },
+  { id: 'faith', tab: 'FAITH', name: 'Faith, culture & relations', kinds: ['faction', 'culture'], what: 'faith group, culture card, relations', from: 'faction window ▸ Identity (faith group, culture card) and Relations' },
+  { id: 'territory', tab: 'TERRITORY', name: 'Territory', kinds: ['faction'], what: 'claims, provinces, influence, places held', from: 'faction window ▸ Territory' },
+  { id: 'layout', tab: 'LAYOUT', name: 'City layout', kinds: ['place'], what: 'the settlement’s layout', from: 'Place editor ▸ Layout; the City viewer' },
+  { id: 'here', tab: 'HERE', name: 'Here', kinds: ['place', 'landmark', 'none'], what: 'the ground under the subject, or under the sample pin', from: 'right_dock.gd’s cursor sample (SAMPLE_FIELDS)' },
+  { id: 'routes', tab: 'ROUTES', name: 'Routes & journeys', kinds: ['place', 'landmark'], what: 'roads, journeys through it, plan from here', from: 'right_dock.gd’s route context; journey_planner_view.gd' },
+  { id: 'links', tab: 'LINKS', name: 'Links', kinds: ['place', 'landmark', 'faction', 'culture', 'conflict', 'note'], what: 'notes that link here, unlinked mentions', from: 'cartalith-vault’s backlink index' },
+  { id: 'recent', tab: 'RECENT', name: 'Recent & bookmarks', kinds: 'any', what: 'the selection history, and bookmarks', from: 'the one selection’s history (session only); bookmarks are new and saved in the world file' }
+];
+const KIND_WORDS = { place: 'settlements', landmark: 'landmarks', faction: 'factions', culture: 'cultures', conflict: 'conflicts', note: 'notes', none: 'nothing selected' };
+function modOf(id) { return CTX_MODS.find((m) => m.id === id) || null; }
+function modFits(m, kind) { return !!m && (m.kinds === 'any' || m.kinds.includes(kind || 'none')); }
+function modKindsText(m) { return m.kinds === 'any' ? 'every subject' : m.kinds.map((k) => KIND_WORDS[k]).join(', '); }
+function ctxModsOf(c) { const a = c.state.ctxMods; return Array.isArray(a) && a.length ? a : CTX_CORE.slice(); }
+function subjKind(e) { return e ? e.kind : 'none'; }
+/* Window ▸ Context panel ▸ MODULES: one check row per module, checked when it is in the panel. Not on the phone, which
+   has no panel (Ruling DX PQ13 keeps the phone's Context panel rows to the sheet, the vault and the assistant). */
+function ctxModuleMenuItems() {
+  return [{ t: 'band', label: 'MODULES', notPhone: true }]
+    .concat(CTX_MODS.filter((m) => !CTX_CORE.includes(m.id)).map((m) => ({ t: 'check', label: m.name, key: 'ctxmod.' + m.id, notPhone: true })))
+    .concat([{ t: 'sep', notPhone: true }, { t: 'live', label: 'Reset panel', act: 'ctxReset', notPhone: true }]);
+}
+/* A small deterministic number from a string, for the stand-in figures (never Math.random: a figure must not change
+   between two renders of the same subject). */
+function standIn(str, lo, hi) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return lo + ((h >>> 0) % (hi - lo + 1)); }
+const SI = 'stand-in';
+const GOODS = { 'temperate forest': 'timber · charcoal · game', taiga: 'timber · furs', 'tropical forest': 'hardwood · dyes', grassland: 'grain · wool · horses', steppe: 'horses · hides', savanna: 'cattle · hides', desert: 'salt · dates · glass', tundra: 'furs · ivory', ice: 'none worth the walk', lake: 'fish · reed', ocean: 'fish · salt' };
+const CURRENCY = ['silver mark', 'sevjuni crown', 'iron bit', 'ancestor shell'];
+function modFooter(m) { return info('Shared with ' + m.from + ' in the build: one builder, two hosts.'); }
+function modRows(c, id, e) {
+  const m = modOf(id); if (!m) return [];
+  if (!modFits(m, subjKind(e))) return [info(m.name + ' shows for ' + modKindsText(m) + '. Select one of those, or pin this to one.')];
+  const fn = { history: modHistory, economy: modEconomy, military: modMilitary, faith: modFaith, territory: modTerritory, layout: modLayout, here: modHere, routes: modRoutes, links: modLinks, recent: modRecent, inspect: (cc, ee) => ctxInspectRows(cc, ee) }[id];
+  if (!fn) return [info(m.name + ' lives in the panel only.')];
+  return fn(c, e).concat(id === 'inspect' ? [] : [modFooter(m)]);
+}
+/* History: who held it and when, what happened there, and the dated lines of its note. Every year moves the timeline. */
+function modHistory(c, e) {
+  const s = c.state, y = s.year; const n = noteOfSubject(c, e); const chron = noteEvents(c, n);
+  const chronRows = chron.length ? chron.map((ev) => LK(String(ev.y) + (ev.y1 != null ? '–' + ev.y1 : ''), [yearLink(c, ev.y, 'year ' + ev.y)], ev.t.slice(0, 34))) : [info(n ? 'Its note has no chronos lines yet.' : 'No note yet, so no chronos lines.')];
+  if (e.kind === 'place') {
+    const o = e.o; const per = ownerPeriods(c, o); const own = ownerAt(c, o, y);
+    const wars = conflictsOf(c).filter((k) => k.places.includes(o.id));
+    const rows = [H('HOLDERS', per.length + (per.length === 1 ? ' period' : ' periods'))];
+    per.forEach((q) => { const on = own !== null && y >= q.from && (q.to == null || y < q.to); rows.push(LK(q.from + ' – ' + (q.to == null ? 'now' : q.to), [selLink(c, FACTIONS[q.fac].name, { kind: 'faction', id: 'f' + q.fac }, { dot: FACTIONS[q.fac].col }), yearLink(c, q.from, '⟲ ' + q.from)], on ? '◂ year ' + y : '')); });
+    rows.push(H('EVENTS'), o.founded != null ? LK('Founded', [yearLink(c, o.founded)]) : read('Founded', 'not recorded'));
+    wars.forEach((k) => rows.push(LK(k.from + '–' + k.to, [selLink(c, k.name, { kind: 'conflict', id: k.id }, { dot: k.col }), yearLink(c, k.from, '⟲ ' + k.from)])));
+    if (!wars.length) rows.push(read('Conflicts here', 'none recorded'));
+    rows.push(H('FROM ITS NOTE', chron.length + ' dated')); return rows.concat(chronRows);
+  }
+  if (e.kind === 'faction') {
+    const i = e.i; const ev = [];
+    c.places.forEach((p) => ownerPeriods(c, p).forEach((q) => { if (q.fac === i && q.why) ev.push({ y: q.from, label: 'gained ' + p.name, sel: { kind: 'place', id: p.id } }); if (q.fac === i && q.to != null) ev.push({ y: q.to, label: 'lost ' + p.name, sel: { kind: 'place', id: p.id } }); }));
+    conflictsOf(c).filter((k) => k.sides.includes(i)).forEach((k) => ev.push({ y: k.from, label: k.name, sel: { kind: 'conflict', id: k.id }, col: k.col }));
+    ev.sort((a, b) => a.y - b.y);
+    const rows = [H('DATED EVENTS', ev.length + '')].concat(ev.length ? ev.map((x) => LK(String(x.y), [selLink(c, x.label, x.sel, { dot: x.col || '' }), yearLink(c, x.y, '⟲ ' + x.y)])) : [info('No dated events for this faction in the stand-in world.')]);
+    rows.push(H('FROM ITS NOTE', chron.length + ' dated')); return rows.concat(chronRows);
+  }
+  return [H('HISTORY'), info('Landmarks have no ownership record in the stand-in world. Dated lines in its note are its history.'), H('FROM ITS NOTE', chron.length + ' dated')].concat(chronRows);
+}
+/* Economy. The stand-in world holds population and biome; every other figure here is a labelled stand-in. */
+function modEconomy(c, e) {
+  const s = c.state, y = s.year;
+  if (e.kind === 'place') {
+    const o = e.o; const roads = c.ways.filter((w) => w.a === o || w.b === o);
+    const market = { city: 'regional market', town: 'weekly market', village: 'a fair each season', hamlet: 'none' }[o.tier] || 'none';
+    const near = roads.map((w) => (w.a === o ? w.b : w.a)).sort((a, b) => (b.pop || 0) - (a.pop || 0))[0];
+    return [H('ECONOMY', 'figures marked stand-in are not in the stand-in world'),
+      read('Population', o.pop ? o.pop.toLocaleString('en-US') : 'new · grows on recompute'), read('Ground', o.biome || '—'),
+      read('Produces', (GOODS[o.biome] || 'grain · livestock') + ' · ' + SI), read('Market', market + ' · ' + SI),
+      read('Tax yield', (o.pop ? Math.round(o.pop * 0.08).toLocaleString('en-US') + ' silver a year' : 'none yet') + ' · ' + SI),
+      read('Roads', roads.length + (roads.length === 1 ? ' way' : ' ways')), near ? LK('Busiest neighbour', [selLink(c, near.name, { kind: 'place', id: near.id })]) : read('Busiest neighbour', 'no road yet'),
+      H('NOTABLES', SI), read('Households of note', String(Math.max(1, Math.round((o.pop || 300) / 2500))) + ' · ' + SI),
+      J(c, 'Economy & notables in the Place editor…', 'win:place', 'the full editor window, following this settlement')];
+  }
+  const i = e.i, f = e.o; const held = c.places.filter((p) => ownerAt(c, p, y) === i); const cap = c.places.find((p) => p.fac === i && p.capital);
+  const people = held.reduce((a, p) => a + (p.pop || 0), 0);
+  return [H('ECONOMY · YEAR ' + y, 'figures marked stand-in are not in the stand-in world'),
+    read('Settlements held', held.length + ' of ' + c.places.length), read('People', people.toLocaleString('en-US')),
+    read('Currency', CURRENCY[i % CURRENCY.length] + ' · ' + SI), read('Tariff on roads', standIn(f.name, 2, 9) + ' % · ' + SI),
+    read('Treasury', Math.round(people * 0.02).toLocaleString('en-US') + ' k silver · ' + SI),
+    read('Main exports', (cap ? (GOODS[cap.biome] || 'grain · livestock') : '—') + ' · ' + SI),
+    J(c, 'Currency and tariffs in the Factions window…', 'win:factions', 'its Economy tab')];
+}
+/* Military. Army sizes repeat the Factions window's own stand-in figures, so the two places agree. */
+function modMilitary(c, e) {
+  const s = c.state, y = s.year;
+  if (e.kind === 'faction') {
+    const i = e.i; const fx = c.factions[i] || { places: 0 }; const held = c.places.filter((p) => ownerAt(c, p, y) === i);
+    const wars = conflictsOf(c).filter((k) => k.sides.includes(i)); const active = wars.filter((k) => y >= k.from && y <= k.to);
+    const gar = held.reduce((a, p) => a + (p.capital ? 1200 : 80), 0);
+    return [H('ARMIES · YEAR ' + y, active.length ? 'at war' : 'at peace'),
+      read('Standing army', (fx.places * 1.8).toFixed(1) + ' k · ' + SI), read('Field army', (fx.places * 4.1).toFixed(1) + ' k · ' + SI),
+      read('Garrisons', gar.toLocaleString('en-US') + ' in ' + held.length + ' places · ' + SI),
+      active.length ? LK('At war', active.map((k) => selLink(c, k.name, { kind: 'conflict', id: k.id }, { dot: k.col }))) : read('At war', 'no'),
+      H('CONFLICTS', wars.length + '')].concat(wars.length ? wars.map((k) => LK(k.from + '–' + k.to, [selLink(c, k.name, { kind: 'conflict', id: k.id }, { dot: k.col })], y >= k.from && y <= k.to ? '◂ now' : '')) : [info('No conflicts recorded for this faction.')]).concat([J(c, 'Military in the Factions window…', 'win:factions', 'standing, field and emergency armies')]);
+  }
+  const o = e.o; const own = ownerAt(c, o, y); const wars = conflictsOf(c).filter((k) => k.places.includes(o.id));
+  return [H('DEFENCE · YEAR ' + y),
+    own != null && own >= 0 ? LK('Held by', [selLink(c, FACTIONS[own].name, { kind: 'faction', id: 'f' + own }, { dot: FACTIONS[own].col })]) : read('Held by', own === null ? 'not founded yet' : 'unclaimed'),
+    read('Fortified', o.fort ? 'yes' : 'no'), read('Garrison', (o.capital ? '1 200' : '80') + ' · ' + SI),
+    wars.length ? LK('Fought over in', wars.map((k) => selLink(c, k.name, { kind: 'conflict', id: k.id }, { dot: k.col }))) : read('Fought over in', 'no recorded conflict')];
+}
+/* Faith, culture & relations: all from the stand-in world's factions and the relations table. */
+function modFaith(c, e) {
+  if (e.kind === 'faction') {
+    const i = e.i, f = e.o; const same = FACTIONS.map((g, j) => [g, j]).filter(([g, j]) => j !== i && g.rel === f.rel);
+    return [H('FAITH & CULTURE'), LK('Faith', [selLink(c, f.rel, cultureSel(f.rel), { frame: false })]), read('Government', f.gov),
+      same.length ? LK('Shares the faith with', same.map(([g, j]) => selLink(c, g.name, { kind: 'faction', id: 'f' + j }, { dot: g.col }))) : read('Shares the faith with', 'no other faction'),
+      H('RELATIONS')].concat(FACTIONS.map((g, j) => (j === i ? null : LK(g.name.split(' ')[0], [selLink(c, g.name, { kind: 'faction', id: 'f' + j }, { dot: g.col })], RELATIONS[i][j]))).filter(Boolean));
+  }
+  const fs = FACTIONS.map((f, i) => [f, i]).filter(([f]) => f.rel === e.name); const ps = c.places.filter((p) => p.fac >= 0 && FACTIONS[p.fac].rel === e.name);
+  const pairs = []; fs.forEach(([a, i]) => fs.forEach(([b, j]) => { if (i < j) pairs.push(LK(a.name.split(' ')[0] + ' · ' + b.name.split(' ')[0], [selLink(c, b.name, { kind: 'faction', id: 'f' + j }, { dot: b.col })], RELATIONS[i][j])); }));
+  return [H('CULTURE & FAITH'), LK('Followed by', fs.map(([f, i]) => selLink(c, f.name, { kind: 'faction', id: 'f' + i }, { dot: f.col }))), read('Settlements', String(ps.length)), read('People', ps.reduce((a, p) => a + (p.pop || 0), 0).toLocaleString('en-US')),
+    H('BETWEEN ITS FOLLOWERS', pairs.length ? '' : 'one faction')].concat(pairs.length ? pairs : [info('Only one faction follows it, so there is no relation inside the faith to show.')]);
+}
+/* Territory: places held, gained and lost come from the ownership periods; claims, provinces and influence are stand-ins. */
+function modTerritory(c, e) {
+  const s = c.state, y = s.year, i = e.i, f = e.o; const held = c.places.filter((p) => ownerAt(c, p, y) === i); const today = c.places.filter((p) => p.fac === i);
+  const cap = c.places.find((p) => p.fac === i && p.capital);
+  return [H('TERRITORY · YEAR ' + y), read('Settlements held', held.length + ' (' + today.length + ' today)'), cap ? LK('Capital', [selLink(c, cap.name, { kind: 'place', id: cap.id })]) : read('Capital', '—'),
+    read('Provinces', standIn(f.name + 'p', 2, 6) + ' · ' + SI), read('Claims beyond its border', standIn(f.name + 'c', 0, 3) + ' · ' + SI), read('Influence', ['low', 'regional', 'wide'][standIn(f.name + 'i', 0, 2)] + ' · ' + SI),
+    { k: 'acts', opts: [{ label: 'Show the Political layer', variant: 'primary', flex: '1 1 60%', tap: () => { c.setState({ layers: Object.assign({}, s.layers, { political: true }) }); c._dirty = true; c._toast('Political layer on · coloured by who holds what in year ' + y); } }] },
+    H('PLACES', held.length + ' in year ' + y)].concat(held.slice(0, 8).map((p) => ({ k: 'item', label: p.name, sub: p.tier + (p.capital ? ' · capital' : '') + (p.fac !== i ? ' · lost later' : ''), right: p.pop ? p.pop.toLocaleString('en-US') : '', dot: f.col, tap: () => c._select({ kind: 'place', id: p.id }, { frame: true }) })));
+}
+/* City layout: walls come from the settlement's fortified flag; the rest is a labelled stand-in until the layout is read. */
+function modLayout(c, e) {
+  const o = e.o; const plan = { city: 'walled core, organic outskirts', town: 'organic · market square', village: 'street village', hamlet: 'cluster of farmsteads' }[o.tier] || 'cluster';
+  const districts = { city: 6, town: 3, village: 1, hamlet: 1 }[o.tier] || 1;
+  return [H('LAYOUT', o.name), read('Plan', plan + ' · ' + SI), read('Districts', districts + ' · ' + SI), read('Walls', o.fort ? 'full circuit' : 'none'), read('Buildings', Math.max(4, Math.round((o.pop || 120) / 6)).toLocaleString('en-US') + ' · ' + SI),
+    J(c, 'City viewer…', 'win:city', 'its own window, following the selection'), J(c, 'Layout in the Place editor…', 'win:place', 'the full editor window')];
+}
+/* Here: the ground under a settlement or landmark, or under the sample pin when nothing is selected. */
+function modHere(c, e) {
+  const s = c.state;
+  if (!e) return s.sample ? rowsSample(c) : [H('HERE'), info('Click the map to drop a sample pin: this shows the ground under it. Select a settlement or landmark to read the ground under that instead.')];
+  const a = sampleAt(c, { x: e.o.x, y: e.o.y }); if (!a) return [info('No world to sample yet.')];
+  return [H('THE GROUND UNDER ' + e.name.toUpperCase()), read('Elevation', a.elev + ' m', 'var(--acc)'), read('Slope', a.slope + '°'), read('Temperature', a.temp + ' °C'), read('Precipitation', a.rain + ' mm/yr'), read('Drainage', a.flow > 200 ? 'river · ' + a.flow + ' cells upstream' : 'hillslope'), read('Biome', a.biome), read('Lithology', a.lith), read('Plate', a.plate), read('Position', Math.round(e.o.x) + ' km E · ' + Math.round(e.o.y) + ' km S')];
+}
+/* Routes & journeys: the ways that start here, the current journey, and the planner from here. */
+function modRoutes(c, e) {
+  const s = c.state; const o = e.kind === 'place' ? e.o : nearestPlace(c, e.o); if (!o) return [info('No settlement near enough to route from.')];
+  const roads = c.ways.filter((w) => w.a === o || w.b === o).sort((a, b) => a.km - b.km); const at = c.route.indexOf(o);
+  const rows = [];
+  if (e.kind !== 'place') rows.push(LK('Nearest settlement', [selLink(c, o.name, { kind: 'place', id: o.id })], fmtDist(Math.hypot(o.x - e.o.x, o.y - e.o.y), s.prefs.units)));
+  rows.push(H('ROADS FROM ' + o.name.toUpperCase(), roads.length + ''));
+  if (roads.length) roads.slice(0, 8).forEach((w) => { const b = w.a === o ? w.b : w.a; rows.push(LK(w.kind, [selLink(c, b.name, { kind: 'place', id: b.id })], fmtDist(w.km, s.prefs.units))); });
+  else rows.push(info('No way starts here yet. Draw one with the Way tool (W), or Generate roads in CIVIL.'));
+  rows.push(H('JOURNEYS'), read('The current journey', at >= 0 ? 'stop ' + (at + 1) + ' of ' + c.route.length + ' · ' + c.route[0].name + ' → ' + c.route[c.route.length - 1].name : 'does not pass here'));
+  rows.push({ k: 'acts', opts: [{ label: 'Plan a journey from here', variant: 'primary', flex: '1 1 55%', tap: () => c._planFrom(o) }, { label: 'Saved journeys…', flex: '1 1 35%', tap: () => c._openWin('journeys') }] });
+  return rows;
+}
+/* Links: notes that link to the subject, and unlinked mentions with one-click linking (the vault's backlink index). */
+function modLinks(c, e) {
+  const n = noteOfSubject(c, e); const target = n || { id: null, name: e.noteName };
+  const bl = backlinksOf(c, target); const rows = [H('LINKED MENTIONS', String(bl.linked.length))];
+  if (bl.linked.length) bl.linked.slice(0, 10).forEach((h) => rows.push({ k: 'item', label: h.from.name, sub: h.snippet, dot: 'var(--acc)', tap: () => c._select({ kind: 'note', id: h.from.id }, { tab: 'note' }) }));
+  else rows.push(info('No note links to ' + e.name + ' yet.'));
+  rows.push(H('UNLINKED MENTIONS', String(bl.unlinked.length)));
+  if (bl.unlinked.length) bl.unlinked.slice(0, 8).forEach((h) => { rows.push({ k: 'item', label: h.from.name, sub: h.snippet, dot: 'var(--bord)', tap: () => c._select({ kind: 'note', id: h.from.id }, { tab: 'note' }) }); rows.push({ k: 'acts', opts: [{ label: 'Link it in ' + h.from.name, flex: '1 1 100%', tap: () => linkMentionUndoable(c, target, h) }] }); });
+  else rows.push(info('Every mention of ' + e.name + ' in the vault is already a link.'));
+  if (!n) rows.push(info('It has no note of its own yet: Note ▸ Create makes one, already linked to it.'));
+  return rows;
+}
+/* Recent & bookmarks: the selection history as a list, and subjects the person bookmarks (new). The history is
+   session-only. Bookmarks belong to the world: the build saves them inside the world file (Ruling DY, the owner's answer
+   "In the world file"), a new optional slot; the mockup keeps them for the session. */
+function modRecent(c, e) {
+  const s = c.state; const bm = s.bookmarks || []; const rows = [];
+  if (e) { const on = bm.some((x) => selKey(x) === selKey({ kind: e.kind, id: e.id })); rows.push({ k: 'acts', opts: [{ label: on ? '★ Bookmarked · remove' : '☆ Bookmark ' + e.name, variant: on ? '' : 'primary', flex: '1 1 100%', tap: () => c.setState({ bookmarks: on ? bm.filter((x) => selKey(x) !== selKey({ kind: e.kind, id: e.id })) : bm.concat([{ kind: e.kind, id: e.id }]) }) }] }); }
+  const ent = (x) => entOf(c, x); const item = (x, sub) => { const ee = ent(x); return ee ? { k: 'item', label: ee.name, sub: SEL_KINDS[ee.kind][0] + (sub ? ' · ' + sub : ''), dot: 'var(--acc)', tap: () => c._select({ kind: ee.kind, id: ee.id }, { frame: true }) } : null; };
+  rows.push(H('BOOKMARKS', String(bm.length)));
+  if (bm.length) rows.push(...bm.map((x) => item(x)).filter(Boolean)); else rows.push(info('Nothing bookmarked yet.'));
+  const seen = new Set(); const back = (s.selBack || []).slice().reverse().filter((x) => { const k = selKey(x); if (seen.has(k) || (e && k === selKey({ kind: e.kind, id: e.id }))) return false; seen.add(k); return true; });
+  rows.push(H('RECENT', 'Alt+← goes back'));
+  if (back.length) rows.push(...back.slice(0, 10).map((x) => item(x)).filter(Boolean)); else rows.push(info('No earlier selection this session.'));
+  return rows;
+}
+/* One-click linking from the Links module, as one undo step (the vault's own Link button rewrites the same way:
+   the first bare mention on that line becomes [[Name]], or [[Name|as written]] when the case differs). */
+function linkMentionUndoable(c, target, h) {
+  const before = h.from.text; const L = before.split('\n');
+  const re = new RegExp('(^|[^\\w\\[])(' + target.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![\\w\\]])', 'i');
+  L[h.line] = L[h.line].replace(re, (m0, a, b) => a + '[[' + target.name + (b !== target.name ? '|' + b : '') + ']]');
+  const after = L.join('\n'); if (after === before) { c._toast('Nothing to link on that line'); return; }
+  saveNote(c, h.from.id, after); c._push('link ' + target.name + ' in ' + h.from.name, () => saveNote(c, h.from.id, before), () => saveNote(c, h.from.id, after));
+  c._toast('Linked ' + target.name + ' in ' + h.from.name + '.md · Ctrl+Z undoes it');
 }
 
 /* ---------------- the Context panel's header, tabs and Note tab ---------------- */
 /* Inspect's rows end with the armed tool's draft section: the selection wins and the tool appends below it
    (LARGE_ITEM_RULINGS.md, the rdExtraMode row). */
 function ctxDockVals(c, G, rdOverlay, toolRows) {
-  const s = c.state; const subj = subjectOf(c); const e = entOf(c, subj); const tab = s.ctxTab || 'inspect';
+  const s = c.state; const subj = subjectOf(c); const e = entOf(c, subj);
   const pinned = !!s.ctxPin; const selE = s.sel ? entOf(c, s.sel) : null; const diverged = pinned && !!s.sel && selKey(s.sel) !== selKey(s.ctxPin);
-  const n = e ? noteOfSubject(c, e) : null; const ptr = c._ptr();
-  const tabs = [['inspect', 'INSPECT', 'Ctrl+1'], ['note', 'NOTE', 'Ctrl+2'], ['ask', 'ASK', 'Ctrl+3']].map(([id, l, k]) => ({ label: l + (id === 'note' && e && !n ? ' +' : ''), on: tab === id, col: tab === id ? 'var(--acc)' : 'var(--sec)', edge: tab === id ? 'var(--acc)' : 'transparent', tap: () => c._ctxTab(id), aria: l.toLowerCase() + ' tab (' + k + ')', title: k }));
-  const dn = s.dn && n && s.dn.id === n.id ? s.dn : null; const mode = dn ? dn.mode : 'read';
-  const note = { has: !!n, none: !!e && !n, nothing: !e, name: n ? n.name : '', text: n ? c._dnText(n) : '', path: n ? vtPath(n) : '', words: n ? wordCount(c._dnText(n)) + ' words' : '', isRead: mode === 'read', isWrite: mode === 'write', saved: dn && dn.dirty ? 'saving…' : (n ? 'saved · ' + vtAgo(n.edited) : ''), priv: !!(n && n.private),
+  const n = e ? noteOfSubject(c, e) : null; const ptr = c._ptr(); const kind = subjKind(e);
+  /* the modules (Ruling DY, PQ1): the person's tabs in their order, less those that do not fit this subject's kind */
+  const mine = ctxModsOf(c); const mods = mine.map(modOf).filter(Boolean); const shown = mods.filter((m) => modFits(m, kind)); const hidden = mods.filter((m) => !modFits(m, kind));
+  const tab = shown.some((m) => m.id === s.ctxTab) ? s.ctxTab : 'inspect'; const isMod = !CTX_CORE.includes(tab);
+  const drag = s.ctxDrag && s.ctxDrag.active ? s.ctxDrag : null; const di = drag ? mine.indexOf(drag.id) : -1;
+  const tabs = shown.map((m) => { const on = tab === m.id; const over = !!drag && drag.over === m.id && drag.id !== m.id; return { id: m.id, label: m.tab + (m.id === 'note' && e && !n ? ' +' : ''), on, col: on ? 'var(--acc)' : 'var(--sec)', edge: on ? 'var(--acc)' : 'transparent', drop: over ? (di < mine.indexOf(m.id) ? 'inset -3px 0 0 var(--acc)' : 'inset 3px 0 0 var(--acc)') : 'none', op: drag && drag.id === m.id ? 0.45 : 1, tap: () => c._tabClick(m.id), down: (ev) => c._tabDown(m.id, ev), move: (ev) => c._tabMove(ev), up: (ev) => c._tabUp(ev), cancel: () => c._tabCancel(), menu: (ev) => c._tabMenuAt(m.id, ev), aria: m.name.toLowerCase() + ' tab' + (m.key ? ' (' + m.key + ')' : ''), title: m.name + (m.key ? ' · ' + m.key : '') + (ptr ? ' · drag to move · right-click for more' : ' · hold for more') }; });
+  const addRows = !s.ctxAdd ? [] : [H('TICK TO SHOW AS A TAB', mine.length + ' in the panel')].concat(CTX_MODS.map((m) => { const inP = mine.includes(m.id); const fits = modFits(m, kind); return { k: 'tog', label: m.name, sub: m.what + ' · ' + (m.id === 'inspect' ? 'always in the panel' : (m.kinds === 'any' ? 'every subject' : 'for ' + modKindsText(m))) + (inP && !fits ? ' · hidden for this subject' : ''), on: inP, tap: m.id === 'inspect' ? () => c._toast('Inspect anchors the panel and stays') : () => c._ctxModSet(m.id, !inP) }; }), [info('A ticked module is a tab. One that does not fit the selection hides until a subject it fits is selected. The arrangement is yours: kept with your settings, never in the world file.'), B('Reset panel · Inspect · Note · Ask', () => c._ctxReset())]);
+  const TM = s.ctxTabMenu; let tabMenu = { show: false, rows: [] };
+  if (TM && modOf(TM.id)) {
+    const tm = modOf(TM.id); const vis = shown.map((x) => x.id); const vi = vis.indexOf(TM.id);
+    const rows = [{ k: 'nav', d: 'M10 3L5 8l5 5', label: 'Move left', dis: vi <= 0, reason: 'Already the first tab', chev: false, tap: () => c._ctxMove(TM.id, -1) }, { k: 'nav', d: 'M6 3l5 5-5 5', label: 'Move right', dis: vi < 0 || vi >= vis.length - 1, reason: 'Already the last tab', chev: false, tap: () => c._ctxMove(TM.id, 1) }];
+    if (ptr && TM.id === 'note') rows.push({ k: 'nav', d: IC.window, label: 'Open in the vault window', sub: 'split view, outline, backlinks', chev: false, tap: () => { c.setState({ ctxTabMenu: null }); if (n) c._openVaultAt(n.id); else c._toast('No note yet · create it in the Note tab first'); } });
+    else if (ptr && TM.id !== 'ask') rows.push({ k: 'nav', d: IC.window, label: 'Open in a window', sub: 'follows the selection until pinned', chev: false, tap: () => { c.setState({ ctxTabMenu: null }); c._openWin('mod:' + TM.id); } });
+    // Ruling DY PQ1: any tab can open in its own window. Ask's window is the assistant window (the one PW-3 already pops out), holding the session's one conversation (PQ5).
+    else if (ptr && TM.id === 'ask') rows.push({ k: 'nav', d: IC.window, label: 'Open in a window', sub: 'the assistant window · the same conversation', chev: false, tap: () => { c.setState({ ctxTabMenu: null }); c._openWin('assistant'); } });
+    rows.push({ k: 'nav', d: IC.trash, label: 'Remove', sub: TM.id === 'inspect' ? '' : '+ brings it back', dis: TM.id === 'inspect', reason: 'Inspect anchors the panel and stays', chev: false, tap: () => c._ctxModSet(TM.id, false) });
+    tabMenu = { show: true, x: Math.max(6, Math.min((G.rdW || 320) - 266, TM.x || 6)), title: tm.name.toUpperCase(), rows };
+  }
+  const dn = s.dn && n && s.dn.id === n.id ? s.dn : null; const mode = dn ? dn.mode : 'write';
+  const note = { has: !!n, none: !!e && !n, nothing: !e, name: n ? n.name : '', text: n ? c._dnText(n) : '', path: n ? vtPath(n) : '', words: n ? wordCount(c._dnText(n)) + ' words' : '', isRead: mode === 'read', isWrite: mode === 'write', saved: dn && dn.dirty ? 'editing…' : (n ? 'saved · ' + vtAgo(n.edited) : ''), priv: !!(n && n.private),
+    canRevert: !!n && c._histChanged(n.id), revert: () => n && c._revertAsk(n.id, 'dock'), revertTitle: n ? 'Revert to the note as you first opened it this session (' + c._hist(n.id).at0 + ')' : '',
+    chip: !!n && !ptr && mode === 'write' && !!(s.caretLink && s.caretLink.where === 'dock'), chipLabel: s.caretLink ? 'Open ' + s.caretLink.name + ' ›' : '', chipTap: () => s.caretLink && c._followFromWrite(s.caretLink.name),
+    taTitle: ptr ? 'Markdown · Ctrl+click a link to open it · Ctrl+E preview' : 'Markdown · put the caret in a link to open it',
     createLabel: e ? 'Create ' + e.noteName + '.md' : '', createSub: e ? 'from the ' + (NOTE_KINDS[e.entityKind] ? NOTE_KINDS[e.entityKind][0].toLowerCase() : 'note') + ' template, linked to this ' + SEL_KINDS[e.kind][0].toLowerCase() : '',
     modeRead: () => c._dnMode('read'), modeWrite: () => c._dnMode('write'), create: () => c._dnCreate(e), openVault: () => n && c._openVaultAt(n.id), readBg: mode === 'read' ? 'var(--wash)' : 'transparent', readCol: mode === 'read' ? 'var(--acc)' : 'var(--sec)', writeBg: mode === 'write' ? 'var(--wash)' : 'transparent', writeCol: mode === 'write' ? 'var(--acc)' : 'var(--sec)' };
   return {
@@ -2926,7 +3217,10 @@ function ctxDockVals(c, G, rdOverlay, toolRows) {
     pinned, pinCol: pinned ? 'var(--acc)' : 'var(--sec)', pinBg: pinned ? 'var(--wash)' : 'transparent', pinAria: pinned ? 'unpin: follow the selection again' : 'pin: keep this panel on ' + (e ? e.name : 'this'), pinTitle: pinned ? 'Pinned · click to follow the selection again' : 'Follows the selection · click to pin',
     follow: pinned ? 'PINNED' : 'FOLLOWING', followCol: pinned ? 'var(--acc)' : 'var(--dim)', canPin: !!e,
     diverged, divName: selE ? selE.name : '', divShow: () => c.setState({ ctxPin: s.sel }), divFollow: () => c.setState({ ctxPin: null }),
-    tabs, isInspect: tab === 'inspect', isNote: tab === 'note', isAsk: tab === 'ask', rows: tab === 'inspect' ? ctxInspectRows(c, e).concat(toolRows || []) : [], note, ask: tab === 'ask' ? askVals(c) : { msgs: [], chips: [], prompts: [] }, ptr
+    tabs, isInspect: tab === 'inspect', isNote: tab === 'note', isAsk: tab === 'ask', isMod, isRows: tab === 'inspect' || isMod, rows: tab === 'inspect' ? ctxInspectRows(c, e).concat(toolRows || []) : (isMod ? modRows(c, tab, e) : []), note, ask: tab === 'ask' ? askVals(c) : { msgs: [], chips: [], prompts: [] }, ptr,
+    addTap: () => c.setState({ ctxAdd: !s.ctxAdd, ctxTabMenu: null }), addOpen: !!s.ctxAdd, addCol: s.ctxAdd ? 'var(--acc)' : 'var(--sec)', addBg: s.ctxAdd ? 'var(--wash)' : 'transparent',
+    addTitle: 'Add a module' + (hidden.length ? ' · hidden for this subject: ' + hidden.map((m) => m.name).join(', ') : ''), hiddenN: hidden.length ? '+' + hidden.length : '', hiddenDisp: hidden.length ? 'inline' : 'none',
+    add: { show: !!s.ctxAdd, rows: addRows, w: Math.min(320, (G.rdW || 320) - 12), maxH: Math.max(220, c._H() - (G.bodyT || 0) - (G.bodyB || 0) - 150) }, tabMenu, pop: !!s.ctxAdd || !!tabMenu.show, closePops: () => c.setState({ ctxAdd: false, ctxTabMenu: null })
   };
 }
 
@@ -2985,7 +3279,7 @@ function deskKey(c, e) {
   const s = c.state; const t = e.target; const typing = t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT');
   if (s.running) { e.preventDefault(); return; }   // the busy overlay holds every key while the engine works
   const k = e.key; const ctl = e.ctrlKey || e.metaKey;
-  if (k === 'Escape') { if (s.dd || s.tctx || s.ring || s.layersPop || s.srch) { c.setState({ dd: null, tctx: null, ring: null, layersPop: false, srch: false }); e.preventDefault(); return; } if (s.win) { c.setState({ win: null }); e.preventDefault(); return; } if (typing) { t.blur(); return; } if (s.ctxEdit) { c.setState({ ctxEdit: false, ctxDraft: null }); return; } if (s.sel || s.sample) { c._deselect(); e.preventDefault(); } return; }
+  if (k === 'Escape') { if (s.cfm) { c.setState({ cfm: null }); e.preventDefault(); return; } if (s.ctxAdd || s.ctxTabMenu) { c.setState({ ctxAdd: false, ctxTabMenu: null }); e.preventDefault(); return; } if (s.dd || s.tctx || s.ring || s.layersPop || s.srch) { c.setState({ dd: null, tctx: null, ring: null, layersPop: false, srch: false }); e.preventDefault(); return; } if (s.win) { c.setState({ win: null }); e.preventDefault(); return; } if (typing) { t.blur(); return; } if (s.ctxEdit) { c.setState({ ctxEdit: false, ctxDraft: null }); return; } if (s.sel || s.sample) { c._deselect(); e.preventDefault(); } return; }
   if (ctl && !e.shiftKey && ['1', '2', '3'].includes(k)) { e.preventDefault(); c._ctxTab(['inspect', 'note', 'ask'][+k - 1]); return; }
   if (ctl && !e.shiftKey && (k === 'j' || k === 'J')) { e.preventDefault(); c._ctxTab('ask', true); return; }
   if (ctl && !e.shiftKey && (k === 'f' || k === 'F' || k === 'k' || k === 'K')) { e.preventDefault(); c.setState({ srch: true, q: k.toLowerCase() === 'k' ? '. ' : '', scope: 'all', dd: null }); return; }
@@ -3028,7 +3322,7 @@ function domainRows(c, tablet) {
 }
 function catState(c, cat) { const s = c.state; if (cat === 'Generate') return s.running ? 'running' : (s.stale ? 'stale from ' + String(s.stale).padStart(2, '0') : 'resolved'); const st = { Planet: [1, 3], Geology: [4, 5], Hydrology: [6, 7], Climate: [8, 8], Ecology: [9, 10] }[cat]; if (st) return s.stale && st[1] >= s.stale ? 'stale' : PARAMS.filter((p) => p.stage >= st[0] && p.stage <= st[1] && !p.nodock).length + ' params'; if (cat === 'Terrain') return s.stamps.filter((x) => x.kind !== 'paint').length + ' stamps'; return ''; }
 function catStale(c, cat) { const s = c.state; const st = { Planet: 3, Geology: 5, Hydrology: 7, Climate: 8, Ecology: 10, Generate: 10 }[cat]; return !!(s.stale && st && st >= s.stale); }
-function nodeChips(c) { const s = c.state; return DOMAIN[s.dom].nodes.map((n) => Object.assign({ label: n.short, d: n.d, iconDisp: 'inline', on: s.node[s.dom] === n.id, tap: () => (s.dom === 'civil' && n.id === 'journey' && c._mode() !== 'tablet' ? doAct(c, { act: 'story', arg: 'journeys' }) : c._setNode(n.id)) }, chipStyle(s.node[s.dom] === n.id))); }
+function nodeChips(c) { const s = c.state; return DOMAIN[s.dom].nodes.map((n) => Object.assign({ label: n.short, d: n.d, iconDisp: 'inline', on: s.node[s.dom] === n.id, tap: () => (s.dom === 'civil' && n.id === 'journey' && (c._mode() !== 'tablet' || c._ptr()) ? doAct(c, { act: 'story', arg: 'journeys' }) : c._setNode(n.id)) }, chipStyle(s.node[s.dom] === n.id))); }
 function findSub(items, path) { let cur = items; for (const p of path) { const it = cur.find((x) => x && x.t === 'sub' && x.label === p); if (!it) return cur; cur = it.items; } return cur; }
 function menusFor(c) { const all = menuTree(); return all; }
 function rowsMenuTab(c) {
@@ -3114,7 +3408,8 @@ function buildVals(c) {
     hLeftDock: () => c.setState({ ldockOpen: !s.ldockOpen }), hPinLeft: () => c.setState({ ldockPin: !s.ldockPin }), hRightDock: () => c.setState({ rdockOpen: !s.rdockOpen }),
     hLayersPop: () => c.setState({ layersPop: !s.layersPop }), hTimeline: () => c.setState({ tlOpen: !s.tlOpen }), hPlay: () => c._play(), hYear: (e) => c._setYear(+e.target.value),
     hSelBack: () => c._selBack(), hSelFwd: () => c._selFwd(), hCtxPin: () => { const sj = subjectOf(c); c.setState({ ctxPin: s.ctxPin ? null : (sj ? Object.assign({}, sj) : null) }); },
-    hDnInput: (e) => c._dnInput(e), hDnKey: (e) => c._dnKey(e),
+    hDnInput: (e) => c._dnInput(e), hDnKey: (e) => c._dnKey(e), hDnClick: (e) => c._writeClick(e, 'dock'), hDnSel: (e) => c._caretLink(e.target, 'dock'),
+    hWinPop: () => { const W0 = s.win; const id = W0.stack[W0.stack.length - 1]; const out = W0.popped !== id; c.setState({ win: Object.assign({}, W0, { popped: out ? id : null }) }); c._toast(out ? 'Popped out (mockup) · on a desktop it is its own window: drag it to a second screen; the map stays live' : 'Docked back in the main window'); },
     hAskInput: (e) => c.setState({ ask: Object.assign({}, s.ask, { draft: e.target.value }) }), hAskKey: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); c._askSend(); } }, hAskSend: () => c._askSend(),
     hAskOn: () => setK(c, 'prefs.assistant', true), hAskSettings: () => c._openWin('assistantSettings'), hAskClear: () => c.setState({ ask: Object.assign({}, s.ask, { msgs: [], busy: false }) }),
     hWinDragDown: (e) => c._winDragDown(e), hWinDragMove: (e) => c._winDragMove(e), hWinDragUp: () => c._winDragUp(),
@@ -3158,7 +3453,7 @@ function buildVals(c) {
   /* ---- tablet ---- */
   if (!isPhone) {
     const G = L.G; const menus = menuTree(); const ptr = c._ptr(); const wide = W >= 1180 || ptr;
-    const visible = wide ? menus : [menus.find((x) => x.id === 'file'), tabletWorldMenu(menus), menus.find((x) => x.id === 'story')];
+    const visible = wide ? menus : [tabletFileMenu(menus), tabletWorldMenu(menus), menus.find((x) => x.id === 'records'), menus.find((x) => x.id === 'story')];
     let mx = 14 + 98 + (wide ? 0 : 50); const pos = {};
     const menuBtns = visible.map((mm) => { const w = Math.round(mm.label.length * (ptr ? 7.0 : 7.4) + (ptr ? 18 : 26)); pos[mm.id] = mx; mx += w + 2; const on = !!(s.dd && s.dd.menu === mm.id); return { label: mm.label, on, col: on ? 'var(--acc)' : 'var(--body)', bg: on ? 'var(--wash)' : 'transparent', tap: () => c.setState({ dd: on ? null : { menu: mm.id, path: [] }, layersPop: false }), enter: () => { if (ptr && c.state.dd && c.state.dd.menu !== mm.id && c.state.dd.menu !== 'ham') c.setState({ dd: { menu: mm.id, path: [] } }); } }; });
     pos.ham = 14 + 98;
@@ -3168,7 +3463,7 @@ function buildVals(c) {
     else if (s.dd) { const src = s.dd.menu === 'ham' ? tabletOverflow(menus) : (visible.find((x) => x.id === s.dd.menu) || menus.find((x) => x.id === s.dd.menu)); if (src) { const items = findSub(src.items, s.dd.path); const ddw = Math.min(360, W - 24); dd = { show: true, x: Math.max(8, Math.min(W - ddw - 8, pos[s.dd.menu] != null ? pos[s.dd.menu] : 120)), w: ddw, maxH: H - G.menuH - 24, title: (s.dd.path.length ? s.dd.path[s.dd.path.length - 1] : src.label).toUpperCase(), back: s.dd.path.length > 0, rows: menuRows(c, items, (it) => c.setState({ dd: Object.assign({}, s.dd, { path: s.dd.path.concat([it.label]) }) }), true) }; } }
     const ldOverlay = !G.leftDocks; const ldW = ldOverlay ? Math.min(380, W - G.railW - 48) : G.ldW;
     const D = DOMAIN[s.dom], nd = nodeDef(s.dom, s.node[s.dom]);
-    const rail = DOMS.map((d) => ({ label: DOMAIN[d].label, on: s.dom === d, h: ptr ? 84 : 92, bg: s.dom === d ? 'var(--wash)' : 'transparent', edge: s.dom === d ? 'var(--acc)' : 'transparent', col: s.dom === d ? 'var(--acc)' : 'var(--sec)', tap: () => c._setDom(d), nodes: DOMAIN[d].nodes.map((n) => ({ d: n.d, label: DOMAIN[d].label + ' ▸ ' + n.label, on: s.node[d] === n.id, bg: s.node[d] === n.id ? 'var(--wash)' : 'transparent', col: s.node[d] === n.id ? 'var(--acc)' : 'var(--sec)', tap: () => { c.setState({ dom: d, node: Object.assign({}, s.node, { [d]: n.id }), ldockOpen: true, tool: 'inspect' }); } })) }));
+    const rail = DOMS.map((d) => ({ label: DOMAIN[d].label, on: s.dom === d, h: ptr ? 84 : 92, bg: s.dom === d ? 'var(--wash)' : 'transparent', edge: s.dom === d ? 'var(--acc)' : 'transparent', col: s.dom === d ? 'var(--acc)' : 'var(--sec)', tap: () => c._setDom(d), nodes: DOMAIN[d].nodes.map((n) => ({ d: n.d, label: DOMAIN[d].label + ' ▸ ' + n.label, on: s.node[d] === n.id, bg: s.node[d] === n.id ? 'var(--wash)' : 'transparent', col: s.node[d] === n.id ? 'var(--acc)' : 'var(--sec)', tap: () => { if (ptr && d === 'civil' && n.id === 'journey') { doAct(c, { act: 'story', arg: 'journeys' }); return; } c.setState({ dom: d, node: Object.assign({}, s.node, { [d]: n.id }), ldockOpen: true, tool: 'inspect' }); } })) }));
     const rdOverlay = !G.rightDocks; const mapR = s.rdockOpen && !rdOverlay ? G.rdW : G.rtabW; const mapL = L.mapL;
     const toolRows = [];   // draft state of the armed tool: shown at the top of Inspect, whatever is selected
     if (s.stamps.length && s.dom === 'world') toolRows.push(H('STAMP STACK', s.stamps.length + ''), ...s.stamps.slice(-5).map((st, i) => read((i + 1) + ' · ' + st.feature, st.lower ? 'lower' : 'raise')), BB({ label: 'Discard draft', tap: () => discardStamps(c) }, { label: 'Commit to map', variant: 'primary', tap: () => commitStamps(c) }));
@@ -3211,7 +3506,7 @@ function buildVals(c) {
     v.srch = { show: true, x: isPhone ? (land ? RAIL_W + 8 : 8) : (W - sw2) / 2, y: isPhone ? (land ? 8 : INSET_T + 4) : 60, w: sw2, maxH: isPhone ? H - (land ? 16 : INSET_T + 16) : Math.min(720, H - 120), scopes: scopes.map(([id, l]) => Object.assign({ label: l, n: '', on: s.scope === id, tap: () => c.setState({ scope: id }) }, chipStyle(s.scope === id))), results: res, empty: !res.length, emptyText: s.q ? 'No match for “' + s.q + '”. Try a prefix: s, f, lb, r, ., l or n.' : 'Type a place, faction, route, setting or command. Every menu row, dock section and generation parameter is findable here, and runs from here.' };
   } else v.srch = { show: false, scopes: [], results: [] };
   if (s.win) {
-    const id = s.win.stack[s.win.stack.length - 1]; const ptr = c._ptr(); const fol = s.win.follow !== false; const canFollow = ptr && /^(factions|place|city|conflicts?)(:|$)/.test(id) && !/^factions:(all|types|history)/.test(id);
+    const id = s.win.stack[s.win.stack.length - 1]; const ptr = c._ptr(); const fol = s.win.follow !== false; const canFollow = ptr && /^(factions|place|city|conflicts?|mod)(:|$)/.test(id) && !/^factions:(all|types|history)/.test(id);
     c._selOverride = canFollow && !fol ? (s.win.pin || null) : null; const sj = c._selOverride || subjectOf(c); const ej = entOf(c, sj);
     c._winFac = canFollow && !/^factions:f/.test(id) ? (ej ? (ej.kind === 'faction' ? ej.i : (ej.kind === 'place' ? (ownerAt(c, ej.o, s.year) != null && ownerAt(c, ej.o, s.year) >= 0 ? ownerAt(c, ej.o, s.year) : ej.o.fac) : (ej.kind === 'conflict' ? ej.o.sides[0] : -1))) : -1) : -1;
     const wr = winRows(c, id); c._selOverride = null; c._winFac = -1;
@@ -3219,21 +3514,22 @@ function buildVals(c) {
     const twoCol = !!wr.left && (isPhone ? land && ww >= 700 : ww >= 900); const leftW = isPhone ? 316 : Math.round((ww - 54) * 0.56);
     let wx = isPhone ? (land ? RAIL_W : 0) : (W - ww) / 2, wy = isPhone ? (land ? 0 : INSET_T + 4) : (H - wh) / 2; let ww2 = ww, wh2 = wh;
     if (ptr) { ww2 = Math.min(wr.wide ? 900 : 560, W - 120); wh2 = Math.min(H - L.G.bodyT - L.G.bodyB - 40, wr.wide ? 720 : 640); const dx = L.G.railW + (s.ldockOpen && L.G.leftDocks ? L.G.ldW : 0) + 24; wx = s.winPos ? s.winPos.x : dx; wy = s.winPos ? s.winPos.y : L.G.bodyT + 16; c._winBox = { x: wx, y: wy }; }
-    v.win = { show: true, modal: !ptr, title: wr.title, sub: (canFollow ? (fol ? 'follows the selection · ' : 'pinned · ') : '') + wr.sub, rows: twoCol || !wr.left ? wr.rows : wr.left.concat(wr.rows), left: twoCol ? wr.left : [], twoCol: twoCol && (!ptr || ww2 >= 900), leftW, back: s.win.stack.length > 1, x: wx, y: wy, w: ww2, h: wh2, radius: isPhone ? (land ? '0' : '22px 22px 0 0') : (ptr ? '12px' : '18px'), canFollow, follow: fol, followCol: fol ? 'var(--acc)' : 'var(--sec)', followBg: fol ? 'var(--wash)' : 'transparent', followAria: fol ? 'pin this window to what it shows now' : 'follow the selection again', followLabel: fol ? 'FOLLOW' : 'PINNED', grab: ptr ? 'move' : 'default', shadow: ptr ? '0 14px 40px rgba(0,0,0,.5)' : '0 20px 50px rgba(0,0,0,.55)' };
+    v.win = { show: true, modal: !ptr, title: wr.title, sub: (canFollow ? (fol ? 'follows the selection · ' : 'pinned · ') : '') + wr.sub, rows: twoCol || !wr.left ? wr.rows : wr.left.concat(wr.rows), left: twoCol ? wr.left : [], twoCol: twoCol && (!ptr || ww2 >= 900), leftW, back: s.win.stack.length > 1, x: wx, y: wy, w: ww2, h: wh2, radius: isPhone ? (land ? '0' : '22px 22px 0 0') : (ptr ? '12px' : '18px'), canFollow, follow: fol, followCol: fol ? 'var(--acc)' : 'var(--sec)', followBg: fol ? 'var(--wash)' : 'transparent', followAria: fol ? 'pin this window to what it shows now' : 'follow the selection again', followLabel: fol ? 'FOLLOW' : 'PINNED', popout: ptr && !!wr.popout, popLabel: s.win.popped === id ? 'DOCK' : '⧉ POP OUT', popAria: s.win.popped === id ? 'dock: back into the main window' : 'pop out: its own window, which can go on a second screen', grab: ptr ? 'move' : 'default', shadow: ptr ? '0 14px 40px rgba(0,0,0,.5)' : '0 20px 50px rgba(0,0,0,.55)' };
   } else v.win = { show: false, rows: [] };
   const grads = ['linear-gradient(135deg,#2c4a5e,#4a7a52 55%,#c9b57a)', 'linear-gradient(135deg,#33415c,#5c677d 60%,#d9dcd6)', 'linear-gradient(135deg,#5a3a32,#7d5a4a 50%,#c9a27a)', 'linear-gradient(135deg,#1b3a2c,#3c6e51 60%,#a9c48a)', 'linear-gradient(135deg,#3b3f52,#6a6f8a 60%,#c8c3b8)'];
   v.picker = s.picker ? { show: true, pad: isPhone ? (land ? '16px 16px 16px ' + (RAIL_W + 0) + 'px' : (INSET_T + 16) + 'px 16px 24px') : '40px', maxW: 1100, cols: isPhone ? (land ? 2 : 1) : (W >= 1100 ? 3 : 2), worlds: [[s.worldName, s.seed, 'OPEN NOW', 'var(--acc)'], ['VHAREN REACH', 129384, 'IN PROGRESS', 'var(--sec)'], ['KESSA', 774201, 'DRAFT', 'var(--sec)'], ['THORNWOOD', 908133, 'ARCHIVE', 'var(--dim)'], ['HIGH SADDLE', 441907, 'STALE FROM 07', 'var(--warn)']].map((x, i) => ({ name: x[0], sub: x[1] + ' · 2 048² · edited ' + ['now', '5 d ago', '3 w ago', '2 mo ago', '5 d ago'][i], badge: x[2], badgeCol: x[3], grad: grads[i], tap: () => (i === 0 ? c.setState({ picker: false }) : doAct(c, { act: 'openWorld', arg: x[0] })) })) } : { show: false, worlds: [] };
   v.toasts = s.toasts; v.toastPos = v.toastT != null ? 'top:' + v.toastT + 'px' : 'bottom:' + v.toastB + 'px';
   v.vt = vaultVals(c);
   v.busy = busyVals(c); v.swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
+  const CF = s.cfm; v.cfm = CF ? { show: true, title: CF.title, text: CF.text, ok: CF.ok || '', hasOk: !!CF.run, run: CF.run || (() => {}), okBg: CF.danger ? 'var(--block)' : 'var(--acc)', okCol: CF.danger ? '#16130c' : 'var(--accInk)', opts: CF.opts || [], hasOpts: !!(CF.opts && CF.opts.length), cancel: () => c.setState({ cfm: null }) } : { show: false, opts: [] };
   Object.assign(v, {
     hVaultClose: () => c._vaultClose(), hVaultQ: (e) => c._vtSet({ q: e.target.value }), hNoteNew: () => c._noteCreate('Untitled', 'note', null),
     hNotePanel: () => { const V = c.state.vt; if (c._mode() !== 'tablet') c._vtSet({ sheet: V.sheet ? null : 'links' }); else c._vtSet({ panel: V.panel === 'none' ? 'links' : 'none' }); },
-    hNeInput: (e) => c._neInput(e), hNeSel: (e) => c._neAc(e.target), hNeKey: (e) => c._neKey(e), hNeDone: () => c._noteMode('read'),
+    hNeInput: (e) => c._neInput(e), hNeSel: (e) => { c._neAc(e.target); c._caretLink(e.target, 'vault'); }, hNeClick: (e) => { c._neAc(e.target); c._writeClick(e, 'vault'); }, hNeKey: (e) => c._neKey(e), hNeDone: () => c._noteMode('read'),
     hNoteSheetClose: () => c._vtSet({ sheet: null }), hNoteDlgClose: () => c.setState({ neDlg: null }), hPeekClose: () => c.setState({ peek: null }),
-    hNoteRename: () => { const n = vtNote(c); if (!n) return; const k = n.name.toLowerCase(); const cnt = notesOf(c).filter((x) => x.id !== n.id).reduce((acc, x) => acc + (x.text.match(/\[\[([^\]|#]+)/g) || []).filter((m) => m.slice(2).trim().toLowerCase() === k).length, 0); c.setState({ neDlg: { kind: 'rename', value: n.name, count: cnt } }); },
+    hNoteRename: () => { const n = vtNote(c); if (!n) return; const k = n.name.toLowerCase(); const per = notesOf(c).filter((x) => x.id !== n.id).map((x) => (x.text.match(/\[\[([^\]|#]+)/g) || []).filter((m) => m.slice(2).trim().toLowerCase() === k).length).filter((q) => q > 0); const cnt = per.reduce((a, q) => a + q, 0); c.setState({ neDlg: { kind: 'rename', value: n.name, count: cnt, notes: per.length } }); },
     hNoteRenameInput: (e) => c.setState({ neDlg: Object.assign({}, c.state.neDlg, { value: e.target.value }) }),
-    hNoteRenameDo: () => { const n = vtNote(c), D = c.state.neDlg; if (!n || !D || !D.value.trim()) return; const to = D.value.trim(), from = n.name; const re = new RegExp('\\[\\[' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\]|#])', 'gi'); c._neFlush(); const notes = notesOf(c).map((x) => (x.id === n.id ? Object.assign({}, x, { name: to, text: x.text }) : Object.assign({}, x, { text: x.text.replace(re, '[[' + to) }))); c.setState({ notes, neDlg: null }); c._toast('Renamed to ' + to + (D.count ? ' · ' + D.count + ' link' + (D.count === 1 ? '' : 's') + ' updated' : '')); },
+    hNoteRenameDo: () => { const n = vtNote(c), D = c.state.neDlg; if (!n || !D || !D.value.trim()) return; const to = D.value.trim(), from = n.name; const re = new RegExp('\\[\\[' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\]|#])', 'gi'); c._neFlush(); const notes = notesOf(c).map((x) => (x.id === n.id ? Object.assign({}, x, { name: to, text: x.text }) : Object.assign({}, x, { text: x.text.replace(re, '[[' + to) }))); c.setState({ notes, neDlg: null }); c._toast('Renamed to ' + to + (D.count ? ' · ' + D.count + ' link' + (D.count === 1 ? '' : 's') + ' in ' + D.notes + ' note' + (D.notes === 1 ? '' : 's') + ' updated' : '')); },
     hNoteConflict: () => { const V = c.state.vt; const n = vtNote(c); if (!n) return; const notes = notesOf(c).map((x) => (x.id === n.id ? Object.assign({}, x, { text: x.text + '\n\nAdded in Obsidian on another device.\n' }) : x)); c.setState({ notes, vt: Object.assign({}, V, { conflict: true, buf: V.buf != null ? V.buf : n.text, sheet: null }) }); },
     hConflictReload: () => c.setState({ vt: Object.assign({}, c.state.vt, { conflict: false, buf: null, dirty: false }) }),
     hConflictKeep: () => { const V = c.state.vt; c.state.vt = Object.assign({}, V, { conflict: false, dirty: true }); c._neFlush(); c._toast('Kept your version; the outside edit was overwritten'); }
@@ -3270,6 +3566,7 @@ class Component extends DCLogic {
     this.ptrs = new Map(); this.g = null; this._dirty = true; this._undoFns = []; this._redoFns = [];
     this.world = null; this.places = []; this.factions = []; this.route = []; this.landmarks = []; this.rivers = []; this.ways = [];
     let coachDone = false; try { coachDone = localStorage.getItem('cartalith.mobile.coach') === 'done'; } catch (e) { coachDone = false; }
+    let ctxMods = null; try { const v = JSON.parse(localStorage.getItem('cartalith.desktop.ctxMods') || 'null'); if (Array.isArray(v) && v.includes('inspect') && v.every((x) => modOf(x))) ctxMods = v; } catch (e) { ctxMods = null; }
     this.state = {
       light: !!props.light, picker: props.startIn === 'picker', loading: true,
       tab: null, det: 'half', wide: false,
@@ -3288,11 +3585,12 @@ class Component extends DCLogic {
       vals: {}, brush: { size: 64, hard: 0.35, inten: 1.0, mode: 'raise' }, feature: 'Mountains', settleTier: 'town', wayKind: 'road', iconKind: 'diamond', lmKind: 'Peak',
       recYears: [-120, 0, 210, 398, 412], tlFilt: { exist: false, ghost: false, halo: false },
       selBack: [], selFwd: [], ctxTab: 'inspect', ctxPin: null, ctxEdit: false, ctxDraft: null, dn: null, ask: { msgs: [], draft: '', off: {} }, winPos: null,
+      ctxMods: ctxMods || CTX_CORE.slice(), ctxAdd: false, ctxTabMenu: null, ctxDrag: null, bookmarks: [], caretLink: null, cfm: null, askSent: false,
       dd: null, hamOpen: false, ldockOpen: true, ldockPin: false, rdockOpen: !!props.pointer, layersPop: false, tlOpen: false, tctx: null, ring: null, qd: false, qdDrag: null, vt: null, ac: null, peek: null, neDlg: null, neSaved: 0, notes: null,
       coach: !!props.coach && !coachDone, coachStep: 0,
       savedAt: '14:02', worldName: 'ELDRA',
       quick: ['save', 'export.player', 'story.journeys', 'world.vault'],
-      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: !!props.assistantOn, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 0, density: 'auto', textScale: 1, uiScale: 1 }
+      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: !!props.assistantOn, askSave: null, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 0, density: 'auto', textScale: 1, uiScale: 1 }
     };
   }
 
@@ -3485,19 +3783,19 @@ class Component extends DCLogic {
   }
   _inWorld(p) { return p.x >= 0 && p.y >= 0 && p.x <= 2048 && p.y <= 2048; }
   _haptic() { try { if (this.state.prefs.haptics && navigator.vibrate) navigator.vibrate(12); } catch (e) { } }
-  _closeTransient() { const s = this.state; const p = {}; if (this._mode() === 'tablet') { const G = this._tabletGeom(); if (s.ldockOpen && !G.leftDocks) p.ldockOpen = false; if (s.rdockOpen && !G.rightDocks && !s.sel) p.rdockOpen = false; } if (s.layersPop) p.layersPop = false; if (s.dd) p.dd = null; if (s.hamOpen) p.hamOpen = false; if (s.tctx) p.tctx = null; if (s.ring) p.ring = null; if (s.qd) { p.qd = false; p.qdDrag = null; } if (Object.keys(p).length) this.setState(p); }
+  _closeTransient() { const s = this.state; const p = {}; if (this._mode() === 'tablet') { const G = this._tabletGeom(); if (s.ldockOpen && !G.leftDocks) p.ldockOpen = false; if (s.rdockOpen && !G.rightDocks && !s.sel) p.rdockOpen = false; } if (s.layersPop) p.layersPop = false; if (s.dd) p.dd = null; if (s.hamOpen) p.hamOpen = false; if (s.tctx) p.tctx = null; if (s.ring) p.ring = null; if (s.qd) { p.qd = false; p.qdDrag = null; } if (s.ctxAdd) p.ctxAdd = false; if (s.ctxTabMenu) p.ctxTabMenu = null; if (Object.keys(p).length) this.setState(p); }
 
   /* ---------------- the vault and its note editor ---------------- */
   _vtSet(p) { this.setState({ vt: Object.assign({}, this.state.vt, p) }); }
   _openVault(arg) {
     const s = this.state; notesOf(this);
-    const base = { open: true, view: 'list', q: '', filter: 'all', noteId: null, mode: 'read', panel: 'links', back: [], buf: null, dirty: false, sheet: null, conflict: false, side: true };
+    const base = { open: true, view: 'list', q: '', filter: 'all', noteId: null, mode: 'write', panel: 'links', back: [], buf: null, dirty: false, sheet: null, conflict: false, side: true };
     const V = Object.assign(base, s.vt || {}, { open: true, sheet: null });
     if (arg === 'without') { V.filter = 'without'; V.view = 'list'; V.q = ''; }
     if (arg === 'browse' || arg === '') { if (!V.noteId) V.view = 'list'; }
     if (arg === 'place') {
       const o = selObj(this);
-      if (o) { const n = noteByName(this, o.name); if (n) { V.noteId = n.id; V.view = 'note'; V.mode = 'read'; } else { this.setState({ vt: V, win: null, dd: null, hamOpen: false, srch: false, qd: false }); this._noteCreate(o.name, o.tier ? 'settlement' : 'landmark', { kind: o.tier ? 'settlement' : 'landmark', id: o.id, name: o.name, sub: o.tier || o.kind || '' }); return; } }
+      if (o) { const n = noteByName(this, o.name); if (n) { V.noteId = n.id; V.view = 'note'; V.mode = V.mode === 'split' ? 'split' : 'write'; this._hist(n.id); } else { this.setState({ vt: V, win: null, dd: null, hamOpen: false, srch: false, qd: false }); this._noteCreate(o.name, o.tier ? 'settlement' : 'landmark', { kind: o.tier ? 'settlement' : 'landmark', id: o.id, name: o.name, sub: o.tier || o.kind || '' }); return; } }
     }
     this.setState({ vt: V, win: null, dd: null, hamOpen: false, srch: false, qd: false, ac: null, peek: null });
   }
@@ -3505,7 +3803,8 @@ class Component extends DCLogic {
   _noteOpen(id, mode) {
     this._neFlush(); const V = this.state.vt || {}; const n = noteById(this, id) || (this._justMade && this._justMade.id === id ? this._justMade : null); if (!n) return;
     const back = V.noteId && V.noteId !== id ? (V.back || []).concat([V.noteId]).slice(-20) : (V.back || []);
-    this.setState({ vt: Object.assign({}, V, { open: true, noteId: id, view: 'note', mode: mode || (V.mode === 'split' ? 'split' : 'read'), back, buf: null, dirty: false, sheet: null, conflict: false }), ac: null, peek: null });
+    this._hist(id);
+    this.setState({ vt: Object.assign({}, V, { open: true, noteId: id, view: 'note', mode: mode || (V.mode === 'split' ? 'split' : 'write'), back, buf: null, dirty: false, sheet: null, conflict: false }), ac: null, peek: null });
     if (mode === 'write' || mode === 'split') this._neFocusSoon = true;
   }
   _noteBack() {
@@ -3516,7 +3815,7 @@ class Component extends DCLogic {
   _noteMode(m) { this._neFlush(); this.setState({ vt: Object.assign({}, this.state.vt, { mode: m }), ac: null }); if (m !== 'read') this._neFocusSoon = true; }
   _noteFollow(name, head) {
     const r = resolveLink(this, name);
-    if (r.kind === 'note') { this._noteOpen(r.note.id, this.state.vt && this.state.vt.mode === 'split' ? 'split' : 'read'); if (head) this._neJumpHead = head; return; }
+    if (r.kind === 'note') { this._noteOpen(r.note.id, (this.state.vt && this.state.vt.mode) || 'write'); if (head) this._neJumpHead = head; return; }
     if (r.kind === 'entity') { this.setState({ neDlg: { kind: 'create', name: r.entity.name, entityKind: r.entity.kind, entity: r.entity } }); return; }
     this.setState({ neDlg: { kind: 'create', name: r.name || String(name), entityKind: 'note', entity: null } });
   }
@@ -3546,9 +3845,9 @@ class Component extends DCLogic {
   _neText() { const V = this.state.vt; if (!V || !V.noteId) return ''; if (V.buf != null) return V.buf; const n = noteById(this, V.noteId); return n ? n.text : ''; }
   _neSet(t, sel, snapNow) { this.setState({ vt: Object.assign({}, this.state.vt, { buf: t, dirty: true }) }); if (sel) this._neSelPending = sel; this._neSnap(t, snapNow); clearTimeout(this._neSaveT); this._neSaveT = setTimeout(() => this._neFlush(), 1100); }
   _neFlush() { clearTimeout(this._neSaveT); const V = this.state.vt; if (!V || !V.dirty || V.buf == null || !V.noteId || V.conflict) return; saveNote(this, V.noteId, V.buf); this.state.vt = Object.assign({}, this.state.vt, { dirty: false }); this.setState({ vt: Object.assign({}, this.state.vt, { dirty: false }) }); }
-  _neSnap(t, force) { const id = this.state.vt.noteId; const H = this._neHist[id] || (this._neHist[id] = { stack: [(noteById(this, id) || {}).text || ''], idx: 0, at: 0 }); const now = performance.now(); if (H.stack[H.idx] === t) return; if (!force && now - H.at < 700 && H.idx > 0) { H.stack[H.idx] = t; } else { H.stack = H.stack.slice(0, H.idx + 1).concat([t]).slice(-60); H.idx = H.stack.length - 1; } H.at = now; }
-  _neUndo(redo) { const id = this.state.vt.noteId; const H = this._neHist[id]; if (!H) return; const j = H.idx + (redo ? 1 : -1); if (j < 0 || j >= H.stack.length) { this._toast(redo ? 'Nothing to redo' : 'Nothing to undo'); return; } H.idx = j; H.at = 0; const t = H.stack[j]; this.setState({ vt: Object.assign({}, this.state.vt, { buf: t, dirty: true }) }); clearTimeout(this._neSaveT); this._neSaveT = setTimeout(() => this._neFlush(), 1100); }
-  _neInput(e) { const ta = e.target; this._neSet(ta.value, null, false); this._neAc(ta); }
+  _neSnap(t, force) { this._histSnap(this.state.vt.noteId, t, force); }
+  _neUndo(redo) { const id = this.state.vt.noteId; const t = this._histStep(id, redo); if (t == null) { this._toast(redo ? 'Nothing to redo' : 'Nothing to undo: this is the note as you first opened it this session'); return; } this.setState({ vt: Object.assign({}, this.state.vt, { buf: t, dirty: true }) }); clearTimeout(this._neSaveT); this._neSaveT = setTimeout(() => this._neFlush(), 1100); }
+  _neInput(e) { const ta = e.target; this._neSet(ta.value, null, false); this._neAc(ta); this._caretLink(ta, 'vault'); }
   _neAc(ta) {
     if (!ta) return; const t = ta.value; if (ta.selectionStart !== ta.selectionEnd) { if (this.state.ac) this.setState({ ac: null }); return; }
     const lq = linkQueryAt(t, ta.selectionStart); if (!lq) { if (this.state.ac) this.setState({ ac: null }); return; }
@@ -3591,6 +3890,7 @@ class Component extends DCLogic {
   _neTx(id) {
     const V = this.state.vt; if (!V || !V.noteId) return;
     if (id === 'undo' || id === 'redo') { this._neUndo(id === 'redo'); return; }
+    if (id === 'revert') { this._revertAsk(V.noteId, 'vault'); return; }
     if (V.mode === 'read') { this._noteMode('write'); return; }
     if (id === 'template') { this.setState({ neDlg: { kind: 'template' } }); return; }
     const ta = this.noteTaRef.current; const t = this._neText(); const a = ta ? ta.selectionStart : t.length, b = ta ? ta.selectionEnd : t.length;
@@ -3744,6 +4044,8 @@ class Component extends DCLogic {
   _system() { // Android system back: closes the topmost layer
     const s = this.state;
     if (s.modal) return this.setState({ modal: null });
+    if (s.cfm) return this.setState({ cfm: null });
+    if (s.ctxAdd || s.ctxTabMenu) return this.setState({ ctxAdd: false, ctxTabMenu: null });
     if (s.fan) return this.setState({ fan: null });
     if (s.qd) return this.setState({ qd: false, qdDrag: null });
     if (s.peek) return this.setState({ peek: null });
@@ -3794,25 +4096,28 @@ class Component extends DCLogic {
   _ctxTab(tab, focus) {
     const m = this._mode();
     if (m !== 'tablet') { if (tab === 'note') this._openVault(hasSel(this) ? 'place' : 'browse'); else if (tab === 'ask') this._openWin('assistant'); else this._openInspector(); return; }
-    this.setState({ ctxTab: tab, rdockOpen: true }); if (tab === 'ask' && (focus || this._ptr())) this._askFocus = true;
+    const mods = ctxModsOf(this); const next = this._ctxEnsure(tab); if (next !== mods) this._ctxModsSave(next);
+    this.setState({ ctxTab: tab, rdockOpen: true, ctxMods: next, ctxAdd: false, ctxTabMenu: null }); if (tab === 'ask' && (focus || this._ptr())) this._askFocus = true;
   }
-  _planFrom(o) { this.route = [o].concat(this.route.slice(1).filter((p) => p !== o)); doAct(this, { act: 'story', arg: 'journeys' }); this._toast('Planner open beside the map · start ' + o.name + ' · select a settlement to add it'); this._dirty = true; }
+  _planFrom(o) { this.route = [o].concat(this.route.slice(1).filter((p) => p !== o)); doAct(this, { act: 'story', arg: 'journeys' }); this._toast((this._ptr() ? 'Planner window open · the map stays live' : 'Planner open beside the map') + ' · start ' + o.name + ' · select a settlement to add it'); this._dirty = true; }
   _applyPlaceEdit(o, d) {
     const before = { name: o.name, tier: o.tier, fac: o.fac, fort: !!o.fort }; const after = { name: String(d.name || '').trim() || o.name, tier: d.tier || o.tier, fac: d.fac != null ? d.fac : o.fac, fort: !!d.fort };
     const put = (v) => { Object.assign(o, v); this._cmdIdx = null; this._conflicts = null; this._dirty = true; this.forceUpdate(); };
     put(after); this._push('edit · ' + after.name, () => put(before), () => put(after));
     this.setState({ ctxEdit: false, ctxDraft: null }); this._toast('Saved ' + after.name + ' · Ctrl+Z undoes it');
   }
-  _openVaultAt(id) { this._dnFlush(); this._openVault('browse'); setTimeout(() => this._noteOpen(id, 'read'), 0); }
+  _openVaultAt(id) { this._dnFlush(); this._openVault('browse'); setTimeout(() => this._noteOpen(id), 0); }
   /* ---------------- the Context panel's Note tab: the subject's note, read or written in place ---------------- */
   _dnNote() { const e = entOf(this, subjectOf(this)); return e ? noteOfSubject(this, e) : null; }
   _dnText(n) { const d = this.state.dn; return d && n && d.id === n.id && d.buf != null ? d.buf : (n ? n.text : ''); }
   _dnMode(m) { const n = this._dnNote(); if (!n) return; this._dnFlush(); this.setState({ dn: { id: n.id, mode: m, buf: null, dirty: false } }); if (m === 'write') this._dnFocusSoon = true; }
-  _dnInput(ev) { const n = this._dnNote(); if (!n) return; this.setState({ dn: { id: n.id, mode: 'write', buf: ev.target.value, dirty: true } }); clearTimeout(this._dnT); this._dnT = setTimeout(() => this._dnFlush(), 900); }
+  _dnInput(ev) { const n = this._dnNote(); if (!n) return; this._histSnap(n.id, ev.target.value, false); this.setState({ dn: { id: n.id, mode: 'write', buf: ev.target.value, dirty: true } }); clearTimeout(this._dnT); this._dnT = setTimeout(() => this._dnFlush(), 900); this._caretLink(ev.target, 'dock'); }
+  _dnUndo(redo) { const n = this._dnNote(); if (!n) return; const t = this._histStep(n.id, redo); if (t == null) { this._toast(redo ? 'Nothing to redo' : 'Nothing to undo: this is the note as you first opened it this session'); return; } this.setState({ dn: { id: n.id, mode: 'write', buf: t, dirty: true } }); clearTimeout(this._dnT); this._dnT = setTimeout(() => this._dnFlush(), 900); }
   _dnKey(e) {
     const ctl = e.ctrlKey || e.metaKey; if (!ctl) return; const k = e.key.toLowerCase(); const ta = e.target;
     if (k === 'e') { e.preventDefault(); this._dnMode('read'); return; }
     if (k === 's') { e.preventDefault(); this._dnFlush(); this._toast('Saved'); return; }
+    if (k === 'z' || k === 'y') { e.preventDefault(); this._dnUndo(k === 'y' || e.shiftKey); return; }
     const wrap = { b: '**', i: '*' }[k]; if (wrap || k === 'k') { e.preventDefault(); const t = ta.value, a = ta.selectionStart, b = ta.selectionEnd; const sel = t.slice(a, b); const ins = k === 'k' ? '[[' + sel + ']]' : wrap + sel + wrap; const nt = t.slice(0, a) + ins + t.slice(b); this._dnInput({ target: { value: nt } }); setTimeout(() => { try { ta.setSelectionRange(a + ins.length, a + ins.length); } catch (_) { } }, 0); }
   }
   _dnFlush() { clearTimeout(this._dnT); const d = this.state.dn; if (!d || !d.dirty || d.buf == null) return; saveNote(this, d.id, d.buf); this.state.dn = Object.assign({}, d, { dirty: false }); this.setState({ dn: Object.assign({}, d, { dirty: false }) }); }
@@ -3838,7 +4143,7 @@ class Component extends DCLogic {
     if (el._nb) return; el._nb = true;
     el.addEventListener('click', (e) => {
       const a = e.target.closest('[data-link]');
-      if (a) { const name = a.dataset.link; const sl = selFromName(this, name); if (sl) this._select(sl, { frame: true }); else { const n = createNote(this, name, 'note', null); this._toast('Created ' + n.name + '.md · a link to a missing note makes it, as in any Markdown vault'); setTimeout(() => this._select({ kind: 'note', id: n.id }, { tab: 'note' }), 0); } return; }
+      if (a) { this._dockFollow(a.dataset.link); return; }
       const tk = e.target.closest('[data-task]'); if (tk) { const n = this._dnNote(); if (!n) return; const L = this._dnText(n).split('\n'); const i = +tk.dataset.task; const m = /^(\s*[-*+]\s+)\[([ xX])\]/.exec(L[i] || ''); if (m) { L[i] = L[i].replace(/^(\s*[-*+]\s+)\[([ xX])\]/, m[1] + (m[2] === ' ' ? '[x]' : '[ ]')); saveNote(this, n.id, L.join('\n')); } return; }
       const y = e.target.closest('[data-year]'); if (y) { this._setYear(+y.dataset.year); return; }
       const g = e.target.closest('[data-tag]'); if (g) { this._openVault('browse'); setTimeout(() => this._vtSet({ view: 'list', q: '#' + g.dataset.tag, filter: 'all', side: true }), 0); return; }
@@ -3885,10 +4190,128 @@ class Component extends DCLogic {
     saveNote(this, n.id, after); this._push('assistant · chronos in ' + n.name, () => saveNote(this, n.id, before), () => saveNote(this, n.id, after));
   }
   /* ---------------- the desktop window host: non-modal, movable, following the selection ---------------- */
-  _winDragDown(e) { const el = e.currentTarget; try { el.setPointerCapture(e.pointerId); } catch (_) { } const root = this.rootRef.current; const r = root.getBoundingClientRect(); const k = this._W() / (r.width || 1); const w = this._winBox || { x: 0, y: 0 }; this._wd = { k, x0: e.clientX, y0: e.clientY, bx: w.x, by: w.y }; }
+  _winDragDown(e) { if (e.target && e.target.closest && e.target.closest('button')) return; const el = e.currentTarget; try { el.setPointerCapture(e.pointerId); } catch (_) { } const root = this.rootRef.current; const r = root.getBoundingClientRect(); const k = this._W() / (r.width || 1); const w = this._winBox || { x: 0, y: 0 }; this._wd = { k, x0: e.clientX, y0: e.clientY, bx: w.x, by: w.y }; }
   _winDragMove(e) { const d = this._wd; if (!d) return; const nx = Math.round(d.bx + (e.clientX - d.x0) * d.k), ny = Math.round(d.by + (e.clientY - d.y0) * d.k); this.setState({ winPos: { x: Math.max(-200, Math.min(this._W() - 120, nx)), y: Math.max(0, Math.min(this._H() - 60, ny)) } }); }
   _winDragUp() { this._wd = null; }
   _coachDone() { try { localStorage.setItem('cartalith.mobile.coach', 'done'); } catch (e) { } this.setState({ coach: false }); }
+
+  /* ---------------- the Context panel's modules (Ruling DY, PQ1: "Tabs you arrange") ----------------
+     The person's tabs are `ctxMods`, in their order; saved with their settings (this browser here, the build's
+     per-user settings file there), never in the world file. Ctrl+1/2/3 stay Inspect, Note and Ask whatever the
+     order (PQ8), and bring the tab back if it was removed. Inspect cannot be removed: it anchors the panel. */
+  _ctxModsSave(mods) { try { localStorage.setItem('cartalith.desktop.ctxMods', JSON.stringify(mods)); } catch (e) { } }
+  _ctxSetMods(mods, patch) { this.setState(Object.assign({ ctxMods: mods }, patch || {})); this._ctxModsSave(mods); }
+  /* A core tab that comes back goes after the core tab before it in Inspect · Note · Ask, wherever the person has
+     moved that one; any other module goes at the end. */
+  _ctxEnsure(id) {
+    const mods = ctxModsOf(this); if (mods.includes(id)) return mods; const out = mods.slice(); const at = CTX_CORE.indexOf(id);
+    if (at < 0) return out.concat([id]);
+    const prev = CTX_CORE.slice(0, at).reverse().find((x) => out.includes(x)); out.splice(prev ? out.indexOf(prev) + 1 : 0, 0, id); return out;
+  }
+  _ctxModSet(id, on) {
+    const m = modOf(id); if (!m) return; const mods = ctxModsOf(this);
+    if (on) {
+      if (mods.includes(id)) { this.setState({ ctxTab: id, rdockOpen: true }); return; }
+      const e = entOf(this, subjectOf(this)); const fits = modFits(m, subjKind(e));
+      this._ctxSetMods(mods.concat([id]), { ctxTab: fits ? id : this.state.ctxTab, rdockOpen: true });
+      this._toast(m.name + ' added' + (fits ? '' : ' · it shows for ' + modKindsText(m)));
+      return;
+    }
+    if (id === 'inspect') { this._toast('Inspect anchors the panel and stays'); return; }
+    if (!mods.includes(id)) return;
+    this._ctxSetMods(mods.filter((x) => x !== id), { ctxTab: this.state.ctxTab === id ? 'inspect' : this.state.ctxTab, ctxTabMenu: null });
+    this._toast(m.name + ' removed · + or Window ▸ Context panel brings it back');
+  }
+  /* Move one place left or right among the tabs shown now, so the move is always visible; hidden tabs keep their slots. */
+  _ctxMove(id, dir) {
+    const kind = subjKind(entOf(this, subjectOf(this))); const mods = ctxModsOf(this).slice(); const vis = mods.filter((x) => modFits(modOf(x), kind));
+    const vi = vis.indexOf(id); const nb = vis[vi + dir]; if (vi < 0 || !nb) return;
+    mods.splice(mods.indexOf(id), 1); mods.splice(mods.indexOf(nb) + (dir > 0 ? 1 : 0), 0, id); this._ctxSetMods(mods, { ctxTabMenu: null });
+  }
+  _ctxDrop(id, over) {
+    const mods = ctxModsOf(this).slice(); const a = mods.indexOf(id), b = mods.indexOf(over); if (a < 0 || b < 0 || a === b) return;
+    mods.splice(a, 1); mods.splice(mods.indexOf(over) + (a < b ? 1 : 0), 0, id); this._ctxSetMods(mods);
+  }
+  _ctxReset() { this._ctxSetMods(CTX_CORE.slice(), { ctxTab: 'inspect', ctxTabMenu: null, ctxAdd: false }); this._toast('Context panel reset · Inspect · Note · Ask'); }
+  _tabClick(id) { if (this._tabNoClick) { this._tabNoClick = false; return; } this._ctxTab(id); }
+  /* Pointer: drag a tab sideways to move it. Touch: hold a tab for its menu (the strip scrolls sideways under a finger). */
+  _tabDown(id, e) {
+    if (e.button != null && e.button !== 0) return; clearTimeout(this._tabLp);
+    if (e.pointerType === 'touch') { this._tabT = { id, x0: e.clientX, y0: e.clientY, el: e.currentTarget }; this._tabLp = setTimeout(() => { const t = this._tabT; if (!t) return; this._tabNoClick = true; this._haptic(); this._tabMenuAt(t.id, { currentTarget: t.el }); this._tabT = null; }, LONG_MS_TABLET); return; }
+    this._tabD = { id, x0: e.clientX, active: false }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { }
+  }
+  _tabMove(e) {
+    const t = this._tabT; if (t && Math.hypot(e.clientX - t.x0, e.clientY - t.y0) > 10) { clearTimeout(this._tabLp); this._tabT = null; }
+    const d = this._tabD; if (!d) return; if (!d.active && Math.abs(e.clientX - d.x0) < 7) return; d.active = true;
+    const rn = e.currentTarget && e.currentTarget.getRootNode ? e.currentTarget.getRootNode() : document; const hit = (rn.elementFromPoint ? rn : document).elementFromPoint(e.clientX, e.clientY);
+    const el = hit && hit.closest ? hit.closest('[data-ctxtab]') : null; const over = el ? el.getAttribute('data-ctxtab') : null;
+    const cur = this.state.ctxDrag; if (!cur || !cur.active || cur.over !== over) this.setState({ ctxDrag: { id: d.id, over, active: true } });
+  }
+  _tabUp() {
+    clearTimeout(this._tabLp); this._tabT = null; const d = this._tabD; this._tabD = null; if (!d || !d.active) return;
+    const over = this.state.ctxDrag && this.state.ctxDrag.over; this._tabNoClick = true; this.setState({ ctxDrag: null });
+    if (over && over !== d.id) { this._ctxDrop(d.id, over); this._toast((modOf(d.id) || {}).name + ' moved'); }
+    setTimeout(() => { this._tabNoClick = false; }, 0);
+  }
+  _tabCancel() { clearTimeout(this._tabLp); this._tabT = null; this._tabD = null; if (this.state.ctxDrag) this.setState({ ctxDrag: null }); }
+  _tabMenuAt(id, e) {
+    if (e && e.preventDefault) e.preventDefault(); const el = e && e.currentTarget; let x = 6;
+    if (el && el.parentElement) x = el.offsetLeft - el.parentElement.scrollLeft;
+    this.setState({ ctxTabMenu: { id, x }, ctxAdd: false });
+  }
+  /* ---------------- the session's undo history per note (VQ1, Ruling DY) ----------------
+     One history per note, shared by the vault's editor and the panel's Note tab (one editor). It starts at the note as
+     it was the first time it was opened this session; closing and reopening the note keeps it; nothing of it is saved,
+     so quitting (here: reloading) clears it. Undo can always walk back to that first-open state, because the trim that
+     keeps the history short never drops the first entry. */
+  _hist(id) {
+    let H = this._neHist[id]; if (H) return H; const n = noteById(this, id); const t = n ? n.text : '';
+    H = this._neHist[id] = { base: t, at0: hm(), stack: [t], idx: 0, at: 0 }; return H;
+  }
+  _histChanged(id) { const H = this._neHist[id]; if (!H) return false; const n = noteById(this, id); const d = this.state.dn; const cur = d && d.id === id && d.buf != null ? d.buf : (this.state.vt && this.state.vt.noteId === id && this.state.vt.buf != null ? this.state.vt.buf : (n ? n.text : '')); return cur !== H.base; }
+  _histSnap(id, t, force) {
+    const H = this._hist(id); const now = performance.now(); if (H.stack[H.idx] === t) return;
+    if (!force && now - H.at < 700 && H.idx > 0) H.stack[H.idx] = t; else { H.stack = H.stack.slice(0, H.idx + 1).concat([t]); if (H.stack.length > 60) H.stack = [H.stack[0]].concat(H.stack.slice(-59)); H.idx = H.stack.length - 1; }
+    H.at = now;
+  }
+  _histStep(id, redo) { const H = this._hist(id); const j = H.idx + (redo ? 1 : -1); if (j < 0 || j >= H.stack.length) return null; H.idx = j; H.at = 0; return H.stack[j]; }
+  /* VQ6 (Ruling DY): the old Cancel is "Revert to opened…". It asks first and says what goes; the revert is itself one
+     step of the same history, so Ctrl/Cmd+Z brings the edits back while the session lasts. */
+  _revertAsk(id, where) {
+    const n = noteById(this, id); if (!n) return; const H = this._hist(id); if (!this._histChanged(id)) { this._toast('Nothing to revert: ' + n.name + '.md is as you first opened it'); return; }
+    const cur = where === 'dock' ? this._dnText(n) : this._neText(); const dw = wordCount(cur) - wordCount(H.base); const dl = cur.split('\n').length - H.base.split('\n').length;
+    const what = (dw ? Math.abs(dw) + ' word' + (Math.abs(dw) === 1 ? '' : 's') + (dw > 0 ? ' added' : ' removed') : 'edits that keep the word count') + (dl ? ', ' + Math.abs(dl) + ' line' + (Math.abs(dl) === 1 ? '' : 's') + (dl > 0 ? ' added' : ' removed') : '');
+    this.setState({ cfm: { title: 'REVERT TO OPENED', text: 'Put ' + n.name + '.md back as it was when you first opened it this session, at ' + H.at0 + '? This drops your changes since then (' + what + '). Ctrl+Z brings them back while this session lasts.', ok: 'REVERT', danger: true, run: () => this._revertDo(id, where) } });
+  }
+  _revertDo(id, where) {
+    const H = this._hist(id); const n = noteById(this, id); if (!n) return; this.setState({ cfm: null });
+    if (where === 'dock') { this._histSnap(id, this._dnText(n), true); this._histSnap(id, H.base, true); this.setState({ dn: { id, mode: (this.state.dn && this.state.dn.mode) || 'write', buf: H.base, dirty: true } }, () => this._dnFlush()); }
+    else { this._histSnap(id, this._neText(), true); this._histSnap(id, H.base, true); this.setState({ vt: Object.assign({}, this.state.vt, { buf: H.base, dirty: true }) }, () => this._neFlush()); }
+    this._toast('Reverted ' + n.name + '.md to ' + H.at0 + ' · Ctrl+Z brings your changes back');
+  }
+  /* VQ4 (Ruling DY): notes open in Write, so a link is followed from the source: Ctrl/Cmd+click on a pointer, and an
+     "Open ›" chip on touch while the caret sits inside [[…]]. */
+  _linkAt(text, pos) { const a = text.lastIndexOf('[[', pos); if (a < 0) return null; const b = text.indexOf(']]', a); if (b < 0 || pos > b + 2 || pos < a) return null; const inner = text.slice(a + 2, b); if (/\n/.test(inner)) return null; const name = inner.split('|')[0].split('#')[0].trim(); return name || null; }
+  _caretLink(ta, where) { const name = ta && ta.selectionStart === ta.selectionEnd ? this._linkAt(ta.value, ta.selectionStart) : null; const cur = this.state.caretLink; if ((cur && cur.name) !== name || (cur && cur.where) !== where) this.setState({ caretLink: name ? { name, where } : null }); }
+  _writeClick(e, where) {
+    const ta = e.target; if ((e.ctrlKey || e.metaKey) && ta) { const name = this._linkAt(ta.value, ta.selectionStart); if (name) { e.preventDefault(); this._followFromWrite(name, where); return; } }
+    this._caretLink(ta, where);
+  }
+  _followFromWrite(name, where) {
+    const w = where || (this.state.caretLink && this.state.caretLink.where) || 'vault'; this.setState({ caretLink: null });
+    if (w === 'vault') { this._neFlush(); this._noteFollow(name); return; }
+    this._dnFlush(); this._dockFollow(name);
+  }
+  /* The panel's links select what they name. A name with no note and nothing on the map is never created silently
+     (VQ2): the create card offers a template first. */
+  _dockFollow(name) {
+    const sl = selFromName(this, name); if (sl) { this._select(sl, { frame: true }); return; }
+    this._dockCreateAsk(name);
+  }
+  _dockCreateAsk(name) {
+    const make = (kind) => () => { const n = createNote(this, name, kind, null); this.setState({ cfm: null }); this._toast('Created ' + n.name + '.md' + (kind !== 'note' ? ' from the ' + kind + ' template' : '')); setTimeout(() => this._select({ kind: 'note', id: n.id }, { tab: 'note' }), 0); };
+    this.setState({ cfm: { title: 'NEW NOTE · ' + String(name).toUpperCase(), text: 'No note or place is called “' + name + '” yet. Create the note? Pick a template; nothing is made until you do.', opts: [['Settlement', 'settlement'], ['Landmark', 'landmark'], ['Faction', 'faction'], ['Region overview', 'region'], ['Blank', 'note']].map(([label, k]) => ({ label, tap: make(k) })) } });
+  }
 
   /* ---------------- generation (mock run: the real one is the engine's) ---------------- */
   _run(from) {

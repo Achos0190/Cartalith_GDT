@@ -25,7 +25,7 @@ whose milestones this extends.
 > You can upgrade the rust crate for the markdown vault accordingly I suppose.
 
 **The mockup.** The vault is built into the mobile shell mockup (`design/mobile-shell-2026-10-31/`, live as the
-claude.ai Design canvas, version 7): MENU ▸ Records ▸ Markdown vault… (the World menu was renamed Records by Ruling DY), the Vault pin, or ⌕ with `n`. Captures are in
+claude.ai Design canvas named in that folder's `README.md`): MENU ▸ Records ▸ Markdown vault… (the World menu was renamed Records by Ruling DY), the Vault pin, or ⌕ with `n`. Captures are in
 `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`: `phone-note-preview.png`,
 `phone-note-write-link-suggestions.png`, `tablet-vault-split.png`. The desktop form follows in the PC GUI refactor,
 which reuses the same component.

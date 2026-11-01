@@ -24,6 +24,9 @@ answers depart from the default:
 - **PQ5:** the conversation can be saved inside the world file (§3.5).
 - **PQ6:** the World menu is renamed Records, and Generate world moves to File (§3.8).
 
+**Ruling DZ** came later the same day, while the owner reviewed the mockup. The tool-options bar holds the armed tool's
+settings only, so Generate world, New seed, Center landmasses and Bake ALL & finalize leave it (§3.12).
+
 **Related documents:**
 - `MOBILE_SHELL_PROPOSAL.md` is the phone and tablet half. The tablet is the desktop shell at touch density, so
   most of this document reaches the tablet too; §3.11 says exactly what.
@@ -198,6 +201,9 @@ host, and each module is a tab.
   is shown.
 - **Where it is kept.** The arrangement is saved per user with the settings, as the quick bar's `[quick_bar]` is
   (`CUSTOM_QUICK_BAR_SCOPE.md`). It is never in the world file.
+- **Bookmarks are the exception: they belong to the world.** The owner's answer was "In the world file" (Ruling DY).
+  They are saved inside the world file, as a new optional slot in the project `.zip`. The recent list is
+  session-only.
 - **Keys.** Ctrl+1, Ctrl+2 and Ctrl+3 stay on Inspect, Note and Ask, wherever those tabs sit, and re-add one that
   was removed. Added modules have no default key.
 - **Menus.** Window ▸ Context panel lists the ten modules as check rows, followed by **Reset panel**, which returns
@@ -224,7 +230,7 @@ re-framing a window).
 | Here | settlement, landmark; the cursor when nothing is selected | `right_dock.gd` `CTX_SAMPLE` (`SAMPLE_FIELDS`, `on_cursor_sampled`) | elevation, climate, biome and the other sample rows |
 | Routes & journeys | settlement, landmark | `right_dock.gd` `CTX_ROUTE` (`show_route`); `journey_planner_view.gd`; `saved_journeys_window.gd` | roads from the subject, saved journeys through it, and Plan a journey from here |
 | Links | any subject with a note | the vault crate's link index (`notelinks.rs`: backlinks and unlinked mentions) | notes that link to the subject, and unlinked mentions with a **Link** button |
-| Recent & bookmarks | always | the selection history (§3.1); bookmarks are new | the history as a list, and subjects the user bookmarks |
+| Recent & bookmarks | always | the selection history (§3.1); bookmarks are new | the history as a list (session-only), and subjects the user bookmarks (saved in the world file) |
 
 **Compare** was offered and not chosen. Flow F8's pin and banner remain the way to compare two subjects.
 
@@ -363,6 +369,9 @@ the left dock.
   - That step is PW-4. It is next in DK's order, because the roster and the other civilisation windows already pop
     out (PW-2, PW-3).
   - PC-8 and PW-4 re-host the same view, so they are best done as one change.
+- **Its bar row moves into the window** (Ruling DZ, §3.12). Today `journey_planner_view.gd::_tool_options_journey()`
+  puts the planner's journey picker, a carriage readout and three actions on the tool-options bar: re-route…, save
+  journey and export table. They become the window's own toolbar.
 - **The tablet and the phone** keep the planner as `MOBILE_SHELL_PROPOSAL.md` draws it.
 - **The selection feeds the stops.** With a settlement selected, the planner offers **Start here**, **Add as stop**
   and **End here**, each one undo step (flow F2). The context card's "Plan journey from here" and "Journey to here"
@@ -487,6 +496,40 @@ shipped.
   sheet keeps showing the selection. On the phone, Note opens the vault at the note and Ask opens the assistant's
   sheet.
 
+### 3.12 The tool-options bar holds tool settings only (Ruling DZ)
+
+The owner, verbatim: *"The buttons in the top rail new seed, generate and bake can be removed. Please see to only keep
+the paint/sculpt brush settings here."* Asked about the rest, the owner chose "Tool settings only".
+
+**What the bar holds:**
+- **The armed tool's settings, and nothing else.** For sculpt and paint, that is the brush's mode, size and
+  strength. Every other tool keeps its own settings: Measure, Way, Route, Territory, Settlement, Icon, Label and
+  Conflict.
+- **A tool's Commit and Discard stay.** They finish that tool's draft, and `DCC_SHELL_SPEC.md` §4 lays the row out
+  as "context label → parameters → spacer → commit/discard". Keeping them is a labelled judgement in the ruling.
+- **With no tool armed, the context name and one hint.** For example, *GENERATE · WORLD · Click selects ·
+  right-click opens the card · Q opens the cartwheel*. A touch tablet's hint is *Tap selects · hold opens the
+  cartwheel and the card*.
+- **The quick bar's pins** at the bar's right end stay.
+
+**What leaves it, and where each item stays.** Today `app.gd::_tool_options_generate()` builds WORLD's idle row.
+Per `MISTAKES.md`, "Delete a surface", each item has a home:
+
+| Leaves the bar | Stays in |
+|---|---|
+| Generate world | the WORLD dock; File ▸ Generate world (Ctrl+R); on the narrow touch tablet, World ▸ Generate world |
+| New seed | the WORLD dock's RUN section (`app._new_seed()`) |
+| Center landmasses | the WORLD dock's RUN section (`app._center_landmasses()`) |
+| the "generating…" readout | the busy overlay and the status bar's `pass` cell, which the same `generation_started` handler already writes |
+| Bake ALL & finalize | the WORLD dock's Finalize foot. The bar's copy only pressed that button, and needed `set_bake_shortcut` to stay in step |
+| the planner's row (journey picker, carriage, re-route…, save journey, export table) | the planner's window (§3.7, PC-8) |
+
+**Where the work is drafted:** `cartalith-native/drafts/pc-shell/11_tool_options_bar.gd`. It holds the replacement
+function, the deletions in `app.gd` and `world_workspace.gd`, and the two probes that change (`_structmove_probe.gd`
+and `_vfy_batch0905_probe.gd`). The menu parity check is unaffected, because no menu changes.
+
+**The phone is unchanged.** Its tool strip appears only while a tool is armed, and then holds that tool's settings.
+
 ## 4. The flows, before and after
 
 | Flow | Today | Proposed (as the mockup does it) |
@@ -509,7 +552,8 @@ These are the symbols a build would change, named so the build can start from th
 | Selection | `RightDock` contexts plus `CivilizationWorkspace._selected_index`; 8 direct pins (§1) | `DccApp.selection` (`{kind, id}`) and `DccApp.selection_changed`; one `DccApp.select(kind, id, opts)`; the 8 pins call it; `_selected_index` reads it; `clear_selection` clears it; a selection history on `DccApp` |
 | Year | `DccShell.tl_set_year` plus `civilization_workspace.gd::_tl_goto_year` and the Place editor's direct `civ_goto_year` | `tl_set_year` is the only caller of `bridge.civ_goto_year`; every reader in §3.2 connects `timeline_changed`; the range comes from the world |
 | Strip | `dcc_shell.gd` `timeline_bar`, CIVIL only | Shown in every domain; an expanded row holding the controls `civilization_workspace.gd::_build_timeline_years` and `::_build_timeline_playback` build today; chronos ticks from `vault_entity_chronos` |
-| Right dock | `right_dock.gd` (`RightDock`) | `ContextPanel`: a header, the tabs, `RightDock`'s builders as Inspect, `markdown_editor.gd` as Note, `llm_assistant_window.gd`'s builders as Ask. A module registry (id, title, the kinds it fits, the builder its window also calls, an empty state) and the user's arrangement in the user's settings (§3.3) |
+| Right dock | `right_dock.gd` (`RightDock`) | `ContextPanel`: a header, the tabs, `RightDock`'s builders as Inspect, `markdown_editor.gd` as Note, `llm_assistant_window.gd`'s builders as Ask. A module registry (id, title, the kinds it fits, the builder its window also calls, an empty state) and the user's arrangement in the user's settings (§3.3); bookmarks in a new optional slot of the world file |
+| Tool-options bar | `app.gd::_tool_options_generate()` puts Generate world, New seed, Center landmasses, a busy readout and Bake ALL & finalize on WORLD's idle row; `journey_planner_view.gd::_tool_options_journey()` puts the planner's actions there | The armed tool's settings only; WORLD's idle row is `_tool_options_simple()` with the context name and one hint (§3.12, draft 11); the planner's row moves into its window |
 | Assistant | `LlmAssistantWindow` (an `AcceptDialog`); `open()` → `_rebuild()` | Its content inside the Ask tab, built once per session; `_current_place` and `_args` read `DccApp.selection` and the year at Send; `note_saved` connected to the vault; with the preference on, the conversation in a new optional slot of the world file (§3.5) |
 | Windows | 23 `AcceptDialog`s, `exclusive` | The five context windows: `exclusive = false`, one host with a back stack, a follow/pin state; `busy_overlay.gd` mutes them as it mutes pop-outs |
 | Planner | `journey_planner_view.gd::_show` hides `app.viewport` | Its own non-exclusive window, one of §3.6's hosts, with Ruling DK's per-window Pop out; reads the selection. It must be an `AcceptDialog`: `PopoutHost.add_toggle_button(dlg: AcceptDialog, …)` takes only one (shipped), and Window ▸ Open windows, as draft 05 rebuilds it (`_visible_windows()`), walks only those. Found by the drafts |
@@ -526,21 +570,24 @@ Each bar is something a probe or a grep can show. The probes run windowed where 
 | PC-2 | One year | `grep -rn "civ_goto_year(" shell/` → only inside `tl_set_year`. A probe moves the year from a CIVIL pill, and the strip, the journey markers, the dock's garrison row and CIVIL's pills all show it |
 | PC-3 | The strip at program scope (CV-24) | The strip is visible in WORLD, CIVIL and CARTO. Recorded years, + Record, the three filters and the speeds work from every domain. Chronos ticks for the selection's note are drawn |
 | PC-4 | The Context panel: header, pin, Inspect | Every name in Inspect selects; the pin holds while selecting elsewhere; an armed tool's section is below the subject |
-| PC-10 | The modules (Ruling DY, PQ1) | Each of the ten modules shows for the kinds in §3.3's table and hides for the others. Each calls the same builder function its window calls: one definition, two call sites (`grep`). Add, drag, Move, Remove and Open in a window work. The arrangement survives a restart and is absent from the world file (the saved `.zip` is listed). Ctrl+1/2/3 reach Inspect, Note and Ask wherever they sit |
+| PC-10 | The modules (Ruling DY, PQ1) | Each of the ten modules shows for the kinds in §3.3's table and hides for the others. Each calls the same builder function its window calls: one definition, two call sites (`grep`). Add, drag, Move, Remove and Open in a window work. The arrangement survives a restart and is absent from the world file (the saved `.zip` is listed). A bookmark survives a save and reopen, inside the world file; the recent list does not. Ctrl+1/2/3 reach Inspect, Note and Ask wherever they sit |
+| PC-11 | The tool-options bar holds tool settings only (Ruling DZ) | `_tool_options_generate()` builds no `DccWidgets.action()`. A windowed probe arms Inspect in WORLD and finds the context label, the hint and the quick bar's pins, and no Button of the bar's own. The WORLD dock's Generate world, New seed, Center landmasses and Bake ALL levels & finalize each still act. `grep -rn set_bake_shortcut shell/` and `grep -rn bake_and_finalize shell/` both → 0. Drafted: `cartalith-native/drafts/pc-shell/11_tool_options_bar.gd` |
 | PC-5 | The Note tab | A note opens in Write (VQ4); a `[[link]]` selects, by Ctrl-click in Write; a chronos row moves the year; Write autosaves; Revert to opened… asks first and is one undo step; a missing note is offered with a template choice, then created and bound to the subject |
 | PC-6 | The Ask tab | Opening, closing or reselecting never empties the transcript. The context at Send includes the year. A citation selects. A note card's Apply goes to the linked note in one undo step. The hostile-string corpus (scope §4 bar 3) re-runs green, because the request changed. The save preference is off by default and asked once at the first Send. With it on, a saved world reopens with the conversation, and the saved slot never holds the key (`grep` of the `.zip`); with it off, the slot is absent |
 | PC-7 | Non-exclusive context windows | A windowed probe clicks the map while the roster is open, and the map takes the click. The roster follows a new selection until pinned. The busy overlay mutes it during a generate |
 | PC-8 | The planner in its own window (Ruling DY, PQ4) | The planner is a window: `_show` no longer hides `app.viewport`. With it open, the map draws and takes input. Start / Add / End from the selection each add one undo step. Its Pop out button is present; reaching a second screen is PW's planner step |
 | PC-9 | Menus and keys (drafted: `cartalith-native/drafts/pc-shell/`) | Every row in §3.8. `command_index.gd` finds each moved title by TITLE. `shortcuts_dialog.gd` lists every new key. No accelerator collides (`grep` of `menus.gd` and `app.gd`). The World menu reads Records, and Generate world sits in File after New world…. On a touch tablet 600 dp wide, File · World · Records · Story fit without overlap (measured). Fully met only after PC-1, PC-4, PC-5 and PC-6, whose behaviour four rows need; until then those rows are `_todo` or keep their shipped form |
 
-PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4. PC-7 changes
+PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
+PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).
 
 ## 7. Owner questions
 
 **All answered.** PQ1–PQ9 by Ruling DY, PQ10–PQ13 by Ruling DX (owner, 2026-11-01). Each question had a default;
 the mockup now draws the answers. Ruling DY, in short:
-- **PQ1:** desktop and tablet, modular, as tabs the user arranges, with ten modules (§3.3).
+- **PQ1:** desktop and tablet, modular, as tabs the user arranges, with ten modules (§3.3). Bookmarks are saved in
+  the world file, a follow-up answer.
 - **PQ2:** approved as CV-24's design.
 - **PQ3:** yes, those five.
 - **PQ4:** the planner opens in its own window, which can go to a second screen through DK's Pop out (§3.7).

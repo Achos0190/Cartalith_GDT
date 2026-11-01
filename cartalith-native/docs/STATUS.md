@@ -150,6 +150,50 @@ What remains:
 - **Only-on-one-side rows:** the Open windows run-time list, and rows the mockup designs that no draft builds yet (Touch & gestures…; on the tablet, Gesture reference… and the pop-out setting).
 - **One label the check cannot see:** the phone's File ▸ "Share project…". The mockup relabels "Show project on disk" on the phone, but no share action exists in the shell; see `OUTSTANDING_WORK.md`'s mobile menus row.
 
+**Rulings DY and DZ applied to the documents, the mockup and the drafts; nothing built in the shell (2026-11-01).**
+The owner answered every open question in four documents, with their follow-ups (Ruling DY):
+- `PC_SHELL_PROPOSAL.md`: PQ1–PQ9.
+- `MOBILE_SHELL_PROPOSAL.md`: Q10–Q12.
+- `MOBILE_SHELL_MS1_SPEC.md`: MQ-1–MQ-5.
+- `VAULT_EDITOR_PROPOSAL.md`: VQ1–VQ7.
+
+Reviewing the mockup, the owner then ruled that the tool-options bar holds tool settings only (Ruling DZ).
+
+- **Documents.** Each of the four documents carries its answers.
+  - `PC_SHELL_PROPOSAL.md` gains:
+    - the modular Context panel (ten modules, PC-10);
+    - the planner in its own window (PC-8, one change with PW-4);
+    - the conversation and bookmarks saved inside the world file;
+    - World renamed Records, with Generate world in File;
+    - §3.12 and PC-11 for the bar.
+  - MS-1's S4 grows: MQ-5 re-presents open windows in place.
+  - Notes now open in Write, with a session undo back to the first-opened text.
+  - Also updated: `POPOUT_WINDOWS_SCOPE.md`, `GUI_GAP_REGISTER.md` (CV-24's design is approved) and
+    `DCC_SHELL_SPEC.md` §4.
+- **The mockup** (`design/mobile-shell-2026-10-31/`, republished as the canvas) draws all of it. Checks, in Chromium:
+  - Nine scripts exit 0: desk, vault, qr, tl, targets, dy, dy_touch, dy_more and the new dz, which checks the top bar on the desktop and the tablet and the Freehand and Paint brush rows. Eight print no page errors; targets only audits sizes. Every audited touch target is at least 44 × 44 dp (17 audits in targets, 3 in dy_more), and the tablet's new controls (+, tabs, tab-menu rows, the Open › chip) measure 44 dp or more.
+  - The narrow tablet's four menus leave 31 px before Undo at 600 dp, and nothing overlaps at 768, 1 024 or 1 179 dp.
+  - Captures are `dy-*.png` and `dz-*.png` in `cartalith-native/docs/evidence/desktop-shell-2026-10-31/`.
+- **The GDScript drafts** follow both rulings. pc-shell's new draft 11 holds Ruling DZ. `check_symbols.sh` results:
+  - pc-shell: "need 231, free 131, anchor 50, base 12 checked; all passed";
+  - mobile-shell: passes.
+
+  The drafts are not parse-checked, because there is no Godot binary in this session.
+- **The menu parity check, re-run.**
+  - `godot_menus.py` now applies draft 02's W6 and W7; until then, File ▸ Generate world showed as mockup-only.
+  - `compare.py` has a PC-10 rule for the module rows, and exits 0 with nothing unclassified.
+  - Mockup errors and open questions are 0 on every platform. A12 and A13 are the two mockup fixes the run found.
+
+  | Platform | Same | Same once its milestone lands | Differs, same at run time | Mockup or Godot only |
+  |---|---:|---:|---:|---:|
+  | Desktop | 401 | 12 + 11 (PC-10) | 22 | 1 / 1 |
+  | Tablet, 1 180 dp and wider | 400 | 12 + 11 (PC-10) | 22 | 5 / 1 |
+  | Tablet, below 1 180 dp | 414 | 12 + 11 (PC-10) | 22 | 5 / 1 |
+  | Phone MENU | 408 | 12 | 22 | 3 / 1 |
+- **Recorded in `MISTAKES.md`:**
+  - VQ7's question named the capped lists from a summary (the false-premise row, now ×4);
+  - a resumed turn was judged finished while it still owed the owner a round of questions.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.

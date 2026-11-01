@@ -255,6 +255,11 @@ CLASSIFY = [
     {"id": "PC-5", "cls": "m", "status": r"^same after", "path": r"(Story ▸ Note for the selection|Context panel ▸ Note)$"},
     {"id": "PC-6", "cls": "m", "status": r"^same after",
      "path": r"(Story ▸ Ask the assistant about the selection|Context panel ▸ Ask \(assistant\))$"},
+    # PC-10 (Ruling DY, PQ1): the MODULES rows and Reset panel are `_todo` until the panel's modules exist, and stay
+    # so in the "after" state, which models PC-1, PC-4, PC-5 and PC-6 only. The mockup draws them live.
+    {"id": "PC-10", "cls": "m", "status": r"^differs: kind (check|command)/disabled \(not built\)$",
+     "path": r"Window ▸ Context panel ▸ (History|Economy|Military|Faith, culture & relations|Territory|City layout"
+             r"|Here|Routes & journeys|Links|Recent & bookmarks|Reset panel)$"},
     # n: the mockup's design, no draft builds it yet.
     {"id": "N1", "cls": "n", "path": r"(TOUCH · NEW|Touch & gestures…)$"},
     {"id": "N2", "cls": "n", "platform": r"^tablet", "path": r"Help ▸ Gesture reference…$"},
@@ -475,18 +480,20 @@ Evidence only. It records what differs and why. It is not a status record: how f
 
 ## What was compared
 
-- **Mockup:** `mockup_menus.json`. `mockup_menus.js` evaluates the mockup's own `menuTree()`, `tabletOverflow()` and
-  `tabletWorldMenu()` from `design/mobile-shell-2026-10-31/Shell.dc.html` (last changed in `fcc4b6f`). Re-run on
-  2026-11-01, it reproduced the committed file exactly.
+- **Mockup:** `mockup_menus.json`. `mockup_menus.js` evaluates the mockup's own `menuTree()`, `tabletOverflow()`,
+  `tabletFileMenu()`, `tabletWorldMenu()` and `ctxModuleMenuItems()` from `design/mobile-shell-2026-10-31/Shell.dc.html`.
+  Both mockup files were regenerated on 2026-11-01, after Ruling DY, with `node mockup_menus.js <Shell.dc.html>` and
+  `--md`.
 - **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `{head}`, with these
-  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs; `drafts/mobile-shell/` 05, 08 and 09, with 09's
-  EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
+  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs (Ruling DY's W6 and W7 in 02 included);
+  `drafts/mobile-shell/` 05, 08 and 09, with 09's EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions
   unresolved on every platform, in both states.
 - **Per platform:**
   - **desktop:** `build()`'s eight menus.
   - **tablet ≥ 1 180 dp:** draft 08's whole bar.
-  - **tablet < 1 180 dp:** the shipped bar, `☰ · File · World · Story`.
+  - **tablet < 1 180 dp:** draft 08's short bar, `☰ · File · World · Records · Story` (Ruling DY, PQ6). It was
+    the shipped `☰ · File · World · Story` until then.
   - **phone:** MENU, which is draft 05's root; since Ruling DX Q13 each of its eight rows opens that menu's own
     popup, row for row.
 - **Two Godot states:**
@@ -515,7 +522,7 @@ NOTES = [
          "The static read sees the placeholder `… chunks · … · empty`; `_refresh_atlas_cache_menu()` writes the value "
          "(`%d chunk%s · <size> · to LOD n`), which is what the mockup draws since A3's fix."),
     ]),
-    ("(a) The mockup is wrong: the fixes (all eleven made in `Shell.dc.html` on 2026-11-01; the counts above are after them)", [
+    ("(a) The mockup is wrong: the fixes (all thirteen made in `Shell.dc.html` on 2026-11-01; the counts above are after them)", [
         ("A1", "Landmark types: the 18 kinds the engine cannot place.",
          "The two sides agree on which kinds can be placed: 49 kinds, 18 not buildable, the same set "
          "(the mockup's `LANDMARK_FAMILIES` `*` marks against `cartalith-civ`'s vocabulary, read by "
@@ -570,6 +577,15 @@ NOTES = [
          "`_tablet_world()` = `_world()` + `_data()`, with no Generate world. **Fix:** "
          "`.concat(w.items.filter((x) => x.label !== 'Generate world'))`. One label for the command on every form "
          "factor is K2."),
+        ("A12", "Preferences ▸ Save the assistant conversation with the world (after Ruling DY).",
+         "The mockup drew the PQ5 switch twice: as a check row in the Preferences menu and in the assistant's settings "
+         "window. `PC_SHELL_PROPOSAL.md` §3.5 puts it in Preferences ▸ Assistant (the settings window), and no draft "
+         "builds a menu row for it. **Fix:** the menu row is removed; the switch stays in the window, and the "
+         "first-use card still sets it."),
+        ("A13", "Window ▸ Context panel ▸ MODULES: a separator before the band (after Ruling DY).",
+         "The mockup drew a plain separator and then the MODULES band. In Godot a captioned separator is one row "
+         "(`sub.add_separator(\"MODULES\")`, `pc-shell/05`), and the mockup's other bands carry no separator before "
+         "them. **Fix:** the separator is removed from `ctxModuleMenuItems()`."),
     ]),
     ("(b) Drafts this check corrected", [
         ("B1", "`drafts/mobile-shell/08_menus_tablet_bar.gd`, `build()`.",
@@ -618,8 +634,16 @@ NOTES = [
          "then \"Context panel\". `90_pc_milestone_stubs.gd` states the phone contract: Inspect shows the selection "
          "sheet, Note opens the vault at the selection's note, Ask opens the assistant, and Pin/Follow act on the "
          "sheet, which is the right dock presented as a sheet."),
+        ("B10", "Ruling DY (PQ6, PQ1): Records, Generate world in File, the four-menu tablet bar, the module rows.",
+         "`pc-shell/02` titles the World menu Records and moves Generate world (id 710, Ctrl+R) into File after New "
+         "world… (EDIT W6); File's signpost names Records (W7). Both EDITs are transcribed into `godot_menus.py`'s "
+         "`PC_EDITS`, which had stopped at W5, so the first run after the ruling showed File ▸ Generate world as "
+         "mockup-only. `mobile-shell/08` builds the narrow bar as `☰ · File · World · Records · Story`, with World "
+         "holding only the WORLD domain's rows and File leaving Generate world out there. `pc-shell/05` adds the "
+         "MODULES band, ten check rows and Reset panel (rule PC-10). `pc-shell/07` keeps the old name findable "
+         "through a pointer row titled \"Records (was World)\"."),
     ]),
-    ("(c) Owner decisions: all answered by Ruling DX (2026-11-01); none is open", [
+    ("(c) Owner decisions: all answered by Rulings DX and DY (2026-11-01); none is open", [
         ("K1", "PQ10: where the card's and the cartwheel's rows live.",
          "*Answered: as drafted, not on the phone (B6).* As asked: the drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the "
          "desktop and both tablets. The mockup had neither row. *Default: as drafted.* If it is taken, add both rows "
@@ -692,6 +716,9 @@ NOTES = [
         ("PC-5", "Story ▸ Note for the selection; Window ▸ Context panel ▸ Note.", "As above, from PC-5."),
         ("PC-6", "Story ▸ Ask the assistant about the selection (Ctrl+J); Window ▸ Context panel ▸ Ask.",
          "As above, from PC-6."),
+        ("PC-10", "Window ▸ Context panel ▸ MODULES: its ten check rows and Reset panel (Ruling DY, PQ1; not on the phone).",
+         "A `_todo` row with its reason today, and still in the \"after\" column, which models PC-1, PC-4, PC-5 and "
+         "PC-6 only. Each row goes live when its own module is registered (PC-10)."),
     ]),
 ]
 

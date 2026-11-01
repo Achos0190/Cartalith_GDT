@@ -8,18 +8,20 @@ Evidence only. It records what differs and why. It is not a status record: how f
 
 ## What was compared
 
-- **Mockup:** `mockup_menus.json`. `mockup_menus.js` evaluates the mockup's own `menuTree()`, `tabletOverflow()` and
-  `tabletWorldMenu()` from `design/mobile-shell-2026-10-31/Shell.dc.html` (last changed in `fcc4b6f`). Re-run on
-  2026-11-01, it reproduced the committed file exactly.
-- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `7d2acd1`, with these
-  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs; `drafts/mobile-shell/` 05, 08 and 09, with 09's
-  EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
+- **Mockup:** `mockup_menus.json`. `mockup_menus.js` evaluates the mockup's own `menuTree()`, `tabletOverflow()`,
+  `tabletFileMenu()`, `tabletWorldMenu()` and `ctxModuleMenuItems()` from `design/mobile-shell-2026-10-31/Shell.dc.html`.
+  Both mockup files were regenerated on 2026-11-01, after Ruling DY, with `node mockup_menus.js <Shell.dc.html>` and
+  `--md`.
+- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `4f3d904`, with these
+  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs (Ruling DY's W6 and W7 in 02 included);
+  `drafts/mobile-shell/` 05, 08 and 09, with 09's EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions
   unresolved on every platform, in both states.
 - **Per platform:**
   - **desktop:** `build()`'s eight menus.
   - **tablet ≥ 1 180 dp:** draft 08's whole bar.
-  - **tablet < 1 180 dp:** the shipped bar, `☰ · File · World · Story`.
+  - **tablet < 1 180 dp:** draft 08's short bar, `☰ · File · World · Records · Story` (Ruling DY, PQ6). It was
+    the shipped `☰ · File · World · Story` until then.
   - **phone:** MENU, which is draft 05's root; since Ruling DX Q13 each of its eight rows opens that menu's own
     popup, row for row.
 - **Two Godot states:**
@@ -44,9 +46,9 @@ python3 cartalith-native/docs/evidence/menu-parity-2026-11-01/compare.py       #
 
 | Platform | mockup rows | Godot rows | rows | same | same after its milestone | differs | mockup-only | Godot-only | a | c | m | s | n |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Desktop | 434 | 429 | 435 | 399 | 12 | 22 | 1 | 1 | 0 | 0 | 12 | 24 | 0 |
-| Tablet, 1 180 dp and wider | 437 | 428 | 438 | 398 | 12 | 22 | 5 | 1 | 0 | 0 | 12 | 24 | 4 |
-| Tablet, below 1 180 dp | 452 | 443 | 453 | 413 | 12 | 22 | 5 | 1 | 0 | 0 | 12 | 24 | 4 |
+| Desktop | 447 | 442 | 448 | 401 | 12 | 33 | 1 | 1 | 0 | 0 | 23 | 24 | 0 |
+| Tablet, 1 180 dp and wider | 450 | 441 | 451 | 400 | 12 | 33 | 5 | 1 | 0 | 0 | 23 | 24 | 4 |
+| Tablet, below 1 180 dp | 464 | 455 | 465 | 414 | 12 | 33 | 5 | 1 | 0 | 0 | 23 | 24 | 4 |
 | Phone, MENU | 445 | 438 | 446 | 408 | 12 | 22 | 3 | 1 | 0 | 0 | 12 | 24 | 2 |
 
 Rows per rule, per platform:
@@ -64,13 +66,14 @@ Rows per rule, per platform:
 | PC-4 | 6 | 6 | 6 | 6 |
 | PC-5 | 2 | 2 | 2 | 2 |
 | PC-6 | 2 | 2 | 2 | 2 |
+| PC-10 | 11 | 11 | 11 | 0 |
 
 ## Run-time labels (same at run time)
 
 - **R1. Landmark types: a kind the engine cannot place.** The static read sees the build-time label (the kind's name); `menus.gd::_refresh_landmark_menu()` appends `   not buildable` when the menu opens, which is what the mockup draws since A1's fix.
 - **R2. Atlas cache: the store readout.** The static read sees the placeholder `… chunks · … · empty`; `_refresh_atlas_cache_menu()` writes the value (`%d chunk%s · <size> · to LOD n`), which is what the mockup draws since A3's fix.
 
-## (a) The mockup is wrong: the fixes (all eleven made in `Shell.dc.html` on 2026-11-01; the counts above are after them)
+## (a) The mockup is wrong: the fixes (all thirteen made in `Shell.dc.html` on 2026-11-01; the counts above are after them)
 
 - **A1. Landmark types: the 18 kinds the engine cannot place.** The two sides agree on which kinds can be placed: 49 kinds, 18 not buildable, the same set (the mockup's `LANDMARK_FAMILIES` `*` marks against `cartalith-civ`'s vocabulary, read by `godot_menus.py::landmark_kinds()`). They draw them differently. The mockup draws each as a `todo`, a disabled row. Godot keeps it as an enabled row that reads `<kind>   not buildable` (`menus.gd::_refresh_landmark_menu()`). Pressing it opens CIVIL ▸ Landmarks at its family, as every leaf does: `_build_landmark_family()`'s signpost reads *Rows here read state; they do not arm a type.* **Fix:** in `menuTree()`'s `lmFamilies`, map a starred kind to `{ t: 'live', label: k.slice(0, -1) + '   not buildable', act: 'node', arg: 'civil/landmarks' }`.
 - **A2. Preferences ▸ Try the GPU again is drawn enabled.** Godot builds the row disabled. Its tooltip is `GPU_RETRY_NONE_TIP` (*Nothing to clear: no GPU readback has failed this session…*), and `_refresh_gpu_retry_row()` enables it only while a failure is on record. **Fix:** give the row a `liveReason()` rule that returns *Nothing to clear: no GPU readback has failed this session* unless the mock state records a failure. This replaces the toast.
@@ -83,6 +86,8 @@ Rows per rule, per platform:
 - **A9. Tablet < 1 180: ☰'s submenus repeat the rows ☰ promotes.** Godot builds them with `full = false`: `_edit(p, false)`, `_assets(p, false)`, `_preferences(p, false, true)` and `_help(p, false)`, called from `_overflow()`. So each row exists once. Undo, Redo and Undo history, ⧉ Asset library, Landmark types, Units, Keyboard reference… and About are at ☰'s top. Reset generation parameters and Reset one stage are in World. **Fix:** in `tabletOverflow()`, filter those rows (and the separators that framed them) out of the Edit, Assets, Preferences and Help submenus.
 - **A10. Tablet < 1 180: World ▸ Generation pipeline and Sculpt carry no Session-mode gate.** Godot gates both (`menus.gd::_world()`, `_session_gate_row(p, mode_pipe_idx)` and `mode_sculpt_idx`). **Fix:** add `sm: true` to both radios in `tabletWorldMenu()`.
 - **A11. Tablet < 1 180: World ▸ Generate world under Run pipeline.** `tabletWorldMenu()` appends World's items whole, so the narrow World has two rows for one command: id 710, Ctrl+R, `ID_WORLD_RUN_PIPELINE`, which `_pc_world()` and `_world()` both use. Godot's narrow World is `_tablet_world()` = `_world()` + `_data()`, with no Generate world. **Fix:** `.concat(w.items.filter((x) => x.label !== 'Generate world'))`. One label for the command on every form factor is K2.
+- **A12. Preferences ▸ Save the assistant conversation with the world (after Ruling DY).** The mockup drew the PQ5 switch twice: as a check row in the Preferences menu and in the assistant's settings window. `PC_SHELL_PROPOSAL.md` §3.5 puts it in Preferences ▸ Assistant (the settings window), and no draft builds a menu row for it. **Fix:** the menu row is removed; the switch stays in the window, and the first-use card still sets it.
+- **A13. Window ▸ Context panel ▸ MODULES: a separator before the band (after Ruling DY).** The mockup drew a plain separator and then the MODULES band. In Godot a captioned separator is one row (`sub.add_separator("MODULES")`, `pc-shell/05`), and the mockup's other bands carry no separator before them. **Fix:** the separator is removed from `ctxModuleMenuItems()`.
 
 ## (b) Drafts this check corrected
 
@@ -95,8 +100,9 @@ Rows per rule, per platform:
 - **B7. Ruling DX PQ11: one label, Generate world.** `pc-shell/02` EDIT W5 renames the narrow tablet's `_world()` row; W4's Session-mode wording follows. `pc-shell/07` adds a "Run pipeline" `EXTRAS` alias. The README lists the probes that name the row: `_sessionmode_probe.gd` and `_storymenus_probe.gd` change, while `_tabletparity_probe.gd` has no pair left. `pc-shell/check_symbols.sh` anchors W5 (27 anchors).
 - **B8. Ruling DX PQ12: no Alt+arrows while typing.** `pc-shell/03`'s `_on_edit_selection()` drops an Alt+← or Alt+→ press typed into a text field (`_typed_into_field()`), as it already did for Q and Shift+F10; a click on the row still acts. The guard's doc in 01 and `select_back()`'s in 90 say so.
 - **B9. Ruling DX PQ13: the phone's Window menu.** `pc-shell/05` builds the Context panel check and its submenu on the phone too: "Right dock" until PC-4, then "Context panel". `90_pc_milestone_stubs.gd` states the phone contract: Inspect shows the selection sheet, Note opens the vault at the selection's note, Ask opens the assistant, and Pin/Follow act on the sheet, which is the right dock presented as a sheet.
+- **B10. Ruling DY (PQ6, PQ1): Records, Generate world in File, the four-menu tablet bar, the module rows.** `pc-shell/02` titles the World menu Records and moves Generate world (id 710, Ctrl+R) into File after New world… (EDIT W6); File's signpost names Records (W7). Both EDITs are transcribed into `godot_menus.py`'s `PC_EDITS`, which had stopped at W5, so the first run after the ruling showed File ▸ Generate world as mockup-only. `mobile-shell/08` builds the narrow bar as `☰ · File · World · Records · Story`, with World holding only the WORLD domain's rows and File leaving Generate world out there. `pc-shell/05` adds the MODULES band, ten check rows and Reset panel (rule PC-10). `pc-shell/07` keeps the old name findable through a pointer row titled "Records (was World)".
 
-## (c) Owner decisions: all answered by Ruling DX (2026-11-01); none is open
+## (c) Owner decisions: all answered by Rulings DX and DY (2026-11-01); none is open
 
 - **K1. PQ10: where the card's and the cartwheel's rows live.** *Answered: as drafted, not on the phone (B6).* As asked: the drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the desktop and both tablets. The mockup had neither row. *Default: as drafted.* If it is taken, add both rows to the mockup's Edit.
 - **K2. PQ11: one label for the regenerate command.** *Answered: one label, Generate world (B7).* As asked: the command is Generate world on the PC and the wide tablet, and Run pipeline on the narrow tablet; it is the same command, id 710. It bears on A11. *Default: keep two labels.*
@@ -136,6 +142,7 @@ Rows per rule, per platform:
 - **PC-4. Story ▸ Political history of the selection; Window ▸ Context panel (the region row) and its Inspect, Pin and Follow rows.** The shipped label or a `_todo` today; the mockup's row from PC-4.
 - **PC-5. Story ▸ Note for the selection; Window ▸ Context panel ▸ Note.** As above, from PC-5.
 - **PC-6. Story ▸ Ask the assistant about the selection (Ctrl+J); Window ▸ Context panel ▸ Ask.** As above, from PC-6.
+- **PC-10. Window ▸ Context panel ▸ MODULES: its ten check rows and Reset panel (Ruling DY, PQ1; not on the phone).** A `_todo` row with its reason today, and still in the "after" column, which models PC-1, PC-4, PC-5 and PC-6 only. Each row goes live when its own module is registered (PC-10).
 
 ## The tables
 
@@ -148,46 +155,47 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
 | 1 | New world… · Ctrl+N · SM | New world… · Ctrl+N · SM |  | same |  |
-| 2 | Open project… · Ctrl+O | Open project… · Ctrl+O |  | same |  |
-| 3 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
-| 4 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 5 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 6 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 7 | New world from selection… · SM | New world from selection… · SM |  | same |  |
-| 8 | ——— | ——— |  | same |  |
-| 9 | Save project · Ctrl+S | Save project · Ctrl+S |  | same |  |
-| 10 | Save as… · Ctrl+Shift+S | Save as… · Ctrl+Shift+S |  | same |  |
-| 11 | [check] Autosave | [check] Autosave |  | same |  |
-| 12 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
-| 13 | › [radio] Off | › [radio] Off |  | same |  |
-| 14 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
-| 15 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
-| 16 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
-| 17 | Revert to last save | Revert to last save |  | same |  |
-| 18 | Close project · Ctrl+W | Close project · Ctrl+W |  | same |  |
-| 19 | ——— | ——— |  | same |  |
-| 20 | [submenu] Export | [submenu] Export |  | same |  |
-| 21 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
-| 22 | › Player map… · Ctrl+Shift+E | › Player map… · Ctrl+Shift+E |  | same |  |
-| 23 | › DM / full map… | › DM / full map… |  | same |  |
-| 24 | › **SHARE** | › **SHARE** |  | same |  |
-| 25 | › Export map image… | › Export map image… |  | same |  |
-| 26 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
-| 27 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
-| 28 | › **DATA** | › **DATA** |  | same |  |
-| 29 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 30 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
-| 31 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
-| 32 | › Assets   .zip | › Assets   .zip |  | same |  |
-| 33 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
-| 34 | [readout] projects | [readout] projects   … |  | same |  |
-| 35 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
-| 36 | [readout] asset packs | [readout] asset packs   … |  | same |  |
-| 37 | [readout] exports | [readout] exports   … |  | same |  |
-| 38 | Change locations… | Change locations… |  | same |  |
-| 39 | Show project on disk | Show project on disk |  | same |  |
-| 40 | [signpost] imports live under World ▸ Import | [signpost] imports live under World ▸ Import |  | same |  |
-| 41 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
+| 2 | Generate world · Ctrl+R · SM | Generate world · Ctrl+R · SM |  | same |  |
+| 3 | Open project… · Ctrl+O | Open project… · Ctrl+O |  | same |  |
+| 4 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
+| 5 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 6 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 7 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 8 | New world from selection… · SM | New world from selection… · SM |  | same |  |
+| 9 | ——— | ——— |  | same |  |
+| 10 | Save project · Ctrl+S | Save project · Ctrl+S |  | same |  |
+| 11 | Save as… · Ctrl+Shift+S | Save as… · Ctrl+Shift+S |  | same |  |
+| 12 | [check] Autosave | [check] Autosave |  | same |  |
+| 13 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
+| 14 | › [radio] Off | › [radio] Off |  | same |  |
+| 15 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
+| 16 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
+| 17 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
+| 18 | Revert to last save | Revert to last save |  | same |  |
+| 19 | Close project · Ctrl+W | Close project · Ctrl+W |  | same |  |
+| 20 | ——— | ——— |  | same |  |
+| 21 | [submenu] Export | [submenu] Export |  | same |  |
+| 22 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
+| 23 | › Player map… · Ctrl+Shift+E | › Player map… · Ctrl+Shift+E |  | same |  |
+| 24 | › DM / full map… | › DM / full map… |  | same |  |
+| 25 | › **SHARE** | › **SHARE** |  | same |  |
+| 26 | › Export map image… | › Export map image… |  | same |  |
+| 27 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
+| 28 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
+| 29 | › **DATA** | › **DATA** |  | same |  |
+| 30 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 31 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
+| 32 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
+| 33 | › Assets   .zip | › Assets   .zip |  | same |  |
+| 34 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
+| 35 | [readout] projects | [readout] projects   … |  | same |  |
+| 36 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
+| 37 | [readout] asset packs | [readout] asset packs   … |  | same |  |
+| 38 | [readout] exports | [readout] exports   … |  | same |  |
+| 39 | Change locations… | Change locations… |  | same |  |
+| 40 | Show project on disk | Show project on disk |  | same |  |
+| 41 | [signpost] imports live under Records ▸ Import | [signpost] imports live under Records ▸ Import |  | same |  |
+| 42 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
 
 #### Edit
 
@@ -339,37 +347,36 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
 
-#### World
+#### Records
 
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
-| 1 | Generate world · Ctrl+R · SM | Generate world · Ctrl+R · SM |  | same |  |
-| 2 | ⧉ Data manager | ⧉ Data manager |  | same |  |
-| 3 | **RECORDS** | **RECORDS** |  | same |  |
-| 4 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
-| 5 | Places… | Places… |  | same |  |
-| 6 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
-| 7 | Browse & edit a note… | Browse & edit a note… |  | same |  |
-| 8 | Places without notes… | Places without notes… |  | same |  |
-| 9 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
-| 10 | **TECHNICAL** | **TECHNICAL** |  | same |  |
-| 11 | World data tables… | World data tables… |  | same |  |
-| 12 | [submenu] Import | [submenu] Import |  | same |  |
-| 13 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 14 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
-| 15 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
-| 16 | › World Data   .ctl | › World Data   .ctl |  | same |  |
-| 17 | › Assets   → Assets | › Assets   → Assets |  | same |  |
-| 18 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
-| 19 | › **SOURCES** | › **SOURCES** |  | same |  |
-| 20 | › External Sources | › External Sources |  | same |  |
-| 21 | › Connected Sources | › Connected Sources |  | same |  |
-| 22 | › Source Registry | › Source Registry |  | same |  |
-| 23 | › **VALIDATION** | › **VALIDATION** |  | same |  |
-| 24 | › Definitions | › Definitions |  | same |  |
-| 25 | › Check Data | › Check Data |  | same |  |
-| 26 | › Repair / Normalize | › Repair / Normalize |  | same |  |
-| 27 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
+| 1 | ⧉ Data manager | ⧉ Data manager |  | same |  |
+| 2 | **RECORDS** | **RECORDS** |  | same |  |
+| 3 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
+| 4 | Places… | Places… |  | same |  |
+| 5 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
+| 6 | Browse & edit a note… | Browse & edit a note… |  | same |  |
+| 7 | Places without notes… | Places without notes… |  | same |  |
+| 8 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
+| 9 | **TECHNICAL** | **TECHNICAL** |  | same |  |
+| 10 | World data tables… | World data tables… |  | same |  |
+| 11 | [submenu] Import | [submenu] Import |  | same |  |
+| 12 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 13 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
+| 14 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
+| 15 | › World Data   .ctl | › World Data   .ctl |  | same |  |
+| 16 | › Assets   → Assets | › Assets   → Assets |  | same |  |
+| 17 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
+| 18 | › **SOURCES** | › **SOURCES** |  | same |  |
+| 19 | › External Sources | › External Sources |  | same |  |
+| 20 | › Connected Sources | › Connected Sources |  | same |  |
+| 21 | › Source Registry | › Source Registry |  | same |  |
+| 22 | › **VALIDATION** | › **VALIDATION** |  | same |  |
+| 23 | › Definitions | › Definitions |  | same |  |
+| 24 | › Check Data | › Check Data |  | same |  |
+| 25 | › Repair / Normalize | › Repair / Normalize |  | same |  |
+| 26 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
 
 #### Story
 
@@ -389,7 +396,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 12 | [readout] Campaigns this year | [readout] Campaigns this year |  | same |  |
 | 13 | **NOTES** | **NOTES** |  | same |  |
 | 14 | Note for the selection · Ctrl+Shift+N | Note for the selection · Ctrl+Shift+N | Notes for this place · Ctrl+Shift+N | same after the milestone; today: label | m PC-5 |
-| 15 | [signpost] Places without notes is in World ▸ Records | [signpost] Places without notes is in World ▸ Records |  | same |  |
+| 15 | [signpost] Places without notes… is in Records | [signpost] Places without notes is in Records |  | same |  |
 | 16 | Ask the assistant about the selection · Ctrl+J | Ask the assistant about the selection · Ctrl+J | Assistant panel… | same after the milestone; today: label, key Ctrl+J/none | m PC-6 |
 
 #### Preferences
@@ -570,42 +577,55 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 7 | › ——— | › ——— |  | same |  |
 | 8 | › Pin to the current subject | › Pin to the current subject | › [not built] Pin to the current subject | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
 | 9 | › Follow the selection | › Follow the selection | › [not built] Follow the selection | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
-| 10 | [check] Timeline | [check] Timeline |  | same |  |
-| 11 | [check] Status bar | [check] Status bar |  | same |  |
-| 12 | [check] Domain rail | [check] Domain rail |  | same |  |
-| 13 | ——— | ——— |  | same |  |
-| 14 | [check] Session mode · Ctrl+Shift+M | [check] Session mode · Ctrl+Shift+M |  | same |  |
-| 15 | [check] Diagnostics overlay · Shift+D | [check] Diagnostics overlay · Shift+D |  | same |  |
-| 16 | [check] 3D view | [check] 3D view |  | same |  |
-| 17 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
-| 18 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
-| 19 | › Re-test 3D | › Re-test 3D |  | same |  |
-| 20 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
-| 21 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
-| 22 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 23 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 24 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 25 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 10 | › **MODULES** | › **MODULES** |  | same |  |
+| 11 | › [check] History | › [not built] History |  | differs: kind check/disabled (not built) | m PC-10 |
+| 12 | › [check] Economy | › [not built] Economy |  | differs: kind check/disabled (not built) | m PC-10 |
+| 13 | › [check] Military | › [not built] Military |  | differs: kind check/disabled (not built) | m PC-10 |
+| 14 | › [check] Faith, culture & relations | › [not built] Faith, culture & relations |  | differs: kind check/disabled (not built) | m PC-10 |
+| 15 | › [check] Territory | › [not built] Territory |  | differs: kind check/disabled (not built) | m PC-10 |
+| 16 | › [check] City layout | › [not built] City layout |  | differs: kind check/disabled (not built) | m PC-10 |
+| 17 | › [check] Here | › [not built] Here |  | differs: kind check/disabled (not built) | m PC-10 |
+| 18 | › [check] Routes & journeys | › [not built] Routes & journeys |  | differs: kind check/disabled (not built) | m PC-10 |
+| 19 | › [check] Links | › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
+| 20 | › [check] Recent & bookmarks | › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
+| 21 | › ——— | › ——— |  | same |  |
+| 22 | › Reset panel | › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
+| 23 | [check] Timeline | [check] Timeline |  | same |  |
+| 24 | [check] Status bar | [check] Status bar |  | same |  |
+| 25 | [check] Domain rail | [check] Domain rail |  | same |  |
 | 26 | ——— | ——— |  | same |  |
-| 27 | [submenu] Workspace | [submenu] Workspace |  | same |  |
-| 28 | › [radio] World · SM | › [radio] World · SM |  | same |  |
-| 29 | › [radio] Civilization | › [radio] Civilization |  | same |  |
-| 30 | › [radio] Cartography | › [radio] Cartography |  | same |  |
-| 31 | [submenu] Open windows | [submenu] Open windows |  | same |  |
-| 32 | › [readout] No windows open |  |  | mockup-only | s S3 |
-| 33 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 34 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 35 | ——— | ——— |  | same |  |
-| 36 | Reset layout | Reset layout |  | same |  |
-| 37 | [submenu] Layouts | [submenu] Layouts |  | same |  |
-| 38 | › Default (reset layout) | › Default (reset layout) |  | same |  |
-| 39 | › Generate | › Generate |  | same |  |
-| 40 | › Sculpt | › Sculpt |  | same |  |
-| 41 | › Cartography | › Cartography |  | same |  |
-| 42 | › Journey | › Journey |  | same |  |
-| 43 | › ——— | › ——— |  | same |  |
-| 44 | › Save layout as… | › Save layout as… |  | same |  |
-| 45 | › Forget layout… | › Forget layout… |  | same |  |
+| 27 | [check] Session mode · Ctrl+Shift+M | [check] Session mode · Ctrl+Shift+M |  | same |  |
+| 28 | [check] Diagnostics overlay · Shift+D | [check] Diagnostics overlay · Shift+D |  | same |  |
+| 29 | [check] 3D view | [check] 3D view |  | same |  |
+| 30 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
+| 31 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
+| 32 | › Re-test 3D | › Re-test 3D |  | same |  |
+| 33 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
+| 34 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
+| 35 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 36 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 37 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 38 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 39 | ——— | ——— |  | same |  |
+| 40 | [submenu] Workspace | [submenu] Workspace |  | same |  |
+| 41 | › [radio] World · SM | › [radio] World · SM |  | same |  |
+| 42 | › [radio] Civilization | › [radio] Civilization |  | same |  |
+| 43 | › [radio] Cartography | › [radio] Cartography |  | same |  |
+| 44 | [submenu] Open windows | [submenu] Open windows |  | same |  |
+| 45 | › [readout] No windows open |  |  | mockup-only | s S3 |
+| 46 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 47 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 48 | ——— | ——— |  | same |  |
+| 49 | Reset layout | Reset layout |  | same |  |
+| 50 | [submenu] Layouts | [submenu] Layouts |  | same |  |
+| 51 | › Default (reset layout) | › Default (reset layout) |  | same |  |
+| 52 | › Generate | › Generate |  | same |  |
+| 53 | › Sculpt | › Sculpt |  | same |  |
+| 54 | › Cartography | › Cartography |  | same |  |
+| 55 | › Journey | › Journey |  | same |  |
+| 56 | › ——— | › ——— |  | same |  |
+| 57 | › Save layout as… | › Save layout as… |  | same |  |
+| 58 | › Forget layout… | › Forget layout… |  | same |  |
 
 #### Help
 
@@ -625,46 +645,47 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
 | 1 | New world… · Ctrl+N · SM | New world… · Ctrl+N · SM |  | same |  |
-| 2 | Open project… · Ctrl+O | Open project… · Ctrl+O |  | same |  |
-| 3 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
-| 4 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 5 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 6 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 7 | New world from selection… · SM | New world from selection… · SM |  | same |  |
-| 8 | ——— | ——— |  | same |  |
-| 9 | Save project · Ctrl+S | Save project · Ctrl+S |  | same |  |
-| 10 | Save as… · Ctrl+Shift+S | Save as… · Ctrl+Shift+S |  | same |  |
-| 11 | [check] Autosave | [check] Autosave |  | same |  |
-| 12 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
-| 13 | › [radio] Off | › [radio] Off |  | same |  |
-| 14 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
-| 15 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
-| 16 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
-| 17 | Revert to last save | Revert to last save |  | same |  |
-| 18 | Close project · Ctrl+W | Close project · Ctrl+W |  | same |  |
-| 19 | ——— | ——— |  | same |  |
-| 20 | [submenu] Export | [submenu] Export |  | same |  |
-| 21 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
-| 22 | › Player map… · Ctrl+Shift+E | › Player map… · Ctrl+Shift+E |  | same |  |
-| 23 | › DM / full map… | › DM / full map… |  | same |  |
-| 24 | › **SHARE** | › **SHARE** |  | same |  |
-| 25 | › Export map image… | › Export map image… |  | same |  |
-| 26 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
-| 27 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
-| 28 | › **DATA** | › **DATA** |  | same |  |
-| 29 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 30 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
-| 31 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
-| 32 | › Assets   .zip | › Assets   .zip |  | same |  |
-| 33 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
-| 34 | [readout] projects | [readout] projects   … |  | same |  |
-| 35 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
-| 36 | [readout] asset packs | [readout] asset packs   … |  | same |  |
-| 37 | [readout] exports | [readout] exports   … |  | same |  |
-| 38 | Change locations… | Change locations… |  | same |  |
-| 39 | Show project on disk | Show project on disk |  | same |  |
-| 40 | [signpost] imports live under World ▸ Import | [signpost] imports live under World ▸ Import |  | same |  |
-| 41 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
+| 2 | Generate world · Ctrl+R · SM | Generate world · Ctrl+R · SM |  | same |  |
+| 3 | Open project… · Ctrl+O | Open project… · Ctrl+O |  | same |  |
+| 4 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
+| 5 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 6 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 7 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 8 | New world from selection… · SM | New world from selection… · SM |  | same |  |
+| 9 | ——— | ——— |  | same |  |
+| 10 | Save project · Ctrl+S | Save project · Ctrl+S |  | same |  |
+| 11 | Save as… · Ctrl+Shift+S | Save as… · Ctrl+Shift+S |  | same |  |
+| 12 | [check] Autosave | [check] Autosave |  | same |  |
+| 13 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
+| 14 | › [radio] Off | › [radio] Off |  | same |  |
+| 15 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
+| 16 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
+| 17 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
+| 18 | Revert to last save | Revert to last save |  | same |  |
+| 19 | Close project · Ctrl+W | Close project · Ctrl+W |  | same |  |
+| 20 | ——— | ——— |  | same |  |
+| 21 | [submenu] Export | [submenu] Export |  | same |  |
+| 22 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
+| 23 | › Player map… · Ctrl+Shift+E | › Player map… · Ctrl+Shift+E |  | same |  |
+| 24 | › DM / full map… | › DM / full map… |  | same |  |
+| 25 | › **SHARE** | › **SHARE** |  | same |  |
+| 26 | › Export map image… | › Export map image… |  | same |  |
+| 27 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
+| 28 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
+| 29 | › **DATA** | › **DATA** |  | same |  |
+| 30 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 31 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
+| 32 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
+| 33 | › Assets   .zip | › Assets   .zip |  | same |  |
+| 34 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
+| 35 | [readout] projects | [readout] projects   … |  | same |  |
+| 36 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
+| 37 | [readout] asset packs | [readout] asset packs   … |  | same |  |
+| 38 | [readout] exports | [readout] exports   … |  | same |  |
+| 39 | Change locations… | Change locations… |  | same |  |
+| 40 | Show project on disk | Show project on disk |  | same |  |
+| 41 | [signpost] imports live under Records ▸ Import | [signpost] imports live under Records ▸ Import |  | same |  |
+| 42 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
 
 #### Edit
 
@@ -816,37 +837,36 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
 
-#### World
+#### Records
 
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
-| 1 | Generate world · Ctrl+R · SM | Generate world · Ctrl+R · SM |  | same |  |
-| 2 | ⧉ Data manager | ⧉ Data manager |  | same |  |
-| 3 | **RECORDS** | **RECORDS** |  | same |  |
-| 4 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
-| 5 | Places… | Places… |  | same |  |
-| 6 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
-| 7 | Browse & edit a note… | Browse & edit a note… |  | same |  |
-| 8 | Places without notes… | Places without notes… |  | same |  |
-| 9 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
-| 10 | **TECHNICAL** | **TECHNICAL** |  | same |  |
-| 11 | World data tables… | World data tables… |  | same |  |
-| 12 | [submenu] Import | [submenu] Import |  | same |  |
-| 13 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 14 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
-| 15 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
-| 16 | › World Data   .ctl | › World Data   .ctl |  | same |  |
-| 17 | › Assets   → Assets | › Assets   → Assets |  | same |  |
-| 18 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
-| 19 | › **SOURCES** | › **SOURCES** |  | same |  |
-| 20 | › External Sources | › External Sources |  | same |  |
-| 21 | › Connected Sources | › Connected Sources |  | same |  |
-| 22 | › Source Registry | › Source Registry |  | same |  |
-| 23 | › **VALIDATION** | › **VALIDATION** |  | same |  |
-| 24 | › Definitions | › Definitions |  | same |  |
-| 25 | › Check Data | › Check Data |  | same |  |
-| 26 | › Repair / Normalize | › Repair / Normalize |  | same |  |
-| 27 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
+| 1 | ⧉ Data manager | ⧉ Data manager |  | same |  |
+| 2 | **RECORDS** | **RECORDS** |  | same |  |
+| 3 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
+| 4 | Places… | Places… |  | same |  |
+| 5 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
+| 6 | Browse & edit a note… | Browse & edit a note… |  | same |  |
+| 7 | Places without notes… | Places without notes… |  | same |  |
+| 8 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
+| 9 | **TECHNICAL** | **TECHNICAL** |  | same |  |
+| 10 | World data tables… | World data tables… |  | same |  |
+| 11 | [submenu] Import | [submenu] Import |  | same |  |
+| 12 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 13 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
+| 14 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
+| 15 | › World Data   .ctl | › World Data   .ctl |  | same |  |
+| 16 | › Assets   → Assets | › Assets   → Assets |  | same |  |
+| 17 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
+| 18 | › **SOURCES** | › **SOURCES** |  | same |  |
+| 19 | › External Sources | › External Sources |  | same |  |
+| 20 | › Connected Sources | › Connected Sources |  | same |  |
+| 21 | › Source Registry | › Source Registry |  | same |  |
+| 22 | › **VALIDATION** | › **VALIDATION** |  | same |  |
+| 23 | › Definitions | › Definitions |  | same |  |
+| 24 | › Check Data | › Check Data |  | same |  |
+| 25 | › Repair / Normalize | › Repair / Normalize |  | same |  |
+| 26 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
 
 #### Story
 
@@ -866,7 +886,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 12 | [readout] Campaigns this year | [readout] Campaigns this year |  | same |  |
 | 13 | **NOTES** | **NOTES** |  | same |  |
 | 14 | Note for the selection · Ctrl+Shift+N | Note for the selection · Ctrl+Shift+N | Notes for this place · Ctrl+Shift+N | same after the milestone; today: label | m PC-5 |
-| 15 | [signpost] Places without notes is in World ▸ Records | [signpost] Places without notes is in World ▸ Records |  | same |  |
+| 15 | [signpost] Places without notes… is in Records | [signpost] Places without notes is in Records |  | same |  |
 | 16 | Ask the assistant about the selection · Ctrl+J | Ask the assistant about the selection · Ctrl+J | Assistant panel… | same after the milestone; today: label, key Ctrl+J/none | m PC-6 |
 
 #### Preferences
@@ -1049,42 +1069,55 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 7 | › ——— | › ——— |  | same |  |
 | 8 | › Pin to the current subject | › Pin to the current subject | › [not built] Pin to the current subject | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
 | 9 | › Follow the selection | › Follow the selection | › [not built] Follow the selection | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
-| 10 | [check] Timeline | [check] Timeline |  | same |  |
-| 11 | [check] Status bar | [check] Status bar |  | same |  |
-| 12 | [check] Domain rail | [check] Domain rail |  | same |  |
-| 13 | ——— | ——— |  | same |  |
-| 14 | [check] Session mode · Ctrl+Shift+M | [check] Session mode · Ctrl+Shift+M |  | same |  |
-| 15 | [check] Diagnostics overlay · Shift+D | [check] Diagnostics overlay · Shift+D |  | same |  |
-| 16 | [check] 3D view | [check] 3D view |  | same |  |
-| 17 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
-| 18 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
-| 19 | › Re-test 3D | › Re-test 3D |  | same |  |
-| 20 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
-| 21 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
-| 22 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 23 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 24 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 25 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 10 | › **MODULES** | › **MODULES** |  | same |  |
+| 11 | › [check] History | › [not built] History |  | differs: kind check/disabled (not built) | m PC-10 |
+| 12 | › [check] Economy | › [not built] Economy |  | differs: kind check/disabled (not built) | m PC-10 |
+| 13 | › [check] Military | › [not built] Military |  | differs: kind check/disabled (not built) | m PC-10 |
+| 14 | › [check] Faith, culture & relations | › [not built] Faith, culture & relations |  | differs: kind check/disabled (not built) | m PC-10 |
+| 15 | › [check] Territory | › [not built] Territory |  | differs: kind check/disabled (not built) | m PC-10 |
+| 16 | › [check] City layout | › [not built] City layout |  | differs: kind check/disabled (not built) | m PC-10 |
+| 17 | › [check] Here | › [not built] Here |  | differs: kind check/disabled (not built) | m PC-10 |
+| 18 | › [check] Routes & journeys | › [not built] Routes & journeys |  | differs: kind check/disabled (not built) | m PC-10 |
+| 19 | › [check] Links | › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
+| 20 | › [check] Recent & bookmarks | › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
+| 21 | › ——— | › ——— |  | same |  |
+| 22 | › Reset panel | › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
+| 23 | [check] Timeline | [check] Timeline |  | same |  |
+| 24 | [check] Status bar | [check] Status bar |  | same |  |
+| 25 | [check] Domain rail | [check] Domain rail |  | same |  |
 | 26 | ——— | ——— |  | same |  |
-| 27 | [submenu] Workspace | [submenu] Workspace |  | same |  |
-| 28 | › [radio] World · SM | › [radio] World · SM |  | same |  |
-| 29 | › [radio] Civilization | › [radio] Civilization |  | same |  |
-| 30 | › [radio] Cartography | › [radio] Cartography |  | same |  |
-| 31 | [submenu] Open windows | [submenu] Open windows |  | same |  |
-| 32 | › [readout] No windows open |  |  | mockup-only | s S3 |
-| 33 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 34 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 35 | ——— | ——— |  | same |  |
-| 36 | Reset layout | Reset layout |  | same |  |
-| 37 | [submenu] Layouts | [submenu] Layouts |  | same |  |
-| 38 | › Default (reset layout) | › Default (reset layout) |  | same |  |
-| 39 | › Generate | › Generate |  | same |  |
-| 40 | › Sculpt | › Sculpt |  | same |  |
-| 41 | › Cartography | › Cartography |  | same |  |
-| 42 | › Journey | › Journey |  | same |  |
-| 43 | › ——— | › ——— |  | same |  |
-| 44 | › Save layout as… | › Save layout as… |  | same |  |
-| 45 | › Forget layout… | › Forget layout… |  | same |  |
+| 27 | [check] Session mode · Ctrl+Shift+M | [check] Session mode · Ctrl+Shift+M |  | same |  |
+| 28 | [check] Diagnostics overlay · Shift+D | [check] Diagnostics overlay · Shift+D |  | same |  |
+| 29 | [check] 3D view | [check] 3D view |  | same |  |
+| 30 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
+| 31 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
+| 32 | › Re-test 3D | › Re-test 3D |  | same |  |
+| 33 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
+| 34 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
+| 35 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 36 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 37 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 38 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 39 | ——— | ——— |  | same |  |
+| 40 | [submenu] Workspace | [submenu] Workspace |  | same |  |
+| 41 | › [radio] World · SM | › [radio] World · SM |  | same |  |
+| 42 | › [radio] Civilization | › [radio] Civilization |  | same |  |
+| 43 | › [radio] Cartography | › [radio] Cartography |  | same |  |
+| 44 | [submenu] Open windows | [submenu] Open windows |  | same |  |
+| 45 | › [readout] No windows open |  |  | mockup-only | s S3 |
+| 46 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 47 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 48 | ——— | ——— |  | same |  |
+| 49 | Reset layout | Reset layout |  | same |  |
+| 50 | [submenu] Layouts | [submenu] Layouts |  | same |  |
+| 51 | › Default (reset layout) | › Default (reset layout) |  | same |  |
+| 52 | › Generate | › Generate |  | same |  |
+| 53 | › Sculpt | › Sculpt |  | same |  |
+| 54 | › Cartography | › Cartography |  | same |  |
+| 55 | › Journey | › Journey |  | same |  |
+| 56 | › ——— | › ——— |  | same |  |
+| 57 | › Save layout as… | › Save layout as… |  | same |  |
+| 58 | › Forget layout… | › Forget layout… |  | same |  |
 
 #### Help
 
@@ -1412,48 +1445,61 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 306 | › › ——— | › › ——— |  | same |  |
 | 307 | › › Pin to the current subject | › › Pin to the current subject | › › [not built] Pin to the current subject | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
 | 308 | › › Follow the selection | › › Follow the selection | › › [not built] Follow the selection | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
-| 309 | › [check] Timeline | › [check] Timeline |  | same |  |
-| 310 | › [check] Status bar | › [check] Status bar |  | same |  |
-| 311 | › [check] Domain rail | › [check] Domain rail |  | same |  |
-| 312 | › ——— | › ——— |  | same |  |
-| 313 | › [check] Session mode · Ctrl+Shift+M | › [check] Session mode · Ctrl+Shift+M |  | same |  |
-| 314 | › [check] Diagnostics overlay · Shift+D | › [check] Diagnostics overlay · Shift+D |  | same |  |
-| 315 | › [check] 3D view | › [check] 3D view |  | same |  |
-| 316 | › [submenu] 3D capability | › [submenu] 3D capability |  | same |  |
-| 317 | › › [readout] 3D tier | › › [readout] 3D tier: not tested |  | same |  |
-| 318 | › › Re-test 3D | › › Re-test 3D |  | same |  |
-| 319 | › › [submenu] Force tier | › › [submenu] Force tier |  | same |  |
-| 320 | › › › [radio] Automatic (as measured) | › › › [radio] Automatic (as measured) |  | same |  |
-| 321 | › › › [radio] Off | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 322 | › › › [radio] Basic | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 323 | › › › [radio] Standard | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 324 | › › › [radio] Full | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 309 | › › **MODULES** | › › **MODULES** |  | same |  |
+| 310 | › › [check] History | › › [not built] History |  | differs: kind check/disabled (not built) | m PC-10 |
+| 311 | › › [check] Economy | › › [not built] Economy |  | differs: kind check/disabled (not built) | m PC-10 |
+| 312 | › › [check] Military | › › [not built] Military |  | differs: kind check/disabled (not built) | m PC-10 |
+| 313 | › › [check] Faith, culture & relations | › › [not built] Faith, culture & relations |  | differs: kind check/disabled (not built) | m PC-10 |
+| 314 | › › [check] Territory | › › [not built] Territory |  | differs: kind check/disabled (not built) | m PC-10 |
+| 315 | › › [check] City layout | › › [not built] City layout |  | differs: kind check/disabled (not built) | m PC-10 |
+| 316 | › › [check] Here | › › [not built] Here |  | differs: kind check/disabled (not built) | m PC-10 |
+| 317 | › › [check] Routes & journeys | › › [not built] Routes & journeys |  | differs: kind check/disabled (not built) | m PC-10 |
+| 318 | › › [check] Links | › › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
+| 319 | › › [check] Recent & bookmarks | › › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
+| 320 | › › ——— | › › ——— |  | same |  |
+| 321 | › › Reset panel | › › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
+| 322 | › [check] Timeline | › [check] Timeline |  | same |  |
+| 323 | › [check] Status bar | › [check] Status bar |  | same |  |
+| 324 | › [check] Domain rail | › [check] Domain rail |  | same |  |
 | 325 | › ——— | › ——— |  | same |  |
-| 326 | › [submenu] Workspace | › [submenu] Workspace |  | same |  |
-| 327 | › › [radio] World · SM | › › [radio] World · SM |  | same |  |
-| 328 | › › [radio] Civilization | › › [radio] Civilization |  | same |  |
-| 329 | › › [radio] Cartography | › › [radio] Cartography |  | same |  |
-| 330 | › [submenu] Open windows | › [submenu] Open windows |  | same |  |
-| 331 | › › [readout] No windows open |  |  | mockup-only | s S3 |
-| 332 | › › [check] Context panel | › › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 333 |  | › › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 334 | › ——— | › ——— |  | same |  |
-| 335 | › Reset layout | › Reset layout |  | same |  |
-| 336 | › [submenu] Layouts | › [submenu] Layouts |  | same |  |
-| 337 | › › Default (reset layout) | › › Default (reset layout) |  | same |  |
-| 338 | › › Generate | › › Generate |  | same |  |
-| 339 | › › Sculpt | › › Sculpt |  | same |  |
-| 340 | › › Cartography | › › Cartography |  | same |  |
-| 341 | › › Journey | › › Journey |  | same |  |
-| 342 | › › ——— | › › ——— |  | same |  |
-| 343 | › › Save layout as… | › › Save layout as… |  | same |  |
-| 344 | › › Forget layout… | › › Forget layout… |  | same |  |
-| 345 | [submenu] Help | [submenu] Help |  | same |  |
-| 346 | › [not built] Documentation | › [not built] Documentation |  | differs: reason | s S1 |
-| 347 | › Gesture reference… |  |  | mockup-only | n N2 |
-| 348 | › Credits & academic principles | › Credits & academic principles |  | same |  |
-| 349 | › Generation info… | › Generation info… |  | same |  |
-| 350 | › Save diagnostic report… | › Save diagnostic report… |  | same |  |
+| 326 | › [check] Session mode · Ctrl+Shift+M | › [check] Session mode · Ctrl+Shift+M |  | same |  |
+| 327 | › [check] Diagnostics overlay · Shift+D | › [check] Diagnostics overlay · Shift+D |  | same |  |
+| 328 | › [check] 3D view | › [check] 3D view |  | same |  |
+| 329 | › [submenu] 3D capability | › [submenu] 3D capability |  | same |  |
+| 330 | › › [readout] 3D tier | › › [readout] 3D tier: not tested |  | same |  |
+| 331 | › › Re-test 3D | › › Re-test 3D |  | same |  |
+| 332 | › › [submenu] Force tier | › › [submenu] Force tier |  | same |  |
+| 333 | › › › [radio] Automatic (as measured) | › › › [radio] Automatic (as measured) |  | same |  |
+| 334 | › › › [radio] Off | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 335 | › › › [radio] Basic | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 336 | › › › [radio] Standard | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 337 | › › › [radio] Full | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
+| 338 | › ——— | › ——— |  | same |  |
+| 339 | › [submenu] Workspace | › [submenu] Workspace |  | same |  |
+| 340 | › › [radio] World · SM | › › [radio] World · SM |  | same |  |
+| 341 | › › [radio] Civilization | › › [radio] Civilization |  | same |  |
+| 342 | › › [radio] Cartography | › › [radio] Cartography |  | same |  |
+| 343 | › [submenu] Open windows | › [submenu] Open windows |  | same |  |
+| 344 | › › [readout] No windows open |  |  | mockup-only | s S3 |
+| 345 | › › [check] Context panel | › › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 346 |  | › › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 347 | › ——— | › ——— |  | same |  |
+| 348 | › Reset layout | › Reset layout |  | same |  |
+| 349 | › [submenu] Layouts | › [submenu] Layouts |  | same |  |
+| 350 | › › Default (reset layout) | › › Default (reset layout) |  | same |  |
+| 351 | › › Generate | › › Generate |  | same |  |
+| 352 | › › Sculpt | › › Sculpt |  | same |  |
+| 353 | › › Cartography | › › Cartography |  | same |  |
+| 354 | › › Journey | › › Journey |  | same |  |
+| 355 | › › ——— | › › ——— |  | same |  |
+| 356 | › › Save layout as… | › › Save layout as… |  | same |  |
+| 357 | › › Forget layout… | › › Forget layout… |  | same |  |
+| 358 | [submenu] Help | [submenu] Help |  | same |  |
+| 359 | › [not built] Documentation | › [not built] Documentation |  | differs: reason | s S1 |
+| 360 | › Gesture reference… |  |  | mockup-only | n N2 |
+| 361 | › Credits & academic principles | › Credits & academic principles |  | same |  |
+| 362 | › Generation info… | › Generation info… |  | same |  |
+| 363 | › Save diagnostic report… | › Save diagnostic report… |  | same |  |
 
 #### File
 
@@ -1498,7 +1544,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 37 | [readout] exports | [readout] exports   … |  | same |  |
 | 38 | Change locations… | Change locations… |  | same |  |
 | 39 | Show project on disk | Show project on disk |  | same |  |
-| 40 | [signpost] imports live under World ▸ Import | [signpost] imports live under World ▸ Import |  | same |  |
+| 40 | [signpost] imports live under Records ▸ Import | [signpost] imports live under Records ▸ Import |  | same |  |
 | 41 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
 
 #### World
@@ -1524,33 +1570,37 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 17 | [radio] Sculpt · SM | [radio] Sculpt · SM |  | same |  |
 | 18 | ——— | ——— |  | same |  |
 | 19 | Seed & size… · SM | Seed & size… · SM |  | same |  |
-| 20 | ——— | ——— |  | same |  |
-| 21 | ⧉ Data manager | ⧉ Data manager |  | same |  |
-| 22 | **RECORDS** | **RECORDS** |  | same |  |
-| 23 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
-| 24 | Places… | Places… |  | same |  |
-| 25 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
-| 26 | Browse & edit a note… | Browse & edit a note… |  | same |  |
-| 27 | Places without notes… | Places without notes… |  | same |  |
-| 28 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
-| 29 | **TECHNICAL** | **TECHNICAL** |  | same |  |
-| 30 | World data tables… | World data tables… |  | same |  |
-| 31 | [submenu] Import | [submenu] Import |  | same |  |
-| 32 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 33 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
-| 34 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
-| 35 | › World Data   .ctl | › World Data   .ctl |  | same |  |
-| 36 | › Assets   → Assets | › Assets   → Assets |  | same |  |
-| 37 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
-| 38 | › **SOURCES** | › **SOURCES** |  | same |  |
-| 39 | › External Sources | › External Sources |  | same |  |
-| 40 | › Connected Sources | › Connected Sources |  | same |  |
-| 41 | › Source Registry | › Source Registry |  | same |  |
-| 42 | › **VALIDATION** | › **VALIDATION** |  | same |  |
-| 43 | › Definitions | › Definitions |  | same |  |
-| 44 | › Check Data | › Check Data |  | same |  |
-| 45 | › Repair / Normalize | › Repair / Normalize |  | same |  |
-| 46 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
+
+#### Records
+
+| # | Mockup | Godot | Godot today | Status | Class |
+|---:|---|---|---|---|---|
+| 1 | ⧉ Data manager | ⧉ Data manager |  | same |  |
+| 2 | **RECORDS** | **RECORDS** |  | same |  |
+| 3 | Factions… · Ctrl+Shift+F | Factions… · Ctrl+Shift+F |  | same |  |
+| 4 | Places… | Places… |  | same |  |
+| 5 | Markdown vault… · Ctrl+Shift+V | Markdown vault… · Ctrl+Shift+V |  | same |  |
+| 6 | Browse & edit a note… | Browse & edit a note… |  | same |  |
+| 7 | Places without notes… | Places without notes… |  | same |  |
+| 8 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
+| 9 | **TECHNICAL** | **TECHNICAL** |  | same |  |
+| 10 | World data tables… | World data tables… |  | same |  |
+| 11 | [submenu] Import | [submenu] Import |  | same |  |
+| 12 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 13 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
+| 14 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
+| 15 | › World Data   .ctl | › World Data   .ctl |  | same |  |
+| 16 | › Assets   → Assets | › Assets   → Assets |  | same |  |
+| 17 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
+| 18 | › **SOURCES** | › **SOURCES** |  | same |  |
+| 19 | › External Sources | › External Sources |  | same |  |
+| 20 | › Connected Sources | › Connected Sources |  | same |  |
+| 21 | › Source Registry | › Source Registry |  | same |  |
+| 22 | › **VALIDATION** | › **VALIDATION** |  | same |  |
+| 23 | › Definitions | › Definitions |  | same |  |
+| 24 | › Check Data | › Check Data |  | same |  |
+| 25 | › Repair / Normalize | › Repair / Normalize |  | same |  |
+| 26 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
 
 #### Story
 
@@ -1570,7 +1620,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 12 | [readout] Campaigns this year | [readout] Campaigns this year |  | same |  |
 | 13 | **NOTES** | **NOTES** |  | same |  |
 | 14 | Note for the selection · Ctrl+Shift+N | Note for the selection · Ctrl+Shift+N | Notes for this place · Ctrl+Shift+N | same after the milestone; today: label | m PC-5 |
-| 15 | [signpost] Places without notes is in World ▸ Records | [signpost] Places without notes is in World ▸ Records |  | same |  |
+| 15 | [signpost] Places without notes… is in Records | [signpost] Places without notes is in Records |  | same |  |
 | 16 | Ask the assistant about the selection · Ctrl+J | Ask the assistant about the selection · Ctrl+J | Assistant panel… | same after the milestone; today: label, key Ctrl+J/none | m PC-6 |
 
 ### Phone, MENU
@@ -1584,7 +1634,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 3 | [submenu] File | [submenu] File |  | same |  |
 | 4 | [submenu] Edit | [submenu] Edit |  | same |  |
 | 5 | [submenu] Assets | [submenu] Assets |  | same |  |
-| 6 | [submenu] World | [submenu] World |  | same |  |
+| 6 | [submenu] Records | [submenu] Records |  | same |  |
 | 7 | [submenu] Story | [submenu] Story |  | same |  |
 | 8 | [submenu] Preferences | [submenu] Preferences |  | same |  |
 | 9 | [submenu] Window | [submenu] Window |  | same |  |
@@ -1596,46 +1646,47 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
 | 1 | New world… · SM | New world… · SM |  | same |  |
-| 2 | Open project… | Open project… |  | same |  |
-| 3 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
-| 4 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 5 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 6 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
-| 7 | New world from selection… · SM | New world from selection… · SM |  | same |  |
-| 8 | ——— | ——— |  | same |  |
-| 9 | Save project | Save project |  | same |  |
-| 10 | Save as… | Save as… |  | same |  |
-| 11 | [check] Autosave | [check] Autosave |  | same |  |
-| 12 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
-| 13 | › [radio] Off | › [radio] Off |  | same |  |
-| 14 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
-| 15 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
-| 16 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
-| 17 | Revert to last save | Revert to last save |  | same |  |
-| 18 | Close project | Close project |  | same |  |
-| 19 | ——— | ——— |  | same |  |
-| 20 | [submenu] Export | [submenu] Export |  | same |  |
-| 21 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
-| 22 | › Player map… | › Player map… |  | same |  |
-| 23 | › DM / full map… | › DM / full map… |  | same |  |
-| 24 | › **SHARE** | › **SHARE** |  | same |  |
-| 25 | › Export map image… | › Export map image… |  | same |  |
-| 26 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
-| 27 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
-| 28 | › **DATA** | › **DATA** |  | same |  |
-| 29 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 30 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
-| 31 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
-| 32 | › Assets   .zip | › Assets   .zip |  | same |  |
-| 33 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
-| 34 | [readout] projects | [readout] projects   … |  | same |  |
-| 35 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
-| 36 | [readout] asset packs | [readout] asset packs   … |  | same |  |
-| 37 | [readout] exports | [readout] exports   … |  | same |  |
-| 38 | Change locations… | Change locations… |  | same |  |
-| 39 | Show project on disk | Show project on disk |  | same |  |
-| 40 | [signpost] imports live under World ▸ Import | [signpost] imports live under World ▸ Import |  | same |  |
-| 41 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
+| 2 | Generate world · SM | Generate world · SM |  | same |  |
+| 3 | Open project… | Open project… |  | same |  |
+| 4 | [submenu] Recent worlds | [submenu] Recent worlds |  | same |  |
+| 5 | › VHAREN REACH — 129384 · 5 d ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 6 | › KESSA — 774201 · 3 w ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 7 | › THORNWOOD — 908133 · 2 mo ago | › {meta.get('name', '')} · run-time list |  | same (run-time list) |  |
+| 8 | New world from selection… · SM | New world from selection… · SM |  | same |  |
+| 9 | ——— | ——— |  | same |  |
+| 10 | Save project | Save project |  | same |  |
+| 11 | Save as… | Save as… |  | same |  |
+| 12 | [check] Autosave | [check] Autosave |  | same |  |
+| 13 | [submenu] Autosave interval | [submenu] Autosave interval |  | same |  |
+| 14 | › [radio] Off | › [radio] Off |  | same |  |
+| 15 | › [radio] Every 1 min | › [radio] Every 1 min |  | same |  |
+| 16 | › [radio] Every 5 min | › [radio] Every 5 min |  | same |  |
+| 17 | › [radio] Every 15 min | › [radio] Every 15 min |  | same |  |
+| 18 | Revert to last save | Revert to last save |  | same |  |
+| 19 | Close project | Close project |  | same |  |
+| 20 | ——— | ——— |  | same |  |
+| 21 | [submenu] Export | [submenu] Export |  | same |  |
+| 22 | › **FOR THE TABLE** | › **FOR THE TABLE** |  | same |  |
+| 23 | › Player map… | › Player map… |  | same |  |
+| 24 | › DM / full map… | › DM / full map… |  | same |  |
+| 25 | › **SHARE** | › **SHARE** |  | same |  |
+| 26 | › Export map image… | › Export map image… |  | same |  |
+| 27 | › [not built] Print sheet (PDF)… | › [not built] Print sheet (PDF)… |  | same |  |
+| 28 | › [not built] VTT battle map (grid + walls)… | › [not built] VTT battle map (grid + walls)… |  | same |  |
+| 29 | › **DATA** | › **DATA** |  | same |  |
+| 30 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 31 | › GIS / GeoJSON   .geojson | › GIS / GeoJSON   .geojson |  | same |  |
+| 32 | › World Data   map + atlas | › World Data   map + atlas |  | same |  |
+| 33 | › Assets   .zip | › Assets   .zip |  | same |  |
+| 34 | **STORAGE LOCATIONS** | **STORAGE LOCATIONS** |  | same |  |
+| 35 | [readout] projects | [readout] projects   … |  | same |  |
+| 36 | [readout] tile atlas cache | [readout] tile atlas cache   … |  | same |  |
+| 37 | [readout] asset packs | [readout] asset packs   … |  | same |  |
+| 38 | [readout] exports | [readout] exports   … |  | same |  |
+| 39 | Change locations… | Change locations… |  | same |  |
+| 40 | Show project on disk | Show project on disk |  | same |  |
+| 41 | [signpost] imports live under Records ▸ Import | [signpost] imports live under Records ▸ Import |  | same |  |
+| 42 | [signpost] asset packs under Assets | [signpost] asset packs under Assets |  | same |  |
 
 #### Edit
 
@@ -1785,37 +1836,36 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
 
-#### World
+#### Records
 
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
-| 1 | Generate world · SM | Generate world · SM |  | same |  |
-| 2 | ⧉ Data manager | ⧉ Data manager |  | same |  |
-| 3 | **RECORDS** | **RECORDS** |  | same |  |
-| 4 | Factions… | Factions… |  | same |  |
-| 5 | Places… | Places… |  | same |  |
-| 6 | Markdown vault… | Markdown vault… |  | same |  |
-| 7 | Browse & edit a note… | Browse & edit a note… |  | same |  |
-| 8 | Places without notes… | Places without notes… |  | same |  |
-| 9 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
-| 10 | **TECHNICAL** | **TECHNICAL** |  | same |  |
-| 11 | World data tables… | World data tables… |  | same |  |
-| 12 | [submenu] Import | [submenu] Import |  | same |  |
-| 13 | › Maps   tiles | › Maps   tiles |  | same |  |
-| 14 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
-| 15 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
-| 16 | › World Data   .ctl | › World Data   .ctl |  | same |  |
-| 17 | › Assets   → Assets | › Assets   → Assets |  | same |  |
-| 18 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
-| 19 | › **SOURCES** | › **SOURCES** |  | same |  |
-| 20 | › External Sources | › External Sources |  | same |  |
-| 21 | › Connected Sources | › Connected Sources |  | same |  |
-| 22 | › Source Registry | › Source Registry |  | same |  |
-| 23 | › **VALIDATION** | › **VALIDATION** |  | same |  |
-| 24 | › Definitions | › Definitions |  | same |  |
-| 25 | › Check Data | › Check Data |  | same |  |
-| 26 | › Repair / Normalize | › Repair / Normalize |  | same |  |
-| 27 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
+| 1 | ⧉ Data manager | ⧉ Data manager |  | same |  |
+| 2 | **RECORDS** | **RECORDS** |  | same |  |
+| 3 | Factions… | Factions… |  | same |  |
+| 4 | Places… | Places… |  | same |  |
+| 5 | Markdown vault… | Markdown vault… |  | same |  |
+| 6 | Browse & edit a note… | Browse & edit a note… |  | same |  |
+| 7 | Places without notes… | Places without notes… |  | same |  |
+| 8 | [signpost] Timeline is in Story ▸ Timeline | [signpost] Timeline is in Story ▸ Timeline |  | same |  |
+| 9 | **TECHNICAL** | **TECHNICAL** |  | same |  |
+| 10 | World data tables… | World data tables… |  | same |  |
+| 11 | [submenu] Import | [submenu] Import |  | same |  |
+| 12 | › Maps   tiles | › Maps   tiles |  | same |  |
+| 13 | › Heightmaps   PNG | › Heightmaps   PNG |  | same |  |
+| 14 | › GIS / GeoJSON | › GIS / GeoJSON |  | same |  |
+| 15 | › World Data   .ctl | › World Data   .ctl |  | same |  |
+| 16 | › Assets   → Assets | › Assets   → Assets |  | same |  |
+| 17 | [submenu] Sources & validation | [submenu] Sources & validation |  | same |  |
+| 18 | › **SOURCES** | › **SOURCES** |  | same |  |
+| 19 | › External Sources | › External Sources |  | same |  |
+| 20 | › Connected Sources | › Connected Sources |  | same |  |
+| 21 | › Source Registry | › Source Registry |  | same |  |
+| 22 | › **VALIDATION** | › **VALIDATION** |  | same |  |
+| 23 | › Definitions | › Definitions |  | same |  |
+| 24 | › Check Data | › Check Data |  | same |  |
+| 25 | › Repair / Normalize | › Repair / Normalize |  | same |  |
+| 26 | [signpost] Export is in File ▸ Export | [signpost] Export is in File ▸ Export |  | same |  |
 
 #### Story
 
@@ -1835,7 +1885,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 12 | [readout] Campaigns this year | [readout] Campaigns this year |  | same |  |
 | 13 | **NOTES** | **NOTES** |  | same |  |
 | 14 | Note for the selection | Note for the selection | Notes for this place | same after the milestone; today: label | m PC-5 |
-| 15 | [signpost] Places without notes is in World ▸ Records | [signpost] Places without notes is in World ▸ Records |  | same |  |
+| 15 | [signpost] Places without notes… is in Records | [signpost] Places without notes is in Records |  | same |  |
 | 16 | Ask the assistant about the selection | Ask the assistant about the selection | Assistant panel… | same after the milestone; today: label | m PC-6 |
 
 #### Preferences

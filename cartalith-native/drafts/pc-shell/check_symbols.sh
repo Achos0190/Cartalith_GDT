@@ -89,6 +89,12 @@ need shell/popout_host.gd LIVE_KEYS add_toggle_button prepare supported
 for f in shell/saved_journeys_window.gd; do n_need=$((n_need + 1)); [ -f "$f" ] || { echo "MISSING file: $f"; fail=1; }; done
 need map_overlay.gd last_mouse_pos request_at
 
+# Ruling DZ (2026-11-01), draft 11: the tool-options bar holds tool settings only. The names it calls or
+# deletes, and the WORLD dock's homes for every control it takes off the bar.
+need shell/app.gd _tool_options_simple _tool_options_generate _tool_options_stale _tool_options_bake \
+  set_bake_shortcut _new_seed _center_landmasses _wire_status set_tool_options
+need shell/dcc_theme.gd is_touch
+need shell/workspaces/world_workspace.gd _refresh_finalize bake_and_finalize _on_bake_all on_world_changed
 echo "-- 2. free ------------------------------------------------------------------------------------"
 free shell/menus.gd ID_EDIT_SELECT_BACK ID_EDIT_SELECT_FORWARD ID_EDIT_CONTEXT_CARD ID_EDIT_CARTWHEEL \
   ID_WIN_CTX_INSPECT ID_WIN_CTX_NOTE ID_WIN_CTX_ASK ID_WIN_CTX_PIN ID_WIN_CTX_FOLLOW _host_has \
@@ -120,6 +126,8 @@ n=$(grep -rn --include='*.gd' '"ContextPanelMenu"' shell | wc -l | tr -d ' ')
 n=$(grep -rn --include='*.gd' -E ':= (92[0-9]|930)\b' shell | wc -l | tr -d ' ')
 [ "$n" = 0 ] || { echo "TAKEN: an id in 920-930, Ruling DY's module rows ($n definitions in shell/)"; fail=1; }
 
+# Ruling DZ, draft 11's two new constants.
+free shell/app.gd WORLD_IDLE_HINT_POINTER WORLD_IDLE_HINT_TOUCH
 echo "-- 3. anchor ----------------------------------------------------------------------------------"
 anchor shell/menus.gd "${T}${T}shell.add_menu(\"World\", _data)"
 anchor shell/menus.gd "${T}${T}shell.add_menu(\"☰\", _overflow)"
@@ -165,6 +173,14 @@ anchor shell/shortcuts_dialog.gd "${T}_editable = true"
 anchor shell/dcc_shell.gd "${T}mb.focus_mode = Control.FOCUS_NONE"
 anchor shell/app.gd 'func _open_context_card_from_keyboard() -> void:'
 
+# Ruling DZ, draft 11's EDITs T1, T2, T3 and T5 (T4 and T6 delete whole blocks, fingerprinted in 4).
+anchor shell/app.gd "## The tool-options bar's staleness label; text is \`generating…\` while the engine is busy and empty afterwards."
+anchor shell/app.gd 'var _tool_options_stale: Label'
+anchor shell/app.gd 'var _tool_options_bake: Button'
+anchor shell/app.gd "${T}${T}${T}_tool_options_stale.text = \"generating…\")"
+anchor shell/app.gd "${T}${T}${T}_tool_options_stale.text = \"\""
+anchor shell/workspaces/world_workspace.gd "${T}## The tool-options bar's copy mirrors this one rather than recomputing it."
+anchor shell/workspaces/world_workspace.gd "## tool bar's bake shortcut. Safe before \`_build_finalize\` ran (returns when"
 echo "-- 4. base ------------------------------------------------------------------------------------"
 base shell/menus.gd 'func _data(p: PopupMenu) -> void:' '## Tooltip of both Timeline rows' '687853559 2392'
 base shell/menus.gd "## The World menu's dispatcher, shared by the popup and its three route" "## Both Timeline rows' action:" '1605145114 1286'
@@ -176,6 +192,10 @@ base shell/menus.gd '## `_host` is `DccApp` (`app.gd`); these **six** fields are
 base shell/menus.gd '## The one-line "Keyboard shortcuts…" row' '## `full=false` on the tablet omits Keyboard shortcuts and About' '2144072409 381'
 base shell/app.gd '## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise' '## Delete whatever is selected, in whichever workspace owns a selection.' '1473528590 6963'
 
+# Ruling DZ, draft 11: the blocks it replaces or deletes, fingerprinted at 4f3d904 (2026-11-01).
+base shell/app.gd "## §4's Generation Pipeline row, in its specified order" '## Installs a minimal tool-options row' '3897334673 3647'
+base shell/app.gd '## Called by `world_workspace._refresh_finalize()`, the single owner of whether' "## Rewrites the status bar's" '20495316 464'
+base shell/workspaces/world_workspace.gd "## The tool-options bar's copy of this control presses exactly this" '## Re-syncs the Finalize section from' '123075827 363'
 echo "-- 5. stub ------------------------------------------------------------------------------------"
 n=$(grep -rln --include='*.gd' 'STUB(PC-' . | grep -v '^\./\.godot/' | wc -l | tr -d ' ')
 [ "$n" = 0 ] || { echo "STUB marker in $n shipped file(s): a 90_pc_milestone_stubs.gd placeholder was pasted, and the rows it gates are live over it"; fail=1; }

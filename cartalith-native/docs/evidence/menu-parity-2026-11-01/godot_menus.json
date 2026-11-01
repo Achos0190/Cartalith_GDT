@@ -14,6 +14,17 @@
     "ID_WIN_CTX_ASK",
     "ID_WIN_CTX_PIN",
     "ID_WIN_CTX_FOLLOW",
+    "ID_WIN_CTX_MOD_HISTORY",
+    "ID_WIN_CTX_MOD_ECONOMY",
+    "ID_WIN_CTX_MOD_MILITARY",
+    "ID_WIN_CTX_MOD_FAITH",
+    "ID_WIN_CTX_MOD_TERRITORY",
+    "ID_WIN_CTX_MOD_CITY",
+    "ID_WIN_CTX_MOD_HERE",
+    "ID_WIN_CTX_MOD_ROUTES",
+    "ID_WIN_CTX_MOD_LINKS",
+    "ID_WIN_CTX_MOD_RECENT",
+    "ID_WIN_CTX_RESET",
     "_host_has",
     "_context_tab_ready",
     "_typed_into_field",
@@ -27,11 +38,12 @@
     "_on_data"
    ],
    "added": [
+    "_generate_in_world",
+    "_build_generate_world_row",
     "RUN_PIPELINE_TIP",
     "FACTIONS_TIP",
     "FACTIONS_CURRENT_TIP",
     "TIMELINE_MOVED_SIGNPOST",
-    "_pc_world",
     "_open_factions"
    ]
   },
@@ -71,6 +83,8 @@
     "FACTION_HISTORY_TIP",
     "FACTION_HISTORY_CURRENT_TIP",
     "PLACES_WITHOUT_NOTES_SIGNPOST",
+    "STORY_PLANNER_TIP",
+    "STORY_PLANNER_WINDOW_TIP",
     "_story_forms",
     "_story_selection",
     "_story_political_tip",
@@ -96,10 +110,21 @@
     "CTX_PIN_TIP",
     "CTX_FOLLOW_TIP",
     "CTX_PIN_NOTHING",
+    "CTX_MODULES",
+    "CTX_MODULE_TODO",
+    "CTX_MODULE_TODAY",
+    "CTX_MODULE_TIPS",
+    "CTX_RESET_TODO",
+    "CTX_RESET_TIP",
+    "CTX_MODULE_REFUSED",
     "OPEN_WINDOW_NATIVE_SUFFIX",
     "OPEN_WINDOWS_NONE_TIP",
     "_region_label",
     "_build_context_panel_menu",
+    "_context_module_ready",
+    "_build_context_module_row",
+    "_refresh_context_modules",
+    "_context_module_key",
     "_on_context_panel",
     "_visible_windows",
     "_open_window_label"
@@ -119,6 +144,12 @@
   },
   {
    "edit": "pc-shell 02 W5"
+  },
+  {
+   "edit": "pc-shell 02 W6"
+  },
+  {
+   "edit": "pc-shell 02 W7"
   },
   {
    "edit": "pc-shell 03 E1"
@@ -236,6 +267,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -244,7 +282,7 @@
        {
         "label": "Recent worlds",
         "kind": "submenu",
-        "id": 2,
+        "id": 3,
         "node": "RecentWorlds",
         "items": [
          {
@@ -264,7 +302,7 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 4
+        "id": 5
        },
        {
         "label": "Save project",
@@ -286,7 +324,7 @@
        {
         "label": "Autosave interval",
         "kind": "submenu",
-        "id": 8,
+        "id": 9,
         "node": "AutosaveInterval",
         "items": [
          {
@@ -325,12 +363,12 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 11
+        "id": 12
        },
        {
         "label": "Export",
         "kind": "submenu",
-        "id": 12,
+        "id": 13,
         "node": "FileExport",
         "items": [
          {
@@ -401,27 +439,27 @@
        {
         "label": "STORAGE LOCATIONS",
         "kind": "caption",
-        "id": 13
+        "id": 14
        },
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -434,14 +472,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -1224,15 +1262,8 @@
       ]
      },
      {
-      "menu": "World",
+      "menu": "Records",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -1241,7 +1272,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 2
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -1273,12 +1304,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 9
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -1288,7 +1319,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 11,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -1321,7 +1352,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 12,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -1369,7 +1400,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -1450,7 +1481,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -2394,6 +2425,82 @@
           "kind": "disabled (not built)",
           "reason": "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
           "id": 5
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption",
+          "id": 6
+         },
+         {
+          "label": "History",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+          "id": 7
+         },
+         {
+          "label": "Economy",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+          "id": 8
+         },
+         {
+          "label": "Military",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+          "id": 9
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+          "id": 10
+         },
+         {
+          "label": "Territory",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+          "id": 11
+         },
+         {
+          "label": "City layout",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+          "id": 12
+         },
+         {
+          "label": "Here",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+          "id": 13
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+          "id": 14
+         },
+         {
+          "label": "Links",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+          "id": 15
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+          "id": 16
+         },
+         {
+          "label": "",
+          "kind": "separator",
+          "id": 17
+         },
+         {
+          "label": "Reset panel",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+          "id": 18
          }
         ]
        },
@@ -4296,6 +4403,82 @@
             "kind": "disabled (not built)",
             "reason": "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
             "id": 5
+           },
+           {
+            "label": "MODULES",
+            "kind": "caption",
+            "id": 6
+           },
+           {
+            "label": "History",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+            "id": 7
+           },
+           {
+            "label": "Economy",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+            "id": 8
+           },
+           {
+            "label": "Military",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+            "id": 9
+           },
+           {
+            "label": "Faith, culture & relations",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+            "id": 10
+           },
+           {
+            "label": "Territory",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+            "id": 11
+           },
+           {
+            "label": "City layout",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+            "id": 12
+           },
+           {
+            "label": "Here",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+            "id": 13
+           },
+           {
+            "label": "Routes & journeys",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+            "id": 14
+           },
+           {
+            "label": "Links",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+            "id": 15
+           },
+           {
+            "label": "Recent & bookmarks",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+            "id": 16
+           },
+           {
+            "label": "",
+            "kind": "separator",
+            "id": 17
+           },
+           {
+            "label": "Reset panel",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+            "id": 18
            }
           ]
          },
@@ -4716,7 +4899,7 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
         "id": 20
        },
@@ -4834,12 +5017,12 @@
         "kind": "command",
         "session_mode_gated": true,
         "id": 713
-       },
-       {
-        "label": "",
-        "kind": "separator",
-        "id": 9
-       },
+       }
+      ]
+     },
+     {
+      "menu": "Records",
+      "rows": [
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -4848,7 +5031,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 11
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -4880,12 +5063,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 17
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 18
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -4895,7 +5078,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 20,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -4928,7 +5111,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 21,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -4976,7 +5159,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 22
+        "id": 12
        }
       ]
      },
@@ -5057,7 +5240,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -5084,6 +5267,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -5092,7 +5282,7 @@
        {
         "label": "Recent worlds",
         "kind": "submenu",
-        "id": 2,
+        "id": 3,
         "node": "RecentWorlds",
         "items": [
          {
@@ -5112,7 +5302,7 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 4
+        "id": 5
        },
        {
         "label": "Save project",
@@ -5134,7 +5324,7 @@
        {
         "label": "Autosave interval",
         "kind": "submenu",
-        "id": 8,
+        "id": 9,
         "node": "AutosaveInterval",
         "items": [
          {
@@ -5173,12 +5363,12 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 11
+        "id": 12
        },
        {
         "label": "Export",
         "kind": "submenu",
-        "id": 12,
+        "id": 13,
         "node": "FileExport",
         "items": [
          {
@@ -5249,27 +5439,27 @@
        {
         "label": "STORAGE LOCATIONS",
         "kind": "caption",
-        "id": 13
+        "id": 14
        },
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -5282,14 +5472,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -6072,15 +6262,8 @@
       ]
      },
      {
-      "menu": "World",
+      "menu": "Records",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -6089,7 +6272,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 2
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -6121,12 +6304,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 9
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -6136,7 +6319,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 11,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -6169,7 +6352,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 12,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -6217,7 +6400,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -6298,7 +6481,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -7237,6 +7420,82 @@
           "kind": "disabled (not built)",
           "reason": "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
           "id": 5
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption",
+          "id": 6
+         },
+         {
+          "label": "History",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+          "id": 7
+         },
+         {
+          "label": "Economy",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+          "id": 8
+         },
+         {
+          "label": "Military",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+          "id": 9
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+          "id": 10
+         },
+         {
+          "label": "Territory",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+          "id": 11
+         },
+         {
+          "label": "City layout",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+          "id": 12
+         },
+         {
+          "label": "Here",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+          "id": 13
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+          "id": 14
+         },
+         {
+          "label": "Links",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+          "id": 15
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+          "id": 16
+         },
+         {
+          "label": "",
+          "kind": "separator",
+          "id": 17
+         },
+         {
+          "label": "Reset panel",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+          "id": 18
          }
         ]
        },
@@ -7479,7 +7738,7 @@
       "kind": "drill"
      },
      {
-      "label": "World",
+      "label": "Records",
       "kind": "drill"
      },
      {
@@ -7515,6 +7774,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -7532,7 +7798,7 @@
           "id": 0
          }
         ],
-        "id": 2
+        "id": 3
        },
        {
         "label": "New world from selection…",
@@ -7587,7 +7853,7 @@
           "id": 133
          }
         ],
-        "id": 8
+        "id": 9
        },
        {
         "label": "Revert to last save",
@@ -7670,7 +7936,7 @@
           "id": 408
          }
         ],
-        "id": 12
+        "id": 13
        },
        {
         "label": "STORAGE LOCATIONS",
@@ -7679,22 +7945,22 @@
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -7707,14 +7973,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -8470,16 +8736,9 @@
        }
       ]
      },
-     "World": {
-      "screen": "the World popup (_menu_root_row -> _fill_popup)",
+     "Records": {
+      "screen": "the Records popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -8519,7 +8778,7 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
@@ -8561,7 +8820,7 @@
           "id": 404
          }
         ],
-        "id": 11
+        "id": 10
        },
        {
         "label": "Sources & validation",
@@ -8607,12 +8866,12 @@
           "id": 414
          }
         ],
-        "id": 12
+        "id": 11
        },
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -8689,7 +8948,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -9846,6 +10105,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -9854,7 +10120,7 @@
        {
         "label": "Recent worlds",
         "kind": "submenu",
-        "id": 2,
+        "id": 3,
         "node": "RecentWorlds",
         "items": [
          {
@@ -9874,7 +10140,7 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 4
+        "id": 5
        },
        {
         "label": "Save project",
@@ -9896,7 +10162,7 @@
        {
         "label": "Autosave interval",
         "kind": "submenu",
-        "id": 8,
+        "id": 9,
         "node": "AutosaveInterval",
         "items": [
          {
@@ -9935,12 +10201,12 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 11
+        "id": 12
        },
        {
         "label": "Export",
         "kind": "submenu",
-        "id": 12,
+        "id": 13,
         "node": "FileExport",
         "items": [
          {
@@ -10011,27 +10277,27 @@
        {
         "label": "STORAGE LOCATIONS",
         "kind": "caption",
-        "id": 13
+        "id": 14
        },
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -10044,14 +10310,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -10834,15 +11100,8 @@
       ]
      },
      {
-      "menu": "World",
+      "menu": "Records",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -10851,7 +11110,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 2
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -10883,12 +11142,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 9
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -10898,7 +11157,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 11,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -10931,7 +11190,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 12,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -10979,7 +11238,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -11060,7 +11319,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -12003,6 +12262,82 @@
           "label": "Follow the selection",
           "kind": "command",
           "id": 918
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption",
+          "id": 6
+         },
+         {
+          "label": "History",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+          "id": 7
+         },
+         {
+          "label": "Economy",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+          "id": 8
+         },
+         {
+          "label": "Military",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+          "id": 9
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+          "id": 10
+         },
+         {
+          "label": "Territory",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+          "id": 11
+         },
+         {
+          "label": "City layout",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+          "id": 12
+         },
+         {
+          "label": "Here",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+          "id": 13
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+          "id": 14
+         },
+         {
+          "label": "Links",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+          "id": 15
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+          "id": 16
+         },
+         {
+          "label": "",
+          "kind": "separator",
+          "id": 17
+         },
+         {
+          "label": "Reset panel",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+          "id": 18
          }
         ]
        },
@@ -13908,6 +14243,82 @@
             "label": "Follow the selection",
             "kind": "command",
             "id": 918
+           },
+           {
+            "label": "MODULES",
+            "kind": "caption",
+            "id": 6
+           },
+           {
+            "label": "History",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+            "id": 7
+           },
+           {
+            "label": "Economy",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+            "id": 8
+           },
+           {
+            "label": "Military",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+            "id": 9
+           },
+           {
+            "label": "Faith, culture & relations",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+            "id": 10
+           },
+           {
+            "label": "Territory",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+            "id": 11
+           },
+           {
+            "label": "City layout",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+            "id": 12
+           },
+           {
+            "label": "Here",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+            "id": 13
+           },
+           {
+            "label": "Routes & journeys",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+            "id": 14
+           },
+           {
+            "label": "Links",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+            "id": 15
+           },
+           {
+            "label": "Recent & bookmarks",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+            "id": 16
+           },
+           {
+            "label": "",
+            "kind": "separator",
+            "id": 17
+           },
+           {
+            "label": "Reset panel",
+            "kind": "disabled (not built)",
+            "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+            "id": 18
            }
           ]
          },
@@ -14333,7 +14744,7 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
         "id": 20
        },
@@ -14451,12 +14862,12 @@
         "kind": "command",
         "session_mode_gated": true,
         "id": 713
-       },
-       {
-        "label": "",
-        "kind": "separator",
-        "id": 9
-       },
+       }
+      ]
+     },
+     {
+      "menu": "Records",
+      "rows": [
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -14465,7 +14876,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 11
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -14497,12 +14908,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 17
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 18
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -14512,7 +14923,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 20,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -14545,7 +14956,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 21,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -14593,7 +15004,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 22
+        "id": 12
        }
       ]
      },
@@ -14674,7 +15085,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -14702,6 +15113,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -14710,7 +15128,7 @@
        {
         "label": "Recent worlds",
         "kind": "submenu",
-        "id": 2,
+        "id": 3,
         "node": "RecentWorlds",
         "items": [
          {
@@ -14730,7 +15148,7 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 4
+        "id": 5
        },
        {
         "label": "Save project",
@@ -14752,7 +15170,7 @@
        {
         "label": "Autosave interval",
         "kind": "submenu",
-        "id": 8,
+        "id": 9,
         "node": "AutosaveInterval",
         "items": [
          {
@@ -14791,12 +15209,12 @@
        {
         "label": "",
         "kind": "separator",
-        "id": 11
+        "id": 12
        },
        {
         "label": "Export",
         "kind": "submenu",
-        "id": 12,
+        "id": 13,
         "node": "FileExport",
         "items": [
          {
@@ -14867,27 +15285,27 @@
        {
         "label": "STORAGE LOCATIONS",
         "kind": "caption",
-        "id": 13
+        "id": 14
        },
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -14900,14 +15318,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -15690,15 +16108,8 @@
       ]
      },
      {
-      "menu": "World",
+      "menu": "Records",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -15707,7 +16118,7 @@
        {
         "label": "RECORDS",
         "kind": "caption",
-        "id": 2
+        "id": 1
        },
        {
         "label": "Factions…",
@@ -15739,12 +16150,12 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
         "kind": "caption",
-        "id": 9
+        "id": 8
        },
        {
         "label": "World data tables…",
@@ -15754,7 +16165,7 @@
        {
         "label": "Import",
         "kind": "submenu",
-        "id": 11,
+        "id": 10,
         "node": "WorldImport",
         "items": [
          {
@@ -15787,7 +16198,7 @@
        {
         "label": "Sources & validation",
         "kind": "submenu",
-        "id": 12,
+        "id": 11,
         "node": "WorldSources",
         "items": [
          {
@@ -15835,7 +16246,7 @@
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -15916,7 +16327,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },
@@ -16854,6 +17265,82 @@
           "label": "Follow the selection",
           "kind": "command",
           "id": 918
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption",
+          "id": 6
+         },
+         {
+          "label": "History",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: History arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+          "id": 7
+         },
+         {
+          "label": "Economy",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Economy arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+          "id": 8
+         },
+         {
+          "label": "Military",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Military arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+          "id": 9
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Faith, culture & relations arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+          "id": 10
+         },
+         {
+          "label": "Territory",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Territory arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Factions window's Territory tab.",
+          "id": 11
+         },
+         {
+          "label": "City layout",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: City layout arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Layout tab, and the City viewer.",
+          "id": 12
+         },
+         {
+          "label": "Here",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Here arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+          "id": 13
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Routes & journeys arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+          "id": 14
+         },
+         {
+          "label": "Links",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Links arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+          "id": 15
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: Recent & bookmarks arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+          "id": 16
+         },
+         {
+          "label": "",
+          "kind": "separator",
+          "id": 17
+         },
+         {
+          "label": "Reset panel",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4).",
+          "id": 18
          }
         ]
        },
@@ -17101,7 +17588,7 @@
       "kind": "drill"
      },
      {
-      "label": "World",
+      "label": "Records",
       "kind": "drill"
      },
      {
@@ -17137,6 +17624,13 @@
         "id": 10
        },
        {
+        "label": "Generate world",
+        "kind": "command",
+        "accel": "Ctrl+R",
+        "session_mode_gated": true,
+        "id": 710
+       },
+       {
         "label": "Open project…",
         "kind": "command",
         "accel": "Ctrl+O",
@@ -17154,7 +17648,7 @@
           "id": 0
          }
         ],
-        "id": 2
+        "id": 3
        },
        {
         "label": "New world from selection…",
@@ -17209,7 +17703,7 @@
           "id": 133
          }
         ],
-        "id": 8
+        "id": 9
        },
        {
         "label": "Revert to last save",
@@ -17292,7 +17786,7 @@
           "id": 408
          }
         ],
-        "id": 12
+        "id": 13
        },
        {
         "label": "STORAGE LOCATIONS",
@@ -17301,22 +17795,22 @@
        {
         "label": "projects   …",
         "kind": "readout",
-        "id": 14
+        "id": 15
        },
        {
         "label": "tile atlas cache   …",
         "kind": "readout",
-        "id": 15
+        "id": 16
        },
        {
         "label": "asset packs   …",
         "kind": "readout",
-        "id": 16
+        "id": 17
        },
        {
         "label": "exports   …",
         "kind": "readout",
-        "id": 17
+        "id": 18
        },
        {
         "label": "Change locations…",
@@ -17329,14 +17823,14 @@
         "id": 19
        },
        {
-        "label": "imports live under World ▸ Import",
+        "label": "imports live under Records ▸ Import",
         "kind": "signpost",
-        "id": 20
+        "id": 21
        },
        {
         "label": "asset packs under Assets",
         "kind": "signpost",
-        "id": 21
+        "id": 22
        }
       ]
      },
@@ -18092,16 +18586,9 @@
        }
       ]
      },
-     "World": {
-      "screen": "the World popup (_menu_root_row -> _fill_popup)",
+     "Records": {
+      "screen": "the Records popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Generate world",
-        "kind": "command",
-        "accel": "Ctrl+R",
-        "session_mode_gated": true,
-        "id": 710
-       },
        {
         "label": "⧉ Data manager",
         "kind": "command",
@@ -18141,7 +18628,7 @@
        {
         "label": "Timeline is in Story ▸ Timeline",
         "kind": "signpost",
-        "id": 8
+        "id": 7
        },
        {
         "label": "TECHNICAL",
@@ -18183,7 +18670,7 @@
           "id": 404
          }
         ],
-        "id": 11
+        "id": 10
        },
        {
         "label": "Sources & validation",
@@ -18229,12 +18716,12 @@
           "id": 414
          }
         ],
-        "id": 12
+        "id": 11
        },
        {
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
-        "id": 13
+        "id": 12
        }
       ]
      },
@@ -18311,7 +18798,7 @@
         "id": 728
        },
        {
-        "label": "Places without notes is in World ▸ Records",
+        "label": "Places without notes is in Records",
         "kind": "signpost",
         "id": 14
        },

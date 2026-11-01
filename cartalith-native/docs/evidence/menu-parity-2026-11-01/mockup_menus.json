@@ -12,6 +12,12 @@
       "session_mode_gated": true
      },
      {
+      "label": "Generate world",
+      "kind": "command",
+      "accel": "Ctrl+R",
+      "session_mode_gated": true
+     },
+     {
       "label": "Open project…",
       "kind": "command",
       "accel": "Ctrl+O"
@@ -178,7 +184,7 @@
       "kind": "command"
      },
      {
-      "label": "imports live under World ▸ Import",
+      "label": "imports live under Records ▸ Import",
       "kind": "signpost"
      },
      {
@@ -807,14 +813,8 @@
     ]
    },
    {
-    "menu": "World",
+    "menu": "Records",
     "rows": [
-     {
-      "label": "Generate world",
-      "kind": "command",
-      "accel": "Ctrl+R",
-      "session_mode_gated": true
-     },
      {
       "label": "⧉ Data manager",
       "kind": "command"
@@ -990,7 +990,7 @@
       "accel": "Ctrl+Shift+N"
      },
      {
-      "label": "Places without notes is in World ▸ Records",
+      "label": "Places without notes… is in Records",
       "kind": "signpost"
      },
      {
@@ -1736,6 +1736,58 @@
        {
         "label": "Follow the selection",
         "kind": "command"
+       },
+       {
+        "label": "MODULES",
+        "kind": "caption"
+       },
+       {
+        "label": "History",
+        "kind": "check"
+       },
+       {
+        "label": "Economy",
+        "kind": "check"
+       },
+       {
+        "label": "Military",
+        "kind": "check"
+       },
+       {
+        "label": "Faith, culture & relations",
+        "kind": "check"
+       },
+       {
+        "label": "Territory",
+        "kind": "check"
+       },
+       {
+        "label": "City layout",
+        "kind": "check"
+       },
+       {
+        "label": "Here",
+        "kind": "check"
+       },
+       {
+        "label": "Routes & journeys",
+        "kind": "check"
+       },
+       {
+        "label": "Links",
+        "kind": "check"
+       },
+       {
+        "label": "Recent & bookmarks",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Reset panel",
+        "kind": "command"
        }
       ]
      },
@@ -1936,6 +1988,12 @@
       "session_mode_gated": true
      },
      {
+      "label": "Generate world",
+      "kind": "command",
+      "accel": "Ctrl+R",
+      "session_mode_gated": true
+     },
+     {
       "label": "Open project…",
       "kind": "command",
       "accel": "Ctrl+O"
@@ -2102,7 +2160,7 @@
       "kind": "command"
      },
      {
-      "label": "imports live under World ▸ Import",
+      "label": "imports live under Records ▸ Import",
       "kind": "signpost"
      },
      {
@@ -2731,14 +2789,8 @@
     ]
    },
    {
-    "menu": "World",
+    "menu": "Records",
     "rows": [
-     {
-      "label": "Generate world",
-      "kind": "command",
-      "accel": "Ctrl+R",
-      "session_mode_gated": true
-     },
      {
       "label": "⧉ Data manager",
       "kind": "command"
@@ -2914,7 +2966,7 @@
       "accel": "Ctrl+Shift+N"
      },
      {
-      "label": "Places without notes is in World ▸ Records",
+      "label": "Places without notes… is in Records",
       "kind": "signpost"
      },
      {
@@ -3667,6 +3719,58 @@
        },
        {
         "label": "Follow the selection",
+        "kind": "command"
+       },
+       {
+        "label": "MODULES",
+        "kind": "caption"
+       },
+       {
+        "label": "History",
+        "kind": "check"
+       },
+       {
+        "label": "Economy",
+        "kind": "check"
+       },
+       {
+        "label": "Military",
+        "kind": "check"
+       },
+       {
+        "label": "Faith, culture & relations",
+        "kind": "check"
+       },
+       {
+        "label": "Territory",
+        "kind": "check"
+       },
+       {
+        "label": "City layout",
+        "kind": "check"
+       },
+       {
+        "label": "Here",
+        "kind": "check"
+       },
+       {
+        "label": "Routes & journeys",
+        "kind": "check"
+       },
+       {
+        "label": "Links",
+        "kind": "check"
+       },
+       {
+        "label": "Recent & bookmarks",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Reset panel",
         "kind": "command"
        }
       ]
@@ -5190,6 +5294,58 @@
          {
           "label": "Follow the selection",
           "kind": "command"
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption"
+         },
+         {
+          "label": "History",
+          "kind": "check"
+         },
+         {
+          "label": "Economy",
+          "kind": "check"
+         },
+         {
+          "label": "Military",
+          "kind": "check"
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "check"
+         },
+         {
+          "label": "Territory",
+          "kind": "check"
+         },
+         {
+          "label": "City layout",
+          "kind": "check"
+         },
+         {
+          "label": "Here",
+          "kind": "check"
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "check"
+         },
+         {
+          "label": "Links",
+          "kind": "check"
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "check"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Reset panel",
+          "kind": "command"
          }
         ]
        },
@@ -5553,7 +5709,7 @@
       "kind": "command"
      },
      {
-      "label": "imports live under World ▸ Import",
+      "label": "imports live under Records ▸ Import",
       "kind": "signpost"
      },
      {
@@ -5659,11 +5815,12 @@
       "label": "Seed & size…",
       "kind": "command",
       "session_mode_gated": true
-     },
-     {
-      "label": "",
-      "kind": "separator"
-     },
+     }
+    ]
+   },
+   {
+    "menu": "Records",
+    "rows": [
      {
       "label": "⧉ Data manager",
       "kind": "command"
@@ -5839,7 +5996,7 @@
       "accel": "Ctrl+Shift+N"
      },
      {
-      "label": "Places without notes is in World ▸ Records",
+      "label": "Places without notes… is in Records",
       "kind": "signpost"
      },
      {
@@ -5856,7 +6013,7 @@
     "File",
     "Edit",
     "Assets",
-    "World",
+    "Records",
     "Story",
     "Preferences",
     "Window",
@@ -5871,6 +6028,12 @@
        "label": "New world…",
        "kind": "command",
        "accel": "Ctrl+N",
+       "session_mode_gated": true
+      },
+      {
+       "label": "Generate world",
+       "kind": "command",
+       "accel": "Ctrl+R",
        "session_mode_gated": true
       },
       {
@@ -6040,7 +6203,7 @@
        "kind": "command"
       },
       {
-       "label": "imports live under World ▸ Import",
+       "label": "imports live under Records ▸ Import",
        "kind": "signpost"
       },
       {
@@ -6659,14 +6822,8 @@
      ]
     },
     {
-     "menu": "World",
+     "menu": "Records",
      "rows": [
-      {
-       "label": "Generate world",
-       "kind": "command",
-       "accel": "Ctrl+R",
-       "session_mode_gated": true
-      },
       {
        "label": "⧉ Data manager",
        "kind": "command"
@@ -6842,7 +6999,7 @@
        "accel": "Ctrl+Shift+N"
       },
       {
-       "label": "Places without notes is in World ▸ Records",
+       "label": "Places without notes… is in Records",
        "kind": "signpost"
       },
       {

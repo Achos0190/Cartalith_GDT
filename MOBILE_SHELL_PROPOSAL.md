@@ -126,6 +126,11 @@ Dropdowns drill in rather than cascade, with 48 dp rows and accelerators shown f
 the domain rail (with the active domain's nodes as 48 dp buttons), the left dock, the map, the inspector, the timeline
 and the status bar keep their desktop order.
 
+**The tool-options bar holds the armed tool's settings only** (Ruling DZ, 2026-11-01; `PC_SHELL_PROPOSAL.md`
+§3.12). With no tool armed, it shows the context name and one hint (*Tap selects · hold opens the cartwheel and
+the card*). Generate world, New seed, Center landmasses and Bake ALL & finalize stay in the WORLD dock and the
+menus. The quick bar's pins at its right end stay.
+
 **The right dock and the strip, proposed later the same day.** `PC_SHELL_PROPOSAL.md` proposes the desktop's right dock
 as a **Context panel** (Inspect · Note · Ask, following the selection or pinned), and the timeline strip in every domain
 with CIVIL ▸ Timeline's controls in its expanded row. Because the tablet is the desktop shell, both reach the tablet at

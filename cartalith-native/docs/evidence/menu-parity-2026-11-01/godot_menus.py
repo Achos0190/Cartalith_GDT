@@ -294,6 +294,15 @@ PC_EDITS = [
      T + '_live(p, "Markdown vault…", ID_VAULT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_V)'),
     ("02 W5", T + '_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)',
      T + '_live(p, "Generate world", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)'),
+    # Ruling DY (PQ6): Generate world moves to File, directly after New world… (draft 02's EDIT W6), and File's
+    # signpost names Records (EDIT W7). Transcribed 2026-11-01 from the draft's header, as the others were.
+    ("02 W6", T + '_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)\n' + T + "_session_gate_row(p, p.item_count - 1)",
+     T + '_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)\n' + T + "_session_gate_row(p, p.item_count - 1)\n"
+     + T + "## Ruling DY (PQ6): Generate world, directly after New world…, unless this bar's World menu holds it.\n"
+     + T + "_build_generate_world_row(p)"),
+    ("02 W7", T + '## "World", not "Data", since SM-1 renamed the menu (Ruling CK).\n' + T + 'for line in ["imports live under World ▸ Import",',
+     T + '## "Records" since Ruling DY renamed the menu (it was "Data" until SM-1, then "World", Ruling CK).\n' + T
+     + 'for line in ["imports live under Records ▸ Import",'),
     ("03 E1", T + '_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)\n' + T + "p.set_item_tooltip(p.item_count - 1,\n"
      + T + T + '"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, '
      'which puts the tool down and deliberately leaves the selection alone.")',

@@ -2717,6 +2717,11 @@ as one; each is open to the owner.
      - Window ▸ Context panel lists the modules as check rows, so each has a menu path and its key can be rebound.
        These rows are not on the phone.
    - **With Compare not chosen,** flow F8's pin and banner remain the way to compare two subjects.
+   - **Bookmarks: "In the world file".** Asked the same day, after the mockup was built, because the Recent &
+     bookmarks module needed a home for them.
+     - Bookmarks are saved inside the world file, as a new optional slot in the project `.zip`, beside PQ5's saved
+       conversation.
+     - The recent list stays session-only.
 2. **PQ2: "Approve it".** The strip in every domain is the design for `GUI_GAP_REGISTER.md` CV-24. The wait the owner
    set on 2026-09-03 is over: CV-24 can be built, as PC-3.
 3. **PQ3: "Yes, those five".**
@@ -2853,3 +2858,39 @@ as one; each is open to the owner.
 - `OUTSTANDING_WORK.md` and `STATUS.md` are updated.
 
 Nothing is built by this ruling. No open question remains in those four documents.
+
+## Ruling DZ: the tool-options bar holds tool settings only; Generate, New seed, Center landmasses and Bake leave it (owner, 2026-11-01)
+
+The owner, verbatim, while reviewing the desktop mockup: *"The buttons in the top rail new seed, generate and bake can
+be removed. Please see to only keep the paint/sculpt brush settings here."*
+
+The owner was then asked what the bar should hold for every other tool, and chose "Tool settings only".
+
+Recorded:
+1. **The tool-options bar holds the armed tool's settings and nothing else.**
+   - For sculpt and paint, that is brush size, strength and mode.
+   - Each other tool keeps its own settings: Measure, Way, Route, Territory, Settlement, Icon, Label and Conflict.
+   - *Judgement:* a tool's **Commit** and **Discard** stay. They finish that tool's own draft, and
+     `DCC_SHELL_SPEC.md` §4 lays the row out as "context label → parameters → spacer → commit/discard".
+2. **With no tool armed, the bar shows only the context name and a one-line hint.** For example, "GENERATE · WORLD"
+   and "Click selects · right-click opens the card · Q opens the cartwheel". The hint's wording is a judgement.
+3. **What leaves the bar, and where each item stays** (`MISTAKES.md`, "Delete a surface"):
+   - **Generate world:** the WORLD dock, File ▸ Generate world (Ctrl+R) and, on the narrow touch tablet, World ▸
+     Generate world.
+   - **New seed and Center landmasses:** the WORLD dock's RUN section.
+   - **Bake ALL & finalize:** the WORLD dock's Finalize foot. The bar's copy only ever pressed that button.
+   - **The "generating…" readout:** the busy overlay and the status bar's `pass` cell, which the same handler
+     already writes.
+4. **The quick bar's pins at the bar's right end stay.**
+5. **The journey planner's bar row moves into the planner's window** (Ruling DY, PQ4), with PC-8. That row is the
+   journey picker, a carriage readout, and re-route…, save journey and export table.
+6. **The phone is unchanged:** its tool strip appears only while a tool is armed, and then holds that tool's
+   settings.
+
+**Consequences:**
+- `PC_SHELL_PROPOSAL.md` gains §3.12 and milestone PC-11.
+- `DCC_SHELL_SPEC.md` §4 carries a note: an owner decision is newer than a canvas.
+- Draft `cartalith-native/drafts/pc-shell/11_tool_options_bar.gd` holds the change, and two probes change with it.
+- The mockup follows.
+
+Nothing is built by this ruling.

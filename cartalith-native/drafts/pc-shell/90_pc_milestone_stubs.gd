@@ -181,7 +181,9 @@ func follow_selection() -> void:
 ##                                                         crate's index: `engine_bridge.gd::vault_links_for`,
 ##                                                         `vault_refresh_backlinks`)
 ##   recent     every kind                           yes   nothing today: the history is PC-1's
-##                                                         (`select_back()`, `select_forward()`); bookmarks are new
+##                                                         (`select_back()`, `select_forward()`); bookmarks are new,
+##                                                         saved inside the world file (Ruling DY: "In the world
+##                                                         file"), a new optional slot; the history is session-only
 ## The keys and titles are `menus.gd::CTX_MODULES`' (`drafts/pc-shell/05`), never a second spelling.
 
 ## PC-4 (Ruling DY). The modules this build can show, one Dictionary each: "key" (a `menus.gd::CTX_MODULES`

@@ -49,6 +49,7 @@ rows in the same change as the move, and Q breaks if 03 and 09 are split.
 | 8 | `08_shortcuts_dialog.gd` | `shell/shortcuts_dialog.gd` | one `UNLISTED` row (the Menu key); window title per mode (`_set_mode_title()`, `_phone_title`) | **03, 09** |
 | 9 | `09_app_keys.gd` | `shell/app.gd` | replaces `_unhandled_key_input()` with its doc (four exact replacements of the shipped text); adds `open_context_card()`, `open_cartwheel_at_pointer()` | **03, 08** |
 | 10 | `10_dcc_shell_menu_hover.gd` | `shell/dcc_shell.gd` | one line in `add_menu()`: `switch_on_hover` on the desktop | independent |
+| 11 | `11_tool_options_bar.gd` | `shell/app.gd`, `shell/workspaces/world_workspace.gd` | **Ruling DZ.** Replaces `_tool_options_generate()` (WORLD's idle row becomes the context name and one hint, through `_tool_options_simple()`; two new constants `WORLD_IDLE_HINT_POINTER` and `WORLD_IDLE_HINT_TOUCH`); deletes `_tool_options_stale`, `_tool_options_bake`, `set_bake_shortcut()`, `bake_and_finalize()` and `_refresh_finalize()`'s push to the bar (EDITs T1-T6) | none; lands on its own |
 | 90 | `90_pc_milestone_stubs.gd` | `shell/app.gd` | **not applied with the others.** The contract PC-1, PC-4 (with Ruling DY's module registry and arrangement), PC-5, PC-6 and PC-8 (the planner window, Ruling DY) implement; each milestone writes its methods' real bodies | its milestone |
 
 Every row id the proposal renames is kept: a rebind (`DccSettings`, keyed by id), a quick-bar pin (`menu:<id>`) and
@@ -225,6 +226,9 @@ Each was read at its own lines; none was run (no Godot here).
 | `_ctxring_probe.gd` (windowed, clean user dir) | no edit: its Q and M legs push Q, the Menu key and Shift+F10 through `_vp.push_input()`, which now reaches the rows' accelerators for Q and Shift+F10. They must stay green | 03, 09 |
 | `_seedlayout_probe.gd`, `_appbar20_probe.gd`, `_llmplace_probe.gd`, `_llmpanel_probe.gd` | no edit now; each reads a label that changes only at its milestone (PC-4: "Right dock" on the desktop readout, and since Ruling DX PQ13 the phone's row in `_appbar20_probe.gd` too; PC-6: "Assistant panel…") | 04, 05 |
 | `_vfy_r2_menus_probe.gd`, `_apcmdcheck_probe.gd` | census dumps; "Import image" now title-matches the alias row | 06, 07 |
+| `_structmove_probe.gd` | **Ruling DZ:** "2b control: Bake ALL & finalize is still on the WORLD bar" becomes: the bar holds no such button, and the WORLD dock's Finalize foot holds one | 11 |
+| `_vfy_batch0905_probe.gd` | **Ruling DZ:** "A2 control: Bake ALL & finalize is still on the WORLD tool-options bar", the same | 11 |
+| `_ds03fit_probe.gd` | **Ruling DZ:** its band-height check was written against the five buttons WORLD's idle row held; arm a tool whose row has `DccWidgets.action()` buttons (Way, Route, Conflict, Territory or Lasso) before it measures, or it passes without exercising the case | 11 |
 
 ## Verifying, after pasting
 
@@ -367,6 +371,26 @@ The owner answered PQ1-PQ9 and their follow-ups (`LARGE_ITEM_RULINGS.md`, Ruling
   the Note tab follows the editor it embeds (`PC_SHELL_PROPOSAL.md` §3.4 says it is that editor).
 - **PQ2, PQ3, PQ7, PQ8 and PQ9** took their defaults, which the drafts already assumed; nothing here contradicts
   them (PQ8's keys are the ones drafted).
+
+## What Ruling DZ changed (owner, 2026-11-01)
+
+The owner, verbatim: *"The buttons in the top rail new seed, generate and bake can be removed. Please see to only keep
+the paint/sculpt brush settings here."* Asked about the rest, the owner chose "Tool settings only"
+(`LARGE_ITEM_RULINGS.md`, Ruling DZ; `PC_SHELL_PROPOSAL.md` §3.12).
+
+Draft 11 carries it:
+- **WORLD's idle row** becomes the context name and one hint.
+- **Generate world, New seed, Center landmasses and Bake ALL & finalize** leave the bar. Each keeps its WORLD dock
+  home, and Generate world keeps File ▸ Generate world (draft 02).
+- **The bake shortcut's pushed state goes with them:** `set_bake_shortcut()`, `bake_and_finalize()` and the push in
+  `_refresh_finalize()`.
+- **Other tools' rows are untouched:** their settings and their Commit and Discard stay.
+
+The planner's row (`journey_planner_view.gd::_tool_options_journey()`) moves into its window with PC-8. That is
+noted in draft 11, and stubbed in 90's `planner_in_window()`.
+
+`check_symbols.sh` checks draft 11's names, its anchors and the fingerprints of the three blocks it replaces or
+deletes.
 
 ## Stated drops (`MISTAKES.md`, "Delete a surface")
 
