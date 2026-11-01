@@ -3062,3 +3062,41 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
   `COLOUR_PAINT_SCOPE.md`.
 
 Nothing is built by this ruling.
+
+## Ruling EB: the phone map's control row (DS-13) and Ruling EA's three small designs: the owner's answers (owner, 2026-11-01)
+
+The owner put these questions after reviewing the DS-13 design (`MOBILE_SHELL_PROPOSAL.md` §2.5) and the small designs
+for Ruling EA items 10, 14 and 15, live in the mockup's canvas, version 13. A label in quotation marks is the option the
+owner picked. *Italics* mark the owner's own words.
+
+**DS-13, the touch map's control row**
+1. **One-finger panning (DS13-Q1 and Q2): not yet decided.** The owner asked first: *"Research how other mapping apps
+   have their interface for map interactions."* That research is under way. The answer will be added here.
+2. **The zoom step (DS13-Q5): "Keep 1.35×".** The −|+ rocker keeps `viewport_host.gd::ZOOM_BUTTON_STEP` 1.35, the
+   reference's step. The mockup's 1.6 goes.
+3. **One-handed continuous zoom (DS13-Q3): "Add it".** This was against the default, "not in the first version".
+   - **The gesture:** double-tap, keep the finger down, and slide to zoom continuously, Google Maps style.
+   - **It needs the plain double-tap too.** The double-tap zoom in `MOBILE_SHELL_PROPOSAL.md`'s gesture table is
+     designed but not built, so both are built together.
+   - **The conflict to design around:** the two-finger tap is undo (Ruling DU Q5). The gesture must not collide with
+     undo or with a drawing tool's strokes. That is settled with item 1's answer.
+4. **The 3D camera (DS13-Q4): "Yes, same buttons".** From 3D-2, the same −|+ and recentre buttons drive the 3D camera:
+   zoom moves the camera in and out, and recentre frames the world.
+
+**Ruling EA's small designs**
+
+5. **EA 14, the live 3D height slider: "Yes, remember it".** Against the default.
+   - **What changes:** the last value set becomes the default for the next session, as if it were set in Preferences ▸
+     3D viewport defaults. It writes that preference.
+   - **What it never touches:** the world, its save, or `WorldState`.
+6. **EA 14, the slider's range: "Up to 4×".** Against the default of 3×.
+   - **The range:** 1× (true scale, Ruling CT's default) to 4×.
+   - **The cost, accepted:** spires on steep ground above about 3.4×, which `3D_VIEWPORT_SCOPE.md` §8.3 measured.
+   - **To revisit:** at 3D-3, when the terrain mesh lands, judged on frames.
+7. **EA 15, colour paint's map-width notice: "Offer 'scale with the map'".** Against the default.
+   - **What changes:** the notice gets a button that rescales every paint mark to the new map width, as one undo step.
+   - **The rule is unchanged:** marks keep their real kilometres unless the user presses that button (Ruling EA item
+     15, Q5).
+
+**Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5, `3D_VIEWPORT_SCOPE.md` and `COLOUR_PAINT_SCOPE.md` carry the answers,
+and the mockup follows. Nothing is built by this ruling.
