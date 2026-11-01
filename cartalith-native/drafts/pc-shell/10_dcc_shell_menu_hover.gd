@@ -21,7 +21,7 @@
 ##            insert the three lines below (one tab of indentation).
 ##
 ## Verify: the parse check on `res://shell/dcc_shell.gd` and `res://shell/app.gd`. By hand on the PC:
-## open File, move the pointer across Edit, Assets, World: each opens as the pointer reaches it, and
+## open File, move the pointer across Edit, Assets, Records: each opens as the pointer reaches it, and
 ## the previous one closes. On a tablet build (`--force-touch`) nothing changes.
 
 ## ── EDIT D1: insert after `mb.focus_mode = Control.FOCUS_NONE` in `add_menu()` ───────────────────

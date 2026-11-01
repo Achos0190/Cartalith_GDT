@@ -13,7 +13,7 @@ How far any milestone has got is `cartalith-native/docs/STATUS.md`'s answer, nev
 
 **Not parse-checked.** The cloud session that wrote these had no Godot binary, and downloading one was not permitted. Every shipped
 symbol the drafts call was checked to exist, and every new name was checked to be free in its target file. `check_symbols.sh` repeats
-both checks: 97 calls (88 on 2026-10-31; 93 after the menu parity fixes to drafts 05 and 08; 97 since Ruling DX's drafts 05 and 09), none missing; no collisions; and every text an edit lands on is still there once. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
+both checks: 97 calls (88 on 2026-10-31; 93 after the menu parity fixes to drafts 05 and 08; 97 since Ruling DX's drafts 05 and 09, and still 97 after Ruling DY's draft 08, which calls `_world` where it called `_tablet_world`), none missing; 59 new names, no collisions; and every text an edit lands on is still there once. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
 
 ```
 godot --headless --path cartalith-native/godot-project --check-only --script res://shell/<file>.gd
@@ -34,7 +34,7 @@ Then parse-check `shell/app.gd` as well. Re-run the parse check after every edit
 | 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()` (the eight menus row for row, Ruling DX Q13), `_fill_story_section()` (the STORY tab's four band rows, without the old root's "Story" and "World" heads) and `_fill_popup()` (a leading captioned separator is kept as a band); adds `_menu_root_row()`, the `story-root` screen, `open_story()` and `open_screen()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` and leaves fourteen screens unreachable (the inventory below) | nothing |
 | 6 | `06_quick_drawer.gd` | MS-11 | new `shell/quick_drawer.gd` | the phone's side drawer of pinned commands | Q10 and Q11 (proposal §7) |
 | 7 | `07_quick_bar_phone_drawer_patch.gd` | MS-11 | `shell/quick_bar_phone.gd`, `shell/dcc_shell.gd` | replaces `QuickBarPhone.refresh()`; adds `set_phone_quick_drawer()` and the back hook | draft 6 |
-| 8 | `08_menus_tablet_bar.gd` | MS-7 (menu bar) | `shell/menus.gd` | replaces `build()`: eight menus from 1 180 dp, World being the PC's (`_pc_world()`) on the desktop, the phone and the wide tablet | draft 1; `drafts/pc-shell/` 01 and 02 (they add `_pc_world()`); MS-1 S4 for a live switch across 1 180 dp |
+| 8 | `08_menus_tablet_bar.gd` | MS-7 (menu bar) | `shell/menus.gd` | replaces `build()`: the PC's eight menus from 1 180 dp, with Records where World was (Ruling DY); below it ☰ · File · World · Records · Story, World being the WORLD domain's own rows (`_world()`) | draft 1; `drafts/pc-shell/` 01 and 02 (they add `_generate_in_world`, read by File's Generate world row, and retire `_tablet_world()`); MS-1 S4 for a live switch across 1 180 dp |
 | 9 | `09_menus_phone_rows.gd` | MS-4 | `shell/menus.gd`, one function for `shell/dcc_shell.gd` | adds Help ▸ Gesture reference… on the phone (`ID_HELP_GESTURES` 919, `_build_gesture_reference_row()`, an `_on_help()` arm) and `DccShell.phone_open_menu_screen()`; makes `_open_landmark_dock()` open the left sheet on the phone | draft 5 (`open_screen()`) |
 
 Drafts 3 to 9 do not depend on MS-1's unit; they size themselves through the shell's existing `_pscale()`, `_pfont()` and
@@ -74,7 +74,7 @@ row of those screens was read at its builder in `shell/phone_menu.gd` (`_fill_pr
 |---|---|
 | Root: Quick, Status | MENU, first and last, unchanged (`_fill_quick()`, `_fill_status()`) |
 | Root: the eight menus | MENU's MENUS band, each row opening its menu's popup row for row (`_menu_root_row()`, `_fill_popup()`) |
-| Project: Save project, Save as…, New world…, Open project… drawn first | MENU ▸ File, the same rows in File's order |
+| Project: Save project, Save as…, New world…, Open project… drawn first | MENU ▸ File, the same rows in File's order (Generate world second since Ruling DY) |
 | Project: Recent worlds inline under a band | MENU ▸ File ▸ Recent worlds (one drill deeper; same `_refresh_recent_worlds()` rows) |
 | Project: Autosave and its "Interval" chips under a band | MENU ▸ File ▸ Autosave and ▸ Autosave interval |
 | Project, Asset library, Help & about: the screen titles | **dropped**: a popup's screen is titled with its menu's name (File, Assets, Help) |
@@ -90,7 +90,7 @@ row of those screens was read at its builder in `shell/phone_menu.gd` (`_fill_pr
 | Civilization: Point of interest (a not-built row) | **dropped**: no POI tool exists; POI art stays at Assets ▸ Icon families ▸ Points of interest |
 | Civilization: Landmark generation (`landmarks`, `lm-fam`: caps, spacing, one run) | Assets ▸ Landmark types ▸ any family's rows, which open CIVIL ▸ Landmarks at that family; draft 9 makes them open the left sheet on the phone |
 | Civilization: Open journey planner | Story ▸ Journey planner |
-| Data manager: World's rows | MENU ▸ World, the same popup |
+| Data manager: the records menu's rows | MENU ▸ Records (World until Ruling DY), the same popup |
 | Data manager: Maps · tile pyramid (`data-tiles`) | File ▸ Export ▸ Maps (tiles), the Data manager window's `export_maps` route |
 | Travel library (`travel`, `travel-item`) | Story ▸ Travel library…, the window the screen already ended on |
 | Simulation: Transport strip on map, Year, Speed, Playback | Window ▸ Timeline: the phone's timeline bar, whose row opens the sim strip (play, scrub, speed; `app.gd::_fill_phone_timeline_row()`) |
@@ -113,6 +113,25 @@ or retired with it. That is a reading of their file names and a grep, not a run 
 **Mockup rows this needs**: none new. Gesture reference… is already the mockup's (Help, `mobile`). The one row the owner
 might add is the optional "Timeline layers" above.
 
+## Ruling DY (owner, 2026-11-01)
+
+The owner answered the PC shell's questions and their follow-ups the same day (`LARGE_ITEM_RULINGS.md`, Ruling DY).
+Three answers reach these drafts:
+
+- **The World menu is Records** (PQ6, "Rename to 'Records'"). Draft 5's two tables follow it by title
+  (`MENU_SUBS`, `MENU_GLYPHS`); every other MENU row is the desktop popup's, so it follows by itself.
+- **Generate world sits in File, after New world…**, so MENU ▸ File gains it as its second row, from the desktop popup.
+- **The tablet's short bar is `☰ · File · World · Records · Story`** ("File · World · Records · Story"). Draft 8 builds
+  it, with World the WORLD domain's own rows (`_world()`) and Records the desktop's (`_data()`); the short bar's File
+  leaves Generate world out because World holds it (`drafts/pc-shell/02`'s `_generate_in_world`, a labelled
+  judgement). It reopens Ruling CK Q2, which merged the records rows into the tablet's World menu
+  (`_tablet_world()`, retired by `drafts/pc-shell/02`). **The five-title bar is unmeasured at 600 dp**: draft 8's bar
+  above asks the implementing session to measure it before calling it done.
+
+Q10 to Q12 (the quick drawer, its grip, the tablet's quick bar and cartwheel) and MQ-1 to MQ-5 (MS-1) were answered by
+the same ruling; drafts 6 and 7 already draw Q10 and Q11's defaults, and no draft here implements MQ-5's choice
+(MS-1 S4 is not drafted: "Not drafted, and why" above).
+
 ## Verifying each draft
 
 These are the specs' bars, restated per draft. Every probe is windowed when it measures pixels. Every probe is a committed `.tscn` with
@@ -129,7 +148,8 @@ a usage header that names exactly the arguments it reads. Every new probe must f
   - The fan's targets are at least 44 × 44 dp, and a Session-mode refusal draws dim and cannot be picked.
   - The six `for t in PHONE_TABS` loops are re-read.
 - **Draft 5:**
-  - MENU's root lists Quick, then the MENUS band with File · Edit · Assets · World · Story · Preferences · Window · Help in the menu bar's order, then Status.
+  - MENU's root lists Quick, then the MENUS band with File · Edit · Assets · Records · Story · Preferences · Window · Help in the menu bar's order, then Status.
+  - MENU ▸ File's second row is Generate world (Ruling DY), and MENU ▸ Records is the records menu row for row.
   - Each menu opens its popup row for row, under the menu's own name: the same rows, order, bands and submenus as the desktop popup, File ▸ Export's FOR THE TABLE band included. `cartalith-native/docs/evidence/menu-parity-2026-11-01/` checks this statically against the mockup.
   - Every home in the table above is reachable, and every row marked dropped is gone.
   - `open_story("JOURNEYS")` lands on the band, and system back returns to Story.
@@ -143,11 +163,12 @@ a usage header that names exactly the arguments it reads. Every new probe must f
   - Tap and drag open the drawer; the scrim, a drag back and system back close it.
   - The drawer sits under the sheet and the bar at every detent.
 - **Draft 8:**
-  - At 1 180 dp and wider, the tablet shows the eight menus, and World is the PC's: Generate world · Ctrl+R first, no second Reset generation parameters or Reset one stage (they are in Edit).
-  - The desktop's World starts with Generate world (this `build()` replaces the shipped one, so it must carry the PC drafts' World).
-  - Below that it shows `☰ · File · World · Story`.
+  - At 1 180 dp and wider, the tablet shows the PC's eight menus: Records where World was, Generate world · Ctrl+R as File's second row, and no Reset generation parameters or Reset one stage outside Edit.
+  - The desktop's bar is File · Edit · Assets · Records · Story · Preferences · Window · Help, and its File carries Generate world (this `build()` replaces the shipped one, so it must carry the PC drafts' rows).
+  - Below 1 180 dp it shows `☰ · File · World · Records · Story`: World is Generate world, the two resets, Generation pipeline / Sculpt and Seed & size…, and nothing else; File has no Generate world; Records is the desktop's.
+  - **The short bar fits** (Ruling DY added a fifth title): measured windowed at 600, 768, 1 024 and 1 179 dp, every title is drawn inside the bar, none is clipped, and none overlaps the quick cluster. Not measured yet; the draft's estimate is about 80 dp more, from the mockup's sizing rule.
   - Every ☰ row is reachable in the eight-menu form.
-  - The PC's framebuffer is unchanged (B9).
+  - Against the PC drafts applied, this draft changes nothing on the PC (B9): the title Records and File's Generate world are `drafts/pc-shell/02`'s change, not this draft's, so B9 compares with that tree.
 
 Every stage also runs `cargo test --workspace` (no Rust changes, so it is unaffected) and parse-checks every touched `.gd` file plus
 `shell/app.gd` (`MISTAKES.md`, "Declare the work green").

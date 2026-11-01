@@ -56,7 +56,8 @@ func _legacy_density() -> float:
 ##   - Off a device: `--density D` when given, else the legacy figure.
 func _density() -> Dictionary:
 	if OS.has_feature("mobile"):
-		## S0: replace this read with the measured source (MQ-2 if it cannot be read).
+		## S0: replace this read with the measured source. If it cannot be read, MQ-2's answer (Ruling DY,
+		## 2026-11-01) accepts `screen_get_dpi() ÷ 160`, with S0's measured change written into DECISIONS.md.
 		var dpi := float(DisplayServer.screen_get_dpi(DisplayServer.window_get_current_screen()))
 		if dpi > 0.0:
 			return {"value": dpi / 160.0, "known": true}
@@ -69,7 +70,7 @@ func _density() -> Dictionary:
 ## The UI scale (spec §3.6). `--ui-scale S` overrides the setting for a probe run without writing it.
 ## S1 to S4 read 1.0. S5 replaces the last line with `DccSettings.ui_scale()`, once that exists; calling a
 ## static function that does not exist yet is a parse error, which is why it is not written here.
-## On the phone, under MQ-3's default, the result is 1.0 regardless (spec §3.3).
+## On the phone, under MQ-3 (a), which Ruling DY chose ("Keep as today"), the result is 1.0 regardless (spec §3.3).
 func _ui_scale() -> float:
 	var arg := _user_arg_value("--ui-scale")
 	if arg != "" and arg.to_float() > 0.0:
@@ -100,7 +101,7 @@ func _compute_layout_mode() -> void:
 	# It reads `get_viewport_rect().size`, which is dp once the unit is applied, and that is intended:
 	# the narrow and portrait bands and the dock widths are design figures, i.e. dp.
 
-## S2 (spec §3.3, MQ-3 default (a)): the phone's unit from density. It is capped at today's short/412, so a
+## S2 (spec §3.3, MQ-3 (a), Ruling DY's answer): the phone's unit from density. It is capped at today's short/412, so a
 ## phone narrower than 412 dp keeps its 412-unit layout until MS-2 to MS-6 rebuild those surfaces. It is
 ## 1.0 off the phone, which makes `DccTheme.phone_scale()`'s own comment true. On the OnePlus 6T at a
 ## density of 2.625 this returns today's 1080/412 = 2.6214 exactly (B7). UI scale is not applied on the

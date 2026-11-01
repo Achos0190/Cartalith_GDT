@@ -5,7 +5,10 @@
 ##   - Faction history… opens on the current faction.
 ##   - "Notes for this place" becomes "Note for the selection" (Ctrl+Shift+N, the Note tab), any kind.
 ##   - "Assistant panel…" becomes "Ask the assistant about the selection" (Ctrl+J).
-##   - Story's "Places without notes…" becomes a signpost to World ▸ Records (the id stays in World).
+##   - Story's "Places without notes…" becomes a signpost to Records (the id stays there; the menu was World until
+##     Ruling DY renamed it, 2026-11-01).
+##   - Ruling DY, PQ4: Journey planner's tooltip says "its own window" once the host opens the planner in one
+##     (`planner_in_window()`, PC-8); PQ5: the Ask row's tooltip states the conversation's lifetime.
 ##
 ## Target: `shell/menus.gd`, the Story section. Depends on `01_menus_ids_helpers.gd` (`_host_has()`,
 ## `_context_tab_ready()`) and `02_menus_world.gd` (`_open_factions()`).
@@ -43,7 +46,7 @@
 ##            - `ID_PLACES_WITHOUT_NOTES` ("World ▸ / Story ▸ Places without notes…"), its block comment
 ##              ("Places without notes… is one id on two menus"), `PLACES_WITHOUT_NOTES_TIP`'s doc
 ##              ("shared by World ▸ RECORDS and Story ▸ NOTES") and `app.gd::open_places_without_notes`'s
-##              doc ("World ▸ / Story ▸"): World only now; Story has a signpost.
+##              doc ("World ▸ / Story ▸"): Records only now (Ruling DY's name for World); Story has a signpost.
 ##            - `ID_STORY_POLITICAL`, `ID_STORY_NOTES_HERE` and `ID_STORY_ASSISTANT`'s comments name the
 ##              shipped labels: add "(…of the selection / Note for the selection / Ask the assistant
 ##              about the selection once the Context panel has the tab)".
@@ -52,11 +55,11 @@
 ##
 ## Verify: the parse check on `res://shell/menus.gd`; `check_symbols.sh`. Probes: `_storymenus_probe.gd`
 ## (STORY_ROWS: "Places without notes…" becomes the signpost text; drop its press of
-## ID_PLACES_WITHOUT_NOTES on the Story popup; keep the World one). `_llmplace_probe.gd` and
+## ID_PLACES_WITHOUT_NOTES on the Story popup; keep the Records one). `_llmplace_probe.gd` and
 ## `_llmpanel_probe.gd` find "Assistant panel…" by title, which is still the row until PC-6, so they
 ## stay green now and PC-6 updates them. By hand: with nothing selected, Story's two gated rows are
 ## dark with STORY_NO_PLACE's reason while the menu is open, and Ctrl+Shift+N still answers after it
-## closes (the status line says why); the NOTES band reads "Places without notes is in World ▸ Records".
+## closes (the status line says why); the NOTES band reads "Places without notes is in Records".
 
 ## Why a PC-4/PC-5 form of a gated row is disabled: nothing is selected. Names what a selection is
 ## made from rather than the right dock, because from PC-1 the dock reads the selection.
@@ -69,10 +72,13 @@ const STORY_BUSY_SELECTION := "A generation is running. The selection is read wh
 ## Inspect shows for each kind; the page itself is PC-4's to build.
 const STORY_POLITICAL_SEL_TIP := "Opens the Context panel's Inspect page on the selection, at its history: who held a place year by year, the places a faction held and its wars, a conflict's years and sides. Every name there selects it and every year moves the timeline."
 ## "Note for the selection"'s tooltip (PC-5), from §3.4.
-const STORY_NOTE_SEL_TIP := "Opens the Context panel's Note tab on the selection's own note, found through its link rather than its name. With no note yet it offers to create one from the kind's template, already linked. The whole vault is World ▸ Markdown vault… (Ctrl+Shift+V)."
-## "Ask the assistant about the selection"'s tooltip (PC-6), from §3.5. Says nothing about whether a
-## conversation survives a session: that is owner question PQ5, not yet answered.
-const STORY_ASK_TIP := "Opens the Context panel's Ask tab with the cursor in its input. The chips above it show what goes with your next message (the selection, the year, its note), read when you press Send. Off until you turn it on in Preferences ▸ Assistant; nothing is sent until then."
+const STORY_NOTE_SEL_TIP := "Opens the Context panel's Note tab on the selection's own note, found through its link rather than its name. With no note yet it offers to create one from the kind's template, already linked. The whole vault is Records ▸ Markdown vault… (Ctrl+Shift+V)."
+## "Ask the assistant about the selection"'s tooltip (PC-6), from §3.5. PQ5 is answered by Ruling DY
+## (2026-11-01): one conversation per session, kept across selections and cleared only by New, which is PC-6's
+## bar ("opening, closing or reselecting never empties the transcript"), so the tooltip says so. The same
+## answer adds an option to save the conversation inside the world file, off by default and asked at first
+## use; that needs a save slot nothing has built, so the tooltip does not claim it.
+const STORY_ASK_TIP := "Opens the Context panel's Ask tab with the cursor in its input. One conversation lasts the session: it stays while you select other things, and New starts another. The chips above the input show what goes with your next message (the selection, the year, its note), read when you press Send. Off until you turn it on in Preferences ▸ Assistant; nothing is sent until then."
 ## "Assistant panel…"'s tooltip: the shipped string, moved here unchanged.
 const STORY_ASSISTANT_TIP := "Optional language-model help with prose for a place, its story, or a Vault note. Off until you turn it on in Preferences ▸ Assistant; saved only when you click."
 ## Faction history…'s tooltip before PC-1: the shipped string, moved here unchanged.
@@ -82,7 +88,16 @@ const FACTION_HISTORY_TIP := "Opens the Factions window on its History tab: each
 const FACTION_HISTORY_CURRENT_TIP := "Opens the Factions window on its History tab, on the current faction: the selected faction, or the one that holds the selected place in the year the timeline shows; the last faction you viewed when nothing is selected."
 ## The signpost that replaces Story's second "Places without notes…" row (finding M3), in the
 ## mockup's own words (`design/mobile-shell-2026-10-31/Shell.dc.html`, the desktop Story menu).
-const PLACES_WITHOUT_NOTES_SIGNPOST := "Places without notes is in World ▸ Records"
+const PLACES_WITHOUT_NOTES_SIGNPOST := "Places without notes is in Records"
+
+## Journey planner's tooltip while the planner replaces the view (shipped behaviour; the tablet and the phone
+## keep it after PC-8). The shipped string, moved here unchanged.
+const STORY_PLANNER_TIP := "Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route."
+## Journey planner's tooltip once the host opens it in its own window (`planner_in_window()`, PC-8; Ruling DY,
+## PQ4: "a separate window that doesn't block the map"). Says only what `90_pc_milestone_stubs.gd`'s PC-8
+## contract requires that window to do: leave the map live, take its stops from the selection, and carry
+## Ruling DK's per-window Pop out button.
+const STORY_PLANNER_WINDOW_TIP := "Opens the Journey planner in its own window and leaves the map live: select a settlement to start, add a stop or end the journey there. Pop out moves the window out of Cartalith's, onto a second screen if you have one. Party, season, carriage, stages and cost over a drawn route; also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map."
 
 ## Which form each of Story's two-form rows was built in: `true` is PC-9's row, `false` the shipped
 ## one. Written once by `_story()`; read by `_refresh_story_menu()` and `_on_story()`, so the label, the
@@ -124,21 +139,22 @@ func _story_note_tip() -> String:
 ##
 ## Every enabled row calls something already built; it is a new entry point,
 ## never a second implementation:
-##   TIME       Timeline (Ctrl+Shift+T, `_open_timeline()`; World's copy is a
+##   TIME       Timeline (Ctrl+Shift+T, `_open_timeline()`; Records' copy is a
 ##              signpost since PC-9) · Political history of this place…
 ##              (`place_editor_window.gd::open_for_tab(i, "political")`), or of
 ##              the selection (PC-4: the Context panel's Inspect page) · Faction
 ##              history… (`_open_factions("history")`, FH-8's tab; on the
 ##              current faction from PC-1)
-##   JOURNEYS   Journey planner (`app.open_journey_planner()`) · Saved
+##   JOURNEYS   Journey planner (`app.open_journey_planner()`; its own window on
+##              the desktop from PC-8, Ruling DY PQ4) · Saved
 ##              journeys… (SM-6, `saved_journeys_window.gd`) · Travel library…
-##              (⇧L, moved here from World by this milestone, same id)
+##              (⇧L, moved here from World, now Records, by this milestone, same id)
 ##   CONFLICTS  Conflicts… (SM-6, `conflicts_window.gd`) · Draw a conflict (arms CIVIL's
 ##   & CAMPAIGNS Conflict tool, SP-4) · Campaigns this year (a readout over
 ##              `conflict_campaigns(year)`, one row per active conflict)
 ##   NOTES      Notes for this place (Ctrl+Shift+N, `app.open_vault(
 ##              "settlement", tid, name)`, the card's own call), or Note for the
-##              selection (PC-5: the Note tab) · a signpost to World ▸ Records'
+##              selection (PC-5: the Note tab) · a signpost to Records'
 ##              Places without notes… (PC-9; SM-5 put a second row here) ·
 ##              Assistant panel… (LLM-3), or Ask the assistant about the
 ##              selection (Ctrl+J, PC-6: the Ask tab)
@@ -177,7 +193,7 @@ func _story_note_tip() -> String:
 ## would take away a working row and Ctrl+Shift+N (`MISTAKES.md`, "Delete a
 ## surface"). The new labels drop the ellipsis, as the mockup does: they open a
 ## tab of the panel, not a window. Places without notes… is a signpost to
-## World ▸ Records from now (finding M3); the row and id 731 are World's.
+## Records from now (finding M3); the row and id 731 are Records'.
 ##
 ## Must never call the engine while `bridge.generating` (the worker holds
 ## `WorldGen`): every refresh and handler asks `generating` first, which matters
@@ -205,8 +221,10 @@ func _story(p: PopupMenu) -> void:
 
 	p.add_separator("JOURNEYS")
 	_live(p, "Journey planner", ID_STORY_JOURNEY_PLANNER)
+	## Ruling DY, PQ4: the window form's tooltip only where the host opens one (PC-8, the desktop).
+	var planner_window := _host_has("planner_in_window") and bool(_host.planner_in_window())
 	p.set_item_tooltip(p.item_count - 1,
-		"Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route.")
+		STORY_PLANNER_WINDOW_TIP if planner_window else STORY_PLANNER_TIP)
 	_live(p, "Saved journeys…", ID_SAVED_JOURNEYS)
 	p.set_item_tooltip(p.item_count - 1,
 		"Lists every journey saved in this world (name, party, start year, length, mode); a row opens it in the Journey planner. Journeys are saved from the planner.")
@@ -233,8 +251,8 @@ func _story(p: PopupMenu) -> void:
 	## PC-9 (finding M3): SM-2's second "Places without notes…" row
 	## (`STORY_MENUS_PROPOSAL.md` §3.3: "the same row as in World") is a
 	## signpost to that row now. Its id, 731, stays
-	## on World ▸ RECORDS, which the command index already preferred (it walks
-	## World first and made this copy an unpinnable alias).
+	## on Records ▸ RECORDS, which the command index already preferred (it walks
+	## Records, the old World, first and made this copy an unpinnable alias).
 	_signpost(p, PLACES_WITHOUT_NOTES_SIGNPOST)
 	## LLM-3. Always enabled, in both forms: the panel says why it cannot send
 	## (off, no provider, no consent), which is the `CommandIndex` rule -- a
@@ -318,7 +336,7 @@ func _on_story(id: int) -> void:
 		ID_STORY_JOURNEY_PLANNER: _host.open_journey_planner()
 		ID_TRAVEL_LIBRARY: _host.open_travel_library()
 		## No `ID_PLACES_WITHOUT_NOTES` arm since PC-9: Story's row is a signpost,
-		## and World's row is dispatched by `_on_data()`.
+		## and Records' row is dispatched by `_on_data()`.
 		ID_SAVED_JOURNEYS: _host.open_saved_journeys()
 		ID_STORY_ASSISTANT:
 			if bool(_story_forms["ask"]):

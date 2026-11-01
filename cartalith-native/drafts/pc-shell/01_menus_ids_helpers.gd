@@ -6,7 +6,8 @@
 ## screen.
 ##
 ## Target: `shell/menus.gd` (`DccMenus`). ADD, do not replace:
-##   - the nine `ID_*` constants: beside `ID_PREF_POPOUT` (the last id block in the file);
+##   - the twenty `ID_*` constants: beside `ID_PREF_POPOUT` (the last id block in the file): 910-918 for
+##     PC-9's rows, and 920-930 for the Context panel's modules and its reset (Ruling DY, 2026-11-01);
 ##   - the four functions: beside `_engine_has()`, after `_signpost()`.
 ##
 ## Depends on: nothing. Apply it first.
@@ -39,6 +40,27 @@ const ID_WIN_CTX_NOTE := 915  ## Window ▸ Context panel ▸ Note (Ctrl+2); liv
 const ID_WIN_CTX_ASK := 916  ## Window ▸ Context panel ▸ Ask (assistant) (Ctrl+3); live from PC-6.
 const ID_WIN_CTX_PIN := 917  ## Window ▸ Context panel ▸ Pin to the current subject; live from PC-4.
 const ID_WIN_CTX_FOLLOW := 918  ## Window ▸ Context panel ▸ Follow the selection; live from PC-4.
+
+## Ruling DY (owner, 2026-11-01; `PC_SHELL_PROPOSAL.md` PQ1 and its follow-up): the Context panel is modular,
+## "tabs you arrange", and these are the rows of Window ▸ Context panel ▸ MODULES, one per module the owner
+## chose, plus Reset panel (`05_menus_window.gd::CTX_MODULES`). 919 is mobile-shell draft 09's
+## (`ID_HELP_GESTURES`). 920-930 were unused, measured 2026-11-01 at `3099309`: `grep -n -E '^const
+## ID_[A-Z_0-9]+ := 9[0-9]{2}' shell/menus.gd` still lists 900-903 only, `grep -rn -E ':= 9[2-3][0-9]\b'
+## shell/ drafts/` finds nothing, and `command_index.gd::_is_dynamic_id()`'s spans end below 700. The same
+## rule as 910-918: a command identity, never reissued. Each module row is a check row once its module is built,
+## so `command_index.gd::_why_not_pinnable()` leaves it unpinnable ("A check or radio row …"); the ids are
+## still what a rebind is keyed by.
+const ID_WIN_CTX_MOD_HISTORY := 920  ## Window ▸ Context panel ▸ MODULES ▸ History (check); live with its module.
+const ID_WIN_CTX_MOD_ECONOMY := 921  ## … ▸ Economy (check); live with its module.
+const ID_WIN_CTX_MOD_MILITARY := 922  ## … ▸ Military (check); live with its module.
+const ID_WIN_CTX_MOD_FAITH := 923  ## … ▸ Faith, culture & relations (check); live with its module.
+const ID_WIN_CTX_MOD_TERRITORY := 924  ## … ▸ Territory (check); live with its module.
+const ID_WIN_CTX_MOD_CITY := 925  ## … ▸ City layout (check); live with its module.
+const ID_WIN_CTX_MOD_HERE := 926  ## … ▸ Here (check); live with its module.
+const ID_WIN_CTX_MOD_ROUTES := 927  ## … ▸ Routes & journeys (check); live with its module.
+const ID_WIN_CTX_MOD_LINKS := 928  ## … ▸ Links (check); live with its module.
+const ID_WIN_CTX_MOD_RECENT := 929  ## … ▸ Recent & bookmarks (check); live with its module.
+const ID_WIN_CTX_RESET := 930  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
 
 ## Whether the host (`DccApp`) has `method`, which is how a row tells whether the milestone that adds
 ## it has landed. The same question `_on_world()` and `_on_edit()` already ask before calling a host

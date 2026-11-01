@@ -2764,8 +2764,12 @@ as one; each is open to the owner.
      - The option said the fourth menu adds about 80 dp to a bar that can be 600 dp wide, and that this was not
        measured. Measuring it is a bar for the build.
    - **Judgement:** on that bar File leaves out Generate world, because World holds it. One row per command per bar.
-   - **Search keeps the old name:** `command_index.gd` `EXTRAS` gains "World" for the Records rows, beside Ruling DX's
-     "Run pipeline" alias.
+   - **Search keeps the old name.** `command_index.gd` `EXTRAS` gains a pointer row titled **"Records (was World)"**,
+     beside Ruling DX's "Run pipeline" alias, which now points to File.
+     - *Corrected the same day by the drafts:* an alias titled plain "World" would never show. Window ▸ Workspace ▸
+       World is a live row with that exact title. Draft `07_command_index.gd` adds a rule to `command_index.gd::build`
+       that skips an alias while a menu row has the same title (`_has_menu_title()`, new in that draft; the shipped
+       `build()` appends every extra).
 7. **PQ7: "Both, one shared state".** The simulator keeps both entry points: the Place editor's Timeline tab and
    CIVIL ▸ Timeline's Simulate, over one state. Nothing is deleted.
 8. **PQ8: "Yes, all of them".** The new keys are taken:

@@ -6,6 +6,14 @@
 ##     the region's check row AND a submenu of the same name directly under it
 ##     (`design/mobile-shell-2026-10-31/Shell.dc.html`, the desktop Window menu).
 ##   - Open windows lists everything open, the Context panel and pop-outs included (finding W5).
+##   - **Ruling DY (owner, 2026-11-01; PQ1 "1, but it should be modular", then "Tabs you arrange"):** the
+##     submenu gains a MODULES band of ten check rows, one per module the owner chose (History; Economy;
+##     Military; Faith, culture & relations; Territory; City layout; Here; Routes & journeys; Links; Recent &
+##     bookmarks), checked when the module is in the panel, then Reset panel (back to Inspect · Note · Ask).
+##     Ctrl+1/2/3 stay Inspect, Note and Ask whatever order the tabs are in; an added module gets no default
+##     key. The band and Reset panel are not built on the phone, which has no panel (§3.11; Ruling DX PQ13's
+##     five rows stay). The tab strip's own + button, drag to reorder and a tab's Remove and Open in a window
+##     are the panel's (PC-4), not the menu's.
 ##
 ## Target: `shell/menus.gd`, the Window section. Depends on `01_menus_ids_helpers.gd`.
 ## Applies to: every form factor: the PC, the tablet (☰ ▸ Window below 1 180 dp) and the phone (MENU ▸
@@ -25,6 +33,10 @@
 ##                the Save layout modal, through `_region_label()`); Inspect, Pin and Follow are live,
 ##                and Open windows lists the panel while it is shown.
 ##   from PC-5    Note is live (Ctrl+2).        from PC-6: Ask is live (Ctrl+3).
+##   modules      each MODULES row is a `_todo` naming where that content lives today, until the host's
+##                `context_module_registry()` lists the module; then a check row, ticked from
+##                `context_panel_modules()` on every popup. Reset panel is a `_todo` until the host has
+##                `reset_context_panel()` (PC-4). Not built on the phone (Ruling DY).
 ##   always       Open windows walks every visible window, docked or popped out (no dependency).
 ##
 ## What to do. Each EDIT quotes its old text exactly as it stands at `a38e0ac`.
@@ -64,10 +76,12 @@
 ## `_appbar20_probe.gd` (the phone's "Right dock" row: unchanged until PC-4, then "Context panel" there
 ## too), `_sessionmode_probe.gd` and
 ## `_leftdockcheck_probe.gd` (region checks by id: unchanged), `_menuwire_probe.gd` (every disabled row
-## states a reason: the five `_todo` rows do). By hand, desktop: Window shows Left dock, Right dock,
-## Context panel ▸ (five dark rows with reasons), Timeline…; pop out the faction roster (Preferences ▸
+## states a reason: the sixteen `_todo` rows do). By hand, desktop: Window shows Left dock, Right dock,
+## Context panel ▸ (five dark rows with reasons, then MODULES with ten dark rows, each naming where its
+## content lives today, then a dark Reset panel), Timeline…; pop out the faction roster (Preferences ▸
 ## Open panels in their own window), then Window ▸ Open windows lists "Factions   own window" and
-## picking it focuses that window without moving it.
+## picking it focuses that window without moving it. Phone: MENU ▸ Window ▸ Context panel has the five
+## rows and no MODULES band.
 
 ## The name the right dock takes once it is the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, PC-4),
 ## used for its region row, its submenu and its Open windows row. One string, so the three cannot
@@ -89,14 +103,80 @@ const CTX_PIN_TODO := "Not built yet: the right dock always shows the latest pic
 ## Why Follow is disabled before PC-4: with no pin there is nothing to release.
 const CTX_FOLLOW_TODO := "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
 
-## The five rows' tooltips once each is live, from §3.3 and §3.5.
+## The five rows' tooltips once each is live, from §3.3 and §3.5. `CTX_NOTE_TIP` follows Ruling DY's VQ4
+## (2026-11-01, "Open in Write"): a note opens in Write, with Preview a toggle. It said "in Preview", the
+## proposal's default before that ruling; if the Note tab is ruled to differ from the vault editor, this
+## string changes with it.
 const CTX_INSPECT_TIP := "Shows the Context panel's Inspect page: the selection, or what the panel is pinned to, with its facts and history. Every name there selects it; every year moves the timeline."
-const CTX_NOTE_TIP := "Shows the Context panel's Note tab: the subject's own note, in Preview. Write edits it in place."
+const CTX_NOTE_TIP := "Shows the Context panel's Note tab: the subject's own note, open in Write as every note opens. Preview (Ctrl+E) renders it."
 const CTX_ASK_TIP := "Shows the Context panel's Ask tab with the cursor in its input. Off until you turn the assistant on in Preferences ▸ Assistant."
 const CTX_PIN_TIP := "Keeps the panel on what it shows now while you select other things. A banner then offers to pin it to the new selection or to follow again."
 const CTX_FOLLOW_TIP := "Releases a pin: the panel shows the selection again and follows each new one."
 ## Status line when Pin finds nothing to hold (`pin_context_panel()` answered false).
 const CTX_PIN_NOTHING := "Nothing to pin: the panel is empty. Select something first."
+
+## **Ruling DY's modules** (owner, 2026-11-01): `[key, title, id]` for each of the ten the owner chose, in the
+## order the ruling lists them. The key is the module's id in the panel's registry and in the user's stored
+## arrangement (`DccApp.context_module_registry()`, `context_panel_modules()`, `90_pc_milestone_stubs.gd`),
+## the title is its row's and its tab's label, and the id is its row's (`01_menus_ids_helpers.gd`).
+## Append-only: a key, an id and a title's meaning are a module's identity (a rebind is keyed by the id, a
+## saved arrangement by the key), so none is ever reordered, reused or renamed in place. The registry must
+## use these keys and titles, never a second spelling of them. "Compare" was offered and not chosen.
+const CTX_MODULES: Array = [
+	["history", "History", ID_WIN_CTX_MOD_HISTORY],
+	["economy", "Economy", ID_WIN_CTX_MOD_ECONOMY],
+	["military", "Military", ID_WIN_CTX_MOD_MILITARY],
+	["faith", "Faith, culture & relations", ID_WIN_CTX_MOD_FAITH],
+	["territory", "Territory", ID_WIN_CTX_MOD_TERRITORY],
+	["city", "City layout", ID_WIN_CTX_MOD_CITY],
+	["here", "Here", ID_WIN_CTX_MOD_HERE],
+	["routes", "Routes & journeys", ID_WIN_CTX_MOD_ROUTES],
+	["links", "Links", ID_WIN_CTX_MOD_LINKS],
+	["recent", "Recent & bookmarks", ID_WIN_CTX_MOD_RECENT],
+]
+
+## Why a MODULES row is disabled before its module is built: `%s` is the module's title, then where that
+## content lives today (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet".
+const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). %s"
+
+## Where each module's content lives today, each read at its builder on 2026-11-01 at `3099309`
+## (`90_pc_milestone_stubs.gd::context_module_registry()` names the symbols). Recent & bookmarks has no
+## home today and says so; a "Meanwhile" that pointed nowhere would be a dead control's promise.
+const CTX_MODULE_TODAY: Dictionary = {
+	"history": "Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+	"economy": "Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+	"military": "Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+	"faith": "Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+	"territory": "Meanwhile the Factions window's Territory tab.",
+	"city": "Meanwhile the Place editor's Layout tab, and the City viewer.",
+	"here": "Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+	"routes": "Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+	"links": "Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+	"recent": "Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+}
+
+## Each MODULES row's tooltip once its module is built: what the tab shows, in the words of the owner's
+## options (Ruling DY), so the row says what ticking it adds.
+const CTX_MODULE_TIPS: Dictionary = {
+	"history": "Adds a History tab: who held a place over time and its timeline, a faction's history, and the dated entries in the subject's note. Every year moves the timeline.",
+	"economy": "Adds an Economy tab: a place's economy and notables, or a faction's economy, currency and tariffs.",
+	"military": "Adds a Military tab: a faction's armies, garrisons and conflicts, or whether a place is fortified and its garrison.",
+	"faith": "Adds a Faith, culture & relations tab: a faction's relations, its faith and its culture.",
+	"territory": "Adds a Territory tab: a faction's claims, provinces and influence.",
+	"city": "Adds a City layout tab: a settlement's layout, as the City viewer draws it.",
+	"here": "Adds a Here tab: the terrain under the subject, or under the cursor while nothing is selected (elevation, climate, biome).",
+	"routes": "Adds a Routes & journeys tab: the roads from the subject, saved journeys through it, and Plan a journey from here.",
+	"links": "Adds a Links tab: the notes that link to the subject, and unlinked mentions with a one-click Link.",
+	"recent": "Adds a Recent & bookmarks tab: the selection history as a list, and the subjects you bookmark.",
+}
+
+## Why Reset panel is disabled before PC-4: there is no arrangement to reset.
+const CTX_RESET_TODO := "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4)."
+## Reset panel's tooltip once it is live.
+const CTX_RESET_TIP := "Puts the Context panel back to its three tabs, Inspect · Note · Ask, in that order. Added modules are removed; their content is not touched."
+## Status line when a module could not be added or removed (`set_context_module_shown()` answered false):
+## the one refusal its contract allows for a listed module, which is leaving the panel with no tab.
+const CTX_MODULE_REFUSED := "The Context panel keeps at least one tab. Add another before removing this one."
 
 ## The suffix an Open windows row carries when its window is popped out into its own OS window
 ## (`Window.is_embedded()` false). The `PREF_VALUE_SEP` spacing, the house way of adding a second
@@ -133,6 +213,12 @@ func _region_label(rid: int) -> String:
 ## phone (Ruling DX PQ13) it is MENU ▸ Window ▸ Context panel ▸, its rows reaching the selection sheet, the
 ## vault and the assistant through `open_context_tab()`'s phone contract, and its Ctrl+1/2/3 never fire
 ## there (the phone's menu bar is a hidden model, so no accelerator does).
+##
+## **Ruling DY (2026-11-01): then a MODULES band** of ten rows (`CTX_MODULES`, `_build_context_module_row()`)
+## and Reset panel, on the desktop and the tablet only. Ctrl+1/2/3 stay on Inspect, Note and Ask whatever the
+## order of the tabs (the owner's "tabs you arrange" moves tabs, not keys); a module gets no default key, and
+## its row is rebindable by id like any other. The ticks are read on every popup
+## (`_refresh_context_modules()`), because the tab strip's own + and Remove change them while this menu is shut.
 func _build_context_panel_menu(p: PopupMenu) -> void:
 	var sub := PopupMenu.new()
 	sub.name = "ContextPanelMenu"
@@ -165,10 +251,73 @@ func _build_context_panel_menu(p: PopupMenu) -> void:
 		sub.set_item_tooltip(sub.item_count - 1, CTX_FOLLOW_TIP)
 	else:
 		_todo(sub, "Follow the selection", CTX_FOLLOW_TODO)
+	## Ruling DY: the modules, on the desktop and the tablet. Not on the phone, which has no panel to add a
+	## tab to (§3.11, "the model, not the panel"); its five rows above are Ruling DX PQ13's and stay.
+	if not DccTheme.is_phone():
+		sub.add_separator("MODULES")
+		for m in CTX_MODULES:
+			_build_context_module_row(sub, m)
+		sub.add_separator()
+		if _host_has("reset_context_panel"):
+			_live(sub, "Reset panel", ID_WIN_CTX_RESET)
+			sub.set_item_tooltip(sub.item_count - 1, CTX_RESET_TIP)
+		else:
+			_todo(sub, "Reset panel", CTX_RESET_TODO)
+		sub.about_to_popup.connect(_refresh_context_modules.bind(sub))
+		_refresh_context_modules(sub)
 	sub.id_pressed.connect(_on_context_panel)
 
+## Whether module `key` is built in this host: `DccApp.context_module_registry()` lists an entry whose
+## "key" is `key`. Asked per module, as `_context_tab_ready()` asks per tab, because the ten modules are
+## extracted from their windows one by one and a row must stay a `_todo` until its own module exists.
+## Must never infer a module from the panel's other methods: a registry with three entries says nothing
+## about the other seven.
+func _context_module_ready(key: String) -> bool:
+	if not _host_has("context_module_registry"):
+		return false
+	for e in _host.context_module_registry():
+		if typeof(e) == TYPE_DICTIONARY and String((e as Dictionary).get("key", "")) == key:
+			return true
+	return false
+
+## One MODULES row, `m` being a `CTX_MODULES` entry: a check row with its tooltip once the module is built
+## (`_context_module_ready()`), otherwise a `_todo` whose reason names where that content lives today
+## (`CTX_MODULE_TODAY`). Its tick is not set here: `_refresh_context_modules()` reads it.
+func _build_context_module_row(sub: PopupMenu, m: Array) -> void:
+	var key := String(m[0])
+	var title := String(m[1])
+	if _context_module_ready(key):
+		sub.add_check_item(title, int(m[2]))
+		sub.set_item_tooltip(sub.item_count - 1, String(CTX_MODULE_TIPS[key]))
+	else:
+		_todo(sub, title, CTX_MODULE_TODO % [title, String(CTX_MODULE_TODAY[key])])
+
+## Ticks each built module's row when that module is in the user's panel (`context_panel_modules()`), on
+## every popup of the submenu and once at build. A row still a `_todo` has no item with the module's id
+## (`_todo()` adds by index), so `get_item_index()` answers -1 and it is skipped. Reads only; never adds or
+## removes a tab.
+func _refresh_context_modules(sub: PopupMenu) -> void:
+	if not _host_has("context_panel_modules"):
+		return
+	var shown: PackedStringArray = _host.context_panel_modules()
+	for m in CTX_MODULES:
+		var i := sub.get_item_index(int(m[2]))
+		if i >= 0 and sub.is_item_checkable(i):
+			sub.set_item_checked(i, shown.has(String(m[0])))
+
+## The `CTX_MODULES` key of row `id`, or "" when `id` is not a module row's.
+func _context_module_key(id: int) -> String:
+	for m in CTX_MODULES:
+		if int(m[2]) == id:
+			return String(m[0])
+	return ""
+
 ## Window ▸ Context panel ▸'s dispatcher. Its ids are on live rows only, so the host has each method
-## whenever one arrives. Pin's `false` (nothing to hold) says so in the status line.
+## whenever one arrives (a module row is live only once the registry lists it, and
+## `90_pc_milestone_stubs.gd` makes the registry, the arrangement and its setter land together). Pin's `false`
+## (nothing to hold) says so in the status line. A module row (Ruling DY) flips its module in or out of the
+## panel, reading the arrangement at the press, never a tick cached at build; a refusal (the panel's last
+## tab) says why in the status line.
 func _on_context_panel(id: int) -> void:
 	match id:
 		ID_WIN_CTX_INSPECT: _host.open_context_tab("inspect")
@@ -178,6 +327,14 @@ func _on_context_panel(id: int) -> void:
 			if not bool(_host.pin_context_panel()):
 				_host.set_status("hint", CTX_PIN_NOTHING, "text_ghost")
 		ID_WIN_CTX_FOLLOW: _host.follow_selection()
+		ID_WIN_CTX_RESET: _host.reset_context_panel()
+		_:
+			var key := _context_module_key(id)
+			if key == "":
+				return
+			var shown: PackedStringArray = _host.context_panel_modules()
+			if not bool(_host.set_context_module_shown(key, not shown.has(key))):
+				_host.set_status("hint", CTX_MODULE_REFUSED, "text_ghost")
 
 ## Every window open right now: each visible `AcceptDialog` anywhere under `DccApp`, docked or popped
 ## out, in tree order. Walked rather than listed (finding W5): the six fields this menu named by hand

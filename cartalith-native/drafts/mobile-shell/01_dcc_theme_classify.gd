@@ -22,7 +22,9 @@
 const PHONE_ASPECT_MAX := 0.6
 ## The phone/tablet line's size half. Owner answer, `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md`
 ## §2.3 (2026-08-31): a shortest side under 900 dp is a phone. Today's code applies it only below
-## `PHONE_ASPECT_MAX`, and MS-1 keeps exactly that (MQ-1's default). Where the line ends up is MQ-1.
+## `PHONE_ASPECT_MAX`, and MS-1 keeps exactly that (MQ-1's option (a)). Where the line ends up is MQ-1, which
+## Ruling DY (2026-11-01) answered with option (c): under 600 dp wide is a phone, landing with MS-7's floating
+## docks, not in MS-1. Until then this constant and the aspect test stay as they are.
 const TABLET_MIN_DP := 900.0
 ## Hysteresis (MS-1 spec §3.1): a class is left only when the size is past its line by this much, so a
 ## window parked on a line cannot flap. Labelled judgements, revisited with stage S3's numbers.

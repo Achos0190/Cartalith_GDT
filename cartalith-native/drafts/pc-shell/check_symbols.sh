@@ -7,11 +7,15 @@
 #              identifier in the drafts' code, comments and strings removed, on 2026-11-01);
 #   2. free    no new name a draft adds is taken in its target file (or, for app.gd, its base class);
 #   3. anchor  every EDIT's old text is still in its file exactly once, as a whole line;
-#   4. base    every block a draft REPLACES is still the text it was derived from (a fingerprint of
-#              each, taken at a38e0ac on 2026-11-01); a moved block means re-derive that replacement;
+#   4. base    every block a draft REPLACES or DELETES is still the text it was derived from (a fingerprint
+#              of each, taken at a38e0ac on 2026-11-01, `_tablet_world()`'s at 3099309 for Ruling DY); a
+#              moved block means re-derive that replacement;
 #   5. stub    no `STUB(PC-` marker from 90_pc_milestone_stubs.gd is in the shipped tree;
 #   6. report  which milestone methods the host has (so which form each gated row takes), and the
 #              key-collision table: every chord menus.gd binds, then each chord PC-9 adds.
+# Ruling DY (2026-11-01) added: the names the Records rename, File's Generate world, the Context panel's
+# modules and the planner window rely on (1), their new names and ids 920-930 (2), the EDIT W1-W14 anchors
+# (3), and the fingerprint of `_tablet_world()`, which 02 deletes (4).
 # Run from the repository root:  bash cartalith-native/drafts/pc-shell/check_symbols.sh
 # Works in Git Bash on Windows: every read strips CR first, so a CRLF checkout compares like LF.
 # Exits 1 when a check in 1-5 failed, else 0. It is a PRE-paste check: after the drafts are applied,
@@ -43,34 +47,53 @@ need shell/menus.gd build _shell _bridge _host _live _todo _readout _signpost _b
   ID_DATA_ROUTE_FIRST ID_STORY_TIMELINE ID_STORY_POLITICAL ID_STORY_FACTION_HISTORY ID_STORY_JOURNEY_PLANNER \
   ID_SAVED_JOURNEYS ID_TRAVEL_LIBRARY ID_CONFLICTS_LIST ID_STORY_DRAW_CONFLICT ID_STORY_NOTES_HERE \
   ID_STORY_ASSISTANT ID_WIN_RIGHT ID_HELP_SHORTCUTS ID_PREF_SHORTCUTS ID_IMPORT_IMAGE ID_ASSET_LIBRARY \
-  ID_DESELECT ID_FIND_ON_MAP
+  ID_DESELECT ID_FIND_ON_MAP _file _on_file _overflow ID_NEW_WORLD ID_NEW_WORLD_FROM_SELECTION \
+  ID_WORLD_MODE_PIPELINE ID_WORLD_MODE_SCULPT ID_WORLD_SEED_SIZE
 need shell/app.gd menus viewport context_broker shortcuts_dialog place_editor_window right_dock_ctrl \
   open_faction_roster open_vault open_vault_overview open_vault_browse open_places_without_notes \
   open_assistant_panel open_shortcuts open_travel_library open_journey_planner open_saved_journeys \
   open_conflicts_list open_data_manager open_data_manager_route open_world_data open_export_dialog \
   open_asset_library arm_tool clear_selection is_region_shown toggle_region _world_workspace \
   _open_context_card_from_keyboard _unhandled_key_input redo_last delete_selection _escape_action \
-  _backspace_handlers armed_tool
+  _backspace_handlers armed_tool open_journey_planner_with_route journey_planner_view
 need shell/dcc_shell.gd add_menu style_popup set_status select_domain select_domain_category \
   is_session_mode _touch
 need shell/dcc_theme.gd is_phone is_tablet
 need shell/dcc_settings.gd shortcut_binding SHORTCUT_CONTEXT_MENU
 need shell/dcc_widgets.gd phone_head
 need shell/context_broker.gd ring_key_press ring_key_release ring_is_open ring_close ring_click
-need shell/engine_bridge.gd generating has_world conflict_campaigns get_civ_year
+need shell/engine_bridge.gd generating has_world conflict_campaigns get_civ_year vault_entity_chronos vault_links_for \
+  vault_refresh_backlinks
 need shell/place_editor_window.gd open_for_tab
 need shell/radial_ring.gd release q_release
 need shell/popout_host.gd key_for native_windows GROUP
-need shell/command_index.gd EXTRAS build _rows _slug _add_menu_commands _disambiguate_pin_keys _walk_popup find_pin
+need shell/command_index.gd EXTRAS build _rows _slug _add_menu_commands _disambiguate_pin_keys _walk_popup find_pin \
+  _why_not_pinnable _is_dynamic_id search
 need shell/shortcuts_dialog.gd UNLISTED setup open open_editable _rebuild _editable _app
-need shell/right_dock.gd current_settlement_index
+need shell/right_dock.gd current_settlement_index _build_settlement _build_sample _build_route CTX_SAMPLE CTX_ROUTE \
+  SAMPLE_FIELDS
+# Ruling DY: what the module registry (90) and EDITs W8-W14 (02) name, each opened at its symbol on 2026-11-01.
+need shell/phone_menu.gd _fill_data _named_in_root _menu_popup
+need shell/data_manager_window.gd VAULT_NOTE
+need shell/place_editor_window.gd TAB_ORDER _build_timeline _build_political _build_trade _build_economy \
+  _build_layout _build_journey_passes _build_backlinks
+need shell/faction_roster_window.gd _build_tab_history _build_economy_readout _build_currency _build_tariffs \
+  _build_military_block _build_tab_relations _build_faith_group _build_culture_card _build_tab_territory
+need shell/workspaces/civilization_workspace.gd garrison_row
+need shell/workspaces/world_workspace.gd _regenerate_live
+need shell/city_viewer_window.gd open
+need shell/vault_window.gd _build_browse_backlinks
+need shell/journey_planner_view.gd _show
+need shell/dcc_settings.gd _SEC_QUICK_BAR quick_bar_value set_quick_bar_value
+need shell/popout_host.gd LIVE_KEYS add_toggle_button prepare supported
+for f in shell/saved_journeys_window.gd; do n_need=$((n_need + 1)); [ -f "$f" ] || { echo "MISSING file: $f"; fail=1; }; done
 need map_overlay.gd last_mouse_pos request_at
 
 echo "-- 2. free ------------------------------------------------------------------------------------"
 free shell/menus.gd ID_EDIT_SELECT_BACK ID_EDIT_SELECT_FORWARD ID_EDIT_CONTEXT_CARD ID_EDIT_CARTWHEEL \
   ID_WIN_CTX_INSPECT ID_WIN_CTX_NOTE ID_WIN_CTX_ASK ID_WIN_CTX_PIN ID_WIN_CTX_FOLLOW _host_has \
   _context_tab_ready _typed_into_field cartwheel_keycode RUN_PIPELINE_TIP FACTIONS_TIP FACTIONS_CURRENT_TIP \
-  TIMELINE_MOVED_SIGNPOST _pc_world _open_factions DESELECT_TIP DESELECT_ONE_TIP SELECTION_HISTORY_TODO \
+  TIMELINE_MOVED_SIGNPOST _open_factions DESELECT_TIP DESELECT_ONE_TIP SELECTION_HISTORY_TODO \
   SELECT_BACK_TIP SELECT_FORWARD_TIP SELECT_BACK_NONE SELECT_FORWARD_NONE CONTEXT_CARD_TIP CARTWHEEL_TIP \
   _deselect_tip _build_selection_rows _build_map_surface_rows _on_edit_selection STORY_NO_SELECTION \
   STORY_BUSY_SELECTION STORY_POLITICAL_SEL_TIP STORY_NOTE_SEL_TIP STORY_ASK_TIP STORY_ASSISTANT_TIP \
@@ -78,18 +101,43 @@ free shell/menus.gd ID_EDIT_SELECT_BACK ID_EDIT_SELECT_FORWARD ID_EDIT_CONTEXT_C
   _story_political_tip _story_note_tip CONTEXT_PANEL_LABEL CTX_INSPECT_TODO CTX_NOTE_TODO CTX_ASK_TODO \
   CTX_PIN_TODO CTX_FOLLOW_TODO CTX_INSPECT_TIP CTX_NOTE_TIP CTX_ASK_TIP CTX_PIN_TIP CTX_FOLLOW_TIP \
   CTX_PIN_NOTHING OPEN_WINDOW_NATIVE_SUFFIX OPEN_WINDOWS_NONE_TIP _region_label _build_context_panel_menu \
-  _on_context_panel _visible_windows _open_window_label HELP_KEYBOARD_REFERENCE_TIP
+  _on_context_panel _visible_windows _open_window_label HELP_KEYBOARD_REFERENCE_TIP \
+  ID_WIN_CTX_MOD_HISTORY ID_WIN_CTX_MOD_ECONOMY ID_WIN_CTX_MOD_MILITARY ID_WIN_CTX_MOD_FAITH \
+  ID_WIN_CTX_MOD_TERRITORY ID_WIN_CTX_MOD_CITY ID_WIN_CTX_MOD_HERE ID_WIN_CTX_MOD_ROUTES ID_WIN_CTX_MOD_LINKS \
+  ID_WIN_CTX_MOD_RECENT ID_WIN_CTX_RESET _generate_in_world _build_generate_world_row CTX_MODULES \
+  CTX_MODULE_TODO CTX_MODULE_TODAY CTX_MODULE_TIPS CTX_RESET_TODO CTX_RESET_TIP CTX_MODULE_REFUSED \
+  _context_module_ready _build_context_module_row _refresh_context_modules _context_module_key \
+  STORY_PLANNER_TIP STORY_PLANNER_WINDOW_TIP
 for f in shell/app.gd shell/dcc_shell.gd; do
   free "$f" open_context_card open_cartwheel_at_pointer selection selection_changed select select_back \
-    select_forward current_faction context_tabs open_context_tab pin_context_panel follow_selection
+    select_forward current_faction context_tabs open_context_tab pin_context_panel follow_selection \
+    context_module_registry context_panel_modules set_context_module_shown reset_context_panel planner_in_window
 done
 free shell/command_index.gd _has_menu_title
 free shell/shortcuts_dialog.gd TITLE_REFERENCE TITLE_EDITOR _phone_title _set_mode_title
 n=$(grep -rn --include='*.gd' '"ContextPanelMenu"' shell | wc -l | tr -d ' ')
 [ "$n" = 0 ] || { echo "TAKEN: the node name ContextPanelMenu ($n uses in shell/)"; fail=1; }
+n=$(grep -rn --include='*.gd' -E ':= (92[0-9]|930)\b' shell | wc -l | tr -d ' ')
+[ "$n" = 0 ] || { echo "TAKEN: an id in 920-930, Ruling DY's module rows ($n definitions in shell/)"; fail=1; }
 
 echo "-- 3. anchor ----------------------------------------------------------------------------------"
 anchor shell/menus.gd "${T}${T}shell.add_menu(\"World\", _data)"
+anchor shell/menus.gd "${T}${T}shell.add_menu(\"☰\", _overflow)"
+anchor shell/menus.gd "${T}${T}shell.add_menu(\"World\", _tablet_world)"
+anchor shell/menus.gd "${T}_live(p, \"New world…\", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)"
+anchor shell/menus.gd "${T}## \"World\", not \"Data\", since SM-1 renamed the menu (Ruling CK)."
+anchor shell/menus.gd "${T}for line in [\"imports live under World ▸ Import\","
+anchor shell/phone_menu.gd "${T}var p := _menu_popup(\"World\")"
+anchor shell/phone_menu.gd "${T}if [\"File\", \"World\", \"Story\", \"Preferences\", \"Assets\", \"Help\"].has(menu_title):"
+anchor shell/phone_menu.gd "${T}## \"World\" was \"Data\" until SM-1 renamed the menu (Ruling CK); the \`data\`"
+anchor_sub shell/phone_menu.gd '"The World menu is not on this build'"'"'s menu bar."' "_fill_data's missing-row text, EDIT W8"
+anchor_sub shell/data_manager_window.gd '(World ▸ Markdown vault)' "VAULT_NOTE, EDIT W9"
+anchor_sub shell/data_manager_window.gd 'the panel that owns those links is World ▸ Markdown vault.' "EDIT W10"
+anchor_sub shell/data_manager_window.gd '"Opens World ▸ Markdown vault, which owns' "EDIT W11"
+anchor_sub shell/place_editor_window.gd '"World ▸ Markdown vault… ▸ Index builds it.' "EDIT W12"
+anchor_sub shell/workspaces/world_workspace.gd 'Opens World ▸ Import, whose Heightmaps route' "EDIT W13"
+anchor_sub shell/journey_planner_view.gd 'party set-ups live in World ▸ Travel library (⇧L)' "EDIT W14"
+anchor_sub shell/data_manager_window.gd '"resolution": "World ▸ Travel library ⇧L ▸ %s"' "EDIT W14"
 anchor shell/menus.gd "${T}_live(p, \"Markdown vault…\", ID_VAULT)"
 anchor shell/menus.gd "${T}${T}ID_FACTIONS: _host.open_faction_roster()"
 anchor shell/menus.gd "${T}${T}ID_WORLD_TIMELINE: _open_timeline()"
@@ -120,6 +168,7 @@ anchor shell/app.gd 'func _open_context_card_from_keyboard() -> void:'
 echo "-- 4. base ------------------------------------------------------------------------------------"
 base shell/menus.gd 'func _data(p: PopupMenu) -> void:' '## Tooltip of both Timeline rows' '687853559 2392'
 base shell/menus.gd "## The World menu's dispatcher, shared by the popup and its three route" "## Both Timeline rows' action:" '1605145114 1286'
+base shell/menus.gd "## The tablet's single World menu since SM-1" "# -- Story (SM-2, Ruling CK)" '1819389796 544'
 base shell/menus.gd '## **The Story menu** (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK, owner' '## Tooltip of Political history of this place… while a place is current.' '1034846636 6199'
 base shell/menus.gd "## Refreshes the Story menu's live rows:" "## The Story menu's dispatcher." '3278626836 1981'
 base shell/menus.gd "## The Story menu's dispatcher." "## **The Markdown vault's program-scope entry point**" '4187067950 1357'
@@ -132,11 +181,13 @@ n=$(grep -rln --include='*.gd' 'STUB(PC-' . | grep -v '^\./\.godot/' | wc -l | t
 [ "$n" = 0 ] || { echo "STUB marker in $n shipped file(s): a 90_pc_milestone_stubs.gd placeholder was pasted, and the rows it gates are live over it"; fail=1; }
 
 echo "-- 6a. forms (which form each gated row will build on the next boot) --------------------------"
-for m in select_back select_forward current_faction context_tabs open_context_tab pin_context_panel follow_selection; do
+for m in select_back select_forward current_faction context_tabs open_context_tab pin_context_panel follow_selection \
+    context_module_registry context_panel_modules set_context_module_shown reset_context_panel planner_in_window; do
   if has shell/app.gd "$m" || has shell/dcc_shell.gd "$m"; then s=present; else s=absent; fi
-  printf '  %-18s %s\n' "$m" "$s"
+  printf '  %-24s %s\n' "$m" "$s"
 done
-echo "  (context_tabs present says nothing about WHICH tabs: read its body for inspect / note / ask)"
+echo "  (context_tabs present says nothing about WHICH tabs: read its body for inspect / note / ask;"
+echo "   context_module_registry present says nothing about WHICH modules: read it for the ten keys)"
 
 echo "-- 6b. keys: every chord menus.gd binds (code lines only), then each chord PC-9 adds -----------"
 chords() {

@@ -18,8 +18,12 @@
 ##
 ## **Kept from the first version** (each measured by the same check): `_fill_story_section()` draws the Story
 ## screen's four band rows without the old root's stray "Story" and "World" heads; `_fill_popup()` keeps a leading
-## captioned separator as a band, so File ▸ Export keeps FOR THE TABLE, World ▸ Sources & validation SOURCES and
+## captioned separator as a band, so File ▸ Export keeps FOR THE TABLE, Records ▸ Sources & validation SOURCES and
 ## Assets ▸ Asset pack ACTIVE PACK.
+##
+## **Ruling DY (2026-11-01): the menu that was World is Records**, so MENU lists File · Edit · Assets · Records ·
+## Story · Preferences · Window · Help, and MENU ▸ File carries Generate world after New world… (both come from
+## the desktop popups, `drafts/pc-shell/02`). Only the two tables below name a menu by its title; they follow it.
 ##
 ## **What this leaves unreachable** (`MISTAKES.md`, "Delete a surface"). After this draft no row pushes the screens
 ## `project`, `civ`, `data`, `data-tiles`, `sim`, `prefs`, `assets`, `assets-grid`, `asset-slot`, `travel`,
@@ -32,19 +36,22 @@
 
 ## The subtitle under each menu's root row: the mockup's own, `menuTree()`'s `sub` for that menu
 ## (`design/mobile-shell-2026-10-31/Shell.dc.html`). A label, not a list: the rows below it are the menu's own.
+## Keyed by the menu's title, so Ruling DY's rename moved World's entry to "Records" (its rows did not change, so
+## neither did the subtitle). A title missing here draws no subtitle rather than a wrong one.
 const MENU_SUBS: Dictionary = {
 	"File": "new · open · save · export · storage",
 	"Edit": "undo · clipboard · find · reset",
 	"Assets": "library · packs · families · landmark types",
-	"World": "data manager · records · technical",
+	"Records": "data manager · records · technical",
 	"Story": "time · journeys · conflicts · notes",
 	"Preferences": "performance · graphics · LOD · memory · app",
 	"Window": "regions · session · 3D · workspace · layouts",
 	"Help": "documentation · shortcuts · credits · about",
 }
-## Lead glyphs. `_glyph()` already falls back to the submenu arrow for a glyph the mono font lacks.
+## Lead glyphs. `_glyph()` already falls back to the submenu arrow for a glyph the mono font lacks. Records keeps
+## the glyph World had (Ruling DY renamed the menu, not its rows); follow the mockup if its icon changes.
 const MENU_GLYPHS: Dictionary = {
-	"File": "⧉", "Edit": "✎", "Assets": "▦", "World": "◍", "Story": "➔",
+	"File": "⧉", "Edit": "✎", "Assets": "▦", "Records": "◍", "Story": "➔",
 	"Preferences": "⚙", "Window": "▢", "Help": "?",
 }
 

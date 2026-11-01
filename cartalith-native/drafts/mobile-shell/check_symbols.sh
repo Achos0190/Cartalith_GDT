@@ -2,7 +2,8 @@
 # Re-checks the drafts against the shipped shell before anything is pasted (MISTAKES.md: re-open a row at its
 # symbol before believing it; grep `func <name>` before calling a helper).
 #   1. every shipped symbol a draft calls still exists (88 at 5bd7af8, 2026-10-31; 93 after the 2026-11-01 menu
-#      parity fixes to drafts 05 and 08; 97 since Ruling DX's drafts 05 and 09, none missing at 7d2acd1);
+#      parity fixes to drafts 05 and 08; 97 since Ruling DX's drafts 05 and 09, none missing at 7d2acd1; still 97
+#      after Ruling DY's draft 08, which calls `_world` where it called `_tablet_world`, none missing at 3099309);
 #   2. no new name a draft adds is already taken in its target file (none at 5bd7af8);
 #   3. every text draft 03's H2 and draft 09's edits land on is still there once (added 2026-11-01).
 # Run from the repository root:  bash cartalith-native/drafts/mobile-shell/check_symbols.sh
@@ -28,11 +29,12 @@ need phone_menu.gd _fill_quick _head _menu_buttons _row _chevron _push_screen _g
   _fill_popup _band _popup_row _clean STORY_ROWS _trail_label _push SCREEN_LEVEL
 need quick_bar_phone.gd entries press _list _app
 need quick_bar_phone_list.gd _sub_for show_entries
-need menus.gd _shell _bridge _host _theme_mode _overflow _file _tablet_world _story _edit _assets _data _preferences \
+need menus.gd _shell _bridge _host _theme_mode _overflow _file _world _story _edit _assets _data _preferences \
   _window _help _apply_theme_mode _connect_session_gate _on_help _open_landmark_dock _build_help_shortcuts_row _live
 need dcc_shell.gd _set_sheet_open _close_all_phone_overlays phone_present_popup
-# Draft 08 also calls `_pc_world`, which drafts/pc-shell/02 adds (not shipped, so not checked here;
-# drafts/pc-shell/check_symbols.sh checks that the name is still free).
+# Draft 08 also writes `_generate_in_world`, which drafts/pc-shell/02 adds (not shipped, so not checked here;
+# drafts/pc-shell/check_symbols.sh checks that the name is still free). Since Ruling DY it no longer calls
+# `_pc_world` (gone from the drafts) or `_tablet_world` (retired by drafts/pc-shell/02).
 
 free dcc_theme.gd PHONE_ASPECT_MAX TABLET_MIN_DP BAND_DP BAND_ASPECT WIDTH_CLASSES classify width_class_of _layout \
   set_layout layout width_class
