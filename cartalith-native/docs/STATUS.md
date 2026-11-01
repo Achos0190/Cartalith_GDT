@@ -47,6 +47,22 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Reference: the DCC line's v2.71 copied into `reference/` (2026-11-01)
+
+The owner asked: *"Just copy it into the reference folder"*.
+
+- **What was copied:** `reference/Cartalith v2.71 DCC test.html`, a byte copy (`cmp` equal) of the file of that name in
+  `Cartalith_RC`'s main branch at `ed6b3d9` (2026-09-20, "v2.71: nothing the settlement draws sits on water, and
+  woodland is an area"). It is 37 817 lines and 2 839 001 bytes.
+- **Why this version:** v2.71 is the newest version on the DCC line, which the port follows (Ruling AP). It is the latest
+  that exists (owner, 2026-09-28).
+- **Not done** (`OUTSTANDING_WORK.md` §2.8):
+  - its function index;
+  - its drift file against v2.11.
+- **Line ranges:** scope documents still resolve theirs against v2.10.
+- **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
+  supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
+
 ### Mobile shell proposal and mockup (2026-10-31)
 
 Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHELL_PROPOSAL.md` and the interactive mockup `design/mobile-shell-2026-10-31/` (live as a claude.ai Design canvas) propose the phone and tablet shells re-laid out in dp, from 360 dp to 4K. The owner asked for it on 2026-10-31. Code read for it (two inventories, committed as evidence in `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`): on the phone, CARTO's categories and most of WORLD's dock are reachable only through MORE ▸ Window ▸ Left dock, and CIVIL has no tab; `_compute_layout_mode` decides phone or tablet once at boot from aspect ratio and scales the phone UI by short side ÷ 412. The mockup was measured in Chromium only: every tap target is 44 × 44 dp or more at 360 × 780, 412 × 892, 780 × 360 and 1 194 × 834. All nine owner questions were answered the same day, every default taken: Q1…Q4 by Ruling DT (PLAN becomes STORY, MORE becomes MENU, the domain tab keeps GENERATE, New World auto-populates by default) and Q5…Q9 by Ruling DU (two- and three-finger tap undo and redo, no `⋮`, the tablet's four-menu bar below 1 180 dp, floating docks close on a map touch, peek 76 dp). MS-1 was scheduled first the same day, as documentation only (Ruling DV); MS-2…MS-10 are unscheduled.

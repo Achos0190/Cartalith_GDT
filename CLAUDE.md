@@ -95,9 +95,9 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 
 ## Constraints
 
-- **`reference/` holds two frozen snapshots. Do not edit either.** Re-freezing
-  to a newer version is fine — regenerate the index in the same pass, so the two
-  never drift.
+- **`reference/` holds frozen snapshots. Do not edit any of them.** Re-freezing
+  to a newer version is fine — regenerate the index in the same pass, so a
+  snapshot and its index never drift.
 
   - **`Cartalith Gen1 v2.10.html`**, indexed by `FUNCTION_INDEX.md`. **Every
     line range in every scope document resolves against this file.** Do not
@@ -107,6 +107,11 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
     read this one when you are reading the reference. It is a byte copy of the
     v2.11 the owner committed at this repository's root on 2026-08-26
     (`4b2c95a`, `b576d56`), which stays there too.
+  - **`Cartalith v2.71 DCC test.html`** — the DCC line's v2.71, which the port
+    follows (Ruling AP), copied byte for byte from `Cartalith_RC` (`ed6b3d9`) on
+    2026-11-01 at the owner's request (*"Just copy it into the reference
+    folder"*). Its function index and its drift file are `OUTSTANDING_WORK.md`
+    §2.8's open steps; until they exist, follow line ranges into v2.10 as above.
   - **`REFERENCE_DRIFT_v2.10_to_v2.11.md`** — at the repository root, not in
     `reference/` — maps between them: the exact line-offset segments, the 14
     functions added, and the changes that carry porting consequences. Follow a
@@ -289,7 +294,7 @@ got. Status for everything below is in `STATUS.md`.
 | `cartalith-native/` | the Cargo workspace and the Godot project (`ls cartalith-native/crates` for the crates; `ARCHITECTURE.md` for what each is) |
 | `cartalith-native/docs/` | **`STATUS.md`** — the single source of truth for progress. Also the **retired** `CHANGELOG.md` (frozen 2026-08-31, history only) and `3D_TERRAIN_RENDER_RESEARCH.md` |
 | `cartalith-native/drafts/` | **GDScript drafts that Godot never loads** (outside `godot-project/`), written for a later PC session to paste in. `mobile-shell/` holds the mobile shell's menus and MS-1's foundation (written 2026-10-31 at the owner's request). `pc-shell/` holds the PC menus and keys of `PC_SHELL_PROPOSAL.md` §3.8–§3.9 (written 2026-11-01 at the owner's request), with stubs for the methods its milestones add. Neither set is parse-checked. Each README says what each draft replaces, the order, what blocks it, and how to verify it; each `check_symbols.sh` greps the shipped tree for every symbol the drafts call. Implementing them is a row in `OUTSTANDING_WORK.md`. Not a status record |
-| `reference/` | the two frozen HTML snapshots (v2.10, v2.11) and their function indexes |
+| `reference/` | the frozen HTML snapshots: v2.10 and v2.11 with their function indexes, and the DCC line's v2.71 (`Cartalith v2.71 DCC test.html`, copied 2026-11-01; its index is §2.8's) |
 | `docs/` | **the source project's** documentation — see `docs/README.md` |
 | `design/` | owner-supplied UI mockups and design canvases, imported verbatim |
 | `skills/` | vendored project skills (installed, with third-party ones, under `.claude/skills/`) |
